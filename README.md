@@ -6,9 +6,9 @@ Pubky-app bakend in rust. Listens to the homeserver(s), indexes events as a soci
 
 # 🏗️ Objective for Alpha v0.1.0 Milestone
 Reach feature parity with `skunk-work` indexer improving on the following:
-1. High performance.
-2. Clear vision forward.
-3. Free of bugs.
+1. High performance: no inneficient lookups, rust performance, modern stack.
+2. Clear vision forward: easy implementation of exciting features: WoT, graph queries, etc.
+3. Free of bugs: hopefully.
 4. Cleaner dev experience.
 
 # 🏠Architecture
