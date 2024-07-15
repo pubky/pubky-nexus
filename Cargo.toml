@@ -1,0 +1,8 @@
+[package]
+name = "pubky-app-indexer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.38.0", features = ["full"] }
+axum = "0.7.5"
