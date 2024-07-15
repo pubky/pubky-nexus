@@ -1,2 +1,2 @@
-# pubky-app-indexer
-Pubky app indexer in rust. Listens to the homeserver(s) and indexes events to create a social media view for the pubky-app client.
+# pubky-app-backend
+Pubky-app bakend in rust. Listens to the homeserver(s), indexes events as a social media and serves the clients.
