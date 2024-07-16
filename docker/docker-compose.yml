@@ -1,0 +1,25 @@
+services:
+  pubky-social-graph:
+    image: neo4j:5.21.0
+    container_name: ${NEO4J_HOST}
+    restart: unless-stopped
+    ports: 
+      - 7474:7474
+      - 7687:7687
+    volumes:
+      # Mount the neo4j configuration file to container    
+      - .database/neo4j/conf:/conf
+      # Mount the data to container
+      - .database/neo4j/data:/data
+      - .database/neo4j/logs:/logs
+    environment:
+      NEO4J_initial_dbms_default__database: ${NEO4J_DB_NAME}
+      # IMPORTANT: If you change the auth params and you have already created the config files, will not take effect
+      # To restart: docker compose down -v
+      NEO4J_AUTH: ${NEO4J_DB_USERNAME}/${NEO4J_PASSWORD}
+      # https://neo4j.com/docs/operations-manual/current/docker/configuration/
+      # Modify the default configuration
+      # Raise memory limits
+      NEO4J_server_memory_pagecache_size: 1G
+      NEO4J_server_memory_heap_initial__size: 2G
+      NEO4J_server_memory_heap_max__size: 2G

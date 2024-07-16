@@ -1,1 +1,3 @@
 /target
+/docker/.env
+/docker/.database/*
