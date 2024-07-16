@@ -1,3 +1,4 @@
+use dotenv::dotenv;
 use tokio::net::TcpListener;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -6,12 +7,17 @@ mod routes;
 
 #[tokio::main]
 async fn main() {
-    let routes_v0 = routes::v0::create_routes();
+    dotenv().ok();
 
-    let app = routes_v0.merge(SwaggerUi::new("/swagger-ui").url(
-        "/api-docs/openapi.json",
-        routes::v0::info::ApiDoc::openapi(),
-    ));
+    let routes_v0 = routes::v0::create_routes();
+    let route_static = routes::r#static::create_routes();
+
+    let app = routes_v0
+        .merge(route_static)
+        .merge(SwaggerUi::new("/swagger-ui").url(
+            "/api-docs/openapi.json",
+            routes::v0::info::ApiDoc::openapi(),
+        ));
 
     // start server
     let listener = TcpListener::bind("127.0.0.1:8080").await.unwrap();

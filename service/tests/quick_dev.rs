@@ -13,5 +13,8 @@ async fn quick_dev() -> Result<()> {
     // Check Info endpoint
     hc.do_get("/v0/info").await?.print().await?;
 
+    // Check get static file
+    hc.do_get("/static/src/main.rs").await?.print().await?;
+
     Ok(())
 }
