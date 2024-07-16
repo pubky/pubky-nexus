@@ -767,11 +767,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
 
 [[package]]
-name = "pk-social-common"
-version = "0.1.0"
-
-[[package]]
-name = "pk-social-service"
+name = "pk-social-indexer"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -779,10 +775,6 @@ dependencies = [
  "httpc-test",
  "tokio",
 ]
-
-[[package]]
-name = "pk-social-watcher"
-version = "0.1.0"
 
 [[package]]
 name = "pkg-config"
@@ -832,9 +824,9 @@ dependencies = [
 
 [[package]]
 name = "redox_syscall"
-version = "0.5.3"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2a908a6e00f1fdd0dfd9c0eb08ce85126f6d8bbda50017e74bc4a4b7d4a926a4"
+checksum = "c82cf8cff14456045f55ec4241383baeff27af886adb72ffb2162f99911de0fd"
 dependencies = [
  "bitflags 2.6.0",
 ]
