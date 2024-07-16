@@ -11,7 +11,7 @@ async fn quick_dev() -> Result<()> {
     hc.do_get("/api-docs/openapi.json").await?.print().await?;
 
     // Check Info endpoint
-    hc.do_get("/info").await?.print().await?;
+    hc.do_get("/v0/info").await?.print().await?;
 
     Ok(())
 }

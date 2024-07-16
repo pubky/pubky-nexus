@@ -1,5 +1,3 @@
-use axum::routing::get;
-use axum::Router;
 use tokio::net::TcpListener;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -8,7 +6,7 @@ mod routes;
 
 #[tokio::main]
 async fn main() {
-    let routes_v0 = Router::new().route("/v0/info", get(routes::v0::info::info_handler));
+    let routes_v0 = routes::v0::create_routes();
 
     let app = routes_v0.merge(SwaggerUi::new("/swagger-ui").url(
         "/api-docs/openapi.json",
