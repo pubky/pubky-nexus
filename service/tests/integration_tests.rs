@@ -76,3 +76,14 @@ async fn test_openapi_schema() -> Result<()> {
 
     Ok(())
 }
+
+// Intended to print out requests and play around as a client while developing
+#[tokio::test]
+async fn quick_dev() -> Result<()> {
+    let hc = httpc_test::new_client("http://localhost:8080")?;
+
+    // Check endpoint, play with this.
+    hc.do_get("/v0/info").await?.print().await?;
+
+    Ok(())
+}
