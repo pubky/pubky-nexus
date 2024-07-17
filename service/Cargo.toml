@@ -8,6 +8,7 @@ repository = "https://github.com/pubky/pubky-app-backend"
 license = "MIT"
 
 [dependencies]
+pk-social-common = { path = "../common" }
 tokio = { version = "1.38.0", features = ["full"] }
 axum = "0.7.5"
 serde = { version = "1.0.204", features = ["derive"] }

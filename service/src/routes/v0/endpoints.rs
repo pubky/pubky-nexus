@@ -1,4 +1,5 @@
 // Info routes
-pub const INFO_PATH: &str = "/v0/info";
+pub const INFO_ROUTE: &str = "/v0/info";
 
-// xxxx routes
+// Profile routes
+pub const PROFILE_ROUTE: &str = "/v0/profile";
