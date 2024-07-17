@@ -1,8 +1,8 @@
+use super::endpoints::INFO_PATH;
 use axum::response::IntoResponse;
 use axum::Json;
 use serde::Serialize;
 use utoipa::{OpenApi, ToSchema};
-use super::endpoints::INFO_PATH;
 
 #[derive(Serialize, ToSchema)]
 pub struct ServerInfo {

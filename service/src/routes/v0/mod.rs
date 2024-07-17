@@ -1,5 +1,5 @@
-pub mod info;
 pub mod endpoints;
+pub mod info;
 
 use axum::routing::get;
 use axum::Router;
