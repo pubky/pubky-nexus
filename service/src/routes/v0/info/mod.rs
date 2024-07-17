@@ -2,6 +2,7 @@ use axum::response::IntoResponse;
 use axum::Json;
 use serde::Serialize;
 use utoipa::{OpenApi, ToSchema};
+use super::endpoints::INFO_PATH;
 
 #[derive(Serialize, ToSchema)]
 pub struct ServerInfo {
@@ -15,7 +16,7 @@ pub struct ServerInfo {
 
 #[utoipa::path(
     get,
-    path = "/v0/info",
+    path = INFO_PATH,
     responses(
         (status = 200, description = "Server info", body = ServerInfo)
     )
