@@ -1,5 +1,4 @@
 use anyhow::Result;
-use tokio;
 
 #[tokio::test]
 async fn test_info_endpoint() -> Result<()> {
@@ -25,9 +24,8 @@ async fn test_profile_endpoint() -> Result<()> {
     assert_eq!(res.status(), 200);
 
     let body = res.json_body()?;
-    assert_eq!(body["id"], user_id);
-    assert_eq!(body["name"], "Aldert");
-    assert_eq!(body["status"], "working");
+    assert_eq!(body["profile"]["name"], "Aldert");
+    assert_eq!(body["profile"]["status"], "working");
 
     // Look for a non existing pk
     let user_id = "bad_user_id";

@@ -6,6 +6,12 @@ pub struct Neo4jConnector {
     pub graph: OnceCell<Graph>,
 }
 
+impl Default for Neo4jConnector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Neo4jConnector {
     pub fn new() -> Self {
         Self {
