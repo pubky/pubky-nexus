@@ -1,5 +1,6 @@
 pub use neo4rs::{query, Graph, Node};
-use tokio::sync::OnceCell;
+use once_cell::sync::OnceCell;
+use std::fmt;
 
 pub struct Neo4jConnector {
     graph: OnceCell<Graph>,
@@ -40,3 +41,13 @@ impl Neo4jConnector {
         }
     }
 }
+
+impl fmt::Debug for Neo4jConnector {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Neo4jConnector")
+            .field("graph", &"Graph instance")
+            .finish()
+    }
+}
+
+pub static GLOBAL_NEO4J_CONNECTOR: OnceCell<Neo4jConnector> = OnceCell::new();

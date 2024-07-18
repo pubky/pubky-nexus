@@ -1,5 +1,4 @@
-use pk_social_common::connectors::neo4j::Neo4jConnector;
-use std::sync::Arc;
+use pk_social_common::connectors::neo4j::{Neo4jConnector, GLOBAL_NEO4J_CONNECTOR};
 use tokio::net::TcpListener;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -16,7 +15,7 @@ async fn main() {
     let config = config::Config::from_env();
 
     // Initialize Neo4j connection
-    let neo4j_connector = Arc::new(Neo4jConnector::new());
+    let neo4j_connector = Neo4jConnector::new();
     neo4j_connector
         .connect(
             &config.neo4j_uri(),
@@ -26,8 +25,12 @@ async fn main() {
         .await
         .expect("Failed to connect to Neo4j");
 
+    GLOBAL_NEO4J_CONNECTOR
+        .set(neo4j_connector)
+        .expect("Failed to set global Neo4j connector");
+
     // Routes
-    let routes_v0 = routes::v0::routes(neo4j_connector.clone());
+    let routes_v0 = routes::v0::routes();
     let route_static = routes::r#static::routes(&config.static_path);
 
     let app = routes_v0.merge(route_static).merge(

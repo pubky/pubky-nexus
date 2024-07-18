@@ -4,8 +4,6 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use pk_social_common::connectors::neo4j::Neo4jConnector;
-use std::sync::Arc;
 
 #[utoipa::path(
     get,
@@ -19,15 +17,9 @@ use std::sync::Arc;
         (status = 500, description = "Internal server error")
     )
 )]
-pub async fn get_profile(
-    Path(user_id): Path<String>,
-    neo4j_connector: Arc<Neo4jConnector>,
-) -> Result<Json<Profile>, Response> {
-    match neo4j_connector.get_user_by_id(&user_id).await {
-        Ok(Some(node)) => {
-            let profile = Profile::from_neo4j_user_node(&node);
-            Ok(Json(profile))
-        }
+pub async fn get_profile(Path(user_id): Path<String>) -> Result<Json<Profile>, Response> {
+    match Profile::get_by_id(&user_id).await {
+        Ok(Some(profile)) => Ok(Json(profile)),
         Ok(None) => Err((axum::http::StatusCode::NOT_FOUND, "User not found").into_response()),
         Err(_) => Err((
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
