@@ -143,7 +143,7 @@ impl Profile {
 
         // Check if the profile is cached in Redis
         if let Ok(cached_profile) = redis_conn.get::<_, String>(&cache_key).await {
-            println!("CACHE FOR KEY {:?}, SERVING PROFILE FROM REDIS", cache_key);
+            // println!("FOUND CACHE FOR KEY {:?}, SERVING PROFILE FROM REDIS", cache_key);
             let profile: Profile = serde_json::from_str(&cached_profile)?;
             return Ok(Some(profile));
         }
@@ -161,7 +161,7 @@ impl Profile {
         let mut result = graph.execute(query).await?;
 
         if let Some(row) = result.next().await? {
-            println!("NO CACHE FOUND, SERVING PROFILE FROM NEO4J");
+            // println!("NO CACHE FOUND, SERVING PROFILE FROM NEO4J");
             let node: Node = row.get("u").unwrap();
             let profile = Self::from_neo4j_user_node(&node).await;
 

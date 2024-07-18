@@ -11,6 +11,12 @@ pub struct ServerInfo {
     pub version: String,
 }
 
+impl Default for ServerInfo {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ServerInfo {
     pub fn new() -> Self {
         Self {
