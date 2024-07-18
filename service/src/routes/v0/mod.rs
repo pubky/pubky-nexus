@@ -1,6 +1,6 @@
 use axum::routing::get;
 use axum::Router;
-use endpoints::{INFO_ROUTE, PROFILE_ROUTE};
+use endpoints::{INFO_ROUTE, USER_PROFILE_ROUTE};
 use utoipa::OpenApi;
 
 use crate::models::{info::ServerInfo, profile::Profile};
@@ -12,10 +12,7 @@ pub mod profile;
 pub fn routes() -> Router {
     Router::new()
         .route(INFO_ROUTE, get(info::info_handler))
-        .route(
-            &format!("{}/:user_id", PROFILE_ROUTE),
-            get(profile::get_profile),
-        )
+        .route(USER_PROFILE_ROUTE, get(profile::get_profile))
 }
 
 #[derive(OpenApi)]

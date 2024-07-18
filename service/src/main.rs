@@ -15,15 +15,13 @@ async fn main() {
     let config = config::Config::from_env();
 
     // Initialize Neo4j connection
-    let neo4j_connector = Neo4jConnector::new();
-    neo4j_connector
-        .connect(
-            &config.neo4j_uri(),
-            &config.neo4j_username,
-            &config.neo4j_password,
-        )
-        .await
-        .expect("Failed to connect to Neo4j");
+    let neo4j_connector = Neo4jConnector::new_connection(
+        &config.neo4j_uri(),
+        &config.neo4j_username,
+        &config.neo4j_password,
+    )
+    .await
+    .expect("Failed to connect to Neo4j");
 
     GLOBAL_NEO4J_CONNECTOR
         .set(neo4j_connector)

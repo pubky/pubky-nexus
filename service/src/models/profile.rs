@@ -1,4 +1,7 @@
-use pk_social_common::connectors::neo4j::{Node, GLOBAL_NEO4J_CONNECTOR};
+use pk_social_common::{
+    connectors::neo4j::{Node, GLOBAL_NEO4J_CONNECTOR},
+    queries,
+};
 use serde::Serialize;
 use utoipa::ToSchema;
 
@@ -23,10 +26,19 @@ impl Profile {
     }
 
     pub async fn get_by_id(user_id: &str) -> Result<Option<Self>, Box<dyn std::error::Error>> {
-        let neo4j_connector = GLOBAL_NEO4J_CONNECTOR
+        let graph = GLOBAL_NEO4J_CONNECTOR
             .get()
-            .expect("Neo4jConnector not initialized");
-        if let Some(node) = neo4j_connector.get_user_by_id(user_id).await? {
+            .expect("Neo4jConnector not initialized")
+            .graph
+            .get()
+            .expect("Not connected to Neo4j");
+
+        let query = queries::get_user_by_id(user_id);
+
+        let mut result = graph.execute(query).await?;
+
+        if let Some(row) = result.next().await? {
+            let node: Node = row.get("u").unwrap();
             Ok(Some(Self::from_neo4j_user_node(&node)))
         } else {
             Ok(None)

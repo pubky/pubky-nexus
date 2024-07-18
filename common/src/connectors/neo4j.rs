@@ -3,7 +3,7 @@ use once_cell::sync::OnceCell;
 use std::fmt;
 
 pub struct Neo4jConnector {
-    graph: OnceCell<Graph>,
+    pub graph: OnceCell<Graph>,
 }
 
 impl Neo4jConnector {
@@ -26,19 +26,14 @@ impl Neo4jConnector {
         Ok(())
     }
 
-    pub async fn get_user_by_id(
-        &self,
-        user_id: &str,
-    ) -> Result<Option<Node>, Box<dyn std::error::Error>> {
-        let graph = self.graph.get().expect("Not connected to Neo4j");
-        let query = query("MATCH (u:User {id: $id}) RETURN u").param("id", user_id);
-        let mut result = graph.execute(query).await?;
-        if let Some(row) = result.next().await? {
-            let node: Node = row.get("u").unwrap();
-            Ok(Some(node))
-        } else {
-            Ok(None)
-        }
+    pub async fn new_connection(
+        uri: &str,
+        user: &str,
+        password: &str,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let neo4j_connector = Neo4jConnector::new();
+        neo4j_connector.connect(uri, user, password).await?;
+        Ok(neo4j_connector)
     }
 }
 
