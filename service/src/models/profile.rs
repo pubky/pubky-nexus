@@ -1,17 +1,20 @@
 use pk_social_common::{
-    connectors::neo4j::{Node, GLOBAL_NEO4J_CONNECTOR},
+    connectors::{
+        neo4j::{Node, NEO4J_CONNECTOR},
+        redis::{AsyncCommands, REDIS_CONNECTOR},
+    },
     queries,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-#[derive(Serialize, ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema)]
 pub struct Link {
     title: String,
     url: String,
 }
 
-#[derive(Serialize, ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema)]
 pub struct ProfileData {
     name: String,
     bio: String,
@@ -20,14 +23,14 @@ pub struct ProfileData {
     status: String,
 }
 
-#[derive(Serialize, ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema)]
 pub struct Author {
     uri: String,
     id: String,
     profile: ProfileData,
 }
 
-#[derive(Serialize, ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema)]
 pub struct From {
     author: Author,
     created_at: i64,
@@ -35,19 +38,19 @@ pub struct From {
     id: String,
 }
 
-#[derive(Serialize, ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema)]
 pub struct Tag {
     tag: String,
     count: u32,
     from: Vec<From>,
 }
-#[derive(Serialize, ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema)]
 pub struct Viewer {
     following: bool,
     followed_by: bool,
 }
 
-#[derive(Serialize, ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema)]
 pub struct Profile {
     profile: ProfileData,
     tags_count: u32,
@@ -129,7 +132,24 @@ impl Profile {
     }
 
     pub async fn get_by_id(user_id: &str) -> Result<Option<Self>, Box<dyn std::error::Error>> {
-        let graph = GLOBAL_NEO4J_CONNECTOR
+        // REDIS AND CACHE
+        let redis_client = REDIS_CONNECTOR
+            .get()
+            .expect("RedisConnector not initialized")
+            .client();
+
+        let mut redis_conn = redis_client.get_multiplexed_async_connection().await?;
+        let cache_key = format!("profile:{}", user_id);
+
+        // Check if the profile is cached in Redis
+        if let Ok(cached_profile) = redis_conn.get::<_, String>(&cache_key).await {
+            println!("CACHE FOR KEY {:?}, SERVING PROFILE FROM REDIS", cache_key);
+            let profile: Profile = serde_json::from_str(&cached_profile)?;
+            return Ok(Some(profile));
+        }
+
+        // NEO4J AND GRAPH
+        let graph = NEO4J_CONNECTOR
             .get()
             .expect("Neo4jConnector not initialized")
             .graph
@@ -141,8 +161,15 @@ impl Profile {
         let mut result = graph.execute(query).await?;
 
         if let Some(row) = result.next().await? {
+            println!("NO CACHE FOUND, SERVING PROFILE FROM NEO4J");
             let node: Node = row.get("u").unwrap();
-            Ok(Some(Self::from_neo4j_user_node(&node).await))
+            let profile = Self::from_neo4j_user_node(&node).await;
+
+            // Cache the profile in Redis
+            let profile_json = serde_json::to_string(&profile)?;
+            redis_conn.set_ex(&cache_key, profile_json, 3600).await?;
+
+            Ok(Some(profile))
         } else {
             Ok(None)
         }

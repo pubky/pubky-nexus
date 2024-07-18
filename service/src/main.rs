@@ -1,4 +1,7 @@
-use pk_social_common::connectors::neo4j::{Neo4jConnector, GLOBAL_NEO4J_CONNECTOR};
+use pk_social_common::connectors::{
+    neo4j::{Neo4jConnector, NEO4J_CONNECTOR},
+    redis::{RedisConnector, REDIS_CONNECTOR},
+};
 use tokio::net::TcpListener;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -23,9 +26,18 @@ async fn main() {
     .await
     .expect("Failed to connect to Neo4j");
 
-    GLOBAL_NEO4J_CONNECTOR
+    NEO4J_CONNECTOR
         .set(neo4j_connector)
         .expect("Failed to set global Neo4j connector");
+
+    // Initialize Redis connection
+    let redis_connector = RedisConnector::new_connection(&config._redis_uri())
+        .await
+        .expect("Failed to connect to Redis");
+
+    REDIS_CONNECTOR
+        .set(redis_connector)
+        .expect("Failed to set global Redis connector");
 
     // Routes
     let routes_v0 = routes::v0::routes();

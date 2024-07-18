@@ -7,9 +7,9 @@ use axum::{
 
 #[utoipa::path(
     get,
-    path = "/v0/profiles/{userId}",
+    path = "/v0/profiles/{user_id}",
     params(
-        ("userId" = String, Path, description = "User ID")
+        ("user_id" = String, Path, description = "User ID")
     ),
     responses(
         (status = 200, description = "User profile", body = Profile),

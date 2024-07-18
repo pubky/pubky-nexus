@@ -51,4 +51,4 @@ impl fmt::Debug for Neo4jConnector {
     }
 }
 
-pub static GLOBAL_NEO4J_CONNECTOR: OnceCell<Neo4jConnector> = OnceCell::new();
+pub static NEO4J_CONNECTOR: OnceCell<Neo4jConnector> = OnceCell::new();
