@@ -82,7 +82,7 @@ impl ProfileData {
 }
 
 impl Profile {
-    pub fn from_neo4j_user_node(node: &Node) -> Self {
+    pub async fn from_neo4j_user_node(node: &Node) -> Self {
         // This is just a placeholder implementation. Replace with actual data extraction logic.
         Self {
             profile: ProfileData::from_neo4j_user_node(node),
@@ -142,7 +142,7 @@ impl Profile {
 
         if let Some(row) = result.next().await? {
             let node: Node = row.get("u").unwrap();
-            Ok(Some(Self::from_neo4j_user_node(&node)))
+            Ok(Some(Self::from_neo4j_user_node(&node).await))
         } else {
             Ok(None)
         }
