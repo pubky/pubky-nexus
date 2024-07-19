@@ -8,6 +8,7 @@ repository = "https://github.com/pubky/pubky-app-backend"
 license = "MIT"
 
 [dependencies]
+pk-social-common = { path = "../common" }
 tokio = { version = "1.38.0", features = ["full"] }
 axum = "0.7.5"
 serde = { version = "1.0.204", features = ["derive"] }
@@ -20,3 +21,16 @@ dotenv = "0.15"
 [dev-dependencies]
 anyhow = "1.0.86"
 httpc-test = "0.1.9"
+criterion = { version = "0.5.1", features = ["async_tokio"] }
+
+[lib]
+name = "pk_social_service"
+path = "src/lib.rs"
+
+[[bin]]
+name = "pk-social-service"
+path = "src/main.rs"
+
+[[bench]]
+name = "profile_bench"
+harness = false

@@ -4,3 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+tokio = { version = "1.38.0", features = ["full"] }
+neo4rs = "0.7.1"
+once_cell = "1.19.0"
+redis = { version = "0.25.4", features = ["tokio-comp"] }

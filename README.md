@@ -41,7 +41,9 @@ cd service
 cargo watch -q -c -w src/ -x run
 # You can check the running service on your browser on localhost:8080/hello
 
-# On terminal 2 run:
-cargo watch -q -c -w tests/ -x "test -q quick_dev -- --nocapture"
+# On terminal 2 run (for tests to work you need a working /neo4j-example instance with example dataset)
+cargo watch -q -c -w tests/ -x "test -- --nocapture"
 
+# Run benchmarks (e.g., get profile by ID benchmark)
+cargo bench --bench profile_bench
 ```
