@@ -3,6 +3,7 @@ use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 
 pub type Result<T> = core::result::Result<T, Error>;
+
 #[derive(Clone, Debug, Serialize)]
 pub enum Error {
     UserNotFound,
@@ -15,7 +16,7 @@ impl IntoResponse for Error {
         // Create a placeholder Axum response.
         let mut response = StatusCode::INTERNAL_SERVER_ERROR.into_response();
 
-        // Insert the Error into the reponse.
+        // Insert the Error into the response.
         response.extensions_mut().insert(self);
 
         response
