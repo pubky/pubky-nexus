@@ -26,20 +26,42 @@ pub fn get_follow_counts(user_id: &str) -> neo4rs::Query {
     .param("id", user_id)
 }
 
-pub fn is_following(user_id: &str, viewer_id: &str) -> neo4rs::Query {
+pub fn viewer_relationship(user_id: &str, viewer_id: &str) -> neo4rs::Query {
     query(
-        "MATCH (viewer:User {id: $viewer_id})-[:FOLLOWS]->(u:User {id: $user_id})
-           RETURN COUNT(u) > 0 AS following",
+        "MATCH (u:User {id: $user_id})
+         OPTIONAL MATCH (viewer:User {id: $viewer_id})-[:FOLLOWS]->(u)
+         OPTIONAL MATCH (u)-[:FOLLOWS]->(viewer)
+         RETURN COUNT(DISTINCT viewer) > 0 AS following,
+                COUNT(DISTINCT u) > 0 AS followed_by",
     )
     .param("user_id", user_id)
     .param("viewer_id", viewer_id)
 }
 
-pub fn is_followed_by(user_id: &str, viewer_id: &str) -> neo4rs::Query {
+// Combine Profile queries into one (Not yet used)
+pub fn _get_user_profile_data(user_id: &str, viewer_id: Option<&str>) -> Query {
+    let viewer = viewer_id.unwrap_or("none");
+    println!("{viewer}");
+
     query(
-        "MATCH (u:User {id: $user_id})-[:FOLLOWS]->(viewer:User {id: $viewer_id})
-           RETURN COUNT(u) > 0 AS followed_by",
+        "
+        MATCH (u:User {{id: $id}})
+        OPTIONAL MATCH (u)-[:TAGGED_AS]->(t:Tag)<-[:TAGGED_BY]-(author:User)
+        OPTIONAL MATCH (u)-[:AUTHORED]->(p:Post)
+        OPTIONAL MATCH (u)-[:FOLLOWS]->(following:User)
+        OPTIONAL MATCH (follower:User)-[:FOLLOWS]->(u)
+        OPTIONAL MATCH (u)-[:FOLLOWS]->(friend:User)-[:FOLLOWS]->(u)
+        OPTIONAL MATCH (viewer:User {{id: $viewer_id}})-[f:FOLLOWS]->(u)
+        OPTIONAL MATCH (u)-[fb:FOLLOWS]->(viewer)
+        RETURN COUNT(f) > 0 AS following, COUNT(fb) > 0 AS followed_by
+        RETURN u, COLLECT(DISTINCT t) AS tags, 
+               COUNT(DISTINCT p) AS posts_count,
+               COUNT(DISTINCT following) AS following_count,
+               COUNT(DISTINCT follower) AS followers_count,
+               COUNT(DISTINCT friend) AS friends_count,
+               false AS following, false AS followed_by
+        ",
     )
-    .param("user_id", user_id)
-    .param("viewer_id", viewer_id)
+    .param("id", user_id)
+    .param("viewer_id", viewer)
 }

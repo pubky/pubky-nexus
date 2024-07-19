@@ -1,8 +1,10 @@
 use anyhow::Result;
 
+const HOST_URL: &str = "http://localhost:8080";
+
 #[tokio::test]
 async fn test_info_endpoint() -> Result<()> {
-    let client = httpc_test::new_client("http://localhost:8080")?;
+    let client = httpc_test::new_client(HOST_URL)?;
 
     let res = client.do_get("/v0/info").await?;
     assert_eq!(res.status(), 200);
@@ -16,7 +18,7 @@ async fn test_info_endpoint() -> Result<()> {
 
 #[tokio::test]
 async fn test_profile_endpoint() -> Result<()> {
-    let client = httpc_test::new_client("http://localhost:8080")?;
+    let client = httpc_test::new_client(HOST_URL)?;
 
     // Look for Aldert pk user id
     let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
@@ -26,6 +28,17 @@ async fn test_profile_endpoint() -> Result<()> {
     let body = res.json_body()?;
     assert_eq!(body["profile"]["name"], "Aldert");
     assert_eq!(body["profile"]["status"], "working");
+
+    // Look for Aldert pk user id using Flavio's viewer id
+    let viewer_id = "5g3fwnue819wfdjwiwm8qr35ww6uxxgbzrigrtdgmbi19ksioeoy";
+    let res = client
+        .do_get(&format!("/v0/profile/{}?viewer_id={}", user_id, viewer_id))
+        .await?;
+    assert_eq!(res.status(), 200);
+
+    let body = res.json_body()?;
+    assert_eq!(body["viewer"]["followed_by"], true); // Flavio is follows Aldert
+    assert_eq!(body["viewer"]["following"], false); // Aldert does not follow Flavio
 
     // Look for a non existing pk
     let user_id = "bad_user_id";
@@ -37,7 +50,7 @@ async fn test_profile_endpoint() -> Result<()> {
 
 #[tokio::test]
 async fn test_static_file_serving() -> Result<()> {
-    let client = httpc_test::new_client("http://localhost:8080")?;
+    let client = httpc_test::new_client(HOST_URL)?;
 
     let res = client.do_get("/static/src/main.rs").await?;
     assert_eq!(res.status(), 200);
@@ -49,7 +62,7 @@ async fn test_static_file_serving() -> Result<()> {
 
 #[tokio::test]
 async fn test_swagger_ui() -> Result<()> {
-    let client = httpc_test::new_client("http://localhost:8080")?;
+    let client = httpc_test::new_client(HOST_URL)?;
 
     let res = client.do_get("/swagger-ui").await?;
     assert_eq!(res.status(), 200);
@@ -61,7 +74,7 @@ async fn test_swagger_ui() -> Result<()> {
 
 #[tokio::test]
 async fn test_openapi_schema() -> Result<()> {
-    let client = httpc_test::new_client("http://localhost:8080")?;
+    let client = httpc_test::new_client(HOST_URL)?;
 
     let res = client.do_get("/api-docs/openapi.json").await?;
     assert_eq!(res.status(), 200);
@@ -78,10 +91,15 @@ async fn test_openapi_schema() -> Result<()> {
 // Intended to print out requests and play around as a client while developing
 #[tokio::test]
 async fn quick_dev() -> Result<()> {
-    let hc = httpc_test::new_client("http://localhost:8080")?;
+    let hc = httpc_test::new_client(HOST_URL)?;
 
     // Check endpoint, play with this.
-    hc.do_get("/v0/info").await?.print().await?;
+    let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
+    let viewer_id = "5g3fwnue819wfdjwiwm8qr35ww6uxxgbzrigrtdgmbi19ksioeoy";
+    hc.do_get(&format!("/v0/profile/{}?viewer_id={}", user_id, viewer_id))
+        .await?
+        .print()
+        .await?;
 
     Ok(())
 }
