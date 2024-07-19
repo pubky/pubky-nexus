@@ -6,12 +6,19 @@ use pk_social_common::{
     queries,
 };
 use serde::{Deserialize, Serialize};
+use tokio::join;
 use utoipa::ToSchema;
 
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct Link {
     title: String,
     url: String,
+}
+
+impl Default for Link {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Link {
@@ -30,6 +37,12 @@ pub struct ProfileData {
     image: String,
     links: Vec<Link>,
     status: String,
+}
+
+impl Default for ProfileData {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ProfileData {
@@ -62,6 +75,12 @@ pub struct Author {
     profile: ProfileData,
 }
 
+impl Default for Author {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Author {
     pub fn new() -> Self {
         Self {
@@ -78,6 +97,12 @@ pub struct From {
     created_at: i64,
     indexed_at: i64,
     id: String,
+}
+
+impl Default for From {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl From {
@@ -98,6 +123,12 @@ pub struct Tag {
     from: Vec<From>,
 }
 
+impl Default for Tag {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Tag {
     pub fn new() -> Self {
         Self {
@@ -112,6 +143,12 @@ impl Tag {
 pub struct Viewer {
     following: bool,
     followed_by: bool,
+}
+
+impl Default for Viewer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Viewer {
@@ -136,6 +173,12 @@ pub struct Profile {
     viewer: Viewer,
 }
 
+impl Default for Profile {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Profile {
     pub fn new() -> Self {
         Self {
@@ -158,11 +201,7 @@ impl Profile {
             return Ok(Some(indexed_profile));
         }
 
-        if let Some(profile) = Self::get_from_graph(user_id, viewer_id).await? {
-            return Ok(Some(profile));
-        }
-
-        Ok(None)
+        Self::get_from_graph(user_id, viewer_id).await
     }
 
     async fn get_indexed(user_id: &str) -> Result<Option<Self>, Box<dyn std::error::Error>> {
@@ -194,39 +233,51 @@ impl Profile {
             .get()
             .expect("Not connected to Neo4j");
 
-        let query = queries::get_user_by_id(user_id);
-        let mut result = graph.execute(query).await?;
+        // Define all queries
+        let user_query = queries::get_user_by_id(user_id);
+        let follow_counts_query = queries::get_follow_counts(user_id);
+        let tagged_as_query = queries::get_tagged_as(user_id);
+        let viewer_relationship_query =
+            queries::viewer_relationship(user_id, viewer_id.unwrap_or("non-existing-pk"));
 
-        // Return early if no row is found
-        let row = if let Some(row) = result.next().await? {
+        // Execute all queries concurrently
+        let (user_result, follow_counts_result, tagged_as_result, viewer_relationship_result) = join!(
+            graph.execute(user_query),
+            graph.execute(follow_counts_query),
+            graph.execute(tagged_as_query),
+            graph.execute(viewer_relationship_query),
+        );
+
+        // Handle results
+        let mut user_result = user_result?;
+        let mut follow_counts_result = follow_counts_result?;
+        let mut tagged_as_result = tagged_as_result?;
+        let mut viewer_relationship_result = viewer_relationship_result?;
+
+        // Exit early if user not found
+        let user_row = if let Some(row) = user_result.next().await? {
             row
         } else {
             return Ok(None);
         };
 
         let mut profile = Self::new();
-        let node: Node = row.get("u").unwrap();
+        let node: Node = user_row.get("u").unwrap();
         profile.profile = ProfileData::from_node(&node);
 
-        // Execute the get_follow_counts query
-        let follow_counts_query = queries::get_follow_counts(user_id);
-        let mut follow_counts_result = graph.execute(follow_counts_query).await?;
-
-        if let Some(follow_counts_row) = follow_counts_result.next().await? {
-            profile.following_count = follow_counts_row.get("following_count").unwrap_or_default();
-            profile.followers_count = follow_counts_row.get("followers_count").unwrap_or_default();
-            profile.friends_count = follow_counts_row.get("friends_count").unwrap_or_default();
+        // Process follow counts result
+        if let Some(row) = follow_counts_result.next().await? {
+            profile.following_count = row.get("following_count").unwrap_or_default();
+            profile.followers_count = row.get("followers_count").unwrap_or_default();
+            profile.friends_count = row.get("friends_count").unwrap_or_default();
         }
 
-        // Execute the get_tagged_as query
-        let tagged_as_query = queries::get_tagged_as(user_id);
-        let mut tagged_as_result = graph.execute(tagged_as_query).await?;
+        // Process tagged as result
+        while let Some(row) = tagged_as_result.next().await? {
+            let tag: String = row.get("tag").unwrap_or_default();
+            let count: u32 = row.get("count").unwrap_or_default();
 
-        while let Some(tagged_as_row) = tagged_as_result.next().await? {
-            let tag: String = tagged_as_row.get("tag").unwrap_or_default();
-            let count: u32 = tagged_as_row.get("count").unwrap_or_default();
-
-            let authors: Vec<Author> = tagged_as_row
+            let authors: Vec<Author> = row
                 .get::<Vec<Node>>("authors")
                 .unwrap_or_default()
                 .into_iter()
@@ -244,9 +295,9 @@ impl Profile {
                     .into_iter()
                     .map(|author| From {
                         author,
-                        created_at: 0,     // populate this field as needed
-                        indexed_at: 0,     // populate this field as needed
-                        id: String::new(), // populate this field as needed
+                        created_at: 0,     // TODO: populate this field as needed
+                        indexed_at: 0,     // TODO: populate this field as needed
+                        id: String::new(), // TODO: populate this field as needed
                     })
                     .collect(),
             };
@@ -254,23 +305,15 @@ impl Profile {
             profile.tagged_as.push(tag_info);
         }
 
-        // Execute the is_following and is_followed_by queries if viewer_id is provided
-        if let Some(viewer_id) = viewer_id {
-            let is_following_query = queries::is_following(user_id, viewer_id);
-            let mut is_following_result = graph.execute(is_following_query).await?;
-
-            if let Some(is_following_row) = is_following_result.next().await? {
-                profile.viewer.following = is_following_row.get("following").unwrap_or(false);
-            }
-
-            let is_followed_by_query = queries::is_followed_by(user_id, viewer_id);
-            let mut is_followed_by_result = graph.execute(is_followed_by_query).await?;
-
-            if let Some(is_followed_by_row) = is_followed_by_result.next().await? {
-                profile.viewer.followed_by = is_followed_by_row.get("followed_by").unwrap_or(false);
+        // Process viewer relationship result if viewer_id is provided
+        if viewer_id.is_some() {
+            if let Some(row) = viewer_relationship_result.next().await? {
+                profile.viewer.following = row.get("following").unwrap_or_default();
+                profile.viewer.followed_by = row.get("followed_by").unwrap_or_default();
             }
         }
-        // Graph queries are expensive, we save it to the index as cache.
+
+        // Graph queries are expensive, so we save it to the index as cache.
         Self::put_index(user_id, &profile).await?;
 
         Ok(Some(profile))

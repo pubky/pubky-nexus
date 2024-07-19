@@ -16,7 +16,7 @@ fn bench_profile(c: &mut Criterion) {
     run_setup();
 
     let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
-    let viewer_id = "some_viewer_id"; // Provide the viewer_id
+    let viewer_id = "5g3fwnue819wfdjwiwm8qr35ww6uxxgbzrigrtdgmbi19ksioeoy"; // Provide the viewer_id
     let rt = Runtime::new().unwrap();
 
     c.bench_with_input(
