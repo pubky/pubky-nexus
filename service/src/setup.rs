@@ -1,10 +1,13 @@
 use crate::config::Config;
+use env_logger;
 use pk_social_common::connectors::{
     neo4j::{Neo4jConnector, NEO4J_CONNECTOR},
     redis::{RedisConnector, REDIS_CONNECTOR},
 };
 
 pub async fn setup(config: &Config) {
+    env_logger::init();
+
     // Initialize Neo4j connection
     let neo4j_connector = Neo4jConnector::new_connection(
         &config.neo4j_uri(),

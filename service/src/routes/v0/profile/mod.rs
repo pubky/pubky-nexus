@@ -1,6 +1,7 @@
 use axum::extract::{Path, Query};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
+use log::{error, info};
 use serde::Deserialize;
 
 use crate::models::profile::{
@@ -34,14 +35,31 @@ pub async fn get_profile(
     Path(user_id): Path<String>,
     Query(query): Query<ProfileQuery>,
 ) -> Result<Json<ProfileView>, Response> {
+    info!(
+        "GET {PROFILE_ROUTE} user_id:{}, viewer_id:{:?}",
+        user_id, query.viewer_id
+    );
+
     match ProfileView::get_by_id(&user_id, query.viewer_id.as_deref()).await {
-        Ok(Some(profile)) => Ok(Json(profile)),
-        Ok(None) => Err((axum::http::StatusCode::NOT_FOUND, "User not found").into_response()),
-        Err(_) => Err((
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            "Internal server error",
-        )
-            .into_response()),
+        Ok(Some(profile)) => {
+            info!("Profile found for user_id: {}", user_id);
+            Ok(Json(profile))
+        }
+        Ok(None) => {
+            info!("Profile not found for user_id: {}", user_id);
+            Err((axum::http::StatusCode::NOT_FOUND, "User not found").into_response())
+        }
+        Err(e) => {
+            error!(
+                "Internal server error while fetching profile for user_id: {}: {:?}",
+                user_id, e
+            );
+            Err((
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Internal server error",
+            )
+                .into_response())
+        }
     }
 }
 
@@ -61,14 +79,34 @@ pub async fn get_profile(
 pub async fn get_relationship(
     Path((user_id, viewer_id)): Path<(String, String)>,
 ) -> Result<Json<Relationship>, Response> {
+    info!(
+        "GET {RELATIONSHIP_ROUTE} user_id:{}, viewer_id:{}",
+        user_id, viewer_id
+    );
+
     match Relationship::get_by_id(&user_id, Some(&viewer_id)).await {
-        Ok(Some(relationship)) => Ok(Json(relationship)),
-        Ok(None) => Err((axum::http::StatusCode::NOT_FOUND, "User not found").into_response()),
-        Err(_) => Err((
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            "Internal server error",
-        )
-            .into_response()),
+        Ok(Some(relationship)) => {
+            info!(
+                "Relationship found for user_id: {} and viewer_id: {}",
+                user_id, viewer_id
+            );
+            Ok(Json(relationship))
+        }
+        Ok(None) => {
+            info!(
+                "Relationship not found for user_id: {} and viewer_id: {}",
+                user_id, viewer_id
+            );
+            Err((axum::http::StatusCode::NOT_FOUND, "User not found").into_response())
+        }
+        Err(e) => {
+            error!("Internal server error while fetching relationship for user_id: {} and viewer_id: {}: {:?}", user_id, viewer_id, e);
+            Err((
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Internal server error",
+            )
+                .into_response())
+        }
     }
 }
 
@@ -85,13 +123,24 @@ pub async fn get_relationship(
     )
 )]
 pub async fn get_counts(Path(user_id): Path<String>) -> Result<Json<ProfileCounts>, Response> {
+    info!("GET {PROFILE_COUNTS_ROUTE} user_id:{}", user_id);
+
     match ProfileCounts::get_by_id(&user_id).await {
-        Ok(counts) => Ok(Json(counts)),
-        Err(_) => Err((
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            "Internal server error",
-        )
-            .into_response()),
+        Ok(counts) => {
+            info!("Profile counts found for user_id: {}", user_id);
+            Ok(Json(counts))
+        }
+        Err(e) => {
+            error!(
+                "Internal server error while fetching profile counts for user_id: {}: {:?}",
+                user_id, e
+            );
+            Err((
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Internal server error",
+            )
+                .into_response())
+        }
     }
 }
 
@@ -108,14 +157,28 @@ pub async fn get_counts(Path(user_id): Path<String>) -> Result<Json<ProfileCount
     )
 )]
 pub async fn get_details(Path(user_id): Path<String>) -> Result<Json<ProfileDetails>, Response> {
+    info!("GET {PROFILE_DETAILS_ROUTE} user_id:{}", user_id);
+
     match ProfileDetails::get_by_id(&user_id).await {
-        Ok(Some(details)) => Ok(Json(details)),
-        Ok(None) => Err((axum::http::StatusCode::NOT_FOUND, "User not found").into_response()),
-        Err(_) => Err((
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            "Internal server error",
-        )
-            .into_response()),
+        Ok(Some(details)) => {
+            info!("Profile details found for user_id: {}", user_id);
+            Ok(Json(details))
+        }
+        Ok(None) => {
+            info!("Profile details not found for user_id: {}", user_id);
+            Err((axum::http::StatusCode::NOT_FOUND, "User not found").into_response())
+        }
+        Err(e) => {
+            error!(
+                "Internal server error while fetching profile details for user_id: {}: {:?}",
+                user_id, e
+            );
+            Err((
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Internal server error",
+            )
+                .into_response())
+        }
     }
 }
 
@@ -132,12 +195,23 @@ pub async fn get_details(Path(user_id): Path<String>) -> Result<Json<ProfileDeta
     )
 )]
 pub async fn get_tags(Path(user_id): Path<String>) -> Result<Json<ProfileTags>, Response> {
+    info!("GET {PROFILE_TAGS_ROUTE} user_id:{}", user_id);
+
     match ProfileTags::get_by_id(&user_id).await {
-        Ok(tags) => Ok(Json(tags)),
-        Err(_) => Err((
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            "Internal server error",
-        )
-            .into_response()),
+        Ok(tags) => {
+            info!("Profile tags found for user_id: {}", user_id);
+            Ok(Json(tags))
+        }
+        Err(e) => {
+            error!(
+                "Internal server error while fetching profile tags for user_id: {}: {:?}",
+                user_id, e
+            );
+            Err((
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Internal server error",
+            )
+                .into_response())
+        }
     }
 }
