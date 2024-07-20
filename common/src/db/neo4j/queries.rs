@@ -5,7 +5,7 @@ pub fn get_user_by_id(user_id: &str) -> Query {
     query("MATCH (u:User {id: $id}) RETURN u").param("id", user_id)
 }
 
-pub fn get_tagged_as(user_id: &str) -> neo4rs::Query {
+pub fn profile_tags(user_id: &str) -> neo4rs::Query {
     query(
         "MATCH (u:User {id: $id})-[:TAGGED_AS]->(t:Tag)<-[:TAGGED_BY]-(author:User)
            RETURN t.tag AS tag, COUNT(t) AS count, author, COLLECT(author) AS authors",
@@ -13,15 +13,20 @@ pub fn get_tagged_as(user_id: &str) -> neo4rs::Query {
     .param("id", user_id)
 }
 
-pub fn get_follow_counts(user_id: &str) -> neo4rs::Query {
+pub fn profile_counts(user_id: &str) -> neo4rs::Query {
     query(
         "MATCH (u:User {id: $id})
            OPTIONAL MATCH (u)-[:FOLLOWS]->(following:User)
            OPTIONAL MATCH (follower:User)-[:FOLLOWS]->(u)
            OPTIONAL MATCH (u)-[:FOLLOWS]->(friend:User)-[:FOLLOWS]->(u)
-           RETURN COUNT(DISTINCT following) AS following_count,
+           OPTIONAL MATCH (u)-[:AUTHORED]->(post:Post)
+           OPTIONAL MATCH (u)-[tag:TAGGED]->(:Post)
+           RETURN COUNT(u) > 0 AS user_exists,
+                  COUNT(DISTINCT following) AS following_count,
                   COUNT(DISTINCT follower) AS followers_count,
-                  COUNT(DISTINCT friend) AS friends_count",
+                  COUNT(DISTINCT friend) AS friends_count,
+                  COUNT(DISTINCT post) AS posts_count,
+                  COUNT(DISTINCT tag) AS tags_count",
     )
     .param("id", user_id)
 }
@@ -29,10 +34,11 @@ pub fn get_follow_counts(user_id: &str) -> neo4rs::Query {
 pub fn viewer_relationship(user_id: &str, viewer_id: &str) -> neo4rs::Query {
     query(
         "MATCH (u:User {id: $user_id})
-         OPTIONAL MATCH (viewer:User {id: $viewer_id})-[:FOLLOWS]->(u)
-         OPTIONAL MATCH (u)-[:FOLLOWS]->(viewer)
-         RETURN COUNT(DISTINCT viewer) > 0 AS following,
-                COUNT(DISTINCT u) > 0 AS followed_by",
+         OPTIONAL MATCH (viewer:User {id: $viewer_id})
+         RETURN EXISTS((viewer)-[:FOLLOWS]->(u)) AS following,
+                EXISTS((u)-[:FOLLOWS]->(viewer)) AS followed_by,
+                COUNT(u) > 0 AS user_exists,
+                COUNT(viewer) > 0 AS viewer_exists",
     )
     .param("user_id", user_id)
     .param("viewer_id", viewer_id)

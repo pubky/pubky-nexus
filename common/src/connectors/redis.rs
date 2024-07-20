@@ -1,4 +1,5 @@
 use once_cell::sync::OnceCell;
+use redis::aio::MultiplexedConnection;
 pub use redis::AsyncCommands;
 use redis::Client;
 use std::fmt;
@@ -45,6 +46,16 @@ impl fmt::Debug for RedisConnector {
             .field("client", &"Redis client instance")
             .finish()
     }
+}
+
+/// Retrieves a Redis connection.
+pub async fn get_redis_conn() -> Result<MultiplexedConnection, Box<dyn std::error::Error>> {
+    let redis_client = REDIS_CONNECTOR
+        .get()
+        .ok_or("RedisConnector not initialized")?
+        .client();
+    let redis_conn = redis_client.get_multiplexed_async_connection().await?;
+    Ok(redis_conn)
 }
 
 pub static REDIS_CONNECTOR: OnceCell<RedisConnector> = OnceCell::new();

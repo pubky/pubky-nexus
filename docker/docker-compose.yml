@@ -34,3 +34,13 @@ services:
     volumes:
       - .database/redis/data:/data
     restart: always
+
+  redisinsight:
+    image: redislabs/redisinsight:latest
+    container_name: redisinsight
+    ports:
+      - "5540:5540"
+    volumes:
+      - .database/redis/insight:/data
+    depends_on:
+      - redis

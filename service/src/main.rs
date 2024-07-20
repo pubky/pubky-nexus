@@ -1,3 +1,4 @@
+use log::info;
 use tokio::net::TcpListener;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -25,7 +26,7 @@ async fn main() {
 
     // Start server
     let listener = TcpListener::bind(&config.server_binding()).await.unwrap();
-    println!("->> LISTENING on {:?}\n", listener.local_addr());
+    info!("LISTENING on {:?}\n", listener.local_addr().unwrap());
     axum::serve(listener, app.into_make_service())
         .await
         .unwrap();
