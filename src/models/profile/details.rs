@@ -1,13 +1,12 @@
-use pk_social_common::{
-    connectors::{
-        neo4j::{get_neo4j_graph, Node},
-        redis::{get_redis_conn, AsyncCommands},
-    },
+use crate::{
+    db::connectors::{neo4j::get_neo4j_graph, redis::get_redis_conn},
     queries,
 };
-
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
+
+use neo4rs::Node;
+use redis::AsyncCommands;
 
 const PROFILE_DETAILS_PREFIX: &str = "profile-details!";
 

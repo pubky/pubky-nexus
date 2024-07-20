@@ -1,6 +1,6 @@
-# Pubky-App Backend
+# Pubky-Nexus
 
-Pubky-app bakend in rust. Listens to the homeserver(s), indexes events as a social media and serves them to the pubky-app clients.
+The Nexus between Pubky homeservers and Pubky-App social frontend. Pubky Nexus constructs a social graph out of all of the events on pubky-core homeservers and exposes a social-media-like API capable of powerful Web-of-Trust inference.
 
 ## 💻 Development Roadmap
 
@@ -10,18 +10,20 @@ Pubky-app bakend in rust. Listens to the homeserver(s), indexes events as a soci
 
 Reach feature parity with `skunk-work` indexer improving on the following:
 
-1. High performance: no inefficient lookups, rust performance, modern stack.
-2. Clear vision forward: easy implementation of exciting features: WoT, graph queries, etc.
+1. High performance: no inefficient lookups, maximum normalization, maximum atomic indexing, full async, full multi-thread, rust performance.
+2. Clear vision forward: esimplify the implementation of exciting future features: WoT, graph queries, etc.
 3. Free of bugs: hopefully.
 4. Cleaner dev experience.
+5. Moden stack.
+6. Excellent observability (browse over our indexes with [redis-insight](https://redis.io/insight/) or graph with [neo4j-browser](https://browser.neo4j.io/))
 
 ## 🏠Architecture
 
 ![image](https://github.com/user-attachments/assets/e516ceff-d28f-4d71-9123-96eb1725cd73)
 
-- **/service** is a binary crate that serves REST request to the pubky-app clients reading from our DBs.
-- **/watcher** is a binary crate that will subscribe to homeservers and populate our DBs
-- **/common** is a library crate with all of the common functionalities needed for the `watcher` and the `service`
+- **service.rs**: binary that serves REST request to the pubky-app clients reading from our DBs.
+- **watcher.rs**: binary that subscribes to homeservers and populate our DBs
+- **lib.rs**: library crate with all of the common functionalities (connector, models, queries) needed for `watcher` and `service`
 
 1. The watcher does effectively work as an aggregator (a translator from Homeserver events to a social network graph).
 2. The service reads from the indexes and performs queries to the graph in order to serve responses to the pubky-app clients.
@@ -34,12 +36,11 @@ For auto re-build on save and testing while developing `/service` :
 
 ```bash
 cargo install cargo-watch
-cd service
 
 # Ideally in two terminals.
 # On terminal 1 run:
-cargo watch -q -c -w src/ -x run
-# You can check the running service on your browser on localhost:8080/hello
+cargo watch -q -c -w src/ -x "run --bin pubky-nexus-service"
+# You can check the running service on your browser on localhost:8080/info
 
 # On terminal 2 run (for tests to work you need a working /neo4j-example instance with example dataset)
 cargo watch -q -c -w tests/ -x "test -- --nocapture"

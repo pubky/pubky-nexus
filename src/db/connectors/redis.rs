@@ -1,6 +1,5 @@
 use once_cell::sync::OnceCell;
 use redis::aio::MultiplexedConnection;
-pub use redis::AsyncCommands;
 use redis::Client;
 use std::fmt;
 

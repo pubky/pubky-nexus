@@ -1,20 +1,13 @@
 use log::info;
+use pubky_nexus::{routes, setup, Config};
 use tokio::net::TcpListener;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
-mod config;
-mod error;
-mod models;
-mod routes;
-mod setup;
-
-pub use self::error::{Error, Result};
-
 #[tokio::main]
 async fn main() {
-    let config = config::Config::from_env();
-    setup::setup(&config).await;
+    let config = Config::from_env();
+    setup(&config).await;
 
     // Routes
     let routes_v0 = routes::v0::routes();

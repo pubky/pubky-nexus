@@ -1,10 +1,9 @@
 use crate::config::Config;
-use env_logger;
-use log::{error, info};
-use pk_social_common::connectors::{
+use crate::db::connectors::{
     neo4j::{Neo4jConnector, NEO4J_CONNECTOR},
     redis::{RedisConnector, REDIS_CONNECTOR},
 };
+use log::{error, info};
 
 pub async fn setup(config: &Config) {
     env_logger::init();
@@ -21,7 +20,7 @@ pub async fn setup(config: &Config) {
     if NEO4J_CONNECTOR.set(neo4j_connector).is_err() {
         error!("Neo4jConnector already set");
     } else {
-        info!("RedisConnector successfully set");
+        info!("Neo4jConnector successfully set");
     }
 
     // Initialize Redis connection

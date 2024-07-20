@@ -1,9 +1,7 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use pk_social_service::config::Config;
-use pk_social_service::models::profile::{
-    ProfileCounts, ProfileDetails, ProfileView, Relationship,
-};
-use pk_social_service::setup;
+use pubky_nexus::models::profile::{ProfileCounts, ProfileDetails, ProfileView, Relationship};
+use pubky_nexus::setup;
+use pubky_nexus::Config;
 use std::env;
 use std::time::Duration;
 use tokio::runtime::Runtime;
@@ -18,14 +16,16 @@ pub fn run_setup() {
         env::set_var("RUST_LOG", "error");
         rt.block_on(async {
             let config = Config::from_env();
-            setup::setup(&config).await;
+            setup(&config).await;
         });
     });
 }
 
 fn bench_get_full_by_id(c: &mut Criterion) {
     println!("***************************************");
-    println!("This benchmark tests the performance of getting a full profile by ID, using index or graph as needed");
+    println!(
+        "Test the performance of getting a full profile by ID, using index or graph as needed"
+    );
     println!("***************************************");
 
     run_setup();
@@ -48,7 +48,7 @@ fn bench_get_full_by_id(c: &mut Criterion) {
 
 fn bench_get_relationship_from_graph(c: &mut Criterion) {
     println!("***************************************");
-    println!("This benchmark tests the performance of getting a following/follower relationship from the graph database.");
+    println!("Test the performance of getting a following/follower relationship from the graph database.");
     println!("***************************************");
 
     run_setup();
@@ -71,7 +71,7 @@ fn bench_get_relationship_from_graph(c: &mut Criterion) {
 
 fn bench_get_relationship_by_id(c: &mut Criterion) {
     println!("***************************************");
-    println!("This benchmark tests the performance of getting a following/follower relationship by ID, using index or graph as needed.");
+    println!("Test the performance of getting a following/follower relationship by ID, using index or graph as needed.");
     println!("***************************************");
 
     run_setup();
@@ -94,9 +94,7 @@ fn bench_get_relationship_by_id(c: &mut Criterion) {
 
 fn bench_get_counts_from_graph(c: &mut Criterion) {
     println!("***************************************");
-    println!(
-        "This benchmark tests the performance of getting profile counts from the graph database."
-    );
+    println!("Test the performance of getting profile counts from the graph database.");
     println!("***************************************");
 
     run_setup();
@@ -118,7 +116,9 @@ fn bench_get_counts_from_graph(c: &mut Criterion) {
 
 fn bench_get_counts_by_id(c: &mut Criterion) {
     println!("***************************************");
-    println!("This benchmark tests the performance of getting profile counts by ID, using index or graph as needed.");
+    println!(
+        "Test the performance of getting profile counts by ID, using index or graph as needed."
+    );
     println!("***************************************");
 
     run_setup();
@@ -140,9 +140,7 @@ fn bench_get_counts_by_id(c: &mut Criterion) {
 
 fn bench_get_details_from_graph(c: &mut Criterion) {
     println!("***************************************");
-    println!(
-        "This benchmark tests the performance of getting profile details from the graph database."
-    );
+    println!("Test the performance of getting profile details from the graph database.");
     println!("***************************************");
 
     run_setup();
@@ -164,7 +162,9 @@ fn bench_get_details_from_graph(c: &mut Criterion) {
 
 fn bench_get_details_by_id(c: &mut Criterion) {
     println!("***************************************");
-    println!("This benchmark tests the performance of getting profile details by ID, checking both index and graph.");
+    println!(
+        "Test the performance of getting profile details by ID, checking both index and graph."
+    );
     println!("***************************************");
 
     run_setup();
