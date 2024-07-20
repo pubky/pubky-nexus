@@ -37,8 +37,8 @@ async fn test_profile_endpoint() -> Result<()> {
     assert_eq!(res.status(), 200);
 
     let body = res.json_body()?;
-    assert_eq!(body["viewer"]["followed_by"], true); // Flavio is follows Aldert
-    assert_eq!(body["viewer"]["following"], false); // Aldert does not follow Flavio
+    assert_eq!(body["viewer"]["followed_by"], true); // Aldert follows Flavio
+    assert_eq!(body["viewer"]["following"], false); // Flavio does not follow Alder
 
     // Look for a non existing pk
     let user_id = "bad_user_id";

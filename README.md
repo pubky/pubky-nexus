@@ -45,5 +45,5 @@ cargo watch -q -c -w src/ -x run
 cargo watch -q -c -w tests/ -x "test -- --nocapture"
 
 # Run benchmarks (e.g., get profile by ID benchmark)
-cargo bench --bench profile_bench
+cargo bench --bench profile
 ```

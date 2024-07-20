@@ -2,6 +2,7 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use pk_social_service::config::Config;
 use pk_social_service::models::profile::Profile;
 use pk_social_service::setup;
+use std::time::Duration;
 use tokio::runtime::Runtime;
 
 pub fn run_setup() {
@@ -31,5 +32,17 @@ fn bench_profile(c: &mut Criterion) {
     );
 }
 
-criterion_group!(benches, bench_profile);
+fn configure_criterion() -> Criterion {
+    Criterion::default()
+        .measurement_time(Duration::new(5, 0))
+        .sample_size(500)
+        .warm_up_time(Duration::new(1, 0))
+}
+
+criterion_group! {
+    name = benches;
+    config = configure_criterion();
+    targets = bench_profile
+}
+
 criterion_main!(benches);

@@ -1,13 +1,17 @@
 use pk_social_common::{
     connectors::{
-        neo4j::{Node, NEO4J_CONNECTOR},
-        redis::{AsyncCommands, REDIS_CONNECTOR},
+        neo4j::{get_neo4j_graph, Node},
+        redis::{get_redis_conn, AsyncCommands},
     },
     queries,
 };
 use serde::{Deserialize, Serialize};
 use tokio::join;
 use utoipa::ToSchema;
+
+use super::relationship::Relationship;
+
+const PROFILE_PREFIX: &str = "profile!";
 
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct Link {
@@ -21,6 +25,7 @@ impl Default for Link {
     }
 }
 
+/// Represents a profile link with a title and URL.
 impl Link {
     pub fn new() -> Self {
         Self {
@@ -30,6 +35,7 @@ impl Link {
     }
 }
 
+/// Represents profile data with name, bio, image, links, and status.
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct ProfileData {
     name: String,
@@ -56,6 +62,7 @@ impl ProfileData {
         }
     }
 
+    /// Creates a `ProfileData` instance from a Neo4j `Node`.
     pub fn from_node(node: &Node) -> Self {
         Self {
             name: node.get("name").unwrap_or_default(),
@@ -68,6 +75,7 @@ impl ProfileData {
     }
 }
 
+/// Represents a tag author with a URI, ID, and profile data.
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct Author {
     uri: String,
@@ -91,6 +99,7 @@ impl Author {
     }
 }
 
+/// Represents a Tag source with an author, creation time, indexing time, and ID.
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct From {
     author: Author,
@@ -116,6 +125,7 @@ impl From {
     }
 }
 
+/// Represents a tag with it's tag label, count, and author sources.
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct Tag {
     tag: String,
@@ -139,28 +149,7 @@ impl Tag {
     }
 }
 
-#[derive(Serialize, Deserialize, ToSchema)]
-pub struct Viewer {
-    following: bool,
-    followed_by: bool,
-}
-
-impl Default for Viewer {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Viewer {
-    pub fn new() -> Self {
-        Self {
-            following: false,
-            followed_by: false,
-        }
-    }
-}
-
-const PROFILE_PREFIX: &str = "profile:";
+/// Represents a Pubky user profile with relational data including tags, counts, and relationship with a viewer.
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct Profile {
     profile: ProfileData,
@@ -170,7 +159,7 @@ pub struct Profile {
     following_count: u32,
     friends_count: u32,
     tagged_as: Vec<Tag>,
-    viewer: Viewer,
+    viewer: Relationship,
 }
 
 impl Default for Profile {
@@ -189,70 +178,74 @@ impl Profile {
             following_count: 0,
             friends_count: 0,
             tagged_as: vec![Tag::new()],
-            viewer: Viewer::new(),
+            viewer: Relationship::new(),
         }
     }
 
+    /// Retrieves a profile by user ID, checking the cache first and then the graph database.
     pub async fn get_by_id(
         user_id: &str,
         viewer_id: Option<&str>,
     ) -> Result<Option<Self>, Box<dyn std::error::Error>> {
-        if let Some(indexed_profile) = Self::get_indexed(user_id).await? {
+        // Concurrent relationship and profile retrieval
+        // Get the relationship information
+        let relationship = match viewer_id {
+            Some(v_id) => Relationship::get(user_id, v_id).await?.unwrap_or_default(),
+            None => Relationship::new(),
+        };
+
+        // Try to get from indexed cache
+        if let Some(mut indexed_profile) = Self::get_from_index(user_id).await? {
+            indexed_profile.viewer = relationship;
             return Ok(Some(indexed_profile));
         }
 
-        Self::get_from_graph(user_id, viewer_id).await
+        // Fallback to query from graph
+        match Self::get_from_graph(user_id).await? {
+            Some(mut profile) => {
+                profile.viewer = relationship;
+                Ok(Some(profile))
+            }
+            None => Ok(None),
+        }
     }
 
-    async fn get_indexed(user_id: &str) -> Result<Option<Self>, Box<dyn std::error::Error>> {
-        let redis_client = REDIS_CONNECTOR
-            .get()
-            .expect("RedisConnector not initialized")
-            .client();
-        let mut redis_conn = redis_client.get_multiplexed_async_connection().await?;
+    /// Retrieves a profile from Neo4j, processes various queries, and caches the result in Redis.
+    async fn get_from_index(user_id: &str) -> Result<Option<Self>, Box<dyn std::error::Error>> {
+        let mut redis_conn = get_redis_conn().await?;
         let cache_key = format!("{PROFILE_PREFIX}{user_id}");
 
         if let Ok(cached_profile) = redis_conn.get::<_, String>(&cache_key).await {
             let profile: Profile = serde_json::from_str(&cached_profile)?;
 
-            // println!("Found {cache_key} on index");
+            // println!("Found profile index {cache_key}");
             return Ok(Some(profile));
         }
 
         Ok(None)
     }
 
-    async fn get_from_graph(
-        user_id: &str,
-        viewer_id: Option<&str>,
-    ) -> Result<Option<Self>, Box<dyn std::error::Error>> {
-        let graph = NEO4J_CONNECTOR
-            .get()
-            .expect("Neo4jConnector not initialized")
-            .graph
-            .get()
-            .expect("Not connected to Neo4j");
+    /// Retrieves a profile from Neo4j, processes various queries, and caches the result in Redis.
+    async fn get_from_graph(user_id: &str) -> Result<Option<Self>, Box<dyn std::error::Error>> {
+        let graph = get_neo4j_graph()?;
 
         // Define all queries
         let user_query = queries::get_user_by_id(user_id);
         let follow_counts_query = queries::get_follow_counts(user_id);
         let tagged_as_query = queries::get_tagged_as(user_id);
-        let viewer_relationship_query =
-            queries::viewer_relationship(user_id, viewer_id.unwrap_or("non-existing-pk"));
 
         // Execute all queries concurrently
-        let (user_result, follow_counts_result, tagged_as_result, viewer_relationship_result) = join!(
+        let graph = graph.lock().await;
+        let (user_result, follow_counts_result, tagged_as_result) = join!(
             graph.execute(user_query),
             graph.execute(follow_counts_query),
             graph.execute(tagged_as_query),
-            graph.execute(viewer_relationship_query),
         );
 
         // Handle results
         let mut user_result = user_result?;
         let mut follow_counts_result = follow_counts_result?;
         let mut tagged_as_result = tagged_as_result?;
-        let mut viewer_relationship_result = viewer_relationship_result?;
 
         // Exit early if user not found
         let user_row = if let Some(row) = user_result.next().await? {
@@ -305,33 +298,21 @@ impl Profile {
             profile.tagged_as.push(tag_info);
         }
 
-        // Process viewer relationship result if viewer_id is provided
-        if viewer_id.is_some() {
-            if let Some(row) = viewer_relationship_result.next().await? {
-                profile.viewer.following = row.get("following").unwrap_or_default();
-                profile.viewer.followed_by = row.get("followed_by").unwrap_or_default();
-            }
-        }
-
         // Graph queries are expensive, so we save it to the index as cache.
-        Self::put_index(user_id, &profile).await?;
+        Self::set_index(user_id, &profile).await?;
 
         Ok(Some(profile))
     }
 
-    async fn put_index(user_id: &str, profile: &Profile) -> Result<(), Box<dyn std::error::Error>> {
-        let redis_client = REDIS_CONNECTOR
-            .get()
-            .expect("RedisConnector not initialized")
-            .client();
-
-        let mut redis_conn = redis_client.get_multiplexed_async_connection().await?;
+    /// Sets the profile in the Redis cache.
+    async fn set_index(user_id: &str, profile: &Profile) -> Result<(), Box<dyn std::error::Error>> {
+        let mut redis_conn = get_redis_conn().await?;
         let cache_key = format!("{PROFILE_PREFIX}{user_id}");
 
         let profile_json = serde_json::to_string(&profile)?;
 
         redis_conn.set_ex(&cache_key, profile_json, 3600).await?;
-        // println!("Saved {cache_key} to index");
+        // println!("Saved profile index {cache_key}");
 
         Ok(())
     }

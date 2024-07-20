@@ -1,9 +1,11 @@
 pub use neo4rs::{query, Graph, Node};
 use once_cell::sync::OnceCell;
 use std::fmt;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 pub struct Neo4jConnector {
-    pub graph: OnceCell<Graph>,
+    pub graph: OnceCell<Arc<Mutex<Graph>>>,
 }
 
 impl Default for Neo4jConnector {
@@ -27,7 +29,7 @@ impl Neo4jConnector {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let graph = Graph::new(uri, user, password).await?;
         self.graph
-            .set(graph)
+            .set(Arc::new(Mutex::new(graph)))
             .map_err(|_| "Failed to set graph instance")?;
         Ok(())
     }
@@ -49,6 +51,18 @@ impl fmt::Debug for Neo4jConnector {
             .field("graph", &"Graph instance")
             .finish()
     }
+}
+
+/// Retrieves a Neo4j graph connection.
+pub fn get_neo4j_graph() -> Result<Arc<Mutex<Graph>>, &'static str> {
+    let neo4j_connector = NEO4J_CONNECTOR
+        .get()
+        .ok_or("Neo4jConnector not initialized")?;
+    let graph = neo4j_connector
+        .graph
+        .get()
+        .ok_or("Not connected to Neo4j")?;
+    Ok(graph.clone())
 }
 
 pub static NEO4J_CONNECTOR: OnceCell<Neo4jConnector> = OnceCell::new();
