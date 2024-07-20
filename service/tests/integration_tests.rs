@@ -26,8 +26,11 @@ async fn test_profile_endpoint() -> Result<()> {
     assert_eq!(res.status(), 200);
 
     let body = res.json_body()?;
-    assert_eq!(body["profile"]["name"], "Aldert");
-    assert_eq!(body["profile"]["status"], "working");
+    assert_eq!(body["details"]["name"], "Aldert");
+    assert_eq!(body["details"]["status"], "working");
+    assert_eq!(body["details"]["id"], user_id);
+    assert_eq!(body["counts"]["friends"], 8);
+    assert_eq!(body["counts"]["posts"], 4);
 
     // Look for Aldert pk user id using Flavio's viewer id
     let viewer_id = "5g3fwnue819wfdjwiwm8qr35ww6uxxgbzrigrtdgmbi19ksioeoy";

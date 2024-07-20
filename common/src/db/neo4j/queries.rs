@@ -5,7 +5,7 @@ pub fn get_user_by_id(user_id: &str) -> Query {
     query("MATCH (u:User {id: $id}) RETURN u").param("id", user_id)
 }
 
-pub fn get_tagged_as(user_id: &str) -> neo4rs::Query {
+pub fn profile_tags(user_id: &str) -> neo4rs::Query {
     query(
         "MATCH (u:User {id: $id})-[:TAGGED_AS]->(t:Tag)<-[:TAGGED_BY]-(author:User)
            RETURN t.tag AS tag, COUNT(t) AS count, author, COLLECT(author) AS authors",
@@ -13,7 +13,7 @@ pub fn get_tagged_as(user_id: &str) -> neo4rs::Query {
     .param("id", user_id)
 }
 
-pub fn get_user_counts(user_id: &str) -> neo4rs::Query {
+pub fn profile_counts(user_id: &str) -> neo4rs::Query {
     query(
         "MATCH (u:User {id: $id})
            OPTIONAL MATCH (u)-[:FOLLOWS]->(following:User)

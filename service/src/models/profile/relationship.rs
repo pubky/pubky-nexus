@@ -29,35 +29,39 @@ impl Relationship {
         }
     }
 
-    /// Retrieves a relationship by user ids, checking the cache first and then the graph database.
-    pub async fn get(
+    // Retrieves user-viewer relationship
+    pub async fn get_by_id(
         user_id: &str,
-        viewer_id: &str,
+        viewer_id: Option<&str>,
     ) -> Result<Option<Self>, Box<dyn std::error::Error>> {
-        // Try to get from indexed cache
-        if let Some(indexed_relationship) = Self::get_from_index(user_id, viewer_id).await? {
-            // println!("Found relationship index {user_id}&{viewer_id}");
-            return Ok(Some(indexed_relationship));
-        }
+        match viewer_id {
+            None => Ok(Some(Relationship::new())),
+            Some(v_id) => {
+                // Try to get from indexed cache
+                if let Some(indexed_relationship) = Self::get_from_index(user_id, v_id).await? {
+                    return Ok(Some(indexed_relationship));
+                }
 
-        // Fallback to query from graph
-        Self::get_from_graph(user_id, viewer_id).await
+                // Fallback to query from graph
+                Self::get_from_graph(user_id, v_id).await
+            }
+        }
     }
 
     /// Indexes the relationship in Redis.
     pub async fn set_index(
+        &self,
         user_id: &str,
         viewer_id: &str,
-        relationship: &Relationship,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut redis_conn = get_redis_conn().await?;
 
-        if relationship.followed_by {
+        if self.followed_by {
             let key = format!("{RELATIONSHIP_PREFIX}{user_id}{viewer_id}");
             // println!("Saved relationship  index {key}");
             redis_conn.set_ex(key, true, 3600).await?;
         }
-        if relationship.following {
+        if self.following {
             let key = format!("{RELATIONSHIP_PREFIX}{viewer_id}{user_id}");
             redis_conn.set_ex(key, true, 3600).await?;
         }
@@ -111,7 +115,7 @@ impl Relationship {
                 following: row.get("following").unwrap_or(false),
                 followed_by: row.get("followed_by").unwrap_or(false),
             };
-            Relationship::set_index(user_id, viewer_id, &relationship).await?;
+            relationship.set_index(user_id, viewer_id).await?;
             Ok(Some(relationship))
         } else {
             Ok(None)
