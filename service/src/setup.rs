@@ -14,16 +14,16 @@ pub async fn setup(config: &Config) {
     .await
     .expect("Failed to connect to Neo4j");
 
-    NEO4J_CONNECTOR
-        .set(neo4j_connector)
-        .expect("Failed to set global Neo4j connector");
+    if NEO4J_CONNECTOR.set(neo4j_connector).is_err() {
+        println!("Neo4jConnector already set");
+    }
 
     // Initialize Redis connection
     let redis_connector = RedisConnector::new_connection(&config._redis_uri())
         .await
         .expect("Failed to connect to Redis");
 
-    REDIS_CONNECTOR
-        .set(redis_connector)
-        .expect("Failed to set global Redis connector");
+    if REDIS_CONNECTOR.set(redis_connector).is_err() {
+        println!("RedisConnector already set");
+    }
 }

@@ -211,7 +211,7 @@ impl Profile {
     }
 
     /// Retrieves a profile from Neo4j, processes various queries, and caches the result in Redis.
-    async fn get_from_index(user_id: &str) -> Result<Option<Self>, Box<dyn std::error::Error>> {
+    pub async fn get_from_index(user_id: &str) -> Result<Option<Self>, Box<dyn std::error::Error>> {
         let mut redis_conn = get_redis_conn().await?;
         let cache_key = format!("{PROFILE_PREFIX}{user_id}");
 
@@ -226,7 +226,7 @@ impl Profile {
     }
 
     /// Retrieves a profile from Neo4j, processes various queries, and caches the result in Redis.
-    async fn get_from_graph(user_id: &str) -> Result<Option<Self>, Box<dyn std::error::Error>> {
+    pub async fn get_from_graph(user_id: &str) -> Result<Option<Self>, Box<dyn std::error::Error>> {
         let graph = get_neo4j_graph()?;
 
         // Define all queries
