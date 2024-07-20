@@ -39,9 +39,11 @@ impl ProfileCounts {
     }
 
     /// Retrieves counts by user ID, first trying to get from Redis, then from Neo4j if not found.
-    pub async fn get_by_id(user_id: &str) -> Result<ProfileCounts, Box<dyn std::error::Error>> {
+    pub async fn get_by_id(
+        user_id: &str,
+    ) -> Result<Option<ProfileCounts>, Box<dyn std::error::Error>> {
         if let Some(counts) = ProfileCounts::get_from_index(user_id).await? {
-            return Ok(counts);
+            return Ok(Some(counts));
         }
 
         ProfileCounts::get_from_graph(user_id).await
@@ -76,7 +78,7 @@ impl ProfileCounts {
     /// Retrieves the counts from Neo4j.
     pub async fn get_from_graph(
         user_id: &str,
-    ) -> Result<ProfileCounts, Box<dyn std::error::Error>> {
+    ) -> Result<Option<ProfileCounts>, Box<dyn std::error::Error>> {
         let graph = get_neo4j_graph()?;
         let counts_query = queries::profile_counts(user_id);
 
@@ -84,6 +86,9 @@ impl ProfileCounts {
         let mut result = graph.execute(counts_query).await?;
 
         if let Some(row) = result.next().await? {
+            if !row.get("user_exists").unwrap_or(false) {
+                return Ok(None);
+            }
             let counts = ProfileCounts {
                 following: row.get("following_count").unwrap_or_default(),
                 followers: row.get("followers_count").unwrap_or_default(),
@@ -92,9 +97,9 @@ impl ProfileCounts {
                 tags: row.get("tags_count").unwrap_or_default(),
             };
             counts.set_index(user_id).await?;
-            Ok(counts)
+            Ok(Some(counts))
         } else {
-            Ok(ProfileCounts::new())
+            Ok(None)
         }
     }
 }

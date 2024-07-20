@@ -38,7 +38,7 @@ impl ProfileView {
             Some(details) => details,
             None => return Ok(None),
         };
-        let counts = ProfileCounts::get_by_id(user_id).await?;
+        let counts = ProfileCounts::get_by_id(user_id).await?.unwrap_or_default();
         let viewer = Relationship::get_by_id(user_id, viewer_id)
             .await?
             .unwrap_or_default();

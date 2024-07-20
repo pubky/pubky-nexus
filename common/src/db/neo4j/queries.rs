@@ -21,7 +21,8 @@ pub fn profile_counts(user_id: &str) -> neo4rs::Query {
            OPTIONAL MATCH (u)-[:FOLLOWS]->(friend:User)-[:FOLLOWS]->(u)
            OPTIONAL MATCH (u)-[:AUTHORED]->(post:Post)
            OPTIONAL MATCH (u)-[tag:TAGGED]->(:Post)
-           RETURN COUNT(DISTINCT following) AS following_count,
+           RETURN COUNT(u) > 0 AS user_exists,
+                  COUNT(DISTINCT following) AS following_count,
                   COUNT(DISTINCT follower) AS followers_count,
                   COUNT(DISTINCT friend) AS friends_count,
                   COUNT(DISTINCT post) AS posts_count,
@@ -33,10 +34,11 @@ pub fn profile_counts(user_id: &str) -> neo4rs::Query {
 pub fn viewer_relationship(user_id: &str, viewer_id: &str) -> neo4rs::Query {
     query(
         "MATCH (u:User {id: $user_id})
-         OPTIONAL MATCH (viewer:User {id: $viewer_id})-[:FOLLOWS]->(u)
-         OPTIONAL MATCH (u)-[:FOLLOWS]->(viewer)
-         RETURN COUNT(DISTINCT viewer) > 0 AS following,
-                COUNT(DISTINCT u) > 0 AS followed_by",
+         OPTIONAL MATCH (viewer:User {id: $viewer_id})
+         RETURN EXISTS((viewer)-[:FOLLOWS]->(u)) AS following,
+                EXISTS((u)-[:FOLLOWS]->(viewer)) AS followed_by,
+                COUNT(u) > 0 AS user_exists,
+                COUNT(viewer) > 0 AS viewer_exists",
     )
     .param("user_id", user_id)
     .param("viewer_id", viewer_id)

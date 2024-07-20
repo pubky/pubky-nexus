@@ -35,7 +35,7 @@ impl Relationship {
         viewer_id: Option<&str>,
     ) -> Result<Option<Self>, Box<dyn std::error::Error>> {
         match viewer_id {
-            None => Ok(Some(Relationship::new())),
+            None => Ok(None),
             Some(v_id) => {
                 // Try to get from indexed cache
                 if let Some(indexed_relationship) = Self::get_from_index(user_id, v_id).await? {
@@ -111,6 +111,13 @@ impl Relationship {
         let mut result = graph.execute(viewer_relationship_query).await?;
 
         if let Some(row) = result.next().await? {
+            let user_exists: bool = row.get("user_exists").unwrap_or(false);
+            let viewer_exists: bool = row.get("viewer_exists").unwrap_or(false);
+
+            if !user_exists || !viewer_exists {
+                return Ok(None);
+            }
+
             let relationship = Relationship {
                 following: row.get("following").unwrap_or(false),
                 followed_by: row.get("followed_by").unwrap_or(false),

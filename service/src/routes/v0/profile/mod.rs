@@ -94,7 +94,7 @@ pub async fn get_relationship(
         }
         Ok(None) => {
             info!(
-                "Relationship not found for user_id: {} and viewer_id: {}",
+                "User or viewer not found for relationship of user_id: {} and viewer_id: {}",
                 user_id, viewer_id
             );
             Err((axum::http::StatusCode::NOT_FOUND, "User not found").into_response())
@@ -117,7 +117,7 @@ pub async fn get_relationship(
         ("user_id" = String, Path, description = "User ID")
     ),
     responses(
-        (status = 200, description = "User counts", body = Counts),
+        (status = 200, description = "User counts", body = ProfileCounts),
         (status = 404, description = "User not found"),
         (status = 500, description = "Internal server error")
     )
@@ -126,9 +126,13 @@ pub async fn get_counts(Path(user_id): Path<String>) -> Result<Json<ProfileCount
     info!("GET {PROFILE_COUNTS_ROUTE} user_id:{}", user_id);
 
     match ProfileCounts::get_by_id(&user_id).await {
-        Ok(counts) => {
+        Ok(Some(counts)) => {
             info!("Profile counts found for user_id: {}", user_id);
             Ok(Json(counts))
+        }
+        Ok(None) => {
+            info!("User not found for counts of user_id: {}", user_id);
+            Err((axum::http::StatusCode::NOT_FOUND, "User not found").into_response())
         }
         Err(e) => {
             error!(
@@ -151,7 +155,7 @@ pub async fn get_counts(Path(user_id): Path<String>) -> Result<Json<ProfileCount
         ("user_id" = String, Path, description = "User ID")
     ),
     responses(
-        (status = 200, description = "User details", body = Details),
+        (status = 200, description = "User details", body = ProfileDetails),
         (status = 404, description = "User not found"),
         (status = 500, description = "Internal server error")
     )

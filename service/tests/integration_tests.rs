@@ -45,7 +45,7 @@ async fn test_profile_endpoint() -> Result<()> {
 
     // Look for a non existing pk
     let user_id = "bad_user_id";
-    let res = client.do_get(&format!("/v0/profiles/{}", user_id)).await?;
+    let res = client.do_get(&format!("/v0/profile/{}", user_id)).await?;
     assert_eq!(res.status(), 404);
 
     Ok(())
@@ -91,15 +91,126 @@ async fn test_openapi_schema() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn test_get_relationship() -> Result<()> {
+    let client = httpc_test::new_client(HOST_URL)?;
+
+    let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
+    let viewer_id = "5g3fwnue819wfdjwiwm8qr35ww6uxxgbzrigrtdgmbi19ksioeoy";
+    let res = client
+        .do_get(&format!(
+            "/v0/profile/{}/relationship/{}",
+            user_id, viewer_id
+        ))
+        .await?;
+    assert_eq!(res.status(), 200);
+
+    let body = res.json_body()?;
+    assert!(body["following"].is_boolean());
+    assert!(body["followed_by"].is_boolean());
+
+    // Test non-existing relationship
+    let user_id = "bad_user_id";
+    let viewer_id = "bad_viewer_id";
+    let res = client
+        .do_get(&format!(
+            "/v0/profile/{}/relationship/{}",
+            user_id, viewer_id
+        ))
+        .await?;
+    assert_eq!(res.status(), 404);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_get_counts() -> Result<()> {
+    let client = httpc_test::new_client(HOST_URL)?;
+
+    let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
+    let res = client
+        .do_get(&format!("/v0/profile/{}/counts", user_id))
+        .await?;
+    assert_eq!(res.status(), 200);
+
+    let body = res.json_body()?;
+    assert!(body["tags"].is_number());
+    assert!(body["posts"].is_number());
+    assert!(body["followers"].is_number());
+    assert!(body["following"].is_number());
+    assert!(body["friends"].is_number());
+
+    // Test non-existing user
+    let user_id = "bad_user_id";
+    let res = client
+        .do_get(&format!("/v0/profile/{}/counts", user_id))
+        .await?;
+    assert_eq!(res.status(), 404);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_get_details() -> Result<()> {
+    let client = httpc_test::new_client(HOST_URL)?;
+
+    let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
+    let res = client
+        .do_get(&format!("/v0/profile/{}/details", user_id))
+        .await?;
+    assert_eq!(res.status(), 200);
+
+    let body = res.json_body()?;
+    assert!(body["name"].is_string());
+    assert!(body["bio"].is_string());
+    assert!(body["id"].is_string());
+    assert!(body["image"].is_string());
+    assert!(body["status"].is_string());
+    assert!(body["links"].is_array());
+
+    // Test non-existing user
+    let user_id = "bad_user_id";
+    let res = client
+        .do_get(&format!("/v0/profile/{}/details", user_id))
+        .await?;
+    assert_eq!(res.status(), 404);
+
+    Ok(())
+}
+
+// #[tokio::test]
+// async fn test_get_tags() -> Result<()> {
+//     let client = httpc_test::new_client(HOST_URL)?;
+
+//     let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
+//     let res = client
+//         .do_get(&format!("/v0/profile/{}/tags", user_id))
+//         .await?;
+//     assert_eq!(res.status(), 200);
+
+//     let body = res.json_body()?;
+//     assert!(body["tags"].is_array());
+
+//     // Test non-existing user
+//     let user_id = "bad_user_id";
+//     let res = client
+//         .do_get(&format!("/v0/profile/{}/tags", user_id))
+//         .await?;
+//     assert_eq!(res.status(), 404);
+
+//     Ok(())
+// }
+
 // Intended to print out requests and play around as a client while developing
 #[tokio::test]
 async fn quick_dev() -> Result<()> {
-    let hc = httpc_test::new_client(HOST_URL)?;
+    let client = httpc_test::new_client(HOST_URL)?;
 
     // Check endpoint, play with this.
     let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
     let viewer_id = "5g3fwnue819wfdjwiwm8qr35ww6uxxgbzrigrtdgmbi19ksioeoy";
-    hc.do_get(&format!("/v0/profile/{}?viewer_id={}", user_id, viewer_id))
+    client
+        .do_get(&format!("/v0/profile/{}?viewer_id={}", user_id, viewer_id))
         .await?
         .print()
         .await?;
