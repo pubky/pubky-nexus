@@ -264,6 +264,7 @@ impl Profile {
             profile.followers_count = row.get("followers_count").unwrap_or_default();
             profile.friends_count = row.get("friends_count").unwrap_or_default();
             profile.posts_count = row.get("posts_count").unwrap_or_default();
+            profile.tags_count = row.get("tags_count").unwrap_or_default();
         }
 
         // Process tagged as result
