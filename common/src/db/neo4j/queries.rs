@@ -13,15 +13,17 @@ pub fn get_tagged_as(user_id: &str) -> neo4rs::Query {
     .param("id", user_id)
 }
 
-pub fn get_follow_counts(user_id: &str) -> neo4rs::Query {
+pub fn get_user_counts(user_id: &str) -> neo4rs::Query {
     query(
         "MATCH (u:User {id: $id})
            OPTIONAL MATCH (u)-[:FOLLOWS]->(following:User)
            OPTIONAL MATCH (follower:User)-[:FOLLOWS]->(u)
            OPTIONAL MATCH (u)-[:FOLLOWS]->(friend:User)-[:FOLLOWS]->(u)
+           OPTIONAL MATCH (u)-[:AUTHORED]->(post:Post)
            RETURN COUNT(DISTINCT following) AS following_count,
                   COUNT(DISTINCT follower) AS followers_count,
-                  COUNT(DISTINCT friend) AS friends_count",
+                  COUNT(DISTINCT friend) AS friends_count,
+                  COUNT(DISTINCT post) AS posts_count",
     )
     .param("id", user_id)
 }

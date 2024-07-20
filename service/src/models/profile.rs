@@ -187,7 +187,7 @@ impl Profile {
         user_id: &str,
         viewer_id: Option<&str>,
     ) -> Result<Option<Self>, Box<dyn std::error::Error>> {
-        // Concurrent relationship and profile retrieval
+        // TODO: Concurrent relationship and profile retrieval
         // Get the relationship information
         let relationship = match viewer_id {
             Some(v_id) => Relationship::get(user_id, v_id).await?.unwrap_or_default(),
@@ -231,20 +231,20 @@ impl Profile {
 
         // Define all queries
         let user_query = queries::get_user_by_id(user_id);
-        let follow_counts_query = queries::get_follow_counts(user_id);
+        let counts_query = queries::get_user_counts(user_id);
         let tagged_as_query = queries::get_tagged_as(user_id);
 
         // Execute all queries concurrently
         let graph = graph.lock().await;
-        let (user_result, follow_counts_result, tagged_as_result) = join!(
+        let (user_result, counts_result, tagged_as_result) = join!(
             graph.execute(user_query),
-            graph.execute(follow_counts_query),
+            graph.execute(counts_query),
             graph.execute(tagged_as_query),
         );
 
         // Handle results
         let mut user_result = user_result?;
-        let mut follow_counts_result = follow_counts_result?;
+        let mut counts_result = counts_result?;
         let mut tagged_as_result = tagged_as_result?;
 
         // Exit early if user not found
@@ -259,10 +259,11 @@ impl Profile {
         profile.profile = ProfileData::from_node(&node);
 
         // Process follow counts result
-        if let Some(row) = follow_counts_result.next().await? {
+        if let Some(row) = counts_result.next().await? {
             profile.following_count = row.get("following_count").unwrap_or_default();
             profile.followers_count = row.get("followers_count").unwrap_or_default();
             profile.friends_count = row.get("friends_count").unwrap_or_default();
+            profile.posts_count = row.get("posts_count").unwrap_or_default();
         }
 
         // Process tagged as result
