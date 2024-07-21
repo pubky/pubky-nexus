@@ -24,7 +24,7 @@ pub async fn setup(config: &Config) {
     }
 
     // Initialize Redis connection
-    let redis_connector = RedisConnector::new_connection(&config._redis_uri())
+    let redis_connector = RedisConnector::new_connection(&config.redis_uri())
         .await
         .expect("Failed to connect to Redis");
 
