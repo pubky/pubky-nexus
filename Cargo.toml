@@ -8,7 +8,7 @@ repository = "https://github.com/pubky/pubky-nexus"
 license = "MIT"
 
 [dependencies]
-tokio = { version = "1.38.0", features = ["full"] }
+tokio = { version = "1.38.1", features = ["full"] }
 axum = "0.7.5"
 redis = { version = "0.25.4", features = ["tokio-comp", "json"] }
 neo4rs = "0.7.1"
@@ -45,7 +45,7 @@ path = "src/watcher.rs"
 name = "profile"
 harness = false
 
-# Maximum performance profile
+# Max performance profile
 [profile.release]
 opt-level = 3
 codegen-units = 1

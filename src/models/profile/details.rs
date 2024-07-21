@@ -32,7 +32,6 @@ pub struct ProfileDetails {
     name: String,
     bio: String,
     id: String,
-    image: String,
     links: Vec<ProfileLink>,
     status: String,
 }
@@ -49,7 +48,6 @@ impl ProfileDetails {
             name: String::new(),
             bio: String::new(),
             id: String::new(),
-            image: String::new(),
             links: vec![ProfileLink::new()],
             status: String::new(),
         }
@@ -71,9 +69,8 @@ impl ProfileDetails {
             name: node.get("name").unwrap_or_default(),
             bio: node.get("bio").unwrap_or_default(),
             id: node.get("id").unwrap_or_default(),
-            image: node.get("image").unwrap_or_default(),
             status: node.get("status").unwrap_or_default(),
-            links: vec![ProfileLink::new()],
+            links: node.get("links").unwrap_or_default(),
         }
     }
 
