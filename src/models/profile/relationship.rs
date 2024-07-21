@@ -51,11 +51,11 @@ impl Relationship {
     ) -> Result<(), Box<dyn std::error::Error>> {
         if self.followed_by {
             let key = format!("{user_id}{viewer_id}");
-            index::set(prefix::RELATIONSHIP, &key, &true, None).await?;
+            index::set_bool(prefix::RELATIONSHIP, &key, true, None).await?;
         }
         if self.following {
             let key = format!("{viewer_id}{user_id}");
-            index::set(prefix::RELATIONSHIP, &key, &true, None).await?;
+            index::set_bool(prefix::RELATIONSHIP, &key, true, None).await?;
         }
 
         Ok(())
@@ -70,9 +70,9 @@ impl Relationship {
         let followed_by_key = format!("{user_id}{viewer_id}");
 
         let following_result: Option<bool> =
-            index::get(prefix::RELATIONSHIP, &following_key).await?;
+            index::get_bool(prefix::RELATIONSHIP, &following_key).await?;
         let followed_by_result: Option<bool> =
-            index::get(prefix::RELATIONSHIP, &followed_by_key).await?;
+            index::get_bool(prefix::RELATIONSHIP, &followed_by_key).await?;
 
         match (following_result, followed_by_result) {
             (Some(following), Some(followed_by)) => Ok(Some(Relationship {
