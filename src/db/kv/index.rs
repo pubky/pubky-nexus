@@ -8,13 +8,17 @@ pub async fn set<T: Serialize>(
     prefix: &str,
     key: &str,
     value: &T,
+    expiration: Option<u64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{prefix}{key}");
 
     let value_json = serde_json::to_string(value)?;
 
-    redis_conn.set(&index_key, value_json).await?;
+    match expiration {
+        Some(exp) => redis_conn.set_ex(&index_key, value_json, exp).await?,
+        None => redis_conn.set(&index_key, value_json).await?,
+    }
     debug!("Indexed key: {}", index_key);
     Ok(())
 }

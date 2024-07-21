@@ -51,11 +51,11 @@ impl Relationship {
     ) -> Result<(), Box<dyn std::error::Error>> {
         if self.followed_by {
             let key = format!("{user_id}{viewer_id}");
-            index::set(prefix::RELATIONSHIP, &key, &true).await?;
+            index::set(prefix::RELATIONSHIP, &key, &true, None).await?;
         }
         if self.following {
             let key = format!("{viewer_id}{user_id}");
-            index::set(prefix::RELATIONSHIP, &key, &true).await?;
+            index::set(prefix::RELATIONSHIP, &key, &true, None).await?;
         }
 
         Ok(())

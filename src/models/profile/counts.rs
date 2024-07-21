@@ -43,7 +43,7 @@ impl ProfileCounts {
 
     /// Sets counts in the Redis cache.
     pub async fn set_index(&self, user_id: &str) -> Result<(), Box<dyn std::error::Error>> {
-        index::set(prefix::PROFILE_COUNTS, user_id, self).await
+        index::set(prefix::PROFILE_COUNTS, user_id, self, None).await
     }
 
     /// Get counts from the Redis cache.

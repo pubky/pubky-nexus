@@ -78,7 +78,7 @@ impl ProfileDetails {
     }
 
     pub async fn set_index(&self, user_id: &str) -> Result<(), Box<dyn std::error::Error>> {
-        index::set(prefix::PROFILE_DETAILS, user_id, self).await
+        index::set(prefix::PROFILE_DETAILS, user_id, self, None).await
     }
 
     pub async fn get_from_index(user_id: &str) -> Result<Option<Self>, Box<dyn std::error::Error>> {
