@@ -1,13 +1,13 @@
 use axum::extract::{Path, Query};
-use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
-use log::{debug, error, info};
+use log::info;
 use serde::Deserialize;
 use utoipa::OpenApi;
 
 use crate::models::profile::ProfileView;
 use crate::routes::v0::endpoints::PROFILE_ROUTE;
+use crate::{Error, Result};
 
 #[derive(Deserialize)]
 pub struct ProfileQuery {
@@ -31,7 +31,7 @@ pub struct ProfileQuery {
 pub async fn profile_full_view_handler(
     Path(user_id): Path<String>,
     Query(query): Query<ProfileQuery>,
-) -> Result<Json<ProfileView>, Response> {
+) -> Result<Json<ProfileView>> {
     info!(
         "GET {PROFILE_ROUTE} user_id:{}, viewer_id:{:?}",
         user_id, query.viewer_id
@@ -39,21 +39,8 @@ pub async fn profile_full_view_handler(
 
     match ProfileView::get_by_id(&user_id, query.viewer_id.as_deref()).await {
         Ok(Some(profile)) => Ok(Json(profile)),
-        Ok(None) => {
-            debug!("Profile not found for user_id: {}", user_id);
-            Err((axum::http::StatusCode::NOT_FOUND, "User not found").into_response())
-        }
-        Err(e) => {
-            error!(
-                "Internal server error while fetching profile for user_id: {}: {:?}",
-                user_id, e
-            );
-            Err((
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                "Internal server error",
-            )
-                .into_response())
-        }
+        Ok(None) => Err(Error::UserNotFound { user_id }),
+        Err(source) => Err(Error::InternalServerError { source }),
     }
 }
 

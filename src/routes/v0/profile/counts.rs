@@ -1,12 +1,12 @@
 use axum::extract::Path;
-use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
-use log::{debug, error, info};
+use log::info;
 use utoipa::OpenApi;
 
 use crate::models::profile::ProfileCounts;
 use crate::routes::v0::endpoints::PROFILE_COUNTS_ROUTE;
+use crate::{Error, Result};
 
 #[utoipa::path(
     get,
@@ -21,28 +21,13 @@ use crate::routes::v0::endpoints::PROFILE_COUNTS_ROUTE;
         (status = 500, description = "Internal server error")
     )
 )]
-pub async fn profile_counts_handler(
-    Path(user_id): Path<String>,
-) -> Result<Json<ProfileCounts>, Response> {
+pub async fn profile_counts_handler(Path(user_id): Path<String>) -> Result<Json<ProfileCounts>> {
     info!("GET {PROFILE_COUNTS_ROUTE} user_id:{}", user_id);
 
     match ProfileCounts::get_by_id(&user_id).await {
         Ok(Some(counts)) => Ok(Json(counts)),
-        Ok(None) => {
-            debug!("User not found for counts of user_id: {}", user_id);
-            Err((axum::http::StatusCode::NOT_FOUND, "User not found").into_response())
-        }
-        Err(e) => {
-            error!(
-                "Internal server error while fetching profile counts for user_id: {}: {:?}",
-                user_id, e
-            );
-            Err((
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                "Internal server error",
-            )
-                .into_response())
-        }
+        Ok(None) => Err(Error::UserNotFound { user_id }),
+        Err(source) => Err(Error::InternalServerError { source }),
     }
 }
 

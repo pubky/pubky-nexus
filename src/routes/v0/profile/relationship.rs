@@ -1,12 +1,12 @@
 use axum::extract::Path;
-use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
-use log::{debug, error, info};
+use log::info;
 use utoipa::OpenApi;
 
 use crate::models::profile::Relationship;
 use crate::routes::v0::endpoints::RELATIONSHIP_ROUTE;
+use crate::{Error, Result};
 
 #[utoipa::path(
     get,
@@ -24,7 +24,7 @@ use crate::routes::v0::endpoints::RELATIONSHIP_ROUTE;
 )]
 pub async fn profile_relationship_handler(
     Path((user_id, viewer_id)): Path<(String, String)>,
-) -> Result<Json<Relationship>, Response> {
+) -> Result<Json<Relationship>> {
     info!(
         "GET {RELATIONSHIP_ROUTE} user_id:{}, viewer_id:{}",
         user_id, viewer_id
@@ -32,21 +32,8 @@ pub async fn profile_relationship_handler(
 
     match Relationship::get_by_id(&user_id, Some(&viewer_id)).await {
         Ok(Some(relationship)) => Ok(Json(relationship)),
-        Ok(None) => {
-            debug!(
-                "User or viewer not found for relationship of user_id: {} and viewer_id: {}",
-                user_id, viewer_id
-            );
-            Err((axum::http::StatusCode::NOT_FOUND, "User not found").into_response())
-        }
-        Err(e) => {
-            error!("Internal server error while fetching relationship for user_id: {} and viewer_id: {}: {:?}", user_id, viewer_id, e);
-            Err((
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                "Internal server error",
-            )
-                .into_response())
-        }
+        Ok(None) => Err(Error::UserNotFound { user_id }),
+        Err(source) => Err(Error::InternalServerError { source }),
     }
 }
 

@@ -1,12 +1,12 @@
 use axum::extract::Path;
-use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
-use log::{error, info};
+use log::info;
 use utoipa::OpenApi;
 
 use crate::models::profile::{ProfileTag, ProfileTags};
 use crate::routes::v0::endpoints::PROFILE_TAGS_ROUTE;
+use crate::{Error, Result};
 
 #[utoipa::path(
     get,
@@ -21,24 +21,13 @@ use crate::routes::v0::endpoints::PROFILE_TAGS_ROUTE;
         (status = 500, description = "Internal server error")
     )
 )]
-pub async fn profile_tags_handler(
-    Path(user_id): Path<String>,
-) -> Result<Json<ProfileTags>, Response> {
+pub async fn profile_tags_handler(Path(user_id): Path<String>) -> Result<Json<ProfileTags>> {
     info!("GET {PROFILE_TAGS_ROUTE} user_id:{}", user_id);
 
     match ProfileTags::get_by_id(&user_id).await {
-        Ok(tags) => Ok(Json(tags)),
-        Err(e) => {
-            error!(
-                "Internal server error while fetching profile tags for user_id: {}: {:?}",
-                user_id, e
-            );
-            Err((
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                "Internal server error",
-            )
-                .into_response())
-        }
+        Ok(Some(tags)) => Ok(Json(tags)),
+        Ok(None) => Err(Error::UserNotFound { user_id }),
+        Err(source) => Err(Error::InternalServerError { source }),
     }
 }
 
