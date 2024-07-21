@@ -1,1 +1,2 @@
-pub mod indexes;
+pub mod index;
+pub mod prefix;

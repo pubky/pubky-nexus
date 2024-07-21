@@ -1,13 +1,7 @@
-use crate::{
-    db::connectors::{neo4j::get_neo4j_graph, redis::get_redis_conn},
-    queries,
-};
+use crate::db::connectors::neo4j::get_neo4j_graph;
+use crate::{index, prefix, queries};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-
-use redis::AsyncCommands;
-
-const RELATIONSHIP_PREFIX: &str = "follows!";
 
 /// Represents the relationship of the user that views and user being viewed.
 #[derive(Serialize, Deserialize, ToSchema)]
@@ -55,16 +49,13 @@ impl Relationship {
         user_id: &str,
         viewer_id: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut redis_conn = get_redis_conn().await?;
-
         if self.followed_by {
-            let key = format!("{RELATIONSHIP_PREFIX}{user_id}{viewer_id}");
-            // println!("Saved relationship  index {key}");
-            redis_conn.set_ex(key, true, 3600).await?;
+            let key = format!("{user_id}{viewer_id}");
+            index::set(prefix::RELATIONSHIP, &key, &true).await?;
         }
         if self.following {
-            let key = format!("{RELATIONSHIP_PREFIX}{viewer_id}{user_id}");
-            redis_conn.set_ex(key, true, 3600).await?;
+            let key = format!("{viewer_id}{user_id}");
+            index::set(prefix::RELATIONSHIP, &key, &true).await?;
         }
 
         Ok(())
@@ -75,13 +66,13 @@ impl Relationship {
         user_id: &str,
         viewer_id: &str,
     ) -> Result<Option<Relationship>, Box<dyn std::error::Error>> {
-        let mut redis_conn = get_redis_conn().await?;
+        let following_key = format!("{viewer_id}{user_id}");
+        let followed_by_key = format!("{user_id}{viewer_id}");
 
-        let following_key = format!("{RELATIONSHIP_PREFIX}{viewer_id}{user_id}");
-        let followed_by_key = format!("{RELATIONSHIP_PREFIX}{user_id}{viewer_id}");
-
-        let following_result: Option<bool> = redis_conn.get(following_key).await?;
-        let followed_by_result: Option<bool> = redis_conn.get(followed_by_key).await?;
+        let following_result: Option<bool> =
+            index::get(prefix::RELATIONSHIP, &following_key).await?;
+        let followed_by_result: Option<bool> =
+            index::get(prefix::RELATIONSHIP, &followed_by_key).await?;
 
         match (following_result, followed_by_result) {
             (Some(following), Some(followed_by)) => Ok(Some(Relationship {

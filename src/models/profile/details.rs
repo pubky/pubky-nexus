@@ -1,14 +1,8 @@
-use crate::{
-    db::connectors::{neo4j::get_neo4j_graph, redis::get_redis_conn},
-    queries,
-};
+use crate::db::connectors::neo4j::get_neo4j_graph;
+use crate::{index, prefix, queries};
+use neo4rs::Node;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-
-use neo4rs::Node;
-use redis::AsyncCommands;
-
-const PROFILE_DETAILS_PREFIX: &str = "profile-details!";
 
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct ProfileLink {
@@ -83,30 +77,12 @@ impl ProfileDetails {
         }
     }
 
-    /// Sets the details in the Redis cache.
     pub async fn set_index(&self, user_id: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let mut redis_conn = get_redis_conn().await?;
-        let cache_key = format!("{PROFILE_DETAILS_PREFIX}{user_id}");
-
-        let details_json = serde_json::to_string(&self)?;
-
-        redis_conn.set_ex(&cache_key, details_json, 3600).await?;
-        Ok(())
+        index::set(prefix::PROFILE_DETAILS, user_id, self).await
     }
 
-    /// Retrieves the details from the Redis cache.
-    pub async fn get_from_index(
-        user_id: &str,
-    ) -> Result<Option<ProfileDetails>, Box<dyn std::error::Error>> {
-        let mut redis_conn = get_redis_conn().await?;
-        let cache_key = format!("{PROFILE_DETAILS_PREFIX}{user_id}");
-
-        if let Ok(cached_details) = redis_conn.get::<_, String>(&cache_key).await {
-            let details: ProfileDetails = serde_json::from_str(&cached_details)?;
-            return Ok(Some(details));
-        }
-
-        Ok(None)
+    pub async fn get_from_index(user_id: &str) -> Result<Option<Self>, Box<dyn std::error::Error>> {
+        index::get(prefix::PROFILE_DETAILS, user_id).await
     }
 
     /// Retrieves the details from Neo4j.

@@ -1,7 +1,7 @@
 use axum::extract::{Path, Query};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use log::{error, info};
+use log::{debug, error, info};
 use serde::Deserialize;
 
 use crate::models::profile::{
@@ -41,12 +41,9 @@ pub async fn get_profile(
     );
 
     match ProfileView::get_by_id(&user_id, query.viewer_id.as_deref()).await {
-        Ok(Some(profile)) => {
-            info!("Profile found for user_id: {}", user_id);
-            Ok(Json(profile))
-        }
+        Ok(Some(profile)) => Ok(Json(profile)),
         Ok(None) => {
-            info!("Profile not found for user_id: {}", user_id);
+            debug!("Profile not found for user_id: {}", user_id);
             Err((axum::http::StatusCode::NOT_FOUND, "User not found").into_response())
         }
         Err(e) => {
@@ -85,15 +82,9 @@ pub async fn get_relationship(
     );
 
     match Relationship::get_by_id(&user_id, Some(&viewer_id)).await {
-        Ok(Some(relationship)) => {
-            info!(
-                "Relationship found for user_id: {} and viewer_id: {}",
-                user_id, viewer_id
-            );
-            Ok(Json(relationship))
-        }
+        Ok(Some(relationship)) => Ok(Json(relationship)),
         Ok(None) => {
-            info!(
+            debug!(
                 "User or viewer not found for relationship of user_id: {} and viewer_id: {}",
                 user_id, viewer_id
             );
@@ -126,12 +117,9 @@ pub async fn get_counts(Path(user_id): Path<String>) -> Result<Json<ProfileCount
     info!("GET {PROFILE_COUNTS_ROUTE} user_id:{}", user_id);
 
     match ProfileCounts::get_by_id(&user_id).await {
-        Ok(Some(counts)) => {
-            info!("Profile counts found for user_id: {}", user_id);
-            Ok(Json(counts))
-        }
+        Ok(Some(counts)) => Ok(Json(counts)),
         Ok(None) => {
-            info!("User not found for counts of user_id: {}", user_id);
+            debug!("User not found for counts of user_id: {}", user_id);
             Err((axum::http::StatusCode::NOT_FOUND, "User not found").into_response())
         }
         Err(e) => {
@@ -164,12 +152,9 @@ pub async fn get_details(Path(user_id): Path<String>) -> Result<Json<ProfileDeta
     info!("GET {PROFILE_DETAILS_ROUTE} user_id:{}", user_id);
 
     match ProfileDetails::get_by_id(&user_id).await {
-        Ok(Some(details)) => {
-            info!("Profile details found for user_id: {}", user_id);
-            Ok(Json(details))
-        }
+        Ok(Some(details)) => Ok(Json(details)),
         Ok(None) => {
-            info!("Profile details not found for user_id: {}", user_id);
+            debug!("Profile details not found for user_id: {}", user_id);
             Err((axum::http::StatusCode::NOT_FOUND, "User not found").into_response())
         }
         Err(e) => {
@@ -202,10 +187,7 @@ pub async fn get_tags(Path(user_id): Path<String>) -> Result<Json<ProfileTags>, 
     info!("GET {PROFILE_TAGS_ROUTE} user_id:{}", user_id);
 
     match ProfileTags::get_by_id(&user_id).await {
-        Ok(tags) => {
-            info!("Profile tags found for user_id: {}", user_id);
-            Ok(Json(tags))
-        }
+        Ok(tags) => Ok(Json(tags)),
         Err(e) => {
             error!(
                 "Internal server error while fetching profile tags for user_id: {}: {:?}",
