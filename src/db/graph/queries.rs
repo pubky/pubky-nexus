@@ -1,14 +1,20 @@
+use crate::db::connectors::neo4j::get_neo4j_graph;
 use neo4rs::{query, Query};
 
-// Enforce unique constraints. Examples
-// CREATE CONSTRAINT uniqueUserId FOR (u:User) REQUIRE u.id IS UNIQUE;
-// CREATE CONSTRAINT uniquePostId FOR (p:Post) REQUIRE p.id IS UNIQUE;
-// CREATE CONSTRAINT uniquePostUri FOR (p:Post) REQUIRE p.uri IS UNIQUE;
-pub fn enforce_unique_constraint(constraint_name: &str, label: &str, field: &str) -> Query {
-    query("CREATE CONSTRAINT $constraint_name FOR (n:$label) REQUIRE n.$field IS UNIQUE")
-        .param("constraint_name", constraint_name)
-        .param("label", label)
-        .param("field", field)
+// Set graph constraints if they do not already exist
+pub async fn set_graph_constraints() -> Result<(), Box<dyn std::error::Error>> {
+    let constraints = vec![
+        "CREATE CONSTRAINT uniqueUserId IF NOT EXISTS FOR (u:User) REQUIRE u.id IS UNIQUE",
+        "CREATE CONSTRAINT uniquePostId IF NOT EXISTS FOR (p:Post) REQUIRE p.id IS UNIQUE",
+    ];
+
+    let graph = get_neo4j_graph()?;
+    let graph = graph.lock().await;
+    for constraint in constraints {
+        graph.run(query(constraint)).await?;
+    }
+
+    Ok(())
 }
 
 // Create nodes with Merge (avoid key duplication). Examples:
