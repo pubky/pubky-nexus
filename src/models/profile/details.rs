@@ -56,12 +56,11 @@ impl ProfileDetails {
     /// Retrieves details by user ID, first trying to get from Redis, then from Neo4j if not found.
     pub async fn get_by_id(
         user_id: &str,
-    ) -> Result<Option<ProfileDetails>, Box<dyn std::error::Error>> {
-        if let Some(details) = ProfileDetails::get_from_index(user_id).await? {
-            return Ok(Some(details));
+    ) -> Result<Option<ProfileDetails>, Box<dyn std::error::Error + Send + Sync>> {
+        match ProfileDetails::get_from_index(user_id).await? {
+            Some(details) => Ok(Some(details)),
+            None => ProfileDetails::get_from_graph(user_id).await,
         }
-
-        ProfileDetails::get_from_graph(user_id).await
     }
 
     fn from_node(node: &Node) -> Self {
@@ -74,18 +73,23 @@ impl ProfileDetails {
         }
     }
 
-    pub async fn set_index(&self, user_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn set_index(
+        &self,
+        user_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         index::set(prefix::PROFILE_DETAILS, user_id, self, None, None).await
     }
 
-    pub async fn get_from_index(user_id: &str) -> Result<Option<Self>, Box<dyn std::error::Error>> {
+    pub async fn get_from_index(
+        user_id: &str,
+    ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
         index::get(prefix::PROFILE_DETAILS, user_id, None).await
     }
 
     /// Retrieves the details from Neo4j.
     pub async fn get_from_graph(
         user_id: &str,
-    ) -> Result<Option<ProfileDetails>, Box<dyn std::error::Error>> {
+    ) -> Result<Option<ProfileDetails>, Box<dyn std::error::Error + Send + Sync>> {
         let graph = get_neo4j_graph()?;
         let user_query = queries::get_user_by_id(user_id);
 

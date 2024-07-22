@@ -48,7 +48,8 @@ impl fmt::Debug for RedisConnector {
 }
 
 /// Retrieves a Redis connection.
-pub async fn get_redis_conn() -> Result<MultiplexedConnection, Box<dyn std::error::Error>> {
+pub async fn get_redis_conn(
+) -> Result<MultiplexedConnection, Box<dyn std::error::Error + Send + Sync>> {
     let redis_client = REDIS_CONNECTOR
         .get()
         .ok_or("RedisConnector not initialized")?

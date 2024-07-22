@@ -33,28 +33,32 @@ impl ProfileCounts {
     /// Retrieves counts by user ID, first trying to get from Redis, then from Neo4j if not found.
     pub async fn get_by_id(
         user_id: &str,
-    ) -> Result<Option<ProfileCounts>, Box<dyn std::error::Error>> {
-        if let Some(counts) = ProfileCounts::get_from_index(user_id).await? {
-            return Ok(Some(counts));
+    ) -> Result<Option<ProfileCounts>, Box<dyn std::error::Error + Send + Sync>> {
+        match ProfileCounts::get_from_index(user_id).await? {
+            Some(counts) => Ok(Some(counts)),
+            None => ProfileCounts::get_from_graph(user_id).await,
         }
-
-        ProfileCounts::get_from_graph(user_id).await
     }
 
     /// Sets counts in the Redis cache.
-    pub async fn set_index(&self, user_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn set_index(
+        &self,
+        user_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         index::set(prefix::PROFILE_COUNTS, user_id, self, None, None).await
     }
 
     /// Get counts from the Redis cache.
-    pub async fn get_from_index(user_id: &str) -> Result<Option<Self>, Box<dyn std::error::Error>> {
+    pub async fn get_from_index(
+        user_id: &str,
+    ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
         index::get(prefix::PROFILE_COUNTS, user_id, None).await
     }
 
     /// Retrieves the counts from Neo4j.
     pub async fn get_from_graph(
         user_id: &str,
-    ) -> Result<Option<ProfileCounts>, Box<dyn std::error::Error>> {
+    ) -> Result<Option<ProfileCounts>, Box<dyn std::error::Error + Send + Sync>> {
         let graph = get_neo4j_graph()?;
         let counts_query = queries::profile_counts(user_id);
 

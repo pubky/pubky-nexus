@@ -23,7 +23,7 @@ pub async fn set<T: Serialize + Send + Sync>(
     value: &T,
     path: Option<&str>,
     expiration: Option<i64>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{}{}", prefix, key);
     let json_path = path.unwrap_or("$");
@@ -60,7 +60,7 @@ pub async fn get<T: DeserializeOwned + Send + Sync>(
     prefix: &str,
     key: &str,
     path: Option<&str>,
-) -> Result<Option<T>, Box<dyn std::error::Error>> {
+) -> Result<Option<T>, Box<dyn std::error::Error + Send + Sync>> {
     let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{}{}", prefix, key);
     let json_path = path.unwrap_or("$").to_string(); // Ensure path is a String
@@ -95,7 +95,7 @@ pub async fn set_bool(
     key: &str,
     value: bool,
     expiration: Option<u64>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{}{}", prefix, key);
 
@@ -132,7 +132,10 @@ pub async fn set_bool(
 /// # Errors
 ///
 /// Returns an error if the operation fails.
-pub async fn get_bool(prefix: &str, key: &str) -> Result<Option<bool>, Box<dyn std::error::Error>> {
+pub async fn get_bool(
+    prefix: &str,
+    key: &str,
+) -> Result<Option<bool>, Box<dyn std::error::Error + Send + Sync>> {
     let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{}{}", prefix, key);
 
