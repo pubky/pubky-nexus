@@ -1,7 +1,7 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
 use crate::{index, prefix, queries};
 use serde::{Deserialize, Serialize};
-use tokio::join;
+use tokio::try_join;
 use utoipa::ToSchema;
 
 /// Represents the relationship of the user that views and user being viewed.
@@ -65,15 +65,10 @@ impl Relationship {
         let following_key = format!("{viewer_id}{user_id}");
         let followed_by_key = format!("{user_id}{viewer_id}");
 
-        // Perform both operations concurrently
-        let (following_result, followed_by_result) = join!(
+        let (following_result, followed_by_result) = try_join!(
             index::get_bool(prefix::RELATIONSHIP, &following_key),
             index::get_bool(prefix::RELATIONSHIP, &followed_by_key),
-        );
-
-        // Unwrap the results
-        let following_result: Option<bool> = following_result?;
-        let followed_by_result: Option<bool> = followed_by_result?;
+        )?;
 
         match (following_result, followed_by_result) {
             (Some(following), Some(followed_by)) => Ok(Some(Relationship {
