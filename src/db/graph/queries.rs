@@ -3,15 +3,11 @@ use neo4rs::{query, Query};
 
 // Set graph constraints if they do not already exist
 pub async fn setup_graph() -> Result<(), Box<dyn std::error::Error>> {
-    let constraints = vec![
-        "CREATE CONSTRAINT uniqueUserId IF NOT EXISTS FOR (u:User) REQUIRE u.id IS UNIQUE",
-        "CREATE CONSTRAINT uniquePostId IF NOT EXISTS FOR (p:Post) REQUIRE p.id IS UNIQUE",
-    ];
+    let constraints = ["CREATE CONSTRAINT uniqueUserId IF NOT EXISTS FOR (u:User) REQUIRE u.id IS UNIQUE",
+        "CREATE CONSTRAINT uniquePostId IF NOT EXISTS FOR (p:Post) REQUIRE p.id IS UNIQUE"];
 
-    let indexes = vec![
-        "CREATE INDEX userIdIndex IF NOT EXISTS FOR (u:User) ON (u.id)",
-        "CREATE INDEX postIdIndex IF NOT EXISTS FOR (p:Post) ON (p.id)",
-    ];
+    let indexes = ["CREATE INDEX userIdIndex IF NOT EXISTS FOR (u:User) ON (u.id)",
+        "CREATE INDEX postIdIndex IF NOT EXISTS FOR (p:Post) ON (p.id)"];
 
     let queries = constraints.iter().chain(indexes.iter());
 

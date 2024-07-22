@@ -46,7 +46,7 @@ impl Post {
     fn from_node(node: &Node, author_id: &str) -> Self {
         let id = node.get("id").unwrap_or_default();
         Self {
-            uri: String::from(format!("pubky:{author_id}/pubky.app/posts/{id}")),
+            uri: format!("pubky:{author_id}/pubky.app/posts/{id}"),
             content: node.get("content").unwrap_or_default(),
             id,
             timestamp: node.get("timestamp").unwrap_or_default(),
