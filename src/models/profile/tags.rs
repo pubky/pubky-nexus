@@ -44,7 +44,7 @@ impl ProfileTags {
     }
 
     /// TODO: Retrieves tags by user ID, currently returns an empty instance.
-    pub async fn get_by_id(_user_id: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        Ok(Self::new())
+    pub async fn get_by_id(_user_id: &str) -> Result<Option<Self>, Box<dyn std::error::Error>> {
+        Ok(Some(Self::new()))
     }
 }

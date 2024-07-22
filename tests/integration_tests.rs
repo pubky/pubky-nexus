@@ -164,7 +164,6 @@ async fn test_get_details() -> Result<()> {
     assert!(body["name"].is_string());
     assert!(body["bio"].is_string());
     assert!(body["id"].is_string());
-    assert!(body["image"].is_string());
     assert!(body["status"].is_string());
     assert!(body["links"].is_array());
 

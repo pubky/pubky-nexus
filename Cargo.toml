@@ -8,9 +8,9 @@ repository = "https://github.com/pubky/pubky-nexus"
 license = "MIT"
 
 [dependencies]
-tokio = { version = "1.38.0", features = ["full"] }
+tokio = { version = "1.38.1", features = ["full"] }
 axum = "0.7.5"
-redis = { version = "0.25.4", features = ["tokio-comp"] }
+redis = { version = "0.25.4", features = ["tokio-comp", "json"] }
 neo4rs = "0.7.1"
 serde = { version = "1.0.204", features = ["derive"] }
 serde_json = "1.0.120"
@@ -21,6 +21,8 @@ tower-http = { version = "0.5.2", features = ["fs"] }
 dotenv = "0.15"
 log = "0.4.22"
 env_logger = "0.11.3"
+const_format = "0.2.32"
+thiserror = "1.0.63"
 
 [dev-dependencies]
 anyhow = "1.0.86"
@@ -43,7 +45,7 @@ path = "src/watcher.rs"
 name = "profile"
 harness = false
 
-# Maximum performance profile
+# Max performance profile
 [profile.release]
 opt-level = 3
 codegen-units = 1

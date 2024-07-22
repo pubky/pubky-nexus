@@ -23,24 +23,16 @@ services:
       NEO4J_server_memory_pagecache_size: 1G
       NEO4J_server_memory_heap_initial__size: 2G
       NEO4J_server_memory_heap_max__size: 2G
+      NEO4J_apoc_uuid_enabled: false
 
   redis:
-    image: redis:7.2.5-alpine3.20
+    image: redis/redis-stack:7.2.0-v11
     container_name: redis
     ports:
       - "6379:6379"
+      - "8001:8001"
     networks:
       - default
     volumes:
       - .database/redis/data:/data
     restart: always
-
-  redisinsight:
-    image: redislabs/redisinsight:latest
-    container_name: redisinsight
-    ports:
-      - "5540:5540"
-    volumes:
-      - .database/redis/insight:/data
-    depends_on:
-      - redis

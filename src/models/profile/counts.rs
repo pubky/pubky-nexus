@@ -1,13 +1,7 @@
-use crate::{
-    db::connectors::{neo4j::get_neo4j_graph, redis::get_redis_conn},
-    queries,
-};
+use crate::db::connectors::neo4j::get_neo4j_graph;
+use crate::{index, prefix, queries};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-
-use redis::AsyncCommands;
-
-const PROFILE_COUNTS_PREFIX: &str = "profile-counts!";
 
 /// Represents total counts of relationships of a profile.
 #[derive(Serialize, Deserialize, ToSchema)]
@@ -49,28 +43,12 @@ impl ProfileCounts {
 
     /// Sets counts in the Redis cache.
     pub async fn set_index(&self, user_id: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let mut redis_conn = get_redis_conn().await?;
-        let cache_key = format!("{PROFILE_COUNTS_PREFIX}{user_id}");
-
-        let counts_json = serde_json::to_string(&self)?;
-
-        redis_conn.set_ex(&cache_key, counts_json, 3600).await?;
-        Ok(())
+        index::set(prefix::PROFILE_COUNTS, user_id, self, None, None).await
     }
 
-    /// Retrieves the counts from the Redis cache.
-    pub async fn get_from_index(
-        user_id: &str,
-    ) -> Result<Option<ProfileCounts>, Box<dyn std::error::Error>> {
-        let mut redis_conn = get_redis_conn().await?;
-        let cache_key = format!("{PROFILE_COUNTS_PREFIX}{user_id}");
-
-        if let Ok(cached_counts) = redis_conn.get::<_, String>(&cache_key).await {
-            let counts: ProfileCounts = serde_json::from_str(&cached_counts)?;
-            return Ok(Some(counts));
-        }
-
-        Ok(None)
+    /// Get counts from the Redis cache.
+    pub async fn get_from_index(user_id: &str) -> Result<Option<Self>, Box<dyn std::error::Error>> {
+        index::get(prefix::PROFILE_COUNTS, user_id, None).await
     }
 
     /// Retrieves the counts from Neo4j.

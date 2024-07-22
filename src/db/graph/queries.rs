@@ -1,5 +1,20 @@
 use neo4rs::{query, Query};
 
+// Enforce unique constraints. Examples
+// CREATE CONSTRAINT uniqueUserId FOR (u:User) REQUIRE u.id IS UNIQUE;
+// CREATE CONSTRAINT uniquePostId FOR (p:Post) REQUIRE p.id IS UNIQUE;
+// CREATE CONSTRAINT uniquePostUri FOR (p:Post) REQUIRE p.uri IS UNIQUE;
+pub fn enforce_unique_constraint(constraint_name: &str, label: &str, field: &str) -> Query {
+    query("CREATE CONSTRAINT $constraint_name FOR (n:$label) REQUIRE n.$field IS UNIQUE")
+        .param("constraint_name", constraint_name)
+        .param("label", label)
+        .param("field", field)
+}
+
+// Create nodes with Merge (avoid key duplication). Examples:
+// MERGE (u:User {id: "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro"}) SET u.name = "Aldert", u.status = "working", u.links = ...
+// MERGE (p:Post {id: "0RDV7ABDZDW0"}) SET p.content = "Julian Assange is free", p.uri = "pubky:pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy/pubky.app/posts/0RDV7ABDZDW0", p.createdAt = 1719308315917;
+
 // Retrive user node by id (pk)
 pub fn get_user_by_id(user_id: &str) -> Query {
     query("MATCH (u:User {id: $id}) RETURN u").param("id", user_id)
@@ -42,32 +57,4 @@ pub fn viewer_relationship(user_id: &str, viewer_id: &str) -> neo4rs::Query {
     )
     .param("user_id", user_id)
     .param("viewer_id", viewer_id)
-}
-
-// Combine Profile queries into one (Not yet used)
-pub fn _get_user_profile_data(user_id: &str, viewer_id: Option<&str>) -> Query {
-    let viewer = viewer_id.unwrap_or("none");
-    println!("{viewer}");
-
-    query(
-        "
-        MATCH (u:User {{id: $id}})
-        OPTIONAL MATCH (u)-[:TAGGED_AS]->(t:Tag)<-[:TAGGED_BY]-(author:User)
-        OPTIONAL MATCH (u)-[:AUTHORED]->(p:Post)
-        OPTIONAL MATCH (u)-[:FOLLOWS]->(following:User)
-        OPTIONAL MATCH (follower:User)-[:FOLLOWS]->(u)
-        OPTIONAL MATCH (u)-[:FOLLOWS]->(friend:User)-[:FOLLOWS]->(u)
-        OPTIONAL MATCH (viewer:User {{id: $viewer_id}})-[f:FOLLOWS]->(u)
-        OPTIONAL MATCH (u)-[fb:FOLLOWS]->(viewer)
-        RETURN COUNT(f) > 0 AS following, COUNT(fb) > 0 AS followed_by
-        RETURN u, COLLECT(DISTINCT t) AS tags, 
-               COUNT(DISTINCT p) AS posts_count,
-               COUNT(DISTINCT following) AS following_count,
-               COUNT(DISTINCT follower) AS followers_count,
-               COUNT(DISTINCT friend) AS friends_count,
-               false AS following, false AS followed_by
-        ",
-    )
-    .param("id", user_id)
-    .param("viewer_id", viewer)
 }

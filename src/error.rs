@@ -1,32 +1,38 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use serde::Serialize;
+use log::{debug, error};
+use thiserror::Error;
 
 pub type Result<T> = core::result::Result<T, Error>;
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Error, Debug)]
 pub enum Error {
-    UserNotFound,
+    #[error("User not found: {user_id}")]
+    UserNotFound { user_id: String },
+    #[error("Internal server error: {source}")]
+    InternalServerError { source: Box<dyn std::error::Error> },
+    // Add other custom errors here
 }
 
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
-        println!("->> {:<12} - {self:?}", "INTO_RES");
+        // HTTP Status codes
+        let status_code = match self {
+            Error::UserNotFound { .. } => StatusCode::NOT_FOUND,
+            Error::InternalServerError { .. } => StatusCode::INTERNAL_SERVER_ERROR,
+            // Map other errors to appropriate status codes
+        };
 
-        // Create a placeholder Axum response.
-        let mut response = StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        // Logging
+        match &self {
+            Error::UserNotFound { user_id } => debug!("User not found: {}", user_id),
+            Error::InternalServerError { source } => error!("Internal server error: {:?}", source),
+        };
 
-        // Insert the Error into the response.
-        response.extensions_mut().insert(self);
+        let body = serde_json::json!({
+            "error": self.to_string()
+        });
 
-        response
+        (status_code, axum::Json(body)).into_response()
     }
 }
-
-impl core::fmt::Display for Error {
-    fn fmt(&self, fmt: &mut core::fmt::Formatter) -> core::result::Result<(), core::fmt::Error> {
-        write!(fmt, "{self:?}")
-    }
-}
-
-impl std::error::Error for Error {}

@@ -62,7 +62,7 @@ fn bench_get_relationship_from_graph(c: &mut Criterion) {
         &user_id,
         |b, &id| {
             b.to_async(&rt).iter(|| async {
-                let relationship = Relationship::get_from_graph(id, &viewer_id).await.unwrap();
+                let relationship = Relationship::get_from_graph(id, viewer_id).await.unwrap();
                 criterion::black_box(relationship);
             });
         },
@@ -85,7 +85,7 @@ fn bench_get_relationship_by_id(c: &mut Criterion) {
         &user_id,
         |b, &id| {
             b.to_async(&rt).iter(|| async {
-                let relationship = Relationship::get_by_id(id, Some(&viewer_id)).await.unwrap();
+                let relationship = Relationship::get_by_id(id, Some(viewer_id)).await.unwrap();
                 criterion::black_box(relationship);
             });
         },

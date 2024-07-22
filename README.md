@@ -48,3 +48,8 @@ cargo watch -q -c -w tests/ -x "test -- --nocapture"
 # Run benchmarks (e.g., get profile by ID benchmark)
 cargo bench --bench profile
 ```
+
+### Real time explore the databases
+
+- Redis: http://localhost:8001/redis-stack/browser
+- Neo4J: http://localhost:7474/browser/
