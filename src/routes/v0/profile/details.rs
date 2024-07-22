@@ -1,18 +1,17 @@
+use crate::models::profile::{ProfileDetails, ProfileLink};
+use crate::routes::v0::endpoints::PROFILE_DETAILS_ROUTE;
+use crate::{Error, Result};
 use axum::extract::Path;
 use axum::Json;
 use log::info;
 use utoipa::OpenApi;
-
-use crate::models::profile::{ProfileDetails, ProfileLink};
-use crate::routes::v0::endpoints::PROFILE_DETAILS_ROUTE;
-use crate::{Error, Result};
 
 #[utoipa::path(
     get,
     path = PROFILE_DETAILS_ROUTE,
     tag = "Profile Details",
     params(
-        ("user_id" = String, Path, description = "User ID")
+        ("user_id" = String, Path, description = "User Pubky ID")
     ),
     responses(
         (status = 200, description = "User details", body = ProfileDetails),

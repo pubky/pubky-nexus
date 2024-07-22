@@ -1,12 +1,11 @@
+use crate::models::profile::ProfileView;
+use crate::routes::v0::endpoints::PROFILE_ROUTE;
+use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
 use log::info;
 use serde::Deserialize;
 use utoipa::OpenApi;
-
-use crate::models::profile::ProfileView;
-use crate::routes::v0::endpoints::PROFILE_ROUTE;
-use crate::{Error, Result};
 
 #[derive(Deserialize)]
 pub struct ProfileQuery {
@@ -18,8 +17,8 @@ pub struct ProfileQuery {
     path = PROFILE_ROUTE,
     tag = "Profile Full View",
     params(
-        ("user_id" = String, Path, description = "User ID"),
-        ("viewer_id" = Option<String>, Query, description = "Viewer ID")
+        ("user_id" = String, Path, description = "User Pubky ID"),
+        ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID")
     ),
     responses(
         (status = 200, description = "User profile", body = ProfileView),

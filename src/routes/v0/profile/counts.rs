@@ -1,18 +1,17 @@
+use crate::models::profile::ProfileCounts;
+use crate::routes::v0::endpoints::PROFILE_COUNTS_ROUTE;
+use crate::{Error, Result};
 use axum::extract::Path;
 use axum::Json;
 use log::info;
 use utoipa::OpenApi;
-
-use crate::models::profile::ProfileCounts;
-use crate::routes::v0::endpoints::PROFILE_COUNTS_ROUTE;
-use crate::{Error, Result};
 
 #[utoipa::path(
     get,
     path = PROFILE_COUNTS_ROUTE,
     tag = "Profile Counts",
     params(
-        ("user_id" = String, Path, description = "User ID")
+        ("user_id" = String, Path, description = "User Pubky ID")
     ),
     responses(
         (status = 200, description = "User counts", body = ProfileCounts),

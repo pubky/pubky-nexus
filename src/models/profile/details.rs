@@ -1,5 +1,6 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
 use crate::{index, prefix, queries};
+use chrono::Utc;
 use neo4rs::Node;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -31,9 +32,10 @@ impl ProfileLink {
 pub struct ProfileDetails {
     name: String,
     bio: String,
-    id: String,
+    id: String, // TODO: create Crockfordbase32 Struct and validator
     links: Vec<ProfileLink>,
     status: String,
+    timestamp: i64,
 }
 
 impl Default for ProfileDetails {
@@ -50,6 +52,7 @@ impl ProfileDetails {
             id: String::new(),
             links: vec![ProfileLink::new()],
             status: String::new(),
+            timestamp: Utc::now().timestamp(),
         }
     }
 
@@ -70,6 +73,7 @@ impl ProfileDetails {
             id: node.get("id").unwrap_or_default(),
             status: node.get("status").unwrap_or_default(),
             links: node.get("links").unwrap_or_default(),
+            timestamp: node.get("timestamp").unwrap_or_default(),
         }
     }
 
@@ -91,10 +95,10 @@ impl ProfileDetails {
         user_id: &str,
     ) -> Result<Option<ProfileDetails>, Box<dyn std::error::Error + Send + Sync>> {
         let graph = get_neo4j_graph()?;
-        let user_query = queries::get_user_by_id(user_id);
+        let query = queries::get_user_by_id(user_id);
 
         let graph = graph.lock().await;
-        let mut result = graph.execute(user_query).await?;
+        let mut result = graph.execute(query).await?;
 
         if let Some(row) = result.next().await? {
             let node: Node = row.get("u").unwrap();

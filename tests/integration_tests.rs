@@ -166,11 +166,39 @@ async fn test_get_details() -> Result<()> {
     assert!(body["id"].is_string());
     assert!(body["status"].is_string());
     assert!(body["links"].is_array());
+    assert!(body["timestamp"].is_number());
 
     // Test non-existing user
     let user_id = "bad_user_id";
     let res = client
         .do_get(&format!("/v0/profile/{}/details", user_id))
+        .await?;
+    assert_eq!(res.status(), 404);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_get_post() -> Result<()> {
+    let client = httpc_test::new_client(HOST_URL)?;
+
+    let author_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
+    let post_id = "2Z1NJPW2QHGG0";
+
+    let res = client
+        .do_get(&format!("/v0/post/{}/{}", author_id, post_id))
+        .await?;
+    assert_eq!(res.status(), 200);
+
+    let body = res.json_body()?;
+    assert_eq!(body["content"], "Running #Pubky ");
+    assert_eq!(body["timestamp"].as_u64(), Some(1712310532901));
+    assert_eq!(body["id"], post_id);
+    assert_eq!(body["author"], author_id);
+
+    // Test non-existing post
+    let res = client
+        .do_get(&format!("/v0/post/{}/{}", author_id, "no_post"))
         .await?;
     assert_eq!(res.status(), 404);
 

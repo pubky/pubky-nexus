@@ -2,16 +2,23 @@ use crate::db::connectors::neo4j::get_neo4j_graph;
 use neo4rs::{query, Query};
 
 // Set graph constraints if they do not already exist
-pub async fn set_graph_constraints() -> Result<(), Box<dyn std::error::Error>> {
+pub async fn setup_graph() -> Result<(), Box<dyn std::error::Error>> {
     let constraints = vec![
         "CREATE CONSTRAINT uniqueUserId IF NOT EXISTS FOR (u:User) REQUIRE u.id IS UNIQUE",
         "CREATE CONSTRAINT uniquePostId IF NOT EXISTS FOR (p:Post) REQUIRE p.id IS UNIQUE",
     ];
 
+    let indexes = vec![
+        "CREATE INDEX userIdIndex IF NOT EXISTS FOR (u:User) ON (u.id)",
+        "CREATE INDEX postIdIndex IF NOT EXISTS FOR (p:Post) ON (p.id)",
+    ];
+
+    let queries = constraints.iter().chain(indexes.iter());
+
     let graph = get_neo4j_graph()?;
     let graph = graph.lock().await;
-    for constraint in constraints {
-        graph.run(query(constraint)).await?;
+    for q in queries {
+        graph.run(query(q)).await?;
     }
 
     Ok(())
@@ -21,6 +28,13 @@ pub async fn set_graph_constraints() -> Result<(), Box<dyn std::error::Error>> {
 // MERGE (u:User {id: "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro"}) SET u.name = "Aldert", u.status = "working", u.links = ...
 // MERGE (p:Post {id: "0RDV7ABDZDW0"}) SET p.content = "Julian Assange is free", p.uri = "pubky:pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy/pubky.app/posts/0RDV7ABDZDW0", p.createdAt = 1719308315917;
 
+// Retrieve post node by post id and author id
+pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
+    query("MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id}) RETURN p")
+        .param("author_id", author_id)
+        .param("post_id", post_id)
+}
+
 // Retrive user node by id (pk)
 pub fn get_user_by_id(user_id: &str) -> Query {
     query("MATCH (u:User {id: $id}) RETURN u").param("id", user_id)
@@ -28,8 +42,8 @@ pub fn get_user_by_id(user_id: &str) -> Query {
 
 pub fn profile_tags(user_id: &str) -> neo4rs::Query {
     query(
-        "MATCH (u:User {id: $id})-[:TAGGED_AS]->(t:Tag)<-[:TAGGED_BY]-(author:User)
-           RETURN t.tag AS tag, COUNT(t) AS count, author, COLLECT(author) AS authors",
+        "MATCH (u:User {id: $id})<-[t:TAGGED_AS]-(author:User)
+           RETURN t.label AS tag .....",
     )
     .param("id", user_id)
 }
