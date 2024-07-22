@@ -3,6 +3,7 @@ use crate::db::connectors::{
     neo4j::{Neo4jConnector, NEO4J_CONNECTOR},
     redis::{RedisConnector, REDIS_CONNECTOR},
 };
+use crate::queries::set_graph_constraints;
 use log::{error, info};
 
 pub async fn setup(config: &Config) {
@@ -22,6 +23,9 @@ pub async fn setup(config: &Config) {
     } else {
         info!("Neo4jConnector successfully set");
     }
+
+    // Set Neo4J graph data constraints
+    let _ = set_graph_constraints().await;
 
     // Initialize Redis connection
     let redis_connector = RedisConnector::new_connection(&config.redis_uri())
