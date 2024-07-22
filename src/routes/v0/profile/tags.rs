@@ -1,6 +1,5 @@
 use axum::extract::Path;
-use axum::routing::get;
-use axum::{Json, Router};
+use axum::Json;
 use log::info;
 use utoipa::OpenApi;
 
@@ -29,10 +28,6 @@ pub async fn profile_tags_handler(Path(user_id): Path<String>) -> Result<Json<Pr
         Ok(None) => Err(Error::UserNotFound { user_id }),
         Err(source) => Err(Error::InternalServerError { source }),
     }
-}
-
-pub fn route() -> Router {
-    Router::new().route(PROFILE_TAGS_ROUTE, get(profile_tags_handler))
 }
 
 #[derive(OpenApi)]

@@ -1,6 +1,5 @@
 use axum::extract::Path;
-use axum::routing::get;
-use axum::{Json, Router};
+use axum::Json;
 use log::info;
 use utoipa::OpenApi;
 
@@ -35,10 +34,6 @@ pub async fn profile_relationship_handler(
         Ok(None) => Err(Error::UserNotFound { user_id }),
         Err(source) => Err(Error::InternalServerError { source }),
     }
-}
-
-pub fn route() -> Router {
-    Router::new().route(RELATIONSHIP_ROUTE, get(profile_relationship_handler))
 }
 
 #[derive(OpenApi)]

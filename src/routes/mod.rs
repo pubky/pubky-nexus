@@ -1,5 +1,6 @@
 use axum::Router;
 
+pub mod macros;
 pub mod r#static;
 pub mod v0;
 

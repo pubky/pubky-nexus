@@ -1,3 +1,5 @@
+use crate::register_routes;
+use crate::routes::v0::endpoints;
 use axum::Router;
 use utoipa::OpenApi;
 
@@ -8,17 +10,13 @@ mod relationship;
 mod tags;
 
 pub fn routes() -> Router {
-    let counts_route = counts::route();
-    let details_route = details::route();
-    let full_view_route = full::route();
-    let relationship_route = relationship::route();
-    let tags_route = tags::route();
-
-    full_view_route
-        .merge(counts_route)
-        .merge(details_route)
-        .merge(relationship_route)
-        .merge(tags_route)
+    register_routes!(Router::new(),
+        endpoints::PROFILE_ROUTE => full::profile_full_view_handler,
+        endpoints::PROFILE_DETAILS_ROUTE => details::profile_details_handler,
+        endpoints::RELATIONSHIP_ROUTE => relationship::profile_relationship_handler,
+        endpoints::PROFILE_TAGS_ROUTE => tags::profile_tags_handler,
+        endpoints::PROFILE_COUNTS_ROUTE => counts::profile_counts_handler,
+    )
 }
 
 #[derive(OpenApi)]
