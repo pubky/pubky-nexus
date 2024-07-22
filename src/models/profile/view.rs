@@ -32,16 +32,21 @@ impl ProfileView {
     pub async fn get_by_id(
         user_id: &str,
         viewer_id: Option<&str>,
-    ) -> Result<Option<Self>, Box<dyn std::error::Error>> {
-        // TODO: Figure how to get all concurrently without Axum complaining.
-        let details = match ProfileDetails::get_by_id(user_id).await? {
-            Some(details) => details,
+    ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
+        // Perform all operations concurrently
+        let (details, counts, viewer) = tokio::try_join!(
+            ProfileDetails::get_by_id(user_id),
+            ProfileCounts::get_by_id(user_id),
+            Relationship::get_by_id(user_id, viewer_id)
+        )?;
+
+        let details = match details {
             None => return Ok(None),
+            Some(details) => details,
         };
-        let counts = ProfileCounts::get_by_id(user_id).await?.unwrap_or_default();
-        let viewer = Relationship::get_by_id(user_id, viewer_id)
-            .await?
-            .unwrap_or_default();
+
+        let counts = counts.unwrap_or_default();
+        let viewer = viewer.unwrap_or_default();
 
         Ok(Some(Self {
             details,

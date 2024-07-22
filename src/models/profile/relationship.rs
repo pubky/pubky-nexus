@@ -1,6 +1,7 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
 use crate::{index, prefix, queries};
 use serde::{Deserialize, Serialize};
+use tokio::join;
 use utoipa::ToSchema;
 
 /// Represents the relationship of the user that views and user being viewed.
@@ -28,18 +29,13 @@ impl Relationship {
     pub async fn get_by_id(
         user_id: &str,
         viewer_id: Option<&str>,
-    ) -> Result<Option<Self>, Box<dyn std::error::Error>> {
+    ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
         match viewer_id {
             None => Ok(None),
-            Some(v_id) => {
-                // Try to get from indexed cache
-                if let Some(indexed_relationship) = Self::get_from_index(user_id, v_id).await? {
-                    return Ok(Some(indexed_relationship));
-                }
-
-                // Fallback to query from graph
-                Self::get_from_graph(user_id, v_id).await
-            }
+            Some(v_id) => match Self::get_from_index(user_id, v_id).await? {
+                Some(indexed_relationship) => Ok(Some(indexed_relationship)),
+                None => Self::get_from_graph(user_id, v_id).await,
+            },
         }
     }
 
@@ -48,7 +44,7 @@ impl Relationship {
         &self,
         user_id: &str,
         viewer_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if self.followed_by {
             let key = format!("{user_id}{viewer_id}");
             index::set_bool(prefix::RELATIONSHIP, &key, true, None).await?;
@@ -65,14 +61,19 @@ impl Relationship {
     pub async fn get_from_index(
         user_id: &str,
         viewer_id: &str,
-    ) -> Result<Option<Relationship>, Box<dyn std::error::Error>> {
+    ) -> Result<Option<Relationship>, Box<dyn std::error::Error + Send + Sync>> {
         let following_key = format!("{viewer_id}{user_id}");
         let followed_by_key = format!("{user_id}{viewer_id}");
 
-        let following_result: Option<bool> =
-            index::get_bool(prefix::RELATIONSHIP, &following_key).await?;
-        let followed_by_result: Option<bool> =
-            index::get_bool(prefix::RELATIONSHIP, &followed_by_key).await?;
+        // Perform both operations concurrently
+        let (following_result, followed_by_result) = join!(
+            index::get_bool(prefix::RELATIONSHIP, &following_key),
+            index::get_bool(prefix::RELATIONSHIP, &followed_by_key),
+        );
+
+        // Unwrap the results
+        let following_result: Option<bool> = following_result?;
+        let followed_by_result: Option<bool> = followed_by_result?;
 
         match (following_result, followed_by_result) {
             (Some(following), Some(followed_by)) => Ok(Some(Relationship {
@@ -95,7 +96,7 @@ impl Relationship {
     pub async fn get_from_graph(
         user_id: &str,
         viewer_id: &str,
-    ) -> Result<Option<Relationship>, Box<dyn std::error::Error>> {
+    ) -> Result<Option<Relationship>, Box<dyn std::error::Error + Send + Sync>> {
         let graph = get_neo4j_graph()?;
 
         let viewer_relationship_query = queries::viewer_relationship(user_id, viewer_id);
