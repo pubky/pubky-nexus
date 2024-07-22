@@ -55,7 +55,7 @@ async fn test_profile_endpoint() -> Result<()> {
 async fn test_static_file_serving() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 
-    let res = client.do_get("/static/src/main.rs").await?;
+    let res = client.do_get("/static/src/service.rs").await?;
     assert_eq!(res.status(), 200);
     let body = res.text_body()?;
     assert!(body.contains("fn main()"));

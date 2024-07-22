@@ -3,5 +3,5 @@
 // After with mpsc (Multiple Producer Single Consumer) broadcast the event
 // to all consumers. In our case, graph and kv
 fn main() {
-    println!("Hello, world!");
+    println!("Hello, world! This is where the homeserver(s) watcher will be in the future.");
 }

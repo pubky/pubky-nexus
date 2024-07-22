@@ -1,4 +1,4 @@
-pub use neo4rs::{query, Graph, Node};
+use neo4rs::Graph;
 use once_cell::sync::OnceCell;
 use std::fmt;
 use std::sync::Arc;
@@ -53,7 +53,7 @@ impl fmt::Debug for Neo4jConnector {
     }
 }
 
-/// Retrieves a Neo4j graph connection.
+/// Helper to retrieve a Neo4j graph connection.
 pub fn get_neo4j_graph() -> Result<Arc<Mutex<Graph>>, &'static str> {
     let neo4j_connector = NEO4J_CONNECTOR
         .get()
