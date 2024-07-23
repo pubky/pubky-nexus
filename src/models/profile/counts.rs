@@ -1,5 +1,6 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
-use crate::{index, prefix, queries};
+use crate::models::Prefix;
+use crate::{index, queries};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -45,14 +46,14 @@ impl ProfileCounts {
         &self,
         user_id: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        index::set(prefix::PROFILE_COUNTS, user_id, self, None, None).await
+        index::set(&Self::prefix(), user_id, self, None, None).await
     }
 
     /// Get counts from the Redis cache.
     pub async fn get_from_index(
         user_id: &str,
     ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
-        index::get(prefix::PROFILE_COUNTS, user_id, None).await
+        index::get(&Self::prefix(), user_id, None).await
     }
 
     /// Retrieves the counts from Neo4j.

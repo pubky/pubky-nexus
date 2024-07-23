@@ -1,5 +1,6 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
-use crate::{index, prefix, queries};
+use crate::models::Prefix;
+use crate::{index, queries};
 use chrono::Utc;
 use neo4rs::Node;
 use serde::{Deserialize, Serialize};
@@ -81,13 +82,13 @@ impl ProfileDetails {
         &self,
         user_id: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        index::set(prefix::PROFILE_DETAILS, user_id, self, None, None).await
+        index::set(&Self::prefix(), user_id, self, None, None).await
     }
 
     pub async fn get_from_index(
         user_id: &str,
     ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
-        index::get(prefix::PROFILE_DETAILS, user_id, None).await
+        index::get(&Self::prefix(), user_id, None).await
     }
 
     /// Retrieves the details from Neo4j.
