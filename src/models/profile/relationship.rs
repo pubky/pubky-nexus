@@ -1,7 +1,7 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
-use crate::{index, prefix, queries};
+use crate::models::Prefix;
+use crate::{index, queries};
 use serde::{Deserialize, Serialize};
-use tokio::try_join;
 use utoipa::ToSchema;
 
 /// Represents the relationship of the user that views and user being viewed.
@@ -45,16 +45,8 @@ impl Relationship {
         user_id: &str,
         viewer_id: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if self.followed_by {
-            let key = format!("{user_id}{viewer_id}");
-            index::set_bool(prefix::RELATIONSHIP, &key, true, None).await?;
-        }
-        if self.following {
-            let key = format!("{viewer_id}{user_id}");
-            index::set_bool(prefix::RELATIONSHIP, &key, true, None).await?;
-        }
-
-        Ok(())
+        let key = format!("{user_id}{viewer_id}");
+        index::set(&Self::prefix(), &key, self, None, None).await
     }
 
     /// Retrieves the relationship from Redis.
@@ -62,29 +54,8 @@ impl Relationship {
         user_id: &str,
         viewer_id: &str,
     ) -> Result<Option<Relationship>, Box<dyn std::error::Error + Send + Sync>> {
-        let following_key = format!("{viewer_id}{user_id}");
-        let followed_by_key = format!("{user_id}{viewer_id}");
-
-        let (following_result, followed_by_result) = try_join!(
-            index::get_bool(prefix::RELATIONSHIP, &following_key),
-            index::get_bool(prefix::RELATIONSHIP, &followed_by_key),
-        )?;
-
-        match (following_result, followed_by_result) {
-            (Some(following), Some(followed_by)) => Ok(Some(Relationship {
-                following,
-                followed_by,
-            })),
-            (None, None) => Ok(None),
-            (Some(following), None) => Ok(Some(Relationship {
-                following,
-                followed_by: false,
-            })),
-            (None, Some(followed_by)) => Ok(Some(Relationship {
-                following: false,
-                followed_by,
-            })),
-        }
+        let key = format!("{user_id}{viewer_id}");
+        index::get(&Self::prefix(), &key, None).await
     }
 
     /// Retrieves the relationship from Neo4j and indexes it in Redis.

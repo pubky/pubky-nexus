@@ -1,5 +1,6 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
-use crate::{index, prefix, queries};
+use crate::models::Prefix;
+use crate::{index, queries};
 use chrono::Utc;
 use neo4rs::Node;
 use serde::{Deserialize, Serialize};
@@ -60,7 +61,7 @@ impl Post {
         post_id: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let key = format!("{}:{}", author_id, post_id);
-        index::set(prefix::POST, &key, self, None, None).await
+        index::set(&Self::prefix(), &key, self, None, None).await
     }
 
     pub async fn get_from_index(
@@ -68,7 +69,7 @@ impl Post {
         post_id: &str,
     ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
         let key = format!("{}:{}", author_id, post_id);
-        index::get(prefix::POST, &key, None).await
+        index::get(&Self::prefix(), &key, None).await
     }
 
     /// Retrieves the post fields from Neo4j.
