@@ -1,19 +1,18 @@
+use crate::models::profile::Relationship;
+use crate::routes::v0::endpoints::RELATIONSHIP_ROUTE;
+use crate::{Error, Result};
 use axum::extract::Path;
 use axum::Json;
 use log::info;
 use utoipa::OpenApi;
-
-use crate::models::profile::Relationship;
-use crate::routes::v0::endpoints::RELATIONSHIP_ROUTE;
-use crate::{Error, Result};
 
 #[utoipa::path(
     get,
     path = RELATIONSHIP_ROUTE,
     tag = "Profile Viewer Relationship",
     params(
-        ("user_id" = String, Path, description = "User ID"),
-        ("viewer_id" = String, Path, description = "Viewer ID")
+        ("user_id" = String, Path, description = "User Pubky ID"),
+        ("viewer_id" = String, Path, description = "Viewer Pubky ID")
     ),
     responses(
         (status = 200, description = "User relationship", body = Relationship),

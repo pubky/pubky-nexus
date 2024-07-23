@@ -23,6 +23,7 @@ log = "0.4.22"
 env_logger = "0.11.3"
 const_format = "0.2.32"
 thiserror = "1.0.63"
+chrono = "0.4.38"
 
 [dev-dependencies]
 anyhow = "1.0.86"
@@ -43,6 +44,10 @@ path = "src/watcher.rs"
 
 [[bench]]
 name = "profile"
+harness = false
+
+[[bench]]
+name = "post"
 harness = false
 
 # Max performance profile

@@ -94,9 +94,9 @@ impl Relationship {
     ) -> Result<Option<Relationship>, Box<dyn std::error::Error + Send + Sync>> {
         let graph = get_neo4j_graph()?;
 
-        let viewer_relationship_query = queries::viewer_relationship(user_id, viewer_id);
+        let query = queries::viewer_relationship(user_id, viewer_id);
         let graph = graph.lock().await;
-        let mut result = graph.execute(viewer_relationship_query).await?;
+        let mut result = graph.execute(query).await?;
 
         if let Some(row) = result.next().await? {
             let user_exists: bool = row.get("user_exists").unwrap_or(false);

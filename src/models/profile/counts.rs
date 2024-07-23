@@ -60,10 +60,10 @@ impl ProfileCounts {
         user_id: &str,
     ) -> Result<Option<ProfileCounts>, Box<dyn std::error::Error + Send + Sync>> {
         let graph = get_neo4j_graph()?;
-        let counts_query = queries::profile_counts(user_id);
+        let query = queries::profile_counts(user_id);
 
         let graph = graph.lock().await;
-        let mut result = graph.execute(counts_query).await?;
+        let mut result = graph.execute(query).await?;
 
         if let Some(row) = result.next().await? {
             if !row.get("user_exists").unwrap_or(false) {
