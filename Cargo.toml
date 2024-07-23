@@ -11,7 +11,7 @@ license = "MIT"
 tokio = { version = "1.38.1", features = ["full"] }
 axum = "0.7.5"
 redis = { version = "0.25.4", features = ["tokio-comp", "json"] }
-neo4rs = "0.7.1"
+neo4rs = "0.7.2"
 serde = { version = "1.0.204", features = ["derive"] }
 serde_json = "1.0.120"
 once_cell = "1.19.0"
