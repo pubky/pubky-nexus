@@ -11,7 +11,7 @@ use utoipa::ToSchema;
 pub struct Post {
     content: String,
     id: String, // TODO: create Crockfordbase32 Struct and validator
-    timestamp: i64,
+    indexed_at: i64,
     author: String, // TODO: PubkyKey struct with validator
     uri: String,
 }
@@ -27,7 +27,7 @@ impl Post {
         Self {
             content: String::new(),
             id: String::new(),
-            timestamp: Utc::now().timestamp(),
+            indexed_at: Utc::now().timestamp(),
             author: String::new(),
             uri: String::new(),
         }
@@ -50,7 +50,7 @@ impl Post {
             uri: format!("pubky:{author_id}/pubky.app/posts/{id}"),
             content: node.get("content").unwrap_or_default(),
             id,
-            timestamp: node.get("timestamp").unwrap_or_default(),
+            indexed_at: node.get("indexed_at").unwrap_or_default(),
             author: String::from(author_id),
         }
     }

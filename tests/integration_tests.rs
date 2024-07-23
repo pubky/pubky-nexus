@@ -166,7 +166,7 @@ async fn test_get_details() -> Result<()> {
     assert!(body["id"].is_string());
     assert!(body["status"].is_string());
     assert!(body["links"].is_array());
-    assert!(body["timestamp"].is_number());
+    assert!(body["indexed_at"].is_number());
 
     // Test non-existing user
     let user_id = "bad_user_id";
@@ -192,7 +192,7 @@ async fn test_get_post() -> Result<()> {
 
     let body = res.json_body()?;
     assert_eq!(body["content"], "Running #Pubky ");
-    assert_eq!(body["timestamp"].as_u64(), Some(1712310532901));
+    assert_eq!(body["indexed_at"].as_u64(), Some(1712310532901));
     assert_eq!(body["id"], post_id);
     assert_eq!(body["author"], author_id);
 
