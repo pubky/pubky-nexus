@@ -26,7 +26,7 @@ pub struct ProfileQuery {
         (status = 500, description = "Internal server error")
     )
 )]
-pub async fn profile_full_view_handler(
+pub async fn profile_view_handler(
     Path(user_id): Path<String>,
     Query(query): Query<ProfileQuery>,
 ) -> Result<Json<ProfileView>> {
@@ -43,5 +43,5 @@ pub async fn profile_full_view_handler(
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(profile_full_view_handler), components(schemas(ProfileView)))]
+#[openapi(paths(profile_view_handler), components(schemas(ProfileView)))]
 pub struct ProfileViewApiDoc;

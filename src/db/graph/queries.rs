@@ -35,6 +35,21 @@ pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
         .param("post_id", post_id)
 }
 
+pub fn post_counts(author_id: &str, post_id: &str) -> Query {
+    query(
+        "MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+         OPTIONAL MATCH (p)<-[tag:TAGGED]-()
+         OPTIONAL MATCH (p)<-[reply:REPLY_TO]-()
+         OPTIONAL MATCH (p)<-[repost:REPOST_OF]-()
+         RETURN COUNT(p) > 0 AS post_exists,
+                COUNT(DISTINCT tag) AS tags_count,
+                COUNT(DISTINCT reply) AS replies_count,
+                COUNT(DISTINCT repost) AS reposts_count",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
+}
+
 // Retrive user node by id (pk)
 pub fn get_user_by_id(user_id: &str) -> Query {
     query("MATCH (u:User {id: $id}) RETURN u").param("id", user_id)

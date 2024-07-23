@@ -182,8 +182,8 @@ async fn test_get_details() -> Result<()> {
 async fn test_get_post() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 
-    let author_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
-    let post_id = "2Z1NJPW2QHGG0";
+    let author_id = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
+    let post_id = "2ZCW1TGR5BKG0";
 
     let res = client
         .do_get(&format!("/v0/post/{}/{}", author_id, post_id))
@@ -191,10 +191,14 @@ async fn test_get_post() -> Result<()> {
     assert_eq!(res.status(), 200);
 
     let body = res.json_body()?;
-    assert_eq!(body["content"], "Running #Pubky ");
-    assert_eq!(body["indexed_at"].as_u64(), Some(1712310532901));
-    assert_eq!(body["id"], post_id);
-    assert_eq!(body["author"], author_id);
+    assert_eq!(body["details"]["content"], "I am told we can reply now!");
+    assert_eq!(body["details"]["indexed_at"].as_u64(), Some(1718616844478));
+    assert_eq!(body["details"]["id"], post_id);
+    assert_eq!(body["details"]["author"], author_id);
+    assert!(body["details"]["uri"].is_string());
+    assert_eq!(body["counts"]["tags"].as_u64(), Some(5));
+    assert_eq!(body["counts"]["replies"].as_u64(), Some(2));
+    assert_eq!(body["counts"]["reposts"].as_u64(), Some(1));
 
     // Test non-existing post
     let res = client

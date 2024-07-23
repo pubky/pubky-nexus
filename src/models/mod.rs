@@ -3,7 +3,7 @@ pub mod post;
 pub mod profile;
 
 /// Trait with the default implementation to create
-/// indexes prefixes from mirroring the Strut model names schema
+/// indexes prefixes using the Struct names as schema
 pub trait Prefix {
     fn prefix() -> String {
         let type_name = std::any::type_name::<Self>();
