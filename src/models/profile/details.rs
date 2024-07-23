@@ -36,7 +36,7 @@ pub struct ProfileDetails {
     id: String, // TODO: create Crockfordbase32 Struct and validator
     links: Vec<ProfileLink>,
     status: String,
-    timestamp: i64,
+    indexed_at: i64,
 }
 
 impl Default for ProfileDetails {
@@ -53,7 +53,7 @@ impl ProfileDetails {
             id: String::new(),
             links: vec![ProfileLink::new()],
             status: String::new(),
-            timestamp: Utc::now().timestamp(),
+            indexed_at: Utc::now().timestamp(),
         }
     }
 
@@ -74,7 +74,7 @@ impl ProfileDetails {
             id: node.get("id").unwrap_or_default(),
             status: node.get("status").unwrap_or_default(),
             links: node.get("links").unwrap_or_default(),
-            timestamp: node.get("timestamp").unwrap_or_default(),
+            indexed_at: node.get("indexed_at").unwrap_or_default(),
         }
     }
 
