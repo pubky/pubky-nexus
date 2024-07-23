@@ -74,3 +74,27 @@ pub fn viewer_relationship(user_id: &str, viewer_id: &str) -> neo4rs::Query {
     .param("user_id", user_id)
     .param("viewer_id", viewer_id)
 }
+
+
+/// User related tags
+pub fn user_tags(user_id: &str) -> neo4rs::Query {
+    query(
+        "
+            MATCH (p:User)-[r:TAGGED]->(u:User {id: $user_id})
+            WITH r.label AS name,
+                collect({
+                    tag_id: r.id,
+                    indexed_at: r.indexed_at,
+                    profile_id: p.id,
+                    author: {
+                        image: 'avatar.png'
+                    }
+                }) AS from
+            RETURN collect({
+                label: name,
+                from: from
+            }) AS user_tags
+        "
+    )
+    .param("user_id", user_id)
+}

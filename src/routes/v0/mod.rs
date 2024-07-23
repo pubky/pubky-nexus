@@ -6,6 +6,7 @@ pub mod endpoints;
 pub mod info;
 pub mod post;
 pub mod profile;
+//pub mod tag;
 
 pub fn routes() -> Router {
     let routes_info = info::routes();

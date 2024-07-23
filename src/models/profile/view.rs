@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
+use crate::models::tags::profile::ProfileTag;
 
-use super::{ProfileCounts, ProfileDetails, ProfileTag, Relationship};
+use super::{ProfileCounts, ProfileDetails, Relationship};
 
 /// Represents a Pubky user profile with relational data including tags, counts, and relationship with a viewer.
 #[derive(Serialize, Deserialize, ToSchema)]
@@ -9,6 +10,7 @@ pub struct ProfileView {
     details: ProfileDetails,
     counts: ProfileCounts,
     tags: Vec<ProfileTag>,
+    //tags: TaggedFrom,
     viewer: Relationship,
 }
 
@@ -23,7 +25,8 @@ impl ProfileView {
         Self {
             details: ProfileDetails::new(),
             counts: ProfileCounts::new(),
-            tags: vec![ProfileTag::new()],
+            tags: vec![],
+            //tags: vec![ProfileTag::new()],
             viewer: Relationship::new(),
         }
     }
@@ -34,15 +37,21 @@ impl ProfileView {
         viewer_id: Option<&str>,
     ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
         // Perform all operations concurrently
-        let (details, counts, viewer) = tokio::try_join!(
+        let (details, counts, viewer, tags) = tokio::try_join!(
             ProfileDetails::get_by_id(user_id),
             ProfileCounts::get_by_id(user_id),
-            Relationship::get_by_id(user_id, viewer_id)
+            Relationship::get_by_id(user_id, viewer_id), 
+            ProfileTag::get_by_id(user_id)
         )?;
 
         let details = match details {
             None => return Ok(None),
             Some(details) => details,
+        };
+
+        let tags = match tags {
+            None => return Ok(None),
+            Some(user_tags) => user_tags,
         };
 
         let counts = counts.unwrap_or_default();
@@ -52,7 +61,7 @@ impl ProfileView {
             details,
             counts,
             viewer,
-            tags: vec![ProfileTag::new()], //TODO
+            tags
         }))
     }
 }

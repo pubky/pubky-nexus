@@ -17,3 +17,8 @@ pub const PROFILE_TAGS_ROUTE: &str = concatcp!(PROFILE_PREFIX, "/:user_id/tags")
 // Post routes
 const POST_PREFIX: &str = concatcp!(VERSION_ROUTE, "/post");
 pub const POST_ROUTE: &str = concatcp!(POST_PREFIX, "/:author_id/:post_id");
+
+// Tag routes
+const TAG_PREFIX: &str = concatcp!(VERSION_ROUTE, "/tag");
+pub const TAG_SEARCH_ROUTE: &str = concatcp!(TAG_PREFIX, "/search/:tag_name");
+pub const TAG_TRENDING_ROUTE: &str = concatcp!(TAG_PREFIX, "/trending");
