@@ -39,8 +39,8 @@ pub fn post_counts(author_id: &str, post_id: &str) -> Query {
     query(
         "MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
          OPTIONAL MATCH (p)<-[tag:TAGGED]-()
-         OPTIONAL MATCH (p)<-[reply:REPLY_TO]-()
-         OPTIONAL MATCH (p)<-[repost:REPOST_OF]-()
+         OPTIONAL MATCH (p)<-[reply:REPLIED]-()
+         OPTIONAL MATCH (p)<-[repost:REPOSTED]-()
          RETURN COUNT(p) > 0 AS post_exists,
                 COUNT(DISTINCT tag) AS tags_count,
                 COUNT(DISTINCT reply) AS replies_count,
@@ -64,9 +64,9 @@ pub fn post_bookmark(author_id: &str, post_id: &str, viewer_id: &str) -> Query {
 pub fn post_relationships(author_id: &str, post_id: &str) -> Query {
     query(
         "MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
-        OPTIONAL MATCH (p)-[:REPLY_TO]->(replied_post:Post)<-[:AUTHORED]-(replied_author:User)
-        OPTIONAL MATCH (p)-[:REPOST_OF]->(reposted_post:Post)<-[:AUTHORED]-(reposted_author:User)
-        OPTIONAL MATCH (p)-[:MENTION_TO]->(mentioned_user:User)
+        OPTIONAL MATCH (p)-[:REPLIED]->(replied_post:Post)<-[:AUTHORED]-(replied_author:User)
+        OPTIONAL MATCH (p)-[:REPOSTED]->(reposted_post:Post)<-[:AUTHORED]-(reposted_author:User)
+        OPTIONAL MATCH (p)-[:MENTIONED]->(mentioned_user:User)
         RETURN 
           replied_post.id AS replied_post_id, 
           replied_author.id AS replied_author_id,
