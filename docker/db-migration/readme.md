@@ -7,5 +7,5 @@ Just mount this directory `/db-migration` as volume on your Neo4J docker contain
 After create a new `.env` file from `.env-sample` and run the following command:
 
 ```
-docker exec pubky-social-graph bash /db-migration/run-queries.sh
+docker exec neo4j bash /db-migration/run-queries.sh
 ```
