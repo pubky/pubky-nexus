@@ -78,6 +78,8 @@ pub async fn get<T: DeserializeOwned + Send + Sync>(
     Ok(None)
 }
 
+/// NOT CURRENTLY BEING USED, BUT POTENTIALLY USEFUL
+///
 /// Sets a boolean value in Redis with an optional expiration time.
 ///
 /// # Arguments
@@ -90,7 +92,7 @@ pub async fn get<T: DeserializeOwned + Send + Sync>(
 /// # Errors
 ///
 /// Returns an error if the operation fails.
-pub async fn set_bool(
+pub async fn _set_bool(
     prefix: &str,
     key: &str,
     value: bool,
@@ -132,7 +134,7 @@ pub async fn set_bool(
 /// # Errors
 ///
 /// Returns an error if the operation fails.
-pub async fn get_bool(
+pub async fn _get_bool(
     prefix: &str,
     key: &str,
 ) -> Result<Option<bool>, Box<dyn std::error::Error + Send + Sync>> {

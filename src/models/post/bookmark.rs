@@ -1,4 +1,5 @@
-use crate::{db::connectors::neo4j::get_neo4j_graph, index, models::Prefix, queries};
+use crate::db::connectors::neo4j::get_neo4j_graph;
+use crate::{queries, RedisOps};
 use chrono::Utc;
 use neo4rs::Relation;
 use serde::{Deserialize, Serialize};
@@ -9,6 +10,8 @@ pub struct Bookmark {
     id: String,
     indexed_at: i64,
 }
+
+impl RedisOps for Bookmark {}
 
 impl Default for Bookmark {
     fn default() -> Self {
@@ -23,6 +26,11 @@ impl Bookmark {
             indexed_at: Utc::now().timestamp(),
         }
     }
+
+    fn key(author_id: &str, post_id: &str, viewer_id: &str) -> String {
+        format!("{author_id}:{post_id}:{viewer_id}")
+    }
+
     /// Retrieves counts by user ID, first trying to get from Redis, then from Neo4j if not found.
     pub async fn get_by_id(
         author_id: &str,
@@ -34,31 +42,10 @@ impl Bookmark {
             Some(viewer_id) => viewer_id,
             None => return Ok(None),
         };
-        match Self::get_from_index(author_id, post_id, viewer_id).await? {
+        match Self::try_from_index(&Self::key(author_id, post_id, viewer_id)).await? {
             Some(counts) => Ok(Some(counts)),
             None => Self::get_from_graph(author_id, post_id, viewer_id).await,
         }
-    }
-
-    /// Sets counts in the Redis cache.
-    pub async fn set_index(
-        &self,
-        author_id: &str,
-        post_id: &str,
-        viewer_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let key = format!("{author_id}:{post_id}:{viewer_id}");
-        index::set(&Self::prefix(), &key, self, None, None).await
-    }
-
-    /// Get counts from the Redis cache.
-    pub async fn get_from_index(
-        author_id: &str,
-        post_id: &str,
-        viewer_id: &str,
-    ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
-        let key = format!("{author_id}:{post_id}:{viewer_id}");
-        index::get(&Self::prefix(), &key, None).await
     }
 
     /// Retrieves the counts from Neo4j.
@@ -79,7 +66,9 @@ impl Bookmark {
                 id: relation.get("id").unwrap_or_default(),
                 indexed_at: relation.get("indexed_at").unwrap_or_default(),
             };
-            counts.set_index(author_id, post_id, viewer_id).await?;
+            counts
+                .set_index(&Self::key(author_id, post_id, viewer_id))
+                .await?;
             Ok(Some(counts))
         } else {
             Ok(None)

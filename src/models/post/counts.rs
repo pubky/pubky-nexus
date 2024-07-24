@@ -1,6 +1,5 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
-use crate::models::Prefix;
-use crate::{index, queries};
+use crate::{queries, RedisOps};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -11,6 +10,8 @@ pub struct PostCounts {
     pub replies: u32,
     pub reposts: u32,
 }
+
+impl RedisOps for PostCounts {}
 
 impl Default for PostCounts {
     fn default() -> Self {
@@ -27,34 +28,19 @@ impl PostCounts {
         }
     }
 
+    fn key(author_id: &str, post_id: &str) -> String {
+        format!("{author_id}:{post_id}")
+    }
+
     /// Retrieves counts by user ID, first trying to get from Redis, then from Neo4j if not found.
     pub async fn get_by_id(
         author_id: &str,
         post_id: &str,
     ) -> Result<Option<PostCounts>, Box<dyn std::error::Error + Send + Sync>> {
-        match Self::get_from_index(author_id, post_id).await? {
+        match Self::try_from_index(&Self::key(author_id, post_id)).await? {
             Some(counts) => Ok(Some(counts)),
             None => Self::get_from_graph(author_id, post_id).await,
         }
-    }
-
-    /// Sets counts in the Redis cache.
-    pub async fn set_index(
-        &self,
-        author_id: &str,
-        post_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let key = format!("{}:{}", author_id, post_id);
-        index::set(&Self::prefix(), &key, self, None, None).await
-    }
-
-    /// Get counts from the Redis cache.
-    pub async fn get_from_index(
-        author_id: &str,
-        post_id: &str,
-    ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
-        let key = format!("{}:{}", author_id, post_id);
-        index::get(&Self::prefix(), &key, None).await
     }
 
     /// Retrieves the counts from Neo4j.
@@ -77,7 +63,7 @@ impl PostCounts {
                 replies: row.get("replies_count").unwrap_or_default(),
                 reposts: row.get("reposts_count").unwrap_or_default(),
             };
-            counts.set_index(author_id, post_id).await?;
+            counts.set_index(&Self::key(author_id, post_id)).await?;
             Ok(Some(counts))
         } else {
             Ok(None)

@@ -1,6 +1,5 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
-use crate::models::Prefix;
-use crate::{index, queries};
+use crate::{queries, RedisOps};
 use chrono::Utc;
 use neo4rs::Node;
 use serde::{Deserialize, Serialize};
@@ -15,6 +14,8 @@ pub struct PostDetails {
     author: String,
     uri: String,
 }
+
+impl RedisOps for PostDetails {}
 
 impl Default for PostDetails {
     fn default() -> Self {
@@ -33,12 +34,16 @@ impl PostDetails {
         }
     }
 
+    fn key(author_id: &str, post_id: &str) -> String {
+        format!("{author_id}:{post_id}")
+    }
+
     /// Retrieves post details by author ID and post ID, first trying to get from Redis, then from Neo4j if not found.
     pub async fn get_by_id(
         author_id: &str,
         post_id: &str,
     ) -> Result<Option<PostDetails>, Box<dyn std::error::Error + Send + Sync>> {
-        match Self::get_from_index(author_id, post_id).await? {
+        match Self::try_from_index(&Self::key(author_id, post_id)).await? {
             Some(details) => Ok(Some(details)),
             None => Self::get_from_graph(author_id, post_id).await,
         }
@@ -53,23 +58,6 @@ impl PostDetails {
             indexed_at: node.get("indexed_at").unwrap_or_default(),
             author: String::from(author_id),
         }
-    }
-
-    pub async fn set_index(
-        &self,
-        author_id: &str,
-        post_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let key = format!("{}:{}", author_id, post_id);
-        index::set(&Self::prefix(), &key, self, None, None).await
-    }
-
-    pub async fn get_from_index(
-        author_id: &str,
-        post_id: &str,
-    ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
-        let key = format!("{}:{}", author_id, post_id);
-        index::get(&Self::prefix(), &key, None).await
     }
 
     /// Retrieves the post fields from Neo4j.
@@ -87,7 +75,7 @@ impl PostDetails {
             Some(row) => {
                 let node: Node = row.get("p")?;
                 let post = Self::from_node(&node, author_id).await;
-                post.set_index(author_id, post_id).await?;
+                post.set_index(&Self::key(author_id, post_id)).await?;
                 Ok(Some(post))
             }
             None => Ok(None),
