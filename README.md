@@ -27,8 +27,10 @@ Reach feature parity with `skunk-work` indexer improving on the following:
 
 1. The watcher does effectively work as an aggregator (a translator from Homeserver events to a social network graph).
 2. The service reads from the indexes and performs queries to the graph in order to serve responses to the pubky-app clients.
-3. The social graph DB (Neo4J) is intended for holding a complete view of the network. It should be queried as little as possible but we can abuse it at the beginning in order to complete features faster.
-4. As long as it is possible and not too troublesome, most relationships, query results and cache should be indexed by `key: value` and retrieved from Redis. We should take inspiration on current use of LMDB in `skunk-works` (a lot of things can be done using plain `key: value` but some are too troublesome to implement: then we query our graph directly)
+3. As long as it is possible and not too troublesome, most relationships, query results and cache should be indexed by `key: value` and retrieved from Redis. We should take inspiration on current use of LMDB in `skunk-works` (a lot of things can be done using plain `key: value` but some are too troublesome to implement: then we query our graph directly)
+4. The social graph DB (Neo4J) is intended for holding a complete view of the network. It should be queried as little as possible but we can abuse it at the beginning in order to complete features faster.
+
+![Pubky-nexus-graph](docs/images/pubky-nexus-graph.png)
 
 ## 👨‍💻 Quick Dev
 
