@@ -26,10 +26,6 @@ impl Relationship {
         }
     }
 
-    fn key(user_id: &str, viewer_id: &str) -> String {
-        format!("{user_id}:{viewer_id}")
-    }
-
     // Retrieves user-viewer relationship
     pub async fn get_by_id(
         user_id: &str,
@@ -37,7 +33,7 @@ impl Relationship {
     ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
         match viewer_id {
             None => Ok(None),
-            Some(v_id) => match Self::try_from_index(&Self::key(user_id, v_id)).await? {
+            Some(v_id) => match Self::try_from_index(&[user_id, v_id]).await? {
                 Some(indexed_relationship) => Ok(Some(indexed_relationship)),
                 None => Self::get_from_graph(user_id, v_id).await,
             },
@@ -67,9 +63,7 @@ impl Relationship {
                 following: row.get("following").unwrap_or(false),
                 followed_by: row.get("followed_by").unwrap_or(false),
             };
-            relationship
-                .set_index(&Self::key(user_id, viewer_id))
-                .await?;
+            relationship.set_index(&[user_id, viewer_id]).await?;
             Ok(Some(relationship))
         } else {
             Ok(None)

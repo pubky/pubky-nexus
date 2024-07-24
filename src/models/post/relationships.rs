@@ -30,16 +30,12 @@ impl PostRelationships {
         }
     }
 
-    fn key(author_id: &str, post_id: &str) -> String {
-        format!("{author_id}:{post_id}")
-    }
-
     /// Retrieves post relationships by user ID, first trying to get from Redis, then from Neo4j if not found.
     pub async fn get_by_id(
         author_id: &str,
         post_id: &str,
     ) -> Result<Option<PostRelationships>, Box<dyn std::error::Error + Send + Sync>> {
-        match Self::try_from_index(&Self::key(author_id, post_id)).await? {
+        match Self::try_from_index(&[author_id, post_id]).await? {
             Some(counts) => Ok(Some(counts)),
             None => Self::get_from_graph(author_id, post_id).await,
         }
@@ -80,9 +76,7 @@ impl PostRelationships {
                 reposted,
                 mentioned,
             };
-            relationships
-                .set_index(&Self::key(author_id, post_id))
-                .await?;
+            relationships.set_index(&[author_id, post_id]).await?;
             Ok(Some(relationships))
         } else {
             Ok(None)

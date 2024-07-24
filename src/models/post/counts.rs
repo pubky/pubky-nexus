@@ -28,16 +28,12 @@ impl PostCounts {
         }
     }
 
-    fn key(author_id: &str, post_id: &str) -> String {
-        format!("{author_id}:{post_id}")
-    }
-
     /// Retrieves counts by user ID, first trying to get from Redis, then from Neo4j if not found.
     pub async fn get_by_id(
         author_id: &str,
         post_id: &str,
     ) -> Result<Option<PostCounts>, Box<dyn std::error::Error + Send + Sync>> {
-        match Self::try_from_index(&Self::key(author_id, post_id)).await? {
+        match Self::try_from_index(&[author_id, post_id]).await? {
             Some(counts) => Ok(Some(counts)),
             None => Self::get_from_graph(author_id, post_id).await,
         }
@@ -63,7 +59,7 @@ impl PostCounts {
                 replies: row.get("replies_count").unwrap_or_default(),
                 reposts: row.get("reposts_count").unwrap_or_default(),
             };
-            counts.set_index(&Self::key(author_id, post_id)).await?;
+            counts.set_index(&[author_id, post_id]).await?;
             Ok(Some(counts))
         } else {
             Ok(None)

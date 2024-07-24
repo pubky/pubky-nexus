@@ -27,10 +27,6 @@ impl Bookmark {
         }
     }
 
-    fn key(author_id: &str, post_id: &str, viewer_id: &str) -> String {
-        format!("{author_id}:{post_id}:{viewer_id}")
-    }
-
     /// Retrieves counts by user ID, first trying to get from Redis, then from Neo4j if not found.
     pub async fn get_by_id(
         author_id: &str,
@@ -42,7 +38,7 @@ impl Bookmark {
             Some(viewer_id) => viewer_id,
             None => return Ok(None),
         };
-        match Self::try_from_index(&Self::key(author_id, post_id, viewer_id)).await? {
+        match Self::try_from_index(&[author_id, post_id, viewer_id]).await? {
             Some(counts) => Ok(Some(counts)),
             None => Self::get_from_graph(author_id, post_id, viewer_id).await,
         }
@@ -66,9 +62,7 @@ impl Bookmark {
                 id: relation.get("id").unwrap_or_default(),
                 indexed_at: relation.get("indexed_at").unwrap_or_default(),
             };
-            counts
-                .set_index(&Self::key(author_id, post_id, viewer_id))
-                .await?;
+            counts.set_index(&[author_id, post_id, viewer_id]).await?;
             Ok(Some(counts))
         } else {
             Ok(None)

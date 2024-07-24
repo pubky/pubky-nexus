@@ -34,16 +34,12 @@ impl PostDetails {
         }
     }
 
-    fn key(author_id: &str, post_id: &str) -> String {
-        format!("{author_id}:{post_id}")
-    }
-
     /// Retrieves post details by author ID and post ID, first trying to get from Redis, then from Neo4j if not found.
     pub async fn get_by_id(
         author_id: &str,
         post_id: &str,
     ) -> Result<Option<PostDetails>, Box<dyn std::error::Error + Send + Sync>> {
-        match Self::try_from_index(&Self::key(author_id, post_id)).await? {
+        match Self::try_from_index(&[author_id, post_id]).await? {
             Some(details) => Ok(Some(details)),
             None => Self::get_from_graph(author_id, post_id).await,
         }
@@ -75,7 +71,7 @@ impl PostDetails {
             Some(row) => {
                 let node: Node = row.get("p")?;
                 let post = Self::from_node(&node, author_id).await;
-                post.set_index(&Self::key(author_id, post_id)).await?;
+                post.set_index(&[author_id, post_id]).await?;
                 Ok(Some(post))
             }
             None => Ok(None),
