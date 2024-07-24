@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Path to the queries file
-QUERIES_FILE="/neo4j-example/indexer-migration.cypher"
+QUERIES_FILE="/db-migration/indexer.cypher"
 
 # Read queries from the file and execute each one
 # time it
