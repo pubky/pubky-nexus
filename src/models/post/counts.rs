@@ -32,9 +32,9 @@ impl PostCounts {
         author_id: &str,
         post_id: &str,
     ) -> Result<Option<PostCounts>, Box<dyn std::error::Error + Send + Sync>> {
-        match PostCounts::get_from_index(author_id, post_id).await? {
+        match Self::get_from_index(author_id, post_id).await? {
             Some(counts) => Ok(Some(counts)),
-            None => PostCounts::get_from_graph(author_id, post_id).await,
+            None => Self::get_from_graph(author_id, post_id).await,
         }
     }
 
@@ -72,7 +72,7 @@ impl PostCounts {
             if !row.get("post_exists").unwrap_or(false) {
                 return Ok(None);
             }
-            let counts = PostCounts {
+            let counts = Self {
                 tags: row.get("tags_count").unwrap_or_default(),
                 replies: row.get("replies_count").unwrap_or_default(),
                 reposts: row.get("reposts_count").unwrap_or_default(),

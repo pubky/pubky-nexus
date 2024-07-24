@@ -50,6 +50,17 @@ pub fn post_counts(author_id: &str, post_id: &str) -> Query {
     .param("post_id", post_id)
 }
 
+pub fn post_bookmark(author_id: &str, post_id: &str, viewer_id: &str) -> Query {
+    query(
+        "MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+         OPTIONAL MATCH (viewer:User {id: $viewer_id})-[b:BOOKMARKED]->(p)
+         RETURN b",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
+    .param("viewer_id", viewer_id)
+}
+
 // Retrive user node by id (pk)
 pub fn get_user_by_id(user_id: &str) -> Query {
     query("MATCH (u:User {id: $id}) RETURN u").param("id", user_id)

@@ -35,9 +35,9 @@ impl ProfileCounts {
     pub async fn get_by_id(
         user_id: &str,
     ) -> Result<Option<ProfileCounts>, Box<dyn std::error::Error + Send + Sync>> {
-        match ProfileCounts::get_from_index(user_id).await? {
+        match Self::get_from_index(user_id).await? {
             Some(counts) => Ok(Some(counts)),
-            None => ProfileCounts::get_from_graph(user_id).await,
+            None => Self::get_from_graph(user_id).await,
         }
     }
 
@@ -70,7 +70,7 @@ impl ProfileCounts {
             if !row.get("user_exists").unwrap_or(false) {
                 return Ok(None);
             }
-            let counts = ProfileCounts {
+            let counts = Self {
                 following: row.get("following_count").unwrap_or_default(),
                 followers: row.get("followers_count").unwrap_or_default(),
                 friends: row.get("friends_count").unwrap_or_default(),

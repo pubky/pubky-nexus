@@ -38,9 +38,9 @@ impl PostDetails {
         author_id: &str,
         post_id: &str,
     ) -> Result<Option<PostDetails>, Box<dyn std::error::Error + Send + Sync>> {
-        match PostDetails::get_from_index(author_id, post_id).await? {
+        match Self::get_from_index(author_id, post_id).await? {
             Some(details) => Ok(Some(details)),
-            None => PostDetails::get_from_graph(author_id, post_id).await,
+            None => Self::get_from_graph(author_id, post_id).await,
         }
     }
 
@@ -86,7 +86,7 @@ impl PostDetails {
         match result.next().await? {
             Some(row) => {
                 let node: Node = row.get("p").unwrap();
-                let post = PostDetails::from_node(&node, author_id).await;
+                let post = Self::from_node(&node, author_id).await;
                 post.set_index(author_id, post_id).await?;
                 Ok(Some(post))
             }

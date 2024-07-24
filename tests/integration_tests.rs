@@ -186,7 +186,10 @@ async fn test_get_post() -> Result<()> {
     let post_id = "2ZCW1TGR5BKG0";
 
     let res = client
-        .do_get(&format!("/v0/post/{}/{}", author_id, post_id))
+        .do_get(&format!(
+            "/v0/post/{}/{}?viewer_id={}",
+            author_id, post_id, author_id
+        ))
         .await?;
     assert_eq!(res.status(), 200);
 
@@ -195,10 +198,15 @@ async fn test_get_post() -> Result<()> {
     assert_eq!(body["details"]["indexed_at"].as_u64(), Some(1718616844478));
     assert_eq!(body["details"]["id"], post_id);
     assert_eq!(body["details"]["author"], author_id);
-    assert!(body["details"]["uri"].is_string());
+    assert_eq!(
+        body["details"]["uri"],
+        "pubky:y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy/pubky.app/posts/2ZCW1TGR5BKG0"
+    );
     assert_eq!(body["counts"]["tags"].as_u64(), Some(5));
     assert_eq!(body["counts"]["replies"].as_u64(), Some(2));
     assert_eq!(body["counts"]["reposts"].as_u64(), Some(1));
+    assert_eq!(body["bookmark"]["indexed_at"].as_u64(), Some(1721764200));
+    assert_eq!(body["bookmark"]["id"], "2Z9PFGC3WWWW0");
 
     // Test non-existing post
     let res = client

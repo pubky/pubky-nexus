@@ -18,6 +18,7 @@ pub const PROFILE_TAGS_ROUTE: &str = concatcp!(PROFILE_ROUTE, "/tags");
 const POST_PREFIX: &str = concatcp!(VERSION_ROUTE, "/post");
 pub const POST_ROUTE: &str = concatcp!(POST_PREFIX, "/:author_id/:post_id");
 pub const POST_RELATIONSHIPS_ROUTE: &str = concatcp!(POST_ROUTE, "/relationships");
+pub const POST_BOOKMARK_ROUTE: &str = concatcp!(POST_ROUTE, "/bookmark");
 pub const POST_COUNTS_ROUTE: &str = concatcp!(POST_ROUTE, "/counts");
 pub const POST_DETAILS_ROUTE: &str = concatcp!(POST_ROUTE, "/details");
 pub const POST_TAGS_ROUTE: &str = concatcp!(POST_ROUTE, "/tags");

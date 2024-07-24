@@ -62,9 +62,9 @@ impl ProfileDetails {
     pub async fn get_by_id(
         user_id: &str,
     ) -> Result<Option<ProfileDetails>, Box<dyn std::error::Error + Send + Sync>> {
-        match ProfileDetails::get_from_index(user_id).await? {
+        match Self::get_from_index(user_id).await? {
             Some(details) => Ok(Some(details)),
-            None => ProfileDetails::get_from_graph(user_id).await,
+            None => Self::get_from_graph(user_id).await,
         }
     }
 
@@ -109,7 +109,7 @@ impl ProfileDetails {
         match result.next().await? {
             Some(row) => {
                 let node: Node = row.get("u").unwrap();
-                match ProfileDetails::from_node(&node).await {
+                match Self::from_node(&node).await {
                     Some(details) => {
                         details.set_index(user_id).await?;
                         Ok(Some(details))

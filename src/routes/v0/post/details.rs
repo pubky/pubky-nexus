@@ -1,8 +1,8 @@
 use crate::models::post::PostDetails;
 use crate::routes::v0::endpoints::POST_DETAILS_ROUTE;
-use crate::{register_routes, Error, Result};
+use crate::{Error, Result};
 use axum::extract::Path;
-use axum::{Json, Router};
+use axum::Json;
 use log::info;
 use utoipa::OpenApi;
 
@@ -33,10 +33,6 @@ pub async fn post_details_handler(
         Ok(None) => Err(Error::PostNotFound { author_id, post_id }),
         Err(source) => Err(Error::InternalServerError { source }),
     }
-}
-
-pub fn routes() -> Router {
-    register_routes!(Router::new(), super::endpoints::POST_ROUTE => post_details_handler)
 }
 
 #[derive(OpenApi)]
