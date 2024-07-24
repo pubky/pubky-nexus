@@ -30,6 +30,8 @@ Reach feature parity with `skunk-work` indexer improving on the following:
 3. The social graph DB (Neo4J) is intended for holding a complete view of the network. It should be queried as little as possible but we can abuse it at the beginning in order to complete features faster.
 4. As long as it is possible and not too troublesome, most relationships, query results and cache should be indexed by `key: value` and retrieved from Redis. We should take inspiration on current use of LMDB in `skunk-works` (a lot of things can be done using plain `key: value` but some are too troublesome to implement: then we query our graph directly)
 
+![Pubky-nexus-graph](docs/images/pubky-nexus-graph.png)
+
 ## 👨‍💻 Quick Dev
 
 For auto re-build on save and testing while developing `/service` :
