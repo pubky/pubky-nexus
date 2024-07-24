@@ -26,7 +26,7 @@ pub struct ApiDoc;
 
 impl ApiDoc {
     pub fn merge_docs() -> utoipa::openapi::OpenApi {
-        let mut combined = post::PostApiDoc::openapi();
+        let mut combined = post::PostApiDoc::merge_docs();
         combined.merge(info::InfoApiDoc::openapi());
         combined.merge(profile::ProfileApiDoc::merge_docs());
         combined

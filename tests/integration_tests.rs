@@ -182,19 +182,31 @@ async fn test_get_details() -> Result<()> {
 async fn test_get_post() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 
-    let author_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
-    let post_id = "2Z1NJPW2QHGG0";
+    let author_id = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
+    let post_id = "2ZCW1TGR5BKG0";
 
     let res = client
-        .do_get(&format!("/v0/post/{}/{}", author_id, post_id))
+        .do_get(&format!(
+            "/v0/post/{}/{}?viewer_id={}",
+            author_id, post_id, author_id
+        ))
         .await?;
     assert_eq!(res.status(), 200);
 
     let body = res.json_body()?;
-    assert_eq!(body["content"], "Running #Pubky ");
-    assert_eq!(body["indexed_at"].as_u64(), Some(1712310532901));
-    assert_eq!(body["id"], post_id);
-    assert_eq!(body["author"], author_id);
+    assert_eq!(body["details"]["content"], "I am told we can reply now!");
+    assert_eq!(body["details"]["indexed_at"].as_u64(), Some(1718616844478));
+    assert_eq!(body["details"]["id"], post_id);
+    assert_eq!(body["details"]["author"], author_id);
+    assert_eq!(
+        body["details"]["uri"],
+        "pubky:y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy/pubky.app/posts/2ZCW1TGR5BKG0"
+    );
+    assert_eq!(body["counts"]["tags"].as_u64(), Some(5));
+    assert_eq!(body["counts"]["replies"].as_u64(), Some(2));
+    assert_eq!(body["counts"]["reposts"].as_u64(), Some(1));
+    assert_eq!(body["bookmark"]["indexed_at"].as_u64(), Some(1721764200));
+    assert_eq!(body["bookmark"]["id"], "2Z9PFGC3WWWW0");
 
     // Test non-existing post
     let res = client
@@ -234,10 +246,11 @@ async fn quick_dev() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 
     // Check endpoint, play with this.
-    let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
-    let viewer_id = "5g3fwnue819wfdjwiwm8qr35ww6uxxgbzrigrtdgmbi19ksioeoy";
+    let author_id = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
+    let post_id = "2ZCW1TGR5BKG0";
+
     client
-        .do_get(&format!("/v0/profile/{}?viewer_id={}", user_id, viewer_id))
+        .do_get(&format!("/v0/post/{}/{}", author_id, post_id))
         .await?
         .print()
         .await?;

@@ -1,44 +1,40 @@
-use crate::models::post::Post;
-use crate::routes::v0::endpoints::POST_ROUTE;
-use crate::{register_routes, Error, Result};
+use crate::models::post::PostDetails;
+use crate::routes::v0::endpoints::POST_DETAILS_ROUTE;
+use crate::{Error, Result};
 use axum::extract::Path;
-use axum::{Json, Router};
+use axum::Json;
 use log::info;
 use utoipa::OpenApi;
 
 #[utoipa::path(
     get,
-    path = POST_ROUTE,
-    tag = "Post",
+    path = POST_DETAILS_ROUTE,
+    tag = "Post Details",
     params(
         ("author_id" = String, Path, description = "Author Pubky ID"),
         ("post_id" = String, Path, description = "Post Crockford32 ID")
     ),
     responses(
-        (status = 200, description = "Post", body = Post),
+        (status = 200, description = "Post Details", body = PostDetails),
         (status = 404, description = "Post not found"),
         (status = 500, description = "Internal server error")
     )
 )]
-pub async fn post_handler(
+pub async fn post_details_handler(
     Path((author_id, post_id)): Path<(String, String)>,
-) -> Result<Json<Post>> {
+) -> Result<Json<PostDetails>> {
     info!(
-        "GET {POST_ROUTE} author_id:{}, post_id:{}",
+        "GET {POST_DETAILS_ROUTE} author_id:{}, post_id:{}",
         author_id, post_id
     );
 
-    match Post::get_by_id(&author_id, &post_id).await {
+    match PostDetails::get_by_id(&author_id, &post_id).await {
         Ok(Some(post)) => Ok(Json(post)),
         Ok(None) => Err(Error::PostNotFound { author_id, post_id }),
         Err(source) => Err(Error::InternalServerError { source }),
     }
 }
 
-pub fn routes() -> Router {
-    register_routes!(Router::new(), super::endpoints::POST_ROUTE => post_handler)
-}
-
 #[derive(OpenApi)]
-#[openapi(paths(post_handler), components(schemas(Post)))]
-pub struct PostApiDoc;
+#[openapi(paths(post_details_handler), components(schemas(PostDetails)))]
+pub struct PostDetailsApiDoc;

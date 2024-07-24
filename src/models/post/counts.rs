@@ -6,78 +6,78 @@ use utoipa::ToSchema;
 
 /// Represents total counts of relationships of a profile.
 #[derive(Serialize, Deserialize, ToSchema)]
-pub struct ProfileCounts {
+pub struct PostCounts {
     pub tags: u32,
-    pub posts: u32,
-    pub following: u32,
-    pub followers: u32,
-    pub friends: u32,
+    pub replies: u32,
+    pub reposts: u32,
 }
 
-impl Default for ProfileCounts {
+impl Default for PostCounts {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl ProfileCounts {
+impl PostCounts {
     pub fn new() -> Self {
         Self {
             tags: 0,
-            posts: 0,
-            followers: 0,
-            following: 0,
-            friends: 0,
+            replies: 0,
+            reposts: 0,
         }
     }
 
     /// Retrieves counts by user ID, first trying to get from Redis, then from Neo4j if not found.
     pub async fn get_by_id(
-        user_id: &str,
-    ) -> Result<Option<ProfileCounts>, Box<dyn std::error::Error + Send + Sync>> {
-        match Self::get_from_index(user_id).await? {
+        author_id: &str,
+        post_id: &str,
+    ) -> Result<Option<PostCounts>, Box<dyn std::error::Error + Send + Sync>> {
+        match Self::get_from_index(author_id, post_id).await? {
             Some(counts) => Ok(Some(counts)),
-            None => Self::get_from_graph(user_id).await,
+            None => Self::get_from_graph(author_id, post_id).await,
         }
     }
 
     /// Sets counts in the Redis cache.
     pub async fn set_index(
         &self,
-        user_id: &str,
+        author_id: &str,
+        post_id: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        index::set(&Self::prefix(), user_id, self, None, None).await
+        let key = format!("{}:{}", author_id, post_id);
+        index::set(&Self::prefix(), &key, self, None, None).await
     }
 
     /// Get counts from the Redis cache.
     pub async fn get_from_index(
-        user_id: &str,
+        author_id: &str,
+        post_id: &str,
     ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
-        index::get(&Self::prefix(), user_id, None).await
+        let key = format!("{}:{}", author_id, post_id);
+        index::get(&Self::prefix(), &key, None).await
     }
 
     /// Retrieves the counts from Neo4j.
     pub async fn get_from_graph(
-        user_id: &str,
-    ) -> Result<Option<ProfileCounts>, Box<dyn std::error::Error + Send + Sync>> {
+        author_id: &str,
+        post_id: &str,
+    ) -> Result<Option<PostCounts>, Box<dyn std::error::Error + Send + Sync>> {
         let graph = get_neo4j_graph()?;
-        let query = queries::profile_counts(user_id);
+        let query = queries::post_counts(author_id, post_id);
 
         let graph = graph.lock().await;
         let mut result = graph.execute(query).await?;
 
         if let Some(row) = result.next().await? {
-            if !row.get("user_exists").unwrap_or(false) {
+            if !row.get("post_exists").unwrap_or(false) {
                 return Ok(None);
             }
             let counts = Self {
-                following: row.get("following_count").unwrap_or_default(),
-                followers: row.get("followers_count").unwrap_or_default(),
-                friends: row.get("friends_count").unwrap_or_default(),
-                posts: row.get("posts_count").unwrap_or_default(),
                 tags: row.get("tags_count").unwrap_or_default(),
+                replies: row.get("replies_count").unwrap_or_default(),
+                reposts: row.get("reposts_count").unwrap_or_default(),
             };
-            counts.set_index(user_id).await?;
+            counts.set_index(author_id, post_id).await?;
             Ok(Some(counts))
         } else {
             Ok(None)

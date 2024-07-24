@@ -54,7 +54,7 @@ impl Relationship {
         user_id: &str,
         viewer_id: &str,
     ) -> Result<Option<Relationship>, Box<dyn std::error::Error + Send + Sync>> {
-        let key = format!("{user_id}{viewer_id}");
+        let key = format!("{user_id}:{viewer_id}");
         index::get(&Self::prefix(), &key, None).await
     }
 
@@ -77,7 +77,7 @@ impl Relationship {
                 return Ok(None);
             }
 
-            let relationship = Relationship {
+            let relationship = Self {
                 following: row.get("following").unwrap_or(false),
                 followed_by: row.get("followed_by").unwrap_or(false),
             };

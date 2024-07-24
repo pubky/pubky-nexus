@@ -1,14 +1,14 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use super::{ProfileCounts, ProfileDetails, ProfileTag, Relationship};
+use super::{ProfileCounts, ProfileDetails, ProfileTags, Relationship};
 
-/// Represents a Pubky user profile with relational data including tags, counts, and relationship with a viewer.
+/// Represents a Pubky user profile with relational data including tags, counts, bookmark and relationship with other posts.
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct ProfileView {
     details: ProfileDetails,
     counts: ProfileCounts,
-    tags: Vec<ProfileTag>,
+    tags: ProfileTags,
     viewer: Relationship,
 }
 
@@ -23,7 +23,7 @@ impl ProfileView {
         Self {
             details: ProfileDetails::new(),
             counts: ProfileCounts::new(),
-            tags: vec![ProfileTag::new()],
+            tags: ProfileTags::new(),
             viewer: Relationship::new(),
         }
     }
@@ -52,7 +52,7 @@ impl ProfileView {
             details,
             counts,
             viewer,
-            tags: vec![ProfileTag::new()], //TODO
+            tags: ProfileTags::new(), //TODO
         }))
     }
 }

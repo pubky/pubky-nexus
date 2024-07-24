@@ -8,21 +8,21 @@ use utoipa::ToSchema;
 
 /// Represents post data with content, bio, image, links, and status.
 #[derive(Serialize, Deserialize, ToSchema)]
-pub struct Post {
+pub struct PostDetails {
     content: String,
-    id: String, // TODO: create Crockfordbase32 Struct and validator
+    id: String, // TODO: create Crockfordbase32 validator
     indexed_at: i64,
-    author: String, // TODO: PubkyKey struct with validator
+    author: String,
     uri: String,
 }
 
-impl Default for Post {
+impl Default for PostDetails {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Post {
+impl PostDetails {
     pub fn new() -> Self {
         Self {
             content: String::new(),
@@ -37,14 +37,14 @@ impl Post {
     pub async fn get_by_id(
         author_id: &str,
         post_id: &str,
-    ) -> Result<Option<Post>, Box<dyn std::error::Error + Send + Sync>> {
-        match Post::get_from_index(author_id, post_id).await? {
+    ) -> Result<Option<PostDetails>, Box<dyn std::error::Error + Send + Sync>> {
+        match Self::get_from_index(author_id, post_id).await? {
             Some(details) => Ok(Some(details)),
-            None => Post::get_from_graph(author_id, post_id).await,
+            None => Self::get_from_graph(author_id, post_id).await,
         }
     }
 
-    fn from_node(node: &Node, author_id: &str) -> Self {
+    async fn from_node(node: &Node, author_id: &str) -> Self {
         let id = node.get("id").unwrap_or_default();
         Self {
             uri: format!("pubky:{author_id}/pubky.app/posts/{id}"),
@@ -76,20 +76,21 @@ impl Post {
     pub async fn get_from_graph(
         author_id: &str,
         post_id: &str,
-    ) -> Result<Option<Post>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<PostDetails>, Box<dyn std::error::Error + Send + Sync>> {
         let graph = get_neo4j_graph()?;
         let query = queries::get_post_by_id(author_id, post_id);
 
         let graph = graph.lock().await;
         let mut result = graph.execute(query).await?;
 
-        if let Some(row) = result.next().await? {
-            let node: Node = row.get("p").unwrap();
-            let post = Post::from_node(&node, author_id);
-            post.set_index(author_id, post_id).await?;
-            Ok(Some(post))
-        } else {
-            Ok(None)
+        match result.next().await? {
+            Some(row) => {
+                let node: Node = row.get("p")?;
+                let post = Self::from_node(&node, author_id).await;
+                post.set_index(author_id, post_id).await?;
+                Ok(Some(post))
+            }
+            None => Ok(None),
         }
     }
 }

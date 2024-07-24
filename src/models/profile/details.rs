@@ -3,6 +3,7 @@ use crate::models::Prefix;
 use crate::{index, queries};
 use chrono::Utc;
 use neo4rs::Node;
+use pkarr::PublicKey;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -33,7 +34,7 @@ impl ProfileLink {
 pub struct ProfileDetails {
     name: String,
     bio: String,
-    id: String, // TODO: create Crockfordbase32 Struct and validator
+    id: String,
     links: Vec<ProfileLink>,
     status: String,
     indexed_at: i64,
@@ -61,21 +62,25 @@ impl ProfileDetails {
     pub async fn get_by_id(
         user_id: &str,
     ) -> Result<Option<ProfileDetails>, Box<dyn std::error::Error + Send + Sync>> {
-        match ProfileDetails::get_from_index(user_id).await? {
+        match Self::get_from_index(user_id).await? {
             Some(details) => Ok(Some(details)),
-            None => ProfileDetails::get_from_graph(user_id).await,
+            None => Self::get_from_graph(user_id).await,
         }
     }
 
-    fn from_node(node: &Node) -> Self {
-        Self {
+    async fn from_node(node: &Node) -> Option<Self> {
+        // TODO validation of ID should happen when we WRITE a Post into the graph with the watcher.
+        let id: String = node.get("id").unwrap_or_default();
+        PublicKey::try_from(id.clone()).ok()?;
+
+        Some(Self {
+            id,
             name: node.get("name").unwrap_or_default(),
             bio: node.get("bio").unwrap_or_default(),
-            id: node.get("id").unwrap_or_default(),
             status: node.get("status").unwrap_or_default(),
             links: node.get("links").unwrap_or_default(),
             indexed_at: node.get("indexed_at").unwrap_or_default(),
-        }
+        })
     }
 
     pub async fn set_index(
@@ -101,13 +106,18 @@ impl ProfileDetails {
         let graph = graph.lock().await;
         let mut result = graph.execute(query).await?;
 
-        if let Some(row) = result.next().await? {
-            let node: Node = row.get("u").unwrap();
-            let details = ProfileDetails::from_node(&node);
-            details.set_index(user_id).await?;
-            Ok(Some(details))
-        } else {
-            Ok(None)
+        match result.next().await? {
+            Some(row) => {
+                let node: Node = row.get("u")?;
+                match Self::from_node(&node).await {
+                    Some(details) => {
+                        details.set_index(user_id).await?;
+                        Ok(Some(details))
+                    }
+                    None => Ok(None),
+                }
+            }
+            None => Ok(None),
         }
     }
 }
