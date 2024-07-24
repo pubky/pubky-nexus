@@ -246,10 +246,11 @@ async fn quick_dev() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 
     // Check endpoint, play with this.
-    let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
-    let viewer_id = "5g3fwnue819wfdjwiwm8qr35ww6uxxgbzrigrtdgmbi19ksioeoy";
+    let author_id = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
+    let post_id = "2ZCW1TGR5BKG0";
+
     client
-        .do_get(&format!("/v0/profile/{}?viewer_id={}", user_id, viewer_id))
+        .do_get(&format!("/v0/post/{}/{}", author_id, post_id))
         .await?
         .print()
         .await?;

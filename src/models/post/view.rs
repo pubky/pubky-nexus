@@ -37,10 +37,11 @@ impl PostView {
         viewer_id: Option<&str>,
     ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
         // Perform all operations concurrently
-        let (details, counts, bookmark) = tokio::try_join!(
+        let (details, counts, bookmark, relationships) = tokio::try_join!(
             PostDetails::get_by_id(author_id, post_id),
             PostCounts::get_by_id(author_id, post_id),
-            Bookmark::get_by_id(author_id, post_id, viewer_id), // PostRelationships::get_by_id(author_id, post_id),
+            Bookmark::get_by_id(author_id, post_id, viewer_id),
+            PostRelationships::get_by_id(author_id, post_id),
         )?;
 
         let details = match details {
@@ -49,13 +50,13 @@ impl PostView {
         };
 
         let counts = counts.unwrap_or_default();
-        //let relationships = relationships.unwrap_or_default();
+        let relationships = relationships.unwrap_or_default();
 
         Ok(Some(Self {
             details,
             counts,
             bookmark,
-            relationships: PostRelationships::new(),
+            relationships,
             tags: PostTags::new(), //TODO
         }))
     }

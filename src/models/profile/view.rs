@@ -3,7 +3,7 @@ use utoipa::ToSchema;
 
 use super::{ProfileCounts, ProfileDetails, ProfileTags, Relationship};
 
-/// Represents a Pubky user profile with relational data including tags, counts, and relationship with a viewer.
+/// Represents a Pubky user profile with relational data including tags, counts, bookmark and relationship with other posts.
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct ProfileView {
     details: ProfileDetails,

@@ -69,7 +69,7 @@ impl ProfileDetails {
     }
 
     async fn from_node(node: &Node) -> Option<Self> {
-        // Validate the "id" field
+        // TODO validation of ID should happen when we WRITE a Post into the graph with the watcher.
         let id: String = node.get("id").unwrap_or_default();
         PublicKey::try_from(id.clone()).ok()?;
 
@@ -108,7 +108,7 @@ impl ProfileDetails {
 
         match result.next().await? {
             Some(row) => {
-                let node: Node = row.get("u").unwrap();
+                let node: Node = row.get("u")?;
                 match Self::from_node(&node).await {
                     Some(details) => {
                         details.set_index(user_id).await?;

@@ -85,7 +85,7 @@ impl PostDetails {
 
         match result.next().await? {
             Some(row) => {
-                let node: Node = row.get("p").unwrap();
+                let node: Node = row.get("p")?;
                 let post = Self::from_node(&node, author_id).await;
                 post.set_index(author_id, post_id).await?;
                 Ok(Some(post))

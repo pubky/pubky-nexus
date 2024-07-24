@@ -61,6 +61,23 @@ pub fn post_bookmark(author_id: &str, post_id: &str, viewer_id: &str) -> Query {
     .param("viewer_id", viewer_id)
 }
 
+pub fn post_relationships(author_id: &str, post_id: &str) -> Query {
+    query(
+        "MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+        OPTIONAL MATCH (p)-[:REPLY_TO]->(replied_post:Post)<-[:AUTHORED]-(replied_author:User)
+        OPTIONAL MATCH (p)-[:REPOST_OF]->(reposted_post:Post)<-[:AUTHORED]-(reposted_author:User)
+        OPTIONAL MATCH (p)-[:MENTION_TO]->(mentioned_user:User)
+        RETURN 
+          replied_post.id AS replied_post_id, 
+          replied_author.id AS replied_author_id,
+          reposted_post.id AS reposted_post_id, 
+          reposted_author.id AS reposted_author_id,
+          COLLECT(mentioned_user.id) AS mentioned_user_ids",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
+}
+
 // Retrive user node by id (pk)
 pub fn get_user_by_id(user_id: &str) -> Query {
     query("MATCH (u:User {id: $id}) RETURN u").param("id", user_id)
