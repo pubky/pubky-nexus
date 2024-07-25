@@ -1,6 +1,5 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
-use crate::models::Prefix;
-use crate::{index, queries};
+use crate::{queries, RedisOps};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -10,6 +9,8 @@ pub struct Relationship {
     pub following: bool,
     pub followed_by: bool,
 }
+
+impl RedisOps for Relationship {}
 
 impl Default for Relationship {
     fn default() -> Self {
@@ -32,30 +33,11 @@ impl Relationship {
     ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
         match viewer_id {
             None => Ok(None),
-            Some(v_id) => match Self::get_from_index(user_id, v_id).await? {
+            Some(v_id) => match Self::try_from_index(&[user_id, v_id]).await? {
                 Some(indexed_relationship) => Ok(Some(indexed_relationship)),
                 None => Self::get_from_graph(user_id, v_id).await,
             },
         }
-    }
-
-    /// Indexes the relationship in Redis.
-    pub async fn set_index(
-        &self,
-        user_id: &str,
-        viewer_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let key = format!("{user_id}{viewer_id}");
-        index::set(&Self::prefix(), &key, self, None, None).await
-    }
-
-    /// Retrieves the relationship from Redis.
-    pub async fn get_from_index(
-        user_id: &str,
-        viewer_id: &str,
-    ) -> Result<Option<Relationship>, Box<dyn std::error::Error + Send + Sync>> {
-        let key = format!("{user_id}:{viewer_id}");
-        index::get(&Self::prefix(), &key, None).await
     }
 
     /// Retrieves the relationship from Neo4j and indexes it in Redis.
@@ -81,7 +63,7 @@ impl Relationship {
                 following: row.get("following").unwrap_or(false),
                 followed_by: row.get("followed_by").unwrap_or(false),
             };
-            relationship.set_index(user_id, viewer_id).await?;
+            relationship.set_index(&[user_id, viewer_id]).await?;
             Ok(Some(relationship))
         } else {
             Ok(None)

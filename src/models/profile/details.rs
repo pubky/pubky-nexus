@@ -1,6 +1,5 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
-use crate::models::Prefix;
-use crate::{index, queries};
+use crate::{queries, RedisOps};
 use chrono::Utc;
 use neo4rs::Node;
 use pkarr::PublicKey;
@@ -46,6 +45,8 @@ impl Default for ProfileDetails {
     }
 }
 
+impl RedisOps for ProfileDetails {}
+
 impl ProfileDetails {
     pub fn new() -> Self {
         Self {
@@ -62,7 +63,7 @@ impl ProfileDetails {
     pub async fn get_by_id(
         user_id: &str,
     ) -> Result<Option<ProfileDetails>, Box<dyn std::error::Error + Send + Sync>> {
-        match Self::get_from_index(user_id).await? {
+        match Self::try_from_index(&[user_id]).await? {
             Some(details) => Ok(Some(details)),
             None => Self::get_from_graph(user_id).await,
         }
@@ -83,19 +84,6 @@ impl ProfileDetails {
         })
     }
 
-    pub async fn set_index(
-        &self,
-        user_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        index::set(&Self::prefix(), user_id, self, None, None).await
-    }
-
-    pub async fn get_from_index(
-        user_id: &str,
-    ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
-        index::get(&Self::prefix(), user_id, None).await
-    }
-
     /// Retrieves the details from Neo4j.
     pub async fn get_from_graph(
         user_id: &str,
@@ -111,7 +99,7 @@ impl ProfileDetails {
                 let node: Node = row.get("u")?;
                 match Self::from_node(&node).await {
                     Some(details) => {
-                        details.set_index(user_id).await?;
+                        details.set_index(&[user_id]).await?;
                         Ok(Some(details))
                     }
                     None => Ok(None),

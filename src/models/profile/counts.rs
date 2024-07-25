@@ -1,6 +1,5 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
-use crate::models::Prefix;
-use crate::{index, queries};
+use crate::{queries, RedisOps};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -13,6 +12,8 @@ pub struct ProfileCounts {
     pub followers: u32,
     pub friends: u32,
 }
+
+impl RedisOps for ProfileCounts {}
 
 impl Default for ProfileCounts {
     fn default() -> Self {
@@ -35,25 +36,10 @@ impl ProfileCounts {
     pub async fn get_by_id(
         user_id: &str,
     ) -> Result<Option<ProfileCounts>, Box<dyn std::error::Error + Send + Sync>> {
-        match Self::get_from_index(user_id).await? {
+        match Self::try_from_index(&[user_id]).await? {
             Some(counts) => Ok(Some(counts)),
             None => Self::get_from_graph(user_id).await,
         }
-    }
-
-    /// Sets counts in the Redis cache.
-    pub async fn set_index(
-        &self,
-        user_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        index::set(&Self::prefix(), user_id, self, None, None).await
-    }
-
-    /// Get counts from the Redis cache.
-    pub async fn get_from_index(
-        user_id: &str,
-    ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
-        index::get(&Self::prefix(), user_id, None).await
     }
 
     /// Retrieves the counts from Neo4j.
@@ -77,7 +63,7 @@ impl ProfileCounts {
                 posts: row.get("posts_count").unwrap_or_default(),
                 tags: row.get("tags_count").unwrap_or_default(),
             };
-            counts.set_index(user_id).await?;
+            counts.set_index(&[user_id]).await?;
             Ok(Some(counts))
         } else {
             Ok(None)
