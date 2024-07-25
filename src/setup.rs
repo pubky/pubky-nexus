@@ -6,10 +6,18 @@ use crate::db::connectors::{
 use crate::queries::setup_graph;
 use log::{error, info};
 
-pub async fn setup(config: &Config) {
-    env_logger::init();
+async fn setup_redis(config: &Config) {
+    let redis_connector = RedisConnector::new_connection(&config.redis_uri())
+        .await
+        .expect("Failed to connect to Redis");
 
-    // Initialize Neo4j connection
+    match REDIS_CONNECTOR.set(redis_connector) {
+        Err(e) => error!("RedisConnector was already set: {:?}", e),
+        Ok(()) => info!("RedisConnector successfully set"),
+    }
+}
+
+async fn setup_neo4j(config: &Config) {
     let neo4j_connector = Neo4jConnector::new_connection(
         &config.neo4j_uri(),
         &config.neo4j_username,
@@ -18,23 +26,19 @@ pub async fn setup(config: &Config) {
     .await
     .expect("Failed to connect to Neo4j");
 
-    if NEO4J_CONNECTOR.set(neo4j_connector).is_err() {
-        error!("Neo4jConnector already set");
-    } else {
-        info!("Neo4jConnector successfully set");
+    match NEO4J_CONNECTOR.set(neo4j_connector) {
+        Err(e) => error!("Neo4jConnector was already set: {:?}", e),
+        Ok(()) => info!("Neo4jConnector successfully set"),
     }
 
     // Set Neo4J graph data constraints
-    let _ = setup_graph().await;
+    setup_graph().await.unwrap_or_default();
+}
 
-    // Initialize Redis connection
-    let redis_connector = RedisConnector::new_connection(&config.redis_uri())
-        .await
-        .expect("Failed to connect to Redis");
+pub async fn setup(config: &Config) {
+    env_logger::init();
 
-    if REDIS_CONNECTOR.set(redis_connector).is_err() {
-        error!("RedisConnector already set");
-    } else {
-        info!("RedisConnector successfully set");
-    }
+    // Initialize Redis and Neo4j
+    setup_redis(config).await;
+    setup_neo4j(config).await;
 }
