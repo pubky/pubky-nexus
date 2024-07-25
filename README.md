@@ -19,7 +19,7 @@ Reach feature parity with `skunk-work` indexer improving on the following:
 
 ## 🏠Architecture
 
-![image](https://github.com/user-attachments/assets/e516ceff-d28f-4d71-9123-96eb1725cd73)
+![pubky-nexus-arch](docs/images/pubky-nexus-arch.png)
 
 - **service.rs**: binary that serves REST request to the pubky-app clients reading from our DBs.
 - **watcher.rs**: binary that subscribes to homeservers and populate our DBs
@@ -30,7 +30,7 @@ Reach feature parity with `skunk-work` indexer improving on the following:
 3. As long as it is possible and not too troublesome, most relationships, query results and cache should be indexed by `key: value` and retrieved from Redis. We should take inspiration on current use of LMDB in `skunk-works` (a lot of things can be done using plain `key: value` but some are too troublesome to implement: then we query our graph directly)
 4. The social graph DB (Neo4J) is intended for holding a complete view of the network. It should be queried as little as possible but we can abuse it at the beginning in order to complete features faster.
 
-![Pubky-nexus-graph](docs/images/pubky-nexus-graph.png)
+![pubky-nexus-graph](docs/images/pubky-nexus-graph.png)
 
 ## 👨‍💻 Quick Dev
 
