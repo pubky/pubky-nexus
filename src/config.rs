@@ -12,6 +12,7 @@ pub struct Config {
     pub static_path: String,
     server_host: String,
     server_port: String,
+    pub reindex: bool,
 }
 
 impl Config {
@@ -28,6 +29,10 @@ impl Config {
             static_path: env::var("STATIC_PATH").unwrap_or_else(|_| "./".to_string()),
             server_host: env::var("SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string()),
             server_port: env::var("SERVER_PORT").unwrap_or_else(|_| "8080".to_string()),
+            reindex: env::var("REINDEX")
+                .unwrap_or_else(|_| "false".to_string())
+                .parse()
+                .unwrap_or(false),
         }
     }
 

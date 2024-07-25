@@ -41,7 +41,7 @@ cargo install cargo-watch
 
 # Ideally in two terminals.
 # On terminal 1 run:
-cargo watch -q -c -w src/ -x "run --bin pubky-nexus-service"
+cargo watch -q -c -w src/ -x run
 # You can check the running service on your browser on localhost:8080/info
 
 # On terminal 2 run (for tests to work you need a working /neo4j-example instance with example dataset)
