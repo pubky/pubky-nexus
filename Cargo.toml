@@ -6,6 +6,7 @@ description = "Nexus between homeservers and Pubky-App. Pubky-nexus constructs a
 homepage = "https://github.com/pubky"
 repository = "https://github.com/pubky/pubky-nexus"
 license = "MIT"
+default-run = "service"
 
 [dependencies]
 tokio = { version = "1.38.1", features = ["full"] }
@@ -37,19 +38,22 @@ name = "pubky_nexus"
 path = "src/lib.rs"
 
 [[bin]]
-name = "pubky-nexus-service"
+
+name = "service"
 path = "src/service.rs"
 
 [[bin]]
-name = "pubky-nexus-watcher"
+name = "watcher"
 path = "src/watcher.rs"
 
 [[bench]]
 name = "profile"
 harness = false
-
 [[bench]]
 name = "post"
+harness = false
+[[bench]]
+name = "reindex"
 harness = false
 
 # Max performance profile
