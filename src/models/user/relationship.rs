@@ -1,5 +1,9 @@
+use std::error::Error;
+
 use crate::db::connectors::neo4j::get_neo4j_graph;
+use crate::db::kv::index::{get_bool, set};
 use crate::{queries, RedisOps};
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -10,7 +14,58 @@ pub struct Relationship {
     pub followed_by: bool,
 }
 
-impl RedisOps for Relationship {}
+#[async_trait]
+impl RedisOps for Relationship {
+    async fn prefix() -> String {
+        String::from("Follows")
+    }
+
+    async fn set_index(&self, key_parts: &[&str]) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let (user_id, viewer_id) = match key_parts {
+            [user_id, viewer_id] => (user_id, viewer_id),
+            _ => return Err("Expected exactly two elements in key_parts".into()),
+        };
+
+        let prefix = Self::prefix().await;
+
+        if self.followed_by {
+            let key = format!("{user_id}:{viewer_id}");
+            set(&prefix, &key, &true, None, None).await?;
+        }
+        if self.following {
+            let key = format!("{viewer_id}:{user_id}");
+            set(&prefix, &key, &true, None, None).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn try_from_index(
+        key_parts: &[&str],
+    ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
+        let (user_id, viewer_id) = match key_parts {
+            [user_id, viewer_id] => (user_id, viewer_id),
+            _ => return Err("Expected exactly two elements in key_parts".into()),
+        };
+
+        let prefix = Self::prefix().await;
+
+        let following_key = format!("{viewer_id}:{user_id}");
+        let followed_by_key = format!("{user_id}:{viewer_id}");
+
+        let following_result: Option<bool> = get_bool(&prefix, &following_key).await?;
+        let followed_by_result: Option<bool> = get_bool(&prefix, &followed_by_key).await?;
+
+        if following_result.is_none() && followed_by_result.is_none() {
+            return Ok(None);
+        }
+
+        Ok(Some(Self {
+            following: following_result.unwrap_or(false),
+            followed_by: followed_by_result.unwrap_or(false),
+        }))
+    }
+}
 
 impl Default for Relationship {
     fn default() -> Self {

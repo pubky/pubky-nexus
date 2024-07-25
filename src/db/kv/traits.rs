@@ -1,6 +1,7 @@
 use super::index;
 use async_trait::async_trait;
 use serde::{de::DeserializeOwned, Serialize};
+use std::error::Error;
 
 /// A trait for operations involving Redis storage. Implement this trait for types that need to be stored
 /// and retrieved from Redis with serialization and deserialization capabilities.
@@ -20,6 +21,14 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         String::from(struct_name)
     }
 
+    async fn try_from_bool_index(
+        key_parts: &[&str],
+    ) -> Result<Option<bool>, Box<dyn Error + Send + Sync>> {
+        let prefix = Self::prefix().await;
+        let key = key_parts.join(":");
+        index::get_bool(&prefix, &key).await
+    }
+
     /// Sets the data in Redis using the provided key parts.
     ///
     /// This method serializes the data and stores it in Redis under the key generated
@@ -32,10 +41,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// # Errors
     ///
     /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
-    async fn set_index(
-        &self,
-        key_parts: &[&str],
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn set_index(&self, key_parts: &[&str]) -> Result<(), Box<dyn Error + Send + Sync>> {
         index::set(
             &Self::prefix().await,
             &key_parts.join(":"),
@@ -45,6 +51,20 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         )
         .await
     }
+
+    // async fn set_multiple_indexes(
+    //     data: &[(&str, Self)],
+    // ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    //     let prefix = Self::prefix().await;
+    //     let mut serialized_data = Vec::with_capacity(data.len());
+
+    //     for (key, value) in data {
+    //         let serialized_value = serde_json::to_string(value)?;
+    //         serialized_data.push((key.as_ref(), serialized_value));
+    //     }
+
+    //     index::set_multiple(&prefix, &serialized_data).await
+    // }
 
     /// Retrieves data from Redis using the provided key parts.
     ///
@@ -64,7 +84,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
     async fn try_from_index(
         key_parts: &[&str],
-    ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
         index::get(&Self::prefix().await, &key_parts.join(":"), None).await
     }
 }
