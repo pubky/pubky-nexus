@@ -3,9 +3,9 @@ use crate::{queries, RedisOps};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-/// Represents total counts of relationships of a profile.
+/// Represents total counts of relationships of a user.
 #[derive(Serialize, Deserialize, ToSchema)]
-pub struct ProfileCounts {
+pub struct UserCounts {
     pub tags: u32,
     pub posts: u32,
     pub following: u32,
@@ -13,15 +13,15 @@ pub struct ProfileCounts {
     pub friends: u32,
 }
 
-impl RedisOps for ProfileCounts {}
+impl RedisOps for UserCounts {}
 
-impl Default for ProfileCounts {
+impl Default for UserCounts {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl ProfileCounts {
+impl UserCounts {
     pub fn new() -> Self {
         Self {
             tags: 0,
@@ -35,7 +35,7 @@ impl ProfileCounts {
     /// Retrieves counts by user ID, first trying to get from Redis, then from Neo4j if not found.
     pub async fn get_by_id(
         user_id: &str,
-    ) -> Result<Option<ProfileCounts>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<UserCounts>, Box<dyn std::error::Error + Send + Sync>> {
         match Self::try_from_index(&[user_id]).await? {
             Some(counts) => Ok(Some(counts)),
             None => Self::get_from_graph(user_id).await,
@@ -45,9 +45,9 @@ impl ProfileCounts {
     /// Retrieves the counts from Neo4j.
     pub async fn get_from_graph(
         user_id: &str,
-    ) -> Result<Option<ProfileCounts>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<UserCounts>, Box<dyn std::error::Error + Send + Sync>> {
         let graph = get_neo4j_graph()?;
-        let query = queries::profile_counts(user_id);
+        let query = queries::user_counts(user_id);
 
         let graph = graph.lock().await;
         let mut result = graph.execute(query).await?;

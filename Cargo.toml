@@ -47,11 +47,13 @@ name = "watcher"
 path = "src/watcher.rs"
 
 [[bench]]
-name = "profile"
+name = "user"
 harness = false
+
 [[bench]]
 name = "post"
 harness = false
+
 [[bench]]
 name = "reindex"
 harness = false

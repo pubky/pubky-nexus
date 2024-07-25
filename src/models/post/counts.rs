@@ -3,7 +3,7 @@ use crate::{queries, RedisOps};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-/// Represents total counts of relationships of a profile.
+/// Represents total counts of relationships of a user.
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct PostCounts {
     pub tags: u32,

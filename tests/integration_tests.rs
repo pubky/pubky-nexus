@@ -17,12 +17,12 @@ async fn test_info_endpoint() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_profile_endpoint() -> Result<()> {
+async fn test_user_endpoint() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 
     // Look for Aldert pk user id
     let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
-    let res = client.do_get(&format!("/v0/profile/{}", user_id)).await?;
+    let res = client.do_get(&format!("/v0/user/{}", user_id)).await?;
     assert_eq!(res.status(), 200);
 
     let body = res.json_body()?;
@@ -35,7 +35,7 @@ async fn test_profile_endpoint() -> Result<()> {
     // Look for Aldert pk user id using Flavio's viewer id
     let viewer_id = "5g3fwnue819wfdjwiwm8qr35ww6uxxgbzrigrtdgmbi19ksioeoy";
     let res = client
-        .do_get(&format!("/v0/profile/{}?viewer_id={}", user_id, viewer_id))
+        .do_get(&format!("/v0/user/{}?viewer_id={}", user_id, viewer_id))
         .await?;
     assert_eq!(res.status(), 200);
 
@@ -45,7 +45,7 @@ async fn test_profile_endpoint() -> Result<()> {
 
     // Look for a non existing pk
     let user_id = "bad_user_id";
-    let res = client.do_get(&format!("/v0/profile/{}", user_id)).await?;
+    let res = client.do_get(&format!("/v0/user/{}", user_id)).await?;
     assert_eq!(res.status(), 404);
 
     Ok(())
@@ -98,10 +98,7 @@ async fn test_get_relationship() -> Result<()> {
     let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
     let viewer_id = "5g3fwnue819wfdjwiwm8qr35ww6uxxgbzrigrtdgmbi19ksioeoy";
     let res = client
-        .do_get(&format!(
-            "/v0/profile/{}/relationship/{}",
-            user_id, viewer_id
-        ))
+        .do_get(&format!("/v0/user/{}/relationship/{}", user_id, viewer_id))
         .await?;
     assert_eq!(res.status(), 200);
 
@@ -113,10 +110,7 @@ async fn test_get_relationship() -> Result<()> {
     let user_id = "bad_user_id";
     let viewer_id = "bad_viewer_id";
     let res = client
-        .do_get(&format!(
-            "/v0/profile/{}/relationship/{}",
-            user_id, viewer_id
-        ))
+        .do_get(&format!("/v0/user/{}/relationship/{}", user_id, viewer_id))
         .await?;
     assert_eq!(res.status(), 404);
 
@@ -129,7 +123,7 @@ async fn test_get_counts() -> Result<()> {
 
     let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
     let res = client
-        .do_get(&format!("/v0/profile/{}/counts", user_id))
+        .do_get(&format!("/v0/user/{}/counts", user_id))
         .await?;
     assert_eq!(res.status(), 200);
 
@@ -143,7 +137,7 @@ async fn test_get_counts() -> Result<()> {
     // Test non-existing user
     let user_id = "bad_user_id";
     let res = client
-        .do_get(&format!("/v0/profile/{}/counts", user_id))
+        .do_get(&format!("/v0/user/{}/counts", user_id))
         .await?;
     assert_eq!(res.status(), 404);
 
@@ -156,7 +150,7 @@ async fn test_get_details() -> Result<()> {
 
     let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
     let res = client
-        .do_get(&format!("/v0/profile/{}/details", user_id))
+        .do_get(&format!("/v0/user/{}/details", user_id))
         .await?;
     assert_eq!(res.status(), 200);
 
@@ -171,7 +165,7 @@ async fn test_get_details() -> Result<()> {
     // Test non-existing user
     let user_id = "bad_user_id";
     let res = client
-        .do_get(&format!("/v0/profile/{}/details", user_id))
+        .do_get(&format!("/v0/user/{}/details", user_id))
         .await?;
     assert_eq!(res.status(), 404);
 
@@ -223,7 +217,7 @@ async fn test_get_post() -> Result<()> {
 
 //     let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
 //     let res = client
-//         .do_get(&format!("/v0/profile/{}/tags", user_id))
+//         .do_get(&format!("/v0/user/{}/tags", user_id))
 //         .await?;
 //     assert_eq!(res.status(), 200);
 
@@ -233,7 +227,7 @@ async fn test_get_post() -> Result<()> {
 //     // Test non-existing user
 //     let user_id = "bad_user_id";
 //     let res = client
-//         .do_get(&format!("/v0/profile/{}/tags", user_id))
+//         .do_get(&format!("/v0/user/{}/tags", user_id))
 //         .await?;
 //     assert_eq!(res.status(), 404);
 

@@ -1,4 +1,4 @@
-use crate::models::profile::Relationship;
+use crate::models::user::Relationship;
 use crate::routes::v0::endpoints::RELATIONSHIP_ROUTE;
 use crate::{Error, Result};
 use axum::extract::Path;
@@ -20,7 +20,7 @@ use utoipa::OpenApi;
         (status = 500, description = "Internal server error")
     )
 )]
-pub async fn profile_relationship_handler(
+pub async fn user_relationship_handler(
     Path((user_id, viewer_id)): Path<(String, String)>,
 ) -> Result<Json<Relationship>> {
     info!(
@@ -36,5 +36,5 @@ pub async fn profile_relationship_handler(
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(profile_relationship_handler), components(schemas(Relationship)))]
+#[openapi(paths(user_relationship_handler), components(schemas(Relationship)))]
 pub struct RelationshipApiDoc;

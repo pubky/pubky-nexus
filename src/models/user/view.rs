@@ -1,42 +1,42 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use super::{ProfileCounts, ProfileDetails, ProfileTags, Relationship};
+use super::{Relationship, UserCounts, UserDetails, UserTags};
 
-/// Represents a Pubky user profile with relational data including tags, counts, bookmark and relationship with other posts.
+/// Represents a Pubky user with relational data including tags, counts, bookmark and relationship with other posts.
 #[derive(Serialize, Deserialize, ToSchema)]
-pub struct ProfileView {
-    details: ProfileDetails,
-    counts: ProfileCounts,
-    tags: ProfileTags,
+pub struct UserView {
+    details: UserDetails,
+    counts: UserCounts,
+    tags: UserTags,
     viewer: Relationship,
 }
 
-impl Default for ProfileView {
+impl Default for UserView {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl ProfileView {
+impl UserView {
     pub fn new() -> Self {
         Self {
-            details: ProfileDetails::new(),
-            counts: ProfileCounts::new(),
-            tags: ProfileTags::new(),
+            details: UserDetails::new(),
+            counts: UserCounts::new(),
+            tags: UserTags::new(),
             viewer: Relationship::new(),
         }
     }
 
-    /// Retrieves a profile by user ID, checking the cache first and then the graph database.
+    /// Retrieves a user by ID, checking the cache first and then the graph database.
     pub async fn get_by_id(
         user_id: &str,
         viewer_id: Option<&str>,
     ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
         // Perform all operations concurrently
         let (details, counts, viewer) = tokio::try_join!(
-            ProfileDetails::get_by_id(user_id),
-            ProfileCounts::get_by_id(user_id),
+            UserDetails::get_by_id(user_id),
+            UserCounts::get_by_id(user_id),
             Relationship::get_by_id(user_id, viewer_id)
         )?;
 
@@ -52,7 +52,7 @@ impl ProfileView {
             details,
             counts,
             viewer,
-            tags: ProfileTags::new(), //TODO
+            tags: UserTags::new(), //TODO
         }))
     }
 }
