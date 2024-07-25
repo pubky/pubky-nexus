@@ -1,4 +1,5 @@
 pub mod info;
+pub mod notification;
 pub mod post;
 pub mod pubky_app;
 pub mod tag;
