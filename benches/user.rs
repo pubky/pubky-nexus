@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use pubky_nexus::models::profile::{ProfileCounts, ProfileDetails, ProfileView, Relationship};
+use pubky_nexus::models::user::{Relationship, UserCounts, UserDetails, UserView};
 use pubky_nexus::setup;
 use pubky_nexus::Config;
 use std::env;
@@ -23,9 +23,7 @@ pub fn run_setup() {
 
 fn bench_get_full_by_id(c: &mut Criterion) {
     println!("***************************************");
-    println!(
-        "Test the performance of getting a full profile by ID, using index or graph as needed"
-    );
+    println!("Test the performance of getting a user view by ID, using index or graph as needed");
     println!("***************************************");
 
     run_setup();
@@ -39,7 +37,7 @@ fn bench_get_full_by_id(c: &mut Criterion) {
         &user_id,
         |b, &id| {
             b.to_async(&rt).iter(|| async {
-                let profile = ProfileView::get_by_id(id, Some(viewer_id)).await.unwrap();
+                let profile = UserView::get_by_id(id, Some(viewer_id)).await.unwrap();
                 criterion::black_box(profile);
             });
         },
@@ -107,7 +105,7 @@ fn bench_get_counts_from_graph(c: &mut Criterion) {
         &user_id,
         |b, &id| {
             b.to_async(&rt).iter(|| async {
-                let counts = ProfileCounts::get_from_graph(id).await.unwrap();
+                let counts = UserCounts::get_from_graph(id).await.unwrap();
                 criterion::black_box(counts);
             });
         },
@@ -131,7 +129,7 @@ fn bench_get_counts_by_id(c: &mut Criterion) {
         &user_id,
         |b, &id| {
             b.to_async(&rt).iter(|| async {
-                let counts = ProfileCounts::get_by_id(id).await.unwrap();
+                let counts = UserCounts::get_by_id(id).await.unwrap();
                 criterion::black_box(counts);
             });
         },
@@ -153,7 +151,7 @@ fn bench_get_details_from_graph(c: &mut Criterion) {
         &user_id,
         |b, &id| {
             b.to_async(&rt).iter(|| async {
-                let details = ProfileDetails::get_from_graph(id).await.unwrap();
+                let details = UserDetails::get_from_graph(id).await.unwrap();
                 criterion::black_box(details);
             });
         },
@@ -177,7 +175,7 @@ fn bench_get_details_by_id(c: &mut Criterion) {
         &user_id,
         |b, &id| {
             b.to_async(&rt).iter(|| async {
-                let details = ProfileDetails::get_by_id(id).await.unwrap();
+                let details = UserDetails::get_by_id(id).await.unwrap();
                 criterion::black_box(details);
             });
         },

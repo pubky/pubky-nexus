@@ -1,5 +1,5 @@
-use crate::models::profile::ProfileView;
-use crate::routes::v0::endpoints::PROFILE_ROUTE;
+use crate::models::user::UserView;
+use crate::routes::v0::endpoints::USER_ROUTE;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
@@ -14,34 +14,34 @@ pub struct ProfileQuery {
 
 #[utoipa::path(
     get,
-    path = PROFILE_ROUTE,
+    path = USER_ROUTE,
     tag = "Profile Full View",
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
         ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID")
     ),
     responses(
-        (status = 200, description = "User profile", body = ProfileView),
+        (status = 200, description = "User Profile", body = UserView),
         (status = 404, description = "User not found"),
         (status = 500, description = "Internal server error")
     )
 )]
-pub async fn profile_view_handler(
+pub async fn user_view_handler(
     Path(user_id): Path<String>,
     Query(query): Query<ProfileQuery>,
-) -> Result<Json<ProfileView>> {
+) -> Result<Json<UserView>> {
     info!(
-        "GET {PROFILE_ROUTE} user_id:{}, viewer_id:{:?}",
+        "GET {USER_ROUTE} user_id:{}, viewer_id:{:?}",
         user_id, query.viewer_id
     );
 
-    match ProfileView::get_by_id(&user_id, query.viewer_id.as_deref()).await {
-        Ok(Some(profile)) => Ok(Json(profile)),
+    match UserView::get_by_id(&user_id, query.viewer_id.as_deref()).await {
+        Ok(Some(user)) => Ok(Json(user)),
         Ok(None) => Err(Error::UserNotFound { user_id }),
         Err(source) => Err(Error::InternalServerError { source }),
     }
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(profile_view_handler), components(schemas(ProfileView)))]
-pub struct ProfileViewApiDoc;
+#[openapi(paths(user_view_handler), components(schemas(UserView)))]
+pub struct UserViewApiDoc;

@@ -1,4 +1,4 @@
-use super::ProfileDetails;
+use super::UserDetails;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -7,7 +7,7 @@ use utoipa::ToSchema;
 pub struct ProfileTag {
     label: String,
     count: u32,
-    by: Vec<ProfileDetails>,
+    by: Vec<UserDetails>,
 }
 
 impl Default for ProfileTag {
@@ -21,24 +21,24 @@ impl ProfileTag {
         Self {
             label: String::new(),
             count: 0,
-            by: vec![ProfileDetails::new()],
+            by: vec![UserDetails::new()],
         }
     }
 }
 
 /// Represents a collection of ProfileTag.
 #[derive(Serialize, Deserialize, ToSchema)]
-pub struct ProfileTags {
+pub struct UserTags {
     tags: Vec<ProfileTag>,
 }
 
-impl Default for ProfileTags {
+impl Default for UserTags {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl ProfileTags {
+impl UserTags {
     pub fn new() -> Self {
         Self { tags: Vec::new() }
     }

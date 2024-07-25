@@ -7,19 +7,19 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 #[derive(Serialize, Deserialize, ToSchema)]
-pub struct ProfileLink {
+pub struct UserLink {
     title: String,
     url: String,
 }
 
-impl Default for ProfileLink {
+impl Default for UserLink {
     fn default() -> Self {
         Self::new()
     }
 }
 
-/// Represents a profile link with a title and URL.
-impl ProfileLink {
+/// Represents a user's single link with a title and URL.
+impl UserLink {
     pub fn new() -> Self {
         Self {
             title: String::new(),
@@ -28,32 +28,32 @@ impl ProfileLink {
     }
 }
 
-/// Represents profile data with name, bio, image, links, and status.
+/// Represents user data with name, bio, image, links, and status.
 #[derive(Serialize, Deserialize, ToSchema)]
-pub struct ProfileDetails {
+pub struct UserDetails {
     name: String,
     bio: String,
     id: String,
-    links: Vec<ProfileLink>,
+    links: Vec<UserLink>,
     status: String,
     indexed_at: i64,
 }
 
-impl Default for ProfileDetails {
+impl Default for UserDetails {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl RedisOps for ProfileDetails {}
+impl RedisOps for UserDetails {}
 
-impl ProfileDetails {
+impl UserDetails {
     pub fn new() -> Self {
         Self {
             name: String::new(),
             bio: String::new(),
             id: String::new(),
-            links: vec![ProfileLink::new()],
+            links: vec![UserLink::new()],
             status: String::new(),
             indexed_at: Utc::now().timestamp(),
         }
@@ -62,7 +62,7 @@ impl ProfileDetails {
     /// Retrieves details by user ID, first trying to get from Redis, then from Neo4j if not found.
     pub async fn get_by_id(
         user_id: &str,
-    ) -> Result<Option<ProfileDetails>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<UserDetails>, Box<dyn std::error::Error + Send + Sync>> {
         match Self::try_from_index(&[user_id]).await? {
             Some(details) => Ok(Some(details)),
             None => Self::get_from_graph(user_id).await,
@@ -87,7 +87,7 @@ impl ProfileDetails {
     /// Retrieves the details from Neo4j.
     pub async fn get_from_graph(
         user_id: &str,
-    ) -> Result<Option<ProfileDetails>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<UserDetails>, Box<dyn std::error::Error + Send + Sync>> {
         let graph = get_neo4j_graph()?;
         let query = queries::get_user_by_id(user_id);
 

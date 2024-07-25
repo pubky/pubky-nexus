@@ -3,7 +3,7 @@ use utoipa::ToSchema;
 
 use super::{Bookmark, PostCounts, PostDetails, PostRelationships, PostTags};
 
-/// Represents a Pubky user profile with relational data including tags, counts, and relationship with a viewer.
+/// Represents a Pubky user with relational data including tags, counts, and relationship with a viewer.
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct PostView {
     details: PostDetails,
@@ -30,7 +30,7 @@ impl PostView {
         }
     }
 
-    /// Retrieves a profile by user ID, checking the cache first and then the graph database.
+    /// Retrieves a user ID, checking the cache first and then the graph database.
     pub async fn get_by_id(
         author_id: &str,
         post_id: &str,
