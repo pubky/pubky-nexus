@@ -1,6 +1,8 @@
 pub mod info;
 pub mod post;
 pub mod profile;
+pub mod tag;
+
 use async_trait::async_trait;
 use serde::{de::DeserializeOwned, Serialize};
 

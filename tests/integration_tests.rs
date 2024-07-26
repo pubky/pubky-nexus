@@ -1,4 +1,5 @@
 use anyhow::Result;
+use pubky_nexus::models::profile::ProfileView;
 
 const HOST_URL: &str = "http://localhost:8080";
 
@@ -31,6 +32,11 @@ async fn test_profile_endpoint() -> Result<()> {
     assert_eq!(body["details"]["id"], user_id);
     assert_eq!(body["counts"]["friends"], 8);
     assert_eq!(body["counts"]["posts"], 4);
+
+    let user_profile:ProfileView = serde_json::from_value(body)?;
+    assert_eq!(user_profile.tags.len(), 4);
+    assert_eq!(user_profile.tags.iter().any(|tag| tag.label == "bike"), true);
+    assert_eq!(user_profile.tags.iter().any(|tag| tag.label == "car"), false);
 
     // Look for Aldert pk user id using Flavio's viewer id
     let viewer_id = "5g3fwnue819wfdjwiwm8qr35ww6uxxgbzrigrtdgmbi19ksioeoy";
