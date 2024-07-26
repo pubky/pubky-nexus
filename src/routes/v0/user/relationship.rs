@@ -9,7 +9,7 @@ use utoipa::OpenApi;
 #[utoipa::path(
     get,
     path = RELATIONSHIP_ROUTE,
-    tag = "Profile Viewer Relationship",
+    tag = "User <> Viewer Relationship",
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
         ("viewer_id" = String, Path, description = "Viewer Pubky ID")
