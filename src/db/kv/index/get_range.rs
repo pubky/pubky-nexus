@@ -71,7 +71,7 @@ pub async fn get_range<T: DeserializeOwned + Send + Sync>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{db::kv::index::set_multiple, setup, Config};
+    use crate::{db::kv::index::set_multiple::set_multiple, setup, Config};
     use serde::{Deserialize, Serialize};
     use tokio;
 

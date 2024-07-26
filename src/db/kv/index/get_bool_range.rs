@@ -51,7 +51,7 @@ pub async fn get_bool_range(
 
     let results: Vec<bool> = values
         .into_iter()
-        .filter_map(|opt| opt)
+        .flatten()
         .map(|val| val != 0)
         .collect();
 
