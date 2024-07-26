@@ -169,10 +169,6 @@ pub async fn _get_bool(
 ///
 /// Returns a vector of deserialized values if they exist, or an empty vector if no matching keys are found.
 ///
-/// # Note
-/// The order of keys returned is not guaranteed to match the order in which they were inserted or any specific order.
-/// This is due to the underlying behavior of the SCAN operation in Redis, which does not ensure a consistent order of keys.
-///
 /// # Errors
 ///
 /// Returns an error if the operation fails.
@@ -192,6 +188,9 @@ pub async fn get_range<T: DeserializeOwned + Send + Sync>(
     while let Some(key) = iter.next_item().await {
         keys_to_get.push(key);
     }
+
+    // Sort keys alphanumerically
+    keys_to_get.sort();
 
     let skip = skip.unwrap_or(0);
     let limit = limit.unwrap_or(keys_to_get.len());
@@ -317,12 +316,8 @@ mod tests {
         let result = get_range::<MyValue>("test:", Some("key*"), Some(0), Some(10)).await?;
         assert_eq!(result.len(), data.len());
 
-        println!("{:?}", result);
         let expected_values: Vec<MyValue> = data.into_iter().map(|(_, v)| v).collect();
-
-        for expected in expected_values.iter() {
-            assert!(result.contains(expected));
-        }
+        assert_eq!(result, expected_values);
 
         Ok(())
     }
