@@ -4,10 +4,11 @@ use utoipa::ToSchema;
 use crate::models::tag::user::{ UserTag, UserTags };
 use super::{ProfileCounts, ProfileDetails, Relationship};
 
+
 /// Represents a Pubky user profile with relational data including tags, counts, bookmark and relationship with other posts.
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct ProfileView {
-    // TODO#: Think if this is good approach
+    // TODO#35: Think if this is good approach
     pub details: ProfileDetails,
     pub counts: ProfileCounts,
     pub tags: Vec<UserTag>,
@@ -51,7 +52,7 @@ impl ProfileView {
         let counts = counts.unwrap_or_default();
         let viewer = viewer.unwrap_or_default();
 
-        // TODO#: Error control
+        // TODO#35: Error control
         let tags = match tags {
             None => return Ok(None),
             Some(user_tags) => user_tags,
