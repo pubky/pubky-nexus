@@ -15,7 +15,7 @@ pub struct ProfileQuery {
 #[utoipa::path(
     get,
     path = USER_ROUTE,
-    tag = "Profile Full View",
+    tag = "User Profile",
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
         ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID")

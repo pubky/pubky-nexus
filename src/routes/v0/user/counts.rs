@@ -9,7 +9,7 @@ use utoipa::OpenApi;
 #[utoipa::path(
     get,
     path = USER_COUNTS_ROUTE,
-    tag = "Profile Counts",
+    tag = "User Counts",
     params(
         ("user_id" = String, Path, description = "User Pubky ID")
     ),

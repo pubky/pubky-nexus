@@ -9,7 +9,7 @@ use utoipa::OpenApi;
 #[utoipa::path(
     get,
     path = USER_TAGS_ROUTE,
-    tag = "Profile Tags",
+    tag = "User Tags",
     params(
         ("user_id" = String, Path, description = "User Pubky ID")
     ),
