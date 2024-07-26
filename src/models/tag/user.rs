@@ -5,7 +5,7 @@ use super::Tags;
 use crate::queries;
 
 /// Represents a tag with its tag label, count, and author sources.
-#[derive(Serialize, Deserialize, ToSchema, Debug)]
+#[derive(Serialize, Deserialize, ToSchema, Debug, Clone)]
 pub struct UserTag {
     pub label: String,
     by: Tags
@@ -39,6 +39,9 @@ impl UserTags {
 
         let mut user_tags: Vec<UserTag> = vec![];
 
+        // TODO#35: Just testing
+        //Tags::try_redis_ops_read().await;
+
         for key in search_keys {
             //Get the value associated with the key
             let by = Tags::search_key_value(&key).await?;
@@ -67,11 +70,16 @@ impl UserTags {
         if let Some(row) = result.next().await? {
             // Deserialize query value to Vec
             let tagged_from: Vec<UserTag> = row.get("user_tags").unwrap();
-            for UserTag {label, by} in &tagged_from {
-                let key = &format!("{:}:{:}", user_id, label);
-                Tags::set_index(key, by).await?
+            // TODO#35: Think how to avoid clone. Or we might clone Tag struct
+            let tagged_from_clone = tagged_from.clone();
+            for UserTag {label, by} in tagged_from.into_iter() {
+                //let key = format!("{:}:{:}", user_id, label);
+                //Tags::set_index_local(key, by).await?
+                let key_parts = vec!(user_id, &label);
+                // TODO#Discover how to call the trait fn out of the scope
+                by.try_redis_ops_set(key_parts).await?
             }
-            return Ok(Some(tagged_from))
+            return Ok(Some(tagged_from_clone))
         }
         Ok(None)
     }

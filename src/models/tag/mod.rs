@@ -5,14 +5,12 @@ use redis::{AsyncCommands, AsyncIter, JsonAsyncCommands};
 use serde::{Deserialize, Serialize};
 use crate::db::connectors::redis::get_redis_conn;
 use crate::RedisOps;
-use crate::db::kv::index;
 
 pub mod user;
 
 impl RedisOps for Tags {}
-//impl RedisOps for TagList {}
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Tag {
     tag_id: String, // TODO: Crobfordbase32 type
     indexed_at: i64,
@@ -30,7 +28,7 @@ impl Default for Tag {
 }
 
 // Define a newtype wrapper
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Tags(Vec<Tag>);
 
 impl Default for Tags {
@@ -53,17 +51,31 @@ impl Tags {
         Self::prefix().await
     }
 
-    // TODO#35: Try to use RedisOps, with struct Tags(Vec<Tag>)
-    pub async fn set_index(key:&str, tag_list: &Tags) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        index::set(
-            &Self::type_name().await,
-            key,
-            tag_list,
-            None, 
-            None)
-        .await?; 
+    // pub async fn try_redis_ops_read() {
+    //     let index = Self::try_from_index(&["4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro", "bike"]).await.unwrap();
+    //     match index {
+    //         Some(tags) => println!("{:?}", tags),
+    //         None => println!("It does no exist")
+    //     }
+    // }
+
+
+    pub async fn try_redis_ops_set(&self, key: Vec<&str>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.set_index(key.as_slice()).await?;
         Ok(())
     }
+
+    // TODO#35: Try to use RedisOps, with struct Tags(Vec<Tag>)
+    // pub async fn set_index_local(key:&str, tag_list: &Tags) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    //     index::set(
+    //         &Self::type_name().await,
+    //         key,
+    //         tag_list,
+    //         None, 
+    //         None)
+    //     .await?; 
+    //     Ok(())
+    // }
 
     pub async fn search_keys_with_pattern(word: &str) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
         let key_prefix = &Self::type_name().await;
@@ -72,7 +84,7 @@ impl Tags {
         // TODO#35: find some way to keep open the connection
         let mut redis_conn = get_redis_conn().await?;
 
-        // Search base on regular expression
+        // Search base on regular expression. Need to wait till merge happen... or maybe not
         let mut iter: AsyncIter<Option<String>> = redis_conn.scan_match(&pattern).await.unwrap();
         let mut tags_keys: Vec<String> = vec![];
 
@@ -85,6 +97,7 @@ impl Tags {
     }
 
     pub async fn search_key_value(key:&str) -> Result<Tags, Box<dyn std::error::Error + Send + Sync>> {
+        // TODO#35: We need in redisOps a try_from_index another arguments as PATH
         let mut redis_conn = get_redis_conn().await?;
         let value: String = redis_conn.json_get(&key, ".").await.unwrap();
         let by: Tags = serde_json::from_str(&value)?;
