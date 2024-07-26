@@ -4153,3 +4153,14 @@ MATCH (u:User {id: "sfgetccnq7s3h57a7imf6n7k5fqxus33yg85f1ndhnrnofjdmhjy"}), (p:
 MATCH (u:User {id: "sfgetccnq7s3h57a7imf6n7k5fqxus33yg85f1ndhnrnofjdmhjy"}), (p:Post {id: "2ZEHNTY01D600"}) MERGE (u)-[:BOOKMARKED {id: "2ZEHNVJQECJG0", indexed_at: 1721850871}]->(p);
 MATCH (u:User {id: "y4q8yahtdp6qqu8tzsde83p5zagnzou5cagq9jpt74df67wdt4to"}), (p:Post {id: "2ZDN15FY672G0"}) MERGE (u)-[:BOOKMARKED {id: "2ZDGH298E3800", indexed_at: 1721850871}]->(p);
 MATCH (u:User {id: "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy"}), (p:Post {id: "2ZCW1TGR5BKG0"}) MERGE (u)-[:BOOKMARKED {id: "2Z9PFGC3WWWW0", indexed_at: 1721764200}]->(p);
+
+MATCH (p:User { id:"kt1ujy3zxs1tpxsxrqkdpmon5co959paiknw1s4r1rf1gsnqxnao" }), (u:User{id: "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro"}) MERGE (p)-[:TAGGED {label: 'brazil', id: 'CNVP2WV4CR', indexed_at: 1721767434}]->(u);
+MATCH (p:User { id:"kg671gqu6akiyuzdsqgqtupftuhbuwfx5zh6tbygmexuw6b55s4y" }), (u:User{id: "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro"}) MERGE (p)-[:TAGGED {label: 'brazil', id: 'CNVP8Y0', indexed_at: 1721767434}]->(u);
+MATCH (p:User { id:"hy1njbk65oh5jqdmq37rdh9xfmxojmn1jn93o7zuka5kx59fdd3o" }), (u:User{id: "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro"}) MERGE (p)-[:TAGGED {label: 'brazil', id: 'DNGPPVR', indexed_at: 1721767434}]->(u);
+MATCH (p:User { id:"hs8iszgmxharf4omxwr7zej196zr4rs4a53ks4tg1ya1efejupty" }), (u:User{id: "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro"}) MERGE (p)-[:TAGGED {label: 'brazil', id: 'DNGPP', indexed_at: 1721767434}]->(u);
+MATCH (p:User { id:"h3fghnb3x59oh7r53x8y6a5x38oatqyjym9b31ybss17zqdnhcoy" }), (u:User{id: "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro"}) MERGE (p)-[:TAGGED {label: 'traveller', id: 'C5SP2WR', indexed_at: 1721767434}]->(u);
+MATCH (p:User { id:"gxk8itzrnikrpshfsudgsgtxrz59ojp4iwmp4w9iff3ess6zfr4y" }), (u:User{id: "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro"}) MERGE (p)-[:TAGGED {label: 'traveller', id: 'C5SG', indexed_at: 1721767434}]->(u);
+MATCH (p:User { id:"sazaz5yowshbkfbsqi4n47rbyn8xbmokmu8kft59iyjazjxo4jeo" }), (u:User{id: "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro"}) MERGE (p)-[:TAGGED {label: 'OG', id: 'E1QPETB1', indexed_at: 1721767434}]->(u);
+MATCH (p:User { id:"uxni6dn45bbnd7mw6ypf3swoyey9wjntmjo4h1ph9xab1jfhp8do" }), (u:User{id: "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro"}) MERGE (p)-[:TAGGED {label: 'OG', id: 'E1QPET8', indexed_at: 1721767434}]->(u);
+MATCH (p:User { id:"y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy" }), (u:User{id: "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro"}) MERGE (p)-[:TAGGED {label: 'bike', id: 'DNMP2VB1', indexed_at: 1721767434}]->(u);
+MATCH (p:User { id:"ywng83zf5paobxptt8ipkdgq5karppe3edxy1kigb7kgwai56uxo" }), (u:User{id: "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro"}) MERGE (p)-[:TAGGED {label: 'bike', id: 'CHJPRVVJCNGPW', indexed_at: 1721767434}]->(u);

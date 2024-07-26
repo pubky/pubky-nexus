@@ -1,7 +1,7 @@
 services:
   neo4j:
     image: neo4j:5.21.0
-    container_name: ${NEO4J_HOST}
+    container_name: neo4j
     restart: unless-stopped
     ports: 
       - 7474:7474
@@ -13,7 +13,7 @@ services:
       - .database/neo4j/data:/data
       - .database/neo4j/logs:/logs
       # In case we want to import a database, add this volume. Once imported, comment
-      # - ./db-migration:/db-migration
+      #- ./db-migration:/db-migration
     environment:
       NEO4J_initial_dbms_default__database: ${NEO4J_DB_NAME}
       # IMPORTANT: If you change the auth params and you have already created the config files, will not take effect
