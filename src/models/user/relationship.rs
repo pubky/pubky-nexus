@@ -5,6 +5,7 @@ use crate::db::kv::index::{get_bool, set};
 use crate::{queries, RedisOps};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use tokio::try_join;
 use utoipa::ToSchema;
 
 /// Represents the relationship of the user that views and user being viewed.
@@ -14,6 +15,15 @@ pub struct Relationship {
     pub followed_by: bool,
 }
 
+/// This implementation reuses the "Follows:" model prefix for Redis keys, leveraging existing
+/// data storage structures to minimize memory usage. Instead of storing separate `Relationship:`
+/// objects, it stores boolean flags indicating the status of the relationship (i.e., whether
+/// the user is followed by or following another user). This approach optimizes data storage
+/// and retrieval in Redis, ensuring efficient memory utilization and streamlined operations.
+///
+/// The implementation provides methods for setting and retrieving relationship data using
+/// these boolean flags, including handling potential errors and ensuring consistent key
+/// structures for easy access and modification.
 #[async_trait]
 impl RedisOps for Relationship {
     async fn prefix() -> String {
@@ -53,8 +63,10 @@ impl RedisOps for Relationship {
         let following_key = format!("{viewer_id}:{user_id}");
         let followed_by_key = format!("{user_id}:{viewer_id}");
 
-        let following_result: Option<bool> = get_bool(&prefix, &following_key).await?;
-        let followed_by_result: Option<bool> = get_bool(&prefix, &followed_by_key).await?;
+        let (following_result, followed_by_result) = try_join!(
+            get_bool(&prefix, &following_key),
+            get_bool(&prefix, &followed_by_key)
+        )?;
 
         if following_result.is_none() && followed_by_result.is_none() {
             return Ok(None);

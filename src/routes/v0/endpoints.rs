@@ -13,6 +13,8 @@ pub const RELATIONSHIP_ROUTE: &str = concatcp!(USER_ROUTE, "/relationship/:viewe
 pub const USER_COUNTS_ROUTE: &str = concatcp!(USER_ROUTE, "/counts");
 pub const USER_DETAILS_ROUTE: &str = concatcp!(USER_ROUTE, "/details");
 pub const USER_TAGS_ROUTE: &str = concatcp!(USER_ROUTE, "/tags");
+pub const USER_FOLLOWERS_ROUTE: &str = concatcp!(USER_ROUTE, "/followers");
+pub const USER_FOLLOWING_ROUTE: &str = concatcp!(USER_ROUTE, "/following");
 
 // Post routes
 const POST_PREFIX: &str = concatcp!(VERSION_ROUTE, "/post");

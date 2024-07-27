@@ -121,3 +121,13 @@ pub fn viewer_relationship(user_id: &str, viewer_id: &str) -> neo4rs::Query {
     .param("user_id", user_id)
     .param("viewer_id", viewer_id)
 }
+
+pub fn get_user_followers(user_id: &str) -> Query {
+    query("MATCH (u:User {id: $user_id})<-[:FOLLOWS]-(follower:User) RETURN COLLECT(follower.id) AS follower_ids")
+        .param("user_id", user_id)
+}
+
+pub fn get_user_following(user_id: &str) -> Query {
+    query("MATCH (u:User {id: $user_id})-[:FOLLOWS]->(following:User) RETURN COLLECT(following.id) AS following_ids")
+        .param("user_id", user_id)
+}

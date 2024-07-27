@@ -56,12 +56,10 @@ pub async fn get_range<T: DeserializeOwned + Send + Sync>(
     let json_values: Vec<Option<String>> = pipeline.query_async(&mut redis_conn).await?;
 
     let mut results = Vec::with_capacity(json_values.len());
-    for json_value in json_values {
-        if let Some(json_value) = json_value {
-            let mut deserialized_values: Vec<T> = serde_json::from_str(&json_value)?;
-            if let Some(value) = deserialized_values.pop() {
-                results.push(value);
-            }
+    for json_value in json_values.into_iter().flatten() {
+        let mut deserialized_values: Vec<T> = serde_json::from_str(&json_value)?;
+        if let Some(value) = deserialized_values.pop() {
+            results.push(value);
         }
     }
 
