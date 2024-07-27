@@ -17,7 +17,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     async fn prefix() -> String {
         let type_name = std::any::type_name::<Self>();
         let struct_name = type_name.split("::").last().unwrap_or_default();
-        format!("{}:", struct_name)
+        String::from(struct_name)
     }
 
     /// Sets the data in Redis using the provided key parts.
