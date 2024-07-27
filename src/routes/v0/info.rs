@@ -14,7 +14,7 @@ use utoipa::OpenApi;
     )
 )]
 pub async fn info_handler() -> impl IntoResponse {
-    let info = ServerInfo::new();
+    let info = ServerInfo::new().await;
     Json(info)
 }
 
