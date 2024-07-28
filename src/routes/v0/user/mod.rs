@@ -18,7 +18,7 @@ pub fn routes() -> Router {
         endpoints::USER_TAGS_ROUTE => tags::user_tags_handler,
         endpoints::USER_COUNTS_ROUTE => counts::user_counts_handler,
         endpoints::USER_FOLLOWERS_ROUTE => follows::user_followers_handler,
-        // endpoints::USER_FOLLOWING_ROUTE => follows::user_following_handler,
+        endpoints::USER_FOLLOWING_ROUTE => follows::user_following_handler,
     )
 }
 
@@ -33,7 +33,7 @@ impl UserApiDoc {
         combined.merge(details::UserDetailsApiDoc::openapi());
         combined.merge(relationship::RelationshipApiDoc::openapi());
         combined.merge(tags::UserTagsApiDoc::openapi());
-        combined.merge(follows::UserFollowersApiDoc::openapi());
+        combined.merge(follows::UserFollowsApiDoc::openapi());
         combined
     }
 }
