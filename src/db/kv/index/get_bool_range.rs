@@ -1,4 +1,5 @@
 use crate::db::connectors::redis::get_redis_conn;
+use log::debug;
 use redis::AsyncCommands;
 use std::error::Error;
 
@@ -77,6 +78,8 @@ pub async fn get_bool_range(
             (Some(selected_keys), Some(values))
         }
     };
+
+    debug!("Restored keys: {:?} with values: {:?}", keys, values);
     Ok((keys, values))
 }
 

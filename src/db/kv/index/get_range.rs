@@ -1,4 +1,5 @@
 use crate::db::connectors::redis::get_redis_conn;
+use log::debug;
 use redis::AsyncCommands;
 use serde::de::DeserializeOwned;
 use std::error::Error;
@@ -63,6 +64,7 @@ pub async fn get_range<T: DeserializeOwned + Send + Sync>(
         }
     }
 
+    debug!("Restored keys: {:?}", selected_keys);
     Ok(results)
 }
 

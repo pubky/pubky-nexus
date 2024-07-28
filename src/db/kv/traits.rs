@@ -107,6 +107,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         index::get(&Self::prefix().await, &key_parts.join(":"), None).await
     }
 
+    /// TODO: THIS IS PROB NOT OK, NOT USEFUL AS IS
     /// Retrieves a range of data from Redis using a pattern to match keys, with optional pagination.
     ///
     /// This method fetches and deserializes data stored under keys matching the provided `pattern`.
@@ -131,13 +132,16 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         pattern: Option<&str>,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<Vec<Self>, Box<dyn Error + Send + Sync>>
+    ) -> Result<Option<Vec<Self>>, Box<dyn Error + Send + Sync>>
     where
         Self: Sized,
     {
-        index::get_range::<Self>(&Self::prefix().await, pattern, skip, limit).await
+        let values = index::get_range::<Self>(&Self::prefix().await, pattern, skip, limit).await?;
+
+        Ok(Some(values))
     }
 
+    /// TODO: THIS IS PROB NOT OK, NOT USEFUL AS IS
     /// Retrieves a range of boolean values from Redis using a pattern to match keys, with optional pagination.
     ///
     /// This method fetches boolean values stored under keys matching the provided `pattern`.
@@ -162,7 +166,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         pattern: Option<&str>,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<Vec<bool>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Option<Vec<bool>>, Box<dyn Error + Send + Sync>> {
         let (_, values) = index::get_bool_range(
             &Self::prefix().await,
             pattern,
@@ -173,6 +177,6 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         .await?;
 
         // If values are found, return them; otherwise, return an empty vector.
-        Ok(values.unwrap_or_default())
+        Ok(values)
     }
 }

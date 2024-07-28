@@ -39,49 +39,8 @@ impl RedisOps for Follows {
         index::set_multiple::<bool>(&Self::prefix().await, &data).await?;
         Ok(())
     }
-
-    // async fn try_from_index(
-    //     key_parts: &[&str],
-    // ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
-    //     let key = key_parts.join(":");
-    //     let (keys, _values) = crate::db::kv::index::get_bool_range(
-    //         &Self::prefix().await,
-    //         Some(&format!(":{}:*", key_parts[1])),
-    //         None,
-    //         None,
-    //         RangeReturnType::Keys,
-    //     )
-    //     .await?;
-
-    //     if keys.is_empty() {
-    //         Ok(None)
-    //     } else {
-    //         let ids = keys
-    //             .into_iter()
-    //             .map(|k| k.split(':').last().unwrap().to_string())
-    //             .collect();
-    //         Ok(Some(Follows(ids)))
-    //     }
-    // }
-    // async fn set_index(&self, key_parts: &[&str]) -> Result<(), Box<dyn Error + Send + Sync>> {
-    //     let key = key_parts.join(":");
-    //     crate::db::kv::index::set(&Self::prefix().await, &key, &self.0, None, None).await?;
-    //     Ok(())
-    // }
-
-    // async fn try_from_index(
-    //     key_parts: &[&str],
-    // ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
-    //     let key = key_parts.join(":");
-    //     if let Some(user_ids) =
-    //         crate::db::kv::index::get::<Vec<String>>(&Self::prefix().await, &key, None).await?
-    //     {
-    //         Ok(Some(Follows(user_ids)))
-    //     } else {
-    //         Ok(None)
-    //     }
-    // }
 }
+
 impl Default for Follows {
     fn default() -> Self {
         Self::new()
@@ -97,20 +56,54 @@ impl Follows {
         user_id: &str,
         variant: FollowsVariant,
     ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
-        // let key = match variant {
-        //     FollowsVariant::Followers => "followers",
-        //     FollowsVariant::Following => "following",
-        // };
-        // match Self::try_from_index(&[user_id, key]).await? {
-        //     Some(follows) => Ok(Some(follows)),
-        //     None => Self::get_from_graph(user_id, relationship).await,
-        // }
-        Self::get_from_graph(user_id, variant).await
+        match Self::try_from_follows_indexes(user_id, &variant, None, None).await? {
+            Some(follows) => Ok(Some(Self(follows))),
+            None => Self::get_from_graph(user_id, &variant).await,
+        }
+    }
+
+    async fn try_from_follows_indexes(
+        user_id: &str,
+        variant: &FollowsVariant,
+        skip: Option<usize>,
+        limit: Option<usize>,
+    ) -> Result<Option<Vec<String>>, Box<dyn Error + Send + Sync>> {
+        let (pattern, position) = match variant {
+            FollowsVariant::Followers => (format!("*:{user_id}"), 1),
+            FollowsVariant::Following => (format!("*:{user_id}:*"), 2),
+        };
+        let (keys, _) = index::get_bool_range(
+            &Self::prefix().await,
+            Some(pattern.as_str()),
+            skip,
+            limit,
+            index::RangeReturnType::Keys,
+        )
+        .await?;
+
+        if let Some(keys) = keys {
+            if !keys.is_empty() {
+                let ids = keys
+                    .into_iter()
+                    .map(|k| {
+                        k.split(':')
+                            .nth(position) // Extracts the relevant user ID part from the key
+                            .unwrap()
+                            .to_string()
+                    })
+                    .collect();
+                Ok(Some(ids))
+            } else {
+                Ok(None)
+            }
+        } else {
+            Ok(None)
+        }
     }
 
     pub async fn get_from_graph(
         user_id: &str,
-        variant: FollowsVariant,
+        variant: &FollowsVariant,
     ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
         let graph = get_neo4j_graph()?;
         let query = match variant {
