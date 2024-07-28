@@ -70,7 +70,7 @@ impl Follows {
     ) -> Result<Option<Vec<String>>, Box<dyn Error + Send + Sync>> {
         let (pattern, position) = match variant {
             FollowsVariant::Followers => (format!("*:{user_id}"), 1),
-            FollowsVariant::Following => (format!("*:{user_id}:*"), 2),
+            FollowsVariant::Following => (format!("{user_id}:*"), 2),
         };
         let (keys, _) = index::get_bool_range(
             &Self::prefix().await,

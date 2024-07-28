@@ -1,4 +1,4 @@
-use crate::RedisOps;
+use crate::models::user::{Follows, FollowsVariant};
 use crate::{
     db::connectors::neo4j::get_neo4j_graph,
     models::post::{PostCounts, PostDetails, PostRelationships},
@@ -46,15 +46,11 @@ pub async fn reindex() {
 }
 
 async fn reindex_user(user_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let details = UserDetails::get_from_graph(user_id).await?;
-    let counts = UserCounts::get_from_graph(user_id).await?;
-
-    if let Some(details) = details {
-        details.set_index(&[user_id]).await?;
-    }
-    if let Some(counts) = counts {
-        counts.set_index(&[user_id]).await?;
-    }
+    tokio::try_join!(
+        UserDetails::get_from_graph(user_id),
+        UserCounts::get_from_graph(user_id),
+        Follows::get_from_graph(user_id, &FollowsVariant::Followers)
+    )?;
 
     Ok(())
 }
@@ -63,19 +59,11 @@ async fn reindex_post(
     author_id: &str,
     post_id: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let details = PostDetails::get_from_graph(author_id, post_id).await?;
-    let counts = PostCounts::get_from_graph(author_id, post_id).await?;
-    let relationships = PostRelationships::get_from_graph(author_id, post_id).await?;
-
-    if let Some(details) = details {
-        details.set_index(&[author_id, post_id]).await?;
-    }
-    if let Some(counts) = counts {
-        counts.set_index(&[author_id, post_id]).await?;
-    }
-    if let Some(relationships) = relationships {
-        relationships.set_index(&[author_id, post_id]).await?;
-    }
+    tokio::try_join!(
+        PostDetails::get_from_graph(author_id, post_id),
+        PostCounts::get_from_graph(author_id, post_id),
+        PostRelationships::get_from_graph(author_id, post_id)
+    )?;
 
     Ok(())
 }
