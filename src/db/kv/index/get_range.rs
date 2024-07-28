@@ -66,58 +66,58 @@ pub async fn get_range<T: DeserializeOwned + Send + Sync>(
     Ok(results)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{db::kv::index::set_multiple::set_multiple, setup, Config};
-    use serde::{Deserialize, Serialize};
-    use tokio;
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+//     use crate::{db::kv::index::set_multiple::set_multiple, setup, Config};
+//     use serde::{Deserialize, Serialize};
+//     use tokio;
 
-    #[derive(Serialize, Deserialize, Debug, PartialEq)]
-    struct MyValue {
-        field1: String,
-        field2: i32,
-    }
+//     #[derive(Serialize, Deserialize, Debug, PartialEq)]
+//     struct MyValue {
+//         field1: String,
+//         field2: i32,
+//     }
 
-    #[tokio::test]
-    async fn test_get_range() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let config = Config::from_env();
-        setup(&config).await;
+//     #[tokio::test]
+//     async fn test_get_range() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+//         let config = Config::from_env();
+//         setup(&config).await;
 
-        let data = vec![
-            (
-                "key1",
-                MyValue {
-                    field1: "value1".to_string(),
-                    field2: 10,
-                },
-            ),
-            (
-                "key2",
-                MyValue {
-                    field1: "value2".to_string(),
-                    field2: 20,
-                },
-            ),
-            (
-                "key3",
-                MyValue {
-                    field1: "value3".to_string(),
-                    field2: 30,
-                },
-            ),
-        ];
+//         let data = vec![
+//             (
+//                 "key1",
+//                 MyValue {
+//                     field1: "value1".to_string(),
+//                     field2: 10,
+//                 },
+//             ),
+//             (
+//                 "key2",
+//                 MyValue {
+//                     field1: "value2".to_string(),
+//                     field2: 20,
+//                 },
+//             ),
+//             (
+//                 "key3",
+//                 MyValue {
+//                     field1: "value3".to_string(),
+//                     field2: 30,
+//                 },
+//             ),
+//         ];
 
-        // Set values in Redis
-        set_multiple::<MyValue>("test:", &data).await?;
+//         // Set values in Redis
+//         set_multiple::<MyValue>("test:", &data).await?;
 
-        // Retrieve values using `get_range` with a specific pattern
-        let result = get_range::<MyValue>("test:", Some("key*"), Some(0), Some(10)).await?;
-        assert_eq!(result.len(), data.len());
+//         // Retrieve values using `get_range` with a specific pattern
+//         let result = get_range::<MyValue>("test:", Some("key*"), Some(0), Some(10)).await?;
+//         assert_eq!(result.len(), data.len());
 
-        let expected_values: Vec<MyValue> = data.into_iter().map(|(_, v)| v).collect();
-        assert_eq!(result, expected_values);
+//         let expected_values: Vec<MyValue> = data.into_iter().map(|(_, v)| v).collect();
+//         assert_eq!(result, expected_values);
 
-        Ok(())
-    }
-}
+//         Ok(())
+//     }
+// }

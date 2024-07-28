@@ -1,4 +1,5 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
+use crate::db::kv::index;
 use crate::{queries, RedisOps};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -14,8 +15,54 @@ pub enum FollowsVariant {
     Following,
 }
 
+impl AsRef<[String]> for Follows {
+    fn as_ref(&self) -> &[String] {
+        &self.0
+    }
+}
+
 #[async_trait]
 impl RedisOps for Follows {
+    async fn set_multiple_indexes<T>(
+        &self,
+        key_parts_list: &[&[&str]],
+    ) -> Result<(), Box<dyn Error + Send + Sync>>
+    where
+        Self: AsRef<[T]>,
+        T: Serialize + Send + Sync,
+    {
+        let data: Vec<_> = key_parts_list
+            .iter()
+            .map(|key_parts| (key_parts.join(":"), true))
+            .collect();
+
+        index::set_multiple::<bool>(&Self::prefix().await, &data).await?;
+        Ok(())
+    }
+
+    // async fn try_from_index(
+    //     key_parts: &[&str],
+    // ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
+    //     let key = key_parts.join(":");
+    //     let (keys, _values) = crate::db::kv::index::get_bool_range(
+    //         &Self::prefix().await,
+    //         Some(&format!(":{}:*", key_parts[1])),
+    //         None,
+    //         None,
+    //         RangeReturnType::Keys,
+    //     )
+    //     .await?;
+
+    //     if keys.is_empty() {
+    //         Ok(None)
+    //     } else {
+    //         let ids = keys
+    //             .into_iter()
+    //             .map(|k| k.split(':').last().unwrap().to_string())
+    //             .collect();
+    //         Ok(Some(Follows(ids)))
+    //     }
+    // }
     // async fn set_index(&self, key_parts: &[&str]) -> Result<(), Box<dyn Error + Send + Sync>> {
     //     let key = key_parts.join(":");
     //     crate::db::kv::index::set(&Self::prefix().await, &key, &self.0, None, None).await?;
@@ -88,13 +135,21 @@ impl Follows {
         }
 
         if !follows.is_empty() {
-            // let follows = Follows(follows);
-            // let key = match variant {
-            //     FollowsVariant::Followers => "followers",
-            //     FollowsVariant::Following => "following",
-            // };
-            // follows.set_index(&[user_id, key]).await?;
-            Ok(Some(Self(follows)))
+            let follows = Self(follows);
+            let key_parts_list: Vec<Vec<&str>> = follows
+                .0
+                .iter()
+                .map(|id| match variant {
+                    FollowsVariant::Followers => vec![id.as_str(), user_id], // Follows:{follower_id}:{user_id}
+                    FollowsVariant::Following => vec![user_id, id.as_str()], // Follows:{user_id}:{following_id}
+                })
+                .collect();
+
+            let key_parts_slices: Vec<&[&str]> =
+                key_parts_list.iter().map(|v| v.as_slice()).collect();
+
+            follows.set_multiple_indexes(&key_parts_slices).await?;
+            Ok(Some(follows))
         } else {
             Ok(None)
         }

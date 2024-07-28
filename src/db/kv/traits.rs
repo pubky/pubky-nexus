@@ -1,4 +1,4 @@
-use super::index;
+use super::index::{self, RangeReturnType};
 use async_trait::async_trait;
 use serde::{de::DeserializeOwned, Serialize};
 use std::error::Error;
@@ -163,6 +163,16 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Vec<bool>, Box<dyn Error + Send + Sync>> {
-        index::get_bool_range(&Self::prefix().await, pattern, skip, limit).await
+        let (_, values) = index::get_bool_range(
+            &Self::prefix().await,
+            pattern,
+            skip,
+            limit,
+            RangeReturnType::Values,
+        )
+        .await?;
+
+        // If values are found, return them; otherwise, return an empty vector.
+        Ok(values.unwrap_or_default())
     }
 }
