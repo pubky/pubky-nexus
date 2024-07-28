@@ -36,8 +36,10 @@ pub async fn get_bool_range(
 ) -> Result<(Option<Vec<String>>, Option<Vec<bool>>), Box<dyn Error + Send + Sync>> {
     let pattern = pattern.unwrap_or("*");
     let mut redis_conn = get_redis_conn().await?;
+
+    // TODO SCAN with count 1 and iter is extremely ineficient. Grows fast in time as number of keys grows.
     let mut iter = redis_conn
-        .scan_match::<String, String>(format!("{}{}", prefix, pattern))
+        .scan_match::<String, String>(format!("{}:{}", prefix, pattern))
         .await?;
 
     let mut keys_to_get = vec![];
