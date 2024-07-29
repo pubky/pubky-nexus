@@ -64,10 +64,9 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     ///
     /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
     async fn try_from_index(
-        key_parts: &[&str],
-        path: Option<&str>
+        key_parts: &[&str]
     ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
-        index::get(&Self::prefix().await, &key_parts.join(":"), path).await
+        index::get(&Self::prefix().await, &key_parts.join(":"), None).await
     }
     
     async fn try_from_pattern(

@@ -42,7 +42,7 @@ use std::error::Error;
 /// ```
 ///
 /// This example sets multiple key-value pairs with a common prefix in Redis.
-pub async fn set_multiple<T: Serialize>(
+pub async fn _set_multiple<T: Serialize>(
     prefix: &str,
     data: &[(impl AsRef<str>, T)],
 ) -> Result<(), Box<dyn Error + Send + Sync>> {

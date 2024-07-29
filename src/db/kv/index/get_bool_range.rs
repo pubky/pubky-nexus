@@ -18,7 +18,7 @@ use std::error::Error;
 /// # Errors
 ///
 /// Returns an error if the operation fails.
-pub async fn get_bool_range(
+pub async fn _get_bool_range(
     prefix: &str,
     pattern: Option<&str>,
     skip: Option<usize>,

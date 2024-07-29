@@ -19,7 +19,7 @@ use std::error::Error;
 /// # Errors
 ///
 /// Returns an error if the operation fails.
-pub async fn get_range<T: DeserializeOwned + Send + Sync>(
+pub async fn _get_range<T: DeserializeOwned + Send + Sync>(
     prefix: &str,
     pattern: Option<&str>,
     skip: Option<usize>,
@@ -71,7 +71,7 @@ pub async fn get_range<T: DeserializeOwned + Send + Sync>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{db::kv::index::set_multiple::set_multiple, setup, Config};
+    use crate::{db::kv::index::set_multiple::_set_multiple, setup, Config};
     use serde::{Deserialize, Serialize};
     use tokio;
 
@@ -111,10 +111,10 @@ mod tests {
         ];
 
         // Set values in Redis
-        set_multiple::<MyValue>("test:", &data).await?;
+        _set_multiple::<MyValue>("test:", &data).await?;
 
         // Retrieve values using `get_range` with a specific pattern
-        let result = get_range::<MyValue>("test:", Some("key*"), Some(0), Some(10)).await?;
+        let result = _get_range::<MyValue>("test:", Some("key*"), Some(0), Some(10)).await?;
         assert_eq!(result.len(), data.len());
 
         let expected_values: Vec<MyValue> = data.into_iter().map(|(_, v)| v).collect();

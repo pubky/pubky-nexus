@@ -33,7 +33,7 @@ impl Relationship {
     ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
         match viewer_id {
             None => Ok(None),
-            Some(v_id) => match Self::try_from_index(&[user_id, v_id], None).await? {
+            Some(v_id) => match Self::try_from_index(&[user_id, v_id]).await? {
                 Some(indexed_relationship) => Ok(Some(indexed_relationship)),
                 None => Self::get_from_graph(user_id, v_id).await,
             },

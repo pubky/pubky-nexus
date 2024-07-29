@@ -39,7 +39,7 @@ impl PostDetails {
         author_id: &str,
         post_id: &str,
     ) -> Result<Option<PostDetails>, Box<dyn std::error::Error + Send + Sync>> {
-        match Self::try_from_index(&[author_id, post_id], None).await? {
+        match Self::try_from_index(&[author_id, post_id]).await? {
             Some(details) => Ok(Some(details)),
             None => Self::get_from_graph(author_id, post_id).await,
         }
