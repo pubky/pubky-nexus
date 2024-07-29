@@ -1,6 +1,7 @@
 use super::index;
 use async_trait::async_trait;
 use serde::{de::DeserializeOwned, Serialize};
+use std::error::Error;
 
 /// A trait for operations involving Redis storage. Implement this trait for types that need to be stored
 /// and retrieved from Redis with serialization and deserialization capabilities.
@@ -64,7 +65,15 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
     async fn try_from_index(
         key_parts: &[&str],
+        path: Option<&str>
     ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
-        index::get(&Self::prefix().await, &key_parts.join(":"), None).await
+        index::get(&Self::prefix().await, &key_parts.join(":"), path).await
+    }
+    
+    async fn try_from_pattern(
+        pattern: &[&str],
+        path: Option<&str>
+    ) -> Result<Option<Vec<String>>, Box<dyn Error + Send + Sync>> {
+        index::get_key_list(&Self::prefix().await, &pattern.join(":"), path).await
     }
 }

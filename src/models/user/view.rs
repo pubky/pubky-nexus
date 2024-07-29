@@ -40,6 +40,8 @@ impl UserView {
             Relationship::get_by_id(user_id, viewer_id)
         )?;
 
+        UserTags::get_by_id(user_id).await?;
+
         let details = match details {
             None => return Ok(None),
             Some(details) => details,

@@ -38,7 +38,7 @@ impl Bookmark {
             Some(viewer_id) => viewer_id,
             None => return Ok(None),
         };
-        match Self::try_from_index(&[author_id, post_id, viewer_id]).await? {
+        match Self::try_from_index(&[author_id, post_id, viewer_id], None).await? {
             Some(counts) => Ok(Some(counts)),
             None => Self::get_from_graph(author_id, post_id, viewer_id).await,
         }

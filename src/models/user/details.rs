@@ -63,7 +63,7 @@ impl UserDetails {
     pub async fn get_by_id(
         user_id: &str,
     ) -> Result<Option<UserDetails>, Box<dyn std::error::Error + Send + Sync>> {
-        match Self::try_from_index(&[user_id]).await? {
+        match Self::try_from_index(&[user_id], None).await? {
             Some(details) => Ok(Some(details)),
             None => Self::get_from_graph(user_id).await,
         }

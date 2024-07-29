@@ -33,7 +33,7 @@ impl PostCounts {
         author_id: &str,
         post_id: &str,
     ) -> Result<Option<PostCounts>, Box<dyn std::error::Error + Send + Sync>> {
-        match Self::try_from_index(&[author_id, post_id]).await? {
+        match Self::try_from_index(&[author_id, post_id], None).await? {
             Some(counts) => Ok(Some(counts)),
             None => Self::get_from_graph(author_id, post_id).await,
         }

@@ -1,3 +1,5 @@
+use crate::RedisOps;
+
 use super::UserDetails;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -26,6 +28,8 @@ impl ProfileTag {
     }
 }
 
+impl RedisOps for UserTags {}
+
 /// Represents a collection of ProfileTag.
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct UserTags {
@@ -44,7 +48,8 @@ impl UserTags {
     }
 
     /// TODO: Retrieves tags by user ID, currently returns an empty instance.
-    pub async fn get_by_id(_user_id: &str) -> Result<Option<Self>, Box<dyn std::error::Error>> {
+    pub async fn get_by_id(user_id: &str) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
+        let _res = Self::try_from_pattern(&[user_id, "*"], Some(".")).await?;
         Ok(Some(Self::new()))
     }
 }

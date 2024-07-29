@@ -36,7 +36,7 @@ impl UserCounts {
     pub async fn get_by_id(
         user_id: &str,
     ) -> Result<Option<UserCounts>, Box<dyn std::error::Error + Send + Sync>> {
-        match Self::try_from_index(&[user_id]).await? {
+        match Self::try_from_index(&[user_id], None).await? {
             Some(counts) => Ok(Some(counts)),
             None => Self::get_from_graph(user_id).await,
         }
