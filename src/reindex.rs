@@ -1,4 +1,4 @@
-use crate::models::user::{Follows, FollowsVariant};
+use crate::models::user::{Followers, Following};
 use crate::{
     db::connectors::neo4j::get_neo4j_graph,
     models::post::{PostCounts, PostDetails, PostRelationships},
@@ -49,7 +49,8 @@ async fn reindex_user(user_id: &str) -> Result<(), Box<dyn std::error::Error + S
     tokio::try_join!(
         UserDetails::get_from_graph(user_id),
         UserCounts::get_from_graph(user_id),
-        Follows::get_from_graph(user_id, &FollowsVariant::Followers)
+        Followers::get_from_graph(user_id, Some(0), Some(100)),
+        Following::get_from_graph(user_id, Some(0), Some(100)),
     )?;
 
     Ok(())

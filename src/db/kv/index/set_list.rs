@@ -21,6 +21,9 @@ pub async fn set_list(
     key: &str,
     values: &[&str],
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if values.is_empty() {
+        return Ok(());
+    }
     let index_key = format!("{}:{}", prefix, key);
     let mut redis_conn = get_redis_conn().await?;
     redis_conn.rpush(index_key, values).await?;

@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use pubky_nexus::models::user::{Follows, FollowsVariant};
+use pubky_nexus::models::user::{Followers, Following};
 use pubky_nexus::setup;
 use pubky_nexus::Config;
 use std::env;
@@ -35,9 +35,7 @@ fn bench_get_followers_by_id(c: &mut Criterion) {
         &user_id,
         |b, &id| {
             b.to_async(&rt).iter(|| async {
-                let followers = Follows::get_by_id(id, FollowsVariant::Followers)
-                    .await
-                    .unwrap();
+                let followers = Followers::get_by_id(id, None, None).await.unwrap();
                 criterion::black_box(followers);
             });
         },
@@ -59,9 +57,7 @@ fn bench_get_followers_from_graph(c: &mut Criterion) {
         &user_id,
         |b, &id| {
             b.to_async(&rt).iter(|| async {
-                let followers = Follows::get_from_graph(id, &FollowsVariant::Followers)
-                    .await
-                    .unwrap();
+                let followers = Followers::get_from_graph(id, None, None).await.unwrap();
                 criterion::black_box(followers);
             });
         },
@@ -83,9 +79,7 @@ fn bench_get_following_by_id(c: &mut Criterion) {
         &user_id,
         |b, &id| {
             b.to_async(&rt).iter(|| async {
-                let following = Follows::get_by_id(id, FollowsVariant::Following)
-                    .await
-                    .unwrap();
+                let following = Following::get_by_id(id, None, None).await.unwrap();
                 criterion::black_box(following);
             });
         },
@@ -107,9 +101,7 @@ fn bench_get_following_from_graph(c: &mut Criterion) {
         &user_id,
         |b, &id| {
             b.to_async(&rt).iter(|| async {
-                let following = Follows::get_from_graph(id, &FollowsVariant::Following)
-                    .await
-                    .unwrap();
+                let following = Following::get_from_graph(id, None, None).await.unwrap();
                 criterion::black_box(following);
             });
         },

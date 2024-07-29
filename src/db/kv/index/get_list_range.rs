@@ -31,7 +31,7 @@ pub async fn get_list_range(
 
     let index_key = format!("{}:{}", prefix, key);
     let skip = skip.unwrap_or(0);
-    let limit = limit.unwrap_or(1000);
+    let limit = limit.unwrap_or(usize::MAX);
 
     let start = skip as isize;
     let end = start + (limit as isize) - 1;

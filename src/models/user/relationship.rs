@@ -1,11 +1,8 @@
-use std::error::Error;
-
 use crate::db::connectors::neo4j::get_neo4j_graph;
-use crate::db::kv::index::{get_bool, set};
+use crate::db::kv::index;
 use crate::{queries, RedisOps};
-use async_trait::async_trait;
+use axum::async_trait;
 use serde::{Deserialize, Serialize};
-use tokio::try_join;
 use utoipa::ToSchema;
 
 /// Represents the relationship of the user that views and user being viewed.
@@ -15,67 +12,20 @@ pub struct Relationship {
     pub followed_by: bool,
 }
 
-/// This implementation reuses the "Follows:" model prefix for Redis keys, leveraging existing
-/// data storage structures to minimize memory usage. Instead of storing separate `Relationship:`
-/// objects, it stores boolean flags indicating the status of the relationship (i.e., whether
-/// the user is followed by or following another user). This approach optimizes data storage
-/// and retrieval in Redis, ensuring efficient memory utilization and streamlined operations.
-///
-/// The implementation provides methods for setting and retrieving relationship data using
-/// these boolean flags, including handling potential errors and ensuring consistent key
-/// structures for easy access and modification.
 #[async_trait]
 impl RedisOps for Relationship {
-    async fn prefix() -> String {
-        String::from("Follows")
-    }
-
-    async fn set_index(&self, key_parts: &[&str]) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let (user_id, viewer_id) = match key_parts {
-            [user_id, viewer_id] => (user_id, viewer_id),
-            _ => return Err("Expected exactly two elements in key_parts".into()),
-        };
-
-        let prefix = Self::prefix().await;
-
-        if self.followed_by {
-            let key = format!("{user_id}:{viewer_id}");
-            set(&prefix, &key, &true, None, None).await?;
-        }
-        if self.following {
-            let key = format!("{viewer_id}:{user_id}");
-            set(&prefix, &key, &true, None, None).await?;
-        }
-
-        Ok(())
-    }
-
-    async fn try_from_index(
+    async fn set_index(
+        &self,
         key_parts: &[&str],
-    ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
-        let (user_id, viewer_id) = match key_parts {
-            [user_id, viewer_id] => (user_id, viewer_id),
-            _ => return Err("Expected exactly two elements in key_parts".into()),
-        };
-
-        let prefix = Self::prefix().await;
-
-        let following_key = format!("{viewer_id}:{user_id}");
-        let followed_by_key = format!("{user_id}:{viewer_id}");
-
-        let (following_result, followed_by_result) = try_join!(
-            get_bool(&prefix, &following_key),
-            get_bool(&prefix, &followed_by_key)
-        )?;
-
-        if following_result.is_none() && followed_by_result.is_none() {
-            return Ok(None);
-        }
-
-        Ok(Some(Self {
-            following: following_result.unwrap_or(false),
-            followed_by: followed_by_result.unwrap_or(false),
-        }))
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        index::set(
+            &Self::prefix().await,
+            &key_parts.join(":"),
+            self,
+            None,
+            Some(600),
+        )
+        .await
     }
 }
 
