@@ -53,6 +53,9 @@ harness = false
 name = "post"
 harness = false
 [[bench]]
+name = "tag"
+harness = false
+[[bench]]
 name = "reindex"
 harness = false
 

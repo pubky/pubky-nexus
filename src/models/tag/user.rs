@@ -1,10 +1,10 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-use crate::db::connectors::neo4j::get_neo4j_graph;
+use crate::{db::connectors::neo4j::get_neo4j_graph, RedisOps};
 use super::Tags;
 use crate::queries;
 
-/// Represents a tag with its tag label, count, and author sources.
+/// Represents a tag that refers to the current user
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone)]
 pub struct UserTag {
     pub label: String,
@@ -39,9 +39,7 @@ impl UserTags {
 
         let mut user_tags: Vec<UserTag> = vec![];
 
-        // TODO#35: Just testing
-        //Tags::try_redis_ops_read().await;
-
+        // Get all the users tags
         for key in search_keys {
             //Get the value associated with the key
             let by = Tags::search_key_value(&key).await?;
@@ -50,12 +48,7 @@ impl UserTags {
             user_tags.push(UserTag { label: String::from(label_str), by});
         }
 
-        // TODO#35: Treat in anohter way the result if it is possible
-        if !user_tags.is_empty() {
-            return Ok(Some(user_tags))
-        }
-
-        Ok(None)
+        Ok((!user_tags.is_empty()).then_some(user_tags))
     }
 
     async fn get_from_graph(
@@ -73,11 +66,9 @@ impl UserTags {
             // TODO#35: Think how to avoid clone. Or we might clone Tag struct
             let tagged_from_clone = tagged_from.clone();
             for UserTag {label, by} in tagged_from.into_iter() {
-                //let key = format!("{:}:{:}", user_id, label);
-                //Tags::set_index_local(key, by).await?
                 let key_parts = vec!(user_id, &label);
                 // TODO#Discover how to call the trait fn out of the scope
-                by.try_redis_ops_set(key_parts).await?
+                by.set_index(key_parts.as_slice()).await?
             }
             return Ok(Some(tagged_from_clone))
         }

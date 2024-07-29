@@ -51,37 +51,17 @@ impl Tags {
         Self::prefix().await
     }
 
-    // pub async fn try_redis_ops_read() {
-    //     let index = Self::try_from_index(&["4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro", "bike"]).await.unwrap();
-    //     match index {
-    //         Some(tags) => println!("{:?}", tags),
-    //         None => println!("It does no exist")
-    //     }
-    // }
-
 
     pub async fn try_redis_ops_set(&self, key: Vec<&str>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.set_index(key.as_slice()).await?;
         Ok(())
     }
 
-    // TODO#35: Try to use RedisOps, with struct Tags(Vec<Tag>)
-    // pub async fn set_index_local(key:&str, tag_list: &Tags) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    //     index::set(
-    //         &Self::type_name().await,
-    //         key,
-    //         tag_list,
-    //         None, 
-    //         None)
-    //     .await?; 
-    //     Ok(())
-    // }
-
     pub async fn search_keys_with_pattern(word: &str) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
         let key_prefix = &Self::type_name().await;
-        let pattern = format!("{}{:}*", key_prefix, word);
+        let pattern = format!("{}{}*", key_prefix, word);
 
-        // TODO#35: find some way to keep open the connection
+        // TODO#35: find some way to keep open the connection. Maybe pool?
         let mut redis_conn = get_redis_conn().await?;
 
         // Search base on regular expression. Need to wait till merge happen... or maybe not
@@ -99,6 +79,7 @@ impl Tags {
     pub async fn search_key_value(key:&str) -> Result<Tags, Box<dyn std::error::Error + Send + Sync>> {
         // TODO#35: We need in redisOps a try_from_index another arguments as PATH
         let mut redis_conn = get_redis_conn().await?;
+        // TODO#35: error control
         let value: String = redis_conn.json_get(&key, ".").await.unwrap();
         let by: Tags = serde_json::from_str(&value)?;
         Ok(by)
