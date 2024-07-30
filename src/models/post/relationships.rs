@@ -35,7 +35,7 @@ impl PostRelationships {
         author_id: &str,
         post_id: &str,
     ) -> Result<Option<PostRelationships>, Box<dyn std::error::Error + Send + Sync>> {
-        match Self::try_from_index(&[author_id, post_id]).await? {
+        match Self::try_from_index_json(&[author_id, post_id]).await? {
             Some(counts) => Ok(Some(counts)),
             None => Self::get_from_graph(author_id, post_id).await,
         }
@@ -76,7 +76,7 @@ impl PostRelationships {
                 reposted,
                 mentioned,
             };
-            relationships.set_index(&[author_id, post_id]).await?;
+            relationships.put_index_json(&[author_id, post_id]).await?;
             Ok(Some(relationships))
         } else {
             Ok(None)

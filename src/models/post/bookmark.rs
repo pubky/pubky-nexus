@@ -38,7 +38,7 @@ impl Bookmark {
             Some(viewer_id) => viewer_id,
             None => return Ok(None),
         };
-        match Self::try_from_index(&[author_id, post_id, viewer_id]).await? {
+        match Self::try_from_index_json(&[author_id, post_id, viewer_id]).await? {
             Some(counts) => Ok(Some(counts)),
             None => Self::get_from_graph(author_id, post_id, viewer_id).await,
         }
@@ -62,7 +62,9 @@ impl Bookmark {
                 id: relation.get("id").unwrap_or_default(),
                 indexed_at: relation.get("indexed_at").unwrap_or_default(),
             };
-            counts.set_index(&[author_id, post_id, viewer_id]).await?;
+            counts
+                .put_index_json(&[author_id, post_id, viewer_id])
+                .await?;
             Ok(Some(counts))
         } else {
             Ok(None)

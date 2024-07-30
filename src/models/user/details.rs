@@ -63,7 +63,7 @@ impl UserDetails {
     pub async fn get_by_id(
         user_id: &str,
     ) -> Result<Option<UserDetails>, Box<dyn std::error::Error + Send + Sync>> {
-        match Self::try_from_index(&[user_id]).await? {
+        match Self::try_from_index_json(&[user_id]).await? {
             Some(details) => Ok(Some(details)),
             None => Self::get_from_graph(user_id).await,
         }
@@ -99,7 +99,7 @@ impl UserDetails {
                 let node: Node = row.get("u")?;
                 match Self::from_node(&node).await {
                     Some(details) => {
-                        details.set_index(&[user_id]).await?;
+                        details.put_index_json(&[user_id]).await?;
                         Ok(Some(details))
                     }
                     None => Ok(None),
