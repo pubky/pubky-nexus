@@ -1,15 +1,13 @@
 use std::ops::Deref;
-
 use chrono::Utc;
-use redis::{AsyncCommands, AsyncIter, JsonAsyncCommands};
 use serde::{Deserialize, Serialize};
-use crate::db::connectors::redis::get_redis_conn;
 use crate::RedisOps;
 
 pub mod user;
 
 impl RedisOps for Tags {}
 
+// Atomic struct to save in the cache
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Tag {
     tag_id: String, // TODO: Crobfordbase32 type
@@ -45,44 +43,3 @@ impl Deref for Tags {
         &self.0
     }
 }
-
-impl Tags {
-    async fn type_name() -> String {
-        Self::prefix().await
-    }
-
-
-    pub async fn try_redis_ops_set(&self, key: Vec<&str>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.set_index(key.as_slice()).await?;
-        Ok(())
-    }
-
-    pub async fn search_keys_with_pattern(word: &str) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
-        let key_prefix = &Self::type_name().await;
-        let pattern = format!("{}{}*", key_prefix, word);
-
-        // TODO#35: find some way to keep open the connection. Maybe pool?
-        let mut redis_conn = get_redis_conn().await?;
-
-        // Search base on regular expression. Need to wait till merge happen... or maybe not
-        let mut iter: AsyncIter<Option<String>> = redis_conn.scan_match(&pattern).await.unwrap();
-        let mut tags_keys: Vec<String> = vec![];
-
-        while let Some(wrapped_key) = iter.next_item().await {
-            if let Some(key) = wrapped_key {    
-                tags_keys.push(key);
-            }
-        }
-        Ok(tags_keys)
-    }
-
-    pub async fn search_key_value(key:&str) -> Result<Tags, Box<dyn std::error::Error + Send + Sync>> {
-        // TODO#35: We need in redisOps a try_from_index another arguments as PATH
-        let mut redis_conn = get_redis_conn().await?;
-        // TODO#35: error control
-        let value: String = redis_conn.json_get(&key, ".").await.unwrap();
-        let by: Tags = serde_json::from_str(&value)?;
-        Ok(by)
-    }
-}
-
