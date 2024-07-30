@@ -1,12 +1,6 @@
-pub mod info;
-pub mod post;
-pub mod user;
-pub mod tag;
-
+use super::index;
 use async_trait::async_trait;
 use serde::{de::DeserializeOwned, Serialize};
-
-use crate::db::kv::index;
 
 /// A trait for operations involving Redis storage. Implement this trait for types that need to be stored
 /// and retrieved from Redis with serialization and deserialization capabilities.
@@ -23,7 +17,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     async fn prefix() -> String {
         let type_name = std::any::type_name::<Self>();
         let struct_name = type_name.split("::").last().unwrap_or_default();
-        format!("{}!", struct_name)
+        format!("{}:", struct_name)
     }
 
     /// Sets the data in Redis using the provided key parts.

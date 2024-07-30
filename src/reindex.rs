@@ -2,7 +2,7 @@ use crate::RedisOps;
 use crate::{
     db::connectors::neo4j::get_neo4j_graph,
     models::post::{PostCounts, PostDetails, PostRelationships},
-    models::profile::{ProfileCounts, ProfileDetails},
+    models::user::{UserCounts, UserDetails},
 };
 use log::info;
 use neo4rs::query;
@@ -46,8 +46,8 @@ pub async fn reindex() {
 }
 
 async fn reindex_user(user_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let details = ProfileDetails::get_from_graph(user_id).await?;
-    let counts = ProfileCounts::get_from_graph(user_id).await?;
+    let details = UserDetails::get_from_graph(user_id).await?;
+    let counts = UserCounts::get_from_graph(user_id).await?;
 
     if let Some(details) = details {
         details.set_index(&[user_id]).await?;

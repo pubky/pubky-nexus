@@ -1,4 +1,4 @@
-use crate::models::profile::ProfileDetails;
+use crate::models::user::UserDetails;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -7,7 +7,7 @@ use utoipa::ToSchema;
 pub struct PostTag {
     label: String,
     count: u32,
-    by: Vec<ProfileDetails>,
+    by: Vec<UserDetails>,
 }
 
 impl Default for PostTag {
@@ -21,7 +21,7 @@ impl PostTag {
         Self {
             label: String::new(),
             count: 0,
-            by: vec![ProfileDetails::new()],
+            by: vec![UserDetails::new()],
         }
     }
 }
