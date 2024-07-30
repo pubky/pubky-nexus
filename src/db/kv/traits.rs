@@ -113,6 +113,35 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         index::set_list(&prefix, &key, &values).await
     }
 
+    /// Adds elements to a Redis set using the provided key parts.
+    ///
+    /// This method adds elements to a Redis set under the key generated from the provided `key_parts`.
+    /// It ensures that each element in the set is unique.
+    ///
+    /// # Arguments
+    ///
+    /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the set is stored.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the operation fails, such as if the Redis connection is unavailable or
+    /// if there is an issue with serialization.
+    async fn set_index_set<T>(&self, key_parts: &[&str]) -> Result<(), Box<dyn Error + Send + Sync>>
+    where
+        Self: AsRef<[T]>,            // Self can be dereferenced into a slice of T
+        T: AsRef<str> + Send + Sync, // The items must be convertible to &str
+    {
+        let prefix = Self::prefix().await;
+        let key = key_parts.join(":");
+
+        // Directly use the string representations of items without additional serialization
+        let collection = self.as_ref();
+        let values: Vec<&str> = collection.iter().map(|item| item.as_ref()).collect();
+
+        // Store the values in the Redis set
+        index::set_set(&prefix, &key, &values).await
+    }
+
     /// Retrieves data from Redis using the provided key parts.
     ///
     /// This method deserializes the data stored under the key generated from the provided `key_parts` in Redis.
@@ -161,5 +190,33 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         let prefix = Self::prefix().await;
         let key = key_parts.join(":");
         index::get_list_range(&prefix, &key, skip, limit).await
+    }
+
+    /// Retrieves a range of elements from a Redis set using the provided key parts.
+    ///
+    /// This method fetches elements from a Redis set stored under the key generated from the provided `key_parts`.
+    /// The range is defined by `skip` and `limit` parameters.
+    ///
+    /// # Arguments
+    ///
+    /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the set is stored.
+    /// * `skip` - An optional number of elements to skip (useful for pagination).
+    /// * `limit` - An optional number of elements to return (useful for pagination).
+    ///
+    /// # Returns
+    ///
+    /// Returns a vector of deserialized elements if they exist, or an empty vector if no matching elements are found.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
+    async fn try_from_index_set(
+        key_parts: &[&str],
+        skip: Option<usize>,
+        limit: Option<usize>,
+    ) -> Result<Option<Vec<String>>, Box<dyn Error + Send + Sync>> {
+        let prefix = Self::prefix().await;
+        let key = key_parts.join(":");
+        index::get_set_range(&prefix, &key, skip, limit).await
     }
 }

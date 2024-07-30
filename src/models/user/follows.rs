@@ -33,7 +33,7 @@ impl Followers {
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
-        match Self::try_from_index_list(&[user_id], skip, limit).await? {
+        match Self::try_from_index_set(&[user_id], skip, limit).await? {
             Some(followers) => Ok(Some(Self(followers))),
             None => Self::get_from_graph(user_id, skip, limit).await,
         }
@@ -57,7 +57,7 @@ impl Followers {
             }
             if let Some(followers) = row.get::<Option<Vec<String>>>("follower_ids")? {
                 let followers = Self(followers);
-                followers.set_index_list(&[user_id]).await?;
+                followers.set_index_set(&[user_id]).await?;
                 Ok(Some(followers))
             } else {
                 Ok(Some(Followers::new()))
@@ -96,7 +96,7 @@ impl Following {
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
-        match Self::try_from_index_list(&[user_id], skip, limit).await? {
+        match Self::try_from_index_set(&[user_id], skip, limit).await? {
             Some(following) => Ok(Some(Self(following))),
             None => Self::get_from_graph(user_id, skip, limit).await,
         }
@@ -120,7 +120,7 @@ impl Following {
             }
             if let Some(following) = row.get::<Option<Vec<String>>>("following_ids")? {
                 let following = Self(following);
-                following.set_index_list(&[user_id]).await?;
+                following.set_index_set(&[user_id]).await?;
                 Ok(Some(following))
             } else {
                 Ok(Some(Following::new()))
