@@ -44,8 +44,8 @@ impl Relationship {
         let viewer_key = [viewer_id];
         // Concurrently check if the viewer follows the user and if the user follows the viewer
         let ((user_id_followers_exist, following), (viewer_id_followers_exist, followed_by)) = tokio::try_join!(
-            Followers::check_index_set_member(&user_key, viewer_id),
-            Followers::check_index_set_member(&viewer_key, user_id)
+            Followers::check_set_member(&user_key, viewer_id),
+            Followers::check_set_member(&viewer_key, user_id)
         )?;
 
         if user_id_followers_exist && viewer_id_followers_exist {
@@ -66,8 +66,8 @@ impl Relationship {
 
         // Recheck the relationships after ensuring the data is populated
         let (user_recheck, viewer_recheck) = tokio::try_join!(
-            Followers::check_index_set_member(&user_key, viewer_id),
-            Followers::check_index_set_member(&viewer_key, user_id)
+            Followers::check_set_member(&user_key, viewer_id),
+            Followers::check_set_member(&viewer_key, user_id)
         )?;
         let (user_exist, following) = user_recheck;
         let (viewer_exist, followed_by) = viewer_recheck;
