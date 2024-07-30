@@ -109,19 +109,6 @@ pub fn user_counts(user_id: &str) -> neo4rs::Query {
     .param("id", user_id)
 }
 
-pub fn viewer_relationship(user_id: &str, viewer_id: &str) -> neo4rs::Query {
-    query(
-        "MATCH (u:User {id: $user_id})
-         OPTIONAL MATCH (viewer:User {id: $viewer_id})
-         RETURN EXISTS((viewer)-[:FOLLOWS]->(u)) AS following,
-                EXISTS((u)-[:FOLLOWS]->(viewer)) AS followed_by,
-                COUNT(u) > 0 AS user_exists,
-                COUNT(viewer) > 0 AS viewer_exists",
-    )
-    .param("user_id", user_id)
-    .param("viewer_id", viewer_id)
-}
-
 pub fn get_user_followers(user_id: &str, skip: Option<usize>, limit: Option<usize>) -> Query {
     let mut query_string = String::from(
         "MATCH (u:User {id: $user_id}) 

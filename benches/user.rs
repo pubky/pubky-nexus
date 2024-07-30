@@ -33,35 +33,12 @@ fn bench_get_full_by_id(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
 
     c.bench_with_input(
-        BenchmarkId::new("get_full_profile_by_id", user_id),
+        BenchmarkId::new("get_user_view_by_id", user_id),
         &user_id,
         |b, &id| {
             b.to_async(&rt).iter(|| async {
-                let profile = UserView::get_by_id(id, Some(viewer_id)).await.unwrap();
-                criterion::black_box(profile);
-            });
-        },
-    );
-}
-
-fn bench_get_relationship_from_graph(c: &mut Criterion) {
-    println!("***************************************");
-    println!("Test the performance of getting a following/follower relationship from the graph database.");
-    println!("***************************************");
-
-    run_setup();
-
-    let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
-    let viewer_id = "5g3fwnue819wfdjwiwm8qr35ww6uxxgbzrigrtdgmbi19ksioeoy";
-    let rt = Runtime::new().unwrap();
-
-    c.bench_with_input(
-        BenchmarkId::new("get_relationship_from_graph", user_id),
-        &user_id,
-        |b, &id| {
-            b.to_async(&rt).iter(|| async {
-                let relationship = Relationship::get_from_graph(id, viewer_id).await.unwrap();
-                criterion::black_box(relationship);
+                let user = UserView::get_by_id(id, Some(viewer_id)).await.unwrap();
+                criterion::black_box(user);
             });
         },
     );
@@ -92,7 +69,7 @@ fn bench_get_relationship_by_id(c: &mut Criterion) {
 
 fn bench_get_counts_from_graph(c: &mut Criterion) {
     println!("***************************************");
-    println!("Test the performance of getting profile counts from the graph database.");
+    println!("Test the performance of getting user counts from the graph database.");
     println!("***************************************");
 
     run_setup();
@@ -114,9 +91,7 @@ fn bench_get_counts_from_graph(c: &mut Criterion) {
 
 fn bench_get_counts_by_id(c: &mut Criterion) {
     println!("***************************************");
-    println!(
-        "Test the performance of getting profile counts by ID, using index or graph as needed."
-    );
+    println!("Test the performance of getting user counts by ID, using index or graph as needed.");
     println!("***************************************");
 
     run_setup();
@@ -138,7 +113,7 @@ fn bench_get_counts_by_id(c: &mut Criterion) {
 
 fn bench_get_details_from_graph(c: &mut Criterion) {
     println!("***************************************");
-    println!("Test the performance of getting profile details from the graph database.");
+    println!("Test the performance of getting user details from the graph database.");
     println!("***************************************");
 
     run_setup();
@@ -160,9 +135,7 @@ fn bench_get_details_from_graph(c: &mut Criterion) {
 
 fn bench_get_details_by_id(c: &mut Criterion) {
     println!("***************************************");
-    println!(
-        "Test the performance of getting profile details by ID, checking both index and graph."
-    );
+    println!("Test the performance of getting user details by ID, checking both index and graph.");
     println!("***************************************");
 
     run_setup();
@@ -193,7 +166,6 @@ criterion_group! {
     name = benches;
     config = configure_criterion();
     targets = bench_get_full_by_id,
-              bench_get_relationship_from_graph,
               bench_get_relationship_by_id,
               bench_get_counts_from_graph,
               bench_get_counts_by_id,

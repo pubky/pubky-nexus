@@ -219,4 +219,32 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         let key = key_parts.join(":");
         index::get_set_range(&prefix, &key, skip, limit).await
     }
+
+    /// Checks if a member exists in a Redis set and if the set exists using the provided key parts.
+    ///
+    /// This method checks if a specific member is present in the Redis set stored under the key
+    /// generated from the provided `key_parts`. It also determines if the set itself exists.
+    ///
+    /// # Arguments
+    ///
+    /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the set is stored.
+    /// * `member` - A string slice representing the member to check for existence in the set.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok((true, true))` if the set exists and the member is in the set,
+    /// `Ok((true, false))` if the set exists but the member is not in the set,
+    /// `Ok((false, false))` if the set does not exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
+    async fn check_index_set_member(
+        key_parts: &[&str],
+        member: &str,
+    ) -> Result<(bool, bool), Box<dyn Error + Send + Sync>> {
+        let prefix = Self::prefix().await;
+        let key = key_parts.join(":");
+        index::check_set_member(&prefix, &key, member).await
+    }
 }
