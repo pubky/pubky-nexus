@@ -4,7 +4,7 @@ use super::{Followers, Following, UserView};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub enum UserStreamType {
     Followers,
     Following,
@@ -33,14 +33,15 @@ impl UserStream {
         let user_ids = match list_type {
             UserStreamType::Followers => Followers::get_by_id(user_id, skip, limit)
                 .await?
-                .map(|followers| followers.0)
-                .unwrap_or_default(),
+                .map(|followers| followers.0),
             UserStreamType::Following => Following::get_by_id(user_id, skip, limit)
                 .await?
-                .map(|following| following.0)
-                .unwrap_or_default(),
+                .map(|following| following.0),
         };
-        Self::from_listed_user_ids(&user_ids).await
+        match user_ids {
+            Some(users) => Self::from_listed_user_ids(&users).await,
+            None => Ok(None),
+        }
     }
 
     pub async fn from_listed_user_ids(

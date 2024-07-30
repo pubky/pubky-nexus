@@ -1,7 +1,7 @@
 use crate::models::user::{UserStream, UserStreamType};
 use crate::routes::v0::endpoints::STREAM_USERS_ROUTE;
 use crate::{Error, Result};
-use axum::extract::{Query};
+use axum::extract::Query;
 use axum::Json;
 use log::info;
 use serde::Deserialize;
@@ -18,7 +18,7 @@ pub struct UserStreamQuery {
 #[utoipa::path(
     get,
     path = STREAM_USERS_ROUTE,
-    tag = "User Profile Streaming",
+    tag = "Stream Users",
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
         ("skip" = Option<usize>, Query, description = "Skip N followers"),
@@ -58,5 +58,8 @@ pub async fn stream_users_handler(
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(stream_users_handler), components(schemas(UserStream)))]
+#[openapi(
+    paths(stream_users_handler),
+    components(schemas(UserStream, UserStreamType))
+)]
 pub struct StreamUsersApiDocs;
