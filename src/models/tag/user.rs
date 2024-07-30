@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-use crate::db::connectors::neo4j::get_neo4j_graph;
+use crate::{db::connectors::neo4j::get_neo4j_graph, RedisOps};
 use super::Tags;
 use crate::queries;
 
