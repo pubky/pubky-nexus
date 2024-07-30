@@ -17,7 +17,7 @@ use std::error::Error;
 /// # Errors
 ///
 /// Returns an error if the operation fails.
-pub async fn get_bool(
+pub async fn _get_bool(
     prefix: &str,
     key: &str,
 ) -> Result<Option<bool>, Box<dyn Error + Send + Sync>> {

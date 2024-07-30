@@ -52,7 +52,7 @@ pub async fn set_multiple<T: Serialize>(
     let mut cmd = redis::pipe();
 
     for (key, value) in data {
-        let full_key = format!("{}{}", prefix, key.as_ref());
+        let full_key = format!("{}:{}", prefix, key.as_ref());
 
         // Check if the value is boolean
         match serde_json::to_value(value)? {

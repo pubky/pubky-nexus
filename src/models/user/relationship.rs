@@ -1,5 +1,5 @@
-use crate::db::connectors::neo4j::get_neo4j_graph;
-use crate::{queries, RedisOps};
+use super::Followers;
+use crate::RedisOps;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -9,8 +9,6 @@ pub struct Relationship {
     pub following: bool,
     pub followed_by: bool,
 }
-
-impl RedisOps for Relationship {}
 
 impl Default for Relationship {
     fn default() -> Self {
@@ -33,40 +31,54 @@ impl Relationship {
     ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
         match viewer_id {
             None => Ok(None),
-            Some(v_id) => match Self::try_from_index(&[user_id, v_id]).await? {
-                Some(indexed_relationship) => Ok(Some(indexed_relationship)),
-                None => Self::get_from_graph(user_id, v_id).await,
-            },
+            Some(v_id) => Self::try_from_index(user_id, v_id).await,
         }
     }
 
-    /// Retrieves the relationship from Neo4j and indexes it in Redis.
-    pub async fn get_from_graph(
+    /// Retrieves relationship from Followers/Following Redis index sets.
+    pub async fn try_from_index(
         user_id: &str,
         viewer_id: &str,
     ) -> Result<Option<Relationship>, Box<dyn std::error::Error + Send + Sync>> {
-        let graph = get_neo4j_graph()?;
+        let user_key = [user_id];
+        let viewer_key = [viewer_id];
+        // Concurrently check if the viewer follows the user and if the user follows the viewer
+        let ((user_id_followers_exist, following), (viewer_id_followers_exist, followed_by)) = tokio::try_join!(
+            Followers::check_index_set_member(&user_key, viewer_id),
+            Followers::check_index_set_member(&viewer_key, user_id)
+        )?;
 
-        let query = queries::viewer_relationship(user_id, viewer_id);
-        let graph = graph.lock().await;
-        let mut result = graph.execute(query).await?;
+        if user_id_followers_exist && viewer_id_followers_exist {
+            // If both sets exist, return the relationship
+            return Ok(Some(Self {
+                followed_by,
+                following,
+            }));
+        };
 
-        if let Some(row) = result.next().await? {
-            let user_exists: bool = row.get("user_exists").unwrap_or(false);
-            let viewer_exists: bool = row.get("viewer_exists").unwrap_or(false);
-
-            if !user_exists || !viewer_exists {
-                return Ok(None);
-            }
-
-            let relationship = Self {
-                following: row.get("following").unwrap_or(false),
-                followed_by: row.get("followed_by").unwrap_or(false),
-            };
-            relationship.set_index(&[user_id, viewer_id]).await?;
-            Ok(Some(relationship))
-        } else {
-            Ok(None)
+        // Run a graph search for followers and populate index sets
+        if !user_id_followers_exist {
+            Followers::get_from_graph(user_id, None, None).await?;
         }
+        if !viewer_id_followers_exist {
+            Followers::get_from_graph(viewer_id, None, None).await?;
+        }
+
+        // Recheck the relationships after ensuring the data is populated
+        let (user_recheck, viewer_recheck) = tokio::try_join!(
+            Followers::check_index_set_member(&user_key, viewer_id),
+            Followers::check_index_set_member(&viewer_key, user_id)
+        )?;
+        let (user_exist, following) = user_recheck;
+        let (viewer_exist, followed_by) = viewer_recheck;
+
+        if !user_exist || !viewer_exist {
+            return Ok(None);
+        }
+
+        Ok(Some(Self {
+            followed_by,
+            following,
+        }))
     }
 }

@@ -1,9 +1,20 @@
 #!/bin/bash
 
-# Find all .rs files in the current directory and subdirectories
-# Useful if you want to give full project context to your LLM
+# Array of directories to skip
+skip_dirs=(./target ./benches ./tests)
 
-find . -path ./target -prune -o \( -name "*.rs" -o -name "*.toml" \) -print | while read -r file; do
+# Build the find command with exclusion patterns
+find_cmd="find ."
+
+for dir in "${skip_dirs[@]}"; do
+  find_cmd+=" -path $dir -prune -o"
+done
+
+# Add the file types to include and the actions to perform
+find_cmd+=" \( -name '*.rs' -o -name '*.toml' \) -print"
+
+# Execute the constructed find command
+eval $find_cmd | while read -r file; do
   # Print the path to the file
   echo "$file"
   echo '```'

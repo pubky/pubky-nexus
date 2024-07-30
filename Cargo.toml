@@ -58,6 +58,15 @@ harness = false
 name = "reindex"
 harness = false
 
+[[bench]]
+name = "follows"
+harness = false
+
+[[bench]]
+name = "stream"
+harness = false
+
+
 # Max performance profile
 [profile.release]
 opt-level = 3

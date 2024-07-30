@@ -5,6 +5,7 @@ use utoipa::OpenApi;
 
 mod counts;
 mod details;
+mod follows;
 mod relationship;
 mod tags;
 mod view;
@@ -16,6 +17,8 @@ pub fn routes() -> Router {
         endpoints::RELATIONSHIP_ROUTE => relationship::user_relationship_handler,
         endpoints::USER_TAGS_ROUTE => tags::user_tags_handler,
         endpoints::USER_COUNTS_ROUTE => counts::user_counts_handler,
+        endpoints::USER_FOLLOWERS_ROUTE => follows::user_followers_handler,
+        endpoints::USER_FOLLOWING_ROUTE => follows::user_following_handler,
     )
 }
 
@@ -30,6 +33,7 @@ impl UserApiDoc {
         combined.merge(details::UserDetailsApiDoc::openapi());
         combined.merge(relationship::RelationshipApiDoc::openapi());
         combined.merge(tags::UserTagsApiDoc::openapi());
+        combined.merge(follows::UserFollowsApiDoc::openapi());
         combined
     }
 }
