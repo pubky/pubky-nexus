@@ -20,10 +20,10 @@ pub struct FollowsQuery {
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
         ("skip" = Option<usize>, Query, description = "Skip N followers"),
-        ("limit" = Option<usize>, Query, description = "Retrive N followers")
+        ("limit" = Option<usize>, Query, description = "Retrieve N followers")
     ),
     responses(
-        (status = 200, description = "User followers list", body = Follows),
+        (status = 200, description = "User followers list", body = Followers),
         (status = 404, description = "User not found"),
         (status = 500, description = "Internal server error")
     )
@@ -51,10 +51,10 @@ pub async fn user_followers_handler(
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
         ("skip" = Option<usize>, Query, description = "Skip N following"),
-        ("limit" = Option<usize>, Query, description = "Retrive N following")
+        ("limit" = Option<usize>, Query, description = "Retrieve N following")
     ),
     responses(
-        (status = 200, description = "User following list", body = Follows),
+        (status = 200, description = "User following list", body = Following),
         (status = 404, description = "User not found"),
         (status = 500, description = "Internal server error")
     )

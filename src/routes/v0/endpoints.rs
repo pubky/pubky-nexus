@@ -24,3 +24,7 @@ pub const POST_BOOKMARK_ROUTE: &str = concatcp!(POST_ROUTE, "/bookmark");
 pub const POST_COUNTS_ROUTE: &str = concatcp!(POST_ROUTE, "/counts");
 pub const POST_DETAILS_ROUTE: &str = concatcp!(POST_ROUTE, "/details");
 pub const POST_TAGS_ROUTE: &str = concatcp!(POST_ROUTE, "/tags");
+
+// Stream routes
+const STREAM_PREFIX: &str = concatcp!(VERSION_ROUTE, "/stream");
+pub const STREAM_USERS_ROUTE: &str = concatcp!(STREAM_PREFIX, "/users");
