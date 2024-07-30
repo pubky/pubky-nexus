@@ -83,12 +83,33 @@ pub fn get_user_by_id(user_id: &str) -> Query {
     query("MATCH (u:User {id: $id}) RETURN u").param("id", user_id)
 }
 
+/// Retrieve all the tags of the user
 pub fn user_tags(user_id: &str) -> neo4rs::Query {
-    query(
-        "MATCH (u:User {id: $id})<-[t:TAGGED_AS]-(author:User)
-           RETURN t.label AS tag .....",
-    )
-    .param("id", user_id)
+    query("
+        OPTIONAL MATCH (u:User {id: $user_id})
+        WITH u
+        CALL {
+            WITH u
+            MATCH (p:User)-[r:TAGGED]->(u)
+            WITH r.label AS name,
+                collect({
+                    tag_id: r.id,
+                    indexed_at: r.indexed_at,
+                    tagger_id: p.id
+                }) AS from
+            RETURN collect({
+                label: name,
+                tagged: from
+            }) AS user_tags
+        }
+        RETURN 
+            u IS NOT NULL AS user_exists,
+            CASE 
+                WHEN u IS NOT NULL THEN user_tags 
+                ELSE [] 
+            END AS user_tags
+    ")
+    .param("user_id", user_id)
 }
 
 pub fn user_counts(user_id: &str) -> neo4rs::Query {

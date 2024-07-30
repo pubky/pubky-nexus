@@ -51,6 +51,10 @@ name = "user"
 harness = false
 
 [[bench]]
+name = "tag"
+harness = false
+
+[[bench]]
 name = "post"
 harness = false
 
