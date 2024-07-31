@@ -60,9 +60,25 @@ impl PostCounts {
                 reposts: row.get("reposts_count").unwrap_or_default(),
             };
             counts.put_index_json(&[author_id, post_id]).await?;
+            counts
+                .add_to_engagement_sorted_set(author_id, post_id)
+                .await?;
             Ok(Some(counts))
         } else {
             Ok(None)
         }
+    }
+    /// Adds the post to a Redis sorted set using the total engagement as the score.
+    pub async fn add_to_engagement_sorted_set(
+        &self,
+        author_id: &str,
+        post_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let key_parts = &["Posts", "TotalEngagement"];
+        let element = format!("{}:{}", author_id, post_id);
+        let score = self.tags + self.replies + self.reposts;
+        let score = score as f64;
+
+        PostCounts::put_index_sorted_set(key_parts, &[(score, element.as_str())]).await
     }
 }
