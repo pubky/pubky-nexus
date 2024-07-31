@@ -35,8 +35,14 @@ async fn test_user_endpoint() -> Result<()> {
 
     let user_profile: UserView = serde_json::from_value(body)?;
     assert_eq!(user_profile.tags.len(), 4);
-    assert_eq!(user_profile.tags.iter().any(|tag| tag.label == "bike"), true);
-    assert_eq!(user_profile.tags.iter().any(|tag| tag.label == "car"), false);
+    assert_eq!(
+        user_profile.tags.iter().any(|tag| tag.label == "bike"),
+        true
+    );
+    assert_eq!(
+        user_profile.tags.iter().any(|tag| tag.label == "car"),
+        false
+    );
 
     // Look for Aldert pk user id using Flavio's viewer id
     let viewer_id = "5g3fwnue819wfdjwiwm8qr35ww6uxxgbzrigrtdgmbi19ksioeoy";

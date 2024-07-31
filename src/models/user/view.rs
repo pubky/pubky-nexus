@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use super::{Relationship, UserCounts, UserDetails};
 use crate::models::tag::user::UserTags;
-use super::{UserCounts, UserDetails, Relationship};
 
 /// Represents a Pubky user with relational data including tags, counts, bookmark and relationship with other posts.
 #[derive(Serialize, Deserialize, ToSchema)]
@@ -50,16 +50,13 @@ impl UserView {
         let counts = counts.unwrap_or_default();
         let viewer = viewer.unwrap_or_default();
 
-        let tags = match tags {
-            None => return Ok(None),
-            Some(user_tags) => user_tags,
-        };
+        let tags = tags.unwrap_or_default();
 
         Ok(Some(Self {
             details,
             counts,
             viewer,
-            tags
+            tags,
         }))
     }
 }

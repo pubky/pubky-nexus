@@ -1,6 +1,6 @@
-use std::ops::Deref;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use std::ops::Deref;
 use utoipa::ToSchema;
 
 pub mod user;
@@ -22,7 +22,6 @@ impl Default for Tag {
         }
     }
 }
-
 
 #[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
 pub struct Tags(Vec<Tag>);

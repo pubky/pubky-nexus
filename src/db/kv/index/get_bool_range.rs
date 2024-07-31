@@ -49,11 +49,7 @@ pub async fn get_bool_range(
     // Fetch the values using a single command
     let values: Vec<Option<i32>> = redis_conn.mget(&selected_keys).await?;
 
-    let results: Vec<bool> = values
-        .into_iter()
-        .flatten()
-        .map(|val| val != 0)
-        .collect();
+    let results: Vec<bool> = values.into_iter().flatten().map(|val| val != 0).collect();
 
     Ok(results)
 }

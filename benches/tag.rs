@@ -1,12 +1,12 @@
 use criterion::{criterion_group, criterion_main};
 use criterion::{BenchmarkId, Criterion};
 use pubky_nexus::models::tag::user::UserTags;
-use std::sync::Once;
-use tokio::runtime::Runtime;
-use std::env;
-use pubky_nexus::Config;
 use pubky_nexus::setup;
+use pubky_nexus::Config;
+use std::env;
+use std::sync::Once;
 use std::time::Duration;
+use tokio::runtime::Runtime;
 
 static INIT: Once = Once::new();
 
@@ -23,9 +23,7 @@ pub fn run_setup() {
 
 fn bench_get_user_tags(c: &mut Criterion) {
     println!("***************************************");
-    println!(
-        "Test the performance of getting a user tags, using index or graph as needed"
-    );
+    println!("Test the performance of getting a user tags, using index or graph as needed");
     println!("***************************************");
 
     run_setup();

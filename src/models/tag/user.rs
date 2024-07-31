@@ -1,9 +1,9 @@
 use std::ops::Deref;
 
-use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 use crate::db::connectors::neo4j::get_neo4j_graph;
 use crate::queries;
+use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use super::Tags;
 
@@ -11,7 +11,7 @@ use super::Tags;
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone)]
 pub struct UserTag {
     pub label: String,
-    tagged: Tags
+    tagged: Tags,
 }
 
 impl Default for UserTag {
@@ -22,7 +22,6 @@ impl Default for UserTag {
         }
     }
 }
-
 
 // Define a newtype wrapper
 #[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
@@ -44,13 +43,14 @@ impl Deref for UserTags {
 }
 
 impl UserTags {
-
-    pub async fn get_by_id(user_id: &str) -> Result<Option<UserTags>, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn get_by_id(
+        user_id: &str,
+    ) -> Result<Option<UserTags>, Box<dyn std::error::Error + Send + Sync>> {
         Self::get_from_graph(user_id).await
     }
 
     async fn get_from_graph(
-        user_id: &str
+        user_id: &str,
     ) -> Result<Option<UserTags>, Box<dyn std::error::Error + Send + Sync>> {
         let query = queries::user_tags(user_id);
         let graph = get_neo4j_graph()?;
@@ -61,8 +61,8 @@ impl UserTags {
         if let Some(row) = result.next().await? {
             let user_exists: bool = row.get("user_exists").unwrap_or(false);
             if user_exists {
-                let tagged_from: UserTags = row.get("user_tags").unwrap();
-                return Ok(Some(tagged_from))
+                let tagged_from: UserTags = row.get("user_tags").unwrap_or_default();
+                return Ok(Some(tagged_from));
             }
         }
         Ok(None)

@@ -85,9 +85,9 @@ pub fn get_user_by_id(user_id: &str) -> Query {
 
 /// Retrieve all the tags of the user
 pub fn user_tags(user_id: &str) -> neo4rs::Query {
-    query("
-        OPTIONAL MATCH (u:User {id: $user_id})
-        WITH u
+    query(
+        "
+        MATCH (u:User {id: $user_id})
         CALL {
             WITH u
             MATCH (p:User)-[r:TAGGED]->(u)
@@ -104,11 +104,9 @@ pub fn user_tags(user_id: &str) -> neo4rs::Query {
         }
         RETURN 
             u IS NOT NULL AS user_exists,
-            CASE 
-                WHEN u IS NOT NULL THEN user_tags 
-                ELSE [] 
-            END AS user_tags
-    ")
+            user_tags
+    ",
+    )
     .param("user_id", user_id)
 }
 

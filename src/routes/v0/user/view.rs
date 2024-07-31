@@ -45,5 +45,8 @@ pub async fn user_view_handler(
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(user_view_handler), components(schemas(UserView, UserTags, Tags, Tag)))]
+#[openapi(
+    paths(user_view_handler),
+    components(schemas(UserView, UserTags, Tags, Tag))
+)]
 pub struct UserViewApiDoc;
