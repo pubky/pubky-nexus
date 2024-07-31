@@ -120,7 +120,7 @@ impl Following {
             }
             if let Some(following) = row.get::<Option<Vec<String>>>("following_ids")? {
                 let following = Self(following);
-                following.put_index_json(&[user_id]).await?;
+                following.put_index_set(&[user_id]).await?;
                 Ok(Some(following))
             } else {
                 Ok(Some(Following::new()))

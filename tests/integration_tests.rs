@@ -33,15 +33,28 @@ async fn test_user_endpoint() -> Result<()> {
     assert_eq!(body["counts"]["friends"], 8);
     assert_eq!(body["counts"]["posts"], 4);
 
+    // Test tags on Ar's profile
+    let ar_id = "pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy";
+    let res = client.do_get(&format!("/v0/user/{}", ar_id)).await?;
+    assert_eq!(res.status(), 200);
+
+    let body = res.json_body()?;
     let user_profile: UserView = serde_json::from_value(body)?;
-    assert_eq!(user_profile.tags.len(), 4);
+    assert_eq!(user_profile.tags.len(), 3);
     assert_eq!(
-        user_profile.tags.iter().any(|tag| tag.label == "bike"),
-        true
+        user_profile.tags.iter().any(|tag| tag.label == "pkarr"),
+        true,
+        "Ar profile should tagged as 'pkarr'"
     );
     assert_eq!(
-        user_profile.tags.iter().any(|tag| tag.label == "car"),
-        false
+        user_profile.tags.iter().any(|tag| tag.label == "synonym"),
+        true,
+        "Ar profile should tagged as 'synonym'"
+    );
+    assert_eq!(
+        user_profile.tags.iter().any(|tag| tag.label == "nonsense"),
+        false,
+        "Ar profile should not tagged as 'nonsense'"
     );
 
     // Look for Aldert pk user id using Flavio's viewer id
@@ -52,8 +65,14 @@ async fn test_user_endpoint() -> Result<()> {
     assert_eq!(res.status(), 200);
 
     let body = res.json_body()?;
-    assert_eq!(body["viewer"]["followed_by"], true); // Aldert follows Flavio
-    assert_eq!(body["viewer"]["following"], false); // Flavio does not follow Alder
+    assert_eq!(
+        body["viewer"]["followed_by"], true,
+        "Aldert should follow Flavio"
+    );
+    assert_eq!(
+        body["viewer"]["following"], false,
+        "Flavio should not follow Aldert"
+    );
 
     // Look for a non existing pk
     let user_id = "bad_user_id";
