@@ -10,8 +10,8 @@ use utoipa::OpenApi;
 #[derive(Deserialize)]
 pub struct PostStreamQuery {
     viewer_id: Option<String>,
-    skip: Option<usize>,
-    limit: Option<usize>,
+    skip: Option<isize>,
+    limit: Option<isize>,
     sorting: Option<PostStreamSorting>,
 }
 
@@ -38,7 +38,7 @@ pub async fn stream_posts_handler(
 
     let skip = query.skip.unwrap_or(0);
     let limit = query.limit.unwrap_or(10);
-    let sorting = query.sorting.unwrap_or(PostStreamSorting::Recency);
+    let sorting = query.sorting.unwrap_or(PostStreamSorting::Timeline);
 
     match PostStream::get_sorted_posts(sorting, query.viewer_id, Some(skip), Some(limit)).await {
         Ok(Some(stream)) => Ok(Json(stream)),

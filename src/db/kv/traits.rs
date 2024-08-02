@@ -1,6 +1,7 @@
 use super::index::*;
 use async_trait::async_trait;
 use serde::{de::DeserializeOwned, Serialize};
+use sorted_sets::Sorting;
 use std::error::Error;
 
 /// A trait for operations involving Redis storage. Implement this trait for types that need to be stored
@@ -293,9 +294,11 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         key_parts: &[&str],
         start: Option<f64>,
         end: Option<f64>,
-        limit: Option<usize>,
+        skip: Option<isize>,
+        limit: Option<isize>,
+        sorting: Sorting,
     ) -> Result<Option<Vec<(String, f64)>>, Box<dyn Error + Send + Sync>> {
         let key = key_parts.join(":");
-        sorted_sets::get_range("Sorted", &key, start, end, limit).await
+        sorted_sets::get_range("Sorted", &key, start, end, skip, limit, sorting).await
     }
 }

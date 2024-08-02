@@ -83,7 +83,7 @@ fn bench_stream_posts_timeline(c: &mut Criterion) {
     c.bench_function("stream_posts_timeline", |b| {
         b.to_async(&rt).iter(|| async {
             let post_stream =
-                PostStream::get_sorted_posts(PostStreamSorting::Recency, None, None, Some(10))
+                PostStream::get_sorted_posts(PostStreamSorting::Timeline, None, None, Some(10))
                     .await
                     .unwrap();
             criterion::black_box(post_stream);

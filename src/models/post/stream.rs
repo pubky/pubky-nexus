@@ -1,5 +1,5 @@
 use super::{PostCounts, PostDetails, PostView};
-use crate::RedisOps;
+use crate::{db::kv::index::sorted_sets::Sorting, RedisOps};
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use tokio::task::spawn;
@@ -10,7 +10,7 @@ const POST_TOTAL_ENGAGEMENT_KEY_PARTS: [&str; 2] = ["Posts", "TotalEngagement"];
 
 #[derive(Deserialize, ToSchema)]
 pub enum PostStreamSorting {
-    Recency,
+    Timeline,
     TotalEngagement,
 }
 
@@ -33,16 +33,31 @@ impl PostStream {
     pub async fn get_sorted_posts(
         sorting: PostStreamSorting,
         viewer_id: Option<String>,
-        skip: Option<usize>,
-        limit: Option<usize>,
+        skip: Option<isize>,
+        limit: Option<isize>,
     ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
         let posts_sorted_set = match sorting {
             PostStreamSorting::TotalEngagement => {
-                Self::try_from_index_sorted_set(&POST_TOTAL_ENGAGEMENT_KEY_PARTS, None, None, limit)
-                    .await?
+                Self::try_from_index_sorted_set(
+                    &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
+                    None,
+                    None,
+                    skip,
+                    limit,
+                    Sorting::Descending,
+                )
+                .await?
             }
-            PostStreamSorting::Recency => {
-                Self::try_from_index_sorted_set(&POST_TIMELINE_KEY_PARTS, None, None, limit).await?
+            PostStreamSorting::Timeline => {
+                Self::try_from_index_sorted_set(
+                    &POST_TIMELINE_KEY_PARTS,
+                    None,
+                    None,
+                    skip,
+                    limit,
+                    Sorting::Descending,
+                )
+                .await?
             }
         };
 
@@ -66,7 +81,7 @@ impl PostStream {
         let mut handles = Vec::with_capacity(post_keys.len());
 
         for post_key in post_keys {
-            let (author_id, post_id) = post_key.split_once(":").unwrap_or_default();
+            let (author_id, post_id) = post_key.split_once(':').unwrap_or_default();
             let author_id = author_id.to_string();
             let viewer_id = viewer_id.clone();
             let post_id = post_id.to_string();
@@ -88,7 +103,7 @@ impl PostStream {
     }
 
     /// Adds the post to a Redis sorted set using the `indexed_at` timestamp as the score.
-    pub async fn add_to_recency_sorted_set(
+    pub async fn add_to_timeline_sorted_set(
         details: &PostDetails,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let element = format!("{}:{}", details.author, details.id);

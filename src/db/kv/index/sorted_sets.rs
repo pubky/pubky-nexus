@@ -2,6 +2,10 @@ use crate::db::connectors::redis::get_redis_conn;
 use redis::AsyncCommands;
 use std::error::Error;
 
+pub enum Sorting {
+    Ascending,
+    Descending,
+}
 /// Adds elements to a Redis sorted set.
 ///
 /// This function adds elements to the specified Redis sorted set. If the set doesn't exist,
@@ -47,6 +51,7 @@ pub async fn put(
 /// * `min_score` - The minimum score for the range (inclusive).
 /// * `max_score` - The maximum score for the range (inclusive).
 /// * `limit` - The maximum number of elements to retrieve.
+/// * `sorting` - The sorting order (ascending or descending).
 ///
 /// # Returns
 ///
@@ -60,24 +65,34 @@ pub async fn get_range(
     key: &str,
     min_score: Option<f64>,
     max_score: Option<f64>,
-    limit: Option<usize>,
+    skip: Option<isize>,
+    limit: Option<isize>,
+    sorting: Sorting,
 ) -> Result<Option<Vec<(String, f64)>>, Box<dyn Error + Send + Sync>> {
     let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{}:{}", prefix, key);
 
     let min_score = min_score.unwrap_or(f64::MIN);
     let max_score = max_score.unwrap_or(f64::MAX);
+    let skip = skip.unwrap_or(0);
+    let limit = limit.unwrap_or(1000);
 
-    // ZRANGE with the WITHSCORES option retrieves both the elements and their scores
-    let elements: Vec<(String, f64)> = redis_conn
-        .zrangebyscore_withscores(index_key, min_score, max_score)
-        .await?;
+    // ZRANGE with the WITHSCORES option retrieves both: the elements and their scores
+    let elements: Vec<(String, f64)> = match sorting {
+        Sorting::Ascending => {
+            redis_conn
+                .zrangebyscore_limit_withscores(index_key, min_score, max_score, skip, limit)
+                .await?
+        }
+        Sorting::Descending => {
+            redis_conn
+                .zrevrangebyscore_limit_withscores(index_key, max_score, min_score, skip, limit)
+                .await?
+        }
+    };
 
     match elements.len() {
         0 => Ok(None),
-        _ => match limit {
-            Some(l) => Ok(Some(elements.into_iter().take(l).collect())),
-            None => Ok(Some(elements)),
-        },
+        _ => Ok(Some(elements)),
     }
 }
