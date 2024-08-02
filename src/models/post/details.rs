@@ -5,6 +5,8 @@ use neo4rs::Node;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use super::PostStream;
+
 /// Represents post data with content, bio, image, links, and status.
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct PostDetails {
@@ -72,7 +74,7 @@ impl PostDetails {
                 let node: Node = row.get("p")?;
                 let post = Self::from_node(&node, author_id).await;
                 post.put_index_json(&[author_id, post_id]).await?;
-                post.add_to_recency_sorted_set().await?;
+                PostStream::add_to_recency_sorted_set(&post).await?;
                 Ok(Some(post))
             }
             None => Ok(None),

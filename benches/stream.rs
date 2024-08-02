@@ -1,4 +1,5 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use pubky_nexus::models::post::{PostStream, PostStreamSorting};
 use pubky_nexus::models::user::{UserStream, UserStreamType};
 use pubky_nexus::setup;
 use pubky_nexus::Config;
@@ -70,6 +71,50 @@ fn bench_stream_following(c: &mut Criterion) {
     );
 }
 
+fn bench_stream_posts_timeline(c: &mut Criterion) {
+    println!("***************************************");
+    println!("Benchmarking the post streams sorted by timeline.");
+    println!("***************************************");
+
+    run_setup();
+
+    let rt = Runtime::new().unwrap();
+
+    c.bench_function("stream_posts_timeline", |b| {
+        b.to_async(&rt).iter(|| async {
+            let post_stream =
+                PostStream::get_sorted_posts(PostStreamSorting::Recency, None, None, Some(10))
+                    .await
+                    .unwrap();
+            criterion::black_box(post_stream);
+        });
+    });
+}
+
+fn bench_stream_posts_total_engagement(c: &mut Criterion) {
+    println!("***************************************");
+    println!("Benchmarking the post streams sorted by total engagement.");
+    println!("***************************************");
+
+    run_setup();
+
+    let rt = Runtime::new().unwrap();
+
+    c.bench_function("stream_posts_total_engagement", |b| {
+        b.to_async(&rt).iter(|| async {
+            let post_stream = PostStream::get_sorted_posts(
+                PostStreamSorting::TotalEngagement,
+                None,
+                None,
+                Some(10),
+            )
+            .await
+            .unwrap();
+            criterion::black_box(post_stream);
+        });
+    });
+}
+
 fn configure_criterion() -> Criterion {
     Criterion::default()
         .measurement_time(Duration::new(5, 0))
@@ -82,6 +127,8 @@ criterion_group! {
     config = configure_criterion();
     targets = bench_stream_followers,
               bench_stream_following,
+              bench_stream_posts_timeline,
+              bench_stream_posts_total_engagement,
 }
 
 criterion_main!(benches);

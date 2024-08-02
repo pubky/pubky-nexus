@@ -295,8 +295,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         end: Option<f64>,
         limit: Option<usize>,
     ) -> Result<Option<Vec<(String, f64)>>, Box<dyn Error + Send + Sync>> {
-        let prefix = Self::prefix().await;
         let key = key_parts.join(":");
-        sorted_sets::get_range(&prefix, &key, start, end, limit).await
+        sorted_sets::get_range("Sorted", &key, start, end, limit).await
     }
 }
