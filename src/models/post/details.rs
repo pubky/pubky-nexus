@@ -9,9 +9,9 @@ use utoipa::ToSchema;
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct PostDetails {
     content: String,
-    id: String, // TODO: create Crockfordbase32 validator
-    indexed_at: i64,
-    author: String,
+    pub id: String, // TODO: create Crockfordbase32 validator
+    pub indexed_at: i64,
+    pub author: String,
     uri: String,
 }
 
@@ -77,16 +77,5 @@ impl PostDetails {
             }
             None => Ok(None),
         }
-    }
-
-    /// Adds the post to a Redis sorted set using the `indexed_at` timestamp as the score.
-    pub async fn add_to_recency_sorted_set(
-        &self,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let key_parts = &["Posts", "Timeline"];
-        let element = format!("{}:{}", self.author, self.id);
-        let score = self.indexed_at as f64;
-
-        PostDetails::put_index_sorted_set(key_parts, &[(score, element.as_str())]).await
     }
 }
