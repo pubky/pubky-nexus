@@ -4,7 +4,7 @@ use std::ops::Deref;
 use utoipa::ToSchema;
 
 pub mod user;
-
+pub mod post;
 // Atomic struct to save in the cache
 #[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
 pub struct Tag {
@@ -23,14 +23,8 @@ impl Default for Tag {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
+#[derive(Serialize, Deserialize, Debug, Clone, ToSchema, Default)]
 pub struct Tags(Vec<Tag>);
-
-impl Default for Tags {
-    fn default() -> Self {
-        Tags(Vec::new())
-    }
-}
 
 // Implement Deref so TagList can be used like Vec<String>
 impl Deref for Tags {

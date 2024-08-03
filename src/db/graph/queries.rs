@@ -78,6 +78,34 @@ pub fn post_relationships(author_id: &str, post_id: &str) -> Query {
     .param("post_id", post_id)
 }
 
+/// Retrieve all the tags of the user
+pub fn post_tags(user_id: &str, post_id: &str) -> neo4rs::Query {
+    query(
+        "
+        MATCH (u:User {id: $user_id})-[:AUTHORED]->(p:Post {id: $post_id})
+        CALL {
+            WITH p
+            MATCH (tagger:User)-[tag:TAGGED]->(p)
+            WITH tag.label AS name,
+                collect({
+                    tag_id: tag.id,
+                    indexed_at: tag.indexed_at,
+                    tagger_id: tagger.id
+                }) AS from
+            RETURN collect({
+                label: name,
+                tagged: from
+            }) AS post_tags
+        }
+        RETURN 
+            u IS NOT NULL AS post_exists,
+            post_tags
+    ",
+    )
+    .param("user_id", user_id)
+    .param("post_id", post_id)
+}
+
 // Retrive user node by id (pk)
 pub fn get_user_by_id(user_id: &str) -> Query {
     query("MATCH (u:User {id: $id}) RETURN u").param("id", user_id)

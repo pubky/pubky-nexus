@@ -1,5 +1,5 @@
 use anyhow::Result;
-use pubky_nexus::models::user::UserView;
+use pubky_nexus::models::{tag::post::PostTag, user::UserView};
 
 const HOST_URL: &str = "http://localhost:8080";
 
@@ -232,6 +232,11 @@ async fn test_get_post() -> Result<()> {
     assert_eq!(body["counts"]["reposts"].as_u64(), Some(1));
     assert_eq!(body["bookmark"]["indexed_at"].as_u64(), Some(1721764200));
     assert_eq!(body["bookmark"]["id"], "2Z9PFGC3WWWW0");
+
+    // Panic if tags vector is bigger that 1
+    let post_tag_object = body["tags"][0].clone();
+    let post_tag: PostTag = serde_json::from_value(post_tag_object.clone())?;
+    assert_eq!(post_tag.label, "pubky");
 
     // Test non-existing post
     let res = client

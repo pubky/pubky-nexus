@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use super::{Bookmark, PostCounts, PostDetails, PostRelationships, PostTags};
+use super::{Bookmark, PostCounts, PostDetails, PostRelationships};
+use crate::models::tag::post::PostTags;
 
 /// Represents a Pubky user with relational data including tags, counts, and relationship with a viewer.
 #[derive(Serialize, Deserialize, ToSchema)]
@@ -24,7 +25,7 @@ impl PostView {
         Self {
             details: PostDetails::new(),
             counts: PostCounts::new(),
-            tags: PostTags::new(),
+            tags: PostTags::default(),
             relationships: PostRelationships::new(),
             bookmark: Some(Bookmark::new()),
         }
@@ -37,11 +38,12 @@ impl PostView {
         viewer_id: Option<&str>,
     ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
         // Perform all operations concurrently
-        let (details, counts, bookmark, relationships) = tokio::try_join!(
+        let (details, counts, bookmark, relationships, tags) = tokio::try_join!(
             PostDetails::get_by_id(author_id, post_id),
             PostCounts::get_by_id(author_id, post_id),
             Bookmark::get_by_id(author_id, post_id, viewer_id),
             PostRelationships::get_by_id(author_id, post_id),
+            PostTags::get_by_id(author_id, post_id),
         )?;
 
         let details = match details {
@@ -52,12 +54,14 @@ impl PostView {
         let counts = counts.unwrap_or_default();
         let relationships = relationships.unwrap_or_default();
 
+        let tags = tags.unwrap_or_default();
+
         Ok(Some(Self {
             details,
             counts,
             bookmark,
             relationships,
-            tags: PostTags::new(), //TODO
+            tags,
         }))
     }
 }

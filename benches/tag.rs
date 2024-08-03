@@ -1,5 +1,6 @@
 use criterion::{criterion_group, criterion_main};
 use criterion::{BenchmarkId, Criterion};
+use pubky_nexus::models::tag::post::PostTags;
 use pubky_nexus::models::tag::user::UserTags;
 use pubky_nexus::setup;
 use pubky_nexus::Config;
@@ -22,9 +23,9 @@ pub fn run_setup() {
 }
 
 fn bench_get_user_tags(c: &mut Criterion) {
-    println!("***************************************");
+    println!("******************************************************************************");
     println!("Test the performance of getting a user tags, using index or graph as needed");
-    println!("***************************************");
+    println!("******************************************************************************");
 
     run_setup();
 
@@ -43,6 +44,29 @@ fn bench_get_user_tags(c: &mut Criterion) {
     );
 }
 
+fn bench_get_post_tags(c: &mut Criterion) {
+    println!("******************************************************************************");
+    println!("Test the performance of getting a post tags, using index or graph as needed");
+    println!("******************************************************************************");
+
+    run_setup();
+
+    let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
+    let post_id = "2Z1NJPW2QHGG0";
+    let rt = Runtime::new().unwrap();
+
+    c.bench_with_input(
+        BenchmarkId::new("bench_get_post_tags", format!("user_id: {}, post_id: {}", user_id, post_id)),
+        &[user_id, post_id],
+        |b, &params| {
+            b.to_async(&rt).iter(|| async {
+                let profile = PostTags::get_by_id(params[0], params[1]).await.unwrap();
+                criterion::black_box(profile);
+            });
+        },
+    );
+}
+
 fn configure_criterion() -> Criterion {
     Criterion::default()
         .measurement_time(Duration::new(5, 0))
@@ -53,7 +77,9 @@ fn configure_criterion() -> Criterion {
 criterion_group! {
     name = benches;
     config = configure_criterion();
-    targets = bench_get_user_tags
+    targets =   bench_get_user_tags,
+                bench_get_post_tags
+
 }
 
 criterion_main!(benches);
