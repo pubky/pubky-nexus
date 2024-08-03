@@ -165,6 +165,34 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         json::get(&Self::prefix().await, &key_parts.join(":"), None).await
     }
 
+    /// Retrieves multiple JSON objects from Redis using the provided key parts.
+    ///
+    /// This method deserializes the data stored under the keys generated from the provided `key_parts_list` in Redis.
+    /// It returns a vector of options, where each option corresponds to the existence of the key in Redis.
+    ///
+    /// # Arguments
+    ///
+    /// * `key_parts_list` - A slice of slices, where each inner slice contains string slices representing
+    ///   the parts used to form the key under which the corresponding value is stored.
+    ///
+    /// # Returns
+    ///
+    /// A `Vec<Option<Self>>` containing the deserialized data if found, or `None` if a key does not exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
+    async fn try_from_index_multiple_json(
+        key_parts_list: &[&[&str]],
+    ) -> Result<Vec<Option<Self>>, Box<dyn Error + Send + Sync>> {
+        let prefix = Self::prefix().await;
+        let keys: Vec<String> = key_parts_list
+            .iter()
+            .map(|key_parts| key_parts.join(":"))
+            .collect();
+        json::get_multiple(&prefix, &keys, None).await
+    }
+
     /// Retrieves a range of elements from a Redis list using the provided key parts.
     ///
     /// This method fetches elements from a Redis list stored under the key generated from the provided `key_parts`.

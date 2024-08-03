@@ -1,12 +1,13 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
 use crate::{queries, RedisOps};
+use axum::async_trait;
 use chrono::Utc;
 use neo4rs::Node;
 use pkarr::PublicKey;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema, Clone)]
 pub struct UserLink {
     title: String,
     url: String,
@@ -29,7 +30,7 @@ impl UserLink {
 }
 
 /// Represents user data with name, bio, image, links, and status.
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema, Clone)]
 pub struct UserDetails {
     name: String,
     bio: String,
@@ -46,6 +47,22 @@ impl Default for UserDetails {
 }
 
 impl RedisOps for UserDetails {}
+
+#[derive(Serialize, Deserialize)]
+struct UserDetailsCollection(Vec<UserDetails>);
+
+impl AsRef<[UserDetails]> for UserDetailsCollection {
+    fn as_ref(&self) -> &[UserDetails] {
+        &self.0
+    }
+}
+
+#[async_trait]
+impl RedisOps for UserDetailsCollection {
+    async fn prefix() -> String {
+        String::from("UserDetails")
+    }
+}
 
 impl UserDetails {
     pub fn new() -> Self {
@@ -67,6 +84,30 @@ impl UserDetails {
             Some(details) => Ok(Some(details)),
             None => Self::get_from_graph(user_id).await,
         }
+    }
+
+    /// Retrieves details for a list of user IDs, using Redis cache when available.
+    pub async fn get_by_ids_list(
+        user_ids: &[&str],
+    ) -> Result<Vec<UserDetails>, Box<dyn std::error::Error + Send + Sync>> {
+        let cached_details = Self::try_from_index_multiple_json(&vec![user_ids]).await?;
+
+        let mut user_details = Vec::new();
+        let mut missing_ids = Vec::new();
+
+        for (i, details) in cached_details.into_iter().enumerate() {
+            match details {
+                Some(detail) => user_details.push(detail),
+                None => missing_ids.push(user_ids[i]),
+            }
+        }
+
+        if !missing_ids.is_empty() {
+            let fetched_details = Self::get_by_ids_list_from_graph(&missing_ids).await?;
+            user_details.extend(fetched_details);
+        }
+
+        Ok(user_details)
     }
 
     async fn from_node(node: &Node) -> Option<Self> {
@@ -107,5 +148,38 @@ impl UserDetails {
             }
             None => Ok(None),
         }
+    }
+
+    /// Fetches user details from Neo4j and caches them in Redis.
+    pub async fn get_by_ids_list_from_graph(
+        user_ids: &[&str],
+    ) -> Result<Vec<UserDetails>, Box<dyn std::error::Error + Send + Sync>> {
+        let graph = get_neo4j_graph()?;
+        let query = queries::get_user_by_ids_list(&user_ids);
+
+        let graph = graph.lock().await;
+        let mut result = graph.execute(query).await?;
+
+        let mut user_details = Vec::new();
+
+        while let Some(row) = result.next().await? {
+            let node: Node = row.get("u")?;
+            if let Some(detail) = Self::from_node(&node).await {
+                user_details.push(detail);
+            }
+        }
+
+        if !user_details.is_empty() {
+            let key_parts_list: Vec<Vec<&str>> = user_details
+                .iter()
+                .map(|detail| vec![detail.id.as_str()])
+                .collect();
+            let keys_refs: Vec<&[&str]> = key_parts_list.iter().map(|key| &key[..]).collect();
+            UserDetailsCollection(user_details.clone())
+                .put_multiple_json_indexes(&keys_refs)
+                .await?;
+        }
+
+        Ok(user_details)
     }
 }

@@ -12,7 +12,13 @@ pub async fn reindex() {
     let mut user_tasks = JoinSet::new();
     let mut post_tasks = JoinSet::new();
 
-    let user_ids = get_all_user_ids().await.expect("Failed to get user IDs");
+    let user_ids: Vec<String> = get_all_user_ids().await.expect("Failed to get user IDs");
+    let user_ids_refs: Vec<&str> = user_ids.iter().map(|id| id.as_str()).collect();
+
+    UserDetails::get_by_ids_list_from_graph(&user_ids_refs)
+        .await
+        .expect("Failed indexing User Details");
+
     for user_id in user_ids {
         user_tasks.spawn(async move {
             if let Err(e) = reindex_user(&user_id).await {
@@ -47,7 +53,6 @@ pub async fn reindex() {
 
 async fn reindex_user(user_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tokio::try_join!(
-        UserDetails::get_from_graph(user_id),
         UserCounts::get_from_graph(user_id),
         Followers::get_from_graph(user_id, Some(0), Some(100)),
         Following::get_from_graph(user_id, Some(0), Some(100)),

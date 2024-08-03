@@ -225,7 +225,7 @@ async fn test_get_post() -> Result<()> {
     assert_eq!(body["details"]["author"], author_id);
     assert_eq!(
         body["details"]["uri"],
-        "pubky:y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy/pubky.app/posts/2ZCW1TGR5BKG0"
+        "pubky://y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy/pub/pubky.app/posts/2ZCW1TGR5BKG0"
     );
     assert_eq!(body["counts"]["tags"].as_u64(), Some(5));
     assert_eq!(body["counts"]["replies"].as_u64(), Some(2));

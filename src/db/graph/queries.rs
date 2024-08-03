@@ -78,12 +78,11 @@ pub fn post_relationships(author_id: &str, post_id: &str) -> Query {
     .param("post_id", post_id)
 }
 
-// Retrive user node by id (pk)
-pub fn get_user_by_id(user_id: &str) -> Query {
-    query("MATCH (u:User {id: $id}) RETURN u").param("id", user_id)
+// Retrieve many users by id
+pub fn get_user_by_ids_list(user_ids: &[&str]) -> Query {
+    query("MATCH (u:User) WHERE u.id IN $ids RETURN u").param("ids", user_ids)
 }
 
-/// Retrieve all the tags of the user
 pub fn user_tags(user_id: &str) -> neo4rs::Query {
     query(
         "

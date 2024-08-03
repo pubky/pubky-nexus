@@ -183,6 +183,53 @@ pub async fn get<T: DeserializeOwned + Send + Sync>(
     Ok(None)
 }
 
+/// Retrieves a list of JSON values from Redis based on a list of keys.
+///
+/// This function fetches JSON objects from Redis using RedisJSON based on the provided keys.
+///
+/// # Arguments
+///
+/// * `prefix` - A string slice representing the prefix for the Redis keys.
+/// * `keys` - A slice of strings representing the keys under which the values are stored.
+/// * `path` - An optional string slice representing the JSON path from which the value should be retrieved. Defaults to the root path "$".
+///
+/// # Returns
+///
+/// Returns a vector of optional values corresponding to the provided keys.
+///
+/// # Errors
+///
+/// Returns an error if the operation fails.
+pub async fn get_multiple<T: DeserializeOwned + Send + Sync>(
+    prefix: &str,
+    keys: &[impl AsRef<str>],
+    path: Option<&str>,
+) -> Result<Vec<Option<T>>, Box<dyn Error + Send + Sync>> {
+    let mut redis_conn = get_redis_conn().await?;
+    let json_path = path.unwrap_or("$");
+
+    // Generate full keys with prefix
+    let full_keys: Vec<String> = keys
+        .iter()
+        .map(|key| format!("{}:{}", prefix, key.as_ref()))
+        .collect();
+
+    let indexed_values: Vec<String> = redis_conn.json_get(&full_keys, json_path).await?;
+
+    let mut results = Vec::with_capacity(indexed_values.len());
+
+    for value in indexed_values {
+        if value.is_empty() {
+            results.push(None);
+        } else {
+            let deserialized_value: T = serde_json::from_str(&value)?;
+            results.push(Some(deserialized_value));
+        }
+    }
+
+    Ok(results)
+}
+
 /// Retrieves a boolean value from Redis.
 ///
 /// # Arguments
