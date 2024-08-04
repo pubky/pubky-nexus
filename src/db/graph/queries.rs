@@ -79,7 +79,7 @@ pub fn post_relationships(author_id: &str, post_id: &str) -> Query {
 }
 
 // Retrieve many users by id
-pub fn get_user_by_ids_list(user_ids: &[&str]) -> Query {
+pub fn get_users_details_by_ids(user_ids: &[&str]) -> Query {
     query("MATCH (u:User) WHERE u.id IN $ids RETURN u").param("ids", user_ids)
 }
 

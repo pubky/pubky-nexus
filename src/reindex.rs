@@ -2,7 +2,7 @@ use crate::models::user::{Followers, Following};
 use crate::{
     db::connectors::neo4j::get_neo4j_graph,
     models::post::{PostCounts, PostDetails, PostRelationships},
-    models::user::{UserCounts, UserDetails},
+    models::user::{UserCounts, UserDetailsCollection},
 };
 use log::info;
 use neo4rs::query;
@@ -15,7 +15,7 @@ pub async fn reindex() {
     let user_ids: Vec<String> = get_all_user_ids().await.expect("Failed to get user IDs");
     let user_ids_refs: Vec<&str> = user_ids.iter().map(|id| id.as_str()).collect();
 
-    UserDetails::get_by_ids_list_from_graph(&user_ids_refs)
+    UserDetailsCollection::from_graph(&user_ids_refs)
         .await
         .expect("Failed indexing User Details");
 

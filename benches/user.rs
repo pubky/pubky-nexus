@@ -1,5 +1,7 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use pubky_nexus::models::user::{Relationship, UserCounts, UserDetails, UserView};
+use pubky_nexus::models::user::{
+    Relationship, UserCounts, UserDetails, UserDetailsCollection, UserView,
+};
 use pubky_nexus::setup;
 use pubky_nexus::Config;
 use std::env;
@@ -183,7 +185,7 @@ fn bench_get_details_by_id(c: &mut Criterion) {
     );
 }
 
-fn bench_get_users_by_ids_list(c: &mut Criterion) {
+fn bench_get_details_by_ids_list(c: &mut Criterion) {
     println!("***************************************");
     println!("Test the performance of getting user details by a list of IDs, checking both index and graph.");
     println!("***************************************");
@@ -193,18 +195,18 @@ fn bench_get_users_by_ids_list(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
 
     c.bench_with_input(
-        BenchmarkId::new("get_users_by_ids_list", "25_users"),
+        BenchmarkId::new("get_details_by_ids_list", "25_users"),
         &USER_IDS,
         |b, &user_ids| {
             b.to_async(&rt).iter(|| async {
-                let user_details = UserDetails::get_by_ids_list(&user_ids).await.unwrap();
+                let user_details = UserDetailsCollection::get_by_ids(&user_ids).await.unwrap();
                 criterion::black_box(user_details);
             });
         },
     );
 }
 
-fn bench_get_users_by_ids_list_from_graph(c: &mut Criterion) {
+fn bench_get_details_by_ids_list_from_graph(c: &mut Criterion) {
     println!("***************************************");
     println!(
         "Test the performance of getting user details by a list of IDs from the graph database."
@@ -216,13 +218,11 @@ fn bench_get_users_by_ids_list_from_graph(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
 
     c.bench_with_input(
-        BenchmarkId::new("get_users_by_ids_list_from_graph", "25_users"),
+        BenchmarkId::new("get_details_by_ids_list_from_graph", "25_users"),
         &USER_IDS,
         |b, &user_ids| {
             b.to_async(&rt).iter(|| async {
-                let user_details = UserDetails::get_by_ids_list_from_graph(&user_ids)
-                    .await
-                    .unwrap();
+                let user_details = UserDetailsCollection::from_graph(&user_ids).await.unwrap();
                 criterion::black_box(user_details);
             });
         },
@@ -245,8 +245,8 @@ criterion_group! {
               bench_get_counts_by_id,
               bench_get_details_from_graph,
               bench_get_details_by_id,
-              bench_get_users_by_ids_list,
-              bench_get_users_by_ids_list_from_graph
+              bench_get_details_by_ids_list,
+              bench_get_details_by_ids_list_from_graph
 }
 
 criterion_main!(benches);

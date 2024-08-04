@@ -7,8 +7,8 @@ mod tags;
 mod view;
 
 pub use counts::UserCounts;
-pub use details::UserDetails;
 pub use details::UserLink;
+pub use details::{UserDetails, UserDetailsCollection};
 pub use follows::{Followers, Following};
 pub use relationship::Relationship;
 pub use stream::{UserStream, UserStreamType};
