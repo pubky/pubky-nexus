@@ -1,23 +1,16 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
 use crate::{queries, RedisOps};
 use axum::async_trait;
-use chrono::Utc;
 use neo4rs::Node;
 use pkarr::PublicKey;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 /// Represents a user's single link with a title and URL.
-#[derive(Serialize, Deserialize, ToSchema, Clone)]
+#[derive(Serialize, Deserialize, ToSchema, Default, Clone)]
 pub struct UserLink {
     title: String,
     url: String,
-}
-
-impl Default for UserLink {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl UserLink {
@@ -30,7 +23,7 @@ impl UserLink {
 }
 
 /// Represents user data with name, bio, image, links, and status.
-#[derive(Serialize, Deserialize, ToSchema, Clone)]
+#[derive(Serialize, Deserialize, ToSchema, Default, Clone)]
 pub struct UserDetails {
     name: String,
     bio: String,
@@ -40,24 +33,7 @@ pub struct UserDetails {
     indexed_at: i64,
 }
 
-impl Default for UserDetails {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl UserDetails {
-    pub fn new() -> Self {
-        Self {
-            name: String::new(),
-            bio: String::new(),
-            id: String::new(),
-            links: vec![UserLink::new()],
-            status: String::new(),
-            indexed_at: Utc::now().timestamp(),
-        }
-    }
-
     /// Retrieves details by user ID, first trying to get from Redis, then from Neo4j if not found.
     pub async fn get_by_id(
         user_id: &str,
