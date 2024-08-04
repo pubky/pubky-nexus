@@ -7,6 +7,7 @@ use pkarr::PublicKey;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+/// Represents a user's single link with a title and URL.
 #[derive(Serialize, Deserialize, ToSchema, Clone)]
 pub struct UserLink {
     title: String,
@@ -19,7 +20,6 @@ impl Default for UserLink {
     }
 }
 
-/// Represents a user's single link with a title and URL.
 impl UserLink {
     pub fn new() -> Self {
         Self {
@@ -46,24 +46,6 @@ impl Default for UserDetails {
     }
 }
 
-impl RedisOps for UserDetails {}
-
-#[derive(Serialize, Deserialize)]
-pub struct UserDetailsCollection(Vec<UserDetails>);
-
-impl AsRef<[UserDetails]> for UserDetailsCollection {
-    fn as_ref(&self) -> &[UserDetails] {
-        &self.0
-    }
-}
-
-#[async_trait]
-impl RedisOps for UserDetailsCollection {
-    async fn prefix() -> String {
-        String::from("UserDetails")
-    }
-}
-
 impl UserDetails {
     pub fn new() -> Self {
         Self {
@@ -80,14 +62,12 @@ impl UserDetails {
     pub async fn get_by_id(
         user_id: &str,
     ) -> Result<Option<UserDetails>, Box<dyn std::error::Error + Send + Sync>> {
-        match Self::try_from_index_json(&[user_id]).await? {
-            Some(details) => Ok(Some(details)),
-            None => Self::get_from_graph(user_id).await,
-        }
+        // Delegate to UserDetailsCollection::get_by_ids for single item retrieval
+        let details_collection = UserDetailsCollection::get_by_ids(&[user_id]).await?;
+        Ok(details_collection.0.into_iter().next())
     }
 
     async fn from_node(node: &Node) -> Option<Self> {
-        // TODO validation of ID should happen when we WRITE a Post into the graph with the watcher.
         let id: String = node.get("id").unwrap_or_default();
         PublicKey::try_from(id.clone()).ok()?;
 
@@ -100,30 +80,24 @@ impl UserDetails {
             indexed_at: node.get("indexed_at").unwrap_or_default(),
         })
     }
+}
 
-    /// Retrieves the details from Neo4j.
-    pub async fn get_from_graph(
-        user_id: &str,
-    ) -> Result<Option<UserDetails>, Box<dyn std::error::Error + Send + Sync>> {
-        let graph = get_neo4j_graph()?;
-        let query = queries::get_users_details_by_ids(&[user_id]);
+impl RedisOps for UserDetails {}
 
-        let graph = graph.lock().await;
-        let mut result = graph.execute(query).await?;
+/// Represents a collection of UserDetails.
+#[derive(Serialize, Deserialize)]
+pub struct UserDetailsCollection(Vec<UserDetails>);
 
-        match result.next().await? {
-            Some(row) => {
-                let node: Node = row.get("u")?;
-                match Self::from_node(&node).await {
-                    Some(details) => {
-                        details.put_index_json(&[user_id]).await?;
-                        Ok(Some(details))
-                    }
-                    None => Ok(None),
-                }
-            }
-            None => Ok(None),
-        }
+impl AsRef<[UserDetails]> for UserDetailsCollection {
+    fn as_ref(&self) -> &[UserDetails] {
+        &self.0
+    }
+}
+
+#[async_trait]
+impl RedisOps for UserDetailsCollection {
+    async fn prefix() -> String {
+        String::from("UserDetails")
     }
 }
 
@@ -132,12 +106,13 @@ impl UserDetailsCollection {
     pub async fn get_by_ids(
         user_ids: &[&str],
     ) -> Result<UserDetailsCollection, Box<dyn std::error::Error + Send + Sync>> {
-        let cached_details = UserDetails::try_from_index_multiple_json(&[user_ids]).await?;
+        let key_parts_list: Vec<&[&str]> = user_ids.iter().map(std::slice::from_ref).collect();
+        let indexed_details = UserDetails::try_from_index_multiple_json(&key_parts_list).await?;
 
         let mut user_details: Vec<UserDetails> = Vec::new();
         let mut missing_ids = Vec::new();
 
-        for (i, details) in cached_details.into_iter().enumerate() {
+        for (i, details) in indexed_details.into_iter().enumerate() {
             match details {
                 Some(detail) => user_details.push(detail),
                 None => missing_ids.push(user_ids[i]),
@@ -161,7 +136,6 @@ impl UserDetailsCollection {
 
         let graph = graph.lock().await;
         let mut result = graph.execute(query).await?;
-
         let mut user_details = Vec::new();
 
         while let Some(row) = result.next().await? {
@@ -172,16 +146,24 @@ impl UserDetailsCollection {
         }
 
         if !user_details.is_empty() {
-            let key_parts_list: Vec<Vec<&str>> = user_details
-                .iter()
-                .map(|detail| vec![detail.id.as_str()])
-                .collect();
-            let keys_refs: Vec<&[&str]> = key_parts_list.iter().map(|key| &key[..]).collect();
-            UserDetailsCollection(user_details.clone())
-                .put_multiple_json_indexes(&keys_refs)
-                .await?;
+            Self::to_index(&user_details).await?;
         }
 
         Ok(user_details)
+    }
+
+    /// Index users details in Redis.
+    async fn to_index(
+        user_details: &[UserDetails],
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let key_parts_list: Vec<Vec<&str>> = user_details
+            .iter()
+            .map(|detail| vec![detail.id.as_str()])
+            .collect();
+        let keys_refs: Vec<&[&str]> = key_parts_list.iter().map(|key| &key[..]).collect();
+        UserDetailsCollection(user_details.to_vec())
+            .put_multiple_json_indexes(&keys_refs)
+            .await?;
+        Ok(())
     }
 }

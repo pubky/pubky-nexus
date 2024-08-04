@@ -2,6 +2,7 @@ use crate::db::connectors::redis::get_redis_conn;
 use log::debug;
 use redis::{AsyncCommands, JsonAsyncCommands};
 use serde::{de::DeserializeOwned, Serialize};
+use serde_json::Value;
 use std::error::Error;
 
 /// Sets a value in Redis, supporting both JSON objects and boolean values.
@@ -215,15 +216,18 @@ pub async fn get_multiple<T: DeserializeOwned + Send + Sync>(
         .collect();
 
     let indexed_values: Vec<String> = redis_conn.json_get(&full_keys, json_path).await?;
-
     let mut results = Vec::with_capacity(indexed_values.len());
 
     for value in indexed_values {
-        if value.is_empty() {
-            results.push(None);
-        } else {
-            let deserialized_value: T = serde_json::from_str(&value)?;
-            results.push(Some(deserialized_value));
+        let json_value: Value = serde_json::from_str(&value)?;
+        match json_value {
+            Value::Array(array) => {
+                for item in array {
+                    let deserialized_value = serde_json::from_value::<T>(item)?;
+                    results.push(Some(deserialized_value));
+                }
+            }
+            _ => results.push(None),
         }
     }
 
