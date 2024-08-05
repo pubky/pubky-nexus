@@ -1,6 +1,7 @@
 use super::index::*;
 use async_trait::async_trait;
 use serde::{de::DeserializeOwned, Serialize};
+use sorted_sets::Sorting;
 use std::error::Error;
 
 /// A trait for operations involving Redis storage. Implement this trait for types that need to be stored
@@ -246,5 +247,58 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         let prefix = Self::prefix().await;
         let key = key_parts.join(":");
         sets::check_set_member(&prefix, &key, member).await
+    }
+
+    /// Adds elements to a Redis sorted set using the provided key parts.
+    ///
+    /// This method adds elements to a Redis sorted set under the key generated from the provided `key_parts`.
+    /// The elements are associated with scores, which determine their order in the set.
+    ///
+    /// # Arguments
+    ///
+    /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the sorted set is stored.
+    /// * `elements` - A slice of tuples where each tuple contains a reference to a string slice representing
+    ///                the element and a f64 representing the score of the element.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
+    async fn put_index_sorted_set(
+        key_parts: &[&str],
+        elements: &[(f64, &str)],
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let key = key_parts.join(":");
+        // Store the elements in the Redis sorted set
+        sorted_sets::put("Sorted", &key, elements).await
+    }
+
+    /// Retrieves a range of elements from a Redis sorted set using the provided key parts.
+    ///
+    /// This method fetches elements from a Redis sorted set stored under the key generated from the provided `key_parts`.
+    /// The range is defined by `skip` and `limit` parameters.
+    ///
+    /// # Arguments
+    ///
+    /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the sorted set is stored.
+    /// * `skip` - An optional number of elements to skip (useful for pagination).
+    /// * `limit` - An optional number of elements to return (useful for pagination).
+    ///
+    /// # Returns
+    ///
+    /// Returns a vector of tuples containing the elements and their scores if they exist, or an empty vector if no matching elements are found.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
+    async fn try_from_index_sorted_set(
+        key_parts: &[&str],
+        start: Option<f64>,
+        end: Option<f64>,
+        skip: Option<isize>,
+        limit: Option<isize>,
+        sorting: Sorting,
+    ) -> Result<Option<Vec<(String, f64)>>, Box<dyn Error + Send + Sync>> {
+        let key = key_parts.join(":");
+        sorted_sets::get_range("Sorted", &key, start, end, skip, limit, sorting).await
     }
 }

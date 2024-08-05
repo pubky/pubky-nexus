@@ -484,6 +484,129 @@ async fn test_stream_following() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn test_stream_posts_timeline() -> Result<()> {
+    let client = httpc_test::new_client(HOST_URL)?;
+
+    let res = client.do_get("/v0/stream/posts?sorting=Timeline").await?;
+    assert_eq!(res.status(), 200);
+
+    let body = res.json_body()?;
+    assert!(body.is_array());
+
+    let posts = body.as_array().expect("Post stream should be an array");
+
+    // Check if the posts are in expected order of timeline
+    for post in posts {
+        assert!(
+            post["details"]["indexed_at"].is_number(),
+            "indexed_at should be a number"
+        );
+        assert!(
+            post["details"]["content"].is_string(),
+            "content should be a string"
+        );
+        assert!(
+            post["details"]["author"].is_string(),
+            "author should be a string"
+        );
+        assert!(
+            post["counts"]["tags"].is_number(),
+            "tags count should be a number"
+        );
+        assert!(
+            post["counts"]["replies"].is_number(),
+            "replies count should be a number"
+        );
+        assert!(
+            post["counts"]["reposts"].is_number(),
+            "reposts count should be a number"
+        );
+    }
+
+    // Additional validation to ensure posts are sorted by timeline
+    let mut previous_indexed_at = None;
+    for post in posts {
+        let indexed_at = post["details"]["indexed_at"]
+            .as_u64()
+            .expect("indexed_at should be a valid number");
+        if let Some(prev) = previous_indexed_at {
+            print!("{}  {}", indexed_at, prev);
+            assert!(indexed_at <= prev, "Posts are not sorted by timeline");
+        }
+        previous_indexed_at = Some(indexed_at);
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stream_posts_total_engagement() -> Result<()> {
+    let client = httpc_test::new_client(HOST_URL)?;
+
+    let res = client
+        .do_get("/v0/stream/posts?sorting=TotalEngagement")
+        .await?;
+    assert_eq!(res.status(), 200);
+
+    let body = res.json_body()?;
+    assert!(body.is_array());
+
+    let posts = body.as_array().expect("Post stream should be an array");
+
+    // Check if the posts are in expected order of total engagement
+    for post in posts {
+        assert!(
+            post["details"]["indexed_at"].is_number(),
+            "indexed_at should be a number"
+        );
+        assert!(
+            post["details"]["content"].is_string(),
+            "content should be a string"
+        );
+        assert!(
+            post["details"]["author"].is_string(),
+            "author should be a string"
+        );
+        assert!(
+            post["counts"]["tags"].is_number(),
+            "tags count should be a number"
+        );
+        assert!(
+            post["counts"]["replies"].is_number(),
+            "replies count should be a number"
+        );
+        assert!(
+            post["counts"]["reposts"].is_number(),
+            "reposts count should be a number"
+        );
+    }
+
+    // Additional validation to ensure posts are sorted by total engagement
+    let mut previous_engagement = None;
+    for post in posts {
+        let tags = post["counts"]["tags"]
+            .as_u64()
+            .expect("tags should be a valid number");
+        let replies = post["counts"]["replies"]
+            .as_u64()
+            .expect("replies should be a valid number");
+        let reposts = post["counts"]["reposts"]
+            .as_u64()
+            .expect("reposts should be a valid number");
+        let total_engagement = tags + replies + reposts;
+        if let Some(prev) = previous_engagement {
+            assert!(
+                total_engagement <= prev,
+                "Posts are not sorted by total engagement"
+            );
+        }
+        previous_engagement = Some(total_engagement);
+    }
+
+    Ok(())
+}
+
 // #[tokio::test]
 // async fn test_get_tags() -> Result<()> {
 //     let client = httpc_test::new_client(HOST_URL)?;
