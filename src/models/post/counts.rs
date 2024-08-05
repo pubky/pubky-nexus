@@ -3,6 +3,8 @@ use crate::{queries, RedisOps};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use super::PostStream;
+
 /// Represents total counts of relationships of a user.
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct PostCounts {
@@ -60,6 +62,7 @@ impl PostCounts {
                 reposts: row.get("reposts_count").unwrap_or_default(),
             };
             counts.put_index_json(&[author_id, post_id]).await?;
+            PostStream::add_to_engagement_sorted_set(&counts, author_id, post_id).await?;
             Ok(Some(counts))
         } else {
             Ok(None)
