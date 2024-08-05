@@ -9,44 +9,46 @@ use super::Tags;
 
 /// Represents a tag that refers to the current user
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Default)]
-pub struct UserTag {
+pub struct PostTag {
     pub label: String,
     tagged: Tags,
 }
 
 // Define a newtype wrapper
 #[derive(Serialize, Deserialize, Debug, Clone, ToSchema, Default)]
-pub struct UserTags(Vec<UserTag>);
+pub struct PostTags(Vec<PostTag>);
 
 // Implement Deref so TagList can be used like Vec<String>
-impl Deref for UserTags {
-    type Target = Vec<UserTag>;
+impl Deref for PostTags {
+    type Target = Vec<PostTag>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl UserTags {
+impl PostTags {
     pub async fn get_by_id(
         user_id: &str,
-    ) -> Result<Option<UserTags>, Box<dyn std::error::Error + Send + Sync>> {
-        Self::get_from_graph(user_id).await
+        post_id: &str
+    ) -> Result<Option<PostTags>, Box<dyn std::error::Error + Send + Sync>> {
+        Self::get_from_graph(user_id, post_id).await
     }
 
     async fn get_from_graph(
         user_id: &str,
-    ) -> Result<Option<UserTags>, Box<dyn std::error::Error + Send + Sync>> {
-        let query = queries::user_tags(user_id);
+        post_id: &str
+    ) -> Result<Option<PostTags>, Box<dyn std::error::Error + Send + Sync>> {
+        let query = queries::post_tags(user_id, post_id);
         let graph = get_neo4j_graph()?;
 
         let graph = graph.lock().await;
         let mut result = graph.execute(query).await?;
 
         if let Some(row) = result.next().await? {
-            let user_exists: bool = row.get("user_exists").unwrap_or(false);
+            let user_exists: bool = row.get("post_exists").unwrap_or(false);
             if user_exists {
-                let tagged_from: UserTags = row.get("user_tags").unwrap_or_default();
+                let tagged_from: PostTags = row.get("post_tags").unwrap_or_default();
                 return Ok(Some(tagged_from));
             }
         }
