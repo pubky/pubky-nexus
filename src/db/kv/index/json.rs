@@ -217,8 +217,19 @@ pub async fn get_multiple<T: DeserializeOwned + Send + Sync>(
     // Fetch values as Option<String> to handle missing keys
     let indexed_values: Vec<Option<String>> = redis_conn.json_get(&full_keys, json_path).await?;
 
-    // Deserialize values into the desired type
-    let results: Vec<Option<T>> = indexed_values
+    // Check if indexed_values is empty. That's an edge case 1 element and it was not found, redis does not return None.
+    let results: Vec<Option<T>> = if indexed_values.is_empty() {
+        (0..keys.len()).map(|_| None).collect()
+    } else {
+        deserialize_values(indexed_values)
+    };
+
+    Ok(results)
+}
+
+// Helper function to deserialize JSON strings to Vec<Option<T>>
+fn deserialize_values<T: DeserializeOwned>(values: Vec<Option<String>>) -> Vec<Option<T>> {
+    values
         .into_iter()
         .map(|opt| {
             opt.and_then(|value_str| {
@@ -227,9 +238,7 @@ pub async fn get_multiple<T: DeserializeOwned + Send + Sync>(
                     .and_then(|vec| vec.into_iter().next())
             })
         })
-        .collect();
-
-    Ok(results)
+        .collect()
 }
 
 /// Retrieves a boolean value from Redis.
