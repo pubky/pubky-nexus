@@ -41,19 +41,16 @@ async fn test_user_endpoint() -> Result<()> {
     let body = res.json_body()?;
     let user_profile: UserView = serde_json::from_value(body)?;
     assert_eq!(user_profile.tags.len(), 3);
-    assert_eq!(
+    assert!(
         user_profile.tags.iter().any(|tag| tag.label == "pkarr"),
-        true,
         "Ar profile should tagged as 'pkarr'"
     );
-    assert_eq!(
+    assert!(
         user_profile.tags.iter().any(|tag| tag.label == "synonym"),
-        true,
         "Ar profile should tagged as 'synonym'"
     );
-    assert_eq!(
-        user_profile.tags.iter().any(|tag| tag.label == "nonsense"),
-        false,
+    assert!(
+        !user_profile.tags.iter().any(|tag| tag.label == "nonsense"),
         "Ar profile should not tagged as 'nonsense'"
     );
 

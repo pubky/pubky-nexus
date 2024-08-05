@@ -24,13 +24,9 @@ impl Default for Tag {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
+#[derive(Default)]
 pub struct Tags(Vec<Tag>);
 
-impl Default for Tags {
-    fn default() -> Self {
-        Tags(Vec::new())
-    }
-}
 
 // Implement Deref so TagList can be used like Vec<String>
 impl Deref for Tags {

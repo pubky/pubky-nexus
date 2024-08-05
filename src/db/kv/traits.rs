@@ -19,7 +19,19 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     async fn prefix() -> String {
         let type_name = std::any::type_name::<Self>();
         let struct_name = type_name.split("::").last().unwrap_or_default();
-        String::from(struct_name)
+
+        // Insert ":" before each uppercase letter except the first one
+        let mut prefixed_name = String::new();
+        let chars = struct_name.chars().peekable();
+
+        for c in chars {
+            if c.is_uppercase() && !prefixed_name.is_empty() {
+                prefixed_name.push(':');
+            }
+            prefixed_name.push(c);
+        }
+
+        prefixed_name
     }
 
     /// Sets the data in Redis using the provided key parts.
@@ -190,6 +202,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
             .iter()
             .map(|key_parts| key_parts.join(":"))
             .collect();
+
         json::get_multiple(&prefix, &keys, None).await
     }
 

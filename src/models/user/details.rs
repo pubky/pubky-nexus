@@ -1,5 +1,6 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
 use crate::{queries, RedisOps};
+use async_trait::async_trait;
 use neo4rs::Node;
 use pkarr::PublicKey;
 use serde::{Deserialize, Serialize};
@@ -58,7 +59,12 @@ impl UserDetails {
     }
 }
 
-impl RedisOps for UserDetails {}
+#[async_trait]
+impl RedisOps for UserDetails {
+    async fn prefix() -> String {
+        String::from("User:Details")
+    }
+}
 
 /// Represents a collection of UserDetails.
 #[derive(Serialize, Deserialize)]
@@ -85,7 +91,12 @@ impl DerefMut for UserDetailsCollection {
     }
 }
 
-impl RedisOps for UserDetailsCollection {}
+#[async_trait]
+impl RedisOps for UserDetailsCollection {
+    async fn prefix() -> String {
+        String::from("User:Details")
+    }
+}
 
 impl UserDetailsCollection {
     /// Retrieves details for a list of user IDs, using Redis cache when available.
@@ -109,10 +120,8 @@ impl UserDetailsCollection {
             let missing_ids: Vec<&str> = missing.iter().map(|&(_, id)| id).collect();
             let fetched_details = Self::from_graph(&missing_ids).await?;
 
-            for (i, (_, user_id)) in missing.iter().enumerate() {
-                if let Some(index) = user_ids.iter().position(|&id| id == *user_id) {
-                    user_details.0[index] = fetched_details.0[i].clone();
-                }
+            for (i, (original_index, _)) in missing.iter().enumerate() {
+                user_details[*original_index].clone_from(&fetched_details[i]);
             }
         }
 
@@ -128,15 +137,32 @@ impl UserDetailsCollection {
 
         let graph = graph.lock().await;
         let mut result = graph.execute(query).await?;
-        let mut user_details = UserDetailsCollection(Vec::new());
+        let mut user_details = UserDetailsCollection(Vec::with_capacity(user_ids.len()));
 
         while let Some(row) = result.next().await? {
-            let node: Node = row.get("u")?;
-            user_details.push(UserDetails::from_node(&node).await);
+            let node: Option<Node> = row.get("u").ok();
+            let detail = if let Some(n) = node {
+                UserDetails::from_node(&n).await
+            } else {
+                None
+            };
+            user_details.push(detail);
         }
 
+        // If new user details found from Graph, index them into Redis
         if !user_details.is_empty() {
-            user_details.to_index(user_ids).await?;
+            let mut existing_user_details = Vec::new();
+            let mut existing_user_ids = Vec::new();
+
+            for (detail, id) in user_details.iter().zip(user_ids.iter()) {
+                if let Some(user_detail) = detail {
+                    existing_user_details.push(Some(user_detail.clone()));
+                    existing_user_ids.push(*id);
+                }
+            }
+
+            let existing_user_details = UserDetailsCollection(existing_user_details);
+            existing_user_details.to_index(&existing_user_ids).await?;
         }
 
         Ok(user_details)
@@ -147,8 +173,55 @@ impl UserDetailsCollection {
         &self,
         user_ids: &[&str],
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Prepare key parts for valid user details
         let key_parts_list: Vec<Vec<&str>> = user_ids.iter().map(|id| vec![*id]).collect();
         let keys_refs: Vec<&[&str]> = key_parts_list.iter().map(|key| &key[..]).collect();
+
         self.put_multiple_json_indexes(&keys_refs).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{setup, Config};
+
+    use super::*;
+
+    const USER_IDS: [&str; 8] = [
+        "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro",
+        "3iwsuz58pgrf7nw4kx8mg3fib1kqyi4oxqmuqxzsau1mpn5weipo",
+        "3qgon1apkcmp63xbqpkrb3zzrja3nq9wou4u5bf7uu8rc9ehfo3y",
+        "nope_it_does_not_exist", // Does not exist
+        "4nacrqeuwh35kwrziy4m376uuyi7czazubgtyog4adm77ayqigxo",
+        "5g3fwnue819wfdjwiwm8qr35ww6uxxgbzrigrtdgmbi19ksioeoy",
+        "4p1qa1ko7wuta4f1qm8io495cqsmefbgfp85wtnm9bj55gqbhjpo",
+        "not_existing_user_id_either", // Does not exist
+    ];
+
+    #[tokio::test]
+    async fn test_get_by_ids_from_redis() {
+        let config = Config::from_env();
+        setup(&config).await;
+
+        let user_details = UserDetailsCollection::get_by_ids(&USER_IDS).await.unwrap();
+        assert_eq!(user_details.len(), USER_IDS.len());
+
+        for details in user_details[0..3].iter() {
+            assert!(details.is_some());
+        }
+        for details in user_details[4..7].iter() {
+            assert!(details.is_some());
+        }
+        assert!(user_details[3].is_none());
+        assert!(user_details[7].is_none());
+
+        assert_eq!(user_details[0].as_ref().unwrap().name, "Aldert");
+        assert_eq!(user_details[5].as_ref().unwrap().name, "Flavio");
+
+        for (i, details) in user_details.iter().enumerate() {
+            if let Some(details) = details {
+                assert_eq!(details.id, USER_IDS[i]);
+            }
+        }
     }
 }

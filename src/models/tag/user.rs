@@ -9,29 +9,18 @@ use super::Tags;
 
 /// Represents a tag that refers to the current user
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone)]
+#[derive(Default)]
 pub struct UserTag {
     pub label: String,
     tagged: Tags,
 }
 
-impl Default for UserTag {
-    fn default() -> Self {
-        Self {
-            label: String::new(),
-            tagged: Tags::default(),
-        }
-    }
-}
 
 // Define a newtype wrapper
 #[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
+#[derive(Default)]
 pub struct UserTags(Vec<UserTag>);
 
-impl Default for UserTags {
-    fn default() -> Self {
-        UserTags(Vec::new())
-    }
-}
 
 // Implement Deref so TagList can be used like Vec<String>
 impl Deref for UserTags {

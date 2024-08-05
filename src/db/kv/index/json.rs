@@ -2,7 +2,6 @@ use crate::db::connectors::redis::get_redis_conn;
 use log::debug;
 use redis::{AsyncCommands, JsonAsyncCommands};
 use serde::{de::DeserializeOwned, Serialize};
-use serde_json::Value;
 use std::error::Error;
 
 /// Sets a value in Redis, supporting both JSON objects and boolean values.
@@ -215,21 +214,20 @@ pub async fn get_multiple<T: DeserializeOwned + Send + Sync>(
         .map(|key| format!("{}:{}", prefix, key.as_ref()))
         .collect();
 
-    let indexed_values: Vec<String> = redis_conn.json_get(&full_keys, json_path).await?;
-    let mut results = Vec::with_capacity(indexed_values.len());
+    // Fetch values as Option<String> to handle missing keys
+    let indexed_values: Vec<Option<String>> = redis_conn.json_get(&full_keys, json_path).await?;
 
-    for value in indexed_values {
-        let json_value: Value = serde_json::from_str(&value)?;
-        match json_value {
-            Value::Array(array) => {
-                for item in array {
-                    let deserialized_value = serde_json::from_value::<T>(item)?;
-                    results.push(Some(deserialized_value));
-                }
-            }
-            _ => results.push(None),
-        }
-    }
+    // Deserialize values into the desired type
+    let results: Vec<Option<T>> = indexed_values
+        .into_iter()
+        .map(|opt| {
+            opt.and_then(|value_str| {
+                serde_json::from_str::<Vec<T>>(&value_str)
+                    .ok()
+                    .and_then(|vec| vec.into_iter().next())
+            })
+        })
+        .collect();
 
     Ok(results)
 }
