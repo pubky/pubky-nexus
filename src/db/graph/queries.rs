@@ -78,7 +78,7 @@ pub fn post_relationships(author_id: &str, post_id: &str) -> Query {
     .param("post_id", post_id)
 }
 
-/// Retrieve all the tags of the user
+/// Retrieve all the tags of the post
 pub fn post_tags(user_id: &str, post_id: &str) -> neo4rs::Query {
     query(
         "
