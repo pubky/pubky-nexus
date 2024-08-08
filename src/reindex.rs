@@ -1,3 +1,4 @@
+use crate::db::kv::flush::clear_redis;
 use crate::models::user::{Followers, Following};
 use crate::{
     db::connectors::neo4j::get_neo4j_graph,
@@ -9,6 +10,12 @@ use neo4rs::query;
 use tokio::task::JoinSet;
 
 pub async fn reindex() {
+    // Clear Redis database
+    if let Err(e) = clear_redis().await {
+        log::error!("Failed to clear Redis: {:?}", e);
+        return;
+    }
+
     let mut user_tasks = JoinSet::new();
     let mut post_tasks = JoinSet::new();
 
