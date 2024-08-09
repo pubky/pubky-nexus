@@ -5,8 +5,9 @@ use std::error::Error;
 use tokio::task::spawn;
 use utoipa::ToSchema;
 
-const POST_TIMELINE_KEY_PARTS: [&str; 2] = ["Posts", "Timeline"];
-const POST_TOTAL_ENGAGEMENT_KEY_PARTS: [&str; 2] = ["Posts", "TotalEngagement"];
+const POST_TIMELINE_KEY_PARTS: [&str; 3] = ["Posts", "Global", "Timeline"];
+const POST_TOTAL_ENGAGEMENT_KEY_PARTS: [&str; 3] = ["Posts", "Global", "TotalEngagement"];
+const POST_PER_USER_KEY_PARTS: [&str; 2] = ["Posts", "User"];
 
 #[derive(Deserialize, ToSchema)]
 pub enum PostStreamSorting {
@@ -30,7 +31,7 @@ impl PostStream {
         Self(Vec::new())
     }
 
-    pub async fn get_sorted_posts(
+    pub async fn get_global_posts(
         sorting: PostStreamSorting,
         viewer_id: Option<String>,
         skip: Option<isize>,
@@ -67,6 +68,35 @@ impl PostStream {
                 Self::from_listed_post_ids(viewer_id, &post_keys).await
             }
             None => Ok(None),
+        }
+    }
+
+    pub async fn get_user_posts(
+        user_id: &str,
+        viewer_id: Option<String>,
+        skip: Option<isize>,
+        limit: Option<isize>,
+    ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
+        let key_parts = [&POST_PER_USER_KEY_PARTS[..], &[user_id]].concat();
+        let post_ids = Self::try_from_index_sorted_set(
+            &key_parts,
+            None,
+            None,
+            skip,
+            limit,
+            Sorting::Descending,
+        )
+        .await?;
+
+        if let Some(post_ids) = post_ids {
+            let post_keys: Vec<String> = post_ids
+                .into_iter()
+                .map(|(post_id, _)| format!("{}:{}", user_id, post_id))
+                .collect();
+
+            Self::from_listed_post_ids(viewer_id, &post_keys).await
+        } else {
+            Ok(None)
         }
     }
 
@@ -109,6 +139,15 @@ impl PostStream {
         let element = format!("{}:{}", details.author, details.id);
         let score = details.indexed_at as f64;
         Self::put_index_sorted_set(&POST_TIMELINE_KEY_PARTS, &[(score, element.as_str())]).await
+    }
+
+    /// Adds the post to a Redis sorted set using the `indexed_at` timestamp as the score.
+    pub async fn add_to_per_user_sorted_set(
+        details: &PostDetails,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let key_parts = [&POST_PER_USER_KEY_PARTS[..], &[details.author.as_str()]].concat();
+        let score = details.indexed_at as f64;
+        Self::put_index_sorted_set(&key_parts, &[(score, details.id.as_str())]).await
     }
 
     /// Adds the post to a Redis sorted set using the total engagement as the score.

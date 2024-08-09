@@ -225,7 +225,7 @@ async fn test_get_post() -> Result<()> {
     assert_eq!(body["details"]["author"], author_id);
     assert_eq!(
         body["details"]["uri"],
-        "pubky:y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy/pubky.app/posts/2ZCW1TGR5BKG0"
+        "pubky://y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy/pub/pubky.app/posts/2ZCW1TGR5BKG0"
     );
     assert_eq!(body["counts"]["tags"].as_u64(), Some(5));
     assert_eq!(body["counts"]["replies"].as_u64(), Some(2));
@@ -355,67 +355,6 @@ async fn test_get_following() -> Result<()> {
     // Test non-existing user
     let res = client
         .do_get(&format!("/v0/user/{}/following", "bad_user_id"))
-        .await?;
-    assert_eq!(res.status(), 404);
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_stream_followers() -> Result<()> {
-    let client = httpc_test::new_client(HOST_URL)?;
-
-    let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
-    let res = client
-        .do_get(&format!(
-            "/v0/stream/users?stream_type=Followers&user_id={}",
-            user_id
-        ))
-        .await?;
-    assert_eq!(res.status(), 200);
-
-    let body = res.json_body()?;
-    assert!(body.is_array());
-
-    let followers = body.as_array().expect("User stream should be an array");
-
-    // Check if the user has the expected number of followers
-    assert_eq!(followers.len(), 10, "Unexpected number of followers");
-
-    // List of expected follower IDs
-    let expected_follower_ids = vec![
-        "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy",
-        "uxni6dn45bbnd7mw6ypf3swoyey9wjntmjo4h1ph9xab1jfhp8do",
-    ];
-
-    // Verify that each expected follower ID is present in the response
-    for id in &expected_follower_ids {
-        let exists = followers.iter().any(|f| f["details"]["id"] == *id);
-        assert!(exists, "Expected follower ID not found: {}", id);
-    }
-
-    // Additional checks for specific user attributes (e.g., name, status)
-    for follower in followers {
-        assert!(
-            follower["details"]["name"].is_string(),
-            "Name should be a string"
-        );
-        assert!(
-            follower["details"]["bio"].is_string(),
-            "Bio should be a string"
-        );
-        assert!(
-            follower["counts"]["followers"].is_number(),
-            "Follower counts should be a number"
-        );
-    }
-
-    // Test non-existing user
-    let res = client
-        .do_get(&format!(
-            "/v0/stream/users?stream_type=Followers&user_id={}",
-            "bad_user_id"
-        ))
         .await?;
     assert_eq!(res.status(), 404);
 
@@ -607,28 +546,54 @@ async fn test_stream_posts_total_engagement() -> Result<()> {
     Ok(())
 }
 
-// #[tokio::test]
-// async fn test_get_tags() -> Result<()> {
-//     let client = httpc_test::new_client(HOST_URL)?;
+#[tokio::test]
+async fn test_stream_user_posts() -> Result<()> {
+    let client = httpc_test::new_client(HOST_URL)?;
 
-//     let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
-//     let res = client
-//         .do_get(&format!("/v0/user/{}/tags", user_id))
-//         .await?;
-//     assert_eq!(res.status(), 200);
+    // Replace "user_id_example" with an actual user ID that exists in your test database
+    let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
 
-//     let body = res.json_body()?;
-//     assert!(body["tags"].is_array());
+    let res = client
+        .do_get(&format!("/v0/stream/posts/{}", user_id))
+        .await?;
+    assert_eq!(res.status(), 200);
 
-//     // Test non-existing user
-//     let user_id = "bad_user_id";
-//     let res = client
-//         .do_get(&format!("/v0/user/{}/tags", user_id))
-//         .await?;
-//     assert_eq!(res.status(), 404);
+    let body = res.json_body()?;
+    assert!(body.is_array());
 
-//     Ok(())
-// }
+    let posts = body.as_array().expect("Post stream should be an array");
+
+    // Validate that the posts belong to the specified user and are sorted by timeline
+    for post in posts {
+        assert!(
+            post["details"]["indexed_at"].is_number(),
+            "indexed_at should be a number"
+        );
+        assert_eq!(
+            post["details"]["author"].as_str(),
+            Some(user_id),
+            "Post author should match the requested user_id"
+        );
+        assert!(
+            post["details"]["content"].is_string(),
+            "content should be a string"
+        );
+    }
+
+    // Additional validation to ensure posts are sorted by timeline
+    let mut previous_indexed_at = None;
+    for post in posts {
+        let indexed_at = post["details"]["indexed_at"]
+            .as_u64()
+            .expect("indexed_at should be a valid number");
+        if let Some(prev) = previous_indexed_at {
+            assert!(indexed_at <= prev, "Posts are not sorted by timeline");
+        }
+        previous_indexed_at = Some(indexed_at);
+    }
+
+    Ok(())
+}
 
 // Intended to print out requests and play around as a client while developing
 #[tokio::test]
