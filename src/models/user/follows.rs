@@ -1,6 +1,6 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
 use crate::{queries, RedisOps};
-use async_trait::async_trait;
+use axum::async_trait;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use utoipa::ToSchema;

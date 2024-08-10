@@ -201,8 +201,7 @@ fn bench_get_details_by_ids_list(c: &mut Criterion) {
         &USER_IDS,
         |b, &user_ids| {
             b.to_async(&rt).iter(|| async {
-                let fake_user = UserDetails::default();
-                let user_details = fake_user.get_by_ids(&user_ids, CollectionType::User).await.unwrap();
+                let user_details = UserDetails::get_by_ids(&user_ids, CollectionType::User).await.unwrap();
                 criterion::black_box(user_details);
             });
         },
@@ -225,8 +224,7 @@ fn bench_get_details_by_ids_list_from_graph(c: &mut Criterion) {
         &USER_IDS,
         |b, &user_ids| {
             b.to_async(&rt).iter(|| async {
-                let fake_user = UserDetails::default();
-                let user_details = fake_user.get_by_ids(&user_ids, CollectionType::User).await.unwrap();
+                let user_details = UserDetails::get_by_ids(&user_ids, CollectionType::User).await.unwrap();
                 criterion::black_box(user_details);
             });
         },

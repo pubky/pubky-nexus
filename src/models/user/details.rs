@@ -1,6 +1,6 @@
 use crate::models::common::collection::{Collection, CollectionType};
 use crate::RedisOps;
-use async_trait::async_trait;
+use axum::async_trait;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -49,8 +49,7 @@ impl UserDetails {
         user_id: &str,
     ) -> Result<Option<UserDetails>, Box<dyn std::error::Error + Send + Sync>> {
         // Delegate to UserDetailsCollection::get_by_ids for single item retrieval
-        let fake_user = UserDetails::default();
-        let details_collection = fake_user.get_by_ids(&[user_id], CollectionType::User).await?;
+        let details_collection = Self::get_by_ids(&[user_id], CollectionType::User).await?;
         Ok(details_collection.into_iter().flatten().next())
     }
 }
@@ -77,9 +76,7 @@ mod tests {
         let config = Config::from_env();
         setup(&config).await;
 
-        let fake_user = UserDetails::default();
-
-        let user_details = fake_user.get_by_ids(&USER_IDS, CollectionType::User).await.unwrap();
+        let user_details = UserDetails::get_by_ids(&USER_IDS, CollectionType::User).await.unwrap();
         assert_eq!(user_details.len(), USER_IDS.len());
 
         println!("{:?}", user_details);

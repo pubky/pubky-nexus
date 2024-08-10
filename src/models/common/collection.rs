@@ -1,20 +1,21 @@
 use axum::async_trait;
 use neo4rs::Query;
 
-use crate::{db::connectors::neo4j::get_neo4j_graph, queries};
 use crate::RedisOps;
+use crate::{db::connectors::neo4j::get_neo4j_graph, queries};
 use std::fmt::Debug;
 
 pub enum CollectionType {
     User,
     Post,
-    Tag
+    Tag,
 }
 
 #[async_trait]
-pub trait Collection 
-    where Self: RedisOps + Clone  + Debug {
-
+pub trait Collection
+where
+    Self: RedisOps + Clone + Debug + Default,
+{
     /// Retrieves records by their IDs, first checking a cache (likely Redis) and then falling back to a graph database if necessary
     /// # Arguments
     /// * `id_list` - A slice of string slices containing the IDs to query.
@@ -23,11 +24,11 @@ pub trait Collection
     /// Returns a `Result` containing a vector of `Option<Self>`. Each `Option` corresponds to a queried ID,
     /// containing `Some(record)` if found (either in cache or graph database), or `None` if not found in either.    
     async fn get_by_ids(
-        &self,
         id_list: &[&str],
-        collection_type: CollectionType
-    ) -> Result<Vec<Option<Self>>,  Box<dyn std::error::Error + Send + Sync>>
-    {
+        collection_type: CollectionType,
+    ) -> Result<Vec<Option<Self>>, Box<dyn std::error::Error + Send + Sync>> {
+        // Create an instance to call internal functions
+        let instance = Self::default();
         let key_parts_list: Vec<&[&str]> = id_list.iter().map(std::slice::from_ref).collect();
         let mut collection = Self::try_from_index_multiple_json(&key_parts_list).await?;
 
@@ -41,7 +42,7 @@ pub trait Collection
 
         if !missing.is_empty() {
             let missing_ids: Vec<&str> = missing.iter().map(|&(_, id)| id).collect();
-            let fetched_details = self.from_graph(&missing_ids, collection_type).await?;
+            let fetched_details = instance.from_graph(&missing_ids, collection_type).await?;
 
             for (i, (original_index, _)) in missing.iter().enumerate() {
                 collection[*original_index].clone_from(&fetched_details[i]);
@@ -61,7 +62,7 @@ pub trait Collection
     async fn from_graph(
         &self,
         missing_ids: &[&str],
-        collection_typ: CollectionType
+        collection_typ: CollectionType,
     ) -> Result<Vec<Option<Self>>, Box<dyn std::error::Error + Send + Sync>> {
         let graph = get_neo4j_graph()?;
         let query = get_collection_type_query(missing_ids, collection_typ);
@@ -88,7 +89,8 @@ pub trait Collection
             }
 
             //let existing_records = existing_records;
-            self.to_index(&existing_record_ids, existing_records).await?;
+            self.to_index(&existing_record_ids, existing_records)
+                .await?;
         }
 
         Ok(missing_records)
@@ -103,13 +105,14 @@ pub trait Collection
     async fn to_index(
         &self,
         user_ids: &[&str],
-        existing_records: Vec<Option<Self>>
+        existing_records: Vec<Option<Self>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Prepare key parts for valid user details
         let key_parts_list: Vec<Vec<&str>> = user_ids.iter().map(|id| vec![*id]).collect();
         let keys_refs: Vec<&[&str]> = key_parts_list.iter().map(|key| &key[..]).collect();
 
-        self.put_multiple_json_indexes(&keys_refs, existing_records).await
+        self.put_multiple_json_indexes(&keys_refs, existing_records)
+            .await
     }
 }
 
@@ -122,9 +125,6 @@ pub trait Collection
 fn get_collection_type_query(id_list: &[&str], collection_type: CollectionType) -> Query {
     match collection_type {
         CollectionType::User => queries::get_users_details_by_ids(id_list),
-        _ => Query::new(String::from(""))
+        _ => Query::new(String::from("")),
     }
 }
-
-
-    
