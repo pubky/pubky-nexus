@@ -76,7 +76,9 @@ mod tests {
         let config = Config::from_env();
         setup(&config).await;
 
-        let user_details = UserDetails::get_by_ids(&USER_IDS, CollectionType::User).await.unwrap();
+        let user_details = UserDetails::get_by_ids(&USER_IDS, CollectionType::User)
+            .await
+            .unwrap();
         assert_eq!(user_details.len(), USER_IDS.len());
 
         println!("{:?}", user_details);

@@ -14,14 +14,12 @@ pub async fn reindex() {
     let mut post_tasks = JoinSet::new();
 
     let user_ids: Vec<String> = get_all_user_ids().await.expect("Failed to get user IDs");
-
-    //TODO
     let user_ids_refs: Vec<&str> = user_ids.iter().map(|id| id.as_str()).collect();
 
-    let fake_user = UserDetails::default();
-    fake_user.from_graph(&user_ids_refs, CollectionType::User)
+    UserDetails::from_graph(&user_ids_refs, CollectionType::User)
         .await
         .expect("Failed indexing User Details");
+    //TODO use collections
 
     for user_id in user_ids {
         user_tasks.spawn(async move {

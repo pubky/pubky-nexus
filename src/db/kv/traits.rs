@@ -57,24 +57,29 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         .await
     }
 
-    /// Sets multiple indexes in Redis using the provided list of key parts for each value in the collection.
+    /// Stores multiple key-value pairs in Redis, where each key is constructed from the provided key parts
+    /// and each value is an item from the given collection.
     ///
-    /// This method serializes each item in the collection and stores it in Redis under the keys generated
-    /// from the provided `key_parts_list`. It supports setting multiple key-value pairs efficiently.
+    /// This method serializes each item in the collection and stores it in Redis under keys generated
+    /// by joining the elements of the corresponding slices in `key_parts_list`. It efficiently handles
+    /// the setting of multiple key-value pairs in a single operation.
     ///
     /// # Arguments
     ///
-    /// * `key_parts_list` - A slice of slices, where each inner slice contains string slices representing
-    ///   the parts used to form the key under which the corresponding value in the collection is stored.
+    /// * `key_parts_list` - A slice of slices, where each inner slice is a list of string slices representing
+    ///   the components used to generate the Redis key for the corresponding value in the `collection`.
+    ///   Each slice in this list must align with the corresponding index in `collection`.
     ///
-    /// # Errors
+    /// * `collection` - A vector of `Option<Self>` representing the values to be stored in Redis. Each value is serialized
+    ///   before being stored, and the vector should be of the same length as `key_parts_list`.
     ///
-    /// Returns an error if the operation fails, such as if the Redis connection is unavailable or
-    /// if there is an issue with serialization.
+    /// # Returns
+    ///
+    /// This function returns a `Result` indicating success or failure. A successful result means that
+    /// all key-value pairs were successfully stored in Redis.
     async fn put_multiple_json_indexes(
-        &self,
         key_parts_list: &[&[&str]],
-        collection: Vec<Option<Self>>
+        collection: Vec<Option<Self>>,
     ) -> Result<(), Box<dyn Error + Send + Sync>> // The items in the collection must be serializable
     {
         let mut data = Vec::with_capacity(key_parts_list.len());
