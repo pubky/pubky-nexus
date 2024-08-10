@@ -57,15 +57,18 @@ impl Bookmark {
         let mut result = graph.execute(query).await?;
 
         if let Some(row) = result.next().await? {
-            let relation: Relation = row.get("b").unwrap();
-            let counts = Self {
+            let relation: Relation = match row.get("b") {
+                Ok(value) => value,
+                Err(_) => return Ok(None),
+            };
+            let bookmark = Self {
                 id: relation.get("id").unwrap_or_default(),
                 indexed_at: relation.get("indexed_at").unwrap_or_default(),
             };
-            counts
+            bookmark
                 .put_index_json(&[author_id, post_id, viewer_id])
                 .await?;
-            Ok(Some(counts))
+            Ok(Some(bookmark))
         } else {
             Ok(None)
         }

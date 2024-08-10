@@ -1,5 +1,7 @@
-use crate::models::post::{PostStream, PostStreamSorting};
-use crate::routes::v0::endpoints::{STREAM_POSTS_ROUTE, STREAM_POSTS_USER_ROUTE};
+use crate::models::post::{PostStream, PostStreamReach, PostStreamSorting};
+use crate::routes::v0::endpoints::{
+    STREAM_POSTS_REACH_ROUTE, STREAM_POSTS_ROUTE, STREAM_POSTS_USER_ROUTE,
+};
 use crate::{Error, Result};
 use axum::extract::Query;
 use axum::Json;
@@ -92,9 +94,57 @@ pub async fn stream_user_posts_handler(
     }
 }
 
+#[derive(Deserialize)]
+pub struct PostStreamReachQuery {
+    viewer_id: String,
+    skip: Option<isize>,
+    limit: Option<isize>,
+    reach: Option<PostStreamReach>,
+}
+
+#[utoipa::path(
+    get,
+    path = STREAM_POSTS_REACH_ROUTE,
+    tag = "Stream Posts by Reach",
+    params(
+        ("viewer_id" = String, Query, description = "Viewer Pubky ID"),
+        ("reach" = PostStreamReach, Query, description = "Reach type (Following, Followers, Friends)"),
+        ("skip" = Option<usize>, Query, description = "Skip N posts"),
+        ("limit" = Option<usize>, Query, description = "Retrieve N posts")
+    ),
+    responses(
+        (status = 200, description = "Posts stream by reach", body = PostStream),
+        (status = 404, description = "Posts not found"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn stream_posts_by_reach_handler(
+    Query(query): Query<PostStreamReachQuery>,
+) -> Result<Json<PostStream>> {
+    info!("GET {STREAM_POSTS_REACH_ROUTE}");
+
+    let skip = query.skip.unwrap_or(0);
+    let limit = query.limit.unwrap_or(10);
+    let reach = query.reach.unwrap_or(PostStreamReach::Following);
+
+    match PostStream::get_posts_by_reach(reach, Some(query.viewer_id), Some(skip), Some(limit))
+        .await
+    {
+        Ok(Some(stream)) => Ok(Json(stream)),
+        Ok(None) => Err(Error::InternalServerError {
+            source: "No posts found".into(),
+        }),
+        Err(source) => Err(Error::InternalServerError { source }),
+    }
+}
+
 #[derive(OpenApi)]
 #[openapi(
-    paths(stream_global_posts_handler, stream_user_posts_handler),
-    components(schemas(PostStream, PostStreamSorting))
+    paths(
+        stream_global_posts_handler,
+        stream_user_posts_handler,
+        stream_posts_by_reach_handler
+    ),
+    components(schemas(PostStream, PostStreamSorting, PostStreamReach))
 )]
 pub struct StreamPostsApiDocs;

@@ -9,5 +9,5 @@ pub use bookmark::Bookmark;
 pub use counts::PostCounts;
 pub use details::PostDetails;
 pub use relationships::PostRelationships;
-pub use stream::{PostStream, PostStreamSorting};
+pub use stream::{PostStream, PostStreamReach, PostStreamSorting};
 pub use view::PostView;

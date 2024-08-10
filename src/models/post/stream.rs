@@ -1,5 +1,9 @@
 use super::{PostCounts, PostDetails, PostView};
-use crate::{db::kv::index::sorted_sets::Sorting, RedisOps};
+use crate::{
+    db::kv::index::sorted_sets::Sorting,
+    models::user::{Followers, Following},
+    RedisOps,
+};
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use tokio::task::spawn;
@@ -13,6 +17,15 @@ const POST_PER_USER_KEY_PARTS: [&str; 2] = ["Posts", "User"];
 pub enum PostStreamSorting {
     Timeline,
     TotalEngagement,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub enum PostStreamReach {
+    Following,
+    Followers,
+    Friends,
+    // Bookmarks,
+    // All,
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]
@@ -98,6 +111,117 @@ impl PostStream {
         } else {
             Ok(None)
         }
+    }
+
+    pub async fn get_posts_by_reach(
+        reach: PostStreamReach,
+        viewer_id: Option<String>,
+        skip: Option<isize>,
+        limit: Option<isize>,
+    ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
+        let viewer_id = match viewer_id {
+            None => return Ok(None),
+            Some(v_id) => v_id,
+        };
+
+        let user_ids = match reach {
+            PostStreamReach::Following => {
+                Following::get_by_id(&viewer_id, None, None)
+                    .await?
+                    .unwrap_or_default()
+                    .0
+            }
+            PostStreamReach::Followers => {
+                Followers::get_by_id(&viewer_id, None, None)
+                    .await?
+                    .unwrap_or_default()
+                    .0
+            }
+            PostStreamReach::Friends => {
+                // Fetch following and followers
+                let following = Following::get_by_id(&viewer_id, None, None)
+                    .await?
+                    .unwrap_or_default()
+                    .0;
+
+                let followers = Followers::get_by_id(&viewer_id, None, None)
+                    .await?
+                    .unwrap_or_default()
+                    .0;
+
+                // Find intersection of following and followers (mutual friends)
+                following
+                    .into_iter()
+                    .filter(|user_id| followers.contains(user_id))
+                    .collect::<Vec<String>>()
+            }
+        };
+
+        if !user_ids.is_empty() {
+            let post_keys = Self::get_posts_for_user_ids(
+                &user_ids.iter().map(AsRef::as_ref).collect::<Vec<_>>(),
+                skip,
+                limit,
+            )
+            .await?;
+            Self::from_listed_post_ids(Some(viewer_id), &post_keys).await
+        } else {
+            Ok(None)
+        }
+    }
+
+    // Streams for followers / followings / friends are expensive.
+    // We are truncating to the first 200 user_ids. We could also random draw 200.
+    // TODO rethink
+    async fn get_posts_for_user_ids(
+        user_ids: &[&str],
+        skip: Option<isize>,
+        limit: Option<isize>,
+    ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+        let mut post_keys = Vec::new();
+
+        // Limit the number of user IDs to process to the first 200
+        let max_user_ids = 200;
+        let truncated_user_ids: Vec<&str> = user_ids.iter().take(max_user_ids).cloned().collect();
+
+        // Retrieve posts for each user and collect them
+        for user_id in &truncated_user_ids {
+            let key_parts = [&POST_PER_USER_KEY_PARTS[..], &[user_id]].concat();
+            if let Some(post_ids) = Self::try_from_index_sorted_set(
+                &key_parts,
+                None,
+                None,
+                None, // We do not apply skip and limit here, as we need the full sorted set
+                None,
+                Sorting::Descending,
+            )
+            .await?
+            {
+                let user_post_keys: Vec<(f64, String)> = post_ids
+                    .into_iter()
+                    .map(|(post_id, score)| (score, format!("{}:{}", user_id, post_id)))
+                    .collect();
+                post_keys.extend(user_post_keys);
+            }
+        }
+
+        // Sort all the collected posts globally by their score (descending)
+        post_keys.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+
+        // Apply global skip and limit after sorting
+        let start_index = skip.unwrap_or(0).max(0) as usize;
+        let end_index = if let Some(limit) = limit {
+            (start_index + limit as usize).min(post_keys.len())
+        } else {
+            post_keys.len()
+        };
+
+        let selected_post_keys = post_keys[start_index..end_index]
+            .iter()
+            .map(|(_, post_key)| post_key.clone())
+            .collect();
+
+        Ok(selected_post_keys)
     }
 
     pub async fn from_listed_post_ids(

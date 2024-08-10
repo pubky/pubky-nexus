@@ -11,6 +11,7 @@ pub fn routes() -> Router {
         endpoints::STREAM_USERS_ROUTE => users::stream_users_handler,
         endpoints::STREAM_POSTS_ROUTE => posts::stream_global_posts_handler,
         endpoints::STREAM_POSTS_USER_ROUTE => posts::stream_user_posts_handler,
+        endpoints::STREAM_POSTS_REACH_ROUTE => posts::stream_posts_by_reach_handler,
     )
 }
 
