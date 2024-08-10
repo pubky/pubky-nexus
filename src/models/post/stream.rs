@@ -24,6 +24,7 @@ pub enum PostStreamReach {
     Following,
     Followers,
     Friends,
+    // TODO unify by_reach, global and per user into a single handler with options!
     // Bookmarks,
     // All,
 }

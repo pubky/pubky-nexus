@@ -9,6 +9,7 @@ use utoipa::ToSchema;
 pub enum UserStreamType {
     Followers,
     Following,
+    // TODO Friends
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]

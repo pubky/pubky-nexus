@@ -554,7 +554,7 @@ async fn test_stream_user_posts() -> Result<()> {
     let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
 
     let res = client
-        .do_get(&format!("/v0/stream/posts/{}", user_id))
+        .do_get(&format!("/v0/stream/posts/user/{}", user_id))
         .await?;
     assert_eq!(res.status(), 200);
 
@@ -590,6 +590,118 @@ async fn test_stream_user_posts() -> Result<()> {
             assert!(indexed_at <= prev, "Posts are not sorted by timeline");
         }
         previous_indexed_at = Some(indexed_at);
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stream_posts_following_reach() -> Result<()> {
+    let client = httpc_test::new_client(HOST_URL)?;
+
+    let viewer_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
+
+    let res = client
+        .do_get(&format!(
+            "/v0/stream/posts/reach?reach=Following&viewer_id={}",
+            viewer_id
+        ))
+        .await?;
+    assert_eq!(res.status(), 200);
+
+    let body = res.json_body()?;
+    assert!(body.is_array());
+
+    let posts = body.as_array().expect("Post stream should be an array");
+
+    for post in posts {
+        assert!(
+            post["details"]["indexed_at"].is_number(),
+            "indexed_at should be a number"
+        );
+        assert!(
+            post["details"]["content"].is_string(),
+            "content should be a string"
+        );
+        assert!(
+            post["details"]["author"].is_string(),
+            "author should be a string"
+        );
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stream_posts_followers_reach() -> Result<()> {
+    let client = httpc_test::new_client(HOST_URL)?;
+
+    let viewer_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
+
+    let res = client
+        .do_get(&format!(
+            "/v0/stream/posts/reach?reach=Followers&viewer_id={}",
+            viewer_id
+        ))
+        .await?;
+    assert_eq!(res.status(), 200);
+
+    let body = res.json_body()?;
+    assert!(body.is_array());
+
+    let posts = body.as_array().expect("Post stream should be an array");
+
+    // Validate that the posts belong to users who follow the viewer
+    for post in posts {
+        assert!(
+            post["details"]["indexed_at"].is_number(),
+            "indexed_at should be a number"
+        );
+        assert!(
+            post["details"]["content"].is_string(),
+            "content should be a string"
+        );
+        assert!(
+            post["details"]["author"].is_string(),
+            "author should be a string"
+        );
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stream_posts_friends_reach() -> Result<()> {
+    let client = httpc_test::new_client(HOST_URL)?;
+
+    let viewer_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
+
+    let res = client
+        .do_get(&format!(
+            "/v0/stream/posts/reach?reach=Friends&viewer_id={}",
+            viewer_id
+        ))
+        .await?;
+    assert_eq!(res.status(), 200);
+
+    let body = res.json_body()?;
+    assert!(body.is_array());
+
+    let posts = body.as_array().expect("Post stream should be an array");
+
+    for post in posts {
+        assert!(
+            post["details"]["indexed_at"].is_number(),
+            "indexed_at should be a number"
+        );
+        assert!(
+            post["details"]["content"].is_string(),
+            "content should be a string"
+        );
+        assert!(
+            post["details"]["author"].is_string(),
+            "author should be a string"
+        );
     }
 
     Ok(())

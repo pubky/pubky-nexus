@@ -29,5 +29,5 @@ pub const POST_TAGS_ROUTE: &str = concatcp!(POST_ROUTE, "/tags");
 const STREAM_PREFIX: &str = concatcp!(VERSION_ROUTE, "/stream");
 pub const STREAM_USERS_ROUTE: &str = concatcp!(STREAM_PREFIX, "/users");
 pub const STREAM_POSTS_ROUTE: &str = concatcp!(STREAM_PREFIX, "/posts");
-pub const STREAM_POSTS_USER_ROUTE: &str = concatcp!(STREAM_POSTS_ROUTE, "/:user_id");
+pub const STREAM_POSTS_USER_ROUTE: &str = concatcp!(STREAM_POSTS_ROUTE, "/user/:user_id");
 pub const STREAM_POSTS_REACH_ROUTE: &str = concatcp!(STREAM_POSTS_ROUTE, "/reach");
