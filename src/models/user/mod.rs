@@ -8,7 +8,7 @@ mod view;
 
 pub use counts::UserCounts;
 pub use details::UserLink;
-pub use details::{UserDetails, UserDetailsCollection};
+pub use details::UserDetails;
 pub use follows::{Followers, Following};
 pub use relationship::Relationship;
 pub use stream::{UserStream, UserStreamType};

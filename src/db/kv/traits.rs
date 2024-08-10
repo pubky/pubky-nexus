@@ -1,5 +1,5 @@
 use super::index::*;
-use async_trait::async_trait;
+use axum::async_trait;
 use serde::{de::DeserializeOwned, Serialize};
 use sorted_sets::Sorting;
 use std::error::Error;
@@ -71,16 +71,12 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     ///
     /// Returns an error if the operation fails, such as if the Redis connection is unavailable or
     /// if there is an issue with serialization.
-    async fn put_multiple_json_indexes<T>(
+    async fn put_multiple_json_indexes(
         &self,
         key_parts_list: &[&[&str]],
-    ) -> Result<(), Box<dyn Error + Send + Sync>>
-    where
-        Self: AsRef<[T]>,           // Assuming Self can be dereferenced into a slice of T
-        T: Serialize + Send + Sync, // The items in the collection must be serializable
+        collection: Vec<Option<Self>>
+    ) -> Result<(), Box<dyn Error + Send + Sync>> // The items in the collection must be serializable
     {
-        let collection = self.as_ref();
-
         let mut data = Vec::with_capacity(key_parts_list.len());
         for (i, key_parts) in key_parts_list.iter().enumerate() {
             let key = key_parts.join(":");

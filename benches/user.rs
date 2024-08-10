@@ -1,6 +1,7 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use pubky_nexus::models::common::collection::{Collection, CollectionType};
 use pubky_nexus::models::user::{
-    Relationship, UserCounts, UserDetails, UserDetailsCollection, UserView,
+    Relationship, UserCounts, UserDetails, UserView,
 };
 use pubky_nexus::setup;
 use pubky_nexus::Config;
@@ -156,7 +157,8 @@ fn bench_get_details_from_graph(c: &mut Criterion) {
         &user_id,
         |b, &id| {
             b.to_async(&rt).iter(|| async {
-                let details = UserDetailsCollection::from_graph(&[id]).await.unwrap();
+                let fake_user = UserDetails::default();
+                let details = fake_user.from_graph(&[id], CollectionType::User).await.unwrap();
                 criterion::black_box(details);
             });
         },
@@ -199,7 +201,8 @@ fn bench_get_details_by_ids_list(c: &mut Criterion) {
         &USER_IDS,
         |b, &user_ids| {
             b.to_async(&rt).iter(|| async {
-                let user_details = UserDetailsCollection::get_by_ids(&user_ids).await.unwrap();
+                let fake_user = UserDetails::default();
+                let user_details = fake_user.get_by_ids(&user_ids, CollectionType::User).await.unwrap();
                 criterion::black_box(user_details);
             });
         },
@@ -222,7 +225,8 @@ fn bench_get_details_by_ids_list_from_graph(c: &mut Criterion) {
         &USER_IDS,
         |b, &user_ids| {
             b.to_async(&rt).iter(|| async {
-                let user_details = UserDetailsCollection::from_graph(&user_ids).await.unwrap();
+                let fake_user = UserDetails::default();
+                let user_details = fake_user.get_by_ids(&user_ids, CollectionType::User).await.unwrap();
                 criterion::black_box(user_details);
             });
         },

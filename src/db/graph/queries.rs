@@ -79,12 +79,19 @@ pub fn post_relationships(author_id: &str, post_id: &str) -> Query {
 }
 
 // Retrieve many users by id
+// We return also id if not we will not get not found users
 pub fn get_users_details_by_ids(user_ids: &[&str]) -> Query {
     query(
         "
         UNWIND $ids AS id
-        OPTIONAL MATCH (u:User {id: id})
-        RETURN id, u
+        OPTIONAL MATCH (user:User {id: id})
+        RETURN 
+            id,
+            CASE 
+                WHEN user IS NOT NULL 
+                    THEN user { .id, .bio, .status, .name, .indexed_at, .links }
+                    ELSE null
+                END AS record
         ",
     )
     .param("ids", user_ids)

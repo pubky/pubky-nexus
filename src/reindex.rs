@@ -1,8 +1,9 @@
-use crate::models::user::{Followers, Following};
+use crate::models::common::collection::{Collection, CollectionType};
+use crate::models::user::{Followers, Following, UserDetails};
 use crate::{
     db::connectors::neo4j::get_neo4j_graph,
     models::post::{PostCounts, PostDetails, PostRelationships},
-    models::user::{UserCounts, UserDetailsCollection},
+    models::user::UserCounts,
 };
 use log::info;
 use neo4rs::query;
@@ -13,9 +14,12 @@ pub async fn reindex() {
     let mut post_tasks = JoinSet::new();
 
     let user_ids: Vec<String> = get_all_user_ids().await.expect("Failed to get user IDs");
+
+    //TODO
     let user_ids_refs: Vec<&str> = user_ids.iter().map(|id| id.as_str()).collect();
 
-    UserDetailsCollection::from_graph(&user_ids_refs)
+    let fake_user = UserDetails::default();
+    fake_user.from_graph(&user_ids_refs, CollectionType::User)
         .await
         .expect("Failed indexing User Details");
 

@@ -1,14 +1,11 @@
-use crate::db::connectors::neo4j::get_neo4j_graph;
-use crate::{queries, RedisOps};
+use crate::models::common::collection::{Collection, CollectionType};
+use crate::RedisOps;
 use async_trait::async_trait;
-use neo4rs::Node;
-use pkarr::PublicKey;
 use serde::{Deserialize, Serialize};
-use std::ops::{Deref, DerefMut};
 use utoipa::ToSchema;
 
 /// Represents a user's single link with a title and URL.
-#[derive(Serialize, Deserialize, ToSchema, Default, Clone)]
+#[derive(Serialize, Deserialize, ToSchema, Default, Clone, Debug)]
 pub struct UserLink {
     title: String,
     url: String,
@@ -23,13 +20,25 @@ impl UserLink {
     }
 }
 
+#[async_trait]
+impl RedisOps for UserDetails {
+    async fn prefix() -> String {
+        String::from("User:Details")
+    }
+}
+
+#[async_trait]
+impl Collection for UserDetails {}
+
 /// Represents user data with name, bio, image, links, and status.
-#[derive(Serialize, Deserialize, ToSchema, Default, Clone)]
+#[derive(Serialize, Deserialize, ToSchema, Default, Clone, Debug)]
 pub struct UserDetails {
     name: String,
     bio: String,
     id: String,
-    links: Vec<UserLink>,
+    //links: Vec<UserLink>,
+    // TODO: Fix in graph data type
+    links: String,
     status: String,
     indexed_at: i64,
 }
@@ -40,144 +49,9 @@ impl UserDetails {
         user_id: &str,
     ) -> Result<Option<UserDetails>, Box<dyn std::error::Error + Send + Sync>> {
         // Delegate to UserDetailsCollection::get_by_ids for single item retrieval
-        let details_collection = UserDetailsCollection::get_by_ids(&[user_id]).await?;
-        Ok(details_collection.0.into_iter().flatten().next())
-    }
-
-    async fn from_node(node: &Node) -> Option<Self> {
-        let id: String = node.get("id").unwrap_or_default();
-        PublicKey::try_from(id.clone()).ok()?;
-
-        Some(Self {
-            id,
-            name: node.get("name").unwrap_or_default(),
-            bio: node.get("bio").unwrap_or_default(),
-            status: node.get("status").unwrap_or_default(),
-            links: node.get("links").unwrap_or_default(),
-            indexed_at: node.get("indexed_at").unwrap_or_default(),
-        })
-    }
-}
-
-#[async_trait]
-impl RedisOps for UserDetails {
-    async fn prefix() -> String {
-        String::from("User:Details")
-    }
-}
-
-/// Represents a collection of UserDetails.
-#[derive(Serialize, Deserialize)]
-pub struct UserDetailsCollection(Vec<Option<UserDetails>>);
-
-impl AsRef<[Option<UserDetails>]> for UserDetailsCollection {
-    fn as_ref(&self) -> &[Option<UserDetails>] {
-        &self.0
-    }
-}
-
-// Implement Deref and DerefMut traits for UserDetailsCollection
-impl Deref for UserDetailsCollection {
-    type Target = Vec<Option<UserDetails>>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for UserDetailsCollection {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-#[async_trait]
-impl RedisOps for UserDetailsCollection {
-    async fn prefix() -> String {
-        String::from("User:Details")
-    }
-}
-
-impl UserDetailsCollection {
-    /// Retrieves details for a list of user IDs, using Redis cache when available.
-    pub async fn get_by_ids(
-        user_ids: &[&str],
-    ) -> Result<UserDetailsCollection, Box<dyn std::error::Error + Send + Sync>> {
-        let key_parts_list: Vec<&[&str]> = user_ids.iter().map(std::slice::from_ref).collect();
-        let mut user_details = UserDetailsCollection(
-            UserDetails::try_from_index_multiple_json(&key_parts_list).await?,
-        );
-
-        let mut missing: Vec<(usize, &str)> = Vec::new();
-
-        for (i, details) in user_details.iter().enumerate() {
-            if details.is_none() {
-                missing.push((i, user_ids[i]));
-            }
-        }
-
-        if !missing.is_empty() {
-            let missing_ids: Vec<&str> = missing.iter().map(|&(_, id)| id).collect();
-            let fetched_details = Self::from_graph(&missing_ids).await?;
-
-            for (i, (original_index, _)) in missing.iter().enumerate() {
-                user_details[*original_index].clone_from(&fetched_details[i]);
-            }
-        }
-
-        Ok(user_details)
-    }
-
-    /// Fetches user details from Neo4j and caches them in Redis.
-    pub async fn from_graph(
-        user_ids: &[&str],
-    ) -> Result<UserDetailsCollection, Box<dyn std::error::Error + Send + Sync>> {
-        let graph = get_neo4j_graph()?;
-        let query = queries::get_users_details_by_ids(user_ids);
-
-        let graph = graph.lock().await;
-        let mut result = graph.execute(query).await?;
-        let mut user_details = UserDetailsCollection(Vec::with_capacity(user_ids.len()));
-
-        while let Some(row) = result.next().await? {
-            let node: Option<Node> = row.get("u").ok();
-            let detail = if let Some(n) = node {
-                UserDetails::from_node(&n).await
-            } else {
-                None
-            };
-            user_details.push(detail);
-        }
-
-        // If new user details found from Graph, index them into Redis
-        if !user_details.is_empty() {
-            let mut existing_user_details = Vec::new();
-            let mut existing_user_ids = Vec::new();
-
-            for (detail, id) in user_details.iter().zip(user_ids.iter()) {
-                if let Some(user_detail) = detail {
-                    existing_user_details.push(Some(user_detail.clone()));
-                    existing_user_ids.push(*id);
-                }
-            }
-
-            let existing_user_details = UserDetailsCollection(existing_user_details);
-            existing_user_details.to_index(&existing_user_ids).await?;
-        }
-
-        Ok(user_details)
-    }
-
-    /// Indexes user details in Redis.
-    pub async fn to_index(
-        &self,
-        user_ids: &[&str],
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Prepare key parts for valid user details
-        let key_parts_list: Vec<Vec<&str>> = user_ids.iter().map(|id| vec![*id]).collect();
-        let keys_refs: Vec<&[&str]> = key_parts_list.iter().map(|key| &key[..]).collect();
-
-        self.put_multiple_json_indexes(&keys_refs).await
+        let fake_user = UserDetails::default();
+        let details_collection = fake_user.get_by_ids(&[user_id], CollectionType::User).await?;
+        Ok(details_collection.into_iter().flatten().next())
     }
 }
 
@@ -203,8 +77,12 @@ mod tests {
         let config = Config::from_env();
         setup(&config).await;
 
-        let user_details = UserDetailsCollection::get_by_ids(&USER_IDS).await.unwrap();
+        let fake_user = UserDetails::default();
+
+        let user_details = fake_user.get_by_ids(&USER_IDS, CollectionType::User).await.unwrap();
         assert_eq!(user_details.len(), USER_IDS.len());
+
+        println!("{:?}", user_details);
 
         for details in user_details[0..3].iter() {
             assert!(details.is_some());
