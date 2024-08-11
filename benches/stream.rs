@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use pubky_nexus::models::post::{PostStream, PostStreamSorting};
+use pubky_nexus::models::post::{PostStream, PostStreamReach, PostStreamSorting};
 use pubky_nexus::models::user::{UserStream, UserStreamType};
 use pubky_nexus::setup;
 use pubky_nexus::Config;
@@ -139,6 +139,81 @@ fn bench_stream_user_posts(c: &mut Criterion) {
     );
 }
 
+fn bench_stream_posts_following_reach(c: &mut Criterion) {
+    println!("***************************************");
+    println!("Benchmarking the post streams with reach 'Following'.");
+    println!("***************************************");
+
+    run_setup();
+
+    let viewer_id = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy"; // Replace with an actual viewer ID for testing
+    let rt = Runtime::new().unwrap();
+
+    c.bench_function("stream_posts_following_reach", |b| {
+        b.to_async(&rt).iter(|| async {
+            let post_stream = PostStream::get_posts_by_reach(
+                PostStreamReach::Following,
+                Some(viewer_id.to_string()),
+                None,
+                Some(10),
+            )
+            .await
+            .unwrap();
+            criterion::black_box(post_stream);
+        });
+    });
+}
+
+fn bench_stream_posts_followers_reach(c: &mut Criterion) {
+    println!("***************************************");
+    println!("Benchmarking the post streams with reach 'Followers'.");
+    println!("***************************************");
+
+    run_setup();
+
+    let viewer_id = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy"; // Replace with an actual viewer ID for testing
+    let rt = Runtime::new().unwrap();
+
+    c.bench_function("stream_posts_followers_reach", |b| {
+        b.to_async(&rt).iter(|| async {
+            let post_stream = PostStream::get_posts_by_reach(
+                PostStreamReach::Followers,
+                Some(viewer_id.to_string()),
+                None,
+                Some(10),
+            )
+            .await
+            .unwrap();
+            criterion::black_box(post_stream);
+        });
+    });
+}
+
+fn bench_stream_posts_friends_reach(c: &mut Criterion) {
+    println!("***************************************");
+    println!("Benchmarking the post streams with reach 'Friends'.");
+    println!("***************************************");
+
+    run_setup();
+
+    let viewer_id = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy"; // Replace with an actual viewer ID for testing
+    let rt = Runtime::new().unwrap();
+
+    c.bench_function("stream_posts_friends_reach", |b| {
+        b.to_async(&rt).iter(|| async {
+            let post_stream = PostStream::get_posts_by_reach(
+                PostStreamReach::Friends,
+                Some(viewer_id.to_string()),
+                None,
+                Some(10),
+            )
+            .await
+            .unwrap();
+            criterion::black_box(post_stream);
+        });
+    });
+}
+
 fn configure_criterion() -> Criterion {
     Criterion::default()
         .measurement_time(Duration::new(5, 0))
@@ -154,6 +229,9 @@ criterion_group! {
               bench_stream_posts_timeline,
               bench_stream_posts_total_engagement,
               bench_stream_user_posts,
+              bench_stream_posts_following_reach,
+              bench_stream_posts_followers_reach,
+              bench_stream_posts_friends_reach,
 }
 
 criterion_main!(benches);
