@@ -1,4 +1,4 @@
-use crate::models::user::{Followers, Following};
+use crate::models::user::{Followers, Following, UserFollows};
 use crate::routes::v0::endpoints::{USER_FOLLOWERS_ROUTE, USER_FOLLOWING_ROUTE};
 use crate::{Error, Result};
 use axum::extract::{Path, Query};

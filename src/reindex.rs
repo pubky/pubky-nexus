@@ -1,5 +1,5 @@
 use crate::db::kv::flush::clear_redis;
-use crate::models::user::{Followers, Following};
+use crate::models::user::{Followers, Following, UserFollows};
 use crate::{
     db::connectors::neo4j::get_neo4j_graph,
     models::post::{PostCounts, PostDetails, PostRelationships},

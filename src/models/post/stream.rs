@@ -1,7 +1,7 @@
 use super::{PostCounts, PostDetails, PostView};
 use crate::{
     db::kv::index::sorted_sets::Sorting,
-    models::user::{Followers, Following},
+    models::user::{Followers, Following, Friends, UserFollows},
     RedisOps,
 };
 use serde::{Deserialize, Serialize};
@@ -139,22 +139,10 @@ impl PostStream {
                     .0
             }
             PostStreamReach::Friends => {
-                // Fetch following and followers
-                let following = Following::get_by_id(&viewer_id, None, None)
+                Friends::get_by_id(&viewer_id, None, None)
                     .await?
                     .unwrap_or_default()
-                    .0;
-
-                let followers = Followers::get_by_id(&viewer_id, None, None)
-                    .await?
-                    .unwrap_or_default()
-                    .0;
-
-                // Find intersection of following and followers (mutual friends)
-                following
-                    .into_iter()
-                    .filter(|user_id| followers.contains(user_id))
-                    .collect::<Vec<String>>()
+                    .0
             }
         };
 
