@@ -1,7 +1,7 @@
 use std::error::Error;
 
 use super::{Followers, Following, UserCounts, UserView};
-use crate::RedisOps;
+use crate::{db::kv::index::sorted_sets::Sorting, RedisOps};
 use serde::{Deserialize, Serialize};
 use tokio::task::spawn;
 use utoipa::ToSchema;
@@ -17,6 +17,8 @@ pub enum UserStreamType {
 
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct UserStream(Vec<UserView>);
+
+impl RedisOps for UserStream {}
 
 impl Default for UserStream {
     fn default() -> Self {
@@ -43,6 +45,16 @@ impl UserStream {
             UserStreamType::Following => Following::get_by_id(user_id, skip, limit)
                 .await?
                 .map(|following| following.0),
+            UserStreamType::MostFollowed => Self::try_from_index_sorted_set(
+                &USER_MOSTFOLLOWED_KEY_PARTS,
+                None,
+                None,
+                skip,
+                limit,
+                Sorting::Descending,
+            )
+            .await?
+            .map(|set| set.into_iter().map(|(user_id, _score)| user_id).collect()),
         };
         match user_ids {
             Some(users) => Self::from_listed_user_ids(&users, viewer_id).await,
@@ -84,7 +96,7 @@ impl UserStream {
         user_id: &str,
         counts: &UserCounts,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        UserCounts::put_index_sorted_set(
+        Self::put_index_sorted_set(
             &USER_MOSTFOLLOWED_KEY_PARTS,
             &[(counts.followers as f64, user_id)],
         )

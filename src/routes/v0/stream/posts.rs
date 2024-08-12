@@ -10,8 +10,8 @@ use utoipa::OpenApi;
 #[derive(Deserialize)]
 pub struct PostStreamQuery {
     viewer_id: Option<String>,
-    skip: Option<isize>,
-    limit: Option<isize>,
+    skip: Option<usize>,
+    limit: Option<usize>,
     sorting: Option<PostStreamSorting>,
 }
 

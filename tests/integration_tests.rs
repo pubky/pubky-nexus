@@ -485,6 +485,76 @@ async fn test_stream_following() -> Result<()> {
 }
 
 #[tokio::test]
+async fn test_stream_most_followed() -> Result<()> {
+    let client = httpc_test::new_client(HOST_URL)?;
+
+    // Test retrieving the most followed users
+    let res = client.do_get("/v0/stream/users/most-followed").await?;
+    assert_eq!(res.status(), 200);
+
+    let body = res.json_body()?;
+    assert!(body.is_array());
+
+    let most_followed_users = body.as_array().expect("User stream should be an array");
+
+    // Check if the response has the expected number of users
+    assert!(
+        !most_followed_users.is_empty(),
+        "There should be at least one user in the most followed stream"
+    );
+
+    // List of expected user IDs (replace with actual expected IDs from your test data)
+    let expected_user_ids = vec![
+        "pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy",
+        "hj6e38w9dkmpkdmb9c9n6k1yt85ekbqhh3s4aagksdj4zssxg36o",
+        "ijfadmjkfxd6mng41jbuaqgm4adcesr5rcs1epnqtny9e43br4ro",
+        "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy",
+        "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro",
+    ];
+
+    // Verify that each expected user ID is present in the response
+    for id in &expected_user_ids {
+        let exists = most_followed_users
+            .iter()
+            .any(|f| f["details"]["id"] == *id);
+        assert!(exists, "Expected user ID not found: {}", id);
+    }
+
+    // Additional checks for specific user attributes (e.g., name, follower counts)
+    for user in most_followed_users {
+        assert!(
+            user["details"]["name"].is_string(),
+            "Name should be a string"
+        );
+        assert!(user["details"]["bio"].is_string(), "Bio should be a string");
+        assert!(
+            user["counts"]["followers"].is_number(),
+            "Follower counts should be a number"
+        );
+    }
+
+    // Test limiting the results to 5 users
+    let res = client
+        .do_get("/v0/stream/users/most-followed?limit=5")
+        .await?;
+    assert_eq!(res.status(), 200);
+
+    let body = res.json_body()?;
+    assert!(body.is_array());
+
+    let limited_users = body.as_array().expect("User stream should be an array");
+
+    // Check if the response has the expected number of users
+    assert_eq!(
+        limited_users.len(),
+        5,
+        "Expected 5 users in the limited stream"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_stream_posts_timeline() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 

@@ -65,8 +65,8 @@ pub async fn get_range(
     key: &str,
     min_score: Option<f64>,
     max_score: Option<f64>,
-    skip: Option<isize>,
-    limit: Option<isize>,
+    skip: Option<usize>,
+    limit: Option<usize>,
     sorting: Sorting,
 ) -> Result<Option<Vec<(String, f64)>>, Box<dyn Error + Send + Sync>> {
     let mut redis_conn = get_redis_conn().await?;
@@ -74,8 +74,8 @@ pub async fn get_range(
 
     let min_score = min_score.unwrap_or(f64::MIN);
     let max_score = max_score.unwrap_or(f64::MAX);
-    let skip = skip.unwrap_or(0);
-    let limit = limit.unwrap_or(1000);
+    let skip = skip.unwrap_or(0) as isize;
+    let limit = limit.unwrap_or(1000) as isize;
 
     // ZRANGE with the WITHSCORES option retrieves both: the elements and their scores
     let elements: Vec<(String, f64)> = match sorting {

@@ -1,5 +1,5 @@
 use crate::models::user::{UserStream, UserStreamType};
-use crate::routes::v0::endpoints::STREAM_USERS_ROUTE;
+use crate::routes::v0::endpoints::{STREAM_USERS_MOSTFOLLOWED_ROUTE, STREAM_USERS_ROUTE};
 use crate::{Error, Result};
 use axum::extract::Query;
 use axum::Json;
@@ -67,9 +67,49 @@ pub async fn stream_users_handler(
     }
 }
 
+#[utoipa::path(
+    get,
+    path = STREAM_USERS_MOSTFOLLOWED_ROUTE,
+    tag = "Stream Most Followed Users",
+    params(
+        ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
+        ("skip" = Option<usize>, Query, description = "Skip N users"),
+        ("limit" = Option<usize>, Query, description = "Retrieve N users"),
+    ),
+    responses(
+        (status = 200, description = "Most followed users stream", body = UserStream),
+        (status = 404, description = "No users found"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn stream_most_followed_users_handler(
+    Query(query): Query<UserStreamQuery>,
+) -> Result<Json<UserStream>> {
+    info!("GET {STREAM_USERS_MOSTFOLLOWED_ROUTE}");
+
+    let skip = query.skip.unwrap_or(0);
+    let limit = query.limit.unwrap_or(15);
+
+    match UserStream::get_by_id(
+        "", // No specific user ID is needed for most followed users
+        query.viewer_id.as_deref(),
+        Some(skip),
+        Some(limit),
+        UserStreamType::MostFollowed,
+    )
+    .await
+    {
+        Ok(Some(stream)) => Ok(Json(stream)),
+        Ok(None) => Err(Error::UserNotFound {
+            user_id: "Most Followed".to_string(),
+        }),
+        Err(source) => Err(Error::InternalServerError { source }),
+    }
+}
+
 #[derive(OpenApi)]
 #[openapi(
-    paths(stream_users_handler),
+    paths(stream_users_handler, stream_most_followed_users_handler),
     components(schemas(UserStream, UserStreamType))
 )]
 pub struct StreamUsersApiDocs;

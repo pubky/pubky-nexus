@@ -10,6 +10,7 @@ pub fn routes() -> Router {
     register_routes!(Router::new(),
         endpoints::STREAM_USERS_ROUTE => users::stream_users_handler,
         endpoints::STREAM_POSTS_ROUTE => posts::stream_posts_handler,
+        endpoints::STREAM_USERS_MOSTFOLLOWED_ROUTE => users::stream_most_followed_users_handler,
     )
 }
 
