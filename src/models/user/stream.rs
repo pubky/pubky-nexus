@@ -1,14 +1,18 @@
 use std::error::Error;
 
-use super::{Followers, Following, UserView};
+use super::{Followers, Following, UserCounts, UserView};
+use crate::RedisOps;
 use serde::{Deserialize, Serialize};
 use tokio::task::spawn;
 use utoipa::ToSchema;
+
+const USER_MOSTFOLLOWED_KEY_PARTS: [&str; 2] = ["Users", "MostFollowed"];
 
 #[derive(Deserialize, ToSchema)]
 pub enum UserStreamType {
     Followers,
     Following,
+    MostFollowed,
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]
@@ -73,5 +77,17 @@ impl UserStream {
         }
 
         Ok(Some(Self(user_views)))
+    }
+
+    /// Adds the post to a Redis sorted set using the follower counts as score.
+    pub async fn add_to_mostfollowed_sorted_set(
+        user_id: &str,
+        counts: &UserCounts,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        UserCounts::put_index_sorted_set(
+            &USER_MOSTFOLLOWED_KEY_PARTS,
+            &[(counts.followers as f64, user_id)],
+        )
+        .await
     }
 }
