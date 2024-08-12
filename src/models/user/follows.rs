@@ -4,7 +4,6 @@ use async_trait::async_trait;
 use neo4rs::Query;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
-use std::usize;
 use utoipa::ToSchema;
 
 #[async_trait]
@@ -132,7 +131,7 @@ impl Friends {
             .filter(|user_id| followers.contains(user_id))
             .collect();
 
-        if friends.len() == 0 {
+        if friends.is_empty() {
             return Ok(None);
         }
 

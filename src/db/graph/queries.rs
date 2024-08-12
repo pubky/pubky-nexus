@@ -61,6 +61,14 @@ pub fn post_bookmark(author_id: &str, post_id: &str, viewer_id: &str) -> Query {
     .param("viewer_id", viewer_id)
 }
 
+pub fn user_bookmarks(user_id: &str) -> Query {
+    query(
+        "MATCH (u:User {id: $user_id})-[b:BOOKMARKED]->(p:Post)<-[:AUTHORED]-(author:User)
+         RETURN b, p.id AS post_id, author.id AS author_id",
+    )
+    .param("user_id", user_id)
+}
+
 pub fn post_relationships(author_id: &str, post_id: &str) -> Query {
     query(
         "MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})

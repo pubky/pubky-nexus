@@ -1,4 +1,5 @@
 use crate::db::kv::flush::clear_redis;
+use crate::models::post::Bookmark;
 use crate::models::user::{Followers, Following, UserFollows};
 use crate::{
     db::connectors::neo4j::get_neo4j_graph,
@@ -54,6 +55,7 @@ pub async fn reindex() {
 
 async fn reindex_user(user_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tokio::try_join!(
+        Bookmark::index_all_from_graph(user_id),
         UserDetails::get_from_graph(user_id),
         UserCounts::get_from_graph(user_id),
         Followers::get_from_graph(user_id, Some(0), Some(100)),

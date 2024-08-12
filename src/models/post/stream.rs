@@ -1,4 +1,4 @@
-use super::{PostCounts, PostDetails, PostView};
+use super::{Bookmark, PostCounts, PostDetails, PostView};
 use crate::{
     db::kv::index::sorted_sets::Sorting,
     models::user::{Followers, Following, Friends, UserFollows},
@@ -12,6 +12,7 @@ use utoipa::ToSchema;
 const POST_TIMELINE_KEY_PARTS: [&str; 3] = ["Posts", "Global", "Timeline"];
 const POST_TOTAL_ENGAGEMENT_KEY_PARTS: [&str; 3] = ["Posts", "Global", "TotalEngagement"];
 const POST_PER_USER_KEY_PARTS: [&str; 2] = ["Posts", "User"];
+const BOOKMARKS_USER_KEY_PARTS: [&str; 2] = ["Bookmarks", "User"];
 
 #[derive(Deserialize, ToSchema)]
 pub enum PostStreamSorting {
@@ -159,6 +160,31 @@ impl PostStream {
         }
     }
 
+    pub async fn get_bookmarked_posts(
+        user_id: &str,
+        viewer_id: Option<String>,
+        skip: Option<isize>,
+        limit: Option<isize>,
+    ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
+        let key_parts = [&BOOKMARKS_USER_KEY_PARTS[..], &[user_id]].concat();
+        let post_keys = Self::try_from_index_sorted_set(
+            &key_parts,
+            None,
+            None,
+            skip,
+            limit,
+            Sorting::Descending,
+        )
+        .await?;
+
+        if let Some(post_keys) = post_keys {
+            let post_keys: Vec<String> = post_keys.into_iter().map(|(key, _)| key).collect();
+            Self::from_listed_post_ids(viewer_id, &post_keys).await
+        } else {
+            Ok(None)
+        }
+    }
+
     // Streams for followers / followings / friends are expensive.
     // We are truncating to the first 200 user_ids. We could also random draw 200.
     // TODO rethink
@@ -261,6 +287,19 @@ impl PostStream {
         let key_parts = [&POST_PER_USER_KEY_PARTS[..], &[details.author.as_str()]].concat();
         let score = details.indexed_at as f64;
         Self::put_index_sorted_set(&key_parts, &[(score, details.id.as_str())]).await
+    }
+
+    /// Adds a bookmark to Redis sorted set using the `indexed_at` timestamp as the score.
+    pub async fn add_to_bookmarks_sorted_set(
+        bookmark: &Bookmark,
+        bookmarker_id: &str,
+        post_id: &str,
+        author_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let key_parts = [&BOOKMARKS_USER_KEY_PARTS[..], &[bookmarker_id]].concat();
+        let post_key = format!("{}:{}", author_id, post_id);
+        let score = bookmark.indexed_at as f64;
+        Self::put_index_sorted_set(&key_parts, &[(score, post_key.as_str())]).await
     }
 
     /// Adds the post to a Redis sorted set using the total engagement as the score.

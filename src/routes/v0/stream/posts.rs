@@ -1,6 +1,7 @@
 use crate::models::post::{PostStream, PostStreamReach, PostStreamSorting};
 use crate::routes::v0::endpoints::{
-    STREAM_POSTS_REACH_ROUTE, STREAM_POSTS_ROUTE, STREAM_POSTS_USER_ROUTE,
+    STREAM_POSTS_BOOKMARKED_ROUTE, STREAM_POSTS_REACH_ROUTE, STREAM_POSTS_ROUTE,
+    STREAM_POSTS_USER_ROUTE,
 };
 use crate::{Error, Result};
 use axum::extract::Query;
@@ -138,12 +139,55 @@ pub async fn stream_posts_by_reach_handler(
     }
 }
 
+#[derive(Deserialize)]
+pub struct BookmarkedPostStreamQuery {
+    viewer_id: Option<String>,
+    skip: Option<isize>,
+    limit: Option<isize>,
+}
+
+#[utoipa::path(
+    get,
+    path = STREAM_POSTS_BOOKMARKED_ROUTE,
+    tag = "Stream Bookmarked Posts",
+    params(
+        ("user_id" = String, Path, description = "User ID whose bookmarked posts to retrieve"),
+        ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
+        ("skip" = Option<usize>, Query, description = "Skip N posts"),
+        ("limit" = Option<usize>, Query, description = "Retrieve N posts")
+    ),
+    responses(
+        (status = 200, description = "Bookmarked posts stream", body = PostStream),
+        (status = 404, description = "Posts not found"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn stream_bookmarked_posts_handler(
+    Path(user_id): Path<String>,
+    Query(query): Query<BookmarkedPostStreamQuery>,
+) -> Result<Json<PostStream>> {
+    info!("GET {STREAM_POSTS_BOOKMARKED_ROUTE}");
+
+    let skip = query.skip.unwrap_or(0);
+    let limit = query.limit.unwrap_or(10);
+
+    match PostStream::get_bookmarked_posts(&user_id, query.viewer_id, Some(skip), Some(limit)).await
+    {
+        Ok(Some(stream)) => Ok(Json(stream)),
+        Ok(None) => Err(Error::InternalServerError {
+            source: "No bookmarked posts found".into(),
+        }),
+        Err(source) => Err(Error::InternalServerError { source }),
+    }
+}
+
 #[derive(OpenApi)]
 #[openapi(
     paths(
         stream_global_posts_handler,
         stream_user_posts_handler,
-        stream_posts_by_reach_handler
+        stream_posts_by_reach_handler,
+        stream_bookmarked_posts_handler
     ),
     components(schemas(PostStream, PostStreamSorting, PostStreamReach))
 )]
