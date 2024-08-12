@@ -759,6 +759,89 @@ async fn test_stream_posts_friends_reach() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn test_stream_bookmarked_posts() -> Result<()> {
+    let client = httpc_test::new_client(HOST_URL)?;
+
+    let user_id = "h3fghnb3x59oh7r53x8y6a5x38oatqyjym9b31ybss17zqdnhcoy";
+
+    let res = client
+        .do_get(&format!(
+            "/v0/stream/posts/bookmarks/{}?viewer_id={}",
+            user_id, user_id
+        ))
+        .await?;
+    assert_eq!(res.status(), 200);
+
+    let body = res.json_body()?;
+    assert!(body.is_array());
+
+    let posts = body.as_array().expect("Post stream should be an array");
+    println!("POSTS {:?}", posts);
+
+    // Validate that the posts belong to the specified user's bookmarks
+    for post in posts {
+        assert!(
+            post["details"]["indexed_at"].is_number(),
+            "indexed_at should be a number"
+        );
+        assert!(
+            post["details"]["content"].is_string(),
+            "content should be a string"
+        );
+        assert!(
+            post["details"]["author"].is_string(),
+            "author should be a string"
+        );
+    }
+
+    // Additional validation to ensure the posts are sorted by when they were bookmarked
+    let mut previous_indexed_at = None;
+    for post in posts {
+        let bookmark_indexed_at = post["bookmark"]["indexed_at"]
+            .as_u64()
+            .expect("indexed_at should be a valid number");
+        if let Some(prev) = previous_indexed_at {
+            assert!(
+                bookmark_indexed_at <= prev,
+                "Posts are not sorted by when they were bookmarked"
+            );
+        }
+        previous_indexed_at = Some(bookmark_indexed_at);
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stream_bookmarked_posts_no_bookmarks() -> Result<()> {
+    let client = httpc_test::new_client(HOST_URL)?;
+
+    let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
+
+    let res = client
+        .do_get(&format!("/v0/stream/posts/bookmarks/{}", user_id))
+        .await?;
+    assert_eq!(res.status(), 404);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stream_bookmarked_posts_invalid_user() -> Result<()> {
+    let client = httpc_test::new_client(HOST_URL)?;
+
+    // Use an invalid or non-existing user ID
+    let user_id = "invalid_user_id";
+
+    let res = client
+        .do_get(&format!("/v0/stream/posts/bookmarks/{}", user_id))
+        .await?;
+    assert_eq!(res.status(), 404);
+
+    Ok(())
+}
+
 // Intended to print out requests and play around as a client while developing
 #[tokio::test]
 async fn quick_dev() -> Result<()> {

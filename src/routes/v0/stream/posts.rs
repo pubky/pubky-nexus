@@ -141,7 +141,6 @@ pub async fn stream_posts_by_reach_handler(
 
 #[derive(Deserialize)]
 pub struct BookmarkedPostStreamQuery {
-    viewer_id: Option<String>,
     skip: Option<isize>,
     limit: Option<isize>,
 }
@@ -171,12 +170,9 @@ pub async fn stream_bookmarked_posts_handler(
     let skip = query.skip.unwrap_or(0);
     let limit = query.limit.unwrap_or(10);
 
-    match PostStream::get_bookmarked_posts(&user_id, query.viewer_id, Some(skip), Some(limit)).await
-    {
+    match PostStream::get_bookmarked_posts(&user_id, Some(skip), Some(limit)).await {
         Ok(Some(stream)) => Ok(Json(stream)),
-        Ok(None) => Err(Error::InternalServerError {
-            source: "No bookmarked posts found".into(),
-        }),
+        Ok(None) => Err(Error::BookmarksNotFound { user_id }),
         Err(source) => Err(Error::InternalServerError { source }),
     }
 }

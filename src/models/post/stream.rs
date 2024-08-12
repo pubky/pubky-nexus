@@ -162,7 +162,6 @@ impl PostStream {
 
     pub async fn get_bookmarked_posts(
         user_id: &str,
-        viewer_id: Option<String>,
         skip: Option<isize>,
         limit: Option<isize>,
     ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
@@ -179,7 +178,7 @@ impl PostStream {
 
         if let Some(post_keys) = post_keys {
             let post_keys: Vec<String> = post_keys.into_iter().map(|(key, _)| key).collect();
-            Self::from_listed_post_ids(viewer_id, &post_keys).await
+            Self::from_listed_post_ids(Some(user_id.to_string()), &post_keys).await
         } else {
             Ok(None)
         }
