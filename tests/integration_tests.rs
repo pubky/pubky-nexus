@@ -362,6 +362,58 @@ async fn test_get_following() -> Result<()> {
 }
 
 #[tokio::test]
+async fn test_get_friends() -> Result<()> {
+    let client = httpc_test::new_client(HOST_URL)?;
+
+    let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
+    let res = client
+        .do_get(&format!("/v0/user/{}/friends", user_id))
+        .await?;
+    assert_eq!(res.status(), 200);
+
+    let body = res.json_body()?;
+    assert!(body.is_array());
+    let following: Vec<String> = body
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|id| id.as_str().unwrap().to_string())
+        .collect();
+
+    // List of specified IDs the user is expected to be following
+    let specified_ids = vec![
+        "9x86hgp5tya98csx4wfdj1aorcxszxq5mwa3rdeh8a7oz1u6sg3y".to_string(),
+        "gxk8itzrnikrpshfsudgsgtxrz59ojp4iwmp4w9iff3ess6zfr4y".to_string(),
+        "hj6e38w9dkmpkdmb9c9n6k1yt85ekbqhh3s4aagksdj4zssxg36o".to_string(),
+        "hs8iszgmxharf4omxwr7zej196zr4rs4a53ks4tg1ya1efejupty".to_string(),
+        "kt1ujy3zxs1tpxsxrqkdpmon5co959paiknw1s4r1rf1gsnqxnao".to_string(),
+        "o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo".to_string(),
+        "uxni6dn45bbnd7mw6ypf3swoyey9wjntmjo4h1ph9xab1jfhp8do".to_string(),
+        "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy".to_string(),
+    ];
+
+    // Check if the user friends the specified number of users
+    assert_eq!(
+        following.len(),
+        specified_ids.len(),
+        "Unexpected number of friends"
+    );
+
+    // Check if all specified IDs are present in the friend list
+    for id in &specified_ids {
+        assert!(following.contains(id), "Missing friend ID: {}", id);
+    }
+
+    // Test non-existing user
+    let res = client
+        .do_get(&format!("/v0/user/{}/friends", "bad_user_id"))
+        .await?;
+    assert_eq!(res.status(), 404);
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_stream_following() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 

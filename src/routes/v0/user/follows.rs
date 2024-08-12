@@ -1,5 +1,7 @@
-use crate::models::user::{Followers, Following, UserFollows};
-use crate::routes::v0::endpoints::{USER_FOLLOWERS_ROUTE, USER_FOLLOWING_ROUTE};
+use crate::models::user::{Followers, Following, Friends, UserFollows};
+use crate::routes::v0::endpoints::{
+    USER_FOLLOWERS_ROUTE, USER_FOLLOWING_ROUTE, USER_FRIENDS_ROUTE,
+};
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
@@ -75,9 +77,40 @@ pub async fn user_following_handler(
     }
 }
 
+#[utoipa::path(
+    get,
+    path = USER_FRIENDS_ROUTE,
+    tag = "User Friends List",
+    params(
+        ("user_id" = String, Path, description = "User Pubky ID"),
+        ("skip" = Option<usize>, Query, description = "Skip N friends"),
+        ("limit" = Option<usize>, Query, description = "Retrieve N friends")
+    ),
+    responses(
+        (status = 200, description = "User friends list", body = Friends),
+        (status = 404, description = "User not found"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn user_friends_handler(
+    Path(user_id): Path<String>,
+    Query(query): Query<FollowsQuery>,
+) -> Result<Json<Friends>> {
+    info!("GET {USER_FRIENDS_ROUTE} user_id:{}", user_id);
+
+    let skip = query.skip.unwrap_or(0);
+    let limit = query.limit.unwrap_or(200);
+
+    match Friends::get_by_id(&user_id, Some(skip), Some(limit)).await {
+        Ok(Some(friends)) => Ok(Json(friends)),
+        Ok(None) => Err(Error::UserNotFound { user_id }),
+        Err(source) => Err(Error::InternalServerError { source }),
+    }
+}
+
 #[derive(OpenApi)]
 #[openapi(
-    paths(user_followers_handler, user_following_handler),
-    components(schemas(Followers, Following))
+    paths(user_followers_handler, user_following_handler, user_friends_handler),
+    components(schemas(Followers, Following, Friends))
 )]
 pub struct UserFollowsApiDoc;

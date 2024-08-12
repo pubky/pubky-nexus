@@ -15,6 +15,7 @@ pub const USER_DETAILS_ROUTE: &str = concatcp!(USER_ROUTE, "/details");
 pub const USER_TAGS_ROUTE: &str = concatcp!(USER_ROUTE, "/tags");
 pub const USER_FOLLOWERS_ROUTE: &str = concatcp!(USER_ROUTE, "/followers");
 pub const USER_FOLLOWING_ROUTE: &str = concatcp!(USER_ROUTE, "/following");
+pub const USER_FRIENDS_ROUTE: &str = concatcp!(USER_ROUTE, "/friends");
 
 // Post routes
 const POST_PREFIX: &str = concatcp!(VERSION_ROUTE, "/post");

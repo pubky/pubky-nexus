@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use neo4rs::Query;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
+use std::usize;
 use utoipa::ToSchema;
 
 #[async_trait]
@@ -114,13 +115,13 @@ impl Friends {
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
-        // Fetch following and followers
-        let following = Following::get_by_id(user_id, None, None)
+        // Fetch following and followers, limit to 10K
+        let following = Following::get_by_id(user_id, None, Some(10000))
             .await?
             .unwrap_or_default()
             .0;
 
-        let followers = Followers::get_by_id(user_id, None, None)
+        let followers = Followers::get_by_id(user_id, None, Some(10000))
             .await?
             .unwrap_or_default()
             .0;
@@ -131,7 +132,10 @@ impl Friends {
             .filter(|user_id| followers.contains(user_id))
             .collect();
 
-        // Apply skip and limit
+        if friends.len() == 0 {
+            return Ok(None);
+        }
+
         if let Some(skip) = skip {
             friends = friends.into_iter().skip(skip).collect();
         }

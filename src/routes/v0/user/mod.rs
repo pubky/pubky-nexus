@@ -19,6 +19,7 @@ pub fn routes() -> Router {
         endpoints::USER_COUNTS_ROUTE => counts::user_counts_handler,
         endpoints::USER_FOLLOWERS_ROUTE => follows::user_followers_handler,
         endpoints::USER_FOLLOWING_ROUTE => follows::user_following_handler,
+        endpoints::USER_FRIENDS_ROUTE => follows::user_friends_handler,
     )
 }
 
