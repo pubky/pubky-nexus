@@ -2,8 +2,9 @@ use crate::models::traits::Collection;
 use crate::{queries, RedisOps};
 use axum::async_trait;
 use neo4rs::Query;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Deserializer};
 use utoipa::ToSchema;
+use serde_json;
 
 /// Represents a user's single link with a title and URL.
 #[derive(Serialize, Deserialize, ToSchema, Default, Clone, Debug)]
@@ -41,11 +42,19 @@ pub struct UserDetails {
     name: String,
     bio: String,
     id: String,
-    //links: Vec<UserLink>,
-    // TODO: Fix in graph data type
-    links: String,
+    #[serde(deserialize_with = "deserialize_user_links")]
+    links: Vec<UserLink>,
     status: String,
     indexed_at: i64,
+}
+
+fn deserialize_user_links<'de, D>(deserializer: D) -> Result<Vec<UserLink>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s: String = String::deserialize(deserializer)?;
+    let urls: Vec<UserLink> = serde_json::from_str(&s).map_err(serde::de::Error::custom)?;
+    Ok(urls)
 }
 
 impl UserDetails {
@@ -97,6 +106,9 @@ mod tests {
 
         assert_eq!(user_details[0].as_ref().unwrap().name, "Aldert");
         assert_eq!(user_details[5].as_ref().unwrap().name, "Flavio");
+
+        assert_eq!(user_details[5].as_ref().unwrap().links.len(), 4);
+        assert_eq!(user_details[0].as_ref().unwrap().links.len(), 2);
 
         for (i, details) in user_details.iter().enumerate() {
             if let Some(details) = details {
