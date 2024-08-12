@@ -1,6 +1,7 @@
-use crate::models::common::collection::{Collection, CollectionType};
-use crate::RedisOps;
+use crate::models::traits::Collection;
+use crate::{queries, RedisOps};
 use axum::async_trait;
+use neo4rs::Query;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -28,7 +29,11 @@ impl RedisOps for UserDetails {
 }
 
 #[async_trait]
-impl Collection for UserDetails {}
+impl Collection for UserDetails {
+    fn graph_query(id_list: &[&str]) -> Query {
+        queries::get_users_details_by_ids(id_list)
+    }
+}
 
 /// Represents user data with name, bio, image, links, and status.
 #[derive(Serialize, Deserialize, ToSchema, Default, Clone, Debug)]
@@ -49,7 +54,7 @@ impl UserDetails {
         user_id: &str,
     ) -> Result<Option<UserDetails>, Box<dyn std::error::Error + Send + Sync>> {
         // Delegate to UserDetailsCollection::get_by_ids for single item retrieval
-        let details_collection = Self::get_by_ids(&[user_id], CollectionType::User).await?;
+        let details_collection = Self::get_by_ids(&[user_id]).await?;
         Ok(details_collection.into_iter().flatten().next())
     }
 }
@@ -76,12 +81,10 @@ mod tests {
         let config = Config::from_env();
         setup(&config).await;
 
-        let user_details = UserDetails::get_by_ids(&USER_IDS, CollectionType::User)
+        let user_details = UserDetails::get_by_ids(&USER_IDS)
             .await
             .unwrap();
         assert_eq!(user_details.len(), USER_IDS.len());
-
-        println!("{:?}", user_details);
 
         for details in user_details[0..3].iter() {
             assert!(details.is_some());

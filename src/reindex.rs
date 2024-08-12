@@ -1,4 +1,4 @@
-use crate::models::common::collection::{Collection, CollectionType};
+use crate::models::traits::Collection;
 use crate::models::user::{Followers, Following, UserDetails};
 use crate::{
     db::connectors::neo4j::get_neo4j_graph,
@@ -16,7 +16,7 @@ pub async fn reindex() {
     let user_ids: Vec<String> = get_all_user_ids().await.expect("Failed to get user IDs");
     let user_ids_refs: Vec<&str> = user_ids.iter().map(|id| id.as_str()).collect();
 
-    UserDetails::from_graph(&user_ids_refs, CollectionType::User)
+    UserDetails::from_graph(&user_ids_refs)
         .await
         .expect("Failed indexing User Details");
     //TODO use collections
