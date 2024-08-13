@@ -54,8 +54,6 @@ async fn test_user_endpoint() -> Result<()> {
             !tags.iter().any(|tag| tag["label"] == "nonsense"),
             "Ar profile should tagged as 'nonsense'"
         );
-    } else {
-        assert!(false, "Array conversion error");
     }
 
     // Look for Aldert pk user id using Flavio's viewer id
@@ -187,7 +185,7 @@ async fn test_get_details() -> Result<()> {
     assert_eq!(res.status(), 200);
 
     let body = res.json_body()?;
-    println!("body: {}", body);
+
     assert!(body["name"].is_string());
     assert!(body["bio"].is_string());
     assert!(body["id"].is_string());
@@ -849,7 +847,6 @@ async fn test_stream_bookmarked_posts() -> Result<()> {
     assert!(body.is_array());
 
     let posts = body.as_array().expect("Post stream should be an array");
-    println!("POSTS {:?}", posts);
 
     // Validate that the posts belong to the specified user's bookmarks
     for post in posts {
@@ -910,24 +907,6 @@ async fn test_stream_bookmarked_posts_invalid_user() -> Result<()> {
         .do_get(&format!("/v0/stream/posts/bookmarks/{}", user_id))
         .await?;
     assert_eq!(res.status(), 404);
-
-    Ok(())
-}
-
-// Intended to print out requests and play around as a client while developing
-#[tokio::test]
-async fn quick_dev() -> Result<()> {
-    let client = httpc_test::new_client(HOST_URL)?;
-
-    // Check endpoint, play with this.
-    let author_id = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
-    let post_id = "2ZCW1TGR5BKG0";
-
-    client
-        .do_get(&format!("/v0/post/{}/{}", author_id, post_id))
-        .await?
-        .print()
-        .await?;
 
     Ok(())
 }

@@ -57,8 +57,8 @@ use axum::extract::Path;
 #[derive(Deserialize)]
 pub struct UserPostStreamQuery {
     viewer_id: Option<String>,
-    skip: Option<isize>,
-    limit: Option<isize>,
+    skip: Option<usize>,
+    limit: Option<usize>,
 }
 
 #[utoipa::path(
@@ -98,8 +98,8 @@ pub async fn stream_user_posts_handler(
 #[derive(Deserialize)]
 pub struct PostStreamReachQuery {
     viewer_id: String,
-    skip: Option<isize>,
-    limit: Option<isize>,
+    skip: Option<usize>,
+    limit: Option<usize>,
     reach: Option<PostStreamReach>,
 }
 
@@ -141,8 +141,8 @@ pub async fn stream_posts_by_reach_handler(
 
 #[derive(Deserialize)]
 pub struct BookmarkedPostStreamQuery {
-    skip: Option<isize>,
-    limit: Option<isize>,
+    skip: Option<usize>,
+    limit: Option<usize>,
 }
 
 #[utoipa::path(

@@ -89,8 +89,8 @@ impl PostStream {
     pub async fn get_user_posts(
         user_id: &str,
         viewer_id: Option<String>,
-        skip: Option<isize>,
-        limit: Option<isize>,
+        skip: Option<usize>,
+        limit: Option<usize>,
     ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
         let key_parts = [&POST_PER_USER_KEY_PARTS[..], &[user_id]].concat();
         let post_ids = Self::try_from_index_sorted_set(
@@ -118,8 +118,8 @@ impl PostStream {
     pub async fn get_posts_by_reach(
         reach: PostStreamReach,
         viewer_id: Option<String>,
-        skip: Option<isize>,
-        limit: Option<isize>,
+        skip: Option<usize>,
+        limit: Option<usize>,
     ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
         let viewer_id = match viewer_id {
             None => return Ok(None),
@@ -162,8 +162,8 @@ impl PostStream {
 
     pub async fn get_bookmarked_posts(
         user_id: &str,
-        skip: Option<isize>,
-        limit: Option<isize>,
+        skip: Option<usize>,
+        limit: Option<usize>,
     ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
         let key_parts = [&BOOKMARKS_USER_KEY_PARTS[..], &[user_id]].concat();
         let post_keys = Self::try_from_index_sorted_set(
@@ -189,8 +189,8 @@ impl PostStream {
     // TODO rethink
     async fn get_posts_for_user_ids(
         user_ids: &[&str],
-        skip: Option<isize>,
-        limit: Option<isize>,
+        skip: Option<usize>,
+        limit: Option<usize>,
     ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
         let mut post_keys = Vec::new();
 
@@ -223,9 +223,9 @@ impl PostStream {
         post_keys.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
 
         // Apply global skip and limit after sorting
-        let start_index = skip.unwrap_or(0).max(0) as usize;
+        let start_index = skip.unwrap_or(0).max(0);
         let end_index = if let Some(limit) = limit {
-            (start_index + limit as usize).min(post_keys.len())
+            (start_index + limit).min(post_keys.len())
         } else {
             post_keys.len()
         };
