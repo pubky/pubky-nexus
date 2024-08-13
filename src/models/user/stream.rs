@@ -1,19 +1,25 @@
 use std::error::Error;
 
-use super::{Followers, Following, Friends, UserFollows, UserView};
+use super::{Followers, Following, Friends, UserFollows, UserCounts, UserView};
+use crate::{db::kv::index::sorted_sets::Sorting, RedisOps};
 use serde::{Deserialize, Serialize};
 use tokio::task::spawn;
 use utoipa::ToSchema;
+
+const USER_MOSTFOLLOWED_KEY_PARTS: [&str; 2] = ["Users", "MostFollowed"];
 
 #[derive(Deserialize, ToSchema)]
 pub enum UserStreamType {
     Followers,
     Following,
     Friends,
+    MostFollowed,
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct UserStream(Vec<UserView>);
+
+impl RedisOps for UserStream {}
 
 impl Default for UserStream {
     fn default() -> Self {
@@ -43,6 +49,16 @@ impl UserStream {
             UserStreamType::Friends => Friends::get_by_id(user_id, skip, limit)
                 .await?
                 .map(|following| following.0),
+            UserStreamType::MostFollowed => Self::try_from_index_sorted_set(
+                &USER_MOSTFOLLOWED_KEY_PARTS,
+                None,
+                None,
+                skip,
+                limit,
+                Sorting::Descending,
+            )
+            .await?
+            .map(|set| set.into_iter().map(|(user_id, _score)| user_id).collect()),
         };
         match user_ids {
             Some(users) => Self::from_listed_user_ids(&users, viewer_id).await,
@@ -77,5 +93,17 @@ impl UserStream {
         }
 
         Ok(Some(Self(user_views)))
+    }
+
+    /// Adds the post to a Redis sorted set using the follower counts as score.
+    pub async fn add_to_mostfollowed_sorted_set(
+        user_id: &str,
+        counts: &UserCounts,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Self::put_index_sorted_set(
+            &USER_MOSTFOLLOWED_KEY_PARTS,
+            &[(counts.followers as f64, user_id)],
+        )
+        .await
     }
 }

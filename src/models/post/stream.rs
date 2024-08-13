@@ -49,8 +49,8 @@ impl PostStream {
     pub async fn get_global_posts(
         sorting: PostStreamSorting,
         viewer_id: Option<String>,
-        skip: Option<isize>,
-        limit: Option<isize>,
+        skip: Option<usize>,
+        limit: Option<usize>,
     ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
         let posts_sorted_set = match sorting {
             PostStreamSorting::TotalEngagement => {
