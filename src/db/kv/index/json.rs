@@ -183,6 +183,64 @@ pub async fn get<T: DeserializeOwned + Send + Sync>(
     Ok(None)
 }
 
+/// Retrieves a list of JSON values from Redis based on a list of keys.
+///
+/// This function fetches JSON objects from Redis using RedisJSON based on the provided keys.
+///
+/// # Arguments
+///
+/// * `prefix` - A string slice representing the prefix for the Redis keys.
+/// * `keys` - A slice of strings representing the keys under which the values are stored.
+/// * `path` - An optional string slice representing the JSON path from which the value should be retrieved. Defaults to the root path "$".
+///
+/// # Returns
+///
+/// Returns a vector of optional values corresponding to the provided keys.
+///
+/// # Errors
+///
+/// Returns an error if the operation fails.
+pub async fn get_multiple<T: DeserializeOwned + Send + Sync>(
+    prefix: &str,
+    keys: &[impl AsRef<str>],
+    path: Option<&str>,
+) -> Result<Vec<Option<T>>, Box<dyn Error + Send + Sync>> {
+    let mut redis_conn = get_redis_conn().await?;
+    let json_path = path.unwrap_or("$");
+
+    // Generate full keys with prefix
+    let full_keys: Vec<String> = keys
+        .iter()
+        .map(|key| format!("{}:{}", prefix, key.as_ref()))
+        .collect();
+
+    // Fetch values as Option<String> to handle missing keys
+    let indexed_values: Vec<Option<String>> = redis_conn.json_get(&full_keys, json_path).await?;
+
+    // Check if indexed_values is empty. That's an edge case 1 element and it was not found, redis does not return None.
+    let results: Vec<Option<T>> = if indexed_values.is_empty() {
+        (0..keys.len()).map(|_| None).collect()
+    } else {
+        deserialize_values(indexed_values)
+    };
+
+    Ok(results)
+}
+
+// Helper function to deserialize JSON strings to Vec<Option<T>>
+fn deserialize_values<T: DeserializeOwned>(values: Vec<Option<String>>) -> Vec<Option<T>> {
+    values
+        .into_iter()
+        .map(|opt| {
+            opt.and_then(|value_str| {
+                serde_json::from_str::<Vec<T>>(&value_str)
+                    .ok()
+                    .and_then(|vec| vec.into_iter().next())
+            })
+        })
+        .collect()
+}
+
 /// Retrieves a boolean value from Redis.
 ///
 /// # Arguments

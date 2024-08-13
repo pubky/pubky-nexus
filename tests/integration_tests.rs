@@ -1,5 +1,5 @@
 use anyhow::Result;
-use pubky_nexus::models::{tag::post::PostTag, user::UserView};
+use pubky_nexus::models::tag::post::PostTag;
 
 const HOST_URL: &str = "http://localhost:8080";
 
@@ -39,23 +39,24 @@ async fn test_user_endpoint() -> Result<()> {
     assert_eq!(res.status(), 200);
 
     let body = res.json_body()?;
-    let user_profile: UserView = serde_json::from_value(body)?;
-    assert_eq!(user_profile.tags.len(), 3);
-    assert_eq!(
-        user_profile.tags.iter().any(|tag| tag.label == "pkarr"),
-        true,
-        "Ar profile should tagged as 'pkarr'"
-    );
-    assert_eq!(
-        user_profile.tags.iter().any(|tag| tag.label == "synonym"),
-        true,
-        "Ar profile should tagged as 'synonym'"
-    );
-    assert_eq!(
-        user_profile.tags.iter().any(|tag| tag.label == "nonsense"),
-        false,
-        "Ar profile should not tagged as 'nonsense'"
-    );
+    //let user_profile: UserView = serde_json::from_value(body)?;
+    if let Some(tags) = body.get("tags").and_then(|t| t.as_array()) {
+        assert_eq!(tags.len(), 3);
+        assert!(
+            tags.iter().any(|tag| tag["label"] == "pkarr"),
+            "Ar profile should tagged as 'pkarr'"
+        );
+        assert!(
+            tags.iter().any(|tag| tag["label"] == "synonym"),
+            "Ar profile should tagged as 'synonym'"
+        );
+        assert!(
+            !tags.iter().any(|tag| tag["label"] == "nonsense"),
+            "Ar profile should tagged as 'nonsense'"
+        );
+    } else {
+        assert!(false, "Array conversion error");
+    }
 
     // Look for Aldert pk user id using Flavio's viewer id
     let viewer_id = "5g3fwnue819wfdjwiwm8qr35ww6uxxgbzrigrtdgmbi19ksioeoy";
@@ -186,6 +187,7 @@ async fn test_get_details() -> Result<()> {
     assert_eq!(res.status(), 200);
 
     let body = res.json_body()?;
+    println!("body: {}", body);
     assert!(body["name"].is_string());
     assert!(body["bio"].is_string());
     assert!(body["id"].is_string());

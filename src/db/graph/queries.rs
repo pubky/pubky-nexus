@@ -86,6 +86,25 @@ pub fn post_relationships(author_id: &str, post_id: &str) -> Query {
     .param("post_id", post_id)
 }
 
+// Retrieve many users by id
+// We return also id if not we will not get not found users
+pub fn get_users_details_by_ids(user_ids: &[&str]) -> Query {
+    query(
+        "
+        UNWIND $ids AS id
+        OPTIONAL MATCH (user:User {id: id})
+        RETURN 
+            id,
+            CASE 
+                WHEN user IS NOT NULL 
+                    THEN user { .id, .bio, .status, .name, .indexed_at, .links }
+                    ELSE null
+                END AS record
+        ",
+    )
+    .param("ids", user_ids)
+}
+
 /// Retrieve all the tags of the post
 pub fn post_tags(user_id: &str, post_id: &str) -> neo4rs::Query {
     query(
@@ -114,12 +133,6 @@ pub fn post_tags(user_id: &str, post_id: &str) -> neo4rs::Query {
     .param("post_id", post_id)
 }
 
-// Retrive user node by id (pk)
-pub fn get_user_by_id(user_id: &str) -> Query {
-    query("MATCH (u:User {id: $id}) RETURN u").param("id", user_id)
-}
-
-/// Retrieve all the tags of the user
 pub fn user_tags(user_id: &str) -> neo4rs::Query {
     query(
         "
