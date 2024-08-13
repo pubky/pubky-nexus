@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::ops::Deref;
 use utoipa::ToSchema;
 
+pub mod post;
 pub mod user;
-
 // Atomic struct to save in the cache
 #[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
 pub struct Tag {
@@ -23,10 +23,8 @@ impl Default for Tag {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
-#[derive(Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, ToSchema, Default)]
 pub struct Tags(Vec<Tag>);
-
 
 // Implement Deref so TagList can be used like Vec<String>
 impl Deref for Tags {

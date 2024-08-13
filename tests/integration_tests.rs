@@ -1,4 +1,5 @@
 use anyhow::Result;
+use pubky_nexus::models::tag::post::PostTag;
 
 const HOST_URL: &str = "http://localhost:8080";
 
@@ -41,9 +42,18 @@ async fn test_user_endpoint() -> Result<()> {
     //let user_profile: UserView = serde_json::from_value(body)?;
     if let Some(tags) = body.get("tags").and_then(|t| t.as_array()) {
         assert_eq!(tags.len(), 3);
-        assert!(tags.iter().any(|tag| tag["label"] == "pkarr"), "Ar profile should tagged as 'pkarr'");
-        assert!(tags.iter().any(|tag| tag["label"] == "synonym"), "Ar profile should tagged as 'synonym'");
-        assert!(!tags.iter().any(|tag| tag["label"] == "nonsense"), "Ar profile should tagged as 'nonsense'");
+        assert!(
+            tags.iter().any(|tag| tag["label"] == "pkarr"),
+            "Ar profile should tagged as 'pkarr'"
+        );
+        assert!(
+            tags.iter().any(|tag| tag["label"] == "synonym"),
+            "Ar profile should tagged as 'synonym'"
+        );
+        assert!(
+            !tags.iter().any(|tag| tag["label"] == "nonsense"),
+            "Ar profile should tagged as 'nonsense'"
+        );
     } else {
         assert!(false, "Array conversion error");
     }
@@ -224,6 +234,11 @@ async fn test_get_post() -> Result<()> {
     assert_eq!(body["counts"]["reposts"].as_u64(), Some(1));
     assert_eq!(body["bookmark"]["indexed_at"].as_u64(), Some(1721764200));
     assert_eq!(body["bookmark"]["id"], "2Z9PFGC3WWWW0");
+
+    // Panic if tags vector is bigger that 1
+    let post_tag_object = body["tags"][0].clone();
+    let post_tag: PostTag = serde_json::from_value(post_tag_object.clone())?;
+    assert_eq!(post_tag.label, "pubky");
 
     // Test non-existing post
     let res = client
