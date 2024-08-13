@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use super::{Followers, Following, UserView};
+use super::{Followers, Following, Friends, UserFollows, UserView};
 use serde::{Deserialize, Serialize};
 use tokio::task::spawn;
 use utoipa::ToSchema;
@@ -9,6 +9,7 @@ use utoipa::ToSchema;
 pub enum UserStreamType {
     Followers,
     Following,
+    Friends,
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]
@@ -37,6 +38,9 @@ impl UserStream {
                 .await?
                 .map(|followers| followers.0),
             UserStreamType::Following => Following::get_by_id(user_id, skip, limit)
+                .await?
+                .map(|following| following.0),
+            UserStreamType::Friends => Friends::get_by_id(user_id, skip, limit)
                 .await?
                 .map(|following| following.0),
         };

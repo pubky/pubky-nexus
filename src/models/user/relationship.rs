@@ -1,4 +1,4 @@
-use super::Followers;
+use super::{Followers, UserFollows};
 use crate::RedisOps;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
