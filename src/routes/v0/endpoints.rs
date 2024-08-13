@@ -15,6 +15,7 @@ pub const USER_DETAILS_ROUTE: &str = concatcp!(USER_ROUTE, "/details");
 pub const USER_TAGS_ROUTE: &str = concatcp!(USER_ROUTE, "/tags");
 pub const USER_FOLLOWERS_ROUTE: &str = concatcp!(USER_ROUTE, "/followers");
 pub const USER_FOLLOWING_ROUTE: &str = concatcp!(USER_ROUTE, "/following");
+pub const USER_FRIENDS_ROUTE: &str = concatcp!(USER_ROUTE, "/friends");
 
 // Post routes
 const POST_PREFIX: &str = concatcp!(VERSION_ROUTE, "/post");
@@ -30,3 +31,7 @@ const STREAM_PREFIX: &str = concatcp!(VERSION_ROUTE, "/stream");
 pub const STREAM_USERS_ROUTE: &str = concatcp!(STREAM_PREFIX, "/users");
 pub const STREAM_USERS_MOSTFOLLOWED_ROUTE: &str = concatcp!(STREAM_PREFIX, "/users/most-followed");
 pub const STREAM_POSTS_ROUTE: &str = concatcp!(STREAM_PREFIX, "/posts");
+pub const STREAM_POSTS_USER_ROUTE: &str = concatcp!(STREAM_POSTS_ROUTE, "/user/:user_id");
+pub const STREAM_POSTS_REACH_ROUTE: &str = concatcp!(STREAM_POSTS_ROUTE, "/reach");
+pub const STREAM_POSTS_BOOKMARKED_ROUTE: &str =
+    concatcp!(STREAM_POSTS_ROUTE, "/bookmarks/:user_id");

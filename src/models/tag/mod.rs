@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::ops::Deref;
 use utoipa::ToSchema;
 
-pub mod user;
 pub mod post;
+pub mod user;
 // Atomic struct to save in the cache
 #[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
 pub struct Tag {

@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use super::{Followers, Following, UserCounts, UserView};
+use super::{Followers, Following, Friends, UserFollows, UserCounts, UserView};
 use crate::{db::kv::index::sorted_sets::Sorting, RedisOps};
 use serde::{Deserialize, Serialize};
 use tokio::task::spawn;
@@ -12,6 +12,7 @@ const USER_MOSTFOLLOWED_KEY_PARTS: [&str; 2] = ["Users", "MostFollowed"];
 pub enum UserStreamType {
     Followers,
     Following,
+    Friends,
     MostFollowed,
 }
 
@@ -43,6 +44,9 @@ impl UserStream {
                 .await?
                 .map(|followers| followers.0),
             UserStreamType::Following => Following::get_by_id(user_id, skip, limit)
+                .await?
+                .map(|following| following.0),
+            UserStreamType::Friends => Friends::get_by_id(user_id, skip, limit)
                 .await?
                 .map(|following| following.0),
             UserStreamType::MostFollowed => Self::try_from_index_sorted_set(

@@ -1,9 +1,11 @@
 use crate::db::kv::flush::clear_redis;
-use crate::models::user::{Followers, Following};
+use crate::models::post::Bookmark;
+use crate::models::user::{Followers, Following, UserDetails, UserFollows};
+use crate::models::traits::Collection;
 use crate::{
     db::connectors::neo4j::get_neo4j_graph,
     models::post::{PostCounts, PostDetails, PostRelationships},
-    models::user::{UserCounts, UserDetails},
+    models::user::UserCounts,
 };
 use log::info;
 use neo4rs::query;
@@ -19,7 +21,14 @@ pub async fn reindex() {
     let mut user_tasks = JoinSet::new();
     let mut post_tasks = JoinSet::new();
 
-    let user_ids = get_all_user_ids().await.expect("Failed to get user IDs");
+    let user_ids: Vec<String> = get_all_user_ids().await.expect("Failed to get user IDs");
+    let user_ids_refs: Vec<&str> = user_ids.iter().map(|id| id.as_str()).collect();
+
+    UserDetails::from_graph(&user_ids_refs)
+        .await
+        .expect("Failed indexing User Details");
+    //TODO use collections
+
     for user_id in user_ids {
         user_tasks.spawn(async move {
             if let Err(e) = reindex_user(&user_id).await {
@@ -54,7 +63,7 @@ pub async fn reindex() {
 
 async fn reindex_user(user_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tokio::try_join!(
-        UserDetails::get_from_graph(user_id),
+        Bookmark::index_all_from_graph(user_id),
         UserCounts::get_from_graph(user_id),
         Followers::get_from_graph(user_id, Some(0), Some(100)),
         Following::get_from_graph(user_id, Some(0), Some(100)),
