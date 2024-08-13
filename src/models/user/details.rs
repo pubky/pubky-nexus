@@ -1,24 +1,18 @@
-use crate::db::connectors::neo4j::get_neo4j_graph;
+use crate::models::traits::Collection;
 use crate::{queries, RedisOps};
-use chrono::Utc;
-use neo4rs::Node;
-use pkarr::PublicKey;
-use serde::{Deserialize, Serialize};
+use axum::async_trait;
+use neo4rs::Query;
+use serde::{Deserialize, Serialize, Deserializer};
 use utoipa::ToSchema;
+use serde_json;
 
-#[derive(Serialize, Deserialize, ToSchema)]
+/// Represents a user's single link with a title and URL.
+#[derive(Serialize, Deserialize, ToSchema, Default, Clone, Debug)]
 pub struct UserLink {
     title: String,
     url: String,
 }
 
-impl Default for UserLink {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Represents a user's single link with a title and URL.
 impl UserLink {
     pub fn new() -> Self {
         Self {
@@ -28,84 +22,98 @@ impl UserLink {
     }
 }
 
+#[async_trait]
+impl RedisOps for UserDetails {
+    async fn prefix() -> String {
+        String::from("User:Details")
+    }
+}
+
+#[async_trait]
+impl Collection for UserDetails {
+    fn graph_query(id_list: &[&str]) -> Query {
+        queries::get_users_details_by_ids(id_list)
+    }
+}
+
 /// Represents user data with name, bio, image, links, and status.
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema, Default, Clone, Debug)]
 pub struct UserDetails {
     name: String,
     bio: String,
     id: String,
+    #[serde(deserialize_with = "deserialize_user_links")]
     links: Vec<UserLink>,
     status: String,
     indexed_at: i64,
 }
 
-impl Default for UserDetails {
-    fn default() -> Self {
-        Self::new()
-    }
+fn deserialize_user_links<'de, D>(deserializer: D) -> Result<Vec<UserLink>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s: String = String::deserialize(deserializer)?;
+    let urls: Vec<UserLink> = serde_json::from_str(&s).map_err(serde::de::Error::custom)?;
+    Ok(urls)
 }
 
-impl RedisOps for UserDetails {}
-
 impl UserDetails {
-    pub fn new() -> Self {
-        Self {
-            name: String::new(),
-            bio: String::new(),
-            id: String::new(),
-            links: vec![UserLink::new()],
-            status: String::new(),
-            indexed_at: Utc::now().timestamp(),
-        }
-    }
-
     /// Retrieves details by user ID, first trying to get from Redis, then from Neo4j if not found.
     pub async fn get_by_id(
         user_id: &str,
     ) -> Result<Option<UserDetails>, Box<dyn std::error::Error + Send + Sync>> {
-        match Self::try_from_index_json(&[user_id]).await? {
-            Some(details) => Ok(Some(details)),
-            None => Self::get_from_graph(user_id).await,
+        // Delegate to UserDetailsCollection::get_by_ids for single item retrieval
+        let details_collection = Self::get_by_ids(&[user_id]).await?;
+        Ok(details_collection.into_iter().flatten().next())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{setup, Config};
+
+    use super::*;
+
+    const USER_IDS: [&str; 8] = [
+        "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro",
+        "3iwsuz58pgrf7nw4kx8mg3fib1kqyi4oxqmuqxzsau1mpn5weipo",
+        "3qgon1apkcmp63xbqpkrb3zzrja3nq9wou4u5bf7uu8rc9ehfo3y",
+        "nope_it_does_not_exist", // Does not exist
+        "4nacrqeuwh35kwrziy4m376uuyi7czazubgtyog4adm77ayqigxo",
+        "5g3fwnue819wfdjwiwm8qr35ww6uxxgbzrigrtdgmbi19ksioeoy",
+        "4p1qa1ko7wuta4f1qm8io495cqsmefbgfp85wtnm9bj55gqbhjpo",
+        "not_existing_user_id_either", // Does not exist
+    ];
+
+    #[tokio::test]
+    async fn test_get_by_ids_from_redis() {
+        let config = Config::from_env();
+        setup(&config).await;
+
+        let user_details = UserDetails::get_by_ids(&USER_IDS)
+            .await
+            .unwrap();
+        assert_eq!(user_details.len(), USER_IDS.len());
+
+        for details in user_details[0..3].iter() {
+            assert!(details.is_some());
         }
-    }
+        for details in user_details[4..7].iter() {
+            assert!(details.is_some());
+        }
+        assert!(user_details[3].is_none());
+        assert!(user_details[7].is_none());
 
-    async fn from_node(node: &Node) -> Option<Self> {
-        // TODO validation of ID should happen when we WRITE a Post into the graph with the watcher.
-        let id: String = node.get("id").unwrap_or_default();
-        PublicKey::try_from(id.clone()).ok()?;
+        assert_eq!(user_details[0].as_ref().unwrap().name, "Aldert");
+        assert_eq!(user_details[5].as_ref().unwrap().name, "Flavio");
 
-        Some(Self {
-            id,
-            name: node.get("name").unwrap_or_default(),
-            bio: node.get("bio").unwrap_or_default(),
-            status: node.get("status").unwrap_or_default(),
-            links: node.get("links").unwrap_or_default(),
-            indexed_at: node.get("indexed_at").unwrap_or_default(),
-        })
-    }
+        assert_eq!(user_details[5].as_ref().unwrap().links.len(), 4);
+        assert_eq!(user_details[0].as_ref().unwrap().links.len(), 2);
 
-    /// Retrieves the details from Neo4j.
-    pub async fn get_from_graph(
-        user_id: &str,
-    ) -> Result<Option<UserDetails>, Box<dyn std::error::Error + Send + Sync>> {
-        let graph = get_neo4j_graph()?;
-        let query = queries::get_user_by_id(user_id);
-
-        let graph = graph.lock().await;
-        let mut result = graph.execute(query).await?;
-
-        match result.next().await? {
-            Some(row) => {
-                let node: Node = row.get("u")?;
-                match Self::from_node(&node).await {
-                    Some(details) => {
-                        details.put_index_json(&[user_id]).await?;
-                        Ok(Some(details))
-                    }
-                    None => Ok(None),
-                }
+        for (i, details) in user_details.iter().enumerate() {
+            if let Some(details) = details {
+                assert_eq!(details.id, USER_IDS[i]);
             }
-            None => Ok(None),
         }
     }
 }

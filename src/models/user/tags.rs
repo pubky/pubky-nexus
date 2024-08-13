@@ -21,7 +21,7 @@ impl ProfileTag {
         Self {
             label: String::new(),
             count: 0,
-            by: vec![UserDetails::new()],
+            by: vec![UserDetails::default()],
         }
     }
 }

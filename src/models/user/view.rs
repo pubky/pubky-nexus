@@ -22,7 +22,7 @@ impl Default for UserView {
 impl UserView {
     pub fn new() -> Self {
         Self {
-            details: UserDetails::new(),
+            details: UserDetails::default(),
             counts: UserCounts::new(),
             tags: UserTags::default(),
             viewer: Relationship::new(),
