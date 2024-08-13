@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use pubky_nexus::models::user::{Followers, Following};
+use pubky_nexus::models::user::{Followers, Following, UserFollows};
 use pubky_nexus::setup;
 use pubky_nexus::Config;
 use std::env;

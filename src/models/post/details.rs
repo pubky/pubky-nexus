@@ -75,6 +75,7 @@ impl PostDetails {
                 let post = Self::from_node(&node, author_id).await;
                 post.put_index_json(&[author_id, post_id]).await?;
                 PostStream::add_to_timeline_sorted_set(&post).await?;
+                PostStream::add_to_per_user_sorted_set(&post).await?;
                 Ok(Some(post))
             }
             None => Ok(None),

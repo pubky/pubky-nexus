@@ -1,4 +1,5 @@
 use crate::models::post::{PostRelationships, PostView};
+use crate::models::tag::post::{PostTag, PostTags};
 use crate::routes::v0::endpoints::POST_ROUTE;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
@@ -48,6 +49,6 @@ pub async fn post_view_handler(
 #[derive(OpenApi)]
 #[openapi(
     paths(post_view_handler),
-    components(schemas(PostView, PostRelationships))
+    components(schemas(PostView, PostRelationships, PostTags, PostTag))
 )]
 pub struct PostViewApiDoc;

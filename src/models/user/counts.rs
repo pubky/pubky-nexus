@@ -3,6 +3,8 @@ use crate::{queries, RedisOps};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use super::UserStream;
+
 /// Represents total counts of relationships of a user.
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct UserCounts {
@@ -64,6 +66,7 @@ impl UserCounts {
                 tags: row.get("tags_count").unwrap_or_default(),
             };
             counts.put_index_json(&[user_id]).await?;
+            UserStream::add_to_mostfollowed_sorted_set(user_id, &counts).await?;
             Ok(Some(counts))
         } else {
             Ok(None)

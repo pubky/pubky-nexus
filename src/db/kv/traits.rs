@@ -336,8 +336,8 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         key_parts: &[&str],
         start: Option<f64>,
         end: Option<f64>,
-        skip: Option<isize>,
-        limit: Option<isize>,
+        skip: Option<usize>,
+        limit: Option<usize>,
         sorting: Sorting,
     ) -> Result<Option<Vec<(String, f64)>>, Box<dyn Error + Send + Sync>> {
         let key = key_parts.join(":");
