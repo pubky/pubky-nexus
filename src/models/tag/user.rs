@@ -37,11 +37,14 @@ impl UserTags {
     async fn get_from_graph(
         user_id: &str,
     ) -> Result<Option<UserTags>, Box<dyn std::error::Error + Send + Sync>> {
-        let query = queries::user_tags(user_id);
-        let graph = get_neo4j_graph()?;
+        let mut result;
+        {
+            let query = queries::user_tags(user_id);
+            let graph = get_neo4j_graph()?;
 
-        let graph = graph.lock().await;
-        let mut result = graph.execute(query).await?;
+            let graph = graph.lock().await;
+            result = graph.execute(query).await?;
+        }
 
         if let Some(row) = result.next().await? {
             let user_exists: bool = row.get("user_exists").unwrap_or(false);

@@ -46,11 +46,14 @@ impl PostCounts {
         author_id: &str,
         post_id: &str,
     ) -> Result<Option<PostCounts>, Box<dyn std::error::Error + Send + Sync>> {
-        let graph = get_neo4j_graph()?;
-        let query = queries::post_counts(author_id, post_id);
+        let mut result;
+        {
+            let graph = get_neo4j_graph()?;
+            let query = queries::post_counts(author_id, post_id);
 
-        let graph = graph.lock().await;
-        let mut result = graph.execute(query).await?;
+            let graph = graph.lock().await;
+            result = graph.execute(query).await?;
+        }
 
         if let Some(row) = result.next().await? {
             if !row.get("post_exists").unwrap_or(false) {
