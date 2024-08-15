@@ -6,6 +6,7 @@ use utoipa::OpenApi;
 mod bookmark;
 mod counts;
 mod details;
+mod thread;
 mod view;
 
 pub fn routes() -> Router {
@@ -14,6 +15,7 @@ pub fn routes() -> Router {
         endpoints::POST_DETAILS_ROUTE => details::post_details_handler,
         endpoints::POST_COUNTS_ROUTE => counts::post_counts_handler,
         endpoints::POST_BOOKMARK_ROUTE => bookmark::post_bookmark_handler,
+        endpoints::THREAD_ROUTE => thread::thread_handler,
     )
 }
 
@@ -27,6 +29,7 @@ impl PostApiDoc {
         combined.merge(counts::PostCountsApiDoc::openapi());
         combined.merge(bookmark::BookmarkApiDoc::openapi());
         combined.merge(details::PostDetailsApiDoc::openapi());
+        combined.merge(thread::ThreadViewApiDoc::openapi());
         combined
     }
 }

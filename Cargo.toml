@@ -69,6 +69,10 @@ harness = false
 name = "stream"
 harness = false
 
+[[bench]]
+name = "thread"
+harness = false
+
 
 # Max performance profile
 [profile.release]
