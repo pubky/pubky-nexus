@@ -48,11 +48,14 @@ impl UserCounts {
     pub async fn get_from_graph(
         user_id: &str,
     ) -> Result<Option<UserCounts>, Box<dyn std::error::Error + Send + Sync>> {
-        let graph = get_neo4j_graph()?;
-        let query = queries::user_counts(user_id);
+        let mut result;
+        {
+            let graph = get_neo4j_graph()?;
+            let query = queries::user_counts(user_id);
 
-        let graph = graph.lock().await;
-        let mut result = graph.execute(query).await?;
+            let graph = graph.lock().await;
+            result = graph.execute(query).await?;
+        }
 
         if let Some(row) = result.next().await? {
             if !row.get("user_exists").unwrap_or(false) {
