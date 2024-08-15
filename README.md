@@ -67,6 +67,11 @@ cp .env-sample .env
 docker-compose up -d
 ```
 
+### Swagger UI
+
+- http://localhost:8080/swagger-ui/
+
+
 ### Real time explore the databases
 
 - Redis: http://localhost:8001/redis-stack/browser
