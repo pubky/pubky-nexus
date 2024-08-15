@@ -26,6 +26,10 @@ pub const POST_COUNTS_ROUTE: &str = concatcp!(POST_ROUTE, "/counts");
 pub const POST_DETAILS_ROUTE: &str = concatcp!(POST_ROUTE, "/details");
 pub const POST_TAGS_ROUTE: &str = concatcp!(POST_ROUTE, "/tags");
 
+// Thread routes
+const THREAD_PREFIX: &str = concatcp!(VERSION_ROUTE, "/thread");
+pub const THREAD_ROUTE: &str = concatcp!(THREAD_PREFIX, "/:author_id/:post_id");
+
 // Stream routes
 const STREAM_PREFIX: &str = concatcp!(VERSION_ROUTE, "/stream");
 pub const STREAM_USERS_ROUTE: &str = concatcp!(STREAM_PREFIX, "/users");

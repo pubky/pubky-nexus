@@ -209,19 +209,19 @@ pub fn get_user_following(user_id: &str, skip: Option<usize>, limit: Option<usiz
     query(&query_string).param("user_id", user_id)
 }
 
-pub fn get_thread_with_replies(author_id: &str, post_id: &str, skip: usize, limit: usize) -> Query {
+pub fn get_thread(author_id: &str, post_id: &str, skip: usize, limit: usize) -> Query {
     query(
         "
         MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
         CALL {
             WITH p
-            // Recursively get all replies and replies to replies
-            MATCH (p)<-[:REPLIED*]-(reply:Post)
-            RETURN reply
+            // Recursively get all replies and their authors
+            MATCH (reply_author:User)-[:AUTHORED]->(reply:Post)-[:REPLIED*]->(p)
+            RETURN reply, reply_author
             ORDER BY reply.indexed_at ASC
             SKIP $skip LIMIT $limit
         }
-        RETURN p AS root_post, collect(reply) AS replies
+        RETURN p AS root_post, collect({reply_id: reply.id, author_id: reply_author.id}) AS replies
         ",
     )
     .param("author_id", author_id)

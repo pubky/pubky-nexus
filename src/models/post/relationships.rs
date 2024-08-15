@@ -61,13 +61,13 @@ impl PostRelationships {
 
             let replied = match (replied_author_id, replied_post_id) {
                 (Some(author_id), Some(post_id)) => {
-                    Some(format!("pubky:{author_id}/pubky.app/posts/{post_id}"))
+                    Some(format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}"))
                 }
                 _ => None,
             };
             let reposted = match (reposted_author_id, reposted_post_id) {
                 (Some(author_id), Some(post_id)) => {
-                    Some(format!("pubky:{author_id}/pubky.app/posts/{post_id}"))
+                    Some(format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}"))
                 }
                 _ => None,
             };
