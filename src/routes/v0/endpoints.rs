@@ -35,3 +35,5 @@ pub const STREAM_POSTS_USER_ROUTE: &str = concatcp!(STREAM_POSTS_ROUTE, "/user/:
 pub const STREAM_POSTS_REACH_ROUTE: &str = concatcp!(STREAM_POSTS_ROUTE, "/reach");
 pub const STREAM_POSTS_BOOKMARKED_ROUTE: &str =
     concatcp!(STREAM_POSTS_ROUTE, "/bookmarks/:user_id");
+pub const STREAM_TAGS_ROUTE: &str  = concatcp!(STREAM_PREFIX, "/tags");
+pub const STREAM_TAGS_HOT_ROUTE: &str  = concatcp!(STREAM_TAGS_ROUTE, "/hot");
