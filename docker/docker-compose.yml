@@ -25,7 +25,7 @@ services:
       NEO4J_server_memory_pagecache_size: 1G
       NEO4J_server_memory_heap_initial__size: 2G
       NEO4J_server_memory_heap_max__size: 2G
-      NEO4J_apoc_uuid_enabled: false
+      # NEO4J_apoc_uuid_enabled: false
 
   redis:
     image: redis/redis-stack:7.2.0-v11
