@@ -39,16 +39,32 @@ For auto re-build on save and testing while developing `/service` :
 ```bash
 cargo install cargo-watch
 
+# Copy the .env.example to .env
+cp .env-sample .env
+
 # Ideally in two terminals.
 # On terminal 1 run:
 cargo watch -q -c -w src/ -x run
-# You can check the running service on your browser on localhost:8080/info
+# You can check the running service on your browser on localhost:8080/v0/info
 
 # On terminal 2 run (for tests to work you need a working /neo4j-example instance with example dataset)
 cargo watch -q -c -w tests/ -x "test -- --nocapture"
 
 # Run benchmarks (e.g., get user by ID benchmark)
 cargo bench --bench user get_user_view_by_id
+```
+
+### Run docker-compose for Redis and Neo4J
+
+```bash
+# Go to the docker directory
+cd docker
+
+# Copy the .env.example to .env
+cp .env-sample .env
+
+# Start the services
+docker-compose up -d
 ```
 
 ### Real time explore the databases
