@@ -208,3 +208,24 @@ pub fn get_user_following(user_id: &str, skip: Option<usize>, limit: Option<usiz
     }
     query(&query_string).param("user_id", user_id)
 }
+
+pub fn get_thread_with_replies(author_id: &str, post_id: &str, skip: usize, limit: usize) -> Query {
+    query(
+        "
+        MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+        CALL {
+            WITH p
+            // Recursively get all replies and replies to replies
+            MATCH (p)<-[:REPLIED*]-(reply:Post)
+            RETURN reply
+            ORDER BY reply.indexed_at ASC
+            SKIP $skip LIMIT $limit
+        }
+        RETURN p AS root_post, collect(reply) AS replies
+        ",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
+    .param("skip", skip as i64)
+    .param("limit", limit as i64)
+}
