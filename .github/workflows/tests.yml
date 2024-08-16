@@ -13,16 +13,6 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
-    services:
-      docker:
-        image: docker:stable-dind
-        options: --privileged
-        ports:
-          - 7474:7474
-          - 7687:7687
-          - 6379:6379
-          - 8001:8001
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
