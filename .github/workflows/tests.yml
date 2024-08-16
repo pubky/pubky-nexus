@@ -65,7 +65,6 @@ jobs:
           done
 
       - name: Create example graph
-        working-directory: docker
         run: docker exec neo4j bash /db-migration/run-queries.sh
 
       - name: Run the service
