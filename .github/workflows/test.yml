@@ -51,12 +51,12 @@ jobs:
 
       - name: Wait for services to be ready
         run: |
-          until curl -sS http://localhost:7474; do
-            echo "Waiting for Neo4j to be ready..."
-            sleep 1
-          done
           until nc -zv 127.0.0.1 6379; do
             echo "Waiting for Redis to be ready..."
+            sleep 1
+          done
+          until curl -sS http://localhost:7474; do
+            echo "Waiting for Neo4j to be ready..."
             sleep 1
           done
 
@@ -66,11 +66,15 @@ jobs:
       # - name: Install dependencies
       #   run: cargo build --release
 
-      - name: Run the service
-        run: cargo run &
-
-      - name: Run tests
+      - name: Run the service and redirect output to a log file
+        run: cargo run > service.log 2>&1 &
+        
+      - name: Run integration tests
         run: cargo test
+
+      - name: Show service logs if tests fail
+        if: failure()
+        run: cat service.log
 
       - name: Tear down Docker Compose
         if: always()
