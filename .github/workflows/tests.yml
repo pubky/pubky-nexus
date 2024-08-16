@@ -43,9 +43,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-build-
 
-      - name: Install dependencies
-        run: cargo build --release
-
       - name: Copy environment variables
         run: cp .env-sample .env
 
@@ -66,6 +63,9 @@ jobs:
 
       - name: Create example graph
         run: docker exec neo4j bash /db-migration/run-queries.sh
+
+      - name: Install dependencies
+        run: cargo build --release
 
       - name: Run the service
         run: ./target/release/service &
