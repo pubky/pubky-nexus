@@ -1,6 +1,10 @@
 name: Tests
 
 on:
+  workflow_dispatch:
+  workflow_call:
+  push:
+    branches: ["main"]
   pull_request:
     branches:
       - main
@@ -55,7 +59,8 @@ jobs:
         run: cp .env-sample .env
 
       - name: Set up Docker Compose
-        run: docker-compose -f ./docker/docker-compose.yml up -d
+        working-directory: docker
+        run: docker compose --env-file .env-sample up -d
 
       - name: Wait for services to be ready
         run: |
@@ -76,4 +81,5 @@ jobs:
 
       - name: Tear down Docker Compose
         if: always()
-        run: docker-compose -f ./docker/docker-compose.yml down
+        working-directory: docker
+        run: docker-compose down --volumes
