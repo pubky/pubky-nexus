@@ -72,12 +72,6 @@ jobs:
       - name: Run tests
         run: cargo test
 
-      - name: Run clippy
-        run: cargo clippy -- -D warnings # Fail on clippy warnings
-
-      - name: Run cargo fmt
-        run: cargo fmt -- --check # Fail if code is not formatted
-
       - name: Tear down Docker Compose
         if: always()
         working-directory: docker

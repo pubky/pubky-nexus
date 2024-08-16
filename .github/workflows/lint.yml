@@ -1,4 +1,4 @@
-name: Lint
+name: Lint Check
 
 on:
   workflow_dispatch:
@@ -10,9 +10,9 @@ on:
       - main
 
 jobs:
-  test:
+  lint:
     runs-on: ubuntu-latest
-    timeout-minutes: 4
+    timeout-minutes: 10
 
     steps:
       - name: Checkout repository
@@ -45,6 +45,3 @@ jobs:
 
       - name: Run clippy
         run: cargo clippy -- -D warnings # Fail on clippy warnings
-
-      - name: Run cargo fmt
-        run: cargo fmt -- --check # Fail if code is not formatted

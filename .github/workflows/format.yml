@@ -1,4 +1,4 @@
-name: Format
+name: Format Check
 
 on:
   workflow_dispatch:
@@ -10,7 +10,7 @@ on:
       - main
 
 jobs:
-  test:
+  format:
     runs-on: ubuntu-latest
     timeout-minutes: 4
 
@@ -26,22 +26,6 @@ jobs:
           profile: minimal
           components: rustfmt
           override: true
-
-      - name: Cache Cargo registry
-        uses: actions/cache@v3
-        with:
-          path: ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-registry-
-
-      - name: Cache Cargo build
-        uses: actions/cache@v3
-        with:
-          path: target
-          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-build-
 
       - name: Run cargo fmt
         run: cargo fmt -- --check # Fail if code is not formatted
