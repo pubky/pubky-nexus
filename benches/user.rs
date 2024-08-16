@@ -1,8 +1,6 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use pubky_nexus::models::traits::Collection;
-use pubky_nexus::models::user::{
-    Relationship, UserCounts, UserDetails, UserView,
-};
+use pubky_nexus::models::user::{Relationship, UserCounts, UserDetails, UserView};
 use pubky_nexus::setup;
 use pubky_nexus::Config;
 use std::env;

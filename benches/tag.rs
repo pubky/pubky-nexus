@@ -56,7 +56,10 @@ fn bench_get_post_tags(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
 
     c.bench_with_input(
-        BenchmarkId::new("bench_get_post_tags", format!("user_id: {}, post_id: {}", user_id, post_id)),
+        BenchmarkId::new(
+            "bench_get_post_tags",
+            format!("user_id: {}, post_id: {}", user_id, post_id),
+        ),
         &[user_id, post_id],
         |b, &params| {
             b.to_async(&rt).iter(|| async {

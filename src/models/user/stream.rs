@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use super::{Followers, Following, Friends, UserFollows, UserCounts, UserView};
+use super::{Followers, Following, Friends, UserCounts, UserFollows, UserView};
 use crate::{db::kv::index::sorted_sets::Sorting, RedisOps};
 use serde::{Deserialize, Serialize};
 use tokio::task::spawn;
