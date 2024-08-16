@@ -23,7 +23,8 @@ pub struct StreamApiDoc;
 
 impl StreamApiDoc {
     pub fn merge_docs() -> utoipa::openapi::OpenApi {
-        users::StreamUsersApiDocs::openapi();
-        posts::StreamPostsApiDocs::openapi()
+        let mut combined = users::StreamUsersApiDocs::openapi();
+        combined.merge(posts::StreamPostsApiDocs::openapi());
+        combined
     }
 }
