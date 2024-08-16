@@ -1,0 +1,79 @@
+name: Tests
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      docker:
+        image: docker:stable-dind
+        options: --privileged
+        ports:
+          - 7474:7474
+          - 7687:7687
+          - 6379:6379
+          - 8001:8001
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: x86_64-unknown-linux-gnu
+          profile: minimal
+          components: rustfmt, clippy
+          override: true
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache Cargo build
+        uses: actions/cache@v3
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-build-
+
+      - name: Build and run debug 
+        run: cargo run
+
+      - name: Copy environment variables
+        run: cp .env-sample .env
+
+      - name: Set up Docker Compose
+        run: docker-compose -f ./docker/docker-compose.yml up -d
+
+      - name: Wait for services to be ready
+        run: |
+          until curl -sS http://localhost:7474; do
+            echo "Waiting for Neo4j to be ready..."
+            sleep 10
+          done
+          until redis-cli -p 6379 ping | grep "PONG"; do
+            echo "Waiting for Redis to be ready..."
+            sleep 10
+          done
+
+      - name: Run the service
+        run: cargo run &
+
+      - name: Run tests
+        run: cargo test
+
+      - name: Tear down Docker Compose
+        if: always()
+        run: docker-compose -f ./docker/docker-compose.yml down
