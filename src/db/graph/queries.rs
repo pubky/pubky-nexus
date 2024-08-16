@@ -211,18 +211,18 @@ pub fn get_user_following(user_id: &str, skip: Option<usize>, limit: Option<usiz
 
 // Retrieves popular tags across the entire network
 // Results ordered by usage count (descending), effectively ranking "hot" tags.
-pub fn get_post_hot_tags() -> Query {
+pub fn get_global_hot_tags() -> Query {
     query("
         MATCH (u:User)-[tag:TAGGED]->(Post)
-        WITH tag.label AS label, u.id AS userId
-        WITH label, COLLECT(DISTINCT userId) AS userIds, COUNT(*) AS times
-        RETURN {
+        WITH tag.label AS label, COUNT(*) AS times, COLLECT(DISTINCT u.id) AS userIds
+        WITH {
             label: label,
             times: times,
-            userIds: userIds
-        } AS hot_tags
-        ORDER BY times DESC"
-    )
+            user_ids: userIds
+        } AS hot_tag
+        ORDER BY hot_tag.times DESC
+        RETURN COLLECT(hot_tag) AS hot_tags
+    ")
 }
 
 // Analyzes tag usage for a specific list of user IDs. Groups tags by name,
@@ -235,12 +235,12 @@ pub fn get_tags_from_user_ids(user_ids: &[&str]) -> Query {
         MATCH (u:User)-[tag:TAGGED]->(Post)
         WHERE u.id = id
         WITH tag.label AS label, COLLECT(DISTINCT u.id) AS tagUsers, COUNT(*) AS times
-            RETURN {
-                label: label,
-                userCount: size(tagUsers),
-                users: tagUsers,
-                times: times
-            } AS result
+        RETURN {
+            label: label,
+            userCount: size(tagUsers),
+            users: tagUsers,
+            times: times
+        } AS result
         ORDER BY size(tagUsers) DESC, times DESC
     ")
     .param("ids", user_ids)

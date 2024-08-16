@@ -5,6 +5,8 @@ use utoipa::ToSchema;
 
 pub mod post;
 pub mod user;
+pub mod stream;
+
 // Atomic struct to save in the cache
 #[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
 pub struct Tag {

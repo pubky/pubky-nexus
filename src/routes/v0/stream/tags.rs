@@ -1,24 +1,28 @@
-use crate::routes::v0::endpoints::STREAM_TAGS_HOT_ROUTE;
+use crate::models::tag::stream::StreamTags;
+use crate::routes::v0::endpoints::STREAM_TAGS_GLOBAL_ROUTE;
 use crate::{Error, Result};
-use axum::extract::Query;
 use axum::Json;
 use log::info;
-use serde::Deserialize;
 use utoipa::OpenApi;
 
 #[utoipa::path(
     get,
-    path = STREAM_TAGS_HOT_ROUTE,
+    path = STREAM_TAGS_GLOBAL_ROUTE,
     tag = "Posts hot tags",
     responses(
-        (status = 200, description = "Post hot tags stream", body = PostStream),
+        (status = 200, description = "Retrieve hot tags stream", body = StreamTags),
         (status = 404, description = "Hot tags not found"),
         (status = 500, description = "Internal server error")
     )
 )]
-pub async fn stream_hot_tags_handler() {
-    info!("GET {STREAM_TAGS_HOT_ROUTE}");
-
+pub async fn stream_hot_tags_handler() -> Result<Json<Vec<StreamTags>>>{
+    info!("GET {STREAM_TAGS_GLOBAL_ROUTE}");
+    
+    match StreamTags::get_global_tags_stream().await {
+        Ok(Some(hot_tags)) => Ok(Json(hot_tags)),
+        Ok(None) => Err(Error::TagsNotFound { reach: String::from("GLOBAL") }),
+        Err(source) => Err(Error::InternalServerError { source }),
+    }
 }
 
 #[derive(OpenApi)]
@@ -26,6 +30,6 @@ pub async fn stream_hot_tags_handler() {
     paths(
         stream_hot_tags_handler
     ),
-    components(schemas())
+    components(schemas(StreamTags))
 )]
 pub struct StreamTagsApiDocs;
