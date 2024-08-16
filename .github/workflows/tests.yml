@@ -48,8 +48,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-build-
 
-      - name: Build and run debug 
-        run: cargo run
+      - name: Install dependencies
+        run: cargo build --release
 
       - name: Copy environment variables
         run: cp .env-sample .env
@@ -69,7 +69,7 @@ jobs:
           done
 
       - name: Run the service
-        run: cargo run &
+        run: ./target/release/service &
 
       - name: Run tests
         run: cargo test
