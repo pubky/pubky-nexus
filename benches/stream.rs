@@ -115,7 +115,6 @@ fn bench_stream_posts_total_engagement(c: &mut Criterion) {
     });
 }
 
-
 fn bench_stream_most_followed(c: &mut Criterion) {
     println!("***************************************");
     println!("Benchmarking the user streams for most followed users.");
@@ -131,11 +130,10 @@ fn bench_stream_most_followed(c: &mut Criterion) {
                     .await
                     .unwrap();
             criterion::black_box(user_stream);
-            });
-        },
-    );
+        });
+    });
 }
-  
+
 fn bench_stream_user_posts(c: &mut Criterion) {
     println!("***************************************");
     println!("Benchmarking the post streams for a specific user.");

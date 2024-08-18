@@ -2,9 +2,9 @@ use crate::models::traits::Collection;
 use crate::{queries, RedisOps};
 use axum::async_trait;
 use neo4rs::Query;
-use serde::{Deserialize, Serialize, Deserializer};
-use utoipa::ToSchema;
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json;
+use utoipa::ToSchema;
 
 /// Represents a user's single link with a title and URL.
 #[derive(Serialize, Deserialize, ToSchema, Default, Clone, Debug)]
@@ -90,9 +90,7 @@ mod tests {
         let config = Config::from_env();
         setup(&config).await;
 
-        let user_details = UserDetails::get_by_ids(&USER_IDS)
-            .await
-            .unwrap();
+        let user_details = UserDetails::get_by_ids(&USER_IDS).await.unwrap();
         assert_eq!(user_details.len(), USER_IDS.len());
 
         for details in user_details[0..3].iter() {
