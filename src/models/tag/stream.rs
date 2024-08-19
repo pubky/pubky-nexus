@@ -7,14 +7,14 @@ use crate::{db::connectors::neo4j::get_neo4j_graph, queries};
 use crate::models::user::{UserStream, UserStreamType};
 
 #[derive(Deserialize, Serialize, ToSchema, Debug)]
-pub struct StreamTags {
+pub struct StreamTag {
     times: u64,
     label: String,
     tagger_ids: Vec<String>,
     post_count: u64
 }
 
-impl StreamTags {
+impl StreamTag {
     pub async fn get_global_tags_stream() -> Result<Option<Vec<Self>>, Box<dyn Error + Send + Sync>>{
         let query = queries::get_global_hot_tags();
         Self::retrieve_hot_tags(query).await
@@ -43,7 +43,7 @@ impl StreamTags {
             result = graph.execute(query).await?;
         }
         if let Some(row) = result.next().await? {
-            let hot_tags: Vec<StreamTags> = row.get("hot_tags")?;
+            let hot_tags: Vec<StreamTag> = row.get("hot_tags")?;
             return Ok(Some(hot_tags));
         }
         Ok(None)

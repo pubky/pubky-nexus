@@ -88,6 +88,7 @@ impl UserStream {
         .await
     }
 
+    // Get list of users based on the specified reach type 
     pub async fn get_user_list_from_reach(
         user_id: &str,
         list_type: UserStreamType,
