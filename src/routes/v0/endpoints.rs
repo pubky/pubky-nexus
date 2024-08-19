@@ -33,6 +33,8 @@ pub const THREAD_ROUTE: &str = concatcp!(THREAD_PREFIX, "/:author_id/:post_id");
 // Stream routes
 const STREAM_PREFIX: &str = concatcp!(VERSION_ROUTE, "/stream");
 pub const STREAM_USERS_ROUTE: &str = concatcp!(STREAM_PREFIX, "/users");
+pub const STREAM_USERS_USERNAME_SEARCH_ROUTE: &str =
+    concatcp!(STREAM_USERS_ROUTE, "/username-search");
 pub const STREAM_USERS_MOSTFOLLOWED_ROUTE: &str = concatcp!(STREAM_PREFIX, "/users/most-followed");
 pub const STREAM_POSTS_ROUTE: &str = concatcp!(STREAM_PREFIX, "/posts");
 pub const STREAM_POSTS_USER_ROUTE: &str = concatcp!(STREAM_POSTS_ROUTE, "/user/:user_id");

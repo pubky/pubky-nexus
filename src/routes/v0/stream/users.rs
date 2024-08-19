@@ -1,5 +1,7 @@
 use crate::models::user::{UserStream, UserStreamType};
-use crate::routes::v0::endpoints::{STREAM_USERS_MOSTFOLLOWED_ROUTE, STREAM_USERS_ROUTE};
+use crate::routes::v0::endpoints::{
+    STREAM_USERS_MOSTFOLLOWED_ROUTE, STREAM_USERS_ROUTE, STREAM_USERS_USERNAME_SEARCH_ROUTE,
+};
 use crate::{Error, Result};
 use axum::extract::Query;
 use axum::Json;
@@ -67,6 +69,66 @@ pub async fn stream_users_handler(
     }
 }
 
+#[derive(Deserialize)]
+
+pub struct UserStreamSearchQuery {
+    username: String,
+    viewer_id: Option<String>,
+    skip: Option<usize>,
+    limit: Option<usize>,
+}
+
+#[utoipa::path(
+    get,
+    path = STREAM_USERS_USERNAME_SEARCH_ROUTE,
+    tag = "Stream of Users by Username Search Result",
+    params(
+        ("username" = String, Query, description = "Username to search for"),
+        ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
+        ("skip" = Option<usize>, Query, description = "Skip N users"),
+        ("limit" = Option<usize>, Query, description = "Retrieve N users")
+    ),
+    responses(
+        (status = 200, description = "Username search stream", body = UserStream),
+        (status = 400, description = "Bad Request"),
+        (status = 404, description = "No users found"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn stream_username_search_handler(
+    Query(query): Query<UserStreamSearchQuery>,
+) -> Result<Json<UserStream>> {
+    let username = query.username.trim();
+    if username.is_empty() {
+        return Err(Error::InvalidInput {
+            message: "Username cannot be empty".to_string(),
+        });
+    }
+
+    let skip = query.skip.unwrap_or(0);
+    let limit = query.limit.unwrap_or(20);
+
+    info!(
+        "GET {STREAM_USERS_USERNAME_SEARCH_ROUTE}?username={}",
+        username
+    );
+
+    match UserStream::get_from_username_search(
+        username,
+        query.viewer_id.as_deref(),
+        Some(skip),
+        Some(limit),
+    )
+    .await
+    {
+        Ok(Some(stream)) => Ok(Json(stream)),
+        Ok(None) => Err(Error::UserNotFound {
+            user_id: "No users found for this username".to_string(),
+        }),
+        Err(source) => Err(Error::InternalServerError { source }),
+    }
+}
+
 #[utoipa::path(
     get,
     path = STREAM_USERS_MOSTFOLLOWED_ROUTE,
@@ -109,7 +171,11 @@ pub async fn stream_most_followed_users_handler(
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(stream_users_handler, stream_most_followed_users_handler),
+    paths(
+        stream_users_handler,
+        stream_most_followed_users_handler,
+        stream_username_search_handler
+    ),
     components(schemas(UserStream, UserStreamType))
 )]
 pub struct StreamUsersApiDocs;

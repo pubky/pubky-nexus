@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use super::{Followers, Following, Friends, UserCounts, UserFollows, UserView};
+use super::{Followers, Following, Friends, UserCounts, UserFollows, UserSearch, UserView};
 use crate::{db::kv::index::sorted_sets::Sorting, RedisOps};
 use serde::{Deserialize, Serialize};
 use tokio::task::spawn;
@@ -50,6 +50,22 @@ impl UserStream {
             .await?
             .map(|set| set.into_iter().map(|(user_id, _score)| user_id).collect()),
         };
+        match user_ids {
+            Some(users) => Self::from_listed_user_ids(&users, viewer_id).await,
+            None => Ok(None),
+        }
+    }
+
+    pub async fn get_from_username_search(
+        username: &str,
+        viewer_id: Option<&str>,
+        skip: Option<usize>,
+        limit: Option<usize>,
+    ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
+        let user_ids = UserSearch::get_by_name(username, skip, limit)
+            .await?
+            .map(|result| result.0);
+
         match user_ids {
             Some(users) => Self::from_listed_user_ids(&users, viewer_id).await,
             None => Ok(None),

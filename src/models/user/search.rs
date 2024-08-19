@@ -8,7 +8,7 @@ use utoipa::ToSchema;
 const USER_NAME_KEY_PARTS: [&str; 2] = ["Users", "Name"];
 
 #[derive(Serialize, Deserialize, ToSchema, Default)]
-pub struct UserSearch(Vec<String>);
+pub struct UserSearch(pub Vec<String>);
 
 impl RedisOps for UserSearch {}
 
