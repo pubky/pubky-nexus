@@ -73,6 +73,10 @@ harness = false
 name = "thread"
 harness = false
 
+[[bench]]
+name = "search"
+harness = false
+
 
 # Max performance profile
 [profile.release]
