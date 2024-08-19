@@ -1069,7 +1069,7 @@ async fn test_search_non_existing_user() -> Result<()> {
         body["error"]
             .as_str()
             .unwrap_or("")
-            .contains(&non_existing_username),
+            .contains(non_existing_username),
         "Error message should mention the non-existing username"
     );
 

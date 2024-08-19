@@ -233,6 +233,31 @@ fn bench_stream_posts_friends_reach(c: &mut Criterion) {
     });
 }
 
+fn bench_stream_users_by_username_search(c: &mut Criterion) {
+    println!("***************************************");
+    println!("Benchmarking the user streams by username search.");
+    println!("***************************************");
+
+    run_setup();
+
+    let username = "An"; // Match all anonymous profiles
+    let rt = Runtime::new().unwrap();
+
+    c.bench_function("stream_users_by_username_search", |b| {
+        b.to_async(&rt).iter(|| async {
+            let user_stream = UserStream::get_from_username_search(
+                username,
+                None,
+                None,
+                Some(40), // Limit to 40 results
+            )
+            .await
+            .unwrap();
+            criterion::black_box(user_stream);
+        });
+    });
+}
+
 fn configure_criterion() -> Criterion {
     Criterion::default()
         .measurement_time(Duration::new(5, 0))
@@ -252,6 +277,7 @@ criterion_group! {
               bench_stream_posts_following_reach,
               bench_stream_posts_followers_reach,
               bench_stream_posts_friends_reach,
+              bench_stream_users_by_username_search,
 }
 
 criterion_main!(benches);
