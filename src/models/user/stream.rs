@@ -8,7 +8,8 @@ use utoipa::ToSchema;
 
 const USER_MOSTFOLLOWED_KEY_PARTS: [&str; 2] = ["Users", "MostFollowed"];
 
-#[derive(Deserialize, ToSchema)]
+// TODO: Add in a common folder and maybe renamed
+#[derive(Deserialize, ToSchema, Debug)]
 pub enum UserStreamType {
     Followers,
     Following,
@@ -39,27 +40,7 @@ impl UserStream {
         limit: Option<usize>,
         list_type: UserStreamType,
     ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
-        let user_ids = match list_type {
-            UserStreamType::Followers => Followers::get_by_id(user_id, skip, limit)
-                .await?
-                .map(|followers| followers.0),
-            UserStreamType::Following => Following::get_by_id(user_id, skip, limit)
-                .await?
-                .map(|following| following.0),
-            UserStreamType::Friends => Friends::get_by_id(user_id, skip, limit)
-                .await?
-                .map(|following| following.0),
-            UserStreamType::MostFollowed => Self::try_from_index_sorted_set(
-                &USER_MOSTFOLLOWED_KEY_PARTS,
-                None,
-                None,
-                skip,
-                limit,
-                Sorting::Descending,
-            )
-            .await?
-            .map(|set| set.into_iter().map(|(user_id, _score)| user_id).collect()),
-        };
+        let user_ids = Self::get_user_list_from_reach(user_id, list_type, skip, limit).await?;
         match user_ids {
             Some(users) => Self::from_listed_user_ids(&users, viewer_id).await,
             None => Ok(None),
@@ -105,5 +86,35 @@ impl UserStream {
             &[(counts.followers as f64, user_id)],
         )
         .await
+    }
+
+    pub async fn get_user_list_from_reach(
+        user_id: &str,
+        list_type: UserStreamType,
+        skip: Option<usize>,
+        limit: Option<usize>
+    ) -> Result<Option<Vec<String>>, Box<dyn Error + Send + Sync>> {
+        let user_ids = match list_type {
+            UserStreamType::Followers => Followers::get_by_id(user_id, skip, limit)
+                .await?
+                .map(|followers| followers.0),
+            UserStreamType::Following => Following::get_by_id(user_id, skip, limit)
+                .await?
+                .map(|following| following.0),
+            UserStreamType::Friends => Friends::get_by_id(user_id, skip, limit)
+                .await?
+                .map(|following| following.0),
+            UserStreamType::MostFollowed => Self::try_from_index_sorted_set(
+                &USER_MOSTFOLLOWED_KEY_PARTS,
+                None,
+                None,
+                skip,
+                limit,
+                Sorting::Descending,
+            )
+            .await?
+            .map(|set| set.into_iter().map(|(user_id, _score)| user_id).collect()),
+        };
+        Ok(user_ids)
     }
 }
