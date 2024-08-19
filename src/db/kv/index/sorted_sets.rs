@@ -104,7 +104,7 @@ pub async fn get_range(
 /// * `min` - The minimum lexicographical bound (inclusive).
 /// * `max` - The maximum lexicographical bound (exclusive).
 /// * `limit` - The maximum number of elements to retrieve.
-pub async fn get_by_lex(
+pub async fn get_lex_range(
     prefix: &str,
     key: &str,
     min: &str,

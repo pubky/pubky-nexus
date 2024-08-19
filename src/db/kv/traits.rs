@@ -371,6 +371,6 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         limit: Option<usize>,
     ) -> Result<Option<Vec<String>>, Box<dyn Error + Send + Sync>> {
         let key = key_parts.join(":");
-        sorted_sets::get_by_lex("Sorted", &key, min, max, skip, limit).await
+        sorted_sets::get_lex_range("Sorted", &key, min, max, skip, limit).await
     }
 }
