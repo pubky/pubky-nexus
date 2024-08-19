@@ -16,22 +16,12 @@ pub enum UserStreamType {
     MostFollowed,
 }
 
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema, Default)]
 pub struct UserStream(Vec<UserView>);
 
 impl RedisOps for UserStream {}
 
-impl Default for UserStream {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl UserStream {
-    pub fn new() -> Self {
-        Self(Vec::new())
-    }
-
     pub async fn get_by_id(
         user_id: &str,
         viewer_id: Option<&str>,

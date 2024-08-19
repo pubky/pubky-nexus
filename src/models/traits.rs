@@ -93,6 +93,7 @@ where
             Self::to_index(&existing_record_ids, existing_records).await?;
         }
 
+        Self::add_to_sorted_sets(&missing_records).await;
         Ok(missing_records)
     }
 
@@ -119,4 +120,5 @@ where
     }
 
     fn graph_query(id_list: &[&str]) -> Query;
+    async fn add_to_sorted_sets(elements: &[std::option::Option<Self>]);
 }

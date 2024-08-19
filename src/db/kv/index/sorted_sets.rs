@@ -96,3 +96,53 @@ pub async fn get_range(
         _ => Ok(Some(elements)),
     }
 }
+
+/// Performs a lexicographical range search on the Redis sorted set.
+///
+/// # Arguments
+///
+/// * `min` - The minimum lexicographical bound (inclusive).
+/// * `max` - The maximum lexicographical bound (exclusive).
+/// * `limit` - The maximum number of elements to retrieve.
+pub async fn get_by_lex(
+    prefix: &str,
+    key: &str,
+    min: &str,
+    max: &str,
+    skip: Option<usize>,
+    limit: Option<usize>,
+) -> Result<Option<Vec<String>>, Box<dyn Error + Send + Sync>> {
+    let mut redis_conn = get_redis_conn().await?;
+    let index_key = format!("{}:{}", prefix, key);
+    let skip = skip.unwrap_or(0) as isize;
+    let limit = limit.unwrap_or(1000) as isize;
+
+    let elements: Vec<String> = redis_conn
+        .zrangebylex_limit(index_key, min, max, skip, limit)
+        .await?;
+
+    match elements.len() {
+        0 => Ok(None),
+        _ => Ok(Some(elements)),
+    }
+}
+
+/// Removes elements from the Redis sorted set.
+///
+/// # Arguments
+///
+/// * `items` - A slice of elements to remove.
+pub async fn _remove(
+    prefix: &str,
+    key: &str,
+    items: &[&str],
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if items.is_empty() {
+        return Ok(());
+    }
+
+    let index_key = format!("{}:{}", prefix, key);
+    let mut redis_conn = get_redis_conn().await?;
+    redis_conn.zrem(&index_key, items).await?;
+    Ok(())
+}
