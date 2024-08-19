@@ -17,7 +17,6 @@ pub struct SearchApiDoc;
 
 impl SearchApiDoc {
     pub fn merge_docs() -> utoipa::openapi::OpenApi {
-        
         users::SearchUsersApiDocs::openapi()
     }
 }

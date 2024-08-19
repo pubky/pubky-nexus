@@ -27,7 +27,7 @@ impl IntoResponse for Error {
             Error::UserNotFound { .. } => StatusCode::NOT_FOUND,
             Error::PostNotFound { .. } => StatusCode::NOT_FOUND,
             Error::BookmarksNotFound { .. } => StatusCode::NOT_FOUND,
-            Error::InvalidInput { .. } => StatusCode::BAD_REQUEST, // Handle invalid input
+            Error::InvalidInput { .. } => StatusCode::BAD_REQUEST,
             Error::InternalServerError { .. } => StatusCode::INTERNAL_SERVER_ERROR,
             // Map other errors to appropriate status codes
         };

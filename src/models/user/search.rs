@@ -18,6 +18,9 @@ impl UserSearch {
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
+        // Convert the username to lowercase to ensure case-insensitive search
+        let name = name.to_lowercase();
+
         let min = format!("[{}", name); // Inclusive range starting with "name"
         let max = format!("({}~", name); // Exclusive range ending just after "name"
 
@@ -44,21 +47,6 @@ impl UserSearch {
         Ok(None)
     }
 
-    /// Adds a user_id to the Redis sorted set using the username as index.
-    pub async fn add_to_username_sorted_set(
-        details: &UserDetails,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let username = &details.name;
-        let user_id = &details.id;
-
-        // The value in the sorted set will be `username:user_id`
-        let member = format!("{}:{}", username, user_id);
-        let score = details.indexed_at as f64;
-
-        // Add to Redis sorted set
-        Self::put_index_sorted_set(&USER_NAME_KEY_PARTS, &[(score, &member)]).await
-    }
-
     /// Adds multiple `user_id`s to the Redis sorted set using the username as index.
     ///
     /// This method takes a list of `UserDetails` and adds them all to the sorted set at once.
@@ -69,7 +57,8 @@ impl UserSearch {
         let mut items: Vec<(f64, String)> = Vec::with_capacity(details_list.len());
 
         for details in details_list {
-            let username = &details.name;
+            // Convert the username to lowercase before storing
+            let username = details.name.to_lowercase();
             let user_id = &details.id;
             let score = details.indexed_at as f64;
 
