@@ -82,7 +82,7 @@ fn bench_get_global_hot_tags(c: &mut Criterion) {
         "bench_get_global_hot_tags",
         |b| {
             b.to_async(&rt).iter(|| async {
-                let stream_tag = HotTag::get_global_tags_stream().await.unwrap();
+                let stream_tag = HotTag::get_global_tags_stream(None, Some(40)).await.unwrap();
                 criterion::black_box(stream_tag);
             });
         },
@@ -105,7 +105,7 @@ fn bench_get_following_reach_hot_tags(c: &mut Criterion) {
         &[user_id],
         |b, &params| {
             b.to_async(&rt).iter(|| async {
-                let profile = HotTag::get_stream_tags_from_reached(String::from(params[0]), UserStreamType::Following).await.unwrap();
+                let profile = HotTag::get_stream_tags_by_reach(String::from(params[0]), UserStreamType::Following).await.unwrap();
                 criterion::black_box(profile);
             });
         },
@@ -128,7 +128,7 @@ fn bench_get_followers_reach_hot_tags(c: &mut Criterion) {
         &[user_id],
         |b, &params| {
             b.to_async(&rt).iter(|| async {
-                let profile = HotTag::get_stream_tags_from_reached(String::from(params[0]), UserStreamType::Followers).await.unwrap();
+                let profile = HotTag::get_stream_tags_by_reach(String::from(params[0]), UserStreamType::Followers).await.unwrap();
                 criterion::black_box(profile);
             });
         },
@@ -151,7 +151,7 @@ fn bench_get_friends_reach_hot_tags(c: &mut Criterion) {
         &[user_id],
         |b, &params| {
             b.to_async(&rt).iter(|| async {
-                let profile = HotTag::get_stream_tags_from_reached(String::from(params[0]), UserStreamType::Friends).await.unwrap();
+                let profile = HotTag::get_stream_tags_by_reach(String::from(params[0]), UserStreamType::Friends).await.unwrap();
                 criterion::black_box(profile);
             });
         },

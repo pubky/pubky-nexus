@@ -220,9 +220,7 @@ pub fn get_global_hot_tags_scores() -> Query {
 }
 
 // Retrieves popular hot tags taggers across the entire network
-pub fn get_global_hot_tags_taggers(tag_list: Vec<String>) -> Query {
-    let str_vec: Vec<&str> = tag_list.iter().map(|label| label.as_str()).collect();
-    let tags_slice: &[&str] = &str_vec;
+pub fn get_global_hot_tags_taggers(tag_list: &[&str]) -> Query {
     query("
         UNWIND $labels AS tag_name
         MATCH (u:User)-[tag:TAGGED]->(p:Post)
@@ -230,7 +228,7 @@ pub fn get_global_hot_tags_taggers(tag_list: Vec<String>) -> Query {
         WITH tag.label AS label, COLLECT(DISTINCT u.id) AS userIds
         RETURN COLLECT(userIds) AS tag_user_ids
     ")
-    .param("labels", tags_slice)
+    .param("labels", tag_list)
 }
 
 // Analyzes tag usage for a specific list of user IDs. Groups tags by name,

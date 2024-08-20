@@ -19,7 +19,7 @@ pub fn routes() -> Router {
         endpoints::STREAM_POSTS_BOOKMARKED_ROUTE => posts::stream_bookmarked_posts_handler,
         // Tags stream
         endpoints::STREAM_TAGS_GLOBAL_ROUTE => tags::stream_hot_tags_handler,
-        endpoints::STREAM_REACHED_TAGS_ROUTE => tags::stream_reached_tags_handler
+        endpoints::STREAM_TAGS_REACH_ROUTE => tags::stream_tags_by_reach_handler
     )
 }
 
