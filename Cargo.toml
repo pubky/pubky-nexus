@@ -25,7 +25,7 @@ env_logger = "0.11.5"
 const_format = "0.2.32"
 thiserror = "1.0.63"
 chrono = "0.4.38"
-pkarr = { version = "2.1.2", features = ["async"], default-features = false }
+pkarr = { version = "2.2.0", features = ["async"], default-features = false }
 
 [dev-dependencies]
 anyhow = "1.0.86"
