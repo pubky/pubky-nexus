@@ -1,4 +1,4 @@
-use axum::{Extension, Router};
+use axum::Router;
 use tower_http::cors::{Any, CorsLayer};
 
 pub mod macros;
@@ -9,14 +9,15 @@ pub fn routes() -> Router {
     let routes_v0 = v0::routes();
     let route_static = r#static::routes();
 
-    let cors_middleware = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(vec!["GET".parse().unwrap(), "POST".parse().unwrap()])
-        .allow_headers(vec!["Content-Type".parse().unwrap()]);
+    // Combine routes
+    let app = routes_v0.merge(route_static);
 
-    Router::new()
-        .merge(routes_v0)
-        .merge(route_static)
-        .layer(cors_middleware)
-        .layer(Extension(()))
+    // Create a CORS layer that allows all origins, methods, and headers
+    let cors = CorsLayer::new()
+        .allow_origin(Any) // Allow all origins
+        .allow_methods(Any) // Allow all HTTP methods
+        .allow_headers(Any); // Allow all headers
+
+    // Layer the CORS middleware on top of the routes
+    app.layer(cors)
 }
