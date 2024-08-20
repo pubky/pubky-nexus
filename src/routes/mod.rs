@@ -1,5 +1,5 @@
-use axum::{Router, Extension};
-use tower_http::cors::{CorsLayer, Any};
+use axum::{Extension, Router};
+use tower_http::cors::{Any, CorsLayer};
 
 pub mod macros;
 pub mod r#static;
