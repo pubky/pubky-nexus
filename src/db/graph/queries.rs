@@ -211,12 +211,14 @@ pub fn get_user_following(user_id: &str, skip: Option<usize>, limit: Option<usiz
 
 // Retrieves popular tags across the entire network
 // Results ordered by post count (descending), effectively ranking "hot" tags.
-pub fn get_global_hot_tags_scores() -> Query {
+pub fn get_global_hot_tags_scores(threshold: u64) -> Query {
     query("
         MATCH (u:User)-[tag:TAGGED]->(p:Post)
         WITH tag.label AS label, COUNT(DISTINCT p) AS uniquePosts
+        WHERE uniquePosts >= $threshold
         RETURN COLLECT([toFloat(uniquePosts), label]) AS hot_tags
     ")
+    .param("threshold", threshold as f64)
 }
 
 // Retrieves popular hot tags taggers across the entire network

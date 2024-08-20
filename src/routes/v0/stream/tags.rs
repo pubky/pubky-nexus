@@ -21,9 +21,9 @@ pub struct HotTagsQuery {
         ("skip" = Option<usize>, Query, description = "Skip N tags"),
         ("limit" = Option<usize>, Query, description = "Retrieve N tag")
     ),
-    tag = "Stream of hot tags",
+    tag = "Stream hot Tags",
     responses(
-        (status = 200, description = "Retrieve hot tags stream", body = Vec<StreamTag>),
+        (status = 200, description = "Retrieve hot tags stream", body = Vec<HotTag>),
         (status = 404, description = "Hot tags not found"),
         (status = 500, description = "Internal server error")
     )
@@ -52,13 +52,13 @@ pub struct StreamTagsReachInput {
 #[utoipa::path(
     get,
     path = STREAM_TAGS_REACH_ROUTE,
-    tag = "Stream of tags by reach",
+    tag = "Stream Tags by reach",
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
         ("reach" = UserStreamType, Path, description = "Reach type: Follower | Following | Friends")
     ),
     responses(
-        (status = 200, description = "Retrieve tags by reach cluster", body = StreamTags),
+        (status = 200, description = "Retrieve tags by reach cluster", body = Vec<HotTag>),
         (status = 404, description = "Hot tags not found"),
         (status = 500, description = "Internal server error")
     )

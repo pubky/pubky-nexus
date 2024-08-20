@@ -16,7 +16,8 @@ use neo4rs::query;
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinSet;
 
-
+// TODO: Maybe environment variable
+const HOT_TAGS_THRESHOLD: u64 = 5;
 
 pub async fn reindex() {
     // Clear Redis database
@@ -141,7 +142,7 @@ async fn retrive_global_hot_tags() -> Result<(), Box<dyn Error + Send + Sync>> {
     let graph = get_neo4j_graph()?;
     let graph = graph.lock().await;
 
-    let query = queries::get_global_hot_tags_scores();
+    let query = queries::get_global_hot_tags_scores(HOT_TAGS_THRESHOLD);
     let mut result = graph.execute(query).await?;
 
     if let Some(row) = result.next().await? {
