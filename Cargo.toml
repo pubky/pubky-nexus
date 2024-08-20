@@ -9,7 +9,7 @@ license = "MIT"
 default-run = "service"
 
 [dependencies]
-tokio = { version = "1.39.2", features = ["full"] }
+tokio = { version = "1.39.3", features = ["full"] }
 axum = "0.7.5"
 redis = { version = "0.26.1", features = ["tokio-comp", "json"] }
 neo4rs = "0.8.0"
