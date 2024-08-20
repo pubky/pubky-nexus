@@ -210,20 +210,27 @@ pub fn get_user_following(user_id: &str, skip: Option<usize>, limit: Option<usiz
 }
 
 // Retrieves popular tags across the entire network
-// Results ordered by usage count (descending), effectively ranking "hot" tags.
-pub fn get_global_hot_tags() -> Query {
+// Results ordered by post count (descending), effectively ranking "hot" tags.
+pub fn get_global_hot_tags_scores() -> Query {
     query("
         MATCH (u:User)-[tag:TAGGED]->(p:Post)
-        WITH tag.label AS label, COUNT(*) AS times, COLLECT(DISTINCT u.id) AS userIds, COUNT(DISTINCT p) AS uniquePosts
-        WITH {
-            label: label,
-            times: times,
-            tagger_ids: userIds,
-            post_count: uniquePosts
-        } AS hot_tag
-        ORDER BY hot_tag.times DESC
-        RETURN COLLECT(hot_tag) AS hot_tags
+        WITH tag.label AS label, COUNT(DISTINCT p) AS uniquePosts
+        RETURN COLLECT([toFloat(uniquePosts), label]) AS hot_tags
     ")
+}
+
+// Retrieves popular hot tags taggers across the entire network
+pub fn get_global_hot_tags_taggers(tag_list: Vec<String>) -> Query {
+    let str_vec: Vec<&str> = tag_list.iter().map(|label| label.as_str()).collect();
+    let tags_slice: &[&str] = &str_vec;
+    query("
+        UNWIND $labels AS tag_name
+        MATCH (u:User)-[tag:TAGGED]->(p:Post)
+        WHERE tag.label = tag_name
+        WITH tag.label AS label, COLLECT(DISTINCT u.id) AS userIds
+        RETURN COLLECT(userIds) AS tag_user_ids
+    ")
+    .param("labels", tags_slice)
 }
 
 // Analyzes tag usage for a specific list of user IDs. Groups tags by name,

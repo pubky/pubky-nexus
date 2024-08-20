@@ -1,4 +1,4 @@
-use crate::models::tag::stream::StreamTag;
+use crate::models::tag::stream::HotTag;
 use crate::models::user::UserStreamType;
 use crate::routes::v0::endpoints::{STREAM_TAGS_GLOBAL_ROUTE, STREAM_REACHED_TAGS_ROUTE};
 use crate::{Error, Result};
@@ -18,10 +18,10 @@ use utoipa::OpenApi;
         (status = 500, description = "Internal server error")
     )
 )]
-pub async fn stream_hot_tags_handler() -> Result<Json<Vec<StreamTag>>> {
+pub async fn stream_hot_tags_handler() -> Result<Json<Vec<HotTag>>> {
     info!("GET {STREAM_TAGS_GLOBAL_ROUTE}");
     
-    match StreamTag::get_global_tags_stream().await {
+    match HotTag::get_global_tags_stream().await {
         Ok(Some(hot_tags)) => Ok(Json(hot_tags)),
         Ok(None) => Err(Error::TagsNotFound { reach: String::from("GLOBAL") }),
         Err(source) => Err(Error::InternalServerError { source }),
@@ -50,13 +50,13 @@ pub struct StreamTagsReachInput {
 )]
 pub async fn stream_reached_tags_handler(
     Path(path): Path<StreamTagsReachInput>,
-) -> Result<Json<Vec<StreamTag>>> {
+) -> Result<Json<Vec<HotTag>>> {
     info!("GET {STREAM_REACHED_TAGS_ROUTE}");
 
     let reach = path.reach.unwrap_or(UserStreamType::Following);
     let user_id = path.user_id;
     
-    match StreamTag::get_stream_tags_from_reached(user_id, reach).await {
+    match HotTag::get_stream_tags_from_reached(user_id, reach).await {
         Ok(Some(hot_tags)) => Ok(Json(hot_tags)),
         Ok(None) => Err(Error::TagsNotFound { reach: String::from("REACH") }),
         Err(source) => {
@@ -72,6 +72,6 @@ pub async fn stream_reached_tags_handler(
         stream_hot_tags_handler,
         stream_reached_tags_handler
     ),
-    components(schemas(StreamTag))
+    components(schemas(HotTag))
 )]
 pub struct StreamTagsApiDocs;

@@ -7,16 +7,15 @@ const HOST_URL: &str = "http://localhost:8080";
 const PEER_PUBKY: &str = "o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo";
 
 struct StreamTagMockup {
-    times: u64,
     label: String,
     tagger_ids: usize,
     post_count: u64
 }
 
 impl StreamTagMockup {
-    fn new(times: u64, label: String, tagger_ids:usize, post_count: u64) -> Self {
+    fn new(label: String, tagger_ids:usize, post_count: u64) -> Self {
         Self {
-            times, label, tagger_ids, post_count
+            label, tagger_ids, post_count
         }
     }
 }
@@ -38,10 +37,6 @@ async fn make_request(endpoint: &str) -> Result<Value, httpc_test::Error> {
 fn analyse_hot_tags_structure(tags: &Vec<Value>) {
     for tag in tags {
         assert!(
-            tag["times"].is_number(),
-            "times should be a number"
-        );
-        assert!(
             tag["label"].is_string(),
             "label should be a string"
         );
@@ -58,7 +53,6 @@ fn analyse_hot_tags_structure(tags: &Vec<Value>) {
 
 // Small unit test to compare the tag properties
 fn compare_unit_hot_tag(tag: &Value, hot_tag: StreamTagMockup) {
-    assert_eq!(tag["times"], hot_tag.times);
     assert_eq!(tag["post_count"], hot_tag.post_count);
     assert_eq!(tag["label"], hot_tag.label);
     let tagger_ids = tag["tagger_ids"].as_array().unwrap();
@@ -77,8 +71,8 @@ async fn test_global_hot_tags() -> Result<()> {
     analyse_hot_tags_structure(tags);
 
     // Analyse the tag that is in the 4th index
-    let hot_tag = StreamTagMockup::new(21, String::from("pubky"), 6, 7);
-    compare_unit_hot_tag(&tags[4], hot_tag);
+    let hot_tag = StreamTagMockup::new(String::from("fees"), 1, 39);
+    compare_unit_hot_tag(&tags[2], hot_tag);
 
     Ok(())
 }
@@ -98,7 +92,7 @@ async fn test_hot_tags_by_following_reach() -> Result<()> {
     analyse_hot_tags_structure(tags);
 
     // Analyse the tag that is in the 1st index
-    let hot_tag = StreamTagMockup::new(18, String::from("pubky"), 4, 5);
+    let hot_tag = StreamTagMockup::new(String::from("pubky"), 4, 5);
     compare_unit_hot_tag(&tags[1], hot_tag);
 
     Ok(())
@@ -119,7 +113,7 @@ async fn test_hot_tags_by_followers_reach() -> Result<()> {
     analyse_hot_tags_structure(tags);
 
     // Analyse the tag that is in the 1st index
-    let hot_tag = StreamTagMockup::new(14, String::from("pubky"), 2, 3);
+    let hot_tag = StreamTagMockup::new(String::from("pubky"), 2, 3);
     compare_unit_hot_tag(&tags[1], hot_tag);
 
     Ok(())
@@ -140,7 +134,7 @@ async fn test_hot_tags_by_friends_reach() -> Result<()> {
     analyse_hot_tags_structure(tags);
 
     // Analyse the tag that is in the 1st index
-    let hot_tag = StreamTagMockup::new(14, String::from("pubky"), 2, 3);
+    let hot_tag = StreamTagMockup::new(String::from("pubky"), 2, 3);
     compare_unit_hot_tag(&tags[1], hot_tag);
 
     Ok(())
