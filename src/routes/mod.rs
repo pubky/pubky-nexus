@@ -1,4 +1,5 @@
-use axum::Router;
+use axum::{Router, Extension};
+use tower_http::cors::{CorsLayer, Any};
 
 pub mod macros;
 pub mod r#static;
@@ -8,5 +9,14 @@ pub fn routes() -> Router {
     let routes_v0 = v0::routes();
     let route_static = r#static::routes();
 
-    routes_v0.merge(route_static)
+    let cors_middleware = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(vec!["GET".parse().unwrap(), "POST".parse().unwrap()])
+        .allow_headers(vec!["Content-Type".parse().unwrap()]);
+
+    Router::new()
+        .merge(routes_v0)
+        .merge(route_static)
+        .layer(cors_middleware)
+        .layer(Extension(()))
 }
