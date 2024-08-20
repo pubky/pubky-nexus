@@ -3,7 +3,7 @@ use crate::{queries, RedisOps};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema, Default)]
 pub struct PostRelationships {
     // URI of the replied post
     replied: Option<String>,
@@ -15,21 +15,7 @@ pub struct PostRelationships {
 
 impl RedisOps for PostRelationships {}
 
-impl Default for PostRelationships {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl PostRelationships {
-    pub fn new() -> Self {
-        Self {
-            replied: None,
-            reposted: None,
-            mentioned: None,
-        }
-    }
-
     /// Retrieves post relationships by user ID, first trying to get from Redis, then from Neo4j if not found.
     pub async fn get_by_id(
         author_id: &str,
