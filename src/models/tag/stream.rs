@@ -46,15 +46,13 @@ impl FromIterator<HotTag> for HotTags {
 
 impl HotTags {
     // TODO: Move another struct that is more related with reindexer process?
-    pub async fn set_global_tag_scores(
-        hot_tag_threshold: u64,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub async fn set_global_tag_scores() -> Result<(), Box<dyn Error + Send + Sync>> {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
             let graph = graph.lock().await;
 
-            let query = queries::get_global_hot_tags_scores(hot_tag_threshold);
+            let query = queries::get_global_hot_tags_scores();
             result = graph.execute(query).await?;
         }
 

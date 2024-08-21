@@ -12,9 +12,6 @@ use log::info;
 use neo4rs::query;
 use tokio::task::JoinSet;
 
-// TODO: Maybe environment variable
-const HOT_TAGS_THRESHOLD: u64 = 5;
-
 pub async fn reindex() {
     // Clear Redis database
     if let Err(e) = clear_redis().await {
@@ -62,8 +59,7 @@ pub async fn reindex() {
         }
     }
 
-    info!("Retrieving tags global score...");
-    HotTags::set_global_tag_scores(HOT_TAGS_THRESHOLD)
+    HotTags::set_global_tag_scores()
         .await
         .expect("Failed to store the global hot tags");
 
