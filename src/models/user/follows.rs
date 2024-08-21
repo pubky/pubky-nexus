@@ -26,11 +26,14 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
-        let graph = get_neo4j_graph()?;
-        let query = Self::get_query(user_id, skip, limit);
+        let mut result;
+        {
+            let graph = get_neo4j_graph()?;
+            let query = Self::get_query(user_id, skip, limit);
 
-        let graph = graph.lock().await;
-        let mut result = graph.execute(query).await?;
+            let graph = graph.lock().await;
+            result = graph.execute(query).await?;
+        }
 
         if let Some(row) = result.next().await? {
             let user_exists: bool = row.get("user_exists").unwrap_or(false);

@@ -6,7 +6,7 @@ use utoipa::ToSchema;
 use super::PostStream;
 
 /// Represents total counts of relationships of a user.
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema, Default)]
 pub struct PostCounts {
     pub tags: u32,
     pub replies: u32,
@@ -15,21 +15,7 @@ pub struct PostCounts {
 
 impl RedisOps for PostCounts {}
 
-impl Default for PostCounts {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl PostCounts {
-    pub fn new() -> Self {
-        Self {
-            tags: 0,
-            replies: 0,
-            reposts: 0,
-        }
-    }
-
     /// Retrieves counts by user ID, first trying to get from Redis, then from Neo4j if not found.
     pub async fn get_by_id(
         author_id: &str,
@@ -46,11 +32,14 @@ impl PostCounts {
         author_id: &str,
         post_id: &str,
     ) -> Result<Option<PostCounts>, Box<dyn std::error::Error + Send + Sync>> {
-        let graph = get_neo4j_graph()?;
-        let query = queries::post_counts(author_id, post_id);
+        let mut result;
+        {
+            let graph = get_neo4j_graph()?;
+            let query = queries::post_counts(author_id, post_id);
 
-        let graph = graph.lock().await;
-        let mut result = graph.execute(query).await?;
+            let graph = graph.lock().await;
+            result = graph.execute(query).await?;
+        }
 
         if let Some(row) = result.next().await? {
             if !row.get("post_exists").unwrap_or(false) {

@@ -910,3 +910,226 @@ async fn test_stream_bookmarked_posts_invalid_user() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_thread_replies() -> Result<()> {
+    let client = httpc_test::new_client(HOST_URL)?;
+
+    // Set the root post's author_id and post_id
+    let author_id = "7oq5wj1adxk1u94ojh6eknwj3b4z88zcbb51dbam5zn7zeqnzoio";
+    let post_id = "0RE51NMRZAQG";
+
+    // Make a request to the thread endpoint
+    let res = client
+        .do_get(&format!("/v0/thread/{}/{}", author_id, post_id))
+        .await?;
+
+    // Assert that the response status is 200
+    assert_eq!(res.status(), 200);
+
+    // Parse the response body as JSON
+    let body = res.json_body()?;
+
+    // Ensure the root_post and replies are present in the response
+    assert!(
+        body["root_post"].is_object(),
+        "root_post should be an object"
+    );
+    assert!(body["replies"].is_array(), "replies should be an array");
+
+    // Validate the root_post fields
+    let root_post = body["root_post"]
+        .as_object()
+        .expect("root_post should be an object");
+    assert!(
+        root_post["details"]["indexed_at"].is_number(),
+        "root_post indexed_at should be a number"
+    );
+    assert!(
+        root_post["details"]["content"].is_string(),
+        "root_post content should be a string"
+    );
+    assert!(
+        root_post["details"]["author"].is_string(),
+        "root_post author should be a string"
+    );
+
+    // Validate the replies
+    let replies = body["replies"]
+        .as_array()
+        .expect("replies should be an array");
+
+    let mut previous_indexed_at = None;
+
+    for reply in replies {
+        assert!(
+            reply["details"]["indexed_at"].is_number(),
+            "reply indexed_at should be a number"
+        );
+        assert!(
+            reply["details"]["content"].is_string(),
+            "reply content should be a string"
+        );
+        assert!(
+            reply["details"]["author"].is_string(),
+            "reply author should be a string"
+        );
+        // Validate chronological order
+        let indexed_at = reply["details"]["indexed_at"]
+            .as_i64()
+            .expect("indexed_at should be a valid number");
+
+        if let Some(prev) = previous_indexed_at {
+            assert!(
+                indexed_at >= prev,
+                "replies should be in chronological order"
+            );
+        }
+        previous_indexed_at = Some(indexed_at);
+    }
+
+    // Make a request to the thread endpoint for non existing root post
+    let res = client
+        .do_get(&format!(
+            "/v0/thread/{}/{}",
+            "non_existing_author", "not_existing_id"
+        ))
+        .await?;
+
+    // Assert that the response status is 404
+    assert_eq!(res.status(), 404);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_search_users_by_username() -> Result<()> {
+    let client = httpc_test::new_client(HOST_URL)?;
+
+    let username = "Jo";
+
+    let res = client
+        .do_get(&format!("/v0/search/users?username={}", username))
+        .await?;
+    assert_eq!(res.status(), 200);
+
+    let body = res.json_body()?;
+    assert!(body.is_array());
+
+    let users = body
+        .as_array()
+        .expect("User search results should be an array");
+
+    // Define the expected user IDs
+    let expected_users = vec![
+        "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy",
+        "oh8ku6csenwcyec6oaacz6xumydqjdaagh4ekr8jsm44rrdssjqo",
+    ];
+
+    // Convert the actual result to a Vec of strings
+    let actual_users: Vec<String> = users
+        .iter()
+        .map(|user| {
+            user.as_str()
+                .expect("User ID should be a string")
+                .to_string()
+        })
+        .collect();
+
+    // Assert that the actual result matches the expected result
+    assert_eq!(actual_users, expected_users);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_search_non_existing_user() -> Result<()> {
+    let client = httpc_test::new_client(HOST_URL)?;
+
+    let non_existing_username = "idfjwfs8u9jfkoi"; // Username that doesn't exist
+
+    let res = client
+        .do_get(&format!(
+            "/v0/search/users?username={}",
+            non_existing_username
+        ))
+        .await?;
+
+    // Assert that the status code is 404 Not Found
+    assert_eq!(res.status(), 404);
+
+    let body = res.json_body()?;
+    assert!(
+        body["error"].is_string(),
+        "Error message should be a string"
+    );
+
+    // Optional: Check that the error message contains the correct details
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains(non_existing_username),
+        "Error message should mention the non-existing username"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_search_empty_username() -> Result<()> {
+    let client = httpc_test::new_client(HOST_URL)?;
+
+    let empty_username = ""; // Empty username
+
+    let res = client
+        .do_get(&format!("/v0/search/users?username={}", empty_username))
+        .await?;
+
+    // Assert that the status code is 400 Bad Request
+    assert_eq!(res.status(), 400);
+
+    let body = res.json_body()?;
+    assert!(
+        body["error"].is_string(),
+        "Error message should be a string"
+    );
+
+    // Optional: Check that the error message contains the correct details
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("Username cannot be empty"),
+        "Error message should mention that the username cannot be empty"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stream_users_by_username_search() -> Result<()> {
+    let client = httpc_test::new_client(HOST_URL)?;
+
+    let username = "Jo";
+
+    let res = client
+        .do_get(&format!(
+            "/v0/stream/users/username-search?username={}",
+            username
+        ))
+        .await?;
+    assert_eq!(res.status(), 200);
+
+    let body = res.json_body()?;
+    assert!(body.is_array());
+
+    let users = body
+        .as_array()
+        .expect("User search results should be an array");
+
+    // Validate the response as needed
+    assert!(!users.is_empty(), "User search should return results");
+
+    Ok(())
+}

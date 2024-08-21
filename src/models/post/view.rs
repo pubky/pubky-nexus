@@ -5,7 +5,7 @@ use super::{Bookmark, PostCounts, PostDetails, PostRelationships};
 use crate::models::tag::post::PostTags;
 
 /// Represents a Pubky user with relational data including tags, counts, and relationship with a viewer.
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema, Default)]
 pub struct PostView {
     details: PostDetails,
     counts: PostCounts,
@@ -14,23 +14,7 @@ pub struct PostView {
     bookmark: Option<Bookmark>,
 }
 
-impl Default for PostView {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl PostView {
-    pub fn new() -> Self {
-        Self {
-            details: PostDetails::new(),
-            counts: PostCounts::new(),
-            tags: PostTags::default(),
-            relationships: PostRelationships::new(),
-            bookmark: Some(Bookmark::new()),
-        }
-    }
-
     /// Retrieves a user ID, checking the cache first and then the graph database.
     pub async fn get_by_id(
         author_id: &str,

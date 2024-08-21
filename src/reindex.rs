@@ -91,11 +91,14 @@ async fn reindex_post(
 }
 
 async fn get_all_user_ids() -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
-    let graph = get_neo4j_graph()?;
-    let query = query("MATCH (u:User) RETURN u.id AS id");
+    let mut result;
+    {
+        let graph = get_neo4j_graph()?;
+        let query = query("MATCH (u:User) RETURN u.id AS id");
 
-    let graph = graph.lock().await;
-    let mut result = graph.execute(query).await?;
+        let graph = graph.lock().await;
+        result = graph.execute(query).await?;
+    }
 
     let mut user_ids = Vec::new();
     while let Some(row) = result.next().await? {
@@ -109,12 +112,15 @@ async fn get_all_user_ids() -> Result<Vec<String>, Box<dyn std::error::Error + S
 
 async fn get_all_post_ids(
 ) -> Result<Vec<(String, String)>, Box<dyn std::error::Error + Send + Sync>> {
-    let graph = get_neo4j_graph()?;
-    let query =
-        query("MATCH (u:User)-[:AUTHORED]->(p:Post) RETURN u.id AS author_id, p.id AS post_id");
+    let mut result;
+    {
+        let graph = get_neo4j_graph()?;
+        let query =
+            query("MATCH (u:User)-[:AUTHORED]->(p:Post) RETURN u.id AS author_id, p.id AS post_id");
 
-    let graph = graph.lock().await;
-    let mut result = graph.execute(query).await?;
+        let graph = graph.lock().await;
+        result = graph.execute(query).await?;
+    }
 
     let mut post_ids = Vec::new();
     while let Some(row) = result.next().await? {

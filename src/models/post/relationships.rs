@@ -3,7 +3,7 @@ use crate::{queries, RedisOps};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema, Default)]
 pub struct PostRelationships {
     // URI of the replied post
     replied: Option<String>,
@@ -15,21 +15,7 @@ pub struct PostRelationships {
 
 impl RedisOps for PostRelationships {}
 
-impl Default for PostRelationships {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl PostRelationships {
-    pub fn new() -> Self {
-        Self {
-            replied: None,
-            reposted: None,
-            mentioned: None,
-        }
-    }
-
     /// Retrieves post relationships by user ID, first trying to get from Redis, then from Neo4j if not found.
     pub async fn get_by_id(
         author_id: &str,
@@ -46,11 +32,14 @@ impl PostRelationships {
         author_id: &str,
         post_id: &str,
     ) -> Result<Option<PostRelationships>, Box<dyn std::error::Error + Send + Sync>> {
-        let graph = get_neo4j_graph()?;
-        let query = queries::post_relationships(author_id, post_id);
+        let mut result;
+        {
+            let graph = get_neo4j_graph()?;
+            let query = queries::post_relationships(author_id, post_id);
 
-        let graph = graph.lock().await;
-        let mut result = graph.execute(query).await?;
+            let graph = graph.lock().await;
+            result = graph.execute(query).await?;
+        }
 
         if let Some(row) = result.next().await? {
             let replied_post_id: Option<String> = row.get("replied_post_id")?;
@@ -61,13 +50,13 @@ impl PostRelationships {
 
             let replied = match (replied_author_id, replied_post_id) {
                 (Some(author_id), Some(post_id)) => {
-                    Some(format!("pubky:{author_id}/pubky.app/posts/{post_id}"))
+                    Some(format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}"))
                 }
                 _ => None,
             };
             let reposted = match (reposted_author_id, reposted_post_id) {
                 (Some(author_id), Some(post_id)) => {
-                    Some(format!("pubky:{author_id}/pubky.app/posts/{post_id}"))
+                    Some(format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}"))
                 }
                 _ => None,
             };

@@ -63,11 +63,15 @@ where
     async fn from_graph(
         missing_ids: &[&str],
     ) -> Result<Vec<Option<Self>>, Box<dyn std::error::Error + Send + Sync>> {
-        let graph = get_neo4j_graph()?;
-        let query = Self::graph_query(missing_ids);
+        let mut result;
+        {
+            let graph = get_neo4j_graph()?;
+            let query = Self::graph_query(missing_ids);
 
-        let graph = graph.lock().await;
-        let mut result = graph.execute(query).await?;
+            let graph = graph.lock().await;
+            result = graph.execute(query).await?;
+        }
+
         let mut missing_records = Vec::with_capacity(missing_ids.len());
 
         while let Some(row) = result.next().await? {
@@ -89,6 +93,7 @@ where
             Self::to_index(&existing_record_ids, existing_records).await?;
         }
 
+        Self::add_to_sorted_sets(&missing_records).await;
         Ok(missing_records)
     }
 
@@ -115,4 +120,5 @@ where
     }
 
     fn graph_query(id_list: &[&str]) -> Query;
+    async fn add_to_sorted_sets(elements: &[std::option::Option<Self>]);
 }

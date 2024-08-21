@@ -11,6 +11,7 @@ pub fn routes() -> Router {
     register_routes!(Router::new(),
         //  User stream
         endpoints::STREAM_USERS_ROUTE => users::stream_users_handler,
+        endpoints::STREAM_USERS_USERNAME_SEARCH_ROUTE => users::stream_username_search_handler,
         endpoints::STREAM_USERS_MOSTFOLLOWED_ROUTE => users::stream_most_followed_users_handler,
         // Post stream
         endpoints::STREAM_POSTS_ROUTE => posts::stream_global_posts_handler,
@@ -29,9 +30,9 @@ pub struct StreamApiDoc;
 
 impl StreamApiDoc {
     pub fn merge_docs() -> utoipa::openapi::OpenApi {
-        let mut swagger_routes = users::StreamUsersApiDocs::openapi();
-        swagger_routes.merge(posts::StreamPostsApiDocs::openapi());
-        swagger_routes.merge(tags::StreamTagsApiDocs::openapi());
-        swagger_routes
+        let mut combined = users::StreamUsersApiDocs::openapi();
+        combined.merge(posts::StreamPostsApiDocs::openapi());
+        combined.merge(tags::StreamTagsApiDocs::openapi());
+        combined
     }
 }

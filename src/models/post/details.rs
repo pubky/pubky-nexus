@@ -1,41 +1,36 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
 use crate::{queries, RedisOps};
-use chrono::Utc;
 use neo4rs::Node;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use super::PostStream;
 
+#[derive(Serialize, Deserialize, ToSchema, Default)]
+enum PostKind {
+    #[default]
+    Short,
+    Long,
+    Image,
+    Video,
+    Link,
+    File,
+}
+
 /// Represents post data with content, bio, image, links, and status.
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema, Default)]
 pub struct PostDetails {
     content: String,
     pub id: String, // TODO: create Crockfordbase32 validator
     pub indexed_at: i64,
     pub author: String,
+    kind: PostKind,
     uri: String,
 }
 
 impl RedisOps for PostDetails {}
 
-impl Default for PostDetails {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl PostDetails {
-    pub fn new() -> Self {
-        Self {
-            content: String::new(),
-            id: String::new(),
-            indexed_at: Utc::now().timestamp(),
-            author: String::new(),
-            uri: String::new(),
-        }
-    }
-
     /// Retrieves post details by author ID and post ID, first trying to get from Redis, then from Neo4j if not found.
     pub async fn get_by_id(
         author_id: &str,
@@ -55,6 +50,7 @@ impl PostDetails {
             id,
             indexed_at: node.get("indexed_at").unwrap_or_default(),
             author: String::from(author_id),
+            kind: node.get("kind").unwrap_or_default(),
         }
     }
 
@@ -63,11 +59,14 @@ impl PostDetails {
         author_id: &str,
         post_id: &str,
     ) -> Result<Option<PostDetails>, Box<dyn std::error::Error + Send + Sync>> {
-        let graph = get_neo4j_graph()?;
-        let query = queries::get_post_by_id(author_id, post_id);
+        let mut result;
+        {
+            let graph = get_neo4j_graph()?;
+            let query = queries::get_post_by_id(author_id, post_id);
 
-        let graph = graph.lock().await;
-        let mut result = graph.execute(query).await?;
+            let graph = graph.lock().await;
+            result = graph.execute(query).await?;
+        }
 
         match result.next().await? {
             Some(row) => {

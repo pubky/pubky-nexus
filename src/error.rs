@@ -17,6 +17,8 @@ pub enum Error {
     BookmarksNotFound { user_id: String },
     #[error("Tags not found")]
     TagsNotFound { reach: String },
+    #[error("Invalid input: {message}")]
+    InvalidInput { message: String },
     // Add other custom errors here
 }
 
@@ -28,6 +30,7 @@ impl IntoResponse for Error {
             Error::PostNotFound { .. } => StatusCode::NOT_FOUND,
             Error::BookmarksNotFound { .. } => StatusCode::NOT_FOUND,
             Error::TagsNotFound { .. } => StatusCode::NOT_FOUND,
+            Error::InvalidInput { .. } => StatusCode::BAD_REQUEST,
             Error::InternalServerError { .. } => StatusCode::INTERNAL_SERVER_ERROR,
             // Map other errors to appropriate status codes
         };
@@ -43,6 +46,8 @@ impl IntoResponse for Error {
             }
             Error::TagsNotFound { reach } => {
                 debug!("Tags not found: {}", reach)
+            Error::InvalidInput { message } => {
+                debug!("Invalid input: {}", message)
             }
             Error::InternalServerError { source } => error!("Internal server error: {:?}", source),
         };
