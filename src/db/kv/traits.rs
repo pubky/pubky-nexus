@@ -343,4 +343,34 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         let key = key_parts.join(":");
         sorted_sets::get_range("Sorted", &key, start, end, skip, limit, sorting).await
     }
+
+    /// Retrieves a lexicographical range of elements from a Redis sorted set using the provided key parts.
+    ///
+    /// This method fetches elements from a Redis sorted set stored under the key generated from the provided `key_parts`.
+    /// The range is defined by `min` and `max` lexicographical bounds.
+    ///
+    /// # Arguments
+    ///
+    /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the sorted set is stored.
+    /// * `min` - The minimum lexicographical bound (inclusive).
+    /// * `max` - The maximum lexicographical bound (exclusive).
+    /// * `limit` - An optional number of elements to return (useful for pagination).
+    ///
+    /// # Returns
+    ///
+    /// Returns a vector of elements if they exist, or an empty vector if no matching elements are found.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
+    async fn try_from_index_sorted_set_lex(
+        key_parts: &[&str],
+        min: &str,
+        max: &str,
+        skip: Option<usize>,
+        limit: Option<usize>,
+    ) -> Result<Option<Vec<String>>, Box<dyn Error + Send + Sync>> {
+        let key = key_parts.join(":");
+        sorted_sets::get_lex_range("Sorted", &key, min, max, skip, limit).await
+    }
 }

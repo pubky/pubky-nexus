@@ -6,6 +6,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json;
 use utoipa::ToSchema;
 
+use super::UserSearch;
+
 /// Represents a user's single link with a title and URL.
 #[derive(Serialize, Deserialize, ToSchema, Default, Clone, Debug)]
 pub struct UserLink {
@@ -34,18 +36,31 @@ impl Collection for UserDetails {
     fn graph_query(id_list: &[&str]) -> Query {
         queries::get_users_details_by_ids(id_list)
     }
+
+    async fn add_to_sorted_sets(details: &[std::option::Option<Self>]) {
+        // Filter out None and collect only the references to UserDetails
+        let user_details_refs: Vec<&UserDetails> = details
+            .iter()
+            .filter_map(|detail| detail.as_ref()) // Filter out None and unwrap Some
+            .collect();
+
+        // Pass the references to the add_many_to_username_sorted_set function
+        UserSearch::add_many_to_username_sorted_set(&user_details_refs)
+            .await
+            .unwrap();
+    }
 }
 
 /// Represents user data with name, bio, image, links, and status.
 #[derive(Serialize, Deserialize, ToSchema, Default, Clone, Debug)]
 pub struct UserDetails {
-    name: String,
+    pub name: String,
     bio: String,
-    id: String,
+    pub id: String,
     #[serde(deserialize_with = "deserialize_user_links")]
     links: Vec<UserLink>,
     status: String,
-    indexed_at: i64,
+    pub indexed_at: i64,
 }
 
 fn deserialize_user_links<'de, D>(deserializer: D) -> Result<Vec<UserLink>, D::Error>
