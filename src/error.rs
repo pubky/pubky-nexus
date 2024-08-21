@@ -46,6 +46,7 @@ impl IntoResponse for Error {
             }
             Error::TagsNotFound { reach } => {
                 debug!("Tags not found: {}", reach)
+            }
             Error::InvalidInput { message } => {
                 debug!("Invalid input: {}", message)
             }

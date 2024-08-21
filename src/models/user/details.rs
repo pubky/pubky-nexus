@@ -1,3 +1,4 @@
+use super::UserSearch;
 use crate::models::traits::Collection;
 use crate::{queries, RedisOps};
 use axum::async_trait;
@@ -5,7 +6,6 @@ use neo4rs::Query;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json;
 use utoipa::ToSchema;
-use super::UserSearch;
 
 /// Represents a user's single link with a title and URL.
 #[derive(Serialize, Deserialize, ToSchema, Default, Clone, Debug)]

@@ -1,6 +1,5 @@
 use std::error::Error;
 
-
 use super::{Followers, Following, Friends, UserCounts, UserFollows, UserSearch, UserView};
 use crate::{db::kv::index::sorted_sets::Sorting, RedisOps};
 use serde::{Deserialize, Serialize};
