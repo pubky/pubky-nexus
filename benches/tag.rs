@@ -1,7 +1,7 @@
 use criterion::{criterion_group, criterion_main};
 use criterion::{BenchmarkId, Criterion};
 use pubky_nexus::models::tag::post::PostTags;
-use pubky_nexus::models::tag::stream::HotTag;
+use pubky_nexus::models::tag::stream::HotTags;
 use pubky_nexus::models::tag::user::UserTags;
 use pubky_nexus::models::user::UserStreamType;
 use pubky_nexus::setup;
@@ -58,7 +58,10 @@ fn bench_get_post_tags(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
 
     c.bench_with_input(
-        BenchmarkId::new("bench_get_post_tags", format!("user_id: {}, post_id: {}", user_id, post_id)),
+        BenchmarkId::new(
+            "bench_get_post_tags",
+            format!("user_id: {}, post_id: {}", user_id, post_id),
+        ),
         &[user_id, post_id],
         |b, &params| {
             b.to_async(&rt).iter(|| async {
@@ -78,21 +81,26 @@ fn bench_get_global_hot_tags(c: &mut Criterion) {
 
     let rt = Runtime::new().unwrap();
 
-    c.bench_function(
-        "bench_get_global_hot_tags",
-        |b| {
-            b.to_async(&rt).iter(|| async {
-                let stream_tag = HotTag::get_global_tags_stream(None, Some(40)).await.unwrap();
-                criterion::black_box(stream_tag);
-            });
-        },
-    );
+    c.bench_function("bench_get_global_hot_tags", |b| {
+        b.to_async(&rt).iter(|| async {
+            let stream_tag = HotTags::get_global_tags_stream(None, Some(40))
+                .await
+                .unwrap();
+            criterion::black_box(stream_tag);
+        });
+    });
 }
 
 fn bench_get_following_reach_hot_tags(c: &mut Criterion) {
-    println!("****************************************************************************************");
-    println!("Test the performance of getting tags by following reach, using index or graph as needed");
-    println!("****************************************************************************************");
+    println!(
+        "****************************************************************************************"
+    );
+    println!(
+        "Test the performance of getting tags by following reach, using index or graph as needed"
+    );
+    println!(
+        "****************************************************************************************"
+    );
 
     run_setup();
 
@@ -101,11 +109,19 @@ fn bench_get_following_reach_hot_tags(c: &mut Criterion) {
     let rt: Runtime = Runtime::new().unwrap();
 
     c.bench_with_input(
-        BenchmarkId::new("bench_get_user_following_hot_tags", format!("user_id: {}, reach: {}", user_id, reach_by)),
+        BenchmarkId::new(
+            "bench_get_user_following_hot_tags",
+            format!("user_id: {}, reach: {}", user_id, reach_by),
+        ),
         &[user_id],
         |b, &params| {
             b.to_async(&rt).iter(|| async {
-                let profile = HotTag::get_stream_tags_by_reach(String::from(params[0]), UserStreamType::Following).await.unwrap();
+                let profile = HotTags::get_stream_tags_by_reach(
+                    String::from(params[0]),
+                    UserStreamType::Following,
+                )
+                .await
+                .unwrap();
                 criterion::black_box(profile);
             });
         },
@@ -113,9 +129,15 @@ fn bench_get_following_reach_hot_tags(c: &mut Criterion) {
 }
 
 fn bench_get_followers_reach_hot_tags(c: &mut Criterion) {
-    println!("****************************************************************************************");
-    println!("Test the performance of getting tags by followers reach, using index or graph as needed");
-    println!("****************************************************************************************");
+    println!(
+        "****************************************************************************************"
+    );
+    println!(
+        "Test the performance of getting tags by followers reach, using index or graph as needed"
+    );
+    println!(
+        "****************************************************************************************"
+    );
 
     run_setup();
 
@@ -124,11 +146,19 @@ fn bench_get_followers_reach_hot_tags(c: &mut Criterion) {
     let rt: Runtime = Runtime::new().unwrap();
 
     c.bench_with_input(
-        BenchmarkId::new("bench_get_user_followers_hot_tags", format!("user_id: {}, reach: {}", user_id, reach_by)),
+        BenchmarkId::new(
+            "bench_get_user_followers_hot_tags",
+            format!("user_id: {}, reach: {}", user_id, reach_by),
+        ),
         &[user_id],
         |b, &params| {
             b.to_async(&rt).iter(|| async {
-                let profile = HotTag::get_stream_tags_by_reach(String::from(params[0]), UserStreamType::Followers).await.unwrap();
+                let profile = HotTags::get_stream_tags_by_reach(
+                    String::from(params[0]),
+                    UserStreamType::Followers,
+                )
+                .await
+                .unwrap();
                 criterion::black_box(profile);
             });
         },
@@ -136,9 +166,15 @@ fn bench_get_followers_reach_hot_tags(c: &mut Criterion) {
 }
 
 fn bench_get_friends_reach_hot_tags(c: &mut Criterion) {
-    println!("****************************************************************************************");
-    println!("Test the performance of getting tags by friends reach, using index or graph as needed");
-    println!("****************************************************************************************");
+    println!(
+        "****************************************************************************************"
+    );
+    println!(
+        "Test the performance of getting tags by friends reach, using index or graph as needed"
+    );
+    println!(
+        "****************************************************************************************"
+    );
 
     run_setup();
 
@@ -147,11 +183,19 @@ fn bench_get_friends_reach_hot_tags(c: &mut Criterion) {
     let rt: Runtime = Runtime::new().unwrap();
 
     c.bench_with_input(
-        BenchmarkId::new("bench_get_user_friends_hot_tags", format!("user_id: {}, reach: {}", user_id, reach_by)),
+        BenchmarkId::new(
+            "bench_get_user_friends_hot_tags",
+            format!("user_id: {}, reach: {}", user_id, reach_by),
+        ),
         &[user_id],
         |b, &params| {
             b.to_async(&rt).iter(|| async {
-                let profile = HotTag::get_stream_tags_by_reach(String::from(params[0]), UserStreamType::Friends).await.unwrap();
+                let profile = HotTags::get_stream_tags_by_reach(
+                    String::from(params[0]),
+                    UserStreamType::Friends,
+                )
+                .await
+                .unwrap();
                 criterion::black_box(profile);
             });
         },

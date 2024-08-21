@@ -9,13 +9,15 @@ const PEER_PUBKY: &str = "o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo";
 struct StreamTagMockup {
     label: String,
     tagger_ids: usize,
-    post_count: u64
+    post_count: u64,
 }
 
 impl StreamTagMockup {
-    fn new(label: String, tagger_ids:usize, post_count: u64) -> Self {
+    fn new(label: String, tagger_ids: usize, post_count: u64) -> Self {
         Self {
-            label, tagger_ids, post_count
+            label,
+            tagger_ids,
+            post_count,
         }
     }
 }
@@ -24,9 +26,7 @@ impl StreamTagMockup {
 async fn make_request(endpoint: &str) -> Result<Value, httpc_test::Error> {
     let client = httpc_test::new_client(HOST_URL)?;
 
-    let res = client
-        .do_get(endpoint)
-        .await?;
+    let res = client.do_get(endpoint).await?;
 
     assert_eq!(res.status(), 200);
     let body = res.json_body()?;
@@ -36,10 +36,7 @@ async fn make_request(endpoint: &str) -> Result<Value, httpc_test::Error> {
 // Small unit test to compare all the tags composition
 fn analyse_hot_tags_structure(tags: &Vec<Value>) {
     for tag in tags {
-        assert!(
-            tag["label"].is_string(),
-            "label should be a string"
-        );
+        assert!(tag["label"].is_string(), "label should be a string");
         assert!(
             tag["tagger_ids"].is_array(),
             "tagger_ids should be an array"
@@ -62,32 +59,34 @@ fn compare_unit_hot_tag(tag: &Value, hot_tag: StreamTagMockup) {
 #[tokio::test]
 async fn test_global_hot_tags() -> Result<()> {
     let body = make_request("/v0/stream/tags/global").await?;
-    
+
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Stream tags should be an array");
-    
+
     // Validate that the posts belong to the specified user's bookmarks
     analyse_hot_tags_structure(tags);
 
     // Analyse the tag that is in the 4th index
-    let hot_tag = StreamTagMockup::new(String::from("fees"), 1, 39);
-    compare_unit_hot_tag(&tags[2], hot_tag);
+    let hot_tag = StreamTagMockup::new(String::from("ha"), 9, 16);
+    compare_unit_hot_tag(&tags[4], hot_tag);
 
     Ok(())
 }
 
 #[tokio::test]
 async fn test_hot_tags_by_following_reach() -> Result<()> {
-    let endpoint = &format!("/v0/stream/tags/reached/{}/{:?}",
-        PEER_PUBKY, UserStreamType::Following
+    let endpoint = &format!(
+        "/v0/stream/tags/reached/{}/{:?}",
+        PEER_PUBKY,
+        UserStreamType::Following
     );
-    
+
     let body = make_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Stream tags should be an array");
-    
+
     // Validate that the posts belong to the specified user's bookmarks
     analyse_hot_tags_structure(tags);
 
@@ -100,20 +99,22 @@ async fn test_hot_tags_by_following_reach() -> Result<()> {
 
 #[tokio::test]
 async fn test_hot_tags_by_followers_reach() -> Result<()> {
-    let endpoint = &format!("/v0/stream/tags/reached/{}/{:?}",
-        PEER_PUBKY, UserStreamType::Followers
+    let endpoint = &format!(
+        "/v0/stream/tags/reached/{}/{:?}",
+        PEER_PUBKY,
+        UserStreamType::Followers
     );
-    
+
     let body = make_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Post stream should be an array");
-    
+
     // Validate that the posts belong to the specified user's bookmarks
     analyse_hot_tags_structure(tags);
 
     // Analyse the tag that is in the 1st index
-    let hot_tag = StreamTagMockup::new(String::from("pubky"), 2, 3);
+    let hot_tag = StreamTagMockup::new(String::from("test"), 3, 3);
     compare_unit_hot_tag(&tags[1], hot_tag);
 
     Ok(())
@@ -121,15 +122,17 @@ async fn test_hot_tags_by_followers_reach() -> Result<()> {
 
 #[tokio::test]
 async fn test_hot_tags_by_friends_reach() -> Result<()> {
-    let endpoint = &format!("/v0/stream/tags/reached/{}/{:?}",
-        PEER_PUBKY, UserStreamType::Friends
+    let endpoint = &format!(
+        "/v0/stream/tags/reached/{}/{:?}",
+        PEER_PUBKY,
+        UserStreamType::Friends
     );
-    
+
     let body = make_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Post stream should be an array");
-    
+
     // Validate that the posts belong to the specified user's bookmarks
     analyse_hot_tags_structure(tags);
 
@@ -139,4 +142,3 @@ async fn test_hot_tags_by_friends_reach() -> Result<()> {
 
     Ok(())
 }
-

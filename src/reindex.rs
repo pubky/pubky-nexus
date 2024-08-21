@@ -1,11 +1,8 @@
-use std::error::Error;
-
 use crate::db::kv::flush::clear_redis;
 use crate::models::post::Bookmark;
-use crate::models::tag::stream::GLOBAL_HOT_TAGS;
-use crate::models::user::{Followers, Following, UserDetails, UserFollows};
+use crate::models::tag::stream::HotTags;
 use crate::models::traits::Collection;
-use crate::{queries, RedisOps};
+use crate::models::user::{Followers, Following, UserDetails, UserFollows};
 use crate::{
     db::connectors::neo4j::get_neo4j_graph,
     models::post::{PostCounts, PostDetails, PostRelationships},
@@ -13,7 +10,6 @@ use crate::{
 };
 use log::info;
 use neo4rs::query;
-use serde::{Deserialize, Serialize};
 use tokio::task::JoinSet;
 
 // TODO: Maybe environment variable
@@ -66,7 +62,10 @@ pub async fn reindex() {
         }
     }
 
-    retrive_global_hot_tags().await.expect("Failed to store the global hot tags");
+    info!("Retrieving tags global score...");
+    HotTags::set_global_tag_scores(HOT_TAGS_THRESHOLD)
+        .await
+        .expect("Failed to store the global hot tags");
 
     info!("Reindexing completed successfully.");
 }
@@ -129,29 +128,4 @@ async fn get_all_post_ids(
     }
 
     Ok(post_ids)
-}
-
-// Create a fake struct to impl RedisOps
-#[derive(Serialize, Deserialize, Debug)]
-pub struct HotTagsScore {}
-
-impl RedisOps for HotTagsScore {}
-
-async fn retrive_global_hot_tags() -> Result<(), Box<dyn Error + Send + Sync>> {
-    info!("Retrieving tags global score...");
-    let graph = get_neo4j_graph()?;
-    let graph = graph.lock().await;
-
-    let query = queries::get_global_hot_tags_scores(HOT_TAGS_THRESHOLD);
-    let mut result = graph.execute(query).await?;
-
-    if let Some(row) = result.next().await? {
-        let hot_tags: Vec<(f64, &str)> = row.get("hot_tags")?;
-        HotTagsScore::put_index_sorted_set(
-            &GLOBAL_HOT_TAGS,
-            hot_tags.as_slice()
-        )
-        .await?
-    }
-    Ok(())
 }

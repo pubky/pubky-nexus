@@ -30,14 +30,14 @@ impl Deref for PostTags {
 impl PostTags {
     pub async fn get_by_id(
         user_id: &str,
-        post_id: &str
+        post_id: &str,
     ) -> Result<Option<PostTags>, Box<dyn std::error::Error + Send + Sync>> {
         Self::get_from_graph(user_id, post_id).await
     }
 
     async fn get_from_graph(
         user_id: &str,
-        post_id: &str
+        post_id: &str,
     ) -> Result<Option<PostTags>, Box<dyn std::error::Error + Send + Sync>> {
         let query = queries::post_tags(user_id, post_id);
         let graph = get_neo4j_graph()?;

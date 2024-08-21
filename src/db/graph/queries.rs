@@ -212,69 +212,50 @@ pub fn get_user_following(user_id: &str, skip: Option<usize>, limit: Option<usiz
 // Retrieves popular tags across the entire network
 // Results ordered by post count (descending), effectively ranking "hot" tags.
 pub fn get_global_hot_tags_scores(threshold: u64) -> Query {
-    query("
+    query(
+        "
         MATCH (u:User)-[tag:TAGGED]->(p:Post)
         WITH tag.label AS label, COUNT(DISTINCT p) AS uniquePosts
         WHERE uniquePosts >= $threshold
         RETURN COLLECT([toFloat(uniquePosts), label]) AS hot_tags
-    ")
+    ",
+    )
     .param("threshold", threshold as f64)
 }
 
 // Retrieves popular hot tags taggers across the entire network
 pub fn get_global_hot_tags_taggers(tag_list: &[&str]) -> Query {
-    query("
+    query(
+        "
         UNWIND $labels AS tag_name
         MATCH (u:User)-[tag:TAGGED]->(p:Post)
         WHERE tag.label = tag_name
         WITH tag.label AS label, COLLECT(DISTINCT u.id) AS userIds
         RETURN COLLECT(userIds) AS tag_user_ids
-    ")
+    ",
+    )
     .param("labels", tag_list)
 }
 
 // Analyzes tag usage for a specific list of user IDs. Groups tags by name,
-// showing for each: label, post count, list of user IDs and total usage count. 
-// Orders by user count and usage (descending).
-// Note: Only considers users from the provided ID list.
-pub fn get_tags_from_user_ids(user_ids: &[&str]) -> Query {
-    query("
+// showing for each: label, post count and list of user IDs
+// Orders by post_count (descending).
+// Note: Only considers users from the provided users_id list.
+pub fn get_tags_by_user_ids(users_id: &[&str]) -> Query {
+    query(
+        "
         UNWIND $ids AS id
         MATCH (u:User)-[tag:TAGGED]->(p:Post)
         WHERE u.id = id
-        WITH tag.label AS label, COLLECT(DISTINCT u.id) AS taggers, COUNT(DISTINCT p) AS uniquePosts, COUNT(*) AS times
+        WITH tag.label AS label, COLLECT(DISTINCT u.id) AS taggers, COUNT(DISTINCT p) AS uniquePosts
         WITH {
             label: label,
-            times: times,
             tagger_ids: taggers,
             post_count: uniquePosts
         } AS hot_tag
-        ORDER BY times DESC
+        ORDER BY hot_tag.post_count DESC
         RETURN COLLECT(hot_tag) AS hot_tags
-    ")
-    .param("ids", user_ids)
-}
-
-// Finds tags used by specified user IDs (Followers | Following | Friends), then counts their usage across all users.
-// Note: Initial tag set from input user list, but final counts include all users.
-pub fn get_general_count_tags_from_user_ids(user_ids: &[&str]) -> Query {
-    query("
-        UNWIND $ids AS id
-        MATCH (u:User)-[tag:TAGGED]->(Post)
-        WHERE u.id = id
-        WITH COLLECT(DISTINCT tag.label) AS userTags
-        UNWIND userTags AS label
-        MATCH (u:User)-[tag:TAGGED]->(p:Post)
-        WHERE tag.label = label
-        WITH label, COUNT(*) AS times, COLLECT(DISTINCT u.id) AS taggers, COUNT(DISTINCT p) AS uniquePosts
-        WITH {
-            label: label,
-            times: times,
-            tagger_ids: taggers,
-            post_count: uniquePosts
-        } AS hot_tag
-        ORDER BY times DESC
-        RETURN COLLECT(hot_tag) AS hot_tags
-    ")
-    .param("ids", user_ids)
+    ",
+    )
+    .param("ids", users_id)
 }

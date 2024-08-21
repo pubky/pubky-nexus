@@ -1,8 +1,8 @@
 use axum::async_trait;
 use neo4rs::Query;
 
-use crate::RedisOps;
 use crate::db::connectors::neo4j::get_neo4j_graph;
+use crate::RedisOps;
 use std::fmt::Debug;
 
 #[async_trait]
@@ -24,7 +24,7 @@ where
     /// a queried ID, containing `Some(record)` if the record was found in either the cache or the graph database,
     /// or `None` if it was not found in either.
     async fn get_by_ids(
-        id_list: &[&str]
+        id_list: &[&str],
     ) -> Result<Vec<Option<Self>>, Box<dyn std::error::Error + Send + Sync>> {
         let key_parts_list: Vec<&[&str]> = id_list.iter().map(std::slice::from_ref).collect();
         let mut collection = Self::try_from_index_multiple_json(&key_parts_list).await?;
@@ -61,7 +61,7 @@ where
     /// This function returns a `Result` containing a vector of `Option<Self>`. Each `Option` corresponds to
     /// a queried ID, containing `Some(record)` if the record was found in the graph database, or `None` if it was not found.
     async fn from_graph(
-        missing_ids: &[&str]
+        missing_ids: &[&str],
     ) -> Result<Vec<Option<Self>>, Box<dyn std::error::Error + Send + Sync>> {
         let graph = get_neo4j_graph()?;
         let query = Self::graph_query(missing_ids);

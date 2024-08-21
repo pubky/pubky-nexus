@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use super::{Followers, Following, Friends, UserFollows, UserCounts, UserView};
+use super::{Followers, Following, Friends, UserCounts, UserFollows, UserView};
 use crate::{db::kv::index::sorted_sets::Sorting, RedisOps};
 use serde::{Deserialize, Serialize};
 use tokio::task::spawn;
@@ -88,12 +88,12 @@ impl UserStream {
         .await
     }
 
-    // Get list of users based on the specified reach type 
+    // Get list of users based on the specified reach type
     pub async fn get_user_list_from_reach(
         user_id: &str,
         list_type: UserStreamType,
         skip: Option<usize>,
-        limit: Option<usize>
+        limit: Option<usize>,
     ) -> Result<Option<Vec<String>>, Box<dyn Error + Send + Sync>> {
         let user_ids = match list_type {
             UserStreamType::Followers => Followers::get_by_id(user_id, skip, limit)
