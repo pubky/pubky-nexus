@@ -11,6 +11,7 @@ pub async fn setup_graph() -> Result<(), Box<dyn std::error::Error>> {
     let indexes = [
         "CREATE INDEX userIdIndex IF NOT EXISTS FOR (u:User) ON (u.id)",
         "CREATE INDEX postIdIndex IF NOT EXISTS FOR (p:Post) ON (p.id)",
+        "CREATE INDEX taggedLabelIndex IF NOT EXISTS FOR ()-[r:TAGGED]-() ON (r.label)",
     ];
 
     let queries = constraints.iter().chain(indexes.iter());
@@ -207,6 +208,54 @@ pub fn get_user_following(user_id: &str, skip: Option<usize>, limit: Option<usiz
         query_string.push_str(&format!(" LIMIT {}", limit_value));
     }
     query(&query_string).param("user_id", user_id)
+}
+
+// Retrieves popular tags across the entire network
+pub fn get_global_hot_tags_scores() -> Query {
+    query(
+        "
+        MATCH (u:User)-[tag:TAGGED]->(p:Post)
+        WITH tag.label AS label, COUNT(DISTINCT p) AS uniquePosts
+        RETURN COLLECT([toFloat(uniquePosts), label]) AS hot_tags
+    ",
+    )
+}
+
+// Retrieves popular hot tags taggers across the entire network
+pub fn get_global_hot_tags_taggers(tag_list: &[&str]) -> Query {
+    query(
+        "
+        UNWIND $labels AS tag_name
+        MATCH (u:User)-[tag:TAGGED]->(p:Post)
+        WHERE tag.label = tag_name
+        WITH tag.label AS label, COLLECT(DISTINCT u.id) AS userIds
+        RETURN COLLECT(userIds) AS tag_user_ids
+    ",
+    )
+    .param("labels", tag_list)
+}
+
+// Analyzes tag usage for a specific list of user IDs. Groups tags by name,
+// showing for each: label, post count and list of user IDs
+// Orders by post_count (descending).
+// Note: Only considers users from the provided users_id list.
+pub fn get_tags_by_user_ids(users_id: &[&str]) -> Query {
+    query(
+        "
+        UNWIND $ids AS id
+        MATCH (u:User)-[tag:TAGGED]->(p:Post)
+        WHERE u.id = id
+        WITH tag.label AS label, COLLECT(DISTINCT u.id) AS taggers, COUNT(DISTINCT p) AS uniquePosts
+        WITH {
+            label: label,
+            tagger_ids: taggers,
+            post_count: uniquePosts
+        } AS hot_tag
+        ORDER BY hot_tag.post_count DESC
+        RETURN COLLECT(hot_tag) AS hot_tags
+    ",
+    )
+    .param("ids", users_id)
 }
 
 pub fn get_thread(author_id: &str, post_id: &str, skip: usize, limit: usize) -> Query {

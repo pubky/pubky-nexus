@@ -4,7 +4,9 @@ use std::ops::Deref;
 use utoipa::ToSchema;
 
 pub mod post;
+pub mod stream;
 pub mod user;
+
 // Atomic struct to save in the cache
 #[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
 pub struct Tag {

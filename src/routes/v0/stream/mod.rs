@@ -4,17 +4,23 @@ use axum::Router;
 use utoipa::OpenApi;
 
 mod posts;
+mod tags;
 mod users;
 
 pub fn routes() -> Router {
     register_routes!(Router::new(),
+        //  User stream
         endpoints::STREAM_USERS_ROUTE => users::stream_users_handler,
         endpoints::STREAM_USERS_USERNAME_SEARCH_ROUTE => users::stream_username_search_handler,
         endpoints::STREAM_USERS_MOSTFOLLOWED_ROUTE => users::stream_most_followed_users_handler,
+        // Post stream
         endpoints::STREAM_POSTS_ROUTE => posts::stream_global_posts_handler,
         endpoints::STREAM_POSTS_USER_ROUTE => posts::stream_user_posts_handler,
         endpoints::STREAM_POSTS_REACH_ROUTE => posts::stream_posts_by_reach_handler,
-        endpoints::STREAM_POSTS_BOOKMARKED_ROUTE => posts::stream_bookmarked_posts_handler
+        endpoints::STREAM_POSTS_BOOKMARKED_ROUTE => posts::stream_bookmarked_posts_handler,
+        // Tags stream
+        endpoints::STREAM_TAGS_GLOBAL_ROUTE => tags::stream_hot_tags_handler,
+        endpoints::STREAM_TAGS_REACH_ROUTE => tags::stream_tags_by_reach_handler
     )
 }
 
@@ -26,6 +32,7 @@ impl StreamApiDoc {
     pub fn merge_docs() -> utoipa::openapi::OpenApi {
         let mut combined = users::StreamUsersApiDocs::openapi();
         combined.merge(posts::StreamPostsApiDocs::openapi());
+        combined.merge(tags::StreamTagsApiDocs::openapi());
         combined
     }
 }

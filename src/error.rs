@@ -15,6 +15,8 @@ pub enum Error {
     InternalServerError { source: Box<dyn std::error::Error> },
     #[error("Bookmarks not found: {user_id}")]
     BookmarksNotFound { user_id: String },
+    #[error("Tags not found")]
+    TagsNotFound { reach: String },
     #[error("Invalid input: {message}")]
     InvalidInput { message: String },
     // Add other custom errors here
@@ -27,6 +29,7 @@ impl IntoResponse for Error {
             Error::UserNotFound { .. } => StatusCode::NOT_FOUND,
             Error::PostNotFound { .. } => StatusCode::NOT_FOUND,
             Error::BookmarksNotFound { .. } => StatusCode::NOT_FOUND,
+            Error::TagsNotFound { .. } => StatusCode::NOT_FOUND,
             Error::InvalidInput { .. } => StatusCode::BAD_REQUEST,
             Error::InternalServerError { .. } => StatusCode::INTERNAL_SERVER_ERROR,
             // Map other errors to appropriate status codes
@@ -40,6 +43,9 @@ impl IntoResponse for Error {
             }
             Error::BookmarksNotFound { user_id } => {
                 debug!("Bookmarks not found: {}", user_id)
+            }
+            Error::TagsNotFound { reach } => {
+                debug!("Tags not found: {}", reach)
             }
             Error::InvalidInput { message } => {
                 debug!("Invalid input: {}", message)
