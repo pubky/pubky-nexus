@@ -6,7 +6,7 @@ use utoipa::ToSchema;
 use super::PostStream;
 
 /// Represents total counts of relationships of a user.
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema, Default)]
 pub struct PostCounts {
     pub tags: u32,
     pub replies: u32,
@@ -15,21 +15,7 @@ pub struct PostCounts {
 
 impl RedisOps for PostCounts {}
 
-impl Default for PostCounts {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl PostCounts {
-    pub fn new() -> Self {
-        Self {
-            tags: 0,
-            replies: 0,
-            reposts: 0,
-        }
-    }
-
     /// Retrieves counts by user ID, first trying to get from Redis, then from Neo4j if not found.
     pub async fn get_by_id(
         author_id: &str,
