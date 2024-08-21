@@ -31,6 +31,10 @@ pkarr = { version = "2.2.0", features = ["async"], default-features = false }
 anyhow = "1.0.86"
 httpc-test = "0.1.10"
 criterion = { version = "0.5.1", features = ["async_tokio"] }
+pubky = { git = "ssh://git@github.com/pubky/pubky.git", branch = "main" }
+
+# [net] # tell Cargo to use the Git CLI for fetching the repository instead of using its internal Git handling. Run git config --global credential.helper cache
+# git-fetch-with-cli = true
 
 [lib]
 name = "pubky_nexus"
