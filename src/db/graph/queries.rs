@@ -11,6 +11,7 @@ pub async fn setup_graph() -> Result<(), Box<dyn std::error::Error>> {
     let indexes = [
         "CREATE INDEX userIdIndex IF NOT EXISTS FOR (u:User) ON (u.id)",
         "CREATE INDEX postIdIndex IF NOT EXISTS FOR (p:Post) ON (p.id)",
+        "CREATE INDEX taggedLabelIndex IF NOT EXISTS FOR ()-[r:TAGGED]-() ON (r.label)",
     ];
 
     let queries = constraints.iter().chain(indexes.iter());
