@@ -26,12 +26,13 @@ const_format = "0.2.32"
 thiserror = "1.0.63"
 chrono = "0.4.38"
 pkarr = { version = "2.2.0", features = ["async"], default-features = false }
+pubky = { git = "ssh://git@github.com/pubky/pubky.git", branch = "main" }
+reqwest = "0.12.7"
 
 [dev-dependencies]
 anyhow = "1.0.86"
 httpc-test = "0.1.10"
 criterion = { version = "0.5.1", features = ["async_tokio"] }
-pubky = { git = "ssh://git@github.com/pubky/pubky.git", branch = "main" }
 
 # [net] # tell Cargo to use the Git CLI for fetching the repository instead of using its internal Git handling. Run git config --global credential.helper cache
 # git-fetch-with-cli = true
@@ -41,7 +42,6 @@ name = "pubky_nexus"
 path = "src/lib.rs"
 
 [[bin]]
-
 name = "service"
 path = "src/service.rs"
 

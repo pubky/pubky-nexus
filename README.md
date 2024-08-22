@@ -78,3 +78,14 @@ docker-compose up -d
 
 - Redis: http://localhost:8001/redis-stack/browser
 - Neo4J: http://localhost:7474/browser/
+
+### Developing the homeserver watcher
+
+Run the pubky homeserver locally in testnet mode.
+```
+git clone https://github.com/pubky/pubky
+cd pubky/pubky-homeserver
+cargo run -- --testnet
+```
+
+Take a look at the logs for 1) `testnet.bootstrap=["127.0.0.1:6881"]`, 2) your homeserver listening url `http://localhost:15411` and 3) the pubky URI `pubky://8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo` and make sure your `.env` has the correct settings.
