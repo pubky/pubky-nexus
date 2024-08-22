@@ -13,7 +13,7 @@ use crate::{db::connectors::neo4j::get_neo4j_graph, queries};
 
 pub const TAG_GLOBAL_HOT: [&str; 3] = ["Tags", "Global", "Hot"];
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, ToSchema)]
 pub struct Taggers(Vec<String>);
 
 #[async_trait]

@@ -65,7 +65,7 @@ fn compare_unit_hot_tag(tag: &Value, hot_tag: StreamTagMockup) {
 
 #[tokio::test]
 async fn test_global_hot_tags() -> Result<()> {
-    let body = make_request("/v0/stream/tags/global").await?;
+    let body = make_request("/v0/tag/hot").await?;
 
     assert!(body.is_array());
 
@@ -84,7 +84,7 @@ async fn test_global_hot_tags() -> Result<()> {
 #[tokio::test]
 async fn test_hot_tags_by_following_reach() -> Result<()> {
     let endpoint = &format!(
-        "/v0/stream/tags/reached/{}/{:?}",
+        "/v0/tag/reached/{}/{:?}",
         PEER_PUBKY,
         UserStreamType::Following
     );
@@ -107,7 +107,7 @@ async fn test_hot_tags_by_following_reach() -> Result<()> {
 #[tokio::test]
 async fn test_hot_tags_by_followers_reach() -> Result<()> {
     let endpoint = &format!(
-        "/v0/stream/tags/reached/{}/{:?}",
+        "/v0/tag/reached/{}/{:?}",
         PEER_PUBKY,
         UserStreamType::Followers
     );
@@ -130,7 +130,7 @@ async fn test_hot_tags_by_followers_reach() -> Result<()> {
 #[tokio::test]
 async fn test_hot_tags_by_friends_reach() -> Result<()> {
     let endpoint = &format!(
-        "/v0/stream/tags/reached/{}/{:?}",
+        "/v0/tag/reached/{}/{:?}",
         PEER_PUBKY,
         UserStreamType::Friends
     );
