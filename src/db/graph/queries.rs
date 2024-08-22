@@ -249,7 +249,8 @@ pub fn get_tags_by_user_ids(users_id: &[&str]) -> Query {
         WITH {
             label: label,
             taggers_id: taggers,
-            post_count: uniquePosts
+            post_count: uniquePosts,
+            extra_taggers: 0
         } AS hot_tag
         ORDER BY hot_tag.post_count DESC
         RETURN COLLECT(hot_tag) AS hot_tags

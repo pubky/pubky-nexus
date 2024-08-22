@@ -12,6 +12,7 @@ use utoipa::OpenApi;
 pub struct HotTagsQuery {
     skip: Option<usize>,
     limit: Option<usize>,
+    taggers: Option<usize>,
 }
 
 #[utoipa::path(
@@ -19,7 +20,8 @@ pub struct HotTagsQuery {
     path = STREAM_TAGS_GLOBAL_ROUTE,
     params(
         ("skip" = Option<usize>, Query, description = "Skip N tags"),
-        ("limit" = Option<usize>, Query, description = "Retrieve N tag")
+        ("limit" = Option<usize>, Query, description = "Retrieve N tag"),
+        ("taggers" = Option<usize>, Query, description = "Retrieve N user_id for each tag")
     ),
     tag = "Stream hot Tags",
     responses(
@@ -33,8 +35,9 @@ pub async fn stream_hot_tags_handler(Query(query): Query<HotTagsQuery>) -> Resul
 
     let skip = query.skip.unwrap_or(0);
     let limit = query.limit.unwrap_or(40);
+    let taggers_limit = query.taggers.unwrap_or(20);
 
-    match HotTags::get_global_tags_stream(Some(skip), Some(limit)).await {
+    match HotTags::get_global_tags_stream(Some(skip), Some(limit), Some(taggers_limit)).await {
         Ok(Some(hot_tags)) => Ok(Json(hot_tags)),
         Ok(None) => Err(Error::TagsNotFound {
             reach: String::from("GLOBAL"),

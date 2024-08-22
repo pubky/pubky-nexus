@@ -83,7 +83,7 @@ fn bench_get_global_hot_tags(c: &mut Criterion) {
 
     c.bench_function("bench_get_global_hot_tags", |b| {
         b.to_async(&rt).iter(|| async {
-            let stream_tag = HotTags::get_global_tags_stream(None, Some(40))
+            let stream_tag = HotTags::get_global_tags_stream(None, Some(40), Some(10))
                 .await
                 .unwrap();
             criterion::black_box(stream_tag);

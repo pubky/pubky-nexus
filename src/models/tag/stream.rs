@@ -14,22 +14,22 @@ use crate::{db::connectors::neo4j::get_neo4j_graph, queries};
 pub const TAG_GLOBAL_HOT: [&str; 3] = ["Tags", "Global", "Hot"];
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct HotTagUserList(Vec<String>);
+pub struct Taggers(Vec<String>);
 
 #[async_trait]
-impl RedisOps for HotTagUserList {
+impl RedisOps for Taggers {
     async fn prefix() -> String {
-        String::from("Tags:Global")
+        String::from("Tags:Taggers")
     }
 }
 
-impl AsRef<[String]> for HotTagUserList {
+impl AsRef<[String]> for Taggers {
     fn as_ref(&self) -> &[String] {
         &self.0
     }
 }
 
-impl HotTagUserList {
+impl Taggers {
     fn from_vec(vec: Vec<String>) -> Self {
         Self(vec)
     }
@@ -38,8 +38,9 @@ impl HotTagUserList {
 #[derive(Deserialize, Serialize, ToSchema, Debug)]
 pub struct HotTag {
     label: String,
-    taggers_id: HotTagUserList,
+    taggers_id: Taggers,
     post_count: u64,
+    extra_taggers: usize,
 }
 
 // Define a newtype wrapper
@@ -82,7 +83,7 @@ impl HotTags {
             let hot_tags_users: Vec<(&str, Vec<String>)> = row.get("hot_tags_users")?;
             // Add all the users_id in the SET
             for (label, user_list) in hot_tags_users.into_iter() {
-                let label_user_list = HotTagUserList::from_vec(user_list);
+                let label_user_list = Taggers::from_vec(user_list);
                 label_user_list.put_index_set(&[label]).await?;
             }
         }
@@ -92,6 +93,7 @@ impl HotTags {
     pub async fn get_global_tags_stream(
         skip: Option<usize>,
         limit: Option<usize>,
+        taggers_limit: Option<usize>,
     ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
         let hot_tags = Self::try_from_index_sorted_set(
             &TAG_GLOBAL_HOT,
@@ -104,29 +106,30 @@ impl HotTags {
         .await?
         .unwrap_or_default();
 
-        if hot_tags.is_empty() { return Ok(None); }
+        if hot_tags.is_empty() {
+            return Ok(None);
+        }
 
         // Collect the labels as a vector of string slices
         let labels: Vec<&str> = hot_tags.iter().map(|(label, _)| label.as_str()).collect();
         let label_slice: &[&str] = &labels;
 
-        let list = HotTagUserList::get_multiple_sets(label_slice).await?;
+        let list = Taggers::get_multiple_sets(label_slice, taggers_limit).await?;
 
         let hot_tags_stream: HotTags = hot_tags
             .into_iter()
             .zip(list)
-            .filter_map(|((label, score), user_ids)|  {
-                match user_ids {
-                    Some(list) =>  {
-                        let taggers_id = HotTagUserList::from_vec(list);
-                        Some(HotTag {
-                            label,
-                            taggers_id,
-                            post_count: score as u64,
-                        })
-                    }
-                    None => None
+            .filter_map(|((label, score), user_ids)| match user_ids {
+                Some((tagger_list, extra_taggers)) => {
+                    let taggers_id = Taggers::from_vec(tagger_list);
+                    Some(HotTag {
+                        label,
+                        taggers_id,
+                        post_count: score as u64,
+                        extra_taggers,
+                    })
                 }
+                None => None,
             })
             .collect();
         Ok(Some(hot_tags_stream))
@@ -138,7 +141,8 @@ impl HotTags {
     ) -> Result<Option<HotTags>, Box<dyn Error + Send + Sync>> {
         // We cannot use here limit and skip because we want to get all the users reach by
         let users =
-            UserStream::get_user_list_from_reach(&user_id, reach, None, Some(isize::MAX as usize)).await?;
+            UserStream::get_user_list_from_reach(&user_id, reach, None, Some(isize::MAX as usize))
+                .await?;
         match users {
             Some(users) => get_users_tags_by_reach(&users).await,
             None => Ok(None),
@@ -177,6 +181,3 @@ where
 
     Ok(None)
 }
-
-
-
