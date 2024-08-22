@@ -373,4 +373,29 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         let key = key_parts.join(":");
         sorted_sets::get_lex_range("Sorted", &key, min, max, skip, limit).await
     }
+
+    /// Retrieves multiple sets from Redis using the provided key parts.
+    ///
+    /// This method fetches multiple sets from Redis based on the provided key parts and returns
+    /// a vector of optional vectors where each inner vector contains the elements of the corresponding set.
+    /// If a set does not exist, its corresponding position will contain `None`.
+    ///
+    /// # Arguments
+    ///
+    /// * `key_parts_list` - A slice of slices, where each inner slice contains string slices representing
+    ///   the parts used to form the key under which the corresponding set is stored.
+    ///
+    /// # Returns
+    ///
+    /// A `Vec<Option<Vec<String>>>` containing the elements of each set or `None` if a set does not exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
+    async fn get_multiple_sets(
+        key_parts_list: &[&str],
+    ) -> Result<Vec<Option<Vec<String>>>, Box<dyn Error + Send + Sync>> {
+        let prefix = Self::prefix().await;
+        sets::get_multiple_sets(&prefix, key_parts_list).await
+    }
 }

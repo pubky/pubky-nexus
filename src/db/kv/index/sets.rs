@@ -138,3 +138,48 @@ pub async fn check_set_member(
         Ok((false, false))
     }
 }
+
+/// Retrieves multiple sets from Redis in a single call using pipeline.
+///
+/// This function fetches multiple sets from Redis based on the provided keys using a Redis pipeline.
+/// The result is a vector of vectors where each inner vector contains the elements of the corresponding set.
+///
+/// # Arguments
+///
+/// * `prefix` - A string slice representing the prefix for the Redis keys.
+/// * `keys` - A slice of string slices representing the keys under which the sets are stored.
+///
+/// # Returns
+///
+/// Returns a vector of optional vectors where each inner vector contains the elements of the set. 
+/// If a set does not exist, its corresponding position will contain `None`.
+///
+/// # Errors
+///
+/// Returns an error if the operation fails.
+pub async fn get_multiple_sets(
+    prefix: &str,
+    keys: &[&str],
+) -> Result<Vec<Option<Vec<String>>>, Box<dyn Error + Send + Sync>> {
+    let mut redis_conn = get_redis_conn().await?;
+
+    // Create a Redis pipeline
+    let mut pipe = redis::pipe();
+    
+    // Add each SMEMBERS command to the pipeline for all keys
+    for key in keys {
+        let index_key = format!("{}:{}", prefix, key);
+        pipe.smembers(index_key);
+    }
+
+    // Execute the pipeline
+    let results: Vec<Vec<String>> = pipe.query_async(&mut redis_conn).await?;
+
+    // Convert results into Vec<Option<Vec<String>>>
+    let final_results = results
+        .into_iter()
+        .map(|set| if set.is_empty() { None } else { Some(set) })
+        .collect();
+
+    Ok(final_results)
+}

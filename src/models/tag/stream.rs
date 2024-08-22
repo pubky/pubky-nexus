@@ -1,3 +1,4 @@
+use axum::async_trait;
 use neo4rs::Query;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -12,12 +13,32 @@ use crate::{db::connectors::neo4j::get_neo4j_graph, queries};
 
 pub const TAG_GLOBAL_HOT: [&str; 3] = ["Tags", "Global", "Hot"];
 
-type TagList = Vec<String>;
+#[derive(Serialize, Deserialize, Debug)]
+pub struct HotTagUserList(Vec<String>);
+
+#[async_trait]
+impl RedisOps for HotTagUserList {
+    async fn prefix() -> String {
+        String::from("Tags:Global")
+    }
+}
+
+impl AsRef<[String]> for HotTagUserList {
+    fn as_ref(&self) -> &[String] {
+        &self.0
+    }
+}
+
+impl HotTagUserList {
+    fn from_vec(vec: Vec<String>) -> Self {
+        Self(vec)
+    }
+}
 
 #[derive(Deserialize, Serialize, ToSchema, Debug)]
 pub struct HotTag {
     label: String,
-    tagger_ids: Vec<String>,
+    taggers_id: HotTagUserList,
     post_count: u64,
 }
 
@@ -45,7 +66,6 @@ impl FromIterator<HotTag> for HotTags {
 }
 
 impl HotTags {
-    // TODO: Move another struct that is more related with reindexer process?
     pub async fn set_global_tag_scores() -> Result<(), Box<dyn Error + Send + Sync>> {
         let mut result;
         {
@@ -57,11 +77,18 @@ impl HotTags {
         }
 
         if let Some(row) = result.next().await? {
-            let hot_tags: Vec<(f64, &str)> = row.get("hot_tags")?;
-            Self::put_index_sorted_set(&TAG_GLOBAL_HOT, hot_tags.as_slice()).await?
+            let hot_tags_score: Vec<(f64, &str)> = row.get("hot_tags_score")?;
+            Self::put_index_sorted_set(&TAG_GLOBAL_HOT, hot_tags_score.as_slice()).await?;
+            let hot_tags_users: Vec<(&str, Vec<String>)> = row.get("hot_tags_users")?;
+            // Add all the users_id in the SET
+            for (label, user_list) in hot_tags_users.into_iter() {
+                let label_user_list = HotTagUserList::from_vec(user_list);
+                label_user_list.put_index_set(&[label]).await?;
+            }
         }
         Ok(())
     }
+
     pub async fn get_global_tags_stream(
         skip: Option<usize>,
         limit: Option<usize>,
@@ -77,26 +104,31 @@ impl HotTags {
         .await?
         .unwrap_or_default();
 
-        if hot_tags.is_empty() {
-            return Ok(None);
-        }
+        if hot_tags.is_empty() { return Ok(None); }
 
-        let tag_list: Vec<&str> = hot_tags.iter().map(|(label, _)| label.as_ref()).collect();
-        let query = queries::get_global_hot_tags_taggers(tag_list.as_slice());
-        let tag_user_list = retrieve_from_graph::<Vec<TagList>>(query, "tag_user_ids")
-            .await?
-            .unwrap();
+        // Collect the labels as a vector of string slices
+        let labels: Vec<&str> = hot_tags.iter().map(|(label, _)| label.as_str()).collect();
+        let label_slice: &[&str] = &labels;
+
+        let list = HotTagUserList::get_multiple_sets(label_slice).await?;
 
         let hot_tags_stream: HotTags = hot_tags
             .into_iter()
-            .zip(tag_user_list)
-            .map(|((label, score), tagger_ids)| HotTag {
-                label,
-                tagger_ids,
-                post_count: score as u64,
+            .zip(list)
+            .filter_map(|((label, score), user_ids)|  {
+                match user_ids {
+                    Some(list) =>  {
+                        let taggers_id = HotTagUserList::from_vec(list);
+                        Some(HotTag {
+                            label,
+                            taggers_id,
+                            post_count: score as u64,
+                        })
+                    }
+                    None => None
+                }
             })
             .collect();
-
         Ok(Some(hot_tags_stream))
     }
 
@@ -106,7 +138,7 @@ impl HotTags {
     ) -> Result<Option<HotTags>, Box<dyn Error + Send + Sync>> {
         // We cannot use here limit and skip because we want to get all the users reach by
         let users =
-            UserStream::get_user_list_from_reach(&user_id, reach, None, Some(10000)).await?;
+            UserStream::get_user_list_from_reach(&user_id, reach, None, Some(isize::MAX as usize)).await?;
         match users {
             Some(users) => get_users_tags_by_reach(&users).await,
             None => Ok(None),
@@ -145,3 +177,6 @@ where
 
     Ok(None)
 }
+
+
+

@@ -210,13 +210,13 @@ pub fn get_user_following(user_id: &str, skip: Option<usize>, limit: Option<usiz
     query(&query_string).param("user_id", user_id)
 }
 
-// Retrieves popular tags across the entire network
+// Retrieves popular tags and its taggers across the entire network
 pub fn get_global_hot_tags_scores() -> Query {
     query(
         "
         MATCH (u:User)-[tag:TAGGED]->(p:Post)
-        WITH tag.label AS label, COUNT(DISTINCT p) AS uniquePosts
-        RETURN COLLECT([toFloat(uniquePosts), label]) AS hot_tags
+        WITH tag.label AS label, COUNT(DISTINCT p) AS uniquePosts, COLLECT(DISTINCT u.id) AS user_ids
+        RETURN COLLECT([toFloat(uniquePosts), label]) AS hot_tags_score, COLLECT([label, user_ids]) AS hot_tags_users
     ",
     )
 }
@@ -248,7 +248,7 @@ pub fn get_tags_by_user_ids(users_id: &[&str]) -> Query {
         WITH tag.label AS label, COLLECT(DISTINCT u.id) AS taggers, COUNT(DISTINCT p) AS uniquePosts
         WITH {
             label: label,
-            tagger_ids: taggers,
+            taggers_id: taggers,
             post_count: uniquePosts
         } AS hot_tag
         ORDER BY hot_tag.post_count DESC
