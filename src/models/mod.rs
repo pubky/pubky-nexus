@@ -1,3 +1,4 @@
+pub mod file;
 pub mod info;
 pub mod post;
 pub mod pubky_app;

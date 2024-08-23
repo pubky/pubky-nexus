@@ -280,3 +280,26 @@ pub fn get_thread(author_id: &str, post_id: &str, skip: usize, limit: usize) -> 
     .param("skip", skip as i64)
     .param("limit", limit as i64)
 }
+
+pub fn get_file_by_id(owner_id: &str, file_id: &str) -> Query {
+    query(
+        "
+        MATCH (f:File {owner_id: $owner_id, id: $file_id})
+        RETURN f
+        ",
+    )
+    .param("owner_id", owner_id)
+    .param("file_id", file_id)
+}
+
+pub fn get_files_by_ids(key_pair: Vec<&[&str]>) -> Query {
+    query(
+        "
+        WITH $pairs AS pairs
+        UNWIND pairs AS pair
+        MATCH (f:File {owner_id: pair[0], id: pair[1]})
+        RETURN f
+        ",
+    )
+    .param("pairs", key_pair)
+}

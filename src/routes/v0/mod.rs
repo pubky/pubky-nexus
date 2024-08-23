@@ -10,6 +10,7 @@ pub mod search;
 pub mod stream;
 pub mod tag;
 pub mod user;
+pub mod file;
 
 pub use queries::TagsQuery;
 
