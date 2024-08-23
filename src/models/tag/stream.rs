@@ -40,7 +40,7 @@ pub struct HotTag {
     label: String,
     taggers_id: Taggers,
     post_count: u64,
-    extra_taggers: usize,
+    taggers_count: usize,
 }
 
 // Define a newtype wrapper
@@ -114,19 +114,19 @@ impl HotTags {
         let labels: Vec<&str> = hot_tags.iter().map(|(label, _)| label.as_str()).collect();
         let label_slice: &[&str] = &labels;
 
-        let list = Taggers::get_multiple_sets(label_slice, taggers_limit).await?;
+        let list = Taggers::try_from_multiple_sets(label_slice, taggers_limit).await?;
 
         let hot_tags_stream: HotTags = hot_tags
             .into_iter()
             .zip(list)
             .filter_map(|((label, score), user_ids)| match user_ids {
-                Some((tagger_list, extra_taggers)) => {
+                Some((tagger_list, taggers_count)) => {
                     let taggers_id = Taggers::from_vec(tagger_list);
                     Some(HotTag {
                         label,
                         taggers_id,
                         post_count: score as u64,
-                        extra_taggers,
+                        taggers_count,
                     })
                 }
                 None => None,

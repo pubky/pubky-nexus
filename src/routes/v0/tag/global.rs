@@ -1,7 +1,7 @@
-use crate::models::tag::global::Global;
+use crate::models::tag::global::TagGlobal;
 use crate::models::tag::stream::{HotTag, HotTags, Taggers};
 use crate::models::user::UserStreamType;
-use crate::routes::v0::endpoints::{TAG_HOT_ROUTE, TAG_POST_ROUTE, TAG_REACH_ROUTE};
+use crate::routes::v0::endpoints::{TAG_HOT_ROUTE, TAG_REACH_ROUTE, TAG_TAGGERS_ROUTE};
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
@@ -13,7 +13,7 @@ use utoipa::OpenApi;
 pub struct HotTagsQuery {
     skip: Option<usize>,
     limit: Option<usize>,
-    taggers: Option<usize>,
+    max_taggers: Option<usize>,
 }
 
 #[utoipa::path(
@@ -22,7 +22,7 @@ pub struct HotTagsQuery {
     params(
         ("skip" = Option<usize>, Query, description = "Skip N tags"),
         ("limit" = Option<usize>, Query, description = "Retrieve N tag"),
-        ("taggers" = Option<usize>, Query, description = "Retrieve N user_id for each tag")
+        ("max_taggers" = Option<usize>, Query, description = "Retrieve N user_id for each tag")
     ),
     tag = "Global hot Tags",
     responses(
@@ -37,9 +37,9 @@ pub async fn hot_tags_handler(Query(query): Query<HotTagsQuery>) -> Result<Json<
 
     let skip = query.skip.unwrap_or(0);
     let limit = query.limit.unwrap_or(40);
-    let taggers_limit = query.taggers.unwrap_or(20);
+    let max_taggers = query.max_taggers.unwrap_or(20);
 
-    match HotTags::get_global_tags_stream(Some(skip), Some(limit), Some(taggers_limit)).await {
+    match HotTags::get_global_tags_stream(Some(skip), Some(limit), Some(max_taggers)).await {
         Ok(Some(hot_tags)) => Ok(Json(hot_tags)),
         Ok(None) => Err(Error::TagsNotFound {
             reach: String::from("GLOBAL"),
@@ -55,7 +55,7 @@ pub struct TagTaggersQuery {
 
 #[utoipa::path(
     get,
-    path = TAG_POST_ROUTE,
+    path = TAG_TAGGERS_ROUTE,
     tag = "Global tag Taggers",
     params(
         ("label" = String, Path, description = "Tag name"),
@@ -72,13 +72,13 @@ pub async fn tag_taggers_handler(
     Query(query): Query<TagTaggersQuery>,
 ) -> Result<Json<Vec<String>>> {
     info!(
-        "GET {TAG_POST_ROUTE} label:{}, reach:{:?}",
+        "GET {TAG_TAGGERS_ROUTE} label:{}, reach:{:?}",
         label, query.reach
     );
 
     let reach = query.reach;
 
-    match Global::get_tag_taggers(label.clone(), reach).await {
+    match TagGlobal::get_tag_taggers(label.clone(), reach).await {
         Ok(Some(post)) => Ok(Json(post)),
         Ok(None) => Err(Error::TagsNotFound { reach: label }),
         Err(source) => Err(Error::InternalServerError { source }),

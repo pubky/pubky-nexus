@@ -396,56 +396,11 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// # Errors
     ///
     /// This function will return an error if the operation fails, such as in cases of a Redis connection issue.
-    async fn get_multiple_sets(
+    async fn try_from_multiple_sets(
         key_parts_list: &[&str],
         limit: Option<usize>,
     ) -> Result<Vec<Option<(Vec<String>, usize)>>, Box<dyn Error + Send + Sync>> {
         let prefix = Self::prefix().await;
         sets::get_multiple_sets(&prefix, key_parts_list, limit).await
-    }
-
-    /// Fetches a single set from Redis using the specified key components.
-    ///
-    /// This asynchronous function retrieves a set from Redis based on the provided key components.
-    /// It returns an `Option<Vec<String>>` where:
-    /// - `Some(Vec<String>)` contains the elements of the set if it exists.
-    /// - `None` indicates that the set does not exist.
-    ///
-    /// If a limit is specified, only up to that number of elements will be fetched from the set.
-    ///
-    /// # Arguments
-    ///
-    /// * `key_parts` - A slice of string slices representing the components
-    ///   used to construct the Redis key for the set.
-    /// * `limit` - An optional parameter specifying the maximum number of elements to fetch from the set.
-    ///   If `None`, all elements will be retrieved.
-    ///
-    /// # Returns
-    ///
-    /// A `Result<Option<Vec<String>>, Box<dyn Error + Send + Sync>>` where:
-    /// * `Some(Vec<String>)` contains the elements of the set retrieved from Redis.
-    /// * `None` indicates that the set does not exist.
-    /// * The function will return an error if the operation fails, such as in cases of a Redis connection issue.
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the Redis operation fails, for instance, due to connection issues
-    /// or if the retrieval process encounters an unexpected problem.
-    async fn get_single_set(
-        key_parts: &[&str],
-        limit: Option<usize>,
-    ) -> Result<Option<Vec<String>>, Box<dyn Error + Send + Sync>> {
-        let prefix = Self::prefix().await;
-        let results = sets::get_multiple_sets(&prefix, key_parts, limit).await?;
-
-        // Extract the first (and only) result and unwrap it. If None, return an empty Vec<String>.
-        let result_vec = results
-            .into_iter()
-            .next()
-            .flatten()
-            .map(|(vec, _)| Some(vec))
-            .unwrap_or_default();
-
-        Ok(result_vec)
     }
 }

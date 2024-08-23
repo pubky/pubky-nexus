@@ -9,7 +9,7 @@ pub fn routes() -> Router {
     register_routes!(Router::new(),
         endpoints::TAG_HOT_ROUTE => global::hot_tags_handler,
         endpoints::TAG_REACH_ROUTE => global::tags_by_reach_handler,
-        endpoints::TAG_POST_ROUTE => global::tag_taggers_handler
+        endpoints::TAG_TAGGERS_ROUTE => global::tag_taggers_handler
     )
 }
 

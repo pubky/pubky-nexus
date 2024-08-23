@@ -193,9 +193,9 @@ pub async fn get_multiple_sets(
                 match limit {
                     Some(set_limit) if set_limit < set_length => {
                         let limited_set = set.into_iter().take(set_limit).collect();
-                        Some((limited_set, set_length - set_limit))
+                        Some((limited_set, set_length))
                     }
-                    _ => Some((set, 0)),
+                    _ => Some((set, set_length)),
                 }
             }
         })

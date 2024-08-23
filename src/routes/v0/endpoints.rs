@@ -55,4 +55,4 @@ pub const SEARCH_USERS_ROUTE: &str = concatcp!(SEARCH_PREFIX, "/users");
 const TAG_PREFIX: &str = concatcp!(VERSION_ROUTE, "/tag");
 pub const TAG_HOT_ROUTE: &str = concatcp!(TAG_PREFIX, "/hot");
 pub const TAG_REACH_ROUTE: &str = concatcp!(TAG_PREFIX, "/reached/:user_id/:reach");
-pub const TAG_POST_ROUTE: &str = concatcp!(TAG_PREFIX, "/post/:label");
+pub const TAG_TAGGERS_ROUTE: &str = concatcp!(TAG_PREFIX, "/taggers/:label");
