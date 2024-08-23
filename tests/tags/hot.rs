@@ -10,14 +10,16 @@ struct StreamTagMockup {
     label: String,
     tagger_ids: usize,
     post_count: u64,
+    taggers_count: usize,
 }
 
 impl StreamTagMockup {
-    fn new(label: String, tagger_ids: usize, post_count: u64) -> Self {
+    fn new(label: String, tagger_ids: usize, post_count: u64, taggers_count: usize) -> Self {
         Self {
             label,
             tagger_ids,
             post_count,
+            taggers_count,
         }
     }
 }
@@ -38,11 +40,15 @@ fn analyse_hot_tags_structure(tags: &Vec<Value>) {
     for tag in tags {
         assert!(tag["label"].is_string(), "label should be a string");
         assert!(
-            tag["tagger_ids"].is_array(),
+            tag["taggers_id"].is_array(),
             "tagger_ids should be an array"
         );
         assert!(
             tag["post_count"].is_number(),
+            "post_count should be a number"
+        );
+        assert!(
+            tag["taggers_count"].is_number(),
             "post_count should be a number"
         );
     }
@@ -52,13 +58,14 @@ fn analyse_hot_tags_structure(tags: &Vec<Value>) {
 fn compare_unit_hot_tag(tag: &Value, hot_tag: StreamTagMockup) {
     assert_eq!(tag["post_count"], hot_tag.post_count);
     assert_eq!(tag["label"], hot_tag.label);
-    let tagger_ids = tag["tagger_ids"].as_array().unwrap();
+    assert_eq!(tag["taggers_count"], hot_tag.taggers_count);
+    let tagger_ids = tag["taggers_id"].as_array().unwrap();
     assert_eq!(tagger_ids.len(), hot_tag.tagger_ids);
 }
 
 #[tokio::test]
 async fn test_global_hot_tags() -> Result<()> {
-    let body = make_request("/v0/stream/tags/global").await?;
+    let body = make_request("/v0/tag/hot").await?;
 
     assert!(body.is_array());
 
@@ -68,7 +75,7 @@ async fn test_global_hot_tags() -> Result<()> {
     analyse_hot_tags_structure(tags);
 
     // Analyse the tag that is in the 4th index
-    let hot_tag = StreamTagMockup::new(String::from("ha"), 9, 16);
+    let hot_tag = StreamTagMockup::new(String::from("ha"), 9, 16, 9);
     compare_unit_hot_tag(&tags[4], hot_tag);
 
     Ok(())
@@ -77,7 +84,7 @@ async fn test_global_hot_tags() -> Result<()> {
 #[tokio::test]
 async fn test_hot_tags_by_following_reach() -> Result<()> {
     let endpoint = &format!(
-        "/v0/stream/tags/reached/{}/{:?}",
+        "/v0/tag/reached/{}/{:?}",
         PEER_PUBKY,
         UserStreamType::Following
     );
@@ -91,7 +98,7 @@ async fn test_hot_tags_by_following_reach() -> Result<()> {
     analyse_hot_tags_structure(tags);
 
     // Analyse the tag that is in the 1st index
-    let hot_tag = StreamTagMockup::new(String::from("pubky"), 4, 5);
+    let hot_tag = StreamTagMockup::new(String::from("pubky"), 4, 5, 4);
     compare_unit_hot_tag(&tags[1], hot_tag);
 
     Ok(())
@@ -100,7 +107,7 @@ async fn test_hot_tags_by_following_reach() -> Result<()> {
 #[tokio::test]
 async fn test_hot_tags_by_followers_reach() -> Result<()> {
     let endpoint = &format!(
-        "/v0/stream/tags/reached/{}/{:?}",
+        "/v0/tag/reached/{}/{:?}",
         PEER_PUBKY,
         UserStreamType::Followers
     );
@@ -114,7 +121,7 @@ async fn test_hot_tags_by_followers_reach() -> Result<()> {
     analyse_hot_tags_structure(tags);
 
     // Analyse the tag that is in the 1st index
-    let hot_tag = StreamTagMockup::new(String::from("test"), 3, 3);
+    let hot_tag = StreamTagMockup::new(String::from("test"), 3, 3, 3);
     compare_unit_hot_tag(&tags[1], hot_tag);
 
     Ok(())
@@ -123,7 +130,7 @@ async fn test_hot_tags_by_followers_reach() -> Result<()> {
 #[tokio::test]
 async fn test_hot_tags_by_friends_reach() -> Result<()> {
     let endpoint = &format!(
-        "/v0/stream/tags/reached/{}/{:?}",
+        "/v0/tag/reached/{}/{:?}",
         PEER_PUBKY,
         UserStreamType::Friends
     );
@@ -137,7 +144,7 @@ async fn test_hot_tags_by_friends_reach() -> Result<()> {
     analyse_hot_tags_structure(tags);
 
     // Analyse the tag that is in the 1st index
-    let hot_tag = StreamTagMockup::new(String::from("pubky"), 2, 3);
+    let hot_tag = StreamTagMockup::new(String::from("pubky"), 2, 3, 2);
     compare_unit_hot_tag(&tags[1], hot_tag);
 
     Ok(())

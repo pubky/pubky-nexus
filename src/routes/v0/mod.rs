@@ -7,6 +7,7 @@ pub mod info;
 pub mod post;
 pub mod search;
 pub mod stream;
+pub mod tag;
 pub mod user;
 
 pub fn routes() -> Router {
@@ -15,6 +16,7 @@ pub fn routes() -> Router {
     let route_user = user::routes();
     let route_stream = stream::routes();
     let route_search = search::routes();
+    let route_tag = tag::routes();
     let route_openapi =
         SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::merge_docs());
 
@@ -23,6 +25,7 @@ pub fn routes() -> Router {
         .merge(route_user)
         .merge(route_stream)
         .merge(route_search)
+        .merge(route_tag)
         .merge(route_openapi)
 }
 
@@ -37,6 +40,8 @@ impl ApiDoc {
         combined.merge(user::UserApiDoc::merge_docs());
         combined.merge(stream::StreamApiDoc::merge_docs());
         combined.merge(search::SearchApiDoc::merge_docs());
+        combined.merge(search::SearchApiDoc::merge_docs());
+        combined.merge(tag::TagApiDoc::merge_docs());
         combined
     }
 }

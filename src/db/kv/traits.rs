@@ -373,4 +373,34 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         let key = key_parts.join(":");
         sorted_sets::get_lex_range("Sorted", &key, min, max, skip, limit).await
     }
+
+    /// Fetches multiple sets from Redis using the specified key components.
+    ///
+    /// This asynchronous function retrieves multiple sets from Redis based on the provided key components.
+    /// It returns a vector where each element is an optional vector containing the elements of the corresponding set.
+    /// If a particular set does not exist, the corresponding position in the returned vector will be `None`.
+    ///
+    /// # Arguments
+    ///
+    /// * `key_parts_list` - A slice of string slices, where each inner slice represents the components
+    ///   used to construct the Redis key for the corresponding set.
+    /// * `limit` - An optional parameter specifying the maximum number of elements to fetch from each set.
+    ///   If `None`, all elements will be retrieved.
+    ///
+    /// # Returns
+    ///
+    /// A `Vec<Option<Vec<String>>>` where:
+    /// * Each inner `Vec<String>` contains the elements of a set retrieved from Redis.
+    /// * `None` indicates that the set does not exist for the corresponding key.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the operation fails, such as in cases of a Redis connection issue.
+    async fn try_from_multiple_sets(
+        key_parts_list: &[&str],
+        limit: Option<usize>,
+    ) -> Result<Vec<Option<(Vec<String>, usize)>>, Box<dyn Error + Send + Sync>> {
+        let prefix = Self::prefix().await;
+        sets::get_multiple_sets(&prefix, key_parts_list, limit).await
+    }
 }

@@ -138,3 +138,68 @@ pub async fn check_set_member(
         Ok((false, false))
     }
 }
+
+/// Retrieves multiple sets from Redis in a single call using a pipeline.
+///
+/// This asynchronous function fetches multiple sets from Redis based on the provided keys using a Redis pipeline.
+/// It returns a vector of optional tuples, where each tuple contains a vector of elements from the corresponding set
+/// and an integer representing the number of elements that were excluded if a limit was specified.
+///
+/// # Arguments
+///
+/// * `prefix` - A string slice representing the prefix to be prepended to each Redis key.
+/// * `keys` - A slice of string slices representing the keys under which the sets are stored.
+/// * `limit` - An optional `usize` specifying the maximum number of elements to retrieve from each set.
+///   If `None`, all elements will be retrieved.
+///
+/// # Returns
+///
+/// Returns a `Result` containing:
+/// * `Ok(Vec<Option<(Vec<String>, usize)>>)` - A vector where each element is an `Option` containing a tuple:
+///     * `Some((Vec<String>, usize))` - The vector of elements from the set and the count of excluded elements.
+///     * `None` - Indicates that the corresponding set does not exist.
+/// * `Err` - An error if the Redis operation fails.
+///
+/// # Errors
+///
+/// Returns an error if the Redis connection fails or the pipeline query encounters an issue.
+
+pub async fn get_multiple_sets(
+    prefix: &str,
+    keys: &[&str],
+    limit: Option<usize>,
+) -> Result<Vec<Option<(Vec<String>, usize)>>, Box<dyn Error + Send + Sync>> {
+    let mut redis_conn = get_redis_conn().await?;
+
+    // Create a Redis pipeline
+    let mut pipe = redis::pipe();
+
+    // Add each SMEMBERS command to the pipeline for all keys
+    for key in keys {
+        let index_key = format!("{}:{}", prefix, key);
+        pipe.smembers(index_key);
+    }
+
+    // Execute the pipeline
+    let results: Vec<Vec<String>> = pipe.query_async(&mut redis_conn).await?;
+
+    let taggers_list = results
+        .into_iter()
+        .map(|set| {
+            if set.is_empty() {
+                None
+            } else {
+                let set_length = set.len();
+                match limit {
+                    Some(set_limit) if set_limit < set_length => {
+                        let limited_set = set.into_iter().take(set_limit).collect();
+                        Some((limited_set, set_length))
+                    }
+                    _ => Some((set, set_length)),
+                }
+            }
+        })
+        .collect();
+
+    Ok(taggers_list)
+}
