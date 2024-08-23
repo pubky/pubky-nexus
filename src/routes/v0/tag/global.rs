@@ -49,6 +49,43 @@ pub async fn hot_tags_handler(Query(query): Query<HotTagsQuery>) -> Result<Json<
 }
 
 #[derive(Deserialize)]
+pub struct TagTaggersQuery {
+    reach: Option<UserStreamType>,
+}
+
+#[utoipa::path(
+    get,
+    path = TAG_POST_ROUTE,
+    tag = "Global tag Taggers",
+    params(
+        ("label" = String, Path, description = "Tag name"),
+        ("reach" = UserStreamType, Path, description = "Reach type: Follower | Following | Friends")
+    ),
+    responses(
+        (status = 200, description = "Taggers", body = Vec<String>),
+        (status = 404, description = "Tag not found"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn tag_taggers_handler(
+    Path(label): Path<String>,
+    Query(query): Query<TagTaggersQuery>,
+) -> Result<Json<Vec<String>>> {
+    info!(
+        "GET {TAG_POST_ROUTE} label:{}, reach:{:?}",
+        label, query.reach
+    );
+
+    let reach = query.reach;
+
+    match Global::get_tag_taggers(label.clone(), reach).await {
+        Ok(Some(post)) => Ok(Json(post)),
+        Ok(None) => Err(Error::TagsNotFound { reach: label }),
+        Err(source) => Err(Error::InternalServerError { source }),
+    }
+}
+
+#[derive(Deserialize)]
 pub struct TagsByReachQuery {
     user_id: String,
     reach: Option<UserStreamType>,
@@ -83,43 +120,6 @@ pub async fn tags_by_reach_handler(Path(path): Path<TagsByReachQuery>) -> Result
             error!("Internal Server ERROR: {:?}", source);
             Err(Error::InternalServerError { source })
         }
-    }
-}
-
-#[derive(Deserialize)]
-pub struct TagTaggersQuery {
-    reach: Option<UserStreamType>,
-}
-
-#[utoipa::path(
-    get,
-    path = TAG_POST_ROUTE,
-    tag = "Global tag Taggers",
-    params(
-        ("label" = String, Path, description = "Tag name"),
-        ("reach" = UserStreamType, Path, description = "Reach type: Follower | Following | Friends")
-    ),
-    responses(
-        (status = 200, description = "Taggers", body = Vec<String>),
-        (status = 404, description = "Tag not found"),
-        (status = 500, description = "Internal server error")
-    )
-)]
-pub async fn tag_taggers_handler(
-    Path(label): Path<String>,
-    Query(query): Query<TagTaggersQuery>,
-) -> Result<Json<Vec<String>>> {
-    info!(
-        "GET {TAG_POST_ROUTE} label:{}, reach:{:?}",
-        label, query.reach
-    );
-
-    let reach = query.reach;
-
-    match Global::get_tag_taggers(label.clone(), reach).await {
-        Ok(Some(post)) => Ok(Json(post)),
-        Ok(None) => Err(Error::TagsNotFound { reach: label }),
-        Err(source) => Err(Error::InternalServerError { source }),
     }
 }
 
