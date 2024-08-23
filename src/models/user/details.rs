@@ -10,8 +10,8 @@ use utoipa::ToSchema;
 /// Represents a user's single link with a title and URL.
 #[derive(Serialize, Deserialize, ToSchema, Default, Clone, Debug)]
 pub struct UserLink {
-    title: String,
-    url: String,
+    pub title: String,
+    pub url: String,
 }
 
 impl UserLink {
