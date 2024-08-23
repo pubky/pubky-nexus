@@ -15,6 +15,8 @@ pub enum Error {
     InternalServerError { source: Box<dyn std::error::Error> },
     #[error("Bookmarks not found: {user_id}")]
     BookmarksNotFound { user_id: String },
+    #[error("File not found.")]
+    FileNotFound {},
     // Add other custom errors here
 }
 
@@ -24,6 +26,7 @@ impl IntoResponse for Error {
         let status_code = match self {
             Error::UserNotFound { .. } => StatusCode::NOT_FOUND,
             Error::PostNotFound { .. } => StatusCode::NOT_FOUND,
+            Error::FileNotFound { .. } => StatusCode::NOT_FOUND,
             Error::BookmarksNotFound { .. } => StatusCode::NOT_FOUND,
             Error::InternalServerError { .. } => StatusCode::INTERNAL_SERVER_ERROR,
             // Map other errors to appropriate status codes
@@ -34,6 +37,9 @@ impl IntoResponse for Error {
             Error::UserNotFound { user_id } => debug!("User not found: {}", user_id),
             Error::PostNotFound { author_id, post_id } => {
                 debug!("Post not found: {} {}", author_id, post_id)
+            }
+            Error::FileNotFound {} => {
+                debug!("File not found.")
             }
             Error::BookmarksNotFound { user_id } => {
                 debug!("Bookmarks not found: {}", user_id)

@@ -11,7 +11,7 @@ The Nexus between Pubky homeservers and Pubky-App social frontend. Pubky Nexus c
 Reach feature parity with `skunk-work` indexer improving on the following:
 
 1. High performance: no inefficient lookups, maximum normalization, maximum atomic indexing, full async, full multi-thread, rust performance.
-2. Clear vision forward: esimplify the implementation of exciting future features: WoT, graph queries, etc.
+2. Clear vision forward: simplify the implementation of exciting future features: WoT, graph queries, etc.
 3. Free of bugs: hopefully.
 4. Cleaner dev experience.
 5. Moden stack.

@@ -7,6 +7,7 @@ pub mod info;
 pub mod post;
 pub mod stream;
 pub mod user;
+pub mod file;
 
 pub fn routes() -> Router {
     let routes_info = info::routes();

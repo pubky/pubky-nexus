@@ -6,11 +6,13 @@ pub async fn setup_graph() -> Result<(), Box<dyn std::error::Error>> {
     let constraints = [
         "CREATE CONSTRAINT uniqueUserId IF NOT EXISTS FOR (u:User) REQUIRE u.id IS UNIQUE",
         "CREATE CONSTRAINT uniquePostId IF NOT EXISTS FOR (p:Post) REQUIRE p.id IS UNIQUE",
+        "CREATE CONSTRAINT uniqueFileId IF NOT EXISTS FOR (f:File) REQUIRE (f.owner_id, f.id) IS UNIQUE",
     ];
 
     let indexes = [
         "CREATE INDEX userIdIndex IF NOT EXISTS FOR (u:User) ON (u.id)",
         "CREATE INDEX postIdIndex IF NOT EXISTS FOR (p:Post) ON (p.id)",
+        "CREATE INDEX fileIdIndex IF NOT EXISTS FOR (f:File) ON (f.owner_id, f.id)",
     ];
 
     let queries = constraints.iter().chain(indexes.iter());
@@ -228,4 +230,27 @@ pub fn get_thread(author_id: &str, post_id: &str, skip: usize, limit: usize) -> 
     .param("post_id", post_id)
     .param("skip", skip as i64)
     .param("limit", limit as i64)
+}
+
+pub fn get_file_by_id(owner_id: &str, file_id: &str) -> Query {
+    query(
+        "
+        MATCH (f:File {owner_id: $owner_id, id: $file_id})
+        RETURN f
+        ",
+    )
+    .param("owner_id", owner_id)
+    .param("file_id", file_id)
+}
+
+pub fn get_files_by_ids(key_pair: Vec<&[&str]>) -> Query {
+    query(
+        "
+        WITH $pairs AS pairs
+        UNWIND pairs AS pair
+        MATCH (f:File {owner_id: pair[0], id: pair[1]})
+        RETURN f
+        ",
+    )
+    .param("pairs", key_pair)
 }
