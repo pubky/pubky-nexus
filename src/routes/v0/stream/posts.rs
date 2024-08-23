@@ -45,8 +45,9 @@ pub async fn stream_global_posts_handler(
 
     match PostStream::get_global_posts(sorting, query.viewer_id, Some(skip), Some(limit)).await {
         Ok(Some(stream)) => Ok(Json(stream)),
-        Ok(None) => Err(Error::InternalServerError {
-            source: "No posts found".into(),
+        Ok(None) => Err(Error::PostNotFound {
+            author_id: String::from("global"),
+            post_id: String::from("N/A"),
         }),
         Err(source) => Err(Error::InternalServerError { source }),
     }
@@ -88,8 +89,9 @@ pub async fn stream_user_posts_handler(
 
     match PostStream::get_user_posts(&user_id, query.viewer_id, Some(skip), Some(limit)).await {
         Ok(Some(stream)) => Ok(Json(stream)),
-        Ok(None) => Err(Error::InternalServerError {
-            source: "No posts found".into(),
+        Ok(None) => Err(Error::PostNotFound {
+            author_id: String::from("global"),
+            post_id: String::from("N/A"),
         }),
         Err(source) => Err(Error::InternalServerError { source }),
     }
@@ -132,8 +134,9 @@ pub async fn stream_posts_by_reach_handler(
         .await
     {
         Ok(Some(stream)) => Ok(Json(stream)),
-        Ok(None) => Err(Error::InternalServerError {
-            source: "No posts found".into(),
+        Ok(None) => Err(Error::PostNotFound {
+            author_id: String::from("global"),
+            post_id: String::from("N/A"),
         }),
         Err(source) => Err(Error::InternalServerError { source }),
     }
