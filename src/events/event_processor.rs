@@ -1,8 +1,9 @@
-use crate::Config;
+use crate::{models::user::UserDetails, Config};
 use log::{debug, error, info};
 use pkarr::mainline::Testnet;
 use pubky::PubkyClient;
 use reqwest::Client;
+use tokio::task::JoinHandle;
 
 enum ResourceType {
     User,
@@ -34,14 +35,14 @@ enum EventType {
     Del,
 }
 
-struct Event<'a> {
+struct Event {
     event_type: EventType,
     uri: Uri,
-    pubky_client: &'a PubkyClient,
+    pubky_client: PubkyClient,
 }
 
-impl<'a> Event<'a> {
-    fn from_str(line: &str, pubky_client: &'a PubkyClient) -> Option<Self> {
+impl Event {
+    fn from_str(line: &str, pubky_client: PubkyClient) -> Option<Self> {
         info!("Line {}", line);
         let parts: Vec<&str> = line.splitn(2, ' ').collect();
         if parts.len() != 2 {
@@ -77,17 +78,32 @@ impl<'a> Event<'a> {
         })
     }
 
-    async fn handle(&self) -> Result<(), Box<dyn std::error::Error>> {
+    fn user_id(&self) -> Option<String> {
+        // Extract the part of the URI between "pubky://" and "/pub/". That's the user_id.
+        let pattern = "pubky://";
+        let pub_segment = "/pub/";
+
+        if let Some(start) = self.uri.path.find(pattern) {
+            let start_idx = start + pattern.len();
+            if let Some(end_idx) = self.uri.path[start_idx..].find(pub_segment) {
+                return Some(self.uri.path[start_idx..start_idx + end_idx].to_string());
+            }
+        }
+
+        None
+    }
+
+    async fn handle(&self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
         match self.event_type {
             EventType::Put => self.handle_put_event().await,
             EventType::Del => self.handle_del_event().await,
         }
     }
 
-    async fn handle_put_event(&self) -> Result<(), Box<dyn std::error::Error>> {
+    async fn handle_put_event(&self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
         debug!("Handling PUT event for {}", self.uri.path);
         let url = reqwest::Url::parse(&self.uri.path)?;
-        let _content = match self.pubky_client.get(url).await {
+        let content = match self.pubky_client.get(url).await {
             Ok(Some(content)) => content,
             Ok(None) => {
                 error!("No content found at {}", self.uri.path);
@@ -103,9 +119,16 @@ impl<'a> Event<'a> {
             ResourceType::User => {
                 // Process profile.json and update the databases
                 debug!("Processing User resource at {}", self.uri.path);
+
                 // Implement constructor that writes into the DBs
-                // user_details = UserDetails::from_homeserver(&content).await?;
-                // user_details.save()
+                let user_details = match self.user_id() {
+                    None => return Ok(()),
+                    Some(user_id) => UserDetails::from_homeserver(&user_id, &content).await?,
+                };
+
+                if let Some(user_details) = user_details {
+                    user_details.save().await?;
+                }
             }
             ResourceType::Post => {
                 // Process Post resource and update the databases
@@ -119,7 +142,7 @@ impl<'a> Event<'a> {
         Ok(())
     }
 
-    async fn handle_del_event(&self) -> Result<(), Box<dyn std::error::Error>> {
+    async fn handle_del_event(&self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
         debug!("Handling DEL event for {}", self.uri.path);
         match self.uri.resource_type {
             ResourceType::User => {
@@ -168,7 +191,7 @@ impl EventProcessor {
         }
     }
 
-    pub async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn run(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let lines = { self.poll_events().await.unwrap_or_default() };
         if let Some(lines) = lines {
             self.process_event_lines(lines).await?;
@@ -201,17 +224,28 @@ impl EventProcessor {
     async fn process_event_lines(
         &mut self,
         lines: Vec<String>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let mut handles: Vec<JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>> =
+            Vec::new();
+
         for line in &lines {
             if line.starts_with("cursor:") {
                 if let Some(cursor) = line.strip_prefix("cursor: ") {
                     self.cursor = cursor.to_string();
                     info!("Cursor for the next request: {}", cursor);
                 }
-            } else if let Some(event) = Event::from_str(line, &self.pubky_client) {
-                event.handle().await?;
+            } else if let Some(event) = Event::from_str(line, self.pubky_client.clone()) {
+                // Spawn a new task for each event
+                let handle = tokio::spawn(async move { event.handle().await });
+                handles.push(handle);
             }
         }
+
+        // Await all tasks concurrently
+        for handle in handles {
+            handle.await??;
+        }
+
         Ok(())
     }
 }

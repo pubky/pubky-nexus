@@ -8,7 +8,7 @@ mod tags;
 mod view;
 
 pub use counts::UserCounts;
-pub use details::{UserDetails, UserLink};
+pub use details::{HomeserverUser, UserDetails, UserLink};
 pub use follows::{Followers, Following, Friends, UserFollows};
 pub use relationship::Relationship;
 pub use search::UserSearch;

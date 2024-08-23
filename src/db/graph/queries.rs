@@ -1,4 +1,4 @@
-use crate::db::connectors::neo4j::get_neo4j_graph;
+use crate::{db::connectors::neo4j::get_neo4j_graph, models::user::UserDetails};
 use neo4rs::{query, Query};
 
 // Set graph constraints if they do not already exist
@@ -25,9 +25,20 @@ pub async fn setup_graph() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-// Create nodes with Merge (avoid key duplication). Examples:
-// MERGE (u:User {id: "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro"}) SET u.name = "Aldert", u.status = "working", u.links = ...
-// MERGE (p:Post {id: "0RDV7ABDZDW0"}) SET p.content = "Julian Assange is free", p.uri = "pubky:pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy/pubky.app/posts/0RDV7ABDZDW0", p.createdAt = 1719308315917;
+// Creaye a user node
+pub fn create_user(user: &UserDetails) -> Query {
+    let links = serde_json::to_string(&user.links).unwrap_or_else(|_| "[]".to_string());
+    query(
+        "MERGE (u:User {id: $id})
+         SET u.name = $name, u.bio = $bio, u.status = $status, u.links = $links, u.indexed_at = $indexed_at;",
+    )
+    .param("id", user.id.to_string())
+    .param("name", user.name.to_string())
+    .param("bio", user.bio.to_string())
+    .param("status", user.status.to_string())
+    .param("links", links)
+    .param("indexed_at", user.indexed_at.to_string())
+}
 
 // Retrieve post node by post id and author id
 pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {

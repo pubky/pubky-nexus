@@ -1,7 +1,9 @@
 use super::UserSearch;
+use crate::db::connectors::neo4j::get_neo4j_graph;
 use crate::models::traits::Collection;
 use crate::{queries, RedisOps};
 use axum::async_trait;
+use chrono::Utc;
 use neo4rs::Query;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json;
@@ -50,15 +52,25 @@ impl Collection for UserDetails {
     }
 }
 
+/// Raw user schema stored on homeserver.
+#[derive(Deserialize, Serialize, Debug)]
+pub struct HomeserverUser {
+    pub name: String,
+    pub bio: Option<String>,
+    pub image: Option<String>,
+    pub links: Option<Vec<UserLink>>,
+    pub status: Option<String>,
+}
+
 /// Represents user data with name, bio, image, links, and status.
 #[derive(Serialize, Deserialize, ToSchema, Default, Clone, Debug)]
 pub struct UserDetails {
     pub name: String,
-    bio: String,
+    pub bio: String,
     pub id: String,
     #[serde(deserialize_with = "deserialize_user_links")]
-    links: Vec<UserLink>,
-    status: String,
+    pub links: Vec<UserLink>,
+    pub status: String,
     pub indexed_at: i64,
 }
 
@@ -75,10 +87,43 @@ impl UserDetails {
     /// Retrieves details by user ID, first trying to get from Redis, then from Neo4j if not found.
     pub async fn get_by_id(
         user_id: &str,
-    ) -> Result<Option<UserDetails>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
         // Delegate to UserDetailsCollection::get_by_ids for single item retrieval
         let details_collection = Self::get_by_ids(&[user_id]).await?;
         Ok(details_collection.into_iter().flatten().next())
+    }
+
+    pub async fn from_homeserver(
+        user_id: &str,
+        content: &[u8],
+    ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
+        let user: HomeserverUser = serde_json::from_slice(content)?;
+        println!("USERRR {:?}", user);
+        Ok(Some(UserDetails {
+            name: user.name,
+            bio: user.bio.unwrap_or_default(),
+            status: user.status.unwrap_or_default(),
+            links: user.links.unwrap_or_default(),
+            id: user_id.to_string(),
+            indexed_at: Utc::now().timestamp_millis(),
+        }))
+    }
+
+    pub async fn save(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Save new user_details on Redis
+        self.put_index_json(&[&self.id]).await?;
+
+        // Save new graph node;
+        // TODO: research for some reason `service.rs` does not serve this user
+        {
+            let graph = get_neo4j_graph()?;
+            let query = queries::create_user(self);
+
+            let graph = graph.lock().await;
+            let mut result = graph.execute(query).await?;
+            result.next().await?;
+        }
+        Ok(())
     }
 }
 

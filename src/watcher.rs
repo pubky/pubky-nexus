@@ -3,7 +3,7 @@ use pubky_nexus::{setup, Config, EventProcessor};
 use tokio::time::{sleep, Duration};
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
     let config = Config::from_env();
     setup(&config).await;
 
