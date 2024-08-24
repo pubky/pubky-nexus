@@ -37,7 +37,7 @@ pub fn create_user(user: &UserDetails) -> Query {
     .param("bio", user.bio.to_string())
     .param("status", user.status.to_string())
     .param("links", links)
-    .param("indexed_at", user.indexed_at.to_string())
+    .param("indexed_at", user.indexed_at)
 }
 
 // Retrieve post node by post id and author id

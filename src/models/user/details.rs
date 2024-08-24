@@ -98,7 +98,7 @@ impl UserDetails {
         content: &[u8],
     ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
         let user: HomeserverUser = serde_json::from_slice(content)?;
-        println!("USERRR {:?}", user);
+
         Ok(Some(UserDetails {
             name: user.name,
             bio: user.bio.unwrap_or_default(),
@@ -114,7 +114,6 @@ impl UserDetails {
         self.put_index_json(&[&self.id]).await?;
 
         // Save new graph node;
-        // TODO: research for some reason `service.rs` does not serve this user
         {
             let graph = get_neo4j_graph()?;
             let query = queries::create_user(self);

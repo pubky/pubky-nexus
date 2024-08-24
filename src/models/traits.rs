@@ -30,7 +30,6 @@ where
         let mut collection = Self::try_from_index_multiple_json(&key_parts_list).await?;
 
         let mut missing: Vec<(usize, &str)> = Vec::new();
-
         for (i, details) in collection.iter().enumerate() {
             if details.is_none() {
                 missing.push((i, id_list[i]));
