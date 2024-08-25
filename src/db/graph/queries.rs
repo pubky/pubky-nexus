@@ -34,8 +34,8 @@ pub fn create_user(user: &UserDetails) -> Query {
     )
     .param("id", user.id.to_string())
     .param("name", user.name.to_string())
-    .param("bio", user.bio.to_string())
-    .param("status", user.status.to_string())
+    .param("bio", user.bio.as_ref().unwrap_or(&"null".to_string()).to_string())
+    .param("status", user.status.as_ref().unwrap_or(&"null".to_string()).to_string())
     .param("links", links)
     .param("indexed_at", user.indexed_at)
 }

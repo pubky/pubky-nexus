@@ -66,20 +66,20 @@ pub struct HomeserverUser {
 #[derive(Serialize, Deserialize, ToSchema, Default, Clone, Debug)]
 pub struct UserDetails {
     pub name: String,
-    pub bio: String,
+    pub bio: Option<String>,
     pub id: String,
     #[serde(deserialize_with = "deserialize_user_links")]
-    pub links: Vec<UserLink>,
-    pub status: String,
+    pub links: Option<Vec<UserLink>>,
+    pub status: Option<String>,
     pub indexed_at: i64,
 }
 
-fn deserialize_user_links<'de, D>(deserializer: D) -> Result<Vec<UserLink>, D::Error>
+fn deserialize_user_links<'de, D>(deserializer: D) -> Result<Option<Vec<UserLink>>, D::Error>
 where
     D: Deserializer<'de>,
 {
     let s: String = String::deserialize(deserializer)?;
-    let urls: Vec<UserLink> = serde_json::from_str(&s).map_err(serde::de::Error::custom)?;
+    let urls: Option<Vec<UserLink>> = serde_json::from_str(&s).map_err(serde::de::Error::custom)?;
     Ok(urls)
 }
 
@@ -101,9 +101,9 @@ impl UserDetails {
 
         Ok(Some(UserDetails {
             name: user.name,
-            bio: user.bio.unwrap_or_default(),
-            status: user.status.unwrap_or_default(),
-            links: user.links.unwrap_or_default(),
+            bio: user.bio,
+            status: user.status,
+            links: user.links,
             id: user_id.to_string(),
             indexed_at: Utc::now().timestamp_millis(),
         }))
@@ -163,8 +163,26 @@ mod tests {
         assert_eq!(user_details[0].as_ref().unwrap().name, "Aldert");
         assert_eq!(user_details[5].as_ref().unwrap().name, "Flavio");
 
-        assert_eq!(user_details[5].as_ref().unwrap().links.len(), 4);
-        assert_eq!(user_details[0].as_ref().unwrap().links.len(), 2);
+        assert_eq!(
+            user_details[5]
+                .as_ref()
+                .unwrap()
+                .links
+                .as_ref()
+                .unwrap()
+                .len(),
+            4
+        );
+        assert_eq!(
+            user_details[0]
+                .as_ref()
+                .unwrap()
+                .links
+                .as_ref()
+                .unwrap()
+                .len(),
+            2
+        );
 
         for (i, details) in user_details.iter().enumerate() {
             if let Some(details) = details {
