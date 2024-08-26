@@ -6,7 +6,7 @@ use utoipa::ToSchema;
 use super::UserStream;
 
 /// Represents total counts of relationships of a user.
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema, Debug)]
 pub struct UserCounts {
     pub tags: u32,
     pub posts: u32,
@@ -51,7 +51,7 @@ impl UserCounts {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
-            let query = queries::user_counts(user_id);
+            let query = queries::read::user_counts(user_id);
 
             let graph = graph.lock().await;
             result = graph.execute(query).await?;
@@ -74,5 +74,12 @@ impl UserCounts {
         } else {
             Ok(None)
         }
+    }
+
+    pub async fn delete(user_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Delete user_details on Redis
+        Self::remove_from_index_multiple_json(&[&[user_id]]).await?;
+
+        Ok(())
     }
 }

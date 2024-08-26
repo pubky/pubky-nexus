@@ -65,11 +65,11 @@ async fn test_user_endpoint() -> Result<()> {
 
     let body = res.json_body()?;
     assert_eq!(
-        body["viewer"]["followed_by"], true,
+        body["relationship"]["followed_by"], true,
         "Aldert should follow Flavio"
     );
     assert_eq!(
-        body["viewer"]["following"], false,
+        body["relationship"]["following"], false,
         "Flavio should not follow Aldert"
     );
 

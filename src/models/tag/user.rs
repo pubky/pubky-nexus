@@ -39,7 +39,7 @@ impl UserTags {
     ) -> Result<Option<UserTags>, Box<dyn std::error::Error + Send + Sync>> {
         let mut result;
         {
-            let query = queries::user_tags(user_id);
+            let query = queries::read::user_tags(user_id);
             let graph = get_neo4j_graph()?;
 
             let graph = graph.lock().await;

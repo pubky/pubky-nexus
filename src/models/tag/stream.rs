@@ -73,7 +73,7 @@ impl HotTags {
             let graph = get_neo4j_graph()?;
             let graph = graph.lock().await;
 
-            let query = queries::get_global_hot_tags_scores();
+            let query = queries::read::get_global_hot_tags_scores();
             result = graph.execute(query).await?;
         }
 
@@ -154,7 +154,7 @@ async fn get_users_tags_by_reach(
     users: &[String],
 ) -> Result<Option<HotTags>, Box<dyn Error + Send + Sync>> {
     let user_slice = users.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
-    let query = queries::get_tags_by_user_ids(user_slice.as_slice());
+    let query = queries::read::get_tags_by_user_ids(user_slice.as_slice());
     retrieve_from_graph::<HotTags>(query, "hot_tags").await
 }
 

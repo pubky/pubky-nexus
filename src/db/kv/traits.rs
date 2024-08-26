@@ -91,6 +91,35 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         json::put_multiple(&Self::prefix().await, &data).await
     }
 
+    /// Removes multiple JSON objects from Redis using the provided key parts.
+    ///
+    /// This method deletes the data stored under the keys generated from the provided `key_parts_list` in Redis.
+    /// It returns a result indicating success or failure.
+    ///
+    /// # Arguments
+    ///
+    /// * `key_parts_list` - A slice of slices, where each inner slice contains string slices representing
+    ///   the parts used to form the key under which the corresponding value is stored.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` indicating success or failure. If successful, all keys are removed from Redis.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
+    async fn remove_from_index_multiple_json(
+        key_parts_list: &[&[&str]],
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let prefix = Self::prefix().await;
+        let keys: Vec<String> = key_parts_list
+            .iter()
+            .map(|key_parts| key_parts.join(":"))
+            .collect();
+
+        json::del_multiple(&prefix, &keys).await
+    }
+
     /// Adds elements to a Redis list using the provided key parts.
     ///
     /// This method serializes the data and appends it to a Redis list under the key generated

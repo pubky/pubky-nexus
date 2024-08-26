@@ -277,3 +277,31 @@ pub async fn _get_bool(
 
     Ok(None)
 }
+
+/// Deletes multiple keys from Redis.
+///
+/// This function removes the specified keys from Redis. If a key does not exist, no error is returned.
+///
+/// # Arguments
+///
+/// * `prefix` - A string slice representing the prefix for the Redis keys.
+/// * `keys` - A slice of strings representing the keys to be deleted.
+///
+/// # Errors
+///
+/// Returns an error if the operation fails.
+pub async fn del_multiple(
+    prefix: &str,
+    keys: &[impl AsRef<str>],
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let mut redis_conn = get_redis_conn().await?;
+
+    // Generate full keys with prefix
+    let full_keys: Vec<String> = keys
+        .iter()
+        .map(|key| format!("{}:{}", prefix, key.as_ref()))
+        .collect();
+
+    redis_conn.del(full_keys).await?;
+    Ok(())
+}

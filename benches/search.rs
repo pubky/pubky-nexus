@@ -1,24 +1,10 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use pubky_nexus::models::user::UserSearch;
-use pubky_nexus::setup;
-use pubky_nexus::Config;
-use std::env;
-use std::sync::Once;
+use setup::run_setup;
 use std::time::Duration;
 use tokio::runtime::Runtime;
 
-static INIT: Once = Once::new();
-
-pub fn run_setup() {
-    INIT.call_once(|| {
-        let rt = Runtime::new().unwrap();
-        env::set_var("RUST_LOG", "error");
-        rt.block_on(async {
-            let config = Config::from_env();
-            setup(&config).await;
-        });
-    });
-}
+mod setup;
 
 fn bench_user_search(c: &mut Criterion) {
     println!("***************************************");
