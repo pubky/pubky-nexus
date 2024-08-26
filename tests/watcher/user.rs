@@ -4,7 +4,10 @@ use pkarr::{mainline::Testnet, Keypair};
 use pubky::PubkyClient;
 use pubky_homeserver::Homeserver;
 use pubky_nexus::{
-    models::user::{HomeserverUser, UserLink, UserView},
+    models::{
+        homeserver::{HomeserverUser, UserLink},
+        user::UserView,
+    },
     setup, Config, EventProcessor,
 };
 

@@ -1,7 +1,6 @@
 mod counts;
 mod details;
 mod follows;
-mod homeserver;
 mod relationship;
 mod search;
 mod stream;
@@ -11,7 +10,6 @@ mod view;
 pub use counts::UserCounts;
 pub use details::UserDetails;
 pub use follows::{Followers, Following, Friends, UserFollows};
-pub use homeserver::{HomeserverUser, UserLink};
 pub use relationship::Relationship;
 pub use search::UserSearch;
 pub use stream::{UserStream, UserStreamType};

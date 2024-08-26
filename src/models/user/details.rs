@@ -1,6 +1,7 @@
-use super::{HomeserverUser, UserLink, UserSearch};
+use super::UserSearch;
+use crate::db::graph::exec::exec_single_row;
+use crate::models::homeserver::{HomeserverUser, UserLink};
 use crate::models::traits::Collection;
-use crate::queries::execute_single_query;
 use crate::{queries, RedisOps};
 use axum::async_trait;
 use chrono::Utc;
@@ -15,7 +16,7 @@ impl RedisOps for UserDetails {}
 #[async_trait]
 impl Collection for UserDetails {
     fn graph_query(id_list: &[&str]) -> Query {
-        queries::get_users_details_by_ids(id_list)
+        queries::read::get_users_details_by_ids(id_list)
     }
 
     async fn add_to_sorted_sets(details: &[std::option::Option<Self>]) {
@@ -84,7 +85,7 @@ impl UserDetails {
         self.put_index_json(&[&self.id]).await?;
 
         // Save new graph node;
-        execute_single_query(queries::create_user(self)).await?;
+        exec_single_row(queries::write::create_user(self)).await?;
 
         Ok(())
     }
@@ -94,7 +95,7 @@ impl UserDetails {
         Self::remove_from_index_multiple_json(&[&[&self.id]]).await?;
 
         // Delete user graph node;
-        execute_single_query(queries::delete_user(&self.id)).await?;
+        exec_single_row(queries::write::delete_user(&self.id)).await?;
 
         Ok(())
     }

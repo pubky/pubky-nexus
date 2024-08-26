@@ -3,7 +3,7 @@ use crate::db::connectors::{
     neo4j::{Neo4jConnector, NEO4J_CONNECTOR},
     redis::{RedisConnector, REDIS_CONNECTOR},
 };
-use crate::queries::setup_graph;
+use crate::db::graph::setup::setup_graph;
 use log::{error, info};
 
 async fn setup_redis(config: &Config) {

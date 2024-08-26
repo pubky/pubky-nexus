@@ -1,4 +1,5 @@
-use crate::models::user::{UserDetails, UserLink};
+use crate::models::homeserver::UserLink;
+use crate::models::user::UserDetails;
 use crate::routes::v0::endpoints::USER_DETAILS_ROUTE;
 use crate::{Error, Result};
 use axum::extract::Path;

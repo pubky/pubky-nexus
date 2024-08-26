@@ -3,7 +3,7 @@ use log::info;
 use pkarr::{mainline::Testnet, Keypair, PublicKey};
 use pubky::PubkyClient;
 use pubky_nexus::{
-    models::user::{HomeserverUser, UserLink},
+    models::homeserver::{HomeserverUser, UserLink},
     setup, Config,
 };
 

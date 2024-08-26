@@ -51,7 +51,7 @@ impl UserCounts {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
-            let query = queries::user_counts(user_id);
+            let query = queries::read::user_counts(user_id);
 
             let graph = graph.lock().await;
             result = graph.execute(query).await?;
