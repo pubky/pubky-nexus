@@ -6,6 +6,7 @@ use crate::{queries, RedisOps};
 use axum::async_trait;
 use chrono::Utc;
 use neo4rs::Query;
+use pkarr::PublicKey;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json;
 use utoipa::ToSchema;
@@ -66,18 +67,18 @@ impl UserDetails {
 
     pub async fn from_homeserver(
         user_id: &str,
-        content: &[u8],
-    ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
-        let user: HomeserverUser = serde_json::from_slice(content)?;
-
-        Ok(Some(UserDetails {
-            name: user.name,
-            bio: user.bio,
-            status: user.status,
-            links: user.links,
+        homeserver_user: HomeserverUser,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        // Validate user_id is a valid pkarr public key
+        PublicKey::try_from(user_id)?;
+        Ok(UserDetails {
+            name: homeserver_user.name,
+            bio: homeserver_user.bio,
+            status: homeserver_user.status,
+            links: homeserver_user.links,
             id: user_id.to_string(),
             indexed_at: Utc::now().timestamp_millis(),
-        }))
+        })
     }
 
     pub async fn save(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

@@ -1,4 +1,5 @@
 use crate::models::{
+    homeserver::HomeserverUser,
     traits::Collection,
     user::{UserCounts, UserDetails},
 };
@@ -88,7 +89,8 @@ impl Event {
         if let Some(start) = self.uri.path.find(pattern) {
             let start_idx = start + pattern.len();
             if let Some(end_idx) = self.uri.path[start_idx..].find(pub_segment) {
-                return Some(self.uri.path[start_idx..start_idx + end_idx].to_string());
+                let user_id = self.uri.path[start_idx..start_idx + end_idx].to_string();
+                return Some(user_id);
             }
         }
 
@@ -105,8 +107,8 @@ impl Event {
     async fn handle_put_event(&self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
         debug!("Handling PUT event for {}", self.uri.path);
         let url = reqwest::Url::parse(&self.uri.path)?;
-        let content = match self.pubky_client.get(url).await {
-            Ok(Some(content)) => content,
+        let blob = match self.pubky_client.get(url).await {
+            Ok(Some(blob)) => blob,
             Ok(None) => {
                 error!("No content found at {}", self.uri.path);
                 return Ok(());
@@ -122,22 +124,29 @@ impl Event {
                 // Process profile.json and update the databases
                 debug!("Processing User resource at {}", self.uri.path);
 
-                // Index new user event into the DBs
+                // Serialize and validate
+                let user = HomeserverUser::try_from(&blob).await?;
+
+                // Create UserDetails object
                 let user_details = match self.get_user_id() {
-                    None => return Ok(()),
-                    Some(user_id) => UserDetails::from_homeserver(&user_id, &content).await?,
+                    Some(user_id) => UserDetails::from_homeserver(&user_id, user).await?,
+                    None => {
+                        error!("Error getting user_id from event uri. Skipping event.");
+                        return Ok(());
+                    }
                 };
 
-                if let Some(user_details) = user_details {
-                    user_details.save().await?;
-                    UserDetails::add_to_sorted_sets(&[Some(user_details)]).await;
-                }
+                // Index new user event into the Graph and Index
+                user_details.save().await?;
+
+                // Add to other sorted sets and indexes
+                UserDetails::add_to_sorted_sets(&[Some(user_details)]).await;
             }
             ResourceType::Post => {
                 // Process Post resource and update the databases
                 debug!("Processing Post resource at {}", self.uri.path);
                 // Implement constructor that writes into the DBs
-                // post_details = PostDetails::from_homeserver(&content).await?;
+                // post_details = PostDetails::from_homeserver(&blob).await?;
                 // post_details.save()
             }
         }
