@@ -31,7 +31,7 @@ impl PostThread {
         }
 
         if let Some(row) = result.next().await? {
-            let root_post_view = PostView::get_by_id(author_id, post_id, viewer_id).await?;
+            let root_post_view = PostView::get_by_id(author_id, post_id, viewer_id, None, None).await?;
 
             let root_post_view = match root_post_view {
                 None => return Ok(None),
@@ -46,7 +46,7 @@ impl PostThread {
                 let reply_id: String = reply.get("reply_id")?;
                 let reply_author_id: String = reply.get("author_id")?;
 
-                let reply_view = PostView::get_by_id(&reply_author_id, &reply_id, viewer_id)
+                let reply_view = PostView::get_by_id(&reply_author_id, &reply_id, viewer_id, None, None)
                     .await?
                     .unwrap_or_default();
                 replies_view.push(reply_view);

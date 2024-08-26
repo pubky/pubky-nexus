@@ -5,13 +5,11 @@ use crate::queries;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use super::Tags;
-
 /// Represents a tag that refers to the current user
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Default)]
 pub struct UserTag {
     pub label: String,
-    tagged: Tags,
+    taggers: Vec<String>,
 }
 
 // Define a newtype wrapper

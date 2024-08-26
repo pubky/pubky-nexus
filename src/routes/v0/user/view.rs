@@ -1,5 +1,5 @@
 use crate::models::tag::user::UserTags;
-use crate::models::tag::{Tag, Tags};
+use crate::models::tag::TagDetails;
 use crate::models::user::UserView;
 use crate::routes::v0::endpoints::USER_ROUTE;
 use crate::{Error, Result};
@@ -47,6 +47,6 @@ pub async fn user_view_handler(
 #[derive(OpenApi)]
 #[openapi(
     paths(user_view_handler),
-    components(schemas(UserView, UserTags, Tags, Tag))
+    components(schemas(UserView, UserTags, TagDetails))
 )]
 pub struct UserViewApiDoc;

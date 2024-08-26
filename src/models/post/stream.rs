@@ -254,7 +254,7 @@ impl PostStream {
             let viewer_id = viewer_id.clone();
             let post_id = post_id.to_string();
             let handle = spawn(async move {
-                PostView::get_by_id(&author_id, &post_id, viewer_id.as_deref()).await
+                PostView::get_by_id(&author_id, &post_id, viewer_id.as_deref(), None, None).await
             });
             handles.push(handle);
         }

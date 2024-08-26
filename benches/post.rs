@@ -38,7 +38,7 @@ fn bench_get_post_by_id(c: &mut Criterion) {
         &post_id,
         |b, &id| {
             b.to_async(&rt).iter(|| async {
-                let post = PostView::get_by_id(author_id, id, Some(viewer_id))
+                let post = PostView::get_by_id(author_id, id, Some(viewer_id), None, None)
                     .await
                     .unwrap();
                 criterion::black_box(post);
