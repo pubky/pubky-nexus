@@ -82,8 +82,12 @@ docker-compose up -d
 ### Developing the homeserver watcher
 
 Run the pubky homeserver locally in testnet mode.
+
+We are using `pubky` repo as a git submodule of `pubky-nexus` as `pubky` is still a private repository and the crates for the client and homeserver are not available.
+
 ```
-git clone https://github.com/pubky/pubky
+git submodule init
+git submodule update --init --recursive
 cd pubky/pubky-homeserver
 cargo run -- --testnet
 ```
