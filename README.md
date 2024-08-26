@@ -81,9 +81,9 @@ docker-compose up -d
 
 ### Developing the homeserver watcher
 
-Run the pubky homeserver locally in testnet mode.
+Running the `/tests/` that require the homeserver does not require running a homeserver. However, running the playground or the `watcher.rs` binary does. This is how you can run a pubky homeserver locally in testnet mode.
 
-We are using `pubky` repo as a git submodule of `pubky-nexus` as `pubky` is still a private repository and the crates for the client and homeserver are not available.
+We are using `pubky` repo as a git submodule of `pubky-nexus`, given that `pubky` is still a private repository and the crates for the client and homeserver are not yet published.
 
 ```
 git submodule init

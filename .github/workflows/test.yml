@@ -12,13 +12,16 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}
       cancel-in-progress: true
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+        with:
+          submodules: true # Needed for the `pubky` submodule as it's private and has unpublished crates
+          token: ${{ secrets.PAT_PUBKY }}
 
       - name: Set up Rust
         uses: actions-rs/toolchain@v1
@@ -68,8 +71,10 @@ jobs:
       # - name: Install dependencies
       #   run: cargo build --release
 
-      - name: Run the service and redirect output to a log file
-        run: cargo run > service.log 2>&1 &
+      - name: Run the service
+        run: |
+          cargo run > service.log 2>&1 &
+          sleep 100  # Give the service a moment to start
         
       - name: Run integration tests
         run: cargo test
