@@ -36,7 +36,10 @@ async fn setup_neo4j(config: &Config) {
 }
 
 pub async fn setup(config: &Config) {
-    env_logger::init();
+    match env_logger::try_init() {
+        Ok(_) => info!("Env logger initiated"),
+        Err(err) => error!("Env logger was already set: {}", err),
+    }
 
     // Initialize Redis and Neo4j
     setup_redis(config).await;
