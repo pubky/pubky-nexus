@@ -1,8 +1,6 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-/// Raw schemas stored on homeserver.
-
 /// Profile schema
 #[derive(Deserialize, Serialize, Debug)]
 pub struct HomeserverUser {
