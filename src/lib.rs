@@ -12,6 +12,6 @@ pub use db::graph::queries;
 pub use db::kv::is_empty::redis_is_empty;
 pub use db::kv::traits::RedisOps;
 pub use error::{Error, Result};
-pub use events::event_processor::EventProcessor;
+pub use events::processor::EventProcessor;
 pub use reindex::reindex;
 pub use setup::setup;
