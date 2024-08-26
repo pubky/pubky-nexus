@@ -3,7 +3,6 @@ use log::{debug, info};
 use pkarr::mainline::Testnet;
 use pubky::PubkyClient;
 use reqwest::Client;
-use tokio::task::JoinHandle;
 
 use super::Event;
 
@@ -83,9 +82,6 @@ impl EventProcessor {
         &mut self,
         lines: Vec<String>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let mut handles: Vec<JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>> =
-            Vec::new();
-
         for line in &lines {
             if line.starts_with("cursor:") {
                 if let Some(cursor) = line.strip_prefix("cursor: ") {
@@ -93,15 +89,8 @@ impl EventProcessor {
                     info!("Cursor for the next request: {}", cursor);
                 }
             } else if let Some(event) = Event::from_str(line, self.pubky_client.clone()) {
-                // Spawn a new task for each event
-                let handle = tokio::spawn(async move { event.handle().await });
-                handles.push(handle);
+                event.handle().await?;
             }
-        }
-
-        // Await all tasks concurrently
-        for handle in handles {
-            handle.await??;
         }
 
         Ok(())

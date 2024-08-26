@@ -80,7 +80,7 @@ impl Event {
         })
     }
 
-    fn user_id(&self) -> Option<String> {
+    fn get_user_id(&self) -> Option<String> {
         // Extract the part of the URI between "pubky://" and "/pub/". That's the user_id.
         let pattern = "pubky://";
         let pub_segment = "/pub/";
@@ -123,7 +123,7 @@ impl Event {
                 debug!("Processing User resource at {}", self.uri.path);
 
                 // Index new user event into the DBs
-                let user_details = match self.user_id() {
+                let user_details = match self.get_user_id() {
                     None => return Ok(()),
                     Some(user_id) => UserDetails::from_homeserver(&user_id, &content).await?,
                 };
@@ -152,7 +152,7 @@ impl Event {
                 // Handle deletion of profile.json from databases
                 debug!("Deleting User resource at {}", self.uri.path);
                 let user_details =
-                    UserDetails::get_by_id(&self.user_id().unwrap_or_default()).await?;
+                    UserDetails::get_by_id(&self.get_user_id().unwrap_or_default()).await?;
 
                 //TODO: delete from search sorted set, delete user tags, delete followers/following, etc
                 match user_details {
