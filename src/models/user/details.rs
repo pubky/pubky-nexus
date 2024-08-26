@@ -1,4 +1,4 @@
-use super::UserSearch;
+use super::{HomeserverUser, UserLink, UserSearch};
 use crate::models::traits::Collection;
 use crate::queries::execute_single_query;
 use crate::{queries, RedisOps};
@@ -8,13 +8,6 @@ use neo4rs::Query;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json;
 use utoipa::ToSchema;
-
-/// Represents a user's single link with a title and URL.
-#[derive(Serialize, Deserialize, ToSchema, Default, Clone, Debug)]
-pub struct UserLink {
-    pub title: String,
-    pub url: String,
-}
 
 #[async_trait]
 impl RedisOps for UserDetails {}
@@ -37,16 +30,6 @@ impl Collection for UserDetails {
             .await
             .unwrap();
     }
-}
-
-/// Raw user schema stored on homeserver.
-#[derive(Deserialize, Serialize, Debug)]
-pub struct HomeserverUser {
-    pub name: String,
-    pub bio: Option<String>,
-    pub image: Option<String>,
-    pub links: Option<Vec<UserLink>>,
-    pub status: Option<String>,
 }
 
 /// Represents user data with name, bio, image, links, and status.
