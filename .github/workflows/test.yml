@@ -74,7 +74,7 @@ jobs:
       - name: Run the service
         run: |
           cargo run > service.log 2>&1 &
-          sleep 100  # Give the service a moment to start
+          sleep 10  # Give the service a moment to start
         
       - name: Run integration tests
         run: cargo test
