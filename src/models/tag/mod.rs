@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::ops::Deref;
 use utoipa::ToSchema;
 
+pub mod global;
 pub mod post;
 pub mod stream;
 pub mod user;

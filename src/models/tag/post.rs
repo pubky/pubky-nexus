@@ -1,8 +1,7 @@
-use std::ops::Deref;
-
 use crate::db::connectors::neo4j::get_neo4j_graph;
 use crate::queries;
 use serde::{Deserialize, Serialize};
+use std::ops::Deref;
 use utoipa::ToSchema;
 
 use super::Tags;

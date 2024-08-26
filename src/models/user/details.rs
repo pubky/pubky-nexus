@@ -16,15 +16,6 @@ pub struct UserLink {
     pub url: String,
 }
 
-impl UserLink {
-    pub fn new() -> Self {
-        Self {
-            title: String::new(),
-            url: String::new(),
-        }
-    }
-}
-
 #[async_trait]
 impl RedisOps for UserDetails {}
 

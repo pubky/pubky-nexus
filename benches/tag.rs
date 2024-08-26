@@ -1,5 +1,6 @@
 use criterion::{criterion_group, criterion_main};
 use criterion::{BenchmarkId, Criterion};
+use pubky_nexus::models::tag::global::TagGlobal;
 use pubky_nexus::models::tag::post::PostTags;
 use pubky_nexus::models::tag::stream::HotTags;
 use pubky_nexus::models::tag::user::UserTags;
@@ -83,12 +84,40 @@ fn bench_get_global_hot_tags(c: &mut Criterion) {
 
     c.bench_function("bench_get_global_hot_tags", |b| {
         b.to_async(&rt).iter(|| async {
-            let stream_tag = HotTags::get_global_tags_stream(None, Some(40))
+            let stream_tag = HotTags::get_global_tags_stream(None, Some(40), Some(10))
                 .await
                 .unwrap();
             criterion::black_box(stream_tag);
         });
     });
+}
+
+fn bench_get_global_tag_taggers(c: &mut Criterion) {
+    println!(
+        "****************************************************************************************"
+    );
+    println!("Test the performance of getting global tag taggers");
+    println!(
+        "****************************************************************************************"
+    );
+
+    run_setup();
+
+    let label = "ha";
+    let rt: Runtime = Runtime::new().unwrap();
+
+    c.bench_with_input(
+        BenchmarkId::new("bench_get_global_tag_taggers", format!("label: {}", label)),
+        &[label],
+        |b, &params| {
+            b.to_async(&rt).iter(|| async {
+                let tag_taggers = TagGlobal::get_tag_taggers(String::from(params[0]), None)
+                    .await
+                    .unwrap();
+                criterion::black_box(tag_taggers);
+            });
+        },
+    );
 }
 
 fn bench_get_following_reach_hot_tags(c: &mut Criterion) {
@@ -215,6 +244,7 @@ criterion_group! {
     targets =   bench_get_user_tags,
                 bench_get_post_tags,
                 bench_get_global_hot_tags,
+                bench_get_global_tag_taggers,
                 bench_get_following_reach_hot_tags,
                 bench_get_followers_reach_hot_tags,
                 bench_get_friends_reach_hot_tags
