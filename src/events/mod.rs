@@ -1,4 +1,7 @@
-use crate::models::user::UserDetails;
+use crate::models::{
+    traits::Collection,
+    user::{UserCounts, UserDetails},
+};
 use log::{debug, error, info};
 use pubky::PubkyClient;
 
@@ -119,7 +122,7 @@ impl Event {
                 // Process profile.json and update the databases
                 debug!("Processing User resource at {}", self.uri.path);
 
-                // Implement constructor that writes into the DBs
+                // Index new user event into the DBs
                 let user_details = match self.user_id() {
                     None => return Ok(()),
                     Some(user_id) => UserDetails::from_homeserver(&user_id, &content).await?,
@@ -127,6 +130,7 @@ impl Event {
 
                 if let Some(user_details) = user_details {
                     user_details.save().await?;
+                    UserDetails::add_to_sorted_sets(&[Some(user_details)]).await;
                 }
             }
             ResourceType::Post => {
@@ -147,7 +151,17 @@ impl Event {
             ResourceType::User => {
                 // Handle deletion of profile.json from databases
                 debug!("Deleting User resource at {}", self.uri.path);
-                // Implement your deletion logic here
+                let user_details =
+                    UserDetails::get_by_id(&self.user_id().unwrap_or_default()).await?;
+
+                //TODO: delete from search sorted set, delete user tags, delete followers/following, etc
+                match user_details {
+                    None => return Ok(()),
+                    Some(user_details) => {
+                        user_details.delete().await?;
+                        UserCounts::delete(&user_details.id).await?;
+                    }
+                }
             }
             ResourceType::Post => {
                 // Handle deletion of Post resource from databases

@@ -5,12 +5,12 @@ use super::{Relationship, UserCounts, UserDetails};
 use crate::models::tag::user::UserTags;
 
 /// Represents a Pubky user with relational data including tags, counts, bookmark and relationship with other posts.
-#[derive(Serialize, Deserialize, ToSchema, Default)]
+#[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
 pub struct UserView {
-    details: UserDetails,
-    counts: UserCounts,
+    pub details: UserDetails,
+    pub counts: UserCounts,
     pub tags: UserTags,
-    relationship: Relationship,
+    pub relationship: Relationship,
 }
 
 impl UserView {

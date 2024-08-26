@@ -6,8 +6,7 @@ use tokio::time::{sleep, Duration};
 async fn main() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
     let config = Config::from_env();
     setup(&config).await;
-
-    let mut event_processor = EventProcessor::new(&config).await;
+    let mut event_processor = EventProcessor::from_config(&config).await;
 
     loop {
         info!("Fetching events...");

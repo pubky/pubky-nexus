@@ -1,5 +1,5 @@
 use crate::Config;
-use log::info;
+use log::{debug, info};
 use pkarr::mainline::Testnet;
 use pubky::PubkyClient;
 use reqwest::Client;
@@ -16,7 +16,7 @@ pub struct EventProcessor {
 }
 
 impl EventProcessor {
-    pub async fn new(config: &Config) -> Self {
+    pub async fn from_config(config: &Config) -> Self {
         let pubky_client = match config.testnet {
             true => {
                 let testnet = Testnet {
@@ -37,6 +37,16 @@ impl EventProcessor {
         }
     }
 
+    pub async fn test(testnet: &Testnet, homeserver_url: String) -> Self {
+        Self {
+            pubky_client: PubkyClient::test(testnet),
+            http_client: Client::new(),
+            homeserver_url,
+            cursor: "0".to_string(),
+            limit: 100,
+        }
+    }
+
     pub async fn run(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let lines = { self.poll_events().await.unwrap_or_default() };
         if let Some(lines) = lines {
@@ -46,6 +56,7 @@ impl EventProcessor {
     }
 
     async fn poll_events(&mut self) -> Result<Option<Vec<String>>, Box<dyn std::error::Error>> {
+        debug!("Polling new events from homeserver");
         let res = self
             .http_client
             .get(format!(
@@ -58,6 +69,7 @@ impl EventProcessor {
             .await?;
 
         let lines: Vec<String> = res.trim().split('\n').map(|s| s.to_string()).collect();
+        debug!("Homeserver response lines {:?}", lines);
 
         if lines.len() == 1 && lines[0].is_empty() {
             info!("No new events");

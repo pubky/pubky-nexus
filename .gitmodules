@@ -1,0 +1,3 @@
+[submodule "pubky"]
+	path = pubky
+	url = ssh://git@github.com/pubky/pubky.git

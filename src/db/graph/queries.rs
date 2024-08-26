@@ -25,7 +25,17 @@ pub async fn setup_graph() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-// Creaye a user node
+pub async fn execute_single_query(
+    query: Query,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let graph = get_neo4j_graph()?;
+    let graph = graph.lock().await;
+    let mut result = graph.execute(query).await?;
+    result.next().await?;
+    Ok(())
+}
+
+// Create a user node
 pub fn create_user(user: &UserDetails) -> Query {
     let links = serde_json::to_string(&user.links).unwrap_or_else(|_| "[]".to_string());
     query(
@@ -38,6 +48,16 @@ pub fn create_user(user: &UserDetails) -> Query {
     .param("status", user.status.as_ref().unwrap_or(&"null".to_string()).to_string())
     .param("links", links)
     .param("indexed_at", user.indexed_at)
+}
+
+// Delete a user node
+// Will delete all relationships of this user as well!
+pub fn delete_user(user_id: &str) -> Query {
+    query(
+        "MATCH (u:User {id: $id})
+         DETACH DELETE u;",
+    )
+    .param("id", user_id.to_string())
 }
 
 // Retrieve post node by post id and author id

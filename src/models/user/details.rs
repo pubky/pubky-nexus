@@ -1,6 +1,6 @@
 use super::UserSearch;
-use crate::db::connectors::neo4j::get_neo4j_graph;
 use crate::models::traits::Collection;
+use crate::queries::execute_single_query;
 use crate::{queries, RedisOps};
 use axum::async_trait;
 use chrono::Utc;
@@ -26,11 +26,7 @@ impl UserLink {
 }
 
 #[async_trait]
-impl RedisOps for UserDetails {
-    async fn prefix() -> String {
-        String::from("User:Details")
-    }
-}
+impl RedisOps for UserDetails {}
 
 #[async_trait]
 impl Collection for UserDetails {
@@ -114,14 +110,18 @@ impl UserDetails {
         self.put_index_json(&[&self.id]).await?;
 
         // Save new graph node;
-        {
-            let graph = get_neo4j_graph()?;
-            let query = queries::create_user(self);
+        execute_single_query(queries::create_user(self)).await?;
 
-            let graph = graph.lock().await;
-            let mut result = graph.execute(query).await?;
-            result.next().await?;
-        }
+        Ok(())
+    }
+
+    pub async fn delete(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Delete user_details on Redis
+        Self::remove_from_index_multiple_json(&[&[&self.id]]).await?;
+
+        // Delete user graph node;
+        execute_single_query(queries::delete_user(&self.id)).await?;
+
         Ok(())
     }
 }
