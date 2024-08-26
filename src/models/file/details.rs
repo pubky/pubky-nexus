@@ -1,5 +1,5 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
-use crate::{queries, RedisOps};
+use crate::{queries, Config, RedisOps};
 use chrono::Utc;
 use neo4rs::Node;
 use serde::{Deserialize, Serialize};
@@ -108,17 +108,23 @@ impl FileDetails {
     }
 
     async fn from_node(node: &Node) -> Self {
-        let uri = node.get("uri").unwrap_or_default();
         Self {
-            uri,
-            id: node.get("indexed_at").unwrap_or_default(),
+            uri: node.get("uri").unwrap_or_default(),
+            id: node.get("id").unwrap_or_default(),
             indexed_at: node.get("indexed_at").unwrap_or_default(),
             created_at: node.get("created_at").unwrap_or_default(),
             size: node.get("size").unwrap_or_default(),
             content_type: node.get("content_type").unwrap_or_default(),
             src: node.get("src").unwrap_or_default(),
-            urls: node.get("urls").unwrap_or_default(),
-            owner_id: node.get("owner_uri").unwrap_or_default(),
+            urls: Self::to_public_urls(&node.get("urls").unwrap_or_default()),
+            owner_id: node.get("owner_id").unwrap_or_default(),
+        }
+    }
+
+    fn to_public_urls(relative_urls: &FileUrls) -> FileUrls {
+        let config = Config::from_env();
+        FileUrls {
+            main: config.base_file_url + &relative_urls.main,
         }
     }
 
