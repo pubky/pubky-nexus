@@ -26,6 +26,10 @@ const_format = "0.2.32"
 thiserror = "1.0.63"
 chrono = "0.4.38"
 pkarr = { version = "2.1.2", features = ["async"], default-features = false }
+graph_node_macro = { path = "macros/graph_node_macro" }
+
+[workspace]
+members = [".", "macros/*"]
 
 [dev-dependencies]
 anyhow = "1.0.86"

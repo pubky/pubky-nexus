@@ -1,6 +1,7 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
-use crate::{queries, Config, RedisOps};
+use crate::{queries, RedisOps};
 use chrono::Utc;
+use graph_node_macro::GraphNode;
 use neo4rs::Node;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -17,7 +18,7 @@ pub struct FileKey {
 }
 
 /// Represents a file and its metadata, including links to the actual binary of the file.
-#[derive(Serialize, Deserialize, ToSchema, Default)]
+#[derive(Serialize, Deserialize, ToSchema, Default, GraphNode)]
 pub struct FileDetails {
     pub id: String,
     pub uri: String,
@@ -107,27 +108,6 @@ impl FileDetails {
         Ok(files)
     }
 
-    async fn from_node(node: &Node) -> Self {
-        Self {
-            uri: node.get("uri").unwrap_or_default(),
-            id: node.get("id").unwrap_or_default(),
-            indexed_at: node.get("indexed_at").unwrap_or_default(),
-            created_at: node.get("created_at").unwrap_or_default(),
-            size: node.get("size").unwrap_or_default(),
-            content_type: node.get("content_type").unwrap_or_default(),
-            src: node.get("src").unwrap_or_default(),
-            urls: Self::to_public_urls(&node.get("urls").unwrap_or_default()),
-            owner_id: node.get("owner_id").unwrap_or_default(),
-        }
-    }
-
-    fn to_public_urls(relative_urls: &FileUrls) -> FileUrls {
-        let config = Config::from_env();
-        FileUrls {
-            main: config.base_file_url + &relative_urls.main,
-        }
-    }
-
     /// Retrieves the file fields from Neo4j.
     async fn get_from_graph(
         key: &FileKey,
@@ -144,7 +124,7 @@ impl FileDetails {
         match result.next().await? {
             Some(row) => {
                 let node: Node = row.get("f")?;
-                let file = Self::from_node(&node).await;
+                let file = Self::from_node(&node);
                 file.put_index_json(&[&file.owner_id, &file.id]).await?;
                 Ok(Some(file))
             }
@@ -169,7 +149,7 @@ impl FileDetails {
 
         while let Some(row) = result.next().await? {
             let node: Node = row.get("f")?;
-            let file = Self::from_node(&node).await;
+            let file = Self::from_node(&node);
             file.put_index_json(&[&file.owner_id, &file.id]).await?;
             nodes.push(file);
         }

@@ -13,3 +13,5 @@ pub use db::kv::traits::RedisOps;
 pub use error::{Error, Result};
 pub use reindex::reindex;
 pub use setup::setup;
+
+extern crate graph_node_macro;

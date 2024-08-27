@@ -48,7 +48,7 @@ cargo watch -q -c -w src/ -x run
 # You can check the running service on your browser on localhost:8080/v0/info
 
 # On terminal 2 run (for tests to work you need a working /neo4j-example instance with example dataset)
-cargo watch -q -c -w tests/ -x "test -- --nocapture"
+cargo watch -q -c -w tests/ -w macros/*/tests/ -x "test --workspace -- --nocapture"
 
 # Run benchmarks (e.g., get user by ID benchmark)
 cargo bench --bench user get_user_view_by_id
@@ -70,7 +70,6 @@ docker-compose up -d
 ### Swagger UI
 
 - http://localhost:8080/swagger-ui/
-
 
 ### Real time explore the databases
 
