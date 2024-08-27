@@ -1,23 +1,10 @@
+use super::PostStream;
 use crate::db::connectors::neo4j::get_neo4j_graph;
+use crate::models::homeserver::PostKind;
 use crate::{queries, RedisOps};
 use neo4rs::Node;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-
-use super::PostStream;
-
-/// Represents the type of pubky-app posted data
-/// Used primarily to best display the content in UI
-#[derive(Serialize, Deserialize, ToSchema, Default)]
-pub enum PostKind {
-    #[default]
-    Short,
-    Long,
-    Image,
-    Video,
-    Link,
-    File,
-}
 
 /// Represents post data with content, bio, image, links, and status.
 #[derive(Serialize, Deserialize, ToSchema, Default)]

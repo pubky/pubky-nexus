@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 /// Profile schema
+/// URI: /pub/pubky.app/profile.json
 #[derive(Deserialize, Serialize, Debug)]
 pub struct HomeserverUser {
     pub name: String,
