@@ -7,14 +7,15 @@ use tokio::task::spawn;
 use utoipa::ToSchema;
 
 const USER_MOSTFOLLOWED_KEY_PARTS: [&str; 2] = ["Users", "MostFollowed"];
+const USER_PIONEERS_KEY_PARTS: [&str; 2] = ["Users", "Pioneers"];
 
-// TODO: Add in a common folder and maybe renamed
 #[derive(Deserialize, ToSchema, Debug)]
 pub enum UserStreamType {
     Followers,
     Following,
     Friends,
     MostFollowed,
+    Pioneers,
 }
 
 #[derive(Serialize, Deserialize, ToSchema, Default)]
@@ -94,6 +95,15 @@ impl UserStream {
         .await
     }
 
+    /// Adds the post to a Redis sorted set using the follower counts as score.
+    pub async fn add_to_pioneers_sorted_set(
+        user_id: &str,
+        counts: &UserCounts,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let score = (counts.tags + counts.posts) as f64 * (counts.followers as f64).sqrt();
+        Self::put_index_sorted_set(&USER_PIONEERS_KEY_PARTS, &[(score, user_id)]).await
+    }
+
     // Get list of users based on the specified reach type
     pub async fn get_user_list_from_reach(
         user_id: &str,
@@ -113,6 +123,16 @@ impl UserStream {
                 .map(|following| following.0),
             UserStreamType::MostFollowed => Self::try_from_index_sorted_set(
                 &USER_MOSTFOLLOWED_KEY_PARTS,
+                None,
+                None,
+                skip,
+                limit,
+                Sorting::Descending,
+            )
+            .await?
+            .map(|set| set.into_iter().map(|(user_id, _score)| user_id).collect()),
+            UserStreamType::Pioneers => Self::try_from_index_sorted_set(
+                &USER_PIONEERS_KEY_PARTS,
                 None,
                 None,
                 skip,
