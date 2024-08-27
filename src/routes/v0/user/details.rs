@@ -1,5 +1,5 @@
 use crate::models::homeserver::UserLink;
-use crate::models::user::UserDetails;
+use crate::models::user::{UserDetails, UserId};
 use crate::routes::v0::endpoints::USER_DETAILS_ROUTE;
 use crate::{Error, Result};
 use axum::extract::Path;
@@ -33,6 +33,6 @@ pub async fn user_details_handler(Path(user_id): Path<String>) -> Result<Json<Us
 #[derive(OpenApi)]
 #[openapi(
     paths(user_details_handler),
-    components(schemas(UserDetails, UserLink))
+    components(schemas(UserDetails, UserLink, UserId))
 )]
 pub struct UserDetailsApiDoc;
