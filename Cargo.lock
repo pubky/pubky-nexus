@@ -2328,6 +2328,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "base32",
+ "blake3",
  "chrono",
  "const_format",
  "criterion",

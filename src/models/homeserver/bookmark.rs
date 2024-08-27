@@ -1,13 +1,33 @@
 use serde::{Deserialize, Serialize};
 
+use super::traits::GenerateId;
+
 /// Represents raw homeserver bookmark with id
-/// URI: /pub/pubky.app/bookmarks/:URI_BOOKMARKED_OBJECT
+/// URI: /pub/pubky.app/bookmarks/:bookmark_id
 ///
 /// Example URI:
 ///
-/// `/pub/pubky.app/bookmarks/pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy/pub/pubky.app/posts/2ZKGWXZ44J300/cool`
+/// `/pub/pubky.app/bookmarks/kx8uzgiq5f75bqofp51nq8r11r`
 ///
 #[derive(Serialize, Deserialize, Default)]
 pub struct HomeserverBookmark {
+    pub uri: String,
     pub created_at: i64,
+}
+
+impl GenerateId for HomeserverBookmark {
+    fn get_id_data(&self) -> String {
+        self.uri.clone()
+    }
+}
+
+#[test]
+fn test_create_bookmark_id() {
+    let bookmark = HomeserverBookmark {
+        uri: "user_id/pub/pubky.app/posts/post_id".to_string(),
+        created_at: 1627849723,
+    };
+
+    let bookmark_id = bookmark.create_id();
+    println!("Generated Bookmark ID: {}", bookmark_id);
 }
