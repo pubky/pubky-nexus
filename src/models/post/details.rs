@@ -6,8 +6,10 @@ use utoipa::ToSchema;
 
 use super::PostStream;
 
+/// Represents the type of pubky-app posted data
+/// Used primarily to best display the content in UI
 #[derive(Serialize, Deserialize, ToSchema, Default)]
-enum PostKind {
+pub enum PostKind {
     #[default]
     Short,
     Long,
