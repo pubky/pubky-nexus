@@ -52,7 +52,6 @@ Once the `Neo4j` graph database is seeded with data, the next step is to populat
 
 > If the Redis cache is empty, the nexus-service will handle it automatically. If not follow the steps of warning section
 
-
 ```bash
 cargo run
 ```
@@ -95,13 +94,15 @@ cargo run -- --testnet
 
 Take a look at the logs for
 
-1) `testnet.bootstrap=["127.0.0.1:6881"]`
-2) Your homeserver listening url `http://localhost:15411` and
-3) the pubky URI `pubky://8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo` and make sure your `.env` has the correct settings
+1. `testnet.bootstrap=["127.0.0.1:6881"]`
+2. Your homeserver listening url `http://localhost:15411` and
+3. the pubky URI `pubky://8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo` and make sure your `.env` has the correct settings
 
 ## ⚠️ Warning
 
 There are scenarios where the **integration tests** might fail. This typically occurs when new changes are pulled from the repository, as the schemas for our indexes may have changed, or when the database data is out of sync with the current integration tests. To resolve this, you need to reset the Neo4j graph database and Redis cache, and then re-seed them with the correct data. Follow these steps:
+
+### Real time explore the databases
 
 ```bash
 # Run the following Cypher query to remove all nodes and relationships in the database

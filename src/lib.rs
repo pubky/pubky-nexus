@@ -15,3 +15,5 @@ pub use error::{Error, Result};
 pub use events::processor::EventProcessor;
 pub use reindex::reindex;
 pub use setup::setup;
+
+extern crate graph_node_macro;

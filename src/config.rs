@@ -32,7 +32,7 @@ impl Config {
             neo4j_password: env::var("NEO4J_PASSWORD").expect("NEO4J_PASSWORD not set"),
             redis_host: env::var("REDIS_HOST").unwrap_or_else(|_| "localhost".to_string()),
             redis_port: env::var("REDIS_PORT").unwrap_or_else(|_| "6379".to_string()),
-            static_path: env::var("STATIC_PATH").unwrap_or_else(|_| "./".to_string()),
+            static_path: env::var("STATIC_PATH").unwrap_or_else(|_| "./static".to_string()),
             base_file_url: env::var("BASE_FILE_URL")
                 .unwrap_or_else(|_| "127.0.0.1:8080/static/".to_string()),
             server_host: env::var("SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string()),
