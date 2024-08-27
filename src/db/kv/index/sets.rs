@@ -231,11 +231,7 @@ pub async fn put_multiple_sets(
     let mut pipe = redis::pipe();
 
     for (i, key) in index.iter().enumerate() {
-        let full_index = format!("{}:{}:{}", 
-            &prefix,
-            common_key.join(":"),
-            key
-        );
+        let full_index = format!("{}:{}:{}", &prefix, common_key.join(":"), key);
         if !collections[i].is_empty() {
             pipe.sadd(full_index, collections[i]);
         }

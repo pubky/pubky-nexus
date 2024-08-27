@@ -13,10 +13,7 @@ struct TagPostMockup {
 
 impl TagPostMockup {
     fn new(label: String, taggers: usize) -> Self {
-        Self {
-            label,
-            taggers,
-        }
+        Self { label, taggers }
     }
 }
 
@@ -24,10 +21,7 @@ impl TagPostMockup {
 fn analyse_hot_tags_structure(tags: &Vec<Value>) {
     for tag in tags {
         assert!(tag["label"].is_string(), "label should be a string");
-        assert!(
-            tag["taggers"].is_array(),
-            "taggers should be an array"
-        );
+        assert!(tag["taggers"].is_array(), "taggers should be an array");
     }
 }
 

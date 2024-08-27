@@ -1,5 +1,5 @@
-use crate::models::tag::TagDetails;
 use crate::models::tag::post::TagPost;
+use crate::models::tag::TagDetails;
 use crate::routes::v0::endpoints::POST_TAGS_ROUTE;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
@@ -34,7 +34,10 @@ pub async fn post_tags_handler(
     Path((user_id, post_id)): Path<(String, String)>,
     Query(query): Query<PostTagsQuery>,
 ) -> Result<Json<TagPost>> {
-    info!("GET {POST_TAGS_ROUTE} user_id:{}, post_id: {}, max_tags:{:?}, max_taggers:{:?}", user_id, post_id, query.max_tags, query.max_taggers);
+    info!(
+        "GET {POST_TAGS_ROUTE} user_id:{}, post_id: {}, max_tags:{:?}, max_taggers:{:?}",
+        user_id, post_id, query.max_tags, query.max_taggers
+    );
     match TagPost::get_by_id(&user_id, &post_id, query.max_tags, query.max_taggers).await {
         Ok(Some(tags)) => Ok(Json(tags)),
         Ok(None) => Err(Error::UserNotFound { user_id }),
@@ -43,8 +46,5 @@ pub async fn post_tags_handler(
 }
 
 #[derive(OpenApi)]
-#[openapi(
-    paths(post_tags_handler),
-    components(schemas(TagPost, TagDetails))
-)]
+#[openapi(paths(post_tags_handler), components(schemas(TagPost, TagDetails)))]
 pub struct PostTagsApiDoc;

@@ -21,7 +21,7 @@ impl PostView {
         post_id: &str,
         viewer_id: Option<&str>,
         max_tags: Option<usize>,
-        max_taggers: Option<usize>
+        max_taggers: Option<usize>,
     ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
         // Perform all operations concurrently
         let (details, counts, bookmark, relationships, tags) = tokio::try_join!(

@@ -1,11 +1,11 @@
 use crate::db::kv::index::sorted_sets::Sorting;
-use crate::{db::connectors::neo4j::get_neo4j_graph, RedisOps};
 use crate::queries;
+use crate::{db::connectors::neo4j::get_neo4j_graph, RedisOps};
 use axum::async_trait;
 use serde::{Deserialize, Serialize};
+use std::error::Error;
 use std::ops::Deref;
 use utoipa::ToSchema;
-use std::error::Error;
 
 use super::TagDetails;
 
@@ -30,7 +30,6 @@ impl RedisOps for TagPost {
 }
 
 impl TagPost {
-
     fn create_set_key_parts<'a>(user_id: &'a str, post_id: &'a str) -> Vec<&'a str> {
         [&POST_TAGS_KEY_PARTS[..], &[user_id, post_id]].concat()
     }
@@ -39,7 +38,7 @@ impl TagPost {
         user_id: &str,
         post_id: &str,
         max_tags: Option<usize>,
-        max_taggers: Option<usize>
+        max_taggers: Option<usize>,
     ) -> Result<Option<TagPost>, Box<dyn std::error::Error + Send + Sync>> {
         // TODO: Not sure if this is the place to do or in the endpoint
         let max_tags = max_tags.unwrap_or(5);
@@ -50,10 +49,23 @@ impl TagPost {
         }
     }
 
-    async fn try_from_cache(user_id: &str, post_id: &str, max_tags: usize, max_taggers: usize
+    async fn try_from_cache(
+        user_id: &str,
+        post_id: &str,
+        max_tags: usize,
+        max_taggers: usize,
     ) -> Result<Option<TagPost>, Box<dyn std::error::Error + Send + Sync>> {
         let key_parts = Self::create_set_key_parts(user_id, post_id);
-        match Self::try_from_index_sorted_set(&key_parts, None, None, None, Some(max_tags), Sorting::Descending).await? {
+        match Self::try_from_index_sorted_set(
+            &key_parts,
+            None,
+            None,
+            None,
+            Some(max_tags),
+            Sorting::Descending,
+        )
+        .await?
+        {
             Some(tag_scores) => {
                 let mut tags = Vec::with_capacity(max_tags);
                 for (label, _) in tag_scores.iter() {
@@ -63,8 +75,8 @@ impl TagPost {
                 let taggers = Self::try_from_multiple_sets(&tags_ref, Some(max_taggers)).await?;
                 let tag_details_list = TagDetails::from_cache(tag_scores, taggers);
                 Ok(Some(TagPost(tag_details_list)))
-            },
-            None => Ok(None)
+            }
+            None => Ok(None),
         }
     }
 
@@ -93,7 +105,11 @@ impl TagPost {
         Ok(None)
     }
 
-    async fn add_to_label_sorted_set(user_id: &str, post_id: &str, tags: &[TagDetails]) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn add_to_label_sorted_set(
+        user_id: &str,
+        post_id: &str,
+        tags: &[TagDetails],
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let (tag_scores, (labels, taggers)) = TagDetails::split_fields_and_calculate_scores(tags);
 
         let key_parts = Self::create_set_key_parts(user_id, post_id);

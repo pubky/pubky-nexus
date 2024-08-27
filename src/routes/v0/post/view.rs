@@ -46,7 +46,15 @@ pub async fn post_view_handler(
         query.max_taggers
     );
 
-    match PostView::get_by_id(&author_id, &post_id, query.viewer_id.as_deref(), query.max_tags, query.max_taggers).await {
+    match PostView::get_by_id(
+        &author_id,
+        &post_id,
+        query.viewer_id.as_deref(),
+        query.max_tags,
+        query.max_taggers,
+    )
+    .await
+    {
         Ok(Some(post)) => Ok(Json(post)),
         Ok(None) => Err(Error::PostNotFound { author_id, post_id }),
         Err(source) => Err(Error::InternalServerError { source }),

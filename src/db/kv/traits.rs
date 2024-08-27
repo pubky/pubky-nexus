@@ -406,13 +406,13 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
 
     /// Adds elements to multiple Redis sets using the provided keys and collections.
     ///
-    /// This asynchronous function allows you to add elements to multiple Redis sets, 
-    /// with each set identified by a key generated from the `common_key` and `index_ref`. 
+    /// This asynchronous function allows you to add elements to multiple Redis sets,
+    /// with each set identified by a key generated from the `common_key` and `index_ref`.
     /// The function ensures that each element in each set is unique.
     ///
     /// # Arguments
     ///
-    /// * `common_key` - A slice of string slices representing the common part of the Redis keys. 
+    /// * `common_key` - A slice of string slices representing the common part of the Redis keys.
     ///   This will be combined with each element in `index` to generate the full Redis key.
     /// * `index` - A slice of string slices representing the unique identifiers to append to the `common_key` to form the full Redis keys.
     /// * `collections_refs` - A slice of vectors, where each inner vector contains elements to be added to the corresponding Redis set
@@ -438,7 +438,10 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         // Get the prefix for the Redis keys
         let prefix = Self::prefix().await;
 
-        let refs: Vec<&[&str]> = collections_refs.iter().map(|inner_vec| inner_vec.as_slice()).collect();
+        let refs: Vec<&[&str]> = collections_refs
+            .iter()
+            .map(|inner_vec| inner_vec.as_slice())
+            .collect();
         let slice: &[&[&str]] = refs.as_slice();
 
         sets::put_multiple_sets(&prefix, common_key, index, slice).await

@@ -6,9 +6,9 @@ use utoipa::OpenApi;
 mod bookmark;
 mod counts;
 mod details;
+mod tags;
 mod thread;
 mod view;
-mod tags;
 
 pub fn routes() -> Router {
     register_routes!(Router::new(),
