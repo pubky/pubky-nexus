@@ -1,5 +1,5 @@
 use anyhow::Result;
-use pubky_nexus::models::tag::post::PostTag;
+use pubky_nexus::models::tag::post::TagPost;
 
 const HOST_URL: &str = "http://localhost:8080";
 
@@ -235,7 +235,7 @@ async fn test_get_post() -> Result<()> {
 
     // Panic if tags vector is bigger that 1
     let post_tag_object = body["tags"][0].clone();
-    let post_tag: PostTag = serde_json::from_value(post_tag_object.clone())?;
+    let post_tag: TagPost = serde_json::from_value(post_tag_object.clone())?;
     assert_eq!(post_tag.label, "pubky");
 
     // Test non-existing post

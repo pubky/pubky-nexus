@@ -11,7 +11,6 @@ use super::TagDetails;
 
 const POST_TAGS_KEY_PARTS: [&str; 2] = ["Posts", "Tag"];
 
-// Define a newtype wrapper
 #[derive(Serialize, Deserialize, Debug, Clone, ToSchema, Default)]
 pub struct TagPost(Vec<TagDetails>);
 
@@ -42,6 +41,7 @@ impl TagPost {
         max_tags: Option<usize>,
         max_taggers: Option<usize>
     ) -> Result<Option<TagPost>, Box<dyn std::error::Error + Send + Sync>> {
+        // TODO: Not sure if this is the place to do or in the endpoint
         let max_tags = max_tags.unwrap_or(5);
         let max_taggers = max_taggers.unwrap_or(5);
         match Self::try_from_cache(user_id, post_id, max_tags, max_taggers).await? {
@@ -51,11 +51,21 @@ impl TagPost {
     }
 
     async fn try_from_cache(user_id: &str, post_id: &str, max_tags: usize, max_taggers: usize
-    )  -> Result<Option<TagPost>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<TagPost>, Box<dyn std::error::Error + Send + Sync>> {
         let key_parts = Self::create_set_key_parts(user_id, post_id);
-        let k = Self::try_from_index_sorted_set(&key_parts, None, None, None, Some(max_tags), Sorting::Descending).await?;
-        println!("Try cache: {:?}", k);
-        Ok(None)
+        match Self::try_from_index_sorted_set(&key_parts, None, None, None, Some(max_tags), Sorting::Descending).await? {
+            Some(tag_scores) => {
+                let mut tags = Vec::with_capacity(max_tags);
+                for (label, _) in tag_scores.iter() {
+                    tags.push(format!("{}:{}:{}", user_id, post_id, label));
+                }
+                let tags_ref: Vec<&str> = tags.iter().map(|label| label.as_str()).collect();
+                let taggers = Self::try_from_multiple_sets(&tags_ref, Some(max_taggers)).await?;
+                let tag_details_list = TagDetails::from_cache(tag_scores, taggers);
+                Ok(Some(TagPost(tag_details_list)))
+            },
+            None => Ok(None)
+        }
     }
 
     async fn get_from_graph(
@@ -75,20 +85,19 @@ impl TagPost {
             let user_exists: bool = row.get("post_exists").unwrap_or(false);
             if user_exists {
                 let tagged_from: TagPost = row.get("post_tags").unwrap_or_default();
-                let post_unique_id = &[user_id, post_id];
-                Self::add_to_label_sorted_set(post_unique_id, &tagged_from).await?;
+                Self::add_to_label_sorted_set(user_id, post_id, &tagged_from).await?;
                 return Ok(Some(tagged_from));
             }
         }
         Ok(None)
     }
 
-    async fn add_to_label_sorted_set(post_unique_id: &[&str], tags: &[TagDetails]) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn add_to_label_sorted_set(user_id: &str, post_id: &str, tags: &[TagDetails]) -> Result<(), Box<dyn Error + Send + Sync>> {
         let (tag_scores, (labels, taggers)) = TagDetails::split_fields_and_calculate_scores(tags);
 
-        let key_parts = [&POST_TAGS_KEY_PARTS[..], post_unique_id].concat();
+        let key_parts = Self::create_set_key_parts(user_id, post_id);
         Self::put_index_sorted_set(&key_parts, tag_scores.as_slice()).await?;
 
-        Self::put_multiple_set_indexes(post_unique_id, &labels, &taggers).await
+        Self::put_multiple_set_indexes(&[user_id, post_id], &labels, &taggers).await
     }
 }
