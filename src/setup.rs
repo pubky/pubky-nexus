@@ -3,7 +3,7 @@ use crate::db::connectors::{
     neo4j::{Neo4jConnector, NEO4J_CONNECTOR},
     redis::{RedisConnector, REDIS_CONNECTOR},
 };
-use crate::queries::setup_graph;
+use crate::db::graph::setup::setup_graph;
 use log::{error, info};
 
 async fn setup_redis(config: &Config) {
@@ -36,7 +36,10 @@ async fn setup_neo4j(config: &Config) {
 }
 
 pub async fn setup(config: &Config) {
-    env_logger::init();
+    match env_logger::try_init() {
+        Ok(_) => info!("Env logger initiated"),
+        Err(err) => error!("Env logger was already set: {}", err),
+    }
 
     // Initialize Redis and Neo4j
     setup_redis(config).await;

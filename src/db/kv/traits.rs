@@ -91,6 +91,35 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         json::put_multiple(&Self::prefix().await, &data).await
     }
 
+    /// Removes multiple JSON objects from Redis using the provided key parts.
+    ///
+    /// This method deletes the data stored under the keys generated from the provided `key_parts_list` in Redis.
+    /// It returns a result indicating success or failure.
+    ///
+    /// # Arguments
+    ///
+    /// * `key_parts_list` - A slice of slices, where each inner slice contains string slices representing
+    ///   the parts used to form the key under which the corresponding value is stored.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` indicating success or failure. If successful, all keys are removed from Redis.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
+    async fn remove_from_index_multiple_json(
+        key_parts_list: &[&[&str]],
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let prefix = Self::prefix().await;
+        let keys: Vec<String> = key_parts_list
+            .iter()
+            .map(|key_parts| key_parts.join(":"))
+            .collect();
+
+        json::del_multiple(&prefix, &keys).await
+    }
+
     /// Adds elements to a Redis list using the provided key parts.
     ///
     /// This method serializes the data and appends it to a Redis list under the key generated
@@ -342,5 +371,65 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     ) -> Result<Option<Vec<(String, f64)>>, Box<dyn Error + Send + Sync>> {
         let key = key_parts.join(":");
         sorted_sets::get_range("Sorted", &key, start, end, skip, limit, sorting).await
+    }
+
+    /// Retrieves a lexicographical range of elements from a Redis sorted set using the provided key parts.
+    ///
+    /// This method fetches elements from a Redis sorted set stored under the key generated from the provided `key_parts`.
+    /// The range is defined by `min` and `max` lexicographical bounds.
+    ///
+    /// # Arguments
+    ///
+    /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the sorted set is stored.
+    /// * `min` - The minimum lexicographical bound (inclusive).
+    /// * `max` - The maximum lexicographical bound (exclusive).
+    /// * `limit` - An optional number of elements to return (useful for pagination).
+    ///
+    /// # Returns
+    ///
+    /// Returns a vector of elements if they exist, or an empty vector if no matching elements are found.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
+    async fn try_from_index_sorted_set_lex(
+        key_parts: &[&str],
+        min: &str,
+        max: &str,
+        skip: Option<usize>,
+        limit: Option<usize>,
+    ) -> Result<Option<Vec<String>>, Box<dyn Error + Send + Sync>> {
+        let key = key_parts.join(":");
+        sorted_sets::get_lex_range("Sorted", &key, min, max, skip, limit).await
+    }
+
+    /// Fetches multiple sets from Redis using the specified key components.
+    ///
+    /// This asynchronous function retrieves multiple sets from Redis based on the provided key components.
+    /// It returns a vector where each element is an optional vector containing the elements of the corresponding set.
+    /// If a particular set does not exist, the corresponding position in the returned vector will be `None`.
+    ///
+    /// # Arguments
+    ///
+    /// * `key_parts_list` - A slice of string slices, where each inner slice represents the components
+    ///   used to construct the Redis key for the corresponding set.
+    /// * `limit` - An optional parameter specifying the maximum number of elements to fetch from each set.
+    ///   If `None`, all elements will be retrieved.
+    ///
+    /// # Returns
+    ///
+    /// A `Vec<Option<Vec<String>>>` where:
+    /// * Each inner `Vec<String>` contains the elements of a set retrieved from Redis.
+    /// * `None` indicates that the set does not exist for the corresponding key.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the operation fails, such as in cases of a Redis connection issue.
+    async fn try_from_multiple_sets(
+        key_parts_list: &[&str],
+        limit: Option<usize>,
+    ) -> Result<Vec<Option<(Vec<String>, usize)>>, Box<dyn Error + Send + Sync>> {
+        let prefix = Self::prefix().await;
+        sets::get_multiple_sets(&prefix, key_parts_list, limit).await
     }
 }

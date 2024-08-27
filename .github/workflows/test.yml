@@ -1,0 +1,89 @@
+name: Tests
+
+on:
+  workflow_dispatch:
+  workflow_call:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: true # Needed for the `pubky` submodule as it's private and has unpublished crates
+          token: ${{ secrets.PAT_PUBKY }}
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: x86_64-unknown-linux-gnu
+          profile: minimal
+          override: true
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache Cargo build
+        uses: actions/cache@v3
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-build-
+
+      - name: Copy environment variables
+        run: cp .env-sample .env
+
+      - name: Set up Docker Compose
+        working-directory: docker
+        run: docker compose --env-file .env-sample up -d
+
+      - name: Wait for services to be ready
+        run: |
+          until nc -zv 127.0.0.1 6379; do
+            echo "Waiting for Redis to be ready..."
+            sleep 1
+          done
+          until curl -sS http://localhost:7474; do
+            echo "Waiting for Neo4j to be ready..."
+            sleep 1
+          done
+
+      - name: Create example graph
+        run: docker exec neo4j bash /db-migration/run-queries.sh
+
+      # - name: Install dependencies
+      #   run: cargo build --release
+
+      - name: Run the service
+        run: |
+          cargo run > service.log 2>&1 &
+          sleep 10  # Give the service a moment to start
+        
+      - name: Run integration tests
+        run: cargo test
+
+      - name: Show service logs if tests fail
+        if: failure()
+        run: cat service.log
+
+      - name: Tear down Docker Compose
+        if: always()
+        working-directory: docker
+        run: docker compose down --volumes

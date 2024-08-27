@@ -1,8 +1,7 @@
-use std::ops::Deref;
-
 use crate::db::connectors::neo4j::get_neo4j_graph;
 use crate::queries;
 use serde::{Deserialize, Serialize};
+use std::ops::Deref;
 use utoipa::ToSchema;
 
 use super::Tags;
@@ -41,7 +40,7 @@ impl PostTags {
     ) -> Result<Option<PostTags>, Box<dyn std::error::Error + Send + Sync>> {
         let mut result;
         {
-            let query = queries::post_tags(user_id, post_id);
+            let query = queries::read::post_tags(user_id, post_id);
             let graph = get_neo4j_graph()?;
 
             let graph = graph.lock().await;

@@ -65,11 +65,11 @@ async fn test_user_endpoint() -> Result<()> {
 
     let body = res.json_body()?;
     assert_eq!(
-        body["viewer"]["followed_by"], true,
+        body["relationship"]["followed_by"], true,
         "Aldert should follow Flavio"
     );
     assert_eq!(
-        body["viewer"]["following"], false,
+        body["relationship"]["following"], false,
         "Flavio should not follow Aldert"
     );
 
@@ -546,6 +546,74 @@ async fn test_stream_most_followed() -> Result<()> {
 }
 
 #[tokio::test]
+async fn test_stream_pioneers() -> Result<()> {
+    let client = httpc_test::new_client(HOST_URL)?;
+
+    // Test retrieving the most followed users
+    let res = client.do_get("/v0/stream/users/pioneers").await?;
+    assert_eq!(res.status(), 200);
+
+    let body = res.json_body()?;
+    assert!(body.is_array());
+
+    let pioneers_users = body.as_array().expect("User stream should be an array");
+
+    // Check if the response has the expected number of users
+    assert!(
+        !pioneers_users.is_empty(),
+        "There should be at least one user in the most followed stream"
+    );
+
+    // List of expected user IDs (replace with actual expected IDs from your test data)
+    let expected_user_ids = vec![
+        "pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy",
+        "o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo",
+        "kzq3o8y8w1b7ffogpq73okop4gb3ahm31ytwwk1na8p6gpr4511o",
+        "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy",
+        "7hq56kap6exmhghyedrw1q3ar8b1wutomq8ax9eazhajcpdfx3so",
+    ];
+
+    // Verify that each expected user ID is present in the response
+    for id in &expected_user_ids {
+        let exists = pioneers_users.iter().any(|f| f["details"]["id"] == *id);
+        assert!(exists, "Expected user ID not found: {}", id);
+    }
+
+    // Additional checks for specific user attributes (e.g., name, follower counts)
+    for user in pioneers_users {
+        assert!(
+            user["details"]["name"].is_string(),
+            "Name should be a string"
+        );
+        assert!(user["details"]["bio"].is_string(), "Bio should be a string");
+        assert!(
+            user["counts"]["followers"].is_number(),
+            "Follower counts should be a number"
+        );
+    }
+
+    // Test limiting the results to 5 users
+    let res = client
+        .do_get("/v0/stream/users/most-followed?limit=5")
+        .await?;
+    assert_eq!(res.status(), 200);
+
+    let body = res.json_body()?;
+    assert!(body.is_array());
+
+    let limited_users = body.as_array().expect("User stream should be an array");
+
+    // Check if the response has the expected number of users
+    assert_eq!(
+        limited_users.len(),
+        5,
+        "Expected 5 users in the limited stream"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_stream_posts_timeline() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 
@@ -897,6 +965,21 @@ async fn test_stream_bookmarked_posts_no_bookmarks() -> Result<()> {
 }
 
 #[tokio::test]
+async fn test_stream_bookmarked_posts_invalid_user() -> Result<()> {
+    let client = httpc_test::new_client(HOST_URL)?;
+
+    // Use an invalid or non-existing user ID
+    let user_id = "invalid_user_id";
+
+    let res = client
+        .do_get(&format!("/v0/stream/posts/bookmarks/{}", user_id))
+        .await?;
+    assert_eq!(res.status(), 404);
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_thread_replies() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 
@@ -988,16 +1071,133 @@ async fn test_thread_replies() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_stream_bookmarked_posts_invalid_user() -> Result<()> {
+async fn test_search_users_by_username() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 
-    // Use an invalid or non-existing user ID
-    let user_id = "invalid_user_id";
+    let username = "Jo";
 
     let res = client
-        .do_get(&format!("/v0/stream/posts/bookmarks/{}", user_id))
+        .do_get(&format!("/v0/search/users?username={}", username))
         .await?;
+    assert_eq!(res.status(), 200);
+
+    let body = res.json_body()?;
+    assert!(body.is_array());
+
+    let users = body
+        .as_array()
+        .expect("User search results should be an array");
+
+    // Define the expected user IDs
+    let expected_users = vec![
+        "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy",
+        "oh8ku6csenwcyec6oaacz6xumydqjdaagh4ekr8jsm44rrdssjqo",
+    ];
+
+    // Convert the actual result to a Vec of strings
+    let actual_users: Vec<String> = users
+        .iter()
+        .map(|user| {
+            user.as_str()
+                .expect("User ID should be a string")
+                .to_string()
+        })
+        .collect();
+
+    // Assert that the actual result matches the expected result
+    assert_eq!(actual_users, expected_users);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_search_non_existing_user() -> Result<()> {
+    let client = httpc_test::new_client(HOST_URL)?;
+
+    let non_existing_username = "idfjwfs8u9jfkoi"; // Username that doesn't exist
+
+    let res = client
+        .do_get(&format!(
+            "/v0/search/users?username={}",
+            non_existing_username
+        ))
+        .await?;
+
+    // Assert that the status code is 404 Not Found
     assert_eq!(res.status(), 404);
+
+    let body = res.json_body()?;
+    assert!(
+        body["error"].is_string(),
+        "Error message should be a string"
+    );
+
+    // Optional: Check that the error message contains the correct details
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains(non_existing_username),
+        "Error message should mention the non-existing username"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_search_empty_username() -> Result<()> {
+    let client = httpc_test::new_client(HOST_URL)?;
+
+    let empty_username = ""; // Empty username
+
+    let res = client
+        .do_get(&format!("/v0/search/users?username={}", empty_username))
+        .await?;
+
+    // Assert that the status code is 400 Bad Request
+    assert_eq!(res.status(), 400);
+
+    let body = res.json_body()?;
+    assert!(
+        body["error"].is_string(),
+        "Error message should be a string"
+    );
+
+    // Optional: Check that the error message contains the correct details
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("Username cannot be empty"),
+        "Error message should mention that the username cannot be empty"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stream_users_by_username_search() -> Result<()> {
+    let client = httpc_test::new_client(HOST_URL)?;
+
+    let username = "Jo";
+
+    let res = client
+        .do_get(&format!(
+            "/v0/stream/users/username-search?username={}",
+            username
+        ))
+        .await?;
+    assert_eq!(res.status(), 200);
+
+    let body = res.json_body()?;
+    assert!(body.is_array());
+
+    let users = body
+        .as_array()
+        .expect("User search results should be an array");
+
+    // Validate the response as needed
+    assert!(!users.is_empty(), "User search should return results");
 
     Ok(())
 }

@@ -1,5 +1,6 @@
 use crate::db::kv::flush::clear_redis;
 use crate::models::post::Bookmark;
+use crate::models::tag::stream::HotTags;
 use crate::models::traits::Collection;
 use crate::models::user::{Followers, Following, UserDetails, UserFollows};
 use crate::{
@@ -27,7 +28,7 @@ pub async fn reindex() {
     UserDetails::from_graph(&user_ids_refs)
         .await
         .expect("Failed indexing User Details");
-    //TODO use collections
+    //TODO use collections for every other model
 
     for user_id in user_ids {
         user_tasks.spawn(async move {
@@ -57,6 +58,10 @@ pub async fn reindex() {
             log::error!("Post reindexing task failed: {:?}", e);
         }
     }
+
+    HotTags::set_global_tag_scores()
+        .await
+        .expect("Failed to store the global hot tags");
 
     info!("Reindexing completed successfully.");
 }

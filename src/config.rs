@@ -14,6 +14,11 @@ pub struct Config {
     server_host: String,
     server_port: String,
     pub reindex: bool,
+    pub testnet: bool,
+    pub bootstrap: String,
+    pub homeserver: String,
+    pub homeserver_url: String,
+    pub events_limit: u32,
 }
 
 impl Config {
@@ -36,6 +41,17 @@ impl Config {
                 .unwrap_or_else(|_| "false".to_string())
                 .parse()
                 .unwrap_or(false),
+            testnet: env::var("TESTNET")
+                .unwrap_or_else(|_| "false".to_string())
+                .parse()
+                .unwrap_or(true),
+            bootstrap: env::var("BOOTSTRAP").unwrap_or_else(|_| "127.0.0.1:6881".to_string()),
+            homeserver: env::var("HOMESERVER").expect("HOMESERVER pubky not set"),
+            homeserver_url: env::var("HOMESERVER_URL").expect("HOMESERVER_URL not set"),
+            events_limit: env::var("EVENTS_LIMIT")
+                .unwrap_or("1000".to_string())
+                .parse()
+                .unwrap_or(1000),
         }
     }
 

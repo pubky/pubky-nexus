@@ -33,12 +33,31 @@ pub const THREAD_ROUTE: &str = concatcp!(THREAD_PREFIX, "/:author_id/:post_id");
 // Stream routes
 const STREAM_PREFIX: &str = concatcp!(VERSION_ROUTE, "/stream");
 pub const STREAM_USERS_ROUTE: &str = concatcp!(STREAM_PREFIX, "/users");
+pub const STREAM_USERS_USERNAME_SEARCH_ROUTE: &str =
+    concatcp!(STREAM_USERS_ROUTE, "/username-search");
 pub const STREAM_USERS_MOSTFOLLOWED_ROUTE: &str = concatcp!(STREAM_PREFIX, "/users/most-followed");
+pub const STREAM_USERS_PIONEERS_ROUTE: &str = concatcp!(STREAM_PREFIX, "/users/pioneers");
 pub const STREAM_POSTS_ROUTE: &str = concatcp!(STREAM_PREFIX, "/posts");
 pub const STREAM_POSTS_USER_ROUTE: &str = concatcp!(STREAM_POSTS_ROUTE, "/user/:user_id");
 pub const STREAM_POSTS_REACH_ROUTE: &str = concatcp!(STREAM_POSTS_ROUTE, "/reach");
 pub const STREAM_POSTS_BOOKMARKED_ROUTE: &str =
     concatcp!(STREAM_POSTS_ROUTE, "/bookmarks/:user_id");
+
+pub const STREAM_TAGS_ROUTE: &str = concatcp!(STREAM_PREFIX, "/tags");
+// Changed
+pub const STREAM_TAGS_GLOBAL_ROUTE: &str = concatcp!(STREAM_TAGS_ROUTE, "/global");
+// Changed
+pub const STREAM_TAGS_REACH_ROUTE: &str = concatcp!(STREAM_TAGS_ROUTE, "/reached/:user_id/:reach");
+
+// Search routes
+const SEARCH_PREFIX: &str = concatcp!(VERSION_ROUTE, "/search");
+pub const SEARCH_USERS_ROUTE: &str = concatcp!(SEARCH_PREFIX, "/users");
+
+// Tag routes
+const TAG_PREFIX: &str = concatcp!(VERSION_ROUTE, "/tag");
+pub const TAG_HOT_ROUTE: &str = concatcp!(TAG_PREFIX, "/hot");
+pub const TAG_REACH_ROUTE: &str = concatcp!(TAG_PREFIX, "/reached/:user_id/:reach");
+pub const TAG_TAGGERS_ROUTE: &str = concatcp!(TAG_PREFIX, "/taggers/:label");
 
 // File routes
 const FILE_PREFIX: &str = concatcp!(VERSION_ROUTE, "/files");

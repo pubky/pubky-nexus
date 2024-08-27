@@ -1,37 +1,29 @@
 use std::error::Error;
 
-use super::{Followers, Following, Friends, UserFollows, UserCounts, UserView};
+use super::{Followers, Following, Friends, UserCounts, UserFollows, UserSearch, UserView};
 use crate::{db::kv::index::sorted_sets::Sorting, RedisOps};
 use serde::{Deserialize, Serialize};
 use tokio::task::spawn;
 use utoipa::ToSchema;
 
 const USER_MOSTFOLLOWED_KEY_PARTS: [&str; 2] = ["Users", "MostFollowed"];
+const USER_PIONEERS_KEY_PARTS: [&str; 2] = ["Users", "Pioneers"];
 
-#[derive(Deserialize, ToSchema)]
+#[derive(Deserialize, ToSchema, Debug)]
 pub enum UserStreamType {
     Followers,
     Following,
     Friends,
     MostFollowed,
+    Pioneers,
 }
 
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema, Default)]
 pub struct UserStream(Vec<UserView>);
 
 impl RedisOps for UserStream {}
 
-impl Default for UserStream {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl UserStream {
-    pub fn new() -> Self {
-        Self(Vec::new())
-    }
-
     pub async fn get_by_id(
         user_id: &str,
         viewer_id: Option<&str>,
@@ -39,27 +31,23 @@ impl UserStream {
         limit: Option<usize>,
         list_type: UserStreamType,
     ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
-        let user_ids = match list_type {
-            UserStreamType::Followers => Followers::get_by_id(user_id, skip, limit)
-                .await?
-                .map(|followers| followers.0),
-            UserStreamType::Following => Following::get_by_id(user_id, skip, limit)
-                .await?
-                .map(|following| following.0),
-            UserStreamType::Friends => Friends::get_by_id(user_id, skip, limit)
-                .await?
-                .map(|following| following.0),
-            UserStreamType::MostFollowed => Self::try_from_index_sorted_set(
-                &USER_MOSTFOLLOWED_KEY_PARTS,
-                None,
-                None,
-                skip,
-                limit,
-                Sorting::Descending,
-            )
+        let user_ids = Self::get_user_list_from_reach(user_id, list_type, skip, limit).await?;
+        match user_ids {
+            Some(users) => Self::from_listed_user_ids(&users, viewer_id).await,
+            None => Ok(None),
+        }
+    }
+
+    pub async fn get_from_username_search(
+        username: &str,
+        viewer_id: Option<&str>,
+        skip: Option<usize>,
+        limit: Option<usize>,
+    ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
+        let user_ids = UserSearch::get_by_name(username, skip, limit)
             .await?
-            .map(|set| set.into_iter().map(|(user_id, _score)| user_id).collect()),
-        };
+            .map(|result| result.0);
+
         match user_ids {
             Some(users) => Self::from_listed_user_ids(&users, viewer_id).await,
             None => Ok(None),
@@ -105,5 +93,55 @@ impl UserStream {
             &[(counts.followers as f64, user_id)],
         )
         .await
+    }
+
+    /// Adds the post to a Redis sorted set using the follower counts as score.
+    pub async fn add_to_pioneers_sorted_set(
+        user_id: &str,
+        counts: &UserCounts,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let score = (counts.tags + counts.posts) as f64 * (counts.followers as f64).sqrt();
+        Self::put_index_sorted_set(&USER_PIONEERS_KEY_PARTS, &[(score, user_id)]).await
+    }
+
+    // Get list of users based on the specified reach type
+    pub async fn get_user_list_from_reach(
+        user_id: &str,
+        list_type: UserStreamType,
+        skip: Option<usize>,
+        limit: Option<usize>,
+    ) -> Result<Option<Vec<String>>, Box<dyn Error + Send + Sync>> {
+        let user_ids = match list_type {
+            UserStreamType::Followers => Followers::get_by_id(user_id, skip, limit)
+                .await?
+                .map(|followers| followers.0),
+            UserStreamType::Following => Following::get_by_id(user_id, skip, limit)
+                .await?
+                .map(|following| following.0),
+            UserStreamType::Friends => Friends::get_by_id(user_id, skip, limit)
+                .await?
+                .map(|following| following.0),
+            UserStreamType::MostFollowed => Self::try_from_index_sorted_set(
+                &USER_MOSTFOLLOWED_KEY_PARTS,
+                None,
+                None,
+                skip,
+                limit,
+                Sorting::Descending,
+            )
+            .await?
+            .map(|set| set.into_iter().map(|(user_id, _score)| user_id).collect()),
+            UserStreamType::Pioneers => Self::try_from_index_sorted_set(
+                &USER_PIONEERS_KEY_PARTS,
+                None,
+                None,
+                skip,
+                limit,
+                Sorting::Descending,
+            )
+            .await?
+            .map(|set| set.into_iter().map(|(user_id, _score)| user_id).collect()),
+        };
+        Ok(user_ids)
     }
 }

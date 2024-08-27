@@ -30,7 +30,6 @@ where
         let mut collection = Self::try_from_index_multiple_json(&key_parts_list).await?;
 
         let mut missing: Vec<(usize, &str)> = Vec::new();
-
         for (i, details) in collection.iter().enumerate() {
             if details.is_none() {
                 missing.push((i, id_list[i]));
@@ -93,6 +92,7 @@ where
             Self::to_index(&existing_record_ids, existing_records).await?;
         }
 
+        Self::add_to_sorted_sets(&missing_records).await;
         Ok(missing_records)
     }
 
@@ -119,4 +119,5 @@ where
     }
 
     fn graph_query(id_list: &[&str]) -> Query;
+    async fn add_to_sorted_sets(elements: &[std::option::Option<Self>]);
 }

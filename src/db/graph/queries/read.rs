@@ -1,34 +1,4 @@
-use crate::db::connectors::neo4j::get_neo4j_graph;
 use neo4rs::{query, Query};
-
-// Set graph constraints if they do not already exist
-pub async fn setup_graph() -> Result<(), Box<dyn std::error::Error>> {
-    let constraints = [
-        "CREATE CONSTRAINT uniqueUserId IF NOT EXISTS FOR (u:User) REQUIRE u.id IS UNIQUE",
-        "CREATE CONSTRAINT uniquePostId IF NOT EXISTS FOR (p:Post) REQUIRE p.id IS UNIQUE",
-        "CREATE CONSTRAINT uniqueFileId IF NOT EXISTS FOR (f:File) REQUIRE (f.owner_id, f.id) IS UNIQUE",
-    ];
-
-    let indexes = [
-        "CREATE INDEX userIdIndex IF NOT EXISTS FOR (u:User) ON (u.id)",
-        "CREATE INDEX postIdIndex IF NOT EXISTS FOR (p:Post) ON (p.id)",
-        "CREATE INDEX fileIdIndex IF NOT EXISTS FOR (f:File) ON (f.owner_id, f.id)",
-    ];
-
-    let queries = constraints.iter().chain(indexes.iter());
-
-    let graph = get_neo4j_graph()?;
-    let graph = graph.lock().await;
-    for q in queries {
-        graph.run(query(q)).await?;
-    }
-
-    Ok(())
-}
-
-// Create nodes with Merge (avoid key duplication). Examples:
-// MERGE (u:User {id: "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro"}) SET u.name = "Aldert", u.status = "working", u.links = ...
-// MERGE (p:Post {id: "0RDV7ABDZDW0"}) SET p.content = "Julian Assange is free", p.uri = "pubky:pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy/pubky.app/posts/0RDV7ABDZDW0", p.createdAt = 1719308315917;
 
 // Retrieve post node by post id and author id
 pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
@@ -209,6 +179,55 @@ pub fn get_user_following(user_id: &str, skip: Option<usize>, limit: Option<usiz
         query_string.push_str(&format!(" LIMIT {}", limit_value));
     }
     query(&query_string).param("user_id", user_id)
+}
+
+// Retrieves popular tags and its taggers across the entire network
+pub fn get_global_hot_tags_scores() -> Query {
+    query(
+        "
+        MATCH (u:User)-[tag:TAGGED]->(p:Post)
+        WITH tag.label AS label, COUNT(DISTINCT p) AS uniquePosts, COLLECT(DISTINCT u.id) AS user_ids
+        RETURN COLLECT([toFloat(uniquePosts), label]) AS hot_tags_score, COLLECT([label, user_ids]) AS hot_tags_users
+    ",
+    )
+}
+
+// Retrieves popular hot tags taggers across the entire network
+pub fn get_global_hot_tags_taggers(tag_list: &[&str]) -> Query {
+    query(
+        "
+        UNWIND $labels AS tag_name
+        MATCH (u:User)-[tag:TAGGED]->(p:Post)
+        WHERE tag.label = tag_name
+        WITH tag.label AS label, COLLECT(DISTINCT u.id) AS userIds
+        RETURN COLLECT(userIds) AS tag_user_ids
+    ",
+    )
+    .param("labels", tag_list)
+}
+
+// Analyzes tag usage for a specific list of user IDs. Groups tags by name,
+// showing for each: label, post count and list of user IDs
+// Orders by post_count (descending).
+// Note: Only considers users from the provided users_id list.
+pub fn get_tags_by_user_ids(users_id: &[&str]) -> Query {
+    query(
+        "
+        UNWIND $ids AS id
+        MATCH (u:User)-[tag:TAGGED]->(p:Post)
+        WHERE u.id = id
+        WITH tag.label AS label, COLLECT(DISTINCT u.id) AS taggers, COUNT(DISTINCT p) AS uniquePosts
+        WITH {
+            label: label,
+            taggers_id: taggers,
+            post_count: uniquePosts,
+            taggers_count: SIZE(taggers)
+        } AS hot_tag
+        ORDER BY hot_tag.post_count DESC
+        RETURN COLLECT(hot_tag) AS hot_tags
+    ",
+    )
+    .param("ids", users_id)
 }
 
 pub fn get_thread(author_id: &str, post_id: &str, skip: usize, limit: usize) -> Query {

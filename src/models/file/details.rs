@@ -115,7 +115,7 @@ impl FileDetails {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
-            let query = queries::get_file_by_id(&key.owner_id, &key.file_id);
+            let query = queries::read::get_file_by_id(&key.owner_id, &key.file_id);
 
             let graph = graph.lock().await;
             result = graph.execute(query).await?;
@@ -139,7 +139,7 @@ impl FileDetails {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
-            let query = queries::get_files_by_ids(pairs);
+            let query = queries::read::get_files_by_ids(pairs);
 
             let graph = graph.lock().await;
             result = graph.execute(query).await?;
