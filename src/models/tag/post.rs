@@ -68,12 +68,13 @@ impl TagPost {
         }
     }
 
-    async fn get_from_graph(
+    pub async fn get_from_graph(
         user_id: &str,
         post_id: &str,
     ) -> Result<Option<TagPost>, Box<dyn std::error::Error + Send + Sync>> {
         let mut result;
         {
+            // We cannot use LIMIT clause because we need all data related
             let query = queries::post_tags(user_id, post_id);
             let graph = get_neo4j_graph()?;
 
