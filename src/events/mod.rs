@@ -1,7 +1,7 @@
 use crate::models::{
     homeserver::HomeserverUser,
     traits::Collection,
-    user::{UserCounts, UserDetails},
+    user::{UserCounts, UserDetails, UserId},
 };
 use log::{debug, error, info};
 use pubky::PubkyClient;
@@ -81,20 +81,29 @@ impl Event {
         })
     }
 
-    fn get_user_id(&self) -> Option<String> {
-        // Extract the part of the URI between "pubky://" and "/pub/". That's the user_id.
+    fn get_user_id(&self) -> Result<UserId, Box<dyn std::error::Error + Send + Sync>> {
+        // Define the patterns we are looking for in the URI
         let pattern = "pubky://";
         let pub_segment = "/pub/";
 
-        if let Some(start) = self.uri.path.find(pattern) {
-            let start_idx = start + pattern.len();
-            if let Some(end_idx) = self.uri.path[start_idx..].find(pub_segment) {
-                let user_id = self.uri.path[start_idx..start_idx + end_idx].to_string();
-                return Some(user_id);
-            }
-        }
+        // Find the starting position of the user_id part in the URI
+        let start_idx = self
+            .uri
+            .path
+            .find(pattern)
+            .map(|start| start + pattern.len())
+            .ok_or("Pattern not found in URI")?;
 
-        None
+        // Find the ending position of the user_id part
+        let end_idx = self.uri.path[start_idx..]
+            .find(pub_segment)
+            .ok_or("Pub segment not found in URI")?;
+
+        // Extract the user_id and attempt to convert it into a UserId
+        let user_id_str = &self.uri.path[start_idx..start_idx + end_idx];
+        let user_id = UserId::try_from(user_id_str)?;
+
+        Ok(user_id)
     }
 
     async fn handle(&self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
@@ -128,13 +137,8 @@ impl Event {
                 let user = HomeserverUser::try_from(&blob).await?;
 
                 // Create UserDetails object
-                let user_details = match self.get_user_id() {
-                    Some(user_id) => UserDetails::from_homeserver(&user_id, user).await?,
-                    None => {
-                        error!("Error getting user_id from event uri. Skipping event.");
-                        return Ok(());
-                    }
-                };
+                let user_id = self.get_user_id()?;
+                let user_details = UserDetails::from_homeserver(user_id, user).await?;
 
                 // Index new user event into the Graph and Index
                 user_details.save().await?;

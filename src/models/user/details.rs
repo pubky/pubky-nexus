@@ -1,3 +1,4 @@
+use super::id::UserId;
 use super::UserSearch;
 use crate::db::graph::exec::exec_single_row;
 use crate::models::homeserver::{HomeserverUser, UserLink};
@@ -6,7 +7,6 @@ use crate::{queries, RedisOps};
 use axum::async_trait;
 use chrono::Utc;
 use neo4rs::Query;
-use pkarr::PublicKey;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json;
 use utoipa::ToSchema;
@@ -39,7 +39,7 @@ impl Collection for UserDetails {
 pub struct UserDetails {
     pub name: String,
     pub bio: Option<String>,
-    pub id: String,
+    pub id: UserId,
     #[serde(deserialize_with = "deserialize_user_links")]
     pub links: Option<Vec<UserLink>>,
     pub status: Option<String>,
@@ -66,17 +66,15 @@ impl UserDetails {
     }
 
     pub async fn from_homeserver(
-        user_id: &str,
+        user_id: UserId,
         homeserver_user: HomeserverUser,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        // Validate user_id is a valid pkarr public key
-        PublicKey::try_from(user_id)?;
         Ok(UserDetails {
             name: homeserver_user.name,
             bio: homeserver_user.bio,
             status: homeserver_user.status,
             links: homeserver_user.links,
-            id: user_id.to_string(),
+            id: user_id,
             indexed_at: Utc::now().timestamp_millis(),
         })
     }
@@ -162,7 +160,7 @@ mod tests {
 
         for (i, details) in user_details.iter().enumerate() {
             if let Some(details) = details {
-                assert_eq!(details.id, USER_IDS[i]);
+                assert_eq!(details.id.as_ref(), USER_IDS[i]);
             }
         }
     }
