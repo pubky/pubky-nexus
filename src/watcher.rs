@@ -1,7 +1,16 @@
-// TODO: Research if that one is the best approach
-// Maybe here we can create an POST endpoint that fakes the event stream
-// After with mpsc (Multiple Producer Single Consumer) broadcast the event
-// to all consumers. In our case, graph and kv
-fn main() {
-    println!("Hello, world! This is where the homeserver(s) watcher will be in the future.");
+use log::info;
+use pubky_nexus::{setup, Config, EventProcessor};
+use tokio::time::{sleep, Duration};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
+    let config = Config::from_env();
+    setup(&config).await;
+    let mut event_processor = EventProcessor::from_config(&config).await;
+
+    loop {
+        info!("Fetching events...");
+        event_processor.run().await?;
+        sleep(Duration::from_secs(5)).await; // Wait for 5 seconds before fetching events again
+    }
 }

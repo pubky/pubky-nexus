@@ -25,7 +25,7 @@ impl PostThread {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
-            let query = queries::get_thread(author_id, post_id, skip, limit);
+            let query = queries::read::get_thread(author_id, post_id, skip, limit);
             let graph = graph.lock().await;
             result = graph.execute(query).await?;
         }

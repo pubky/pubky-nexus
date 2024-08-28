@@ -1,25 +1,11 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use pubky_nexus::models::post::{PostStream, PostStreamReach, PostStreamSorting};
 use pubky_nexus::models::user::{UserStream, UserStreamType};
-use pubky_nexus::setup;
-use pubky_nexus::Config;
-use std::env;
-use std::sync::Once;
+use setup::run_setup;
 use std::time::Duration;
 use tokio::runtime::Runtime;
 
-static INIT: Once = Once::new();
-
-pub fn run_setup() {
-    INIT.call_once(|| {
-        let rt = Runtime::new().unwrap();
-        env::set_var("RUST_LOG", "error");
-        rt.block_on(async {
-            let config = Config::from_env();
-            setup(&config).await;
-        });
-    });
-}
+mod setup;
 
 fn bench_stream_followers(c: &mut Criterion) {
     println!("***************************************");
@@ -118,12 +104,33 @@ fn bench_stream_posts_total_engagement(c: &mut Criterion) {
 fn bench_stream_most_followed(c: &mut Criterion) {
     println!("***************************************");
     println!("Benchmarking the user streams for most followed users.");
+    println!("***************************************");
 
     run_setup();
 
     let rt = Runtime::new().unwrap();
 
     c.bench_function("stream_most_followed", |b| {
+        b.to_async(&rt).iter(|| async {
+            let user_stream =
+                UserStream::get_by_id("", None, None, Some(10), UserStreamType::MostFollowed)
+                    .await
+                    .unwrap();
+            criterion::black_box(user_stream);
+        });
+    });
+}
+
+fn bench_stream_pioneers(c: &mut Criterion) {
+    println!("***************************************");
+    println!("Benchmarking the user streams for pioneer users.");
+    println!("***************************************");
+
+    run_setup();
+
+    let rt = Runtime::new().unwrap();
+
+    c.bench_function("stream_pioneers", |b| {
         b.to_async(&rt).iter(|| async {
             let user_stream =
                 UserStream::get_by_id("", None, None, Some(10), UserStreamType::MostFollowed)
@@ -273,6 +280,7 @@ criterion_group! {
               bench_stream_posts_timeline,
               bench_stream_posts_total_engagement,
               bench_stream_most_followed,
+              bench_stream_pioneers,
               bench_stream_user_posts,
               bench_stream_posts_following_reach,
               bench_stream_posts_followers_reach,

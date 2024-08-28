@@ -1,23 +1,10 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use pubky_nexus::{reindex, setup, Config};
-use std::env;
+use pubky_nexus::reindex;
+use setup::run_setup;
 use std::time::Duration;
 use tokio::runtime::Runtime;
 
-use std::sync::Once;
-
-static INIT: Once = Once::new();
-
-pub fn run_setup() {
-    INIT.call_once(|| {
-        let rt = Runtime::new().unwrap();
-        env::set_var("RUST_LOG", "error");
-        rt.block_on(async {
-            let config = Config::from_env();
-            setup(&config).await; // Initialize any necessary setup
-        });
-    });
-}
+mod setup;
 
 fn bench_reindex(c: &mut Criterion) {
     println!("***************************************");

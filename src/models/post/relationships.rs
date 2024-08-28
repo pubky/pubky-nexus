@@ -35,7 +35,7 @@ impl PostRelationships {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
-            let query = queries::post_relationships(author_id, post_id);
+            let query = queries::read::post_relationships(author_id, post_id);
 
             let graph = graph.lock().await;
             result = graph.execute(query).await?;

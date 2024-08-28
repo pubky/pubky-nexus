@@ -29,7 +29,7 @@ pub async fn reindex() {
     UserDetails::from_graph(&user_ids_refs)
         .await
         .expect("Failed indexing User Details");
-    //TODO use collections
+    //TODO use collections for every other model
 
     for user_id in user_ids {
         user_tasks.spawn(async move {

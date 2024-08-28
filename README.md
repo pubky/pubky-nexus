@@ -78,3 +78,18 @@ docker-compose up -d
 
 - Redis: http://localhost:8001/redis-stack/browser
 - Neo4J: http://localhost:7474/browser/
+
+### Developing the homeserver watcher
+
+Running the `/tests/` that require the homeserver does not require running a homeserver. However, running the playground or the `watcher.rs` binary does. This is how you can run a pubky homeserver locally in testnet mode.
+
+We are using `pubky` repo as a git submodule of `pubky-nexus`, given that `pubky` is still a private repository and the crates for the client and homeserver are not yet published.
+
+```
+git submodule init
+git submodule update --init --recursive
+cd pubky/pubky-homeserver
+cargo run -- --testnet
+```
+
+Take a look at the logs for 1) `testnet.bootstrap=["127.0.0.1:6881"]`, 2) your homeserver listening url `http://localhost:15411` and 3) the pubky URI `pubky://8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo` and make sure your `.env` has the correct settings.

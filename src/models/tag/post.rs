@@ -86,7 +86,7 @@ impl TagPost {
         let mut result;
         {
             // We cannot use LIMIT clause because we need all data related
-            let query = queries::post_tags(user_id, post_id);
+            let query = queries::read::post_tags(user_id, post_id);
             let graph = get_neo4j_graph()?;
 
             let graph = graph.lock().await;

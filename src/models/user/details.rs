@@ -1,30 +1,23 @@
+use super::id::PubkyId;
 use super::UserSearch;
+use crate::db::graph::exec::exec_single_row;
+use crate::models::pubky_app::{PubkyAppUser, UserLink};
 use crate::models::traits::Collection;
 use crate::{queries, RedisOps};
 use axum::async_trait;
+use chrono::Utc;
 use neo4rs::Query;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json;
 use utoipa::ToSchema;
 
-/// Represents a user's single link with a title and URL.
-#[derive(Serialize, Deserialize, ToSchema, Default, Clone, Debug)]
-pub struct UserLink {
-    title: String,
-    url: String,
-}
-
 #[async_trait]
-impl RedisOps for UserDetails {
-    async fn prefix() -> String {
-        String::from("User:Details")
-    }
-}
+impl RedisOps for UserDetails {}
 
 #[async_trait]
 impl Collection for UserDetails {
     fn graph_query(id_list: &[&str]) -> Query {
-        queries::get_users_details_by_ids(id_list)
+        queries::read::get_users_details_by_ids(id_list)
     }
 
     async fn add_to_sorted_sets(details: &[std::option::Option<Self>]) {
@@ -46,11 +39,10 @@ impl Collection for UserDetails {
 pub struct UserDetails {
     pub name: String,
     pub bio: Option<String>,
-    pub id: String,
+    pub id: PubkyId,
     #[serde(deserialize_with = "deserialize_user_links")]
     pub links: Option<Vec<UserLink>>,
     pub status: Option<String>,
-    pub image: Option<String>,
     pub indexed_at: i64,
 }
 
@@ -67,10 +59,44 @@ impl UserDetails {
     /// Retrieves details by user ID, first trying to get from Redis, then from Neo4j if not found.
     pub async fn get_by_id(
         user_id: &str,
-    ) -> Result<Option<UserDetails>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
         // Delegate to UserDetailsCollection::get_by_ids for single item retrieval
         let details_collection = Self::get_by_ids(&[user_id]).await?;
         Ok(details_collection.into_iter().flatten().next())
+    }
+
+    pub async fn from_homeserver(
+        user_id: PubkyId,
+        homeserver_user: PubkyAppUser,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(UserDetails {
+            name: homeserver_user.name,
+            bio: homeserver_user.bio,
+            status: homeserver_user.status,
+            links: homeserver_user.links,
+            id: user_id,
+            indexed_at: Utc::now().timestamp_millis(),
+        })
+    }
+
+    pub async fn save(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Save new user_details on Redis
+        self.put_index_json(&[&self.id]).await?;
+
+        // Save new graph node;
+        exec_single_row(queries::write::create_user(self)).await?;
+
+        Ok(())
+    }
+
+    pub async fn delete(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Delete user_details on Redis
+        Self::remove_from_index_multiple_json(&[&[&self.id]]).await?;
+
+        // Delete user graph node;
+        exec_single_row(queries::write::delete_user(&self.id)).await?;
+
+        Ok(())
     }
 }
 
@@ -134,7 +160,7 @@ mod tests {
 
         for (i, details) in user_details.iter().enumerate() {
             if let Some(details) = details {
-                assert_eq!(details.id, USER_IDS[i]);
+                assert_eq!(details.id.as_ref(), USER_IDS[i]);
             }
         }
     }

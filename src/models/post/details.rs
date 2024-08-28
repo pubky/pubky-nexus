@@ -1,21 +1,10 @@
+use super::PostStream;
 use crate::db::connectors::neo4j::get_neo4j_graph;
+use crate::models::pubky_app::PostKind;
 use crate::{queries, RedisOps};
 use neo4rs::Node;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-
-use super::PostStream;
-
-#[derive(Serialize, Deserialize, ToSchema, Default)]
-enum PostKind {
-    #[default]
-    Short,
-    Long,
-    Image,
-    Video,
-    Link,
-    File,
-}
 
 /// Represents post data with content, bio, image, links, and status.
 #[derive(Serialize, Deserialize, ToSchema, Default)]
@@ -62,7 +51,7 @@ impl PostDetails {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
-            let query = queries::get_post_by_id(author_id, post_id);
+            let query = queries::read::get_post_by_id(author_id, post_id);
 
             let graph = graph.lock().await;
             result = graph.execute(query).await?;

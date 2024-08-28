@@ -1,15 +1,11 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use pubky_nexus::models::traits::Collection;
 use pubky_nexus::models::user::{Relationship, UserCounts, UserDetails, UserView};
-use pubky_nexus::setup;
-use pubky_nexus::Config;
-use std::env;
+use setup::run_setup;
 use std::time::Duration;
 use tokio::runtime::Runtime;
 
-use std::sync::Once;
-
-static INIT: Once = Once::new();
+mod setup;
 
 const USER_IDS: [&str; 25] = [
     "1t5fyryjggt6kfha18jcstnz3wfyqh9fycra5sg8hr5qhmot5rky",
@@ -38,17 +34,6 @@ const USER_IDS: [&str; 25] = [
     "8ajb4fbw91fuzywtix3jsc5x416jjpwrue4qricj7k7nt8fjensy",
     "8gmq7a5cpn8bd57co871ob6txx9hamt1q5gqdsyiotgee58dr4dy",
 ];
-
-pub fn run_setup() {
-    INIT.call_once(|| {
-        let rt = Runtime::new().unwrap();
-        env::set_var("RUST_LOG", "error");
-        rt.block_on(async {
-            let config = Config::from_env();
-            setup(&config).await;
-        });
-    });
-}
 
 fn bench_get_full_by_id(c: &mut Criterion) {
     println!("***************************************");
