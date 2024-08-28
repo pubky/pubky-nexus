@@ -63,7 +63,7 @@ impl UserSearch {
             let score = details.indexed_at as f64;
 
             // The value in the sorted set will be `username:user_id`
-            let member = format!("{}:{}", username, user_id);
+            let member = format!("{}:{}", username, user_id.0);
 
             items.push((score, member));
         }
