@@ -28,6 +28,8 @@ chrono = "0.4.38"
 pkarr = { version = "2.2.0", features = ["async"], default-features = false }
 pubky = { path = "pubky/pubky" }
 reqwest = "0.12.7"
+base32 = "0.5.1"
+blake3 = "1.5.4"
 
 [dev-dependencies]
 anyhow = "1.0.86"

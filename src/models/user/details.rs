@@ -1,6 +1,6 @@
 use super::UserSearch;
 use crate::db::graph::exec::exec_single_row;
-use crate::models::homeserver::{HomeserverUser, UserLink};
+use crate::models::pubky_app::{PubkyAppUser, UserLink};
 use crate::models::traits::Collection;
 use crate::{queries, RedisOps};
 use axum::async_trait;
@@ -67,7 +67,7 @@ impl UserDetails {
 
     pub async fn from_homeserver(
         user_id: &str,
-        homeserver_user: HomeserverUser,
+        homeserver_user: PubkyAppUser,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         // Validate user_id is a valid pkarr public key
         PublicKey::try_from(user_id)?;
