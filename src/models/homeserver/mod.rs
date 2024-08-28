@@ -3,7 +3,7 @@ mod bookmark;
 mod follow;
 mod post;
 mod tag;
-mod traits;
+pub mod traits;
 mod user;
 
 pub use bookmark::HomeserverBookmark;

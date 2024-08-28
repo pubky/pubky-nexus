@@ -52,15 +52,14 @@ impl HomeserverTag {
         let half_hash = &blake3_hash.as_bytes()[..half_hash_length];
 
         // Encode the first half of the hash in Base32 using the Z-base32 alphabet
-        let base32_encoded = encode(Alphabet::Z, half_hash);
 
         // Return the Base32 encoded string as the tag ID
-        base32_encoded
+        encode(Alphabet::Z, half_hash)
     }
 }
 
 #[test]
-fn test_create_id() {
+fn testcreate_id() {
     let tag = HomeserverTag {
         uri: "user_id/pub/pubky.app/posts/post_id".to_string(),
         created_at: 1627849723,
