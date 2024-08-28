@@ -1,5 +1,5 @@
 use crate::models::tag::user::{UserTag, UserTags};
-use crate::models::tag::{Tag, Tags};
+use crate::models::tag::TagDetails;
 use crate::routes::v0::endpoints::USER_TAGS_ROUTE;
 use crate::{Error, Result};
 use axum::extract::Path;
@@ -33,6 +33,6 @@ pub async fn user_tags_handler(Path(user_id): Path<String>) -> Result<Json<UserT
 #[derive(OpenApi)]
 #[openapi(
     paths(user_tags_handler),
-    components(schemas(UserTags, UserTag, Tags, Tag))
+    components(schemas(UserTags, UserTag, TagDetails))
 )]
 pub struct UserTagsApiDoc;

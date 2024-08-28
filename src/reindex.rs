@@ -1,5 +1,6 @@
 use crate::db::kv::flush::clear_redis;
 use crate::models::post::Bookmark;
+use crate::models::tag::post::TagPost;
 use crate::models::tag::stream::HotTags;
 use crate::models::traits::Collection;
 use crate::models::user::{Followers, Following, UserDetails, UserFollows};
@@ -84,7 +85,8 @@ async fn reindex_post(
     tokio::try_join!(
         PostDetails::get_from_graph(author_id, post_id),
         PostCounts::get_from_graph(author_id, post_id),
-        PostRelationships::get_from_graph(author_id, post_id)
+        PostRelationships::get_from_graph(author_id, post_id),
+        TagPost::get_from_graph(author_id, post_id)
     )?;
 
     Ok(())

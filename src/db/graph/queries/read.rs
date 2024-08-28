@@ -77,7 +77,7 @@ pub fn get_users_details_by_ids(user_ids: &[&str]) -> Query {
     .param("ids", user_ids)
 }
 
-/// Retrieve all the tags of the post
+// Retrieve all the tags of the post
 pub fn post_tags(user_id: &str, post_id: &str) -> neo4rs::Query {
     query(
         "
@@ -85,15 +85,11 @@ pub fn post_tags(user_id: &str, post_id: &str) -> neo4rs::Query {
         CALL {
             WITH p
             MATCH (tagger:User)-[tag:TAGGED]->(p)
-            WITH tag.label AS name,
-                collect({
-                    tag_id: tag.id,
-                    indexed_at: tag.indexed_at,
-                    tagger_id: tagger.id
-                }) AS from
+            WITH tag.label AS name, collect(DISTINCT tagger.id) AS tagger_ids
             RETURN collect({
                 label: name,
-                tagged: from
+                taggers: tagger_ids,
+                taggers_count: SIZE(tagger_ids)
             }) AS post_tags
         }
         RETURN 
@@ -105,22 +101,18 @@ pub fn post_tags(user_id: &str, post_id: &str) -> neo4rs::Query {
     .param("post_id", post_id)
 }
 
+// Retrieve all the tags of the user
 pub fn user_tags(user_id: &str) -> neo4rs::Query {
     query(
         "
         MATCH (u:User {id: $user_id})
         CALL {
             WITH u
-            MATCH (p:User)-[r:TAGGED]->(u)
-            WITH r.label AS name,
-                collect({
-                    tag_id: r.id,
-                    indexed_at: r.indexed_at,
-                    tagger_id: p.id
-                }) AS from
+            MATCH (p:User)-[t:TAGGED]->(u)
+            WITH t.label AS name, collect(DISTINCT p.id) AS tagger_ids
             RETURN collect({
                 label: name,
-                tagged: from
+                taggers: tagger_ids
             }) AS user_tags
         }
         RETURN 
