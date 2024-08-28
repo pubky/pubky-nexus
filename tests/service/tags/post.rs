@@ -1,7 +1,7 @@
 use anyhow::Result;
 use serde_json::Value;
 
-use crate::tags::make_request;
+use crate::service::tags::make_request;
 
 const PEER_PUBKY: &str = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
 const POST_ID: &str = "2Z9P8AN738C00";
