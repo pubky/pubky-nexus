@@ -2341,6 +2341,7 @@ dependencies = [
  "once_cell",
  "pkarr",
  "pubky",
+ "pubky-common",
  "pubky_homeserver",
  "redis",
  "reqwest",
