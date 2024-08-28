@@ -10,8 +10,8 @@ use utoipa::OpenApi;
 
 #[derive(Deserialize)]
 pub struct PostTagsQuery {
-    max_tags: Option<usize>,
-    max_taggers: Option<usize>,
+    limit_tags: Option<usize>,
+    limit_taggers: Option<usize>,
 }
 
 #[utoipa::path(
@@ -21,8 +21,8 @@ pub struct PostTagsQuery {
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
         ("post_id" = String, Path, description = "Post ID"),
-        ("max_tags" = Option<usize>, Query, description = "Upper limit on the number of tags for the post"),
-        ("max_taggers" = Option<usize>, Query, description = "Upper limit on the number of taggers per tag")
+        ("limit_tags" = Option<usize>, Query, description = "Upper limit on the number of tags for the post"),
+        ("limit_taggers" = Option<usize>, Query, description = "Upper limit on the number of taggers per tag")
     ),
     responses(
         (status = 200, description = "Post tags", body = TagPost),
@@ -35,10 +35,10 @@ pub async fn post_tags_handler(
     Query(query): Query<PostTagsQuery>,
 ) -> Result<Json<TagPost>> {
     info!(
-        "GET {POST_TAGS_ROUTE} user_id:{}, post_id: {}, max_tags:{:?}, max_taggers:{:?}",
-        user_id, post_id, query.max_tags, query.max_taggers
+        "GET {POST_TAGS_ROUTE} user_id:{}, post_id: {}, limit_tags:{:?}, limit_taggers:{:?}",
+        user_id, post_id, query.limit_tags, query.limit_taggers
     );
-    match TagPost::get_by_id(&user_id, &post_id, query.max_tags, query.max_taggers).await {
+    match TagPost::get_by_id(&user_id, &post_id, query.limit_tags, query.limit_taggers).await {
         Ok(Some(tags)) => Ok(Json(tags)),
         Ok(None) => Err(Error::UserNotFound { user_id }),
         Err(source) => Err(Error::InternalServerError { source }),

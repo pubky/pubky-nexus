@@ -1,4 +1,5 @@
 use crate::db::kv::index::sorted_sets::Sorting;
+use crate::models::tag::details::TagDetails;
 use crate::queries;
 use crate::{db::connectors::neo4j::get_neo4j_graph, RedisOps};
 use axum::async_trait;
@@ -6,8 +7,6 @@ use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::ops::Deref;
 use utoipa::ToSchema;
-
-use super::TagDetails;
 
 const POST_TAGS_KEY_PARTS: [&str; 2] = ["Posts", "Tag"];
 
@@ -37,23 +36,23 @@ impl TagPost {
     pub async fn get_by_id(
         user_id: &str,
         post_id: &str,
-        max_tags: Option<usize>,
-        max_taggers: Option<usize>,
+        limit_tags: Option<usize>,
+        limit_taggers: Option<usize>,
     ) -> Result<Option<TagPost>, Box<dyn std::error::Error + Send + Sync>> {
         // TODO: Not sure if this is the place to do or in the endpoint
-        let max_tags = max_tags.unwrap_or(5);
-        let max_taggers = max_taggers.unwrap_or(5);
-        match Self::try_from_cache(user_id, post_id, max_tags, max_taggers).await? {
+        let limit_tags = limit_tags.unwrap_or(5);
+        let limit_taggers = limit_taggers.unwrap_or(5);
+        match Self::try_from_index(user_id, post_id, limit_tags, limit_taggers).await? {
             Some(counts) => Ok(Some(counts)),
             None => Self::get_from_graph(user_id, post_id).await,
         }
     }
 
-    async fn try_from_cache(
+    async fn try_from_index(
         user_id: &str,
         post_id: &str,
-        max_tags: usize,
-        max_taggers: usize,
+        limit_tags: usize,
+        limit_taggers: usize,
     ) -> Result<Option<TagPost>, Box<dyn std::error::Error + Send + Sync>> {
         let key_parts = Self::create_set_key_parts(user_id, post_id);
         match Self::try_from_index_sorted_set(
@@ -61,19 +60,19 @@ impl TagPost {
             None,
             None,
             None,
-            Some(max_tags),
+            Some(limit_tags),
             Sorting::Descending,
         )
         .await?
         {
             Some(tag_scores) => {
-                let mut tags = Vec::with_capacity(max_tags);
+                let mut tags = Vec::with_capacity(limit_tags);
                 for (label, _) in tag_scores.iter() {
                     tags.push(format!("{}:{}:{}", user_id, post_id, label));
                 }
                 let tags_ref: Vec<&str> = tags.iter().map(|label| label.as_str()).collect();
-                let taggers = Self::try_from_multiple_sets(&tags_ref, Some(max_taggers)).await?;
-                let tag_details_list = TagDetails::from_cache(tag_scores, taggers);
+                let taggers = Self::try_from_multiple_sets(&tags_ref, Some(limit_taggers)).await?;
+                let tag_details_list = TagDetails::from_index(tag_scores, taggers);
                 Ok(Some(TagPost(tag_details_list)))
             }
             None => Ok(None),
@@ -110,7 +109,7 @@ impl TagPost {
         post_id: &str,
         tags: &[TagDetails],
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let (tag_scores, (labels, taggers)) = TagDetails::split_fields_and_calculate_scores(tags);
+        let (tag_scores, (labels, taggers)) = TagDetails::process_tag_details(tags);
 
         let key_parts = Self::create_set_key_parts(user_id, post_id);
         Self::put_index_sorted_set(&key_parts, tag_scores.as_slice()).await?;

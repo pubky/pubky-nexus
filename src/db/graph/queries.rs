@@ -117,7 +117,8 @@ pub fn post_tags(user_id: &str, post_id: &str) -> neo4rs::Query {
             WITH tag.label AS name, collect(DISTINCT tagger.id) AS tagger_ids
             RETURN collect({
                 label: name,
-                taggers: tagger_ids
+                taggers: tagger_ids,
+                taggers_count: SIZE(tagger_ids)
             }) AS post_tags
         }
         RETURN 
