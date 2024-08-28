@@ -1,4 +1,5 @@
 use crate::models::post::PostDetails;
+use crate::models::pubky_app::PostKind;
 use crate::routes::v0::endpoints::POST_DETAILS_ROUTE;
 use crate::{Error, Result};
 use axum::extract::Path;
@@ -36,5 +37,8 @@ pub async fn post_details_handler(
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(post_details_handler), components(schemas(PostDetails)))]
+#[openapi(
+    paths(post_details_handler),
+    components(schemas(PostDetails, PostKind))
+)]
 pub struct PostDetailsApiDoc;

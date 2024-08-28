@@ -70,6 +70,7 @@ impl UserCounts {
             };
             counts.put_index_json(&[user_id]).await?;
             UserStream::add_to_mostfollowed_sorted_set(user_id, &counts).await?;
+            UserStream::add_to_pioneers_sorted_set(user_id, &counts).await?;
             Ok(Some(counts))
         } else {
             Ok(None)

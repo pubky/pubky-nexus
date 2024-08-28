@@ -1,7 +1,7 @@
 use super::id::PubkyId;
 use super::UserSearch;
 use crate::db::graph::exec::exec_single_row;
-use crate::models::homeserver::{HomeserverUser, UserLink};
+use crate::models::pubky_app::{PubkyAppUser, UserLink};
 use crate::models::traits::Collection;
 use crate::{queries, RedisOps};
 use axum::async_trait;
@@ -67,7 +67,7 @@ impl UserDetails {
 
     pub async fn from_homeserver(
         user_id: PubkyId,
-        homeserver_user: HomeserverUser,
+        homeserver_user: PubkyAppUser,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         Ok(UserDetails {
             name: homeserver_user.name,

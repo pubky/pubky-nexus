@@ -2,7 +2,7 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use pkarr::{mainline::Testnet, Keypair};
 use pubky::PubkyClient;
 use pubky_homeserver::Homeserver;
-use pubky_nexus::models::homeserver::{HomeserverUser, UserLink};
+use pubky_nexus::models::pubky_app::{PubkyAppUser, UserLink};
 use pubky_nexus::EventProcessor;
 use setup::run_setup;
 use std::time::Duration;
@@ -32,7 +32,7 @@ async fn create_homeserver_with_events() -> (Testnet, String) {
         .await
         .unwrap();
 
-    let user = HomeserverUser {
+    let user = PubkyAppUser {
         bio: Some("This is an example bio".to_string()),
         image: Some("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IArs4c6QAAAA1JREFUGFdjiO4O+w8ABL0CPPcYQa4AAAAASUVORK5CYII=".to_string()),
         links: Some(vec![UserLink {
