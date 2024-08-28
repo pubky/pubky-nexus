@@ -25,7 +25,7 @@ pub struct PostEmbed {
 /// URI: /pub/pubky.app/posts/:post_id
 /// Where post_id is CrockfordBase32 encoding of timestamp
 #[derive(Serialize, Deserialize, Default)]
-pub struct HomeserverPost {
+pub struct PubkyAppPost {
     pub content: String,
     pub kind: PostKind,
     pub embed: PostEmbed,

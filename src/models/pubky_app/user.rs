@@ -5,7 +5,7 @@ use utoipa::ToSchema;
 /// Profile schema
 /// URI: /pub/pubky.app/profile.json
 #[derive(Deserialize, Serialize, Debug)]
-pub struct HomeserverUser {
+pub struct PubkyAppUser {
     pub name: String,
     pub bio: Option<String>,
     pub image: Option<String>,
@@ -20,7 +20,7 @@ pub struct UserLink {
     pub url: String,
 }
 
-impl HomeserverUser {
+impl PubkyAppUser {
     pub async fn try_from(blob: &Bytes) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let user: Self = serde_json::from_slice(blob)?;
         user.validate().await?;

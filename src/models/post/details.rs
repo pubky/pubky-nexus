@@ -1,6 +1,6 @@
 use super::PostStream;
 use crate::db::connectors::neo4j::get_neo4j_graph;
-use crate::models::homeserver::PostKind;
+use crate::models::pubky_app::PostKind;
 use crate::{queries, RedisOps};
 use neo4rs::Node;
 use serde::{Deserialize, Serialize};

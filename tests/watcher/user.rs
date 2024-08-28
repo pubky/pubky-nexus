@@ -5,7 +5,7 @@ use pubky::PubkyClient;
 use pubky_homeserver::Homeserver;
 use pubky_nexus::{
     models::{
-        homeserver::{HomeserverUser, UserLink},
+        pubky_app::{PubkyAppUser, UserLink},
         user::UserView,
     },
     setup, Config, EventProcessor,
@@ -34,7 +34,7 @@ async fn test_homeserver_user() -> Result<()> {
         .unwrap();
 
     // Create a user sticking to the homeserver schema for pubky-app profiles
-    let user = HomeserverUser {
+    let user = PubkyAppUser {
         bio: Some("This is an example bio".to_string()),
         image: Some("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IArs4c6QAAAA1JREFUGFdjiO4O+w8ABL0CPPcYQa4AAAAASUVORK5CYII=".to_string()),
         links: Some(vec![UserLink {

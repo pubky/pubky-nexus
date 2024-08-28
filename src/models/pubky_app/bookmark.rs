@@ -9,12 +9,12 @@ use serde::{Deserialize, Serialize};
 /// `/pub/pubky.app/bookmarks/kx8uzgiq5f75bqofp51nq8r11r`
 ///
 #[derive(Serialize, Deserialize, Default)]
-pub struct HomeserverBookmark {
+pub struct PubkyAppBookmark {
     pub uri: String,
     pub created_at: i64,
 }
 
-impl GenerateId for HomeserverBookmark {
+impl GenerateId for PubkyAppBookmark {
     /// Bookmark ID is created based on the hash of the URI bookmarked
     fn get_id_data(&self) -> String {
         self.uri.clone()
@@ -23,7 +23,7 @@ impl GenerateId for HomeserverBookmark {
 
 #[test]
 fn test_create_bookmark_id() {
-    let bookmark = HomeserverBookmark {
+    let bookmark = PubkyAppBookmark {
         uri: "user_id/pub/pubky.app/posts/post_id".to_string(),
         created_at: 1627849723,
     };

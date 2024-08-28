@@ -8,6 +8,6 @@ use serde::{Deserialize, Serialize};
 /// `/pub/pubky.app/follows/pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy``
 ///
 #[derive(Serialize, Deserialize, Default)]
-pub struct HomeserverFollow {
+pub struct PubkyAppFollow {
     pub created_at: i64,
 }

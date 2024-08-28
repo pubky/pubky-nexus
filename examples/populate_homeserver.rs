@@ -3,7 +3,7 @@ use log::info;
 use pkarr::{mainline::Testnet, Keypair, PublicKey};
 use pubky::PubkyClient;
 use pubky_nexus::{
-    models::homeserver::{HomeserverUser, UserLink},
+    models::pubky_app::{PubkyAppUser, UserLink},
     setup, Config,
 };
 
@@ -36,7 +36,7 @@ async fn main() -> Result<()> {
     client.signup(&keypair, &homeserver).await?;
 
     // Create a new profile
-    let user = HomeserverUser {
+    let user = PubkyAppUser {
         bio: Some("This is an example bio".to_string()),
         image: Some("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IArs4c6QAAAA1JREFUGFdjiO4O+w8ABL0CPPcYQa4AAAAASUVORK5CYII=".to_string()),
         links: Some(vec![UserLink {

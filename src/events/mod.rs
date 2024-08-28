@@ -1,5 +1,5 @@
 use crate::models::{
-    homeserver::HomeserverUser,
+    pubky_app::PubkyAppUser,
     traits::Collection,
     user::{UserCounts, UserDetails},
 };
@@ -125,7 +125,7 @@ impl Event {
                 debug!("Processing User resource at {}", self.uri.path);
 
                 // Serialize and validate
-                let user = HomeserverUser::try_from(&blob).await?;
+                let user = PubkyAppUser::try_from(&blob).await?;
 
                 // Create UserDetails object
                 let user_details = match self.get_user_id() {

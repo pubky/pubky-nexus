@@ -1,5 +1,5 @@
-use crate::models::homeserver::PostKind;
 use crate::models::post::PostDetails;
+use crate::models::pubky_app::PostKind;
 use crate::routes::v0::endpoints::POST_DETAILS_ROUTE;
 use crate::{Error, Result};
 use axum::extract::Path;
