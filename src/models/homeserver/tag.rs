@@ -1,8 +1,7 @@
+use super::traits::GenerateId;
 use base32::{encode, Alphabet};
 use blake3::Hasher;
 use serde::{Deserialize, Serialize};
-
-use super::traits::GenerateId;
 
 /// Represents raw homeserver tag with id
 /// URI: /pub/pubky.app/tags/:tag_id
@@ -20,6 +19,7 @@ pub struct HomeserverTag {
 }
 
 impl GenerateId for HomeserverTag {
+    /// Tag ID is created based on the hash of the URI tagged and the label used
     fn get_id_data(&self) -> String {
         format!("{}:{}", self.uri, self.label)
     }

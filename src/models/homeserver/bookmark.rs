@@ -1,6 +1,5 @@
-use serde::{Deserialize, Serialize};
-
 use super::traits::GenerateId;
+use serde::{Deserialize, Serialize};
 
 /// Represents raw homeserver bookmark with id
 /// URI: /pub/pubky.app/bookmarks/:bookmark_id
@@ -16,6 +15,7 @@ pub struct HomeserverBookmark {
 }
 
 impl GenerateId for HomeserverBookmark {
+    /// Bookmark ID is created based on the hash of the URI bookmarked
     fn get_id_data(&self) -> String {
         self.uri.clone()
     }
