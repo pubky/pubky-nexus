@@ -11,7 +11,7 @@ mod view;
 pub use counts::UserCounts;
 pub use details::UserDetails;
 pub use follows::{Followers, Following, Friends, UserFollows};
-pub use id::UserId;
+pub use id::PubkyId;
 pub use relationship::Relationship;
 pub use search::UserSearch;
 pub use stream::{UserStream, UserStreamType};

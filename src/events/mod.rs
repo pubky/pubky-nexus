@@ -1,7 +1,7 @@
 use crate::models::{
     homeserver::HomeserverUser,
     traits::Collection,
-    user::{UserCounts, UserDetails, UserId},
+    user::{PubkyId, UserCounts, UserDetails},
 };
 use log::{debug, error, info};
 use pubky::PubkyClient;
@@ -81,7 +81,7 @@ impl Event {
         })
     }
 
-    fn get_user_id(&self) -> Result<UserId, Box<dyn std::error::Error + Send + Sync>> {
+    fn get_user_id(&self) -> Result<PubkyId, Box<dyn std::error::Error + Send + Sync>> {
         // Define the patterns we are looking for in the URI
         let pattern = "pubky://";
         let pub_segment = "/pub/";
@@ -99,9 +99,9 @@ impl Event {
             .find(pub_segment)
             .ok_or("Pub segment not found in URI")?;
 
-        // Extract the user_id and attempt to convert it into a UserId
+        // Extract the user_id and attempt to convert it into a PubkyId
         let user_id_str = &self.uri.path[start_idx..start_idx + end_idx];
-        let user_id = UserId::try_from(user_id_str)?;
+        let user_id = PubkyId::try_from(user_id_str)?;
 
         Ok(user_id)
     }

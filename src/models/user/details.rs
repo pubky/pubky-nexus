@@ -1,4 +1,4 @@
-use super::id::UserId;
+use super::id::PubkyId;
 use super::UserSearch;
 use crate::db::graph::exec::exec_single_row;
 use crate::models::homeserver::{HomeserverUser, UserLink};
@@ -39,7 +39,7 @@ impl Collection for UserDetails {
 pub struct UserDetails {
     pub name: String,
     pub bio: Option<String>,
-    pub id: UserId,
+    pub id: PubkyId,
     #[serde(deserialize_with = "deserialize_user_links")]
     pub links: Option<Vec<UserLink>>,
     pub status: Option<String>,
@@ -66,7 +66,7 @@ impl UserDetails {
     }
 
     pub async fn from_homeserver(
-        user_id: UserId,
+        user_id: PubkyId,
         homeserver_user: HomeserverUser,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         Ok(UserDetails {

@@ -5,23 +5,23 @@ use utoipa::ToSchema;
 
 /// Represents user data with name, bio, image, links, and status.
 #[derive(Serialize, Deserialize, ToSchema, Default, Clone, Debug)]
-pub struct UserId(pub String);
+pub struct PubkyId(pub String);
 
-impl UserId {
+impl PubkyId {
     pub fn try_from(str: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         // Validate string is a valid Pkarr public key
         PublicKey::try_from(str)?;
-        Ok(UserId(str.to_string()))
+        Ok(PubkyId(str.to_string()))
     }
 }
 
-impl fmt::Display for UserId {
+impl fmt::Display for PubkyId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
-impl std::ops::Deref for UserId {
+impl std::ops::Deref for PubkyId {
     type Target = String;
 
     fn deref(&self) -> &Self::Target {
@@ -29,7 +29,7 @@ impl std::ops::Deref for UserId {
     }
 }
 
-impl AsRef<str> for UserId {
+impl AsRef<str> for PubkyId {
     fn as_ref(&self) -> &str {
         &self.0
     }
