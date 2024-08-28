@@ -2,14 +2,15 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use super::{Relationship, UserCounts, UserDetails};
-use crate::models::tag::user::UserTags;
+use crate::models::tag::user::TagUser;
+use crate::models::tag::TagDetails;
 
 /// Represents a Pubky user with relational data including tags, counts, bookmark and relationship with other posts.
 #[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
 pub struct UserView {
     pub details: UserDetails,
     pub counts: UserCounts,
-    pub tags: UserTags,
+    pub tags: Vec<TagDetails>,
     pub relationship: Relationship,
 }
 
@@ -24,7 +25,7 @@ impl UserView {
             UserDetails::get_by_id(user_id),
             UserCounts::get_by_id(user_id),
             Relationship::get_by_id(user_id, viewer_id),
-            UserTags::get_by_id(user_id)
+            TagUser::get_by_id(user_id, None, None)
         )?;
 
         let details = match details {

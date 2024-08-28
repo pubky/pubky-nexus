@@ -1,18 +1,12 @@
 use crate::models::tag::post::TagPost;
 use crate::models::tag::TagDetails;
 use crate::routes::v0::endpoints::POST_TAGS_ROUTE;
+use crate::routes::TagsQuery;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
 use log::info;
-use serde::Deserialize;
 use utoipa::OpenApi;
-
-#[derive(Deserialize)]
-pub struct PostTagsQuery {
-    limit_tags: Option<usize>,
-    limit_taggers: Option<usize>,
-}
 
 #[utoipa::path(
     get,
@@ -32,7 +26,7 @@ pub struct PostTagsQuery {
 )]
 pub async fn post_tags_handler(
     Path((user_id, post_id)): Path<(String, String)>,
-    Query(query): Query<PostTagsQuery>,
+    Query(query): Query<TagsQuery>,
 ) -> Result<Json<TagPost>> {
     info!(
         "GET {POST_TAGS_ROUTE} user_id:{}, post_id: {}, limit_tags:{:?}, limit_taggers:{:?}",

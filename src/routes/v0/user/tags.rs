@@ -1,8 +1,9 @@
-use crate::models::tag::user::{UserTag, UserTags};
+use crate::models::tag::user::TagUser;
 use crate::models::tag::TagDetails;
 use crate::routes::v0::endpoints::USER_TAGS_ROUTE;
+use crate::routes::TagsQuery;
 use crate::{Error, Result};
-use axum::extract::Path;
+use axum::extract::{Path, Query};
 use axum::Json;
 use log::info;
 use utoipa::OpenApi;
@@ -12,7 +13,9 @@ use utoipa::OpenApi;
     path = USER_TAGS_ROUTE,
     tag = "User Tags",
     params(
-        ("user_id" = String, Path, description = "User Pubky ID")
+        ("user_id" = String, Path, description = "User Pubky ID"),
+        ("limit_tags" = Option<usize>, Query, description = "Upper limit on the number of tags for the user"),
+        ("limit_taggers" = Option<usize>, Query, description = "Upper limit on the number of taggers per tag")
     ),
     responses(
         (status = 200, description = "User tags", body = UserTags),
@@ -20,10 +23,16 @@ use utoipa::OpenApi;
         (status = 500, description = "Internal server error")
     )
 )]
-pub async fn user_tags_handler(Path(user_id): Path<String>) -> Result<Json<UserTags>> {
-    info!("GET {USER_TAGS_ROUTE} user_id:{}", user_id);
+pub async fn user_tags_handler(
+    Path(user_id): Path<String>,
+    Query(query): Query<TagsQuery>,
+) -> Result<Json<Vec<TagDetails>>> {
+    info!(
+        "GET {USER_TAGS_ROUTE} user_id:{}, limit_tags:{:?}, limit_taggers:{:?}",
+        user_id, query.limit_tags, query.limit_taggers
+    );
 
-    match UserTags::get_by_id(&user_id).await {
+    match TagUser::get_by_id(&user_id, query.limit_tags, query.limit_taggers).await {
         Ok(Some(tags)) => Ok(Json(tags)),
         Ok(None) => Err(Error::UserNotFound { user_id }),
         Err(source) => Err(Error::InternalServerError { source }),
@@ -31,8 +40,5 @@ pub async fn user_tags_handler(Path(user_id): Path<String>) -> Result<Json<UserT
 }
 
 #[derive(OpenApi)]
-#[openapi(
-    paths(user_tags_handler),
-    components(schemas(UserTags, UserTag, TagDetails))
-)]
+#[openapi(paths(user_tags_handler), components(schemas(TagDetails)))]
 pub struct UserTagsApiDoc;
