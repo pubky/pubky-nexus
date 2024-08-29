@@ -6,7 +6,7 @@ use utoipa::ToSchema;
 
 /// Represents the type of pubky-app posted data
 /// Used primarily to best display the content in UI
-#[derive(Serialize, Deserialize, ToSchema, Default)]
+#[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
 pub enum PostKind {
     #[default]
     Short,

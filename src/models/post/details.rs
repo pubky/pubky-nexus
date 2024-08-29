@@ -10,14 +10,14 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 /// Represents post data with content, bio, image, links, and status.
-#[derive(Serialize, Deserialize, ToSchema, Default)]
+#[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
 pub struct PostDetails {
     pub content: String,
     pub id: String, // TODO: create Crockfordbase32 validator
     pub indexed_at: i64,
     pub author: String,
     pub kind: PostKind,
-    uri: String,
+    pub uri: String,
 }
 
 impl RedisOps for PostDetails {}
@@ -48,15 +48,15 @@ impl PostDetails {
 
     pub async fn from_homeserver(
         homeserver_post: PubkyAppPost,
-        author_id: PubkyId,
-        post_id: String,
+        author_id: &PubkyId,
+        post_id: &String,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         Ok(PostDetails {
             uri: format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}"),
             content: homeserver_post.content,
-            id: post_id,
+            id: post_id.clone(),
             indexed_at: Utc::now().timestamp_millis(),
-            author: author_id.0,
+            author: author_id.0.clone(),
             kind: homeserver_post.kind,
         })
     }

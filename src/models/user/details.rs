@@ -67,14 +67,14 @@ impl UserDetails {
 
     pub async fn from_homeserver(
         homeserver_user: PubkyAppUser,
-        user_id: PubkyId,
+        user_id: &PubkyId,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         Ok(UserDetails {
             name: homeserver_user.name,
             bio: homeserver_user.bio,
             status: homeserver_user.status,
             links: homeserver_user.links,
-            id: user_id,
+            id: user_id.clone(),
             indexed_at: Utc::now().timestamp_millis(),
         })
     }

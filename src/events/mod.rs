@@ -4,7 +4,7 @@ use crate::{
         pubky_app::{traits::Validatable, PubkyAppPost, PubkyAppUser},
         user::{PubkyId, UserCounts, UserDetails},
     },
-    reindex::reindex_user,
+    reindex::{reindex_post, reindex_user},
 };
 use log::{debug, error, info};
 use pubky::PubkyClient;
@@ -160,13 +160,13 @@ impl Event {
 
                 // Create UserDetails object
                 let user_id = self.get_user_id()?;
-                let user_details = UserDetails::from_homeserver(user, user_id.clone()).await?;
+                let user_details = UserDetails::from_homeserver(user, &user_id).await?;
 
                 // Add new node into the graph
                 user_details.save().await?;
 
                 // Reindex to sorted sets and other indexes
-                reindex_user(user_id.as_ref()).await?;
+                reindex_user(&user_id).await?;
             }
             ResourceType::Post => {
                 // Process Post resource and update the databases
@@ -178,13 +178,13 @@ impl Event {
                 // Create UserDetails object
                 let author_id = self.get_user_id()?;
                 let post_id = self.get_post_id()?;
-                let post_details = PostDetails::from_homeserver(post, author_id, post_id).await?;
+                let post_details = PostDetails::from_homeserver(post, &author_id, &post_id).await?;
 
                 // Add new post node into the graph
                 post_details.save().await?;
 
                 // Reindex to sorted sets and other indexes
-                //reindex_post(post_details.id).await?;
+                reindex_post(&author_id, &post_id).await?;
             }
         }
 
