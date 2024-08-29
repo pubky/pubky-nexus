@@ -26,10 +26,10 @@ where
 
     /// Creates a Neo4j query to retrieve tags
     /// # Arguments
-    ///     * `user_id` - The ID of the user for whom to start the retrieval of the tag.
-    ///     * `extra_param` - An optional parameter for specifying additional constraints on the query. Options: post_id
+    /// * user_id - The key of the user for whom to start the retrieval of the tag.
+    /// * extra_param - An optional parameter for specifying additional constraints on the query. Options: post_id
     /// # Returns
-    ///     A `Query` object representing the query to execute in Neo4j.
+    /// A query object representing the query to execute in Neo4j.
     fn graph_query(user_id: &str, extra_param: Option<&str>) -> Query {
         match extra_param {
             Some(extra_id) => queries::read::post_tags(user_id, extra_id),
@@ -37,12 +37,12 @@ where
         }
     }
 
-    /// Constructs the index for a sorted set in Redis based on the user ID and an optional extra parameter.
+    /// Constructs the index for a sorted set in Redis based on the user key and an optional extra parameter.
     /// # Arguments
-    ///     * `user_id` - The ID of the user.
-    ///     * `extra_param` - An optional parameter for specifying additional context (e.g., an post_id)
+    /// * user_id - The key of the user.
+    /// * extra_param - An optional parameter for specifying additional context (e.g., an post_id)
     /// # Returns
-    ///     A vector of strings representing the parts of the key.
+    /// A vector of strings representing the parts of the key.
     fn create_sorted_set_key_parts<'a>(
         user_id: &'a str,
         extra_param: Option<&'a str>,
@@ -57,10 +57,10 @@ where
 
     /// Constructs a slice of common key
     /// # Arguments
-    ///     * `user_id` - The ID of the user.
-    ///     * `extra_param` - An optional parameter for specifying additional context (e.g., an post_id)
+    /// * user_id - The key of the user.
+    /// * extra_param - An optional parameter for specifying additional context (e.g., an post_id)
     /// # Returns
-    ///     A vector of string slices representing the parameters.
+    /// A vector of string slices representing the parameters.
     fn create_set_common_key<'a>(user_id: &'a str, extra_param: Option<&'a str>) -> Vec<&'a str> {
         match extra_param {
             Some(extra_id) => vec![user_id, extra_id],
@@ -68,13 +68,13 @@ where
         }
     }
 
-    /// Constructs an index key based on user ID, an optional extra parameter and a tag label.
+    /// Constructs an index key based on user key, an optional extra parameter and a tag label.
     /// # Arguments
-    ///     * `user_id` - The ID of the user.
-    ///     * `extra_param` - An optional parameter for specifying additional context (e.g., an post_id)
-    ///     * `label` - The label of the tag.
+    /// * user_id - The key of the user.
+    /// * extra_param - An optional parameter for specifying additional context (e.g., an post_id)
+    /// * label - The label of the tag.
     /// # Returns
-    ///     A string representing the index key.
+    /// A string representing the index key.
     fn create_label_index(user_id: &str, extra_param: Option<&str>, label: &String) -> String {
         match extra_param {
             Some(extra_id) => format!("{}:{}:{}", user_id, extra_id, label),
@@ -84,12 +84,12 @@ where
 
     /// Retrieves the tag collection, either from an index or directly from the graph database.
     /// # Arguments
-    ///     * `user_id` - The ID of the user for whom to retrieve tags.
-    ///     * `extra_param` - An optional parameter for specifying additional constraints (e.g., an post_id)
-    ///     * `limit_tags` - An optional limit on the number of tags to retrieve.
-    ///     * `limit_taggers` - An optional limit on the number of taggers to retrieve.
+    /// * user_id - The key of the user for whom to retrieve tags.
+    /// * extra_param - An optional parameter for specifying additional constraints (e.g., an post_id)
+    /// * limit_tags - An optional limit on the number of tags to retrieve.
+    /// * limit_taggers - An optional limit on the number of taggers to retrieve.
     /// # Returns
-    ///     A `Result` containing an optional vector of `TagDetails`, or an error.
+    /// A Result containing an optional vector of TagDetails, or an error.
     async fn get_collection(
         user_id: &str,
         extra_param: Option<&str>,
@@ -107,12 +107,12 @@ where
 
     /// Tries to retrieve the tag collection from an index in Redis.
     /// # Arguments
-    ///     * `user_id` - The ID of the user for whom to retrieve tags.
-    ///     * `extra_param` - An optional parameter for specifying additional constraints (e.g., an post_id)
-    ///     * `limit_tags` - A limit on the number of tags to retrieve.
-    ///     * `limit_taggers` - A limit on the number of taggers to retrieve.
+    /// * user_id - The key of the user for whom to retrieve tags.
+    /// * extra_param - An optional parameter for specifying additional constraints (e.g., an post_id)
+    /// * limit_tags - A limit on the number of tags to retrieve.
+    /// * limit_taggers - A limit on the number of taggers to retrieve.
     /// # Returns
-    ///     A `Result` containing an optional vector of `TagDetails`, or an error.
+    /// A Result containing an optional vector of TagDetails, or an error.
     async fn try_from_index(
         user_id: &str,
         extra_param: Option<&str>,
@@ -147,10 +147,10 @@ where
 
     /// Retrieves the tag collection from the graph database if it is not found in the index.
     /// # Arguments
-    ///     * `user_id` - The ID of the user for whom to retrieve tags.
-    ///     * `extra_param` - An optional parameter for specifying additional constraints (e.g., an post_id)
+    /// * user_id - The key of the user for whom to retrieve tags.
+    /// * extra_param - An optional parameter for specifying additional constraints (e.g., an post_id)
     /// # Returns
-    ///     A `Result` containing an optional vector of `TagDetails`, or an error.
+    /// A Result containing an optional vector of TagDetails, or an error.
     async fn get_from_graph(
         user_id: &str,
         extra_param: Option<&str>,
@@ -178,11 +178,11 @@ where
 
     /// Adds the retrieved tags to a sorted set and a set in Redis.
     /// # Arguments
-    ///     * `user_id` - The ID of the user.
-    ///     * `extra_param` - An optional parameter for specifying additional context (e.g., an extra ID).
-    ///     * `tags` - A slice of `TagDetails` representing the tags to add.
+    /// * user_id - The key of the user.
+    /// * extra_param - An optional parameter for specifying additional context (e.g., an extra key).
+    /// * tags - A slice of TagDetailsrepresenting the tags to add.
     /// # Returns
-    ///     A `Result` indicating success or failure.
+    /// A result indicating success or failure.
     async fn add_to_label_sets(
         user_id: &str,
         extra_param: Option<&str>,
