@@ -112,12 +112,13 @@ pub fn user_tags(user_id: &str) -> neo4rs::Query {
             WITH t.label AS name, collect(DISTINCT p.id) AS tagger_ids
             RETURN collect({
                 label: name,
-                taggers: tagger_ids
-            }) AS user_tags
+                taggers: tagger_ids,
+                taggers_count: SIZE(tagger_ids)
+            }) AS tags
         }
         RETURN 
-            u IS NOT NULL AS user_exists,
-            user_tags
+            u IS NOT NULL AS exists,
+            tags
     ",
     )
     .param("user_id", user_id)

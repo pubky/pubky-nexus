@@ -5,10 +5,13 @@ use utoipa_swagger_ui::SwaggerUi;
 pub mod endpoints;
 pub mod info;
 pub mod post;
+pub mod queries;
 pub mod search;
 pub mod stream;
 pub mod tag;
 pub mod user;
+
+pub use queries::TagsQuery;
 
 pub fn routes() -> Router {
     let routes_info = info::routes();
