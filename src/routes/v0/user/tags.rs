@@ -1,7 +1,9 @@
-use crate::models::tag::traits::TagCollection;
+use crate::models::tag::traits::taggers::Taggers;
+use crate::models::tag::traits::{TagCollection, TaggersCollection};
 use crate::models::tag::user::TagUser;
 use crate::models::tag::TagDetails;
-use crate::routes::v0::endpoints::USER_TAGS_ROUTE;
+use crate::routes::v0::endpoints::{USER_TAGGERS_ROUTE, USER_TAGS_ROUTE};
+use crate::routes::v0::queries::PaginationQuery;
 use crate::routes::v0::TagsQuery;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
@@ -40,6 +42,44 @@ pub async fn user_tags_handler(
     }
 }
 
+#[utoipa::path(
+    get,
+    path = USER_TAGGERS_ROUTE,
+    tag = "User label Taggers",
+    params(
+        ("user_id" = String, Path, description = "User Pubky ID"),
+        ("label" = String, Path, description = "Tag name"),
+        ("skip" = Option<usize>, Query, description = "Number of taggers to skip for pagination"),
+        ("limit" = Option<usize>, Query, description = "Number of taggers to return for pagination")
+    ),
+    responses(
+        (status = 200, description = "User tags", body = UserTags),
+        (status = 404, description = "User not found"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn user_taggers_handler(
+    Path((user_id, label)): Path<(String, String)>,
+    Query(query): Query<PaginationQuery>,
+) -> Result<Json<Taggers>> {
+    info!(
+        "GET {USER_TAGGERS_ROUTE} user_id:{}, label: {}, skip:{:?}, limit:{:?}",
+        user_id, label, query.skip, query.limit
+    );
+
+    match TagUser::try_from_index(
+        &user_id,
+        None,
+        &label,
+        query.skip,
+        query.limit,
+    ).await {
+        Ok(Some(tags)) => Ok(Json(tags)),
+        Ok(None) => Err(Error::UserNotFound { user_id }),
+        Err(source) => Err(Error::InternalServerError { source }),
+    }
+}
+
 #[derive(OpenApi)]
-#[openapi(paths(user_tags_handler), components(schemas(TagDetails)))]
+#[openapi(paths(user_tags_handler, user_taggers_handler), components(schemas(TagDetails)))]
 pub struct UserTagsApiDoc;
