@@ -9,7 +9,7 @@ use crate::models::tag::user::UserTags;
 pub struct UserView {
     pub details: UserDetails,
     pub counts: UserCounts,
-    pub tags: UserTags,
+    // pub tags: UserTags,
     pub relationship: Relationship,
 }
 
@@ -20,11 +20,11 @@ impl UserView {
         viewer_id: Option<&str>,
     ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
         // Perform all operations concurrently
-        let (details, counts, relationship, tags) = tokio::try_join!(
+        let (details, counts, relationship) = tokio::try_join!(
             UserDetails::get_by_id(user_id),
             UserCounts::get_by_id(user_id),
             Relationship::get_by_id(user_id, viewer_id),
-            UserTags::get_by_id(user_id)
+            // UserTags::get_by_id(user_id)
         )?;
 
         let details = match details {
@@ -34,13 +34,13 @@ impl UserView {
 
         let counts = counts.unwrap_or_default();
         let relationship = relationship.unwrap_or_default();
-        let tags = tags.unwrap_or_default();
+        // let tags = tags.unwrap_or_default();
 
         Ok(Some(Self {
             details,
             counts,
             relationship,
-            tags,
+            // tags,
         }))
     }
 }

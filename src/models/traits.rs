@@ -1,4 +1,5 @@
 use axum::async_trait;
+use log::error;
 use neo4rs::Query;
 
 use crate::db::connectors::neo4j::get_neo4j_graph;
@@ -29,21 +30,22 @@ where
         let key_parts_list: Vec<&[&str]> = id_list.iter().map(std::slice::from_ref).collect();
         let mut collection = Self::try_from_index_multiple_json(&key_parts_list).await?;
 
+        error!("Collection{:?}", collection);
         let mut missing: Vec<(usize, &str)> = Vec::new();
         for (i, details) in collection.iter().enumerate() {
             if details.is_none() {
                 missing.push((i, id_list[i]));
             }
         }
+        error!("Missing {:?}", missing);
+        // if !missing.is_empty() {
+        //     let missing_ids: Vec<&str> = missing.iter().map(|&(_, id)| id).collect();
+        //     let fetched_details = Self::from_graph(&missing_ids).await?;
 
-        if !missing.is_empty() {
-            let missing_ids: Vec<&str> = missing.iter().map(|&(_, id)| id).collect();
-            let fetched_details = Self::from_graph(&missing_ids).await?;
-
-            for (i, (original_index, _)) in missing.iter().enumerate() {
-                collection[*original_index].clone_from(&fetched_details[i]);
-            }
-        }
+        //     for (i, (original_index, _)) in missing.iter().enumerate() {
+        //         collection[*original_index].clone_from(&fetched_details[i]);
+        //     }
+        // }
 
         Ok(collection)
     }
@@ -75,6 +77,7 @@ where
 
         while let Some(row) = result.next().await? {
             let record: Option<Self> = row.get("record").unwrap_or_default();
+            println!("ROWWWWWWWWWWW {:?}", record);
             missing_records.push(record);
         }
 
