@@ -8,13 +8,13 @@ use utoipa::ToSchema;
 
 #[derive(Serialize, Deserialize, ToSchema, Default)]
 pub struct FileUrls {
-    main: String,
+    pub main: String,
 }
 
 #[derive(Serialize, Deserialize, ToSchema, Default)]
 pub struct FileKey {
-    owner_id: String,
-    file_id: String,
+    pub owner_id: String,
+    pub file_id: String,
 }
 
 /// Represents a file and its metadata, including links to the actual binary of the file.
