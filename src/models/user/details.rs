@@ -66,27 +66,22 @@ impl UserDetails {
     }
 
     pub async fn from_homeserver(
-        user_id: PubkyId,
         homeserver_user: PubkyAppUser,
+        user_id: &PubkyId,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         Ok(UserDetails {
             name: homeserver_user.name,
             bio: homeserver_user.bio,
             status: homeserver_user.status,
             links: homeserver_user.links,
-            id: user_id,
+            id: user_id.clone(),
             indexed_at: Utc::now().timestamp_millis(),
         })
     }
 
-    pub async fn save(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Save new user_details on Redis
-        self.put_index_json(&[&self.id]).await?;
-
-        // Save new graph node;
-        exec_single_row(queries::write::create_user(self)).await?;
-
-        Ok(())
+    // Save new graph node
+    pub async fn put_to_graph(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        exec_single_row(queries::write::create_user(self)?).await
     }
 
     pub async fn delete(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

@@ -1,7 +1,10 @@
-use crate::models::{
-    pubky_app::PubkyAppUser,
-    traits::Collection,
-    user::{PubkyId, UserCounts, UserDetails},
+use crate::{
+    models::{
+        post::PostDetails,
+        pubky_app::{traits::Validatable, PubkyAppPost, PubkyAppUser},
+        user::{PubkyId, UserCounts, UserDetails},
+    },
+    reindex::{reindex_post, reindex_user},
 };
 use log::{debug, error, info};
 use pubky::PubkyClient;
@@ -66,7 +69,7 @@ impl Event {
 
         let resource_type = if uri.ends_with("profile.json") {
             ResourceType::User
-        } else if uri.contains("/post/") {
+        } else if uri.contains("/posts/") {
             ResourceType::Post
         } else {
             // Handle other resource types
@@ -106,6 +109,25 @@ impl Event {
         Ok(user_id)
     }
 
+    fn get_post_id(&self) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        // Define the pattern we're looking for in the URI
+        let post_segment = "/posts/";
+
+        // Find the starting position of the post_id part in the URI
+        let start_idx = self
+            .uri
+            .path
+            .find(post_segment)
+            .map(|start| start + post_segment.len())
+            .ok_or("Post segment not found in URI")?;
+
+        // Extract the post_id from the path
+        let post_id = &self.uri.path[start_idx..];
+
+        // Return the post_id as a string
+        Ok(post_id.to_string())
+    }
+
     async fn handle(&self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
         match self.event_type {
             EventType::Put => self.handle_put_event().await,
@@ -134,24 +156,35 @@ impl Event {
                 debug!("Processing User resource at {}", self.uri.path);
 
                 // Serialize and validate
-                let user = PubkyAppUser::try_from(&blob).await?;
+                let user = <PubkyAppUser as Validatable>::try_from(&blob)?;
 
                 // Create UserDetails object
                 let user_id = self.get_user_id()?;
-                let user_details = UserDetails::from_homeserver(user_id, user).await?;
+                let user_details = UserDetails::from_homeserver(user, &user_id).await?;
 
-                // Index new user event into the Graph and Index
-                user_details.save().await?;
+                // Add new node into the graph
+                user_details.put_to_graph().await?;
 
-                // Add to other sorted sets and indexes
-                UserDetails::add_to_sorted_sets(&[Some(user_details)]).await;
+                // Reindex to sorted sets and other indexes
+                reindex_user(&user_id).await?;
             }
             ResourceType::Post => {
                 // Process Post resource and update the databases
                 debug!("Processing Post resource at {}", self.uri.path);
-                // Implement constructor that writes into the DBs
-                // post_details = PostDetails::from_homeserver(&blob).await?;
-                // post_details.save()
+
+                // Serialize and validate
+                let post = <PubkyAppPost as Validatable>::try_from(&blob)?;
+
+                // Create UserDetails object
+                let author_id = self.get_user_id()?;
+                let post_id = self.get_post_id()?;
+                let post_details = PostDetails::from_homeserver(post, &author_id, &post_id).await?;
+
+                // Add new post node into the graph
+                post_details.put_to_graph().await?;
+
+                // Reindex to sorted sets and other indexes
+                reindex_post(&author_id, &post_id).await?;
             }
         }
 
@@ -171,8 +204,10 @@ impl Event {
                 match user_details {
                     None => return Ok(()),
                     Some(user_details) => {
+                        // TODO create a `deindex` that undoes a `reindex(user_id)`
                         user_details.delete().await?;
                         UserCounts::delete(&user_details.id).await?;
+                        // TODO, should also delete from Sorted:Users:Name, MostFollowed and Pioneers
                     }
                 }
             }
