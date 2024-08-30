@@ -90,11 +90,11 @@ pub fn post_tags(user_id: &str, post_id: &str) -> neo4rs::Query {
                 label: name,
                 taggers: tagger_ids,
                 taggers_count: SIZE(tagger_ids)
-            }) AS post_tags
+            }) AS tags
         }
         RETURN 
-            u IS NOT NULL AS post_exists,
-            post_tags
+            u IS NOT NULL AS exists,
+            tags
     ",
     )
     .param("user_id", user_id)
