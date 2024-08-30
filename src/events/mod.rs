@@ -2,6 +2,7 @@ use crate::{
     models::{
         post::PostDetails,
         pubky_app::{traits::Validatable, PubkyAppPost, PubkyAppUser},
+        traits::Collection,
         user::{PubkyId, UserCounts, UserDetails},
     },
     reindex::{reindex_post, reindex_user},
@@ -167,6 +168,7 @@ impl Event {
 
                 // Reindex to sorted sets and other indexes
                 reindex_user(&user_id).await?;
+                UserDetails::to_index(&[user_id.as_ref()], vec![Some(user_details)]).await?;
             }
             ResourceType::Post => {
                 // Process Post resource and update the databases
