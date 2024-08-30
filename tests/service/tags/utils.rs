@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-const HOST_URL: &str = "http://localhost:8080";
+use crate::service::tags::HOST_URL;
 
 // #######################################
 // ##### Endpoint requests related #######

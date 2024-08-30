@@ -2,7 +2,8 @@
 
 # Path to the queries file
 QUERIES_FILE="/db-migration/indexer.cypher"
-TEST_FILE="/db-migration/test.cypher"
+# To achieve deterministic tests, each domain will have its own graph
+TAGS_TEST_FILE="/db-migration/test/tags.cypher"
 
 echo "Starting Cypher query execution..."
 

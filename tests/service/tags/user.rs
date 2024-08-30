@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use super::utils::{analyse_tag_details_structure, compare_tag_details, make_request, TagMockup};
 
-// Arst user from test.cypher
+// Arst user from test/tags.cypher
 const PUBKY_PEER: &str = "5f4e8eoogmkhqeyo5ijdix3ma6rw9byj8m36yrjp78pnxxc379to";
 
 #[tokio::test]

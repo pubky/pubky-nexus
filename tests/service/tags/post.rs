@@ -2,8 +2,9 @@ use anyhow::Result;
 
 use super::utils::{analyse_tag_details_structure, compare_tag_details, make_request, TagMockup};
 
-const PEER_PUBKY: &str = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
-const POST_ID: &str = "2Z9P8AN738C00";
+// Peter user from test/tags.cypher
+const PEER_PUBKY: &str = "db6w58pd5h63fbhtd88y8zz7pai9rkjwqt9omg6i7dz31dynrgcy";
+const POST_ID: &str = "0RDV7ABDZDW0";
 
 // TODO: Create deterministic integration tests
 
@@ -20,7 +21,7 @@ async fn test_post_tag() -> Result<()> {
     analyse_tag_details_structure(tags);
 
     // // Analyse the tag that is in the 4th index
-    let hot_tag = TagMockup::new(String::from("pubky"), 1, 1);
+    let hot_tag = TagMockup::new(String::from("🔥"), 4, 4);
     compare_tag_details(&tags[0], hot_tag);
 
     Ok(())
