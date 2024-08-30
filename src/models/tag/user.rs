@@ -7,7 +7,6 @@ use super::traits::TagCollection;
 
 const USER_TAGS_KEY_PARTS: [&str; 2] = ["Users", "Tag"];
 
-// Define a newtype wrapper
 #[derive(Serialize, Deserialize, Debug, Clone, ToSchema, Default)]
 pub struct TagUser;
 

@@ -3,13 +3,15 @@ use utoipa::ToSchema;
 
 use super::{Bookmark, PostCounts, PostDetails, PostRelationships};
 use crate::models::tag::post::TagPost;
+use crate::models::tag::traits::TagCollection;
+use crate::models::tag::TagDetails;
 
 /// Represents a Pubky user with relational data including tags, counts, and relationship with a viewer.
 #[derive(Serialize, Deserialize, ToSchema, Default)]
 pub struct PostView {
     pub details: PostDetails,
     pub counts: PostCounts,
-    pub tags: TagPost,
+    pub tags: Vec<TagDetails>,
     pub relationships: PostRelationships,
     pub bookmark: Option<Bookmark>,
 }
@@ -29,7 +31,7 @@ impl PostView {
             PostCounts::get_by_id(author_id, post_id),
             Bookmark::get_by_id(author_id, post_id, viewer_id),
             PostRelationships::get_by_id(author_id, post_id),
-            TagPost::get_by_id(author_id, post_id, max_tags, max_taggers),
+            TagPost::get_by_id(author_id, Some(post_id), max_tags, max_taggers),
         )?;
 
         let details = match details {
