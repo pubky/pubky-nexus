@@ -1,7 +1,8 @@
+use crate::models::tag::traits::TagCollection;
 use crate::models::tag::user::TagUser;
 use crate::models::tag::TagDetails;
 use crate::routes::v0::endpoints::USER_TAGS_ROUTE;
-use crate::routes::TagsQuery;
+use crate::routes::v0::TagsQuery;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
@@ -32,7 +33,7 @@ pub async fn user_tags_handler(
         user_id, query.limit_tags, query.limit_taggers
     );
 
-    match TagUser::get_by_id(&user_id, query.limit_tags, query.limit_taggers).await {
+    match TagUser::get_by_id(&user_id, None, query.limit_tags, query.limit_taggers).await {
         Ok(Some(tags)) => Ok(Json(tags)),
         Ok(None) => Err(Error::UserNotFound { user_id }),
         Err(source) => Err(Error::InternalServerError { source }),

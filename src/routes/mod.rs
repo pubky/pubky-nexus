@@ -2,11 +2,8 @@ use axum::Router;
 use tower_http::cors::{Any, CorsLayer};
 
 pub mod macros;
-pub mod queries;
 pub mod r#static;
 pub mod v0;
-
-pub use queries::TagsQuery;
 
 pub fn routes() -> Router {
     let routes_v0 = v0::routes();

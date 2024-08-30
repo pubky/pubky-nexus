@@ -1,7 +1,7 @@
 use crate::models::tag::post::TagPost;
 use crate::models::tag::TagDetails;
 use crate::routes::v0::endpoints::POST_TAGS_ROUTE;
-use crate::routes::TagsQuery;
+use crate::routes::v0::TagsQuery;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;

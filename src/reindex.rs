@@ -2,6 +2,7 @@ use crate::db::kv::flush::clear_redis;
 use crate::models::post::Bookmark;
 use crate::models::tag::post::TagPost;
 use crate::models::tag::stream::HotTags;
+use crate::models::tag::traits::TagCollection;
 use crate::models::tag::user::TagUser;
 use crate::models::traits::Collection;
 use crate::models::user::{Followers, Following, UserDetails, UserFollows};
@@ -74,7 +75,7 @@ async fn reindex_user(user_id: &str) -> Result<(), Box<dyn std::error::Error + S
         UserCounts::get_from_graph(user_id),
         Followers::get_from_graph(user_id, Some(0), Some(100)),
         Following::get_from_graph(user_id, Some(0), Some(100)),
-        TagUser::get_by_id(user_id, None, None)
+        TagUser::get_from_graph(user_id, None)
     )?;
 
     Ok(())

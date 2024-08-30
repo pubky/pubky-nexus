@@ -3,6 +3,7 @@ use criterion::{BenchmarkId, Criterion};
 use pubky_nexus::models::tag::global::TagGlobal;
 use pubky_nexus::models::tag::post::TagPost;
 use pubky_nexus::models::tag::stream::HotTags;
+use pubky_nexus::models::tag::traits::TagCollection;
 use pubky_nexus::models::tag::user::TagUser;
 use pubky_nexus::models::user::UserStreamType;
 use setup::run_setup;
@@ -26,7 +27,7 @@ fn bench_get_user_tags(c: &mut Criterion) {
         &user_id,
         |b, &id| {
             b.to_async(&rt).iter(|| async {
-                let profile = TagUser::get_by_id(id, None, None).await.unwrap();
+                let profile = TagUser::get_by_id(id, None, None, None).await.unwrap();
                 criterion::black_box(profile);
             });
         },
