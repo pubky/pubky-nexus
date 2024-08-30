@@ -2,7 +2,9 @@ use anyhow::Result;
 use pubky_nexus::models::user::UserStreamType;
 use serde_json::Value;
 
-use crate::service::tags::make_request;
+use super::utils::make_request;
+
+// TODO: Create deterministic integration tests
 
 const PEER_PUBKY: &str = "o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo";
 
