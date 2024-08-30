@@ -1,4 +1,5 @@
 use crate::models::tag::post::TagPost;
+use crate::models::tag::traits::TagCollection;
 use crate::models::tag::TagDetails;
 use crate::routes::v0::endpoints::POST_TAGS_ROUTE;
 use crate::routes::v0::TagsQuery;
@@ -27,12 +28,19 @@ use utoipa::OpenApi;
 pub async fn post_tags_handler(
     Path((user_id, post_id)): Path<(String, String)>,
     Query(query): Query<TagsQuery>,
-) -> Result<Json<TagPost>> {
+) -> Result<Json<Vec<TagDetails>>> {
     info!(
         "GET {POST_TAGS_ROUTE} user_id:{}, post_id: {}, limit_tags:{:?}, limit_taggers:{:?}",
         user_id, post_id, query.limit_tags, query.limit_taggers
     );
-    match TagPost::get_by_id(&user_id, &post_id, query.limit_tags, query.limit_taggers).await {
+    match TagPost::get_by_id(
+        &user_id,
+        Some(&post_id),
+        query.limit_tags,
+        query.limit_taggers,
+    )
+    .await
+    {
         Ok(Some(tags)) => Ok(Json(tags)),
         Ok(None) => Err(Error::UserNotFound { user_id }),
         Err(source) => Err(Error::InternalServerError { source }),
@@ -40,5 +48,5 @@ pub async fn post_tags_handler(
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(post_tags_handler), components(schemas(TagPost, TagDetails)))]
+#[openapi(paths(post_tags_handler), components(schemas(TagDetails)))]
 pub struct PostTagsApiDoc;

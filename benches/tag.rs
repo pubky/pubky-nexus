@@ -53,7 +53,7 @@ fn bench_get_post_tags(c: &mut Criterion) {
         &[user_id, post_id],
         |b, &params| {
             b.to_async(&rt).iter(|| async {
-                let profile = TagPost::get_by_id(params[0], params[1], None, None)
+                let profile = TagPost::get_by_id(params[0], Some(params[1]), None, None)
                     .await
                     .unwrap();
                 criterion::black_box(profile);

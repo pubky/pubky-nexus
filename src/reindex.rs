@@ -89,7 +89,7 @@ pub async fn reindex_post(
         PostDetails::get_from_graph(author_id, post_id),
         PostCounts::get_from_graph(author_id, post_id),
         PostRelationships::get_from_graph(author_id, post_id),
-        TagPost::get_from_graph(author_id, post_id)
+        TagPost::get_from_graph(author_id, Some(post_id))
     )?;
 
     Ok(())
