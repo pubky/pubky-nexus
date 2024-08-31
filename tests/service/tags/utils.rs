@@ -17,6 +17,15 @@ pub async fn make_request(endpoint: &str) -> Result<Value, httpc_test::Error> {
     Ok(body)
 }
 
+pub async fn make_wrong_request(endpoint: &str) -> Result<(), httpc_test::Error> {
+    let client = httpc_test::new_client(HOST_URL)?;
+
+    let res = client.do_get(endpoint).await?;
+
+    assert_eq!(res.status(), 404);
+    Ok(())
+}
+
 // ################################
 // ##### TagDetails related #######
 // ################################

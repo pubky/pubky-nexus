@@ -74,15 +74,7 @@ pub async fn post_taggers_handler(
         "GET {POST_TAGGERS_ROUTE} user_id:{}, post_id: {}, label: {}, skip:{:?}, limit:{:?}",
         user_id, post_id, label, query.skip, query.limit
     );
-    match TagPost::try_from_index(
-        &user_id,
-        Some(&post_id),
-        &label,
-        query.skip,
-        query.limit,
-    )
-    .await
-    {
+    match TagPost::try_from_index(&user_id, Some(&post_id), &label, query.skip, query.limit).await {
         Ok(Some(tags)) => Ok(Json(tags)),
         Ok(None) => Err(Error::UserNotFound { user_id }),
         Err(source) => Err(Error::InternalServerError { source }),
@@ -90,5 +82,8 @@ pub async fn post_taggers_handler(
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(post_tags_handler, post_taggers_handler), components(schemas(TagDetails)))]
+#[openapi(
+    paths(post_tags_handler, post_taggers_handler),
+    components(schemas(TagDetails))
+)]
 pub struct PostTagsApiDoc;

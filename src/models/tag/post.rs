@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 // TODO: Decide a better namimg, DO not like
-use super::traits::TaggersCollection;
 use super::traits::TagCollection;
+use super::traits::TaggersCollection;
 
 const POST_TAGS_KEY_PARTS: [&str; 2] = ["Posts", "Tag"];
 

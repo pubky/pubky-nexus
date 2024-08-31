@@ -36,7 +36,8 @@ where
         // TODO: Not sure if this is the place to do or in the endpoint
         let limit_tags = limit_tags.unwrap_or(5);
         let limit_taggers = limit_taggers.unwrap_or(5);
-        match Self::try_from_multiple_index(user_id, extra_param, limit_tags, limit_taggers).await? {
+        match Self::try_from_multiple_index(user_id, extra_param, limit_tags, limit_taggers).await?
+        {
             Some(counts) => Ok(Some(counts)),
             None => Self::get_from_graph(user_id, extra_param).await,
         }

@@ -14,10 +14,12 @@
 :param pkarr => 'pkarr';
 :param satoshi => 'satoshi';
 
-:param go_post_tag => '🔥';
+//:param go_post_tag => '🔥';
+:param go_post_tag => 'LG';
 :param privacy_post_tag => 'privacy';
 :param free_post_tag => 'free';
 :param human_right_post_tag => 'humanright';
+:param defend_post_tag => 'defend';
 
 // ##############################
 // ##### Create users ###########
@@ -84,6 +86,11 @@ MATCH (u:User {id: $arst}), (p:Post {id: "0RDV7ABDZDW0"}) MERGE (u)-[:TAGGED {la
 MATCH (u:User {id: $nakamoto}), (p:Post {id: "0RDV7ABDZDW0"}) MERGE (u)-[:TAGGED {label: $go_post_tag, id: "0RDV7ABDZDW0", indexed_at: 1724134080}]->(p);
 MATCH (u:User {id: $Wobly}), (p:Post {id: "0RDV7ABDZDW0"}) MERGE (u)-[:TAGGED {label: $go_post_tag, id: "1TDVFKFBB48G", indexed_at: 1724134092}]->(p);
 MATCH (u:User {id: $anonymous}), (p:Post {id: "0RDV7ABDZDW0"}) MERGE (u)-[:TAGGED {label: $go_post_tag, id: "2VDW8YBDZJ02", indexed_at: 1724334095}]->(p);
+MATCH (u:User {id: $nakamoto}), (p:Post {id: "0RDV7ABDZDW0"}) MERGE (u)-[:TAGGED {label: $free_post_tag, id: "ERDW8ZSNPR4G", indexed_at: 1724134080}]->(p);
+MATCH (u:User {id: $Wobly}), (p:Post {id: "0RDV7ABDZDW0"}) MERGE (u)-[:TAGGED {label: $free_post_tag, id: "FTDW8ZSQNL9Y", indexed_at: 1724134092}]->(p);
+MATCH (u:User {id: $anonymous}), (p:Post {id: "0RDV7ABDZDW0"}) MERGE (u)-[:TAGGED {label: $free_post_tag, id: "GRDW8ZSRMPC1", indexed_at: 1724334095}]->(p);
+MATCH (u:User {id: $arst}), (p:Post {id: "0RDV7ABDZDW0"}) MERGE (u)-[:TAGGED {label: $defend_post_tag, id: "HTDX9ZSTNQ47", indexed_at: 1724334095}]->(p);
+
 
 MERGE (p2:Post {id: "1TDV7XBCF4M1"}) SET p2.content = "Freedom of speech is essential for democracy", p2.kind = "Short", p2.indexed_at = 1719308316921;
 MATCH (u2:User {id: $anonymous}), (p2:Post {id: "1TDV7XBCF4M1"}) MERGE (u2)-[:AUTHORED]->(p2);

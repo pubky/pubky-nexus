@@ -1,6 +1,6 @@
-use axum::async_trait;
-use crate::RedisOps;
 use super::DynError;
+use crate::RedisOps;
+use axum::async_trait;
 
 // TODO: There is another struct with the same name. model/tag/stream
 pub type Taggers = Vec<String>;
@@ -21,7 +21,6 @@ where
         let limit = limit.unwrap_or(40);
         let key_parts = Self::create_label_index(user_id, extra_param, label);
         Ok(Self::try_from_index_set(&key_parts, Some(skip), Some(limit)).await?)
-        
     }
 
     /// Constructs an index key based on user key, an optional extra parameter and a tag label.
@@ -31,7 +30,11 @@ where
     /// * label - The label of the tag.
     /// # Returns
     /// A string representing the index key.
-    fn create_label_index<'a>(user_id: &'a str, extra_param: Option<&'a str>, label: &'a str) -> Vec<&'a str> {
+    fn create_label_index<'a>(
+        user_id: &'a str,
+        extra_param: Option<&'a str>,
+        label: &'a str,
+    ) -> Vec<&'a str> {
         match extra_param {
             Some(extra_id) => vec![user_id, extra_id, label],
             None => vec![user_id, label],
