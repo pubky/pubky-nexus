@@ -2,7 +2,11 @@ use log::{debug, error};
 use pubky::PubkyClient;
 use uri::ParsedUri;
 
-use crate::models::user::PubkyId;
+use crate::models::{
+    file::{details::FileKey, FileDetails},
+    pubky_app::HomeserverFile,
+    user::PubkyId,
+};
 
 pub mod handlers;
 pub mod processor;
@@ -29,7 +33,10 @@ enum ResourceType {
         user_id: PubkyId,
         tag_id: String,
     },
-    // File,
+    File {
+        user_id: PubkyId,
+        file_id: String,
+    },
 }
 
 // Look for the end pattern after the start index, or use the end of the string if not found
@@ -145,6 +152,19 @@ impl Event {
             ResourceType::Tag { user_id, tag_id } => {
                 handlers::tag::put(user_id, tag_id, blob).await?
             }
+            ResourceType::File { user_id, file_id } => {
+                debug!("Processing File resource for {} at {}", user_id, file_id);
+
+                // Serialize and validate
+                let file_input = HomeserverFile::try_from(&blob).await?;
+
+                // Create FileDetails object
+                let file_details =
+                    FileDetails::from_homeserver(&self, file_input, &self.pubky_client).await?;
+
+                // Index new user event into the Graph and Index
+                file_details.save().await?;
+            }
         }
 
         Ok(())
@@ -167,6 +187,21 @@ impl Event {
                 bookmark_id,
             } => handlers::bookmark::del(user_id, bookmark_id).await?,
             ResourceType::Tag { user_id, tag_id } => handlers::tag::del(user_id, tag_id).await?,
+            ResourceType::File { user_id, file_id } => {
+                debug!("Deleting File resource for {} at {}", user_id, file_id);
+                let file_details = FileDetails::get_file(&FileKey {
+                    file_id,
+                    owner_id: user_id.to_string(),
+                })
+                .await?;
+
+                match file_details {
+                    None => return Ok(()),
+                    Some(file) => {
+                        file.delete().await?;
+                    }
+                }
+            }
         }
 
         Ok(())
