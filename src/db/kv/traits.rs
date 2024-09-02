@@ -185,6 +185,37 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         sets::put(&prefix, &key, &values).await
     }
 
+    /// Removes elements from a Redis set using the provided key parts.
+    ///
+    /// This method removes elements from a Redis set stored under the key generated from the provided `key_parts`.
+    ///
+    /// # Arguments
+    ///
+    /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the set is stored.
+    /// * `values` - A slice of string slices representing the elements to be removed from the set.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
+    async fn remove_from_index_set<T>(
+        &self,
+        key_parts: &[&str],
+    ) -> Result<(), Box<dyn Error + Send + Sync>>
+    where
+        Self: AsRef<[T]>,            // Self can be dereferenced into a slice of T
+        T: AsRef<str> + Send + Sync, // The items must be convertible to &str
+    {
+        let prefix = Self::prefix().await;
+        let key = key_parts.join(":");
+
+        // Directly use the string representations of items without additional serialization
+        let collection = self.as_ref();
+        let values: Vec<&str> = collection.iter().map(|item| item.as_ref()).collect();
+
+        // Remove the values from the Redis set
+        sets::del(&prefix, &key, &values).await
+    }
+
     /// Retrieves data from Redis using the provided key parts.
     ///
     /// This method deserializes the data stored under the key generated from the provided `key_parts` in Redis.

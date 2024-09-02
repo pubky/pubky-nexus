@@ -7,7 +7,7 @@ pub mod processor;
 enum ResourceType {
     User,
     Post,
-    // Follow,
+    Follow,
     // File,
     // Bookmark,
     // Tag,
@@ -64,6 +64,8 @@ impl Event {
             ResourceType::User
         } else if uri.contains("/posts/") {
             ResourceType::Post
+        } else if uri.contains("/follows/") {
+            ResourceType::Follow
         } else {
             // Handle other resource types
             error!("Unrecognized resource in URI: {}", uri);
@@ -121,6 +123,18 @@ impl Event {
         Ok(post_id.to_string())
     }
 
+    fn get_follow_id(&self) -> Result<&str, Box<dyn std::error::Error + Send + Sync>> {
+        let follow_segment = "/follows/";
+        let start_idx = self
+            .uri
+            .path
+            .find(follow_segment)
+            .map(|start| start + follow_segment.len())
+            .ok_or("Follow segment not found in URI")?;
+
+        Ok(&self.uri.path[start_idx..])
+    }
+
     async fn handle(&self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
         match self.event_type {
             EventType::Put => self.handle_put_event().await,
@@ -145,9 +159,11 @@ impl Event {
 
         match self.uri.resource_type {
             ResourceType::User => handlers::user::put(self.get_user_id()?, blob).await?,
-
             ResourceType::Post => {
                 handlers::post::put(self.get_user_id()?, self.get_post_id()?, blob).await?
+            }
+            ResourceType::Follow => {
+                handlers::follow::put(self.get_user_id()?, self.get_follow_id()?, blob).await?
             }
         }
 
@@ -160,6 +176,9 @@ impl Event {
             ResourceType::User => handlers::user::del(self.get_user_id()?).await?,
             ResourceType::Post => {
                 handlers::post::del(self.get_user_id()?, self.get_post_id()?).await?
+            }
+            ResourceType::Follow => {
+                handlers::follow::del(self.get_user_id()?, self.get_follow_id()?).await?
             }
         }
 
