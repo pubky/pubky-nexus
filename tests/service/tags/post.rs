@@ -6,7 +6,7 @@ use super::utils::{
 
 // Peter user from test/tags.cypher
 const PEER_PUBKY: &str = "db6w58pd5h63fbhtd88y8zz7pai9rkjwqt9omg6i7dz31dynrgcy";
-const POST_ID: &str = "0RDV7ABDZDW0";
+const POST_ID: &str = "HC3T5CEPBPHQ";
 const FREE_LABEL: &str = "free";
 
 // TODO: Create deterministic integration tests
