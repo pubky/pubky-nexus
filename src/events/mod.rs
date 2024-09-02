@@ -1,17 +1,9 @@
-use crate::{
-    models::{
-        post::PostDetails,
-        pubky_app::{traits::Validatable, PubkyAppPost, PubkyAppUser},
-        traits::Collection,
-        user::{PubkyId, UserCounts, UserDetails},
-    },
-    reindex::{reindex_post, reindex_user},
-};
+use crate::models::user::PubkyId;
 use log::{debug, error, info};
 use pubky::PubkyClient;
 
+pub mod handlers;
 pub mod processor;
-
 enum ResourceType {
     User,
     Post,
@@ -152,41 +144,10 @@ impl Event {
         };
 
         match self.uri.resource_type {
-            ResourceType::User => {
-                // Process profile.json and update the databases
-                debug!("Processing User resource at {}", self.uri.path);
+            ResourceType::User => handlers::user::put(self.get_user_id()?, blob).await?,
 
-                // Serialize and validate
-                let user = <PubkyAppUser as Validatable>::try_from(&blob)?;
-
-                // Create UserDetails object
-                let user_id = self.get_user_id()?;
-                let user_details = UserDetails::from_homeserver(user, &user_id).await?;
-
-                // Add new node into the graph
-                user_details.put_to_graph().await?;
-
-                // Reindex to sorted sets and other indexes
-                reindex_user(&user_id).await?;
-                UserDetails::to_index(&[user_id.as_ref()], vec![Some(user_details)]).await?;
-            }
             ResourceType::Post => {
-                // Process Post resource and update the databases
-                debug!("Processing Post resource at {}", self.uri.path);
-
-                // Serialize and validate
-                let post = <PubkyAppPost as Validatable>::try_from(&blob)?;
-
-                // Create UserDetails object
-                let author_id = self.get_user_id()?;
-                let post_id = self.get_post_id()?;
-                let post_details = PostDetails::from_homeserver(post, &author_id, &post_id).await?;
-
-                // Add new post node into the graph
-                post_details.put_to_graph().await?;
-
-                // Reindex to sorted sets and other indexes
-                reindex_post(&author_id, &post_id).await?;
+                handlers::post::put(self.get_user_id()?, self.get_post_id()?, blob).await?
             }
         }
 
@@ -196,27 +157,9 @@ impl Event {
     async fn handle_del_event(&self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
         debug!("Handling DEL event for {}", self.uri.path);
         match self.uri.resource_type {
-            ResourceType::User => {
-                // Handle deletion of profile.json from databases
-                debug!("Deleting User resource at {}", self.uri.path);
-                let user_details =
-                    UserDetails::get_by_id(&self.get_user_id().unwrap_or_default()).await?;
-
-                //TODO: delete from search sorted set, delete user tags, delete followers/following, etc
-                match user_details {
-                    None => return Ok(()),
-                    Some(user_details) => {
-                        // TODO create a `deindex` that undoes a `reindex(user_id)`
-                        user_details.delete().await?;
-                        UserCounts::delete(&user_details.id).await?;
-                        // TODO, should also delete from Sorted:Users:Name, MostFollowed and Pioneers
-                    }
-                }
-            }
+            ResourceType::User => handlers::user::del(self.get_user_id()?).await?,
             ResourceType::Post => {
-                // Handle deletion of Post resource from databases
-                debug!("Deleting Post resource at {}", self.uri.path);
-                // Implement your deletion logic here
+                handlers::post::del(self.get_user_id()?, self.get_post_id()?).await?
             }
         }
 

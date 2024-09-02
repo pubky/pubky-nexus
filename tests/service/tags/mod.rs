@@ -1,5 +1,3 @@
-use serde_json::Value;
-
 pub mod hot;
 pub mod post;
 pub mod user;
