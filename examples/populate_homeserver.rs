@@ -19,9 +19,9 @@ async fn main() -> Result<()> {
                 bootstrap: vec![config.bootstrap.clone()],
                 nodes: vec![],
             };
-            PubkyClient::test(&testnet)
+            PubkyClient::builder().testnet(&testnet).build()
         }
-        false => PubkyClient::new(),
+        false => PubkyClient::default(),
     };
 
     // Generate a random keypair
