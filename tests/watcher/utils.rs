@@ -38,7 +38,7 @@ impl WatcherTest {
             .run()
             .await
             .map_err(|e| anyhow::anyhow!(e))?;
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await; // Ensure completion
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await; // Ensure completion
         Ok(())
     }
 
