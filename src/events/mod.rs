@@ -1,5 +1,6 @@
 use crate::models::{
-    homeserver::HomeserverUser,
+    file::FileDetails,
+    homeserver::{HomeserverFile, HomeserverUser},
     traits::Collection,
     user::{UserCounts, UserDetails},
 };
@@ -8,20 +9,20 @@ use pubky::PubkyClient;
 
 pub mod processor;
 
-enum ResourceType {
+pub enum ResourceType {
     User,
     Post,
     // Follow,
-    // File,
+    File,
     // Bookmark,
     // Tag,
 
     // Add more as needed
 }
 
-struct Uri {
-    resource_type: ResourceType,
-    path: String,
+pub struct Uri {
+    pub resource_type: ResourceType,
+    pub path: String,
 }
 
 impl Uri {
@@ -33,14 +34,15 @@ impl Uri {
     }
 }
 
-enum EventType {
+pub enum EventType {
     Put,
     Del,
 }
 
 pub struct Event {
-    event_type: EventType,
-    uri: Uri,
+    pub user_id: String,
+    pub event_type: EventType,
+    pub uri: Uri,
     pubky_client: PubkyClient,
 }
 
@@ -64,32 +66,42 @@ impl Event {
 
         let uri = parts[1];
 
-        let resource_type = if uri.ends_with("profile.json") {
-            ResourceType::User
-        } else if uri.contains("/post/") {
-            ResourceType::Post
-        } else {
-            // Handle other resource types
-            error!("Unrecognized resource in URI: {}", uri);
-            return None;
+        let resource_type = match uri {
+            _ if uri.ends_with("profile.json") => ResourceType::User,
+            _ if uri.contains("/post/") => ResourceType::Post,
+            _ if uri.contains("/file/") => ResourceType::File,
+            _ => {
+                // Handle other resource types
+                error!("Unrecognized resource in URI: {}", uri);
+                return None;
+            }
+        };
+
+        let user_id = match Event::get_user_id(uri) {
+            Some(id) => id,
+            None => {
+                error!("Error getting user_id from event uri. Skipping event.");
+                return None;
+            }
         };
 
         Some(Event {
             event_type,
+            user_id,
             uri: Uri::new(resource_type, uri),
             pubky_client,
         })
     }
 
-    fn get_user_id(&self) -> Option<String> {
+    fn get_user_id(path: &str) -> Option<String> {
         // Extract the part of the URI between "pubky://" and "/pub/". That's the user_id.
         let pattern = "pubky://";
         let pub_segment = "/pub/";
 
-        if let Some(start) = self.uri.path.find(pattern) {
+        if let Some(start) = path.find(pattern) {
             let start_idx = start + pattern.len();
-            if let Some(end_idx) = self.uri.path[start_idx..].find(pub_segment) {
-                let user_id = self.uri.path[start_idx..start_idx + end_idx].to_string();
+            if let Some(end_idx) = path[start_idx..].find(pub_segment) {
+                let user_id = path[start_idx..start_idx + end_idx].to_string();
                 return Some(user_id);
             }
         }
@@ -128,13 +140,7 @@ impl Event {
                 let user = HomeserverUser::try_from(&blob).await?;
 
                 // Create UserDetails object
-                let user_details = match self.get_user_id() {
-                    Some(user_id) => UserDetails::from_homeserver(&user_id, user).await?,
-                    None => {
-                        error!("Error getting user_id from event uri. Skipping event.");
-                        return Ok(());
-                    }
-                };
+                let user_details = UserDetails::from_homeserver(&self.user_id, user).await?;
 
                 // Index new user event into the Graph and Index
                 user_details.save().await?;
@@ -149,6 +155,19 @@ impl Event {
                 // post_details = PostDetails::from_homeserver(&blob).await?;
                 // post_details.save()
             }
+            ResourceType::File => {
+                debug!("Processing File resource at {}", self.uri.path);
+
+                // Serialize and validate
+                let file_input = HomeserverFile::try_from(&blob).await?;
+
+                // Create FileDetails object
+                let file_details =
+                    FileDetails::from_homeserver(&self, file_input, &self.pubky_client).await?;
+
+                // Index new user event into the Graph and Index
+                file_details.save().await?;
+            }
         }
 
         Ok(())
@@ -160,8 +179,7 @@ impl Event {
             ResourceType::User => {
                 // Handle deletion of profile.json from databases
                 debug!("Deleting User resource at {}", self.uri.path);
-                let user_details =
-                    UserDetails::get_by_id(&self.get_user_id().unwrap_or_default()).await?;
+                let user_details = UserDetails::get_by_id(&self.user_id).await?;
 
                 //TODO: delete from search sorted set, delete user tags, delete followers/following, etc
                 match user_details {
@@ -176,6 +194,18 @@ impl Event {
                 // Handle deletion of Post resource from databases
                 debug!("Deleting Post resource at {}", self.uri.path);
                 // Implement your deletion logic here
+            }
+            ResourceType::File => {
+                debug!("Deleting File resource at {}", self.uri.path);
+                let file_details =
+                    FileDetails::get_file(&FileDetails::file_key_from_uri(&self.uri.path)).await?;
+
+                match file_details {
+                    None => return Ok(()),
+                    Some(file) => {
+                        file.delete().await?;
+                    }
+                }
             }
         }
 
