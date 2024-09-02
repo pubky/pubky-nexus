@@ -33,6 +33,15 @@ impl WatcherTest {
         })
     }
 
+    pub async fn ensure_event_processing_complete(&mut self) -> Result<()> {
+        self.event_processor
+            .run()
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await; // Ensure completion
+        Ok(())
+    }
+
     pub async fn create_user(&mut self, keypair: &Keypair, user: &PubkyAppUser) -> Result<String> {
         let user_id = keypair.public_key().to_z32();
         self.client
@@ -44,7 +53,7 @@ impl WatcherTest {
         self.client.put(url.as_str(), &profile_json).await?;
 
         // Index to Nexus from Homeserver using the events processor
-        self.event_processor.run().await.unwrap();
+        self.ensure_event_processing_complete().await?;
         Ok(user_id)
     }
 
@@ -55,21 +64,21 @@ impl WatcherTest {
         self.client.put(url.as_str(), &post_json).await?;
 
         // Index to Nexus from Homeserver using the events processor
-        self.event_processor.run().await.unwrap();
+        self.ensure_event_processing_complete().await?;
         Ok(post_id)
     }
 
     pub async fn cleanup_user(&mut self, user_id: &str) -> Result<()> {
         let url = format!("pubky://{}/pub/pubky-app/profile.json", user_id);
         self.client.delete(url.as_str()).await?;
-        self.event_processor.run().await.unwrap();
+        self.ensure_event_processing_complete().await?;
         Ok(())
     }
 
     pub async fn cleanup_post(&mut self, user_id: &str, post_id: &str) -> Result<()> {
         let url = format!("pubky://{}/pub/pubky-app/posts/{}", user_id, post_id);
         self.client.delete(url.as_str()).await?;
-        self.event_processor.run().await.unwrap();
+        self.ensure_event_processing_complete().await?;
         Ok(())
     }
 }
