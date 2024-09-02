@@ -24,7 +24,7 @@ impl EventProcessor {
                 };
                 PubkyClient::test(&testnet)
             }
-            false => PubkyClient::new(),
+            false => PubkyClient::default(),
         };
 
         Self {
@@ -38,7 +38,7 @@ impl EventProcessor {
 
     pub async fn test(testnet: &Testnet, homeserver_url: String) -> Self {
         Self {
-            pubky_client: PubkyClient::test(testnet),
+            pubky_client: PubkyClient::builder().testnet(testnet).build(),
             http_client: Client::new(),
             homeserver_url,
             cursor: "0".to_string(),
