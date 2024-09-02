@@ -1,8 +1,4 @@
 use crate::models::user::PubkyId;
-use handlers::{
-    post::{handle_post_del_event, handle_post_put_event},
-    user::{handle_user_del_event, handle_user_put_event},
-};
 use log::{debug, error, info};
 use pubky::PubkyClient;
 
@@ -148,10 +144,10 @@ impl Event {
         };
 
         match self.uri.resource_type {
-            ResourceType::User => handle_user_put_event(self.get_user_id()?, blob).await?,
+            ResourceType::User => handlers::user::put(self.get_user_id()?, blob).await?,
 
             ResourceType::Post => {
-                handle_post_put_event(self.get_user_id()?, self.get_post_id()?, blob).await?
+                handlers::post::put(self.get_user_id()?, self.get_post_id()?, blob).await?
             }
         }
 
@@ -161,9 +157,9 @@ impl Event {
     async fn handle_del_event(&self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
         debug!("Handling DEL event for {}", self.uri.path);
         match self.uri.resource_type {
-            ResourceType::User => handle_user_del_event(self.get_user_id()?).await?,
+            ResourceType::User => handlers::user::del(self.get_user_id()?).await?,
             ResourceType::Post => {
-                handle_post_del_event(self.get_user_id()?, self.get_post_id()?).await?
+                handlers::post::del(self.get_user_id()?, self.get_post_id()?).await?
             }
         }
 

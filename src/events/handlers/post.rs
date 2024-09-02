@@ -5,7 +5,7 @@ use axum::body::Bytes;
 use log::debug;
 use std::error::Error;
 
-pub async fn handle_post_put_event(
+pub async fn put(
     author_id: PubkyId,
     post_id: String,
     blob: Bytes,
@@ -28,10 +28,7 @@ pub async fn handle_post_put_event(
     Ok(())
 }
 
-pub async fn handle_post_del_event(
-    author_id: PubkyId,
-    post_id: String,
-) -> Result<(), Box<dyn Error + Sync + Send>> {
+pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), Box<dyn Error + Sync + Send>> {
     // TODO: handle deletion of Post resource from databases
     debug!("Deleting post: {}/{}", author_id, post_id);
     // Implement logic here
