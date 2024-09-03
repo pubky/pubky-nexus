@@ -3,8 +3,8 @@ use crate::routes::v0::endpoints;
 use axum::Router;
 use utoipa::OpenApi;
 
-mod users;
 mod tags;
+mod users;
 
 pub fn routes() -> Router {
     register_routes!(Router::new(),

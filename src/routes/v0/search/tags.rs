@@ -13,7 +13,7 @@ use utoipa::OpenApi;
 pub struct SearchQuery {
     skip: Option<usize>,
     limit: Option<usize>,
-    sort_by: Option<SortBy>
+    sort_by: Option<SortBy>,
 }
 
 #[utoipa::path(
@@ -34,11 +34,11 @@ pub struct SearchQuery {
 )]
 pub async fn search_post_tags_handler(
     Path(label): Path<String>,
-    Query(query): Query<SearchQuery>
+    Query(query): Query<SearchQuery>,
 ) -> Result<Json<PostStream>> {
-
     //TODO: Maybe add viewer_id as a optional param
-    info!("GET {SEARCH_TAGS_ROUTE} label:{}, sort_by: {:?}, skip: {:?}, limit: {:?}",
+    info!(
+        "GET {SEARCH_TAGS_ROUTE} label:{}, sort_by: {:?}, skip: {:?}, limit: {:?}",
         label, query.sort_by, query.skip, query.limit
     );
 

@@ -86,12 +86,12 @@ pub fn global_tags_by_post() -> neo4rs::Query {
         WITH DISTINCT post_id, label, score
         WITH label, COLLECT([toFloat(score), post_id ]) AS sorted_set
         RETURN label, sorted_set
-        "
+        ",
     )
 }
 
-/// Retrieves unique global tags for posts, calculating an engagement score based on tag counts, 
-/// replies, reposts, mentions, and bookmarks. The query returns a `key` by combining author's ID 
+/// Retrieves unique global tags for posts, calculating an engagement score based on tag counts,
+/// replies, reposts, mentions, and bookmarks. The query returns a `key` by combining author's ID
 /// and post's ID, along with a sorted set of engagement scores for each tag label.
 pub fn global_tags_by_post_engagement() -> neo4rs::Query {
     query(
