@@ -77,6 +77,40 @@ pub fn get_users_details_by_ids(user_ids: &[&str]) -> Query {
     .param("ids", user_ids)
 }
 
+/// Retrieves unique global tags for posts, returning a list of `post_ids` and `timestamp` pairs for each tag label.
+pub fn global_tags_by_post() -> neo4rs::Query {
+    query(
+        "
+        MATCH (tagger:User)-[t:TAGGED]->(post:Post)<-[:AUTHORED]-(author:User)
+        WITH t.label AS label, author.id + ':' + post.id AS post_id, post.indexed_at AS score
+        WITH DISTINCT post_id, label, score
+        WITH label, COLLECT([toFloat(score), post_id ]) AS sorted_set
+        RETURN label, sorted_set
+        "
+    )
+}
+
+/// Retrieves unique global tags for posts, calculating an engagement score based on tag counts, 
+/// replies, reposts, mentions, and bookmarks. The query returns a `key` by combining author's ID 
+/// and post's ID, along with a sorted set of engagement scores for each tag label.
+pub fn global_tags_by_post_engagement() -> neo4rs::Query {
+    query(
+        "
+        MATCH (author:User)-[:AUTHORED]->(post:Post)<-[tag:TAGGED]-(tagger:User)
+        WITH post, COUNT(DISTINCT tagger.id + ':' + tag.label) AS tags_count, tag.label AS label, author.id + ':' + post.id AS key
+        WITH DISTINCT key,label, post, tags_count
+        WHERE tags_count > 0
+        OPTIONAL MATCH (post)<-[reply:REPLIED]-()
+        OPTIONAL MATCH (post)<-[repost:REPOSTED]-()
+        OPTIONAL MATCH (post)-[mention:MENTIONED]->()
+        OPTIONAL MATCH (post)<-[bookmark:BOOKMARKED]-()
+        WITH tags_count, COUNT(DISTINCT reply) AS replies_count, COUNT(DISTINCT repost) AS reposts_count, COUNT(DISTINCT mention) AS mention_count, COUNT(DISTINCT bookmark) AS bookmark_count, key, label
+        WITH label, COLLECT([toFloat(tags_count + replies_count + reposts_count + mention_count + bookmark_count), key ]) AS sorted_set
+        RETURN label, sorted_set
+        "
+    )
+}
+
 // Retrieve all the tags of the post
 pub fn post_tags(user_id: &str, post_id: &str) -> neo4rs::Query {
     query(
