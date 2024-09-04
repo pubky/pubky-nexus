@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Array of directories to skip
-skip_dirs=(./target ./benches ./tests ./examples ./pubky)
+skip_dirs=(./target ./benches ./examples ./pubky)
 
 # Build the find command with exclusion patterns
 find_cmd="find ."

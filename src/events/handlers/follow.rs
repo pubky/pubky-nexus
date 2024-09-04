@@ -1,5 +1,4 @@
 use crate::db::graph::exec::exec_single_row;
-use crate::events::Event;
 use crate::models::pubky_app::traits::Validatable;
 use crate::models::pubky_app::PubkyAppFollow;
 use crate::models::user::PubkyId;
@@ -55,14 +54,12 @@ pub async fn del(user_id: PubkyId, followee_id: &str) -> Result<(), Box<dyn Erro
 }
 
 // Parses a follow relationship pubky id from the event's uri
-pub fn parse_follow_id(event: &Event) -> Result<&str, Box<dyn std::error::Error + Send + Sync>> {
+pub fn parse_follow_id(uri: &str) -> Result<&str, Box<dyn std::error::Error + Send + Sync>> {
     let follow_segment = "/follows/";
-    let start_idx = event
-        .uri
-        .path
+    let start_idx = uri
         .find(follow_segment)
         .map(|start| start + follow_segment.len())
         .ok_or("Follow segment not found in URI")?;
 
-    Ok(&event.uri.path[start_idx..])
+    Ok(&uri[start_idx..])
 }

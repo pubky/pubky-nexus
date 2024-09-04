@@ -374,6 +374,34 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         sorted_sets::put("Sorted", &key, elements).await
     }
 
+    /// Removes elements from a Redis sorted set using the provided key parts.
+    ///
+    /// This method removes the specified elements from the Redis sorted set identified by the key generated
+    /// from the provided `key_parts`.
+    ///
+    /// # Arguments
+    ///
+    /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the sorted set is stored.
+    /// * `items` - A slice of string slices representing the elements to be removed from the sorted set.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
+    async fn remove_from_index_sorted_set(
+        key_parts: &[&str],
+        items: &[&str],
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        if items.is_empty() {
+            return Ok(());
+        }
+
+        // Create the key by joining the key parts
+        let key = key_parts.join(":");
+
+        // Call the sorted_sets::del function to remove the items from the sorted set
+        sorted_sets::del("Sorted", &key, items).await
+    }
+
     /// Retrieves a range of elements from a Redis sorted set using the provided key parts.
     ///
     /// This method fetches elements from a Redis sorted set stored under the key generated from the provided `key_parts`.

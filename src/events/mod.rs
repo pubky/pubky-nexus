@@ -1,4 +1,6 @@
-use handlers::{follow::parse_follow_id, post::parse_post_id, user::parse_user_id};
+use handlers::{
+    bookmark::parse_bookmark_id, follow::parse_follow_id, post::parse_post_id, user::parse_user_id,
+};
 use log::{debug, error, info};
 use pubky::PubkyClient;
 
@@ -8,8 +10,8 @@ enum ResourceType {
     User,
     Post,
     Follow,
+    Bookmark,
     // File,
-    // Bookmark,
     // Tag,
 
     // Add more as needed
@@ -66,6 +68,8 @@ impl Event {
             ResourceType::Post
         } else if uri.contains("/follows/") {
             ResourceType::Follow
+        } else if uri.contains("/bookmarks/") {
+            ResourceType::Bookmark
         } else {
             // Handle other resource types
             error!("Unrecognized resource in URI: {}", uri);
@@ -102,12 +106,30 @@ impl Event {
         };
 
         match self.uri.resource_type {
-            ResourceType::User => handlers::user::put(parse_user_id(self)?, blob).await?,
+            ResourceType::User => handlers::user::put(parse_user_id(&self.uri.path)?, blob).await?,
             ResourceType::Post => {
-                handlers::post::put(parse_user_id(self)?, parse_post_id(self)?, blob).await?
+                handlers::post::put(
+                    parse_user_id(&self.uri.path)?,
+                    parse_post_id(&self.uri.path)?,
+                    blob,
+                )
+                .await?
             }
             ResourceType::Follow => {
-                handlers::follow::put(parse_user_id(self)?, parse_follow_id(self)?, blob).await?
+                handlers::follow::put(
+                    parse_user_id(&self.uri.path)?,
+                    parse_follow_id(&self.uri.path)?,
+                    blob,
+                )
+                .await?
+            }
+            ResourceType::Bookmark => {
+                handlers::bookmark::put(
+                    parse_user_id(&self.uri.path)?,
+                    parse_bookmark_id(&self.uri.path)?,
+                    blob,
+                )
+                .await?
             }
         }
 
@@ -117,12 +139,27 @@ impl Event {
     async fn handle_del_event(&self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
         debug!("Handling DEL event for {}", self.uri.path);
         match self.uri.resource_type {
-            ResourceType::User => handlers::user::del(parse_user_id(self)?).await?,
+            ResourceType::User => handlers::user::del(parse_user_id(&self.uri.path)?).await?,
             ResourceType::Post => {
-                handlers::post::del(parse_user_id(self)?, parse_post_id(self)?).await?
+                handlers::post::del(
+                    parse_user_id(&self.uri.path)?,
+                    parse_post_id(&self.uri.path)?,
+                )
+                .await?
             }
             ResourceType::Follow => {
-                handlers::follow::del(parse_user_id(self)?, parse_follow_id(self)?).await?
+                handlers::follow::del(
+                    parse_user_id(&self.uri.path)?,
+                    parse_follow_id(&self.uri.path)?,
+                )
+                .await?
+            }
+            ResourceType::Bookmark => {
+                handlers::bookmark::del(
+                    parse_user_id(&self.uri.path)?,
+                    parse_bookmark_id(&self.uri.path)?,
+                )
+                .await?
             }
         }
 
