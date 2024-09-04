@@ -97,16 +97,18 @@ pub fn global_tags_by_post_engagement() -> neo4rs::Query {
     query(
         "
         MATCH (author:User)-[:AUTHORED]->(post:Post)<-[tag:TAGGED]-(tagger:User)
-        WITH post, COUNT(DISTINCT tagger.id + ':' + tag.label) AS tags_count, tag.label AS label, author.id + ':' + post.id AS key
-        WITH DISTINCT key,label, post, tags_count
+        WITH post, COUNT(tag) AS tags_count, tag.label AS label, author.id + ':' + post.id AS key
+        WITH DISTINCT key, label, post, tags_count
         WHERE tags_count > 0
         OPTIONAL MATCH (post)<-[reply:REPLIED]-()
         OPTIONAL MATCH (post)<-[repost:REPOSTED]-()
         OPTIONAL MATCH (post)-[mention:MENTIONED]->()
         OPTIONAL MATCH (post)<-[bookmark:BOOKMARKED]-()
-        WITH tags_count, COUNT(DISTINCT reply) AS replies_count, COUNT(DISTINCT repost) AS reposts_count, COUNT(DISTINCT mention) AS mention_count, COUNT(DISTINCT bookmark) AS bookmark_count, key, label
-        WITH label, COLLECT([toFloat(tags_count + replies_count + reposts_count + mention_count + bookmark_count), key ]) AS sorted_set
+        OPTIONAL MATCH (post)<-[tagged:TAGGED]-()
+        WITH COUNT(DISTINCT tagged) AS taggers, COUNT(DISTINCT reply) AS replies_count, COUNT(DISTINCT repost) AS reposts_count, COUNT(DISTINCT mention) AS mention_count, COUNT(DISTINCT bookmark) AS bookmark_count, key, label
+        WITH label, COLLECT([toFloat(taggers + replies_count + reposts_count + mention_count + bookmark_count), key ]) AS sorted_set
         RETURN label, sorted_set
+        order by label
         "
     )
 }

@@ -1,7 +1,9 @@
 use anyhow::Result;
 
+use crate::service::utils::{make_request, make_wrong_request};
+
 use super::utils::{
-    analyse_tag_details_structure, compare_tag_details, make_request, make_wrong_request, TagMockup,
+    analyse_tag_details_structure, compare_tag_details, TagMockup,
 };
 
 // Arst user from test/tags.cypher

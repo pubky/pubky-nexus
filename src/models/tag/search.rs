@@ -1,6 +1,6 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
 use crate::db::kv::index::sorted_sets::Sorting;
-use crate::models::post::{PostStream, PostStreamSorting};
+use crate::models::post::PostStreamSorting;
 use crate::queries::read::{global_tags_by_post, global_tags_by_post_engagement};
 use crate::RedisOps;
 use neo4rs::Query;
@@ -28,51 +28,6 @@ impl TagSearch {
         Ok(())
     }
 
-    pub async fn get_by_label(
-        label: &str,
-        sort_by: Option<PostStreamSorting>,
-        viewer_id: Option<String>,
-        skip: Option<usize>,
-        limit: Option<usize>,
-    ) -> Result<Option<PostStream>, Box<dyn Error + Send + Sync>> {
-        let skip = skip.unwrap_or(0);
-        let limit = limit.unwrap_or(6);
-
-        let posts_sorted_set = match sort_by {
-            Some(PostStreamSorting::TotalEngagement) => {
-                Self::try_from_index_sorted_set(
-                    &[&TAG_GLOBAL_POST_ENGAGEMENT[..], &[label]].concat(),
-                    None,
-                    None,
-                    Some(skip),
-                    Some(limit),
-                    Sorting::Descending,
-                )
-                .await?
-            }
-            // Default case always: SortBy::Timeline
-            _ => {
-                Self::try_from_index_sorted_set(
-                    &[&TAG_GLOBAL_POST_TIMELINE[..], &[label]].concat(),
-                    None,
-                    None,
-                    Some(skip),
-                    Some(limit),
-                    Sorting::Descending,
-                )
-                .await?
-            }
-        };
-
-        match posts_sorted_set {
-            Some(post_keys) => {
-                let post_keys: Vec<String> = post_keys.into_iter().map(|(key, _)| key).collect();
-                PostStream::from_listed_post_ids(viewer_id, &post_keys).await
-            }
-            None => Ok(None),
-        }
-    }
-
     /// Retrieves post tags from a Neo4j graph and updates global sorted sets
     /// for both timeline and engagement-based metrics.
     async fn add_to_global_sorted_set(
@@ -93,5 +48,39 @@ impl TagSearch {
             Self::put_index_sorted_set(&key_parts, &sorted_set).await?;
         }
         Ok(())
+    }
+
+    pub async fn get_by_label(
+        label: &str,
+        sort_by: Option<PostStreamSorting>,
+        skip: usize,
+        limit: usize,
+    ) -> Result<Option<Vec<(String, f64)>>, Box<dyn Error + Send + Sync>> {
+
+        match sort_by {
+            Some(PostStreamSorting::TotalEngagement) => {
+                Self::try_from_index_sorted_set(
+                    &[&TAG_GLOBAL_POST_ENGAGEMENT[..], &[label]].concat(),
+                    None,
+                    None,
+                    Some(skip),
+                    Some(limit),
+                    Sorting::Descending,
+                )
+                .await
+            }
+            // Default case always: SortBy::Timeline
+            _ => {
+                Self::try_from_index_sorted_set(
+                    &[&TAG_GLOBAL_POST_TIMELINE[..], &[label]].concat(),
+                    None,
+                    None,
+                    Some(skip),
+                    Some(limit),
+                    Sorting::Descending,
+                )
+                .await
+            }
+        }
     }
 }

@@ -1,7 +1,7 @@
 use super::{Bookmark, PostCounts, PostDetails, PostView};
 use crate::{
     db::kv::index::sorted_sets::Sorting,
-    models::user::{Followers, Following, Friends, UserFollows},
+    models::{tag::search::TagSearch, user::{Followers, Following, Friends, UserFollows}},
     RedisOps,
 };
 use serde::{Deserialize, Serialize};
@@ -237,6 +237,27 @@ impl PostStream {
             .collect();
 
         Ok(selected_post_keys)
+    }
+
+    pub async fn get_posts_by_tag(
+        label: &str,
+        sort_by: Option<PostStreamSorting>,
+        viewer_id: Option<String>,
+        skip: Option<usize>,
+        limit: Option<usize>,
+    ) -> Result<Option<PostStream>, Box<dyn Error + Send + Sync>> {
+        let skip = skip.unwrap_or(0);
+        let limit = limit.unwrap_or(6);
+
+        let posts_sorted_set = TagSearch::get_by_label(label, sort_by, skip, limit).await?;
+
+        match posts_sorted_set {
+            Some(post_keys) => {
+                let post_keys: Vec<String> = post_keys.into_iter().map(|(key, _)| key).collect();
+                Self::from_listed_post_ids(viewer_id, &post_keys).await
+            }
+            None => Ok(None),
+        }
     }
 
     pub async fn from_listed_post_ids(
