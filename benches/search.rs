@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use pubky_nexus::models::user::UserSearch;
+use pubky_nexus::models::{tag::search::TagSearch, user::UserSearch};
 use setup::run_setup;
 use std::time::Duration;
 use tokio::runtime::Runtime;
@@ -30,6 +30,30 @@ fn bench_user_search(c: &mut Criterion) {
     );
 }
 
+fn bench_tag_search_by_timeline(c: &mut Criterion) {
+    println!("***************************************");
+    println!("Benchmarking post tag search by timeline");
+    println!("***************************************");
+
+    run_setup();
+
+    let label = "free";
+    let rt = Runtime::new().unwrap();
+
+    c.bench_with_input(
+        BenchmarkId::new("tag_search_by_timeline", label),
+        &label,
+        |b, &label| {
+            b.to_async(&rt).iter(|| async {
+                let result = TagSearch::get_by_label(label, None, 0, 20)
+                    .await
+                    .unwrap();
+                criterion::black_box(result);
+            });
+        },
+    );
+}
+
 fn configure_criterion() -> Criterion {
     Criterion::default()
         .measurement_time(Duration::new(5, 0))
@@ -40,7 +64,8 @@ fn configure_criterion() -> Criterion {
 criterion_group! {
     name = benches;
     config = configure_criterion();
-    targets =   bench_user_search
+    targets =   bench_user_search,
+                bench_tag_search_by_timeline
 }
 
 criterion_main!(benches);

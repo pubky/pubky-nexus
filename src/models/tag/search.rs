@@ -12,7 +12,19 @@ pub const TAG_GLOBAL_POST_TIMELINE: [&str; 4] = ["Tags", "Global", "Post", "Time
 pub const TAG_GLOBAL_POST_ENGAGEMENT: [&str; 4] = ["Tags", "Global", "Post", "TotalEngagement"];
 
 #[derive(Serialize, Deserialize, ToSchema, Default)]
-pub struct TagSearch {}
+pub struct TagSearch {
+    pub post_id: String,
+    pub score: usize
+}
+
+impl From<(String, f64)> for TagSearch {
+    fn from(tuple: (String, f64)) -> Self {
+        TagSearch {
+            post_id: tuple.0,
+            score: tuple.1 as usize,
+        }
+    }
+}
 
 impl RedisOps for TagSearch {}
 
@@ -55,9 +67,9 @@ impl TagSearch {
         sort_by: Option<PostStreamSorting>,
         skip: usize,
         limit: usize,
-    ) -> Result<Option<Vec<(String, f64)>>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Option<Vec<TagSearch>>, Box<dyn Error + Send + Sync>> {
 
-        match sort_by {
+        let post_score_list = match sort_by {
             Some(PostStreamSorting::TotalEngagement) => {
                 Self::try_from_index_sorted_set(
                     &[&TAG_GLOBAL_POST_ENGAGEMENT[..], &[label]].concat(),
@@ -67,7 +79,7 @@ impl TagSearch {
                     Some(limit),
                     Sorting::Descending,
                 )
-                .await
+                .await?
             }
             // Default case always: SortBy::Timeline
             _ => {
@@ -79,8 +91,15 @@ impl TagSearch {
                     Some(limit),
                     Sorting::Descending,
                 )
-                .await
+                .await?
             }
+        };
+
+        match post_score_list {
+            Some(list) => {
+                Ok(Some(list.into_iter().map(|t| t.into()).collect()))
+            },
+            None => Ok(None)
         }
     }
 }

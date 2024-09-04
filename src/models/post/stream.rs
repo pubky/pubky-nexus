@@ -253,7 +253,7 @@ impl PostStream {
 
         match posts_sorted_set {
             Some(post_keys) => {
-                let post_keys: Vec<String> = post_keys.into_iter().map(|(key, _)| key).collect();
+                let post_keys: Vec<String> = post_keys.into_iter().map(|post_score| post_score.post_id).collect();
                 Self::from_listed_post_ids(viewer_id, &post_keys).await
             }
             None => Ok(None),
