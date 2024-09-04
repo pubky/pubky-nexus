@@ -1,5 +1,3 @@
-use std::error::Error;
-
 use axum::async_trait;
 use neo4rs::Query;
 
@@ -8,9 +6,9 @@ use crate::{
     queries, RedisOps,
 };
 
-use super::TagDetails;
+use crate::models::tag::TagDetails;
 
-type DynError = Box<dyn Error + Send + Sync>;
+use super::DynError;
 
 /// Trait for managing a collection of tags
 ///
@@ -38,7 +36,8 @@ where
         // TODO: Not sure if this is the place to do or in the endpoint
         let limit_tags = limit_tags.unwrap_or(5);
         let limit_taggers = limit_taggers.unwrap_or(5);
-        match Self::try_from_index(user_id, extra_param, limit_tags, limit_taggers).await? {
+        match Self::try_from_multiple_index(user_id, extra_param, limit_tags, limit_taggers).await?
+        {
             Some(counts) => Ok(Some(counts)),
             None => Self::get_from_graph(user_id, extra_param).await,
         }
@@ -52,7 +51,7 @@ where
     /// * limit_taggers - A limit on the number of taggers to retrieve.
     /// # Returns
     /// A Result containing an optional vector of TagDetails, or an error.
-    async fn try_from_index(
+    async fn try_from_multiple_index(
         user_id: &str,
         extra_param: Option<&str>,
         limit_tags: usize,

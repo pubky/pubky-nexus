@@ -1,4 +1,4 @@
-use crate::models::user::PubkyId;
+use handlers::{follow::parse_follow_id, post::parse_post_id, user::parse_user_id};
 use log::{debug, error, info};
 use pubky::PubkyClient;
 
@@ -7,7 +7,7 @@ pub mod processor;
 enum ResourceType {
     User,
     Post,
-    // Follow,
+    Follow,
     // File,
     // Bookmark,
     // Tag,
@@ -64,6 +64,8 @@ impl Event {
             ResourceType::User
         } else if uri.contains("/posts/") {
             ResourceType::Post
+        } else if uri.contains("/follows/") {
+            ResourceType::Follow
         } else {
             // Handle other resource types
             error!("Unrecognized resource in URI: {}", uri);
@@ -75,50 +77,6 @@ impl Event {
             uri: Uri::new(resource_type, uri),
             pubky_client,
         })
-    }
-
-    fn get_user_id(&self) -> Result<PubkyId, Box<dyn std::error::Error + Send + Sync>> {
-        // Define the patterns we are looking for in the URI
-        let pattern = "pubky://";
-        let pub_segment = "/pub/";
-
-        // Find the starting position of the user_id part in the URI
-        let start_idx = self
-            .uri
-            .path
-            .find(pattern)
-            .map(|start| start + pattern.len())
-            .ok_or("Pattern not found in URI")?;
-
-        // Find the ending position of the user_id part
-        let end_idx = self.uri.path[start_idx..]
-            .find(pub_segment)
-            .ok_or("Pub segment not found in URI")?;
-
-        // Extract the user_id and attempt to convert it into a PubkyId
-        let user_id_str = &self.uri.path[start_idx..start_idx + end_idx];
-        let user_id = PubkyId::try_from(user_id_str)?;
-
-        Ok(user_id)
-    }
-
-    fn get_post_id(&self) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        // Define the pattern we're looking for in the URI
-        let post_segment = "/posts/";
-
-        // Find the starting position of the post_id part in the URI
-        let start_idx = self
-            .uri
-            .path
-            .find(post_segment)
-            .map(|start| start + post_segment.len())
-            .ok_or("Post segment not found in URI")?;
-
-        // Extract the post_id from the path
-        let post_id = &self.uri.path[start_idx..];
-
-        // Return the post_id as a string
-        Ok(post_id.to_string())
     }
 
     async fn handle(&self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
@@ -144,10 +102,12 @@ impl Event {
         };
 
         match self.uri.resource_type {
-            ResourceType::User => handlers::user::put(self.get_user_id()?, blob).await?,
-
+            ResourceType::User => handlers::user::put(parse_user_id(self)?, blob).await?,
             ResourceType::Post => {
-                handlers::post::put(self.get_user_id()?, self.get_post_id()?, blob).await?
+                handlers::post::put(parse_user_id(self)?, parse_post_id(self)?, blob).await?
+            }
+            ResourceType::Follow => {
+                handlers::follow::put(parse_user_id(self)?, parse_follow_id(self)?, blob).await?
             }
         }
 
@@ -157,9 +117,12 @@ impl Event {
     async fn handle_del_event(&self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
         debug!("Handling DEL event for {}", self.uri.path);
         match self.uri.resource_type {
-            ResourceType::User => handlers::user::del(self.get_user_id()?).await?,
+            ResourceType::User => handlers::user::del(parse_user_id(self)?).await?,
             ResourceType::Post => {
-                handlers::post::del(self.get_user_id()?, self.get_post_id()?).await?
+                handlers::post::del(parse_user_id(self)?, parse_post_id(self)?).await?
+            }
+            ResourceType::Follow => {
+                handlers::follow::del(parse_user_id(self)?, parse_follow_id(self)?).await?
             }
         }
 

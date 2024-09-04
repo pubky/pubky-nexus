@@ -46,3 +46,25 @@ pub fn create_post(post: &PostDetails) -> Result<Query, Box<dyn std::error::Erro
 
     Ok(query)
 }
+
+/// Create a follows relationship between two users
+/// Validates that both users exist before creating the relationship
+pub fn create_follow(follower_id: &str, followee_id: &str, indexed_at: i64) -> Query {
+    query(
+        "MATCH (follower:User {id: $follower_id}), (followee:User {id: $followee_id})
+         MERGE (follower)-[:FOLLOWS {indexed_at: $indexed_at}]->(followee);",
+    )
+    .param("follower_id", follower_id.to_string())
+    .param("followee_id", followee_id.to_string())
+    .param("indexed_at", indexed_at)
+}
+
+/// Delete a follows relationship between two users
+pub fn delete_follow(follower_id: &str, followee_id: &str) -> Query {
+    query(
+        "MATCH (follower:User {id: $follower_id})-[r:FOLLOWS]->(followee:User {id: $followee_id})
+         DELETE r;",
+    )
+    .param("follower_id", follower_id.to_string())
+    .param("followee_id", followee_id.to_string())
+}

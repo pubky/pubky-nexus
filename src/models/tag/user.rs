@@ -3,7 +3,7 @@ use axum::async_trait;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use super::traits::TagCollection;
+use super::traits::{TagCollection, TaggersCollection};
 
 const USER_TAGS_KEY_PARTS: [&str; 2] = ["Users", "Tag"];
 
@@ -22,3 +22,5 @@ impl TagCollection for TagUser {
         USER_TAGS_KEY_PARTS
     }
 }
+
+impl TaggersCollection for TagUser {}

@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use anyhow::Result;
 use pkarr::{mainline::Testnet, Keypair};
 use pubky::PubkyClient;
@@ -22,7 +24,10 @@ impl WatcherTest {
 
         let testnet = Testnet::new(10);
         let homeserver = Homeserver::start_test(&testnet).await?;
-        let client = PubkyClient::test(&testnet);
+        let client = PubkyClient::builder()
+            .testnet(&testnet)
+            .dht_request_timeout(Duration::from_millis(2000))
+            .build();
         let homeserver_url = format!("http://localhost:{}", homeserver.port());
         let event_processor = EventProcessor::test(&testnet, homeserver_url).await;
 
@@ -38,7 +43,7 @@ impl WatcherTest {
             .run()
             .await
             .map_err(|e| anyhow::anyhow!(e))?;
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await; // Ensure completion
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await; // Ensure completion
         Ok(())
     }
 
