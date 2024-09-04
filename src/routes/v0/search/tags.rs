@@ -34,14 +34,7 @@ pub async fn search_post_tags_handler(
     let skip = query.skip.unwrap_or(0);
     let limit = query.limit.unwrap_or(20);
 
-    match TagSearch::get_by_label(
-        &label,
-        query.sorting,
-        skip,
-        limit,
-    )
-    .await
-    {
+    match TagSearch::get_by_label(&label, query.sorting, skip, limit).await {
         Ok(Some(posts_list)) => Ok(Json(posts_list)),
         Ok(None) => Err(Error::PostNotFound {
             author_id: String::from("global"),

@@ -137,8 +137,7 @@ async fn test_post_tag_search_by_engagement_with_limit() -> Result<()> {
     let post_order = vec![POST_A, POST_C];
     let path = format!(
         "{}/{}?sorting=totalengagement&limit=2",
-        ROOT_PATH,
-        OPENSOURCE_LABEL
+        ROOT_PATH, OPENSOURCE_LABEL
     );
     let body = make_request(&path).await?;
 
@@ -160,8 +159,7 @@ async fn test_post_tag_search_by_engagement_with_skip() -> Result<()> {
     let post_order = vec![POST_E, POST_D];
     let path = format!(
         "{}/{}?sorting=totalengagement&skip=6",
-        ROOT_PATH,
-        OPENSOURCE_LABEL
+        ROOT_PATH, OPENSOURCE_LABEL
     );
     let body = make_request(&path).await?;
 
@@ -183,8 +181,7 @@ async fn test_post_tag_search_by_engagement_with_skip_and_limit() -> Result<()> 
     let post_order = vec![POST_C];
     let path = format!(
         "{}/{}?sorting=totalengagement&skip=1&limit=1",
-        ROOT_PATH,
-        OPENSOURCE_LABEL
+        ROOT_PATH, OPENSOURCE_LABEL
     );
     let body = make_request(&path).await?;
 
@@ -203,11 +200,7 @@ async fn test_post_tag_search_by_engagement_with_skip_and_limit() -> Result<()> 
 
 #[tokio::test]
 async fn test_post_specific_tag_with_no_result() -> Result<()> {
-    let path = format!(
-        "{}/{}",
-        ROOT_PATH,
-        "randommm"
-    );
+    let path = format!("{}/{}", ROOT_PATH, "randommm");
     make_wrong_request(&path).await?;
 
     Ok(())

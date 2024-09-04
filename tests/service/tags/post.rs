@@ -2,9 +2,7 @@ use anyhow::Result;
 
 use crate::service::utils::{make_request, make_wrong_request};
 
-use super::utils::{
-    analyse_tag_details_structure, compare_tag_details, TagMockup,
-};
+use super::utils::{analyse_tag_details_structure, compare_tag_details, TagMockup};
 
 // Peter user from test/tags.cypher
 const PEER_PUBKY: &str = "db6w58pd5h63fbhtd88y8zz7pai9rkjwqt9omg6i7dz31dynrgcy";

@@ -14,7 +14,7 @@ pub const TAG_GLOBAL_POST_ENGAGEMENT: [&str; 4] = ["Tags", "Global", "Post", "To
 #[derive(Serialize, Deserialize, ToSchema, Default)]
 pub struct TagSearch {
     pub post_id: String,
-    pub score: usize
+    pub score: usize,
 }
 
 impl From<(String, f64)> for TagSearch {
@@ -68,7 +68,6 @@ impl TagSearch {
         skip: usize,
         limit: usize,
     ) -> Result<Option<Vec<TagSearch>>, Box<dyn Error + Send + Sync>> {
-
         let post_score_list = match sort_by {
             Some(PostStreamSorting::TotalEngagement) => {
                 Self::try_from_index_sorted_set(
@@ -96,10 +95,8 @@ impl TagSearch {
         };
 
         match post_score_list {
-            Some(list) => {
-                Ok(Some(list.into_iter().map(|t| t.into()).collect()))
-            },
-            None => Ok(None)
+            Some(list) => Ok(Some(list.into_iter().map(|t| t.into()).collect())),
+            None => Ok(None),
         }
     }
 }

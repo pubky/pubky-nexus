@@ -1,7 +1,10 @@
 use super::{Bookmark, PostCounts, PostDetails, PostView};
 use crate::{
     db::kv::index::sorted_sets::Sorting,
-    models::{tag::search::TagSearch, user::{Followers, Following, Friends, UserFollows}},
+    models::{
+        tag::search::TagSearch,
+        user::{Followers, Following, Friends, UserFollows},
+    },
     RedisOps,
 };
 use serde::{Deserialize, Serialize};
@@ -253,7 +256,10 @@ impl PostStream {
 
         match posts_sorted_set {
             Some(post_keys) => {
-                let post_keys: Vec<String> = post_keys.into_iter().map(|post_score| post_score.post_id).collect();
+                let post_keys: Vec<String> = post_keys
+                    .into_iter()
+                    .map(|post_score| post_score.post_id)
+                    .collect();
                 Self::from_listed_post_ids(viewer_id, &post_keys).await
             }
             None => Ok(None),

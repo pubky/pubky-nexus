@@ -1,6 +1,7 @@
 use crate::models::post::{PostStream, PostStreamReach, PostStreamSorting};
 use crate::routes::v0::endpoints::{
-    STREAM_POSTS_BOOKMARKED_ROUTE, STREAM_POSTS_REACH_ROUTE, STREAM_POSTS_ROUTE, STREAM_POSTS_TAG_ROUTE, STREAM_POSTS_USER_ROUTE
+    STREAM_POSTS_BOOKMARKED_ROUTE, STREAM_POSTS_REACH_ROUTE, STREAM_POSTS_ROUTE,
+    STREAM_POSTS_TAG_ROUTE, STREAM_POSTS_USER_ROUTE,
 };
 use crate::routes::v0::queries::PostStreamQuery;
 use crate::{Error, Result};
@@ -172,8 +173,6 @@ pub async fn stream_bookmarked_posts_handler(
         Err(source) => Err(Error::InternalServerError { source }),
     }
 }
-
-
 
 #[utoipa::path(
     get,

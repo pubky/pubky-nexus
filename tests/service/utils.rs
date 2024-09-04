@@ -1,6 +1,5 @@
 use serde_json::Value;
 
-
 pub const HOST_URL: &str = "http://localhost:8080";
 
 // #######################################
