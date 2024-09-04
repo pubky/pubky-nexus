@@ -2,8 +2,8 @@ use pubky_nexus::models::tag::traits::DynError;
 
 pub mod hot;
 pub mod post;
-pub mod user;
 pub mod search;
+pub mod user;
 
 pub mod utils;
 

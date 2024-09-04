@@ -35,7 +35,15 @@ pub async fn search_post_tags_handler(
         label, query.sorting, query.viewer_id, query.skip, query.limit
     );
 
-    match TagSearch::get_by_label(&label, query.sorting, query.viewer_id, query.skip, query.limit).await {
+    match TagSearch::get_by_label(
+        &label,
+        query.sorting,
+        query.viewer_id,
+        query.skip,
+        query.limit,
+    )
+    .await
+    {
         Ok(Some(stream)) => Ok(Json(stream)),
         Ok(None) => Err(Error::PostNotFound {
             author_id: String::from("global"),

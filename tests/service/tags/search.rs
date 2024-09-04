@@ -128,7 +128,10 @@ async fn test_post_tag_search_by_engagement() -> Result<()> {
 #[tokio::test]
 async fn test_post_tag_search_by_engagement_with_limit() -> Result<()> {
     let post_order = vec![POST_A, POST_C];
-    let path = format!("/v0/search/tags/{}?sorting=totalengagement&limit=2", FREE_LABEL);
+    let path = format!(
+        "/v0/search/tags/{}?sorting=totalengagement&limit=2",
+        FREE_LABEL
+    );
     let body = make_request(&path).await?;
 
     assert!(body.is_array());
@@ -147,7 +150,10 @@ async fn test_post_tag_search_by_engagement_with_limit() -> Result<()> {
 #[tokio::test]
 async fn test_post_tag_search_by_engagement_with_skip() -> Result<()> {
     let post_order = vec![POST_B];
-    let path = format!("/v0/search/tags/{}?sorting=totalengagement&skip=2", FREE_LABEL);
+    let path = format!(
+        "/v0/search/tags/{}?sorting=totalengagement&skip=2",
+        FREE_LABEL
+    );
     let body = make_request(&path).await?;
 
     assert!(body.is_array());
@@ -166,7 +172,10 @@ async fn test_post_tag_search_by_engagement_with_skip() -> Result<()> {
 #[tokio::test]
 async fn test_post_tag_search_by_engagement_with_skip_and_limit() -> Result<()> {
     let post_order = vec![POST_C];
-    let path = format!("/v0/search/tags/{}?sorting=totalengagement&skip=1&limit=1", FREE_LABEL);
+    let path = format!(
+        "/v0/search/tags/{}?sorting=totalengagement&skip=1&limit=1",
+        FREE_LABEL
+    );
     let body = make_request(&path).await?;
 
     assert!(body.is_array());
@@ -188,13 +197,19 @@ fn search_tag_in_post(posts: &Vec<Value>, label: &str, post_order: Vec<&str>) {
     for (index, post) in posts.iter().enumerate() {
         let mut exist = false;
         // Check if the order of the post is the right one
-        assert_eq!(post["details"]["id"], post_order[index], "The post does not have the right ordering");
+        assert_eq!(
+            post["details"]["id"], post_order[index],
+            "The post does not have the right ordering"
+        );
         for tag in post["tags"].as_array().unwrap() {
             if tag["label"] == label {
                 exist = true;
                 break;
             }
         }
-        assert_eq!(true, exist, "The tag was not found in the post. Wrong search")
+        assert_eq!(
+            true, exist,
+            "The tag was not found in the post. Wrong search"
+        )
     }
 }

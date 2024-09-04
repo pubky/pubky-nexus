@@ -69,9 +69,15 @@ fn bench_tag_search_by_engagement(c: &mut Criterion) {
         &label,
         |b, &label| {
             b.to_async(&rt).iter(|| async {
-                let result = TagSearch::get_by_label(label, Some(PostStreamSorting::TotalEngagement), None, None, None)
-                    .await
-                    .unwrap();
+                let result = TagSearch::get_by_label(
+                    label,
+                    Some(PostStreamSorting::TotalEngagement),
+                    None,
+                    None,
+                    None,
+                )
+                .await
+                .unwrap();
                 criterion::black_box(result);
             });
         },

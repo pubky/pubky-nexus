@@ -1,5 +1,5 @@
-use serde::Deserialize;
 use crate::models::post::PostStreamSorting;
+use serde::Deserialize;
 
 #[derive(Deserialize)]
 pub struct TagsQuery {
