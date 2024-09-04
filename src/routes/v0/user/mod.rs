@@ -16,6 +16,7 @@ pub fn routes() -> Router {
         endpoints::USER_DETAILS_ROUTE => details::user_details_handler,
         endpoints::RELATIONSHIP_ROUTE => relationship::user_relationship_handler,
         endpoints::USER_TAGS_ROUTE => tags::user_tags_handler,
+        endpoints::USER_TAGGERS_ROUTE => tags::user_taggers_handler,
         endpoints::USER_COUNTS_ROUTE => counts::user_counts_handler,
         endpoints::USER_FOLLOWERS_ROUTE => follows::user_followers_handler,
         endpoints::USER_FOLLOWING_ROUTE => follows::user_following_handler,
