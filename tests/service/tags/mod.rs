@@ -3,6 +3,8 @@ use pubky_nexus::models::tag::traits::DynError;
 pub mod hot;
 pub mod post;
 pub mod user;
+pub mod search;
+
 pub mod utils;
 
 // CMD to run test: cargo watch -q -c -w tests/ -x "test tag -- --nocapture"

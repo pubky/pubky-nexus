@@ -3,20 +3,13 @@ use crate::routes::v0::endpoints::{
     STREAM_POSTS_BOOKMARKED_ROUTE, STREAM_POSTS_REACH_ROUTE, STREAM_POSTS_ROUTE,
     STREAM_POSTS_USER_ROUTE,
 };
+use crate::routes::v0::queries::PostStreamQuery;
 use crate::{Error, Result};
 use axum::extract::Query;
 use axum::Json;
 use log::info;
 use serde::Deserialize;
 use utoipa::OpenApi;
-
-#[derive(Deserialize)]
-pub struct PostStreamQuery {
-    viewer_id: Option<String>,
-    skip: Option<usize>,
-    limit: Option<usize>,
-    sorting: Option<PostStreamSorting>,
-}
 
 #[utoipa::path(
     get,
@@ -34,6 +27,7 @@ pub struct PostStreamQuery {
         (status = 500, description = "Internal server error")
     )
 )]
+
 pub async fn stream_global_posts_handler(
     Query(query): Query<PostStreamQuery>,
 ) -> Result<Json<PostStream>> {

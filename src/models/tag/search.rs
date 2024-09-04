@@ -1,6 +1,6 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
 use crate::db::kv::index::sorted_sets::Sorting;
-use crate::models::post::PostStream;
+use crate::models::post::{PostStream, PostStreamSorting};
 use crate::queries::read::{global_tags_by_post, global_tags_by_post_engagement};
 use crate::RedisOps;
 use neo4rs::Query;
@@ -9,14 +9,7 @@ use std::error::Error;
 use utoipa::ToSchema;
 
 pub const TAG_GLOBAL_POST_TIMELINE: [&str; 4] = ["Tags", "Global", "Post", "Timeline"];
-pub const TAG_GLOBAL_POST_ENGAGEMENT: [&str; 4] = ["Tags", "Global", "Post", "Engagement"];
-
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "lowercase")]
-pub enum SortBy {
-    Timeline,
-    Engagement,
-}
+pub const TAG_GLOBAL_POST_ENGAGEMENT: [&str; 4] = ["Tags", "Global", "Post", "TotalEngagement"];
 
 #[derive(Serialize, Deserialize, ToSchema, Default)]
 pub struct TagSearch {}
@@ -37,7 +30,8 @@ impl TagSearch {
 
     pub async fn get_by_label(
         label: &str,
-        sort_by: Option<SortBy>,
+        sort_by: Option<PostStreamSorting>,
+        viewer_id: Option<String>,
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Option<PostStream>, Box<dyn Error + Send + Sync>> {
@@ -45,7 +39,7 @@ impl TagSearch {
         let limit = limit.unwrap_or(6);
 
         let posts_sorted_set = match sort_by {
-            Some(SortBy::Engagement) => {
+            Some(PostStreamSorting::TotalEngagement) => {
                 Self::try_from_index_sorted_set(
                     &[&TAG_GLOBAL_POST_ENGAGEMENT[..], &[label]].concat(),
                     None,
@@ -73,7 +67,7 @@ impl TagSearch {
         match posts_sorted_set {
             Some(post_keys) => {
                 let post_keys: Vec<String> = post_keys.into_iter().map(|(key, _)| key).collect();
-                PostStream::from_listed_post_ids(None, &post_keys).await
+                PostStream::from_listed_post_ids(viewer_id, &post_keys).await
             }
             None => Ok(None),
         }

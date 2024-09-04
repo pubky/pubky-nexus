@@ -14,7 +14,8 @@ const POST_TOTAL_ENGAGEMENT_KEY_PARTS: [&str; 3] = ["Posts", "Global", "TotalEng
 const POST_PER_USER_KEY_PARTS: [&str; 2] = ["Posts", "User"];
 const BOOKMARKS_USER_KEY_PARTS: [&str; 2] = ["Bookmarks", "User"];
 
-#[derive(Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
 pub enum PostStreamSorting {
     Timeline,
     TotalEngagement,

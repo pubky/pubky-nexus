@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use crate::models::post::PostStreamSorting;
 
 #[derive(Deserialize)]
 pub struct TagsQuery {
@@ -10,4 +11,12 @@ pub struct TagsQuery {
 pub struct PaginationQuery {
     pub skip: Option<usize>,
     pub limit: Option<usize>,
+}
+
+#[derive(Deserialize)]
+pub struct PostStreamQuery {
+    pub viewer_id: Option<String>,
+    pub skip: Option<usize>,
+    pub limit: Option<usize>,
+    pub sorting: Option<PostStreamSorting>,
 }
