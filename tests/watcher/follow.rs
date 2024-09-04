@@ -2,6 +2,7 @@ use super::utils::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
 use pkarr::Keypair;
+use pubky_nexus::get_pubky_client;
 use pubky_nexus::models::{
     pubky_app::{PubkyAppFollow, PubkyAppUser},
     user::{Followers, Following, UserFollows},
@@ -42,7 +43,12 @@ async fn test_homeserver_follow() -> Result<()> {
         "pubky://{}/pub/pubky-app/follows/{}",
         follower_id, followee_id
     );
-    test.client.put(follow_url.as_str(), &blob).await?;
+
+    let pubky_client = get_pubky_client().await.unwrap();
+    {
+        let pubky_client = pubky_client.lock().unwrap();
+        pubky_client.put(follow_url.as_str(), &blob).await?;
+    }
 
     // Process the event
     test.ensure_event_processing_complete().await?;
@@ -63,7 +69,10 @@ async fn test_homeserver_follow() -> Result<()> {
     assert_eq!(result_following.0[0], followee_id);
 
     // Unfollow the user
-    test.client.delete(follow_url.as_str()).await?;
+    {
+        let pubky_client = pubky_client.lock().unwrap();
+        pubky_client.delete(follow_url.as_str()).await?;
+    }
 
     // Process the event
     test.ensure_event_processing_complete().await?;

@@ -1,6 +1,6 @@
+use crate::db::connectors::pubky::get_pubky_client;
 use handlers::{follow::parse_follow_id, post::parse_post_id, user::parse_user_id};
 use log::{debug, error, info};
-use pubky::PubkyClient;
 
 pub mod handlers;
 pub mod processor;
@@ -37,11 +37,10 @@ enum EventType {
 pub struct Event {
     event_type: EventType,
     uri: Uri,
-    pubky_client: PubkyClient,
 }
 
 impl Event {
-    fn from_str(line: &str, pubky_client: PubkyClient) -> Option<Self> {
+    fn from_str(line: &str) -> Option<Self> {
         info!("Line {}", line);
         let parts: Vec<&str> = line.splitn(2, ' ').collect();
         if parts.len() != 2 {
@@ -75,7 +74,6 @@ impl Event {
         Some(Event {
             event_type,
             uri: Uri::new(resource_type, uri),
-            pubky_client,
         })
     }
 
@@ -89,17 +87,23 @@ impl Event {
     async fn handle_put_event(&self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
         debug!("Handling PUT event for {}", self.uri.path);
         let url = reqwest::Url::parse(&self.uri.path)?;
-        let blob = match self.pubky_client.get(url).await {
-            Ok(Some(blob)) => blob,
-            Ok(None) => {
-                error!("No content found at {}", self.uri.path);
-                return Ok(());
-            }
-            Err(e) => {
-                error!("Failed to fetch content at {}: {}", self.uri.path, e);
-                return Err(e.into());
-            }
-        };
+        let pubky_client = get_pubky_client().await.unwrap();
+        let blob;
+        {
+            // Lock the PubkyClient and fetch the data
+            let pubky_client = pubky_client.lock().unwrap();
+            blob = match pubky_client.get(url).await {
+                Ok(Some(blob)) => blob,
+                Ok(None) => {
+                    error!("No content found at {}", self.uri.path);
+                    return Ok(());
+                }
+                Err(e) => {
+                    error!("Failed to fetch content at {}: {}", self.uri.path, e);
+                    return Err(e.into());
+                }
+            };
+        }
 
         match self.uri.resource_type {
             ResourceType::User => handlers::user::put(parse_user_id(self)?, blob).await?,

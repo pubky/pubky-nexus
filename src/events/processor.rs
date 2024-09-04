@@ -1,13 +1,10 @@
 use crate::Config;
 use log::{debug, info};
-use pkarr::mainline::Testnet;
-use pubky::PubkyClient;
 use reqwest::Client;
 
 use super::Event;
 
 pub struct EventProcessor {
-    pubky_client: PubkyClient,
     http_client: Client,
     homeserver_url: String, // Ideally should only need the homeserver_pk
     cursor: String,
@@ -16,33 +13,11 @@ pub struct EventProcessor {
 
 impl EventProcessor {
     pub async fn from_config(config: &Config) -> Self {
-        let pubky_client = match config.testnet {
-            true => {
-                let testnet = Testnet {
-                    bootstrap: vec![config.bootstrap.clone()],
-                    nodes: vec![],
-                };
-                PubkyClient::test(&testnet)
-            }
-            false => PubkyClient::default(),
-        };
-
         Self {
-            pubky_client,
             http_client: Client::new(),
             homeserver_url: config.homeserver_url.clone(),
             cursor: "0".to_string(),
             limit: config.events_limit,
-        }
-    }
-
-    pub async fn test(testnet: &Testnet, homeserver_url: String) -> Self {
-        Self {
-            pubky_client: PubkyClient::builder().testnet(testnet).build(),
-            http_client: Client::new(),
-            homeserver_url,
-            cursor: "0".to_string(),
-            limit: 100,
         }
     }
 
@@ -88,7 +63,7 @@ impl EventProcessor {
                     self.cursor = cursor.to_string();
                     info!("Cursor for the next request: {}", cursor);
                 }
-            } else if let Some(event) = Event::from_str(line, self.pubky_client.clone()) {
+            } else if let Some(event) = Event::from_str(line) {
                 event.handle().await?;
             }
         }

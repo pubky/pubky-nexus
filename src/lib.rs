@@ -5,9 +5,10 @@ pub mod events;
 pub mod models;
 mod reindex;
 pub mod routes;
-mod setup;
+pub mod setup;
 
 pub use config::Config;
+pub use db::connectors::pubky::get_pubky_client;
 pub use db::graph::queries;
 pub use db::kv::is_empty::redis_is_empty;
 pub use db::kv::traits::RedisOps;

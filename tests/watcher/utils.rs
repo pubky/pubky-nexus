@@ -1,6 +1,5 @@
-use std::time::Duration;
-
 use anyhow::Result;
+use once_cell::sync::OnceCell;
 use pkarr::{mainline::Testnet, Keypair};
 use pubky::PubkyClient;
 use pubky_homeserver::Homeserver;
@@ -9,27 +8,50 @@ use pubky_nexus::{
     setup, Config, EventProcessor,
 };
 use serde_json::to_vec;
+use std::sync::Arc;
+use std::sync::Once;
+use std::time::Duration;
 
-/// Struct to hold the setup environment for tests
 pub struct WatcherTest {
-    pub homeserver: Homeserver,
-    pub client: PubkyClient,
+    pub homeserver: Arc<Homeserver>,
+    pub client: Arc<PubkyClient>,
     pub event_processor: EventProcessor,
 }
 
-impl WatcherTest {
-    pub async fn setup() -> Result<Self> {
-        let config = Config::from_env();
-        setup(&config).await;
+static INIT: Once = Once::new();
+static HOMESERVER: OnceCell<Arc<Homeserver>> = OnceCell::new();
+static PUBKY_CLIENT: OnceCell<Arc<PubkyClient>> = OnceCell::new();
 
-        let testnet = Testnet::new(10);
-        let homeserver = Homeserver::start_test(&testnet).await?;
-        let client = PubkyClient::builder()
-            .testnet(&testnet)
-            .dht_request_timeout(Duration::from_millis(2000))
-            .build();
+impl WatcherTest {
+    pub async fn setup_test() -> Result<Self> {
+        INIT.call_once(|| {
+            tokio::spawn(async {
+                let config = Config::from_env();
+                setup(&config).await;
+
+                let testnet = Testnet::new(10);
+                let homeserver = Homeserver::start_test(&testnet).await.unwrap();
+                let client = PubkyClient::builder()
+                    .testnet(&testnet)
+                    .dht_request_timeout(Duration::from_millis(2000))
+                    .build();
+
+                HOMESERVER.set(Arc::new(homeserver)).unwrap();
+                PUBKY_CLIENT.set(Arc::new(client)).unwrap();
+            });
+        });
+
+        let homeserver = HOMESERVER
+            .get()
+            .expect("Homeserver is not initialized")
+            .clone();
+        let client = PUBKY_CLIENT
+            .get()
+            .expect("PubkyClient is not initialized")
+            .clone();
+
         let homeserver_url = format!("http://localhost:{}", homeserver.port());
-        let event_processor = EventProcessor::test(&testnet, homeserver_url).await;
+        let event_processor = EventProcessor::test(&Testnet::new(10), homeserver_url).await;
 
         Ok(Self {
             homeserver,
@@ -38,6 +60,7 @@ impl WatcherTest {
         })
     }
 
+    // The rest of the methods remain the same...
     pub async fn ensure_event_processing_complete(&mut self) -> Result<()> {
         self.event_processor
             .run()
