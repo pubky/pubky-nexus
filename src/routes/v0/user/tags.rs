@@ -35,7 +35,9 @@ pub async fn user_tags_handler(
         user_id, query.limit_tags, query.limit_taggers
     );
 
-    match TagUser::try_from_multiple_index(&user_id, None, query.limit_tags, query.limit_taggers).await {
+    match TagUser::try_from_multiple_index(&user_id, None, query.limit_tags, query.limit_taggers)
+        .await
+    {
         Ok(Some(tags)) => Ok(Json(tags)),
         Ok(None) => Err(Error::UserNotFound { user_id }),
         Err(source) => Err(Error::InternalServerError { source }),

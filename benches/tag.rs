@@ -27,7 +27,9 @@ fn bench_get_user_tags(c: &mut Criterion) {
         &user_id,
         |b, &id| {
             b.to_async(&rt).iter(|| async {
-                let tag_details_list = TagUser::try_from_multiple_index(id, None, None, None).await.unwrap();
+                let tag_details_list = TagUser::try_from_multiple_index(id, None, None, None)
+                    .await
+                    .unwrap();
                 criterion::black_box(tag_details_list);
             });
         },
@@ -77,9 +79,10 @@ fn bench_get_post_tags(c: &mut Criterion) {
         &[user_id, post_id],
         |b, &params| {
             b.to_async(&rt).iter(|| async {
-                let tag_details_list = TagPost::try_from_multiple_index(params[0], Some(params[1]), None, None)
-                    .await
-                    .unwrap();
+                let tag_details_list =
+                    TagPost::try_from_multiple_index(params[0], Some(params[1]), None, None)
+                        .await
+                        .unwrap();
                 criterion::black_box(tag_details_list);
             });
         },
