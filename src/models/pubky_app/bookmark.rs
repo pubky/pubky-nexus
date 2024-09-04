@@ -1,4 +1,4 @@
-use super::traits::GenerateId;
+use super::traits::{GenerateId, Validatable};
 use serde::{Deserialize, Serialize};
 
 /// Represents raw homeserver bookmark with id
@@ -18,6 +18,13 @@ impl GenerateId for PubkyAppBookmark {
     /// Bookmark ID is created based on the hash of the URI bookmarked
     fn get_id_data(&self) -> String {
         self.uri.clone()
+    }
+}
+
+impl Validatable for PubkyAppBookmark {
+    fn validate(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // TODO: validate ID of incoming bookmark is correct
+        Ok(())
     }
 }
 

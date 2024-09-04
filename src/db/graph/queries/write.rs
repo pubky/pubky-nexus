@@ -68,3 +68,31 @@ pub fn delete_follow(follower_id: &str, followee_id: &str) -> Query {
     .param("follower_id", follower_id.to_string())
     .param("followee_id", followee_id.to_string())
 }
+
+pub fn create_post_bookmark(
+    user_id: &str,
+    author_id: &str,
+    post_id: &str,
+    bookmark_id: &str,
+    indexed_at: i64,
+) -> Query {
+    query(
+        "MATCH (u:User {id: $user_id})
+         MATCH (author:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+         MERGE (u)-[b:BOOKMARKED {id: $bookmark_id, indexed_at: $indexed_at}]->(p)",
+    )
+    .param("user_id", user_id)
+    .param("author_id", author_id)
+    .param("post_id", post_id)
+    .param("bookmark_id", bookmark_id)
+    .param("indexed_at", indexed_at)
+}
+
+pub fn delete_bookmark(user_id: &str, bookmark_id: &str) -> Query {
+    query(
+        "MATCH (u:User {id: $user_id})-[b:BOOKMARKED {id: $bookmark_id}]->(target)
+         DELETE b",
+    )
+    .param("user_id", user_id)
+    .param("bookmark_id", bookmark_id)
+}

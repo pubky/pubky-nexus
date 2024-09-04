@@ -31,7 +31,7 @@ pub enum PostStreamReach {
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]
-pub struct PostStream(Vec<PostView>);
+pub struct PostStream(pub Vec<PostView>);
 
 impl RedisOps for PostStream {}
 
