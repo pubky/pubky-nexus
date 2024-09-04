@@ -35,7 +35,7 @@ pub async fn post_tags_handler(
         "GET {POST_TAGS_ROUTE} user_id:{}, post_id: {}, limit_tags:{:?}, limit_taggers:{:?}",
         user_id, post_id, query.limit_tags, query.limit_taggers
     );
-    match TagPost::get_by_id(
+    match TagPost::try_from_multiple_index(
         &user_id,
         Some(&post_id),
         query.limit_tags,

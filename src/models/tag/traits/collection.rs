@@ -19,30 +19,6 @@ pub trait TagCollection
 where
     Self: RedisOps,
 {
-    /// Retrieves the tag collection, either from an index or directly from the graph database.
-    /// # Arguments
-    /// * user_id - The key of the user for whom to retrieve tags.
-    /// * extra_param - An optional parameter for specifying additional constraints (e.g., an post_id)
-    /// * limit_tags - An optional limit on the number of tags to retrieve.
-    /// * limit_taggers - An optional limit on the number of taggers to retrieve.
-    /// # Returns
-    /// A Result containing an optional vector of TagDetails, or an error.
-    async fn get_by_id(
-        user_id: &str,
-        extra_param: Option<&str>,
-        limit_tags: Option<usize>,
-        limit_taggers: Option<usize>,
-    ) -> Result<Option<Vec<TagDetails>>, DynError> {
-        // TODO: Not sure if this is the place to do or in the endpoint
-        let limit_tags = limit_tags.unwrap_or(5);
-        let limit_taggers = limit_taggers.unwrap_or(5);
-        match Self::try_from_multiple_index(user_id, extra_param, limit_tags, limit_taggers).await?
-        {
-            Some(counts) => Ok(Some(counts)),
-            None => Self::get_from_graph(user_id, extra_param).await,
-        }
-    }
-
     /// Tries to retrieve the tag collection from an index in Redis.
     /// # Arguments
     /// * user_id - The key of the user for whom to retrieve tags.
@@ -54,9 +30,11 @@ where
     async fn try_from_multiple_index(
         user_id: &str,
         extra_param: Option<&str>,
-        limit_tags: usize,
-        limit_taggers: usize,
+        limit_tags: Option<usize>,
+        limit_taggers: Option<usize>,
     ) -> Result<Option<Vec<TagDetails>>, DynError> {
+        let limit_tags = limit_tags.unwrap_or(5);
+        let limit_taggers = limit_taggers.unwrap_or(5);
         let key_parts = Self::create_sorted_set_key_parts(user_id, extra_param);
         match Self::try_from_index_sorted_set(
             &key_parts,
