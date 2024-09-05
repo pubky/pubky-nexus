@@ -1,5 +1,6 @@
 use handlers::{
-    bookmark::parse_bookmark_id, follow::parse_follow_id, post::parse_post_id, user::parse_user_id,
+    bookmark::parse_bookmark_id, follow::parse_follow_id, post::parse_post_id, tag::parse_tag_id,
+    user::parse_user_id,
 };
 use log::{debug, error};
 use pubky::PubkyClient;
@@ -11,10 +12,8 @@ enum ResourceType {
     Post,
     Follow,
     Bookmark,
+    Tag,
     // File,
-    // Tag,
-
-    // Add more as needed
 }
 
 struct Uri {
@@ -70,6 +69,8 @@ impl Event {
             ResourceType::Follow
         } else if uri.contains("/bookmarks/") {
             ResourceType::Bookmark
+        } else if uri.contains("/tags/") {
+            ResourceType::Tag
         } else {
             // Handle other resource types
             error!("Unrecognized resource in URI: {}", uri);
@@ -119,6 +120,9 @@ impl Event {
             ResourceType::Bookmark => {
                 handlers::bookmark::put(parse_user_id(uri)?, parse_bookmark_id(uri)?, blob).await?
             }
+            ResourceType::Tag => {
+                handlers::tag::put(parse_user_id(uri)?, parse_tag_id(uri)?, blob).await?
+            }
         }
 
         Ok(())
@@ -138,6 +142,9 @@ impl Event {
             }
             ResourceType::Bookmark => {
                 handlers::bookmark::del(parse_user_id(uri)?, parse_bookmark_id(uri)?).await?
+            }
+            ResourceType::Tag => {
+                handlers::tag::del(parse_user_id(uri)?, parse_tag_id(uri)?).await?
             }
         }
 
