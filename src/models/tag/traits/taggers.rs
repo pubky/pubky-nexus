@@ -10,7 +10,17 @@ pub trait TaggersCollection
 where
     Self: RedisOps,
 {
-    async fn try_from_index(
+    /// Retrieves taggers associated with a given user ID and label.
+    /// # Arguments
+    /// * `user_id` - The ID of the user.
+    /// * `extra_param` - An optional parameter for additional context (e.g., post ID or other context).
+    /// * `label` - The tag label to filter the taggers.
+    /// * `skip` - Optional number of taggers to skip for pagination.
+    /// * `limit` - Optional limit for the number of taggers to retrieve, defaults to 40.
+    ///
+    /// # Returns
+    /// A result containing a vector of taggers or an error.
+    async fn get_tagger_by_id(
         user_id: &str,
         extra_param: Option<&str>,
         label: &str,
@@ -20,7 +30,15 @@ where
         let skip = skip.unwrap_or(0);
         let limit = limit.unwrap_or(40);
         let key_parts = Self::create_label_index(user_id, extra_param, label);
-        Ok(Self::try_from_index_set(&key_parts, Some(skip), Some(limit)).await?)
+        Self::try_from_index(key_parts, Some(skip), Some(limit)).await
+    }
+
+    async fn try_from_index(
+        key_parts: Vec<&str>,
+        skip: Option<usize>,
+        limit: Option<usize>,
+    ) -> Result<Option<Taggers>, DynError> {
+        Ok(Self::try_from_index_set(&key_parts, skip, limit).await?)
     }
 
     /// Constructs an index key based on user key, an optional extra parameter and a tag label.

@@ -27,9 +27,7 @@ fn bench_get_user_tags(c: &mut Criterion) {
         &user_id,
         |b, &id| {
             b.to_async(&rt).iter(|| async {
-                let tag_details_list = TagUser::try_from_multiple_index(id, None, None, None)
-                    .await
-                    .unwrap();
+                let tag_details_list = TagUser::get_by_id(id, None, None, None).await.unwrap();
                 criterion::black_box(tag_details_list);
             });
         },
@@ -51,7 +49,7 @@ fn bench_get_user_tag_taggers(c: &mut Criterion) {
         &user_id,
         |b, &id| {
             b.to_async(&rt).iter(|| async {
-                let taggers = TagUser::try_from_index(id, None, "pubky", None, None)
+                let taggers = TagUser::get_tagger_by_id(id, None, "pubky", None, None)
                     .await
                     .unwrap();
                 criterion::black_box(taggers);
@@ -79,10 +77,9 @@ fn bench_get_post_tags(c: &mut Criterion) {
         &[user_id, post_id],
         |b, &params| {
             b.to_async(&rt).iter(|| async {
-                let tag_details_list =
-                    TagPost::try_from_multiple_index(params[0], Some(params[1]), None, None)
-                        .await
-                        .unwrap();
+                let tag_details_list = TagPost::get_by_id(params[0], Some(params[1]), None, None)
+                    .await
+                    .unwrap();
                 criterion::black_box(tag_details_list);
             });
         },
@@ -108,7 +105,7 @@ fn bench_get_post_tag_taggers(c: &mut Criterion) {
         |b, &params| {
             b.to_async(&rt).iter(|| async {
                 let taggers =
-                    TagPost::try_from_index(params[0], Some(params[1]), "free", None, None)
+                    TagPost::get_tagger_by_id(params[0], Some(params[1]), "free", None, None)
                         .await
                         .unwrap();
                 criterion::black_box(taggers);

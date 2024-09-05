@@ -31,7 +31,7 @@ impl PostView {
             PostCounts::get_by_id(author_id, post_id),
             Bookmark::get_by_id(author_id, post_id, viewer_id),
             PostRelationships::get_by_id(author_id, post_id),
-            TagPost::try_from_multiple_index(author_id, Some(post_id), max_tags, max_taggers),
+            TagPost::get_by_id(author_id, Some(post_id), max_tags, max_taggers),
         )?;
 
         let details = match details {

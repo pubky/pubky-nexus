@@ -35,7 +35,7 @@ pub async fn post_tags_handler(
         "GET {POST_TAGS_ROUTE} user_id:{}, post_id: {}, limit_tags:{:?}, limit_taggers:{:?}",
         user_id, post_id, query.limit_tags, query.limit_taggers
     );
-    match TagPost::try_from_multiple_index(
+    match TagPost::get_by_id(
         &user_id,
         Some(&post_id),
         query.limit_tags,
@@ -74,7 +74,8 @@ pub async fn post_taggers_handler(
         "GET {POST_TAGGERS_ROUTE} user_id:{}, post_id: {}, label: {}, skip:{:?}, limit:{:?}",
         user_id, post_id, label, query.skip, query.limit
     );
-    match TagPost::try_from_index(&user_id, Some(&post_id), &label, query.skip, query.limit).await {
+    match TagPost::get_tagger_by_id(&user_id, Some(&post_id), &label, query.skip, query.limit).await
+    {
         Ok(Some(tags)) => Ok(Json(tags)),
         Ok(None) => Err(Error::UserNotFound { user_id }),
         Err(source) => Err(Error::InternalServerError { source }),

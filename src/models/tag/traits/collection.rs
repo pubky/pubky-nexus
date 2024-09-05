@@ -19,7 +19,17 @@ pub trait TagCollection
 where
     Self: RedisOps,
 {
-    /// Tries to retrieve the tag collection from an index in Redis.
+    async fn get_by_id(
+        user_id: &str,
+        extra_param: Option<&str>,
+        limit_tags: Option<usize>,
+        limit_taggers: Option<usize>,
+    ) -> Result<Option<Vec<TagDetails>>, DynError> {
+        let limit_tags = limit_tags.unwrap_or(5);
+        let limit_taggers = limit_taggers.unwrap_or(5);
+        Self::try_from_multiple_index(user_id, extra_param, limit_tags, limit_taggers).await
+    }
+    /// Tries to retrieve the tag collection from multiple index in Redis.
     /// # Arguments
     /// * user_id - The key of the user for whom to retrieve tags.
     /// * extra_param - An optional parameter for specifying additional constraints (e.g., an post_id)
@@ -30,11 +40,9 @@ where
     async fn try_from_multiple_index(
         user_id: &str,
         extra_param: Option<&str>,
-        limit_tags: Option<usize>,
-        limit_taggers: Option<usize>,
+        limit_tags: usize,
+        limit_taggers: usize,
     ) -> Result<Option<Vec<TagDetails>>, DynError> {
-        let limit_tags = limit_tags.unwrap_or(5);
-        let limit_taggers = limit_taggers.unwrap_or(5);
         let key_parts = Self::create_sorted_set_key_parts(user_id, extra_param);
         match Self::try_from_index_sorted_set(
             &key_parts,
