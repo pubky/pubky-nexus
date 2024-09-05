@@ -2,7 +2,7 @@ use anyhow::Result;
 use pubky_nexus::models::user::UserStreamType;
 use serde_json::Value;
 
-use super::utils::make_request;
+use crate::service::utils::make_request;
 
 // TODO: Create deterministic integration tests
 

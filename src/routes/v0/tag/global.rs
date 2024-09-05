@@ -33,7 +33,10 @@ pub struct HotTagsQuery {
     )
 )]
 pub async fn hot_tags_handler(Query(query): Query<HotTagsQuery>) -> Result<Json<HotTags>> {
-    info!("GET {TAG_HOT_ROUTE}");
+    info!(
+        "GET {TAG_HOT_ROUTE} skip:{:?}, limit:{:?}, max_tagger: {:?}",
+        query.skip, query.limit, query.max_taggers
+    );
 
     let skip = query.skip.unwrap_or(0);
     let limit = query.limit.unwrap_or(40);

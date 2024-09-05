@@ -1,22 +1,15 @@
 use crate::models::post::{PostStream, PostStreamReach, PostStreamSorting};
 use crate::routes::v0::endpoints::{
     STREAM_POSTS_BOOKMARKED_ROUTE, STREAM_POSTS_REACH_ROUTE, STREAM_POSTS_ROUTE,
-    STREAM_POSTS_USER_ROUTE,
+    STREAM_POSTS_TAG_ROUTE, STREAM_POSTS_USER_ROUTE,
 };
+use crate::routes::v0::queries::PostStreamQuery;
 use crate::{Error, Result};
 use axum::extract::Query;
 use axum::Json;
 use log::info;
 use serde::Deserialize;
 use utoipa::OpenApi;
-
-#[derive(Deserialize)]
-pub struct PostStreamQuery {
-    viewer_id: Option<String>,
-    skip: Option<usize>,
-    limit: Option<usize>,
-    sorting: Option<PostStreamSorting>,
-}
 
 #[utoipa::path(
     get,
@@ -34,6 +27,7 @@ pub struct PostStreamQuery {
         (status = 500, description = "Internal server error")
     )
 )]
+
 pub async fn stream_global_posts_handler(
     Query(query): Query<PostStreamQuery>,
 ) -> Result<Json<PostStream>> {
@@ -180,13 +174,57 @@ pub async fn stream_bookmarked_posts_handler(
     }
 }
 
+#[utoipa::path(
+    get,
+    path = STREAM_POSTS_TAG_ROUTE,
+    tag = "Search Post stream by Tags",
+    params(
+        ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
+        ("sorting" = Option<PostStreamSorting>, Query, description = "Sorting method"),
+        ("skip" = Option<usize>, Query, description = "Skip N results"),
+        ("limit" = Option<usize>, Query, description = "Limit the number of results")
+    ),
+    responses(
+        (status = 200, description = "Search results", body = PostStream),
+        (status = 404, description = "No posts found"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn stream_posts_by_tags_handler(
+    Path(label): Path<String>,
+    Query(query): Query<PostStreamQuery>,
+) -> Result<Json<PostStream>> {
+    info!(
+        "GET {STREAM_POSTS_TAG_ROUTE} label:{}, sort_by: {:?}, viewer_id: {:?}, skip: {:?}, limit: {:?}",
+        label, query.sorting, query.viewer_id, query.skip, query.limit
+    );
+
+    match PostStream::get_posts_by_tag(
+        &label,
+        query.sorting,
+        query.viewer_id,
+        query.skip,
+        query.limit,
+    )
+    .await
+    {
+        Ok(Some(stream)) => Ok(Json(stream)),
+        Ok(None) => Err(Error::PostNotFound {
+            author_id: String::from("global"),
+            post_id: String::from("N/A"),
+        }),
+        Err(source) => Err(Error::InternalServerError { source }),
+    }
+}
+
 #[derive(OpenApi)]
 #[openapi(
     paths(
         stream_global_posts_handler,
         stream_user_posts_handler,
         stream_posts_by_reach_handler,
-        stream_bookmarked_posts_handler
+        stream_bookmarked_posts_handler,
+        stream_posts_by_tags_handler
     ),
     components(schemas(PostStream, PostStreamSorting, PostStreamReach))
 )]

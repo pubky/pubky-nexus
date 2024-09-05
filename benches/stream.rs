@@ -265,6 +265,60 @@ fn bench_stream_users_by_username_search(c: &mut Criterion) {
     });
 }
 
+fn bench_stream_post_tag_timeline(c: &mut Criterion) {
+    println!("****************************************************************");
+    println!("Benchmarking the post stream filtered by tag sort by timeline");
+    println!("****************************************************************");
+
+    run_setup();
+
+    let label = "free";
+    let rt = Runtime::new().unwrap();
+
+    c.bench_with_input(
+        BenchmarkId::new("tag_search_by_timeline", label),
+        &label,
+        |b, &label| {
+            b.to_async(&rt).iter(|| async {
+                let result = PostStream::get_posts_by_tag(label, None, None, None, None)
+                    .await
+                    .unwrap();
+                criterion::black_box(result);
+            });
+        },
+    );
+}
+
+fn bench_stream_post_tag_engagement(c: &mut Criterion) {
+    println!("****************************************************************");
+    println!("Benchmarking the post stream filtered by tag sort by engagement");
+    println!("****************************************************************");
+
+    run_setup();
+
+    let label = "free";
+    let rt = Runtime::new().unwrap();
+
+    c.bench_with_input(
+        BenchmarkId::new("tag_search_by_engagement", label),
+        &label,
+        |b, &label| {
+            b.to_async(&rt).iter(|| async {
+                let result = PostStream::get_posts_by_tag(
+                    label,
+                    Some(PostStreamSorting::TotalEngagement),
+                    None,
+                    None,
+                    None,
+                )
+                .await
+                .unwrap();
+                criterion::black_box(result);
+            });
+        },
+    );
+}
+
 fn configure_criterion() -> Criterion {
     Criterion::default()
         .measurement_time(Duration::new(5, 0))
@@ -286,6 +340,8 @@ criterion_group! {
               bench_stream_posts_followers_reach,
               bench_stream_posts_friends_reach,
               bench_stream_users_by_username_search,
+              bench_stream_post_tag_timeline,
+              bench_stream_post_tag_engagement
 }
 
 criterion_main!(benches);
