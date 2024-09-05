@@ -11,7 +11,7 @@ use utoipa::ToSchema;
 pub const TAG_GLOBAL_POST_TIMELINE: [&str; 4] = ["Tags", "Global", "Post", "Timeline"];
 pub const TAG_GLOBAL_POST_ENGAGEMENT: [&str; 4] = ["Tags", "Global", "Post", "TotalEngagement"];
 
-/// Represents a single search result of post keys (`author_id:post_id`) by tags 
+/// Represents a single search result of post keys (`author_id:post_id`) by tags
 #[derive(Serialize, Deserialize, ToSchema, Default)]
 pub struct TagSearch {
     pub post_key: String,

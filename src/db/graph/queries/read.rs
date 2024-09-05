@@ -90,6 +90,7 @@ pub fn global_tags_by_post() -> neo4rs::Query {
     )
 }
 
+// TODO: Do not traverse all the graph again to get the engagement score. Rethink how to share that info in the indexer
 /// Retrieves unique global tags for posts, calculating an engagement score based on tag counts,
 /// replies, reposts, mentions, and bookmarks. The query returns a `key` by combining author's ID
 /// and post's ID, along with a sorted set of engagement scores for each tag label.
