@@ -252,13 +252,13 @@ impl PostStream {
         let skip = skip.unwrap_or(0);
         let limit = limit.unwrap_or(6);
 
-        let posts_sorted_set = TagSearch::get_by_label(label, sort_by, skip, limit).await?;
+        let post_search_result = TagSearch::get_by_label(label, sort_by, skip, limit).await?;
 
-        match posts_sorted_set {
+        match post_search_result {
             Some(post_keys) => {
                 let post_keys: Vec<String> = post_keys
                     .into_iter()
-                    .map(|post_score| post_score.post_id)
+                    .map(|post_score| post_score.post_key)
                     .collect();
                 Self::from_listed_post_ids(viewer_id, &post_keys).await
             }

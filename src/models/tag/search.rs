@@ -11,16 +11,17 @@ use utoipa::ToSchema;
 pub const TAG_GLOBAL_POST_TIMELINE: [&str; 4] = ["Tags", "Global", "Post", "Timeline"];
 pub const TAG_GLOBAL_POST_ENGAGEMENT: [&str; 4] = ["Tags", "Global", "Post", "TotalEngagement"];
 
+/// Represents a single search result of post keys (`author_id:post_id`) by tags 
 #[derive(Serialize, Deserialize, ToSchema, Default)]
 pub struct TagSearch {
-    pub post_id: String,
+    pub post_key: String,
     pub score: usize,
 }
 
 impl From<(String, f64)> for TagSearch {
     fn from(tuple: (String, f64)) -> Self {
         TagSearch {
-            post_id: tuple.0,
+            post_key: tuple.0,
             score: tuple.1 as usize,
         }
     }
