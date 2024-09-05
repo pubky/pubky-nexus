@@ -38,27 +38,3 @@ pub async fn del(user_id: PubkyId) -> Result<(), Box<dyn Error + Sync + Send>> {
 
     Ok(())
 }
-
-// Parses a user pubky id from the event's uri
-pub fn parse_user_id(uri: &str) -> Result<PubkyId, Box<dyn std::error::Error + Send + Sync>> {
-    // Define the patterns we are looking for in the URI
-    let pattern = "pubky://";
-    let pub_segment = "/pub/";
-
-    // Find the starting position of the user_id part in the URI
-    let start_idx = uri
-        .find(pattern)
-        .map(|start| start + pattern.len())
-        .ok_or("Pattern not found in URI")?;
-
-    // Find the ending position of the user_id part
-    let end_idx = uri[start_idx..]
-        .find(pub_segment)
-        .ok_or("Pub segment not found in URI")?;
-
-    // Extract the user_id and attempt to convert it into a PubkyId
-    let user_id_str = &uri[start_idx..start_idx + end_idx];
-    let user_id = PubkyId::try_from(user_id_str)?;
-
-    Ok(user_id)
-}
