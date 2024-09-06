@@ -101,7 +101,7 @@ Take a look at the logs for
 
 ## ⚠️ Warning
 
-There are scenarios where the integration tests might fail. This typically occurs when new changes are pulled from the repository, as the schemas for our indexes may have changed, or when the database data is out of sync with the current integration tests. To resolve this, you need to reset the Neo4j graph database and Redis cache, and then re-seed them with the correct data. Follow these steps:
+There are scenarios where the **integration tests** might fail. This typically occurs when new changes are pulled from the repository, as the schemas for our indexes may have changed, or when the database data is out of sync with the current integration tests. To resolve this, you need to reset the Neo4j graph database and Redis cache, and then re-seed them with the correct data. Follow these steps:
 
 ```bash
 # Run the following Cypher query to remove all nodes and relationships in the database
@@ -114,6 +114,12 @@ REINDEX=true
 cargo run
 # After reindexing, set REINDEX to false to prevent reindexing on every build
 REINDEX=false
+```
+
+In some cases, compilation might fail due to issues with the dependency in the pubky repository. To resolve this, run the following command:
+
+```bash
+git pull --recurse-submodule
 ```
 
 ## Useful links
