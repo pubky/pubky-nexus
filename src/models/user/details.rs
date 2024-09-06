@@ -15,19 +15,17 @@ use utoipa::ToSchema;
 impl RedisOps for UserDetails {}
 
 #[async_trait]
-impl Collection for UserDetails {
+impl Collection<&str> for UserDetails {
     fn graph_query(id_list: &[&str]) -> Query {
         queries::read::get_users_details_by_ids(id_list)
     }
 
-    async fn add_to_sorted_sets(details: &[std::option::Option<Self>]) {
-        // Filter out None and collect only the references to UserDetails
+    async fn extend_on_cache_miss(details: &[std::option::Option<Self>]) {
         let user_details_refs: Vec<&UserDetails> = details
             .iter()
-            .filter_map(|detail| detail.as_ref()) // Filter out None and unwrap Some
+            .filter_map(|detail| detail.as_ref())
             .collect();
 
-        // Pass the references to the add_many_to_username_sorted_set function
         UserSearch::add_many_to_username_sorted_set(&user_details_refs)
             .await
             .unwrap();
@@ -50,19 +48,15 @@ fn deserialize_user_links<'de, D>(deserializer: D) -> Result<Option<Vec<UserLink
 where
     D: Deserializer<'de>,
 {
-    // Deserialize into serde_json::Value first
     let value = serde_json::Value::deserialize(deserializer)?;
 
-    // Handle both cases
     match value {
         serde_json::Value::String(s) => {
-            // If it's a string, parse the string as JSON
             let urls: Option<Vec<UserLink>> =
                 serde_json::from_str(&s).map_err(serde::de::Error::custom)?;
             Ok(urls)
         }
         serde_json::Value::Array(arr) => {
-            // If it's already an array, deserialize it directly
             let urls: Vec<UserLink> = serde_json::from_value(serde_json::Value::Array(arr))
                 .map_err(serde::de::Error::custom)?;
             Ok(Some(urls))
