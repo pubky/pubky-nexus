@@ -36,7 +36,7 @@ Reach feature parity with `skunk-work` indexer improving on the following:
 
 ## ⚙️ Preparing the Environment
 
-Before running the project, several configurations must be set up. Let’s start by configuring the databases:
+Before running the project, several configurations must be set up. Let’s start by configuring the databases
 
 ```bash
 cd docker
@@ -48,19 +48,13 @@ docker-compose up -d
 docker exec neo4j bash /db-graph/run-queries.sh
 ```
 
-Once the `Neo4j` graph database is seeded with data, the next step is to populate the `Redis` database by running the _nexus-service_:
+Once the `Neo4j` graph database is seeded with data, the next step is to populate the `Redis` database by running the _nexus-service_
+
+> If the Redis cache is empty, the nexus-service will handle it automatically. If not follow the steps of warning section
+
 
 ```bash
-# Navigate back to the project root if you're still in the docker folder
-cd ..
-# Copy the .env example to the active .env file
-cp .env-sample .env
-# Set the REINDEX environment variable to true for the reindexing process
-export REINDEX=true
-# Start the reindexing process
 cargo run
-# Once the process is finished, you can unset the REINDEX environment variable
-unset REINDEX
 ```
 
 ## 👨‍💻 Quick Development Setup
@@ -107,23 +101,19 @@ Take a look at the logs for
 
 ## ⚠️ Warning
 
-There are scenarios where the integration tests might fail. This typically occurs when the database data is out of sync with the current integration tests. To resolve this, you need to reset the Neo4j graph database and re-seed it with the correct data. Follow these steps:
-
-1. Open the Neo4j browser interface at `http://localhost:7474/browser/` and log in using the credentials found in the `/docker/.env` file.
-2. Run the following Cypher query to remove all nodes and relationships in the database:
-
-```cypher
-MATCH (n)
-DETACH DELETE n;
-```
-
-3. Once the graph is cleared, re-populate the database with the correct dataset:
+There are scenarios where the integration tests might fail. This typically occurs when new changes are pulled from the repository, as the schemas for our indexes may have changed, or when the database data is out of sync with the current integration tests. To resolve this, you need to reset the Neo4j graph database and Redis cache, and then re-seed them with the correct data. Follow these steps:
 
 ```bash
+# Run the following Cypher query to remove all nodes and relationships in the database
+docker exec neo4j bash -c "cypher-shell -u neo4j -p 12345678 'MATCH (n) DETACH DELETE n;'"
+# Re-populate the database with the correct dataset
 docker exec neo4j bash /db-graph/run-queries.sh
-# Reindex environment variable TRUE, check above
+# Set the REINDEX environment variable to true for the reindexing process
+REINDEX=true
+# Start the reindexing process
 cargo run
-# and unset the reindex variable
+# After reindexing, set REINDEX to false to prevent reindexing on every build
+REINDEX=false
 ```
 
 ## Useful links
