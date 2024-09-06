@@ -139,7 +139,7 @@ pub fn create_user_tag(
 
 pub fn delete_tag(user_id: &str, tag_id: &str) -> Query {
     query(
-        "MATCH (user:User {id: $user_id})-[t:TAGGED {id: $tag_id}]->(post:Post)
+        "MATCH (user:User {id: $user_id})-[t:TAGGED {id: $tag_id}]->(target)
          DELETE t",
     )
     .param("user_id", user_id)

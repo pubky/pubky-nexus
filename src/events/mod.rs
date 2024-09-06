@@ -32,6 +32,7 @@ enum ResourceType {
     // File,
 }
 
+// Look for the end pattern after the start index, or use the end of the string if not found
 enum EventType {
     Put,
     Del,
@@ -65,28 +66,29 @@ impl Event {
 
         let uri = parts[1].to_string();
         let parsed_uri = ParsedUri::try_from(uri.as_str()).unwrap_or_default();
+
         let resource_type = if uri.ends_with("profile.json") {
             ResourceType::User {
-                user_id: parsed_uri.user_id.ok_or("Missing user_id")?,
+                user_id: parsed_uri.user_id,
             }
         } else if uri.contains("/posts/") {
             ResourceType::Post {
-                author_id: parsed_uri.user_id.ok_or("Missing author_id")?,
+                author_id: parsed_uri.user_id,
                 post_id: parsed_uri.post_id.ok_or("Missing post_id")?,
             }
         } else if uri.contains("/follows/") {
             ResourceType::Follow {
-                follower_id: parsed_uri.user_id.ok_or("Missing follower_id")?,
+                follower_id: parsed_uri.user_id,
                 followee_id: parsed_uri.follow_id.ok_or("Missing followee_id")?,
             }
         } else if uri.contains("/bookmarks/") {
             ResourceType::Bookmark {
-                user_id: parsed_uri.user_id.ok_or("Missing user_id")?,
+                user_id: parsed_uri.user_id,
                 bookmark_id: parsed_uri.bookmark_id.ok_or("Missing bookmark_id")?,
             }
         } else if uri.contains("/tags/") {
             ResourceType::Tag {
-                user_id: parsed_uri.user_id.ok_or("Missing user_id")?,
+                user_id: parsed_uri.user_id,
                 tag_id: parsed_uri.tag_id.ok_or("Missing tag_id")?,
             }
         } else {

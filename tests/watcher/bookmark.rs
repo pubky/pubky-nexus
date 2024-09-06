@@ -39,12 +39,12 @@ async fn test_homeserver_bookmark() -> Result<()> {
 
     // Step 3: Add a bookmark to the post
     let bookmark = PubkyAppBookmark {
-        uri: format!("pubky://{}/pub/pubky-app/posts/{}", user_id, post_id),
+        uri: format!("pubky://{}/pub/pubky.app/posts/{}", user_id, post_id),
         created_at: chrono::Utc::now().timestamp_millis(),
     };
     let bookmark_blob = serde_json::to_vec(&bookmark)?;
     let bookmark_url = format!(
-        "pubky://{}/pub/pubky-app/bookmarks/{}",
+        "pubky://{}/pub/pubky.app/bookmarks/{}",
         user_id,
         bookmark.create_id()
     );

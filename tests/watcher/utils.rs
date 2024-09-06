@@ -49,7 +49,7 @@ impl WatcherTest {
             .await?;
 
         let profile_json = to_vec(user)?;
-        let url = format!("pubky://{}/pub/pubky-app/profile.json", user_id);
+        let url = format!("pubky://{}/pub/pubky.app/profile.json", user_id);
         self.client.put(url.as_str(), &profile_json).await?;
 
         // Index to Nexus from Homeserver using the events processor
@@ -60,7 +60,7 @@ impl WatcherTest {
     pub async fn create_post(&mut self, user_id: &str, post: &PubkyAppPost) -> Result<String> {
         let post_id = post.create_id();
         let post_json = to_vec(post)?;
-        let url = format!("pubky://{}/pub/pubky-app/posts/{}", user_id, post_id);
+        let url = format!("pubky://{}/pub/pubky.app/posts/{}", user_id, post_id);
         self.client.put(url.as_str(), &post_json).await?;
 
         // Index to Nexus from Homeserver using the events processor
@@ -69,14 +69,14 @@ impl WatcherTest {
     }
 
     pub async fn cleanup_user(&mut self, user_id: &str) -> Result<()> {
-        let url = format!("pubky://{}/pub/pubky-app/profile.json", user_id);
+        let url = format!("pubky://{}/pub/pubky.app/profile.json", user_id);
         self.client.delete(url.as_str()).await?;
         self.ensure_event_processing_complete().await?;
         Ok(())
     }
 
     pub async fn cleanup_post(&mut self, user_id: &str, post_id: &str) -> Result<()> {
-        let url = format!("pubky://{}/pub/pubky-app/posts/{}", user_id, post_id);
+        let url = format!("pubky://{}/pub/pubky.app/posts/{}", user_id, post_id);
         self.client.delete(url.as_str()).await?;
         self.ensure_event_processing_complete().await?;
         Ok(())

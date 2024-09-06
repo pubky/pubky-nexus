@@ -2498,7 +2498,7 @@ MATCH (u:User {id: "h3fghnb3x59oh7r53x8y6a5x38oatqyjym9b31ybss17zqdnhcoy"}), (p:
 MERGE (p:Post {id: "2ZJP6HQZKJM00"}) SET p.content = "I checked in dev branch and for some reason the code is not there, even though there is a merged PR, strange 
 
 I think we did something wrong that caused some commit to be overwritten, I'm fixing it
-https://github.com/pubky/pubky-app/pull/325", p.kind = "Short", p.indexed_at = 1721891589126;
+https://github.com/pubky/pubky.app/pull/325", p.kind = "Short", p.indexed_at = 1721891589126;
 MATCH (u:User {id: "h3fghnb3x59oh7r53x8y6a5x38oatqyjym9b31ybss17zqdnhcoy"}), (p:Post {id: "2ZJP6HQZKJM00"}) MERGE (u)-[:AUTHORED]->(p);
 MATCH (p1:Post {id: "2ZJP0XMP3NMG0"}), (p2:Post {id: "2ZJP6HQZKJM00"}) MERGE (p2)-[:REPLIED]->(p1);
 MERGE (p:Post {id: "2ZJQQBWW6E600"}) SET p.content = "https://www.instagram.com/reel/C5TQJU9Rq-l

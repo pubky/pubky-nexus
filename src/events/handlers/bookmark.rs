@@ -1,5 +1,5 @@
 use crate::db::graph::exec::exec_single_row;
-use crate::events::handlers::{post::parse_post_id, user::parse_user_id};
+use crate::events::uri::ParsedUri;
 use crate::models::post::{Bookmark, PostStream};
 use crate::models::pubky_app::traits::Validatable;
 use crate::models::pubky_app::PubkyAppBookmark;
@@ -22,7 +22,11 @@ pub async fn put(
     let bookmark = <PubkyAppBookmark as Validatable>::try_from(&blob)?;
 
     // Parse the URI to extract author_id and post_id using the updated parse_post_uri
-    let (author_id, post_id) = parse_bookmarked_post_uri(&bookmark.uri)?;
+    let parsed_uri = ParsedUri::try_from(bookmark.uri.as_str())?;
+    let (author_id, post_id) = (
+        parsed_uri.user_id,
+        parsed_uri.post_id.ok_or("Bookmarked URI missing post_id")?,
+    );
 
     // Save new bookmark relationship to the graph
     let indexed_at = Utc::now().timestamp_millis();

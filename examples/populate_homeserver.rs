@@ -51,7 +51,7 @@ async fn main() -> Result<()> {
     let profile_json = serde_json::to_vec(&user)?;
 
     // Put some content into the Pubky system
-    let url = format!("pubky://{}/pub/pubky-app/profile.json", pk);
+    let url = format!("pubky://{}/pub/pubky.app/profile.json", pk);
     client.put(url.as_str(), &profile_json).await?;
 
     Ok(())

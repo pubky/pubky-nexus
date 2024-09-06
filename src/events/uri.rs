@@ -1,9 +1,9 @@
 use crate::models::user::PubkyId;
 use std::convert::TryFrom;
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct ParsedUri {
-    pub user_id: Option<PubkyId>,
+    pub user_id: PubkyId,
     pub post_id: Option<String>,
     pub follow_id: Option<PubkyId>,
     pub bookmark_id: Option<String>,
@@ -14,17 +14,27 @@ impl TryFrom<&str> for ParsedUri {
     type Error = Box<dyn std::error::Error + Send + Sync>;
 
     fn try_from(uri: &str) -> Result<Self, Self::Error> {
-        let mut parsed_uri = ParsedUri {
-            user_id: None,
-            post_id: None,
-            follow_id: None,
-            bookmark_id: None,
-            tag_id: None,
-        };
+        let mut parsed_uri = ParsedUri::default();
 
-        // Extract user_id if present
+        // Ensure the URI starts with the correct prefix
+        if !uri.starts_with("pubky://") {
+            return Err("Invalid URI, must start with pubky://".into());
+        }
+
+        // Extract the user_id from the initial part of the URI
         if let Some(user_id) = extract_segment(uri, "pubky://", "/pub/") {
-            parsed_uri.user_id = Some(PubkyId::try_from(user_id)?);
+            parsed_uri.user_id = PubkyId::try_from(user_id)?;
+        } else {
+            return Err("Uri Pubky ID is invalid".into());
+        }
+
+        // Ensure that the URI belongs to pubky.app
+        if let Some(app_segment) = extract_segment(uri, "/pub/", "/") {
+            if app_segment != "pubky.app" {
+                return Err("The Event URI does not belong to pubky.app".into());
+            }
+        } else {
+            return Err("The Event URI is malformed".into());
         }
 
         // Extract post_id if present
@@ -34,7 +44,7 @@ impl TryFrom<&str> for ParsedUri {
 
         // Extract follow_id if present
         if let Some(follow_id) = extract_segment(uri, "/follows/", "/") {
-            parsed_uri.user_id = Some(PubkyId::try_from(follow_id)?);
+            parsed_uri.follow_id = Some(PubkyId::try_from(follow_id)?);
         }
 
         // Extract bookmark_id if present
@@ -53,7 +63,10 @@ impl TryFrom<&str> for ParsedUri {
 
 fn extract_segment<'a>(uri: &'a str, start_pattern: &str, end_pattern: &str) -> Option<&'a str> {
     let start_idx = uri.find(start_pattern)? + start_pattern.len();
-    let end_idx = uri[start_idx..].find(end_pattern)? + start_idx;
+    let end_idx = uri[start_idx..]
+        .find(end_pattern)
+        .map(|i| i + start_idx)
+        .unwrap_or_else(|| uri.len());
 
     Some(&uri[start_idx..end_idx])
 }

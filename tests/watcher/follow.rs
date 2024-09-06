@@ -39,7 +39,7 @@ async fn test_homeserver_follow() -> Result<()> {
     };
     let blob = serde_json::to_vec(&follow)?;
     let follow_url = format!(
-        "pubky://{}/pub/pubky-app/follows/{}",
+        "pubky://{}/pub/pubky.app/follows/{}",
         follower_id, followee_id
     );
     test.client.put(follow_url.as_str(), &blob).await?;

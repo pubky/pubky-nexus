@@ -8,7 +8,7 @@ use pubky_nexus::models::{
 };
 
 #[tokio::test]
-async fn test_homeserver_tag() -> Result<()> {
+async fn test_homeserver_tag_post() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Step 1: Create a user
@@ -17,7 +17,7 @@ async fn test_homeserver_tag() -> Result<()> {
         bio: Some("This is a test user for tagging posts".to_string()),
         image: None,
         links: None,
-        name: "Test User PostTags".to_string(),
+        name: "Test User: PostTags".to_string(),
         status: None,
     };
     let user_id = test.create_user(&keypair, &user).await?;
@@ -33,12 +33,12 @@ async fn test_homeserver_tag() -> Result<()> {
     // Step 3: Add a tag to the post
     let label = "cool";
     let tag = PubkyAppTag {
-        uri: format!("pubky://{}/pub/pubky-app/posts/{}", user_id, post_id),
+        uri: format!("pubky://{}/pub/pubky.app/posts/{}", user_id, post_id),
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
     let tag_blob = serde_json::to_vec(&tag)?;
-    let tag_url = format!("pubky://{}/pub/pubky-app/tags/{}", user_id, tag.create_id());
+    let tag_url = format!("pubky://{}/pub/pubky.app/tags/{}", user_id, tag.create_id());
 
     // Put tag
     test.client.put(tag_url.as_str(), &tag_blob).await?;
