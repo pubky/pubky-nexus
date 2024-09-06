@@ -34,62 +34,96 @@ Reach feature parity with `skunk-work` indexer improving on the following:
 
 ![pubky-nexus-graph](docs/images/pubky-nexus-graph.png)
 
-## 👨‍💻 Quick Dev
+## ⚙️ Preparing the Environment
 
-For auto re-build on save and testing while developing `/service` :
+Before running the project, several configurations must be set up. Let’s start by configuring the databases
 
 ```bash
-cargo install cargo-watch
-
-# Copy the .env.example to .env
+cd docker
+# Create a new `.env` file from the `.env-sample` template
 cp .env-sample .env
+# Run the databases (Neo4j and Redis databases will spin up empty)
+docker-compose up -d
+# Populate the graph database with initial data
+docker exec neo4j bash /db-graph/run-queries.sh
+```
 
-# Ideally in two terminals.
-# On terminal 1 run:
-cargo watch -q -c -w src/ -x run
-# You can check the running service on your browser on localhost:8080/v0/info
+Once the `Neo4j` graph database is seeded with data, the next step is to populate the `Redis` database by running the _nexus-service_
 
-# On terminal 2 run (for tests to work you need a working /neo4j-example instance with example dataset)
+> If the Redis cache is empty, the nexus-service will handle it automatically. If not follow the steps of warning section
+
+
+```bash
+cargo run
+```
+
+## 👨‍💻 Quick Development Setup
+
+To enable auto-rebuilding and testing while developing within the `/service`:
+
+```bash
+# Install `cargo-watch` to monitor changes and auto-rebuild on save
+cargo install cargo-watch
+# Ensure the environment variables are set. You might have already done this in the previous step:
+cp .env-sample .env
+# Run the service and tests in separate terminals:
+
+# Terminal 1: Start the service with auto-reload on changes:
+cargo watch -q -c -w src/ -x "run --bin service"
+# The service will be available at localhost:8080/v0/info on your browser
+
+# Terminal 2: Run tests (note that for tests to pass, the Neo4j instance must have example data)
+# Ensure you've followed the steps above to set up Neo4j with the example dataset
 cargo watch -q -c -w tests/ -x "test -- --nocapture"
 
 # Run benchmarks (e.g., get user by ID benchmark)
 cargo bench --bench user get_user_view_by_id
 ```
 
-### Run docker-compose for Redis and Neo4J
-
-```bash
-# Go to the docker directory
-cd docker
-
-# Copy the .env.example to .env
-cp .env-sample .env
-
-# Start the services
-docker-compose up -d
-```
-
-### Swagger UI
-
-- http://localhost:8080/swagger-ui/
-
-
-### Real time explore the databases
-
-- Redis: http://localhost:8001/redis-stack/browser
-- Neo4J: http://localhost:7474/browser/
-
-### Developing the homeserver watcher
+## Developing the homeserver watcher
 
 Running the `/tests/` that require the homeserver does not require running a homeserver. However, running the playground or the `watcher.rs` binary does. This is how you can run a pubky homeserver locally in testnet mode.
 
 We are using `pubky` repo as a git submodule of `pubky-nexus`, given that `pubky` is still a private repository and the crates for the client and homeserver are not yet published.
 
-```
+```bash
 git submodule init
 git submodule update --init --recursive
 cd pubky/pubky-homeserver
 cargo run -- --testnet
 ```
 
-Take a look at the logs for 1) `testnet.bootstrap=["127.0.0.1:6881"]`, 2) your homeserver listening url `http://localhost:15411` and 3) the pubky URI `pubky://8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo` and make sure your `.env` has the correct settings.
+Take a look at the logs for
+
+1) `testnet.bootstrap=["127.0.0.1:6881"]`
+2) Your homeserver listening url `http://localhost:15411` and
+3) the pubky URI `pubky://8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo` and make sure your `.env` has the correct settings
+
+## ⚠️ Warning
+
+There are scenarios where the **integration tests** might fail. This typically occurs when new changes are pulled from the repository, as the schemas for our indexes may have changed, or when the database data is out of sync with the current integration tests. To resolve this, you need to reset the Neo4j graph database and Redis cache, and then re-seed them with the correct data. Follow these steps:
+
+```bash
+# Run the following Cypher query to remove all nodes and relationships in the database
+docker exec neo4j bash -c "cypher-shell -u neo4j -p 12345678 'MATCH (n) DETACH DELETE n;'"
+# Re-populate the database with the correct dataset
+docker exec neo4j bash /db-graph/run-queries.sh
+# Set the REINDEX environment variable to true for the reindexing process
+REINDEX=true
+# Start the reindexing process
+cargo run
+# After reindexing, set REINDEX to false to prevent reindexing on every build
+REINDEX=false
+```
+
+In some cases, compilation might fail due to issues with the dependency in the pubky repository. To resolve this, run the following command:
+
+```bash
+git pull --recurse-submodule
+```
+
+## Useful links
+
+- Swagger UI: http://localhost:8080/swagger-ui/
+- Redis: http://localhost:8001/redis-stack/browser
+- Neo4J: http://localhost:7474/browser/

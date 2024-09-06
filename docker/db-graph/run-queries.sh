@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # Path to the queries file
-QUERIES_FILE="/db-migration/indexer.cypher"
-# To achieve deterministic tests, each domain will have its own graph
-TAGS_TEST_FILE="/db-migration/test/tags.cypher"
-POSTS_TEST_FILE="/db-migration/test/posts.cypher"
+QUERIES_FILE="/db-graph/skunk.cypher"
+# To achieve deterministic tests, each domain will have its own testing graph
+TAGS_TEST_FILE="/db-graph/mocks/tags.cypher"
+POSTS_TEST_FILE="/db-graph/mocks/posts.cypher"
 
 echo "Starting Cypher query execution..."
 
@@ -16,9 +16,9 @@ fi
 
 # Execute queries and time the execution
 time cypher-shell -u neo4j -p 12345678 -f "$QUERIES_FILE"
-echo "Importing tags test graph..."
+echo "Importing TAGs test graph..."
 time cypher-shell -u neo4j -p 12345678 -f "$TAGS_TEST_FILE"
-echo "Importing posts test graph..."
+echo "Importing POSTs test graph..."
 time cypher-shell -u neo4j -p 12345678 -f "$POSTS_TEST_FILE"
 
 if [[ $? -eq 0 ]]; then
