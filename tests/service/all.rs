@@ -617,7 +617,7 @@ async fn test_stream_pioneers() -> Result<()> {
 async fn test_stream_posts_timeline() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 
-    let res = client.do_get("/v0/stream/posts?sorting=Timeline").await?;
+    let res = client.do_get("/v0/stream/posts?sorting=timeline").await?;
     assert_eq!(res.status(), 200);
 
     let body = res.json_body()?;
@@ -674,7 +674,7 @@ async fn test_stream_posts_total_engagement() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 
     let res = client
-        .do_get("/v0/stream/posts?sorting=TotalEngagement")
+        .do_get("/v0/stream/posts?sorting=totalengagement")
         .await?;
     assert_eq!(res.status(), 200);
 

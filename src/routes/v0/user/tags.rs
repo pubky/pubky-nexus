@@ -67,7 +67,7 @@ pub async fn user_taggers_handler(
         user_id, label, query.skip, query.limit
     );
 
-    match TagUser::try_from_index(&user_id, None, &label, query.skip, query.limit).await {
+    match TagUser::get_tagger_by_id(&user_id, None, &label, query.skip, query.limit).await {
         Ok(Some(tags)) => Ok(Json(tags)),
         Ok(None) => Err(Error::UserNotFound { user_id }),
         Err(source) => Err(Error::InternalServerError { source }),

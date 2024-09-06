@@ -12,7 +12,7 @@ services:
       # Mount the data to container
       - .database/neo4j/data:/data
       - .database/neo4j/logs:/logs
-      - ./db-migration:/db-migration
+      - ./db-graph:/db-graph
     environment:
       NEO4J_initial_dbms_default__database: ${NEO4J_DB_NAME}
       # IMPORTANT: If you change the auth params and you have already created the config files, will not take effect

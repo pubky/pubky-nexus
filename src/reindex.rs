@@ -1,6 +1,7 @@
 use crate::db::kv::flush::clear_redis;
 use crate::models::post::Bookmark;
 use crate::models::tag::post::TagPost;
+use crate::models::tag::search::TagSearch;
 use crate::models::tag::stream::HotTags;
 use crate::models::tag::traits::TagCollection;
 use crate::models::tag::user::TagUser;
@@ -65,6 +66,10 @@ pub async fn reindex() {
     HotTags::set_global_tag_scores()
         .await
         .expect("Failed to store the global hot tags");
+
+    TagSearch::index_post_tags_from_graph()
+        .await
+        .expect("Failed to store the global post tags");
 
     info!("Reindexing completed successfully.");
 }

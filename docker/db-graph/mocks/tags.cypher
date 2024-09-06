@@ -15,7 +15,7 @@
 :param satoshi => 'satoshi';
 
 //:param go_post_tag => '🔥';
-:param go_post_tag => 'LG';
+:param go_post_tag => 'lg';
 :param privacy_post_tag => 'privacy';
 :param free_post_tag => 'free';
 :param human_right_post_tag => 'humanright';
@@ -97,6 +97,7 @@ MATCH (u2:User {id: $anonymous}), (p2:Post {id: "1TDV7XBCF4M1"}) MERGE (u2)-[:AU
 MATCH (u:User {id: $arst}), (p:Post {id: "1TDV7XBCF4M1"}) MERGE (u)-[:TAGGED {label:$privacy_post_tag, id: "1RDV7ZX9BX93", indexed_at: 1724544095}]->(p);
 MATCH (u:User {id: $nakamoto}), (p:Post {id: "1TDV7XBCF4M1"}) MERGE (u)-[:TAGGED {label: $privacy_post_tag, id: "2TDW8YKH56JN", indexed_at: 1724134080}]->(p);
 MATCH (u:User {id: $Wobly}), (p:Post {id: "1TDV7XBCF4M1"}) MERGE (u)-[:TAGGED {label: $human_right_post_tag, id: "3VDX9ZM7C4P1", indexed_at: 1724134092}]->(p);
+MATCH (u:User {id: $Wobly}), (p:Post {id: "1TDV7XBCF4M1"}) MERGE (u)-[:TAGGED {label: $free_post_tag, id: "3VDX9ZM7C4P5", indexed_at: 1724134096}]->(p);
 
 MERGE (p3:Post {id: "2VDW8YBDZJ02"}) SET p3.content = "Decentralization is key to preserving freedom", p3.kind = "Short", p3.indexed_at = 1719308318234;
 MATCH (u3:User {id: $anonymous}), (p3:Post {id: "2VDW8YBDZJ02"}) MERGE (u3)-[:AUTHORED]->(p3);
@@ -104,4 +105,5 @@ MATCH (u:User {id: $nakamoto}), (p:Post {id: "2VDW8YBDZJ02"}) MERGE (u)-[:TAGGED
 MATCH (u:User {id: $Wobly}), (p:Post {id: "2VDW8YBDZJ02"}) MERGE (u)-[:TAGGED {label: $free_post_tag, id: "6TDW8ZMHJF29", indexed_at: 1724134092}]->(p);
 MATCH (u:User {id: $peter}), (p:Post {id: "2VDW8YBDZJ02"}) MERGE (u)-[:TAGGED {label: $free_post_tag, id: "7VDW8ZRJKN3Y", indexed_at: 1724134092}]->(p);
 MATCH (u:User {id: $peter}), (p:Post {id: "2VDW8YBDZJ02"}) MERGE (u)-[:TAGGED {label: $human_right_post_tag, id: "8SDX8YQMKP19", indexed_at: 1724134092}]->(p);
+MATCH (u:User {id: $peter}), (p:Post {id: "2VDW8YBDZJ02"}) MERGE (u)-[:BOOKMARKED {id: "2Z9PFGC3WWWT0", indexed_at: 1721764200}]->(p);
 

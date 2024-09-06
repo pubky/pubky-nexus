@@ -45,6 +45,7 @@ pub const STREAM_POSTS_REACH_ROUTE: &str = concatcp!(STREAM_POSTS_ROUTE, "/reach
 pub const STREAM_POSTS_BOOKMARKED_ROUTE: &str =
     concatcp!(STREAM_POSTS_ROUTE, "/bookmarks/:user_id");
 pub const STREAM_TAGS_ROUTE: &str = concatcp!(STREAM_PREFIX, "/tags");
+pub const STREAM_POSTS_TAG_ROUTE: &str = concatcp!(STREAM_POSTS_ROUTE, "/tag/:label");
 // Changed
 pub const STREAM_TAGS_GLOBAL_ROUTE: &str = concatcp!(STREAM_TAGS_ROUTE, "/global");
 // Changed
@@ -53,6 +54,7 @@ pub const STREAM_TAGS_REACH_ROUTE: &str = concatcp!(STREAM_TAGS_ROUTE, "/reached
 // Search routes
 const SEARCH_PREFIX: &str = concatcp!(VERSION_ROUTE, "/search");
 pub const SEARCH_USERS_ROUTE: &str = concatcp!(SEARCH_PREFIX, "/users");
+pub const SEARCH_TAGS_ROUTE: &str = concatcp!(SEARCH_PREFIX, "/tags/:label");
 
 // Tag routes
 const TAG_PREFIX: &str = concatcp!(VERSION_ROUTE, "/tag");

@@ -1,8 +1,8 @@
 use anyhow::Result;
 
-use super::utils::{
-    analyse_tag_details_structure, compare_tag_details, make_request, make_wrong_request, TagMockup,
-};
+use crate::service::utils::{make_request, make_wrong_request};
+
+use super::utils::{analyse_tag_details_structure, compare_tag_details, TagMockup};
 
 // Peter user from test/tags.cypher
 const PEER_PUBKY: &str = "db6w58pd5h63fbhtd88y8zz7pai9rkjwqt9omg6i7dz31dynrgcy";
@@ -26,7 +26,7 @@ async fn test_post_tag() -> Result<()> {
     analyse_tag_details_structure(tags);
 
     // // Analyse the tag that is in the 4th index
-    let hot_tag = TagMockup::new(String::from("LG"), 4, 4);
+    let hot_tag = TagMockup::new(String::from("lg"), 4, 4);
     compare_tag_details(&tags[0], hot_tag);
 
     Ok(())
@@ -89,7 +89,7 @@ async fn test_user_tags_full_filter_active() -> Result<()> {
     analyse_tag_details_structure(tags);
 
     // // Analyse the tag that is in the 4th index
-    let hot_tag = TagMockup::new(String::from("LG"), 1, 4);
+    let hot_tag = TagMockup::new(String::from("lg"), 1, 4);
     compare_tag_details(&tags[0], hot_tag);
 
     Ok(())
