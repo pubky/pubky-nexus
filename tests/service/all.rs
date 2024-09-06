@@ -4,7 +4,7 @@ use std::{
 };
 
 use anyhow::Result;
-use pubky_nexus::models::tag::post::PostTag;
+use pubky_nexus::models::tag::TagDetails;
 
 const HOST_URL: &str = "http://localhost:8080";
 
@@ -250,7 +250,7 @@ async fn test_get_post() -> Result<()> {
 
     // Panic if tags vector is bigger that 1
     let post_tag_object = body["tags"][0].clone();
-    let post_tag: PostTag = serde_json::from_value(post_tag_object.clone())?;
+    let post_tag: TagDetails = serde_json::from_value(post_tag_object.clone())?;
     assert_eq!(post_tag.label, "pubky");
 
     // Test non-existing post
@@ -632,7 +632,7 @@ async fn test_stream_pioneers() -> Result<()> {
 async fn test_stream_posts_timeline() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 
-    let res = client.do_get("/v0/stream/posts?sorting=Timeline").await?;
+    let res = client.do_get("/v0/stream/posts?sorting=timeline").await?;
     assert_eq!(res.status(), 200);
 
     let body = res.json_body()?;
@@ -689,7 +689,7 @@ async fn test_stream_posts_total_engagement() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 
     let res = client
-        .do_get("/v0/stream/posts?sorting=TotalEngagement")
+        .do_get("/v0/stream/posts?sorting=totalengagement")
         .await?;
     assert_eq!(res.status(), 200);
 

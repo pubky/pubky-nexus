@@ -185,6 +185,37 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         sets::put(&prefix, &key, &values).await
     }
 
+    /// Removes elements from a Redis set using the provided key parts.
+    ///
+    /// This method removes elements from a Redis set stored under the key generated from the provided `key_parts`.
+    ///
+    /// # Arguments
+    ///
+    /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the set is stored.
+    /// * `values` - A slice of string slices representing the elements to be removed from the set.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
+    async fn remove_from_index_set<T>(
+        &self,
+        key_parts: &[&str],
+    ) -> Result<(), Box<dyn Error + Send + Sync>>
+    where
+        Self: AsRef<[T]>,            // Self can be dereferenced into a slice of T
+        T: AsRef<str> + Send + Sync, // The items must be convertible to &str
+    {
+        let prefix = Self::prefix().await;
+        let key = key_parts.join(":");
+
+        // Directly use the string representations of items without additional serialization
+        let collection = self.as_ref();
+        let values: Vec<&str> = collection.iter().map(|item| item.as_ref()).collect();
+
+        // Remove the values from the Redis set
+        sets::del(&prefix, &key, &values).await
+    }
+
     /// Retrieves data from Redis using the provided key parts.
     ///
     /// This method deserializes the data stored under the key generated from the provided `key_parts` in Redis.
@@ -343,6 +374,34 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         sorted_sets::put("Sorted", &key, elements).await
     }
 
+    /// Removes elements from a Redis sorted set using the provided key parts.
+    ///
+    /// This method removes the specified elements from the Redis sorted set identified by the key generated
+    /// from the provided `key_parts`.
+    ///
+    /// # Arguments
+    ///
+    /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the sorted set is stored.
+    /// * `items` - A slice of string slices representing the elements to be removed from the sorted set.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
+    async fn remove_from_index_sorted_set(
+        key_parts: &[&str],
+        items: &[&str],
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        if items.is_empty() {
+            return Ok(());
+        }
+
+        // Create the key by joining the key parts
+        let key = key_parts.join(":");
+
+        // Call the sorted_sets::del function to remove the items from the sorted set
+        sorted_sets::del("Sorted", &key, items).await
+    }
+
     /// Retrieves a range of elements from a Redis sorted set using the provided key parts.
     ///
     /// This method fetches elements from a Redis sorted set stored under the key generated from the provided `key_parts`.
@@ -431,5 +490,48 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     ) -> Result<Vec<Option<(Vec<String>, usize)>>, Box<dyn Error + Send + Sync>> {
         let prefix = Self::prefix().await;
         sets::get_multiple_sets(&prefix, key_parts_list, limit).await
+    }
+
+    /// Adds elements to multiple Redis sets using the provided keys and collections.
+    ///
+    /// This asynchronous function allows you to add elements to multiple Redis sets,
+    /// with each set identified by a key generated from the `common_key` and `index_ref`.
+    /// The function ensures that each element in each set is unique.
+    ///
+    /// # Arguments
+    ///
+    /// * `common_key` - A slice of string slices representing the common part of the Redis keys.
+    ///   This will be combined with each element in `index` to generate the full Redis key.
+    /// * `index` - A slice of string slices representing the unique identifiers to append to the `common_key` to form the full Redis keys.
+    /// * `collections_refs` - A slice of vectors, where each inner vector contains elements to be added to the corresponding Redis set
+    ///
+    /// # Returns
+    ///
+    /// This function returns a `Result` indicating success or failure. A successful result means that
+    /// all elements were successfully added to their respective Redis sets.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
+    async fn put_multiple_set_indexes(
+        common_key: &[&str],
+        index: &[&str],
+        collections_refs: &[Vec<&str>],
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        // Ensure the lengths of keys_refs and collections_refs match
+        if index.len() != collections_refs.len() {
+            return Err("Keys refs and collections refs length mismatch".into());
+        }
+
+        // Get the prefix for the Redis keys
+        let prefix = Self::prefix().await;
+
+        let refs: Vec<&[&str]> = collections_refs
+            .iter()
+            .map(|inner_vec| inner_vec.as_slice())
+            .collect();
+        let slice: &[&[&str]] = refs.as_slice();
+
+        sets::put_multiple_sets(&prefix, common_key, index, slice).await
     }
 }

@@ -1,9 +1,10 @@
 use criterion::{criterion_group, criterion_main};
 use criterion::{BenchmarkId, Criterion};
 use pubky_nexus::models::tag::global::TagGlobal;
-use pubky_nexus::models::tag::post::PostTags;
+use pubky_nexus::models::tag::post::TagPost;
 use pubky_nexus::models::tag::stream::HotTags;
-use pubky_nexus::models::tag::user::UserTags;
+use pubky_nexus::models::tag::traits::{TagCollection, TaggersCollection};
+use pubky_nexus::models::tag::user::TagUser;
 use pubky_nexus::models::user::UserStreamType;
 use setup::run_setup;
 use std::time::Duration;
@@ -26,8 +27,32 @@ fn bench_get_user_tags(c: &mut Criterion) {
         &user_id,
         |b, &id| {
             b.to_async(&rt).iter(|| async {
-                let profile = UserTags::get_by_id(id).await.unwrap();
-                criterion::black_box(profile);
+                let tag_details_list = TagUser::get_by_id(id, None, None, None).await.unwrap();
+                criterion::black_box(tag_details_list);
+            });
+        },
+    );
+}
+
+fn bench_get_user_tag_taggers(c: &mut Criterion) {
+    println!("***************************************************************");
+    println!("Test the performance of getting a user tag taggers, using index");
+    println!("***************************************************************");
+
+    run_setup();
+
+    let user_id = "5f4e8eoogmkhqeyo5ijdix3ma6rw9byj8m36yrjp78pnxxc379to";
+    let rt = Runtime::new().unwrap();
+
+    c.bench_with_input(
+        BenchmarkId::new("bench_get_user_tag_taggers", user_id),
+        &user_id,
+        |b, &id| {
+            b.to_async(&rt).iter(|| async {
+                let taggers = TagUser::get_tagger_by_id(id, None, "pubky", None, None)
+                    .await
+                    .unwrap();
+                criterion::black_box(taggers);
             });
         },
     );
@@ -52,8 +77,38 @@ fn bench_get_post_tags(c: &mut Criterion) {
         &[user_id, post_id],
         |b, &params| {
             b.to_async(&rt).iter(|| async {
-                let profile = PostTags::get_by_id(params[0], params[1]).await.unwrap();
-                criterion::black_box(profile);
+                let tag_details_list = TagPost::get_by_id(params[0], Some(params[1]), None, None)
+                    .await
+                    .unwrap();
+                criterion::black_box(tag_details_list);
+            });
+        },
+    );
+}
+fn bench_get_post_tag_taggers(c: &mut Criterion) {
+    println!("*****************************************************************");
+    println!("Test the performance of getting a post tag taggers, using index");
+    println!("*****************************************************************");
+
+    run_setup();
+
+    let user_id = "5f4e8eoogmkhqeyo5ijdix3ma6rw9byj8m36yrjp78pnxxc379to";
+    let post_id = "0RDV7ABDZDW0";
+    let rt = Runtime::new().unwrap();
+
+    c.bench_with_input(
+        BenchmarkId::new(
+            "bench_get_post_tag_taggers",
+            format!("user_id: {}, post_id: {}", user_id, post_id),
+        ),
+        &[user_id, post_id],
+        |b, &params| {
+            b.to_async(&rt).iter(|| async {
+                let taggers =
+                    TagPost::get_tagger_by_id(params[0], Some(params[1]), "free", None, None)
+                        .await
+                        .unwrap();
+                criterion::black_box(taggers);
             });
         },
     );
@@ -79,13 +134,9 @@ fn bench_get_global_hot_tags(c: &mut Criterion) {
 }
 
 fn bench_get_global_tag_taggers(c: &mut Criterion) {
-    println!(
-        "****************************************************************************************"
-    );
+    println!("******************************************************************");
     println!("Test the performance of getting global tag taggers");
-    println!(
-        "****************************************************************************************"
-    );
+    println!("******************************************************************");
 
     run_setup();
 
@@ -107,15 +158,11 @@ fn bench_get_global_tag_taggers(c: &mut Criterion) {
 }
 
 fn bench_get_following_reach_hot_tags(c: &mut Criterion) {
-    println!(
-        "****************************************************************************************"
-    );
+    println!("***************************************************************************");
     println!(
         "Test the performance of getting tags by following reach, using index or graph as needed"
     );
-    println!(
-        "****************************************************************************************"
-    );
+    println!("***************************************************************************");
 
     run_setup();
 
@@ -144,15 +191,11 @@ fn bench_get_following_reach_hot_tags(c: &mut Criterion) {
 }
 
 fn bench_get_followers_reach_hot_tags(c: &mut Criterion) {
-    println!(
-        "****************************************************************************************"
-    );
+    println!("***************************************************************************");
     println!(
         "Test the performance of getting tags by followers reach, using index or graph as needed"
     );
-    println!(
-        "****************************************************************************************"
-    );
+    println!("***************************************************************************");
 
     run_setup();
 
@@ -181,15 +224,11 @@ fn bench_get_followers_reach_hot_tags(c: &mut Criterion) {
 }
 
 fn bench_get_friends_reach_hot_tags(c: &mut Criterion) {
-    println!(
-        "****************************************************************************************"
-    );
+    println!("***************************************************************************");
     println!(
         "Test the performance of getting tags by friends reach, using index or graph as needed"
     );
-    println!(
-        "****************************************************************************************"
-    );
+    println!("***************************************************************************");
 
     run_setup();
 
@@ -228,7 +267,9 @@ criterion_group! {
     name = benches;
     config = configure_criterion();
     targets =   bench_get_user_tags,
+                bench_get_user_tag_taggers,
                 bench_get_post_tags,
+                bench_get_post_tag_taggers,
                 bench_get_global_hot_tags,
                 bench_get_global_tag_taggers,
                 bench_get_following_reach_hot_tags,

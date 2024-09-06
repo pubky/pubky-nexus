@@ -1,7 +1,10 @@
 use super::{Bookmark, PostCounts, PostDetails, PostView};
 use crate::{
     db::kv::index::sorted_sets::Sorting,
-    models::user::{Followers, Following, Friends, UserFollows},
+    models::{
+        tag::search::TagSearch,
+        user::{Followers, Following, Friends, UserFollows},
+    },
     RedisOps,
 };
 use serde::{Deserialize, Serialize};
@@ -14,7 +17,8 @@ const POST_TOTAL_ENGAGEMENT_KEY_PARTS: [&str; 3] = ["Posts", "Global", "TotalEng
 const POST_PER_USER_KEY_PARTS: [&str; 2] = ["Posts", "User"];
 const BOOKMARKS_USER_KEY_PARTS: [&str; 2] = ["Bookmarks", "User"];
 
-#[derive(Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
 pub enum PostStreamSorting {
     Timeline,
     TotalEngagement,
@@ -31,7 +35,7 @@ pub enum PostStreamReach {
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]
-pub struct PostStream(Vec<PostView>);
+pub struct PostStream(pub Vec<PostView>);
 
 impl RedisOps for PostStream {}
 
@@ -238,6 +242,30 @@ impl PostStream {
         Ok(selected_post_keys)
     }
 
+    pub async fn get_posts_by_tag(
+        label: &str,
+        sort_by: Option<PostStreamSorting>,
+        viewer_id: Option<String>,
+        skip: Option<usize>,
+        limit: Option<usize>,
+    ) -> Result<Option<PostStream>, Box<dyn Error + Send + Sync>> {
+        let skip = skip.unwrap_or(0);
+        let limit = limit.unwrap_or(6);
+
+        let post_search_result = TagSearch::get_by_label(label, sort_by, skip, limit).await?;
+
+        match post_search_result {
+            Some(post_keys) => {
+                let post_keys: Vec<String> = post_keys
+                    .into_iter()
+                    .map(|post_score| post_score.post_key)
+                    .collect();
+                Self::from_listed_post_ids(viewer_id, &post_keys).await
+            }
+            None => Ok(None),
+        }
+    }
+
     pub async fn from_listed_post_ids(
         viewer_id: Option<String>,
         post_keys: &[String],
@@ -254,7 +282,7 @@ impl PostStream {
             let viewer_id = viewer_id.clone();
             let post_id = post_id.to_string();
             let handle = spawn(async move {
-                PostView::get_by_id(&author_id, &post_id, viewer_id.as_deref()).await
+                PostView::get_by_id(&author_id, &post_id, viewer_id.as_deref(), None, None).await
             });
             handles.push(handle);
         }

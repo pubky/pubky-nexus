@@ -2340,6 +2340,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "base32",
+ "blake3",
  "chrono",
  "const_format",
  "criterion",
@@ -2352,6 +2354,7 @@ dependencies = [
  "once_cell",
  "pkarr",
  "pubky",
+ "pubky-common",
  "pubky_homeserver",
  "redis",
  "reqwest",

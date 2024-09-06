@@ -8,7 +8,7 @@ use super::PostStream;
 
 #[derive(Serialize, Deserialize, ToSchema, Default)]
 pub struct Bookmark {
-    id: String,
+    pub id: String,
     pub indexed_at: i64,
 }
 

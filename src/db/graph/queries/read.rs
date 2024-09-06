@@ -77,7 +77,44 @@ pub fn get_users_details_by_ids(user_ids: &[&str]) -> Query {
     .param("ids", user_ids)
 }
 
-/// Retrieve all the tags of the post
+/// Retrieves unique global tags for posts, returning a list of `post_ids` and `timestamp` pairs for each tag label.
+pub fn global_tags_by_post() -> neo4rs::Query {
+    query(
+        "
+        MATCH (tagger:User)-[t:TAGGED]->(post:Post)<-[:AUTHORED]-(author:User)
+        WITH t.label AS label, author.id + ':' + post.id AS post_id, post.indexed_at AS score
+        WITH DISTINCT post_id, label, score
+        WITH label, COLLECT([toFloat(score), post_id ]) AS sorted_set
+        RETURN label, sorted_set
+        ",
+    )
+}
+
+// TODO: Do not traverse all the graph again to get the engagement score. Rethink how to share that info in the indexer
+/// Retrieves unique global tags for posts, calculating an engagement score based on tag counts,
+/// replies, reposts, mentions, and bookmarks. The query returns a `key` by combining author's ID
+/// and post's ID, along with a sorted set of engagement scores for each tag label.
+pub fn global_tags_by_post_engagement() -> neo4rs::Query {
+    query(
+        "
+        MATCH (author:User)-[:AUTHORED]->(post:Post)<-[tag:TAGGED]-(tagger:User)
+        WITH post, COUNT(tag) AS tags_count, tag.label AS label, author.id + ':' + post.id AS key
+        WITH DISTINCT key, label, post, tags_count
+        WHERE tags_count > 0
+        OPTIONAL MATCH (post)<-[reply:REPLIED]-()
+        OPTIONAL MATCH (post)<-[repost:REPOSTED]-()
+        OPTIONAL MATCH (post)-[mention:MENTIONED]->()
+        OPTIONAL MATCH (post)<-[bookmark:BOOKMARKED]-()
+        OPTIONAL MATCH (post)<-[tagged:TAGGED]-()
+        WITH COUNT(DISTINCT tagged) AS taggers, COUNT(DISTINCT reply) AS replies_count, COUNT(DISTINCT repost) AS reposts_count, COUNT(DISTINCT mention) AS mention_count, COUNT(DISTINCT bookmark) AS bookmark_count, key, label
+        WITH label, COLLECT([toFloat(taggers + replies_count + reposts_count + mention_count + bookmark_count), key ]) AS sorted_set
+        RETURN label, sorted_set
+        order by label
+        "
+    )
+}
+
+// Retrieve all the tags of the post
 pub fn post_tags(user_id: &str, post_id: &str) -> neo4rs::Query {
     query(
         "
@@ -85,47 +122,40 @@ pub fn post_tags(user_id: &str, post_id: &str) -> neo4rs::Query {
         CALL {
             WITH p
             MATCH (tagger:User)-[tag:TAGGED]->(p)
-            WITH tag.label AS name,
-                collect({
-                    tag_id: tag.id,
-                    indexed_at: tag.indexed_at,
-                    tagger_id: tagger.id
-                }) AS from
+            WITH tag.label AS name, collect(DISTINCT tagger.id) AS tagger_ids
             RETURN collect({
                 label: name,
-                tagged: from
-            }) AS post_tags
+                taggers: tagger_ids,
+                taggers_count: SIZE(tagger_ids)
+            }) AS tags
         }
         RETURN 
-            u IS NOT NULL AS post_exists,
-            post_tags
+            u IS NOT NULL AS exists,
+            tags
     ",
     )
     .param("user_id", user_id)
     .param("post_id", post_id)
 }
 
+// Retrieve all the tags of the user
 pub fn user_tags(user_id: &str) -> neo4rs::Query {
     query(
         "
         MATCH (u:User {id: $user_id})
         CALL {
             WITH u
-            MATCH (p:User)-[r:TAGGED]->(u)
-            WITH r.label AS name,
-                collect({
-                    tag_id: r.id,
-                    indexed_at: r.indexed_at,
-                    tagger_id: p.id
-                }) AS from
+            MATCH (p:User)-[t:TAGGED]->(u)
+            WITH t.label AS name, collect(DISTINCT p.id) AS tagger_ids
             RETURN collect({
                 label: name,
-                tagged: from
-            }) AS user_tags
+                taggers: tagger_ids,
+                taggers_count: SIZE(tagger_ids)
+            }) AS tags
         }
         RETURN 
-            u IS NOT NULL AS user_exists,
-            user_tags
+            u IS NOT NULL AS exists,
+            tags
     ",
     )
     .param("user_id", user_id)

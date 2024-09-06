@@ -1,6 +1,10 @@
 use crate::db::kv::flush::clear_redis;
 use crate::models::post::Bookmark;
+use crate::models::tag::post::TagPost;
+use crate::models::tag::search::TagSearch;
 use crate::models::tag::stream::HotTags;
+use crate::models::tag::traits::TagCollection;
+use crate::models::tag::user::TagUser;
 use crate::models::traits::Collection;
 use crate::models::user::{Followers, Following, UserDetails, UserFollows};
 use crate::{
@@ -63,28 +67,34 @@ pub async fn reindex() {
         .await
         .expect("Failed to store the global hot tags");
 
+    TagSearch::index_post_tags_from_graph()
+        .await
+        .expect("Failed to store the global post tags");
+
     info!("Reindexing completed successfully.");
 }
 
-async fn reindex_user(user_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub async fn reindex_user(user_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tokio::try_join!(
         Bookmark::index_all_from_graph(user_id),
         UserCounts::get_from_graph(user_id),
         Followers::get_from_graph(user_id, Some(0), Some(100)),
         Following::get_from_graph(user_id, Some(0), Some(100)),
+        TagUser::get_from_graph(user_id, None)
     )?;
 
     Ok(())
 }
 
-async fn reindex_post(
+pub async fn reindex_post(
     author_id: &str,
     post_id: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tokio::try_join!(
         PostDetails::get_from_graph(author_id, post_id),
         PostCounts::get_from_graph(author_id, post_id),
-        PostRelationships::get_from_graph(author_id, post_id)
+        PostRelationships::get_from_graph(author_id, post_id),
+        TagPost::get_from_graph(author_id, Some(post_id))
     )?;
 
     Ok(())

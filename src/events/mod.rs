@@ -1,19 +1,17 @@
-use crate::models::{
-    homeserver::HomeserverUser,
-    traits::Collection,
-    user::{UserCounts, UserDetails},
+use handlers::{
+    bookmark::parse_bookmark_id, follow::parse_follow_id, post::parse_post_id, user::parse_user_id,
 };
-use log::{debug, error, info};
+use log::{debug, error};
 use pubky::PubkyClient;
 
+pub mod handlers;
 pub mod processor;
-
 enum ResourceType {
     User,
     Post,
-    // Follow,
+    Follow,
+    Bookmark,
     // File,
-    // Bookmark,
     // Tag,
 
     // Add more as needed
@@ -46,7 +44,7 @@ pub struct Event {
 
 impl Event {
     fn from_str(line: &str, pubky_client: PubkyClient) -> Option<Self> {
-        info!("Line {}", line);
+        debug!("New event: {}", line);
         let parts: Vec<&str> = line.splitn(2, ' ').collect();
         if parts.len() != 2 {
             error!("Malformed event line: {}", line);
@@ -66,8 +64,12 @@ impl Event {
 
         let resource_type = if uri.ends_with("profile.json") {
             ResourceType::User
-        } else if uri.contains("/post/") {
+        } else if uri.contains("/posts/") {
             ResourceType::Post
+        } else if uri.contains("/follows/") {
+            ResourceType::Follow
+        } else if uri.contains("/bookmarks/") {
+            ResourceType::Bookmark
         } else {
             // Handle other resource types
             error!("Unrecognized resource in URI: {}", uri);
@@ -81,22 +83,6 @@ impl Event {
         })
     }
 
-    fn get_user_id(&self) -> Option<String> {
-        // Extract the part of the URI between "pubky://" and "/pub/". That's the user_id.
-        let pattern = "pubky://";
-        let pub_segment = "/pub/";
-
-        if let Some(start) = self.uri.path.find(pattern) {
-            let start_idx = start + pattern.len();
-            if let Some(end_idx) = self.uri.path[start_idx..].find(pub_segment) {
-                let user_id = self.uri.path[start_idx..start_idx + end_idx].to_string();
-                return Some(user_id);
-            }
-        }
-
-        None
-    }
-
     async fn handle(&self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
         match self.event_type {
             EventType::Put => self.handle_put_event().await,
@@ -106,7 +92,10 @@ impl Event {
 
     async fn handle_put_event(&self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
         debug!("Handling PUT event for {}", self.uri.path);
-        let url = reqwest::Url::parse(&self.uri.path)?;
+
+        let uri = &self.uri.path;
+
+        let url = reqwest::Url::parse(uri)?;
         let blob = match self.pubky_client.get(url).await {
             Ok(Some(blob)) => blob,
             Ok(None) => {
@@ -114,40 +103,21 @@ impl Event {
                 return Ok(());
             }
             Err(e) => {
-                error!("Failed to fetch content at {}: {}", self.uri.path, e);
+                error!("Failed to fetch content at {}: {}", uri, e);
                 return Err(e.into());
             }
         };
 
         match self.uri.resource_type {
-            ResourceType::User => {
-                // Process profile.json and update the databases
-                debug!("Processing User resource at {}", self.uri.path);
-
-                // Serialize and validate
-                let user = HomeserverUser::try_from(&blob).await?;
-
-                // Create UserDetails object
-                let user_details = match self.get_user_id() {
-                    Some(user_id) => UserDetails::from_homeserver(&user_id, user).await?,
-                    None => {
-                        error!("Error getting user_id from event uri. Skipping event.");
-                        return Ok(());
-                    }
-                };
-
-                // Index new user event into the Graph and Index
-                user_details.save().await?;
-
-                // Add to other sorted sets and indexes
-                UserDetails::add_to_sorted_sets(&[Some(user_details)]).await;
-            }
+            ResourceType::User => handlers::user::put(parse_user_id(uri)?, blob).await?,
             ResourceType::Post => {
-                // Process Post resource and update the databases
-                debug!("Processing Post resource at {}", self.uri.path);
-                // Implement constructor that writes into the DBs
-                // post_details = PostDetails::from_homeserver(&blob).await?;
-                // post_details.save()
+                handlers::post::put(parse_user_id(uri)?, parse_post_id(uri)?, blob).await?
+            }
+            ResourceType::Follow => {
+                handlers::follow::put(parse_user_id(uri)?, parse_follow_id(uri)?, blob).await?
+            }
+            ResourceType::Bookmark => {
+                handlers::bookmark::put(parse_user_id(uri)?, parse_bookmark_id(uri)?, blob).await?
             }
         }
 
@@ -156,26 +126,18 @@ impl Event {
 
     async fn handle_del_event(&self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
         debug!("Handling DEL event for {}", self.uri.path);
-        match self.uri.resource_type {
-            ResourceType::User => {
-                // Handle deletion of profile.json from databases
-                debug!("Deleting User resource at {}", self.uri.path);
-                let user_details =
-                    UserDetails::get_by_id(&self.get_user_id().unwrap_or_default()).await?;
 
-                //TODO: delete from search sorted set, delete user tags, delete followers/following, etc
-                match user_details {
-                    None => return Ok(()),
-                    Some(user_details) => {
-                        user_details.delete().await?;
-                        UserCounts::delete(&user_details.id).await?;
-                    }
-                }
-            }
+        let uri = &self.uri.path;
+        match self.uri.resource_type {
+            ResourceType::User => handlers::user::del(parse_user_id(uri)?).await?,
             ResourceType::Post => {
-                // Handle deletion of Post resource from databases
-                debug!("Deleting Post resource at {}", self.uri.path);
-                // Implement your deletion logic here
+                handlers::post::del(parse_user_id(uri)?, parse_post_id(uri)?).await?
+            }
+            ResourceType::Follow => {
+                handlers::follow::del(parse_user_id(uri)?, parse_follow_id(uri)?).await?
+            }
+            ResourceType::Bookmark => {
+                handlers::bookmark::del(parse_user_id(uri)?, parse_bookmark_id(uri)?).await?
             }
         }
 

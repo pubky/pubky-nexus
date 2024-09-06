@@ -1,12 +1,12 @@
+use super::id::PubkyId;
 use super::UserSearch;
 use crate::db::graph::exec::exec_single_row;
-use crate::models::homeserver::{HomeserverUser, UserLink};
+use crate::models::pubky_app::{PubkyAppUser, UserLink};
 use crate::models::traits::Collection;
 use crate::{queries, RedisOps};
 use axum::async_trait;
 use chrono::Utc;
 use neo4rs::Query;
-use pkarr::PublicKey;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json;
 use utoipa::ToSchema;
@@ -39,7 +39,7 @@ impl Collection for UserDetails {
 pub struct UserDetails {
     pub name: String,
     pub bio: Option<String>,
-    pub id: String,
+    pub id: PubkyId,
     #[serde(deserialize_with = "deserialize_user_links")]
     pub links: Option<Vec<UserLink>>,
     pub status: Option<String>,
@@ -50,9 +50,25 @@ fn deserialize_user_links<'de, D>(deserializer: D) -> Result<Option<Vec<UserLink
 where
     D: Deserializer<'de>,
 {
-    let s: String = String::deserialize(deserializer)?;
-    let urls: Option<Vec<UserLink>> = serde_json::from_str(&s).map_err(serde::de::Error::custom)?;
-    Ok(urls)
+    // Deserialize into serde_json::Value first
+    let value = serde_json::Value::deserialize(deserializer)?;
+
+    // Handle both cases
+    match value {
+        serde_json::Value::String(s) => {
+            // If it's a string, parse the string as JSON
+            let urls: Option<Vec<UserLink>> =
+                serde_json::from_str(&s).map_err(serde::de::Error::custom)?;
+            Ok(urls)
+        }
+        serde_json::Value::Array(arr) => {
+            // If it's already an array, deserialize it directly
+            let urls: Vec<UserLink> = serde_json::from_value(serde_json::Value::Array(arr))
+                .map_err(serde::de::Error::custom)?;
+            Ok(Some(urls))
+        }
+        _ => Err(serde::de::Error::custom("Expected a string or an array")),
+    }
 }
 
 impl UserDetails {
@@ -66,29 +82,22 @@ impl UserDetails {
     }
 
     pub async fn from_homeserver(
-        user_id: &str,
-        homeserver_user: HomeserverUser,
+        homeserver_user: PubkyAppUser,
+        user_id: &PubkyId,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        // Validate user_id is a valid pkarr public key
-        PublicKey::try_from(user_id)?;
         Ok(UserDetails {
             name: homeserver_user.name,
             bio: homeserver_user.bio,
             status: homeserver_user.status,
             links: homeserver_user.links,
-            id: user_id.to_string(),
+            id: user_id.clone(),
             indexed_at: Utc::now().timestamp_millis(),
         })
     }
 
-    pub async fn save(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Save new user_details on Redis
-        self.put_index_json(&[&self.id]).await?;
-
-        // Save new graph node;
-        exec_single_row(queries::write::create_user(self)).await?;
-
-        Ok(())
+    // Save new graph node
+    pub async fn put_to_graph(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        exec_single_row(queries::write::create_user(self)?).await
     }
 
     pub async fn delete(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -162,7 +171,7 @@ mod tests {
 
         for (i, details) in user_details.iter().enumerate() {
             if let Some(details) = details {
-                assert_eq!(details.id, USER_IDS[i]);
+                assert_eq!(details.id.as_ref(), USER_IDS[i]);
             }
         }
     }
