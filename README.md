@@ -45,7 +45,7 @@ cp .env-sample .env
 # Run the databases (Neo4j and Redis databases will spin up empty)
 docker-compose up -d
 # Populate the graph database with initial data
-docker exec neo4j bash /db-seed/run-queries.sh
+docker exec neo4j bash /db-graph/run-queries.sh
 ```
 
 Once the `Neo4j` graph database is seeded with data, the next step is to populate the `Redis` database by running the _nexus-service_:
@@ -120,7 +120,7 @@ DETACH DELETE n;
 3. Once the graph is cleared, re-populate the database with the correct dataset:
 
 ```bash
-docker exec neo4j bash /db-seed/run-queries.sh
+docker exec neo4j bash /db-graph/run-queries.sh
 # Reindex environment variable TRUE, check above
 cargo run
 # and unset the reindex variable

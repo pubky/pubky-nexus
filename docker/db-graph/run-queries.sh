@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # Path to the queries file
-QUERIES_FILE="/db-seed/indexer.cypher"
+QUERIES_FILE="/db-graph/skunk.cypher"
 # To achieve deterministic tests, each domain will have its own testing graph
-TAGS_TEST_FILE="/db-seed/mocks/tags.cypher"
-POSTS_TEST_FILE="/db-seed/mocks/posts.cypher"
+TAGS_TEST_FILE="/db-graph/mocks/tags.cypher"
+POSTS_TEST_FILE="/db-graph/mocks/posts.cypher"
 
 echo "Starting Cypher query execution..."
 
