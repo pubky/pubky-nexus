@@ -49,7 +49,7 @@ pub async fn del(
     Following(vec![followee_id.to_string()])
         .remove_from_index_set(&[&follower_id])
         .await?;
-    Followers(vec![follower_id.to_string()])
+    Followers(vec![follower_id.0])
         .remove_from_index_set(&[&followee_id])
         .await?;
 
