@@ -1,5 +1,5 @@
 use crate::{
-    models::file::{details::FileKey, FileDetails},
+    models::{file::FileDetails, traits::Collection},
     Config,
 };
 use axum::{
@@ -25,32 +25,41 @@ async fn static_files_middleware(request: Request, next: Next) -> Result<Respons
         return Ok(response);
     };
 
-    let file_key = FileKey {
-        owner_id: owner_id.to_string(),
-        file_id: file_id.to_string(),
-    };
+    let files = FileDetails::get_by_ids(vec![vec![owner_id, file_id].as_slice()].as_slice()).await;
 
-    let file = FileDetails::get_file(&file_key).await;
-
-    match file {
-        Ok(Some(value)) => {
-            response.headers_mut().insert(
-                "Content-Length",
-                value.size.to_string().as_str().parse().unwrap(),
-            );
-            response
-                .headers_mut()
-                .insert("Content-Type", value.content_type.parse().unwrap());
-            Ok(response)
-        }
-        Ok(None) => Err(StatusCode::NOT_FOUND),
+    match files {
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+        Ok(value) => {
+            let file = &value[0];
+            match file {
+                Some(value) => {
+                    response.headers_mut().insert(
+                        "Content-Length",
+                        value.size.to_string().as_str().parse().unwrap(),
+                    );
+                    response
+                        .headers_mut()
+                        .insert("Content-Type", value.content_type.parse().unwrap());
+                    Ok(response)
+                }
+                None => Err(StatusCode::NOT_FOUND),
+            }
+        }
     }
 }
 
 pub fn routes() -> Router {
     let config = Config::from_env();
-    Router::new()
-        .nest_service("/static", get_service(ServeDir::new(config.static_path)))
-        .route_layer(middleware::from_fn(static_files_middleware))
+
+    let general =
+        Router::new().nest_service("/static/", get_service(ServeDir::new(config.static_path)));
+
+    let files = Router::new()
+        .nest_service(
+            "/static/files/",
+            get_service(ServeDir::new(config.file_path)),
+        )
+        .route_layer(middleware::from_fn(static_files_middleware));
+
+    general.merge(files)
 }

@@ -1,33 +1,23 @@
+use super::PostStream;
 use crate::db::connectors::neo4j::get_neo4j_graph;
+use crate::db::graph::exec::exec_single_row;
+use crate::models::pubky_app::{PostKind, PubkyAppPost};
+use crate::models::user::PubkyId;
 use crate::{queries, RedisOps};
+use chrono::Utc;
 use neo4rs::Node;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use super::PostStream;
-
-/// Represents the type of pubky-app posted data
-/// Used primarily to best display the content in UI
-#[derive(Serialize, Deserialize, ToSchema, Default)]
-pub enum PostKind {
-    #[default]
-    Short,
-    Long,
-    Image,
-    Video,
-    Link,
-    File,
-}
-
 /// Represents post data with content, bio, image, links, and status.
-#[derive(Serialize, Deserialize, ToSchema, Default)]
+#[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
 pub struct PostDetails {
-    content: String,
+    pub content: String,
     pub id: String, // TODO: create Crockfordbase32 validator
     pub indexed_at: i64,
     pub author: String,
-    kind: PostKind,
-    uri: String,
+    pub kind: PostKind,
+    pub uri: String,
 }
 
 impl RedisOps for PostDetails {}
@@ -54,6 +44,27 @@ impl PostDetails {
             author: String::from(author_id),
             kind: node.get("kind").unwrap_or_default(),
         }
+    }
+
+    pub async fn from_homeserver(
+        homeserver_post: PubkyAppPost,
+        author_id: &PubkyId,
+        post_id: &String,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(PostDetails {
+            uri: format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}"),
+            content: homeserver_post.content,
+            id: post_id.clone(),
+            indexed_at: Utc::now().timestamp_millis(),
+            author: author_id.0.clone(),
+            kind: homeserver_post.kind,
+        })
+    }
+
+    // Save new graph node
+    pub async fn put_to_graph(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Save new graph node;
+        exec_single_row(queries::write::create_post(self)?).await
     }
 
     /// Retrieves the post fields from Neo4j.

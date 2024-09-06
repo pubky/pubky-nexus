@@ -8,7 +8,7 @@ mod view;
 
 pub use bookmark::Bookmark;
 pub use counts::PostCounts;
-pub use details::{PostDetails, PostKind};
+pub use details::PostDetails;
 pub use relationships::PostRelationships;
 pub use stream::{PostStream, PostStreamReach, PostStreamSorting};
 pub use thread::PostThread;

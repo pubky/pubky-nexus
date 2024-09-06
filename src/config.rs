@@ -10,6 +10,7 @@ pub struct Config {
     redis_host: String,
     redis_port: String,
     pub static_path: String,
+    pub file_path: String,
     pub base_file_url: String,
     server_host: String,
     server_port: String,
@@ -33,8 +34,9 @@ impl Config {
             redis_host: env::var("REDIS_HOST").unwrap_or_else(|_| "localhost".to_string()),
             redis_port: env::var("REDIS_PORT").unwrap_or_else(|_| "6379".to_string()),
             static_path: env::var("STATIC_PATH").unwrap_or_else(|_| "./static".to_string()),
+            file_path: env::var("FILE_PATH").unwrap_or_else(|_| "./static/files".to_string()),
             base_file_url: env::var("BASE_FILE_URL")
-                .unwrap_or_else(|_| "127.0.0.1:8080/static/".to_string()),
+                .unwrap_or_else(|_| "127.0.0.1:8080/static/files/".to_string()),
             server_host: env::var("SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string()),
             server_port: env::var("SERVER_PORT").unwrap_or_else(|_| "8080".to_string()),
             reindex: env::var("REINDEX")

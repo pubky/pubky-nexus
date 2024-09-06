@@ -60,10 +60,10 @@ impl UserSearch {
             // Convert the username to lowercase before storing
             let username = details.name.to_lowercase();
             let user_id = &details.id;
-            let score = details.indexed_at as f64;
+            let score = 0.0;
 
             // The value in the sorted set will be `username:user_id`
-            let member = format!("{}:{}", username, user_id);
+            let member = format!("{}:{}", username, user_id.0);
 
             items.push((score, member));
         }

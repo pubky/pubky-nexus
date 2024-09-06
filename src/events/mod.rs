@@ -1,22 +1,20 @@
-use crate::models::{
-    file::FileDetails,
-    homeserver::{HomeserverFile, HomeserverUser},
-    traits::Collection,
-    user::{UserCounts, UserDetails},
+use handlers::{
+    bookmark::parse_bookmark_id, file::parse_file_id, follow::parse_follow_id, post::parse_post_id,
 };
-use log::{debug, error, info};
+use log::{debug, error};
 use pubky::PubkyClient;
 
-pub mod processor;
+use crate::models::user::PubkyId;
 
+pub mod handlers;
+pub mod processor;
 pub enum ResourceType {
     User,
     Post,
-    // Follow,
+    Follow,
+    Bookmark,
     File,
-    // Bookmark,
     // Tag,
-
     // Add more as needed
 }
 
@@ -40,7 +38,7 @@ pub enum EventType {
 }
 
 pub struct Event {
-    pub user_id: String,
+    pub user_id: PubkyId,
     pub event_type: EventType,
     pub uri: Uri,
     pubky_client: PubkyClient,
@@ -48,7 +46,7 @@ pub struct Event {
 
 impl Event {
     fn from_str(line: &str, pubky_client: PubkyClient) -> Option<Self> {
-        info!("Line {}", line);
+        debug!("New event: {}", line);
         let parts: Vec<&str> = line.splitn(2, ' ').collect();
         if parts.len() != 2 {
             error!("Malformed event line: {}", line);
@@ -68,8 +66,10 @@ impl Event {
 
         let resource_type = match uri {
             _ if uri.ends_with("profile.json") => ResourceType::User,
-            _ if uri.contains("/post/") => ResourceType::Post,
-            _ if uri.contains("/file/") => ResourceType::File,
+            _ if uri.contains("/posts/") => ResourceType::Post,
+            _ if uri.contains("/follows/") => ResourceType::Follow,
+            _ if uri.contains("/bookmarks/") => ResourceType::Bookmark,
+            _ if uri.contains("/files/") => ResourceType::File,
             _ => {
                 // Handle other resource types
                 error!("Unrecognized resource in URI: {}", uri);
@@ -77,10 +77,13 @@ impl Event {
             }
         };
 
-        let user_id = match Event::get_user_id(uri) {
-            Some(id) => id,
-            None => {
-                error!("Error getting user_id from event uri. Skipping event.");
+        let user_id = match handlers::user::parse_user_id(uri) {
+            Ok(id) => id,
+            Err(err) => {
+                error!(
+                    "Error getting user_id from event uri. Skipping event. Details: {:?}",
+                    err
+                );
                 return None;
             }
         };
@@ -93,22 +96,6 @@ impl Event {
         })
     }
 
-    fn get_user_id(path: &str) -> Option<String> {
-        // Extract the part of the URI between "pubky://" and "/pub/". That's the user_id.
-        let pattern = "pubky://";
-        let pub_segment = "/pub/";
-
-        if let Some(start) = path.find(pattern) {
-            let start_idx = start + pattern.len();
-            if let Some(end_idx) = path[start_idx..].find(pub_segment) {
-                let user_id = path[start_idx..start_idx + end_idx].to_string();
-                return Some(user_id);
-            }
-        }
-
-        None
-    }
-
     async fn handle(&self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
         match self.event_type {
             EventType::Put => self.handle_put_event().await,
@@ -118,7 +105,10 @@ impl Event {
 
     async fn handle_put_event(&self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
         debug!("Handling PUT event for {}", self.uri.path);
-        let url = reqwest::Url::parse(&self.uri.path)?;
+
+        let uri = &self.uri.path;
+
+        let url = reqwest::Url::parse(uri)?;
         let blob = match self.pubky_client.get(url).await {
             Ok(Some(blob)) => blob,
             Ok(None) => {
@@ -126,47 +116,31 @@ impl Event {
                 return Ok(());
             }
             Err(e) => {
-                error!("Failed to fetch content at {}: {}", self.uri.path, e);
+                error!("Failed to fetch content at {}: {}", uri, e);
                 return Err(e.into());
             }
         };
 
         match self.uri.resource_type {
-            ResourceType::User => {
-                // Process profile.json and update the databases
-                debug!("Processing User resource at {}", self.uri.path);
-
-                // Serialize and validate
-                let user = HomeserverUser::try_from(&blob).await?;
-
-                // Create UserDetails object
-                let user_details = UserDetails::from_homeserver(&self.user_id, user).await?;
-
-                // Index new user event into the Graph and Index
-                user_details.save().await?;
-
-                // Add to other sorted sets and indexes
-                UserDetails::add_to_sorted_sets(&[Some(user_details)]).await;
-            }
+            ResourceType::User => handlers::user::put(&self.user_id, blob).await?,
             ResourceType::Post => {
-                // Process Post resource and update the databases
-                debug!("Processing Post resource at {}", self.uri.path);
-                // Implement constructor that writes into the DBs
-                // post_details = PostDetails::from_homeserver(&blob).await?;
-                // post_details.save()
+                handlers::post::put(&self.user_id, parse_post_id(uri)?, blob).await?
+            }
+            ResourceType::Follow => {
+                handlers::follow::put(&self.user_id, parse_follow_id(uri)?, blob).await?
+            }
+            ResourceType::Bookmark => {
+                handlers::bookmark::put(&self.user_id, parse_bookmark_id(uri)?, blob).await?
             }
             ResourceType::File => {
-                debug!("Processing File resource at {}", self.uri.path);
-
-                // Serialize and validate
-                let file_input = HomeserverFile::try_from(&blob).await?;
-
-                // Create FileDetails object
-                let file_details =
-                    FileDetails::from_homeserver(&self, file_input, &self.pubky_client).await?;
-
-                // Index new user event into the Graph and Index
-                file_details.save().await?;
+                handlers::file::put(
+                    self.uri.path.clone(),
+                    self.user_id.clone(),
+                    parse_file_id(uri)?,
+                    blob,
+                    &self.pubky_client,
+                )
+                .await?
             }
         }
 
@@ -175,38 +149,18 @@ impl Event {
 
     async fn handle_del_event(&self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
         debug!("Handling DEL event for {}", self.uri.path);
+
+        let uri = &self.uri.path;
         match self.uri.resource_type {
-            ResourceType::User => {
-                // Handle deletion of profile.json from databases
-                debug!("Deleting User resource at {}", self.uri.path);
-                let user_details = UserDetails::get_by_id(&self.user_id).await?;
-
-                //TODO: delete from search sorted set, delete user tags, delete followers/following, etc
-                match user_details {
-                    None => return Ok(()),
-                    Some(user_details) => {
-                        user_details.delete().await?;
-                        UserCounts::delete(&user_details.id).await?;
-                    }
-                }
+            ResourceType::User => handlers::user::del(&self.user_id).await?,
+            ResourceType::Post => handlers::post::del(&self.user_id, parse_post_id(uri)?).await?,
+            ResourceType::Follow => {
+                handlers::follow::del(&self.user_id, parse_follow_id(uri)?).await?
             }
-            ResourceType::Post => {
-                // Handle deletion of Post resource from databases
-                debug!("Deleting Post resource at {}", self.uri.path);
-                // Implement your deletion logic here
+            ResourceType::Bookmark => {
+                handlers::bookmark::del(&self.user_id, parse_bookmark_id(uri)?).await?
             }
-            ResourceType::File => {
-                debug!("Deleting File resource at {}", self.uri.path);
-                let file_details =
-                    FileDetails::get_file(&FileDetails::file_key_from_uri(&self.uri.path)).await?;
-
-                match file_details {
-                    None => return Ok(()),
-                    Some(file) => {
-                        file.delete().await?;
-                    }
-                }
-            }
+            ResourceType::File => handlers::file::del(&self.user_id, parse_file_id(uri)?).await?,
         }
 
         Ok(())
