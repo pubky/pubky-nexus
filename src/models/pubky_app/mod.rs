@@ -8,7 +8,7 @@ pub mod traits;
 mod user;
 
 pub use bookmark::PubkyAppBookmark;
-pub use file::HomeserverFile;
+pub use file::PubkyAppFile;
 pub use follow::PubkyAppFollow;
 pub use post::{PostKind, PubkyAppPost};
 pub use tag::PubkyAppTag;

@@ -60,7 +60,7 @@ impl GenerateId for PubkyAppPost {
 
 impl Validatable for PubkyAppPost {
     //TODO: implement full validation rules. Min/Max lengths, post kinds, etc.
-    fn validate(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn validate(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }
 }

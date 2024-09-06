@@ -74,33 +74,34 @@ impl Event {
         let uri = parts[1].to_string();
         let parsed_uri = ParsedUri::try_from(uri.as_str()).unwrap_or_default();
 
-        let resource_type = if uri.ends_with("profile.json") {
-            ResourceType::User {
+        let resource_type = match uri {
+            _ if uri.ends_with("profile.json") => ResourceType::User {
                 user_id: parsed_uri.user_id,
-            }
-        } else if uri.contains("/posts/") {
-            ResourceType::Post {
+            },
+            _ if uri.contains("/posts/") => ResourceType::Post {
                 author_id: parsed_uri.user_id,
                 post_id: parsed_uri.post_id.ok_or("Missing post_id")?,
-            }
-        } else if uri.contains("/follows/") {
-            ResourceType::Follow {
+            },
+            _ if uri.contains("/follows/") => ResourceType::Follow {
                 follower_id: parsed_uri.user_id,
                 followee_id: parsed_uri.follow_id.ok_or("Missing followee_id")?,
-            }
-        } else if uri.contains("/bookmarks/") {
-            ResourceType::Bookmark {
+            },
+            _ if uri.contains("/bookmarks/") => ResourceType::Bookmark {
                 user_id: parsed_uri.user_id,
                 bookmark_id: parsed_uri.bookmark_id.ok_or("Missing bookmark_id")?,
-            }
-        } else if uri.contains("/tags/") {
-            ResourceType::Tag {
+            },
+            _ if uri.contains("/tags/") => ResourceType::Tag {
                 user_id: parsed_uri.user_id,
                 tag_id: parsed_uri.tag_id.ok_or("Missing tag_id")?,
+            },
+            _ if uri.contains("/files/") => ResourceType::File {
+                user_id: parsed_uri.user_id,
+                file_id: parsed_uri.file_id.ok_or("Missing file_id"),
+            },
+            _ => {
+                // Handle other resource types
+                return Err(format!("Unrecognized resource in URI: {}", uri).into());
             }
-        } else {
-            // Handle other resource types
-            return Err(format!("Unrecognized resource in URI: {}", uri).into());
         };
 
         Ok(Some(Event {
@@ -153,17 +154,7 @@ impl Event {
                 handlers::tag::put(user_id, tag_id, blob).await?
             }
             ResourceType::File { user_id, file_id } => {
-                debug!("Processing File resource for {} at {}", user_id, file_id);
-
-                // Serialize and validate
-                let file_input = HomeserverFile::try_from(&blob).await?;
-
-                // Create FileDetails object
-                let file_details =
-                    FileDetails::from_homeserver(&self, file_input, &self.pubky_client).await?;
-
-                // Index new user event into the Graph and Index
-                file_details.save().await?;
+                handlers::file::put(self.uri, user_id, file_id, blob, &self.pubky_client).await?
             }
         }
 
@@ -176,7 +167,7 @@ impl Event {
         match self.resource_type {
             ResourceType::User { user_id } => handlers::user::del(user_id).await?,
             ResourceType::Post { author_id, post_id } => {
-                handlers::post::del(author_id, post_id).await?
+                handlers::post::del(&author_id, post_id).await?
             }
             ResourceType::Follow {
                 follower_id,
@@ -201,6 +192,9 @@ impl Event {
                         file.delete().await?;
                     }
                 }
+            }
+            ResourceType::File { user_id, file_id } => {
+                handlers::file::del(&user_id, file_id).await?
             }
         }
 

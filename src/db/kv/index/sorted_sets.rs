@@ -177,3 +177,34 @@ pub async fn del(
     let _: () = redis_conn.zrem(index_key, values).await?;
     Ok(())
 }
+
+/// Removes elements from a Redis sorted set.
+///
+/// This function removes the specified elements from the Redis sorted set identified by the `prefix` and `key`.
+/// If the sorted set does not exist, it will simply return without error.
+///
+/// # Arguments
+///
+/// * `prefix` - A string slice representing the prefix for the Redis keys.
+/// * `key` - A string slice representing the key under which the sorted set is stored.
+/// * `values` - A slice of string slices representing the elements to be removed from the sorted set.
+///
+/// # Errors
+///
+/// Returns an error if the operation fails.
+pub async fn del(
+    prefix: &str,
+    key: &str,
+    values: &[&str],
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if values.is_empty() {
+        return Ok(());
+    }
+
+    let index_key = format!("{}:{}", prefix, key);
+    let mut redis_conn = get_redis_conn().await?;
+
+    // Remove the elements from the sorted set
+    redis_conn.zrem(index_key, values).await?;
+    Ok(())
+}

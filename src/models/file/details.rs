@@ -1,30 +1,20 @@
-use crate::db::connectors::neo4j::get_neo4j_graph;
 use crate::db::graph::exec::exec_single_row;
-use crate::events::Event;
-use crate::models::homeserver::HomeserverFile;
+use crate::models::traits::Collection;
 use crate::{queries, RedisOps};
+use axum::async_trait;
 use chrono::Utc;
 use graph_node_macro::GraphNode;
-use neo4rs::Node;
-use pubky::PubkyClient;
+use neo4rs::{Node, Query};
 use serde::{Deserialize, Serialize};
-use tokio::fs::File;
-use tokio::io::AsyncWriteExt;
 use utoipa::ToSchema;
 
-#[derive(Serialize, Deserialize, ToSchema, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema, Default)]
 pub struct FileUrls {
     pub main: String,
 }
 
-#[derive(Serialize, Deserialize, ToSchema, Default)]
-pub struct FileKey {
-    pub owner_id: String,
-    pub file_id: String,
-}
-
 /// Represents a file and its metadata, including links to the actual binary of the file.
-#[derive(Serialize, Deserialize, ToSchema, Default, GraphNode)]
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema, Default, GraphNode)]
 pub struct FileDetails {
     pub id: String,
     pub uri: String,
@@ -38,11 +28,22 @@ pub struct FileDetails {
     pub urls: FileUrls,
 }
 
-struct FileMeta {
+pub struct FileMeta {
     pub urls: FileUrls,
 }
 
 impl RedisOps for FileDetails {}
+
+#[async_trait]
+impl Collection<&[&str]> for FileDetails {
+    fn graph_query(id_list: &[&[&str]]) -> Query {
+        queries::read::get_files_by_ids(id_list)
+    }
+
+    async fn extend_on_cache_miss(_: &[std::option::Option<Self>]) {
+        return;
+    }
+}
 
 impl FileDetails {
     pub fn new() -> Self {
@@ -82,52 +83,7 @@ impl FileDetails {
         Ok(())
     }
 
-    pub async fn from_homeserver(
-        event: &Event,
-        homeserver_file: HomeserverFile,
-        client: &PubkyClient,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let id = event.uri.path.split("/").last().unwrap();
-
-        let file_meta = FileDetails::ingest(event, &homeserver_file, client).await?;
-
-        Ok(FileDetails {
-            name: homeserver_file.name,
-            src: homeserver_file.src,
-            content_type: homeserver_file.content_type,
-            uri: event.uri.path.to_string(),
-            id: id.to_string(),
-            created_at: Utc::now().timestamp_millis(),
-            indexed_at: Utc::now().timestamp_millis(),
-            owner_id: event.user_id.to_string(),
-            size: homeserver_file.size,
-            urls: FileUrls {
-                main: file_meta.urls.main,
-            },
-        })
-    }
-
-    // TODO: Move it into its own process, server, etc
-    async fn ingest(
-        event: &Event,
-        homeserver_file: &HomeserverFile,
-        client: &PubkyClient,
-    ) -> Result<FileMeta, Box<dyn std::error::Error + Send + Sync>> {
-        let id = event.uri.path.split("/").last().unwrap();
-        let static_path = format!("{}/{}", event.user_id, id);
-
-        let response = client.get(homeserver_file.src.as_str()).await?.unwrap();
-
-        let mut static_file = File::create(format!("static/files/{}", &static_path)).await?;
-
-        static_file.write_all(&response).await?;
-
-        Ok(FileMeta {
-            urls: FileUrls { main: static_path },
-        })
-    }
-
-    pub fn file_key_from_uri(uri: &str) -> FileKey {
+    pub fn file_key_from_uri(uri: &str) -> Vec<String> {
         let path = uri.replace("pubky:", "");
         let parts: Vec<&str> = path.split("/").collect();
 

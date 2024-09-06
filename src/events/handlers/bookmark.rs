@@ -19,7 +19,7 @@ pub async fn put(
     debug!("Indexing new bookmark: {} -> {}", user_id, bookmark_id);
 
     // Deserialize and validate bookmark
-    let bookmark = <PubkyAppBookmark as Validatable>::try_from(&blob)?;
+    let bookmark = <PubkyAppBookmark as Validatable>::try_from(&blob).await?;
 
     // Parse the URI to extract author_id and post_id using the updated parse_post_uri
     let parsed_uri = ParsedUri::try_from(bookmark.uri.as_str())?;

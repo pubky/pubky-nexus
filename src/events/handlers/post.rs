@@ -14,7 +14,7 @@ pub async fn put(
     debug!("Indexing new post: {}/{}", author_id, post_id);
 
     // Serialize and validate
-    let post = <PubkyAppPost as Validatable>::try_from(&blob)?;
+    let post = <PubkyAppPost as Validatable>::try_from(&blob).await?;
 
     // Create PostDetails object
     let post_details = PostDetails::from_homeserver(post, &author_id, &post_id).await?;
@@ -28,7 +28,7 @@ pub async fn put(
     Ok(())
 }
 
-pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), Box<dyn Error + Sync + Send>> {
+pub async fn del(author_id: &PubkyId, post_id: String) -> Result<(), Box<dyn Error + Sync + Send>> {
     // TODO: handle deletion of Post resource from databases
     debug!("Deleting post: {}/{}", author_id, post_id);
     // Implement logic here

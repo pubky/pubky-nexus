@@ -17,7 +17,7 @@ pub async fn put(
     debug!("Indexing new follow: {} -> {}", follower_id, followee_id);
 
     // TODO: Deserialize and validate content of follow data (not needed, but we could validate the timestamp)
-    let _follow = <PubkyAppFollow as Validatable>::try_from(&blob)?;
+    let _follow = <PubkyAppFollow as Validatable>::try_from(&blob).await?;
 
     // Save new relationship on graph
     let indexed_at = Utc::now().timestamp_millis();

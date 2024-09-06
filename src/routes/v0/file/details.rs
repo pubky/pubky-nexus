@@ -1,4 +1,5 @@
 use crate::models::file::FileDetails;
+use crate::models::traits::Collection;
 use crate::routes::v0::endpoints::FILE_ROUTE;
 use crate::{Error, Result};
 use axum::extract::Path;
@@ -23,10 +24,19 @@ pub async fn file_details_handler(Path(file_uri): Path<String>) -> Result<Json<F
     info!("GET {FILE_ROUTE} file_uri:{}", file_uri);
 
     let file_key = FileDetails::file_key_from_uri(&file_uri);
+    let result = FileDetails::get_by_ids(
+        vec![vec![file_key[0].as_str(), file_key[1].as_str()].as_slice()].as_slice(),
+    )
+    .await;
 
-    match FileDetails::get_file(&file_key).await {
-        Ok(Some(file)) => Ok(Json(file)),
-        Ok(None) => Err(Error::FileNotFound {}),
+    match result {
+        Ok(files) => {
+            let file = &files[0];
+            match file {
+                None => Err(Error::FileNotFound {}),
+                Some(value) => Ok(Json(value.clone())),
+            }
+        }
         Err(source) => Err(Error::InternalServerError { source }),
     }
 }

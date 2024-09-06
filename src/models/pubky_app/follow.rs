@@ -16,7 +16,7 @@ pub struct PubkyAppFollow {
 
 impl Validatable for PubkyAppFollow {
     // TODO: validate follow
-    fn validate(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn validate(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }
 }

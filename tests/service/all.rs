@@ -1,3 +1,8 @@
+use std::{
+    fs::{remove_file, File},
+    io::Write,
+};
+
 use anyhow::Result;
 use pubky_nexus::models::tag::TagDetails;
 
@@ -82,14 +87,24 @@ async fn test_user_endpoint() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_static_file_serving() -> Result<()> {
+async fn test_static_serving() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
+    let test_file_path = "static/foo";
+    let mut file = File::create(test_file_path)?;
+    file.write_all(b"Hello, world!")?;
 
-    let res = client.do_get("/static/src/service.rs").await?;
+    let res = client.do_get("/static/foo").await?;
+
     assert_eq!(res.status(), 200);
-    let body = res.text_body()?;
-    assert!(body.contains("fn main()"));
+    assert_eq!(
+        res.header("content-length")
+            .unwrap()
+            .parse::<i32>()
+            .unwrap(),
+        13
+    );
 
+    remove_file(test_file_path)?;
     Ok(())
 }
 
