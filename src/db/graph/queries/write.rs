@@ -96,3 +96,52 @@ pub fn delete_bookmark(user_id: &str, bookmark_id: &str) -> Query {
     .param("user_id", user_id)
     .param("bookmark_id", bookmark_id)
 }
+
+pub fn create_post_tag(
+    user_id: &str,
+    author_id: &str,
+    post_id: &str,
+    tag_id: &str,
+    label: &str,
+    indexed_at: i64,
+) -> Query {
+    query(
+        "MATCH (author:User {id: $author_id})-[:AUTHORED]->(post:Post {id: $post_id})
+         MATCH (user:User {id: $user_id})
+         MERGE (user)-[:TAGGED {id: $tag_id, label: $label, indexed_at: $indexed_at}]->(post)",
+    )
+    .param("user_id", user_id)
+    .param("author_id", author_id)
+    .param("post_id", post_id)
+    .param("tag_id", tag_id)
+    .param("label", label)
+    .param("indexed_at", indexed_at)
+}
+
+pub fn create_user_tag(
+    user_id: &str,
+    tagged_user_id: &str,
+    tag_id: &str,
+    label: &str,
+    indexed_at: i64,
+) -> Query {
+    query(
+        "MATCH (tagged_used:User {id: $tagged_user_id})
+         MATCH (user:User {id: $user_id})
+         MERGE (user)-[:TAGGED {id: $tag_id, label: $label, indexed_at: $indexed_at}]->(tagged_used)",
+    )
+    .param("user_id", user_id)
+    .param("tagged_user_id", tagged_user_id)
+    .param("tag_id", tag_id)
+    .param("label", label)
+    .param("indexed_at", indexed_at)
+}
+
+pub fn delete_tag(user_id: &str, tag_id: &str) -> Query {
+    query(
+        "MATCH (user:User {id: $user_id})-[t:TAGGED {id: $tag_id}]->(target)
+         DELETE t",
+    )
+    .param("user_id", user_id)
+    .param("tag_id", tag_id)
+}

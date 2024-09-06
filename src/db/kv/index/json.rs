@@ -54,9 +54,9 @@ async fn handle_put_boolean(
 
     let int_value = if value { 1 } else { 0 };
     if let Some(exp) = expiration {
-        redis_conn.set_ex(key, int_value, exp as u64).await?;
+        let _: () = redis_conn.set_ex(key, int_value, exp as u64).await?;
     } else {
-        redis_conn.set(key, int_value).await?;
+        let _: () = redis_conn.set(key, int_value).await?;
     }
     Ok(())
 }
@@ -70,9 +70,9 @@ async fn handle_put_json<T: Serialize + Send + Sync>(
     let mut redis_conn = get_redis_conn().await?;
 
     let json_path = path.unwrap_or("$");
-    redis_conn.json_set(key, json_path, value).await?;
+    let _: () = redis_conn.json_set(key, json_path, value).await?;
     if let Some(exp) = expiration {
-        redis_conn.expire(key, exp).await?;
+        let _: () = redis_conn.expire(key, exp).await?;
     }
     Ok(())
 }
@@ -142,7 +142,7 @@ pub async fn put_multiple<T: Serialize>(
         }
     }
 
-    cmd.query_async(&mut redis_conn).await?;
+    let _: () = cmd.query_async(&mut redis_conn).await?;
     Ok(())
 }
 
@@ -302,6 +302,6 @@ pub async fn del_multiple(
         .map(|key| format!("{}:{}", prefix, key.as_ref()))
         .collect();
 
-    redis_conn.del(full_keys).await?;
+    let _: () = redis_conn.del(full_keys).await?;
     Ok(())
 }

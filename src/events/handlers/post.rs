@@ -34,21 +34,3 @@ pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), Box<dyn Erro
     // Implement logic here
     Ok(())
 }
-
-// Parses a post id from the event's uri
-pub fn parse_post_id(uri: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    // Define the pattern we're looking for in the URI
-    let post_segment = "/posts/";
-
-    // Find the starting position of the post_id part in the URI
-    let start_idx = uri
-        .find(post_segment)
-        .map(|start| start + post_segment.len())
-        .ok_or("Post segment not found in URI")?;
-
-    // Extract the post_id from the path
-    let post_id = &uri[start_idx..];
-
-    // Return the post_id as a string
-    Ok(post_id.to_string())
-}

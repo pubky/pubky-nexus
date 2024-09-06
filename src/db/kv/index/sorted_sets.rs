@@ -33,7 +33,7 @@ pub async fn put(
     let index_key = format!("{}:{}", prefix, key);
     let mut redis_conn = get_redis_conn().await?;
 
-    redis_conn.zadd_multiple(&index_key, items).await?;
+    let _: () = redis_conn.zadd_multiple(&index_key, items).await?;
 
     Ok(())
 }
@@ -143,7 +143,7 @@ pub async fn _remove(
 
     let index_key = format!("{}:{}", prefix, key);
     let mut redis_conn = get_redis_conn().await?;
-    redis_conn.zrem(&index_key, items).await?;
+    let _: () = redis_conn.zrem(&index_key, items).await?;
     Ok(())
 }
 
@@ -174,6 +174,6 @@ pub async fn del(
     let mut redis_conn = get_redis_conn().await?;
 
     // Remove the elements from the sorted set
-    redis_conn.zrem(index_key, values).await?;
+    let _: () = redis_conn.zrem(index_key, values).await?;
     Ok(())
 }

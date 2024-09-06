@@ -10,56 +10,48 @@ use log::debug;
 use std::error::Error;
 
 pub async fn put(
-    user_id: PubkyId,
-    followee_id: &str,
+    follower_id: PubkyId,
+    followee_id: PubkyId,
     blob: Bytes,
 ) -> Result<(), Box<dyn Error + Sync + Send>> {
-    debug!("Indexing new follow: {} -> {}", user_id, followee_id);
+    debug!("Indexing new follow: {} -> {}", follower_id, followee_id);
 
     // TODO: Deserialize and validate content of follow data (not needed, but we could validate the timestamp)
     let _follow = <PubkyAppFollow as Validatable>::try_from(&blob)?;
 
     // Save new relationship on graph
     let indexed_at = Utc::now().timestamp_millis();
-    let query = queries::write::create_follow(&user_id, followee_id, indexed_at);
+    let query = queries::write::create_follow(&follower_id, &followee_id, indexed_at);
     exec_single_row(query).await?;
 
     // Update follow indexes
     Followers(vec![followee_id.to_string()])
-        .put_index_set(&[user_id.as_ref()])
+        .put_index_set(&[&follower_id])
         .await?;
-    Following(vec![user_id.to_string()])
-        .put_index_set(&[followee_id])
+    Following(vec![follower_id.0])
+        .put_index_set(&[&followee_id])
         .await?;
 
     Ok(())
 }
 
-pub async fn del(user_id: PubkyId, followee_id: &str) -> Result<(), Box<dyn Error + Sync + Send>> {
-    debug!("Deleting follow: {} -> {}", user_id, followee_id);
+pub async fn del(
+    follower_id: PubkyId,
+    followee_id: PubkyId,
+) -> Result<(), Box<dyn Error + Sync + Send>> {
+    debug!("Deleting follow: {} -> {}", follower_id, followee_id);
 
     // Delete the follow relationship from Neo4j
-    let query = queries::write::delete_follow(&user_id, followee_id);
+    let query = queries::write::delete_follow(&follower_id, &followee_id);
     exec_single_row(query).await?;
 
     // Update follow indexes
     Following(vec![followee_id.to_string()])
-        .remove_from_index_set(&[user_id.as_ref()])
+        .remove_from_index_set(&[&follower_id])
         .await?;
-    Followers(vec![user_id.to_string()])
-        .remove_from_index_set(&[followee_id])
+    Followers(vec![follower_id.0])
+        .remove_from_index_set(&[&followee_id])
         .await?;
 
     Ok(())
-}
-
-// Parses a follow relationship pubky id from the event's uri
-pub fn parse_follow_id(uri: &str) -> Result<&str, Box<dyn std::error::Error + Send + Sync>> {
-    let follow_segment = "/follows/";
-    let start_idx = uri
-        .find(follow_segment)
-        .map(|start| start + follow_segment.len())
-        .ok_or("Follow segment not found in URI")?;
-
-    Ok(&uri[start_idx..])
 }
