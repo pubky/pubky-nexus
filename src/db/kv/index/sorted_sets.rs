@@ -6,6 +6,14 @@ pub enum Sorting {
     Ascending,
     Descending,
 }
+
+pub enum ScoreAction {
+    Increment(f64),
+    Decrement(f64),
+}
+
+pub const SORTED_PREFIX: &str = "Sorted";
+
 /// Adds elements to a Redis sorted set.
 ///
 /// This function adds elements to the specified Redis sorted set. If the set doesn't exist,
@@ -34,6 +42,23 @@ pub async fn put(
     let mut redis_conn = get_redis_conn().await?;
 
     let _: () = redis_conn.zadd_multiple(&index_key, items).await?;
+
+    Ok(())
+}
+
+pub async fn put_score(
+    prefix: &str,
+    key: &str,
+    member: &str,
+    score_mutation: ScoreAction
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let index_key = format!("{}:{}", prefix, key);
+    let mut redis_conn = get_redis_conn().await?;
+    let value = match score_mutation {
+        ScoreAction::Increment(val) => val,
+        ScoreAction::Decrement(val) => -val,
+    };
+    redis_conn.zincr(&index_key, member, value).await?;
 
     Ok(())
 }

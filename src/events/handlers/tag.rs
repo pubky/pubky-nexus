@@ -1,11 +1,11 @@
 use crate::db::graph::exec::exec_single_row;
 use crate::events::uri::ParsedUri;
-use crate::models::post::PostCounts;
+use crate::models::post::{PostCounts, POST_TOTAL_ENGAGEMENT_KEY_PARTS};
 use crate::models::pubky_app::traits::Validatable;
 use crate::models::pubky_app::PubkyAppTag;
 use crate::models::tag::post::TagPost;
 use crate::models::user::PubkyId;
-use crate::{queries, RedisOps};
+use crate::{queries, RedisOps, ScoreAction};
 use axum::body::Bytes;
 use chrono::Utc;
 use log::debug;
@@ -62,11 +62,16 @@ async fn put_post_tag(
     let post_id_slice = post_id.to_string();
 
     // TODO: index TAG to Redis and add to sorted sets
-    PostCounts::increment_index_param_json(&[&author_id_slice, &post_id_slice], "tags").await?;
+    // TODO: Carefull with that operation, we might lost data consistency, if one of that fails
+    // we might need to enforce data consistency
+    let author_post_slice: &[&str] = &[&author_id_slice, &post_id_slice];
+    PostCounts::put_param_index_json(author_post_slice, "tags").await?;
     TagPost::put_index_set(
         &[&author_id_slice, &post_id_slice, &tag_label], 
         &vec![user_id_slice.clone()]
     ).await?;
+    TagPost::put_score_index_sorted_set(&POST_TOTAL_ENGAGEMENT_KEY_PARTS, author_post_slice, ScoreAction::Increment(1.0)).await?;
+
     Ok(())
 }
 

@@ -1,7 +1,7 @@
 use super::index::*;
 use axum::async_trait;
 use serde::{de::DeserializeOwned, Serialize};
-use sorted_sets::Sorting;
+use sorted_sets::{ScoreAction, Sorting, SORTED_PREFIX};
 use std::error::Error;
 
 /// A trait for operations involving Redis storage. Implement this trait for types that need to be stored
@@ -113,7 +113,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         json::get_multiple(&prefix, &keys, None).await
     }
 
-    async fn increment_index_param_json(
+    async fn put_param_index_json(
         key_parts: &[&str],
         field: &str,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -478,7 +478,17 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let key = key_parts.join(":");
         // Store the elements in the Redis sorted set
-        sorted_sets::put("Sorted", &key, elements).await
+        sorted_sets::put(SORTED_PREFIX, &key, elements).await
+    }
+
+    async fn put_score_index_sorted_set(
+        key_parts: &[&str],
+        member: &[&str],
+        score_mutation: ScoreAction
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let key = key_parts.join(":");
+        let member_key = member.join(":");
+        sorted_sets::put_score(SORTED_PREFIX, &key, &member_key, score_mutation).await
     }
 
     /// Removes elements from a Redis sorted set using the provided key parts.
