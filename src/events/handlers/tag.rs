@@ -1,9 +1,11 @@
 use crate::db::graph::exec::exec_single_row;
 use crate::events::uri::ParsedUri;
+use crate::models::post::PostCounts;
 use crate::models::pubky_app::traits::Validatable;
 use crate::models::pubky_app::PubkyAppTag;
+use crate::models::tag::post::TagPost;
 use crate::models::user::PubkyId;
-use crate::queries;
+use crate::{queries, RedisOps};
 use axum::body::Bytes;
 use chrono::Utc;
 use log::debug;
@@ -55,8 +57,16 @@ async fn put_post_tag(
     );
     exec_single_row(query).await?;
 
-    // TODO: index TAG to Redis and add to sorted sets
+    let user_id_slice = user_id.to_string();
+    let author_id_slice = author_id.to_string();
+    let post_id_slice = post_id.to_string();
 
+    // TODO: index TAG to Redis and add to sorted sets
+    PostCounts::increment_index_param_json(&[&author_id_slice, &post_id_slice], "tags").await?;
+    TagPost::put_index_set(
+        &[&author_id_slice, &post_id_slice, &tag_label], 
+        &vec![user_id_slice.clone()]
+    ).await?;
     Ok(())
 }
 

@@ -83,8 +83,7 @@ impl HotTags {
             let hot_tags_users: Vec<(&str, Vec<String>)> = row.get("hot_tags_users")?;
             // Add all the users_id in the SET
             for (label, user_list) in hot_tags_users.into_iter() {
-                let label_user_list = Taggers::from_vec(user_list);
-                label_user_list.put_index_set(&[label]).await?;
+                Taggers::put_index_set(&[label], &user_list).await?;
             }
         }
         Ok(())

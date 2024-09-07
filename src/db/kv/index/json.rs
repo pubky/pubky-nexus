@@ -2,6 +2,7 @@ use crate::db::connectors::redis::get_redis_conn;
 use log::debug;
 use redis::{AsyncCommands, JsonAsyncCommands};
 use serde::{de::DeserializeOwned, Serialize};
+use serde_json::{json, Value};
 use std::error::Error;
 
 /// Sets a value in Redis, supporting both JSON objects and boolean values.
@@ -43,6 +44,27 @@ pub async fn put<T: Serialize + Send + Sync>(
         index_key, expiration
     );
     Ok(())
+}
+
+pub fn put_json_param<T>(object: T, field: &str, value: u64) -> Result<Value, String>
+where
+    T: Serialize,
+{
+    // Convert the struct into a serde_json::Value
+    let mut json_value = serde_json::to_value(object).map_err(|e| e.to_string())?;
+    // Access and set the field if it exists
+    if let Some(field_value) = json_value.get_mut(field) {
+        // TODO: Field type check: 
+    //     if field_value.is_number() {
+        *field_value = json!(field_value.as_u64().unwrap_or(0) + value);
+    } else {
+        return Err(format!("Field '{}' does not exist", field));
+    }
+
+    println!("{:?}", json_value);
+
+    // Convert the serde_json::Value back into the struct
+    Ok(json_value)
 }
 
 async fn handle_put_boolean(

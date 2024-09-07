@@ -8,6 +8,7 @@ use std::error::Error;
 /// and retrieved from Redis with serialization and deserialization capabilities.
 #[async_trait]
 pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
+
     /// Provides a prefix string for the Redis key.
     ///
     /// This method should return a prefix string that helps namespace the keys in Redis,
@@ -34,6 +35,10 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         prefixed_name
     }
 
+    // ############################################################
+    // ################# JSON related functions ###################
+    // ############################################################
+
     /// Sets the data in Redis using the provided key parts.
     ///
     /// This method serializes the data and stores it in Redis under the key generated
@@ -55,6 +60,77 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
             None,
         )
         .await
+    }
+
+    /// Retrieves data from Redis using the provided key parts.
+    ///
+    /// This method deserializes the data stored under the key generated from the provided `key_parts` in Redis.
+    /// If the key is not found, it returns `None`.
+    ///
+    /// # Arguments
+    ///
+    /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the value is stored.
+    ///
+    /// # Returns
+    ///
+    /// An `Option<Self>` containing the deserialized data if found, or `None` if the key does not exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
+    async fn try_from_index_json(
+        key_parts: &[&str],
+    ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
+        json::get(&Self::prefix().await, &key_parts.join(":"), None).await
+    }
+
+    /// Retrieves multiple JSON objects from Redis using the provided key parts.
+    ///
+    /// This method deserializes the data stored under the keys generated from the provided `key_parts_list` in Redis.
+    /// It returns a vector of options, where each option corresponds to the existence of the key in Redis.
+    ///
+    /// # Arguments
+    ///
+    /// * `key_parts_list` - A slice of slices, where each inner slice contains string slices representing
+    ///   the parts used to form the key under which the corresponding value is stored.
+    ///
+    /// # Returns
+    ///
+    /// A `Vec<Option<Self>>` containing the deserialized data if found, or `None` if a key does not exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
+    async fn try_from_index_multiple_json(
+        key_parts_list: &[&[&str]],
+    ) -> Result<Vec<Option<Self>>, Box<dyn Error + Send + Sync>> {
+        let prefix = Self::prefix().await;
+        let keys: Vec<String> = key_parts_list
+            .iter()
+            .map(|key_parts| key_parts.join(":"))
+            .collect();
+
+        json::get_multiple(&prefix, &keys, None).await
+    }
+
+    async fn increment_index_param_json(
+        key_parts: &[&str],
+        field: &str,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        // Fetch the current value from Redis
+        let json_entry: Option<Self> = Self::try_from_index_json(key_parts).await?;
+        
+        if let Some(instance) = json_entry {
+            let value = json::put_json_param(instance, field, 1)?;
+            // Deserialize the modified JSON back into the PostMetrics struct
+            let incremented_instance: Self = serde_json::from_value(value)?;
+
+            incremented_instance.put_index_json(key_parts).await?;
+            return Ok(());
+
+        }
+
+        Err("Could not increment by one".into())
     }
 
     /// Stores multiple key-value pairs in Redis, where each key is constructed from the provided key parts
@@ -120,6 +196,10 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         json::del_multiple(&prefix, &keys).await
     }
 
+    // ############################################################
+    // ################# List related functions ###################
+    // ############################################################
+
     /// Adds elements to a Redis list using the provided key parts.
     ///
     /// This method serializes the data and appends it to a Redis list under the key generated
@@ -156,6 +236,38 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         lists::put(&prefix, &key, &values).await
     }
 
+    /// Retrieves a range of elements from a Redis list using the provided key parts.
+    ///
+    /// This method fetches elements from a Redis list stored under the key generated from the provided `key_parts`.
+    /// The range is defined by `skip` and `limit` parameters.
+    ///
+    /// # Arguments
+    ///
+    /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the list is stored.
+    /// * `skip` - An optional number of elements to skip (useful for pagination).
+    /// * `limit` - An optional number of elements to return (useful for pagination).
+    ///
+    /// # Returns
+    ///
+    /// Returns a vector of deserialized elements if they exist, or an empty vector if no matching elements are found.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
+    async fn try_from_index_list(
+        key_parts: &[&str],
+        skip: Option<usize>,
+        limit: Option<usize>,
+    ) -> Result<Option<Vec<String>>, Box<dyn Error + Send + Sync>> {
+        let prefix = Self::prefix().await;
+        let key = key_parts.join(":");
+        lists::get_range(&prefix, &key, skip, limit).await
+    }
+
+    // ############################################################
+    // ################# SET related functions ###################
+    // ############################################################
+
     /// Adds elements to a Redis set using the provided key parts.
     ///
     /// This method adds elements to a Redis set under the key generated from the provided `key_parts`.
@@ -164,25 +276,21 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// # Arguments
     ///
     /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the set is stored.
+    /// * `values` - A list of string that represents the value to add in the index
     ///
     /// # Errors
     ///
     /// Returns an error if the operation fails, such as if the Redis connection is unavailable or
     /// if there is an issue with serialization.
-    async fn put_index_set<T>(&self, key_parts: &[&str]) -> Result<(), Box<dyn Error + Send + Sync>>
-    where
-        Self: AsRef<[T]>,            // Self can be dereferenced into a slice of T
-        T: AsRef<str> + Send + Sync, // The items must be convertible to &str
+    async fn put_index_set(key_parts: &[&str], values: &[String]) -> Result<(), Box<dyn Error + Send + Sync>>
     {
         let prefix = Self::prefix().await;
         let key = key_parts.join(":");
 
-        // Directly use the string representations of items without additional serialization
-        let collection = self.as_ref();
-        let values: Vec<&str> = collection.iter().map(|item| item.as_ref()).collect();
+        let values_ref: Vec<&str> = values.iter().map(|id| id.as_str()).collect();
 
         // Store the values in the Redis set
-        sets::put(&prefix, &key, &values).await
+        sets::put(&prefix, &key, &values_ref).await
     }
 
     /// Removes elements from a Redis set using the provided key parts.
@@ -214,85 +322,6 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
 
         // Remove the values from the Redis set
         sets::del(&prefix, &key, &values).await
-    }
-
-    /// Retrieves data from Redis using the provided key parts.
-    ///
-    /// This method deserializes the data stored under the key generated from the provided `key_parts` in Redis.
-    /// If the key is not found, it returns `None`.
-    ///
-    /// # Arguments
-    ///
-    /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the value is stored.
-    ///
-    /// # Returns
-    ///
-    /// An `Option<Self>` containing the deserialized data if found, or `None` if the key does not exist.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
-    async fn try_from_index_json(
-        key_parts: &[&str],
-    ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
-        json::get(&Self::prefix().await, &key_parts.join(":"), None).await
-    }
-
-    /// Retrieves multiple JSON objects from Redis using the provided key parts.
-    ///
-    /// This method deserializes the data stored under the keys generated from the provided `key_parts_list` in Redis.
-    /// It returns a vector of options, where each option corresponds to the existence of the key in Redis.
-    ///
-    /// # Arguments
-    ///
-    /// * `key_parts_list` - A slice of slices, where each inner slice contains string slices representing
-    ///   the parts used to form the key under which the corresponding value is stored.
-    ///
-    /// # Returns
-    ///
-    /// A `Vec<Option<Self>>` containing the deserialized data if found, or `None` if a key does not exist.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
-    async fn try_from_index_multiple_json(
-        key_parts_list: &[&[&str]],
-    ) -> Result<Vec<Option<Self>>, Box<dyn Error + Send + Sync>> {
-        let prefix = Self::prefix().await;
-        let keys: Vec<String> = key_parts_list
-            .iter()
-            .map(|key_parts| key_parts.join(":"))
-            .collect();
-
-        json::get_multiple(&prefix, &keys, None).await
-    }
-
-    /// Retrieves a range of elements from a Redis list using the provided key parts.
-    ///
-    /// This method fetches elements from a Redis list stored under the key generated from the provided `key_parts`.
-    /// The range is defined by `skip` and `limit` parameters.
-    ///
-    /// # Arguments
-    ///
-    /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the list is stored.
-    /// * `skip` - An optional number of elements to skip (useful for pagination).
-    /// * `limit` - An optional number of elements to return (useful for pagination).
-    ///
-    /// # Returns
-    ///
-    /// Returns a vector of deserialized elements if they exist, or an empty vector if no matching elements are found.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
-    async fn try_from_index_list(
-        key_parts: &[&str],
-        skip: Option<usize>,
-        limit: Option<usize>,
-    ) -> Result<Option<Vec<String>>, Box<dyn Error + Send + Sync>> {
-        let prefix = Self::prefix().await;
-        let key = key_parts.join(":");
-        lists::get_range(&prefix, &key, skip, limit).await
     }
 
     /// Retrieves a range of elements from a Redis set using the provided key parts.
@@ -350,6 +379,84 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         let key = key_parts.join(":");
         sets::check_set_member(&prefix, &key, member).await
     }
+
+    /// Fetches multiple sets from Redis using the specified key components.
+    ///
+    /// This asynchronous function retrieves multiple sets from Redis based on the provided key components.
+    /// It returns a vector where each element is an optional vector containing the elements of the corresponding set.
+    /// If a particular set does not exist, the corresponding position in the returned vector will be `None`.
+    ///
+    /// # Arguments
+    ///
+    /// * `key_parts_list` - A slice of string slices, where each inner slice represents the components
+    ///   used to construct the Redis key for the corresponding set.
+    /// * `limit` - An optional parameter specifying the maximum number of elements to fetch from each set.
+    ///   If `None`, all elements will be retrieved.
+    ///
+    /// # Returns
+    ///
+    /// A `Vec<Option<Vec<String>>>` where:
+    /// * Each inner `Vec<String>` contains the elements of a set retrieved from Redis.
+    /// * `None` indicates that the set does not exist for the corresponding key.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the operation fails, such as in cases of a Redis connection issue.
+    async fn try_from_multiple_sets(
+        key_parts_list: &[&str],
+        limit: Option<usize>,
+    ) -> Result<Vec<Option<(Vec<String>, usize)>>, Box<dyn Error + Send + Sync>> {
+        let prefix = Self::prefix().await;
+        sets::get_multiple_sets(&prefix, key_parts_list, limit).await
+    }
+
+    /// Adds elements to multiple Redis sets using the provided keys and collections.
+    ///
+    /// This asynchronous function allows you to add elements to multiple Redis sets,
+    /// with each set identified by a key generated from the `common_key` and `index_ref`.
+    /// The function ensures that each element in each set is unique.
+    ///
+    /// # Arguments
+    ///
+    /// * `common_key` - A slice of string slices representing the common part of the Redis keys.
+    ///   This will be combined with each element in `index` to generate the full Redis key.
+    /// * `index` - A slice of string slices representing the unique identifiers to append to the `common_key` to form the full Redis keys.
+    /// * `collections_refs` - A slice of vectors, where each inner vector contains elements to be added to the corresponding Redis set
+    ///
+    /// # Returns
+    ///
+    /// This function returns a `Result` indicating success or failure. A successful result means that
+    /// all elements were successfully added to their respective Redis sets.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
+    async fn put_multiple_set_indexes(
+        common_key: &[&str],
+        index: &[&str],
+        collections_refs: &[Vec<&str>],
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        // Ensure the lengths of keys_refs and collections_refs match
+        if index.len() != collections_refs.len() {
+            // TODO: Maybe create redis related errors
+            return Err("Keys refs and collections refs length mismatch".into());
+        }
+
+        // Get the prefix for the Redis keys
+        let prefix = Self::prefix().await;
+
+        let refs: Vec<&[&str]> = collections_refs
+            .iter()
+            .map(|inner_vec| inner_vec.as_slice())
+            .collect();
+        let slice: &[&[&str]] = refs.as_slice();
+
+        sets::put_multiple_sets(&prefix, common_key, index, slice).await
+    }
+
+    // ############################################################
+    // ########### SORTED SET related functions ###################
+    // ############################################################
 
     /// Adds elements to a Redis sorted set using the provided key parts.
     ///
@@ -460,78 +567,5 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     ) -> Result<Option<Vec<String>>, Box<dyn Error + Send + Sync>> {
         let key = key_parts.join(":");
         sorted_sets::get_lex_range("Sorted", &key, min, max, skip, limit).await
-    }
-
-    /// Fetches multiple sets from Redis using the specified key components.
-    ///
-    /// This asynchronous function retrieves multiple sets from Redis based on the provided key components.
-    /// It returns a vector where each element is an optional vector containing the elements of the corresponding set.
-    /// If a particular set does not exist, the corresponding position in the returned vector will be `None`.
-    ///
-    /// # Arguments
-    ///
-    /// * `key_parts_list` - A slice of string slices, where each inner slice represents the components
-    ///   used to construct the Redis key for the corresponding set.
-    /// * `limit` - An optional parameter specifying the maximum number of elements to fetch from each set.
-    ///   If `None`, all elements will be retrieved.
-    ///
-    /// # Returns
-    ///
-    /// A `Vec<Option<Vec<String>>>` where:
-    /// * Each inner `Vec<String>` contains the elements of a set retrieved from Redis.
-    /// * `None` indicates that the set does not exist for the corresponding key.
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the operation fails, such as in cases of a Redis connection issue.
-    async fn try_from_multiple_sets(
-        key_parts_list: &[&str],
-        limit: Option<usize>,
-    ) -> Result<Vec<Option<(Vec<String>, usize)>>, Box<dyn Error + Send + Sync>> {
-        let prefix = Self::prefix().await;
-        sets::get_multiple_sets(&prefix, key_parts_list, limit).await
-    }
-
-    /// Adds elements to multiple Redis sets using the provided keys and collections.
-    ///
-    /// This asynchronous function allows you to add elements to multiple Redis sets,
-    /// with each set identified by a key generated from the `common_key` and `index_ref`.
-    /// The function ensures that each element in each set is unique.
-    ///
-    /// # Arguments
-    ///
-    /// * `common_key` - A slice of string slices representing the common part of the Redis keys.
-    ///   This will be combined with each element in `index` to generate the full Redis key.
-    /// * `index` - A slice of string slices representing the unique identifiers to append to the `common_key` to form the full Redis keys.
-    /// * `collections_refs` - A slice of vectors, where each inner vector contains elements to be added to the corresponding Redis set
-    ///
-    /// # Returns
-    ///
-    /// This function returns a `Result` indicating success or failure. A successful result means that
-    /// all elements were successfully added to their respective Redis sets.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
-    async fn put_multiple_set_indexes(
-        common_key: &[&str],
-        index: &[&str],
-        collections_refs: &[Vec<&str>],
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        // Ensure the lengths of keys_refs and collections_refs match
-        if index.len() != collections_refs.len() {
-            return Err("Keys refs and collections refs length mismatch".into());
-        }
-
-        // Get the prefix for the Redis keys
-        let prefix = Self::prefix().await;
-
-        let refs: Vec<&[&str]> = collections_refs
-            .iter()
-            .map(|inner_vec| inner_vec.as_slice())
-            .collect();
-        let slice: &[&[&str]] = refs.as_slice();
-
-        sets::put_multiple_sets(&prefix, common_key, index, slice).await
     }
 }

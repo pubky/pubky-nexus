@@ -211,7 +211,7 @@ pub fn get_user_following(user_id: &str, skip: Option<usize>, limit: Option<usiz
     query(&query_string).param("user_id", user_id)
 }
 
-// Retrieves popular tags and its taggers across the entire network
+// Retrieves popular tags and its taggers across the entire network posts
 pub fn get_global_hot_tags_scores() -> Query {
     query(
         "

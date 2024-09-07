@@ -103,7 +103,7 @@ where
     /// # Arguments
     /// * user_id - The key of the user.
     /// * extra_param - An optional parameter for specifying additional context (e.g., an extra key).
-    /// * tags - A slice of TagDetailsrepresenting the tags to add.
+    /// * tags - A slice of TagDetails representing the tags to add.
     /// # Returns
     /// A result indicating success or failure.
     async fn add_to_label_sets(
