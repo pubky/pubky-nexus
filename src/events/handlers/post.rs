@@ -17,13 +17,13 @@ pub async fn put(
     let post = <PubkyAppPost as Validatable>::try_from(&blob).await?;
 
     // Create PostDetails object
-    let post_details = PostDetails::from_homeserver(post, &author_id, &post_id).await?;
+    let post_details = PostDetails::from_homeserver(post, author_id, &post_id).await?;
 
     // Add new post node into the graph
     post_details.put_to_graph().await?;
 
     // Reindex to sorted sets and other indexes
-    reindex_post(&author_id, &post_id).await?;
+    reindex_post(author_id, post_id.as_str()).await?;
 
     Ok(())
 }

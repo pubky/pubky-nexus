@@ -40,7 +40,7 @@ pub async fn file_details_by_uris_handler(
 
     match files {
         Ok(value) => {
-            let data: Vec<FileDetails> = value.into_iter().filter_map(|val| val).collect();
+            let data: Vec<FileDetails> = value.into_iter().flatten().collect();
             Ok(Json(data))
         }
         Err(source) => Err(Error::InternalServerError { source }),

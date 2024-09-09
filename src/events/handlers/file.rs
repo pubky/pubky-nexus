@@ -53,7 +53,7 @@ async fn from_homeserver(
         name: pubkyapp_file.name,
         src: pubkyapp_file.src,
         content_type: pubkyapp_file.content_type,
-        uri: uri,
+        uri,
         id: file_id,
         created_at: Utc::now().timestamp_millis(),
         indexed_at: Utc::now().timestamp_millis(),
@@ -94,7 +94,7 @@ async fn store_blob(
 
     let file_path = format!("{}/{}", full_path, name);
     let mut static_file = File::create_new(file_path).await?;
-    static_file.write_all(&blob).await?;
+    static_file.write_all(blob).await?;
 
     Ok(())
 }

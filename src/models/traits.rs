@@ -12,13 +12,13 @@ pub trait CollectionId {
 
 impl CollectionId for &str {
     fn to_string_id(self) -> String {
-        return String::from(self);
+        String::from(self)
     }
 }
 
 impl CollectionId for &[&str] {
     fn to_string_id(self) -> String {
-        return self.join(":");
+        self.join(":")
     }
 }
 
@@ -62,7 +62,7 @@ where
             let flat_missing_ids: Vec<T> = missing_ids.iter().map(|&(_, id)| id).collect();
             let fetched_details = Self::from_graph(&flat_missing_ids).await?;
 
-            if fetched_details.len() > 0 {
+            if !fetched_details.is_empty() {
                 for (i, (original_index, _)) in missing_ids.iter().enumerate() {
                     collection[*original_index].clone_from(&fetched_details[i]);
                 }
