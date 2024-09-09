@@ -15,7 +15,7 @@ async fn test_homeserver_repost() -> Result<()> {
         bio: None,
         image: None,
         links: None,
-        name: "Test Poster".to_string(),
+        name: "Test reposter".to_string(),
         status: None,
     };
 
@@ -99,8 +99,8 @@ async fn test_homeserver_repost() -> Result<()> {
     // assert!(result_post.is_none(), "The post should have been deleted");
 
     // Cleanup
-    test.cleanup_user(&user_id).await?;
-    test.cleanup_post(&user_id, &post_id).await?;
+    // test.cleanup_user(&user_id).await?;
+    // test.cleanup_post(&user_id, &post_id).await?;
 
     Ok(())
 }

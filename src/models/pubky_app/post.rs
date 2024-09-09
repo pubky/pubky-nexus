@@ -6,7 +6,7 @@ use utoipa::ToSchema;
 
 /// Represents the type of pubky-app posted data
 /// Used primarily to best display the content in UI
-#[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
+#[derive(Serialize, Deserialize, ToSchema, Default, Debug, Clone)]
 pub enum PostKind {
     #[default]
     Short,
@@ -31,7 +31,7 @@ impl fmt::Display for PostKind {
 }
 
 /// Used primarily to best display the content in UI
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Clone)]
 pub struct PostEmbed {
     pub kind: PostKind,
     pub uri: String, // If a repost a `Short` and uri of the reposted post.
@@ -44,7 +44,7 @@ pub struct PostEmbed {
 /// Example URI:
 ///
 /// `/pub/pubky.app/posts/00321FCW75ZFY`
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Clone)]
 pub struct PubkyAppPost {
     pub content: String,
     pub kind: PostKind,

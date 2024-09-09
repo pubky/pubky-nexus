@@ -15,7 +15,7 @@ async fn test_homeserver_reply() -> Result<()> {
         bio: None,
         image: None,
         links: None,
-        name: "Test Poster".to_string(),
+        name: "Test replyer".to_string(),
         status: None,
     };
 
@@ -36,7 +36,7 @@ async fn test_homeserver_reply() -> Result<()> {
         .unwrap()
         .expect("The new post was not served from Nexus");
 
-    println!("New post served: {:?}", result_parent.details);
+    println!("New post served Parent: {:?}", result_parent.details);
     assert_eq!(result_parent.details.id, parent_id);
     assert_eq!(result_parent.details.content, parent_post.content);
     assert_eq!(
@@ -66,7 +66,10 @@ async fn test_homeserver_reply() -> Result<()> {
         .unwrap()
         .expect("The reply was not served from Nexus");
 
-    println!("New reply served: {:?}", result_reply.details);
+    println!(
+        "New reply served Relationships: {:?}",
+        result_reply.relationships
+    );
     assert_eq!(result_reply.details.id, reply_id);
     assert_eq!(result_reply.details.content, reply.content);
     assert_eq!(
@@ -96,8 +99,8 @@ async fn test_homeserver_reply() -> Result<()> {
     // assert!(result_post.is_none(), "The post should have been deleted");
 
     // Cleanup
-    test.cleanup_user(&user_id).await?;
-    test.cleanup_post(&user_id, &parent_id).await?;
+    // test.cleanup_user(&user_id).await?;
+    // test.cleanup_post(&user_id, &parent_id).await?;
 
     Ok(())
 }

@@ -47,6 +47,42 @@ pub fn create_post(post: &PostDetails) -> Result<Query, Box<dyn std::error::Erro
     Ok(query)
 }
 
+/// Create a reply relationship between two posts
+pub fn create_reply_relationship(
+    author_id: &str,
+    post_id: &str,
+    parent_author_id: &str,
+    parent_post_id: &str,
+) -> Query {
+    query(
+        "MATCH (parent_author:User {id: $parent_author_id})-[:AUTHORED]->(parent_post:Post {id: $parent_post_id}),
+              (author:User {id: $author_id})-[:AUTHORED]->(post:Post {id: $post_id})
+         MERGE (post)-[:REPLIED]->(parent_post)",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
+    .param("parent_author_id", parent_author_id)
+    .param("parent_post_id", parent_post_id)
+}
+
+/// Create a repost relationship between two posts
+pub fn create_repost_relationship(
+    author_id: &str,
+    post_id: &str,
+    reposted_author_id: &str,
+    reposted_post_id: &str,
+) -> Query {
+    query(
+        "MATCH (reposted_author:User {id: $reposted_author_id})-[:AUTHORED]->(reposted_post:Post {id: $reposted_post_id}),
+              (author:User {id: $author_id})-[:AUTHORED]->(post:Post {id: $post_id})
+         MERGE (post)-[:REPOSTED]->(reposted_post)",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
+    .param("reposted_author_id", reposted_author_id)
+    .param("reposted_post_id", reposted_post_id)
+}
+
 /// Create a follows relationship between two users
 /// Validates that both users exist before creating the relationship
 pub fn create_follow(follower_id: &str, followee_id: &str, indexed_at: i64) -> Query {

@@ -1,5 +1,8 @@
+use crate::db::graph::exec::exec_single_row;
+use crate::events::uri::ParsedUri;
 use crate::models::pubky_app::traits::Validatable;
 use crate::models::{post::PostDetails, pubky_app::PubkyAppPost, user::PubkyId};
+use crate::queries;
 use crate::reindex::reindex_post;
 use axum::body::Bytes;
 use log::debug;
@@ -17,14 +20,62 @@ pub async fn put(
     let post = <PubkyAppPost as Validatable>::try_from(&blob)?;
 
     // Create PostDetails object
-    let post_details = PostDetails::from_homeserver(post, &author_id, &post_id).await?;
+    let post_details = PostDetails::from_homeserver(post.clone(), &author_id, &post_id).await?;
 
     // Add new post node into the graph
     post_details.put_to_graph().await?;
 
+    // Handle "REPLIED" relationship if `parent` is Some
+    if let Some(parent_uri) = post.parent {
+        handle_put_reply_relationship(&author_id, &post_id, &parent_uri).await?;
+    }
+
+    // Handle "REPOSTED" relationship if `embed.uri` is Some
+    if let Some(embed) = post.embed {
+        handle_put_repost_relationship(&author_id, &post_id, &embed.uri).await?;
+    }
+
     // Reindex to sorted sets and other indexes
     reindex_post(&author_id, &post_id).await?;
 
+    Ok(())
+}
+
+// Helper function to handle "REPLIED" relationship
+async fn handle_put_reply_relationship(
+    author_id: &PubkyId,
+    post_id: &str,
+    parent_uri: &str,
+) -> Result<(), Box<dyn Error + Sync + Send>> {
+    let parsed_uri = ParsedUri::try_from(parent_uri)?;
+    if let (parent_author_id, Some(parent_post_id)) = (parsed_uri.user_id, parsed_uri.post_id) {
+        exec_single_row(queries::write::create_reply_relationship(
+            &author_id.0,
+            post_id,
+            &parent_author_id.0,
+            &parent_post_id,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+// Helper function to handle "REPOSTED" relationship
+async fn handle_put_repost_relationship(
+    author_id: &PubkyId,
+    post_id: &str,
+    embed_uri: &str,
+) -> Result<(), Box<dyn Error + Sync + Send>> {
+    let parsed_uri = ParsedUri::try_from(embed_uri)?;
+    if let (reposted_author_id, Some(reposted_post_id)) = (parsed_uri.user_id, parsed_uri.post_id) {
+        exec_single_row(queries::write::create_repost_relationship(
+            &author_id.0,
+            post_id,
+            &reposted_author_id.0,
+            &reposted_post_id,
+        ))
+        .await?;
+    }
     Ok(())
 }
 
