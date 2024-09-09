@@ -1,10 +1,18 @@
 use axum::body::Bytes;
 use base32::{encode, Alphabet};
 use blake3::Hasher;
+use pubky_common::timestamp::Timestamp;
 use serde::de::DeserializeOwned;
 
+pub trait GenerateRandomId {
+    fn create_id(&self) -> String {
+        let timestamp = Timestamp::now();
+        timestamp.to_string()
+    }
+}
+
 /// Trait for generating an ID based on the struct's data.
-pub trait GenerateId {
+pub trait GenerateHashId {
     fn get_id_data(&self) -> String {
         String::new()
     }

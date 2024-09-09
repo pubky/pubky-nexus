@@ -62,8 +62,10 @@ where
             let flat_missing_ids: Vec<T> = missing_ids.iter().map(|&(_, id)| id).collect();
             let fetched_details = Self::from_graph(&flat_missing_ids).await?;
 
-            for (i, (original_index, _)) in missing_ids.iter().enumerate() {
-                collection[*original_index].clone_from(&fetched_details[i]);
+            if fetched_details.len() > 0 {
+                for (i, (original_index, _)) in missing_ids.iter().enumerate() {
+                    collection[*original_index].clone_from(&fetched_details[i]);
+                }
             }
         }
 

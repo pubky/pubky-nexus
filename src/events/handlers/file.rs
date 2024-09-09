@@ -1,10 +1,13 @@
-use std::error::Error;
+use std::{env::current_dir, error::Error};
 
 use axum::body::Bytes;
 use chrono::Utc;
 use log::debug;
 use pubky::PubkyClient;
-use tokio::{fs::File, io::AsyncWriteExt};
+use tokio::{
+    fs::{self, remove_file, File},
+    io::AsyncWriteExt,
+};
 
 use crate::models::{
     file::{
@@ -31,7 +34,7 @@ pub async fn put(
     // Create FileDetails object
     let file_details = from_homeserver(uri, user_id, file_id, file_input, client).await?;
 
-    // Index new user event into the Graph and Index
+    // Index new file into the Graph and Index
     file_details.save().await?;
 
     Ok(())
@@ -69,17 +72,42 @@ async fn ingest(
     pubkyapp_file: &PubkyAppFile,
     client: &PubkyClient,
 ) -> Result<FileMeta, Box<dyn std::error::Error + Send + Sync>> {
-    let static_path = format!("{}/{}", user_id, file_id);
-
     let response = client.get(pubkyapp_file.src.as_str()).await?.unwrap();
 
-    let mut static_file = File::create(format!("static/files/{}", &static_path)).await?;
+    store_blob(file_id.to_string(), user_id.to_string(), &response).await?;
 
-    static_file.write_all(&response).await?;
-
+    let static_path = format!("{}/{}", user_id, file_id);
     Ok(FileMeta {
         urls: FileUrls { main: static_path },
     })
+}
+
+async fn store_blob(
+    name: String,
+    path: String,
+    blob: &Bytes,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let storage_path = format!("{}/static/files", current_dir()?.display());
+    let full_path = format!("{}/{}", storage_path, path);
+
+    fs::create_dir_all(full_path.clone()).await?;
+
+    let file_path = format!("{}/{}", full_path, name);
+    let mut static_file = File::create_new(file_path).await?;
+    static_file.write_all(&blob).await?;
+
+    Ok(())
+}
+
+async fn remove_blob(
+    name: String,
+    path: String,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let storage_path = format!("{}/static/files", current_dir()?.display());
+    let file_path = format!("{}/{}/{}", storage_path, path, name);
+
+    remove_file(file_path).await?;
+    Ok(())
 }
 
 pub async fn del(user_id: &PubkyId, file_id: String) -> Result<(), Box<dyn Error + Sync + Send>> {
@@ -94,6 +122,8 @@ pub async fn del(user_id: &PubkyId, file_id: String) -> Result<(), Box<dyn Error
     if let Some(value) = file {
         value.delete().await?;
     }
+
+    remove_blob(file_id, user_id.to_string()).await?;
 
     Ok(())
 }
