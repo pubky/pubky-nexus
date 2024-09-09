@@ -27,6 +27,7 @@ async fn test_homeserver_tag_post() -> Result<()> {
     let post = PubkyAppPost {
         content: "This is a tag test post!".to_string(),
         kind: PubkyAppPost::default().kind,
+        parent: None,
         embed: None,
     };
     let post_id = test.create_post(&user_id, &post).await?;

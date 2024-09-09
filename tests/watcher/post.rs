@@ -24,6 +24,7 @@ async fn test_homeserver_post() -> Result<()> {
     let post = PubkyAppPost {
         content: "This is a test post!".to_string(),
         kind: PostKind::Short,
+        parent: None,
         embed: None,
     };
 

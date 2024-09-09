@@ -33,8 +33,8 @@ impl fmt::Display for PostKind {
 /// Used primarily to best display the content in UI
 #[derive(Serialize, Deserialize, Default)]
 pub struct PostEmbed {
-    pub r#type: String, //e.g., "post", we have to define a type for this.
-    pub uri: String,
+    pub kind: PostKind,
+    pub uri: String, // If a repost a `Short` and uri of the reposted post.
 }
 
 /// Represents raw post in homeserver with content and kind
@@ -48,6 +48,7 @@ pub struct PostEmbed {
 pub struct PubkyAppPost {
     pub content: String,
     pub kind: PostKind,
+    pub parent: Option<String>, // If a reply, the URI of the parent post.
     pub embed: Option<PostEmbed>,
 }
 
