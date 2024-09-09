@@ -127,21 +127,3 @@ pub async fn del(user_id: &PubkyId, file_id: String) -> Result<(), Box<dyn Error
 
     Ok(())
 }
-
-// Parses a file id from the event's uri
-pub fn parse_file_id(uri: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    // Define the pattern we're looking for in the URI
-    let file_pattern: &str = "/files/";
-
-    // Find the starting position of the file_id part in the URI
-    let start_idx = uri
-        .find(file_pattern)
-        .map(|start| start + file_pattern.len())
-        .ok_or("File pattern not found in URI")?;
-
-    // Extract the file_id from the path
-    let file_id = &uri[start_idx..];
-
-    // Return the post_id as a string
-    Ok(file_id.to_string())
-}

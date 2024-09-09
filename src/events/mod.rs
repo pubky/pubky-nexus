@@ -163,7 +163,7 @@ impl Event {
         match self.resource_type {
             ResourceType::User { user_id } => handlers::user::del(user_id).await?,
             ResourceType::Post { author_id, post_id } => {
-                handlers::post::del(&author_id, post_id).await?
+                handlers::post::del(author_id, post_id).await?
             }
             ResourceType::Follow {
                 follower_id,

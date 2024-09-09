@@ -23,12 +23,12 @@ pub async fn put(
     post_details.put_to_graph().await?;
 
     // Reindex to sorted sets and other indexes
-    reindex_post(&author_id, post_id.as_str()).await?;
+    reindex_post(&author_id, &post_id).await?;
 
     Ok(())
 }
 
-pub async fn del(author_id: &PubkyId, post_id: String) -> Result<(), Box<dyn Error + Sync + Send>> {
+pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), Box<dyn Error + Sync + Send>> {
     // TODO: handle deletion of Post resource from databases
     debug!("Deleting post: {}/{}", author_id, post_id);
     // Implement logic here
