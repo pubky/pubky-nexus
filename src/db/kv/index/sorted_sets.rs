@@ -21,8 +21,8 @@ pub async fn check_member(
 ) -> Result<Option<isize>, Box<dyn Error + Send + Sync>> {
     let index_key = format!("{}:{}", prefix, key);
     let mut redis_conn = get_redis_conn().await?;
-    // Use the ZRANK command to check if the member exists in the sorted set
-    let rank = redis_conn.zrank(index_key, member).await?;
+    // Use the ZSCORE command to check if the member exists in the sorted set
+    let rank = redis_conn.zscore(index_key, member).await?;
     Ok(rank)
 }
 

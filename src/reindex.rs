@@ -107,13 +107,12 @@ pub async fn reindex_post_tags(
     // TODO: Carefull with that operation, we might lost data consistency, if one of that fails
     // we might need to enforce data consistency
     let author_post_slice: &[&str] = &[&author_id, &post_id];
-    // Add post to label total engagement
-    let tag_global_engagement_key_parts = [&TAG_GLOBAL_POST_ENGAGEMENT[..], &[&tag_label]].concat();
-    let post_tags_key_parts = [&POST_TAGS_KEY_PARTS[..], author_post_slice].concat();
-
     let user_id_slice = [user_id];
     let tag_label_slice = [tag_label];
     let user_post_slice = [author_id, post_id, tag_label];
+    // Add post to label total engagement
+    let tag_global_engagement_key_parts = [&TAG_GLOBAL_POST_ENGAGEMENT[..], &[&tag_label]].concat();
+    let post_tags_key_parts = [&POST_TAGS_KEY_PARTS[..], author_post_slice].concat();
 
 
     tokio::try_join!(
@@ -146,11 +145,12 @@ pub async fn reindex_post_tags(
     if res == None {
         let option = PostDetails::try_from_index_json(&author_post_slice).await?;
         if let Some(post_details) = option {
-            println!("{:?}", post_details.indexed_at);
+            println!("IndexedAt: {:?}", post_details.indexed_at);
             let member_key = author_post_slice.join(":");
             TagSearch::put_index_sorted_set(&key_parts, &[(post_details.indexed_at as f64, &member_key)]).await?;
         }
     }
+    // TODO: Maybe work in the else
     
     Ok(())
 }
