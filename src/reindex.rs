@@ -159,7 +159,6 @@ pub async fn reindex_post_tags(
     if tag_search.is_none() {
         let option = PostDetails::try_from_index_json(author_post_slice).await?;
         if let Some(post_details) = option {
-            println!("IndexedAt: {:?}", post_details.indexed_at);
             let member_key = author_post_slice.join(":");
             TagSearch::put_index_sorted_set(
                 &key_parts,

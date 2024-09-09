@@ -96,7 +96,8 @@ pub async fn put_score(
         ScoreAction::Increment(val) => val,
         ScoreAction::Decrement(val) => -val,
     };
-    redis_conn.zincr(&index_key, member, value).await?;
+    // avoids the warning: this function depends on never type fallback being ()
+    let _: () = redis_conn.zincr(&index_key, member, value).await?;
 
     Ok(())
 }

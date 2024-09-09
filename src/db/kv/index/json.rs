@@ -75,8 +75,6 @@ where
         return Err(format!("Field '{}' does not exist", field));
     }
 
-    println!("{:?}", json_value);
-
     // Convert the serde_json::Value back into the struct
     Ok(json_value)
 }
