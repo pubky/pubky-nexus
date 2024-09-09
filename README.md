@@ -34,23 +34,45 @@ Reach feature parity with `skunk-work` indexer improving on the following:
 
 ![pubky-nexus-graph](docs/images/pubky-nexus-graph.png)
 
-## 👨‍💻 Quick Dev
+## ⚙️ Preparing the Environment
 
-For auto re-build on save and testing while developing `/service` :
+Before running the project, several configurations must be set up. Let’s start by configuring the databases
 
 ```bash
-cargo install cargo-watch
-
-# Copy the .env.example to .env
+cd docker
+# Create a new `.env` file from the `.env-sample` template
 cp .env-sample .env
+# Run the databases (Neo4j and Redis databases will spin up empty)
+docker-compose up -d
+# Populate the graph database with initial data
+docker exec neo4j bash /db-graph/run-queries.sh
+```
 
-# Ideally in two terminals.
-# On terminal 1 run:
-cargo watch -q -c -w src/ -x run
-# You can check the running service on your browser on localhost:8080/v0/info
+Once the `Neo4j` graph database is seeded with data, the next step is to populate the `Redis` database by running the _nexus-service_
+
+> If the Redis cache is empty, the nexus-service will handle it automatically. If not follow the steps of warning section
+
+```bash
+cargo run
+```
+
+## 👨‍💻 Quick Development Setup
+
+To enable auto-rebuilding and testing while developing within the `/service`:
+
+```bash
+# Install `cargo-watch` to monitor changes and auto-rebuild on save
+cargo install cargo-watch
+# Ensure the environment variables are set. You might have already done this in the previous step:
+cp .env-sample .env
+# Run the service and tests in separate terminals:
+
+# Terminal 1: Start the service with auto-reload on changes:
+cargo watch -q -c -w src/ -x "run --bin service"
+# The service will be available at localhost:8080/v0/info on your browser
 
 # On terminal 2 run (for tests to work you need a working /neo4j-example instance with example dataset)
-cargo watch -q -c -w tests/ -w macros/*/tests/ -x "test --workspace -- --nocapture"
+cargo watch -q -c -w tests/ -x "test -- --nocapture"
 
 # Run benchmarks (e.g., get user by ID benchmark)
 cargo bench --bench user get_user_view_by_id
@@ -84,7 +106,7 @@ Running the `/tests/` that require the homeserver does not require running a hom
 
 We are using `pubky` repo as a git submodule of `pubky-nexus`, given that `pubky` is still a private repository and the crates for the client and homeserver are not yet published.
 
-```
+```bash
 git submodule init
 git submodule update --init --recursive
 cd pubky/pubky-homeserver

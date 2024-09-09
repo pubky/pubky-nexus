@@ -26,7 +26,7 @@ pub async fn put(
     }
     let index_key = format!("{}:{}", prefix, key);
     let mut redis_conn = get_redis_conn().await?;
-    redis_conn.rpush(index_key, values).await?;
+    let _: () = redis_conn.rpush(index_key, values).await?;
     Ok(())
 }
 

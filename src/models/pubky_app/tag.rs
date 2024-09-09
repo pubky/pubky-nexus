@@ -1,4 +1,6 @@
-use super::traits::GenerateHashId;
+use super::traits::{GenerateHashId, Validatable};
+use base32::{encode, Alphabet};
+use blake3::Hasher;
 use serde::{Deserialize, Serialize};
 
 /// Represents raw homeserver tag with id
@@ -20,6 +22,13 @@ impl GenerateHashId for PubkyAppTag {
     /// Tag ID is created based on the hash of the URI tagged and the label used
     fn get_id_data(&self) -> String {
         format!("{}:{}", self.uri, self.label)
+    }
+}
+
+impl Validatable for PubkyAppTag {
+    async fn validate(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // TODO: validate ID and content of incoming tag is correct
+        Ok(())
     }
 }
 

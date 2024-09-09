@@ -48,15 +48,19 @@ fn deserialize_user_links<'de, D>(deserializer: D) -> Result<Option<Vec<UserLink
 where
     D: Deserializer<'de>,
 {
+    // Deserialize into serde_json::Value first
     let value = serde_json::Value::deserialize(deserializer)?;
 
+    // Handle both cases
     match value {
         serde_json::Value::String(s) => {
+            // If it's a string, parse the string as JSON
             let urls: Option<Vec<UserLink>> =
                 serde_json::from_str(&s).map_err(serde::de::Error::custom)?;
             Ok(urls)
         }
         serde_json::Value::Array(arr) => {
+            // If it's already an array, deserialize it directly
             let urls: Vec<UserLink> = serde_json::from_value(serde_json::Value::Array(arr))
                 .map_err(serde::de::Error::custom)?;
             Ok(Some(urls))

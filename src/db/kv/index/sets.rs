@@ -26,7 +26,7 @@ pub async fn put(
     }
     let index_key = format!("{}:{}", prefix, key);
     let mut redis_conn = get_redis_conn().await?;
-    redis_conn.sadd(index_key, values).await?;
+    let _: () = redis_conn.sadd(index_key, values).await?;
     Ok(())
 }
 
@@ -238,7 +238,7 @@ pub async fn put_multiple_sets(
     }
 
     // Execute the pipeline
-    pipe.query_async(&mut redis_conn).await?;
+    let _: () = pipe.query_async(&mut redis_conn).await?;
     Ok(())
 }
 
@@ -269,6 +269,6 @@ pub async fn del(
     let mut redis_conn = get_redis_conn().await?;
 
     // Remove the elements from the set
-    redis_conn.srem(index_key, values).await?;
+    let _: () = redis_conn.srem(index_key, values).await?;
     Ok(())
 }

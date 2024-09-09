@@ -88,7 +88,7 @@ impl EventProcessor {
                     self.cursor = cursor.to_string();
                     info!("Cursor for the next request: {}", cursor);
                 }
-            } else if let Some(event) = Event::from_str(line, self.pubky_client.clone()) {
+            } else if let Some(event) = Event::from_str(line, self.pubky_client.clone())? {
                 event.handle().await?;
             }
         }

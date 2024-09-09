@@ -6,8 +6,8 @@ type TagFieldsTuple<'a> = (Vec<(f64, &'a str)>, (Vec<&'a str>, Vec<Vec<&'a str>>
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Default)]
 pub struct TagDetails {
     pub label: String,
-    taggers: Vec<String>,
-    taggers_count: usize,
+    pub taggers: Vec<String>,
+    pub taggers_count: usize,
 }
 
 impl TagDetails {

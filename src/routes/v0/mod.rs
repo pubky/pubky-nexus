@@ -3,6 +3,7 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 pub mod endpoints;
+pub mod file;
 pub mod info;
 pub mod post;
 pub mod queries;
@@ -10,7 +11,6 @@ pub mod search;
 pub mod stream;
 pub mod tag;
 pub mod user;
-pub mod file;
 
 pub use queries::TagsQuery;
 

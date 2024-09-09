@@ -44,7 +44,7 @@ async fn create_homeserver_with_events() -> (Testnet, String) {
     };
 
     let profile_json = serde_json::to_vec(&user).unwrap();
-    let url = format!("pubky://{}/pub/pubky-app/profile.json", user_id);
+    let url = format!("pubky://{}/pub/pubky.app/profile.json", user_id);
 
     // Create user profile
     client.put(url.as_str(), &profile_json).await.unwrap();
