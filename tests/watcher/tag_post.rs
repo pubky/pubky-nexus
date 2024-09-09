@@ -4,7 +4,7 @@ use chrono::Utc;
 use pkarr::Keypair;
 use pubky_nexus::models::{
     post::PostView,
-    pubky_app::{PubkyAppPost, PubkyAppTag, PubkyAppUser},
+    pubky_app::{traits::GenerateHashId, PubkyAppPost, PubkyAppTag, PubkyAppUser},
 };
 
 #[tokio::test]

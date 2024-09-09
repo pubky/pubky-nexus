@@ -3,7 +3,7 @@ use anyhow::Result;
 use chrono::Utc;
 use pkarr::Keypair;
 use pubky_nexus::models::{
-    pubky_app::{PubkyAppTag, PubkyAppUser},
+    pubky_app::{traits::GenerateHashId, PubkyAppTag, PubkyAppUser},
     user::UserView,
 };
 

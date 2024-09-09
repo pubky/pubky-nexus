@@ -2,11 +2,7 @@ use log::{debug, error};
 use pubky::PubkyClient;
 use uri::ParsedUri;
 
-use crate::models::{
-    file::{details::FileKey, FileDetails},
-    pubky_app::HomeserverFile,
-    user::PubkyId,
-};
+use crate::models::user::PubkyId;
 
 pub mod handlers;
 pub mod processor;
@@ -96,7 +92,7 @@ impl Event {
             },
             _ if uri.contains("/files/") => ResourceType::File {
                 user_id: parsed_uri.user_id,
-                file_id: parsed_uri.file_id.ok_or("Missing file_id"),
+                file_id: parsed_uri.file_id.ok_or("Missing file_id")?,
             },
             _ => {
                 error!("Unrecognized resource in URI: {}", uri);
@@ -178,21 +174,6 @@ impl Event {
                 bookmark_id,
             } => handlers::bookmark::del(user_id, bookmark_id).await?,
             ResourceType::Tag { user_id, tag_id } => handlers::tag::del(user_id, tag_id).await?,
-            ResourceType::File { user_id, file_id } => {
-                debug!("Deleting File resource for {} at {}", user_id, file_id);
-                let file_details = FileDetails::get_file(&FileKey {
-                    file_id,
-                    owner_id: user_id.to_string(),
-                })
-                .await?;
-
-                match file_details {
-                    None => return Ok(()),
-                    Some(file) => {
-                        file.delete().await?;
-                    }
-                }
-            }
             ResourceType::File { user_id, file_id } => {
                 handlers::file::del(&user_id, file_id).await?
             }

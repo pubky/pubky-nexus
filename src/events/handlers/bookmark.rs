@@ -61,7 +61,7 @@ pub async fn del(
     debug!("Deleting bookmark: {} -> {}", user_id, bookmark_id);
 
     // Delete the bookmark relationship from the graph
-    let query = queries::write::delete_bookmark(user_id, &bookmark_id);
+    let query = queries::write::delete_bookmark(&user_id, &bookmark_id);
     exec_single_row(query).await?;
 
     // TODO DELETE FROM REDIS
