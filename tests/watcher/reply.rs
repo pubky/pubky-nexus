@@ -2,7 +2,7 @@ use super::utils::WatcherTest;
 use anyhow::Result;
 use pkarr::Keypair;
 use pubky_nexus::models::{
-    post::PostView,
+    post::{PostThread, PostView},
     pubky_app::{PostKind, PubkyAppPost, PubkyAppUser},
 };
 
@@ -90,6 +90,17 @@ async fn test_homeserver_reply() -> Result<()> {
 
     assert_eq!(result_parent.counts.replies, 1);
 
+    // Fetch the post thread and confirm the reply is present
+    let thread = PostThread::get_by_id(&user_id, &parent_id, None, 0, 10)
+        .await
+        .expect("Failed to fetch post thread")
+        .expect("The post thread should exist");
+
+    assert_eq!(thread.root_post.details.id, parent_id);
+    assert_eq!(thread.replies.len(), 1);
+    assert_eq!(thread.replies[0].details.id, reply_id);
+    assert_eq!(thread.replies[0].details.content, reply.content);
+
     // // TODO: Impl DEL post. Assert the reply does not exist in Nexus
     // test.cleanup_post(&user_id, &reply_id).await?;
     // let result_post = PostView::get_by_id(&user_id, &post_id, None, None, None)
@@ -97,6 +108,12 @@ async fn test_homeserver_reply() -> Result<()> {
     //     .unwrap();
 
     // assert!(result_post.is_none(), "The post should have been deleted");
+
+    // After deletion, fetch the post thread again and confirm the reply is gone
+    // let thread_after_deletion = PostThread::get_by_id(&user_id, &parent_id, None, 0, 10)
+    //     .await
+    //     .expect("Failed to fetch post thread after deletion")
+    //     .expect("The post thread should exist after deletion");
 
     // Cleanup
     // test.cleanup_user(&user_id).await?;

@@ -1,9 +1,10 @@
 use crate::db::graph::exec::exec_single_row;
 use crate::events::uri::ParsedUri;
+use crate::models::post::PostCounts;
 use crate::models::pubky_app::traits::Validatable;
 use crate::models::{post::PostDetails, pubky_app::PubkyAppPost, user::PubkyId};
-use crate::queries;
 use crate::reindex::reindex_post;
+use crate::{queries, RedisOps};
 use axum::body::Bytes;
 use log::debug;
 use std::error::Error;
@@ -22,27 +23,35 @@ pub async fn put(
     // Create PostDetails object
     let post_details = PostDetails::from_homeserver(post.clone(), &author_id, &post_id).await?;
 
+    // SAVE TO GRAPH
     // Add new post node into the graph
     post_details.put_to_graph().await?;
-
-    // Handle "REPLIED" relationship if `parent` is Some
-    if let Some(parent_uri) = post.parent {
-        handle_put_reply_relationship(&author_id, &post_id, &parent_uri).await?;
+    // Handle "REPLIED" relationship and counts if `parent` is Some
+    if let Some(parent_uri) = &post.parent {
+        put_reply_relationship(&author_id, &post_id, &parent_uri).await?;
+    }
+    // Handle "REPOSTED" relationship and counts if `embed.uri` is Some
+    if let Some(embed) = &post.embed {
+        put_repost_relationship(&author_id, &post_id, &embed.uri).await?;
     }
 
-    // Handle "REPOSTED" relationship if `embed.uri` is Some
-    if let Some(embed) = post.embed {
-        handle_put_repost_relationship(&author_id, &post_id, &embed.uri).await?;
-    }
-
+    // SAVE TO INDEX
     // Reindex to sorted sets and other indexes
     reindex_post(&author_id, &post_id).await?;
+    // Handle "REPLIED" relationship and counts if `parent` is Some
+    if let Some(parent_uri) = post.parent {
+        update_parent_post_counts(&parent_uri, "replies").await?;
+    }
+    // Handle "REPOSTED" relationship and counts if `embed.uri` is Some
+    if let Some(embed) = post.embed {
+        update_parent_post_counts(&embed.uri, "reposts").await?;
+    }
 
     Ok(())
 }
 
 // Helper function to handle "REPLIED" relationship
-async fn handle_put_reply_relationship(
+async fn put_reply_relationship(
     author_id: &PubkyId,
     post_id: &str,
     parent_uri: &str,
@@ -61,7 +70,7 @@ async fn handle_put_reply_relationship(
 }
 
 // Helper function to handle "REPOSTED" relationship
-async fn handle_put_repost_relationship(
+async fn put_repost_relationship(
     author_id: &PubkyId,
     post_id: &str,
     embed_uri: &str,
@@ -75,6 +84,30 @@ async fn handle_put_repost_relationship(
             &reposted_post_id,
         ))
         .await?;
+    }
+    Ok(())
+}
+
+// Helper function to update counts of parent or reposted posts
+async fn update_parent_post_counts(
+    post_uri: &str,
+    field: &str,
+) -> Result<(), Box<dyn Error + Sync + Send>> {
+    let parsed_uri = ParsedUri::try_from(post_uri)?;
+    if let (parent_author_id, Some(parent_post_id)) = (parsed_uri.user_id, parsed_uri.post_id) {
+        let mut post_counts = PostCounts::get_by_id(&parent_author_id.0, &parent_post_id)
+            .await?
+            .unwrap_or_default();
+
+        match field {
+            "replies" => post_counts.replies += 1,
+            "reposts" => post_counts.reposts += 1,
+            _ => {}
+        }
+
+        post_counts
+            .put_index_json(&[&parent_author_id.0, &parent_post_id])
+            .await?;
     }
     Ok(())
 }

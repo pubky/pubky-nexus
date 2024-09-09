@@ -86,9 +86,9 @@ async fn test_homeserver_repost() -> Result<()> {
     let result_post = PostView::get_by_id(&user_id, &repost_id, None, None, None)
         .await
         .unwrap()
-        .expect("The new post was not served from Nexus");
+        .expect("The post was not served from Nexus");
 
-    assert_eq!(result_post.counts.replies, 1);
+    assert_eq!(result_post.counts.reposts, 1);
 
     // // TODO: Impl DEL post. Assert the repost does not exist in Nexus
     // test.cleanup_post(&user_id, &repost_id).await?;
