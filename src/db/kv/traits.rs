@@ -97,10 +97,6 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// # Returns
     ///
     /// A `Vec<Option<Self>>` containing the deserialized data if found, or `None` if a key does not exist.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
     async fn try_from_index_multiple_json(
         key_parts_list: &[&[&str]],
     ) -> Result<Vec<Option<Self>>, Box<dyn Error + Send + Sync>> {
@@ -113,15 +109,31 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         json::get_multiple(&prefix, &keys, None).await
     }
 
+    /// Updates a specific field in an existing JSON entry in Redis.
+    ///
+    /// This function fetches the existing JSON object from Redis, updates the field specified by `field` by adding
+    /// the value of `number`, and then saves the updated object back to Redis.
+    ///
+    /// # Arguments
+    ///
+    /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the JSON object is stored.
+    /// * `field` - The name of the field within the JSON object that needs to be updated.
+    /// * `number` - The value by which to increment or decrement the field. Can be positive or negative.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the operation fails, such as if the Redis connection is unavailable,
+    /// the field is not present, or if there is an issue with serialization or deserialization.
     async fn put_param_index_json(
         key_parts: &[&str],
         field: &str,
+        number: isize
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         // Fetch the current value from Redis
         let json_entry: Option<Self> = Self::try_from_index_json(key_parts).await?;
         
         if let Some(instance) = json_entry {
-            let value = json::put_json_param(instance, field, 1)?;
+            let value = json::put_json_param(instance, field, number)?;
             // Deserialize the modified JSON back into the PostMetrics struct
             let incremented_instance: Self = serde_json::from_value(value)?;
 
@@ -455,6 +467,15 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     // ########### SORTED SET related functions ###################
     // ############################################################
 
+    /// Checks if a member exists in a Redis sorted set and retrieves its score if it exists.
+    ///
+    /// This method checks if a specific member is present in the Redis sorted set stored under the key
+    /// generated from the provided `key_parts`. If the member is found, it returns its score.
+    ///
+    /// # Arguments
+    ///
+    /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the sorted set is stored.
+    /// * `member` - A slice of string slices that represent the parts used to form the key identifying the member within the sorted set.
     async fn check_sorted_set_member(
         key_parts: &[&str],
         member: &[&str],
@@ -487,6 +508,16 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         sorted_sets::put(SORTED_PREFIX, &key, elements).await
     }
 
+    /// Updates the score of a member in a Redis sorted set.
+    ///
+    /// This method updates the score associated with a specific member in a Redis sorted set
+    /// identified by the provided key parts. The score can be mutated (incremented, decremented, or set) based on the `score_mutation` parameter.
+    ///
+    /// # Arguments
+    ///
+    /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the sorted set is stored.
+    /// * `member` - A slice of string slices that represent the parts used to form the key identifying the member within the sorted set.
+    /// * `score_mutation` - A `ScoreAction` that defines how the score should be modified (e.g., incremented or decremented).
     async fn put_score_index_sorted_set(
         key_parts: &[&str],
         member: &[&str],

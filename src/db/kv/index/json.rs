@@ -46,7 +46,21 @@ pub async fn put<T: Serialize + Send + Sync>(
     Ok(())
 }
 
-pub fn put_json_param<T>(object: T, field: &str, value: u64) -> Result<Value, String>
+/// Modifies a specific field within a JSON object by a given value.
+///
+/// This function takes a JSON object, accesses a field within it, and modifies the field's value
+/// by the specified amount. It works only with numeric fields.
+///
+/// # Arguments
+///
+/// * `object` - The JSON object in which the field will be modified. It must implement `Serialize`.
+/// * `field` - A string slice representing the name of the field to be modified.
+/// * `value` - An integer value by which to modify the field.
+///
+/// # Returns
+///
+/// Returns the modified JSON object as a `serde_json::Value` or an error if the field does not exist or is not numeric.
+pub fn put_json_param<T>(object: T, field: &str, value: isize) -> Result<Value, String>
 where
     T: Serialize,
 {
@@ -56,7 +70,7 @@ where
     if let Some(field_value) = json_value.get_mut(field) {
         // TODO: Field type check: 
     //     if field_value.is_number() {
-        *field_value = json!(field_value.as_u64().unwrap_or(0) + value);
+        *field_value = json!(field_value.as_i64().unwrap_or(0) + value as i64);
     } else {
         return Err(format!("Field '{}' does not exist", field));
     }
@@ -67,6 +81,16 @@ where
     Ok(json_value)
 }
 
+/// Handles storing a boolean value in Redis with an optional expiration.
+///
+/// This function sets a key in Redis to either `1` or `0`, depending on the boolean value provided.
+/// Optionally, an expiration time can be set for the key.
+///
+/// # Arguments
+///
+/// * `key` - A string slice representing the Redis key.
+/// * `value` - A boolean value to store. If `true`, `1` is stored; if `false`, `0` is stored.
+/// * `expiration` - An optional expiration time in seconds. If provided, the key will expire after this duration.
 async fn handle_put_boolean(
     key: &str,
     value: bool,
@@ -83,6 +107,17 @@ async fn handle_put_boolean(
     Ok(())
 }
 
+/// Handles storing a JSON object in Redis at a specified path, with optional expiration.
+///
+/// This function uses RedisJSON to store a JSON object under the provided key and path. An expiration time
+/// can optionally be set for the key.
+///
+/// # Arguments
+///
+/// * `key` - A string slice representing the Redis key.
+/// * `value` - A reference to the value to be stored, which must implement `Serialize`.
+/// * `path` - An optional string slice representing the JSON path where the value should be set. Defaults to the root path "$".
+/// * `expiration` - An optional expiration time in seconds. If provided, the key will expire after this duration.
 async fn handle_put_json<T: Serialize + Send + Sync>(
     key: &str,
     value: &T,
