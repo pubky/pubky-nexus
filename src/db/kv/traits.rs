@@ -377,7 +377,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     ) -> Result<(bool, bool), Box<dyn Error + Send + Sync>> {
         let prefix = Self::prefix().await;
         let key = key_parts.join(":");
-        sets::check_set_member(&prefix, &key, member).await
+        sets::check_member(&prefix, &key, member).await
     }
 
     /// Fetches multiple sets from Redis using the specified key components.
@@ -457,6 +457,15 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     // ############################################################
     // ########### SORTED SET related functions ###################
     // ############################################################
+
+    async fn check_sorted_set_member(
+        key_parts: &[&str],
+        member: &[&str],
+    ) -> Result<Option<isize>, Box<dyn Error + Send + Sync>> {
+        let key = key_parts.join(":");
+        let member_key = member.join(":");
+        sorted_sets::check_member(SORTED_PREFIX, &key, &member_key).await
+    }
 
     /// Adds elements to a Redis sorted set using the provided key parts.
     ///

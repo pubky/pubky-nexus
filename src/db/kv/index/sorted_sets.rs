@@ -14,6 +14,18 @@ pub enum ScoreAction {
 
 pub const SORTED_PREFIX: &str = "Sorted";
 
+pub async fn check_member(
+    prefix: &str,
+    key: &str,
+    member: &str
+) -> Result<Option<isize>, Box<dyn Error + Send + Sync>> {
+    let index_key = format!("{}:{}", prefix, key);
+    let mut redis_conn = get_redis_conn().await?;
+    // Use the ZRANK command to check if the member exists in the sorted set
+    let rank = redis_conn.zrank(index_key, member).await?;
+    Ok(rank)
+}
+
 /// Adds elements to a Redis sorted set.
 ///
 /// This function adds elements to the specified Redis sorted set. If the set doesn't exist,

@@ -2,12 +2,8 @@ use super::utils::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
 use pkarr::Keypair;
-use pubky_nexus::{models::{
-    post::{PostCounts, PostView},
-    pubky_app::{PubkyAppPost, PubkyAppTag, PubkyAppUser}, tag::post::TagPost,
-}, RedisOps, ScoreAction};
-
-use pubky_nexus::models::post::POST_TOTAL_ENGAGEMENT_KEY_PARTS;
+use pubky_nexus::models::post::PostView;
+use pubky_nexus::models::pubky_app::{PubkyAppPost, PubkyAppTag, PubkyAppUser};
 
 #[tokio::test]
 async fn test_homeserver_tag_post() -> Result<()> {
@@ -51,6 +47,9 @@ async fn test_homeserver_tag_post() -> Result<()> {
         .await
         .unwrap()
         .expect("The tag should have been created");
+
+
+    println!("User_id: {:?}, Post_id: {:?}, label {:?}", user_id, post_id, label);
 
     //TODO: uncomment tests when fixed redis indexing
     // assert_eq!(result_post.tags[0].taggers_count, 1);

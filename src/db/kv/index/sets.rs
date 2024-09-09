@@ -119,7 +119,7 @@ pub async fn get_range(
 /// `Ok((false, false))` if the set does not exist.
 ///
 /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
-pub async fn check_set_member(
+pub async fn check_member(
     prefix: &str,
     key: &str,
     member: &str,
