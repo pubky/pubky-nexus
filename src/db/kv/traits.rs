@@ -282,15 +282,12 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     ///
     /// Returns an error if the operation fails, such as if the Redis connection is unavailable or
     /// if there is an issue with serialization.
-    async fn put_index_set(key_parts: &[&str], values: &[String]) -> Result<(), Box<dyn Error + Send + Sync>>
+    async fn put_index_set(key_parts: &[&str], values: &[&str]) -> Result<(), Box<dyn Error + Send + Sync>>
     {
         let prefix = Self::prefix().await;
         let key = key_parts.join(":");
-
-        let values_ref: Vec<&str> = values.iter().map(|id| id.as_str()).collect();
-
         // Store the values in the Redis set
-        sets::put(&prefix, &key, &values_ref).await
+        sets::put(&prefix, &key, &values).await
     }
 
     /// Removes elements from a Redis set using the provided key parts.

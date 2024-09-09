@@ -44,7 +44,8 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
                 // TODO: DISCUSS, Might be one of the reasons why put_index_set was a method(with &self as 1st argument)
                 // to avoid clonning
                 let follows = Self::from_vec(connections);
-                Self::put_index_set(&[user_id], follows.as_ref()).await?;
+                let values_ref: Vec<&str> = follows.as_ref().iter().map(|id| id.as_str()).collect();
+                Self::put_index_set(&[user_id], &values_ref).await?;
                 Ok(Some(follows))
             } else {
                 Ok(Some(Self::default()))

@@ -43,7 +43,7 @@ async fn test_homeserver_tag_post() -> Result<()> {
     test.ensure_event_processing_complete().await?;
 
     // Step 4: Verify the tag exists in Nexus
-    let _result_post = PostView::get_by_id(&user_id, &post_id, None, None, None)
+    let result_post = PostView::get_by_id(&user_id, &post_id, None, None, None)
         .await
         .unwrap()
         .expect("The tag should have been created");
@@ -51,10 +51,10 @@ async fn test_homeserver_tag_post() -> Result<()> {
 
     println!("User_id: {:?}, Post_id: {:?}, label {:?}", user_id, post_id, label);
 
-    //TODO: uncomment tests when fixed redis indexing
-    // assert_eq!(result_post.tags[0].taggers_count, 1);
-    // assert_eq!(result_post.tags[0].taggers[0], user_id);
-    // assert_eq!(result_post.tags[0].label, label);
+    // Check if the tag is in the new post and also if the user is the tagger
+    assert_eq!(result_post.tags[0].taggers_count, 1);
+    assert_eq!(result_post.tags[0].taggers[0], user_id);
+    assert_eq!(result_post.tags[0].label, label);
 
     // Step 5: Delete the tag
     test.client.delete(tag_url.as_str()).await?;

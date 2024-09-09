@@ -26,10 +26,10 @@ pub async fn put(
 
     // Update follow indexes
     Followers
-        ::put_index_set(&[&follower_id], &vec![followee_id.to_string()])
+        ::put_index_set(&[&follower_id], &vec![followee_id.to_string().as_ref()])
         .await?;
     Following
-        ::put_index_set(&[&followee_id], &vec![follower_id.0])
+        ::put_index_set(&[&followee_id], &vec![follower_id.0.as_ref()])
         .await?;
 
     Ok(())
