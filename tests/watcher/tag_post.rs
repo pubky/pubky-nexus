@@ -51,8 +51,10 @@ async fn test_homeserver_tag_post() -> Result<()> {
         .unwrap()
         .expect("The tag should have been created");
 
-
-    println!("User_id: {:?}, Post_id: {:?}, label {:?}", user_id, post_id, label);
+    println!(
+        "User_id: {:?}, Post_id: {:?}, label {:?}",
+        user_id, post_id, label
+    );
 
     // Count post tag taggers: Sorted:Post:Tag:user_id:post_id:{label}
     assert_eq!(result_post.tags[0].label, label);
@@ -61,16 +63,26 @@ async fn test_homeserver_tag_post() -> Result<()> {
     assert_eq!(result_post.tags[0].taggers[0], user_id);
     // Check if post counts updated: Post:Counts:user_id:post_id
     assert_eq!(result_post.counts.tags, 1);
-    
+
     // Check the redis indexes if it is consistent
     let author_post_slice: Vec<&str> = vec![&user_id, &post_id];
     let tag_label_slice = [label];
     // Check global post engagement: Sorted:Posts:Global:TotalEngagement:user_id:post_id
-    let total_engagement = PostStream::check_sorted_set_member(&POST_TOTAL_ENGAGEMENT_KEY_PARTS, &author_post_slice).await.unwrap().unwrap();
+    let total_engagement =
+        PostStream::check_sorted_set_member(&POST_TOTAL_ENGAGEMENT_KEY_PARTS, &author_post_slice)
+            .await
+            .unwrap()
+            .unwrap();
     assert_eq!(total_engagement, 1);
     // Missing: Sorted:Tags:Global:Post:Timeline
     // Tag global engagement
-    let total_engagement = TagSearch::check_sorted_set_member(&[&TAG_GLOBAL_POST_ENGAGEMENT[..], &tag_label_slice].concat(), &author_post_slice).await.unwrap().unwrap();
+    let total_engagement = TagSearch::check_sorted_set_member(
+        &[&TAG_GLOBAL_POST_ENGAGEMENT[..], &tag_label_slice].concat(),
+        &author_post_slice,
+    )
+    .await
+    .unwrap()
+    .unwrap();
     assert_eq!(total_engagement, 1);
     // TODO: Hot tag. Uncomment when DEL is impl
     // let total_engagement = Taggers::check_sorted_set_member(&TAG_GLOBAL_HOT, &tag_label_slice).await.unwrap().unwrap();
@@ -100,5 +112,4 @@ async fn test_homeserver_tag_post() -> Result<()> {
     test.cleanup_user(&user_id).await?;
 
     Ok(())
-
 }

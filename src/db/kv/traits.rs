@@ -8,7 +8,6 @@ use std::error::Error;
 /// and retrieved from Redis with serialization and deserialization capabilities.
 #[async_trait]
 pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
-
     /// Provides a prefix string for the Redis key.
     ///
     /// This method should return a prefix string that helps namespace the keys in Redis,
@@ -127,11 +126,11 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     async fn put_param_index_json(
         key_parts: &[&str],
         field: &str,
-        number: isize
+        number: isize,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         // Fetch the current value from Redis
         let json_entry: Option<Self> = Self::try_from_index_json(key_parts).await?;
-        
+
         if let Some(instance) = json_entry {
             let value = json::put_json_param(instance, field, number)?;
             // Deserialize the modified JSON back into the PostMetrics struct
@@ -139,7 +138,6 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
 
             incremented_instance.put_index_json(key_parts).await?;
             return Ok(());
-
         }
 
         Err("Could not increment by one".into())
@@ -294,12 +292,14 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     ///
     /// Returns an error if the operation fails, such as if the Redis connection is unavailable or
     /// if there is an issue with serialization.
-    async fn put_index_set(key_parts: &[&str], values: &[&str]) -> Result<(), Box<dyn Error + Send + Sync>>
-    {
+    async fn put_index_set(
+        key_parts: &[&str],
+        values: &[&str],
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let prefix = Self::prefix().await;
         let key = key_parts.join(":");
         // Store the values in the Redis set
-        sets::put(&prefix, &key, &values).await
+        sets::put(&prefix, &key, values).await
     }
 
     /// Removes elements from a Redis set using the provided key parts.
@@ -521,7 +521,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     async fn put_score_index_sorted_set(
         key_parts: &[&str],
         member: &[&str],
-        score_mutation: ScoreAction
+        score_mutation: ScoreAction,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let key = key_parts.join(":");
         let member_key = member.join(":");

@@ -17,7 +17,7 @@ pub const SORTED_PREFIX: &str = "Sorted";
 /// Checks if a member exists in a Redis sorted set and retrieves its score.
 ///
 /// This function checks whether a specified member exists in a Redis sorted set
-/// by retrieving its score using the `ZSCORE` command. If the member is present, 
+/// by retrieving its score using the `ZSCORE` command. If the member is present,
 /// its score is returned; if it is not present, `None` is returned.
 ///
 /// # Arguments
@@ -32,7 +32,7 @@ pub const SORTED_PREFIX: &str = "Sorted";
 pub async fn check_member(
     prefix: &str,
     key: &str,
-    member: &str
+    member: &str,
 ) -> Result<Option<isize>, Box<dyn Error + Send + Sync>> {
     let index_key = format!("{}:{}", prefix, key);
     let mut redis_conn = get_redis_conn().await?;
@@ -88,7 +88,7 @@ pub async fn put_score(
     prefix: &str,
     key: &str,
     member: &str,
-    score_mutation: ScoreAction
+    score_mutation: ScoreAction,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let index_key = format!("{}:{}", prefix, key);
     let mut redis_conn = get_redis_conn().await?;

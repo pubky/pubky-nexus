@@ -68,8 +68,8 @@ where
     let mut json_value = serde_json::to_value(object).map_err(|e| e.to_string())?;
     // Access and set the field if it exists
     if let Some(field_value) = json_value.get_mut(field) {
-        // TODO: Field type check: 
-    //     if field_value.is_number() {
+        // TODO: Field type check:
+        //     if field_value.is_number() {
         *field_value = json!(field_value.as_i64().unwrap_or(0) + value as i64);
     } else {
         return Err(format!("Field '{}' does not exist", field));
