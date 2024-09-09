@@ -286,7 +286,7 @@ pub fn get_files_by_ids(key_pair: &[&[&str]]) -> Query {
         "
         WITH $pairs AS pairs
         UNWIND pairs AS pair
-        MATCH (record:File {owner_id: pair[0], id: pair[1]})
+        OPTIONAL MATCH (record:File {owner_id: pair[0], id: pair[1]})
         RETURN record
         ",
     )

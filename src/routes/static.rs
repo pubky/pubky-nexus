@@ -21,11 +21,12 @@ async fn static_files_middleware(request: Request, next: Next) -> Result<Respons
         return Ok(response);
     }
 
-    let [_, _, owner_id, file_id]: [&str] = path.split("/").collect::<Vec<&str>>()[..] else {
-        return Ok(response);
-    };
+    let path_parts: Vec<&str> = path.split("/").collect();
+    // path_parts: ["", "static", "files", "<USER_ID>", "<FILE_ID>"]
+    let user_id = path_parts[3];
+    let file_id = path_parts[4];
 
-    let files = FileDetails::get_by_ids(vec![vec![owner_id, file_id].as_slice()].as_slice()).await;
+    let files = FileDetails::get_by_ids(vec![vec![user_id, file_id].as_slice()].as_slice()).await;
 
     match files {
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
@@ -34,12 +35,12 @@ async fn static_files_middleware(request: Request, next: Next) -> Result<Respons
             match file {
                 Some(value) => {
                     response.headers_mut().insert(
-                        "Content-Length",
+                        "content-length",
                         value.size.to_string().as_str().parse().unwrap(),
                     );
                     response
                         .headers_mut()
-                        .insert("Content-Type", value.content_type.parse().unwrap());
+                        .insert("content-type", value.content_type.parse().unwrap());
                     Ok(response)
                 }
                 None => Err(StatusCode::NOT_FOUND),
