@@ -1,6 +1,4 @@
 use super::traits::{GenerateHashId, Validatable};
-use base32::{encode, Alphabet};
-use blake3::Hasher;
 use serde::{Deserialize, Serialize};
 
 /// Represents raw homeserver tag with id

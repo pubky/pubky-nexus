@@ -3,8 +3,7 @@ use crate::models::traits::Collection;
 use crate::{queries, RedisOps};
 use axum::async_trait;
 use chrono::Utc;
-use graph_node_macro::GraphNode;
-use neo4rs::{Node, Query};
+use neo4rs::Query;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -14,7 +13,7 @@ pub struct FileUrls {
 }
 
 /// Represents a file and its metadata, including links to the actual binary of the file.
-#[derive(Clone, Debug, Serialize, Deserialize, ToSchema, Default, GraphNode)]
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema, Default)]
 pub struct FileDetails {
     pub id: String,
     pub uri: String,

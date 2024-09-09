@@ -1,5 +1,4 @@
 use super::traits::{GenerateRandomId, Validatable};
-use pubky_common::timestamp::Timestamp;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use utoipa::ToSchema;
