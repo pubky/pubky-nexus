@@ -99,8 +99,8 @@ impl Event {
                 file_id: parsed_uri.file_id.ok_or("Missing file_id"),
             },
             _ => {
-                // Handle other resource types
-                return Err(format!("Unrecognized resource in URI: {}", uri).into());
+                error!("Unrecognized resource in URI: {}", uri);
+                return Ok(None);
             }
         };
 
