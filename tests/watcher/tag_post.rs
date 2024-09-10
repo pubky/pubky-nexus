@@ -68,7 +68,7 @@ async fn test_homeserver_tag_post() -> Result<()> {
 
     // Check if the user is related with tag: Tag:Taggers:tag_name
     let (_exist, member) = Taggers::check_set_member(&[label], &user_id).await.unwrap();
-    assert_eq!(member, true);    
+    assert_eq!(member, true);
 
     let author_post_slice: Vec<&str> = vec![&user_id, &post_id];
     let tag_label_slice = [label];
@@ -87,9 +87,9 @@ async fn test_homeserver_tag_post() -> Result<()> {
         &[&TAG_GLOBAL_POST_ENGAGEMENT[..], &tag_label_slice].concat(),
         &author_post_slice,
     )
-        .await
-        .unwrap()
-        .unwrap();
+    .await
+    .unwrap()
+    .unwrap();
     assert_eq!(total_engagement, 1);
 
     // TODO: Hot tag. Uncomment when DEL is impl

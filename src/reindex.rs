@@ -184,9 +184,10 @@ pub async fn ingest_user_tag(
     // Add label count to the user profile
     TagUser::put_score_index_sorted_set(
         &user_tags_key_parts,
-        &[&tag_label],
-        ScoreAction::Increment(1.0)
-    ).await?;
+        &[tag_label],
+        ScoreAction::Increment(1.0),
+    )
+    .await?;
     // Add user to tag taggers list
     TagUser::put_index_set(&user_slice, &[user_id]).await?;
     let exist_count = UserCounts::try_from_index_json(&[author_id]).await?;

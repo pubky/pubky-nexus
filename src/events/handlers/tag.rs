@@ -4,7 +4,7 @@ use crate::models::pubky_app::traits::Validatable;
 use crate::models::pubky_app::PubkyAppTag;
 use crate::models::user::PubkyId;
 use crate::queries;
-use crate::reindex::{ ingest_post_tag, ingest_user_tag };
+use crate::reindex::{ingest_post_tag, ingest_user_tag};
 use axum::body::Bytes;
 use chrono::Utc;
 use log::debug;

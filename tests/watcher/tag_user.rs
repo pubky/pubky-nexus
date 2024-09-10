@@ -2,10 +2,13 @@ use super::utils::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
 use pkarr::Keypair;
-use pubky_nexus::{models::{
-    pubky_app::{PubkyAppTag, PubkyAppUser},
-    user::{UserStream, UserView, USER_PIONEERS_KEY_PARTS},
-}, RedisOps};
+use pubky_nexus::{
+    models::{
+        pubky_app::{PubkyAppTag, PubkyAppUser},
+        user::{UserStream, UserView, USER_PIONEERS_KEY_PARTS},
+    },
+    RedisOps,
+};
 
 #[tokio::test]
 async fn test_homeserver_tag_user() -> Result<()> {
@@ -42,10 +45,7 @@ async fn test_homeserver_tag_user() -> Result<()> {
         .unwrap()
         .expect("The tag should have been created");
 
-    println!(
-        "User_id: {:?}, label {:?}",
-        user_id, label
-    );
+    println!("User_id: {:?}, label {:?}", user_id, label);
 
     assert_eq!(result_user.tags[0].label, label);
     // Count user profile taggers: Sorted:Users:Tag:user_id:{label}
