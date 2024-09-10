@@ -119,7 +119,6 @@ pub async fn reindex_post_tags(
 
     tokio::try_join!(
         // Increment in one the post tags
-        // TODO: the increment has to be generic, also has to rest
         PostCounts::put_param_index_json(author_post_slice, "tags", 1),
         // Add user tag in post
         TagPost::put_index_set(&user_post_slice, &user_id_slice),
