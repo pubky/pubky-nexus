@@ -1,4 +1,5 @@
 use crate::db::graph::exec::exec_single_row;
+use crate::db::kv::index::json::JsonAction;
 use crate::events::uri::ParsedUri;
 use crate::models::post::PostCounts;
 use crate::models::pubky_app::traits::Validatable;
@@ -40,11 +41,21 @@ pub async fn put(
     reindex_post(&author_id, &post_id).await?;
     // Handle "REPLIED" relationship and counts if `parent` is Some
     if let Some(parent_uri) = post.parent {
-        update_parent_post_counts(&parent_uri, "replies").await?;
+        let parsed_uri = ParsedUri::try_from(parent_uri.as_str())?;
+        let post_key_parts: &[&str] = &[
+            &parsed_uri.user_id,
+            &parsed_uri.post_id.ok_or("Missing post ID")?,
+        ];
+        PostCounts::modify_json_field(post_key_parts, "tags", JsonAction::Increment(1)).await?;
     }
     // Handle "REPOSTED" relationship and counts if `embed.uri` is Some
     if let Some(embed) = post.embed {
-        update_parent_post_counts(&embed.uri, "reposts").await?;
+        let parsed_uri = ParsedUri::try_from(embed.uri.as_str())?;
+        let post_key_parts: &[&str] = &[
+            &parsed_uri.user_id,
+            &parsed_uri.post_id.ok_or("Missing post ID")?,
+        ];
+        PostCounts::modify_json_field(post_key_parts, "tags", JsonAction::Increment(1)).await?;
     }
 
     Ok(())
@@ -84,30 +95,6 @@ async fn put_repost_relationship(
             &reposted_post_id,
         ))
         .await?;
-    }
-    Ok(())
-}
-
-// Helper function to update counts of parent or reposted posts
-async fn update_parent_post_counts(
-    post_uri: &str,
-    field: &str,
-) -> Result<(), Box<dyn Error + Sync + Send>> {
-    let parsed_uri = ParsedUri::try_from(post_uri)?;
-    if let (parent_author_id, Some(parent_post_id)) = (parsed_uri.user_id, parsed_uri.post_id) {
-        let mut post_counts = PostCounts::get_by_id(&parent_author_id.0, &parent_post_id)
-            .await?
-            .unwrap_or_default();
-
-        match field {
-            "replies" => post_counts.replies += 1,
-            "reposts" => post_counts.reposts += 1,
-            _ => {}
-        }
-
-        post_counts
-            .put_index_json(&[&parent_author_id.0, &parent_post_id])
-            .await?;
     }
     Ok(())
 }
