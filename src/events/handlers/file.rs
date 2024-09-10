@@ -55,7 +55,7 @@ async fn from_homeserver(
         content_type: pubkyapp_file.content_type,
         uri,
         id: file_id,
-        created_at: Utc::now().timestamp_millis(),
+        created_at: pubkyapp_file.created_at,
         indexed_at: Utc::now().timestamp_millis(),
         owner_id: user_id.to_string(),
         size: pubkyapp_file.size,

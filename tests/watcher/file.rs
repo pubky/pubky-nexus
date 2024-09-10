@@ -1,5 +1,6 @@
 use super::utils::WatcherTest;
 use anyhow::Result;
+use chrono::Utc;
 use pkarr::Keypair;
 use pubky_common::timestamp::Timestamp;
 use pubky_nexus::models::{
@@ -37,6 +38,7 @@ async fn test_put_pubkyapp_file() -> Result<()> {
         content_type: "text/plain".to_string(),
         src: blob_url.clone(),
         size: json_data.len() as u64,
+        created_at: Utc::now().timestamp_millis(),
     };
 
     let file_id = test.create_file(&user_id, &file).await?;
@@ -111,6 +113,7 @@ async fn test_delete_pubkyapp_file() -> Result<()> {
         content_type: "text/plain".to_string(),
         src: blob_url.clone(),
         size: 12,
+        created_at: Utc::now().timestamp_millis(),
     };
 
     let file_id = test.create_file(&user_id, &file).await?;

@@ -6,6 +6,7 @@ use super::traits::{GenerateRandomId, Validatable};
 #[derive(Deserialize, Serialize, Debug)]
 pub struct PubkyAppFile {
     pub name: String,
+    pub created_at: i64,
     pub src: String,
     pub content_type: String,
     pub size: u64,
