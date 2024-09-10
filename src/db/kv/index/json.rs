@@ -2,8 +2,12 @@ use crate::db::connectors::redis::get_redis_conn;
 use log::debug;
 use redis::{AsyncCommands, JsonAsyncCommands};
 use serde::{de::DeserializeOwned, Serialize};
-use serde_json::{json, Value};
 use std::error::Error;
+
+pub enum JsonAction {
+    Increment(i64),
+    Decrement(i64),
+}
 
 /// Sets a value in Redis, supporting both JSON objects and boolean values.
 ///
@@ -46,37 +50,48 @@ pub async fn put<T: Serialize + Send + Sync>(
     Ok(())
 }
 
-/// Modifies a specific field within a JSON object by a given value.
+/// Modifies a numeric field in a Redis JSON object by either incrementing or decrementing it.
 ///
-/// This function takes a JSON object, accesses a field within it, and modifies the field's value
-/// by the specified amount. It works only with numeric fields.
+/// This function uses the RedisJSON `JSON.NUMINCRBY` command to either increment or decrement a numeric field at a given path
+/// based on the `JsonAction` provided.
 ///
 /// # Arguments
 ///
-/// * `object` - The JSON object in which the field will be modified. It must implement `Serialize`.
-/// * `field` - A string slice representing the name of the field to be modified.
-/// * `value` - An integer value by which to modify the field.
+/// * `prefix` - A string slice representing the prefix for the Redis key.
+/// * `key` - A string slice representing the Redis key where the JSON object is stored.
+/// * `field` - A string slice representing the field to be modified in the JSON object.
+/// * `action` - A `JsonAction` enum that specifies whether to increment or decrement the field.
 ///
-/// # Returns
+/// # Errors
 ///
-/// Returns the modified JSON object as a `serde_json::Value` or an error if the field does not exist or is not numeric.
-pub fn put_json_param<T>(object: T, field: &str, value: isize) -> Result<Value, String>
-where
-    T: Serialize,
-{
-    // Convert the struct into a serde_json::Value
-    let mut json_value = serde_json::to_value(object).map_err(|e| e.to_string())?;
-    // Access and set the field if it exists
-    if let Some(field_value) = json_value.get_mut(field) {
-        // TODO: Field type check:
-        //     if field_value.is_number() {
-        *field_value = json!(field_value.as_i64().unwrap_or(0) + value as i64);
-    } else {
-        return Err(format!("Field '{}' does not exist", field));
-    }
+/// Returns an error if the operation fails or if the field does not exist or is not numeric.
+pub async fn modify_json_field(
+    prefix: &str,
+    key: &str,
+    field: &str,
+    action: JsonAction,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let mut redis_conn = get_redis_conn().await?;
+    let index_key = format!("{}:{}", prefix, key);
+    let json_path = format!("$.{}", field); // Access the field using JSON path
 
-    // Convert the serde_json::Value back into the struct
-    Ok(json_value)
+    // Determine the action to take (increment or decrement)
+    let amount = match action {
+        JsonAction::Increment(value) => value,
+        JsonAction::Decrement(value) => -value, // Negate the value for decrement
+    };
+
+    // Use RedisJSON NUMINCRBY to modify the value of the specified field
+    let _: () = redis_conn
+        .json_num_incr_by(&index_key, &json_path, amount)
+        .await?;
+
+    debug!(
+        "Modified field: {} in key: {} by {}",
+        field, index_key, amount
+    );
+
+    Ok(())
 }
 
 /// Handles storing a boolean value in Redis with an optional expiration.

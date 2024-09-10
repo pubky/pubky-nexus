@@ -6,11 +6,11 @@ use utoipa::ToSchema;
 #[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
 pub struct PostRelationships {
     // URI of the replied post
-    replied: Option<String>,
+    pub replied: Option<String>,
     // URI of the reposted post
-    reposted: Option<String>,
+    pub reposted: Option<String>,
     // List of user IDs
-    mentioned: Option<Vec<String>>,
+    pub mentioned: Option<Vec<String>>,
 }
 
 impl RedisOps for PostRelationships {}
