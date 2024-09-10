@@ -83,7 +83,7 @@ async fn test_homeserver_reply() -> Result<()> {
     assert_eq!(result_reply.relationships.replied, Some(parent_uri));
 
     // Assert the parent post has changed stats
-    let result_parent = PostView::get_by_id(&user_id, &reply_id, None, None, None)
+    let result_parent = PostView::get_by_id(&user_id, &parent_id, None, None, None)
         .await
         .unwrap()
         .expect("The new post was not served from Nexus");
@@ -102,7 +102,7 @@ async fn test_homeserver_reply() -> Result<()> {
     assert_eq!(thread.replies[0].details.content, reply.content);
 
     // // TODO: Impl DEL post. Assert the reply does not exist in Nexus
-    // test.cleanup_post(&user_id, &reply_id).await?;
+    test.cleanup_post(&user_id, &reply_id).await?;
     // let result_post = PostView::get_by_id(&user_id, &post_id, None, None, None)
     //     .await
     //     .unwrap();
@@ -116,8 +116,8 @@ async fn test_homeserver_reply() -> Result<()> {
     //     .expect("The post thread should exist after deletion");
 
     // Cleanup
-    // test.cleanup_user(&user_id).await?;
-    // test.cleanup_post(&user_id, &parent_id).await?;
+    test.cleanup_user(&user_id).await?;
+    test.cleanup_post(&user_id, &parent_id).await?;
 
     Ok(())
 }

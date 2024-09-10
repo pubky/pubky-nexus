@@ -83,7 +83,7 @@ async fn test_homeserver_repost() -> Result<()> {
     assert_eq!(result_repost.relationships.reposted, Some(post_uri));
 
     // Assert the post post has changed stats
-    let result_post = PostView::get_by_id(&user_id, &repost_id, None, None, None)
+    let result_post = PostView::get_by_id(&user_id, &post_id, None, None, None)
         .await
         .unwrap()
         .expect("The post was not served from Nexus");
@@ -91,7 +91,7 @@ async fn test_homeserver_repost() -> Result<()> {
     assert_eq!(result_post.counts.reposts, 1);
 
     // // TODO: Impl DEL post. Assert the repost does not exist in Nexus
-    // test.cleanup_post(&user_id, &repost_id).await?;
+    test.cleanup_post(&user_id, &repost_id).await?;
     // let result_post = PostView::get_by_id(&user_id, &post_id, None, None, None)
     //     .await
     //     .unwrap();
@@ -99,8 +99,8 @@ async fn test_homeserver_repost() -> Result<()> {
     // assert!(result_post.is_none(), "The post should have been deleted");
 
     // Cleanup
-    // test.cleanup_user(&user_id).await?;
-    // test.cleanup_post(&user_id, &post_id).await?;
+    test.cleanup_user(&user_id).await?;
+    test.cleanup_post(&user_id, &post_id).await?;
 
     Ok(())
 }

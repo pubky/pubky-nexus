@@ -46,7 +46,7 @@ pub async fn put(
             &parsed_uri.user_id,
             &parsed_uri.post_id.ok_or("Missing post ID")?,
         ];
-        PostCounts::modify_json_field(post_key_parts, "tags", JsonAction::Increment(1)).await?;
+        PostCounts::modify_json_field(post_key_parts, "replies", JsonAction::Increment(1)).await?;
     }
     // Handle "REPOSTED" relationship and counts if `embed.uri` is Some
     if let Some(embed) = post.embed {
@@ -55,7 +55,7 @@ pub async fn put(
             &parsed_uri.user_id,
             &parsed_uri.post_id.ok_or("Missing post ID")?,
         ];
-        PostCounts::modify_json_field(post_key_parts, "tags", JsonAction::Increment(1)).await?;
+        PostCounts::modify_json_field(post_key_parts, "reposts", JsonAction::Increment(1)).await?;
     }
 
     Ok(())
