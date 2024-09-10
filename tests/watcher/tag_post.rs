@@ -2,10 +2,11 @@ use super::utils::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
 use pkarr::Keypair;
-use pubky_nexus::models::{
-    post::PostView,
-    pubky_app::{PubkyAppPost, PubkyAppTag, PubkyAppUser},
-};
+use pubky_nexus::models::post::{PostStream, PostView, POST_TOTAL_ENGAGEMENT_KEY_PARTS};
+use pubky_nexus::models::pubky_app::{PubkyAppPost, PubkyAppTag, PubkyAppUser};
+use pubky_nexus::models::tag::search::{TagSearch, TAG_GLOBAL_POST_ENGAGEMENT};
+use pubky_nexus::models::tag::stream::Taggers;
+use pubky_nexus::RedisOps;
 
 #[tokio::test]
 async fn test_homeserver_tag_post() -> Result<()> {
@@ -45,15 +46,50 @@ async fn test_homeserver_tag_post() -> Result<()> {
     test.ensure_event_processing_complete().await?;
 
     // Step 4: Verify the tag exists in Nexus
-    let _result_post = PostView::get_by_id(&user_id, &post_id, None, None, None)
+    let result_post = PostView::get_by_id(&user_id, &post_id, None, None, None)
         .await
         .unwrap()
         .expect("The tag should have been created");
 
-    //TODO: uncomment tests when fixed redis indexing
-    // assert_eq!(result_post.tags[0].taggers_count, 1);
-    // assert_eq!(result_post.tags[0].taggers[0], user_id);
-    // assert_eq!(result_post.tags[0].label, label);
+    println!(
+        "User_id: {:?}, Post_id: {:?}, label {:?}",
+        user_id, post_id, label
+    );
+
+    // Count post tag taggers: Sorted:Post:Tag:user_id:post_id:{label}
+    assert_eq!(result_post.tags[0].label, label);
+    assert_eq!(result_post.tags[0].taggers_count, 1);
+    // Find user as the post tagger id: Tag:Taggers:tag_name
+    assert_eq!(result_post.tags[0].taggers[0], user_id);
+    // Check if post counts updated: Post:Counts:user_id:post_id
+    assert_eq!(result_post.counts.tags, 1);
+
+    // Check the redis indexes if it is consistent
+    let author_post_slice: Vec<&str> = vec![&user_id, &post_id];
+    let tag_label_slice = [label];
+    // Check global post engagement: Sorted:Posts:Global:TotalEngagement:user_id:post_id
+    let total_engagement =
+        PostStream::check_sorted_set_member(&POST_TOTAL_ENGAGEMENT_KEY_PARTS, &author_post_slice)
+            .await
+            .unwrap()
+            .unwrap();
+    assert_eq!(total_engagement, 1);
+    // Missing: Sorted:Tags:Global:Post:Timeline
+    // Tag global engagement
+    let total_engagement = TagSearch::check_sorted_set_member(
+        &[&TAG_GLOBAL_POST_ENGAGEMENT[..], &tag_label_slice].concat(),
+        &author_post_slice,
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(total_engagement, 1);
+    // TODO: Hot tag. Uncomment when DEL is impl
+    // let total_engagement = Taggers::check_sorted_set_member(&TAG_GLOBAL_HOT, &tag_label_slice).await.unwrap().unwrap();
+    // assert_eq!(total_engagement, 1);
+    // Check if the user is related with tag
+    let (_exist, member) = Taggers::check_set_member(&[label], &user_id).await.unwrap();
+    assert_eq!(member, true);
 
     // Step 5: Delete the tag
     test.client.delete(tag_url.as_str()).await?;

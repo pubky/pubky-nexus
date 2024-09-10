@@ -6,7 +6,7 @@ use utoipa::ToSchema;
 use super::PostStream;
 
 /// Represents total counts of relationships of a user.
-#[derive(Serialize, Deserialize, ToSchema, Default)]
+#[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
 pub struct PostCounts {
     pub tags: u32,
     pub replies: u32,

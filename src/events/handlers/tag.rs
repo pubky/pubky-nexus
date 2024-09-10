@@ -4,6 +4,7 @@ use crate::models::pubky_app::traits::Validatable;
 use crate::models::pubky_app::PubkyAppTag;
 use crate::models::user::PubkyId;
 use crate::queries;
+use crate::reindex::reindex_post_tags;
 use axum::body::Bytes;
 use chrono::Utc;
 use log::debug;
@@ -55,7 +56,10 @@ async fn put_post_tag(
     );
     exec_single_row(query).await?;
 
-    // TODO: index TAG to Redis and add to sorted sets
+    let user_id_slice = user_id.to_string();
+    let author_id_slice = author_id.to_string();
+
+    reindex_post_tags(&user_id_slice, &author_id_slice, &post_id, &tag_label).await?;
 
     Ok(())
 }
