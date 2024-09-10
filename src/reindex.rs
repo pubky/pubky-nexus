@@ -4,9 +4,9 @@ use crate::models::tag::post::{TagPost, POST_TAGS_KEY_PARTS};
 use crate::models::tag::search::{TagSearch, TAG_GLOBAL_POST_ENGAGEMENT, TAG_GLOBAL_POST_TIMELINE};
 use crate::models::tag::stream::{HotTags, Taggers, TAG_GLOBAL_HOT};
 use crate::models::tag::traits::TagCollection;
-use crate::models::tag::user::TagUser;
+use crate::models::tag::user::{TagUser, USER_TAGS_KEY_PARTS};
 use crate::models::traits::Collection;
-use crate::models::user::{Followers, Following, UserDetails, UserFollows};
+use crate::models::user::{Followers, Following, UserDetails, UserFollows, UserStream};
 use crate::{
     db::connectors::neo4j::get_neo4j_graph,
     models::post::{PostCounts, PostDetails, PostRelationships},
@@ -101,7 +101,7 @@ pub async fn reindex_post(
     Ok(())
 }
 
-pub async fn reindex_post_tags(
+pub async fn ingest_post_tag(
     user_id: &str,
     author_id: &str,
     post_id: &str,
@@ -118,8 +118,15 @@ pub async fn reindex_post_tags(
     let post_tags_key_parts = [&POST_TAGS_KEY_PARTS[..], author_post_slice].concat();
 
     tokio::try_join!(
+        // TODO: Check if element exists. But always in Post creation we add that JSON
         // Increment in one the post tags
         PostCounts::put_param_index_json(author_post_slice, "tags", 1),
+        // Add label to post
+        TagPost::put_score_index_sorted_set(
+            &post_tags_key_parts,
+            &tag_label_slice,
+            ScoreAction::Increment(1.0)
+        ),
         // Add user tag in post
         TagPost::put_index_set(&user_post_slice, &user_id_slice),
         // Increment in one post global engagement
@@ -141,13 +148,7 @@ pub async fn reindex_post_tags(
             ScoreAction::Increment(1.0)
         ),
         // Add user to post taggers
-        Taggers::put_index_set(&tag_label_slice, &user_id_slice),
-        // Add label to post
-        TagSearch::put_score_index_sorted_set(
-            &post_tags_key_parts,
-            &tag_label_slice,
-            ScoreAction::Increment(1.0)
-        )
+        Taggers::put_index_set(&tag_label_slice, &user_id_slice)
     )?;
 
     // Add post to global label timeline
@@ -168,6 +169,31 @@ pub async fn reindex_post_tags(
     }
     // TODO: Maybe work in the else
 
+    Ok(())
+}
+
+pub async fn ingest_user_tag(
+    user_id: &str,
+    author_id: &str,
+    tag_label: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let user_tags_key_parts = [&USER_TAGS_KEY_PARTS[..], &[user_id]].concat();
+    let user_slice = [author_id, tag_label];
+    // Increment in one the user tags
+    UserCounts::put_param_index_json(&[author_id], "tags", 1).await?;
+    // Add label count to the user profile
+    TagUser::put_score_index_sorted_set(
+        &user_tags_key_parts,
+        &[&tag_label],
+        ScoreAction::Increment(1.0)
+    ).await?;
+    // Add user to tag taggers list
+    TagUser::put_index_set(&user_slice, &[user_id]).await?;
+    let exist_count = UserCounts::try_from_index_json(&[author_id]).await?;
+    if let Some(count) = exist_count {
+        // Update user pioneer score
+        UserStream::add_to_pioneers_sorted_set(author_id, &count).await?;
+    }
     Ok(())
 }
 

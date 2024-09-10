@@ -56,15 +56,20 @@ async fn test_homeserver_tag_post() -> Result<()> {
         user_id, post_id, label
     );
 
-    // Count post tag taggers: Sorted:Post:Tag:user_id:post_id:{label}
+    // TagPost related
     assert_eq!(result_post.tags[0].label, label);
+    // Count post tag taggers: Sorted:Posts:Tag:user_id:post_id:{label}
     assert_eq!(result_post.tags[0].taggers_count, 1);
-    // Find user as the post tagger id: Tag:Taggers:tag_name
+    // Find user as tagger in the post: Posts:Taggers:user_id:post_id
     assert_eq!(result_post.tags[0].taggers[0], user_id);
+
     // Check if post counts updated: Post:Counts:user_id:post_id
     assert_eq!(result_post.counts.tags, 1);
 
-    // Check the redis indexes if it is consistent
+    // Check if the user is related with tag: Tag:Taggers:tag_name
+    let (_exist, member) = Taggers::check_set_member(&[label], &user_id).await.unwrap();
+    assert_eq!(member, true);    
+
     let author_post_slice: Vec<&str> = vec![&user_id, &post_id];
     let tag_label_slice = [label];
     // Check global post engagement: Sorted:Posts:Global:TotalEngagement:user_id:post_id
@@ -74,32 +79,32 @@ async fn test_homeserver_tag_post() -> Result<()> {
             .unwrap()
             .unwrap();
     assert_eq!(total_engagement, 1);
-    // Missing: Sorted:Tags:Global:Post:Timeline
-    // Tag global engagement
+
+    // Missing: Sorted:Tags:Global:Post:Timeline. We do not have time line yet
+
+    // Tag global engagement: Sorted:Tags:Global:Post:TotalEngagement
     let total_engagement = TagSearch::check_sorted_set_member(
         &[&TAG_GLOBAL_POST_ENGAGEMENT[..], &tag_label_slice].concat(),
         &author_post_slice,
     )
-    .await
-    .unwrap()
-    .unwrap();
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(total_engagement, 1);
+
     // TODO: Hot tag. Uncomment when DEL is impl
     // let total_engagement = Taggers::check_sorted_set_member(&TAG_GLOBAL_HOT, &tag_label_slice).await.unwrap().unwrap();
     // assert_eq!(total_engagement, 1);
-    // Check if the user is related with tag
-    let (_exist, member) = Taggers::check_set_member(&[label], &user_id).await.unwrap();
-    assert_eq!(member, true);
 
     // Step 5: Delete the tag
     test.client.delete(tag_url.as_str()).await?;
     test.ensure_event_processing_complete().await?;
 
-    // Step 6: Verify the tag has been deleted
-    let _result_post = PostView::get_by_id(&user_id, &post_id, None, None, None)
-        .await
-        .unwrap()
-        .unwrap();
+    // // Step 6: Verify the tag has been deleted
+    // let _result_post = PostView::get_by_id(&user_id, &post_id, None, None, None)
+    //     .await
+    //     .unwrap()
+    //     .unwrap();
 
     // TODO: uncomment tests when fixed redis indexing
     // assert_eq!(

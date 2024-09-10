@@ -4,7 +4,7 @@ use crate::models::pubky_app::traits::Validatable;
 use crate::models::pubky_app::PubkyAppTag;
 use crate::models::user::PubkyId;
 use crate::queries;
-use crate::reindex::reindex_post_tags;
+use crate::reindex::{ ingest_post_tag, ingest_user_tag };
 use axum::body::Bytes;
 use chrono::Utc;
 use log::debug;
@@ -59,7 +59,7 @@ async fn put_post_tag(
     let user_id_slice = user_id.to_string();
     let author_id_slice = author_id.to_string();
 
-    reindex_post_tags(&user_id_slice, &author_id_slice, &post_id, &tag_label).await?;
+    ingest_post_tag(&user_id_slice, &author_id_slice, &post_id, &tag_label).await?;
 
     Ok(())
 }
@@ -76,8 +76,10 @@ async fn put_user_tag(
         queries::write::create_user_tag(&user_id, &tagged_user_id, &tag_id, &tag_label, indexed_at);
     exec_single_row(query).await?;
 
-    // TODO: index TAG to Redis and add to sorted sets
+    let user_id_slice = user_id.to_string();
+    let author_id_slice = tagged_user_id.to_string();
 
+    ingest_user_tag(&user_id_slice, &author_id_slice, &tag_label).await?;
     Ok(())
 }
 

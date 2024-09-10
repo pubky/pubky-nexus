@@ -14,7 +14,7 @@ pub use follows::{Followers, Following, Friends, UserFollows};
 pub use id::PubkyId;
 pub use relationship::Relationship;
 pub use search::UserSearch;
-pub use stream::{UserStream, UserStreamType};
+pub use stream::{UserStream, UserStreamType, USER_PIONEERS_KEY_PARTS};
 pub use tags::ProfileTag;
 pub use tags::UserTags;
 pub use view::UserView;
