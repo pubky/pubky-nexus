@@ -24,6 +24,7 @@ async fn test_homeserver_post() -> Result<()> {
     let post = PubkyAppPost {
         content: "This is a test post!".to_string(),
         kind: PostKind::Short,
+        parent: None,
         embed: None,
     };
 
@@ -35,7 +36,6 @@ async fn test_homeserver_post() -> Result<()> {
         .unwrap()
         .expect("The new post was not served from Nexus");
 
-    println!("New post served: {:?}", result_post.details);
     assert_eq!(result_post.details.id, post_id);
     assert_eq!(result_post.details.content, post.content);
     assert_eq!(

@@ -27,6 +27,7 @@ async fn test_homeserver_tag_post() -> Result<()> {
     let post = PubkyAppPost {
         content: "This is a tag test post!".to_string(),
         kind: PubkyAppPost::default().kind,
+        parent: None,
         embed: None,
     };
     let post_id = test.create_post(&user_id, &post).await?;
@@ -89,7 +90,7 @@ async fn test_homeserver_tag_post() -> Result<()> {
     // assert_eq!(total_engagement, 1);
     // Check if the user is related with tag
     let (_exist, member) = Taggers::check_set_member(&[label], &user_id).await.unwrap();
-    assert_eq!(member, true);
+    assert!(member);
 
     // Step 5: Delete the tag
     test.client.delete(tag_url.as_str()).await?;

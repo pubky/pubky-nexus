@@ -25,6 +25,7 @@ async fn test_homeserver_bookmark() -> Result<()> {
     let post = PubkyAppPost {
         content: "This is a bookmark test post!".to_string(),
         kind: PubkyAppPost::default().kind,
+        parent: None,
         embed: None,
     };
     let post_id = test.create_post(&user_id, &post).await?;

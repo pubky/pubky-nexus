@@ -1,5 +1,6 @@
 use super::index::*;
 use axum::async_trait;
+use json::JsonAction;
 use serde::{de::DeserializeOwned, Serialize};
 use sorted_sets::{ScoreAction, Sorting, SORTED_PREFIX};
 use std::error::Error;
@@ -108,41 +109,6 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         json::get_multiple(&prefix, &keys, None).await
     }
 
-    /// Updates a specific field in an existing JSON entry in Redis.
-    ///
-    /// This function fetches the existing JSON object from Redis, updates the field specified by `field` by adding
-    /// the value of `number`, and then saves the updated object back to Redis.
-    ///
-    /// # Arguments
-    ///
-    /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the JSON object is stored.
-    /// * `field` - The name of the field within the JSON object that needs to be updated.
-    /// * `number` - The value by which to increment or decrement the field. Can be positive or negative.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the operation fails, such as if the Redis connection is unavailable,
-    /// the field is not present, or if there is an issue with serialization or deserialization.
-    async fn put_param_index_json(
-        key_parts: &[&str],
-        field: &str,
-        number: isize,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        // Fetch the current value from Redis
-        let json_entry: Option<Self> = Self::try_from_index_json(key_parts).await?;
-
-        if let Some(instance) = json_entry {
-            let value = json::put_json_param(instance, field, number)?;
-            // Deserialize the modified JSON back into the PostMetrics struct
-            let incremented_instance: Self = serde_json::from_value(value)?;
-
-            incremented_instance.put_index_json(key_parts).await?;
-            return Ok(());
-        }
-
-        Err("Could not increment by one".into())
-    }
-
     /// Stores multiple key-value pairs in Redis, where each key is constructed from the provided key parts
     /// and each value is an item from the given collection.
     ///
@@ -204,6 +170,34 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
             .collect();
 
         json::del_multiple(&prefix, &keys).await
+    }
+
+    /// Modifies a numeric field in a Redis JSON object by either incrementing or decrementing it.
+    ///
+    /// This method performs an operation on a numeric field in Redis JSON at the given path,
+    /// either incrementing or decrementing it based on the `JsonAction` provided.
+    ///
+    /// # Arguments
+    ///
+    /// * `key_parts` - A slice of string slices representing the parts used to form the key under which the JSON object is stored.
+    /// * `field` - A string slice representing the field to be modified in the JSON object.
+    /// * `action` - A `JsonAction` enum that specifies whether to increment or decrement the field.
+    ///
+    /// # Returns
+    ///
+    /// Returns a result indicating success or failure.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the operation fails, such as if the Redis connection is unavailable or the field is not numeric.
+    async fn modify_json_field(
+        key_parts: &[&str],
+        field: &str,
+        action: JsonAction,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let prefix = Self::prefix().await;
+        let key = key_parts.join(":");
+        json::modify_json_field(&prefix, &key, field, action).await
     }
 
     // ############################################################

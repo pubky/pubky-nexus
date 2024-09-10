@@ -1,4 +1,5 @@
 use crate::db::kv::flush::clear_redis;
+use crate::db::kv::index::json::JsonAction;
 use crate::models::post::{Bookmark, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS};
 use crate::models::tag::post::{TagPost, POST_TAGS_KEY_PARTS};
 use crate::models::tag::search::{TagSearch, TAG_GLOBAL_POST_ENGAGEMENT, TAG_GLOBAL_POST_TIMELINE};
@@ -109,29 +110,29 @@ pub async fn reindex_post_tags(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // TODO: Carefull with that operation, we might lost data consistency, if one of that fails
     // we might need to enforce data consistency
-    let author_post_slice: &[&str] = &[author_id, post_id];
+    let post_key_slice: &[&str] = &[author_id, post_id];
     let user_id_slice = [user_id];
     let tag_label_slice = [tag_label];
     let user_post_slice = [author_id, post_id, tag_label];
     // Add post to label total engagement
     let tag_global_engagement_key_parts = [&TAG_GLOBAL_POST_ENGAGEMENT[..], &[tag_label]].concat();
-    let post_tags_key_parts = [&POST_TAGS_KEY_PARTS[..], author_post_slice].concat();
+    let post_tags_key_parts = [&POST_TAGS_KEY_PARTS[..], post_key_slice].concat();
 
     tokio::try_join!(
         // Increment in one the post tags
-        PostCounts::put_param_index_json(author_post_slice, "tags", 1),
+        PostCounts::modify_json_field(post_key_slice, "tags", JsonAction::Increment(1)),
         // Add user tag in post
         TagPost::put_index_set(&user_post_slice, &user_id_slice),
         // Increment in one post global engagement
         PostStream::put_score_index_sorted_set(
             &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
-            author_post_slice,
+            post_key_slice,
             ScoreAction::Increment(1.0)
         ),
         // Add post to label total engagement
         TagSearch::put_score_index_sorted_set(
             &tag_global_engagement_key_parts,
-            author_post_slice,
+            post_key_slice,
             ScoreAction::Increment(1.0)
         ),
         // Add label to hot tags
@@ -152,13 +153,13 @@ pub async fn reindex_post_tags(
 
     // Add post to global label timeline
     let key_parts = [&TAG_GLOBAL_POST_TIMELINE[..], &[tag_label]].concat();
-    let tag_search = TagSearch::check_sorted_set_member(&key_parts, author_post_slice)
+    let tag_search = TagSearch::check_sorted_set_member(&key_parts, post_key_slice)
         .await
         .unwrap();
     if tag_search.is_none() {
-        let option = PostDetails::try_from_index_json(author_post_slice).await?;
+        let option = PostDetails::try_from_index_json(post_key_slice).await?;
         if let Some(post_details) = option {
-            let member_key = author_post_slice.join(":");
+            let member_key = post_key_slice.join(":");
             TagSearch::put_index_sorted_set(
                 &key_parts,
                 &[(post_details.indexed_at as f64, &member_key)],
