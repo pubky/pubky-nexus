@@ -27,7 +27,7 @@ async fn test_put_pubkyapp_file() -> Result<()> {
 
     let blob = "Hello World!";
     let blob_id = Timestamp::now().to_string();
-    let blob_url = format!("pubky://{}/pub/pubky-app/blobs/{}", user_id, blob_id);
+    let blob_url = format!("pubky://{}/pub/pubky.app/blobs/{}", user_id, blob_id);
     let json_data = to_vec(blob)?;
     test.client.put(blob_url.as_str(), &json_data).await?;
 
@@ -54,7 +54,7 @@ async fn test_put_pubkyapp_file() -> Result<()> {
     assert_eq!(result_file.src, blob_url);
     assert_eq!(
         result_file.uri,
-        format!("pubky://{user_id}/pub/pubky-app/files/{file_id}")
+        format!("pubky://{user_id}/pub/pubky.app/files/{file_id}")
     );
     assert_eq!(result_file.size, file.size);
     assert_eq!(result_file.name, file.name);
@@ -102,7 +102,7 @@ async fn test_delete_pubkyapp_file() -> Result<()> {
 
     let blob = "Hello World!";
     let blob_id = Timestamp::now().to_string();
-    let blob_url = format!("pubky://{}/pub/pubky-app/blobs/{}", user_id, blob_id);
+    let blob_url = format!("pubky://{}/pub/pubky.app/blobs/{}", user_id, blob_id);
     let json_data = to_vec(blob)?;
     test.client.put(blob_url.as_str(), &json_data).await?;
 
