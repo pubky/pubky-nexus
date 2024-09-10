@@ -3,7 +3,7 @@ use pkarr::{mainline::Testnet, Keypair};
 use pubky::PubkyClient;
 use pubky_homeserver::Homeserver;
 use pubky_nexus::{
-    models::pubky_app::{traits::GenerateRandomId, PubkyAppFile, PubkyAppPost, PubkyAppUser},
+    models::pubky_app::{traits::GenerateTimestampId, PubkyAppFile, PubkyAppPost, PubkyAppUser},
     setup, Config, EventProcessor,
 };
 use serde_json::to_vec;

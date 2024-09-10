@@ -1,4 +1,4 @@
-use super::traits::{GenerateRandomId, Validatable};
+use super::traits::{GenerateTimestampId, Validatable};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use utoipa::ToSchema;
@@ -50,7 +50,7 @@ pub struct PubkyAppPost {
     pub embed: Option<PostEmbed>,
 }
 
-impl GenerateRandomId for PubkyAppPost {}
+impl GenerateTimestampId for PubkyAppPost {}
 
 impl Validatable for PubkyAppPost {
     //TODO: implement full validation rules. Min/Max lengths, post kinds, etc.

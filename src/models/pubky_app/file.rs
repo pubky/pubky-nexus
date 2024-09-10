@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::traits::{GenerateRandomId, Validatable};
+use super::traits::{GenerateTimestampId, Validatable};
 
 /// Profile schema
 #[derive(Deserialize, Serialize, Debug)]
@@ -12,7 +12,7 @@ pub struct PubkyAppFile {
     pub size: u64,
 }
 
-impl GenerateRandomId for PubkyAppFile {}
+impl GenerateTimestampId for PubkyAppFile {}
 
 impl Validatable for PubkyAppFile {
     // TODO: content_type validation.

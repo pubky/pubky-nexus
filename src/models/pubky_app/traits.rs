@@ -4,7 +4,7 @@ use blake3::Hasher;
 use pubky_common::timestamp::Timestamp;
 use serde::de::DeserializeOwned;
 
-pub trait GenerateRandomId {
+pub trait GenerateTimestampId {
     fn create_id(&self) -> String {
         let timestamp = Timestamp::now();
         timestamp.to_string()
