@@ -29,7 +29,7 @@ pub async fn put(
     post_details.put_to_graph().await?;
     // Handle "REPLIED" relationship and counts if `parent` is Some
     if let Some(parent_uri) = &post.parent {
-        put_reply_relationship(&author_id, &post_id, &parent_uri).await?;
+        put_reply_relationship(&author_id, &post_id, parent_uri).await?;
     }
     // Handle "REPOSTED" relationship and counts if `embed.uri` is Some
     if let Some(embed) = &post.embed {
