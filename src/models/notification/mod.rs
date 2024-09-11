@@ -101,13 +101,10 @@ impl Notification {
         start: Option<f64>, // Timestamp as f64 for range query
         end: Option<f64>,
     ) -> Result<Vec<Self>, Box<dyn std::error::Error + Send + Sync>> {
-        let start_score = start.unwrap_or(f64::INFINITY);
-        let end_score = end.unwrap_or(0.0);
-
         let notifications = Notification::try_from_index_sorted_set(
             &["Notification", user_id],
-            Some(start_score),
-            Some(end_score),
+            start,
+            end,
             skip,
             limit,
             Sorting::Descending, // Sorting in descending order by score (timestamp)
