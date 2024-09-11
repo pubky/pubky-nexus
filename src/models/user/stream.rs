@@ -7,7 +7,7 @@ use tokio::task::spawn;
 use utoipa::ToSchema;
 
 const USER_MOSTFOLLOWED_KEY_PARTS: [&str; 2] = ["Users", "MostFollowed"];
-const USER_PIONEERS_KEY_PARTS: [&str; 2] = ["Users", "Pioneers"];
+pub const USER_PIONEERS_KEY_PARTS: [&str; 2] = ["Users", "Pioneers"];
 
 #[derive(Deserialize, ToSchema, Debug)]
 pub enum UserStreamType {
