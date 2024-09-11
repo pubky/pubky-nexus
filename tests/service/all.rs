@@ -90,15 +90,15 @@ async fn test_user_endpoint() -> Result<()> {
 async fn test_static_serving() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
     let test_file_path = "static";
-    let test_file_name = "foo";
+    let test_file_name = "foobar";
 
     let full_path = format!("{}/{}", test_file_path, test_file_name);
 
     create_dir_all(test_file_path)?;
-    let mut file = File::create(full_path)?;
+    let mut file = File::create(full_path.as_str())?;
     file.write_all(b"Hello, world!")?;
 
-    let res = client.do_get("/static/foo").await?;
+    let res = client.do_get(full_path.as_str()).await?;
 
     assert_eq!(res.status(), 200);
     assert_eq!(
