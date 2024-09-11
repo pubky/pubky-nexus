@@ -78,15 +78,16 @@ impl Notification {
         }
     }
 
-    /// Stores the notification in the sorted set for the user using the timestamp as the score.
+    /// Stores the `NotificationBody` in the sorted set for the user using the timestamp as the score.
     pub async fn to_index(
         &self,
         user_id: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let notification_json = serde_json::to_string(self)?;
+        let notification_body_json = serde_json::to_string(&self.body)?;
         let score = self.timestamp as f64;
 
-        Notification::put_index_sorted_set(&[user_id], &[(score, notification_json.as_str())]).await
+        Notification::put_index_sorted_set(&[user_id], &[(score, notification_body_json.as_str())])
+            .await
     }
 
     /// Lists notifications from the sorted set for the user, based on skip and limit, or timestamp range.
@@ -97,13 +98,11 @@ impl Notification {
         start: Option<f64>, // Timestamp as f64 for range query
         end: Option<f64>,
     ) -> Result<Vec<Self>, Box<dyn std::error::Error + Send + Sync>> {
-        let key = format!("Notification:{}", user_id);
-
         let start_score = start.unwrap_or(f64::INFINITY);
         let end_score = end.unwrap_or(0.0);
 
         let notifications = Notification::try_from_index_sorted_set(
-            &[key.as_str()],
+            &[user_id],
             Some(start_score),
             Some(end_score),
             skip,
@@ -114,8 +113,12 @@ impl Notification {
 
         let mut result = Vec::new();
         if let Some(notifications) = notifications {
-            for (notification_str, _) in notifications {
-                if let Ok(notification) = serde_json::from_str::<Notification>(&notification_str) {
+            for (notification_body_str, score) in notifications {
+                if let Ok(body) = serde_json::from_str::<NotificationBody>(&notification_body_str) {
+                    let notification = Notification {
+                        timestamp: score as i64,
+                        body,
+                    };
                     result.push(notification);
                 }
             }
