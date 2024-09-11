@@ -5,7 +5,7 @@ use utoipa::ToSchema;
 
 use super::traits::{TagCollection, TaggersCollection};
 
-const USER_TAGS_KEY_PARTS: [&str; 2] = ["Users", "Tag"];
+pub const USER_TAGS_KEY_PARTS: [&str; 2] = ["Users", "Tag"];
 
 #[derive(Serialize, Deserialize, Debug, Clone, ToSchema, Default)]
 pub struct TagUser;
