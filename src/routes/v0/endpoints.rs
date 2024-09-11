@@ -64,5 +64,5 @@ pub const TAG_TAGGERS_ROUTE: &str = concatcp!(TAG_PREFIX, "/taggers/:label");
 
 // File routes
 const FILE_PREFIX: &str = concatcp!(VERSION_ROUTE, "/files");
-pub const FILE_ROUTE: &str = concatcp!(FILE_PREFIX, "file/:file_id");
-pub const FILE_LIST_ROUTE: &str = concatcp!(FILE_PREFIX, "by-ids");
+pub const FILE_ROUTE: &str = concatcp!(FILE_PREFIX, "/file/:file_id");
+pub const FILE_LIST_ROUTE: &str = concatcp!(FILE_PREFIX, "/by-ids");
