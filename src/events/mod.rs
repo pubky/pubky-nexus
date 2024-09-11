@@ -94,8 +94,9 @@ impl Event {
                 user_id: parsed_uri.user_id,
                 file_id: parsed_uri.file_id.ok_or("Missing file_id")?,
             },
+            _ if uri.contains("/blobs") => return Ok(None),
             _ => {
-                warn!("Unrecognized resource in URI: {}", uri);
+                error!("Unrecognized resource in URI: {}", uri);
                 return Ok(None);
             }
         };
