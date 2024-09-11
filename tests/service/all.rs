@@ -1,5 +1,5 @@
 use std::{
-    fs::{remove_file, File},
+    fs::{create_dir_all, remove_file, File},
     io::Write,
 };
 
@@ -90,6 +90,8 @@ async fn test_user_endpoint() -> Result<()> {
 async fn test_static_serving() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
     let test_file_path = "static/foo";
+
+    create_dir_all(test_file_path)?;
     let mut file = File::create(test_file_path)?;
     file.write_all(b"Hello, world!")?;
 
