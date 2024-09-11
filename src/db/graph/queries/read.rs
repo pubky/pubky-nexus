@@ -284,8 +284,7 @@ pub fn get_thread(author_id: &str, post_id: &str, skip: usize, limit: usize) -> 
 pub fn get_files_by_ids(key_pair: &[&[&str]]) -> Query {
     query(
         "
-        WITH $pairs AS pairs
-        UNWIND pairs AS pair
+        UNWIND $pairs AS pair
         OPTIONAL MATCH (record:File {owner_id: pair[0], id: pair[1]})
         RETURN record
         ",
