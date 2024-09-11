@@ -1,4 +1,5 @@
 use crate::db::graph::exec::exec_single_row;
+use crate::models::pubky_app::PubkyAppFile;
 use crate::models::traits::Collection;
 use crate::{queries, RedisOps};
 use axum::async_trait;
@@ -63,6 +64,27 @@ impl FileDetails {
             created_at: Utc::now().timestamp(),
             indexed_at: Utc::now().timestamp(),
             content_type: String::new(),
+        }
+    }
+
+    pub fn from_homeserver(
+        pubkyapp_file: &PubkyAppFile,
+        uri: String,
+        user_id: String,
+        file_id: String,
+        meta: FileMeta,
+    ) -> Self {
+        Self {
+            name: pubkyapp_file.name.clone(),
+            src: pubkyapp_file.src.clone(),
+            content_type: pubkyapp_file.content_type.clone(),
+            uri,
+            id: file_id,
+            created_at: pubkyapp_file.created_at,
+            indexed_at: Utc::now().timestamp_millis(),
+            owner_id: user_id.to_string(),
+            size: pubkyapp_file.size,
+            urls: meta.urls,
         }
     }
 

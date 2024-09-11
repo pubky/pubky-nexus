@@ -34,18 +34,8 @@ pub async fn put(
     let file_meta = ingest(&user_id, file_id.as_str(), &file_input, client).await?;
 
     // Create FileDetails object
-    let file_details = FileDetails {
-        name: file_input.name,
-        src: file_input.src,
-        content_type: file_input.content_type,
-        uri,
-        id: file_id,
-        created_at: file_input.created_at,
-        indexed_at: Utc::now().timestamp_millis(),
-        owner_id: user_id.to_string(),
-        size: file_input.size,
-        urls: file_meta.urls,
-    };
+    let file_details =
+        FileDetails::from_homeserver(&file_input, uri, user_id.to_string(), file_id, file_meta);
 
     // save new file into the Graph
     file_details.put_to_graph().await?;
