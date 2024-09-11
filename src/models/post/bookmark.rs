@@ -6,7 +6,7 @@ use utoipa::ToSchema;
 
 use super::PostStream;
 
-#[derive(Serialize, Deserialize, ToSchema, Default)]
+#[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
 pub struct Bookmark {
     pub id: String,
     pub indexed_at: i64,

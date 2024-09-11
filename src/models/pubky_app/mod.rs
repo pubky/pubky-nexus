@@ -10,6 +10,6 @@ mod user;
 pub use bookmark::PubkyAppBookmark;
 pub use file::PubkyAppFile;
 pub use follow::PubkyAppFollow;
-pub use post::{PostKind, PubkyAppPost};
+pub use post::{PostEmbed, PostKind, PubkyAppPost};
 pub use tag::PubkyAppTag;
 pub use user::{PubkyAppUser, UserLink};

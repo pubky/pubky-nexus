@@ -13,7 +13,7 @@ use tokio::task::spawn;
 use utoipa::ToSchema;
 
 const POST_TIMELINE_KEY_PARTS: [&str; 3] = ["Posts", "Global", "Timeline"];
-const POST_TOTAL_ENGAGEMENT_KEY_PARTS: [&str; 3] = ["Posts", "Global", "TotalEngagement"];
+pub const POST_TOTAL_ENGAGEMENT_KEY_PARTS: [&str; 3] = ["Posts", "Global", "TotalEngagement"];
 const POST_PER_USER_KEY_PARTS: [&str; 2] = ["Posts", "User"];
 const BOOKMARKS_USER_KEY_PARTS: [&str; 2] = ["Bookmarks", "User"];
 

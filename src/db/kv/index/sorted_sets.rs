@@ -6,6 +6,41 @@ pub enum Sorting {
     Ascending,
     Descending,
 }
+
+pub enum ScoreAction {
+    Increment(f64),
+    Decrement(f64),
+}
+
+pub const SORTED_PREFIX: &str = "Sorted";
+
+/// Checks if a member exists in a Redis sorted set and retrieves its score.
+///
+/// This function checks whether a specified member exists in a Redis sorted set
+/// by retrieving its score using the `ZSCORE` command. If the member is present,
+/// its score is returned; if it is not present, `None` is returned.
+///
+/// # Arguments
+///
+/// * `prefix` - A string slice representing the prefix for the Redis key.
+/// * `key` - A string slice representing the key under which the sorted set is stored.
+/// * `member` - A string slice representing the member to check in the sorted set.
+///
+/// # Returns
+///
+/// Returns an `Option<isize>` containing the score of the member if it exists, or `None` if it does not.
+pub async fn check_member(
+    prefix: &str,
+    key: &str,
+    member: &str,
+) -> Result<Option<isize>, Box<dyn Error + Send + Sync>> {
+    let index_key = format!("{}:{}", prefix, key);
+    let mut redis_conn = get_redis_conn().await?;
+    // Use the ZSCORE command to check if the member exists in the sorted set
+    let rank = redis_conn.zscore(index_key, member).await?;
+    Ok(rank)
+}
+
 /// Adds elements to a Redis sorted set.
 ///
 /// This function adds elements to the specified Redis sorted set. If the set doesn't exist,
@@ -34,6 +69,34 @@ pub async fn put(
     let mut redis_conn = get_redis_conn().await?;
 
     let _: () = redis_conn.zadd_multiple(&index_key, items).await?;
+
+    Ok(())
+}
+
+/// Updates the score of a member in a Redis sorted set.
+///
+/// This function modifies the score of a member in the specified Redis sorted set by incrementing or decrementing it
+/// based on the provided `ScoreAction`.
+///
+/// # Arguments
+///
+/// * `prefix` - A string slice representing the prefix for the Redis keys.
+/// * `key` - A string slice representing the key under which the sorted set is stored.
+/// * `member` - A string slice representing the member whose score will be updated.
+/// * `score_mutation` - A `ScoreAction` that indicates whether to increment or decrement the score.
+pub async fn put_score(
+    prefix: &str,
+    key: &str,
+    member: &str,
+    score_mutation: ScoreAction,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let index_key = format!("{}:{}", prefix, key);
+    let mut redis_conn = get_redis_conn().await?;
+    let value = match score_mutation {
+        ScoreAction::Increment(val) => val,
+        ScoreAction::Decrement(val) => -val,
+    };
+    let _: () = redis_conn.zincr(&index_key, member, value).await?;
 
     Ok(())
 }

@@ -208,7 +208,7 @@ async fn test_post_specific_tag_with_no_result() -> Result<()> {
 
 // TODO: Check if it is in the cache
 
-fn search_tag_in_post(posts: &Vec<Value>, label: &str, post_order: Vec<&str>) {
+fn search_tag_in_post(posts: &[Value], label: &str, post_order: Vec<&str>) {
     for (index, post) in posts.iter().enumerate() {
         let mut exist = false;
         // Check if the order of the post is the right one
@@ -222,9 +222,6 @@ fn search_tag_in_post(posts: &Vec<Value>, label: &str, post_order: Vec<&str>) {
                 break;
             }
         }
-        assert_eq!(
-            true, exist,
-            "The tag was not found in the post. Wrong search"
-        )
+        assert!(exist, "The tag was not found in the post. Wrong search")
     }
 }

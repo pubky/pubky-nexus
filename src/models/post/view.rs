@@ -7,7 +7,7 @@ use crate::models::tag::traits::TagCollection;
 use crate::models::tag::TagDetails;
 
 /// Represents a Pubky user with relational data including tags, counts, and relationship with a viewer.
-#[derive(Serialize, Deserialize, ToSchema, Default)]
+#[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
 pub struct PostView {
     pub details: PostDetails,
     pub counts: PostCounts,

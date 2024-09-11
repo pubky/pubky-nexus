@@ -94,7 +94,7 @@ async fn test_post_specific_tag_with_no_result() -> Result<()> {
     Ok(())
 }
 
-fn search_posts(posts: &Vec<Value>, post_order: Vec<&str>) {
+fn search_posts(posts: &[Value], post_order: Vec<&str>) {
     for (index, post) in posts.iter().enumerate() {
         let post_parts: Vec<&str> = post["post_key"].as_str().unwrap().split(':').collect();
         // Check if the order of the post is the right one

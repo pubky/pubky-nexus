@@ -7,7 +7,7 @@ use utoipa::ToSchema;
 use super::traits::TagCollection;
 use super::traits::TaggersCollection;
 
-const POST_TAGS_KEY_PARTS: [&str; 2] = ["Posts", "Tag"];
+pub const POST_TAGS_KEY_PARTS: [&str; 2] = ["Posts", "Tag"];
 
 #[derive(Serialize, Deserialize, Debug, Clone, ToSchema, Default)]
 pub struct TagPost;

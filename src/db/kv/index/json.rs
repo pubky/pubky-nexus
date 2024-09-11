@@ -4,6 +4,11 @@ use redis::{AsyncCommands, JsonAsyncCommands};
 use serde::{de::DeserializeOwned, Serialize};
 use std::error::Error;
 
+pub enum JsonAction {
+    Increment(i64),
+    Decrement(i64),
+}
+
 /// Sets a value in Redis, supporting both JSON objects and boolean values.
 ///
 /// This function stores JSON objects using RedisJSON and booleans as integers (0 or 1).
@@ -45,6 +50,60 @@ pub async fn put<T: Serialize + Send + Sync>(
     Ok(())
 }
 
+/// Modifies a numeric field in a Redis JSON object by either incrementing or decrementing it.
+///
+/// This function uses the RedisJSON `JSON.NUMINCRBY` command to either increment or decrement a numeric field at a given path
+/// based on the `JsonAction` provided.
+///
+/// # Arguments
+///
+/// * `prefix` - A string slice representing the prefix for the Redis key.
+/// * `key` - A string slice representing the Redis key where the JSON object is stored.
+/// * `field` - A string slice representing the field to be modified in the JSON object.
+/// * `action` - A `JsonAction` enum that specifies whether to increment or decrement the field.
+///
+/// # Errors
+///
+/// Returns an error if the operation fails or if the field does not exist or is not numeric.
+pub async fn modify_json_field(
+    prefix: &str,
+    key: &str,
+    field: &str,
+    action: JsonAction,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let mut redis_conn = get_redis_conn().await?;
+    let index_key = format!("{}:{}", prefix, key);
+    let json_path = format!("$.{}", field); // Access the field using JSON path
+
+    // Determine the action to take (increment or decrement)
+    let amount = match action {
+        JsonAction::Increment(value) => value,
+        JsonAction::Decrement(value) => -value, // Negate the value for decrement
+    };
+
+    // Use RedisJSON NUMINCRBY to modify the value of the specified field
+    let _: () = redis_conn
+        .json_num_incr_by(&index_key, &json_path, amount)
+        .await?;
+
+    debug!(
+        "Modified field: {} in key: {} by {}",
+        field, index_key, amount
+    );
+
+    Ok(())
+}
+
+/// Handles storing a boolean value in Redis with an optional expiration.
+///
+/// This function sets a key in Redis to either `1` or `0`, depending on the boolean value provided.
+/// Optionally, an expiration time can be set for the key.
+///
+/// # Arguments
+///
+/// * `key` - A string slice representing the Redis key.
+/// * `value` - A boolean value to store. If `true`, `1` is stored; if `false`, `0` is stored.
+/// * `expiration` - An optional expiration time in seconds. If provided, the key will expire after this duration.
 async fn handle_put_boolean(
     key: &str,
     value: bool,
@@ -61,6 +120,17 @@ async fn handle_put_boolean(
     Ok(())
 }
 
+/// Handles storing a JSON object in Redis at a specified path, with optional expiration.
+///
+/// This function uses RedisJSON to store a JSON object under the provided key and path. An expiration time
+/// can optionally be set for the key.
+///
+/// # Arguments
+///
+/// * `key` - A string slice representing the Redis key.
+/// * `value` - A reference to the value to be stored, which must implement `Serialize`.
+/// * `path` - An optional string slice representing the JSON path where the value should be set. Defaults to the root path "$".
+/// * `expiration` - An optional expiration time in seconds. If provided, the key will expire after this duration.
 async fn handle_put_json<T: Serialize + Send + Sync>(
     key: &str,
     value: &T,
