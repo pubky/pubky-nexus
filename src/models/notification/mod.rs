@@ -86,8 +86,11 @@ impl Notification {
         let notification_body_json = serde_json::to_string(&self.body)?;
         let score = self.timestamp as f64;
 
-        Notification::put_index_sorted_set(&[user_id], &[(score, notification_body_json.as_str())])
-            .await
+        Notification::put_index_sorted_set(
+            &["Notification", user_id],
+            &[(score, notification_body_json.as_str())],
+        )
+        .await
     }
 
     /// Lists notifications from the sorted set for the user, based on skip and limit, or timestamp range.
@@ -102,7 +105,7 @@ impl Notification {
         let end_score = end.unwrap_or(0.0);
 
         let notifications = Notification::try_from_index_sorted_set(
-            &[user_id],
+            &["Notification", user_id],
             Some(start_score),
             Some(end_score),
             skip,
