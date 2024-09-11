@@ -2,22 +2,9 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::RedisOps;
+use crate::{db::kv::index::sorted_sets::Sorting, RedisOps};
 
-#[derive(Serialize, Deserialize, ToSchema)]
-pub enum NotificationType {
-    Follow,
-    NewFriend,
-    LostFriend,
-    TagPost,
-    TagProfile,
-    Mention,
-    Reply,
-    Repost,
-    PostDeleted,
-}
-
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema, Clone)]
 pub enum PostDeleteType {
     Reply,       // A reply to you was deleted.
     Repost,      // A repost of your post was deleted.
@@ -28,10 +15,9 @@ pub enum PostDeleteType {
     TaggedPost,  // A post you tagged was deleted.
 }
 
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema, Default)]
 pub struct Notification {
     pub timestamp: i64,
-    pub notification_type: NotificationType,
     pub body: NotificationBody,
 }
 
@@ -54,7 +40,7 @@ pub enum NotificationBody {
     },
     TagProfile {
         tagged_by: String,
-        tag: String,
+        tag_label: String,
     },
     Reply {
         replied_by: String,
@@ -74,59 +60,87 @@ pub enum NotificationBody {
     },
 }
 
+impl Default for NotificationBody {
+    fn default() -> Self {
+        NotificationBody::Follow {
+            followed_by: String::new(),
+        }
+    }
+}
+
 impl RedisOps for Notification {}
 
 impl Notification {
-    pub fn new(notification_type: NotificationType, body: NotificationBody) -> Self {
+    pub fn new(body: NotificationBody) -> Self {
         Self {
-            notification_type,
             body,
             timestamp: Utc::now().timestamp_millis(), //milliseconds to avoid sub second collision
         }
     }
 
-    pub async fn index_notification(
+    /// Stores the notification in the sorted set for the user using the timestamp as the score.
+    pub async fn to_index(
+        &self,
         user_id: &str,
-        notification: Notification,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        notification
-            .set_index(&[user_id, &notification.timestamp])
-            .await
+        let notification_json = serde_json::to_string(self)?;
+        let score = self.timestamp as f64;
+
+        Notification::put_index_sorted_set(&[user_id], &[(score, notification_json.as_str())]).await
     }
 
+    /// Lists notifications from the sorted set for the user, based on skip and limit, or timestamp range.
     pub async fn list(
         user_id: &str,
-        limit: usize,
-        start: Option<String>,
-        end: Option<String>,
-    ) -> Result<Vec<Notification>, Box<dyn std::error::Error + Send + Sync>> {
-        let start = start.unwrap_or_else(|| Utc::now().to_rfc3339());
-        let end = end.unwrap_or_else(|| "0".to_string());
-        let keys = index::get_keys(user_id, &start, &end, limit).await?;
-        let mut notifications = Vec::new();
+        limit: Option<usize>,
+        skip: Option<usize>,
+        start: Option<f64>, // Timestamp as f64 for range query
+        end: Option<f64>,
+    ) -> Result<Vec<Self>, Box<dyn std::error::Error + Send + Sync>> {
+        let key = format!("Notification:{}", user_id);
 
-        for key in keys {
-            if let Some(notification) = Notification::try_from_index(&[&key]).await? {
-                notifications.push(notification);
+        let start_score = start.unwrap_or(f64::INFINITY);
+        let end_score = end.unwrap_or(0.0);
+
+        let notifications = Notification::try_from_index_sorted_set(
+            &[key.as_str()],
+            Some(start_score),
+            Some(end_score),
+            skip,
+            limit,
+            Sorting::Descending, // Sorting in descending order by score (timestamp)
+        )
+        .await?;
+
+        let mut result = Vec::new();
+        if let Some(notifications) = notifications {
+            for (notification_str, _) in notifications {
+                if let Ok(notification) = serde_json::from_str::<Notification>(&notification_str) {
+                    result.push(notification);
+                }
             }
         }
-        Ok(notifications)
+
+        Ok(result)
     }
 
     pub async fn new_follow(
         user_id: &str,
-        contact_id: &str,
+        followee_id: &str,
         new_friend: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let body = NotificationBody::Follow {
             followed_by: user_id.to_string(),
         };
-        let notification = Notification::new(NotificationType::Follow, body.clone());
-        Self::index_notification(contact_id, notification).await?;
+        let notification = Notification::new(body.clone());
+        notification.to_index(followee_id).await?;
 
         if new_friend {
-            let notification = Notification::new(NotificationType::NewFriend, body);
-            Self::index_notification(contact_id, notification).await?;
+            let body = NotificationBody::NewFriend {
+                followed_by: user_id.to_string(),
+            };
+            let notification = Notification::new(body);
+            notification.to_index(followee_id).await?;
         }
 
         Ok(())
@@ -134,15 +148,15 @@ impl Notification {
 
     pub async fn lost_follow(
         user_id: &str,
-        contact_id: &str,
+        followee_id: &str,
         was_friend: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let body = NotificationBody::LostFriend {
             unfollowed_by: user_id.to_string(),
         };
-        let notification = Notification::new(NotificationType::LostFriend, body);
+        let notification = Notification::new(body);
         if was_friend {
-            Self::index_notification(contact_id, notification).await?;
+            notification.to_index(followee_id).await?;
         }
 
         Ok(())
@@ -151,7 +165,7 @@ impl Notification {
     pub async fn new_post_tag(
         user_id: &str,
         author_id: &str,
-        tag: &str,
+        label: &str,
         post_uri: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if user_id == author_id {
@@ -159,32 +173,32 @@ impl Notification {
         }
         let body = NotificationBody::TagPost {
             tagged_by: user_id.to_string(),
-            tag: tag.to_string(),
+            tag_label: label.to_string(),
             post_uri: post_uri.to_string(),
         };
-        let notification = Notification::new(NotificationType::TagPost, body);
-        Self::index_notification(author_id, notification).await
+        let notification = Notification::new(body);
+        notification.to_index(author_id).await
     }
 
     pub async fn new_profile_tag(
         user_id: &str,
         profile_id: &str,
-        tag: &str,
+        label: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let body = NotificationBody::TagProfile {
             tagged_by: user_id.to_string(),
-            tag: tag.to_string(),
+            tag_label: label.to_string(),
         };
-        let notification = Notification::new(NotificationType::TagProfile, body);
-        Self::index_notification(profile_id, notification).await
+        let notification = Notification::new(body);
+        notification.to_index(profile_id).await
     }
 
     pub async fn new_post_reply(
         user_id: &str,
         parent_uri: &str,
         reply_uri: &str,
+        parent_post_author: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let parent_post_author = index::get_author_id(parent_uri).await?;
         if user_id == parent_post_author {
             return Ok(());
         }
@@ -193,16 +207,16 @@ impl Notification {
             parent_post_uri: parent_uri.to_string(),
             reply_uri: reply_uri.to_string(),
         };
-        let notification = Notification::new(NotificationType::Reply, body);
-        Self::index_notification(&parent_post_author, notification).await
+        let notification = Notification::new(body);
+        notification.to_index(parent_post_author).await
     }
 
     pub async fn new_repost(
         user_id: &str,
         embed_uri: &str,
         repost_uri: &str,
+        embed_post_author: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let embed_post_author = index::get_author_id(embed_uri).await?;
         if user_id == embed_post_author {
             return Ok(());
         }
@@ -211,17 +225,17 @@ impl Notification {
             embed_uri: embed_uri.to_string(),
             repost_uri: repost_uri.to_string(),
         };
-        let notification = Notification::new(NotificationType::Repost, body);
-        Self::index_notification(&embed_post_author, notification).await
+        let notification = Notification::new(body);
+        notification.to_index(embed_post_author).await
     }
 
     pub async fn deleted_post(
         user_id: &str,
         linked_uri: &str,
+        linked_post_author: &str,
         deleted_uri: &str,
         delete_type: PostDeleteType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let linked_post_author = index::get_author_id(linked_uri).await?;
         if user_id == linked_post_author {
             return Ok(());
         }
@@ -231,7 +245,7 @@ impl Notification {
             deleted_uri: deleted_uri.to_string(),
             linked_uri: linked_uri.to_string(),
         };
-        let notification = Notification::new(NotificationType::PostDeleted, body);
-        Self::index_notification(&linked_post_author, notification).await
+        let notification = Notification::new(body);
+        notification.to_index(linked_post_author).await
     }
 }
