@@ -31,38 +31,26 @@ pub async fn put(
     // Serialize and validate
     let file_input = <PubkyAppFile as Validatable>::try_from(&blob).await?;
 
+    let file_meta = ingest(&user_id, file_id.as_str(), &file_input, client).await?;
+
     // Create FileDetails object
-    let file_details = from_homeserver(uri, user_id, file_id, file_input, client).await?;
+    let file_details = FileDetails {
+        name: file_input.name,
+        src: file_input.src,
+        content_type: file_input.content_type,
+        uri,
+        id: file_id,
+        created_at: file_input.created_at,
+        indexed_at: Utc::now().timestamp_millis(),
+        owner_id: user_id.to_string(),
+        size: file_input.size,
+        urls: file_meta.urls,
+    };
 
     // Index new file into the Graph and Index
     file_details.save().await?;
 
     Ok(())
-}
-
-async fn from_homeserver(
-    uri: String,
-    user_id: PubkyId,
-    file_id: String,
-    pubkyapp_file: PubkyAppFile,
-    client: &PubkyClient,
-) -> Result<FileDetails, Box<dyn std::error::Error + Send + Sync>> {
-    let file_meta = ingest(&user_id, file_id.as_str(), &pubkyapp_file, client).await?;
-
-    Ok(FileDetails {
-        name: pubkyapp_file.name,
-        src: pubkyapp_file.src,
-        content_type: pubkyapp_file.content_type,
-        uri,
-        id: file_id,
-        created_at: pubkyapp_file.created_at,
-        indexed_at: Utc::now().timestamp_millis(),
-        owner_id: user_id.to_string(),
-        size: pubkyapp_file.size,
-        urls: FileUrls {
-            main: file_meta.urls.main,
-        },
-    })
 }
 
 // TODO: Move it into its own process, server, etc
