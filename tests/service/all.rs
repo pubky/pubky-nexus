@@ -89,10 +89,13 @@ async fn test_user_endpoint() -> Result<()> {
 #[tokio::test]
 async fn test_static_serving() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
-    let test_file_path = "static/foo";
+    let test_file_path = "static";
+    let test_file_name = "foo";
+
+    let full_path = format!("{}/{}", test_file_path, test_file_name);
 
     create_dir_all(test_file_path)?;
-    let mut file = File::create(test_file_path)?;
+    let mut file = File::create(full_path)?;
     file.write_all(b"Hello, world!")?;
 
     let res = client.do_get("/static/foo").await?;
