@@ -39,6 +39,10 @@ impl Collection<&[&str]> for FileDetails {
         queries::read::get_files_by_ids(id_list)
     }
 
+    fn to_graph_query(&self) -> Result<Query, Box<dyn std::error::Error + Send + Sync>> {
+        queries::write::create_file(self)
+    }
+
     async fn extend_on_cache_miss(_: &[std::option::Option<Self>]) {
         return;
     }
@@ -60,16 +64,6 @@ impl FileDetails {
             indexed_at: Utc::now().timestamp(),
             content_type: String::new(),
         }
-    }
-
-    pub async fn save(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Save on Redis
-        self.put_index_json(&[&self.owner_id, &self.id]).await?;
-
-        // Save graph node;
-        exec_single_row(queries::write::create_file(self)).await?;
-
-        Ok(())
     }
 
     pub async fn delete(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

@@ -20,6 +20,10 @@ impl Collection<&str> for UserDetails {
         queries::read::get_users_details_by_ids(id_list)
     }
 
+    fn to_graph_query(&self) -> Result<Query, Box<dyn std::error::Error + Send + Sync>> {
+        queries::write::create_user(self)
+    }
+
     async fn extend_on_cache_miss(details: &[std::option::Option<Self>]) {
         let user_details_refs: Vec<&UserDetails> = details
             .iter()
@@ -91,11 +95,6 @@ impl UserDetails {
             id: user_id.clone(),
             indexed_at: Utc::now().timestamp_millis(),
         })
-    }
-
-    // Save new graph node
-    pub async fn put_to_graph(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        exec_single_row(queries::write::create_user(self)?).await
     }
 
     pub async fn delete(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

@@ -47,8 +47,18 @@ pub async fn put(
         urls: file_meta.urls,
     };
 
-    // Index new file into the Graph and Index
-    file_details.save().await?;
+    // save new file into the Graph
+    file_details.put_to_graph().await?;
+
+    // Index
+    FileDetails::to_index(
+        &[&[
+            file_details.owner_id.clone().as_str(),
+            file_details.id.clone().as_str(),
+        ]],
+        vec![Some(file_details)],
+    )
+    .await?;
 
     Ok(())
 }

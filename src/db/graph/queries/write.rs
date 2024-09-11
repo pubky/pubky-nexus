@@ -183,9 +183,10 @@ pub fn delete_tag(user_id: &str, tag_id: &str) -> Query {
 }
 
 // Create a file node
-pub fn create_file(file: &FileDetails) -> Query {
-    let urls = serde_json::to_string(&file.urls).unwrap_or_else(|_| "{}".to_string());
-    query(
+pub fn create_file(file: &FileDetails) -> Result<Query, Box<dyn std::error::Error + Send + Sync>> {
+    let urls = serde_json::to_string(&file.urls)?;
+
+    let query = query(
         "MERGE (f:File {id: $id, owner_id: $owner_id})
          SET f.uri = $uri, f.indexed_at = $indexed_at, f.created_at = $created_at, f.size = $size,
             f.src = $src, f.content_type = $content_type, f.urls = $urls;",
@@ -199,7 +200,9 @@ pub fn create_file(file: &FileDetails) -> Query {
     .param("src", file.src.to_string())
     .param("name", file.name.to_string())
     .param("content_type", file.content_type.to_string())
-    .param("urls", urls)
+    .param("urls", urls);
+
+    Ok(query)
 }
 
 // Delete a file node

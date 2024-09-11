@@ -2,6 +2,7 @@ use axum::async_trait;
 use neo4rs::Query;
 
 use crate::db::connectors::neo4j::get_neo4j_graph;
+use crate::db::graph::exec::exec_single_row;
 use crate::RedisOps;
 use core::fmt;
 use std::fmt::Debug;
@@ -144,8 +145,17 @@ where
         Self::put_multiple_json_indexes(&keys, records).await
     }
 
+    // Save new graph node
+    async fn put_to_graph(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        exec_single_row(self.to_graph_query()?).await
+    }
+
     /// Returns the neo4j query to return a list records by passing a list of ids.
     /// The query should return each record in the "record" attribute of the node.
     fn graph_query(id_list: &[T]) -> Query;
+
+    /// Returns the neo4j query to put a record into the graph.
+    fn to_graph_query(&self) -> Result<Query, Box<dyn std::error::Error + Send + Sync>>;
+
     async fn extend_on_cache_miss(elements: &[std::option::Option<Self>]);
 }
