@@ -175,13 +175,13 @@ pub async fn ingest_post_tag(
 
 pub async fn ingest_user_tag(
     user_id: &str,
-    author_id: &str,
+    tagged_user_id: &str,
     tag_label: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let user_tags_key_parts = [&USER_TAGS_KEY_PARTS[..], &[user_id]].concat();
-    let user_slice = [author_id, tag_label];
+    let user_slice = [tagged_user_id, tag_label];
     // Increment in one the user tags
-    UserCounts::modify_json_field(&[author_id], "tags", JsonAction::Increment(1)).await?;
+    UserCounts::modify_json_field(&[tagged_user_id], "tags", JsonAction::Increment(1)).await?;
     // Add label count to the user profile
     TagUser::put_score_index_sorted_set(
         &user_tags_key_parts,
@@ -191,10 +191,10 @@ pub async fn ingest_user_tag(
     .await?;
     // Add user to tag taggers list
     TagUser::put_index_set(&user_slice, &[user_id]).await?;
-    let exist_count = UserCounts::try_from_index_json(&[author_id]).await?;
+    let exist_count = UserCounts::try_from_index_json(&[tagged_user_id]).await?;
     if let Some(count) = exist_count {
         // Update user pioneer score
-        UserStream::add_to_pioneers_sorted_set(author_id, &count).await?;
+        UserStream::add_to_pioneers_sorted_set(tagged_user_id, &count).await?;
     }
     Ok(())
 }
