@@ -1,11 +1,9 @@
 use crate::db::graph::exec::exec_single_row;
-use crate::db::kv::index::json::JsonAction;
 use crate::events::uri::ParsedUri;
-use crate::models::post::PostCounts;
 use crate::models::pubky_app::traits::Validatable;
 use crate::models::{post::PostDetails, pubky_app::PubkyAppPost, user::PubkyId};
 use crate::reindex::{ingest_post, reindex_post};
-use crate::{queries, RedisOps};
+use crate::queries;
 use axum::body::Bytes;
 use log::debug;
 use std::error::Error;
@@ -28,26 +26,26 @@ pub async fn put(
     // Add new post node into the graph
     post_details.put_to_graph().await?;
 
-    let mut interaction: Option<(&str, ParsedUri)> = None;
+    let mut interaction: Vec<(&str, ParsedUri)> = Vec::new();
 
     // Handle "REPLIED" relationship and counts if `parent` is Some
-    if let Some(parent_uri) = post.parent {
+    if let Some(parent_uri) = &post.parent {
         put_reply_relationship(&author_id, &post_id, &parent_uri).await?;
         let parsed_uri = ParsedUri::try_from(parent_uri.as_str())?;
-        interaction = Some(("replies", parsed_uri));
+        interaction.push(("replies", parsed_uri));
     }
     // Handle "REPOSTED" relationship and counts if `embed.uri` is Some
-    if let Some(embed) = post.embed {
+    if let Some(embed) = &post.embed {
         put_repost_relationship(&author_id, &post_id, &embed.uri).await?;
         let parsed_uri = ParsedUri::try_from(embed.uri.as_str())?;
-        interaction = Some(("reposts", parsed_uri));
+        interaction.push(("reposts", parsed_uri));
     }
 
     // SAVE TO INDEX
     // Reindex to sorted sets and other indexes
     reindex_post(&author_id, &post_id).await?;
-    //
-    ingest_post(&author_id, &post_id, interaction).await?;
+    // Ingest the post data
+    ingest_post(&author_id, interaction).await?;
 
     Ok(())
 }

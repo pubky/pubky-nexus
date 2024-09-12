@@ -91,7 +91,7 @@ pub async fn reindex_user(user_id: &str) -> Result<(), Box<dyn std::error::Error
 
 pub async fn reindex_post(
     author_id: &str,
-    post_id: &str
+    post_id: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Initialise all the values of the Posts
     tokio::try_join!(
@@ -105,13 +105,11 @@ pub async fn reindex_post(
 
 pub async fn ingest_post(
     author_id: &str,
-    post_id: &str,
-    interaction: Option<(&str, ParsedUri)>
+    interactions: Vec<(&str, ParsedUri)>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    
     UserCounts::modify_json_field(&[author_id], "posts", JsonAction::Increment(1)).await?;
     // Post creation from an interaction: REPLY or REPOST
-    if let Some((action, parent_uri)) = interaction {
+    for (action, parent_uri) in interactions {
         let parent_post_key_parts: &[&str] = &[
             &parent_uri.user_id,
             &parent_uri.post_id.ok_or("Missing post ID")?,
