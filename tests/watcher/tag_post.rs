@@ -2,6 +2,7 @@ use super::utils::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
 use pkarr::Keypair;
+use pubky_nexus::models::notification::Notification;
 use pubky_nexus::models::post::{PostStream, PostView, POST_TOTAL_ENGAGEMENT_KEY_PARTS};
 use pubky_nexus::models::pubky_app::{
     traits::GenerateHashId, PubkyAppPost, PubkyAppTag, PubkyAppUser,
@@ -82,6 +83,17 @@ async fn test_homeserver_tag_post() -> Result<()> {
             .unwrap()
             .unwrap();
     assert_eq!(total_engagement, 1);
+
+    // Check if the author user has a new notification
+    // Self-tagging posts should not trigger notifications.
+    let notifications = Notification::get_by_id(&user_id, None, None, None, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        notifications.len(),
+        0,
+        "Post author should have 0 notification. Self tagging."
+    );
 
     // Missing: Sorted:Tags:Global:Post:Timeline. We do not have time line yet
 
