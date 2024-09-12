@@ -1,4 +1,5 @@
 use crate::db::graph::exec::exec_single_row;
+use crate::models::notification::Notification;
 use crate::models::pubky_app::traits::Validatable;
 use crate::models::pubky_app::PubkyAppFollow;
 use crate::models::user::PubkyId;
@@ -27,6 +28,9 @@ pub async fn put(
     // Update follow indexes
     Followers::put_index_set(&[&follower_id], &[followee_id.to_string().as_ref()]).await?;
     Following::put_index_set(&[&followee_id], &[follower_id.0.as_ref()]).await?;
+
+    // Notify the followee
+    Notification::new_follow(&follower_id, &followee_id, false).await?;
 
     Ok(())
 }
