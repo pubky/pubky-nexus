@@ -1,5 +1,6 @@
 use crate::db::kv::flush::clear_redis;
 use crate::db::kv::index::json::JsonAction;
+use crate::events::uri::ParsedUri;
 use crate::models::post::{Bookmark, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS};
 use crate::models::tag::post::{TagPost, POST_TAGS_KEY_PARTS};
 use crate::models::tag::search::{TagSearch, TAG_GLOBAL_POST_ENGAGEMENT, TAG_GLOBAL_POST_TIMELINE};
@@ -90,15 +91,39 @@ pub async fn reindex_user(user_id: &str) -> Result<(), Box<dyn std::error::Error
 
 pub async fn reindex_post(
     author_id: &str,
-    post_id: &str,
+    post_id: &str
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Initialise all the values of the Posts
     tokio::try_join!(
         PostDetails::get_from_graph(author_id, post_id),
         PostCounts::get_from_graph(author_id, post_id),
         PostRelationships::get_from_graph(author_id, post_id),
         TagPost::get_from_graph(author_id, Some(post_id))
     )?;
+    Ok(())
+}
 
+pub async fn ingest_post(
+    author_id: &str,
+    post_id: &str,
+    interaction: Option<(&str, ParsedUri)>
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    
+    UserCounts::modify_json_field(&[author_id], "posts", JsonAction::Increment(1)).await?;
+    // Post creation from an interaction: REPLY or REPOST
+    if let Some((action, parent_uri)) = interaction {
+        let parent_post_key_parts: &[&str] = &[
+            &parent_uri.user_id,
+            &parent_uri.post_id.ok_or("Missing post ID")?,
+        ];
+        PostCounts::modify_json_field(parent_post_key_parts, action, JsonAction::Increment(1)).await?;
+        PostStream::put_score_index_sorted_set(
+            &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
+            parent_post_key_parts,
+            ScoreAction::Increment(1.0),
+        )
+        .await?;
+    }
     Ok(())
 }
 

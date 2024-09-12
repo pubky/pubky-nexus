@@ -1,10 +1,10 @@
 use super::utils::WatcherTest;
 use anyhow::Result;
 use pkarr::Keypair;
-use pubky_nexus::models::{
-    post::{PostThread, PostView},
-    pubky_app::{PostKind, PubkyAppPost, PubkyAppUser},
-};
+use pubky_nexus::{models::{
+    post::{PostCounts, PostStream, PostThread, PostView, POST_PER_USER_KEY_PARTS, POST_TOTAL_ENGAGEMENT_KEY_PARTS},
+    pubky_app::{PostKind, PubkyAppPost, PubkyAppUser}, user::UserCounts,
+}, RedisOps};
 
 #[tokio::test]
 async fn test_homeserver_reply() -> Result<()> {
@@ -82,13 +82,33 @@ async fn test_homeserver_reply() -> Result<()> {
     assert_eq!(result_reply.counts.replies, 0);
     assert_eq!(result_reply.relationships.replied, Some(parent_uri));
 
+    let parent_post_key: [&str; 2] = [&user_id, &parent_id];
+
     // Assert the parent post has changed stats
-    let result_parent = PostView::get_by_id(&user_id, &parent_id, None, None, None)
+    let post_count = PostCounts::try_from_index_json(&parent_post_key)
         .await
         .unwrap()
         .expect("The new post was not served from Nexus");
 
-    assert_eq!(result_parent.counts.replies, 1);
+    assert_eq!(post_count.replies, 1);
+
+    // Check if parent post engagement: Sorted:Posts:Global:TotalEngagement:user_id:post_id
+    let total_engagement =
+        PostStream::check_sorted_set_member(&POST_TOTAL_ENGAGEMENT_KEY_PARTS, &parent_post_key)
+            .await
+            .unwrap()
+            .unwrap();
+    assert_eq!(total_engagement, 1);
+
+    // Sorted:Post:User:user_id
+    let post_stream_key_parts = [&POST_PER_USER_KEY_PARTS[..], &[&user_id]].concat();
+    let post_timeline = PostStream::check_sorted_set_member(&post_stream_key_parts, &[&parent_id]).await.unwrap();
+    assert_eq!(post_timeline.is_some(), true);
+
+    let exist_count = UserCounts::try_from_index_json(&[&user_id]).await.unwrap()
+        .expect("User count not found");
+
+    assert_eq!(exist_count.posts, 2);
 
     // Fetch the post thread and confirm the reply is present
     let thread = PostThread::get_by_id(&user_id, &parent_id, None, 0, 10)

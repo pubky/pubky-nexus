@@ -81,7 +81,7 @@ async fn test_homeserver_tag_post() -> Result<()> {
             .unwrap();
     assert_eq!(total_engagement, 1);
 
-    // Missing: Sorted:Tags:Global:Post:Timeline. We do not have time line yet
+    // TODO: Missing: Sorted:Tags:Global:Post:Timeline. We do not have time line yet
 
     // Tag global engagement: Sorted:Tags:Global:Post:TotalEngagement
     let total_engagement = TagSearch::check_sorted_set_member(
