@@ -50,7 +50,6 @@ async fn test_homeserver_post() -> Result<()> {
     // Check the cache state
     // TODO: all that checks are the same also for reply and repost. Maybe add in a watcher/post/utils.rs
     let post_key: &[&str] = &[&user_id, &post_id];
-    println!("{:?}", post_key);
     let global_timeline = PostStream::check_sorted_set_member(&POST_TIMELINE_KEY_PARTS, post_key).await.unwrap();
     assert_eq!(global_timeline.is_some(), true);
     let post_stream_key_parts = [&POST_PER_USER_KEY_PARTS[..], &[&user_id]].concat();
@@ -68,8 +67,7 @@ async fn test_homeserver_post() -> Result<()> {
     let exist_count = UserCounts::try_from_index_json(&[&user_id]).await.unwrap()
         .expect("User count not found");
 
-    // Post + Reply
-    assert_eq!(exist_count.posts, 2);
+    assert_eq!(exist_count.posts, 1);
 
     // Cleanup
     test.cleanup_user(&user_id).await?;

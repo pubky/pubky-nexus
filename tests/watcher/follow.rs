@@ -2,10 +2,10 @@ use super::utils::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
 use pkarr::Keypair;
-use pubky_nexus::models::{
+use pubky_nexus::{models::{
     pubky_app::{PubkyAppFollow, PubkyAppUser},
-    user::{Followers, Following, UserFollows},
-};
+    user::{Followers, Following, UserCounts, UserFollows, UserStream, USER_PIONEERS_KEY_PARTS},
+}, RedisOps};
 
 #[tokio::test]
 async fn test_homeserver_follow() -> Result<()> {
@@ -61,6 +61,22 @@ async fn test_homeserver_follow() -> Result<()> {
         .expect("Following should exist");
     assert_eq!(result_following.0.len(), 1);
     assert_eq!(result_following.0[0], followee_id);
+
+    // Get followee counts, should have a follower
+    let popular_user_count = UserCounts::try_from_index_json(&[&followee_id]).await.unwrap()
+        .expect("User count not found");
+    assert_eq!(popular_user_count.followers, 1);
+    // and its pioneer score has not increase because it does not have any tags or posts: Sorted:Users:Pioneers
+    let pioneer_score = UserStream::check_sorted_set_member(&USER_PIONEERS_KEY_PARTS, &[&followee_id])
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(pioneer_score, 0);
+
+    // Get following counts, should be following
+    let popular_user_count = UserCounts::try_from_index_json(&[&follower_id]).await.unwrap()
+        .expect("User count not found");
+    assert_eq!(popular_user_count.following, 1);
 
     // Unfollow the user
     test.client.delete(follow_url.as_str()).await?;

@@ -3,6 +3,7 @@ use crate::models::pubky_app::traits::Validatable;
 use crate::models::pubky_app::PubkyAppFollow;
 use crate::models::user::PubkyId;
 use crate::models::user::{Followers, Following};
+use crate::reindex::ingest_follow;
 use crate::{queries, RedisOps};
 use axum::body::Bytes;
 use chrono::Utc;
@@ -24,11 +25,9 @@ pub async fn put(
     let query = queries::write::create_follow(&follower_id, &followee_id, indexed_at);
     exec_single_row(query).await?;
 
-    // Update follow indexes
-    Followers::put_index_set(&[&follower_id], &[followee_id.to_string().as_ref()]).await?;
-    Following::put_index_set(&[&followee_id], &[follower_id.0.as_ref()]).await?;
-
-    Ok(())
+    // SAVE TO INDEX
+    // Update follow data
+    ingest_follow(follower_id, followee_id).await
 }
 
 pub async fn del(

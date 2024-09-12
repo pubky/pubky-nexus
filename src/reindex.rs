@@ -8,7 +8,7 @@ use crate::models::tag::stream::{HotTags, Taggers, TAG_GLOBAL_HOT};
 use crate::models::tag::traits::TagCollection;
 use crate::models::tag::user::{TagUser, USER_TAGS_KEY_PARTS};
 use crate::models::traits::Collection;
-use crate::models::user::{Followers, Following, UserDetails, UserFollows, UserStream};
+use crate::models::user::{Followers, Following, PubkyId, UserDetails, UserFollows, UserStream};
 use crate::{
     db::connectors::neo4j::get_neo4j_graph,
     models::post::{PostCounts, PostDetails, PostRelationships},
@@ -108,6 +108,8 @@ pub async fn ingest_post(
     interactions: Vec<(&str, ParsedUri)>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     UserCounts::modify_json_field(&[author_id], "posts", JsonAction::Increment(1)).await?;
+    // Mutate the pioneers index of the user
+    update_pioneer_score(author_id).await?;
     // Post creation from an interaction: REPLY or REPOST
     for (action, parent_uri) in interactions {
         let parent_post_key_parts: &[&str] = &[
@@ -214,6 +216,24 @@ pub async fn ingest_user_tag(
     .await?;
     // Add user to tag taggers list
     TagUser::put_index_set(&user_slice, &[user_id]).await?;
+    update_pioneer_score(author_id).await?;
+    Ok(())
+}
+
+pub async fn ingest_follow(
+    follower_id: PubkyId,
+    followee_id: PubkyId,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    Followers::put_index_set(&[&follower_id], &[followee_id.to_string().as_ref()]).await?;
+    Following::put_index_set(&[&followee_id], &[follower_id.0.as_ref()]).await?;
+    UserCounts::modify_json_field(&[&follower_id], "following", JsonAction::Increment(1)).await?;
+    UserCounts::modify_json_field(&[&followee_id], "followers", JsonAction::Increment(1)).await?;
+    // TODO: Missing the check if they are friends now. Check if followee follows the follower
+    update_pioneer_score(&followee_id).await?;
+    Ok(())
+}
+
+async fn update_pioneer_score(author_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let exist_count = UserCounts::try_from_index_json(&[author_id]).await?;
     if let Some(count) = exist_count {
         // Update user pioneer score
