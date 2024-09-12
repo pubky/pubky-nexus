@@ -94,7 +94,7 @@ impl Notification {
     }
 
     /// Lists notifications from the sorted set for the user, based on skip and limit, or timestamp range.
-    pub async fn list(
+    pub async fn get_by_id(
         user_id: &str,
         limit: Option<usize>,
         skip: Option<usize>,

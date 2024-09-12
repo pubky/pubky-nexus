@@ -88,7 +88,7 @@ async fn test_homeserver_follow() -> Result<()> {
     );
 
     // Check for notification
-    let notifications = Notification::list(&followee_id, None, None, None, None)
+    let notifications = Notification::get_by_id(&followee_id, None, None, None, None)
         .await
         .unwrap();
     assert_eq!(

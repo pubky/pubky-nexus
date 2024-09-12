@@ -42,7 +42,7 @@ pub async fn list_notifications_handler(
     let skip = query.skip.unwrap_or(0);
     let limit = query.limit.unwrap_or(20);
 
-    match Notification::list(&user_id, Some(limit), Some(skip), query.start, query.end).await {
+    match Notification::get_by_id(&user_id, Some(limit), Some(skip), query.start, query.end).await {
         Ok(notifications) => {
             if notifications.is_empty() {
                 Err(Error::UserNotFound {
