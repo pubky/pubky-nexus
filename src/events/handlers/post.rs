@@ -19,7 +19,7 @@ pub async fn put(
     debug!("Indexing new post: {}/{}", author_id, post_id);
 
     // Serialize and validate
-    let post = <PubkyAppPost as Validatable>::try_from(&blob)?;
+    let post = <PubkyAppPost as Validatable>::try_from(&blob).await?;
 
     // Create PostDetails object
     let post_details = PostDetails::from_homeserver(post.clone(), &author_id, &post_id).await?;

@@ -64,12 +64,12 @@ pub fn get_users_details_by_ids(user_ids: &[&str]) -> Query {
     query(
         "
         UNWIND $ids AS id
-        OPTIONAL MATCH (user:User {id: id})
+        OPTIONAL MATCH (record:User {id: id})
         RETURN 
             id,
             CASE 
-                WHEN user IS NOT NULL 
-                    THEN user { .id, .bio, .status, .name, .indexed_at, .links }
+                WHEN record IS NOT NULL 
+                    THEN record
                     ELSE null
                 END AS record
         ",
@@ -279,4 +279,15 @@ pub fn get_thread(author_id: &str, post_id: &str, skip: usize, limit: usize) -> 
     .param("post_id", post_id)
     .param("skip", skip as i64)
     .param("limit", limit as i64)
+}
+
+pub fn get_files_by_ids(key_pair: &[&[&str]]) -> Query {
+    query(
+        "
+        UNWIND $pairs AS pair
+        OPTIONAL MATCH (record:File {owner_id: pair[0], id: pair[1]})
+        RETURN record
+        ",
+    )
+    .param("pairs", key_pair)
 }

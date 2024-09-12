@@ -1,3 +1,4 @@
+pub mod file;
 pub mod info;
 pub mod notification;
 pub mod post;

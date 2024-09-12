@@ -19,6 +19,8 @@ pub enum Error {
     TagsNotFound { reach: String },
     #[error("Invalid input: {message}")]
     InvalidInput { message: String },
+    #[error("File not found.")]
+    FileNotFound {},
     // Add other custom errors here
 }
 
@@ -28,6 +30,7 @@ impl IntoResponse for Error {
         let status_code = match self {
             Error::UserNotFound { .. } => StatusCode::NOT_FOUND,
             Error::PostNotFound { .. } => StatusCode::NOT_FOUND,
+            Error::FileNotFound { .. } => StatusCode::NOT_FOUND,
             Error::BookmarksNotFound { .. } => StatusCode::NOT_FOUND,
             Error::TagsNotFound { .. } => StatusCode::NOT_FOUND,
             Error::InvalidInput { .. } => StatusCode::BAD_REQUEST,
@@ -40,6 +43,9 @@ impl IntoResponse for Error {
             Error::UserNotFound { user_id } => debug!("User not found: {}", user_id),
             Error::PostNotFound { author_id, post_id } => {
                 debug!("Post not found: {} {}", author_id, post_id)
+            }
+            Error::FileNotFound {} => {
+                debug!("File not found.")
             }
             Error::BookmarksNotFound { user_id } => {
                 debug!("Bookmarks not found: {}", user_id)

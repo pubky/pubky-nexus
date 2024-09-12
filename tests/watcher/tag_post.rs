@@ -3,7 +3,9 @@ use anyhow::Result;
 use chrono::Utc;
 use pkarr::Keypair;
 use pubky_nexus::models::post::{PostStream, PostView, POST_TOTAL_ENGAGEMENT_KEY_PARTS};
-use pubky_nexus::models::pubky_app::{PubkyAppPost, PubkyAppTag, PubkyAppUser};
+use pubky_nexus::models::pubky_app::{
+    traits::GenerateHashId, PubkyAppPost, PubkyAppTag, PubkyAppUser,
+};
 use pubky_nexus::models::tag::search::{TagSearch, TAG_GLOBAL_POST_ENGAGEMENT};
 use pubky_nexus::models::tag::stream::Taggers;
 use pubky_nexus::RedisOps;

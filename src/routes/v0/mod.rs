@@ -3,6 +3,7 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 pub mod endpoints;
+pub mod file;
 pub mod info;
 pub mod notification;
 pub mod post;

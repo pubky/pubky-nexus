@@ -1,10 +1,18 @@
 use axum::body::Bytes;
 use base32::{encode, Alphabet};
 use blake3::Hasher;
+use pubky_common::timestamp::Timestamp;
 use serde::de::DeserializeOwned;
 
+pub trait GenerateTimestampId {
+    fn create_id(&self) -> String {
+        let timestamp = Timestamp::now();
+        timestamp.to_string()
+    }
+}
+
 /// Trait for generating an ID based on the struct's data.
-pub trait GenerateId {
+pub trait GenerateHashId {
     fn get_id_data(&self) -> String {
         String::new()
     }
@@ -40,12 +48,19 @@ pub trait GenerateId {
 
 pub trait Validatable: Sized + DeserializeOwned {
     /// Attempts to create an instance of the implementing struct from a `Bytes` object.
-    fn try_from(blob: &Bytes) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let instance: Self = serde_json::from_slice(blob)?;
-        instance.validate()?;
-        Ok(instance)
+    fn try_from(
+        blob: &Bytes,
+    ) -> impl std::future::Future<Output = Result<Self, Box<dyn std::error::Error + Send + Sync>>>
+    {
+        async {
+            let instance: Self = serde_json::from_slice(blob)?;
+            instance.validate().await?;
+            Ok(instance)
+        }
     }
 
     /// Validates the instance according to the implementing struct's rules.
-    fn validate(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+    fn validate(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), Box<dyn std::error::Error + Send + Sync>>>;
 }

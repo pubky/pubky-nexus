@@ -3,7 +3,7 @@ use anyhow::Result;
 use pkarr::Keypair;
 use pubky_nexus::models::{
     post::PostStream,
-    pubky_app::{traits::GenerateId, PubkyAppBookmark, PubkyAppPost, PubkyAppUser},
+    pubky_app::{traits::GenerateHashId, PubkyAppBookmark, PubkyAppPost, PubkyAppUser},
 };
 
 #[tokio::test]
