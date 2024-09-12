@@ -1,5 +1,5 @@
 use std::{
-    fs::{create_dir_all, remove_file, File},
+    fs::{self, create_dir_all, remove_file, File},
     io::Write,
 };
 
@@ -94,11 +94,23 @@ async fn test_static_serving() -> Result<()> {
 
     let full_path = format!("{}/{}", test_file_path, test_file_name);
 
-    create_dir_all(test_file_path)?;
+    let exists = match fs::metadata(test_file_path) {
+        Err(_) => false,
+        Ok(metadata) => metadata.is_dir(),
+    };
+
+    println!("file exists? {}", exists);
+
+    if !exists {
+        create_dir_all(test_file_path)?;
+    }
+
     let mut file = File::create(full_path.as_str())?;
     file.write_all(b"Hello, world!")?;
 
-    let res = client.do_get(full_path.as_str()).await?;
+    let res = client
+        .do_get(format!("/{}", full_path.as_str()).as_str())
+        .await?;
 
     assert_eq!(res.status(), 200);
     assert_eq!(
@@ -109,7 +121,7 @@ async fn test_static_serving() -> Result<()> {
         13
     );
 
-    remove_file(test_file_path)?;
+    remove_file(full_path.as_str())?;
     Ok(())
 }
 

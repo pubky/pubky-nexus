@@ -77,7 +77,14 @@ async fn store_blob(
     let storage_path = format!("{}/static/files", current_dir()?.display());
     let full_path = format!("{}/{}", storage_path, path);
 
-    fs::create_dir_all(full_path.clone()).await?;
+    let path_exists = match fs::metadata(full_path.as_str()).await {
+        Err(_) => false,
+        Ok(metadata) => metadata.is_dir(),
+    };
+
+    if !path_exists {
+        fs::create_dir_all(full_path.as_str()).await?;
+    }
 
     let file_path = format!("{}/{}", full_path, name);
     let mut static_file = File::create_new(file_path).await?;
