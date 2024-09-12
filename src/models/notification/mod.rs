@@ -1,8 +1,7 @@
+use crate::{db::kv::index::sorted_sets::Sorting, RedisOps};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-
-use crate::{db::kv::index::sorted_sets::Sorting, RedisOps};
 
 #[derive(Serialize, Deserialize, ToSchema, Clone)]
 pub enum PostDeleteType {
@@ -183,17 +182,20 @@ impl Notification {
         notification.to_index(author_id).await
     }
 
-    pub async fn new_profile_tag(
+    pub async fn new_user_tag(
         user_id: &str,
-        profile_id: &str,
+        tagged_user_id: &str,
         label: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if user_id == tagged_user_id {
+            return Ok(());
+        }
         let body = NotificationBody::TagProfile {
             tagged_by: user_id.to_string(),
             tag_label: label.to_string(),
         };
         let notification = Notification::new(body);
-        notification.to_index(profile_id).await
+        notification.to_index(tagged_user_id).await
     }
 
     pub async fn new_post_reply(
