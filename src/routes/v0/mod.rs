@@ -4,6 +4,7 @@ use utoipa_swagger_ui::SwaggerUi;
 
 pub mod endpoints;
 pub mod info;
+pub mod notification;
 pub mod post;
 pub mod queries;
 pub mod search;
@@ -20,6 +21,7 @@ pub fn routes() -> Router {
     let route_stream = stream::routes();
     let route_search = search::routes();
     let route_tag = tag::routes();
+    let route_notification = notification::routes();
     let route_openapi =
         SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::merge_docs());
 
@@ -29,6 +31,7 @@ pub fn routes() -> Router {
         .merge(route_stream)
         .merge(route_search)
         .merge(route_tag)
+        .merge(route_notification)
         .merge(route_openapi)
 }
 
@@ -45,6 +48,7 @@ impl ApiDoc {
         combined.merge(search::SearchApiDoc::merge_docs());
         combined.merge(search::SearchApiDoc::merge_docs());
         combined.merge(tag::TagApiDoc::merge_docs());
+        combined.merge(notification::NotificationApiDoc::merge_docs());
         combined
     }
 }

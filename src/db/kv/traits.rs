@@ -577,7 +577,8 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         sorting: Sorting,
     ) -> Result<Option<Vec<(String, f64)>>, Box<dyn Error + Send + Sync>> {
         let key = key_parts.join(":");
-        sorted_sets::get_range("Sorted", &key, start, end, skip, limit, sorting).await
+
+        sorted_sets::get_range("Sorted", &key, end, start, skip, limit, sorting).await
     }
 
     /// Retrieves a lexicographical range of elements from a Redis sorted set using the provided key parts.
