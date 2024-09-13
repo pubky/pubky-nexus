@@ -1,3 +1,8 @@
+use std::{
+    fs::{self, create_dir_all, remove_file, File},
+    io::Write,
+};
+
 use anyhow::Result;
 use pubky_nexus::models::tag::TagDetails;
 
@@ -82,14 +87,41 @@ async fn test_user_endpoint() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_static_file_serving() -> Result<()> {
+async fn test_static_serving() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
+    let test_file_path = "static";
+    let test_file_name = "foobar";
 
-    let res = client.do_get("/static/src/service.rs").await?;
+    let full_path = format!("{}/{}", test_file_path, test_file_name);
+
+    let exists = match fs::metadata(test_file_path) {
+        Err(_) => false,
+        Ok(metadata) => metadata.is_dir(),
+    };
+
+    println!("file exists? {}", exists);
+
+    if !exists {
+        create_dir_all(test_file_path)?;
+    }
+
+    let mut file = File::create(full_path.as_str())?;
+    file.write_all(b"Hello, world!")?;
+
+    let res = client
+        .do_get(format!("/{}", full_path.as_str()).as_str())
+        .await?;
+
     assert_eq!(res.status(), 200);
-    let body = res.text_body()?;
-    assert!(body.contains("fn main()"));
+    assert_eq!(
+        res.header("content-length")
+            .unwrap()
+            .parse::<i32>()
+            .unwrap(),
+        13
+    );
 
+    remove_file(full_path.as_str())?;
     Ok(())
 }
 

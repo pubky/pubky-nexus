@@ -15,19 +15,21 @@ use utoipa::ToSchema;
 impl RedisOps for UserDetails {}
 
 #[async_trait]
-impl Collection for UserDetails {
+impl Collection<&str> for UserDetails {
     fn graph_query(id_list: &[&str]) -> Query {
         queries::read::get_users_details_by_ids(id_list)
     }
 
-    async fn add_to_sorted_sets(details: &[std::option::Option<Self>]) {
-        // Filter out None and collect only the references to UserDetails
+    fn to_graph_query(&self) -> Result<Query, Box<dyn std::error::Error + Send + Sync>> {
+        queries::write::create_user(self)
+    }
+
+    async fn extend_on_cache_miss(details: &[std::option::Option<Self>]) {
         let user_details_refs: Vec<&UserDetails> = details
             .iter()
-            .filter_map(|detail| detail.as_ref()) // Filter out None and unwrap Some
+            .filter_map(|detail| detail.as_ref())
             .collect();
 
-        // Pass the references to the add_many_to_username_sorted_set function
         UserSearch::add_many_to_username_sorted_set(&user_details_refs)
             .await
             .unwrap();
@@ -93,11 +95,6 @@ impl UserDetails {
             id: user_id.clone(),
             indexed_at: Utc::now().timestamp_millis(),
         })
-    }
-
-    // Save new graph node
-    pub async fn put_to_graph(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        exec_single_row(queries::write::create_user(self)?).await
     }
 
     pub async fn delete(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

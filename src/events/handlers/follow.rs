@@ -1,4 +1,5 @@
 use crate::db::graph::exec::exec_single_row;
+use crate::models::notification::Notification;
 use crate::models::pubky_app::traits::Validatable;
 use crate::models::pubky_app::PubkyAppFollow;
 use crate::models::user::PubkyId;
@@ -18,14 +19,15 @@ pub async fn put(
     debug!("Indexing new follow: {} -> {}", follower_id, followee_id);
 
     // TODO: Deserialize and validate content of follow data (not needed, but we could validate the timestamp)
-    let _follow = <PubkyAppFollow as Validatable>::try_from(&blob)?;
+    let _follow = <PubkyAppFollow as Validatable>::try_from(&blob).await?;
 
     // Save new relationship on graph
     let indexed_at = Utc::now().timestamp_millis();
     let query = queries::write::create_follow(&follower_id, &followee_id, indexed_at);
     exec_single_row(query).await?;
 
-    // SAVE TO INDEX
+    // Notify the followee
+    Notification::new_follow(&follower_id, &followee_id, false).await?;// SAVE TO INDEX
     // Update follow data
     ingest_follow(follower_id, followee_id).await
 }

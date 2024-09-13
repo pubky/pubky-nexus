@@ -61,3 +61,11 @@ const TAG_PREFIX: &str = concatcp!(VERSION_ROUTE, "/tag");
 pub const TAG_HOT_ROUTE: &str = concatcp!(TAG_PREFIX, "/hot");
 pub const TAG_REACH_ROUTE: &str = concatcp!(TAG_PREFIX, "/reached/:user_id/:reach");
 pub const TAG_TAGGERS_ROUTE: &str = concatcp!(TAG_PREFIX, "/taggers/:label");
+
+// File routes
+const FILE_PREFIX: &str = concatcp!(VERSION_ROUTE, "/files");
+pub const FILE_ROUTE: &str = concatcp!(FILE_PREFIX, "/file/:file_id");
+pub const FILE_LIST_ROUTE: &str = concatcp!(FILE_PREFIX, "/by-ids");
+
+// Notification route
+pub const NOTIFICATION_ROUTE: &str = concatcp!(USER_ROUTE, "/notifications");

@@ -29,7 +29,10 @@ enum ResourceType {
         user_id: PubkyId,
         tag_id: String,
     },
-    // File,
+    File {
+        user_id: PubkyId,
+        file_id: String,
+    },
 }
 
 // Look for the end pattern after the start index, or use the end of the string if not found
@@ -67,33 +70,35 @@ impl Event {
         let uri = parts[1].to_string();
         let parsed_uri = ParsedUri::try_from(uri.as_str()).unwrap_or_default();
 
-        let resource_type = if uri.ends_with("profile.json") {
-            ResourceType::User {
+        let resource_type = match uri {
+            _ if uri.ends_with("profile.json") => ResourceType::User {
                 user_id: parsed_uri.user_id,
-            }
-        } else if uri.contains("/posts/") {
-            ResourceType::Post {
+            },
+            _ if uri.contains("/posts/") => ResourceType::Post {
                 author_id: parsed_uri.user_id,
                 post_id: parsed_uri.post_id.ok_or("Missing post_id")?,
-            }
-        } else if uri.contains("/follows/") {
-            ResourceType::Follow {
+            },
+            _ if uri.contains("/follows/") => ResourceType::Follow {
                 follower_id: parsed_uri.user_id,
                 followee_id: parsed_uri.follow_id.ok_or("Missing followee_id")?,
-            }
-        } else if uri.contains("/bookmarks/") {
-            ResourceType::Bookmark {
+            },
+            _ if uri.contains("/bookmarks/") => ResourceType::Bookmark {
                 user_id: parsed_uri.user_id,
                 bookmark_id: parsed_uri.bookmark_id.ok_or("Missing bookmark_id")?,
-            }
-        } else if uri.contains("/tags/") {
-            ResourceType::Tag {
+            },
+            _ if uri.contains("/tags/") => ResourceType::Tag {
                 user_id: parsed_uri.user_id,
                 tag_id: parsed_uri.tag_id.ok_or("Missing tag_id")?,
+            },
+            _ if uri.contains("/files/") => ResourceType::File {
+                user_id: parsed_uri.user_id,
+                file_id: parsed_uri.file_id.ok_or("Missing file_id")?,
+            },
+            _ if uri.contains("/blobs") => return Ok(None),
+            _ => {
+                error!("Unrecognized resource in URI: {}", uri);
+                return Ok(None);
             }
-        } else {
-            // Handle other resource types
-            return Err(format!("Unrecognized resource in URI: {}", uri).into());
         };
 
         Ok(Some(Event {
@@ -145,6 +150,9 @@ impl Event {
             ResourceType::Tag { user_id, tag_id } => {
                 handlers::tag::put(user_id, tag_id, blob).await?
             }
+            ResourceType::File { user_id, file_id } => {
+                handlers::file::put(self.uri, user_id, file_id, blob, &self.pubky_client).await?
+            }
         }
 
         Ok(())
@@ -167,6 +175,9 @@ impl Event {
                 bookmark_id,
             } => handlers::bookmark::del(user_id, bookmark_id).await?,
             ResourceType::Tag { user_id, tag_id } => handlers::tag::del(user_id, tag_id).await?,
+            ResourceType::File { user_id, file_id } => {
+                handlers::file::del(&user_id, file_id).await?
+            }
         }
 
         Ok(())

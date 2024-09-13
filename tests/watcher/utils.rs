@@ -3,7 +3,7 @@ use pkarr::{mainline::Testnet, Keypair};
 use pubky::PubkyClient;
 use pubky_homeserver::Homeserver;
 use pubky_nexus::{
-    models::pubky_app::{traits::GenerateId, PubkyAppPost, PubkyAppUser},
+    models::pubky_app::{traits::GenerateTimestampId, PubkyAppFile, PubkyAppPost, PubkyAppUser},
     setup, Config, EventProcessor,
 };
 use serde_json::to_vec;
@@ -13,6 +13,7 @@ pub struct WatcherTest {
     pub homeserver: Homeserver,
     pub client: PubkyClient,
     pub event_processor: EventProcessor,
+    pub config: Config,
 }
 
 impl WatcherTest {
@@ -27,6 +28,7 @@ impl WatcherTest {
         let event_processor = EventProcessor::test(&testnet, homeserver_url).await;
 
         Ok(Self {
+            config,
             homeserver,
             client,
             event_processor,
@@ -77,6 +79,23 @@ impl WatcherTest {
 
     pub async fn cleanup_post(&mut self, user_id: &str, post_id: &str) -> Result<()> {
         let url = format!("pubky://{}/pub/pubky.app/posts/{}", user_id, post_id);
+        self.client.delete(url.as_str()).await?;
+        self.ensure_event_processing_complete().await?;
+        Ok(())
+    }
+
+    pub async fn create_file(&mut self, user_id: &str, file: &PubkyAppFile) -> Result<String> {
+        let file_id = file.create_id();
+        let file_json = to_vec(file)?;
+        let url = format!("pubky://{}/pub/pubky.app/files/{}", user_id, file_id);
+        self.client.put(url.as_str(), &file_json).await?;
+
+        self.ensure_event_processing_complete().await?;
+        Ok(file_id)
+    }
+
+    pub async fn cleanup_file(&mut self, user_id: &str, file_id: &str) -> Result<()> {
+        let url = format!("pubky://{}/pub/pubky.app/files/{}", user_id, file_id);
         self.client.delete(url.as_str()).await?;
         self.ensure_event_processing_complete().await?;
         Ok(())

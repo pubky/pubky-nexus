@@ -3,3 +3,4 @@
 docker/.database
 docker/.env
 **/.DS_Store
+/static

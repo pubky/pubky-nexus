@@ -1,5 +1,6 @@
 use crate::db::graph::exec::exec_single_row;
 use crate::events::uri::ParsedUri;
+use crate::models::notification::Notification;
 use crate::models::pubky_app::traits::Validatable;
 use crate::models::pubky_app::PubkyAppTag;
 use crate::models::user::PubkyId;
@@ -18,7 +19,7 @@ pub async fn put(
     debug!("Indexing new tag: {} -> {}", user_id, tag_id);
 
     // Deserialize and validate tag
-    let tag = <PubkyAppTag as Validatable>::try_from(&blob)?;
+    let tag = <PubkyAppTag as Validatable>::try_from(&blob).await?;
 
     // Parse the embeded URI to extract author_id and post_id using parse_tagged_post_uri
     let parsed_uri = ParsedUri::try_from(tag.uri.as_str())?;
@@ -33,6 +34,7 @@ pub async fn put(
                 post_id,
                 tag_id,
                 tag.label,
+                tag.uri,
                 indexed_at,
             )
             .await
@@ -48,6 +50,7 @@ async fn put_post_tag(
     post_id: String,
     tag_id: String,
     tag_label: String,
+    post_uri: String,
     indexed_at: i64,
 ) -> Result<(), Box<dyn Error + Sync + Send>> {
     // Save new post tag to graph
@@ -56,10 +59,11 @@ async fn put_post_tag(
     );
     exec_single_row(query).await?;
 
-    let user_id_slice = user_id.to_string();
-    let author_id_slice = author_id.to_string();
+    // Save new post tag to indices
+    ingest_post_tag(&user_id, &author_id, &post_id, &tag_label).await?;
 
-    ingest_post_tag(&user_id_slice, &author_id_slice, &post_id, &tag_label).await?;
+    // Save new notification
+    Notification::new_post_tag(&user_id, &author_id, &tag_label, &post_uri).await?;
 
     Ok(())
 }
@@ -76,10 +80,12 @@ async fn put_user_tag(
         queries::write::create_user_tag(&user_id, &tagged_user_id, &tag_id, &tag_label, indexed_at);
     exec_single_row(query).await?;
 
-    let user_id_slice = user_id.to_string();
-    let author_id_slice = tagged_user_id.to_string();
+    // Save new user tag to indices
+    ingest_user_tag(&user_id, &tagged_user_id, &tag_label).await?;
 
-    ingest_user_tag(&user_id_slice, &author_id_slice, &tag_label).await?;
+    // Save new notification
+    Notification::new_user_tag(&user_id, &tagged_user_id, &tag_label).await?;
+
     Ok(())
 }
 

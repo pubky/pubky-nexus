@@ -23,7 +23,7 @@ pub struct UserLink {
 
 impl Validatable for PubkyAppUser {
     //TODO: implement full validation rules. Min/Max length of links, of bio, of username, etc.
-    fn validate(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn validate(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }
 }

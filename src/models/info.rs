@@ -1,7 +1,7 @@
 use serde::Serialize;
 use utoipa::ToSchema;
 
-use crate::db::kv::last_save::get_last_rdb_save_time;
+use crate::{db::kv::last_save::get_last_rdb_save_time, Config};
 
 #[derive(Serialize, ToSchema)]
 pub struct ServerInfo {
@@ -12,10 +12,12 @@ pub struct ServerInfo {
     pub repository: String,
     pub version: String,
     pub last_index_snapshot: u64,
+    pub base_file_url: String,
 }
 
 impl ServerInfo {
     pub async fn new() -> Self {
+        let config = Config::from_env();
         let last_index_snapshot = get_last_rdb_save_time().await.unwrap_or_default();
         Self {
             description: env!("CARGO_PKG_DESCRIPTION").to_string(),
@@ -25,6 +27,7 @@ impl ServerInfo {
             repository: env!("CARGO_PKG_REPOSITORY").to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
             last_index_snapshot,
+            base_file_url: config.base_file_url,
         }
     }
 }

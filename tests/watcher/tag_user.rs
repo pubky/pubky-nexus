@@ -4,7 +4,7 @@ use chrono::Utc;
 use pkarr::Keypair;
 use pubky_nexus::{
     models::{
-        pubky_app::{PubkyAppTag, PubkyAppUser},
+        pubky_app::{traits::GenerateHashId, PubkyAppTag, PubkyAppUser},
         user::{UserStream, UserView, USER_PIONEERS_KEY_PARTS},
     },
     RedisOps,

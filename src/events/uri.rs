@@ -8,6 +8,7 @@ pub struct ParsedUri {
     pub follow_id: Option<PubkyId>,
     pub bookmark_id: Option<String>,
     pub tag_id: Option<String>,
+    pub file_id: Option<String>,
 }
 
 impl TryFrom<&str> for ParsedUri {
@@ -55,6 +56,11 @@ impl TryFrom<&str> for ParsedUri {
         // Extract tag_id if present
         if let Some(tag_id) = extract_segment(uri, "/tags/", "/") {
             parsed_uri.tag_id = Some(tag_id.to_string());
+        }
+
+        // Extract file_id if present
+        if let Some(file_id) = extract_segment(uri, "/files/", "/") {
+            parsed_uri.file_id = Some(file_id.to_string());
         }
 
         Ok(parsed_uri)
