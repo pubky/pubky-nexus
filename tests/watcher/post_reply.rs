@@ -43,7 +43,6 @@ async fn test_homeserver_reply() -> Result<()> {
         .unwrap()
         .expect("The new post was not served from Nexus");
 
-    println!("New post served Parent: {:?}", result_parent.details);
     assert_eq!(result_parent.details.id, parent_id);
     assert_eq!(result_parent.details.content, parent_post.content);
     assert_eq!(
@@ -73,10 +72,6 @@ async fn test_homeserver_reply() -> Result<()> {
         .unwrap()
         .expect("The reply was not served from Nexus");
 
-    println!(
-        "New reply served Relationships: {:?}",
-        result_reply.relationships
-    );
     assert_eq!(result_reply.details.id, reply_id);
     assert_eq!(result_reply.details.content, reply.content);
     assert_eq!(

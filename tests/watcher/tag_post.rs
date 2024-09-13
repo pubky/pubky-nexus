@@ -72,7 +72,7 @@ async fn test_homeserver_tag_post() -> Result<()> {
 
     // Check if the user is related with tag: Tag:Taggers:tag_name
     let (_exist, member) = Taggers::check_set_member(&[label], &user_id).await.unwrap();
-    assert_eq!(member, true);
+    assert!(member);
 
     let author_post_slice: Vec<&str> = vec![&user_id, &post_id];
     let tag_label_slice = [label];

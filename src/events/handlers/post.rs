@@ -1,5 +1,6 @@
 use crate::db::graph::exec::exec_single_row;
 use crate::events::uri::ParsedUri;
+use crate::models::notification::Notification;
 use crate::models::pubky_app::traits::Validatable;
 use crate::models::{post::PostDetails, pubky_app::PubkyAppPost, user::PubkyId};
 use crate::queries;
@@ -40,6 +41,8 @@ pub async fn put(
         let parsed_uri = ParsedUri::try_from(embed.uri.as_str())?;
         interaction.push(("reposts", parsed_uri));
     }
+    // Handle "MENTIONED" relationships
+    put_mentioned_relationships(&author_id, &post_id, &post_details.content).await?;
 
     // SAVE TO INDEX
     // Reindex to sorted sets and other indexes
@@ -85,6 +88,33 @@ async fn put_repost_relationship(
         ))
         .await?;
     }
+    Ok(())
+}
+
+// Helper function to handle "MENTIONED" relationships on the post content
+pub async fn put_mentioned_relationships(
+    author_id: &PubkyId,
+    post_id: &str,
+    content: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let prefix = "pk:";
+    let user_id_len = 52;
+
+    for (start_idx, _) in content.match_indices(prefix) {
+        let user_id_start = start_idx + prefix.len();
+
+        // Try to extract and validate the user_id_candidate
+        if let Some(user_id_candidate) = content.get(user_id_start..user_id_start + user_id_len) {
+            if let Ok(pubky_id) = PubkyId::try_from(user_id_candidate) {
+                // Create the MENTIONED relationship in the graph
+                let query =
+                    queries::write::create_mention_relationship(author_id, post_id, &pubky_id);
+                exec_single_row(query).await?;
+                Notification::new_mention(author_id, &pubky_id, post_id).await?;
+            }
+        }
+    }
+
     Ok(())
 }
 

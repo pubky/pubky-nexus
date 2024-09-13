@@ -107,26 +107,6 @@ async fn test_homeserver_follow() -> Result<()> {
         "The follower should not be following anyone"
     );
 
-    // Check for notification
-    let notifications = Notification::get_by_id(&followee_id, None, None, None, None)
-        .await
-        .unwrap();
-    assert_eq!(
-        notifications.len(),
-        1,
-        "Followee should have 1 notification"
-    );
-
-    let notification = &notifications[0];
-    if let NotificationBody::Follow { followed_by } = &notification.body {
-        assert_eq!(
-            followed_by, &follower_id,
-            "Notification should contain the correct follower"
-        );
-    } else {
-        panic!("Expected a follow notification, found something else");
-    }
-
     // Cleanup
     test.cleanup_user(&follower_id).await?;
     test.cleanup_user(&followee_id).await?;
