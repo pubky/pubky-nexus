@@ -1,6 +1,5 @@
 use super::utils::WatcherTest;
 use anyhow::Result;
-use log::info;
 use pkarr::Keypair;
 use pubky_nexus::models::{
     post::PostView,

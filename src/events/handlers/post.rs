@@ -1,6 +1,7 @@
 use crate::db::graph::exec::exec_single_row;
 use crate::db::kv::index::json::JsonAction;
 use crate::events::uri::ParsedUri;
+use crate::models::notification::Notification;
 use crate::models::post::PostCounts;
 use crate::models::pubky_app::traits::Validatable;
 use crate::models::{post::PostDetails, pubky_app::PubkyAppPost, user::PubkyId};
@@ -120,6 +121,7 @@ pub async fn put_mentioned_relationships(
                 let query =
                     queries::write::create_mention_relationship(author_id, post_id, &pubky_id);
                 exec_single_row(query).await?;
+                Notification::new_mention(author_id, &pubky_id, post_id).await?;
             }
         }
     }
