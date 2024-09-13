@@ -1,7 +1,6 @@
 use super::utils::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
-use log::info;
 use pkarr::Keypair;
 use pubky_nexus::models::{
     notification::{Notification, NotificationBody},
@@ -106,7 +105,7 @@ async fn test_homeserver_follow_notification() -> Result<()> {
         2,
         "Followee should have 2 notifications after unfollow"
     );
-    if let NotificationBody::LostFriend { unfollowed_by } = &notifications[1].body {
+    if let NotificationBody::LostFriend { unfollowed_by } = &notifications[0].body {
         assert_eq!(
             unfollowed_by, &follower_id,
             "Notification should contain the correct follower"
