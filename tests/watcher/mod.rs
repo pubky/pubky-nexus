@@ -3,6 +3,7 @@ pub mod file;
 pub mod follow;
 pub mod follow_friends;
 pub mod post;
+pub mod post_engagement;
 pub mod post_pioneer;
 pub mod post_reply;
 pub mod post_reply_repost;

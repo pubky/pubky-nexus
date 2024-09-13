@@ -1,14 +1,8 @@
 use super::utils::WatcherTest;
 use anyhow::Result;
-use chrono::Utc;
 use pkarr::Keypair;
-use pubky_nexus::{
-    models::{
-        pubky_app::{PubkyAppFollow, PubkyAppUser},
-        user::UserCounts,
-    },
-    RedisOps,
-};
+use pubky_nexus::models::{pubky_app::PubkyAppUser, user::UserCounts};
+use pubky_nexus::RedisOps;
 
 #[tokio::test]
 async fn test_homeserver_follow_friend() -> Result<()> {
@@ -18,10 +12,10 @@ async fn test_homeserver_follow_friend() -> Result<()> {
     let alice_keypair = Keypair::random();
 
     let alice_user = PubkyAppUser {
-        bio: Some("I am Alice".to_string()),
+        bio: Some("test_homeserver_follow_friend".to_string()),
         image: None,
         links: None,
-        name: "Alcie".to_string(),
+        name: "Watcher:FollowFriend:Alice".to_string(),
         status: None,
     };
 
@@ -30,51 +24,39 @@ async fn test_homeserver_follow_friend() -> Result<()> {
     // Create Bob user
     let bob_keypair = Keypair::random();
     let bob_user = PubkyAppUser {
-        bio: Some("I am Bob".to_string()),
+        bio: Some("test_homeserver_follow_friend".to_string()),
         image: None,
         links: None,
-        name: "Bob".to_string(),
+        name: "Watcher:FollowFriend:Bob".to_string(),
         status: None,
     };
     let bob_id = test.create_user(&bob_keypair, &bob_user).await?;
 
-    // Follow Bob
-    let follow_bob = PubkyAppFollow {
-        created_at: Utc::now().timestamp_millis(),
-    };
-    let blob = serde_json::to_vec(&follow_bob)?;
-    let bob_follow_url = format!("pubky://{}/pub/pubky.app/follows/{}", alice_id, bob_id);
-    test.client.put(bob_follow_url.as_str(), &blob).await?;
-    // Process the event
-    test.ensure_event_processing_complete().await?;
+    // Follow Alice
+    test.create_follow(&bob_id, &alice_id).await?;
+
+    // CACHE_OP: Assert if cache has been updated
+    let alice_user_count = UserCounts::try_from_index_json(&[&alice_id])
+        .await
+        .unwrap()
+        .expect("User count not found");
+    assert_eq!(alice_user_count.followers, 1);
+    assert_eq!(alice_user_count.following, 0);
+    assert_eq!(alice_user_count.friends, 0);
 
     let bob_user_count = UserCounts::try_from_index_json(&[&bob_id])
         .await
         .unwrap()
         .expect("User count not found");
-    assert_eq!(bob_user_count.followers, 1);
-    assert_eq!(bob_user_count.following, 0);
+    assert_eq!(bob_user_count.following, 1);
+    assert_eq!(bob_user_count.followers, 0);
     assert_eq!(bob_user_count.friends, 0);
 
-    let alice_user_count = UserCounts::try_from_index_json(&[&alice_id])
-        .await
-        .unwrap()
-        .expect("User count not found");
-    assert_eq!(alice_user_count.following, 1);
-    assert_eq!(alice_user_count.followers, 0);
-    assert_eq!(alice_user_count.friends, 0);
-
-    // Follow Alice
-    let follow_alice = PubkyAppFollow {
-        created_at: Utc::now().timestamp_millis(),
-    };
-    let blob = serde_json::to_vec(&follow_alice)?;
-    let alice_follow_url = format!("pubky://{}/pub/pubky.app/follows/{}", bob_id, alice_id);
-    test.client.put(alice_follow_url.as_str(), &blob).await?;
-    // Process the event
-    test.ensure_event_processing_complete().await?;
+    // Follow Bob
+    test.create_follow(&alice_id, &bob_id).await?;
 
     // Now Alice and Bob are friends
+    // CACHE_OP: Assert if cache has been updated
     let alice_user_count = UserCounts::try_from_index_json(&[&bob_id])
         .await
         .unwrap()
@@ -94,6 +76,7 @@ async fn test_homeserver_follow_friend() -> Result<()> {
     // Cleanup
     test.cleanup_user(&alice_id).await?;
     test.cleanup_user(&bob_id).await?;
+    // TODO: Clear Follows
 
     Ok(())
 }

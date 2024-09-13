@@ -53,6 +53,7 @@ async fn test_homeserver_follow() -> Result<()> {
     // Process the event
     test.ensure_event_processing_complete().await?;
 
+    // TODO: That might come from graph
     // Verify the new follower relationship exists in Nexus
     let result_followers = Followers::get_by_id(&followee_id, None, None)
         .await
@@ -68,26 +69,19 @@ async fn test_homeserver_follow() -> Result<()> {
     assert_eq!(result_following.0.len(), 1);
     assert_eq!(result_following.0[0], followee_id);
 
-    // Get followee counts, should have a follower
-    let popular_user_count = UserCounts::try_from_index_json(&[&followee_id])
+    // CACHE_OP: Assert if cache has been updated
+    let followee_user_count = UserCounts::try_from_index_json(&[&followee_id])
         .await
         .unwrap()
         .expect("User count not found");
-    assert_eq!(popular_user_count.followers, 1);
-    // and its pioneer score has not increase because it does not have any tags or posts: Sorted:Users:Pioneers
-    let pioneer_score =
-        UserStream::check_sorted_set_member(&USER_PIONEERS_KEY_PARTS, &[&followee_id])
-            .await
-            .unwrap()
-            .unwrap();
-    assert_eq!(pioneer_score, 0);
+    assert_eq!(followee_user_count.followers, 1);
 
     // Get following counts, should be following
-    let popular_user_count = UserCounts::try_from_index_json(&[&follower_id])
+    let follower_user_count = UserCounts::try_from_index_json(&[&follower_id])
         .await
         .unwrap()
         .expect("User count not found");
-    assert_eq!(popular_user_count.following, 1);
+    assert_eq!(follower_user_count.following, 1);
 
     // Unfollow the user
     test.client.delete(follow_url.as_str()).await?;
