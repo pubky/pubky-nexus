@@ -14,7 +14,7 @@ pub enum PostDeleteType {
     TaggedPost,  // A post you tagged was deleted.
 }
 
-#[derive(Serialize, Deserialize, ToSchema, Default)]
+#[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
 pub struct Notification {
     pub timestamp: i64,
     pub body: NotificationBody,

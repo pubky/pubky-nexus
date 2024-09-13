@@ -83,7 +83,6 @@ async fn test_homeserver_follow_notification() -> Result<()> {
         1,
         "Follower should have 1 new friend notification"
     );
-
     if let NotificationBody::NewFriend { followed_by } = &notifications_follower[0].body {
         assert_eq!(
             followed_by, &followee_id,
@@ -101,13 +100,13 @@ async fn test_homeserver_follow_notification() -> Result<()> {
     let notifications = Notification::get_by_id(&followee_id, None, None, None, None)
         .await
         .unwrap();
+
     assert_eq!(
         notifications.len(),
         2,
         "Followee should have 2 notifications after unfollow"
     );
-
-    if let NotificationBody::LostFriend { unfollowed_by } = &notifications[0].body {
+    if let NotificationBody::LostFriend { unfollowed_by } = &notifications[1].body {
         assert_eq!(
             unfollowed_by, &follower_id,
             "Notification should contain the correct follower"
@@ -117,9 +116,6 @@ async fn test_homeserver_follow_notification() -> Result<()> {
     }
 
     // Step 6: Followee unfollows the follower (no new notification should be generated)
-
-    // TO FIX? Homeserver? URL cannot be deleted, it is not found 404.
-    // This follow relationship seems to be deleted when `follow_url` is deleted just above?
     test.client.delete(follow_back_url.as_str()).await?;
     test.ensure_event_processing_complete().await?;
 
