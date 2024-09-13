@@ -83,6 +83,22 @@ pub fn create_repost_relationship(
     .param("reposted_post_id", reposted_post_id)
 }
 
+// Create a mentioned relationship between a post and a user
+pub fn create_mention_relationship(
+    author_id: &str,
+    post_id: &str,
+    mentioned_user_id: &str,
+) -> Query {
+    query(
+        "MATCH (author:User {id: $author_id})-[:AUTHORED]->(post:Post {id: $post_id}),
+              (mentioned_user:User {id: $mentioned_user_id})
+         MERGE (post)-[:MENTIONED]->(mentioned_user)",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
+    .param("mentioned_user_id", mentioned_user_id)
+}
+
 /// Create a follows relationship between two users
 /// Validates that both users exist before creating the relationship
 pub fn create_follow(follower_id: &str, followee_id: &str, indexed_at: i64) -> Query {

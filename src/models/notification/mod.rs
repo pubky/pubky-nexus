@@ -51,6 +51,10 @@ pub enum NotificationBody {
         embed_uri: String,
         repost_uri: String,
     },
+    Mention {
+        mentioned_by: String,
+        post_uri: String,
+    },
     PostDeleted {
         delete_type: PostDeleteType,
         deleted_by: String,
@@ -214,6 +218,24 @@ impl Notification {
         };
         let notification = Notification::new(body);
         notification.to_index(parent_post_author).await
+    }
+
+    pub async fn new_mention(
+        user_id: &str,
+        mentioned_id: &str,
+        post_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if user_id == mentioned_id {
+            return Ok(());
+        }
+        let body = NotificationBody::Mention {
+            mentioned_by: user_id.to_string(),
+            post_uri: format!("pubky://{user_id}/pub/pubky.app/posts/{post_id}"),
+        };
+        let notification = Notification::new(body);
+        notification.to_index(mentioned_id).await?;
+
+        Ok(())
     }
 
     pub async fn new_repost(
