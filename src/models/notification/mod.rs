@@ -3,7 +3,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-#[derive(Serialize, Deserialize, ToSchema, Clone)]
+#[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
 pub enum PostDeleteType {
     Reply,       // A reply to you was deleted.
     Repost,      // A repost of your post was deleted.
@@ -14,13 +14,13 @@ pub enum PostDeleteType {
     TaggedPost,  // A post you tagged was deleted.
 }
 
-#[derive(Serialize, Deserialize, ToSchema, Default)]
+#[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
 pub struct Notification {
     pub timestamp: i64,
     pub body: NotificationBody,
 }
 
-#[derive(Serialize, Deserialize, Clone, ToSchema)]
+#[derive(Serialize, Deserialize, Clone, ToSchema, Debug)]
 #[serde(tag = "type")]
 pub enum NotificationBody {
     Follow {
@@ -135,19 +135,17 @@ impl Notification {
         followee_id: &str,
         new_friend: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let body = NotificationBody::Follow {
-            followed_by: user_id.to_string(),
-        };
-        let notification = Notification::new(body.clone());
-        notification.to_index(followee_id).await?;
-
-        if new_friend {
-            let body = NotificationBody::NewFriend {
+        let body = match new_friend {
+            true => NotificationBody::NewFriend {
                 followed_by: user_id.to_string(),
-            };
-            let notification = Notification::new(body);
-            notification.to_index(followee_id).await?;
-        }
+            },
+            false => NotificationBody::Follow {
+                followed_by: user_id.to_string(),
+            },
+        };
+
+        let notification = Notification::new(body);
+        notification.to_index(followee_id).await?;
 
         Ok(())
     }
@@ -155,15 +153,17 @@ impl Notification {
     pub async fn lost_follow(
         user_id: &str,
         followee_id: &str,
-        was_friend: bool,
+        were_friends: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if !were_friends {
+            return Ok(());
+        }
+
         let body = NotificationBody::LostFriend {
             unfollowed_by: user_id.to_string(),
         };
         let notification = Notification::new(body);
-        if was_friend {
-            notification.to_index(followee_id).await?;
-        }
+        notification.to_index(followee_id).await?;
 
         Ok(())
     }

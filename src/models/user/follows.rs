@@ -57,6 +57,13 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
 
     fn get_query(user_id: &str, skip: Option<usize>, limit: Option<usize>) -> Query;
     fn get_ids_field_name() -> &'static str;
+
+    // Checks whether user_a is (following | follower) of user_b
+    async fn check(user_a_id: &str, user_b_id: &str) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        let user_a_key_parts = &[user_a_id][..];
+        let (_, follow) = Self::check_set_member(user_a_key_parts, user_b_id).await?;
+        Ok(follow)
+    }
 }
 
 #[derive(Serialize, Deserialize, ToSchema, Default)]
@@ -149,5 +156,21 @@ impl Friends {
         }
 
         Ok(Some(Self(friends)))
+    }
+
+    // Checks wjether user_a and user_b are friends
+    pub async fn check(
+        user_a_id: &str,
+        user_b_id: &str,
+    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        let user_a_key_parts = &[user_a_id][..];
+        let user_b_key_parts = &[user_b_id][..];
+
+        let ((_, a_follows_b), (_, b_follows_a)) = tokio::try_join!(
+            Following::check_set_member(user_a_key_parts, user_b_id),
+            Following::check_set_member(user_b_key_parts, user_a_id),
+        )?;
+
+        Ok(a_follows_b && b_follows_a)
     }
 }

@@ -1,10 +1,9 @@
+use super::Event;
 use crate::Config;
 use log::{debug, info};
-use pkarr::mainline::Testnet;
+use pkarr::mainline::dht::Testnet;
 use pubky::PubkyClient;
 use reqwest::Client;
-
-use super::Event;
 
 pub struct EventProcessor {
     pubky_client: PubkyClient,
