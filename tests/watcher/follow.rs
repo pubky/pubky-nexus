@@ -4,11 +4,8 @@ use chrono::Utc;
 use pkarr::Keypair;
 use pubky_nexus::{
     models::{
-        notification::{Notification, NotificationBody},
         pubky_app::{PubkyAppFollow, PubkyAppUser},
-        user::{
-            Followers, Following, UserCounts, UserFollows, UserStream, USER_PIONEERS_KEY_PARTS,
-        },
+        user::{Followers, Following, UserCounts, UserFollows},
     },
     RedisOps,
 };

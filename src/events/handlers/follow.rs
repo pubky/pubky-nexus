@@ -2,7 +2,7 @@ use crate::db::graph::exec::exec_single_row;
 use crate::models::notification::Notification;
 use crate::models::pubky_app::traits::Validatable;
 use crate::models::pubky_app::PubkyAppFollow;
-use crate::models::user::{PubkyId, UserFollows};
+use crate::models::user::PubkyId;
 use crate::models::user::{Followers, Following, Friends};
 use crate::reindex::ingest_follow;
 use crate::{queries, RedisOps};
@@ -26,19 +26,8 @@ pub async fn put(
     let query = queries::write::create_follow(&follower_id, &followee_id, indexed_at);
     exec_single_row(query).await?;
 
-    // Checks whether the followee was following the follower (Is this a new friendship?)
-    let new_friend = Followers::check(&followee_id, &follower_id).await?;
-
-    // Update follow indexes
-    Followers::put_index_set(&[&follower_id], &[&followee_id]).await?;
-    Following::put_index_set(&[&followee_id], &[&follower_id]).await?;
-
-    // Notify the followee
-    Notification::new_follow(&follower_id, &followee_id, new_friend).await?;
-
-    //ingest_follow(follower_id, followee_id).await
-
-    Ok(())
+    // SAVE TO INDEX
+    ingest_follow(follower_id, followee_id).await
 }
 
 pub async fn del(

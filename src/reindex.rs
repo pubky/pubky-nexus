@@ -1,6 +1,7 @@
 use crate::db::kv::flush::clear_redis;
 use crate::db::kv::index::json::JsonAction;
 use crate::events::uri::ParsedUri;
+use crate::models::notification::Notification;
 use crate::models::post::{Bookmark, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS};
 use crate::models::tag::post::{TagPost, POST_TAGS_KEY_PARTS};
 use crate::models::tag::search::{TagSearch, TAG_GLOBAL_POST_ENGAGEMENT, TAG_GLOBAL_POST_TIMELINE};
@@ -225,18 +226,26 @@ pub async fn ingest_follow(
     follower_id: PubkyId,
     followee_id: PubkyId,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    Followers::put_index_set(&[&follower_id], &[followee_id.to_string().as_ref()]).await?;
-    Following::put_index_set(&[&followee_id], &[follower_id.0.as_ref()]).await?;
+    // Update follow indexes
+    Followers::put_index_set(&[&follower_id], &[&followee_id]).await?;
+    Following::put_index_set(&[&followee_id], &[&follower_id]).await?;
+
+    // Update UserCount indexer
     UserCounts::modify_json_field(&[&follower_id], "following", JsonAction::Increment(1)).await?;
     UserCounts::modify_json_field(&[&followee_id], "followers", JsonAction::Increment(1)).await?;
-    // Check if with that new follow both users are friends
-    // TODO: use Followers::check(followee_id, follower_id)
-    let (_, member) = Followers::check_set_member(&[&followee_id], &follower_id).await?;
-    if member {
+
+    // Checks whether the followee was following the follower (Is this a new friendship?)
+    let new_friend = Followers::check(&followee_id, &follower_id).await?;
+    if new_friend {
         UserCounts::modify_json_field(&[&follower_id], "friends", JsonAction::Increment(1)).await?;
         UserCounts::modify_json_field(&[&followee_id], "friends", JsonAction::Increment(1)).await?;
     }
+    // Update the followee pioneer score
     update_pioneer_score(&followee_id).await?;
+
+    // Notify the followee
+    Notification::new_follow(&follower_id, &followee_id, new_friend).await?;
+
     Ok(())
 }
 
