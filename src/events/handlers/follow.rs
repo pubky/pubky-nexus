@@ -27,8 +27,8 @@ pub async fn put(
     exec_single_row(query).await?;
 
     // Notify the followee
-    Notification::new_follow(&follower_id, &followee_id, false).await?;// SAVE TO INDEX
-    // Update follow data
+    Notification::new_follow(&follower_id, &followee_id, false).await?; // SAVE TO INDEX
+                                                                        // Update follow data
     ingest_follow(follower_id, followee_id).await
 }
 
