@@ -36,7 +36,6 @@ async fn test_homeserver_repost() -> Result<()> {
         .unwrap()
         .expect("The new post was not served from Nexus");
 
-    println!("New post served: {:?}", result_post.details);
     assert_eq!(result_post.details.id, post_id);
     assert_eq!(result_post.details.content, post_post.content);
     assert_eq!(
@@ -69,7 +68,6 @@ async fn test_homeserver_repost() -> Result<()> {
         .unwrap()
         .expect("The repost was not served from Nexus");
 
-    println!("New repost served: {:?}", result_repost.details);
     assert_eq!(result_repost.details.id, repost_id);
     assert_eq!(result_repost.details.content, repost.content);
     assert_eq!(
