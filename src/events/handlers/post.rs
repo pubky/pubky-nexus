@@ -36,7 +36,7 @@ pub async fn put(
     if let Some(embed) = &post.embed {
         put_repost_relationship(&author_id, &post_id, &embed.uri).await?;
     }
-    // Handle "MENTIONED" relationshios
+    // Handle "MENTIONED" relationships
     put_mentioned_relationships(&author_id, &post_id, &post_details.content).await?;
 
     // SAVE TO INDEX
