@@ -1,6 +1,7 @@
 pub mod bookmark;
 pub mod file;
 pub mod follow;
+pub mod mention;
 pub mod post;
 pub mod reply;
 pub mod repost;
