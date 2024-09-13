@@ -1,10 +1,17 @@
 use super::utils::WatcherTest;
 use anyhow::Result;
 use pkarr::Keypair;
-use pubky_nexus::{models::{
-    post::{PostCounts, PostStream, PostThread, PostView, POST_PER_USER_KEY_PARTS, POST_TOTAL_ENGAGEMENT_KEY_PARTS},
-    pubky_app::{PostKind, PubkyAppPost, PubkyAppUser}, user::UserCounts,
-}, RedisOps};
+use pubky_nexus::{
+    models::{
+        post::{
+            PostCounts, PostStream, PostThread, PostView, POST_PER_USER_KEY_PARTS,
+            POST_TOTAL_ENGAGEMENT_KEY_PARTS,
+        },
+        pubky_app::{PostKind, PubkyAppPost, PubkyAppUser},
+        user::UserCounts,
+    },
+    RedisOps,
+};
 
 #[tokio::test]
 async fn test_homeserver_reply() -> Result<()> {
@@ -102,10 +109,14 @@ async fn test_homeserver_reply() -> Result<()> {
 
     // Sorted:Post:User:user_id
     let post_stream_key_parts = [&POST_PER_USER_KEY_PARTS[..], &[&user_id]].concat();
-    let post_timeline = PostStream::check_sorted_set_member(&post_stream_key_parts, &[&parent_id]).await.unwrap();
+    let post_timeline = PostStream::check_sorted_set_member(&post_stream_key_parts, &[&parent_id])
+        .await
+        .unwrap();
     assert_eq!(post_timeline.is_some(), true);
 
-    let exist_count = UserCounts::try_from_index_json(&[&user_id]).await.unwrap()
+    let exist_count = UserCounts::try_from_index_json(&[&user_id])
+        .await
+        .unwrap()
         .expect("User count not found");
 
     assert_eq!(exist_count.posts, 2);

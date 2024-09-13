@@ -2,8 +2,8 @@ use crate::db::graph::exec::exec_single_row;
 use crate::events::uri::ParsedUri;
 use crate::models::pubky_app::traits::Validatable;
 use crate::models::{post::PostDetails, pubky_app::PubkyAppPost, user::PubkyId};
-use crate::reindex::{ingest_post, reindex_post};
 use crate::queries;
+use crate::reindex::{ingest_post, reindex_post};
 use axum::body::Bytes;
 use log::debug;
 use std::error::Error;
@@ -30,7 +30,7 @@ pub async fn put(
 
     // Handle "REPLIED" relationship and counts if `parent` is Some
     if let Some(parent_uri) = &post.parent {
-        put_reply_relationship(&author_id, &post_id, &parent_uri).await?;
+        put_reply_relationship(&author_id, &post_id, parent_uri).await?;
         let parsed_uri = ParsedUri::try_from(parent_uri.as_str())?;
         interaction.push(("replies", parsed_uri));
     }

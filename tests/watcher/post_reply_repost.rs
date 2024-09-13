@@ -1,10 +1,14 @@
 use super::utils::WatcherTest;
 use anyhow::Result;
 use pkarr::Keypair;
-use pubky_nexus::{models::{
-    post::{PostCounts, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS},
-    pubky_app::{PostEmbed, PostKind, PubkyAppPost, PubkyAppUser}, user::UserCounts,
-}, RedisOps};
+use pubky_nexus::{
+    models::{
+        post::{PostCounts, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS},
+        pubky_app::{PostEmbed, PostKind, PubkyAppPost, PubkyAppUser},
+        user::UserCounts,
+    },
+    RedisOps,
+};
 
 #[tokio::test]
 async fn test_homeserver_reply_repost() -> Result<()> {
@@ -69,7 +73,7 @@ async fn test_homeserver_reply_repost() -> Result<()> {
             .unwrap()
             .unwrap();
     assert_eq!(total_engagement, 2);
-    
+
     // Assert the parent post has changed stats. Post:Counts:user_id:post_id
     let post_count = PostCounts::try_from_index_json(&parent_post_key)
         .await
@@ -79,7 +83,9 @@ async fn test_homeserver_reply_repost() -> Result<()> {
     assert_eq!(post_count.replies, 1);
     assert_eq!(post_count.reposts, 1);
 
-    let exist_count = UserCounts::try_from_index_json(&[&user_id]).await.unwrap()
+    let exist_count = UserCounts::try_from_index_json(&[&user_id])
+        .await
+        .unwrap()
         .expect("User count not found");
 
     assert_eq!(exist_count.posts, 3);

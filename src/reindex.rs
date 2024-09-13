@@ -116,7 +116,8 @@ pub async fn ingest_post(
             &parent_uri.user_id,
             &parent_uri.post_id.ok_or("Missing post ID")?,
         ];
-        PostCounts::modify_json_field(parent_post_key_parts, action, JsonAction::Increment(1)).await?;
+        PostCounts::modify_json_field(parent_post_key_parts, action, JsonAction::Increment(1))
+            .await?;
         PostStream::put_score_index_sorted_set(
             &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
             parent_post_key_parts,
@@ -239,7 +240,9 @@ pub async fn ingest_follow(
     Ok(())
 }
 
-async fn update_pioneer_score(author_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn update_pioneer_score(
+    author_id: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let exist_count = UserCounts::try_from_index_json(&[author_id]).await?;
     if let Some(count) = exist_count {
         // Update user pioneer score
