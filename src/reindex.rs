@@ -228,7 +228,13 @@ pub async fn ingest_follow(
     Following::put_index_set(&[&followee_id], &[follower_id.0.as_ref()]).await?;
     UserCounts::modify_json_field(&[&follower_id], "following", JsonAction::Increment(1)).await?;
     UserCounts::modify_json_field(&[&followee_id], "followers", JsonAction::Increment(1)).await?;
-    // TODO: Missing the check if they are friends now. Check if followee follows the follower
+    // Check if with that new follow both users are friends
+    // TODO: use Followers::check(followee_id, follower_id)
+    let (_, member) = Followers::check_set_member(&[&followee_id], &follower_id).await?;
+    if member {
+        UserCounts::modify_json_field(&[&follower_id], "friends", JsonAction::Increment(1)).await?;
+        UserCounts::modify_json_field(&[&followee_id], "friends", JsonAction::Increment(1)).await?;
+    }
     update_pioneer_score(&followee_id).await?;
     Ok(())
 }

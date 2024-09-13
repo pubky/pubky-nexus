@@ -139,9 +139,10 @@ async fn test_homeserver_post_pioneer() -> Result<()> {
     // // // TODO: Impl DEL post. Assert the reply does not exist in Nexus
     // test.cleanup_post(&user_id, &reply_id).await?;
 
-    // // Cleanup
-    // test.cleanup_user(&user_id).await?;
-    // test.cleanup_post(&user_id, &parent_post_id).await?;
+    // Cleanup
+    test.cleanup_user(&popular_user_id).await?;
+    test.cleanup_user(&unknown_user_id).await?;
+    //test.cleanup_post(&user_id, &parent_post_id).await?;
 
     Ok(())
 }
