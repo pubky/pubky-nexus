@@ -5,7 +5,7 @@ use crate::RedisOps;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-const USER_NAME_KEY_PARTS: [&str; 2] = ["Users", "Name"];
+pub const USER_NAME_KEY_PARTS: [&str; 2] = ["Users", "Name"];
 
 #[derive(Serialize, Deserialize, ToSchema, Default)]
 pub struct UserSearch(pub Vec<String>);
