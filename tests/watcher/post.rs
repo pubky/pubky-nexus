@@ -1,9 +1,13 @@
 use super::utils::WatcherTest;
 use anyhow::Result;
 use pkarr::Keypair;
-use pubky_nexus::models::{
-    post::PostView,
-    pubky_app::{PostKind, PubkyAppPost, PubkyAppUser},
+use pubky_nexus::{
+    models::{
+        post::{PostStream, PostView, POST_PER_USER_KEY_PARTS, POST_TIMELINE_KEY_PARTS},
+        pubky_app::{PostKind, PubkyAppPost, PubkyAppUser},
+        user::{UserCounts, UserStream, USER_PIONEERS_KEY_PARTS},
+    },
+    RedisOps,
 };
 
 #[tokio::test]
@@ -46,6 +50,34 @@ async fn test_homeserver_post() -> Result<()> {
     assert!(result_post.details.indexed_at > 0);
     assert_eq!(result_post.counts.tags, 0);
     assert_eq!(result_post.counts.replies, 0);
+
+    // Check the cache state
+    // TODO: all that checks are the same also for reply and repost. Maybe add in a watcher/post/utils.rs
+    let post_key: &[&str] = &[&user_id, &post_id];
+    let global_timeline = PostStream::check_sorted_set_member(&POST_TIMELINE_KEY_PARTS, post_key)
+        .await
+        .unwrap();
+    assert_eq!(global_timeline.is_some(), true);
+    let post_stream_key_parts = [&POST_PER_USER_KEY_PARTS[..], &[&user_id]].concat();
+    let post_timeline = PostStream::check_sorted_set_member(&post_stream_key_parts, &[&post_id])
+        .await
+        .unwrap();
+    assert_eq!(post_timeline.is_some(), true);
+    // Both timestamp has to be the same
+    assert_eq!(global_timeline.unwrap(), post_timeline.unwrap());
+    // Has pioneer score
+    let pioneer_score = UserStream::check_sorted_set_member(&USER_PIONEERS_KEY_PARTS, &[&user_id])
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(pioneer_score, 0);
+
+    let exist_count = UserCounts::try_from_index_json(&[&user_id])
+        .await
+        .unwrap()
+        .expect("User count not found");
+
+    assert_eq!(exist_count.posts, 1);
 
     // Cleanup
     test.cleanup_user(&user_id).await?;

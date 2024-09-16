@@ -1,12 +1,10 @@
 use crate::db::graph::exec::exec_single_row;
-use crate::db::kv::index::json::JsonAction;
 use crate::events::uri::ParsedUri;
 use crate::models::notification::Notification;
-use crate::models::post::PostCounts;
 use crate::models::pubky_app::traits::Validatable;
 use crate::models::{post::PostDetails, pubky_app::PubkyAppPost, user::PubkyId};
-use crate::reindex::reindex_post;
-use crate::{queries, RedisOps};
+use crate::queries;
+use crate::reindex::{ingest_post, reindex_post};
 use axum::body::Bytes;
 use log::debug;
 use std::error::Error;
@@ -28,13 +26,20 @@ pub async fn put(
     // SAVE TO GRAPH
     // Add new post node into the graph
     post_details.put_to_graph().await?;
+
+    let mut interaction: Vec<(&str, ParsedUri)> = Vec::new();
+
     // Handle "REPLIED" relationship and counts if `parent` is Some
     if let Some(parent_uri) = &post.parent {
         put_reply_relationship(&author_id, &post_id, parent_uri).await?;
+        let parsed_uri = ParsedUri::try_from(parent_uri.as_str())?;
+        interaction.push(("replies", parsed_uri));
     }
     // Handle "REPOSTED" relationship and counts if `embed.uri` is Some
     if let Some(embed) = &post.embed {
         put_repost_relationship(&author_id, &post_id, &embed.uri).await?;
+        let parsed_uri = ParsedUri::try_from(embed.uri.as_str())?;
+        interaction.push(("reposts", parsed_uri));
     }
     // Handle "MENTIONED" relationships
     put_mentioned_relationships(&author_id, &post_id, &post_details.content).await?;
@@ -42,24 +47,8 @@ pub async fn put(
     // SAVE TO INDEX
     // Reindex to sorted sets and other indexes
     reindex_post(&author_id, &post_id).await?;
-    // Handle "REPLIED" relationship and counts if `parent` is Some
-    if let Some(parent_uri) = post.parent {
-        let parsed_uri = ParsedUri::try_from(parent_uri.as_str())?;
-        let post_key_parts: &[&str] = &[
-            &parsed_uri.user_id,
-            &parsed_uri.post_id.ok_or("Missing post ID")?,
-        ];
-        PostCounts::modify_json_field(post_key_parts, "replies", JsonAction::Increment(1)).await?;
-    }
-    // Handle "REPOSTED" relationship and counts if `embed.uri` is Some
-    if let Some(embed) = post.embed {
-        let parsed_uri = ParsedUri::try_from(embed.uri.as_str())?;
-        let post_key_parts: &[&str] = &[
-            &parsed_uri.user_id,
-            &parsed_uri.post_id.ok_or("Missing post ID")?,
-        ];
-        PostCounts::modify_json_field(post_key_parts, "reposts", JsonAction::Increment(1)).await?;
-    }
+    // Ingest the post data
+    ingest_post(&author_id, interaction).await?;
 
     Ok(())
 }

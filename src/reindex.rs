@@ -1,5 +1,7 @@
 use crate::db::kv::flush::clear_redis;
 use crate::db::kv::index::json::JsonAction;
+use crate::events::uri::ParsedUri;
+use crate::models::notification::Notification;
 use crate::models::post::{Bookmark, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS};
 use crate::models::tag::post::{TagPost, POST_TAGS_KEY_PARTS};
 use crate::models::tag::search::{TagSearch, TAG_GLOBAL_POST_ENGAGEMENT, TAG_GLOBAL_POST_TIMELINE};
@@ -7,7 +9,7 @@ use crate::models::tag::stream::{HotTags, Taggers, TAG_GLOBAL_HOT};
 use crate::models::tag::traits::TagCollection;
 use crate::models::tag::user::{TagUser, USER_TAGS_KEY_PARTS};
 use crate::models::traits::Collection;
-use crate::models::user::{Followers, Following, UserDetails, UserFollows, UserStream};
+use crate::models::user::{Followers, Following, PubkyId, UserDetails, UserFollows, UserStream};
 use crate::{
     db::connectors::neo4j::get_neo4j_graph,
     models::post::{PostCounts, PostDetails, PostRelationships},
@@ -92,13 +94,38 @@ pub async fn reindex_post(
     author_id: &str,
     post_id: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Initialise all the values of the Posts
     tokio::try_join!(
         PostDetails::get_from_graph(author_id, post_id),
         PostCounts::get_from_graph(author_id, post_id),
         PostRelationships::get_from_graph(author_id, post_id),
         TagPost::get_from_graph(author_id, Some(post_id))
     )?;
+    Ok(())
+}
 
+pub async fn ingest_post(
+    author_id: &str,
+    interactions: Vec<(&str, ParsedUri)>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    UserCounts::modify_json_field(&[author_id], "posts", JsonAction::Increment(1)).await?;
+    // Mutate the pioneers index of the user
+    update_pioneer_score(author_id).await?;
+    // Post creation from an interaction: REPLY or REPOST
+    for (action, parent_uri) in interactions {
+        let parent_post_key_parts: &[&str] = &[
+            &parent_uri.user_id,
+            &parent_uri.post_id.ok_or("Missing post ID")?,
+        ];
+        PostCounts::modify_json_field(parent_post_key_parts, action, JsonAction::Increment(1))
+            .await?;
+        PostStream::put_score_index_sorted_set(
+            &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
+            parent_post_key_parts,
+            ScoreAction::Increment(1.0),
+        )
+        .await?;
+    }
     Ok(())
 }
 
@@ -175,13 +202,13 @@ pub async fn ingest_post_tag(
 
 pub async fn ingest_user_tag(
     user_id: &str,
-    tagged_user_id: &str,
+    author_id: &str,
     tag_label: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let user_tags_key_parts = [&USER_TAGS_KEY_PARTS[..], &[user_id]].concat();
-    let user_slice = [tagged_user_id, tag_label];
+    let user_slice = [author_id, tag_label];
     // Increment in one the user tags
-    UserCounts::modify_json_field(&[tagged_user_id], "tags", JsonAction::Increment(1)).await?;
+    UserCounts::modify_json_field(&[author_id], "tags", JsonAction::Increment(1)).await?;
     // Add label count to the user profile
     TagUser::put_score_index_sorted_set(
         &user_tags_key_parts,
@@ -191,10 +218,44 @@ pub async fn ingest_user_tag(
     .await?;
     // Add user to tag taggers list
     TagUser::put_index_set(&user_slice, &[user_id]).await?;
-    let exist_count = UserCounts::try_from_index_json(&[tagged_user_id]).await?;
+    update_pioneer_score(author_id).await?;
+    Ok(())
+}
+
+pub async fn ingest_follow(
+    follower_id: PubkyId,
+    followee_id: PubkyId,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Update follow indexes
+    Followers::put_index_set(&[&follower_id], &[&followee_id]).await?;
+    Following::put_index_set(&[&followee_id], &[&follower_id]).await?;
+
+    // Update UserCount indexer
+    UserCounts::modify_json_field(&[&follower_id], "following", JsonAction::Increment(1)).await?;
+    UserCounts::modify_json_field(&[&followee_id], "followers", JsonAction::Increment(1)).await?;
+
+    // Checks whether the followee was following the follower (Is this a new friendship?)
+    let new_friend = Followers::check(&followee_id, &follower_id).await?;
+    if new_friend {
+        UserCounts::modify_json_field(&[&follower_id], "friends", JsonAction::Increment(1)).await?;
+        UserCounts::modify_json_field(&[&followee_id], "friends", JsonAction::Increment(1)).await?;
+    }
+    // Update the followee pioneer score
+    update_pioneer_score(&followee_id).await?;
+
+    // Notify the followee
+    Notification::new_follow(&follower_id, &followee_id, new_friend).await?;
+
+    Ok(())
+}
+
+async fn update_pioneer_score(
+    author_id: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let exist_count = UserCounts::try_from_index_json(&[author_id]).await?;
     if let Some(count) = exist_count {
         // Update user pioneer score
-        UserStream::add_to_pioneers_sorted_set(tagged_user_id, &count).await?;
+        UserStream::add_to_pioneers_sorted_set(author_id, &count).await?;
     }
     Ok(())
 }

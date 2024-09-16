@@ -95,7 +95,7 @@ async fn test_homeserver_tag_post() -> Result<()> {
         "Post author should have 0 notification. Self tagging."
     );
 
-    // Missing: Sorted:Tags:Global:Post:Timeline. We do not have time line yet
+    // TODO: Missing timeline check: Sorted:Tags:Global:Post:Timeline
 
     // Tag global engagement: Sorted:Tags:Global:Post:TotalEngagement
     let total_engagement = TagSearch::check_sorted_set_member(

@@ -1,9 +1,12 @@
 use anyhow::Result;
+use chrono::Utc;
 use pkarr::{mainline::Testnet, Keypair};
 use pubky::PubkyClient;
 use pubky_homeserver::Homeserver;
 use pubky_nexus::{
-    models::pubky_app::{traits::GenerateTimestampId, PubkyAppFile, PubkyAppPost, PubkyAppUser},
+    models::pubky_app::{
+        traits::GenerateTimestampId, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser,
+    },
     setup, Config, EventProcessor,
 };
 use serde_json::to_vec;
@@ -97,6 +100,21 @@ impl WatcherTest {
     pub async fn cleanup_file(&mut self, user_id: &str, file_id: &str) -> Result<()> {
         let url = format!("pubky://{}/pub/pubky.app/files/{}", user_id, file_id);
         self.client.delete(url.as_str()).await?;
+        self.ensure_event_processing_complete().await?;
+        Ok(())
+    }
+
+    pub async fn create_follow(&mut self, follower_id: &str, followee_id: &str) -> Result<()> {
+        let follow_relationship = PubkyAppFollow {
+            created_at: Utc::now().timestamp_millis(),
+        };
+        let blob = serde_json::to_vec(&follow_relationship)?;
+        let follow_url = format!(
+            "pubky://{}/pub/pubky.app/follows/{}",
+            follower_id, followee_id
+        );
+        self.client.put(follow_url.as_str(), &blob).await?;
+        // Process the event
         self.ensure_event_processing_complete().await?;
         Ok(())
     }

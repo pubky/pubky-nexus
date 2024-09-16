@@ -2,9 +2,12 @@ use super::utils::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
 use pkarr::Keypair;
-use pubky_nexus::models::{
-    pubky_app::{PubkyAppFollow, PubkyAppUser},
-    user::{Followers, Following, UserFollows},
+use pubky_nexus::{
+    models::{
+        pubky_app::{PubkyAppFollow, PubkyAppUser},
+        user::{Followers, Following, UserCounts, UserFollows},
+    },
+    RedisOps,
 };
 
 #[tokio::test]
@@ -47,6 +50,7 @@ async fn test_homeserver_follow() -> Result<()> {
     // Process the event
     test.ensure_event_processing_complete().await?;
 
+    // TODO: That might come from graph
     // Verify the new follower relationship exists in Nexus
     let result_followers = Followers::get_by_id(&followee_id, None, None)
         .await
@@ -61,6 +65,20 @@ async fn test_homeserver_follow() -> Result<()> {
         .expect("Following should exist");
     assert_eq!(result_following.0.len(), 1);
     assert_eq!(result_following.0[0], followee_id);
+
+    // CACHE_OP: Assert if cache has been updated
+    let followee_user_count = UserCounts::try_from_index_json(&[&followee_id])
+        .await
+        .unwrap()
+        .expect("User count not found");
+    assert_eq!(followee_user_count.followers, 1);
+
+    // Get following counts, should be following
+    let follower_user_count = UserCounts::try_from_index_json(&[&follower_id])
+        .await
+        .unwrap()
+        .expect("User count not found");
+    assert_eq!(follower_user_count.following, 1);
 
     // Unfollow the user
     test.client.delete(follow_url.as_str()).await?;

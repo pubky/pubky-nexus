@@ -1,9 +1,16 @@
 use super::utils::WatcherTest;
 use anyhow::Result;
 use pkarr::Keypair;
-use pubky_nexus::models::{
-    post::PostView,
-    pubky_app::{PostEmbed, PostKind, PubkyAppPost, PubkyAppUser},
+use pubky_nexus::{
+    models::{
+        post::{
+            PostCounts, PostStream, PostView, POST_PER_USER_KEY_PARTS,
+            POST_TOTAL_ENGAGEMENT_KEY_PARTS,
+        },
+        pubky_app::{PostEmbed, PostKind, PubkyAppPost, PubkyAppUser},
+        user::UserCounts,
+    },
+    RedisOps,
 };
 
 #[tokio::test]
@@ -80,13 +87,36 @@ async fn test_homeserver_repost() -> Result<()> {
     assert_eq!(result_repost.counts.replies, 0);
     assert_eq!(result_repost.relationships.reposted, Some(post_uri));
 
-    // Assert the post post has changed stats
-    let result_post = PostView::get_by_id(&user_id, &post_id, None, None, None)
+    let parent_post_key: [&str; 2] = [&user_id, &post_id];
+
+    let post_count = PostCounts::try_from_index_json(&parent_post_key)
         .await
         .unwrap()
-        .expect("The post was not served from Nexus");
+        .expect("The new post was not served from Nexus");
 
-    assert_eq!(result_post.counts.reposts, 1);
+    assert_eq!(post_count.reposts, 1);
+
+    // Check if parent post engagement: Sorted:Posts:Global:TotalEngagement:user_id:post_id
+    let total_engagement =
+        PostStream::check_sorted_set_member(&POST_TOTAL_ENGAGEMENT_KEY_PARTS, &parent_post_key)
+            .await
+            .unwrap()
+            .unwrap();
+    assert_eq!(total_engagement, 1);
+
+    // Sorted:Post:User:user_id
+    let post_stream_key_parts = [&POST_PER_USER_KEY_PARTS[..], &[&user_id]].concat();
+    let post_timeline = PostStream::check_sorted_set_member(&post_stream_key_parts, &[&repost_id])
+        .await
+        .unwrap();
+    assert_eq!(post_timeline.is_some(), true);
+
+    let exist_count = UserCounts::try_from_index_json(&[&user_id])
+        .await
+        .unwrap()
+        .expect("User count not found");
+
+    assert_eq!(exist_count.posts, 2);
 
     // // TODO: Impl DEL post. Assert the repost does not exist in Nexus
     test.cleanup_post(&user_id, &repost_id).await?;
