@@ -1,4 +1,4 @@
-use super::utils::WatcherTest;
+use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
 use pubky_common::crypto::Keypair;
