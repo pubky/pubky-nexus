@@ -1,6 +1,6 @@
 use super::utils::WatcherTest;
 use anyhow::Result;
-use pkarr::Keypair;
+use pubky_common::crypto::Keypair;
 use pubky_nexus::models::{
     notification::{Notification, NotificationBody},
     pubky_app::{PostKind, PubkyAppPost, PubkyAppUser},

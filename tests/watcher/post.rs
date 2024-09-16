@@ -1,6 +1,6 @@
 use super::utils::WatcherTest;
 use anyhow::Result;
-use pkarr::Keypair;
+use pubky_common::crypto::Keypair;
 use pubky_nexus::{
     models::{
         post::{PostStream, PostView, POST_PER_USER_KEY_PARTS, POST_TIMELINE_KEY_PARTS},

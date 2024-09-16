@@ -1,7 +1,7 @@
 use super::utils::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
-use pkarr::Keypair;
+use pubky_common::crypto::Keypair;
 use pubky_nexus::models::notification::Notification;
 use pubky_nexus::models::post::{PostStream, PostView, POST_TOTAL_ENGAGEMENT_KEY_PARTS};
 use pubky_nexus::models::pubky_app::{

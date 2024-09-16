@@ -1,7 +1,8 @@
 use anyhow::Result;
 use chrono::Utc;
-use pkarr::{mainline::Testnet, Keypair};
+use pkarr::mainline::Testnet;
 use pubky::PubkyClient;
+use pubky_common::crypto::Keypair;
 use pubky_homeserver::Homeserver;
 use pubky_nexus::{
     models::pubky_app::{
