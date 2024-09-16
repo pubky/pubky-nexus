@@ -1,7 +1,7 @@
 use super::utils::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
-use pkarr::Keypair;
+use pubky_common::crypto::Keypair;
 use pubky_common::timestamp::Timestamp;
 use pubky_nexus::models::{
     file::FileDetails,

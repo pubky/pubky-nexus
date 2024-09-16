@@ -1,7 +1,8 @@
 use anyhow::Result;
 use log::info;
-use pkarr::{mainline::Testnet, Keypair, PublicKey};
+use pkarr::mainline::Testnet;
 use pubky::PubkyClient;
+use pubky_common::crypto::{Keypair, PublicKey};
 use pubky_nexus::{
     models::pubky_app::{PubkyAppUser, UserLink},
     setup, Config,
