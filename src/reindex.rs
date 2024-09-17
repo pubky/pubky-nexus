@@ -81,7 +81,6 @@ pub async fn reindex() {
     info!("Reindexing completed successfully.");
 }
 
-
 pub async fn reindex_user(user_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tokio::try_join!(
         Bookmark::index_all_from_graph(user_id),

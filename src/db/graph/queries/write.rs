@@ -30,18 +30,21 @@ pub fn delete_user(user_id: &str) -> Query {
 }
 
 // Create a post node
+// TODO: DIscuss if it is necessary here or create a URI when we get the post_id, get_posts_details_by_id
 pub fn create_post(post: &PostDetails) -> Result<Query, Box<dyn std::error::Error + Send + Sync>> {
     let query = query(
         "MATCH (u:User {id: $author_id})
          MERGE (u)-[:AUTHORED]->(p:Post {id: $post_id})
          SET p.content = $content,
              p.indexed_at = $indexed_at,
-             p.kind = $kind;",
+             p.kind = $kind,
+             p.uri = $uri",
     )
     .param("author_id", post.author.to_string())
     .param("post_id", post.id.to_string())
     .param("content", post.content.to_string())
     .param("indexed_at", post.indexed_at)
+    .param("uri", post.uri.to_string())
     .param("kind", post.kind.to_string());
 
     Ok(query)

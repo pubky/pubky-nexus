@@ -1,17 +1,22 @@
-use crate::watcher::utils::WatcherTest;
+use super::utils::{
+    check_member_global_timeline_user_post, check_member_user_pioneer,
+    check_member_user_post_timeline, find_user_counts,
+};
+use crate::watcher::{posts::utils::find_post_counts, utils::WatcherTest};
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{
+    get_neo4j_graph,
     models::{
-        post::{PostStream, PostView, POST_PER_USER_KEY_PARTS, POST_TIMELINE_KEY_PARTS},
+        post::{PostCounts, PostDetails},
         pubky_app::{PostKind, PubkyAppPost, PubkyAppUser},
-        user::{UserCounts, UserStream, USER_PIONEERS_KEY_PARTS},
     },
+    queries::read::get_posts_details_by_id,
     RedisOps,
 };
 
 #[tokio::test]
-async fn test_homeserver_post() -> Result<()> {
+async fn test_homeserver_post_event() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     let keypair = Keypair::random();
@@ -19,14 +24,14 @@ async fn test_homeserver_post() -> Result<()> {
         bio: None,
         image: None,
         links: None,
-        name: "Test Poster".to_string(),
+        name: "Watcher:PostEvent:User".to_string(),
         status: None,
     };
 
     let user_id = test.create_user(&keypair, &user).await?;
 
     let post = PubkyAppPost {
-        content: "This is a test post!".to_string(),
+        content: "Watcher:PostEvent:Post".to_string(),
         kind: PostKind::Short,
         parent: None,
         embed: None,
@@ -34,49 +39,73 @@ async fn test_homeserver_post() -> Result<()> {
 
     let post_id = test.create_post(&user_id, &post).await?;
 
-    // Assert the new post can be served from Nexus
-    let result_post = PostView::get_by_id(&user_id, &post_id, None, None, None)
-        .await
-        .unwrap()
-        .expect("The new post was not served from Nexus");
+    // GRAPH_OP: Assert if the event writes the graph
+    // Cannot use PostDetails::get_from_graph because it indexes also,
+    // Sorted:Posts:Global:Timeline and Sorted:Posts:User. That operation has to be executed in the ingest_user
+    let mut row_stream;
+    {
+        let graph = get_neo4j_graph().unwrap();
+        let query = get_posts_details_by_id(&user_id, &post_id);
 
-    assert_eq!(result_post.details.id, post_id);
-    assert_eq!(result_post.details.content, post.content);
+        let graph = graph.lock().await;
+        row_stream = graph.execute(query).await?;
+    }
+
+    let result = row_stream.next().await.unwrap();
+
+    // Assert the user details
+    assert_eq!(result.is_some(), true);
+    let post_details: PostDetails = result.unwrap().get("details").unwrap();
+
+    assert_eq!(post_details.id, post_id);
+    assert_eq!(post_details.content, post.content);
     assert_eq!(
-        result_post.details.uri,
+        post_details.uri,
         format!("pubky://{user_id}/pub/pubky.app/posts/{post_id}")
     );
-    assert_eq!(result_post.counts.reposts, 0);
-    assert!(result_post.details.indexed_at > 0);
-    assert_eq!(result_post.counts.tags, 0);
-    assert_eq!(result_post.counts.replies, 0);
+    assert!(post_details.indexed_at > 0);
 
-    // Check the cache state
-    // TODO: all that checks are the same also for reply and repost. Maybe add in a watcher/post/utils.rs
-    let post_key: &[&str] = &[&user_id, &post_id];
-    let global_timeline = PostStream::check_sorted_set_member(&POST_TIMELINE_KEY_PARTS, post_key)
+    // CACHE_OP: Check if the event writes in the graph
+
+    //User:Details:user_id:post_id
+    let post_key: [&str; 2] = [&user_id, &post_id];
+
+    let post_detail_cache: PostDetails = PostDetails::try_from_index_json(&post_key)
+        .await
+        .unwrap()
+        .expect("The new post detail was not served from Nexus cache");
+
+    assert_eq!(post_details.id, post_detail_cache.id);
+    assert_eq!(post_details.content, post_detail_cache.content);
+    assert_eq!(post_details.uri, post_detail_cache.uri);
+    assert_eq!(post_details.indexed_at, post_detail_cache.indexed_at);
+
+    // User:Counts:user_id:post_id
+    let post_counts: PostCounts = find_post_counts(&post_key).await;
+    assert_eq!(post_counts.reposts, 0);
+    assert_eq!(post_counts.replies, 0);
+    assert_eq!(post_counts.tags, 0);
+
+    // Sorted:Post:Global:Timeline
+    let global_timeline = check_member_global_timeline_user_post(&user_id, &post_id)
         .await
         .unwrap();
     assert_eq!(global_timeline.is_some(), true);
-    let post_stream_key_parts = [&POST_PER_USER_KEY_PARTS[..], &[&user_id]].concat();
-    let post_timeline = PostStream::check_sorted_set_member(&post_stream_key_parts, &[&post_id])
+    assert_eq!(global_timeline.unwrap(), post_details.indexed_at as isize);
+
+    // Sorted:Posts:User:user_id
+    let post_timeline = check_member_user_post_timeline(&user_id, &post_id)
         .await
         .unwrap();
     assert_eq!(post_timeline.is_some(), true);
-    // Both timestamp has to be the same
-    assert_eq!(global_timeline.unwrap(), post_timeline.unwrap());
-    // Has pioneer score
-    let pioneer_score = UserStream::check_sorted_set_member(&USER_PIONEERS_KEY_PARTS, &[&user_id])
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(pioneer_score, 0);
+    assert_eq!(post_timeline.unwrap(), post_details.indexed_at as isize);
 
-    let exist_count = UserCounts::try_from_index_json(&[&user_id])
-        .await
-        .unwrap()
-        .expect("User count not found");
+    // Has pioneer score. Sorted:Users:Pioneers
+    let pioneer_score = check_member_user_pioneer(&user_id).await.unwrap();
+    assert_eq!(pioneer_score.is_some(), true);
+    assert_eq!(pioneer_score.unwrap(), 0);
 
+    let exist_count = find_user_counts(&user_id).await;
     assert_eq!(exist_count.posts, 1);
 
     // Cleanup
