@@ -9,7 +9,10 @@ use crate::models::tag::stream::{HotTags, Taggers, TAG_GLOBAL_HOT};
 use crate::models::tag::traits::TagCollection;
 use crate::models::tag::user::{TagUser, USER_TAGS_KEY_PARTS};
 use crate::models::traits::Collection;
-use crate::models::user::{Followers, Following, PubkyId, UserDetails, UserFollows, UserStream};
+use crate::models::user::{
+    Followers, Following, PubkyId, UserDetails, UserFollows, UserSearch, UserStream,
+    USER_NAME_KEY_PARTS,
+};
 use crate::{
     db::connectors::neo4j::get_neo4j_graph,
     models::post::{PostCounts, PostDetails, PostRelationships},
@@ -78,6 +81,7 @@ pub async fn reindex() {
     info!("Reindexing completed successfully.");
 }
 
+
 pub async fn reindex_user(user_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tokio::try_join!(
         Bookmark::index_all_from_graph(user_id),
@@ -87,6 +91,17 @@ pub async fn reindex_user(user_id: &str) -> Result<(), Box<dyn std::error::Error
         TagUser::get_from_graph(user_id, None)
     )?;
 
+    Ok(())
+}
+
+pub async fn ingest_user(
+    user_details: &UserDetails,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    user_details.put_index_json(&[&user_details.id]).await?;
+    // Add the username in the SORTED SET to be searchable
+    let member = format!("{}:{}", user_details.name.to_lowercase(), &user_details.id);
+    let score = 0.0;
+    UserSearch::put_index_sorted_set(&USER_NAME_KEY_PARTS, &[(score, &member)]).await?;
     Ok(())
 }
 

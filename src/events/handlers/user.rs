@@ -1,9 +1,12 @@
-use crate::models::{
-    pubky_app::{traits::Validatable, PubkyAppUser},
-    traits::Collection,
-    user::{PubkyId, UserCounts, UserDetails},
-};
 use crate::reindex::reindex_user;
+use crate::{
+    models::{
+        pubky_app::{traits::Validatable, PubkyAppUser},
+        traits::Collection,
+        user::{PubkyId, UserCounts, UserDetails},
+    },
+    reindex::ingest_user,
+};
 use axum::body::Bytes;
 use log::debug;
 use std::error::Error;
@@ -18,14 +21,12 @@ pub async fn put(user_id: PubkyId, blob: Bytes) -> Result<(), Box<dyn Error + Sy
     // Create UserDetails object
     let user_details = UserDetails::from_homeserver(user, &user_id).await?;
 
-    // Add new node into the graph
+    // SAVE TO GRAPH
     user_details.put_to_graph().await?;
 
-    // Reindex to sorted sets and other indexes
+    // SAVE TO INDEX
     reindex_user(&user_id).await?;
-    UserDetails::to_index(&[user_id.as_ref()], vec![Some(user_details)]).await?;
-
-    Ok(())
+    ingest_user(&user_details).await
 }
 
 pub async fn del(user_id: PubkyId) -> Result<(), Box<dyn Error + Sync + Send>> {
