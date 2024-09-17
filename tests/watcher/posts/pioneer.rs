@@ -1,13 +1,7 @@
-use crate::watcher::utils::WatcherTest;
+use crate::watcher::{users::utils::check_member_user_pioneer, utils::WatcherTest};
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
-use pubky_nexus::{
-    models::{
-        pubky_app::{PostEmbed, PostKind, PubkyAppPost, PubkyAppUser},
-        user::{UserStream, USER_PIONEERS_KEY_PARTS},
-    },
-    RedisOps,
-};
+use pubky_nexus::models::pubky_app::{PostEmbed, PostKind, PubkyAppPost, PubkyAppUser};
 
 #[tokio::test]
 async fn test_homeserver_post_pioneer() -> Result<()> {
@@ -36,11 +30,9 @@ async fn test_homeserver_post_pioneer() -> Result<()> {
 
     // CACHE_OP: Assert cache has not been updated. Missing followers
     // pioneers score: Sorted:Users:Pioneers
-    let pioneer_score = UserStream::check_sorted_set_member(&USER_PIONEERS_KEY_PARTS, &[&alice_id])
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(pioneer_score, 0);
+    let pioneer_score = check_member_user_pioneer(&alice_id).await.unwrap();
+    assert_eq!(pioneer_score.is_some(), true);
+    assert_eq!(pioneer_score.unwrap(), 0);
 
     // Create new user
     let bob_user_keypair = Keypair::random();
@@ -59,11 +51,9 @@ async fn test_homeserver_post_pioneer() -> Result<()> {
 
     // CACHE_OP: Assert if cache has been updated
     // pioneers score: Sorted:Users:Pioneers
-    let pioneer_score = UserStream::check_sorted_set_member(&USER_PIONEERS_KEY_PARTS, &[&alice_id])
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(pioneer_score, 1);
+    let pioneer_score = check_member_user_pioneer(&alice_id).await.unwrap();
+    assert_eq!(pioneer_score.is_some(), true);
+    assert_eq!(pioneer_score.unwrap(), 1);
 
     // Bob replies to popular alice post
     let parent_uri = format!("pubky://{}/pub/pubky.app/posts/{}", alice_id, alice_post_id);
@@ -93,23 +83,18 @@ async fn test_homeserver_post_pioneer() -> Result<()> {
     test.create_post(&bob_id, &repost).await?;
 
     // CACHE_OP: Assert if cache has been updated
-    let pioneer_score = UserStream::check_sorted_set_member(&USER_PIONEERS_KEY_PARTS, &[&bob_id])
-        .await
-        .unwrap()
-        .unwrap();
+    let pioneer_score = check_member_user_pioneer(&bob_id).await.unwrap();
+    assert_eq!(pioneer_score.is_some(), true);
     // Pioneer score does not update because popular user does not have any interaction
-    assert_eq!(pioneer_score, 0);
+    assert_eq!(pioneer_score.unwrap(), 0);
 
     // Follow Bob
     test.create_follow(&alice_id, &bob_id).await?;
 
     // CACHE_OP: Assert if cache has been updated
-    let pioneer_score = UserStream::check_sorted_set_member(&USER_PIONEERS_KEY_PARTS, &[&bob_id])
-        .await
-        .unwrap()
-        .unwrap();
-    // Pioneer score does not update because popular user does not have any interaction
-    assert_eq!(pioneer_score, 2);
+    let pioneer_score = check_member_user_pioneer(&bob_id).await.unwrap();
+    assert_eq!(pioneer_score.is_some(), true);
+    assert_eq!(pioneer_score.unwrap(), 2);
 
     // TODO: Impl DEL post. Assert the reply does not exist in Nexus
     // test.cleanup_post(&user_id, &reply_id).await?;

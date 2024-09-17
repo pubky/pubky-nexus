@@ -1,13 +1,11 @@
-use crate::watcher::utils::WatcherTest;
+use crate::watcher::{users::utils::find_user_details, utils::WatcherTest};
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{
-    get_neo4j_graph,
     models::{
         pubky_app::{PubkyAppUser, UserLink},
-        user::{UserCounts, UserDetails, UserSearch, UserView, USER_NAME_KEY_PARTS},
+        user::{UserCounts, UserSearch, UserView, USER_NAME_KEY_PARTS},
     },
-    queries::read::get_users_details_by_id,
     RedisOps,
 };
 
@@ -33,21 +31,7 @@ async fn test_homeserver_user_event() -> Result<()> {
     // GRAPH_OP: Assert if the event writes the graph
     // Cannot use UserDetails::from_graph because it indexes also, Sorted:Users:Name and that
     // operation has to be executed in the ingest_user
-    let mut row_stream;
-    {
-        let graph = get_neo4j_graph().unwrap();
-        let query = get_users_details_by_id(&user_id);
-
-        let graph = graph.lock().await;
-        row_stream = graph.execute(query).await?;
-    }
-
-    let result = row_stream.next().await.unwrap();
-
-    // Assert the user details
-    assert_eq!(result.is_some(), true);
-
-    let user_details: UserDetails = result.unwrap().get("details").unwrap();
+    let user_details = find_user_details(&user_id).await;
 
     assert_eq!(user_details.name, user.name);
     assert_eq!(user_details.bio, user.bio);

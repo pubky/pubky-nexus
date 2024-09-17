@@ -1,11 +1,7 @@
 use anyhow::Result;
 
 use pubky_nexus::{
-    models::{
-        post::{PostCounts, PostStream, POST_PER_USER_KEY_PARTS, POST_TIMELINE_KEY_PARTS},
-        user::{UserCounts, UserStream, USER_PIONEERS_KEY_PARTS},
-    },
-    RedisOps,
+    get_neo4j_graph, models::post::{PostCounts, PostDetails, PostStream, POST_PER_USER_KEY_PARTS, POST_TIMELINE_KEY_PARTS, POST_TOTAL_ENGAGEMENT_KEY_PARTS}, queries::read::{get_posts_details_by_id, post_reply_relationships, post_repost_relationships}, RedisOps
 };
 
 pub async fn find_post_counts(post_key: &[&str]) -> PostCounts {
@@ -13,6 +9,24 @@ pub async fn find_post_counts(post_key: &[&str]) -> PostCounts {
         .await
         .unwrap()
         .expect("The post count was not served from Nexus cache")
+}
+
+pub async fn find_post_details(user_id: &str, post_id: &str) -> PostDetails {
+    let mut row_stream;
+    {
+        let graph = get_neo4j_graph().unwrap();
+        let query = get_posts_details_by_id(&user_id, &post_id);
+
+        let graph = graph.lock().await;
+        row_stream = graph.execute(query).await.unwrap();
+    }
+
+    let row = row_stream.next().await.unwrap();
+    if let Ok(result) = row.unwrap().get::<PostDetails>("details") {
+        return result;
+    }
+    assert!(false, "Post node not found in Nexus graph");
+    return PostDetails::default();
 }
 
 pub async fn check_member_global_timeline_user_post(
@@ -37,16 +51,49 @@ pub async fn check_member_user_post_timeline(
     Ok(post_timeline)
 }
 
-pub async fn check_member_user_pioneer(user_id: &str) -> Result<Option<isize>> {
-    let pioneer_score = UserStream::check_sorted_set_member(&USER_PIONEERS_KEY_PARTS, &[&user_id])
-        .await
-        .unwrap();
-    Ok(pioneer_score)
+pub async fn check_member_total_engagement_user_posts(
+    post_key: &[&str],
+) -> Result<Option<isize>> {
+    let total_engagement = PostStream::check_sorted_set_member(&POST_TOTAL_ENGAGEMENT_KEY_PARTS, &post_key)
+            .await
+            .unwrap();
+    Ok(total_engagement)
 }
 
-pub async fn find_user_counts(user_id: &str) -> UserCounts {
-    UserCounts::try_from_index_json(&[&user_id])
-        .await
-        .unwrap()
-        .expect("User count not found with that ID")
+pub async fn find_reply_relationship_parent_uri(user_id: &str, post_id: &str) -> String {
+    let mut row_stream;
+    {
+        let graph = get_neo4j_graph().unwrap();
+        let query = post_reply_relationships(&user_id, &post_id);
+
+        let graph = graph.lock().await;
+        row_stream = graph.execute(query).await.unwrap();
+    }
+
+    let row = row_stream.next().await.unwrap();
+    if let Ok(relationship) = row.unwrap().get::<Vec<(String, String)>>("details") {
+        assert_eq!(relationship.len(), 1, "Reply relationship does not exist in the graph");
+        return format!("pubky://{}/pub/pubky.app/posts/{}", relationship[0].0, relationship[0].1);
+    }
+    assert!(false, "Post relationship not found in Nexus graph");
+    String::from("Uri")
+}
+
+pub async fn find_repost_relationship_parent_uri(user_id: &str, post_id: &str) -> String {
+    let mut row_stream;
+    {
+        let graph = get_neo4j_graph().unwrap();
+        let query = post_repost_relationships(&user_id, &post_id);
+
+        let graph = graph.lock().await;
+        row_stream = graph.execute(query).await.unwrap();
+    }
+
+    let row = row_stream.next().await.unwrap();
+    if let Ok(relationship) = row.unwrap().get::<Vec<(String, String)>>("details") {
+        assert_eq!(relationship.len(), 1, "Reply relationship does not exist in the graph");
+        return format!("pubky://{}/pub/pubky.app/posts/{}", relationship[0].0, relationship[0].1);
+    }
+    assert!(false, "Post relationship not found in Nexus graph");
+    String::from("Uri")
 }

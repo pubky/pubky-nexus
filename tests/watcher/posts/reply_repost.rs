@@ -1,14 +1,9 @@
+use super::utils::{check_member_total_engagement_user_posts, find_post_counts};
+use crate::watcher::users::utils::find_user_counts;
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
-use pubky_nexus::{
-    models::{
-        post::{PostCounts, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS},
-        pubky_app::{PostEmbed, PostKind, PubkyAppPost, PubkyAppUser},
-        user::UserCounts,
-    },
-    RedisOps,
-};
+use pubky_nexus::models::pubky_app::{PostEmbed, PostKind, PubkyAppPost, PubkyAppUser};
 
 #[tokio::test]
 async fn test_homeserver_reply_repost() -> Result<()> {
@@ -17,10 +12,10 @@ async fn test_homeserver_reply_repost() -> Result<()> {
     let keypair = Keypair::random();
 
     let user = PubkyAppUser {
-        bio: None,
+        bio: Some("test_homeserver_reply_repost".to_string()),
         image: None,
         links: None,
-        name: "Test replyer".to_string(),
+        name: "Watcher:ReplyRepost:User".to_string(),
         status: None,
     };
 
@@ -28,7 +23,7 @@ async fn test_homeserver_reply_repost() -> Result<()> {
 
     // Create root Post
     let parent_post = PubkyAppPost {
-        content: "This is a test post!".to_string(),
+        content: "Watcher:ReplyRepost:User:Post".to_string(),
         kind: PostKind::Short,
         parent: None,
         embed: None,
@@ -40,7 +35,7 @@ async fn test_homeserver_reply_repost() -> Result<()> {
     let parent_uri = format!("pubky://{}/pub/pubky.app/posts/{}", user_id, parent_post_id);
 
     let reply = PubkyAppPost {
-        content: "This is a reply post!".to_string(),
+        content: "Watcher:ReplyRepost:User:Reply".to_string(),
         kind: PostKind::Short,
         parent: Some(parent_uri.clone()),
         embed: None,
@@ -52,7 +47,7 @@ async fn test_homeserver_reply_repost() -> Result<()> {
     let post_uri = format!("pubky://{}/pub/pubky.app/posts/{}", user_id, parent_post_id);
 
     let repost = PubkyAppPost {
-        content: "This is a repost post!".to_string(),
+        content: "Watcher:ReplyRepost:User:Repost".to_string(),
         kind: PostKind::Short,
         parent: None,
         embed: Some(PostEmbed {
@@ -67,30 +62,24 @@ async fn test_homeserver_reply_repost() -> Result<()> {
     let parent_post_key: [&str; 2] = [&user_id, &parent_post_id];
 
     // Check if parent post engagement: Sorted:Posts:Global:TotalEngagement:user_id:post_id
-    let total_engagement =
-        PostStream::check_sorted_set_member(&POST_TOTAL_ENGAGEMENT_KEY_PARTS, &parent_post_key)
-            .await
-            .unwrap()
-            .unwrap();
-    assert_eq!(total_engagement, 2);
+    let total_engagement = check_member_total_engagement_user_posts(&parent_post_key)
+        .await
+        .unwrap();
+
+    assert_eq!(total_engagement.is_some(), true);
+    assert_eq!(total_engagement.unwrap(), 2);
 
     // Assert the parent post has changed stats. Post:Counts:user_id:post_id
-    let post_count = PostCounts::try_from_index_json(&parent_post_key)
-        .await
-        .unwrap()
-        .expect("The new post was not served from Nexus");
+    let post_count = find_post_counts(&parent_post_key).await;
 
     assert_eq!(post_count.replies, 1);
     assert_eq!(post_count.reposts, 1);
 
-    let exist_count = UserCounts::try_from_index_json(&[&user_id])
-        .await
-        .unwrap()
-        .expect("User count not found");
-
+    // User:Counts:user_id
+    let exist_count = find_user_counts(&user_id).await;
     assert_eq!(exist_count.posts, 3);
 
-    // // TODO: Impl DEL post. Assert the reply does not exist in Nexus
+    // TODO: Impl DEL post. Assert the reply does not exist in Nexus
     test.cleanup_post(&user_id, &reply_id).await?;
 
     // Cleanup

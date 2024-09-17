@@ -1,17 +1,14 @@
-use super::utils::{
-    check_member_global_timeline_user_post, check_member_user_pioneer,
-    check_member_user_post_timeline, find_user_counts,
-};
-use crate::watcher::{posts::utils::find_post_counts, utils::WatcherTest};
+use super::utils::{check_member_global_timeline_user_post, check_member_user_post_timeline,find_post_counts};
+use crate::watcher::posts::utils::find_post_details;
+use crate::watcher::utils::WatcherTest;
+use crate::watcher::users::utils::{find_user_counts, check_member_user_pioneer};
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{
-    get_neo4j_graph,
     models::{
         post::{PostCounts, PostDetails},
         pubky_app::{PostKind, PubkyAppPost, PubkyAppUser},
     },
-    queries::read::get_posts_details_by_id,
     RedisOps,
 };
 
@@ -42,20 +39,7 @@ async fn test_homeserver_post_event() -> Result<()> {
     // GRAPH_OP: Assert if the event writes the graph
     // Cannot use PostDetails::get_from_graph because it indexes also,
     // Sorted:Posts:Global:Timeline and Sorted:Posts:User. That operation has to be executed in the ingest_user
-    let mut row_stream;
-    {
-        let graph = get_neo4j_graph().unwrap();
-        let query = get_posts_details_by_id(&user_id, &post_id);
-
-        let graph = graph.lock().await;
-        row_stream = graph.execute(query).await?;
-    }
-
-    let result = row_stream.next().await.unwrap();
-
-    // Assert the user details
-    assert_eq!(result.is_some(), true);
-    let post_details: PostDetails = result.unwrap().get("details").unwrap();
+    let post_details = find_post_details(&user_id, &post_id).await;
 
     assert_eq!(post_details.id, post_id);
     assert_eq!(post_details.content, post.content);

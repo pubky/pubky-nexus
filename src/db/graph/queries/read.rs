@@ -58,6 +58,30 @@ pub fn post_relationships(author_id: &str, post_id: &str) -> Query {
     .param("post_id", post_id)
 }
 
+pub fn post_reply_relationships(author_id: &str, post_id: &str) -> Query {
+    query(
+        "MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+        OPTIONAL MATCH (p)-[:REPLIED]->(replied_post:Post)<-[:AUTHORED]-(replied_author:User)
+        RETURN COLLECT([
+            replied_author.id,
+            replied_post.id ]) as details"
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
+}
+
+pub fn post_repost_relationships(author_id: &str, post_id: &str) -> Query {
+    query(
+        "MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+        OPTIONAL MATCH (p)-[:REPOSTED]->(reposted_post:Post)<-[:AUTHORED]-(reposted_author:User)
+        RETURN collect([
+          reposted_author.id,
+          reposted_post.id]) as details"
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
+}
+
 // Retrieve many users by id
 // We return also id if not we will not get not found users
 pub fn get_users_details_by_ids(user_ids: &[&str]) -> Query {
