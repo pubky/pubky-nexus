@@ -66,7 +66,7 @@ async fn test_homeserver_user_event() -> Result<()> {
         );
     }
 
-    // CACHE_OP: Check if the event write in the graph
+    // CACHE_OP: Check if the event writes in the graph
     // User:Counts:user_id
     let user_counts = UserCounts::try_from_index_json(&[&user_id])
         .await

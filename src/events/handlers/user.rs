@@ -22,14 +22,10 @@ pub async fn put(user_id: PubkyId, blob: Bytes) -> Result<(), Box<dyn Error + Sy
     let user_details = UserDetails::from_homeserver(user, &user_id).await?;
 
     // SAVE TO GRAPH
-    // Add new user node into the graph
     user_details.put_to_graph().await?;
 
     // SAVE TO INDEX
-    // Reindex to sorted sets and other indexes
     reindex_user(&user_id).await?;
-
-    // Ingest the user data
     ingest_user(&user_details).await
 }
 

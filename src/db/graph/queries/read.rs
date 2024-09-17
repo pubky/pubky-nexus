@@ -58,8 +58,7 @@ pub fn post_relationships(author_id: &str, post_id: &str) -> Query {
     .param("post_id", post_id)
 }
 
-// Retrieve many users by id
-// We return also id if not we will not get not found users
+// Retrieve a user by id
 pub fn get_users_details_by_ids(user_ids: &[&str]) -> Query {
     query(
         "
