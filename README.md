@@ -74,7 +74,10 @@ cargo watch -q -c -w src/ -x "run --bin service"
 # Terminal 2: Run tests (note that for tests to pass, the Neo4j instance must have example data)
 # Ensure you've followed the steps above to set up Neo4j with the example dataset
 cargo watch -q -c -w tests/ -x "test -- --nocapture"
-
+# Test specific folder of a domain
+cargo test watcher:users
+# Test specific test
+cargo test test_homeserver_user_event
 # Run benchmarks (e.g., get user by ID benchmark)
 cargo bench --bench user get_user_view_by_id
 ```
