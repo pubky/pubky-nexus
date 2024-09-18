@@ -32,13 +32,11 @@ pub async fn put(
     // Handle "REPLIED" relationship and counts if `parent` is Some
     if let Some(parent_uri) = &post.parent {
         put_reply_relationship(&author_id, &post_id, parent_uri).await?;
-        //let parsed_uri = ParsedUri::try_from(parent_uri.as_str())?;
         interaction.push(("replies", parent_uri.as_str()));
     }
     // Handle "REPOSTED" relationship and counts if `embed.uri` is Some
     if let Some(embed) = &post.embed {
         put_repost_relationship(&author_id, &post_id, &embed.uri).await?;
-        //let parsed_uri = ParsedUri::try_from(embed.uri.as_str())?;
         interaction.push(("reposts", embed.uri.as_str()));
     }
     // Handle "MENTIONED" relationships
