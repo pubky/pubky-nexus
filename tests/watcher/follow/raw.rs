@@ -1,4 +1,4 @@
-use super::utils::WatcherTest;
+use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
 use pubky_common::crypto::Keypair;
@@ -23,7 +23,10 @@ async fn test_homeserver_follow() -> Result<()> {
         name: "Follower User".to_string(),
         status: None,
     };
-    let follower_id = test.create_user(&follower_keypair, &follower_user).await?;
+    let follower_id = test
+        .create_user(&follower_keypair, &follower_user)
+        .await
+        .unwrap();
 
     // Create second user (followee)
     let followee_keypair = Keypair::random();
@@ -34,7 +37,10 @@ async fn test_homeserver_follow() -> Result<()> {
         name: "Followee User".to_string(),
         status: None,
     };
-    let followee_id = test.create_user(&followee_keypair, &followee_user).await?;
+    let followee_id = test
+        .create_user(&followee_keypair, &followee_user)
+        .await
+        .unwrap();
 
     // Follow the followee
     let follow = PubkyAppFollow {

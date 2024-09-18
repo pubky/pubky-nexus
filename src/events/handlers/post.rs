@@ -27,19 +27,17 @@ pub async fn put(
     // Add new post node into the graph
     post_details.put_to_graph().await?;
 
-    let mut interaction: Vec<(&str, ParsedUri)> = Vec::new();
+    let mut interaction: Vec<(&str, &str)> = Vec::new();
 
     // Handle "REPLIED" relationship and counts if `parent` is Some
     if let Some(parent_uri) = &post.parent {
         put_reply_relationship(&author_id, &post_id, parent_uri).await?;
-        let parsed_uri = ParsedUri::try_from(parent_uri.as_str())?;
-        interaction.push(("replies", parsed_uri));
+        interaction.push(("replies", parent_uri.as_str()));
     }
     // Handle "REPOSTED" relationship and counts if `embed.uri` is Some
     if let Some(embed) = &post.embed {
         put_repost_relationship(&author_id, &post_id, &embed.uri).await?;
-        let parsed_uri = ParsedUri::try_from(embed.uri.as_str())?;
-        interaction.push(("reposts", parsed_uri));
+        interaction.push(("reposts", embed.uri.as_str()));
     }
     // Handle "MENTIONED" relationships
     put_mentioned_relationships(&author_id, &post_id, &post_details.content).await?;
@@ -48,7 +46,7 @@ pub async fn put(
     // Reindex to sorted sets and other indexes
     reindex_post(&author_id, &post_id).await?;
     // Ingest the post data
-    ingest_post(&author_id, interaction).await?;
+    ingest_post(&author_id, &post_details.uri, interaction).await?;
 
     Ok(())
 }

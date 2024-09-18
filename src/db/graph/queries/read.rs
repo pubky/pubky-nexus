@@ -58,7 +58,8 @@ pub fn post_relationships(author_id: &str, post_id: &str) -> Query {
     .param("post_id", post_id)
 }
 
-// Retrieve a user by id
+// Retrieve many users by id
+// We return also id if not we will not get not found users
 pub fn get_users_details_by_ids(user_ids: &[&str]) -> Query {
     query(
         "
@@ -74,25 +75,6 @@ pub fn get_users_details_by_ids(user_ids: &[&str]) -> Query {
         ",
     )
     .param("ids", user_ids)
-}
-
-// Retrieve many users by id
-// We return also id if not we will not get not found users
-pub fn get_users_details_by_id(user_id: &str) -> Query {
-    query(
-        "
-        OPTIONAL MATCH (record:User {id: $id})
-        RETURN {
-            id: record.id,
-            name: record.name,
-            bio: record.bio,
-            status: record.status,
-            links: record.links,
-            indexed_at: record.indexed_at
-        } AS details
-        ",
-    )
-    .param("id", user_id)
 }
 
 /// Retrieves unique global tags for posts, returning a list of `post_ids` and `timestamp` pairs for each tag label.

@@ -1,13 +1,8 @@
+use super::utils::check_member_total_engagement_user_posts;
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
-use pubky_nexus::{
-    models::{
-        post::{PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS},
-        pubky_app::{PostEmbed, PostKind, PubkyAppPost, PubkyAppUser},
-    },
-    RedisOps,
-};
+use pubky_nexus::models::pubky_app::{PostEmbed, PostKind, PubkyAppPost, PubkyAppUser};
 
 #[tokio::test]
 async fn test_homeserver_post_engagement() -> Result<()> {
@@ -38,12 +33,11 @@ async fn test_homeserver_post_engagement() -> Result<()> {
 
     // CACHE_OP: Assert cache index exist
     // post engagement: Sorted:Posts:Global:TotalEngagement:user_id:post_id
-    let total_engagement =
-        PostStream::check_sorted_set_member(&POST_TOTAL_ENGAGEMENT_KEY_PARTS, &alice_post_key)
-            .await
-            .unwrap()
-            .unwrap();
-    assert_eq!(total_engagement, 0);
+    let total_engagement = check_member_total_engagement_user_posts(&alice_post_key)
+        .await
+        .unwrap();
+    assert_eq!(total_engagement.is_some(), true);
+    assert_eq!(total_engagement.unwrap(), 0);
 
     // Create new user
     let bob_user_keypair = Keypair::random();
@@ -84,12 +78,11 @@ async fn test_homeserver_post_engagement() -> Result<()> {
 
     let _repost_id = test.create_post(&bob_id, &repost).await?;
 
-    let total_engagement =
-        PostStream::check_sorted_set_member(&POST_TOTAL_ENGAGEMENT_KEY_PARTS, &alice_post_key)
-            .await
-            .unwrap()
-            .unwrap();
-    assert_eq!(total_engagement, 2);
+    let total_engagement = check_member_total_engagement_user_posts(&alice_post_key)
+        .await
+        .unwrap();
+    assert_eq!(total_engagement.is_some(), true);
+    assert_eq!(total_engagement.unwrap(), 2);
 
     // // // TODO: Impl DEL post. Assert the reply does not exist in Nexus
     // test.cleanup_post(&user_id, &reply_id).await?;
