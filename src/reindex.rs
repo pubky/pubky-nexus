@@ -120,16 +120,18 @@ pub async fn reindex_post(
 
 pub async fn ingest_post(
     author_id: &str,
-    interactions: Vec<(&str, ParsedUri)>,
+    post_uri: &str,
+    interactions: Vec<(&str, &str)>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     UserCounts::modify_json_field(&[author_id], "posts", JsonAction::Increment(1)).await?;
     // Mutate the pioneers index of the user
     update_pioneer_score(author_id).await?;
     // Post creation from an interaction: REPLY or REPOST
     for (action, parent_uri) in interactions {
+        let parsed_uri = ParsedUri::try_from(parent_uri)?;
         let parent_post_key_parts: &[&str] = &[
-            &parent_uri.user_id,
-            &parent_uri.post_id.ok_or("Missing post ID")?,
+            &parsed_uri.user_id,
+            &parsed_uri.post_id.ok_or("Missing post ID")?,
         ];
         PostCounts::modify_json_field(parent_post_key_parts, action, JsonAction::Increment(1))
             .await?;
@@ -139,6 +141,13 @@ pub async fn ingest_post(
             ScoreAction::Increment(1.0),
         )
         .await?;
+
+        if action == "replies" {
+            Notification::new_post_reply(author_id, parent_uri, post_uri, &parsed_uri.user_id)
+                .await?;
+        } else {
+            Notification::new_repost(author_id, parent_uri, post_uri, &parsed_uri.user_id).await?;
+        }
     }
     Ok(())
 }

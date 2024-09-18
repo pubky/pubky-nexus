@@ -58,30 +58,6 @@ pub fn post_relationships(author_id: &str, post_id: &str) -> Query {
     .param("post_id", post_id)
 }
 
-pub fn post_reply_relationships(author_id: &str, post_id: &str) -> Query {
-    query(
-        "MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
-        OPTIONAL MATCH (p)-[:REPLIED]->(replied_post:Post)<-[:AUTHORED]-(replied_author:User)
-        RETURN COLLECT([
-            replied_author.id,
-            replied_post.id ]) as details"
-    )
-    .param("author_id", author_id)
-    .param("post_id", post_id)
-}
-
-pub fn post_repost_relationships(author_id: &str, post_id: &str) -> Query {
-    query(
-        "MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
-        OPTIONAL MATCH (p)-[:REPOSTED]->(reposted_post:Post)<-[:AUTHORED]-(reposted_author:User)
-        RETURN collect([
-          reposted_author.id,
-          reposted_post.id]) as details"
-    )
-    .param("author_id", author_id)
-    .param("post_id", post_id)
-}
-
 // Retrieve many users by id
 // We return also id if not we will not get not found users
 pub fn get_users_details_by_ids(user_ids: &[&str]) -> Query {
@@ -99,43 +75,6 @@ pub fn get_users_details_by_ids(user_ids: &[&str]) -> Query {
         ",
     )
     .param("ids", user_ids)
-}
-
-// Retrieve a user by id
-pub fn get_users_details_by_id(user_id: &str) -> Query {
-    query(
-        "
-        OPTIONAL MATCH (record:User {id: $id})
-        RETURN {
-            id: record.id,
-            name: record.name,
-            bio: record.bio,
-            status: record.status,
-            links: record.links,
-            indexed_at: record.indexed_at
-        } AS details
-        ",
-    )
-    .param("id", user_id)
-}
-
-// Retrieve a post by id
-pub fn get_posts_details_by_id(user_id: &str, post_id: &str) -> Query {
-    query(
-        "
-        MATCH (user:User {id: $user_id})-[:AUTHORED]->(post:Post {id: $post_id})
-        RETURN {
-            id: post.id,
-            content: post.content,
-            kind: post.kind,
-            indexed_at: post.indexed_at,
-            uri: post.uri,
-            author: user.id
-        } AS details
-        ",
-    )
-    .param("user_id", user_id)
-    .param("post_id", post_id)
 }
 
 /// Retrieves unique global tags for posts, returning a list of `post_ids` and `timestamp` pairs for each tag label.

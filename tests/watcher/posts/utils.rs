@@ -1,7 +1,12 @@
 use anyhow::Result;
-
+use neo4rs::{query, Query};
 use pubky_nexus::{
-    get_neo4j_graph, models::post::{PostCounts, PostDetails, PostStream, POST_PER_USER_KEY_PARTS, POST_TIMELINE_KEY_PARTS, POST_TOTAL_ENGAGEMENT_KEY_PARTS}, queries::read::{get_posts_details_by_id, post_reply_relationships, post_repost_relationships}, RedisOps
+    get_neo4j_graph,
+    models::post::{
+        PostCounts, PostDetails, PostStream, POST_PER_USER_KEY_PARTS, POST_TIMELINE_KEY_PARTS,
+        POST_TOTAL_ENGAGEMENT_KEY_PARTS,
+    },
+    RedisOps,
 };
 
 pub async fn find_post_counts(post_key: &[&str]) -> PostCounts {
@@ -15,7 +20,7 @@ pub async fn find_post_details(user_id: &str, post_id: &str) -> PostDetails {
     let mut row_stream;
     {
         let graph = get_neo4j_graph().unwrap();
-        let query = get_posts_details_by_id(&user_id, &post_id);
+        let query = get_post_details_by_id(&user_id, &post_id);
 
         let graph = graph.lock().await;
         row_stream = graph.execute(query).await.unwrap();
@@ -51,10 +56,9 @@ pub async fn check_member_user_post_timeline(
     Ok(post_timeline)
 }
 
-pub async fn check_member_total_engagement_user_posts(
-    post_key: &[&str],
-) -> Result<Option<isize>> {
-    let total_engagement = PostStream::check_sorted_set_member(&POST_TOTAL_ENGAGEMENT_KEY_PARTS, &post_key)
+pub async fn check_member_total_engagement_user_posts(post_key: &[&str]) -> Result<Option<isize>> {
+    let total_engagement =
+        PostStream::check_sorted_set_member(&POST_TOTAL_ENGAGEMENT_KEY_PARTS, &post_key)
             .await
             .unwrap();
     Ok(total_engagement)
@@ -72,8 +76,15 @@ pub async fn find_reply_relationship_parent_uri(user_id: &str, post_id: &str) ->
 
     let row = row_stream.next().await.unwrap();
     if let Ok(relationship) = row.unwrap().get::<Vec<(String, String)>>("details") {
-        assert_eq!(relationship.len(), 1, "Reply relationship does not exist in the graph");
-        return format!("pubky://{}/pub/pubky.app/posts/{}", relationship[0].0, relationship[0].1);
+        assert_eq!(
+            relationship.len(),
+            1,
+            "Reply relationship does not exist in the graph"
+        );
+        return format!(
+            "pubky://{}/pub/pubky.app/posts/{}",
+            relationship[0].0, relationship[0].1
+        );
     }
     assert!(false, "Post relationship not found in Nexus graph");
     String::from("Uri")
@@ -91,9 +102,59 @@ pub async fn find_repost_relationship_parent_uri(user_id: &str, post_id: &str) -
 
     let row = row_stream.next().await.unwrap();
     if let Ok(relationship) = row.unwrap().get::<Vec<(String, String)>>("details") {
-        assert_eq!(relationship.len(), 1, "Reply relationship does not exist in the graph");
-        return format!("pubky://{}/pub/pubky.app/posts/{}", relationship[0].0, relationship[0].1);
+        assert_eq!(
+            relationship.len(),
+            1,
+            "Reply relationship does not exist in the graph"
+        );
+        return format!(
+            "pubky://{}/pub/pubky.app/posts/{}",
+            relationship[0].0, relationship[0].1
+        );
     }
     assert!(false, "Post relationship not found in Nexus graph");
     String::from("Uri")
+}
+
+pub fn post_reply_relationships(author_id: &str, post_id: &str) -> Query {
+    query(
+        "MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+        OPTIONAL MATCH (p)-[:REPLIED]->(reply:Post)<-[:AUTHORED]-(reply_author:User)
+        RETURN COLLECT([
+            reply_author.id,
+            reply.id ]) as details",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
+}
+
+pub fn post_repost_relationships(author_id: &str, post_id: &str) -> Query {
+    query(
+        "MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+        OPTIONAL MATCH (p)-[:REPOSTED]->(repost:Post)<-[:AUTHORED]-(repost_author:User)
+        RETURN collect([
+          repost_author.id,
+          repost.id]) as details",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
+}
+
+// Retrieve a post by id
+pub fn get_post_details_by_id(user_id: &str, post_id: &str) -> Query {
+    query(
+        "
+        MATCH (user:User {id: $user_id})-[:AUTHORED]->(post:Post {id: $post_id})
+        RETURN {
+            id: post.id,
+            content: post.content,
+            kind: post.kind,
+            indexed_at: post.indexed_at,
+            uri: post.uri,
+            author: user.id
+        } AS details
+        ",
+    )
+    .param("user_id", user_id)
+    .param("post_id", post_id)
 }

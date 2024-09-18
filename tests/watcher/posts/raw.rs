@@ -1,7 +1,9 @@
-use super::utils::{check_member_global_timeline_user_post, check_member_user_post_timeline,find_post_counts};
+use super::utils::{
+    check_member_global_timeline_user_post, check_member_user_post_timeline, find_post_counts,
+};
 use crate::watcher::posts::utils::find_post_details;
+use crate::watcher::users::utils::{check_member_user_pioneer, find_user_counts};
 use crate::watcher::utils::WatcherTest;
-use crate::watcher::users::utils::{find_user_counts, check_member_user_pioneer};
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{

@@ -33,7 +33,9 @@ async fn test_homeserver_post_engagement() -> Result<()> {
 
     // CACHE_OP: Assert cache index exist
     // post engagement: Sorted:Posts:Global:TotalEngagement:user_id:post_id
-    let total_engagement = check_member_total_engagement_user_posts(&alice_post_key).await.unwrap();
+    let total_engagement = check_member_total_engagement_user_posts(&alice_post_key)
+        .await
+        .unwrap();
     assert_eq!(total_engagement.is_some(), true);
     assert_eq!(total_engagement.unwrap(), 0);
 
@@ -76,7 +78,9 @@ async fn test_homeserver_post_engagement() -> Result<()> {
 
     let _repost_id = test.create_post(&bob_id, &repost).await?;
 
-    let total_engagement = check_member_total_engagement_user_posts(&alice_post_key).await.unwrap();
+    let total_engagement = check_member_total_engagement_user_posts(&alice_post_key)
+        .await
+        .unwrap();
     assert_eq!(total_engagement.is_some(), true);
     assert_eq!(total_engagement.unwrap(), 2);
 

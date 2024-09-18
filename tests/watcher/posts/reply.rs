@@ -1,12 +1,13 @@
+use super::utils::{
+    check_member_total_engagement_user_posts, check_member_user_post_timeline, find_post_counts,
+    find_post_details, find_reply_relationship_parent_uri,
+};
 use crate::watcher::{users::utils::find_user_counts, utils::WatcherTest};
-use super::utils::{find_reply_relationship_parent_uri, find_post_details, find_post_counts, check_member_total_engagement_user_posts, check_member_user_post_timeline};
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{
     models::{
-        post::{
-            PostDetails, PostThread
-        },
+        post::{PostDetails, PostThread},
         pubky_app::{PostKind, PubkyAppPost, PubkyAppUser},
     },
     RedisOps,
@@ -39,7 +40,7 @@ async fn test_homeserver_post_reply() -> Result<()> {
 
     // Create reply uri
     let parent_uri = format!("pubky://{user_id}/pub/pubky.app/posts/{parent_post_id}");
-    
+
     let reply_post = PubkyAppPost {
         content: "Watcher:PostReply:User:Reply".to_string(),
         kind: PostKind::Short,
@@ -66,7 +67,7 @@ async fn test_homeserver_post_reply() -> Result<()> {
 
     // CACHE_OP: Check if the event writes in the graph
     let reply_post_key: [&str; 2] = [&user_id, &reply_id];
-    
+
     //User:Details:user_id:post_id
     let post_detail_cache: PostDetails = PostDetails::try_from_index_json(&reply_post_key)
         .await
@@ -78,7 +79,7 @@ async fn test_homeserver_post_reply() -> Result<()> {
     assert_eq!(reply_post_details.uri, post_detail_cache.uri);
     assert_eq!(reply_post_details.indexed_at, post_detail_cache.indexed_at);
 
-    // User:Counts:user_id:post_id  
+    // User:Counts:user_id:post_id
     let reply_post_counts = find_post_counts(&reply_post_key).await;
 
     assert_eq!(reply_post_counts.reposts, 0);
@@ -86,12 +87,14 @@ async fn test_homeserver_post_reply() -> Result<()> {
     assert_eq!(reply_post_counts.replies, 0);
 
     let parent_post_key: [&str; 2] = [&user_id, &parent_post_id];
-    // Assert the parent post has changed stats, User:Counts:user_id:post_id 
+    // Assert the parent post has changed stats, User:Counts:user_id:post_id
     let post_count = find_post_counts(&parent_post_key).await;
     assert_eq!(post_count.replies, 1);
 
     // Check if parent post engagement: Sorted:Posts:Global:TotalEngagement:user_id:post_id
-    let total_engagement = check_member_total_engagement_user_posts(&parent_post_key).await.unwrap();
+    let total_engagement = check_member_total_engagement_user_posts(&parent_post_key)
+        .await
+        .unwrap();
     assert_eq!(total_engagement.is_some(), true);
     assert_eq!(total_engagement.unwrap(), 1);
 
@@ -100,10 +103,13 @@ async fn test_homeserver_post_reply() -> Result<()> {
         .await
         .unwrap();
     assert_eq!(post_timeline.is_some(), true);
-    assert_eq!(post_timeline.unwrap(), reply_post_details.indexed_at as isize);
+    assert_eq!(
+        post_timeline.unwrap(),
+        reply_post_details.indexed_at as isize
+    );
 
     // Assert the parent post has changed stats
-    // User:Counts:user_id:post_id 
+    // User:Counts:user_id:post_id
     let post_count = find_user_counts(&user_id).await;
     assert_eq!(post_count.posts, 2);
 

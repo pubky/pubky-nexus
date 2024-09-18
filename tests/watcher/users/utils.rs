@@ -1,5 +1,10 @@
 use anyhow::Result;
-use pubky_nexus::{get_neo4j_graph, models::user::{UserCounts, UserDetails, UserStream, USER_PIONEERS_KEY_PARTS}, queries::read::get_users_details_by_id, RedisOps};
+use neo4rs::{query, Query};
+use pubky_nexus::{
+    get_neo4j_graph,
+    models::user::{UserCounts, UserDetails, UserStream, USER_PIONEERS_KEY_PARTS},
+    RedisOps,
+};
 
 pub async fn check_member_user_pioneer(user_id: &str) -> Result<Option<isize>> {
     let pioneer_score = UserStream::check_sorted_set_member(&USER_PIONEERS_KEY_PARTS, &[&user_id])
@@ -19,7 +24,7 @@ pub async fn find_user_details(user_id: &str) -> UserDetails {
     let mut row_stream;
     {
         let graph = get_neo4j_graph().unwrap();
-        let query = get_users_details_by_id(&user_id);
+        let query = get_user_details_by_id(&user_id);
 
         let graph = graph.lock().await;
         row_stream = graph.execute(query).await.unwrap();
@@ -31,4 +36,22 @@ pub async fn find_user_details(user_id: &str) -> UserDetails {
     }
     assert!(false, "User node not found in Nexus graph");
     return UserDetails::default();
+}
+
+// Retrieve a user by id
+pub fn get_user_details_by_id(user_id: &str) -> Query {
+    query(
+        "
+        OPTIONAL MATCH (record:User {id: $id})
+        RETURN {
+            id: record.id,
+            name: record.name,
+            bio: record.bio,
+            status: record.status,
+            links: record.links,
+            indexed_at: record.indexed_at
+        } AS details
+        ",
+    )
+    .param("id", user_id)
 }
