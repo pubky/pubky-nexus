@@ -1,10 +1,9 @@
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
-use chrono::Utc;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::{
     notification::{Notification, NotificationBody},
-    pubky_app::{PubkyAppFollow, PubkyAppUser},
+    pubky_app::PubkyAppUser,
 };
 
 #[tokio::test]
@@ -13,42 +12,36 @@ async fn test_homeserver_follow_notification() -> Result<()> {
 
     // Step 1: Create first user (follower)
     let follower_keypair = Keypair::random();
+    
     let follower_user = PubkyAppUser {
-        bio: Some("This is the follower user".to_string()),
+        bio: Some("test_homeserver_follow_notification".to_string()),
         image: None,
         links: None,
-        name: "Follower User".to_string(),
+        name: "Watcher:FollowNotification:Follower".to_string(),
         status: None,
     };
     let follower_id = test.create_user(&follower_keypair, &follower_user).await?;
 
     // Step 2: Create second user (followee)
     let followee_keypair = Keypair::random();
+
     let followee_user = PubkyAppUser {
-        bio: Some("This is the followee user".to_string()),
+        bio: Some("test_homeserver_follow_notification".to_string()),
         image: None,
         links: None,
-        name: "Followee User".to_string(),
+        name: "Watcher:FollowNotification:Followee".to_string(),
         status: None,
     };
     let followee_id = test.create_user(&followee_keypair, &followee_user).await?;
 
     // Step 3: Follower follows the followee
-    let follow = PubkyAppFollow {
-        created_at: Utc::now().timestamp_millis(),
-    };
-    let blob = serde_json::to_vec(&follow)?;
-    let follow_url = format!(
-        "pubky://{}/pub/pubky.app/follows/{}",
-        follower_id, followee_id
-    );
-    test.client.put(follow_url.as_str(), &blob).await?;
-    test.ensure_event_processing_complete().await?;
+    let follow_url = test.create_follow(&follower_id, &followee_id).await?;
 
     // Verify the followee gets a "New Follow" notification
     let notifications = Notification::get_by_id(&followee_id, None, None, None, None)
         .await
         .unwrap();
+
     assert_eq!(
         notifications.len(),
         1,
@@ -56,6 +49,7 @@ async fn test_homeserver_follow_notification() -> Result<()> {
     );
 
     let notification = &notifications[0];
+
     if let NotificationBody::Follow { followed_by } = &notification.body {
         assert_eq!(
             followed_by, &follower_id,
@@ -66,22 +60,19 @@ async fn test_homeserver_follow_notification() -> Result<()> {
     }
 
     // Step 4: Followee follows the follower back
-    let follow_back_url = format!(
-        "pubky://{}/pub/pubky.app/follows/{}",
-        followee_id, follower_id
-    );
-    test.client.put(follow_back_url.as_str(), &blob).await?;
-    test.ensure_event_processing_complete().await?;
+    let follow_back_url = test.create_follow(&followee_id, &follower_id).await?;
 
     // Verify the follower gets a "New Friend" notification
     let notifications_follower = Notification::get_by_id(&follower_id, None, None, None, None)
         .await
         .unwrap();
+
     assert_eq!(
         notifications_follower.len(),
         1,
         "Follower should have 1 new friend notification"
     );
+
     if let NotificationBody::NewFriend { followed_by } = &notifications_follower[0].body {
         assert_eq!(
             followed_by, &followee_id,

@@ -256,6 +256,7 @@ pub async fn ingest_follow(
     followee_id: PubkyId,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Update follow indexes
+    // NOTE: It might be reverse. go to models/user/follows.rs for more info. #followee_follower_inverse
     Followers::put_index_set(&[&follower_id], &[&followee_id]).await?;
     Following::put_index_set(&[&followee_id], &[&follower_id]).await?;
 

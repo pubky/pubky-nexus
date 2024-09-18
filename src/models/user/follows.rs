@@ -66,9 +66,11 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
     }
 }
 
+// TODO: Followers keep the track the people that the key is following. AKA it has you following. #followee_follower_inverse
 #[derive(Serialize, Deserialize, ToSchema, Default)]
 pub struct Followers(pub Vec<String>);
 
+// TODO: Following keep the track the people that are following the key. AKA it has you followers. #followee_follower_inverse
 #[derive(Serialize, Deserialize, ToSchema, Default)]
 pub struct Following(pub Vec<String>);
 

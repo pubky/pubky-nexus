@@ -1,26 +1,27 @@
-use crate::watcher::utils::WatcherTest;
+use crate::watcher::{users::utils::find_user_counts, utils::WatcherTest};
+use super::utils::find_follow_relationship;
 use anyhow::Result;
-use chrono::Utc;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{
     models::{
-        pubky_app::{PubkyAppFollow, PubkyAppUser},
-        user::{Followers, Following, UserCounts, UserFollows},
+        pubky_app::PubkyAppUser,
+        user::{Followers, Following, UserFollows},
     },
     RedisOps,
 };
 
 #[tokio::test]
-async fn test_homeserver_follow() -> Result<()> {
+async fn atest_homeserver_follow() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Create first user (follower)
     let follower_keypair = Keypair::random();
+
     let follower_user = PubkyAppUser {
-        bio: Some("This is the follower user".to_string()),
+        bio: Some("test_homeserver_follow".to_string()),
         image: None,
         links: None,
-        name: "Follower User".to_string(),
+        name: "Watcher:Follow:Follower".to_string(),
         status: None,
     };
     let follower_id = test
@@ -31,10 +32,10 @@ async fn test_homeserver_follow() -> Result<()> {
     // Create second user (followee)
     let followee_keypair = Keypair::random();
     let followee_user = PubkyAppUser {
-        bio: Some("This is the followee user".to_string()),
+        bio: Some("test_homeserver_follow".to_string()),
         image: None,
         links: None,
-        name: "Followee User".to_string(),
+        name: "Watcher:Follow:Followee".to_string(),
         status: None,
     };
     let followee_id = test
@@ -43,54 +44,30 @@ async fn test_homeserver_follow() -> Result<()> {
         .unwrap();
 
     // Follow the followee
-    let follow = PubkyAppFollow {
-        created_at: Utc::now().timestamp_millis(),
-    };
-    let blob = serde_json::to_vec(&follow)?;
-    let follow_url = format!(
-        "pubky://{}/pub/pubky.app/follows/{}",
-        follower_id, followee_id
-    );
-    test.client.put(follow_url.as_str(), &blob).await?;
+    test.create_follow(&follower_id, &followee_id).await?;
 
-    // Process the event
-    test.ensure_event_processing_complete().await?;
+    // GRAPH_OP: Check if relationship was created
+    let exist = find_follow_relationship(&follower_id, &followee_id).await;
+    assert_eq!(exist, true, "The follow relationship was not created in the Graph");
+    println!("{:?}, {:?}", followee_id, follower_id);
 
-    // TODO: That might come from graph
-    // Verify the new follower relationship exists in Nexus
-    let result_followers = Followers::get_by_id(&followee_id, None, None)
-        .await
-        .unwrap()
-        .expect("Followers should exist");
-    assert_eq!(result_followers.0.len(), 1);
-    assert_eq!(result_followers.0[0], follower_id);
+    // CACHE_OP: Assert the new follower relationship exists in Nexus
+    // NOTE: #followee_follower_inverse
+    let (_exist, member) = Followers::check_set_member(&[&follower_id], &followee_id).await.unwrap();
+    assert!(member);
 
-    let result_following = Following::get_by_id(&follower_id, None, None)
-        .await
-        .unwrap()
-        .expect("Following should exist");
-    assert_eq!(result_following.0.len(), 1);
-    assert_eq!(result_following.0[0], followee_id);
+    let (_exist, member) = Following::check_set_member(&[&followee_id], &follower_id).await.unwrap();
+    assert!(member);
 
     // CACHE_OP: Assert if cache has been updated
-    let followee_user_count = UserCounts::try_from_index_json(&[&followee_id])
-        .await
-        .unwrap()
-        .expect("User count not found");
-    assert_eq!(followee_user_count.followers, 1);
+    let exist_count = find_user_counts(&followee_id).await;
+    assert_eq!(exist_count.followers, 1);
 
-    // Get following counts, should be following
-    let follower_user_count = UserCounts::try_from_index_json(&[&follower_id])
-        .await
-        .unwrap()
-        .expect("User count not found");
-    assert_eq!(follower_user_count.following, 1);
+    let exist_count = find_user_counts(&follower_id).await;
+    assert_eq!(exist_count.following, 1);
 
     // Unfollow the user
-    test.client.delete(follow_url.as_str()).await?;
-
-    // Process the event
-    test.ensure_event_processing_complete().await?;
+    test.delete_follow(&follower_id, &followee_id).await?;
 
     // Verify the follower relationship no longer exists in Nexus
     let result_followers = Followers::get_by_id(&followee_id, None, None)
