@@ -156,6 +156,7 @@ pub async fn ingest_post_tag(
     user_id: &str,
     author_id: &str,
     post_id: &str,
+    post_uri: &str,
     tag_label: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // TODO: Carefull with that operation, we might lost data consistency, if one of that fails
@@ -220,6 +221,9 @@ pub async fn ingest_post_tag(
     }
     // TODO: Maybe work in the else
 
+    // Save new notification
+    Notification::new_post_tag(&user_id, &author_id, &tag_label, &post_uri).await?;
+
     Ok(())
 }
 
@@ -242,6 +246,8 @@ pub async fn ingest_user_tag(
     // Add user to tag taggers list
     TagUser::put_index_set(&user_slice, &[user_id]).await?;
     update_pioneer_score(author_id).await?;
+    // Save new notification
+    Notification::new_user_tag(&user_id, &author_id, &tag_label).await?;
     Ok(())
 }
 

@@ -20,7 +20,7 @@ async fn test_homeserver_post_event() -> Result<()> {
 
     let keypair = Keypair::random();
     let user = PubkyAppUser {
-        bio: None,
+        bio: Some("test_homeserver_post_event".to_string()),
         image: None,
         links: None,
         name: "Watcher:PostEvent:User".to_string(),

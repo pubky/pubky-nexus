@@ -74,6 +74,12 @@ impl WatcherTest {
         Ok(post_id)
     }
 
+    pub async fn create_tag(&mut self, tag_url: &str, tag_blob: Vec<u8>) -> Result<()> {
+        self.client.put(tag_url, &tag_blob).await?;
+        self.ensure_event_processing_complete().await?;
+        Ok(())
+    }
+
     pub async fn cleanup_user(&mut self, user_id: &str) -> Result<()> {
         let url = format!("pubky://{}/pub/pubky.app/profile.json", user_id);
         self.client.delete(url.as_str()).await?;

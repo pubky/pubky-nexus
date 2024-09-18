@@ -13,11 +13,12 @@ async fn test_homeserver_tag_user_notification() -> Result<()> {
 
     // Create the first user (tagged user)
     let tagged_keypair = Keypair::random();
+
     let tagged_user = PubkyAppUser {
-        bio: Some("This is the tagged user".to_string()),
+        bio: Some("test_homeserver_tag_user_notification".to_string()),
         image: None,
         links: None,
-        name: "Tagged User".to_string(),
+        name: "Watcher:TagUserNotification:TaggedUser".to_string(),
         status: None,
     };
     let tagged_user_id = test.create_user(&tagged_keypair, &tagged_user).await?;
@@ -25,16 +26,17 @@ async fn test_homeserver_tag_user_notification() -> Result<()> {
     // Create the second user (tagger)
     let tagger_keypair = Keypair::random();
     let tagger_user = PubkyAppUser {
-        bio: Some("This is the tagger user".to_string()),
+        bio: Some("test_homeserver_tag_user_notification".to_string()),
         image: None,
         links: None,
-        name: "Tagger User".to_string(),
+        name: "Watcher:TagUserNotification:TaggerUser".to_string(),
         status: None,
     };
     let tagger_user_id = test.create_user(&tagger_keypair, &tagger_user).await?;
 
     // Tagger adds a tag to the profile of the tagged user
     let label = "friendly";
+
     let tag = PubkyAppTag {
         uri: format!("pubky://{}/pub/pubky.app/profile.json", tagged_user_id),
         label: label.to_string(),
@@ -47,11 +49,8 @@ async fn test_homeserver_tag_user_notification() -> Result<()> {
         tag.create_id()
     );
 
-    // Tagger applies the tag
-    test.client.put(tag_url.as_str(), &tag_blob).await?;
-
-    // Process the event
-    test.ensure_event_processing_complete().await?;
+    // Put tag
+    test.create_tag(tag_url.as_str(), tag_blob).await?;
 
     // Check if the tagged user received a notification
     let notifications = Notification::get_by_id(&tagged_user_id, None, None, None, None)

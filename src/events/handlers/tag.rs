@@ -1,6 +1,5 @@
 use crate::db::graph::exec::exec_single_row;
 use crate::events::uri::ParsedUri;
-use crate::models::notification::Notification;
 use crate::models::pubky_app::traits::Validatable;
 use crate::models::pubky_app::PubkyAppTag;
 use crate::models::user::PubkyId;
@@ -60,10 +59,7 @@ async fn put_post_tag(
     exec_single_row(query).await?;
 
     // Save new post tag to indices
-    ingest_post_tag(&user_id, &author_id, &post_id, &tag_label).await?;
-
-    // Save new notification
-    Notification::new_post_tag(&user_id, &author_id, &tag_label, &post_uri).await?;
+    ingest_post_tag(&user_id, &author_id, &post_id, &post_uri, &tag_label).await?;
 
     Ok(())
 }
@@ -82,9 +78,6 @@ async fn put_user_tag(
 
     // Save new user tag to indices
     ingest_user_tag(&user_id, &tagged_user_id, &tag_label).await?;
-
-    // Save new notification
-    Notification::new_user_tag(&user_id, &tagged_user_id, &tag_label).await?;
 
     Ok(())
 }
