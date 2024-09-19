@@ -150,7 +150,7 @@ pub fn get_post_details_by_id(user_id: &str, post_id: &str) -> Query {
             content: post.content,
             kind: post.kind,
             indexed_at: post.indexed_at,
-            uri: post.uri,
+            uri: 'pubky://' + user.id + '/pub/pubky.app/posts/' + post.id,
             author: user.id
         } AS details
         ",
