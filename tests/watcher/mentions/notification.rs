@@ -13,10 +13,10 @@ async fn test_homeserver_mentions_notifications() -> Result<()> {
     // Create first user (author)
     let author_keypair = Keypair::random();
     let author_user = PubkyAppUser {
-        bio: None,
+        bio: Some("test_homeserver_mentions_notifications".to_string()),
         image: None,
         links: None,
-        name: "Author User".to_string(),
+        name: "Watcher:MentionsNotification:Author".to_string(),
         status: None,
     };
     let author_user_id = test.create_user(&author_keypair, &author_user).await?;
@@ -24,10 +24,10 @@ async fn test_homeserver_mentions_notifications() -> Result<()> {
     // Create second user (mention 1)
     let mentioned_user_1_keypair = Keypair::random();
     let mentioned_user_1 = PubkyAppUser {
-        bio: None,
+        bio: Some("test_homeserver_mentions".to_string()),
         image: None,
         links: None,
-        name: "Mentioned User 1".to_string(),
+        name: "Watcher:MentionsNotification:MentionedUser1".to_string(),
         status: None,
     };
     let mentioned_user_1_id = test
@@ -37,10 +37,10 @@ async fn test_homeserver_mentions_notifications() -> Result<()> {
     // Create third user (mention 2)
     let mentioned_user_2_keypair = Keypair::random();
     let mentioned_user_2 = PubkyAppUser {
-        bio: None,
+        bio: Some("test_homeserver_mentions".to_string()),
         image: None,
         links: None,
-        name: "Mentioned User 2".to_string(),
+        name: "Watcher:MentionsNotification:MentionedUser2".to_string(),
         status: None,
     };
     let mentioned_user_2_id = test

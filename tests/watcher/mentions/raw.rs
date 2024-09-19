@@ -1,10 +1,8 @@
 use crate::watcher::utils::WatcherTest;
+use super::utils::find_post_mentions;
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
-use pubky_nexus::models::{
-    post::PostView,
-    pubky_app::{PostKind, PubkyAppPost, PubkyAppUser},
-};
+use pubky_nexus::{models::{post::PostRelationships, pubky_app::{PostKind, PubkyAppPost, PubkyAppUser}}, RedisOps};
 
 #[tokio::test]
 async fn test_homeserver_mentions() -> Result<()> {
@@ -12,22 +10,24 @@ async fn test_homeserver_mentions() -> Result<()> {
 
     // Create first user (author)
     let author_user_keypair = Keypair::random();
+
     let author = PubkyAppUser {
-        bio: None,
+        bio: Some("test_homeserver_mentions".to_string()),
         image: None,
         links: None,
-        name: "Post author".to_string(),
+        name: "Watcher:Mentions:Author".to_string(),
         status: None,
     };
     let author_user_id = test.create_user(&author_user_keypair, &author).await?;
 
     // Create second user (mention 1)
     let mentioned_user_1_keypair = Keypair::random();
+
     let mentioned_user_1 = PubkyAppUser {
-        bio: None,
+        bio: Some("test_homeserver_mentions".to_string()),
         image: None,
         links: None,
-        name: "First mentioned user".to_string(),
+        name: "Watcher:Mentions:MentionedUser1".to_string(),
         status: None,
     };
     let mentioned_user_1_id = test
@@ -36,11 +36,12 @@ async fn test_homeserver_mentions() -> Result<()> {
 
     // Create third user (mention 2)
     let mentioned_user_2_keypair = Keypair::random();
+
     let mentioned_user_2 = PubkyAppUser {
-        bio: None,
+        bio: Some("test_homeserver_mentions".to_string()),
         image: None,
         links: None,
-        name: "Second mentioned user".to_string(),
+        name: "Watcher:Mentions:MentionedUser2".to_string(),
         status: None,
     };
     let mentioned_user_2_id = test
@@ -61,33 +62,20 @@ async fn test_homeserver_mentions() -> Result<()> {
 
     let post_id = test.create_post(&author_user_id, &post).await?;
 
-    // Assert the post can be served from Nexus
-    let result_post = PostView::get_by_id(&author_user_id, &post_id, None, None, None)
-        .await
-        .unwrap()
-        .expect("The post was not served from Nexus");
+    // GRAPH_OP
+    let post_mention_users = find_post_mentions(&author_user_id, &post_id).await;
 
-    // Verify the mentioned relationships contain both User 2 and User 3
-    assert!(result_post
-        .relationships
-        .mentioned
-        .clone()
-        .unwrap_or_default()
-        .contains(&mentioned_user_1_id));
-    assert!(result_post
-        .relationships
-        .mentioned
-        .clone()
-        .unwrap_or_default()
-        .contains(&mentioned_user_2_id));
-    assert_eq!(
-        result_post
-            .relationships
-            .mentioned
-            .unwrap_or_default()
-            .len(),
-        2
-    );
+    assert_eq!(post_mention_users.len(), 2, "Could not find all mentions in the GRAPH");
+    assert!(post_mention_users.contains(&mentioned_user_1_id));
+    assert!(post_mention_users.contains(&mentioned_user_2_id));
+
+    let post_relationships = PostRelationships::try_from_index_json(&[&author_user_id, &post_id]).await.unwrap();
+
+    assert!(post_relationships.is_some(), "Post should have relationships cached");
+    let mentions = post_relationships.unwrap().mentioned.unwrap_or_default();
+    assert_eq!(mentions.len(), 2, "The post should have two mentions");
+    assert!(mentions.contains(&mentioned_user_1_id), "Could not find the mentioned user");
+    assert!(mentions.contains(&mentioned_user_2_id), "Could not find the mentioned user");
 
     // Cleanup
     test.cleanup_post(&author_user_id, &post_id).await?;
