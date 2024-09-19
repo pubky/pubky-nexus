@@ -11,7 +11,7 @@ use pubky_nexus::{
 };
 
 #[tokio::test]
-async fn atest_homeserver_follow() -> Result<()> {
+async fn test_homeserver_follow() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Create first user (follower)
