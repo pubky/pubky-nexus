@@ -1,5 +1,5 @@
-use neo4rs::{query, Query};
 use anyhow::Result;
+use neo4rs::{query, Query};
 use pubky_nexus::{
     get_neo4j_graph,
     models::tag::{

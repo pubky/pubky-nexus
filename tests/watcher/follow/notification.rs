@@ -12,7 +12,7 @@ async fn test_homeserver_follow_notification() -> Result<()> {
 
     // Step 1: Create first user (follower)
     let follower_keypair = Keypair::random();
-    
+
     let follower_user = PubkyAppUser {
         bio: Some("test_homeserver_follow_notification".to_string()),
         image: None,

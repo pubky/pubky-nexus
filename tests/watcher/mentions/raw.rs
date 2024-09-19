@@ -1,8 +1,14 @@
-use crate::watcher::utils::WatcherTest;
 use super::utils::find_post_mentions;
+use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
-use pubky_nexus::{models::{post::PostRelationships, pubky_app::{PostKind, PubkyAppPost, PubkyAppUser}}, RedisOps};
+use pubky_nexus::{
+    models::{
+        post::PostRelationships,
+        pubky_app::{PostKind, PubkyAppPost, PubkyAppUser},
+    },
+    RedisOps,
+};
 
 #[tokio::test]
 async fn test_homeserver_mentions() -> Result<()> {
@@ -65,17 +71,32 @@ async fn test_homeserver_mentions() -> Result<()> {
     // GRAPH_OP
     let post_mention_users = find_post_mentions(&author_user_id, &post_id).await;
 
-    assert_eq!(post_mention_users.len(), 2, "Could not find all mentions in the GRAPH");
+    assert_eq!(
+        post_mention_users.len(),
+        2,
+        "Could not find all mentions in the GRAPH"
+    );
     assert!(post_mention_users.contains(&mentioned_user_1_id));
     assert!(post_mention_users.contains(&mentioned_user_2_id));
 
-    let post_relationships = PostRelationships::try_from_index_json(&[&author_user_id, &post_id]).await.unwrap();
+    let post_relationships = PostRelationships::try_from_index_json(&[&author_user_id, &post_id])
+        .await
+        .unwrap();
 
-    assert!(post_relationships.is_some(), "Post should have relationships cached");
+    assert!(
+        post_relationships.is_some(),
+        "Post should have relationships cached"
+    );
     let mentions = post_relationships.unwrap().mentioned.unwrap_or_default();
     assert_eq!(mentions.len(), 2, "The post should have two mentions");
-    assert!(mentions.contains(&mentioned_user_1_id), "Could not find the mentioned user");
-    assert!(mentions.contains(&mentioned_user_2_id), "Could not find the mentioned user");
+    assert!(
+        mentions.contains(&mentioned_user_1_id),
+        "Could not find the mentioned user"
+    );
+    assert!(
+        mentions.contains(&mentioned_user_2_id),
+        "Could not find the mentioned user"
+    );
 
     // Cleanup
     test.cleanup_post(&author_user_id, &post_id).await?;

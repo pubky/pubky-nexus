@@ -19,11 +19,8 @@ pub async fn find_follow_relationship(follower: &str, followee: &str) -> bool {
     return false;
 }
 
-
 fn user_following_query(follower: &str, followee: &str) -> Query {
-    query(
-        " RETURN EXISTS((:User {id: $follower})-[:FOLLOWS]->(:User {id: $followee})) AS exist"
-    )
-    .param("followee", followee)
-    .param("follower", follower)
+    query(" RETURN EXISTS((:User {id: $follower})-[:FOLLOWS]->(:User {id: $followee})) AS exist")
+        .param("followee", followee)
+        .param("follower", follower)
 }

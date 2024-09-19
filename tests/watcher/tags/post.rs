@@ -1,4 +1,4 @@
-use super::utils::{find_post_tag, check_member_total_engagement_post_tag};
+use super::utils::{check_member_total_engagement_post_tag, find_post_tag};
 use crate::watcher::posts::utils::{check_member_total_engagement_user_posts, find_post_counts};
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
@@ -59,7 +59,9 @@ async fn test_homeserver_tag_post() -> Result<()> {
     assert_eq!(post_tag.taggers[0], user_id);
 
     // CACHE_OP
-    let cache_post_tag = TagPost::get_by_id(&user_id, Some(&post_id), None, None).await.unwrap();
+    let cache_post_tag = TagPost::get_by_id(&user_id, Some(&post_id), None, None)
+        .await
+        .unwrap();
 
     assert_eq!(cache_post_tag.is_some(), true);
     let cache_tag_details = cache_post_tag.unwrap();
@@ -73,7 +75,7 @@ async fn test_homeserver_tag_post() -> Result<()> {
     assert_eq!(cache_tag_details[0].taggers[0], user_id);
 
     let post_key: [&str; 2] = [&user_id, &post_id];
-    
+
     // Check if post counts updated: Post:Counts:user_id:post_id
     let post_counts = find_post_counts(&post_key).await;
     assert_eq!(post_counts.tags, 1);
@@ -81,9 +83,11 @@ async fn test_homeserver_tag_post() -> Result<()> {
     // Check if the user is related with tag: Tag:Taggers:tag_name
     let (_exist, member) = Taggers::check_set_member(&[label], &user_id).await.unwrap();
     assert!(member);
-    
+
     // Check global post engagement: Sorted:Posts:Global:TotalEngagement:user_id:post_id
-    let total_engagement = check_member_total_engagement_user_posts(&post_key).await.unwrap();
+    let total_engagement = check_member_total_engagement_user_posts(&post_key)
+        .await
+        .unwrap();
     assert_eq!(total_engagement.is_some(), true);
     assert_eq!(total_engagement.unwrap(), 1);
 
@@ -100,7 +104,9 @@ async fn test_homeserver_tag_post() -> Result<()> {
     );
 
     // Tag global engagement: Sorted:Tags:Global:Post:TotalEngagement
-    let total_engagement = check_member_total_engagement_post_tag(&post_key, label).await.unwrap();
+    let total_engagement = check_member_total_engagement_post_tag(&post_key, label)
+        .await
+        .unwrap();
     assert_eq!(total_engagement.is_some(), true);
     assert_eq!(total_engagement.unwrap(), 1);
 

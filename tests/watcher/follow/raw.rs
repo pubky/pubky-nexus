@@ -1,5 +1,5 @@
-use crate::watcher::{users::utils::find_user_counts, utils::WatcherTest};
 use super::utils::find_follow_relationship;
+use crate::watcher::{users::utils::find_user_counts, utils::WatcherTest};
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{
@@ -48,15 +48,22 @@ async fn test_homeserver_follow() -> Result<()> {
 
     // GRAPH_OP: Check if relationship was created
     let exist = find_follow_relationship(&follower_id, &followee_id).await;
-    assert_eq!(exist, true, "The follow relationship was not created in the Graph");
+    assert_eq!(
+        exist, true,
+        "The follow relationship was not created in the Graph"
+    );
     println!("{:?}, {:?}", followee_id, follower_id);
 
     // CACHE_OP: Assert the new follower relationship exists in Nexus
     // NOTE: #followee_follower_inverse
-    let (_exist, member) = Followers::check_set_member(&[&follower_id], &followee_id).await.unwrap();
+    let (_exist, member) = Followers::check_set_member(&[&follower_id], &followee_id)
+        .await
+        .unwrap();
     assert!(member);
 
-    let (_exist, member) = Following::check_set_member(&[&followee_id], &follower_id).await.unwrap();
+    let (_exist, member) = Following::check_set_member(&[&followee_id], &follower_id)
+        .await
+        .unwrap();
     assert!(member);
 
     // CACHE_OP: Assert if cache has been updated

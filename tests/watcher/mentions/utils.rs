@@ -19,7 +19,6 @@ pub async fn find_post_mentions(follower: &str, followee: &str) -> Vec<String> {
     return Vec::new();
 }
 
-
 fn post_mention_query(user_id: &str, post_id: &str) -> Query {
     query(
         "
@@ -28,7 +27,7 @@ fn post_mention_query(user_id: &str, post_id: &str) -> Query {
         RETURN COLLECT(
             mentioned_user.id
         ) as mentioned_list
-        "
+        ",
     )
     .param("author_id", user_id)
     .param("post_id", post_id)

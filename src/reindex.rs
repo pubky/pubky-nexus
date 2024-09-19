@@ -222,7 +222,7 @@ pub async fn ingest_post_tag(
     // TODO: Maybe work in the else
 
     // Save new notification
-    Notification::new_post_tag(&user_id, &author_id, &tag_label, &post_uri).await?;
+    Notification::new_post_tag(user_id, author_id, tag_label, post_uri).await?;
 
     Ok(())
 }
@@ -247,7 +247,7 @@ pub async fn ingest_user_tag(
     TagUser::put_index_set(&user_slice, &[user_id]).await?;
     update_pioneer_score(author_id).await?;
     // Save new notification
-    Notification::new_user_tag(&user_id, &author_id, &tag_label).await?;
+    Notification::new_user_tag(user_id, author_id, tag_label).await?;
     Ok(())
 }
 

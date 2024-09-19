@@ -1,5 +1,5 @@
-use crate::watcher::utils::WatcherTest;
 use super::utils::find_post_tag;
+use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
 use pubky_common::crypto::Keypair;
@@ -14,7 +14,7 @@ async fn test_homeserver_tag_post_notification() -> Result<()> {
 
     // Create first user (post author)
     let author_keypair = Keypair::random();
-    
+
     let author_user = PubkyAppUser {
         bio: Some("test_homeserver_tag_post_notification".to_string()),
         image: None,

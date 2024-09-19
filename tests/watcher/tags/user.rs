@@ -1,13 +1,16 @@
-use crate::watcher::{users::utils::{check_member_user_pioneer, find_user_counts}, utils::WatcherTest};
 use super::utils::find_user_tag;
+use crate::watcher::{
+    users::utils::{check_member_user_pioneer, find_user_counts},
+    utils::WatcherTest,
+};
 use anyhow::Result;
 use chrono::Utc;
 use pubky_common::crypto::Keypair;
-use pubky_nexus::
-    models::{
-        pubky_app::{traits::GenerateHashId, PubkyAppTag, PubkyAppUser}, tag::{traits::TagCollection, user::TagUser}, user::UserView
-    }
-;
+use pubky_nexus::models::{
+    pubky_app::{traits::GenerateHashId, PubkyAppTag, PubkyAppUser},
+    tag::{traits::TagCollection, user::TagUser},
+    user::UserView,
+};
 
 #[tokio::test]
 async fn test_homeserver_tag_user() -> Result<()> {
@@ -36,7 +39,7 @@ async fn test_homeserver_tag_user() -> Result<()> {
 
     let tag_blob = serde_json::to_vec(&tag)?;
     let tag_url = format!("pubky://{}/pub/pubky.app/tags/{}", user_id, tag.create_id());
-    
+
     // Put tag
     test.create_tag(tag_url.as_str(), tag_blob).await?;
 
@@ -45,9 +48,11 @@ async fn test_homeserver_tag_user() -> Result<()> {
     assert_eq!(post_tag.label, label);
     assert_eq!(post_tag.taggers_count, 1);
     assert_eq!(post_tag.taggers[0], user_id);
-    
+
     // CACHE_OP
-    let cache_user_tag = TagUser::get_by_id(&user_id, None, None, None).await.unwrap();
+    let cache_user_tag = TagUser::get_by_id(&user_id, None, None, None)
+        .await
+        .unwrap();
 
     assert_eq!(cache_user_tag.is_some(), true);
     let cache_tag_details = cache_user_tag.unwrap();
