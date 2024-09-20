@@ -1,0 +1,12 @@
+/target
+.env
+/static
+/docs
+/.github
+/docker
+/tests
+README.md
+print_files.sh
+.env-sample
+/pubky/target
+/examples
