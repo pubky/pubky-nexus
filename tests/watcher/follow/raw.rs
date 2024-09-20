@@ -47,7 +47,9 @@ async fn test_homeserver_follow() -> Result<()> {
     test.create_follow(&follower_id, &followee_id).await?;
 
     // GRAPH_OP: Check if relationship was created
-    let exist = find_follow_relationship(&follower_id, &followee_id).await.unwrap();
+    let exist = find_follow_relationship(&follower_id, &followee_id)
+        .await
+        .unwrap();
     assert_eq!(
         exist, true,
         "The follow relationship was not created in the Graph"

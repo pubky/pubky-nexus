@@ -1,6 +1,6 @@
+use anyhow::Result;
 use neo4rs::{query, Query};
 use pubky_nexus::get_neo4j_graph;
-use anyhow::Result;
 
 pub async fn find_post_mentions(follower: &str, followee: &str) -> Result<Vec<String>> {
     let mut row_stream;

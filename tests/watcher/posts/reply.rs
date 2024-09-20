@@ -62,7 +62,9 @@ async fn test_homeserver_post_reply() -> Result<()> {
     assert!(reply_post_details.indexed_at > 0);
 
     // Assert post reply relationship
-    let reply_parent_uri = find_reply_relationship_parent_uri(&user_id, &reply_id).await.unwrap();
+    let reply_parent_uri = find_reply_relationship_parent_uri(&user_id, &reply_id)
+        .await
+        .unwrap();
     assert_eq!(reply_parent_uri, parent_uri);
 
     // CACHE_OP: Check if the event writes in the graph
