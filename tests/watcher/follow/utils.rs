@@ -1,7 +1,8 @@
 use neo4rs::{query, Query};
 use pubky_nexus::get_neo4j_graph;
+use anyhow::Result;
 
-pub async fn find_follow_relationship(follower: &str, followee: &str) -> bool {
+pub async fn find_follow_relationship(follower: &str, followee: &str) -> Result<bool> {
     let mut row_stream;
     {
         let graph = get_neo4j_graph().unwrap();
@@ -13,10 +14,9 @@ pub async fn find_follow_relationship(follower: &str, followee: &str) -> bool {
 
     let row = row_stream.next().await.unwrap();
     if let Ok(result) = row.unwrap().get::<bool>("exist") {
-        return result;
+        return Ok(result);
     }
-    assert!(false, "Follow edge not found in Nexus graph");
-    return false;
+    anyhow::bail!("Follow edge not found in Nexus graph");
 }
 
 fn user_following_query(follower: &str, followee: &str) -> Query {

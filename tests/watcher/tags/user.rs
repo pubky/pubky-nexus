@@ -44,7 +44,7 @@ async fn test_homeserver_tag_user() -> Result<()> {
     test.create_tag(tag_url.as_str(), tag_blob).await?;
 
     // GRAPH_OP
-    let post_tag = find_user_tag(&user_id, label).await;
+    let post_tag = find_user_tag(&user_id, label).await.unwrap();
     assert_eq!(post_tag.label, label);
     assert_eq!(post_tag.taggers_count, 1);
     assert_eq!(post_tag.taggers[0], user_id);

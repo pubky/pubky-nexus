@@ -104,13 +104,13 @@ async fn test_homeserver_post_repost_notification() -> Result<()> {
         );
 
         // CACHE_OP
-        let bob_repost_details = find_post_details(&bob_id, &bob_reply_id).await;
+        let bob_repost_details = find_post_details(&bob_id, &bob_reply_id).await.unwrap();
         assert_eq!(
             repost_uri, &bob_repost_details.uri,
             "Repost notification should contain correct reply URI"
         );
 
-        let parent_post_details = find_post_details(&alice_id, &alice_post_id).await;
+        let parent_post_details = find_post_details(&alice_id, &alice_post_id).await.unwrap();
         assert_eq!(
             embed_uri, &parent_post_details.uri,
             "Repost notification should contain correct parent URI"

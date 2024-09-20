@@ -55,7 +55,7 @@ async fn test_homeserver_post_repost() -> Result<()> {
     let repost_id = test.create_post(&user_id, &repost).await?;
 
     // GRAPH_OP: Assert repost relationship was created
-    let repost_post_details = find_post_details(&user_id, &repost_id).await;
+    let repost_post_details = find_post_details(&user_id, &repost_id).await.unwrap();
 
     assert_eq!(repost_post_details.id, repost_id);
     assert_eq!(repost_post_details.content, repost.content);
@@ -66,7 +66,7 @@ async fn test_homeserver_post_repost() -> Result<()> {
     assert!(repost_post_details.indexed_at > 0);
 
     // Assert post reply relationship
-    let reply_parent_uri = find_repost_relationship_parent_uri(&user_id, &repost_id).await;
+    let reply_parent_uri = find_repost_relationship_parent_uri(&user_id, &repost_id).await.unwrap();
     assert_eq!(reply_parent_uri, parent_uri);
 
     // CACHE_OP: Check if the event writes in the graph

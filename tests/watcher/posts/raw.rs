@@ -41,7 +41,7 @@ async fn test_homeserver_post_event() -> Result<()> {
     // GRAPH_OP: Assert if the event writes the graph
     // Cannot use PostDetails::get_from_graph because it indexes also,
     // Sorted:Posts:Global:Timeline and Sorted:Posts:User. That operation has to be executed in the ingest_user
-    let post_details = find_post_details(&user_id, &post_id).await;
+    let post_details = find_post_details(&user_id, &post_id).await.unwrap();
 
     assert_eq!(post_details.id, post_id);
     assert_eq!(post_details.content, post.content);

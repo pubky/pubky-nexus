@@ -20,7 +20,7 @@ pub async fn find_user_counts(user_id: &str) -> UserCounts {
         .expect("User count not found with that ID")
 }
 
-pub async fn find_user_details(user_id: &str) -> UserDetails {
+pub async fn find_user_details(user_id: &str) -> Result<UserDetails> {
     let mut row_stream;
     {
         let graph = get_neo4j_graph().unwrap();
@@ -32,10 +32,9 @@ pub async fn find_user_details(user_id: &str) -> UserDetails {
 
     let row = row_stream.next().await.unwrap();
     if let Ok(result) = row.unwrap().get::<UserDetails>("details") {
-        return result;
+        return Ok(result);
     }
-    assert!(false, "User node not found in Nexus graph");
-    return UserDetails::default();
+    anyhow::bail!("User node not found in Nexus graph");
 }
 
 // Retrieve a user by id

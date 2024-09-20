@@ -9,7 +9,7 @@ use pubky_nexus::{
     RedisOps,
 };
 
-pub async fn find_post_tag(user_id: &str, post_id: &str, tag_name: &str) -> TagDetails {
+pub async fn find_post_tag(user_id: &str, post_id: &str, tag_name: &str) -> Result<TagDetails> {
     let mut row_stream;
     {
         let graph = get_neo4j_graph().unwrap();
@@ -21,13 +21,12 @@ pub async fn find_post_tag(user_id: &str, post_id: &str, tag_name: &str) -> TagD
 
     let row = row_stream.next().await.unwrap();
     if let Ok(result) = row.unwrap().get::<TagDetails>("tag_details") {
-        return result;
+        return Ok(result);
     }
-    assert!(false, "User/Post/Tag node not found in Nexus graph");
-    return TagDetails::default();
+    anyhow::bail!("User/Post/Tag node not found in Nexus graph");
 }
 
-pub async fn find_user_tag(user_id: &str, tag_name: &str) -> TagDetails {
+pub async fn find_user_tag(user_id: &str, tag_name: &str) -> Result<TagDetails> {
     let mut row_stream;
     {
         let graph = get_neo4j_graph().unwrap();
@@ -39,10 +38,9 @@ pub async fn find_user_tag(user_id: &str, tag_name: &str) -> TagDetails {
 
     let row = row_stream.next().await.unwrap();
     if let Ok(result) = row.unwrap().get::<TagDetails>("tag_details") {
-        return result;
+        return Ok(result);
     }
-    assert!(false, "User/Post/Tag node not found in Nexus graph");
-    return TagDetails::default();
+    anyhow::bail!("User/Post/Tag node not found in Nexus graph");
 }
 
 pub async fn check_member_total_engagement_post_tag(

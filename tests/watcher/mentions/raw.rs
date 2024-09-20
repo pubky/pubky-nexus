@@ -69,7 +69,7 @@ async fn test_homeserver_mentions() -> Result<()> {
     let post_id = test.create_post(&author_user_id, &post).await?;
 
     // GRAPH_OP
-    let post_mention_users = find_post_mentions(&author_user_id, &post_id).await;
+    let post_mention_users = find_post_mentions(&author_user_id, &post_id).await.unwrap();
 
     assert_eq!(
         post_mention_users.len(),

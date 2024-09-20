@@ -1,7 +1,8 @@
 use neo4rs::{query, Query};
 use pubky_nexus::get_neo4j_graph;
+use anyhow::Result;
 
-pub async fn find_post_mentions(follower: &str, followee: &str) -> Vec<String> {
+pub async fn find_post_mentions(follower: &str, followee: &str) -> Result<Vec<String>> {
     let mut row_stream;
     {
         let graph = get_neo4j_graph().unwrap();
@@ -13,10 +14,9 @@ pub async fn find_post_mentions(follower: &str, followee: &str) -> Vec<String> {
 
     let row = row_stream.next().await.unwrap();
     if let Ok(result) = row.unwrap().get::<Vec<String>>("mentioned_list") {
-        return result;
+        return Ok(result);
     }
-    assert!(false, "Follow edge not found in Nexus graph");
-    return Vec::new();
+    anyhow::bail!("Follow edge not found in Nexus graph");
 }
 
 fn post_mention_query(user_id: &str, post_id: &str) -> Query {

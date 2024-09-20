@@ -47,12 +47,11 @@ async fn test_homeserver_follow() -> Result<()> {
     test.create_follow(&follower_id, &followee_id).await?;
 
     // GRAPH_OP: Check if relationship was created
-    let exist = find_follow_relationship(&follower_id, &followee_id).await;
+    let exist = find_follow_relationship(&follower_id, &followee_id).await.unwrap();
     assert_eq!(
         exist, true,
         "The follow relationship was not created in the Graph"
     );
-    println!("{:?}, {:?}", followee_id, follower_id);
 
     // CACHE_OP: Assert the new follower relationship exists in Nexus
     let (_exist, member) = Followers::check_set_member(&[&followee_id], &follower_id)
