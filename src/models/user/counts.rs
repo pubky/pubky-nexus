@@ -6,7 +6,7 @@ use utoipa::ToSchema;
 use super::UserStream;
 
 /// Represents total counts of relationships of a user.
-#[derive(Serialize, Deserialize, ToSchema, Debug)]
+#[derive(Serialize, Deserialize, ToSchema, Debug, Default)]
 pub struct UserCounts {
     pub tags: u32,
     pub posts: u32,
@@ -17,30 +17,21 @@ pub struct UserCounts {
 
 impl RedisOps for UserCounts {}
 
-impl Default for UserCounts {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl UserCounts {
-    pub fn new() -> Self {
-        Self {
-            tags: 0,
-            posts: 0,
-            followers: 0,
-            following: 0,
-            friends: 0,
-        }
-    }
-
     /// Retrieves counts by user ID, first trying to get from Redis, then from Neo4j if not found.
     pub async fn get_by_id(
         user_id: &str,
     ) -> Result<Option<UserCounts>, Box<dyn std::error::Error + Send + Sync>> {
-        match Self::try_from_index_json(&[user_id]).await? {
+        match Self::get_from_index(user_id).await? {
             Some(counts) => Ok(Some(counts)),
-            None => Self::get_from_graph(user_id).await,
+            None => {
+                let graph_response = Self::get_from_graph(user_id).await?;
+                if let Some(user_counts) = graph_response {
+                    user_counts.extend_on_index_miss(user_id).await?;
+                    return Ok(Some(user_counts));
+                }   
+                Ok(None)
+            },
         }
     }
 
@@ -58,23 +49,35 @@ impl UserCounts {
         }
 
         if let Some(row) = result.next().await? {
-            if !row.get("user_exists").unwrap_or(false) {
-                return Ok(None);
+            let user_exists: bool = row.get("exists").unwrap_or(false);
+            if user_exists {
+                let user_counts: UserCounts = row.get("counts").unwrap();
+                return Ok(Some(user_counts));
             }
-            let counts = Self {
-                following: row.get("following_count").unwrap_or_default(),
-                followers: row.get("followers_count").unwrap_or_default(),
-                friends: row.get("friends_count").unwrap_or_default(),
-                posts: row.get("posts_count").unwrap_or_default(),
-                tags: row.get("tags_count").unwrap_or_default(),
-            };
-            counts.put_index_json(&[user_id]).await?;
-            UserStream::add_to_mostfollowed_sorted_set(user_id, &counts).await?;
-            UserStream::add_to_pioneers_sorted_set(user_id, &counts).await?;
-            Ok(Some(counts))
-        } else {
-            Ok(None)
         }
+        Ok(None)
+    }
+
+    pub async fn get_from_index(
+        user_id: &str,
+    ) -> Result<Option<UserCounts>, Box<dyn std::error::Error + Send + Sync>> {
+        if let Some(user_counts) = Self::try_from_index_json(&[user_id]).await? {
+            return Ok(Some(user_counts));
+        }
+        return Ok(None);
+    }
+
+    pub async fn extend_on_index_miss(&self, user_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.put_to_index(user_id).await?;
+        // Name?: put_to_index_most_followed
+        UserStream::add_to_most_followed_sorted_set(user_id, self).await?;
+        // Name?: put_to_index_pioneers
+        UserStream::add_to_pioneers_sorted_set(user_id, self).await?;
+        Ok(())
+    }
+
+    pub async fn put_to_index(&self, user_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.put_index_json(&[user_id]).await
     }
 
     pub async fn delete(user_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

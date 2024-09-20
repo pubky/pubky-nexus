@@ -161,7 +161,7 @@ pub fn user_tags(user_id: &str) -> neo4rs::Query {
     .param("user_id", user_id)
 }
 
-pub fn user_counts(user_id: &str) -> neo4rs::Query {
+pub fn _user_counts(user_id: &str) -> neo4rs::Query {
     query(
         "MATCH (u:User {id: $id})
            OPTIONAL MATCH (u)-[:FOLLOWS]->(following:User)
@@ -177,6 +177,34 @@ pub fn user_counts(user_id: &str) -> neo4rs::Query {
                   COUNT(DISTINCT tag) AS tags_count",
     )
     .param("id", user_id)
+}
+
+pub fn user_counts(user_id: &str) -> neo4rs::Query {
+    query(
+        "
+        MATCH (u:User {id: $user_id})
+        OPTIONAL MATCH (u)-[:FOLLOWS]->(following:User)
+        OPTIONAL MATCH (follower:User)-[:FOLLOWS]->(u)
+        OPTIONAL MATCH (u)-[:FOLLOWS]->(friend:User)-[:FOLLOWS]->(u)
+        OPTIONAL MATCH (u)-[:AUTHORED]->(post:Post)
+        OPTIONAL MATCH (u)-[tag:TAGGED]->(:Post)
+        WITH u, COUNT(DISTINCT following) AS following, 
+                COUNT(DISTINCT follower) AS follower, 
+                COUNT(DISTINCT friend) AS friends, 
+                COUNT(DISTINCT post) AS posts, 
+                COUNT(DISTINCT tag) AS tags
+        RETURN 
+            u IS NOT NULL AS exists,
+            {
+                following: following,
+                follower: follower,
+                friends: friends,
+                posts: posts,
+                tags: tags
+            } AS counts
+        ",
+    )
+    .param("user_id", user_id)
 }
 
 pub fn get_user_followers(user_id: &str, skip: Option<usize>, limit: Option<usize>) -> Query {

@@ -44,7 +44,7 @@ impl Collection<&[&str]> for FileDetails {
         queries::write::create_file(self)
     }
 
-    async fn extend_on_cache_miss(_: &[std::option::Option<Self>]) {
+    async fn extend_on_index_miss(_: &[std::option::Option<Self>]) {
         return;
     }
 }

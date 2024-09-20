@@ -50,7 +50,7 @@ where
 
         let keys: Vec<&[&str]> = keys_refs.iter().map(|arr| &arr[..]).collect();
 
-        let mut collection = Self::try_from_index_multiple_json(&keys).await?;
+        let mut collection = Self::get_from_index(keys).await?;
 
         let mut missing_ids: Vec<(usize, T)> = Vec::new();
         for (i, details) in collection.iter().enumerate() {
@@ -61,7 +61,7 @@ where
 
         if !missing_ids.is_empty() {
             let flat_missing_ids: Vec<T> = missing_ids.iter().map(|&(_, id)| id).collect();
-            let fetched_details = Self::from_graph(&flat_missing_ids).await?;
+            let fetched_details = Self::get_from_graph(&flat_missing_ids).await?;
 
             if !fetched_details.is_empty() {
                 for (i, (original_index, _)) in missing_ids.iter().enumerate() {
@@ -83,7 +83,7 @@ where
     ///
     /// This function returns a `Result` containing a vector of `Option<Self>`. Each `Option` corresponds to
     /// a queried ID, containing `Some(record)` if the record was found in the graph database, or `None` if it was not found.
-    async fn from_graph(
+    async fn get_from_graph(
         ids: &[T],
     ) -> Result<Vec<Option<Self>>, Box<dyn std::error::Error + Send + Sync>> {
         let mut result;
@@ -112,12 +112,16 @@ where
                     found_record_ids.push(*id);
                 }
             }
-
-            Self::to_index(&found_record_ids, found_records).await?;
+            // NOTE: If we want to take out that operation out, we should return a tuple: (records, (&found_record_ids, found_records))
+            Self::put_to_index(&found_record_ids, found_records).await?;
         }
-
-        Self::extend_on_cache_miss(&records).await;
+        // NOTE: maybe that one also out of get_from_graph
+        Self::extend_on_index_miss(&records).await;
         Ok(records)
+    }
+
+    async fn get_from_index(keys: Vec<&[&str]>) -> Result<Vec<Option<Self>>, Box<dyn std::error::Error + Send + Sync>> {
+        Self::try_from_index_multiple_json(&keys).await
     }
 
     /// Indexes collection of records in Redis for faster access in future queries.
@@ -132,7 +136,7 @@ where
     ///
     /// This function returns a `Result` indicating success or failure. A successful result indicates that the
     /// records were successfully indexed in the cache.
-    async fn to_index(
+    async fn put_to_index(
         ids: &[T],
         records: Vec<Option<Self>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -157,5 +161,5 @@ where
     /// Returns the neo4j query to put a record into the graph.
     fn to_graph_query(&self) -> Result<Query, Box<dyn std::error::Error + Send + Sync>>;
 
-    async fn extend_on_cache_miss(elements: &[std::option::Option<Self>]);
+    async fn extend_on_index_miss(elements: &[std::option::Option<Self>]);
 }

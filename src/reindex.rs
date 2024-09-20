@@ -36,7 +36,7 @@ pub async fn reindex() {
     let user_ids: Vec<String> = get_all_user_ids().await.expect("Failed to get user IDs");
     let user_ids_refs: Vec<&str> = user_ids.iter().map(|id| id.as_str()).collect();
 
-    UserDetails::from_graph(&user_ids_refs)
+    UserDetails::get_from_graph(&user_ids_refs)
         .await
         .expect("Failed indexing User Details");
     //TODO use collections for every other model
@@ -93,7 +93,7 @@ pub async fn reindex_user(user_id: &str) -> Result<(), Box<dyn std::error::Error
     Ok(())
 }
 
-pub async fn ingest_user(
+pub async fn _ingest_user(
     user_details: &UserDetails,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     user_details.put_index_json(&[&user_details.id]).await?;

@@ -1,11 +1,8 @@
-use crate::reindex::reindex_user;
-use crate::{
-    models::{
-        pubky_app::{traits::Validatable, PubkyAppUser},
-        traits::Collection,
-        user::{PubkyId, UserCounts, UserDetails},
-    },
-    reindex::ingest_user,
+use crate::models::user::UserSearch;
+use crate::models::{
+    pubky_app::{traits::Validatable, PubkyAppUser},
+    traits::Collection,
+    user::{PubkyId, UserCounts, UserDetails},
 };
 use axum::body::Bytes;
 use log::debug;
@@ -21,12 +18,18 @@ pub async fn put(user_id: PubkyId, blob: Bytes) -> Result<(), Box<dyn Error + Sy
     // Create UserDetails object
     let user_details = UserDetails::from_homeserver(user, &user_id).await?;
 
+    sync_put(user_details).await
+}
+
+pub async fn sync_put(user_details: UserDetails) -> Result<(), Box<dyn Error + Sync + Send>> {
     // SAVE TO GRAPH
     user_details.put_to_graph().await?;
-
     // SAVE TO INDEX
-    reindex_user(&user_id).await?;
-    ingest_user(&user_details).await
+    let user_id = user_details.id.clone();
+    UserSearch::put_to_index(&[&user_details]).await?;
+    UserCounts::default().put_to_index(&user_id).await?;
+    UserDetails::put_to_index(&[&user_id], vec!(Some(user_details))).await?;
+    Ok(())
 }
 
 pub async fn del(user_id: PubkyId) -> Result<(), Box<dyn Error + Sync + Send>> {

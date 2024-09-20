@@ -24,13 +24,13 @@ impl Collection<&str> for UserDetails {
         queries::write::create_user(self)
     }
 
-    async fn extend_on_cache_miss(details: &[std::option::Option<Self>]) {
+    async fn extend_on_index_miss(details: &[std::option::Option<Self>]) {
         let user_details_refs: Vec<&UserDetails> = details
             .iter()
             .filter_map(|detail| detail.as_ref())
             .collect();
 
-        UserSearch::add_many_to_username_sorted_set(&user_details_refs)
+        UserSearch::put_to_index(&user_details_refs)
             .await
             .unwrap();
     }

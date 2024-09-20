@@ -84,7 +84,7 @@ impl UserStream {
     }
 
     /// Adds the post to a Redis sorted set using the follower counts as score.
-    pub async fn add_to_mostfollowed_sorted_set(
+    pub async fn add_to_most_followed_sorted_set(
         user_id: &str,
         counts: &UserCounts,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

@@ -19,6 +19,7 @@ pub trait TagCollection
 where
     Self: RedisOps,
 {
+    // NAME: get_from_index
     async fn get_by_id(
         user_id: &str,
         extra_param: Option<&str>,
@@ -37,6 +38,7 @@ where
     /// * limit_taggers - A limit on the number of taggers to retrieve.
     /// # Returns
     /// A Result containing an optional vector of TagDetails, or an error.
+    // NAME: get_from_multiple_index
     async fn try_from_multiple_index(
         user_id: &str,
         extra_param: Option<&str>,
@@ -74,6 +76,7 @@ where
     /// * extra_param - An optional parameter for specifying additional constraints (e.g., an post_id)
     /// # Returns
     /// A Result containing an optional vector of TagDetails, or an error.
+    // NAME: get_by_id
     async fn get_from_graph(
         user_id: &str,
         extra_param: Option<&str>,
@@ -106,6 +109,7 @@ where
     /// * tags - A slice of TagDetails representing the tags to add.
     /// # Returns
     /// A result indicating success or failure.
+    // NAME: put_to_index
     async fn add_to_label_sets(
         user_id: &str,
         extra_param: Option<&str>,
