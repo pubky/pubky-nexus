@@ -37,14 +37,12 @@ pub fn create_post(post: &PostDetails) -> Result<Query, Box<dyn std::error::Erro
          MERGE (u)-[:AUTHORED]->(p:Post {id: $post_id})
          SET p.content = $content,
              p.indexed_at = $indexed_at,
-             p.kind = $kind,
-             p.uri = $uri",
+             p.kind = $kind",
     )
     .param("author_id", post.author.to_string())
     .param("post_id", post.id.to_string())
     .param("content", post.content.to_string())
     .param("indexed_at", post.indexed_at)
-    .param("uri", post.uri.to_string())
     .param("kind", post.kind.to_string());
 
     Ok(query)

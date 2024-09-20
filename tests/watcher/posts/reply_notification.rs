@@ -98,13 +98,13 @@ async fn test_homeserver_post_reply_notification() -> Result<()> {
         );
 
         // CACHE_OP
-        let reply_post_details = find_post_details(&bob_id, &bob_reply_id).await;
+        let reply_post_details = find_post_details(&bob_id, &bob_reply_id).await.unwrap();
         assert_eq!(
             reply_uri, &reply_post_details.uri,
             "Reply notification should contain correct reply URI"
         );
 
-        let parent_post_details = find_post_details(&alice_id, &alice_post_id).await;
+        let parent_post_details = find_post_details(&alice_id, &alice_post_id).await.unwrap();
         assert_eq!(
             parent_post_uri, &parent_post_details.uri,
             "Reply notification should contain correct parent URI"

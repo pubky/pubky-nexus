@@ -39,6 +39,8 @@ pub async fn put(
         put_repost_relationship(&author_id, &post_id, &embed.uri).await?;
         interaction.push(("reposts", embed.uri.as_str()));
     }
+
+    // IMPORTANT: Handle the mentions before traverse the graph (reindex_post) for that post
     // Handle "MENTIONED" relationships
     put_mentioned_relationships(&author_id, &post_id, &post_details.content).await?;
 
@@ -109,6 +111,7 @@ pub async fn put_mentioned_relationships(
                     queries::write::create_mention_relationship(author_id, post_id, &pubky_id);
                 exec_single_row(query).await?;
                 Notification::new_mention(author_id, &pubky_id, post_id).await?;
+                // NOTE: No need to add in cache here. We do after with PostRelationships::get_from_graph
             }
         }
     }

@@ -156,6 +156,7 @@ pub async fn ingest_post_tag(
     user_id: &str,
     author_id: &str,
     post_id: &str,
+    post_uri: &str,
     tag_label: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // TODO: Carefull with that operation, we might lost data consistency, if one of that fails
@@ -220,6 +221,9 @@ pub async fn ingest_post_tag(
     }
     // TODO: Maybe work in the else
 
+    // Save new notification
+    Notification::new_post_tag(user_id, author_id, tag_label, post_uri).await?;
+
     Ok(())
 }
 
@@ -242,6 +246,8 @@ pub async fn ingest_user_tag(
     // Add user to tag taggers list
     TagUser::put_index_set(&user_slice, &[user_id]).await?;
     update_pioneer_score(author_id).await?;
+    // Save new notification
+    Notification::new_user_tag(user_id, author_id, tag_label).await?;
     Ok(())
 }
 
@@ -250,15 +256,16 @@ pub async fn ingest_follow(
     followee_id: PubkyId,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Update follow indexes
-    Followers::put_index_set(&[&follower_id], &[&followee_id]).await?;
-    Following::put_index_set(&[&followee_id], &[&follower_id]).await?;
+    // (follower_id)-[:FOLLOWS]->(followee_id)
+    Followers::put_index_set(&[&followee_id], &[&follower_id]).await?;
+    Following::put_index_set(&[&follower_id], &[&followee_id]).await?;
 
     // Update UserCount indexer
     UserCounts::modify_json_field(&[&follower_id], "following", JsonAction::Increment(1)).await?;
     UserCounts::modify_json_field(&[&followee_id], "followers", JsonAction::Increment(1)).await?;
 
     // Checks whether the followee was following the follower (Is this a new friendship?)
-    let new_friend = Followers::check(&followee_id, &follower_id).await?;
+    let new_friend = Followers::check(&follower_id, &followee_id).await?;
     if new_friend {
         UserCounts::modify_json_field(&[&follower_id], "friends", JsonAction::Increment(1)).await?;
         UserCounts::modify_json_field(&[&followee_id], "friends", JsonAction::Increment(1)).await?;

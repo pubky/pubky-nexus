@@ -31,7 +31,7 @@ async fn test_homeserver_user_event() -> Result<()> {
     // GRAPH_OP: Assert if the event writes the graph
     // Cannot use UserDetails::from_graph because it indexes also, Sorted:Users:Name and that
     // operation has to be executed in the ingest_user
-    let user_details = find_user_details(&user_id).await;
+    let user_details = find_user_details(&user_id).await.unwrap();
 
     assert_eq!(user_details.name, user.name);
     assert_eq!(user_details.bio, user.bio);

@@ -1,10 +1,10 @@
+use super::utils::find_post_tag;
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::{
     notification::{Notification, NotificationBody},
-    post::PostView,
     pubky_app::{traits::GenerateHashId, PubkyAppPost, PubkyAppTag, PubkyAppUser},
 };
 
@@ -14,29 +14,32 @@ async fn test_homeserver_tag_post_notification() -> Result<()> {
 
     // Create first user (post author)
     let author_keypair = Keypair::random();
+
     let author_user = PubkyAppUser {
-        bio: Some("This is the post author user".to_string()),
+        bio: Some("test_homeserver_tag_post_notification".to_string()),
         image: None,
         links: None,
-        name: "Author User".to_string(),
+        name: "Watcher:TagPostNotification:Author".to_string(),
         status: None,
     };
+
     let author_id = test.create_user(&author_keypair, &author_user).await?;
 
     // Create second user (tagger)
     let tagger_keypair = Keypair::random();
+
     let tagger_user = PubkyAppUser {
-        bio: Some("This is the tagger user".to_string()),
+        bio: Some("test_homeserver_tag_post_notification".to_string()),
         image: None,
         links: None,
-        name: "Tagger User".to_string(),
+        name: "Watcher:TagPostNotification:Tagger".to_string(),
         status: None,
     };
     let tagger_id = test.create_user(&tagger_keypair, &tagger_user).await?;
 
     // Author creates a post
     let post = PubkyAppPost {
-        content: "This is a test post!".to_string(),
+        content: "Watcher:TagPostNotification:Author:Post".to_string(),
         kind: PubkyAppPost::default().kind,
         parent: None,
         embed: None,
@@ -45,11 +48,13 @@ async fn test_homeserver_tag_post_notification() -> Result<()> {
 
     // Tagger adds a tag to the post
     let label = "interesting";
+
     let tag = PubkyAppTag {
         uri: format!("pubky://{}/pub/pubky.app/posts/{}", author_id, post_id),
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
+
     let tag_blob = serde_json::to_vec(&tag)?;
     let tag_url = format!(
         "pubky://{}/pub/pubky.app/tags/{}",
@@ -57,20 +62,14 @@ async fn test_homeserver_tag_post_notification() -> Result<()> {
         tag.create_id()
     );
 
-    // Tagger applies the tag
-    test.client.put(tag_url.as_str(), &tag_blob).await?;
+    // Put tag
+    test.create_tag(tag_url.as_str(), tag_blob).await?;
 
-    // Process the event
-    test.ensure_event_processing_complete().await?;
-
-    // Verify the tag exists in Nexus
-    let result_post = PostView::get_by_id(&author_id, &post_id, None, None, None)
-        .await
-        .unwrap()
-        .expect("The tag should have been created");
-
-    assert_eq!(result_post.tags[0].label, label);
-    assert_eq!(result_post.counts.tags, 1);
+    // GRAPH_OP
+    let post_tag = find_post_tag(&author_id, &post_id, label).await.unwrap();
+    assert_eq!(post_tag.label, label);
+    assert_eq!(post_tag.taggers_count, 1);
+    assert_eq!(post_tag.taggers[0], tagger_id);
 
     // Check if the author of the post has a new notification
     let notifications = Notification::get_by_id(&author_id, None, None, None, None)

@@ -16,7 +16,7 @@ pub async fn find_post_counts(post_key: &[&str]) -> PostCounts {
         .expect("The post count was not served from Nexus cache")
 }
 
-pub async fn find_post_details(user_id: &str, post_id: &str) -> PostDetails {
+pub async fn find_post_details(user_id: &str, post_id: &str) -> Result<PostDetails> {
     let mut row_stream;
     {
         let graph = get_neo4j_graph().unwrap();
@@ -28,10 +28,9 @@ pub async fn find_post_details(user_id: &str, post_id: &str) -> PostDetails {
 
     let row = row_stream.next().await.unwrap();
     if let Ok(result) = row.unwrap().get::<PostDetails>("details") {
-        return result;
+        return Ok(result);
     }
-    assert!(false, "Post node not found in Nexus graph");
-    return PostDetails::default();
+    anyhow::bail!("Post node not found in Nexus graph");
 }
 
 pub async fn check_member_global_timeline_user_post(
@@ -64,7 +63,7 @@ pub async fn check_member_total_engagement_user_posts(post_key: &[&str]) -> Resu
     Ok(total_engagement)
 }
 
-pub async fn find_reply_relationship_parent_uri(user_id: &str, post_id: &str) -> String {
+pub async fn find_reply_relationship_parent_uri(user_id: &str, post_id: &str) -> Result<String> {
     let mut row_stream;
     {
         let graph = get_neo4j_graph().unwrap();
@@ -81,16 +80,15 @@ pub async fn find_reply_relationship_parent_uri(user_id: &str, post_id: &str) ->
             1,
             "Reply relationship does not exist in the graph"
         );
-        return format!(
+        return Ok(format!(
             "pubky://{}/pub/pubky.app/posts/{}",
             relationship[0].0, relationship[0].1
-        );
+        ));
     }
-    assert!(false, "Post relationship not found in Nexus graph");
-    String::from("Uri")
+    anyhow::bail!("Post relationship not found in Nexus graph");
 }
 
-pub async fn find_repost_relationship_parent_uri(user_id: &str, post_id: &str) -> String {
+pub async fn find_repost_relationship_parent_uri(user_id: &str, post_id: &str) -> Result<String> {
     let mut row_stream;
     {
         let graph = get_neo4j_graph().unwrap();
@@ -107,13 +105,12 @@ pub async fn find_repost_relationship_parent_uri(user_id: &str, post_id: &str) -
             1,
             "Reply relationship does not exist in the graph"
         );
-        return format!(
+        return Ok(format!(
             "pubky://{}/pub/pubky.app/posts/{}",
             relationship[0].0, relationship[0].1
-        );
+        ));
     }
-    assert!(false, "Post relationship not found in Nexus graph");
-    String::from("Uri")
+    anyhow::bail!("Post relationship not found in Nexus graph");
 }
 
 pub fn post_reply_relationships(author_id: &str, post_id: &str) -> Query {
@@ -150,7 +147,7 @@ pub fn get_post_details_by_id(user_id: &str, post_id: &str) -> Query {
             content: post.content,
             kind: post.kind,
             indexed_at: post.indexed_at,
-            uri: post.uri,
+            uri: 'pubky://' + user.id + '/pub/pubky.app/posts/' + post.id,
             author: user.id
         } AS details
         ",

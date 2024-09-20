@@ -74,6 +74,12 @@ impl WatcherTest {
         Ok(post_id)
     }
 
+    pub async fn create_tag(&mut self, tag_url: &str, tag_blob: Vec<u8>) -> Result<()> {
+        self.client.put(tag_url, &tag_blob).await?;
+        self.ensure_event_processing_complete().await?;
+        Ok(())
+    }
+
     pub async fn cleanup_user(&mut self, user_id: &str) -> Result<()> {
         let url = format!("pubky://{}/pub/pubky.app/profile.json", user_id);
         self.client.delete(url.as_str()).await?;
@@ -105,7 +111,7 @@ impl WatcherTest {
         Ok(())
     }
 
-    pub async fn create_follow(&mut self, follower_id: &str, followee_id: &str) -> Result<()> {
+    pub async fn create_follow(&mut self, follower_id: &str, followee_id: &str) -> Result<String> {
         let follow_relationship = PubkyAppFollow {
             created_at: Utc::now().timestamp_millis(),
         };
@@ -115,6 +121,17 @@ impl WatcherTest {
             follower_id, followee_id
         );
         self.client.put(follow_url.as_str(), &blob).await?;
+        // Process the event
+        self.ensure_event_processing_complete().await?;
+        Ok(follow_url)
+    }
+
+    pub async fn delete_follow(&mut self, follower_id: &str, followee_id: &str) -> Result<()> {
+        let follow_url = format!(
+            "pubky://{}/pub/pubky.app/follows/{}",
+            follower_id, followee_id
+        );
+        self.client.delete(follow_url.as_str()).await?;
         // Process the event
         self.ensure_event_processing_complete().await?;
         Ok(())
