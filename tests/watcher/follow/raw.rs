@@ -55,13 +55,12 @@ async fn test_homeserver_follow() -> Result<()> {
     println!("{:?}, {:?}", followee_id, follower_id);
 
     // CACHE_OP: Assert the new follower relationship exists in Nexus
-    // NOTE: #followee_follower_inverse
-    let (_exist, member) = Followers::check_set_member(&[&follower_id], &followee_id)
+    let (_exist, member) = Followers::check_set_member(&[&followee_id], &follower_id)
         .await
         .unwrap();
     assert!(member);
 
-    let (_exist, member) = Following::check_set_member(&[&followee_id], &follower_id)
+    let (_exist, member) = Following::check_set_member(&[&follower_id], &followee_id)
         .await
         .unwrap();
     assert!(member);

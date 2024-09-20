@@ -256,16 +256,16 @@ pub async fn ingest_follow(
     followee_id: PubkyId,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Update follow indexes
-    // NOTE: It might be reverse. go to models/user/follows.rs for more info. #followee_follower_inverse
-    Followers::put_index_set(&[&follower_id], &[&followee_id]).await?;
-    Following::put_index_set(&[&followee_id], &[&follower_id]).await?;
+    // (follower_id)-[:FOLLOWS]->(followee_id)
+    Followers::put_index_set(&[&followee_id], &[&follower_id]).await?;
+    Following::put_index_set(&[&follower_id], &[&followee_id]).await?;
 
     // Update UserCount indexer
     UserCounts::modify_json_field(&[&follower_id], "following", JsonAction::Increment(1)).await?;
     UserCounts::modify_json_field(&[&followee_id], "followers", JsonAction::Increment(1)).await?;
 
     // Checks whether the followee was following the follower (Is this a new friendship?)
-    let new_friend = Followers::check(&followee_id, &follower_id).await?;
+    let new_friend = Followers::check(&follower_id, &followee_id).await?;
     if new_friend {
         UserCounts::modify_json_field(&[&follower_id], "friends", JsonAction::Increment(1)).await?;
         UserCounts::modify_json_field(&[&followee_id], "friends", JsonAction::Increment(1)).await?;
