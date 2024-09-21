@@ -2,7 +2,19 @@ use neo4rs::{query, Query};
 
 // Retrieve post node by post id and author id
 pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
-    query("MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id}) RETURN p")
+    query("
+            MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+            RETURN {
+                uri: 'pubky://' + u.id + '/pub/pubky.app/posts/' + p.id,
+                content: p.content,
+                id: p.id,
+                indexed_at: p.indexed_at,
+                author: u.id,
+                // default value when the specified property is null
+                // Avoids enum deserialization ERROR
+                kind: COALESCE(p.kind, 'Short')
+            } as details
+        ")
         .param("author_id", author_id)
         .param("post_id", post_id)
 }

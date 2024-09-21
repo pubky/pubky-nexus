@@ -2,6 +2,7 @@ use crate::db::graph::exec::exec_single_row;
 use crate::events::uri::ParsedUri;
 use crate::models::notification::Notification;
 use crate::models::pubky_app::traits::Validatable;
+use crate::models::traits::Collection;
 use crate::models::{post::PostDetails, pubky_app::PubkyAppPost, user::PubkyId};
 use crate::queries;
 use crate::reindex::{ingest_post, reindex_post};
@@ -20,35 +21,44 @@ pub async fn put(
     // Serialize and validate
     let post = <PubkyAppPost as Validatable>::try_from(&blob).await?;
 
+    sync_put(post, author_id, post_id).await
+}
+
+pub async fn sync_put(post: PubkyAppPost, author_id: PubkyId, post_id: String) -> Result<(), Box<dyn Error + Sync + Send>> {
+
+
+    PostDetails::get_from_graph("jbutqpwpcez6a4mxudcfjyw67dsk3uo3nh8qm1k1m4go1nnjn5ao", "2ZJP575MCRTG0").await?;
+
     // Create PostDetails object
     let post_details = PostDetails::from_homeserver(post.clone(), &author_id, &post_id).await?;
-
     // SAVE TO GRAPH
-    // Add new post node into the graph
-    post_details.put_to_graph().await?;
+    //post_details.put_to_graph().await?;
 
-    let mut interaction: Vec<(&str, &str)> = Vec::new();
+    // let mut interaction: Vec<(&str, &str)> = Vec::new();
 
-    // Handle "REPLIED" relationship and counts if `parent` is Some
-    if let Some(parent_uri) = &post.parent {
-        put_reply_relationship(&author_id, &post_id, parent_uri).await?;
-        interaction.push(("replies", parent_uri.as_str()));
-    }
-    // Handle "REPOSTED" relationship and counts if `embed.uri` is Some
-    if let Some(embed) = &post.embed {
-        put_repost_relationship(&author_id, &post_id, &embed.uri).await?;
-        interaction.push(("reposts", embed.uri.as_str()));
-    }
+    // // Handle "REPLIED" relationship and counts if `parent` is Some
+    // if let Some(parent_uri) = &post.parent {
+    //     put_reply_relationship(&author_id, &post_id, parent_uri).await?;
+    //     interaction.push(("replies", parent_uri.as_str()));
+    // }
+    // // Handle "REPOSTED" relationship and counts if `embed.uri` is Some
+    // if let Some(embed) = &post.embed {
+    //     put_repost_relationship(&author_id, &post_id, &embed.uri).await?;
+    //     interaction.push(("reposts", embed.uri.as_str()));
+    // }
 
-    // IMPORTANT: Handle the mentions before traverse the graph (reindex_post) for that post
-    // Handle "MENTIONED" relationships
-    put_mentioned_relationships(&author_id, &post_id, &post_details.content).await?;
+    // // IMPORTANT: Handle the mentions before traverse the graph (reindex_post) for that post
+    // // Handle "MENTIONED" relationships
+    // put_mentioned_relationships(&author_id, &post_id, &post_details.content).await?;
 
-    // SAVE TO INDEX
-    // Reindex to sorted sets and other indexes
-    reindex_post(&author_id, &post_id).await?;
-    // Ingest the post data
-    ingest_post(&author_id, &post_details.uri, interaction).await?;
+    // // SAVE TO INDEX
+    // post_details.extend_on_index_miss(&author_id).await?;
+
+
+    // // Reindex to sorted sets and other indexes
+    // reindex_post(&author_id, &post_id).await?;
+    // // Ingest the post data
+    // ingest_post(&author_id, &post_details.uri, interaction).await?;
 
     Ok(())
 }
@@ -62,9 +72,9 @@ async fn put_reply_relationship(
     let parsed_uri = ParsedUri::try_from(parent_uri)?;
     if let (parent_author_id, Some(parent_post_id)) = (parsed_uri.user_id, parsed_uri.post_id) {
         exec_single_row(queries::write::create_reply_relationship(
-            &author_id.0,
+            author_id,
             post_id,
-            &parent_author_id.0,
+            &parent_author_id,
             &parent_post_id,
         ))
         .await?;
@@ -81,9 +91,9 @@ async fn put_repost_relationship(
     let parsed_uri = ParsedUri::try_from(embed_uri)?;
     if let (reposted_author_id, Some(reposted_post_id)) = (parsed_uri.user_id, parsed_uri.post_id) {
         exec_single_row(queries::write::create_repost_relationship(
-            &author_id.0,
+            author_id,
             post_id,
-            &reposted_author_id.0,
+            &reposted_author_id,
             &reposted_post_id,
         ))
         .await?;

@@ -5,12 +5,13 @@ use crate::models::pubky_app::{PostKind, PubkyAppPost};
 use crate::models::user::PubkyId;
 use crate::{queries, RedisOps};
 use chrono::Utc;
-use neo4rs::Node;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 /// Represents post data with content, bio, image, links, and status.
 #[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
+// NOTE: Might not be necessary the default values for serde because before PUT a PostDetails node
+// we do sanity check
 pub struct PostDetails {
     pub content: String,
     pub id: String, // TODO: create Crockfordbase32 validator
@@ -28,22 +29,63 @@ impl PostDetails {
         author_id: &str,
         post_id: &str,
     ) -> Result<Option<PostDetails>, Box<dyn std::error::Error + Send + Sync>> {
-        match Self::try_from_index_json(&[author_id, post_id]).await? {
+        match Self::get_from_index(author_id, post_id).await? {
             Some(details) => Ok(Some(details)),
-            None => Self::get_from_graph(author_id, post_id).await,
+            None => {
+                let graph_response = Self::get_from_graph(author_id, post_id).await?;
+                if let Some(post_details) = graph_response {
+                    post_details.extend_on_index_miss(author_id).await?;
+                    return Ok(Some(post_details));
+                }
+                Ok(None)
+            }
         }
     }
 
-    async fn from_node(node: &Node, author_id: &str) -> Self {
-        let id = node.get("id").unwrap_or_default();
-        Self {
-            uri: format!("pubky://{author_id}/pub/pubky.app/posts/{id}"),
-            content: node.get("content").unwrap_or_default(),
-            id,
-            indexed_at: node.get("indexed_at").unwrap_or_default(),
-            author: String::from(author_id),
-            kind: node.get("kind").unwrap_or_default(),
+    pub async fn get_from_index(
+        author_id: &str,
+        post_id: &str
+    ) -> Result<Option<PostDetails>, Box<dyn std::error::Error + Send + Sync>> {
+        if let Some(post_details) = Self::try_from_index_json(&[author_id, post_id]).await? {
+            return Ok(Some(post_details))
         }
+        Ok(None)
+    }
+    
+    /// Retrieves the post fields from Neo4j.
+    pub async fn get_from_graph(
+        author_id: &str,
+        post_id: &str,
+    ) -> Result<Option<PostDetails>, Box<dyn std::error::Error + Send + Sync>> {
+        let mut result;
+        {
+            let graph = get_neo4j_graph()?;
+            let query = queries::read::get_post_by_id(author_id, post_id);
+
+            let graph = graph.lock().await;
+            result = graph.execute(query).await?;
+        }
+
+        match result.next().await? {
+            Some(row) => {
+                let post: PostDetails = row.get("details")?;
+                Ok(Some(post))
+            }
+            None => Ok(None),
+        }
+    }
+
+    pub async fn extend_on_index_miss(&self, author_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.put_to_index(author_id).await?;
+        // Name?: put_to_index_timeline
+        PostStream::add_to_timeline_sorted_set(self).await?;
+        // Name?: put_to_index_user_posts
+        PostStream::add_to_per_user_sorted_set(self).await?;
+        Ok(())
+    }
+
+    pub async fn put_to_index(&self, user_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.put_index_json(&[user_id, &self.id]).await
     }
 
     pub async fn from_homeserver(
@@ -65,32 +107,5 @@ impl PostDetails {
     pub async fn put_to_graph(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Save new graph node;
         exec_single_row(queries::write::create_post(self)?).await
-    }
-
-    /// Retrieves the post fields from Neo4j.
-    pub async fn get_from_graph(
-        author_id: &str,
-        post_id: &str,
-    ) -> Result<Option<PostDetails>, Box<dyn std::error::Error + Send + Sync>> {
-        let mut result;
-        {
-            let graph = get_neo4j_graph()?;
-            let query = queries::read::get_post_by_id(author_id, post_id);
-
-            let graph = graph.lock().await;
-            result = graph.execute(query).await?;
-        }
-
-        match result.next().await? {
-            Some(row) => {
-                let node: Node = row.get("p")?;
-                let post = Self::from_node(&node, author_id).await;
-                post.put_index_json(&[author_id, post_id]).await?;
-                PostStream::add_to_timeline_sorted_set(&post).await?;
-                PostStream::add_to_per_user_sorted_set(&post).await?;
-                Ok(Some(post))
-            }
-            None => Ok(None),
-        }
     }
 }

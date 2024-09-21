@@ -15,7 +15,7 @@ use pubky_nexus::{
 };
 
 #[tokio::test]
-async fn test_homeserver_post_event() -> Result<()> {
+async fn test_homeserver_put_post_event() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     let keypair = Keypair::random();
