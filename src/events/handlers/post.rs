@@ -1,11 +1,14 @@
 use crate::db::graph::exec::exec_single_row;
+use crate::db::kv::index::json::JsonAction;
 use crate::events::uri::ParsedUri;
 use crate::models::notification::Notification;
+use crate::models::post::{
+    PostCounts, PostRelationships, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS,
+};
 use crate::models::pubky_app::traits::Validatable;
-use crate::models::traits::Collection;
+use crate::models::user::UserCounts;
 use crate::models::{post::PostDetails, pubky_app::PubkyAppPost, user::PubkyId};
-use crate::queries;
-use crate::reindex::{ingest_post, reindex_post};
+use crate::{queries, RedisOps, ScoreAction};
 use axum::body::Bytes;
 use log::debug;
 use std::error::Error;
@@ -24,36 +27,87 @@ pub async fn put(
     sync_put(post, author_id, post_id).await
 }
 
-pub async fn sync_put(post: PubkyAppPost, author_id: PubkyId, post_id: String) -> Result<(), Box<dyn Error + Sync + Send>> {
-
-
-    PostDetails::get_from_graph("jbutqpwpcez6a4mxudcfjyw67dsk3uo3nh8qm1k1m4go1nnjn5ao", "2ZJP575MCRTG0").await?;
-
+pub async fn sync_put(
+    post: PubkyAppPost,
+    author_id: PubkyId,
+    post_id: String,
+) -> Result<(), Box<dyn Error + Sync + Send>> {
     // Create PostDetails object
     let post_details = PostDetails::from_homeserver(post.clone(), &author_id, &post_id).await?;
+
     // SAVE TO GRAPH
-    //post_details.put_to_graph().await?;
+    post_details.put_to_graph().await?;
 
-    // let mut interaction: Vec<(&str, &str)> = Vec::new();
+    // PRE-INDEX operations
+    let interactions = resolve_post_type_interaction(&post, &author_id, &post_id).await?;
+    // IMPORTANT: Handle the mentions before traverse the graph (reindex_post) for that post
+    // Handle "MENTIONED" relationships
+    let mentioned_users =
+        put_mentioned_relationships(&author_id, &post_id, &post_details.content).await?;
 
-    // // Handle "REPLIED" relationship and counts if `parent` is Some
-    // if let Some(parent_uri) = &post.parent {
-    //     put_reply_relationship(&author_id, &post_id, parent_uri).await?;
-    //     interaction.push(("replies", parent_uri.as_str()));
-    // }
-    // // Handle "REPOSTED" relationship and counts if `embed.uri` is Some
-    // if let Some(embed) = &post.embed {
-    //     put_repost_relationship(&author_id, &post_id, &embed.uri).await?;
-    //     interaction.push(("reposts", embed.uri.as_str()));
-    // }
+    // SAVE TO INDEX
+    // Create post counts index
+    PostCounts::default()
+        .extend_on_index_miss(&author_id, &post_id)
+        .await?;
+    // Update user counts with the new post
+    UserCounts::put_to_index_field(&author_id, "posts", JsonAction::Increment(1)).await?;
 
-    // // IMPORTANT: Handle the mentions before traverse the graph (reindex_post) for that post
-    // // Handle "MENTIONED" relationships
-    // put_mentioned_relationships(&author_id, &post_id, &post_details.content).await?;
+    let mut interaction_url: (Option<String>, Option<String>) = (None, None);
+
+    // Post creation from an interaction: REPLY or REPOST
+    for (action, parent_uri) in interactions {
+        let parsed_uri = ParsedUri::try_from(parent_uri)?;
+        let parent_post_key_parts: &[&str] = &[
+            &parsed_uri.user_id,
+            &parsed_uri.post_id.ok_or("Missing post ID")?,
+        ];
+        PostCounts::put_to_index_field(parent_post_key_parts, action, JsonAction::Increment(1))
+            .await?;
+        PostStream::put_score_index_sorted_set(
+            &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
+            parent_post_key_parts,
+            ScoreAction::Increment(1.0),
+        )
+        .await?;
+
+        if action == "replies" {
+            Notification::new_post_reply(
+                &author_id,
+                parent_uri,
+                &post_details.uri,
+                &parsed_uri.user_id,
+            )
+            .await?;
+            interaction_url.0 = Some(String::from(parent_uri));
+        } else {
+            Notification::new_repost(
+                &author_id,
+                parent_uri,
+                &post_details.uri,
+                &parsed_uri.user_id,
+            )
+            .await?;
+            interaction_url.1 = Some(String::from(parent_uri));
+        }
+    }
+
+    PostRelationships {
+        replied: interaction_url.0,
+        reposted: interaction_url.1,
+        mentioned: mentioned_users,
+    }
+    .put_to_index(&author_id, &post_id)
+    .await?;
+
+    post_details.extend_on_index_miss(&author_id).await?;
+
+    // let user_id = user_details.id.clone();
+
+    // PostDetails::put_to_index(&[&user_id], vec!(Some(post_details))).await?;
 
     // // SAVE TO INDEX
     // post_details.extend_on_index_miss(&author_id).await?;
-
 
     // // Reindex to sorted sets and other indexes
     // reindex_post(&author_id, &post_id).await?;
@@ -63,9 +117,29 @@ pub async fn sync_put(post: PubkyAppPost, author_id: PubkyId, post_id: String) -
     Ok(())
 }
 
+async fn resolve_post_type_interaction<'a>(
+    post: &'a PubkyAppPost,
+    author_id: &str,
+    post_id: &str,
+) -> Result<Vec<(&'a str, &'a str)>, Box<dyn Error + Sync + Send>> {
+    let mut interaction: Vec<(&str, &str)> = Vec::new();
+
+    // Handle "REPLIED" relationship and counts if `parent` is Some
+    if let Some(parent_uri) = &post.parent {
+        put_reply_relationship(author_id, post_id, parent_uri).await?;
+        interaction.push(("replies", parent_uri.as_str()));
+    }
+    // Handle "REPOSTED" relationship and counts if `embed.uri` is Some
+    if let Some(embed) = &post.embed {
+        put_repost_relationship(author_id, post_id, &embed.uri).await?;
+        interaction.push(("reposts", embed.uri.as_str()));
+    }
+    Ok(interaction)
+}
+
 // Helper function to handle "REPLIED" relationship
 async fn put_reply_relationship(
-    author_id: &PubkyId,
+    author_id: &str,
     post_id: &str,
     parent_uri: &str,
 ) -> Result<(), Box<dyn Error + Sync + Send>> {
@@ -84,7 +158,7 @@ async fn put_reply_relationship(
 
 // Helper function to handle "REPOSTED" relationship
 async fn put_repost_relationship(
-    author_id: &PubkyId,
+    author_id: &str,
     post_id: &str,
     embed_uri: &str,
 ) -> Result<(), Box<dyn Error + Sync + Send>> {
@@ -106,9 +180,10 @@ pub async fn put_mentioned_relationships(
     author_id: &PubkyId,
     post_id: &str,
     content: &str,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
     let prefix = "pk:";
     let user_id_len = 52;
+    let mut mention_users = Vec::new();
 
     for (start_idx, _) in content.match_indices(prefix) {
         let user_id_start = start_idx + prefix.len();
@@ -120,13 +195,17 @@ pub async fn put_mentioned_relationships(
                 let query =
                     queries::write::create_mention_relationship(author_id, post_id, &pubky_id);
                 exec_single_row(query).await?;
-                Notification::new_mention(author_id, &pubky_id, post_id).await?;
+                if let Some(mentioned_user_id) =
+                    Notification::new_mention(author_id, &pubky_id, post_id).await?
+                {
+                    mention_users.push(mentioned_user_id);
+                }
                 // NOTE: No need to add in cache here. We do after with PostRelationships::get_from_graph
             }
         }
     }
 
-    Ok(())
+    Ok(mention_users)
 }
 
 pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), Box<dyn Error + Sync + Send>> {

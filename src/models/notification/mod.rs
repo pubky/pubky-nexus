@@ -224,9 +224,9 @@ impl Notification {
         user_id: &str,
         mentioned_id: &str,
         post_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<String>, Box<dyn std::error::Error + Send + Sync>> {
         if user_id == mentioned_id {
-            return Ok(());
+            return Ok(None);
         }
         let body = NotificationBody::Mention {
             mentioned_by: user_id.to_string(),
@@ -235,7 +235,7 @@ impl Notification {
         let notification = Notification::new(body);
         notification.to_index(mentioned_id).await?;
 
-        Ok(())
+        Ok(Some(user_id.to_string()))
     }
 
     pub async fn new_repost(

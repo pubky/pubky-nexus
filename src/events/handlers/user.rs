@@ -18,7 +18,10 @@ pub async fn put(user_id: PubkyId, blob: Bytes) -> Result<(), Box<dyn Error + Sy
     sync_put(user, user_id).await
 }
 
-pub async fn sync_put(user: PubkyAppUser, user_id: PubkyId) -> Result<(), Box<dyn Error + Sync + Send>> {
+pub async fn sync_put(
+    user: PubkyAppUser,
+    user_id: PubkyId,
+) -> Result<(), Box<dyn Error + Sync + Send>> {
     // Create UserDetails object
     let user_details = UserDetails::from_homeserver(user, &user_id).await?;
     // SAVE TO GRAPH
@@ -27,7 +30,7 @@ pub async fn sync_put(user: PubkyAppUser, user_id: PubkyId) -> Result<(), Box<dy
     let user_id = user_details.id.clone();
     UserSearch::put_to_index(&[&user_details]).await?;
     UserCounts::default().put_to_index(&user_id).await?;
-    UserDetails::put_to_index(&[&user_id], vec!(Some(user_details))).await?;
+    UserDetails::put_to_index(&[&user_id], vec![Some(user_details)]).await?;
     Ok(())
 }
 

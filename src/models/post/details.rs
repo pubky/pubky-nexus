@@ -14,7 +14,7 @@ use utoipa::ToSchema;
 // we do sanity check
 pub struct PostDetails {
     pub content: String,
-    pub id: String, // TODO: create Crockfordbase32 validator
+    pub id: String,
     pub indexed_at: i64,
     pub author: String,
     pub kind: PostKind,
@@ -44,14 +44,14 @@ impl PostDetails {
 
     pub async fn get_from_index(
         author_id: &str,
-        post_id: &str
+        post_id: &str,
     ) -> Result<Option<PostDetails>, Box<dyn std::error::Error + Send + Sync>> {
         if let Some(post_details) = Self::try_from_index_json(&[author_id, post_id]).await? {
-            return Ok(Some(post_details))
+            return Ok(Some(post_details));
         }
         Ok(None)
     }
-    
+
     /// Retrieves the post fields from Neo4j.
     pub async fn get_from_graph(
         author_id: &str,
@@ -75,16 +75,20 @@ impl PostDetails {
         }
     }
 
-    pub async fn extend_on_index_miss(&self, author_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn extend_on_index_miss(
+        &self,
+        author_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.put_to_index(author_id).await?;
-        // Name?: put_to_index_timeline
         PostStream::add_to_timeline_sorted_set(self).await?;
-        // Name?: put_to_index_user_posts
         PostStream::add_to_per_user_sorted_set(self).await?;
         Ok(())
     }
 
-    pub async fn put_to_index(&self, user_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn put_to_index(
+        &self,
+        user_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.put_index_json(&[user_id, &self.id]).await
     }
 

@@ -298,8 +298,6 @@ impl PostStream {
         Ok(Some(Self(post_views)))
     }
 
-    // TODO: Add to reindexer folder below functions. It is not fit exactly with that model.
-    // This model is more focused reading data, not writting
     /// Adds the post to a Redis sorted set using the `indexed_at` timestamp as the score.
     pub async fn add_to_timeline_sorted_set(
         details: &PostDetails,

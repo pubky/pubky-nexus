@@ -26,10 +26,30 @@ impl Bookmark {
             Some(viewer_id) => viewer_id,
             None => return Ok(None),
         };
-        match Self::try_from_index_json(&[author_id, post_id, viewer_id]).await? {
+        match Self::get_from_index(author_id, post_id, viewer_id).await? {
             Some(counts) => Ok(Some(counts)),
-            None => Self::get_from_graph(author_id, post_id, viewer_id).await,
+            None => {
+                let graph_response = Self::get_from_graph(author_id, post_id, viewer_id).await?;
+                if let Some(bookmark) = graph_response {
+                    bookmark
+                        .extend_on_index_miss(author_id, post_id, viewer_id)
+                        .await?;
+                    return Ok(Some(bookmark));
+                }
+                Ok(None)
+            }
         }
+    }
+
+    pub async fn get_from_index(
+        author_id: &str,
+        post_id: &str,
+        viewer_id: &str,
+    ) -> Result<Option<Bookmark>, Box<dyn std::error::Error + Send + Sync>> {
+        if let Some(bookmark) = Self::try_from_index_json(&[author_id, post_id, viewer_id]).await? {
+            return Ok(Some(bookmark));
+        }
+        Ok(None)
     }
 
     /// Retrieves a bookmark from Neo4j.
@@ -57,15 +77,29 @@ impl Bookmark {
                 id: relation.get("id").unwrap_or_default(),
                 indexed_at: relation.get("indexed_at").unwrap_or_default(),
             };
-            bookmark
-                .put_index_json(&[author_id, post_id, viewer_id])
-                .await?;
-            PostStream::add_to_bookmarks_sorted_set(&bookmark, viewer_id, post_id, author_id)
-                .await?;
             Ok(Some(bookmark))
         } else {
             Ok(None)
         }
+    }
+
+    pub async fn extend_on_index_miss(
+        &self,
+        author_id: &str,
+        post_id: &str,
+        viewer_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.put_to_index(author_id, viewer_id).await?;
+        PostStream::add_to_bookmarks_sorted_set(self, viewer_id, post_id, author_id).await?;
+        Ok(())
+    }
+
+    pub async fn put_to_index(
+        &self,
+        author_id: &str,
+        viewer_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.put_index_json(&[author_id, &self.id, viewer_id]).await
     }
 
     /// Retrieves all post_keys a user bookmarked from Neo4j

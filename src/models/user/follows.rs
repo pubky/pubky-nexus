@@ -58,16 +58,26 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
         }
     }
 
-    async fn get_from_index(user_id: &str, skip: Option<usize>, limit: Option<usize>) -> Result<Option<Vec<String>>, Box<dyn Error + Send + Sync>> {
+    async fn get_from_index(
+        user_id: &str,
+        skip: Option<usize>,
+        limit: Option<usize>,
+    ) -> Result<Option<Vec<String>>, Box<dyn Error + Send + Sync>> {
         Self::try_from_index_set(&[user_id], skip, limit).await
     }
 
-    async fn extend_on_index_miss(&self, user_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn extend_on_index_miss(
+        &self,
+        user_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let user_list_ref: Vec<&str> = self.as_ref().iter().map(|id| id.as_str()).collect();
         Self::put_to_index(user_id, user_list_ref).await
     }
 
-    async fn put_to_index(user_id: &str, user_list: Vec<&str>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn put_to_index(
+        user_id: &str,
+        user_list: Vec<&str>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Self::put_index_set(&[user_id], &user_list).await
     }
 

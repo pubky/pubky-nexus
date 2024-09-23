@@ -87,7 +87,7 @@ async fn test_homeserver_mentions() -> Result<()> {
         post_relationships.is_some(),
         "Post should have relationships cached"
     );
-    let mentions = post_relationships.unwrap().mentioned.unwrap_or_default();
+    let mentions = post_relationships.unwrap().mentioned;
     assert_eq!(mentions.len(), 2, "The post should have two mentions");
     assert!(
         mentions.contains(&mentioned_user_1_id),

@@ -10,8 +10,7 @@ use crate::models::tag::traits::TagCollection;
 use crate::models::tag::user::{TagUser, USER_TAGS_KEY_PARTS};
 use crate::models::traits::Collection;
 use crate::models::user::{
-    Followers, Following, PubkyId, UserDetails, UserFollows, UserSearch, UserStream,
-    USER_NAME_KEY_PARTS,
+    Followers, Following, PubkyId, UserDetails, UserFollows, UserSearch, USER_NAME_KEY_PARTS,
 };
 use crate::{
     db::connectors::neo4j::get_neo4j_graph,
@@ -118,14 +117,14 @@ pub async fn reindex_post(
     Ok(())
 }
 
-pub async fn ingest_post(
+pub async fn _ingest_post(
     author_id: &str,
     post_uri: &str,
     interactions: Vec<(&str, &str)>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     UserCounts::modify_json_field(&[author_id], "posts", JsonAction::Increment(1)).await?;
     // Mutate the pioneers index of the user
-    update_pioneer_score(author_id).await?;
+    UserCounts::update_pioneer_score(author_id).await?;
     // Post creation from an interaction: REPLY or REPOST
     for (action, parent_uri) in interactions {
         let parsed_uri = ParsedUri::try_from(parent_uri)?;
@@ -245,7 +244,7 @@ pub async fn ingest_user_tag(
     .await?;
     // Add user to tag taggers list
     TagUser::put_index_set(&user_slice, &[user_id]).await?;
-    update_pioneer_score(author_id).await?;
+    UserCounts::update_pioneer_score(author_id).await?;
     // Save new notification
     Notification::new_user_tag(user_id, author_id, tag_label).await?;
     Ok(())
@@ -271,22 +270,11 @@ pub async fn ingest_follow(
         UserCounts::modify_json_field(&[&followee_id], "friends", JsonAction::Increment(1)).await?;
     }
     // Update the followee pioneer score
-    update_pioneer_score(&followee_id).await?;
+    UserCounts::update_pioneer_score(&followee_id).await?;
 
     // Notify the followee
     Notification::new_follow(&follower_id, &followee_id, new_friend).await?;
 
-    Ok(())
-}
-
-async fn update_pioneer_score(
-    author_id: &str,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let exist_count = UserCounts::try_from_index_json(&[author_id]).await?;
-    if let Some(count) = exist_count {
-        // Update user pioneer score
-        UserStream::add_to_pioneers_sorted_set(author_id, &count).await?;
-    }
     Ok(())
 }
 

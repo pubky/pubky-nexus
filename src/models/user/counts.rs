@@ -1,4 +1,5 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
+use crate::db::kv::index::json::JsonAction;
 use crate::{queries, RedisOps};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -29,9 +30,9 @@ impl UserCounts {
                 if let Some(user_counts) = graph_response {
                     user_counts.extend_on_index_miss(user_id).await?;
                     return Ok(Some(user_counts));
-                }   
+                }
                 Ok(None)
-            },
+            }
         }
     }
 
@@ -64,10 +65,13 @@ impl UserCounts {
         if let Some(user_counts) = Self::try_from_index_json(&[user_id]).await? {
             return Ok(Some(user_counts));
         }
-        return Ok(None);
+        Ok(None)
     }
 
-    pub async fn extend_on_index_miss(&self, user_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn extend_on_index_miss(
+        &self,
+        user_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.put_to_index(user_id).await?;
         // Name?: put_to_index_most_followed
         UserStream::add_to_most_followed_sorted_set(user_id, self).await?;
@@ -76,7 +80,10 @@ impl UserCounts {
         Ok(())
     }
 
-    pub async fn put_to_index(&self, user_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn put_to_index(
+        &self,
+        user_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.put_index_json(&[user_id]).await
     }
 
@@ -84,6 +91,28 @@ impl UserCounts {
         // Delete user_details on Redis
         Self::remove_from_index_multiple_json(&[&[user_id]]).await?;
 
+        Ok(())
+    }
+
+    pub async fn put_to_index_field(
+        author_id: &str,
+        field: &str,
+        action: JsonAction,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Self::modify_json_field(&[author_id], field, action).await?;
+        // Always we update the UserCount field, update pioneer score
+        Self::update_pioneer_score(author_id).await
+    }
+
+    // TODO: Check if we can do private method
+    pub async fn update_pioneer_score(
+        author_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let exist_count = Self::get_from_index(author_id).await?;
+        if let Some(count) = exist_count {
+            // Update user pioneer score
+            UserStream::add_to_pioneers_sorted_set(author_id, &count).await?;
+        }
         Ok(())
     }
 }

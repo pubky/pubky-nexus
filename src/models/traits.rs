@@ -120,7 +120,9 @@ where
         Ok(records)
     }
 
-    async fn get_from_index(keys: Vec<&[&str]>) -> Result<Vec<Option<Self>>, Box<dyn std::error::Error + Send + Sync>> {
+    async fn get_from_index(
+        keys: Vec<&[&str]>,
+    ) -> Result<Vec<Option<Self>>, Box<dyn std::error::Error + Send + Sync>> {
         Self::try_from_index_multiple_json(&keys).await
     }
 

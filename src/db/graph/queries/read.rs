@@ -2,7 +2,8 @@ use neo4rs::{query, Query};
 
 // Retrieve post node by post id and author id
 pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
-    query("
+    query(
+        "
             MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
             RETURN {
                 uri: 'pubky://' + u.id + '/pub/pubky.app/posts/' + p.id,
@@ -14,9 +15,10 @@ pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
                 // Avoids enum deserialization ERROR
                 kind: COALESCE(p.kind, 'Short')
             } as details
-        ")
-        .param("author_id", author_id)
-        .param("post_id", post_id)
+        ",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
 }
 
 pub fn post_counts(author_id: &str, post_id: &str) -> Query {
@@ -25,10 +27,17 @@ pub fn post_counts(author_id: &str, post_id: &str) -> Query {
          OPTIONAL MATCH (p)<-[tag:TAGGED]-()
          OPTIONAL MATCH (p)<-[reply:REPLIED]-()
          OPTIONAL MATCH (p)<-[repost:REPOSTED]-()
-         RETURN COUNT(p) > 0 AS post_exists,
-                COUNT(DISTINCT tag) AS tags_count,
-                COUNT(DISTINCT reply) AS replies_count,
-                COUNT(DISTINCT repost) AS reposts_count",
+         WITH p, COUNT(DISTINCT tag) AS tags_count,
+                 COUNT(DISTINCT reply) AS replies_count,
+                 COUNT(DISTINCT repost) AS reposts_count
+         RETURN 
+            p IS NOT NULL AS exists,
+            {
+                tags: tags_count,
+                replies: replies_count,
+                reposts: reposts_count
+            } AS counts
+        ",
     )
     .param("author_id", author_id)
     .param("post_id", post_id)
@@ -171,24 +180,6 @@ pub fn user_tags(user_id: &str) -> neo4rs::Query {
     ",
     )
     .param("user_id", user_id)
-}
-
-pub fn _user_counts(user_id: &str) -> neo4rs::Query {
-    query(
-        "MATCH (u:User {id: $id})
-           OPTIONAL MATCH (u)-[:FOLLOWS]->(following:User)
-           OPTIONAL MATCH (follower:User)-[:FOLLOWS]->(u)
-           OPTIONAL MATCH (u)-[:FOLLOWS]->(friend:User)-[:FOLLOWS]->(u)
-           OPTIONAL MATCH (u)-[:AUTHORED]->(post:Post)
-           OPTIONAL MATCH (u)-[tag:TAGGED]->(:Post)
-           RETURN COUNT(u) > 0 AS user_exists,
-                  COUNT(DISTINCT following) AS following_count,
-                  COUNT(DISTINCT follower) AS followers_count,
-                  COUNT(DISTINCT friend) AS friends_count,
-                  COUNT(DISTINCT post) AS posts_count,
-                  COUNT(DISTINCT tag) AS tags_count",
-    )
-    .param("id", user_id)
 }
 
 pub fn user_counts(user_id: &str) -> neo4rs::Query {
