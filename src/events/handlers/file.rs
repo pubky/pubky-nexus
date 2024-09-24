@@ -64,12 +64,14 @@ async fn ingest(
 ) -> Result<FileMeta, DynError> {
     let response = client.get(pubkyapp_file.src.as_str()).await?.unwrap();
 
-    debug!("response {:?}", response);
-    store_blob(file_id.to_string(), user_id.to_string(), &response).await?;
+    let path = format!("{}/{}", user_id, file_id);
+    store_blob(String::from("main"), path.to_string(), &response).await?;
 
-    let static_path = format!("{}/{}", user_id, file_id);
+    let main_static_path = format!("{}/main", path);
     Ok(FileMeta {
-        urls: FileUrls { main: static_path },
+        urls: FileUrls {
+            main: main_static_path,
+        },
     })
 }
 
@@ -118,7 +120,22 @@ pub async fn del(user_id: &PubkyId, file_id: String) -> Result<(), DynError> {
         value.delete().await?;
     }
 
-    remove_blob(file_id, user_id.to_string()).await?;
+    let folder_path = format!("{}/{}", user_id, file_id);
 
+    let mut directory = fs::read_dir(folder_path.clone()).await?;
+
+    loop {
+        let entry = directory.next_entry().await?;
+        match entry {
+            Some(path) => {
+                remove_blob(
+                    String::from(path.file_name().to_str().unwrap()),
+                    folder_path.clone(),
+                )
+                .await?
+            }
+            None => break,
+        };
+    }
     Ok(())
 }
