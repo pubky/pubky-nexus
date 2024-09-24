@@ -10,3 +10,8 @@ updates:
       prefix: "deps"
     open-pull-requests-limit: 10
     rebase-strategy: "auto"
+    ignore:
+      - dependency-name: "pubky/pubky"
+      - dependency-name: "pubky/pubky-common"
+      - dependency-name: "pubky/pubky-homeserver"
+      - directory: "/pubky"
