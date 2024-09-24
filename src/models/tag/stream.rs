@@ -8,7 +8,7 @@ use utoipa::ToSchema;
 
 use crate::db::kv::index::sorted_sets::Sorting;
 use crate::models::user::{UserStream, UserStreamType};
-use crate::RedisOps;
+use crate::{RedisOps, ScoreAction};
 use crate::{db::connectors::neo4j::get_neo4j_graph, queries};
 
 pub const TAG_GLOBAL_HOT: [&str; 3] = ["Tags", "Global", "Hot"];
@@ -32,6 +32,21 @@ impl AsRef<[String]> for Taggers {
 impl Taggers {
     fn from_vec(vec: Vec<String>) -> Self {
         Self(vec)
+    }
+
+    pub async fn put_to_index_score(
+        label: &str,
+        score_action: ScoreAction,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        Self::put_score_index_sorted_set(
+            &TAG_GLOBAL_HOT,
+            &[label],
+            score_action
+        ).await
+    }
+
+    pub async fn put_to_index(label: &str, user_id: &str,) -> Result<(), Box<dyn Error + Send + Sync>> {
+        Self::put_index_set(&[label], &[user_id]).await
     }
 }
 

@@ -1,8 +1,8 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
 use crate::db::kv::index::sorted_sets::Sorting;
-use crate::models::post::PostStreamSorting;
+use crate::models::post::{PostDetails, PostStreamSorting};
 use crate::queries::read::{global_tags_by_post, global_tags_by_post_engagement};
-use crate::RedisOps;
+use crate::{RedisOps, ScoreAction};
 use neo4rs::Query;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
@@ -99,5 +99,41 @@ impl TagSearch {
             Some(list) => Ok(Some(list.into_iter().map(|t| t.into()).collect())),
             None => Ok(None),
         }
+    }
+
+    pub async fn put_to_index_score(
+        tagged_user_id: &str,
+        post_id: &str,
+        label: &str,
+        score_action: ScoreAction,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let tag_global_engagement_key_parts = [&TAG_GLOBAL_POST_ENGAGEMENT[..], &[label]].concat();
+        let post_key_slice: &[&str] = &[tagged_user_id, post_id];
+        Self::put_score_index_sorted_set(
+            &tag_global_engagement_key_parts,
+            post_key_slice,
+            score_action,
+        )
+        .await
+    }
+
+    pub async fn add_to_timeline_sorted_set(tagged_user_id: &str, post_id: &str, tag_label: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let post_key_slice: &[&str] = &[tagged_user_id, post_id];
+        let key_parts = [&TAG_GLOBAL_POST_TIMELINE[..], &[tag_label]].concat();
+        let tag_search = Self::check_sorted_set_member(&key_parts, post_key_slice)
+            .await
+            .unwrap();
+        if tag_search.is_none() {
+            let option = PostDetails::try_from_index_json(post_key_slice).await?;
+            if let Some(post_details) = option {
+                let member_key = post_key_slice.join(":");
+                Self::put_index_sorted_set(
+                    &key_parts,
+                    &[(post_details.indexed_at as f64, &member_key)],
+                )
+                .await?;
+            }
+        }
+        Ok(())
     }
 }

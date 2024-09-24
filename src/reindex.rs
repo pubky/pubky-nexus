@@ -1,23 +1,22 @@
 use crate::db::kv::flush::clear_redis;
 use crate::db::kv::index::json::JsonAction;
-use crate::events::uri::ParsedUri;
 use crate::models::notification::Notification;
-use crate::models::post::{Bookmark, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS};
-use crate::models::tag::post::{TagPost, POST_TAGS_KEY_PARTS};
-use crate::models::tag::search::{TagSearch, TAG_GLOBAL_POST_ENGAGEMENT, TAG_GLOBAL_POST_TIMELINE};
-use crate::models::tag::stream::{HotTags, Taggers, TAG_GLOBAL_HOT};
+use crate::models::post::Bookmark;
+use crate::models::tag::post::TagPost;
+use crate::models::tag::search::TagSearch;
+use crate::models::tag::stream::HotTags;
 use crate::models::tag::traits::TagCollection;
-use crate::models::tag::user::{TagUser, USER_TAGS_KEY_PARTS};
+use crate::models::tag::user::TagUser;
 use crate::models::traits::Collection;
 use crate::models::user::{
-    Followers, Following, PubkyId, UserDetails, UserFollows, UserSearch, USER_NAME_KEY_PARTS,
+    Followers, Following, PubkyId, UserDetails, UserFollows
 };
 use crate::{
     db::connectors::neo4j::get_neo4j_graph,
     models::post::{PostCounts, PostDetails, PostRelationships},
     models::user::UserCounts,
 };
-use crate::{RedisOps, ScoreAction};
+use crate::RedisOps;
 use log::info;
 use neo4rs::query;
 use tokio::task::JoinSet;
@@ -92,17 +91,6 @@ pub async fn reindex_user(user_id: &str) -> Result<(), Box<dyn std::error::Error
     Ok(())
 }
 
-pub async fn _ingest_user(
-    user_details: &UserDetails,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    user_details.put_index_json(&[&user_details.id]).await?;
-    // Add the username in the SORTED SET to be searchable
-    let member = format!("{}:{}", user_details.name.to_lowercase(), &user_details.id);
-    let score = 0.0;
-    UserSearch::put_index_sorted_set(&USER_NAME_KEY_PARTS, &[(score, &member)]).await?;
-    Ok(())
-}
-
 pub async fn reindex_post(
     author_id: &str,
     post_id: &str,
@@ -114,139 +102,6 @@ pub async fn reindex_post(
         PostRelationships::get_from_graph(author_id, post_id),
         TagPost::get_from_graph(author_id, Some(post_id))
     )?;
-    Ok(())
-}
-
-pub async fn _ingest_post(
-    author_id: &str,
-    post_uri: &str,
-    interactions: Vec<(&str, &str)>,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    UserCounts::modify_json_field(&[author_id], "posts", JsonAction::Increment(1)).await?;
-    // Mutate the pioneers index of the user
-    UserCounts::update_pioneer_score(author_id).await?;
-    // Post creation from an interaction: REPLY or REPOST
-    for (action, parent_uri) in interactions {
-        let parsed_uri = ParsedUri::try_from(parent_uri)?;
-        let parent_post_key_parts: &[&str] = &[
-            &parsed_uri.user_id,
-            &parsed_uri.post_id.ok_or("Missing post ID")?,
-        ];
-        PostCounts::modify_json_field(parent_post_key_parts, action, JsonAction::Increment(1))
-            .await?;
-        PostStream::put_score_index_sorted_set(
-            &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
-            parent_post_key_parts,
-            ScoreAction::Increment(1.0),
-        )
-        .await?;
-
-        if action == "replies" {
-            Notification::new_post_reply(author_id, parent_uri, post_uri, &parsed_uri.user_id)
-                .await?;
-        } else {
-            Notification::new_repost(author_id, parent_uri, post_uri, &parsed_uri.user_id).await?;
-        }
-    }
-    Ok(())
-}
-
-pub async fn ingest_post_tag(
-    user_id: &str,
-    author_id: &str,
-    post_id: &str,
-    post_uri: &str,
-    tag_label: &str,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // TODO: Carefull with that operation, we might lost data consistency, if one of that fails
-    // we might need to enforce data consistency
-    let post_key_slice: &[&str] = &[author_id, post_id];
-    let user_id_slice = [user_id];
-    let tag_label_slice = [tag_label];
-    let user_post_slice = [author_id, post_id, tag_label];
-    // Add post to label total engagement
-    let tag_global_engagement_key_parts = [&TAG_GLOBAL_POST_ENGAGEMENT[..], &[tag_label]].concat();
-    let post_tags_key_parts = [&POST_TAGS_KEY_PARTS[..], post_key_slice].concat();
-
-    tokio::try_join!(
-        // TODO: Check if element exists. But always in Post creation we add that JSON
-        // Increment in one the post tags
-        PostCounts::modify_json_field(post_key_slice, "tags", JsonAction::Increment(1)),
-        // Add label to post
-        TagPost::put_score_index_sorted_set(
-            &post_tags_key_parts,
-            &tag_label_slice,
-            ScoreAction::Increment(1.0)
-        ),
-        // Add user tag in post
-        TagPost::put_index_set(&user_post_slice, &user_id_slice),
-        // Increment in one post global engagement
-        PostStream::put_score_index_sorted_set(
-            &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
-            post_key_slice,
-            ScoreAction::Increment(1.0)
-        ),
-        // Add post to label total engagement
-        TagSearch::put_score_index_sorted_set(
-            &tag_global_engagement_key_parts,
-            post_key_slice,
-            ScoreAction::Increment(1.0)
-        ),
-        // Add label to hot tags
-        Taggers::put_score_index_sorted_set(
-            &TAG_GLOBAL_HOT,
-            &tag_label_slice,
-            ScoreAction::Increment(1.0)
-        ),
-        // Add user to post taggers
-        Taggers::put_index_set(&tag_label_slice, &user_id_slice)
-    )?;
-
-    // Add post to global label timeline
-    let key_parts = [&TAG_GLOBAL_POST_TIMELINE[..], &[tag_label]].concat();
-    let tag_search = TagSearch::check_sorted_set_member(&key_parts, post_key_slice)
-        .await
-        .unwrap();
-    if tag_search.is_none() {
-        let option = PostDetails::try_from_index_json(post_key_slice).await?;
-        if let Some(post_details) = option {
-            let member_key = post_key_slice.join(":");
-            TagSearch::put_index_sorted_set(
-                &key_parts,
-                &[(post_details.indexed_at as f64, &member_key)],
-            )
-            .await?;
-        }
-    }
-    // TODO: Maybe work in the else
-
-    // Save new notification
-    Notification::new_post_tag(user_id, author_id, tag_label, post_uri).await?;
-
-    Ok(())
-}
-
-pub async fn ingest_user_tag(
-    user_id: &str,
-    author_id: &str,
-    tag_label: &str,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let user_tags_key_parts = [&USER_TAGS_KEY_PARTS[..], &[user_id]].concat();
-    let user_slice = [author_id, tag_label];
-    // Increment in one the user tags
-    UserCounts::modify_json_field(&[author_id], "tags", JsonAction::Increment(1)).await?;
-    // Add label count to the user profile
-    TagUser::put_score_index_sorted_set(
-        &user_tags_key_parts,
-        &[tag_label],
-        ScoreAction::Increment(1.0),
-    )
-    .await?;
-    // Add user to tag taggers list
-    TagUser::put_index_set(&user_slice, &[user_id]).await?;
-    UserCounts::update_pioneer_score(author_id).await?;
-    // Save new notification
-    Notification::new_user_tag(user_id, author_id, tag_label).await?;
     Ok(())
 }
 

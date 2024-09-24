@@ -75,10 +75,10 @@ fn post_tag_query(user_id: &str, post_id: &str, tag_name: &str) -> Query {
 }
 
 // Retrieve post related tag
-fn user_tag_query(user_id: &str, tag_name: &str) -> Query {
+fn user_tag_query(tagged_user_id: &str, tag_name: &str) -> Query {
     query(
         "
-        MATCH (u:User {id: $user_id})<-[t:TAGGED {label: $tag_name}]-(tagger:User)
+        MATCH (u:User {id: $tagged_user_id})<-[t:TAGGED {label: $tag_name}]-(tagger:User)
         WITH COUNT(tagger) as count, COLLECT(tagger.id) as list, t.label as label
         RETURN {
             taggers_count: count,
@@ -87,6 +87,6 @@ fn user_tag_query(user_id: &str, tag_name: &str) -> Query {
         } AS tag_details
         ",
     )
-    .param("user_id", user_id)
+    .param("tagged_user_id", tagged_user_id)
     .param("tag_name", tag_name)
 }

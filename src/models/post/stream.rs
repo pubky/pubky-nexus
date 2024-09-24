@@ -5,7 +5,7 @@ use crate::{
         tag::search::TagSearch,
         user::{Followers, Following, Friends, UserFollows},
     },
-    RedisOps,
+    RedisOps, ScoreAction,
 };
 use serde::{Deserialize, Serialize};
 use std::error::Error;
@@ -344,5 +344,14 @@ impl PostStream {
             &[(score, element.as_str())],
         )
         .await
+    }
+
+    pub async fn put_to_index_score(user_id: &str, post_id: &str, score_action: ScoreAction) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let post_key_slice = &[user_id, post_id];
+        Self::put_score_index_sorted_set(
+            &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
+            post_key_slice,
+            score_action
+        ).await
     }
 }

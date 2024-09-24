@@ -2,8 +2,12 @@ use axum::async_trait;
 use neo4rs::Query;
 
 use crate::{
-    db::{connectors::neo4j::get_neo4j_graph, kv::index::sorted_sets::Sorting},
-    queries, RedisOps,
+    db::{
+        connectors::neo4j::get_neo4j_graph, graph::exec::exec_single_row,
+        kv::index::sorted_sets::Sorting,
+    },
+    models::tag::{post::POST_TAGS_KEY_PARTS, user::USER_TAGS_KEY_PARTS},
+    queries, RedisOps, ScoreAction,
 };
 
 use crate::models::tag::TagDetails;
@@ -19,16 +23,23 @@ pub trait TagCollection
 where
     Self: RedisOps,
 {
-    // NAME: get_from_index
     async fn get_by_id(
         user_id: &str,
         extra_param: Option<&str>,
         limit_tags: Option<usize>,
         limit_taggers: Option<usize>,
     ) -> Result<Option<Vec<TagDetails>>, DynError> {
-        let limit_tags = limit_tags.unwrap_or(5);
-        let limit_taggers = limit_taggers.unwrap_or(5);
-        Self::try_from_multiple_index(user_id, extra_param, limit_tags, limit_taggers).await
+        match Self::get_from_index(user_id, extra_param, limit_tags, limit_taggers).await? {
+            Some(tag_details) => Ok(Some(tag_details)),
+            None => {
+                let graph_response = Self::get_from_graph(user_id, extra_param).await?;
+                if let Some(tag_details) = graph_response {
+                    Self::extend_on_index_miss(user_id, extra_param, &tag_details).await?;
+                    return Ok(Some(tag_details));
+                }
+                Ok(None)
+            }
+        }
     }
     /// Tries to retrieve the tag collection from multiple index in Redis.
     /// # Arguments
@@ -38,14 +49,16 @@ where
     /// * limit_taggers - A limit on the number of taggers to retrieve.
     /// # Returns
     /// A Result containing an optional vector of TagDetails, or an error.
-    // NAME: get_from_multiple_index
-    async fn try_from_multiple_index(
+    async fn get_from_index(
         user_id: &str,
         extra_param: Option<&str>,
-        limit_tags: usize,
-        limit_taggers: usize,
+        limit_tags: Option<usize>,
+        limit_taggers: Option<usize>,
     ) -> Result<Option<Vec<TagDetails>>, DynError> {
+        let limit_tags = limit_tags.unwrap_or(5);
+        let limit_taggers = limit_taggers.unwrap_or(5);
         let key_parts = Self::create_sorted_set_key_parts(user_id, extra_param);
+        // Get related tags
         match Self::try_from_index_sorted_set(
             &key_parts,
             None,
@@ -95,11 +108,18 @@ where
             let user_exists: bool = row.get("exists").unwrap_or(false);
             if user_exists {
                 let tagged_from: Vec<TagDetails> = row.get("tags").unwrap_or_default();
-                Self::add_to_label_sets(user_id, extra_param, &tagged_from).await?;
                 return Ok(Some(tagged_from));
             }
         }
         Ok(None)
+    }
+
+    async fn extend_on_index_miss(
+        user_id: &str,
+        extra_param: Option<&str>,
+        tags: &[TagDetails],
+    ) -> Result<(), DynError> {
+        Self::put_to_index(user_id, extra_param, tags).await
     }
 
     /// Adds the retrieved tags to a sorted set and a set in Redis.
@@ -109,8 +129,7 @@ where
     /// * tags - A slice of TagDetails representing the tags to add.
     /// # Returns
     /// A result indicating success or failure.
-    // NAME: put_to_index
-    async fn add_to_label_sets(
+    async fn put_to_index(
         user_id: &str,
         extra_param: Option<&str>,
         tags: &[TagDetails],
@@ -121,6 +140,61 @@ where
         Self::put_index_sorted_set(&key_parts, tag_scores.as_slice()).await?;
         let common_key = Self::create_set_common_key(user_id, extra_param);
         Self::put_multiple_set_indexes(&common_key, &labels, &taggers).await
+    }
+
+    // Name?: put_to_score (its obvious that it is sorted set), update_index_score, ???
+    async fn put_to_index_score(
+        tagged_user_id: &str,
+        extra_param: Option<&str>,
+        label: &str,
+        score_action: ScoreAction,
+    ) -> Result<(), DynError> {
+        let key: Vec<&str> = match extra_param {
+            Some(post_id) => [&POST_TAGS_KEY_PARTS[..], &[tagged_user_id, post_id]].concat(),
+            None => [&USER_TAGS_KEY_PARTS[..], &[&tagged_user_id]].concat(),
+        };
+        Self::put_score_index_sorted_set(&key, &[label], score_action).await
+    }
+
+    async fn add_tagger_to_index(
+        tagged_user_id: &str,
+        extra_param: Option<&str>,
+        tagger_user_id: &str,
+        tag_label: &str,
+    ) -> Result<(), DynError> {
+        let key = match extra_param {
+            Some(post_id) => vec!(tagged_user_id, post_id, tag_label),
+            None => vec!(tagged_user_id, tag_label)
+        };
+        Self::put_index_set(&key, &[tagger_user_id]).await
+    }
+
+    async fn put_to_graph(
+        tagger_user_id: &str,
+        tagged_user_id: &str,
+        extra_param: Option<&str>,
+        tag_id: &str,
+        label: &str,
+        indexed_at: i64,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let query = match extra_param {
+            Some(post_id) => queries::write::create_post_tag(
+                tagger_user_id,
+                tagged_user_id,
+                post_id,
+                tag_id,
+                label,
+                indexed_at,
+            ),
+            None => queries::write::create_user_tag(
+                tagger_user_id,
+                tagged_user_id,
+                tag_id,
+                label,
+                indexed_at,
+            ),
+        };
+        exec_single_row(query).await
     }
 
     /// Returns the unique key parts used to identify a tag in the Redis database

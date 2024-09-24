@@ -187,15 +187,15 @@ impl Notification {
     }
 
     pub async fn new_user_tag(
-        user_id: &str,
+        tagger_user_id: &str,
         tagged_user_id: &str,
         label: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if user_id == tagged_user_id {
+        if tagger_user_id == tagged_user_id {
             return Ok(());
         }
         let body = NotificationBody::TagProfile {
-            tagged_by: user_id.to_string(),
+            tagged_by: tagger_user_id.to_string(),
             tag_label: label.to_string(),
         };
         let notification = Notification::new(body);
