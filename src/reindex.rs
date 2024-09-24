@@ -27,11 +27,12 @@ pub async fn reindex() {
     }
 
     let mut user_tasks = JoinSet::new();
-    let mut post_tasks = JoinSet::new();
+    //let mut post_tasks = JoinSet::new();
 
     let user_ids: Vec<String> = get_all_user_ids().await.expect("Failed to get user IDs");
     let user_ids_refs: Vec<&str> = user_ids.iter().map(|id| id.as_str()).collect();
 
+    // TODO: Missing cache
     UserDetails::get_from_graph(&user_ids_refs)
         .await
         .expect("Failed indexing User Details");
@@ -47,11 +48,13 @@ pub async fn reindex() {
 
     let post_ids = get_all_post_ids().await.expect("Failed to get post IDs");
     for (author_id, post_id) in post_ids {
-        post_tasks.spawn(async move {
-            if let Err(e) = reindex_post(&author_id, &post_id).await {
-                log::error!("Failed to reindex post {}: {:?}", post_id, e);
-            }
-        });
+        // post_tasks.spawn(async move {
+        //     if let Err(e) = reindex_post(&author_id, &post_id).await {
+        //         println!("{:?}", e);
+        //         log::error!("Failed to reindex post {}: {:?}", post_id, e);
+        //     }
+        // });
+        reindex_post(&author_id, &post_id).await.unwrap();
     }
 
     while let Some(res) = user_tasks.join_next().await {
@@ -60,11 +63,11 @@ pub async fn reindex() {
         }
     }
 
-    while let Some(res) = post_tasks.join_next().await {
-        if let Err(e) = res {
-            log::error!("Post reindexing task failed: {:?}", e);
-        }
-    }
+    // while let Some(res) = post_tasks.join_next().await {
+    //     if let Err(e) = res {
+    //         log::error!("Post reindexing task failed: {:?}", e);
+    //     }
+    // }
 
     HotTags::set_global_tag_scores()
         .await
@@ -78,14 +81,38 @@ pub async fn reindex() {
 }
 
 pub async fn reindex_user(user_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    tokio::try_join!(
+    let user = vec!(user_id);
+    let (_bookmark, user_details_res, user_count_res, followers_res, following_res, tag_user_res) = tokio::try_join!(
         Bookmark::index_all_from_graph(user_id),
+        UserDetails::get_from_graph(&user),
         UserCounts::get_from_graph(user_id),
         Followers::get_from_graph(user_id, Some(0), Some(100)),
         Following::get_from_graph(user_id, Some(0), Some(100)),
         TagUser::get_from_graph(user_id, None)
     )?;
 
+    // REINDEX all the user related indexes
+    if user_details_res.len() == 1 {
+        if let Some(user_details) = user_details_res[0].clone() {
+            UserDetails::extend_on_index_miss(&vec!(Some(user_details))).await;
+        }
+    }
+
+    if let Some(user_count) = user_count_res {
+        user_count.extend_on_index_miss(user_id).await?
+    }
+
+    if let Some(followers) = followers_res {
+        followers.extend_on_index_miss(user_id).await?
+    }
+
+    if let Some(following) = following_res {
+        following.extend_on_index_miss(user_id).await?
+    }
+
+    if let Some(tag_user) = tag_user_res {
+        TagUser::extend_on_index_miss(user_id, None, &tag_user).await?
+    }
     Ok(())
 }
 
@@ -93,13 +120,30 @@ pub async fn reindex_post(
     author_id: &str,
     post_id: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Initialise all the values of the Posts
-    tokio::try_join!(
+    // Retrieve all the values of the Posts
+    let (post_details_res, post_counts_res, relationships_res, tag_post_res) = tokio::try_join!(
         PostDetails::get_from_graph(author_id, post_id),
         PostCounts::get_from_graph(author_id, post_id),
         PostRelationships::get_from_graph(author_id, post_id),
         TagPost::get_from_graph(author_id, Some(post_id))
     )?;
+
+    // REINDEX all the post related indexes
+    if let Some(post_details) = post_details_res {
+        post_details.extend_on_index_miss(author_id).await?
+    }
+
+    if let Some(post_counts) = post_counts_res {
+        post_counts.extend_on_index_miss(author_id, post_id).await?
+    }
+
+    if let Some(relationships) = relationships_res {
+        relationships.extend_on_index_miss(author_id, post_id).await?
+    }
+    if let Some(tag_post) = tag_post_res {
+        TagPost::extend_on_index_miss(author_id, Some(post_id), &tag_post).await?
+    }
+
     Ok(())
 }
 

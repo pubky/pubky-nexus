@@ -103,6 +103,7 @@ impl Bookmark {
     }
 
     /// Retrieves all post_keys a user bookmarked from Neo4j
+    /// TODO: using in reindex, Refactor
     pub async fn index_all_from_graph(
         user_id: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

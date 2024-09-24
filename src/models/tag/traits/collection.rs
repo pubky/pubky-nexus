@@ -151,7 +151,7 @@ where
     ) -> Result<(), DynError> {
         let key: Vec<&str> = match extra_param {
             Some(post_id) => [&POST_TAGS_KEY_PARTS[..], &[tagged_user_id, post_id]].concat(),
-            None => [&USER_TAGS_KEY_PARTS[..], &[&tagged_user_id]].concat(),
+            None => [&USER_TAGS_KEY_PARTS[..], &[tagged_user_id]].concat(),
         };
         Self::put_score_index_sorted_set(&key, &[label], score_action).await
     }
