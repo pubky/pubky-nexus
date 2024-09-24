@@ -58,11 +58,10 @@ async fn test_homeserver_reply_repost() -> Result<()> {
 
     test.create_post(&user_id, &repost).await?;
 
-    // Check if the interaction is cached
-    let parent_post_key: [&str; 2] = [&user_id, &parent_post_id];
+    // CACHE_OPs
 
     // Check if parent post engagement: Sorted:Posts:Global:TotalEngagement:user_id:post_id
-    let total_engagement = check_member_total_engagement_user_posts(&parent_post_key)
+    let total_engagement = check_member_total_engagement_user_posts(&[&user_id, &parent_post_id])
         .await
         .unwrap();
 
@@ -70,7 +69,7 @@ async fn test_homeserver_reply_repost() -> Result<()> {
     assert_eq!(total_engagement.unwrap(), 2);
 
     // Assert the parent post has changed stats. Post:Counts:user_id:post_id
-    let post_count = find_post_counts(&parent_post_key).await;
+    let post_count = find_post_counts(&user_id, &parent_post_id).await;
 
     assert_eq!(post_count.replies, 1);
     assert_eq!(post_count.reposts, 1);

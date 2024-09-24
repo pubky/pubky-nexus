@@ -163,8 +163,8 @@ where
         tag_label: &str,
     ) -> Result<(), DynError> {
         let key = match extra_param {
-            Some(post_id) => vec!(tagged_user_id, post_id, tag_label),
-            None => vec!(tagged_user_id, tag_label)
+            Some(post_id) => vec![tagged_user_id, post_id, tag_label],
+            None => vec![tagged_user_id, tag_label],
         };
         Self::put_index_set(&key, &[tagger_user_id]).await
     }

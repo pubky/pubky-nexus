@@ -47,13 +47,19 @@ async fn test_homeserver_tag_post() -> Result<()> {
         created_at: Utc::now().timestamp_millis(),
     };
     let tag_blob = serde_json::to_vec(&tag)?;
-    let tag_url = format!("pubky://{}/pub/pubky.app/tags/{}", tagger_user_id, tag.create_id());
+    let tag_url = format!(
+        "pubky://{}/pub/pubky.app/tags/{}",
+        tagger_user_id,
+        tag.create_id()
+    );
 
     // Put tag
     test.create_tag(tag_url.as_str(), tag_blob).await?;
 
     // GRAPH_OP
-    let post_tag = find_post_tag(&tagger_user_id, &post_id, label).await.unwrap();
+    let post_tag = find_post_tag(&tagger_user_id, &post_id, label)
+        .await
+        .unwrap();
     assert_eq!(post_tag.label, label);
     assert_eq!(post_tag.taggers_count, 1);
     assert_eq!(post_tag.taggers[0], tagger_user_id);
@@ -74,15 +80,17 @@ async fn test_homeserver_tag_post() -> Result<()> {
     // Find user as tagger in the post: Posts:Taggers:user_id:post_id
     assert_eq!(cache_tag_details[0].taggers[0], tagger_user_id);
 
-    let post_key: [&str; 2] = [&tagger_user_id, &post_id];
-
     // Check if post counts updated: Post:Counts:user_id:post_id
-    let post_counts = find_post_counts(&post_key).await;
+    let post_counts = find_post_counts(&tagger_user_id, &post_id).await;
     assert_eq!(post_counts.tags, 1);
 
     // Check if the user is related with tag: Tag:Taggers:tag_name
-    let (_exist, member) = Taggers::check_set_member(&[label], &tagger_user_id).await.unwrap();
+    let (_exist, member) = Taggers::check_set_member(&[label], &tagger_user_id)
+        .await
+        .unwrap();
     assert!(member);
+
+    let post_key: [&str; 2] = [&tagger_user_id, &post_id];
 
     // Check global post engagement: Sorted:Posts:Global:TotalEngagement:user_id:post_id
     let total_engagement = check_member_total_engagement_user_posts(&post_key)
@@ -115,7 +123,9 @@ async fn test_homeserver_tag_post() -> Result<()> {
     // assert_eq!(total_engagement, 1);
 
     // Check if the user is related with tag
-    let (_exist, member) = Taggers::check_set_member(&[label], &tagger_user_id).await.unwrap();
+    let (_exist, member) = Taggers::check_set_member(&[label], &tagger_user_id)
+        .await
+        .unwrap();
     assert!(member);
 
     // Step 5: Delete the tag

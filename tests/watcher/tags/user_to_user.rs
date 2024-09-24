@@ -49,7 +49,11 @@ async fn test_homeserver_tag_to_another_user() -> Result<()> {
     };
 
     let tag_blob = serde_json::to_vec(&tag)?;
-    let tag_url = format!("pubky://{}/pub/pubky.app/tags/{}", tagger_user_id, tag.create_id());
+    let tag_url = format!(
+        "pubky://{}/pub/pubky.app/tags/{}",
+        tagger_user_id,
+        tag.create_id()
+    );
 
     // Put tag
     test.create_tag(tag_url.as_str(), tag_blob).await?;
@@ -90,7 +94,10 @@ async fn test_homeserver_tag_to_another_user() -> Result<()> {
     test.ensure_event_processing_complete().await?;
 
     // Step 5: Verify the tag has been deleted
-    let _result_user = UserView::get_by_id(&tagged_user_id, None).await.unwrap().unwrap();
+    let _result_user = UserView::get_by_id(&tagged_user_id, None)
+        .await
+        .unwrap()
+        .unwrap();
 
     // TODO: uncomment tests when fixed redis de-indexing
     // assert!(

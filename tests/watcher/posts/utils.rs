@@ -9,8 +9,8 @@ use pubky_nexus::{
     RedisOps,
 };
 
-pub async fn find_post_counts(post_key: &[&str]) -> PostCounts {
-    PostCounts::try_from_index_json(&post_key)
+pub async fn find_post_counts(user_id: &str, repost_id: &str) -> PostCounts {
+    PostCounts::get_from_index(user_id, repost_id)
         .await
         .unwrap()
         .expect("The post count was not served from Nexus cache")

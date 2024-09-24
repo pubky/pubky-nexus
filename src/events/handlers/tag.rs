@@ -88,7 +88,12 @@ async fn put_sync_post(
         // Increment in one post global engagement
         PostStream::put_to_index_score(&tagged_user_id, &post_id, ScoreAction::Increment(1.0)),
         // Add post to label total engagement
-        TagSearch::put_to_index_score(&tagged_user_id, &post_id, &tag_label, ScoreAction::Increment(1.0)),
+        TagSearch::put_to_index_score(
+            &tagged_user_id,
+            &post_id,
+            &tag_label,
+            ScoreAction::Increment(1.0)
+        ),
         // Add label to hot tags
         Taggers::put_to_index_score(&tag_label, ScoreAction::Increment(1.0)),
         // Add tagger to post taggers

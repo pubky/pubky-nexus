@@ -8,15 +8,13 @@ use crate::models::tag::stream::HotTags;
 use crate::models::tag::traits::TagCollection;
 use crate::models::tag::user::TagUser;
 use crate::models::traits::Collection;
-use crate::models::user::{
-    Followers, Following, PubkyId, UserDetails, UserFollows
-};
+use crate::models::user::{Followers, Following, PubkyId, UserDetails, UserFollows};
+use crate::RedisOps;
 use crate::{
     db::connectors::neo4j::get_neo4j_graph,
     models::post::{PostCounts, PostDetails, PostRelationships},
     models::user::UserCounts,
 };
-use crate::RedisOps;
 use log::info;
 use neo4rs::query;
 use tokio::task::JoinSet;

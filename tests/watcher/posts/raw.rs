@@ -6,14 +6,10 @@ use crate::watcher::users::utils::{check_member_user_pioneer, find_user_counts};
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
-use pubky_nexus::{
-    models::{
-        post::{PostCounts, PostDetails},
-        pubky_app::{PostKind, PubkyAppPost, PubkyAppUser},
-    },
-    RedisOps,
+use pubky_nexus::models::{
+    post::{PostCounts, PostDetails},
+    pubky_app::{PostKind, PubkyAppPost, PubkyAppUser},
 };
-
 #[tokio::test]
 async fn test_homeserver_put_post_event() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
@@ -54,9 +50,7 @@ async fn test_homeserver_put_post_event() -> Result<()> {
     // CACHE_OP: Check if the event writes in the graph
 
     //User:Details:user_id:post_id
-    let post_key: [&str; 2] = [&user_id, &post_id];
-
-    let post_detail_cache: PostDetails = PostDetails::try_from_index_json(&post_key)
+    let post_detail_cache: PostDetails = PostDetails::get_from_index(&user_id, &post_id)
         .await
         .unwrap()
         .expect("The new post detail was not served from Nexus cache");
@@ -67,7 +61,7 @@ async fn test_homeserver_put_post_event() -> Result<()> {
     assert_eq!(post_details.indexed_at, post_detail_cache.indexed_at);
 
     // User:Counts:user_id:post_id
-    let post_counts: PostCounts = find_post_counts(&post_key).await;
+    let post_counts: PostCounts = find_post_counts(&user_id, &post_id).await;
     assert_eq!(post_counts.reposts, 0);
     assert_eq!(post_counts.replies, 0);
     assert_eq!(post_counts.tags, 0);

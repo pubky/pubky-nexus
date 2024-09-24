@@ -52,7 +52,7 @@ async fn test_homeserver_user_put_event() -> Result<()> {
 
     // CACHE_OP: Check if the event writes in the graph
     // User:Counts:user_id
-    let user_counts = UserCounts::try_from_index_json(&[&user_id])
+    let user_counts = UserCounts::get_from_index(&user_id)
         .await
         .unwrap()
         .expect("The new post was not served from Nexus");
