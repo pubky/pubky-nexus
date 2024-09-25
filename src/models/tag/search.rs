@@ -101,7 +101,7 @@ impl TagSearch {
         }
     }
 
-    pub async fn put_to_index_score(
+    pub async fn update_index_score(
         tagged_user_id: &str,
         post_id: &str,
         label: &str,

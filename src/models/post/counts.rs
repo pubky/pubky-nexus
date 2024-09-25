@@ -87,7 +87,7 @@ impl PostCounts {
         self.put_index_json(&[user_id, post_id]).await
     }
 
-    pub async fn put_to_index_field(
+    pub async fn update_index_field(
         index_key: &[&str],
         field: &str,
         action: JsonAction,

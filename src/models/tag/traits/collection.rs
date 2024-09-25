@@ -143,7 +143,7 @@ where
     }
 
     // Name?: put_to_score (its obvious that it is sorted set), update_index_score, ???
-    async fn put_to_index_score(
+    async fn update_index_score(
         tagged_user_id: &str,
         extra_param: Option<&str>,
         label: &str,

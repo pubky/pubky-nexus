@@ -51,7 +51,7 @@ pub async fn sync_put(
         .extend_on_index_miss(&author_id, &post_id)
         .await?;
     // Update user counts with the new post
-    UserCounts::put_to_index_field(&author_id, "posts", JsonAction::Increment(1)).await?;
+    UserCounts::update_index_field(&author_id, "posts", JsonAction::Increment(1)).await?;
 
     let mut interaction_url: (Option<String>, Option<String>) = (None, None);
 
@@ -62,7 +62,7 @@ pub async fn sync_put(
             &parsed_uri.user_id,
             &parsed_uri.post_id.ok_or("Missing post ID")?,
         ];
-        PostCounts::put_to_index_field(parent_post_key_parts, action, JsonAction::Increment(1))
+        PostCounts::update_index_field(parent_post_key_parts, action, JsonAction::Increment(1))
             .await?;
         PostStream::put_score_index_sorted_set(
             &POST_TOTAL_ENGAGEMENT_KEY_PARTS,

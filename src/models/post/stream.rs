@@ -346,7 +346,7 @@ impl PostStream {
         .await
     }
 
-    pub async fn put_to_index_score(
+    pub async fn update_index_score(
         user_id: &str,
         post_id: &str,
         score_action: ScoreAction,

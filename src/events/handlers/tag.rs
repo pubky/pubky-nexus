@@ -75,9 +75,9 @@ async fn put_sync_post(
 
     tokio::try_join!(
         // Increment in one the post tags
-        PostCounts::put_to_index_field(post_key_slice, "tags", JsonAction::Increment(1)),
+        PostCounts::update_index_field(post_key_slice, "tags", JsonAction::Increment(1)),
         // Add label to post
-        TagPost::put_to_index_score(
+        TagPost::update_index_score(
             &tagged_user_id,
             Some(&post_id),
             &tag_label,
@@ -86,16 +86,16 @@ async fn put_sync_post(
         // Add user tag in post
         TagPost::add_tagger_to_index(&tagged_user_id, Some(&post_id), &tagger_user_id, &tag_label),
         // Increment in one post global engagement
-        PostStream::put_to_index_score(&tagged_user_id, &post_id, ScoreAction::Increment(1.0)),
+        PostStream::update_index_score(&tagged_user_id, &post_id, ScoreAction::Increment(1.0)),
         // Add post to label total engagement
-        TagSearch::put_to_index_score(
+        TagSearch::update_index_score(
             &tagged_user_id,
             &post_id,
             &tag_label,
             ScoreAction::Increment(1.0)
         ),
         // Add label to hot tags
-        Taggers::put_to_index_score(&tag_label, ScoreAction::Increment(1.0)),
+        Taggers::update_index_score(&tag_label, ScoreAction::Increment(1.0)),
         // Add tagger to post taggers
         Taggers::put_to_index(&tag_label, &tagger_user_id)
     )?;
@@ -129,13 +129,13 @@ async fn put_sync_user(
 
     // SAVE TO INDEX
     // Update user counts in the user
-    UserCounts::put_to_index_field(&tagged_user_id, "tags", JsonAction::Increment(1)).await?;
+    UserCounts::update_index_field(&tagged_user_id, "tags", JsonAction::Increment(1)).await?;
 
     // Add tagger to the user taggers list
     TagUser::add_tagger_to_index(&tagged_user_id, None, &tagger_user_id, &tag_label).await?;
 
     // Add label count to the user profile tag
-    TagUser::put_to_index_score(
+    TagUser::update_index_score(
         &tagged_user_id,
         None,
         &tag_label,

@@ -34,7 +34,7 @@ impl Taggers {
         Self(vec)
     }
 
-    pub async fn put_to_index_score(
+    pub async fn update_index_score(
         label: &str,
         score_action: ScoreAction,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {

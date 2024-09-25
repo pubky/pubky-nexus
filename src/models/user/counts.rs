@@ -87,7 +87,7 @@ impl UserCounts {
         self.put_index_json(&[user_id]).await
     }
 
-    pub async fn put_to_index_field(
+    pub async fn update_index_field(
         author_id: &str,
         field: &str,
         action: JsonAction,
