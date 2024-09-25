@@ -43,18 +43,22 @@ async fn test_homeserver_tag_user() -> Result<()> {
     // Put tag
     test.create_tag(tag_url.as_str(), tag_blob).await?;
 
-    // GRAPH_OP
-    let post_tag = find_user_tag(&user_id, label).await.unwrap();
-    assert_eq!(post_tag.label, label);
-    assert_eq!(post_tag.taggers_count, 1);
-    assert_eq!(post_tag.taggers[0], user_id);
+    // Step 3: Verify tag existence and data consistency
 
-    // CACHE_OP
+    // GRAPH_OP: Check if the tag exists in the graph database
+    let user_tag = find_user_tag(&user_id, label)
+        .await
+        .expect("Failed to find user tag in graph database");
+    assert_eq!(user_tag.label, label);
+    assert_eq!(user_tag.taggers_count, 1);
+    assert_eq!(user_tag.taggers[0], user_id);
+
+    // CACHE_OP: Check if the tag is correctly cached
     let cache_user_tag = TagUser::get_from_index(&user_id, None, None, None)
         .await
-        .unwrap();
+        .expect("Failed to get tag from cache");
 
-    assert_eq!(cache_user_tag.is_some(), true);
+    assert!(cache_user_tag.is_some(), "Tag should exist in cache");
     let cache_tag_details = cache_user_tag.unwrap();
     assert_eq!(cache_tag_details.len(), 1);
 
@@ -70,8 +74,10 @@ async fn test_homeserver_tag_user() -> Result<()> {
     assert_eq!(user_counts.tags, 1);
 
     // Check user pionner score: Sorted:Users:Pioneers
-    let pioneer_score = check_member_user_pioneer(&user_id).await.unwrap();
-    assert_eq!(pioneer_score.is_some(), true);
+    let pioneer_score = check_member_user_pioneer(&user_id)
+        .await
+        .expect("Failed to check user pioneer score");
+    assert!(pioneer_score.is_some(), "Pioneer score should be present");
     assert_eq!(pioneer_score.unwrap(), 0);
 
     // Step 4: Delete the tag
@@ -79,7 +85,10 @@ async fn test_homeserver_tag_user() -> Result<()> {
     test.ensure_event_processing_complete().await?;
 
     // Step 5: Verify the tag has been deleted
-    let _result_user = UserView::get_by_id(&user_id, None).await.unwrap().unwrap();
+    let _result_user = UserView::get_by_id(&user_id, None)
+        .await
+        .expect("Failed to get user view")
+        .expect("User should exist");
 
     // TODO: uncomment tests when fixed redis de-indexing
     // assert!(

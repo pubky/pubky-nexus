@@ -16,7 +16,7 @@ pub async fn check_member_user_pioneer(user_id: &str) -> Result<Option<isize>> {
 pub async fn find_user_counts(user_id: &str) -> UserCounts {
     UserCounts::get_from_index(&user_id)
         .await
-        .unwrap()
+        .expect("User count not found with that ID")
         .expect("User count not found with that ID")
 }
 

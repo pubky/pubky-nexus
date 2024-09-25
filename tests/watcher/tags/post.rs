@@ -38,9 +38,8 @@ async fn test_homeserver_tag_post() -> Result<()> {
     };
     let post_id = test.create_post(&tagger_user_id, &post).await?;
 
-    // Step 3: Add a tag to the post
+    // Step 3: Tagger user adds a tag to the his own post
     let label = "cool";
-
     let tag = PubkyAppTag {
         uri: format!("pubky://{}/pub/pubky.app/posts/{}", tagger_user_id, post_id),
         label: label.to_string(),
@@ -54,17 +53,22 @@ async fn test_homeserver_tag_post() -> Result<()> {
     );
 
     // Put tag
-    test.create_tag(tag_url.as_str(), tag_blob).await?;
+    test.create_tag(&tag_url, tag_blob).await?;
 
-    // GRAPH_OP
+    // Ensure event processing is complete
+    test.ensure_event_processing_complete().await?;
+
+    // Step 4: Verify tag existence and data consistency
+
+    // GRAPH_OP: Check if the tag exists in the graph database
     let post_tag = find_post_tag(&tagger_user_id, &post_id, label)
         .await
-        .unwrap();
+        .expect("Failed to find updated post tag in graph database");
     assert_eq!(post_tag.label, label);
     assert_eq!(post_tag.taggers_count, 1);
     assert_eq!(post_tag.taggers[0], tagger_user_id);
 
-    // CACHE_OP
+    // CACHE_OP: Check if the tag is correctly cached
     let cache_post_tag = TagPost::get_from_index(&tagger_user_id, Some(&post_id), None, None)
         .await
         .unwrap();
@@ -87,7 +91,7 @@ async fn test_homeserver_tag_post() -> Result<()> {
     // Check if the user is related with tag: Tag:Taggers:tag_name
     let (_exist, member) = Taggers::check_set_member(&[label], &tagger_user_id)
         .await
-        .unwrap();
+        .expect("Failed to check tagger in Taggers set");
     assert!(member);
 
     let post_key: [&str; 2] = [&tagger_user_id, &post_id];
@@ -95,8 +99,11 @@ async fn test_homeserver_tag_post() -> Result<()> {
     // Check global post engagement: Sorted:Posts:Global:TotalEngagement:user_id:post_id
     let total_engagement = check_member_total_engagement_user_posts(&post_key)
         .await
-        .unwrap();
-    assert_eq!(total_engagement.is_some(), true);
+        .expect("Failed to check total engagement for user posts");
+    assert!(
+        total_engagement.is_some(),
+        "Total engagement should be present"
+    );
     assert_eq!(total_engagement.unwrap(), 1);
 
     // Check if the author user has a new notification
@@ -128,7 +135,7 @@ async fn test_homeserver_tag_post() -> Result<()> {
         .unwrap();
     assert!(member);
 
-    // Step 5: Delete the tag
+    // Step 5:
     test.client.delete(tag_url.as_str()).await?;
     test.ensure_event_processing_complete().await?;
 
