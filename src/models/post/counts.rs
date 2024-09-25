@@ -95,4 +95,14 @@ impl PostCounts {
         Self::modify_json_field(index_key, field, action).await?;
         Ok(())
     }
+
+    pub async fn reindex(author_id: &str, post_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        match Self::get_from_graph(author_id, post_id).await? {
+            Some(counts) => {
+                counts.extend_on_index_miss(author_id, post_id).await?
+            },
+            None => log::error!("{}:{} Could not found post counts in the graph", author_id, post_id)
+        }
+        Ok(())
+    }
 }

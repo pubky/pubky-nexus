@@ -107,6 +107,16 @@ impl PostDetails {
         })
     }
 
+    pub async fn reindex(author_id: &str, post_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        match Self::get_from_graph(author_id, post_id).await? {
+            Some(details) => {
+                details.extend_on_index_miss(author_id).await?
+            },
+            None => log::error!("{}:{} Could not found post counts in the graph", author_id, post_id)
+        }
+        Ok(())
+    }
+
     // Save new graph node
     pub async fn put_to_graph(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Save new graph node;

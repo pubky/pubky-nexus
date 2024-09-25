@@ -24,13 +24,13 @@ impl Collection<&str> for UserDetails {
         queries::write::create_user(self)
     }
 
-    async fn extend_on_index_miss(details: &[std::option::Option<Self>]) {
+    async fn extend_on_index_miss(details: &[std::option::Option<Self>]) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let user_details_refs: Vec<&UserDetails> = details
             .iter()
             .filter_map(|detail| detail.as_ref())
             .collect();
 
-        UserSearch::put_to_index(&user_details_refs).await.unwrap();
+        UserSearch::put_to_index(&user_details_refs).await
     }
 }
 
@@ -93,6 +93,21 @@ impl UserDetails {
             id: user_id.clone(),
             indexed_at: Utc::now().timestamp_millis(),
         })
+    }
+
+    pub async fn reindex(author_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let user = vec!(author_id);
+        match Self::get_from_graph(&user).await {
+            Ok(details) => {
+                if details.len() == 1 {
+                    if let Some(user_details) = details[0].clone() {
+                        UserDetails::extend_on_index_miss(&vec!(Some(user_details))).await?;
+                    }
+                }
+            },
+            Err(e) => log::error!("{}: Could not found user details in the graph, {:?}", author_id, e)
+        }
+        Ok(())
     }
 
     pub async fn delete(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

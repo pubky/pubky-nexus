@@ -116,7 +116,7 @@ where
             Self::put_to_index(&found_record_ids, found_records).await?;
         }
         // NOTE: maybe that one also out of get_from_graph
-        Self::extend_on_index_miss(&records).await;
+        Self::extend_on_index_miss(&records).await?;
         Ok(records)
     }
 
@@ -163,5 +163,5 @@ where
     /// Returns the neo4j query to put a record into the graph.
     fn to_graph_query(&self) -> Result<Query, Box<dyn std::error::Error + Send + Sync>>;
 
-    async fn extend_on_index_miss(elements: &[std::option::Option<Self>]);
+    async fn extend_on_index_miss(elements: &[std::option::Option<Self>]) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 }

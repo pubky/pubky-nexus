@@ -87,13 +87,6 @@ impl UserCounts {
         self.put_index_json(&[user_id]).await
     }
 
-    pub async fn delete(user_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Delete user_details on Redis
-        Self::remove_from_index_multiple_json(&[&[user_id]]).await?;
-
-        Ok(())
-    }
-
     pub async fn put_to_index_field(
         author_id: &str,
         field: &str,
@@ -113,6 +106,23 @@ impl UserCounts {
             // Update user pioneer score
             UserStream::add_to_pioneers_sorted_set(author_id, &count).await?;
         }
+        Ok(())
+    }
+
+    pub async fn reindex(author_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        match Self::get_from_graph(author_id).await? {
+            Some(counts) => {
+                counts.extend_on_index_miss(author_id).await?
+            },
+            None => log::error!("{}: Could not found user counts in the graph", author_id)
+        }
+        Ok(())
+    }
+
+    pub async fn delete(user_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Delete user_details on Redis
+        Self::remove_from_index_multiple_json(&[&[user_id]]).await?;
+
         Ok(())
     }
 }

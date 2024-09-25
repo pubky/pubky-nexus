@@ -197,6 +197,16 @@ where
         exec_single_row(query).await
     }
 
+    async fn reindex(author_id: &str, extra_param: Option<&str>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        match Self::get_from_graph(author_id, extra_param).await? {
+            Some(tag_user) => {
+                Self::extend_on_index_miss(author_id, extra_param, &tag_user).await?
+            },
+            None => log::error!("{}:{} Could not found tags in the graph", author_id, extra_param.unwrap())
+        }
+        Ok(())
+    }
+
     /// Returns the unique key parts used to identify a tag in the Redis database
     fn get_tag_prefix<'a>() -> [&'a str; 2];
 
