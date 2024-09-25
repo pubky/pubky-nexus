@@ -52,7 +52,7 @@ pub async fn put(
 
 async fn put_sync_post(
     tagger_user_id: PubkyId,
-    tagged_user_id: PubkyId,
+    author_id: PubkyId,
     post_id: String,
     tag_id: String,
     tag_label: String,
@@ -62,7 +62,7 @@ async fn put_sync_post(
     // SAVE TO GRAPH
     TagPost::put_to_graph(
         &tagger_user_id,
-        &tagged_user_id,
+        &author_id,
         Some(&post_id),
         &tag_id,
         &tag_label,
@@ -71,25 +71,26 @@ async fn put_sync_post(
     .await?;
 
     // SAVE TO INDEXES
-    let post_key_slice: &[&str] = &[&tagged_user_id, &post_id];
+    let post_key_slice: &[&str] = &[&author_id, &post_id];
 
-    tokio::try_join!(
+    // TODO: Handle the errors
+    let _ = tokio::join!(
         // Increment in one the post tags
         PostCounts::update_index_field(post_key_slice, "tags", JsonAction::Increment(1)),
         // Add label to post
         TagPost::update_index_score(
-            &tagged_user_id,
+            &author_id,
             Some(&post_id),
             &tag_label,
             ScoreAction::Increment(1.0)
         ),
         // Add user tag in post
-        TagPost::add_tagger_to_index(&tagged_user_id, Some(&post_id), &tagger_user_id, &tag_label),
+        TagPost::add_tagger_to_index(&author_id, Some(&post_id), &tagger_user_id, &tag_label),
         // Increment in one post global engagement
-        PostStream::update_index_score(&tagged_user_id, &post_id, ScoreAction::Increment(1.0)),
+        PostStream::update_index_score(&author_id, &post_id, ScoreAction::Increment(1.0)),
         // Add post to label total engagement
         TagSearch::update_index_score(
-            &tagged_user_id,
+            &author_id,
             &post_id,
             &tag_label,
             ScoreAction::Increment(1.0)
@@ -98,13 +99,13 @@ async fn put_sync_post(
         Taggers::update_index_score(&tag_label, ScoreAction::Increment(1.0)),
         // Add tagger to post taggers
         Taggers::put_to_index(&tag_label, &tagger_user_id)
-    )?;
+    );
 
     // Add post to global label timeline
-    TagSearch::add_to_timeline_sorted_set(&tagged_user_id, &post_id, &tag_label).await?;
+    TagSearch::add_to_timeline_sorted_set(&author_id, &post_id, &tag_label).await?;
 
     // Save new notification
-    Notification::new_post_tag(&tagger_user_id, &tagged_user_id, &tag_label, &post_uri).await?;
+    Notification::new_post_tag(&tagger_user_id, &author_id, &tag_label, &post_uri).await?;
 
     Ok(())
 }

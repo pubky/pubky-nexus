@@ -102,18 +102,6 @@ pub async fn sync_put(
 
     post_details.extend_on_index_miss(&author_id).await?;
 
-    // let user_id = user_details.id.clone();
-
-    // PostDetails::put_to_index(&[&user_id], vec!(Some(post_details))).await?;
-
-    // // SAVE TO INDEX
-    // post_details.extend_on_index_miss(&author_id).await?;
-
-    // // Reindex to sorted sets and other indexes
-    // reindex_post(&author_id, &post_id).await?;
-    // // Ingest the post data
-    // ingest_post(&author_id, &post_details.uri, interaction).await?;
-
     Ok(())
 }
 
@@ -200,7 +188,6 @@ pub async fn put_mentioned_relationships(
                 {
                     mention_users.push(mentioned_user_id);
                 }
-                // NOTE: No need to add in cache here. We do after with PostRelationships::get_from_graph
             }
         }
     }

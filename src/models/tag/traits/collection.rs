@@ -142,29 +142,28 @@ where
         Self::put_multiple_set_indexes(&common_key, &labels, &taggers).await
     }
 
-    // Name?: put_to_score (its obvious that it is sorted set), update_index_score, ???
     async fn update_index_score(
-        tagged_user_id: &str,
+        author_id: &str,
         extra_param: Option<&str>,
         label: &str,
         score_action: ScoreAction,
     ) -> Result<(), DynError> {
         let key: Vec<&str> = match extra_param {
-            Some(post_id) => [&POST_TAGS_KEY_PARTS[..], &[tagged_user_id, post_id]].concat(),
-            None => [&USER_TAGS_KEY_PARTS[..], &[tagged_user_id]].concat(),
+            Some(post_id) => [&POST_TAGS_KEY_PARTS[..], &[author_id, post_id]].concat(),
+            None => [&USER_TAGS_KEY_PARTS[..], &[author_id]].concat(),
         };
         Self::put_score_index_sorted_set(&key, &[label], score_action).await
     }
 
     async fn add_tagger_to_index(
-        tagged_user_id: &str,
+        author_id: &str,
         extra_param: Option<&str>,
         tagger_user_id: &str,
         tag_label: &str,
     ) -> Result<(), DynError> {
         let key = match extra_param {
-            Some(post_id) => vec![tagged_user_id, post_id, tag_label],
-            None => vec![tagged_user_id, tag_label],
+            Some(post_id) => vec![author_id, post_id, tag_label],
+            None => vec![author_id, tag_label],
         };
         Self::put_index_set(&key, &[tagger_user_id]).await
     }

@@ -102,13 +102,13 @@ impl TagSearch {
     }
 
     pub async fn update_index_score(
-        tagged_user_id: &str,
+        author_id: &str,
         post_id: &str,
         label: &str,
         score_action: ScoreAction,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let tag_global_engagement_key_parts = [&TAG_GLOBAL_POST_ENGAGEMENT[..], &[label]].concat();
-        let post_key_slice: &[&str] = &[tagged_user_id, post_id];
+        let post_key_slice: &[&str] = &[author_id, post_id];
         Self::put_score_index_sorted_set(
             &tag_global_engagement_key_parts,
             post_key_slice,
@@ -118,11 +118,11 @@ impl TagSearch {
     }
 
     pub async fn add_to_timeline_sorted_set(
-        tagged_user_id: &str,
+        author_id: &str,
         post_id: &str,
         tag_label: &str,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let post_key_slice: &[&str] = &[tagged_user_id, post_id];
+        let post_key_slice: &[&str] = &[author_id, post_id];
         let key_parts = [&TAG_GLOBAL_POST_TIMELINE[..], &[tag_label]].concat();
         let tag_search = Self::check_sorted_set_member(&key_parts, post_key_slice)
             .await
