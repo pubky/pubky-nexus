@@ -62,8 +62,10 @@ impl PostCounts {
         if let Some(row) = result.next().await? {
             let post_exists: bool = row.get("exists").unwrap_or(false);
             if post_exists {
-                let post_counts: PostCounts = row.get("counts").unwrap();
-                return Ok(Some(post_counts));
+                match row.get("counts") {
+                    Ok(post_counts) => return Ok(Some(post_counts)),
+                    Err(_e) => return Ok(None)
+                }
             }
         }
         Ok(None)

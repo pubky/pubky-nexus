@@ -99,7 +99,10 @@ where
         let mut records = Vec::with_capacity(ids.len());
 
         while let Some(row) = result.next().await? {
-            let record = row.get::<Option<Self>>("record").unwrap_or_default();
+            let record: Option<Self> = match row.get("record") {
+                Ok(entry) => Some(entry),
+                Err(_e) => None
+            };
             records.push(record);
         }
         Ok(records)

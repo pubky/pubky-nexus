@@ -52,8 +52,13 @@ impl UserCounts {
         if let Some(row) = result.next().await? {
             let user_exists: bool = row.get("exists").unwrap_or(false);
             if user_exists {
-                let user_counts: UserCounts = row.get("counts").unwrap();
-                return Ok(Some(user_counts));
+                match row.get("counts") {
+                    Ok(user_counts) => return Ok(Some(user_counts)),
+                    // Like this we give a chance, in the next request to populate index
+                    // If we populate the cache with default value, from that point we will have
+                    // inconsistent state
+                    Err(_e) => return Ok(None)
+                }
             }
         }
         Ok(None)

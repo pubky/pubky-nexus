@@ -61,11 +61,11 @@ impl PostRelationships {
         }
 
         if let Some(row) = result.next().await? {
-            let replied_post_id: Option<String> = row.get("replied_post_id")?;
-            let replied_author_id: Option<String> = row.get("replied_author_id")?;
-            let reposted_post_id: Option<String> = row.get("reposted_post_id")?;
-            let reposted_author_id: Option<String> = row.get("reposted_author_id")?;
-            let mentioned: Vec<String> = row.get("mentioned_user_ids")?;
+            let replied_post_id: Option<String> = row.get("replied_post_id").unwrap_or(None);
+            let replied_author_id: Option<String> = row.get("replied_author_id").unwrap_or(None);
+            let reposted_post_id: Option<String> = row.get("reposted_post_id").unwrap_or(None);
+            let reposted_author_id: Option<String> = row.get("reposted_author_id").unwrap_or(None);
+            let mentioned: Vec<String> = row.get("mentioned_user_ids").unwrap_or(Vec::new());
 
             let replied = match (replied_author_id, replied_post_id) {
                 (Some(author_id), Some(post_id)) => {

@@ -68,8 +68,10 @@ impl PostDetails {
 
         match result.next().await? {
             Some(row) => {
-                let post: PostDetails = row.get("details")?;
-                Ok(Some(post))
+                match row.get("details") {
+                    Ok(post) => return Ok(Some(post)),
+                    Err(_e) => return Ok(None)
+                }
             }
             None => Ok(None),
         }

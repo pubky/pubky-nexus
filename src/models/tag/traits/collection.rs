@@ -107,8 +107,10 @@ where
         if let Some(row) = result.next().await? {
             let user_exists: bool = row.get("exists").unwrap_or(false);
             if user_exists {
-                let tagged_from: Vec<TagDetails> = row.get("tags").unwrap_or_default();
-                return Ok(Some(tagged_from));
+                match row.get::<Vec<TagDetails>>("tags") {
+                    Ok(tagged_from) => return Ok(Some(tagged_from)),
+                    Err(_e) => return Ok(None)
+                }
             }
         }
         Ok(None)

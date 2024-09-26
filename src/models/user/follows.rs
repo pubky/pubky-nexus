@@ -47,11 +47,16 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
             if !user_exists {
                 return Ok(None);
             }
-            if let Some(connections) = row.get::<Option<Vec<String>>>(Self::get_ids_field_name())? {
-                let follows = Self::from_vec(connections);
-                Ok(Some(follows))
-            } else {
-                Ok(Some(Self::default()))
+
+            match row.get::<Option<Vec<String>>>(Self::get_ids_field_name()) {
+                Ok(response) => {
+                    if let Some(connections) = response {
+                        return Ok(Some(Self::from_vec(connections)))
+                    } else {
+                        return Ok(Some(Self::default()))
+                    }
+                },
+                Err(_e) => return Ok(None)
             }
         } else {
             Ok(None)
@@ -96,10 +101,10 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
     }
 }
 
-#[derive(Serialize, Deserialize, ToSchema, Default)]
+#[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
 pub struct Followers(pub Vec<String>);
 
-#[derive(Serialize, Deserialize, ToSchema, Default)]
+#[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
 pub struct Following(pub Vec<String>);
 
 impl AsRef<[String]> for Followers {
