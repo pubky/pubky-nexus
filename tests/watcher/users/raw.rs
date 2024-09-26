@@ -1,4 +1,7 @@
-use crate::watcher::{users::utils::{check_member_most_followed, check_member_user_pioneer, find_user_details}, utils::WatcherTest};
+use crate::watcher::{
+    users::utils::{check_member_most_followed, check_member_user_pioneer, find_user_details},
+    utils::WatcherTest,
+};
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{

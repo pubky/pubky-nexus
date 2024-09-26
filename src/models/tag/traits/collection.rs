@@ -109,7 +109,7 @@ where
             if user_exists {
                 match row.get::<Vec<TagDetails>>("tags") {
                     Ok(tagged_from) => return Ok(Some(tagged_from)),
-                    Err(_e) => return Ok(None)
+                    Err(_e) => return Ok(None),
                 }
             }
         }
@@ -190,12 +190,17 @@ where
         exec_single_row(query).await
     }
 
-    async fn reindex(author_id: &str, extra_param: Option<&str>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn reindex(
+        author_id: &str,
+        extra_param: Option<&str>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         match Self::get_from_graph(author_id, extra_param).await? {
-            Some(tag_user) => {
-                Self::put_to_index(author_id, extra_param, &tag_user).await?
-            },
-            None => log::error!("{}:{} Could not found tags in the graph", author_id, extra_param.unwrap())
+            Some(tag_user) => Self::put_to_index(author_id, extra_param, &tag_user).await?,
+            None => log::error!(
+                "{}:{} Could not found tags in the graph",
+                author_id,
+                extra_param.unwrap()
+            ),
         }
         Ok(())
     }

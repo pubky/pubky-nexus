@@ -2,14 +2,17 @@ use anyhow::Result;
 use neo4rs::{query, Query};
 use pubky_nexus::{
     get_neo4j_graph,
-    models::user::{UserCounts, UserDetails, UserStream, USER_MOSTFOLLOWED_KEY_PARTS, USER_PIONEERS_KEY_PARTS},
+    models::user::{
+        UserCounts, UserDetails, UserStream, USER_MOSTFOLLOWED_KEY_PARTS, USER_PIONEERS_KEY_PARTS,
+    },
     RedisOps,
 };
 
 pub async fn check_member_most_followed(user_id: &str) -> Result<Option<isize>> {
-    let pioneer_score = UserStream::check_sorted_set_member(&USER_MOSTFOLLOWED_KEY_PARTS, &[&user_id])
-        .await
-        .unwrap();
+    let pioneer_score =
+        UserStream::check_sorted_set_member(&USER_MOSTFOLLOWED_KEY_PARTS, &[&user_id])
+            .await
+            .unwrap();
     Ok(pioneer_score)
 }
 

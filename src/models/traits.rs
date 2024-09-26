@@ -101,7 +101,7 @@ where
         while let Some(row) = result.next().await? {
             let record: Option<Self> = match row.get("record") {
                 Ok(entry) => Some(entry),
-                Err(_e) => None
+                Err(_e) => None,
             };
             records.push(record);
         }
@@ -139,7 +139,10 @@ where
                 found_record_ids.push(*id);
             }
         }
-        let key_parts_list: Vec<String> = found_record_ids.iter().map(|id| id.to_string_id()).collect();
+        let key_parts_list: Vec<String> = found_record_ids
+            .iter()
+            .map(|id| id.to_string_id())
+            .collect();
 
         let keys_refs: Vec<Vec<&str>> = key_parts_list.iter().map(|id| vec![id.as_str()]).collect();
 
@@ -158,11 +161,11 @@ where
     async fn reindex(collection_ids: &[T]) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         match Self::get_from_graph(collection_ids).await {
             Ok(collection_details_list) => {
-                if collection_details_list.len() != 0 {
+                if !collection_details_list.is_empty() {
                     Self::put_to_index(collection_ids, collection_details_list).await?;
                 }
-            },
-            Err(e) => log::error!("Error: Could not find any element of the collection: {}", e)
+            }
+            Err(e) => log::error!("Error: Could not find any element of the collection: {}", e),
         }
         Ok(())
     }
@@ -174,5 +177,7 @@ where
     /// Returns the neo4j query to put a record into the graph.
     fn to_graph_query(&self) -> Result<Query, Box<dyn std::error::Error + Send + Sync>>;
 
-    async fn extend_on_index_miss(elements: &[std::option::Option<Self>]) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+    async fn extend_on_index_miss(
+        elements: &[std::option::Option<Self>],
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 }

@@ -57,7 +57,7 @@ impl UserCounts {
                     // Like this we give a chance, in the next request to populate index
                     // If we populate the cache with default value, from that point we will have
                     // inconsistent state
-                    Err(_e) => return Ok(None)
+                    Err(_e) => return Ok(None),
                 }
             }
         }
@@ -107,10 +107,8 @@ impl UserCounts {
 
     pub async fn reindex(author_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         match Self::get_from_graph(author_id).await? {
-            Some(counts) => {
-                counts.put_to_index(author_id).await?
-            },
-            None => log::error!("{}: Could not found user counts in the graph", author_id)
+            Some(counts) => counts.put_to_index(author_id).await?,
+            None => log::error!("{}: Could not found user counts in the graph", author_id),
         }
         Ok(())
     }

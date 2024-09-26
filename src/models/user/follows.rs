@@ -51,12 +51,12 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
             match row.get::<Option<Vec<String>>>(Self::get_ids_field_name()) {
                 Ok(response) => {
                     if let Some(connections) = response {
-                        return Ok(Some(Self::from_vec(connections)))
+                        return Ok(Some(Self::from_vec(connections)));
                     } else {
-                        return Ok(Some(Self::default()))
+                        return Ok(Some(Self::default()));
                     }
-                },
-                Err(_e) => return Ok(None)
+                }
+                Err(_e) => return Ok(None),
             }
         } else {
             Ok(None)
@@ -81,10 +81,11 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
 
     async fn reindex(author_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         match Self::get_from_graph(author_id, Some(0), Some(100)).await? {
-            Some(follow) => {
-                follow.put_to_index(author_id).await?
-            },
-            None => log::error!("{}: Could not found user follow relationship in the graph", author_id)
+            Some(follow) => follow.put_to_index(author_id).await?,
+            None => log::error!(
+                "{}: Could not found user follow relationship in the graph",
+                author_id
+            ),
         }
         Ok(())
     }

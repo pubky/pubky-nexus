@@ -44,7 +44,9 @@ impl Collection<&[&str]> for FileDetails {
         queries::write::create_file(self)
     }
 
-    async fn extend_on_index_miss(_: &[std::option::Option<Self>]) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn extend_on_index_miss(
+        _: &[std::option::Option<Self>],
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }
 }

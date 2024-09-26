@@ -64,7 +64,7 @@ impl PostCounts {
             if post_exists {
                 match row.get("counts") {
                     Ok(post_counts) => return Ok(Some(post_counts)),
-                    Err(_e) => return Ok(None)
+                    Err(_e) => return Ok(None),
                 }
             }
         }
@@ -90,12 +90,17 @@ impl PostCounts {
         Ok(())
     }
 
-    pub async fn reindex(author_id: &str, post_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn reindex(
+        author_id: &str,
+        post_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         match Self::get_from_graph(author_id, post_id).await? {
-            Some(counts) => {
-                counts.put_to_index(author_id, post_id).await?
-            },
-            None => log::error!("{}:{} Could not found post counts in the graph", author_id, post_id)
+            Some(counts) => counts.put_to_index(author_id, post_id).await?,
+            None => log::error!(
+                "{}:{} Could not found post counts in the graph",
+                author_id,
+                post_id
+            ),
         }
         Ok(())
     }

@@ -26,9 +26,7 @@ impl PostRelationships {
             None => {
                 let graph_response = Self::get_from_graph(author_id, post_id).await?;
                 if let Some(post_relationships) = graph_response {
-                    post_relationships
-                        .put_to_index(author_id, post_id)
-                        .await?;
+                    post_relationships.put_to_index(author_id, post_id).await?;
                     return Ok(Some(post_relationships));
                 }
                 Ok(None)
@@ -98,12 +96,17 @@ impl PostRelationships {
         Ok(())
     }
 
-    pub async fn reindex(author_id: &str, post_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn reindex(
+        author_id: &str,
+        post_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         match Self::get_from_graph(author_id, post_id).await? {
-            Some(relationships) => {
-                relationships.put_to_index(author_id, post_id).await?
-            },
-            None => log::error!("{}:{} Could not found post relationships in the graph", author_id, post_id)
+            Some(relationships) => relationships.put_to_index(author_id, post_id).await?,
+            None => log::error!(
+                "{}:{} Could not found post relationships in the graph",
+                author_id,
+                post_id
+            ),
         }
         Ok(())
     }

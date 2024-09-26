@@ -24,7 +24,9 @@ impl Collection<&str> for UserDetails {
         queries::write::create_user(self)
     }
 
-    async fn extend_on_index_miss(details: &[std::option::Option<Self>]) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn extend_on_index_miss(
+        details: &[std::option::Option<Self>],
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let user_details_refs: Vec<&UserDetails> = details
             .iter()
             .filter_map(|detail| detail.as_ref())

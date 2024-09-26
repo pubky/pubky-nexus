@@ -67,12 +67,10 @@ impl PostDetails {
         }
 
         match result.next().await? {
-            Some(row) => {
-                match row.get("details") {
-                    Ok(post) => return Ok(Some(post)),
-                    Err(_e) => return Ok(None)
-                }
-            }
+            Some(row) => match row.get("details") {
+                Ok(post) => Ok(Some(post)),
+                Err(_e) => Ok(None),
+            },
             None => Ok(None),
         }
     }
@@ -102,12 +100,17 @@ impl PostDetails {
         })
     }
 
-    pub async fn reindex(author_id: &str, post_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn reindex(
+        author_id: &str,
+        post_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         match Self::get_from_graph(author_id, post_id).await? {
-            Some(details) => {
-                details.put_to_index(author_id).await?
-            },
-            None => log::error!("{}:{} Could not found post counts in the graph", author_id, post_id)
+            Some(details) => details.put_to_index(author_id).await?,
+            None => log::error!(
+                "{}:{} Could not found post counts in the graph",
+                author_id,
+                post_id
+            ),
         }
         Ok(())
     }
