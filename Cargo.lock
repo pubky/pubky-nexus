@@ -2339,6 +2339,7 @@ dependencies = [
  "pubky",
  "pubky-common",
  "pubky_homeserver",
+ "rand",
  "redis",
  "reqwest",
  "serde",
