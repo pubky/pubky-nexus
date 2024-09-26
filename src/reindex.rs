@@ -7,6 +7,7 @@ use crate::models::tag::search::TagSearch;
 use crate::models::tag::stream::HotTags;
 use crate::models::tag::traits::TagCollection;
 use crate::models::tag::user::TagUser;
+use crate::models::traits::Collection;
 use crate::models::user::{Followers, Following, PubkyId, UserDetails, UserFollows};
 use crate::RedisOps;
 use crate::{
@@ -25,15 +26,30 @@ pub async fn reindex() {
         return;
     }
 
-    // Start User related REINDEX process
     let mut user_tasks = JoinSet::new();
+    let mut post_tasks = JoinSet::new();
+
     let user_ids: Vec<String> = get_all_user_ids().await.expect("Failed to get user IDs");
+    let user_ids_refs: Vec<&str> = user_ids.iter().map(|id| id.as_str()).collect();
+
+    UserDetails::get_from_graph(&user_ids_refs)
+        .await
+        .expect("Failed indexing User Details");
+    //TODO use collections for every other model
 
     for user_id in user_ids {
         user_tasks.spawn(async move {
             if let Err(e) = reindex_user(&user_id).await {
-                println!("USER_ERROR: {:?}", e);
                 log::error!("Failed to reindex user {}: {:?}", user_id, e);
+            }
+        });
+    }
+
+    let post_ids = get_all_post_ids().await.expect("Failed to get post IDs");
+    for (author_id, post_id) in post_ids {
+        post_tasks.spawn(async move {
+            if let Err(e) = reindex_post(&author_id, &post_id).await {
+                log::error!("Failed to reindex post {}: {:?}", post_id, e);
             }
         });
     }
@@ -42,24 +58,6 @@ pub async fn reindex() {
         if let Err(e) = res {
             log::error!("User reindexing task failed: {:?}", e);
         }
-    }
-
-    // Start User related REINDEX process
-    let mut post_tasks = JoinSet::new();
-    let post_ids = get_all_post_ids().await.expect("Failed to get post IDs");
-    
-    for (author_id, post_id) in post_ids {
-        post_tasks.spawn(async move {
-            if let Err(e) = reindex_post(&author_id, &post_id).await {
-                println!("POST_ERROR: {:?}", e);
-                log::error!("Failed to reindex post {}: {:?}", post_id, e);
-            }
-        });
-        // Waiting till finish the post reindex
-        // match reindex_post(&author_id, &post_id).await {
-        //     Err(e) => println!("POST_ERROR: {:?}", e),
-        //     _ => ()
-        // }
     }
 
     while let Some(res) = post_tasks.join_next().await {
@@ -82,7 +80,6 @@ pub async fn reindex() {
 pub async fn reindex_user(author_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tokio::try_join!(
         Bookmark::index_all_from_graph(author_id),
-        UserDetails::reindex(author_id),
         UserCounts::reindex(author_id),
         Followers::reindex(author_id),
         Following::reindex(author_id),
