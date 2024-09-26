@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use tokio::task::spawn;
 use utoipa::ToSchema;
 
-const USER_MOSTFOLLOWED_KEY_PARTS: [&str; 2] = ["Users", "MostFollowed"];
+pub const USER_MOSTFOLLOWED_KEY_PARTS: [&str; 2] = ["Users", "MostFollowed"];
 pub const USER_PIONEERS_KEY_PARTS: [&str; 2] = ["Users", "Pioneers"];
 
 #[derive(Deserialize, ToSchema, Debug)]

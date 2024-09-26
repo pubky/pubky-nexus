@@ -1,4 +1,4 @@
-use crate::watcher::{users::utils::find_user_details, utils::WatcherTest};
+use crate::watcher::{users::utils::{check_member_most_followed, check_member_user_pioneer, find_user_details}, utils::WatcherTest};
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{
@@ -71,6 +71,16 @@ async fn test_homeserver_user_put_event() -> Result<()> {
 
     assert_eq!(is_member.is_some(), true);
     assert_eq!(is_member.unwrap(), 0);
+
+    // pioneers score: Sorted:Users:Pioneers
+    let pioneer_score = check_member_user_pioneer(&user_id).await.unwrap();
+    assert_eq!(pioneer_score.is_some(), true);
+    assert_eq!(pioneer_score.unwrap(), 0);
+
+    // most_followed score: Sorted:Users:MostFollowed
+    let pioneer_score = check_member_most_followed(&user_id).await.unwrap();
+    assert_eq!(pioneer_score.is_some(), true);
+    assert_eq!(pioneer_score.unwrap(), 0);
 
     // Cleanup
     test.cleanup_user(&user_id).await?;

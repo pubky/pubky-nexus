@@ -31,12 +31,12 @@ impl Relationship {
     ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
         match viewer_id {
             None => Ok(None),
-            Some(v_id) => Self::try_from_index(user_id, v_id).await,
+            Some(v_id) => Self::get_from_index(user_id, v_id).await,
         }
     }
 
     /// Retrieves relationship from Followers/Following Redis index sets.
-    pub async fn try_from_index(
+    pub async fn get_from_index(
         user_id: &str,
         viewer_id: &str,
     ) -> Result<Option<Relationship>, Box<dyn std::error::Error + Send + Sync>> {
