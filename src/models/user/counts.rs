@@ -28,7 +28,7 @@ impl UserCounts {
             None => {
                 let graph_response = Self::get_from_graph(user_id).await?;
                 if let Some(user_counts) = graph_response {
-                    user_counts.extend_on_index_miss(user_id).await?;
+                    user_counts.put_to_index(user_id).await?;
                     return Ok(Some(user_counts));
                 }
                 Ok(None)
@@ -68,23 +68,14 @@ impl UserCounts {
         Ok(None)
     }
 
-    pub async fn extend_on_index_miss(
-        &self,
-        user_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.put_to_index(user_id).await?;
-        // Name?: put_to_index_most_followed
-        UserStream::add_to_most_followed_sorted_set(user_id, self).await?;
-        // Name?: put_to_index_pioneers
-        UserStream::add_to_pioneers_sorted_set(user_id, self).await?;
-        Ok(())
-    }
-
     pub async fn put_to_index(
         &self,
         user_id: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.put_index_json(&[user_id]).await
+        self.put_index_json(&[user_id]).await?;
+        UserStream::add_to_most_followed_sorted_set(user_id, self).await?;
+        UserStream::add_to_pioneers_sorted_set(user_id, self).await?;
+        Ok(())
     }
 
     pub async fn update_index_field(
@@ -112,7 +103,7 @@ impl UserCounts {
     pub async fn reindex(author_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         match Self::get_from_graph(author_id).await? {
             Some(counts) => {
-                counts.extend_on_index_miss(author_id).await?
+                counts.put_to_index(author_id).await?
             },
             None => log::error!("{}: Could not found user counts in the graph", author_id)
         }

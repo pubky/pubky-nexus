@@ -27,7 +27,7 @@ impl PostRelationships {
                 let graph_response = Self::get_from_graph(author_id, post_id).await?;
                 if let Some(post_relationships) = graph_response {
                     post_relationships
-                        .extend_on_index_miss(author_id, post_id)
+                        .put_to_index(author_id, post_id)
                         .await?;
                     return Ok(Some(post_relationships));
                 }
@@ -89,27 +89,19 @@ impl PostRelationships {
         }
     }
 
-    pub async fn extend_on_index_miss(
+    pub async fn put_to_index(
         &self,
         author_id: &str,
         post_id: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.put_to_index(author_id, post_id).await?;
+        self.put_index_json(&[author_id, post_id]).await?;
         Ok(())
-    }
-
-    pub async fn put_to_index(
-        &self,
-        user_id: &str,
-        post_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.put_index_json(&[user_id, post_id]).await
     }
 
     pub async fn reindex(author_id: &str, post_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         match Self::get_from_graph(author_id, post_id).await? {
             Some(relationships) => {
-                relationships.extend_on_index_miss(author_id, post_id).await?
+                relationships.put_to_index(author_id, post_id).await?
             },
             None => log::error!("{}:{} Could not found post relationships in the graph", author_id, post_id)
         }

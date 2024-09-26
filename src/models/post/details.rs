@@ -34,7 +34,7 @@ impl PostDetails {
             None => {
                 let graph_response = Self::get_from_graph(author_id, post_id).await?;
                 if let Some(post_details) = graph_response {
-                    post_details.extend_on_index_miss(author_id).await?;
+                    post_details.put_to_index(author_id).await?;
                     return Ok(Some(post_details));
                 }
                 Ok(None)
@@ -75,21 +75,14 @@ impl PostDetails {
         }
     }
 
-    pub async fn extend_on_index_miss(
+    pub async fn put_to_index(
         &self,
         author_id: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.put_to_index(author_id).await?;
+        self.put_index_json(&[author_id, &self.id]).await?;
         PostStream::add_to_timeline_sorted_set(self).await?;
         PostStream::add_to_per_user_sorted_set(self).await?;
         Ok(())
-    }
-
-    pub async fn put_to_index(
-        &self,
-        user_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.put_index_json(&[user_id, &self.id]).await
     }
 
     pub async fn from_homeserver(
@@ -110,7 +103,7 @@ impl PostDetails {
     pub async fn reindex(author_id: &str, post_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         match Self::get_from_graph(author_id, post_id).await? {
             Some(details) => {
-                details.extend_on_index_miss(author_id).await?
+                details.put_to_index(author_id).await?
             },
             None => log::error!("{}:{} Could not found post counts in the graph", author_id, post_id)
         }

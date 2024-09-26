@@ -48,7 +48,7 @@ pub async fn sync_put(
     // SAVE TO INDEX
     // Create post counts index
     PostCounts::default()
-        .extend_on_index_miss(&author_id, &post_id)
+        .put_to_index(&author_id, &post_id)
         .await?;
     // Update user counts with the new post
     UserCounts::update_index_field(&author_id, "posts", JsonAction::Increment(1)).await?;
@@ -100,7 +100,7 @@ pub async fn sync_put(
     .put_to_index(&author_id, &post_id)
     .await?;
 
-    post_details.extend_on_index_miss(&author_id).await?;
+    post_details.put_to_index(&author_id).await?;
 
     Ok(())
 }

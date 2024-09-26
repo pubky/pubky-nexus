@@ -34,7 +34,7 @@ where
             None => {
                 let graph_response = Self::get_from_graph(user_id, extra_param).await?;
                 if let Some(tag_details) = graph_response {
-                    Self::extend_on_index_miss(user_id, extra_param, &tag_details).await?;
+                    Self::put_to_index(user_id, extra_param, &tag_details).await?;
                     return Ok(Some(tag_details));
                 }
                 Ok(None)
@@ -114,14 +114,6 @@ where
         Ok(None)
     }
 
-    async fn extend_on_index_miss(
-        user_id: &str,
-        extra_param: Option<&str>,
-        tags: &[TagDetails],
-    ) -> Result<(), DynError> {
-        Self::put_to_index(user_id, extra_param, tags).await
-    }
-
     /// Adds the retrieved tags to a sorted set and a set in Redis.
     /// # Arguments
     /// * user_id - The key of the user.
@@ -199,7 +191,7 @@ where
     async fn reindex(author_id: &str, extra_param: Option<&str>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         match Self::get_from_graph(author_id, extra_param).await? {
             Some(tag_user) => {
-                Self::extend_on_index_miss(author_id, extra_param, &tag_user).await?
+                Self::put_to_index(author_id, extra_param, &tag_user).await?
             },
             None => log::error!("{}:{} Could not found tags in the graph", author_id, extra_param.unwrap())
         }

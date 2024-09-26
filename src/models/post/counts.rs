@@ -27,7 +27,7 @@ impl PostCounts {
             None => {
                 let graph_response = Self::get_from_graph(author_id, post_id).await?;
                 if let Some(post_counts) = graph_response {
-                    post_counts.extend_on_index_miss(author_id, post_id).await?;
+                    post_counts.put_to_index(author_id, post_id).await?;
                     return Ok(Some(post_counts));
                 }
                 Ok(None)
@@ -69,22 +69,14 @@ impl PostCounts {
         Ok(None)
     }
 
-    pub async fn extend_on_index_miss(
+    pub async fn put_to_index(
         &self,
         author_id: &str,
         post_id: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.put_to_index(author_id, post_id).await?;
+        self.put_index_json(&[author_id, post_id]).await?;
         PostStream::add_to_engagement_sorted_set(self, author_id, post_id).await?;
         Ok(())
-    }
-
-    pub async fn put_to_index(
-        &self,
-        user_id: &str,
-        post_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.put_index_json(&[user_id, post_id]).await
     }
 
     pub async fn update_index_field(
@@ -99,7 +91,7 @@ impl PostCounts {
     pub async fn reindex(author_id: &str, post_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         match Self::get_from_graph(author_id, post_id).await? {
             Some(counts) => {
-                counts.extend_on_index_miss(author_id, post_id).await?
+                counts.put_to_index(author_id, post_id).await?
             },
             None => log::error!("{}:{} Could not found post counts in the graph", author_id, post_id)
         }

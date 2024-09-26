@@ -101,7 +101,7 @@ where
             let record = row.get::<Option<Self>>("record").unwrap_or_default();
             records.push(record);
         }
-
+        // TODO: Extract that block to put_to_index
         if !records.is_empty() {
             let mut found_records = Vec::new();
             let mut found_record_ids = Vec::new();

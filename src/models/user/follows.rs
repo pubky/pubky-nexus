@@ -20,7 +20,7 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
             None => {
                 let graph_response = Self::get_from_graph(user_id, skip, limit).await?;
                 if let Some(follows) = graph_response {
-                    follows.extend_on_index_miss(user_id).await?;
+                    follows.put_to_index(user_id).await?;
                     return Ok(Some(follows));
                 }
                 Ok(None)
@@ -66,25 +66,18 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
         Self::try_from_index_set(&[user_id], skip, limit).await
     }
 
-    async fn extend_on_index_miss(
+    async fn put_to_index(
         &self,
         user_id: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let user_list_ref: Vec<&str> = self.as_ref().iter().map(|id| id.as_str()).collect();
-        Self::put_to_index(user_id, user_list_ref).await
-    }
-
-    async fn put_to_index(
-        user_id: &str,
-        user_list: Vec<&str>,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        Self::put_index_set(&[user_id], &user_list).await
+        Self::put_index_set(&[user_id], &user_list_ref).await
     }
 
     async fn reindex(author_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         match Self::get_from_graph(author_id, Some(0), Some(100)).await? {
             Some(follow) => {
-                follow.extend_on_index_miss(author_id).await?
+                follow.put_to_index(author_id).await?
             },
             None => log::error!("{}: Could not found user follow relationship in the graph", author_id)
         }
