@@ -20,6 +20,7 @@ pub struct Config {
     pub homeserver: String,
     pub homeserver_url: String,
     pub events_limit: u32,
+    pub watcher_sleep: u64,
 }
 
 impl Config {
@@ -54,6 +55,10 @@ impl Config {
                 .unwrap_or("1000".to_string())
                 .parse()
                 .unwrap_or(1000),
+            watcher_sleep: env::var("WATCHER_SLEEP")
+                .unwrap_or("5000".to_string())
+                .parse()
+                .unwrap_or(5000),
         }
     }
 

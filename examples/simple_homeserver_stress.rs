@@ -8,17 +8,18 @@ use pubky_nexus::{
         traits::{GenerateHashId, GenerateTimestampId},
         PostKind, PubkyAppFollow, PubkyAppPost, PubkyAppTag, PubkyAppUser,
     },
-    setup, Config,
+    Config,
 };
 use rand::Rng;
-use tokio::task;
+use tokio::time::{sleep, Duration};
 
-static NUM_ITER: usize = 2;
+static NUM_ITER: usize = 500;
+static MIN_POSTS: usize = 5;
+static MAX_POSTS: usize = 40;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let config = Config::from_env();
-    setup(&config).await;
 
     // Initialize the PubkyClient based on configuration
     let client = match config.testnet {
@@ -35,82 +36,87 @@ async fn main() -> Result<()> {
     // Convert the homeserver from the config into a PublicKey
     let homeserver = PublicKey::try_from(config.homeserver.as_str())?;
 
-    let mut user_data: Vec<(Keypair, String)> = Vec::with_capacity(NUM_ITER);
-    let mut tasks = vec![];
+    let mut rng = rand::thread_rng();
 
-    // Pre-generate keypairs and user_ids
-    for _ in 0..NUM_ITER {
+    // Pre-allocate vector for user_ids
+    let mut user_ids: Vec<String> = Vec::with_capacity(NUM_ITER);
+
+    // Loop to create users, posts, follows, and tags
+    for i in 0..NUM_ITER {
+        // Random keypair for each user
         let keypair = Keypair::random();
         let pk = keypair.public_key().to_z32();
-        user_data.push((keypair, pk));
-    }
+        // Save the user public key (pk) to user_ids
+        user_ids.push(pk);
 
-    // Spawn tasks for each user creation, signup, posting, following, and tagging
-    for (i, (keypair, pk)) in user_data.iter().cloned().enumerate() {
-        let client = client.clone();
-        let homeserver = homeserver.clone();
-        let user_data = user_data.clone(); // Clone the entire `user_data` to pass it into the task
+        // Perform signup
+        client.signup(&keypair, &homeserver).await?;
 
-        tasks.push(task::spawn(async move {
-            // Perform signup with the pre-generated keypair
-            client.signup(&keypair, &homeserver).await.unwrap();
+        // Create a user
+        let user = PubkyAppUser {
+            bio: Some(format!("User Bio {}", i)),
+            image: None,
+            links: None,
+            name: format!("User{}", i),
+            status: Some("Active".to_string()),
+        };
 
-            // Create a user profile
-            let user = PubkyAppUser {
-                bio: Some(format!("User Bio {}", i)),
-                image: None,
-                links: None,
-                name: format!("User{}", i),
-                status: Some("Active".to_string()),
-            };
-            let user_profile_json = serde_json::to_vec(&user).unwrap();
-            let profile_url = format!("pubky://{}/pub/pubky.app/profile.json", &pk);
-            client
-                .put(profile_url.as_str(), &user_profile_json)
-                .await
-                .unwrap();
+        let user_profile_json = serde_json::to_vec(&user)?;
+        let profile_url = format!("pubky://{}/pub/pubky.app/profile.json", &user_ids[i]);
+        println!("PUT PROFILE: {}", user_ids[i]);
+        client
+            .put(profile_url.as_str(), &user_profile_json)
+            .await
+            .unwrap_or_default();
 
-            // Create a post
+        // Generate random number of posts (between MIN_POSTS and MAX_POSTS)
+        let num_posts = rng.gen_range(MIN_POSTS..=MAX_POSTS);
+
+        // Loop to create random number of posts for this user
+        for j in 0..num_posts {
             let post = PubkyAppPost {
-                content: format!("User {}'s post", i),
+                content: format!("User {}'s post number {}", i, j),
                 kind: PostKind::Short,
                 parent: None,
                 embed: None,
             };
             let post_id = post.create_id();
-            let post_url = format!("pubky://{}/pub/pubky.app/posts/{}", &pk, post_id);
-            let post_json = serde_json::to_vec(&post).unwrap();
-            client.put(post_url.as_str(), &post_json).await.unwrap();
+            let post_url = format!("pubky://{}/pub/pubky.app/posts/{}", &user_ids[i], post_id);
+            let post_json = serde_json::to_vec(&post)?;
+            println!("PUT POST: {}", post_id);
+            client.put(post_url.as_str(), &post_json).await?;
 
-            // Create a follow (randomly follow an earlier user)
-            // Crashes Nexus if done concurrently with:
-            // Error: An error was signalled by the server - ResponseError: could not perform this operation on a key that doesn't exist
+            // wait a bit
+            sleep(Duration::from_millis(0)).await;
+        }
 
-            // if i > 0 {
-            //     let random_user = &user_data[rand::thread_rng().gen_range(0..i)].1;
-            //     let follow = PubkyAppFollow {
-            //         created_at: Utc::now().timestamp_millis(),
-            //     };
-            //     let follow_url = format!("pubky://{}/pub/pubky.app/follows/{}", &pk, random_user);
-            //     let follow_json = serde_json::to_vec(&follow).unwrap();
-            //     client.put(follow_url.as_str(), &follow_json).await.unwrap();
-            // }
-
-            // Create a tag for the user
-            let tag = PubkyAppTag {
-                uri: format!("pubky://{}/pub/pubky.app/profile.json", &pk),
-                label: format!("tag{}", rand::thread_rng().gen_range(1..100)),
+        // Create a follow (randomly follow an earlier user)
+        if i > 0 {
+            let random_user = &user_ids[rng.gen_range(0..i)];
+            let follow = PubkyAppFollow {
                 created_at: Utc::now().timestamp_millis(),
             };
-            let tag_url = format!("pubky://{}/pub/pubky.app/tags/{}", &pk, tag.create_id());
-            let tag_json = serde_json::to_vec(&tag).unwrap();
-            client.put(tag_url.as_str(), &tag_json).await.unwrap();
-        }));
-    }
+            let follow_url = format!(
+                "pubky://{}/pub/pubky.app/follows/{}",
+                &user_ids[i], random_user
+            );
+            let follow_json = serde_json::to_vec(&follow)?;
+            client.put(follow_url.as_str(), &follow_json).await?;
+        }
 
-    // Await all tasks to complete
-    for task in tasks {
-        task.await?;
+        // Create a tag for the user
+        let tag = PubkyAppTag {
+            uri: format!("pubky://{}/pub/pubky.app/profile.json", &user_ids[i]),
+            label: format!("tag{}", rng.gen_range(1..100)),
+            created_at: Utc::now().timestamp_millis(),
+        };
+        let tag_url = format!(
+            "pubky://{}/pub/pubky.app/tags/{}",
+            &user_ids[i],
+            tag.create_id()
+        );
+        let tag_json = serde_json::to_vec(&tag)?;
+        client.put(tag_url.as_str(), &tag_json).await?;
     }
 
     println!("Stress test complete with {} iterations", NUM_ITER);
