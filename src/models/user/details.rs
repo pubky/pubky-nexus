@@ -95,21 +95,6 @@ impl UserDetails {
         })
     }
 
-    pub async fn reindex(author_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let user = vec!(author_id);
-        match Self::get_from_graph(&user).await {
-            Ok(details) => {
-                if details.len() == 1 {
-                    if let Some(user_details) = details[0].clone() {
-                        UserDetails::extend_on_index_miss(&vec!(Some(user_details))).await?;
-                    }
-                }
-            },
-            Err(e) => log::error!("{}: Could not found user details in the graph, {:?}", author_id, e)
-        }
-        Ok(())
-    }
-
     pub async fn delete(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Delete user_details on Redis
         Self::remove_from_index_multiple_json(&[&[&self.id]]).await?;

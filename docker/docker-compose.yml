@@ -27,14 +27,14 @@ services:
       # NEO4J_apoc_uuid_enabled: false
 
 
-  # redis:
-  #   image: redis/redis-stack:7.2.0-v11
-  #   container_name: redis
-  #   ports:
-  #     - "6379:6379"
-  #     - "8001:8001"
-  #   networks:
-  #     - default
-  #   volumes:
-  #     - .database/redis/data:/data
-  #   restart: always
+  redis:
+    image: redis/redis-stack:7.2.0-v11
+    container_name: redis
+    ports:
+      - "6379:6379"
+      - "8001:8001"
+    networks:
+      - default
+    volumes:
+      - .database/redis/data:/data
+    restart: always

@@ -67,6 +67,7 @@ where
                 for (i, (original_index, _)) in missing_ids.iter().enumerate() {
                     collection[*original_index].clone_from(&fetched_details[i]);
                 }
+                Self::put_to_index(&flat_missing_ids, fetched_details).await?;
             }
         }
 
@@ -101,22 +102,6 @@ where
             let record = row.get::<Option<Self>>("record").unwrap_or_default();
             records.push(record);
         }
-        // TODO: Extract that block to put_to_index
-        if !records.is_empty() {
-            let mut found_records = Vec::new();
-            let mut found_record_ids = Vec::new();
-
-            for (detail, id) in records.iter().zip(ids.iter()) {
-                if let Some(value) = detail {
-                    found_records.push(Some(value.clone()));
-                    found_record_ids.push(*id);
-                }
-            }
-            // NOTE: If we want to take out that operation out, we should return a tuple: (records, (&found_record_ids, found_records))
-            Self::put_to_index(&found_record_ids, found_records).await?;
-        }
-        // NOTE: maybe that one also out of get_from_graph
-        Self::extend_on_index_miss(&records).await?;
         Ok(records)
     }
 
@@ -142,18 +127,41 @@ where
         ids: &[T],
         records: Vec<Option<Self>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let key_parts_list: Vec<String> = ids.iter().map(|id| id.to_string_id()).collect();
+        let mut found_records = Vec::new();
+        let mut found_record_ids = Vec::new();
+
+        for (detail, id) in records.iter().zip(ids.iter()) {
+            if let Some(value) = detail {
+                found_records.push(Some(value.clone()));
+                found_record_ids.push(*id);
+            }
+        }
+        let key_parts_list: Vec<String> = found_record_ids.iter().map(|id| id.to_string_id()).collect();
 
         let keys_refs: Vec<Vec<&str>> = key_parts_list.iter().map(|id| vec![id.as_str()]).collect();
 
         let keys: Vec<&[&str]> = keys_refs.iter().map(|arr| &arr[..]).collect();
 
-        Self::put_multiple_json_indexes(&keys, records).await
+        Self::put_multiple_json_indexes(&keys, found_records).await?;
+        Self::extend_on_index_miss(&records).await?;
+        Ok(())
     }
 
     // Save new graph node
     async fn put_to_graph(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         exec_single_row(self.to_graph_query()?).await
+    }
+
+    async fn reindex(collection_ids: &[T]) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        match Self::get_from_graph(collection_ids).await {
+            Ok(collection_details_list) => {
+                if collection_details_list.len() != 0 {
+                    Self::put_to_index(collection_ids, collection_details_list).await?;
+                }
+            },
+            Err(e) => log::error!("Error: Could not find any element of the collection: {}", e)
+        }
+        Ok(())
     }
 
     /// Returns the neo4j query to return a list records by passing a list of ids.

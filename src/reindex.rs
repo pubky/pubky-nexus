@@ -32,7 +32,7 @@ pub async fn reindex() {
     let user_ids: Vec<String> = get_all_user_ids().await.expect("Failed to get user IDs");
     let user_ids_refs: Vec<&str> = user_ids.iter().map(|id| id.as_str()).collect();
 
-    UserDetails::get_from_graph(&user_ids_refs)
+    UserDetails::reindex(&user_ids_refs)
         .await
         .expect("Failed indexing User Details");
     //TODO use collections for every other model
