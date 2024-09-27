@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::fmt::Display;
+
 use crate::db::graph::exec::exec_single_row;
 use crate::models::traits::Collection;
 use crate::types::DynError;
@@ -8,6 +11,35 @@ use neo4rs::Query;
 use pubky_app_specs::PubkyAppFile;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
+
+#[derive(Debug, PartialEq)]
+pub enum FileVersions {
+    MAIN,
+    FEED,
+    SMALL,
+}
+
+impl FileVersions {
+    pub fn from_str(input: &str) -> Option<FileVersions> {
+        match input {
+            "main" => Some(FileVersions::MAIN),
+            "feed" => Some(FileVersions::FEED),
+            "small" => Some(FileVersions::SMALL),
+            _ => None,
+        }
+    }
+}
+
+impl Display for FileVersions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let version_string = match self {
+            FileVersions::MAIN => "main",
+            FileVersions::FEED => "feed",
+            FileVersions::SMALL => "small",
+        };
+        write!(f, "{}", version_string)
+    }
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema, Default)]
 pub struct FileUrls {
@@ -52,6 +84,7 @@ pub struct FileDetails {
     pub content_type: String,
     #[serde(with = "json_string")]
     pub urls: FileUrls,
+    pub metadata: Option<HashMap<String, String>>,
 }
 
 pub struct FileMeta {
@@ -90,6 +123,7 @@ impl FileDetails {
             created_at: Utc::now().timestamp(),
             indexed_at: Utc::now().timestamp(),
             content_type: String::new(),
+            metadata: None,
         }
     }
 
@@ -111,6 +145,7 @@ impl FileDetails {
             owner_id: user_id.to_string(),
             size: pubkyapp_file.size,
             urls: meta.urls,
+            metadata: None,
         }
     }
 

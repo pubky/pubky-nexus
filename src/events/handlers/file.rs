@@ -1,5 +1,10 @@
 use crate::types::DynError;
 use crate::types::PubkyId;
+use axum::body::Bytes;
+use log::debug;
+use pubky::PubkyClient;
+use tokio::fs;
+
 use crate::{
     models::{
         file::{
@@ -8,16 +13,9 @@ use crate::{
         },
         traits::Collection,
     },
-    Config,
+    static_processor::store::{remove_blob, store_blob},
 };
-use axum::body::Bytes;
-use log::debug;
-use pubky::PubkyClient;
 use pubky_app_specs::{traits::Validatable, PubkyAppFile};
-use tokio::{
-    fs::{self, remove_file, File},
-    io::AsyncWriteExt,
-};
 
 pub async fn put(
     uri: String,
@@ -73,38 +71,6 @@ async fn ingest(
             main: main_static_path,
         },
     })
-}
-
-async fn store_blob(name: String, path: String, blob: &Bytes) -> Result<(), DynError> {
-    let storage_path = Config::from_env().file_path;
-    let full_path = format!("{}/{}", storage_path, path);
-
-    debug!("store blob in full_path: {}", full_path);
-
-    let path_exists = match fs::metadata(full_path.as_str()).await {
-        Err(_) => false,
-        Ok(metadata) => metadata.is_dir(),
-    };
-
-    debug!("path exists: {}", path_exists);
-
-    if !path_exists {
-        fs::create_dir_all(full_path.as_str()).await?;
-    }
-
-    let file_path = format!("{}/{}", full_path, name);
-    let mut static_file = File::create_new(file_path).await?;
-    static_file.write_all(blob).await?;
-
-    Ok(())
-}
-
-async fn remove_blob(name: String, path: String) -> Result<(), DynError> {
-    let storage_path = Config::from_env().file_path;
-    let file_path = format!("{}/{}/{}", storage_path, path, name);
-
-    remove_file(file_path).await?;
-    Ok(())
 }
 
 pub async fn del(user_id: &PubkyId, file_id: String) -> Result<(), DynError> {
