@@ -14,8 +14,8 @@ use rand::Rng;
 use tokio::time::{sleep, Duration};
 
 static NUM_ITER: usize = 500;
-static MIN_POSTS: usize = 5;
-static MAX_POSTS: usize = 40;
+static MIN_POSTS: usize = 1000;
+static MAX_POSTS: usize = 2000;
 
 #[tokio::main]
 async fn main() -> Result<()> {

@@ -8,7 +8,7 @@ use pubky_nexus::{
         traits::{GenerateHashId, GenerateTimestampId},
         PostKind, PubkyAppPost, PubkyAppTag, PubkyAppUser,
     },
-    setup, Config,
+    Config,
 };
 use rand::Rng;
 use tokio::task;
@@ -18,7 +18,6 @@ static NUM_ITER: usize = 100;
 #[tokio::main]
 async fn main() -> Result<()> {
     let config = Config::from_env();
-    setup(&config).await;
 
     // Initialize the PubkyClient based on configuration
     let client = match config.testnet {
