@@ -15,9 +15,9 @@ use pubky_nexus::{
 };
 use rand::{distributions::Alphanumeric, Rng};
 use std::collections::HashSet;
-use std::time::Instant; // Import Instant for timing
+use std::time::Instant;
 
-static NUM_USERS: usize = 500;
+static NUM_USERS: usize = 9500;
 
 // Each user will PUT:
 static MIN_POSTS: usize = 0;
@@ -54,6 +54,22 @@ async fn main() -> Result<()> {
 
     let mut rng = rand::thread_rng();
 
+    // Counters for successes and failures
+    let mut users_created_successfully = 0;
+    let mut users_failed = 0;
+
+    let mut posts_created_successfully = 0;
+    let mut posts_failed = 0;
+
+    let mut follows_created_successfully = 0;
+    let mut follows_failed = 0;
+
+    let mut files_created_successfully = 0;
+    let mut files_failed = 0;
+
+    let mut tags_created_successfully = 0;
+    let mut tags_failed = 0;
+
     // Pre-allocate vectors for user IDs and their posts
     let mut user_ids: Vec<String> = Vec::with_capacity(NUM_USERS);
     let mut user_posts: Vec<Vec<String>> = Vec::with_capacity(NUM_USERS);
@@ -74,6 +90,7 @@ async fn main() -> Result<()> {
         // Perform signup
         if let Err(e) = client.signup(&keypair, &homeserver).await {
             println!("ERROR: Failed to sign up user {}: {}", pk, e);
+            users_failed += 1;
             continue; // Skip to the next user
         }
 
@@ -91,8 +108,11 @@ async fn main() -> Result<()> {
         println!("PUT PROFILE: {}", pk);
         if let Err(e) = client.put(profile_url.as_str(), &user_profile_json).await {
             println!("ERROR: Failed to PUT profile for user {}: {}", pk, e);
+            users_failed += 1;
             continue; // Skip to the next user
         }
+
+        users_created_successfully += 1;
 
         // Generate random number of posts (between MIN_POSTS and MAX_POSTS)
         let num_posts = rng.gen_range(MIN_POSTS..=MAX_POSTS);
@@ -114,11 +134,13 @@ async fn main() -> Result<()> {
                     "ERROR: Failed to PUT post {} for user {}: {}",
                     post_id, pk, e
                 );
+                posts_failed += 1;
                 continue; // Skip to the next post
             }
 
             // Store the post ID
             user_posts[i].push(post_id.clone());
+            posts_created_successfully += 1;
         }
 
         // Generate random number of follows (up to MAX_FOLLOWS)
@@ -148,6 +170,9 @@ async fn main() -> Result<()> {
                             "ERROR: Failed to PUT follow from user {} to {}: {}",
                             pk, random_user, e
                         );
+                        follows_failed += 1;
+                    } else {
+                        follows_created_successfully += 1;
                     }
                     break;
                 }
@@ -169,6 +194,7 @@ async fn main() -> Result<()> {
                     "ERROR: Failed to PUT blob {} for user {}: {}",
                     blob_id, pk, e
                 );
+                files_failed += 1;
                 continue; // Skip to the next file
             }
 
@@ -190,7 +216,10 @@ async fn main() -> Result<()> {
                     "ERROR: Failed to PUT file {} for user {}: {}",
                     file_id, pk, e
                 );
+                files_failed += 1;
                 continue; // Skip to the next file
+            } else {
+                files_created_successfully += 1;
             }
         }
 
@@ -220,7 +249,10 @@ async fn main() -> Result<()> {
                         "ERROR: Failed to PUT tag on user {} by user {}: {}",
                         random_user, pk, e
                     );
+                    tags_failed += 1;
                     continue; // Skip to the next tag
+                } else {
+                    tags_created_successfully += 1;
                 }
             } else if !user_posts[i].is_empty() {
                 // Tag a post
@@ -251,7 +283,10 @@ async fn main() -> Result<()> {
                             "ERROR: Failed to PUT tag on post {} of user {} by user {}: {}",
                             random_post_id, random_user, pk, e
                         );
+                        tags_failed += 1;
                         continue; // Skip to the next tag
+                    } else {
+                        tags_created_successfully += 1;
                     }
                 }
             }
@@ -273,6 +308,27 @@ async fn main() -> Result<()> {
         NUM_USERS,
         total_duration.as_secs_f64()
     );
+
+    // Print out the counts
+    println!("\nSummary:");
+    println!("Users created successfully: {}", users_created_successfully);
+    println!("Users failed: {}", users_failed);
+
+    println!("Posts created successfully: {}", posts_created_successfully);
+    println!("Posts failed: {}", posts_failed);
+
+    println!(
+        "Follows created successfully: {}",
+        follows_created_successfully
+    );
+    println!("Follows failed: {}", follows_failed);
+
+    println!("Files created successfully: {}", files_created_successfully);
+    println!("Files failed: {}", files_failed);
+
+    println!("Tags created successfully: {}", tags_created_successfully);
+    println!("Tags failed: {}", tags_failed);
+
     Ok(())
 }
 
