@@ -1,3 +1,4 @@
+use log::error;
 use log::info;
 use pubky_nexus::{setup, Config, EventProcessor};
 use tokio::time::{sleep, Duration};
@@ -11,7 +12,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
 
     loop {
         info!("Fetching events...");
-        event_processor.run().await?;
+        if let Err(e) = event_processor.run().await {
+            error!("Uncaught error occurred while processing events: {:?}", e);
+        }
         // Wait for X milliseconds before fetching events again
         sleep(Duration::from_millis(config.watcher_sleep)).await;
     }
