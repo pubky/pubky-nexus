@@ -54,11 +54,11 @@ impl TagSearch {
             let graph = graph.lock().await;
             result = graph.execute(query).await?;
         }
-        
+
         while let Some(row) = result.next().await? {
             let label: &str = row.get("label").unwrap_or("");
             let sorted_set: Vec<(f64, &str)> = row.get("sorted_set").unwrap_or(Vec::new());
-            if label != "" && !sorted_set.is_empty() {
+            if !label.is_empty() && !sorted_set.is_empty() {
                 let key_parts = [&index_key[..], &[label]].concat();
                 Self::put_index_sorted_set(&key_parts, &sorted_set).await?;
             }

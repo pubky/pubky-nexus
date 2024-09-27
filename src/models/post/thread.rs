@@ -50,14 +50,14 @@ impl PostThread {
                 }
             };
 
-            let mut replies_view =  Vec::with_capacity(replies.len());
+            let mut replies_view = Vec::with_capacity(replies.len());
 
             for reply in replies {
                 let reply_id: String = reply.get("reply_id").unwrap_or(String::new());
                 let reply_author_id: String = reply.get("author_id").unwrap_or(String::new());
 
                 // Make sure we have both variables
-                if reply_id != "" && reply_author_id != "" {
+                if !reply_id.is_empty() && !reply_author_id.is_empty() {
                     let reply_view =
                         PostView::get_by_id(&reply_author_id, &reply_id, viewer_id, None, None)
                             .await?

@@ -235,7 +235,7 @@ impl Notification {
         let notification = Notification::new(body);
         notification.to_index(mentioned_id).await?;
 
-        Ok(Some(user_id.to_string()))
+        Ok(Some(mentioned_id.to_string()))
     }
 
     pub async fn new_repost(
