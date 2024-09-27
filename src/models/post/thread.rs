@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 /// Represents a thread of posts, starting from the root post and including all replies.
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema, Debug)]
 pub struct PostThread {
     pub root_post: PostView,
     pub replies: Vec<PostView>,
@@ -40,18 +40,30 @@ impl PostThread {
             };
 
             // Extract replies and their authors
-            let replies: Vec<BoltMap> = row.get("replies")?;
+            let replies: Vec<BoltMap> = match row.get("replies") {
+                Ok(replies) => replies,
+                Err(_e) => {
+                    return Ok(Some(PostThread {
+                        root_post: root_post_view,
+                        replies: Vec::new(),
+                    }))
+                }
+            };
 
-            let mut replies_view = Vec::new();
+            let mut replies_view =  Vec::with_capacity(replies.len());
+
             for reply in replies {
-                let reply_id: String = reply.get("reply_id")?;
-                let reply_author_id: String = reply.get("author_id")?;
+                let reply_id: String = reply.get("reply_id").unwrap_or(String::new());
+                let reply_author_id: String = reply.get("author_id").unwrap_or(String::new());
 
-                let reply_view =
-                    PostView::get_by_id(&reply_author_id, &reply_id, viewer_id, None, None)
-                        .await?
-                        .unwrap_or_default();
-                replies_view.push(reply_view);
+                // Make sure we have both variables
+                if reply_id != "" && reply_author_id != "" {
+                    let reply_view =
+                        PostView::get_by_id(&reply_author_id, &reply_id, viewer_id, None, None)
+                            .await?
+                            .unwrap_or_default();
+                    replies_view.push(reply_view);
+                }
             }
 
             return Ok(Some(PostThread {

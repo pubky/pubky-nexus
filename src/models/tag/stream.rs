@@ -92,13 +92,16 @@ impl HotTags {
         }
 
         if let Some(row) = result.next().await? {
-            let hot_tags_score: Vec<(f64, &str)> = row.get("hot_tags_score")?;
-            Self::put_index_sorted_set(&TAG_GLOBAL_HOT, hot_tags_score.as_slice()).await?;
-            let hot_tags_users: Vec<(&str, Vec<String>)> = row.get("hot_tags_users")?;
-            // Add all the users_id in the SET
-            for (label, user_list) in hot_tags_users.into_iter() {
-                let values_ref: Vec<&str> = user_list.iter().map(|id| id.as_str()).collect();
-                Taggers::put_index_set(&[label], &values_ref).await?;
+            let hot_tags_score: Vec<(f64, &str)> = row.get("hot_tags_score").unwrap_or(Vec::new());
+            let hot_tags_users: Vec<(&str, Vec<String>)> = row.get("hot_tags_users").unwrap_or(Vec::new());
+            // Make sure both list has content before write the indexes
+            if !hot_tags_score.is_empty() && !hot_tags_users.is_empty() {
+                Self::put_index_sorted_set(&TAG_GLOBAL_HOT, hot_tags_score.as_slice()).await?;
+                // Add all the users_id in the SET
+                for (label, user_list) in hot_tags_users.into_iter() {
+                    let values_ref: Vec<&str> = user_list.iter().map(|id| id.as_str()).collect();
+                    Taggers::put_index_set(&[label], &values_ref).await?;
+                }
             }
         }
         Ok(())

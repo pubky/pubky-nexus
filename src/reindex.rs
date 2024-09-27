@@ -77,13 +77,13 @@ pub async fn reindex() {
     info!("Reindexing completed successfully.");
 }
 
-pub async fn reindex_user(author_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub async fn reindex_user(user_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tokio::try_join!(
-        Bookmark::reindex(author_id),
-        UserCounts::reindex(author_id),
-        Followers::reindex(author_id),
-        Following::reindex(author_id),
-        TagUser::reindex(author_id, None)
+        Bookmark::reindex(user_id),
+        UserCounts::reindex(user_id),
+        Followers::reindex(user_id),
+        Following::reindex(user_id),
+        TagUser::reindex(user_id, None)
     )?;
     Ok(())
 }

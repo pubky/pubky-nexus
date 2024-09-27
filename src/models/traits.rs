@@ -130,8 +130,8 @@ where
         ids: &[T],
         records: Vec<Option<Self>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let mut found_records = Vec::new();
-        let mut found_record_ids = Vec::new();
+        let mut found_records = Vec::with_capacity(records.len());
+        let mut found_record_ids = Vec::with_capacity(records.len());
 
         for (detail, id) in records.iter().zip(ids.iter()) {
             if let Some(value) = detail {
