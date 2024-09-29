@@ -17,7 +17,7 @@ use rand::{distributions::Alphanumeric, Rng};
 use std::collections::HashSet;
 use std::time::Instant;
 
-static NUM_USERS: usize = 9500;
+static NUM_USERS: usize = 2000;
 
 // Each user will PUT:
 static MIN_POSTS: usize = 0;

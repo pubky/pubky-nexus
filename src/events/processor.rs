@@ -30,7 +30,7 @@ impl EventProcessor {
             pubky_client,
             http_client: Client::new(),
             homeserver_url: config.homeserver_url.clone(),
-            cursor: "0".to_string(),
+            cursor: "0000000000000".to_string(),
             limit: config.events_limit,
         }
     }
