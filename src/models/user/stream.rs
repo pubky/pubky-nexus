@@ -18,6 +18,21 @@ pub enum UserStreamType {
     Pioneers,
 }
 
+impl UserStreamType {
+    pub fn to_graph_subquery(&self) -> String {
+        let query = match self {
+            UserStreamType::Followers => "MATCH (user:User)-[:FOLLOWS]->(reach:User)",
+            UserStreamType::Following => "MATCH (user:User)<-[:FOLLOWS]-(reach:User)",
+            UserStreamType::Friends => {
+                "MATCH (user:User)-[:FOLLOWS]->(reach:User), (user)<-[:FOLLOWS]-(reach)"
+            }
+            UserStreamType::MostFollowed => "",
+            UserStreamType::Pioneers => "",
+        };
+        String::from(query)
+    }
+}
+
 #[derive(Serialize, Deserialize, ToSchema, Default)]
 pub struct UserStream(Vec<UserView>);
 

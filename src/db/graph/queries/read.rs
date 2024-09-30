@@ -267,28 +267,67 @@ pub fn get_global_hot_tags_taggers(tag_list: &[&str]) -> Query {
     .param("labels", tag_list)
 }
 
-// Analyzes tag usage for a specific list of user IDs. Groups tags by name,
-// showing for each: label, post count and list of user IDs
-// Orders by post_count (descending).
-// Note: Only considers users from the provided users_id list.
-pub fn get_tags_by_user_ids(users_id: &[&str]) -> Query {
+pub fn get_tag_taggers_by_reach(
+    label: &str,
+    user_id: &str,
+    reach_subquery: String,
+    skip: Option<usize>,
+    limit: Option<usize>,
+) -> Query {
+    let skip = skip.unwrap_or(0);
+    let limit: usize = limit.unwrap_or(10);
     query(
-        "
-        UNWIND $ids AS id
-        MATCH (u:User)-[tag:TAGGED]->(p:Post)
-        WHERE u.id = id
-        WITH tag.label AS label, COLLECT(DISTINCT u.id) AS taggers, COUNT(DISTINCT p) AS uniquePosts
-        WITH {
+        format!(
+            "
+            {}
+            MATCH (reach)-[tag:TAGGED]->()
+            WHERE user.id = $user_id AND tag.label = $label
+            WITH reach, MAX(tag.indexed_at) AS tag_time
+            RETURN reach.id AS id
+            ORDER BY tag_time DESC
+            SKIP $skip LIMIT $limit
+            ",
+            reach_subquery
+        )
+        .as_str(),
+    )
+    .param("label", label)
+    .param("user_id", user_id)
+    .param("skip", skip as i64)
+    .param("limit", limit as i64)
+}
+
+pub fn get_hot_tags_by_reach(
+    user_id: &str,
+    reach_subquery: String,
+    skip: usize,
+    limit: usize,
+    max_taggers: usize,
+) -> Query {
+    query(
+        format!(
+            "
+        {}
+        MATCH (reach)-[tag:TAGGED]->(tagged)
+        WHERE user.id = $user_id
+        WITH tag.label AS label, COLLECT(DISTINCT reach.id)[..{}] AS taggers, COUNT(DISTINCT tagged) AS uniqueTaggedCount
+        WITH {{
             label: label,
             taggers_id: taggers,
-            post_count: uniquePosts,
+            tagged_count: uniqueTaggedCount,
             taggers_count: SIZE(taggers)
-        } AS hot_tag
+        }} AS hot_tag
         ORDER BY hot_tag.post_count DESC
-        RETURN COLLECT(hot_tag) AS hot_tags
+        SKIP $skip LIMIT $limit
+        RETURN COLLECT(hot_tag) as hot_tags
     ",
+            reach_subquery, max_taggers
+        )
+        .as_str(),
     )
-    .param("ids", users_id)
+    .param("user_id", user_id)
+    .param("skip", skip as i64)
+    .param("limit", limit as i64)
 }
 
 pub fn get_thread(author_id: &str, post_id: &str, skip: usize, limit: usize) -> Query {
