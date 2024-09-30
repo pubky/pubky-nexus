@@ -23,18 +23,18 @@ static NUM_USERS: usize = 1000;
 
 // Distributions parameters
 // We can try matching real activity distribution from https://bsky.jazco.dev/stats
-const POSTS_MU: f64 = 1.6889; // Adjusted for mean ≈ 40
+const POSTS_MU: f64 = 1.7889; // Adjusted for mean ≈ 40
 const POSTS_SIGMA: f64 = 2.0;
-const FOLLOWS_MU: f64 = 1.5835; // Adjusted for mean ≈ 36
+const FOLLOWS_MU: f64 = 1.6835; // Adjusted for mean ≈ 36
 const FOLLOWS_SIGMA: f64 = 2.0;
-const TAGS_MU: f64 = 3.0689; // Adjusted for mean ≈ 159
+const TAGS_MU: f64 = 3.1689; // Adjusted for mean ≈ 159
 const TAGS_SIGMA: f64 = 2.0;
 
 // Maximum values to cap the numbers
-static MAX_POSTS: usize = 10000;
+static MAX_POSTS: usize = 20000;
 static MAX_FOLLOWS: usize = NUM_USERS - 1;
-static MAX_TAGS: usize = 10000;
-static MAX_FILES: usize = 10000;
+static MAX_TAGS: usize = 20000;
+static MAX_FILES: usize = 20000;
 
 #[tokio::main]
 async fn main() -> Result<()> {
