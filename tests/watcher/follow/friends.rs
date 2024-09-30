@@ -40,7 +40,7 @@ async fn test_homeserver_follow_friend() -> Result<()> {
         .await
         .unwrap()
         .expect("User count not found");
-    println!("{:?}", alice_user_count);
+
     assert_eq!(alice_user_count.followers, 1);
     assert_eq!(alice_user_count.following, 0);
     assert_eq!(alice_user_count.friends, 0);

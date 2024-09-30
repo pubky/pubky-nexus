@@ -20,14 +20,14 @@ async fn test_homeserver_tag_post() -> Result<()> {
     // Step 1: Create a user
     let keypair = Keypair::random();
 
-    let user = PubkyAppUser {
+    let tagger = PubkyAppUser {
         bio: Some("test_homeserver_tag_post".to_string()),
         image: None,
         links: None,
         name: "Watcher:TagPost:User".to_string(),
         status: None,
     };
-    let user_id = test.create_user(&keypair, &user).await?;
+    let tagger_user_id = test.create_user(&keypair, &tagger).await?;
 
     // Step 2: Create a post under that user
     let post = PubkyAppPost {
@@ -36,30 +36,40 @@ async fn test_homeserver_tag_post() -> Result<()> {
         parent: None,
         embed: None,
     };
-    let post_id = test.create_post(&user_id, &post).await?;
+    let post_id = test.create_post(&tagger_user_id, &post).await?;
 
-    // Step 3: Add a tag to the post
+    // Step 3: Tagger user adds a tag to the his own post
     let label = "cool";
-
     let tag = PubkyAppTag {
-        uri: format!("pubky://{}/pub/pubky.app/posts/{}", user_id, post_id),
+        uri: format!("pubky://{}/pub/pubky.app/posts/{}", tagger_user_id, post_id),
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
     let tag_blob = serde_json::to_vec(&tag)?;
-    let tag_url = format!("pubky://{}/pub/pubky.app/tags/{}", user_id, tag.create_id());
+    let tag_url = format!(
+        "pubky://{}/pub/pubky.app/tags/{}",
+        tagger_user_id,
+        tag.create_id()
+    );
 
     // Put tag
-    test.create_tag(tag_url.as_str(), tag_blob).await?;
+    test.create_tag(&tag_url, tag_blob).await?;
 
-    // GRAPH_OP
-    let post_tag = find_post_tag(&user_id, &post_id, label).await.unwrap();
+    // Ensure event processing is complete
+    test.ensure_event_processing_complete().await?;
+
+    // Step 4: Verify tag existence and data consistency
+
+    // GRAPH_OP: Check if the tag exists in the graph database
+    let post_tag = find_post_tag(&tagger_user_id, &post_id, label)
+        .await
+        .expect("Failed to find updated post tag in graph database");
     assert_eq!(post_tag.label, label);
     assert_eq!(post_tag.taggers_count, 1);
-    assert_eq!(post_tag.taggers[0], user_id);
+    assert_eq!(post_tag.taggers[0], tagger_user_id);
 
-    // CACHE_OP
-    let cache_post_tag = TagPost::get_by_id(&user_id, Some(&post_id), None, None)
+    // CACHE_OP: Check if the tag is correctly cached
+    let cache_post_tag = TagPost::get_from_index(&tagger_user_id, Some(&post_id), None, None)
         .await
         .unwrap();
 
@@ -72,29 +82,34 @@ async fn test_homeserver_tag_post() -> Result<()> {
     // Count post tag taggers: Sorted:Posts:Tag:user_id:post_id:{label}
     assert_eq!(cache_tag_details[0].taggers_count, 1);
     // Find user as tagger in the post: Posts:Taggers:user_id:post_id
-    assert_eq!(cache_tag_details[0].taggers[0], user_id);
-
-    let post_key: [&str; 2] = [&user_id, &post_id];
+    assert_eq!(cache_tag_details[0].taggers[0], tagger_user_id);
 
     // Check if post counts updated: Post:Counts:user_id:post_id
-    let post_counts = find_post_counts(&post_key).await;
+    let post_counts = find_post_counts(&tagger_user_id, &post_id).await;
     assert_eq!(post_counts.tags, 1);
 
     // Check if the user is related with tag: Tag:Taggers:tag_name
-    let (_exist, member) = Taggers::check_set_member(&[label], &user_id).await.unwrap();
+    let (_exist, member) = Taggers::check_set_member(&[label], &tagger_user_id)
+        .await
+        .expect("Failed to check tagger in Taggers set");
     assert!(member);
+
+    let post_key: [&str; 2] = [&tagger_user_id, &post_id];
 
     // Check global post engagement: Sorted:Posts:Global:TotalEngagement:user_id:post_id
     let total_engagement = check_member_total_engagement_user_posts(&post_key)
         .await
-        .unwrap();
-    assert_eq!(total_engagement.is_some(), true);
+        .expect("Failed to check total engagement for user posts");
+    assert!(
+        total_engagement.is_some(),
+        "Total engagement should be present"
+    );
     assert_eq!(total_engagement.unwrap(), 1);
 
     // Check if the author user has a new notification
     // Self-tagging posts should not trigger notifications.
     // Sorted:Notification:user_id
-    let notifications = Notification::get_by_id(&user_id, None, None, None, None)
+    let notifications = Notification::get_by_id(&tagger_user_id, None, None, None, None)
         .await
         .unwrap();
     assert_eq!(
@@ -115,10 +130,12 @@ async fn test_homeserver_tag_post() -> Result<()> {
     // assert_eq!(total_engagement, 1);
 
     // Check if the user is related with tag
-    let (_exist, member) = Taggers::check_set_member(&[label], &user_id).await.unwrap();
+    let (_exist, member) = Taggers::check_set_member(&[label], &tagger_user_id)
+        .await
+        .unwrap();
     assert!(member);
 
-    // Step 5: Delete the tag
+    // Step 5:
     test.client.delete(tag_url.as_str()).await?;
     test.ensure_event_processing_complete().await?;
 
@@ -135,8 +152,8 @@ async fn test_homeserver_tag_post() -> Result<()> {
     // );
 
     // Cleanup user and post
-    test.cleanup_post(&user_id, &post_id).await?;
-    test.cleanup_user(&user_id).await?;
+    test.cleanup_post(&tagger_user_id, &post_id).await?;
+    test.cleanup_user(&tagger_user_id).await?;
 
     Ok(())
 }

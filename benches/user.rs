@@ -140,7 +140,7 @@ fn bench_get_details_from_graph(c: &mut Criterion) {
         &user_id,
         |b, &id| {
             b.to_async(&rt).iter(|| async {
-                let details = UserDetails::from_graph(&[id]).await.unwrap();
+                let details = UserDetails::get_from_graph(&[id]).await.unwrap();
                 criterion::black_box(details);
             });
         },

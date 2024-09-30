@@ -24,7 +24,7 @@ fn bench_reindex(c: &mut Criterion) {
 
 fn configure_criterion() -> Criterion {
     Criterion::default()
-        .measurement_time(Duration::new(200, 0))
+        .measurement_time(Duration::new(40, 0))
         .sample_size(20)
         .warm_up_time(Duration::new(1, 0))
 }

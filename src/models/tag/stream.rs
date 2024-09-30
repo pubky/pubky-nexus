@@ -8,8 +8,8 @@ use utoipa::ToSchema;
 
 use crate::db::kv::index::sorted_sets::Sorting;
 use crate::models::user::{UserStream, UserStreamType};
-use crate::RedisOps;
 use crate::{db::connectors::neo4j::get_neo4j_graph, queries};
+use crate::{RedisOps, ScoreAction};
 
 pub const TAG_GLOBAL_HOT: [&str; 3] = ["Tags", "Global", "Hot"];
 
@@ -32,6 +32,20 @@ impl AsRef<[String]> for Taggers {
 impl Taggers {
     fn from_vec(vec: Vec<String>) -> Self {
         Self(vec)
+    }
+
+    pub async fn update_index_score(
+        label: &str,
+        score_action: ScoreAction,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        Self::put_score_index_sorted_set(&TAG_GLOBAL_HOT, &[label], score_action).await
+    }
+
+    pub async fn put_to_index(
+        label: &str,
+        user_id: &str,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        Self::put_index_set(&[label], &[user_id]).await
     }
 }
 
@@ -78,13 +92,17 @@ impl HotTags {
         }
 
         if let Some(row) = result.next().await? {
-            let hot_tags_score: Vec<(f64, &str)> = row.get("hot_tags_score")?;
-            Self::put_index_sorted_set(&TAG_GLOBAL_HOT, hot_tags_score.as_slice()).await?;
-            let hot_tags_users: Vec<(&str, Vec<String>)> = row.get("hot_tags_users")?;
-            // Add all the users_id in the SET
-            for (label, user_list) in hot_tags_users.into_iter() {
-                let values_ref: Vec<&str> = user_list.iter().map(|id| id.as_str()).collect();
-                Taggers::put_index_set(&[label], &values_ref).await?;
+            let hot_tags_score: Vec<(f64, &str)> = row.get("hot_tags_score").unwrap_or(Vec::new());
+            let hot_tags_users: Vec<(&str, Vec<String>)> =
+                row.get("hot_tags_users").unwrap_or(Vec::new());
+            // Make sure both list has content before write the indexes
+            if !hot_tags_score.is_empty() && !hot_tags_users.is_empty() {
+                Self::put_index_sorted_set(&TAG_GLOBAL_HOT, hot_tags_score.as_slice()).await?;
+                // Add all the users_id in the SET
+                for (label, user_list) in hot_tags_users.into_iter() {
+                    let values_ref: Vec<&str> = user_list.iter().map(|id| id.as_str()).collect();
+                    Taggers::put_index_set(&[label], &values_ref).await?;
+                }
             }
         }
         Ok(())

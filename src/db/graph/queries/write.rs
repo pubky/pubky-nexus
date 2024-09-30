@@ -172,7 +172,7 @@ pub fn create_post_tag(
 }
 
 pub fn create_user_tag(
-    user_id: &str,
+    tagger_user_id: &str,
     tagged_user_id: &str,
     tag_id: &str,
     label: &str,
@@ -180,10 +180,10 @@ pub fn create_user_tag(
 ) -> Query {
     query(
         "MATCH (tagged_used:User {id: $tagged_user_id})
-         MATCH (user:User {id: $user_id})
-         MERGE (user)-[:TAGGED {id: $tag_id, label: $label, indexed_at: $indexed_at}]->(tagged_used)",
+         MATCH (tagger:User {id: $tagger_user_id})
+         MERGE (tagger)-[:TAGGED {id: $tag_id, label: $label, indexed_at: $indexed_at}]->(tagged_used)",
     )
-    .param("user_id", user_id)
+    .param("tagger_user_id", tagger_user_id)
     .param("tagged_user_id", tagged_user_id)
     .param("tag_id", tag_id)
     .param("label", label)

@@ -40,7 +40,7 @@ pub async fn put(
     file_details.put_to_graph().await?;
 
     // Index
-    FileDetails::to_index(
+    FileDetails::put_to_index(
         &[&[
             file_details.owner_id.clone().as_str(),
             file_details.id.clone().as_str(),

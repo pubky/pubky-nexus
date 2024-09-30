@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use tokio::task::spawn;
 use utoipa::ToSchema;
 
-const USER_MOSTFOLLOWED_KEY_PARTS: [&str; 2] = ["Users", "MostFollowed"];
+pub const USER_MOSTFOLLOWED_KEY_PARTS: [&str; 2] = ["Users", "MostFollowed"];
 pub const USER_PIONEERS_KEY_PARTS: [&str; 2] = ["Users", "Pioneers"];
 
 #[derive(Deserialize, ToSchema, Debug)]
@@ -84,7 +84,7 @@ impl UserStream {
     }
 
     /// Adds the post to a Redis sorted set using the follower counts as score.
-    pub async fn add_to_mostfollowed_sorted_set(
+    pub async fn add_to_most_followed_sorted_set(
         user_id: &str,
         counts: &UserCounts,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

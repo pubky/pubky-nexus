@@ -5,7 +5,7 @@ use crate::{
         tag::search::TagSearch,
         user::{Followers, Following, Friends, UserFollows},
     },
-    RedisOps,
+    RedisOps, ScoreAction,
 };
 use serde::{Deserialize, Serialize};
 use std::error::Error;
@@ -298,8 +298,6 @@ impl PostStream {
         Ok(Some(Self(post_views)))
     }
 
-    // TODO: Add to reindexer folder below functions. It is not fit exactly with that model.
-    // This model is more focused reading data, not writting
     /// Adds the post to a Redis sorted set using the `indexed_at` timestamp as the score.
     pub async fn add_to_timeline_sorted_set(
         details: &PostDetails,
@@ -344,6 +342,20 @@ impl PostStream {
         Self::put_index_sorted_set(
             &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
             &[(score, element.as_str())],
+        )
+        .await
+    }
+
+    pub async fn update_index_score(
+        author_id: &str,
+        post_id: &str,
+        score_action: ScoreAction,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let post_key_slice = &[author_id, post_id];
+        Self::put_score_index_sorted_set(
+            &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
+            post_key_slice,
+            score_action,
         )
         .await
     }

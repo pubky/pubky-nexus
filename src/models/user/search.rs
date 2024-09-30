@@ -18,16 +18,8 @@ impl UserSearch {
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
-        // Convert the username to lowercase to ensure case-insensitive search
-        let name = name.to_lowercase();
-
-        let min = format!("[{}", name); // Inclusive range starting with "name"
-        let max = format!("({}~", name); // Exclusive range ending just after "name"
-
         // Perform the lexicographical range search
-        let elements =
-            Self::try_from_index_sorted_set_lex(&USER_NAME_KEY_PARTS, &min, &max, skip, limit)
-                .await?;
+        let elements = Self::get_from_index(name, skip, limit).await?;
 
         // If elements exist, process them to extract user_ids
         if let Some(elements) = elements {
@@ -47,10 +39,25 @@ impl UserSearch {
         Ok(None)
     }
 
+    pub async fn get_from_index(
+        name: &str,
+        skip: Option<usize>,
+        limit: Option<usize>,
+    ) -> Result<Option<Vec<String>>, Box<dyn std::error::Error + Send + Sync>> {
+        // Convert the username to lowercase to ensure case-insensitive search
+        let name = name.to_lowercase();
+
+        let min = format!("[{}", name); // Inclusive range starting with "name"
+        let max = format!("({}~", name); // Exclusive range ending just after "name"
+
+        // Perform the lexicographical range search
+        Self::try_from_index_sorted_set_lex(&USER_NAME_KEY_PARTS, &min, &max, skip, limit).await
+    }
+
     /// Adds multiple `user_id`s to the Redis sorted set using the username as index.
     ///
     /// This method takes a list of `UserDetails` and adds them all to the sorted set at once.
-    pub async fn add_many_to_username_sorted_set(
+    pub async fn put_to_index(
         details_list: &[&UserDetails],
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Collect all the `username:user_id` pairs and their corresponding scores

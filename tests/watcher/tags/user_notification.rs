@@ -25,6 +25,7 @@ async fn test_homeserver_tag_user_notification() -> Result<()> {
 
     // Create the second user (tagger)
     let tagger_keypair = Keypair::random();
+
     let tagger_user = PubkyAppUser {
         bio: Some("test_homeserver_tag_user_notification".to_string()),
         image: None,

@@ -15,9 +15,16 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
-        match Self::try_from_index_set(&[user_id], skip, limit).await? {
+        match Self::get_from_index(user_id, skip, limit).await? {
             Some(connections) => Ok(Some(Self::from_vec(connections))),
-            None => Self::get_from_graph(user_id, skip, limit).await,
+            None => {
+                let graph_response = Self::get_from_graph(user_id, skip, limit).await?;
+                if let Some(follows) = graph_response {
+                    follows.put_to_index(user_id).await?;
+                    return Ok(Some(follows));
+                }
+                Ok(None)
+            }
         }
     }
 
@@ -40,22 +47,51 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
             if !user_exists {
                 return Ok(None);
             }
-            if let Some(connections) = row.get::<Option<Vec<String>>>(Self::get_ids_field_name())? {
-                // TODO: DISCUSS, Might be one of the reasons why put_index_set was a method(with &self as 1st argument)
-                // to avoid clonning
-                let follows = Self::from_vec(connections);
-                let values_ref: Vec<&str> = follows.as_ref().iter().map(|id| id.as_str()).collect();
-                Self::put_index_set(&[user_id], &values_ref).await?;
-                Ok(Some(follows))
-            } else {
-                Ok(Some(Self::default()))
+
+            match row.get::<Option<Vec<String>>>(Self::get_ids_field_name()) {
+                Ok(response) => {
+                    if let Some(connections) = response {
+                        return Ok(Some(Self::from_vec(connections)));
+                    } else {
+                        return Ok(Some(Self::default()));
+                    }
+                }
+                Err(_e) => return Ok(None),
             }
         } else {
             Ok(None)
         }
     }
 
+    async fn get_from_index(
+        user_id: &str,
+        skip: Option<usize>,
+        limit: Option<usize>,
+    ) -> Result<Option<Vec<String>>, Box<dyn Error + Send + Sync>> {
+        Self::try_from_index_set(&[user_id], skip, limit).await
+    }
+
+    async fn put_to_index(
+        &self,
+        user_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let user_list_ref: Vec<&str> = self.as_ref().iter().map(|id| id.as_str()).collect();
+        Self::put_index_set(&[user_id], &user_list_ref).await
+    }
+
+    async fn reindex(author_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        match Self::get_from_graph(author_id, Some(0), Some(100)).await? {
+            Some(follow) => follow.put_to_index(author_id).await?,
+            None => log::error!(
+                "{}: Could not found user follow relationship in the graph",
+                author_id
+            ),
+        }
+        Ok(())
+    }
+
     fn get_query(user_id: &str, skip: Option<usize>, limit: Option<usize>) -> Query;
+
     fn get_ids_field_name() -> &'static str;
 
     // Checks whether user_a is (following | follower) of user_b
@@ -66,10 +102,10 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
     }
 }
 
-#[derive(Serialize, Deserialize, ToSchema, Default)]
+#[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
 pub struct Followers(pub Vec<String>);
 
-#[derive(Serialize, Deserialize, ToSchema, Default)]
+#[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
 pub struct Following(pub Vec<String>);
 
 impl AsRef<[String]> for Followers {

@@ -187,15 +187,15 @@ impl Notification {
     }
 
     pub async fn new_user_tag(
-        user_id: &str,
+        tagger_user_id: &str,
         tagged_user_id: &str,
         label: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if user_id == tagged_user_id {
+        if tagger_user_id == tagged_user_id {
             return Ok(());
         }
         let body = NotificationBody::TagProfile {
-            tagged_by: user_id.to_string(),
+            tagged_by: tagger_user_id.to_string(),
             tag_label: label.to_string(),
         };
         let notification = Notification::new(body);
@@ -224,9 +224,9 @@ impl Notification {
         user_id: &str,
         mentioned_id: &str,
         post_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<String>, Box<dyn std::error::Error + Send + Sync>> {
         if user_id == mentioned_id {
-            return Ok(());
+            return Ok(None);
         }
         let body = NotificationBody::Mention {
             mentioned_by: user_id.to_string(),
@@ -235,7 +235,7 @@ impl Notification {
         let notification = Notification::new(body);
         notification.to_index(mentioned_id).await?;
 
-        Ok(())
+        Ok(Some(mentioned_id.to_string()))
     }
 
     pub async fn new_repost(

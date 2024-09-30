@@ -1,4 +1,7 @@
-use crate::watcher::{users::utils::find_user_details, utils::WatcherTest};
+use crate::watcher::{
+    users::utils::{check_member_most_followed, check_member_user_pioneer, find_user_details},
+    utils::WatcherTest,
+};
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{
@@ -10,7 +13,7 @@ use pubky_nexus::{
 };
 
 #[tokio::test]
-async fn test_homeserver_user_event() -> Result<()> {
+async fn test_homeserver_user_put_event() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     let keypair = Keypair::random();
@@ -52,7 +55,7 @@ async fn test_homeserver_user_event() -> Result<()> {
 
     // CACHE_OP: Check if the event writes in the graph
     // User:Counts:user_id
-    let user_counts = UserCounts::try_from_index_json(&[&user_id])
+    let user_counts = UserCounts::get_from_index(&user_id)
         .await
         .unwrap()
         .expect("The new post was not served from Nexus");
@@ -71,6 +74,16 @@ async fn test_homeserver_user_event() -> Result<()> {
 
     assert_eq!(is_member.is_some(), true);
     assert_eq!(is_member.unwrap(), 0);
+
+    // pioneers score: Sorted:Users:Pioneers
+    let pioneer_score = check_member_user_pioneer(&user_id).await.unwrap();
+    assert_eq!(pioneer_score.is_some(), true);
+    assert_eq!(pioneer_score.unwrap(), 0);
+
+    // most_followed score: Sorted:Users:MostFollowed
+    let pioneer_score = check_member_most_followed(&user_id).await.unwrap();
+    assert_eq!(pioneer_score.is_some(), true);
+    assert_eq!(pioneer_score.unwrap(), 0);
 
     // Cleanup
     test.cleanup_user(&user_id).await?;

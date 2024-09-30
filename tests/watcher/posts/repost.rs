@@ -6,12 +6,9 @@ use crate::watcher::users::utils::find_user_counts;
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
-use pubky_nexus::{
-    models::{
-        post::PostDetails,
-        pubky_app::{PostEmbed, PostKind, PubkyAppPost, PubkyAppUser},
-    },
-    RedisOps,
+use pubky_nexus::models::{
+    post::PostDetails,
+    pubky_app::{PostEmbed, PostKind, PubkyAppPost, PubkyAppUser},
 };
 
 #[tokio::test]
@@ -72,10 +69,9 @@ async fn test_homeserver_post_repost() -> Result<()> {
     assert_eq!(reply_parent_uri, parent_uri);
 
     // CACHE_OP: Check if the event writes in the graph
-    let repost_post_key: [&str; 2] = [&user_id, &repost_id];
 
     //User:Details:user_id:post_id
-    let post_detail_cache: PostDetails = PostDetails::try_from_index_json(&repost_post_key)
+    let post_detail_cache: PostDetails = PostDetails::get_from_index(&user_id, &repost_id)
         .await
         .unwrap()
         .expect("The new post detail was not served from Nexus cache");
@@ -86,19 +82,18 @@ async fn test_homeserver_post_repost() -> Result<()> {
     assert_eq!(repost_post_details.indexed_at, post_detail_cache.indexed_at);
 
     // User:Counts:user_id:post_id
-    let reply_post_counts = find_post_counts(&repost_post_key).await;
+    let reply_post_counts = find_post_counts(&user_id, &repost_id).await;
 
     assert_eq!(reply_post_counts.reposts, 0);
     assert_eq!(reply_post_counts.tags, 0);
     assert_eq!(reply_post_counts.replies, 0);
 
-    let parent_post_key: [&str; 2] = [&user_id, &parent_post_id];
     // Assert the parent post has changed stats, User:Counts:user_id:post_id
-    let post_count = find_post_counts(&parent_post_key).await;
+    let post_count = find_post_counts(&user_id, &parent_post_id).await;
     assert_eq!(post_count.reposts, 1);
 
     // Check if parent post engagement: Sorted:Posts:Global:TotalEngagement:user_id:post_id
-    let total_engagement = check_member_total_engagement_user_posts(&parent_post_key)
+    let total_engagement = check_member_total_engagement_user_posts(&[&user_id, &parent_post_id])
         .await
         .unwrap();
     assert_eq!(total_engagement.is_some(), true);
