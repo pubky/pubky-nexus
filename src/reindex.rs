@@ -1,6 +1,4 @@
 use crate::db::kv::flush::clear_redis;
-use crate::db::kv::index::json::JsonAction;
-use crate::models::notification::Notification;
 use crate::models::post::Bookmark;
 use crate::models::tag::post::TagPost;
 use crate::models::tag::search::TagSearch;
@@ -8,8 +6,7 @@ use crate::models::tag::stream::HotTags;
 use crate::models::tag::traits::TagCollection;
 use crate::models::tag::user::TagUser;
 use crate::models::traits::Collection;
-use crate::models::user::{Followers, Following, PubkyId, UserDetails, UserFollows};
-use crate::RedisOps;
+use crate::models::user::{Followers, Following, UserDetails, UserFollows};
 use crate::{
     db::connectors::neo4j::get_neo4j_graph,
     models::post::{PostCounts, PostDetails, PostRelationships},
@@ -98,34 +95,6 @@ pub async fn reindex_post(
         PostRelationships::reindex(author_id, post_id),
         TagPost::reindex(author_id, Some(post_id))
     )?;
-    Ok(())
-}
-
-pub async fn ingest_follow(
-    follower_id: PubkyId,
-    followee_id: PubkyId,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Update follow indexes
-    // (follower_id)-[:FOLLOWS]->(followee_id)
-    Followers::put_index_set(&[&followee_id], &[&follower_id]).await?;
-    Following::put_index_set(&[&follower_id], &[&followee_id]).await?;
-
-    // Update UserCount indexer
-    UserCounts::modify_json_field(&[&follower_id], "following", JsonAction::Increment(1)).await?;
-    UserCounts::modify_json_field(&[&followee_id], "followers", JsonAction::Increment(1)).await?;
-
-    // Checks whether the followee was following the follower (Is this a new friendship?)
-    let new_friend = Followers::check(&follower_id, &followee_id).await?;
-    if new_friend {
-        UserCounts::modify_json_field(&[&follower_id], "friends", JsonAction::Increment(1)).await?;
-        UserCounts::modify_json_field(&[&followee_id], "friends", JsonAction::Increment(1)).await?;
-    }
-    // Update the followee pioneer score
-    UserCounts::update_pioneer_score(&followee_id).await?;
-
-    // Notify the followee
-    Notification::new_follow(&follower_id, &followee_id, new_friend).await?;
-
     Ok(())
 }
 

@@ -43,6 +43,7 @@ pub fn post_counts(author_id: &str, post_id: &str) -> Query {
     .param("post_id", post_id)
 }
 
+// Check if the viewer_id has a bookmark in the post
 pub fn post_bookmark(author_id: &str, post_id: &str, viewer_id: &str) -> Query {
     query(
         "MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
@@ -54,6 +55,7 @@ pub fn post_bookmark(author_id: &str, post_id: &str, viewer_id: &str) -> Query {
     .param("viewer_id", viewer_id)
 }
 
+// Check all the bookmarks that user creates
 pub fn user_bookmarks(user_id: &str) -> Query {
     query(
         "MATCH (u:User {id: $user_id})-[b:BOOKMARKED]->(p:Post)<-[:AUTHORED]-(author:User)
@@ -113,7 +115,7 @@ pub fn global_tags_by_post() -> neo4rs::Query {
 
 // TODO: Do not traverse all the graph again to get the engagement score. Rethink how to share that info in the indexer
 /// Retrieves unique global tags for posts, calculating an engagement score based on tag counts,
-/// replies, reposts, mentions, and bookmarks. The query returns a `key` by combining author's ID
+/// replies, reposts and mentions. The query returns a `key` by combining author's ID
 /// and post's ID, along with a sorted set of engagement scores for each tag label.
 pub fn global_tags_by_post_engagement() -> neo4rs::Query {
     query(
@@ -125,10 +127,9 @@ pub fn global_tags_by_post_engagement() -> neo4rs::Query {
         OPTIONAL MATCH (post)<-[reply:REPLIED]-()
         OPTIONAL MATCH (post)<-[repost:REPOSTED]-()
         OPTIONAL MATCH (post)-[mention:MENTIONED]->()
-        OPTIONAL MATCH (post)<-[bookmark:BOOKMARKED]-()
         OPTIONAL MATCH (post)<-[tagged:TAGGED]-()
-        WITH COUNT(DISTINCT tagged) AS taggers, COUNT(DISTINCT reply) AS replies_count, COUNT(DISTINCT repost) AS reposts_count, COUNT(DISTINCT mention) AS mention_count, COUNT(DISTINCT bookmark) AS bookmark_count, key, label
-        WITH label, COLLECT([toFloat(taggers + replies_count + reposts_count + mention_count + bookmark_count), key ]) AS sorted_set
+        WITH COUNT(DISTINCT tagged) AS taggers, COUNT(DISTINCT reply) AS replies_count, COUNT(DISTINCT repost) AS reposts_count, COUNT(DISTINCT mention) AS mention_count, key, label
+        WITH label, COLLECT([toFloat(taggers + replies_count + reposts_count + mention_count), key ]) AS sorted_set
         RETURN label, sorted_set
         order by label
         "

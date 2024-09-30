@@ -1,10 +1,10 @@
 use crate::db::graph::exec::exec_single_row;
 use crate::events::uri::ParsedUri;
-use crate::models::post::{Bookmark, PostStream};
+use crate::models::post::Bookmark;
 use crate::models::pubky_app::traits::Validatable;
 use crate::models::pubky_app::PubkyAppBookmark;
 use crate::models::user::PubkyId;
-use crate::{queries, RedisOps};
+use crate::queries;
 use axum::body::Bytes;
 use chrono::Utc;
 use log::debug;
@@ -21,6 +21,14 @@ pub async fn put(
     // Deserialize and validate bookmark
     let bookmark = <PubkyAppBookmark as Validatable>::try_from(&blob).await?;
 
+    sync_put(user_id, bookmark, bookmark_id).await
+}
+
+pub async fn sync_put(
+    user_id: PubkyId,
+    bookmark: PubkyAppBookmark,
+    bookmark_id: String,
+) -> Result<(), Box<dyn Error + Sync + Send>> {
     // Parse the URI to extract author_id and post_id using the updated parse_post_uri
     let parsed_uri = ParsedUri::try_from(bookmark.uri.as_str())?;
     let (author_id, post_id) = (
@@ -35,6 +43,7 @@ pub async fn put(
         indexed_at,
     };
 
+    // SAVE TO GRAPH
     let query = queries::write::create_post_bookmark(
         &user_id,
         author_id.as_ref(),
@@ -44,13 +53,8 @@ pub async fn put(
     );
     exec_single_row(query).await?;
 
-    // Save to Redis
-    bookmark_details
-        .put_index_json(&[&author_id, &post_id, &user_id])
-        .await?;
-    PostStream::add_to_bookmarks_sorted_set(&bookmark_details, &user_id, &post_id, &author_id)
-        .await?;
-
+    // SAVE TO INDEX
+    bookmark_details.put_to_index(&author_id, &post_id, &user_id).await?;
     Ok(())
 }
 

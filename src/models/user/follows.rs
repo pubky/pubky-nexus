@@ -80,7 +80,7 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
     }
 
     async fn reindex(author_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        match Self::get_from_graph(author_id, Some(0), Some(100)).await? {
+        match Self::get_from_graph(author_id, None, None).await? {
             Some(follow) => follow.put_to_index(author_id).await?,
             None => log::error!(
                 "{}: Could not found user follow relationship in the graph",

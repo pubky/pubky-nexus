@@ -1,6 +1,7 @@
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
+use pubky_nexus::models::user::Relationship;
 use pubky_nexus::models::{pubky_app::PubkyAppUser, user::UserCounts};
 use pubky_nexus::RedisOps;
 
@@ -34,6 +35,12 @@ async fn test_homeserver_follow_friend() -> Result<()> {
 
     // Follow Alice
     test.create_follow(&bob_id, &alice_id).await?;
+    let relationship = Relationship::get_by_id(&alice_id, Some(&bob_id))
+        .await
+        .unwrap()
+        .expect("User relationship not found");
+    assert!(relationship.following, "Bob should be following Alice");
+    assert!(!relationship.followed_by, "Alice cannot be following Bob");
 
     // CACHE_OP: Assert if cache has been updated
     let alice_user_count = UserCounts::try_from_index_json(&[&alice_id])
@@ -55,6 +62,14 @@ async fn test_homeserver_follow_friend() -> Result<()> {
 
     // Follow Bob
     test.create_follow(&alice_id, &bob_id).await?;
+
+    let relationship = Relationship::get_by_id(&bob_id, Some(&alice_id))
+        .await
+        .unwrap()
+        .expect("User relationship not found");
+
+    assert!(relationship.following, "Bob should be already following Alice");
+    assert!(relationship.followed_by, "Alice should be following Bob");
 
     // Now Alice and Bob are friends
     // CACHE_OP: Assert if cache has been updated

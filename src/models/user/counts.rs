@@ -89,18 +89,39 @@ impl UserCounts {
         action: JsonAction,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Self::modify_json_field(&[author_id], field, action).await?;
-        // Always we update the UserCount field, update pioneer score
-        Self::update_pioneer_score(author_id).await
+        let exist_count = Self::get_from_index(author_id).await?;
+        if let Some(user_counts) = exist_count {
+            // Always we update the UserCount field, update pioneer score index
+            user_counts.update_pioneer_score(author_id, field).await?;
+            // and also most followed index
+            user_counts.update_most_followed_score(author_id, field).await?;
+        }
+        Ok(())
     }
 
     // TODO: Check if we can do private method
-    pub async fn update_pioneer_score(
-        author_id: &str,
+    async fn update_pioneer_score(
+        &self,
+        user_id: &str,
+        field: &str
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let exist_count = Self::get_from_index(author_id).await?;
-        if let Some(count) = exist_count {
+        match field {
             // Update user pioneer score
-            UserStream::add_to_pioneers_sorted_set(author_id, &count).await?;
+            "tag" | "posts" | "followers"  => UserStream::add_to_pioneers_sorted_set(user_id, self).await?,
+            _ => ()
+        }
+        Ok(())
+    }
+
+    async fn update_most_followed_score(
+        &self,
+        user_id: &str,
+        field: &str
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        match field {
+            // Update most followed score
+            "followers" => UserStream::add_to_most_followed_sorted_set(user_id, self).await?,
+            _ => ()
         }
         Ok(())
     }

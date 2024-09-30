@@ -58,10 +58,10 @@ impl Relationship {
 
         // Run a graph search for followers and populate index sets
         if !user_id_followers_exist {
-            Followers::get_from_graph(user_id, None, None).await?;
+            Followers::reindex(user_id).await?;
         }
         if !viewer_id_followers_exist {
-            Followers::get_from_graph(viewer_id, None, None).await?;
+            Followers::reindex(viewer_id).await?;
         }
 
         // Recheck the relationships after ensuring the data is populated
@@ -69,12 +69,13 @@ impl Relationship {
             Followers::check_set_member(&user_key, viewer_id),
             Followers::check_set_member(&viewer_key, user_id)
         )?;
-        let (user_exist, following) = user_recheck;
-        let (viewer_exist, followed_by) = viewer_recheck;
+        let (_user_exist, following) = user_recheck;
+        let (_viewer_exist, followed_by) = viewer_recheck;
 
-        if !user_exist || !viewer_exist {
-            return Ok(None);
-        }
+        // I do not know if that one in necessary
+        // if !user_exist || !viewer_exist {
+        //     return Ok(None);
+        // }
 
         Ok(Some(Self {
             followed_by,
