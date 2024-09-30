@@ -1,6 +1,6 @@
 use crate::models::tag::global::TagGlobal;
 use crate::models::tag::stream::{HotTag, HotTags, TagStreamReach, Taggers};
-use crate::routes::v0::endpoints::{TAG_HOT_ROUTE, TAG_REACH_ROUTE, TAG_TAGGERS_ROUTE};
+use crate::routes::v0::endpoints::{HOT_TAGS_BY_REACH_ROUTE, HOT_TAGS_ROUTE, TAG_TAGGERS_ROUTE};
 use crate::types::Pagination;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
@@ -18,7 +18,7 @@ pub struct HotTagsQuery {
 
 #[utoipa::path(
     get,
-    path = TAG_HOT_ROUTE,
+    path = HOT_TAGS_ROUTE,
     params(
         ("max_taggers" = Option<usize>, Query, description = "Retrieve N user_id for each tag"),
         ("skip" = Option<usize>, Query, description = "Skip N tags"),
@@ -34,7 +34,7 @@ pub struct HotTagsQuery {
 )]
 pub async fn hot_tags_handler(Query(query): Query<HotTagsQuery>) -> Result<Json<HotTags>> {
     info!(
-        "GET {TAG_HOT_ROUTE} skip:{:?}, limit:{:?}, max_tagger: {:?}",
+        "GET {HOT_TAGS_ROUTE} skip:{:?}, limit:{:?}, max_tagger: {:?}",
         query.pagination.skip, query.pagination.limit, query.max_taggers
     );
 
@@ -51,18 +51,21 @@ pub async fn hot_tags_handler(Query(query): Query<HotTagsQuery>) -> Result<Json<
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct TagTaggersQuery {
+    pagination: Pagination,
+    user_id: Option<String>,
     reach: Option<TagStreamReach>,
 }
 
 #[utoipa::path(
     get,
     path = TAG_TAGGERS_ROUTE,
-    tag = "Global tag Taggers",
+    tag = "Tag Taggers",
     params(
         ("label" = String, Path, description = "Tag name"),
-        ("reach" = TagStreamReach, Path, description = "Reach type: Follower | Following | Friends")
+        ("reach" = TagStreamReach, Path, description = "Reach type: Follower | Following | Friends"),
+        ("user_id" = Option<String>, Query, description = "User ID to base reach on"),
     ),
     responses(
         (status = 200, description = "Taggers", body = Vec<String>),
@@ -75,32 +78,48 @@ pub async fn tag_taggers_handler(
     Query(query): Query<TagTaggersQuery>,
 ) -> Result<Json<Vec<String>>> {
     info!(
-        "GET {TAG_TAGGERS_ROUTE} label:{}, reach:{:?}",
-        label, query.reach
+        "GET {TAG_TAGGERS_ROUTE} label:{}, query: {:?}",
+        label, query
     );
 
-    let reach = query.reach;
-
-    match TagGlobal::get_tag_taggers(label.clone(), reach).await {
+    match TagGlobal::get_tag_taggers(
+        label.clone(),
+        query.user_id,
+        query.reach,
+        query.pagination.skip,
+        query.pagination.limit,
+    )
+    .await
+    {
         Ok(Some(post)) => Ok(Json(post)),
         Ok(None) => Err(Error::TagsNotFound { reach: label }),
         Err(source) => Err(Error::InternalServerError { source }),
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct TagsByReachQuery {
+    skip: Option<usize>,
+    limit: Option<usize>,
+    max_taggers: Option<usize>,
+}
+
+#[derive(Deserialize)]
+pub struct TagsByReachPath {
     user_id: String,
     reach: Option<TagStreamReach>,
 }
 
 #[utoipa::path(
     get,
-    path = TAG_REACH_ROUTE,
-    tag = "Global Tags by reach",
+    path = HOT_TAGS_BY_REACH_ROUTE,
+    tag = "Hot Tags by reach",
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
-        ("reach" = TagStreamReach, Path, description = "Reach type: Follower | Following | Friends")
+        ("reach" = TagStreamReach, Path, description = "Reach type: Follower | Following | Friends"),
+        ("skip" = Option<usize>, Query, description = "Skip N tags"),
+        ("limit" = Option<usize>, Query, description = "Retrieve N tag"),
+        ("max_taggers" = Option<usize>, Query, description = "Retrieve N user_id for each tag")
     ),
     responses(
         (status = 200, description = "Retrieve tags by reach cluster", body = Vec<HotTag>),
@@ -108,20 +127,25 @@ pub struct TagsByReachQuery {
         (status = 500, description = "Internal server error")
     )
 )]
-pub async fn tags_by_reach_handler(Path(path): Path<TagsByReachQuery>) -> Result<Json<HotTags>> {
+pub async fn tags_by_reach_handler(
+    Path(path): Path<TagsByReachPath>,
+    Query(query): Query<TagsByReachQuery>,
+) -> Result<Json<HotTags>> {
     info!(
-        "GET {TAG_REACH_ROUTE}: {:?}, {:?}",
-        path.user_id, path.reach
+        "GET {HOT_TAGS_BY_REACH_ROUTE} user_id: {:?}, reach: {:?}, query: {:?}",
+        path.user_id, path.reach, query
     );
 
     let reach = path.reach.unwrap_or(TagStreamReach::Following);
     let user_id = path.user_id;
 
-    match HotTags::get_stream_tags_by_reach(user_id, reach.clone()).await {
+    let skip = query.skip.unwrap_or(0);
+    let limit = query.limit.unwrap_or(20);
+    let max_taggers = query.max_taggers.unwrap_or(20);
+
+    match HotTags::get_hot_tags_by_reach(user_id, reach, skip, limit, max_taggers).await {
         Ok(Some(hot_tags)) => Ok(Json(hot_tags)),
-        Ok(None) => Err(Error::TagsNotFound {
-            reach: format!("{:?}", reach),
-        }),
+        Ok(None) => Ok(Json(HotTags(vec![]))),
         Err(source) => {
             error!("Internal Server ERROR: {:?}", source);
             Err(Error::InternalServerError { source })

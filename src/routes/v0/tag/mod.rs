@@ -7,8 +7,8 @@ mod global;
 
 pub fn routes() -> Router {
     register_routes!(Router::new(),
-        to_axum!(endpoints::TAG_HOT_ROUTE) => global::hot_tags_handler,
-        to_axum!(endpoints::TAG_REACH_ROUTE) => global::tags_by_reach_handler,
+        to_axum!(endpoints::HOT_TAGS_ROUTE) => global::hot_tags_handler,
+        to_axum!(endpoints::HOT_TAGS_BY_REACH_ROUTE) => global::tags_by_reach_handler,
         to_axum!(endpoints::TAG_TAGGERS_ROUTE) => global::tag_taggers_handler
     )
 }

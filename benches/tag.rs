@@ -152,9 +152,10 @@ fn bench_get_global_tag_taggers(c: &mut Criterion) {
         &[label],
         |b, &params| {
             b.to_async(&rt).iter(|| async {
-                let tag_taggers = TagGlobal::get_tag_taggers(String::from(params[0]), None)
-                    .await
-                    .unwrap();
+                let tag_taggers =
+                    TagGlobal::get_tag_taggers(String::from(params[0]), None, None, None, None)
+                        .await
+                        .unwrap();
                 criterion::black_box(tag_taggers);
             });
         },
@@ -182,9 +183,12 @@ fn bench_get_following_reach_hot_tags(c: &mut Criterion) {
         &[user_id],
         |b, &params| {
             b.to_async(&rt).iter(|| async {
-                let profile = HotTags::get_stream_tags_by_reach(
+                let profile = HotTags::get_hot_tags_by_reach(
                     String::from(params[0]),
                     TagStreamReach::Following,
+                    0,
+                    10,
+                    20,
                 )
                 .await
                 .unwrap();
@@ -215,9 +219,12 @@ fn bench_get_followers_reach_hot_tags(c: &mut Criterion) {
         &[user_id],
         |b, &params| {
             b.to_async(&rt).iter(|| async {
-                let profile = HotTags::get_stream_tags_by_reach(
+                let profile = HotTags::get_hot_tags_by_reach(
                     String::from(params[0]),
                     TagStreamReach::Followers,
+                    0,
+                    10,
+                    20,
                 )
                 .await
                 .unwrap();
@@ -248,9 +255,12 @@ fn bench_get_friends_reach_hot_tags(c: &mut Criterion) {
         &[user_id],
         |b, &params| {
             b.to_async(&rt).iter(|| async {
-                let profile = HotTags::get_stream_tags_by_reach(
+                let profile = HotTags::get_hot_tags_by_reach(
                     String::from(params[0]),
                     TagStreamReach::Friends,
+                    0,
+                    10,
+                    20,
                 )
                 .await
                 .unwrap();

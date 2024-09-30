@@ -7,7 +7,6 @@ use std::ops::Deref;
 use utoipa::ToSchema;
 
 use crate::db::kv::index::sorted_sets::SortOrder;
-use crate::models::follow::{Followers, Following, Friends, UserFollows};
 use crate::{db::connectors::neo4j::get_neo4j_graph, queries};
 use crate::{RedisOps, ScoreAction};
 
@@ -22,6 +21,23 @@ pub enum TagStreamReach {
     Followers,
     Following,
     Friends,
+    MostFollowed,
+    Influencers,
+}
+
+impl TagStreamReach {
+    pub fn to_graph_subquery(&self) -> String {
+        let query = match self {
+            TagStreamReach::Followers => "MATCH (user:User)<-[:FOLLOWS]-(reach:User)",
+            TagStreamReach::Following => "MATCH (user:User)-[:FOLLOWS]->(reach:User)",
+            TagStreamReach::Friends => {
+                "MATCH (user:User)-[:FOLLOWS]->(reach:User), (user)<-[:FOLLOWS]-(reach)"
+            }
+            TagStreamReach::MostFollowed => "",
+            TagStreamReach::Influencers => "",
+        };
+        String::from(query)
+    }
 }
 
 #[async_trait]
@@ -62,13 +78,13 @@ impl Taggers {
 pub struct HotTag {
     label: String,
     taggers_id: Taggers,
-    post_count: u64,
+    tagged_count: u64,
     taggers_count: usize,
 }
 
 // Define a newtype wrapper
 #[derive(Serialize, Deserialize, Debug, ToSchema, Default)]
-pub struct HotTags(Vec<HotTag>);
+pub struct HotTags(pub Vec<HotTag>);
 
 impl RedisOps for HotTags {}
 
@@ -152,7 +168,7 @@ impl HotTags {
                     Some(HotTag {
                         label,
                         taggers_id,
-                        post_count: score as u64,
+                        tagged_count: score as u64,
                         taggers_count,
                     })
                 }
@@ -162,40 +178,22 @@ impl HotTags {
         Ok(Some(hot_tags_stream))
     }
 
-    pub async fn get_stream_tags_by_reach(
+    pub async fn get_hot_tags_by_reach(
         user_id: String,
         reach: TagStreamReach,
+        skip: usize,
+        limit: usize,
+        max_taggers: usize,
     ) -> Result<Option<HotTags>, DynError> {
-        // We cannot use here limit and skip because we want to get all the users reach
-        let users = match reach {
-            TagStreamReach::Followers => {
-                Followers::get_by_id(&user_id, None, Some(isize::MAX as usize))
-                    .await?
-                    .map(|u| u.0)
-            }
-            TagStreamReach::Following => {
-                Following::get_by_id(&user_id, None, Some(isize::MAX as usize))
-                    .await?
-                    .map(|u| u.0)
-            }
-            TagStreamReach::Friends => {
-                Friends::get_by_id(&user_id, None, Some(isize::MAX as usize))
-                    .await?
-                    .map(|u| u.0)
-            }
-        };
-
-        match users {
-            Some(users) => get_users_tags_by_reach(&users).await,
-            None => Ok(None),
-        }
+        let query = queries::get::get_hot_tags_by_reach(
+            &user_id,
+            reach.to_graph_subquery(),
+            skip,
+            limit,
+            max_taggers,
+        );
+        retrieve_from_graph::<HotTags>(query, "hot_tags").await
     }
-}
-
-async fn get_users_tags_by_reach(users: &[String]) -> Result<Option<HotTags>, DynError> {
-    let user_slice = users.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
-    let query = queries::get::get_tags_by_user_ids(user_slice.as_slice());
-    retrieve_from_graph::<HotTags>(query, "hot_tags").await
 }
 
 // Generic function to retrieve data from Neo4J
