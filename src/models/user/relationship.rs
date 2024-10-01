@@ -1,4 +1,4 @@
-use super::Followers;
+use super::{Followers, UserCounts};
 use crate::RedisOps;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -40,6 +40,14 @@ impl Relationship {
         user_id: &str,
         viewer_id: &str,
     ) -> Result<Option<Relationship>, Box<dyn std::error::Error + Send + Sync>> {
+        let user_exist = UserCounts::get_from_index(user_id).await?;
+        let viewer_exist = UserCounts::get_from_index(viewer_id).await?;
+
+        // Make sure users exist before get their relationship
+        if user_exist.is_none() || viewer_exist.is_none() {
+            return Ok(None);
+        }
+
         let user_key = [user_id];
         let viewer_key = [viewer_id];
         // Concurrently check if the viewer follows the user and if the user follows the viewer
