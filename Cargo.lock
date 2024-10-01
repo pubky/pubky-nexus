@@ -1632,6 +1632,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "97b3888a4aecf77e811145cadf6eef5901f4782c53886191b2f693f24761847c"
 
 [[package]]
+name = "libm"
+version = "0.2.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ec2a862134d2a7d32d7983ddcdd1c4923530833c9f2ea1a44fc5fa473989058"
+
+[[package]]
 name = "libredox"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1870,6 +1876,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
 dependencies = [
  "autocfg",
+ "libm",
 ]
 
 [[package]]
@@ -2132,7 +2139,7 @@ checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
 [[package]]
 name = "pkarr"
 version = "2.2.0"
-source = "git+https://github.com/Pubky/pkarr?branch=v3#a40ce2f639811a740326b0a1c4548c8ac67c8865"
+source = "git+https://github.com/Pubky/pkarr?branch=serde#680ec9303f5f3ee4b40dc53c0071c4088d4eb6ff"
 dependencies = [
  "base32",
  "bytes",
@@ -2147,6 +2154,31 @@ dependencies = [
  "rand",
  "self_cell",
  "serde",
+ "simple-dns",
+ "thiserror",
+ "tracing",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
+name = "pkarr"
+version = "2.2.0"
+source = "git+https://github.com/Pubky/pkarr?branch=v3#a40ce2f639811a740326b0a1c4548c8ac67c8865"
+dependencies = [
+ "base32",
+ "bytes",
+ "document-features",
+ "dyn-clone",
+ "ed25519-dalek",
+ "flume",
+ "futures",
+ "js-sys",
+ "lru",
+ "mainline",
+ "rand",
+ "self_cell",
  "simple-dns",
  "thiserror",
  "tracing",
@@ -2290,7 +2322,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "js-sys",
- "pkarr",
+ "pkarr 2.2.0 (git+https://github.com/Pubky/pkarr?branch=serde)",
  "pubky-common",
  "reqwest",
  "thiserror",
@@ -2311,7 +2343,7 @@ dependencies = [
  "ed25519-dalek",
  "js-sys",
  "once_cell",
- "pkarr",
+ "pkarr 2.2.0 (git+https://github.com/Pubky/pkarr?branch=serde)",
  "postcard",
  "rand",
  "serde",
@@ -2335,10 +2367,12 @@ dependencies = [
  "log",
  "neo4rs",
  "once_cell",
- "pkarr",
+ "pkarr 2.2.0 (git+https://github.com/Pubky/pkarr?branch=v3)",
  "pubky",
  "pubky-common",
  "pubky_homeserver",
+ "rand",
+ "rand_distr",
  "redis",
  "reqwest",
  "serde",
@@ -2365,7 +2399,7 @@ dependencies = [
  "futures-util",
  "heed",
  "hex",
- "pkarr",
+ "pkarr 2.2.0 (git+https://github.com/Pubky/pkarr?branch=serde)",
  "postcard",
  "pubky-common",
  "serde",
@@ -2471,6 +2505,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
 dependencies = [
  "getrandom",
+]
+
+[[package]]
+name = "rand_distr"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32cb0b9bc82b0a0876c2dd994a7e7a2683d3e7390ca40e6886785ef0c7e3ee31"
+dependencies = [
+ "num-traits",
+ "rand",
 ]
 
 [[package]]

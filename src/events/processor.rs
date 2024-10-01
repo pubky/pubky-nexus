@@ -1,6 +1,6 @@
 use super::Event;
 use crate::Config;
-use log::{debug, info};
+use log::{debug, error, info};
 use pkarr::mainline::dht::Testnet;
 use pubky::PubkyClient;
 use reqwest::Client;
@@ -30,7 +30,7 @@ impl EventProcessor {
             pubky_client,
             http_client: Client::new(),
             homeserver_url: config.homeserver_url.clone(),
-            cursor: "0".to_string(),
+            cursor: "0000000000000".to_string(),
             limit: config.events_limit,
         }
     }
@@ -40,7 +40,7 @@ impl EventProcessor {
             pubky_client: PubkyClient::builder().testnet(testnet).build(),
             http_client: Client::new(),
             homeserver_url,
-            cursor: "0".to_string(),
+            cursor: "0000000000000".to_string(),
             limit: 100,
         }
     }
@@ -88,7 +88,12 @@ impl EventProcessor {
                     info!("Cursor for the next request: {}", cursor);
                 }
             } else if let Some(event) = Event::from_str(line, self.pubky_client.clone())? {
-                event.handle().await?;
+                debug!("Processing event: {:?}", event);
+                let result = event.handle().await;
+
+                if let Err(e) = result {
+                    error!("Error while handling event: {}", e);
+                }
             }
         }
 

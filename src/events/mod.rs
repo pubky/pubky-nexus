@@ -36,11 +36,13 @@ enum ResourceType {
 }
 
 // Look for the end pattern after the start index, or use the end of the string if not found
+#[derive(Debug)]
 enum EventType {
     Put,
     Del,
 }
 
+#[derive(Debug)]
 pub struct Event {
     uri: String,
     event_type: EventType,

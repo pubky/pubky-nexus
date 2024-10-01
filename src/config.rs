@@ -20,6 +20,7 @@ pub struct Config {
     pub homeserver: String,
     pub homeserver_url: String,
     pub events_limit: u32,
+    pub watcher_sleep: u64,
 }
 
 impl Config {
@@ -29,8 +30,6 @@ impl Config {
         Self {
             neo4j_host: env::var("NEO4J_HOST").unwrap_or_else(|_| "localhost".to_string()),
             neo4j_port: env::var("NEO4J_PORT").unwrap_or_else(|_| "7687".to_string()),
-            neo4j_username: env::var("NEO4J_DB_USERNAME").expect("NEO4J_DB_USERNAME not set"),
-            neo4j_password: env::var("NEO4J_PASSWORD").expect("NEO4J_PASSWORD not set"),
             redis_host: env::var("REDIS_HOST").unwrap_or_else(|_| "localhost".to_string()),
             redis_port: env::var("REDIS_PORT").unwrap_or_else(|_| "6379".to_string()),
             static_path: env::var("STATIC_PATH").unwrap_or_else(|_| "./static".to_string()),
@@ -54,6 +53,12 @@ impl Config {
                 .unwrap_or("1000".to_string())
                 .parse()
                 .unwrap_or(1000),
+            watcher_sleep: env::var("WATCHER_SLEEP")
+                .unwrap_or("5000".to_string())
+                .parse()
+                .unwrap_or(5000),
+            neo4j_username: env::var("NEO4J_DB_USERNAME").expect("NEO4J_DB_USERNAME not set"),
+            neo4j_password: env::var("NEO4J_PASSWORD").expect("NEO4J_PASSWORD not set"),
         }
     }
 
