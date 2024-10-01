@@ -13,16 +13,17 @@ use pubky_nexus::{
     },
     Config,
 };
-use rand::{distributions::Alphanumeric, Rng};
+use rand::rngs::StdRng;
+use rand::{distributions::Alphanumeric, Rng, SeedableRng};
 use rand_distr::{Distribution, LogNormal};
 use std::collections::HashSet;
 use std::time::Instant;
 
 // Configuration constants
 static NUM_USERS: usize = 1000;
+static SEED: u64 = 42;
 
-// Distributions parameters
-// We can try matching real activity distribution from https://bsky.jazco.dev/stats
+// Adjusted distribution parameters
 const POSTS_MU: f64 = 1.7889; // Adjusted for mean ≈ 40
 const POSTS_SIGMA: f64 = 2.0;
 const FOLLOWS_MU: f64 = 1.6835; // Adjusted for mean ≈ 36
@@ -31,10 +32,10 @@ const TAGS_MU: f64 = 3.1689; // Adjusted for mean ≈ 159
 const TAGS_SIGMA: f64 = 2.0;
 
 // Maximum values to cap the numbers
-static MAX_POSTS: usize = 20000;
+static MAX_POSTS: usize = 10000;
 static MAX_FOLLOWS: usize = NUM_USERS - 1;
-static MAX_TAGS: usize = 20000;
-static MAX_FILES: usize = 20000;
+static MAX_TAGS: usize = 10000;
+static MAX_FILES: usize = 10000;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -57,7 +58,8 @@ async fn main() -> Result<()> {
     // Convert the homeserver from the config into a PublicKey
     let homeserver = PublicKey::try_from(config.homeserver.as_str())?;
 
-    let mut rng = rand::thread_rng();
+    let mut rng = StdRng::seed_from_u64(SEED);
+    println!("Using seed: {}", SEED);
 
     // Counters for successes and failures
     let mut users_created_successfully = 0;
@@ -79,7 +81,7 @@ async fn main() -> Result<()> {
     let mut user_ids: Vec<String> = Vec::with_capacity(NUM_USERS);
     let mut user_posts: Vec<Vec<String>> = Vec::with_capacity(NUM_USERS);
 
-    // Define LogNormal distributions for posts, follows, tags, files
+    // Define LogNormal distributions with adjusted mu values
     let posts_dist = LogNormal::new(POSTS_MU, POSTS_SIGMA).unwrap();
     let follows_dist = LogNormal::new(FOLLOWS_MU, FOLLOWS_SIGMA).unwrap();
     let tags_dist = LogNormal::new(TAGS_MU, TAGS_SIGMA).unwrap();
@@ -258,7 +260,7 @@ async fn create_user(
 async fn create_posts(
     client: &PubkyClient,
     pk: &String,
-    rng: &mut impl Rng,
+    rng: &mut StdRng,
     posts_dist: &LogNormal<f64>,
     max_posts: usize,
     user_post_ids: &mut Vec<String>,
@@ -271,7 +273,7 @@ async fn create_posts(
 
     for _ in 0..num_posts {
         let post = PubkyAppPost {
-            content: random_string(100),
+            content: random_string(rng, 100),
             kind: PostKind::Short,
             parent: None,
             embed: None,
@@ -310,7 +312,7 @@ async fn create_follows(
     pk: &String,
     current_index: usize,
     user_ids: &Vec<String>,
-    rng: &mut impl Rng,
+    rng: &mut StdRng,
     follows_dist: &LogNormal<f64>,
     max_follows: usize,
 ) -> (usize, usize, usize) {
@@ -370,7 +372,7 @@ async fn create_follows(
 async fn create_files(
     client: &PubkyClient,
     pk: &String,
-    rng: &mut impl Rng,
+    rng: &mut StdRng,
     files_dist: &LogNormal<f64>,
     max_files: usize,
 ) -> (usize, usize, usize) {
@@ -382,7 +384,7 @@ async fn create_files(
 
     for _ in 0..num_files {
         // Step 1: Create a blob with random content
-        let blob_content = random_string(256); // Random content
+        let blob_content = random_string(rng, 256); // Random content
         let blob_id = Timestamp::now().to_string();
         let blob_url = format!("pubky://{}/pub/pubky.app/blobs/{}", pk, blob_id);
         let blob_json = match serde_json::to_vec(&blob_content) {
@@ -405,7 +407,7 @@ async fn create_files(
 
         // Step 2: Create a PubkyAppFile that references the blob
         let file = PubkyAppFile {
-            name: format!("file_{}", random_string(5)),
+            name: format!("file_{}", random_string(rng, 5)),
             content_type: "text/plain".to_string(),
             src: blob_url.clone(),
             size: blob_json.len() as u64,
@@ -446,7 +448,7 @@ async fn create_tags(
     current_index: usize,
     user_ids: &Vec<String>,
     user_posts: &Vec<Vec<String>>,
-    rng: &mut impl Rng,
+    rng: &mut StdRng,
     tags_dist: &LogNormal<f64>,
     max_tags: usize,
 ) -> (usize, usize, usize) {
@@ -457,7 +459,8 @@ async fn create_tags(
     let num_tags = num_tags.min(max_tags);
 
     for _ in 0..num_tags {
-        let tag_label = random_string(rng.gen_range(4..=10));
+        let tag_length = rng.gen_range(4..=10);
+        let tag_label = random_string(rng, tag_length);
 
         // Randomly decide whether to tag a user or a post
         let tag_target_user = rng.gen_bool(0.2);
@@ -592,8 +595,7 @@ fn print_percentiles(data: &Vec<usize>, label: &str) {
 }
 
 // Helper function to generate random string of given length
-fn random_string(len: usize) -> String {
-    let rng = rand::thread_rng();
+fn random_string(rng: &mut StdRng, len: usize) -> String {
     rng.sample_iter(&Alphanumeric)
         .take(len)
         .map(char::from)

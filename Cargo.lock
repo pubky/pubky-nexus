@@ -2139,7 +2139,7 @@ checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
 [[package]]
 name = "pkarr"
 version = "2.2.0"
-source = "git+https://github.com/Pubky/pkarr?branch=v3#a40ce2f639811a740326b0a1c4548c8ac67c8865"
+source = "git+https://github.com/Pubky/pkarr?branch=serde#680ec9303f5f3ee4b40dc53c0071c4088d4eb6ff"
 dependencies = [
  "base32",
  "bytes",
@@ -2154,6 +2154,31 @@ dependencies = [
  "rand",
  "self_cell",
  "serde",
+ "simple-dns",
+ "thiserror",
+ "tracing",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
+name = "pkarr"
+version = "2.2.0"
+source = "git+https://github.com/Pubky/pkarr?branch=v3#a40ce2f639811a740326b0a1c4548c8ac67c8865"
+dependencies = [
+ "base32",
+ "bytes",
+ "document-features",
+ "dyn-clone",
+ "ed25519-dalek",
+ "flume",
+ "futures",
+ "js-sys",
+ "lru",
+ "mainline",
+ "rand",
+ "self_cell",
  "simple-dns",
  "thiserror",
  "tracing",
@@ -2297,7 +2322,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "js-sys",
- "pkarr",
+ "pkarr 2.2.0 (git+https://github.com/Pubky/pkarr?branch=serde)",
  "pubky-common",
  "reqwest",
  "thiserror",
@@ -2318,7 +2343,7 @@ dependencies = [
  "ed25519-dalek",
  "js-sys",
  "once_cell",
- "pkarr",
+ "pkarr 2.2.0 (git+https://github.com/Pubky/pkarr?branch=serde)",
  "postcard",
  "rand",
  "serde",
@@ -2342,7 +2367,7 @@ dependencies = [
  "log",
  "neo4rs",
  "once_cell",
- "pkarr",
+ "pkarr 2.2.0 (git+https://github.com/Pubky/pkarr?branch=v3)",
  "pubky",
  "pubky-common",
  "pubky_homeserver",
@@ -2374,7 +2399,7 @@ dependencies = [
  "futures-util",
  "heed",
  "hex",
- "pkarr",
+ "pkarr 2.2.0 (git+https://github.com/Pubky/pkarr?branch=serde)",
  "postcard",
  "pubky-common",
  "serde",
