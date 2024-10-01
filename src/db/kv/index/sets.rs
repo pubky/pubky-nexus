@@ -139,6 +139,44 @@ pub async fn check_member(
     }
 }
 
+/// Retrieves the size of a Redis set.
+///
+/// This function returns the number of elements in the set identified by the combined `prefix` and `key`.
+/// If the set does not exist, it will return `Ok(None)`.
+///
+/// # Arguments
+///
+/// * `prefix` - A string slice representing the prefix for the Redis keys.
+/// * `key` - A string slice representing the key under which the set is stored.
+///
+/// # Returns
+///
+/// Returns a `Result` containing:
+/// * `Ok(Some(usize))` - The number of elements in the set.
+/// * `Ok(None)` - If the set does not exist.
+/// * `Err` - An error if the Redis operation fails.
+///
+/// # Errors
+///
+/// Returns an error if the Redis connection or the SCARD operation fails.
+pub async fn get_size(
+    prefix: &str,
+    key: &str,
+) -> Result<Option<usize>, Box<dyn Error + Send + Sync>> {
+    let mut redis_conn = get_redis_conn().await?;
+    let index_key = format!("{}:{}", prefix, key);
+
+    // Check if the set exists
+    let set_exists: bool = redis_conn.exists(&index_key).await?;
+    if !set_exists {
+        return Ok(None);
+    }
+
+    // Retrieve the size of the set
+    let set_size: usize = redis_conn.scard(&index_key).await?;
+    Ok(Some(set_size))
+}
+
 /// Retrieves multiple sets from Redis in a single call using a pipeline.
 ///
 /// This asynchronous function fetches multiple sets from Redis based on the provided keys using a Redis pipeline.

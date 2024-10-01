@@ -54,7 +54,9 @@ pub async fn sync_put(
     exec_single_row(query).await?;
 
     // SAVE TO INDEX
-    bookmark_details.put_to_index(&author_id, &post_id, &user_id).await?;
+    bookmark_details
+        .put_to_index(&author_id, &post_id, &user_id)
+        .await?;
     Ok(())
 }
 

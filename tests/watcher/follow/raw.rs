@@ -5,20 +5,20 @@ use pubky_common::crypto::Keypair;
 use pubky_nexus::{
     models::{
         pubky_app::PubkyAppUser,
-        user::{Followers, Following, UserFollows},
+        user::{Followers, Following, Relationship, UserFollows},
     },
     RedisOps,
 };
 
 #[tokio::test]
-async fn test_homeserver_follow() -> Result<()> {
+async fn test_homeserver_raw_follow() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Create first user (follower)
     let follower_keypair = Keypair::random();
 
     let follower_user = PubkyAppUser {
-        bio: Some("test_homeserver_follow".to_string()),
+        bio: Some("test_homeserver_raw_follow".to_string()),
         image: None,
         links: None,
         name: "Watcher:Follow:Follower".to_string(),
@@ -32,7 +32,7 @@ async fn test_homeserver_follow() -> Result<()> {
     // Create second user (followee)
     let followee_keypair = Keypair::random();
     let followee_user = PubkyAppUser {
-        bio: Some("test_homeserver_follow".to_string()),
+        bio: Some("test_homeserver_raw_follow".to_string()),
         image: None,
         links: None,
         name: "Watcher:Follow:Followee".to_string(),
@@ -65,6 +65,19 @@ async fn test_homeserver_follow() -> Result<()> {
         .await
         .unwrap();
     assert!(member);
+
+    let relationship = Relationship::get_by_id(&followee_id, Some(&follower_id))
+        .await
+        .unwrap()
+        .expect("User relationship not found");
+    assert!(
+        relationship.following,
+        "Follower should be following Followee"
+    );
+    assert!(
+        !relationship.followed_by,
+        "Followee cannot be following Follower"
+    );
 
     // CACHE_OP: Assert if cache has been updated
     let exist_count = find_user_counts(&followee_id).await;

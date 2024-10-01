@@ -3,8 +3,8 @@ use crate::db::kv::index::json::JsonAction;
 use crate::models::notification::Notification;
 use crate::models::pubky_app::traits::Validatable;
 use crate::models::pubky_app::PubkyAppFollow;
-use crate::models::user::{PubkyId, UserCounts, UserFollows};
 use crate::models::user::{Followers, Following, Friends};
+use crate::models::user::{PubkyId, UserCounts, UserFollows};
 use crate::{queries, RedisOps};
 use axum::body::Bytes;
 use chrono::Utc;
@@ -26,7 +26,7 @@ pub async fn put(
 
 pub async fn sync_put(
     follower_id: PubkyId,
-    followee_id: PubkyId
+    followee_id: PubkyId,
 ) -> Result<(), Box<dyn Error + Sync + Send>> {
     // SAVE TO GRAPH
     let indexed_at = Utc::now().timestamp_millis();
@@ -36,8 +36,12 @@ pub async fn sync_put(
     // SAVE TO INDEX
     // Update follow indexes
     // (follower_id)-[:FOLLOWS]->(followee_id)
-    Followers(vec!(follower_id.to_string())).put_to_index(&followee_id).await?;
-    Following(vec!(followee_id.to_string())).put_to_index(&follower_id).await?;
+    Followers(vec![follower_id.to_string()])
+        .put_to_index(&followee_id)
+        .await?;
+    Following(vec![followee_id.to_string()])
+        .put_to_index(&follower_id)
+        .await?;
 
     // Update UserCount related indexes
     UserCounts::update_index_field(&follower_id, "following", JsonAction::Increment(1)).await?;

@@ -1,3 +1,4 @@
+mod chain;
 mod friends;
 mod notification;
 mod raw;

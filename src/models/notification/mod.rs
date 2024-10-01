@@ -82,7 +82,7 @@ impl Notification {
     }
 
     /// Stores the `NotificationBody` in the sorted set for the user using the timestamp as the score.
-    pub async fn to_index(
+    async fn put_to_index(
         &self,
         user_id: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -145,7 +145,7 @@ impl Notification {
         };
 
         let notification = Notification::new(body);
-        notification.to_index(followee_id).await?;
+        notification.put_to_index(followee_id).await?;
 
         Ok(())
     }
@@ -163,7 +163,7 @@ impl Notification {
             unfollowed_by: user_id.to_string(),
         };
         let notification = Notification::new(body);
-        notification.to_index(followee_id).await?;
+        notification.put_to_index(followee_id).await?;
 
         Ok(())
     }
@@ -183,7 +183,7 @@ impl Notification {
             post_uri: post_uri.to_string(),
         };
         let notification = Notification::new(body);
-        notification.to_index(author_id).await
+        notification.put_to_index(author_id).await
     }
 
     pub async fn new_user_tag(
@@ -199,7 +199,7 @@ impl Notification {
             tag_label: label.to_string(),
         };
         let notification = Notification::new(body);
-        notification.to_index(tagged_user_id).await
+        notification.put_to_index(tagged_user_id).await
     }
 
     pub async fn new_post_reply(
@@ -217,7 +217,7 @@ impl Notification {
             reply_uri: reply_uri.to_string(),
         };
         let notification = Notification::new(body);
-        notification.to_index(parent_post_author).await
+        notification.put_to_index(parent_post_author).await
     }
 
     pub async fn new_mention(
@@ -233,7 +233,7 @@ impl Notification {
             post_uri: format!("pubky://{user_id}/pub/pubky.app/posts/{post_id}"),
         };
         let notification = Notification::new(body);
-        notification.to_index(mentioned_id).await?;
+        notification.put_to_index(mentioned_id).await?;
 
         Ok(Some(mentioned_id.to_string()))
     }
@@ -253,7 +253,7 @@ impl Notification {
             repost_uri: repost_uri.to_string(),
         };
         let notification = Notification::new(body);
-        notification.to_index(embed_post_author).await
+        notification.put_to_index(embed_post_author).await
     }
 
     pub async fn deleted_post(
@@ -273,6 +273,6 @@ impl Notification {
             linked_uri: linked_uri.to_string(),
         };
         let notification = Notification::new(body);
-        notification.to_index(linked_post_author).await
+        notification.put_to_index(linked_post_author).await
     }
 }

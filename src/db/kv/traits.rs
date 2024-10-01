@@ -383,6 +383,30 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         sets::check_member(&prefix, &key, member).await
     }
 
+    /// Retrieves the size of a Redis set using the provided key parts.
+    ///
+    /// This method retrieves the number of elements in a Redis set stored under the key generated from the provided `key_parts`.
+    /// It returns `Ok(Some(size))` if the set exists, or `Ok(None)` if the set does not exist.
+    ///
+    /// # Arguments
+    ///
+    /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the set is stored.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(Some(size))` where `size` is the number of elements in the set, or `Ok(None)` if the set does not exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
+    async fn get_set_size(
+        key_parts: &[&str],
+    ) -> Result<Option<usize>, Box<dyn Error + Send + Sync>> {
+        let prefix = Self::prefix().await;
+        let key = key_parts.join(":");
+        sets::get_size(&prefix, &key).await
+    }
+
     /// Fetches multiple sets from Redis using the specified key components.
     ///
     /// This asynchronous function retrieves multiple sets from Redis based on the provided key components.

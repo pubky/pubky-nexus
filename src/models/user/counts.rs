@@ -94,7 +94,9 @@ impl UserCounts {
             // Always we update the UserCount field, update pioneer score index
             user_counts.update_pioneer_score(author_id, field).await?;
             // and also most followed index
-            user_counts.update_most_followed_score(author_id, field).await?;
+            user_counts
+                .update_most_followed_score(author_id, field)
+                .await?;
         }
         Ok(())
     }
@@ -103,12 +105,14 @@ impl UserCounts {
     async fn update_pioneer_score(
         &self,
         user_id: &str,
-        field: &str
+        field: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         match field {
             // Update user pioneer score
-            "tag" | "posts" | "followers"  => UserStream::add_to_pioneers_sorted_set(user_id, self).await?,
-            _ => ()
+            "tag" | "posts" | "followers" => {
+                UserStream::add_to_pioneers_sorted_set(user_id, self).await?
+            }
+            _ => (),
         }
         Ok(())
     }
@@ -116,12 +120,10 @@ impl UserCounts {
     async fn update_most_followed_score(
         &self,
         user_id: &str,
-        field: &str
+        field: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        match field {
-            // Update most followed score
-            "followers" => UserStream::add_to_most_followed_sorted_set(user_id, self).await?,
-            _ => ()
+        if field == "followers" {
+            UserStream::add_to_most_followed_sorted_set(user_id, self).await?
         }
         Ok(())
     }

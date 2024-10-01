@@ -35,6 +35,7 @@ async fn test_homeserver_follow_friend() -> Result<()> {
 
     // Follow Alice
     test.create_follow(&bob_id, &alice_id).await?;
+
     let relationship = Relationship::get_by_id(&alice_id, Some(&bob_id))
         .await
         .unwrap()
@@ -68,7 +69,10 @@ async fn test_homeserver_follow_friend() -> Result<()> {
         .unwrap()
         .expect("User relationship not found");
 
-    assert!(relationship.following, "Bob should be already following Alice");
+    assert!(
+        relationship.following,
+        "Bob should be already following Alice"
+    );
     assert!(relationship.followed_by, "Alice should be following Bob");
 
     // Now Alice and Bob are friends
