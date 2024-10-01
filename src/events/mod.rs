@@ -8,7 +8,7 @@ pub mod handlers;
 pub mod processor;
 pub mod uri;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum ResourceType {
     User {
         user_id: PubkyId,
@@ -36,13 +36,13 @@ enum ResourceType {
 }
 
 // Look for the end pattern after the start index, or use the end of the string if not found
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum EventType {
     Put,
     Del,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Event {
     uri: String,
     event_type: EventType,
