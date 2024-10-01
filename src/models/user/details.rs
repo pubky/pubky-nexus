@@ -1,5 +1,4 @@
 use super::id::PubkyId;
-use super::UserSearch;
 use crate::db::graph::exec::exec_single_row;
 use crate::models::pubky_app::{PubkyAppUser, UserLink};
 use crate::models::traits::Collection;
@@ -25,14 +24,9 @@ impl Collection<&str> for UserDetails {
     }
 
     async fn extend_on_index_miss(
-        details: &[std::option::Option<Self>],
+        _: &[std::option::Option<Self>],
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let user_details_refs: Vec<&UserDetails> = details
-            .iter()
-            .filter_map(|detail| detail.as_ref())
-            .collect();
-
-        UserSearch::put_to_index(&user_details_refs).await
+        Ok(())
     }
 }
 

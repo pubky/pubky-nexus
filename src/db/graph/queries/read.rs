@@ -297,6 +297,21 @@ pub fn get_tag_taggers_by_reach(
     .param("limit", limit as i64)
 }
 
+pub fn search_user(name: &str, skip: Option<usize>, limit: Option<usize>) -> Query {
+    let skip = skip.unwrap_or(0);
+    let limit: usize = limit.unwrap_or(10);
+    query(
+        "
+        CALL db.index.fulltext.queryNodes('ft_user_username', $search_term) YIELD node AS user, score
+        RETURN user.id AS id, score
+        SKIP $skip LIMIT $limit
+        ",
+    )
+    .param("search_term", name)
+    .param("skip", skip as i64)
+    .param("limit", limit as i64)
+}
+
 pub fn get_hot_tags_by_reach(
     user_id: &str,
     reach_subquery: String,
