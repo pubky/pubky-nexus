@@ -40,7 +40,7 @@ impl EventProcessor {
             pubky_client: PubkyClient::builder().testnet(testnet).build(),
             http_client: Client::new(),
             homeserver_url,
-            cursor: "0".to_string(),
+            cursor: "0000000000000".to_string(),
             limit: 100,
         }
     }
