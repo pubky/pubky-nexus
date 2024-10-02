@@ -65,7 +65,7 @@ impl Homeserver {
             }
             None => {
                 // Create a new Homeserver instance with default cursor
-                Ok(Homeserver::new(id, homeserver_url).await?)
+                Homeserver::new(id, homeserver_url).await
             }
         }
     }

@@ -51,8 +51,9 @@ impl EventProcessor {
     }
 
     pub async fn test(testnet: &Testnet, homeserver_url: String) -> Self {
-        let mut id = PubkyId::default();
-        id.0 = "test".to_string();
+        let id = PubkyId {
+            0: "test".to_string(),
+        };
         let homeserver = Homeserver::new(id, homeserver_url).await.unwrap();
         Self {
             pubky_client: PubkyClient::builder().testnet(testnet).build(),
