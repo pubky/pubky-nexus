@@ -1,9 +1,13 @@
+use std::time::Duration;
+
 use super::Event;
 use crate::Config;
 use log::{debug, error, info};
 use pkarr::mainline::dht::Testnet;
 use pubky::PubkyClient;
 use reqwest::Client;
+
+const MAX_RETRIES: usize = 3;
 
 pub struct EventProcessor {
     pubky_client: PubkyClient,
@@ -89,14 +93,40 @@ impl EventProcessor {
                 }
             } else if let Some(event) = Event::from_str(line, self.pubky_client.clone())? {
                 debug!("Processing event: {:?}", event);
-                let result = event.handle().await;
-
-                if let Err(e) = result {
-                    error!("Error while handling event: {}", e);
-                }
+                self.handle_event_with_retry(event).await?;
             }
         }
 
         Ok(())
+    }
+
+    // Generic retry on event handler
+    async fn handle_event_with_retry(
+        &self,
+        event: Event,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let mut attempts = 0;
+        loop {
+            match event.clone().handle().await {
+                Ok(_) => break Ok(()),
+                Err(e) => {
+                    attempts += 1;
+                    if attempts >= MAX_RETRIES {
+                        error!(
+                            "Error while handling event after {} attempts: {}",
+                            attempts, e
+                        );
+                        break Err(e);
+                    } else {
+                        error!(
+                            "Error while handling event: {}. Retrying attempt {}/{}",
+                            e, attempts, MAX_RETRIES
+                        );
+                        // Optionally, add a delay between retries
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                    }
+                }
+            }
+        }
     }
 }
