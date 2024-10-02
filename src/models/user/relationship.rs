@@ -1,5 +1,4 @@
-use super::{Followers, UserCounts};
-use crate::RedisOps;
+use super::{Followers, UserCounts, UserFollows};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -48,12 +47,9 @@ impl Relationship {
             return Ok(None);
         }
 
-        let user_key = [user_id];
-        let viewer_key = [viewer_id];
-        // Concurrently check if the viewer follows the user and if the user follows the viewer
-        let ((_user_id_followers_exist, following), (_viewer_id_followers_exist, followed_by)) = tokio::try_join!(
-            Followers::check_set_member(&user_key, viewer_id),
-            Followers::check_set_member(&viewer_key, user_id)
+        let (following, followed_by) = tokio::try_join!(
+            Followers::check(user_id, viewer_id),
+            Followers::check(viewer_id, user_id)
         )?;
 
         Ok(Some(Self {
