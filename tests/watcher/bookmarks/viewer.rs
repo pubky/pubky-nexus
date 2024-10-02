@@ -1,3 +1,4 @@
+use super::utils::find_post_bookmark;
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
@@ -6,26 +7,24 @@ use pubky_nexus::models::{
     pubky_app::{traits::GenerateHashId, PubkyAppBookmark, PubkyAppPost, PubkyAppUser},
 };
 
-use super::utils::find_post_bookmark;
-
 #[tokio::test]
-async fn test_homeserver_bookmark() -> Result<()> {
+async fn test_homeserver_viewer_bookmark() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Step 1: Create a user
     let keypair = Keypair::random();
     let user = PubkyAppUser {
-        bio: Some("test_homeserver_bookmark".to_string()),
+        bio: Some("test_homeserver_viewer_bookmark".to_string()),
         image: None,
         links: None,
-        name: "Watcher:Bookmark:User".to_string(),
+        name: "Watcher:ViewerBookmark:User".to_string(),
         status: None,
     };
     let user_id = test.create_user(&keypair, &user).await?;
 
     // Step 2: Create a post under that user
     let post = PubkyAppPost {
-        content: "Watcher:Bookmark:User:Post".to_string(),
+        content: "Watcher:ViewerBookmark:User:Post".to_string(),
         kind: PubkyAppPost::default().kind,
         parent: None,
         embed: None,
@@ -33,6 +32,17 @@ async fn test_homeserver_bookmark() -> Result<()> {
     let post_id = test.create_post(&user_id, &post).await?;
 
     // Step 3: Add a bookmark to the post. Before create a new user
+    let viewer_keypair = Keypair::random();
+
+    let viewer_user = PubkyAppUser {
+        bio: Some("test_homeserver_viewer_bookmark".to_string()),
+        image: None,
+        links: None,
+        name: "Watcher:ViewerBookmark:Viewer".to_string(),
+        status: None,
+    };
+    let viewer_id = test.create_user(&viewer_keypair, &viewer_user).await?;
+
     let bookmark = PubkyAppBookmark {
         uri: format!("pubky://{}/pub/pubky.app/posts/{}", user_id, post_id),
         created_at: chrono::Utc::now().timestamp_millis(),
@@ -41,7 +51,7 @@ async fn test_homeserver_bookmark() -> Result<()> {
     let bookmark_id = bookmark.create_id();
     let bookmark_url = format!(
         "pubky://{}/pub/pubky.app/bookmarks/{}",
-        user_id, bookmark_id
+        viewer_id, bookmark_id
     );
 
     // Put bookmark
@@ -51,13 +61,13 @@ async fn test_homeserver_bookmark() -> Result<()> {
 
     // Step 4: Verify the bookmark exists in Nexus
     // GRAPH_OP: Assert if the event writes the graph
-    let user_bookmark = find_post_bookmark(&user_id, &post_id, &user_id)
+    let viewer_bookmark = find_post_bookmark(&user_id, &post_id, &viewer_id)
         .await
         .unwrap();
-    assert_eq!(user_bookmark.id, bookmark_id);
+    assert_eq!(viewer_bookmark.id, bookmark_id);
 
     // INDEX_OP: Assert if the event writes the indexes
-    let result_bookmarks = PostStream::get_bookmarked_posts(&user_id, None, None)
+    let result_bookmarks = PostStream::get_bookmarked_posts(&viewer_id, None, None)
         .await
         .unwrap()
         .expect("The bookmark should have been created");
@@ -70,7 +80,7 @@ async fn test_homeserver_bookmark() -> Result<()> {
     test.ensure_event_processing_complete().await?;
 
     // Step 6: Verify the bookmark has been deleted
-    // let _result_bookmarks_after_delete = PostStream::get_bookmarked_posts(&user_id, None, None)
+    // let _result_bookmarks_after_delete = PostStream::get_bookmarked_posts(&viewer_id, None, None)
     //     .await
     //     .unwrap();
     // TODO: handle delete bookmark from Redis
@@ -82,6 +92,7 @@ async fn test_homeserver_bookmark() -> Result<()> {
     // Cleanup user and post
     test.cleanup_post(&user_id, &post_id).await?;
     test.cleanup_user(&user_id).await?;
+    test.cleanup_user(&viewer_id).await?;
 
     Ok(())
 }

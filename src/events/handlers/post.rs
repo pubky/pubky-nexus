@@ -51,7 +51,7 @@ pub async fn sync_put(
         .put_to_index(&author_id, &post_id)
         .await?;
     // Update user counts with the new post
-    UserCounts::update_index_field(&author_id, "posts", JsonAction::Increment(1)).await?;
+    UserCounts::update(&author_id, "posts", JsonAction::Increment(1)).await?;
 
     let mut interaction_url: (Option<String>, Option<String>) = (None, None);
 
