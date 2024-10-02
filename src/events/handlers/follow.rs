@@ -45,7 +45,7 @@ pub async fn sync_put(
 
     // Update UserCount related indexes
     UserCounts::update_index_field(&follower_id, "following", JsonAction::Increment(1)).await?;
-    UserCounts::update_index_field(&followee_id, "followers", JsonAction::Increment(1)).await?;
+    UserCounts::update(&followee_id, "followers", JsonAction::Increment(1)).await?;
 
     // Checks whether the followee was following the follower (Is this a new friendship?)
     let new_friend = Followers::check(&follower_id, &followee_id).await?;

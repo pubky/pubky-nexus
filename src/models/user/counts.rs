@@ -89,8 +89,18 @@ impl UserCounts {
         action: JsonAction,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Self::modify_json_field(&[author_id], field, action).await?;
+        Ok(())
+    }
+
+    pub async fn update(
+        author_id: &str,
+        field: &str,
+        action: JsonAction,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Update user counts index
+        Self::update_index_field(author_id, field, action).await?;
         // Just update pioneer and most followed indexes, when that fields are updated
-        if field == "followers" && field == "tag" && field == "posts" {
+        if field == "followers" || field == "tags" || field == "posts" {
             let exist_count = Self::get_from_index(author_id).await?;
             if let Some(user_counts) = exist_count {
                 UserStream::add_to_pioneers_sorted_set(author_id, &user_counts).await?;
