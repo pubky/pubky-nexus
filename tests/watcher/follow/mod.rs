@@ -1,5 +1,6 @@
 mod friends;
 mod notification;
-mod raw;
+mod put;
 mod sequential;
 mod utils;
+mod del;

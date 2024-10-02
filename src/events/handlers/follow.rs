@@ -1,13 +1,10 @@
-use crate::db::graph::exec::exec_single_row;
 use crate::db::kv::index::json::JsonAction;
 use crate::models::notification::Notification;
 use crate::models::pubky_app::traits::Validatable;
 use crate::models::pubky_app::PubkyAppFollow;
-use crate::models::user::{Followers, Following, Friends};
+use crate::models::user::{Followers, Following};
 use crate::models::user::{PubkyId, UserCounts, UserFollows};
-use crate::{queries, RedisOps};
 use axum::body::Bytes;
-use chrono::Utc;
 use log::debug;
 use std::error::Error;
 
@@ -29,12 +26,9 @@ pub async fn sync_put(
     followee_id: PubkyId,
 ) -> Result<(), Box<dyn Error + Sync + Send>> {
     // SAVE TO GRAPH
-    let indexed_at = Utc::now().timestamp_millis();
-    let query = queries::write::create_follow(&follower_id, &followee_id, indexed_at);
-    exec_single_row(query).await?;
+    Followers::put_to_graph(&follower_id, &followee_id).await?;
 
     // SAVE TO INDEX
-    // Update follow indexes
     // (follower_id)-[:FOLLOWS]->(followee_id)
     Followers(vec![follower_id.to_string()])
         .put_to_index(&followee_id)
@@ -43,16 +37,7 @@ pub async fn sync_put(
         .put_to_index(&follower_id)
         .await?;
 
-    // Update UserCount related indexes
-    UserCounts::update_index_field(&follower_id, "following", JsonAction::Increment(1)).await?;
-    UserCounts::update(&followee_id, "followers", JsonAction::Increment(1)).await?;
-
-    // Checks whether the followee was following the follower (Is this a new friendship?)
-    let new_friend = Followers::check(&follower_id, &followee_id).await?;
-    if new_friend {
-        UserCounts::update_index_field(&follower_id, "friends", JsonAction::Increment(1)).await?;
-        UserCounts::update_index_field(&followee_id, "friends", JsonAction::Increment(1)).await?;
-    }
+    let new_friend = update_follows_counts(&follower_id, &followee_id, JsonAction::Increment(1)).await?;
 
     // Notify the followee
     Notification::new_follow(&follower_id, &followee_id, new_friend).await?;
@@ -65,24 +50,48 @@ pub async fn del(
     followee_id: PubkyId,
 ) -> Result<(), Box<dyn Error + Sync + Send>> {
     debug!("Deleting follow: {} -> {}", follower_id, followee_id);
+    // Maybe we could do it here but lets follow the naming convention 
+    sync_del(follower_id, followee_id).await
+    
+}
 
-    // Delete the follow relationship from Neo4j
-    let query = queries::write::delete_follow(&follower_id, &followee_id);
-    exec_single_row(query).await?;
+pub async fn sync_del(
+    follower_id: PubkyId,
+    followee_id: PubkyId,
+) -> Result<(), Box<dyn Error + Sync + Send>> {
+    // DELETE FROM GRAPH
+    Followers::del_from_graph(&follower_id, &followee_id).await?;
 
-    // Checks whether the follower and followee were friends
-    let were_friends = Friends::check(&followee_id, &follower_id).await?;
-
-    // Update follow indexes
+    // REMOVE FROM INDEX
     Following(vec![followee_id.to_string()])
-        .remove_from_index_set(&[&follower_id])
+        .del_from_index(&follower_id)
         .await?;
     Followers(vec![follower_id.to_string()])
-        .remove_from_index_set(&[&followee_id])
+        .del_from_index(&followee_id)
         .await?;
+
+    let were_friends = update_follows_counts(&follower_id, &followee_id, JsonAction::Decrement(1)).await?;
 
     // Notify the followee
     Notification::lost_follow(&follower_id, &followee_id, were_friends).await?;
 
     Ok(())
+}
+
+async fn update_follows_counts(
+    follower_id: &str,
+    followee_id: &str,
+    counter: JsonAction
+) -> Result<bool, Box<dyn Error + Sync + Send>> {
+    // Update UserCount related indexes
+    UserCounts::update_index_field(&follower_id, "following", counter.clone()).await?;
+    UserCounts::update(&followee_id, "followers", counter.clone()).await?;
+
+    // Checks whether the followee was following the follower (Is this a new friendship?)
+    let are_friends = Followers::check(&follower_id, &followee_id).await?;
+    if are_friends {
+        UserCounts::update_index_field(&follower_id, "friends", counter.clone()).await?;
+        UserCounts::update_index_field(&followee_id, "friends", counter.clone()).await?;
+    }
+    Ok(are_friends)
 }

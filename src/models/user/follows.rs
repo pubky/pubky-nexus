@@ -1,6 +1,8 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
+use crate::db::graph::exec::exec_single_row;
 use crate::{queries, RedisOps};
 use axum::async_trait;
+use chrono::Utc;
 use neo4rs::Query;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
@@ -9,6 +11,15 @@ use utoipa::ToSchema;
 #[async_trait]
 pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
     fn from_vec(vec: Vec<String>) -> Self;
+
+    async fn put_to_graph(
+        follower_id: &str,
+        followee_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let indexed_at = Utc::now().timestamp_millis();
+        let query = queries::write::create_follow(&follower_id, &followee_id, indexed_at);
+        exec_single_row(query).await
+    }
 
     async fn get_by_id(
         user_id: &str,
@@ -88,6 +99,21 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
             ),
         }
         Ok(())
+    }
+
+    async fn del_from_graph(
+        follower_id: &str,
+        followee_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let query = queries::write::delete_follow(follower_id, followee_id);
+        exec_single_row(query).await
+    }
+
+    async fn del_from_index(
+        &self,
+        user_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.remove_from_index_set(&[user_id]).await
     }
 
     fn get_query(user_id: &str, skip: Option<usize>, limit: Option<usize>) -> Query;
