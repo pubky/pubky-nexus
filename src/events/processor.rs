@@ -22,7 +22,7 @@ impl EventProcessor {
         config: &Config,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let pubky_client = Self::init_pubky_client(config);
-        let homeserver = Self::init_homeserver(config).await?;
+        let homeserver = Homeserver::from_config(config).await?;
         let limit = config.events_limit;
 
         info!(
@@ -50,48 +50,10 @@ impl EventProcessor {
         }
     }
 
-    async fn init_homeserver(
-        config: &Config,
-    ) -> Result<Homeserver, Box<dyn std::error::Error + Send + Sync>> {
-        let homeserver_id = config.homeserver.clone();
-        let homeserver_url = config.homeserver_url.clone();
-
-        // Create a PubkyId from the homeserver public key
-        let id = PubkyId::try_from(&homeserver_id)?;
-
-        // Attempt to load the homeserver cursor from Redis
-        let homeserver = match Homeserver::get_from_index(&id).await? {
-            Some(mut hs) => {
-                // If the URL has changed in the config, update it
-                if hs.url != homeserver_url {
-                    hs.url = homeserver_url;
-                    hs.put_to_index().await?;
-                }
-                hs
-            }
-            None => {
-                // Create a new Homeserver instance with default cursor
-                let hs = Homeserver {
-                    id,
-                    url: homeserver_url,
-                    cursor: "0000000000000".to_string(),
-                };
-                hs.put_to_index().await?;
-                hs
-            }
-        };
-
-        Ok(homeserver)
-    }
-
     pub async fn test(testnet: &Testnet, homeserver_url: String) -> Self {
         let mut id = PubkyId::default();
         id.0 = "test".to_string();
-        let homeserver = Homeserver {
-            id,
-            url: homeserver_url,
-            cursor: "0000000000000".to_string(),
-        };
+        let homeserver = Homeserver::new(id, homeserver_url).await.unwrap();
         Self {
             pubky_client: PubkyClient::builder().testnet(testnet).build(),
             http_client: Client::new(),
