@@ -11,17 +11,17 @@ use pubky_nexus::{
 };
 
 #[tokio::test]
-async fn test_homeserver_del_follow() -> Result<()> {
+async fn test_homeserver_unfollow() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Create first user (follower)
     let follower_keypair = Keypair::random();
 
     let follower_user = PubkyAppUser {
-        bio: Some("test_homeserver_raw_follow".to_string()),
+        bio: Some("test_homeserver_unfollow".to_string()),
         image: None,
         links: None,
-        name: "Watcher:Follow:Follower".to_string(),
+        name: "Watcher:Unfollow:Follower".to_string(),
         status: None,
     };
     let follower_id = test
@@ -32,10 +32,10 @@ async fn test_homeserver_del_follow() -> Result<()> {
     // Create second user (followee)
     let followee_keypair = Keypair::random();
     let followee_user = PubkyAppUser {
-        bio: Some("test_homeserver_raw_follow".to_string()),
+        bio: Some("test_homeserver_unfollow".to_string()),
         image: None,
         links: None,
-        name: "Watcher:Follow:Followee".to_string(),
+        name: "Watcher:Unfollow:Followee".to_string(),
         status: None,
     };
     let followee_id = test
@@ -44,19 +44,15 @@ async fn test_homeserver_del_follow() -> Result<()> {
         .unwrap();
 
     // Follow the followee
-    test.create_follow(&follower_id, &followee_id).await?;
+    let follow_url = test.create_follow(&follower_id, &followee_id).await?;
 
     // Unfollow the followee
-    test.delete_follow(&follower_id, &followee_id).await?;
+    test.delete_follow(&follow_url).await?;
 
     // GRAPH_OP: Check if relationship was deleted
-    let exist = find_follow_relationship(&follower_id, &followee_id).await;
+    let exist = find_follow_relationship(&follower_id, &followee_id).await.unwrap();
 
-    if let Ok(exist) = exist {
-        assert!(!exist, "The follow edge not removed")
-    } else {
-        println!("Deleted the follow edge");
-    }
+    assert!(!exist, "The follow edge not removed");
 
     // CACHE_OP: Assert the new follower relationship does not exist in the index
     let (_exist, member) = Followers::check_set_member(&[&followee_id], &follower_id)
