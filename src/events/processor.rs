@@ -1,7 +1,8 @@
-use std::time::Duration;
-
 use super::Event;
-use crate::Config;
+use crate::{
+    models::{homeserver::Homeserver, user::PubkyId},
+    Config,
+};
 use log::{debug, error, info};
 use pkarr::mainline::dht::Testnet;
 use pubky::PubkyClient;
@@ -12,39 +13,50 @@ const MAX_RETRIES: usize = 3;
 pub struct EventProcessor {
     pubky_client: PubkyClient,
     http_client: Client,
-    homeserver_url: String, // Ideally should only need the homeserver_pk
-    cursor: String,
+    homeserver: Homeserver,
     limit: u32,
 }
 
 impl EventProcessor {
-    pub async fn from_config(config: &Config) -> Self {
-        let pubky_client = match config.testnet {
-            true => {
-                let testnet = Testnet {
-                    bootstrap: vec![config.bootstrap.clone()],
-                    nodes: vec![],
-                };
-                PubkyClient::test(&testnet)
-            }
-            false => PubkyClient::default(),
-        };
+    pub async fn from_config(
+        config: &Config,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let pubky_client = Self::init_pubky_client(config);
+        let homeserver = Homeserver::from_config(config).await?;
+        let limit = config.events_limit;
 
-        Self {
+        info!(
+            "Initialized Event Processor for homeserver: {:?}",
+            homeserver
+        );
+
+        Ok(Self {
             pubky_client,
             http_client: Client::new(),
-            homeserver_url: config.homeserver_url.clone(),
-            cursor: "0000000000000".to_string(),
-            limit: config.events_limit,
+            homeserver,
+            limit,
+        })
+    }
+
+    fn init_pubky_client(config: &Config) -> PubkyClient {
+        if config.testnet {
+            let testnet = Testnet {
+                bootstrap: vec![config.bootstrap.clone()],
+                nodes: vec![],
+            };
+            PubkyClient::test(&testnet)
+        } else {
+            PubkyClient::default()
         }
     }
 
     pub async fn test(testnet: &Testnet, homeserver_url: String) -> Self {
+        let id = PubkyId("test".to_string());
+        let homeserver = Homeserver::new(id, homeserver_url).await.unwrap();
         Self {
             pubky_client: PubkyClient::builder().testnet(testnet).build(),
             http_client: Client::new(),
-            homeserver_url,
-            cursor: "0000000000000".to_string(),
+            homeserver,
             limit: 100,
         }
     }
@@ -63,7 +75,7 @@ impl EventProcessor {
             .http_client
             .get(format!(
                 "{}/events/?cursor={}&limit={}",
-                self.homeserver_url, self.cursor, self.limit
+                self.homeserver.url, self.homeserver.cursor, self.limit
             ))
             .send()
             .await?
@@ -88,7 +100,8 @@ impl EventProcessor {
         for line in &lines {
             if line.starts_with("cursor:") {
                 if let Some(cursor) = line.strip_prefix("cursor: ") {
-                    self.cursor = cursor.to_string();
+                    self.homeserver.cursor = cursor.to_string();
+                    self.homeserver.put_to_index().await?;
                     info!("Cursor for the next request: {}", cursor);
                 }
             } else if let Some(event) = Event::from_str(line, self.pubky_client.clone())? {
@@ -116,14 +129,14 @@ impl EventProcessor {
                             "Error while handling event after {} attempts: {}",
                             attempts, e
                         );
-                        break Err(e);
+                        break Ok(());
                     } else {
                         error!(
                             "Error while handling event: {}. Retrying attempt {}/{}",
                             e, attempts, MAX_RETRIES
                         );
                         // Optionally, add a delay between retries
-                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        // tokio::time::sleep(Duration::from_millis(100)).await;
                     }
                 }
             }
