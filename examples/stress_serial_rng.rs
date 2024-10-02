@@ -20,15 +20,15 @@ use std::collections::HashSet;
 use std::time::Instant;
 
 // Configuration constants
-static NUM_USERS: usize = 1000;
+static NUM_USERS: usize = 2000;
 static SEED: u64 = 42;
 
 // Adjusted distribution parameters
-const POSTS_MU: f64 = 1.7889; // Adjusted for mean ≈ 40
+const POSTS_MU: f64 = 1.7; // Adjust for mean ≈ 40
 const POSTS_SIGMA: f64 = 2.0;
-const FOLLOWS_MU: f64 = 1.6835; // Adjusted for mean ≈ 36
+const FOLLOWS_MU: f64 = 2.3; // Adjust for mean ≈ 36
 const FOLLOWS_SIGMA: f64 = 2.0;
-const TAGS_MU: f64 = 3.1689; // Adjusted for mean ≈ 159
+const TAGS_MU: f64 = 3.3; // Adjust for mean ≈ 159
 const TAGS_SIGMA: f64 = 2.0;
 
 // Maximum values to cap the numbers
