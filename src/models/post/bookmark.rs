@@ -1,4 +1,5 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
+use crate::db::graph::exec::exec_single_row;
 use crate::{queries, RedisOps};
 use neo4rs::Relation;
 use serde::{Deserialize, Serialize};
@@ -15,6 +16,23 @@ pub struct Bookmark {
 impl RedisOps for Bookmark {}
 
 impl Bookmark {
+
+    pub async fn put_to_graph(
+        author_id: &str,
+        post_id: &str,
+        user_id: &str,
+        bookmark_id: &str, 
+        indexed_at: i64
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let query = queries::write::create_post_bookmark(
+            &user_id,
+            author_id.as_ref(),
+            &post_id,
+            &bookmark_id,
+            indexed_at,
+        );
+        exec_single_row(query).await
+    }
     /// Retrieves counts by user ID, first trying to get from Redis, then from Neo4j if not found.
     pub async fn get_by_id(
         author_id: &str,
@@ -118,4 +136,21 @@ impl Bookmark {
         }
         Ok(())
     }
+
+    pub async fn del_from_graph(
+        user_id: &str,
+        bookmark_id: &str
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let query = queries::write::delete_bookmark(&user_id, &bookmark_id);
+        exec_single_row(query).await
+    }
+
+    // pub async fn del_from_index(
+
+    // ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    //     self.put_index_json(&[author_id, post_id, viewer_id])
+    //         .await?;
+    //     PostStream::add_to_bookmarks_sorted_set(self, viewer_id, post_id, author_id).await?;
+    //     Ok(())
+    // }
 }

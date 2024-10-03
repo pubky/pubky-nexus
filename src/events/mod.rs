@@ -175,7 +175,11 @@ impl Event {
             ResourceType::Bookmark {
                 user_id,
                 bookmark_id,
-            } => handlers::bookmark::del(user_id, bookmark_id).await?,
+            } => {
+                let parsed_uri = ParsedUri::try_from(self.uri.as_str()).unwrap_or_default();
+                println!("Bookmark, ParsedUri: {:?}", parsed_uri);
+                handlers::bookmark::del(user_id, bookmark_id).await?
+            },
             ResourceType::Tag { user_id, tag_id } => handlers::tag::del(user_id, tag_id).await?,
             ResourceType::File { user_id, file_id } => {
                 handlers::file::del(&user_id, file_id).await?
