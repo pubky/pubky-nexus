@@ -37,7 +37,8 @@ pub async fn sync_put(
         .put_to_index(&follower_id)
         .await?;
 
-    let new_friend = update_follows_counts(&follower_id, &followee_id, JsonAction::Increment(1)).await?;
+    let new_friend =
+        update_follows_counts(&follower_id, &followee_id, JsonAction::Increment(1)).await?;
 
     // Notify the followee
     Notification::new_follow(&follower_id, &followee_id, new_friend).await?;
@@ -50,9 +51,8 @@ pub async fn del(
     followee_id: PubkyId,
 ) -> Result<(), Box<dyn Error + Sync + Send>> {
     debug!("Deleting follow: {} -> {}", follower_id, followee_id);
-    // Maybe we could do it here but lets follow the naming convention 
+    // Maybe we could do it here but lets follow the naming convention
     sync_del(follower_id, followee_id).await
-    
 }
 
 pub async fn sync_del(
@@ -70,7 +70,8 @@ pub async fn sync_del(
         .del_from_index(&followee_id)
         .await?;
 
-    let were_friends = update_follows_counts(&follower_id, &followee_id, JsonAction::Decrement(1)).await?;
+    let were_friends =
+        update_follows_counts(&follower_id, &followee_id, JsonAction::Decrement(1)).await?;
 
     // Notify the followee
     Notification::lost_follow(&follower_id, &followee_id, were_friends).await?;
@@ -81,17 +82,17 @@ pub async fn sync_del(
 async fn update_follows_counts(
     follower_id: &str,
     followee_id: &str,
-    counter: JsonAction
+    counter: JsonAction,
 ) -> Result<bool, Box<dyn Error + Sync + Send>> {
     // Update UserCount related indexes
-    UserCounts::update_index_field(&follower_id, "following", counter.clone()).await?;
-    UserCounts::update(&followee_id, "followers", counter.clone()).await?;
+    UserCounts::update_index_field(follower_id, "following", counter.clone()).await?;
+    UserCounts::update(followee_id, "followers", counter.clone()).await?;
 
     // Checks whether the followee was following the follower (Is this a new friendship?)
-    let are_friends = Followers::check(&follower_id, &followee_id).await?;
+    let are_friends = Followers::check(follower_id, followee_id).await?;
     if are_friends {
-        UserCounts::update_index_field(&follower_id, "friends", counter.clone()).await?;
-        UserCounts::update_index_field(&followee_id, "friends", counter.clone()).await?;
+        UserCounts::update_index_field(follower_id, "friends", counter.clone()).await?;
+        UserCounts::update_index_field(followee_id, "friends", counter.clone()).await?;
     }
     Ok(are_friends)
 }

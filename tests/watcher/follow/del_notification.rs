@@ -33,7 +33,7 @@ async fn test_homeserver_unfollow_notification() -> Result<()> {
         status: None,
     };
     let followee_id = test.create_user(&followee_keypair, &followee_user).await?;
-    
+
     // Step 3: Follower follows the followee
     let follow_uri = test.create_follow(&follower_id, &followee_id).await?;
     // Step 4: Followee follows the follower back. To get notification of unfollow, users has to be friends

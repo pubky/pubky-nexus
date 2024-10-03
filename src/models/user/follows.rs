@@ -17,7 +17,7 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
         followee_id: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let indexed_at = Utc::now().timestamp_millis();
-        let query = queries::write::create_follow(&follower_id, &followee_id, indexed_at);
+        let query = queries::write::create_follow(follower_id, followee_id, indexed_at);
         exec_single_row(query).await
     }
 

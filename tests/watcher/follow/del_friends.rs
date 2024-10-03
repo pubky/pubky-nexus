@@ -72,7 +72,10 @@ async fn test_homeserver_unfollow_friend() -> Result<()> {
         relationship.following,
         "Followee should be still following Follower"
     );
-    assert!(!relationship.followed_by, "Follower should not be following Followee");
+    assert!(
+        !relationship.followed_by,
+        "Follower should not be following Followee"
+    );
 
     test.delete_follow(&follow_back_uri).await?;
 
@@ -81,7 +84,7 @@ async fn test_homeserver_unfollow_friend() -> Result<()> {
         .await
         .unwrap();
     assert!(!exist, "The follow edge not removed");
-    
+
     // CACHE_OP: Assert if cache has been updated
     let follower_count = UserCounts::try_from_index_json(&[&follower_id])
         .await
@@ -110,7 +113,10 @@ async fn test_homeserver_unfollow_friend() -> Result<()> {
         !relationship.following,
         "Followee should not be following Follower"
     );
-    assert!(!relationship.followed_by, "Follower should not be following Followee");
+    assert!(
+        !relationship.followed_by,
+        "Follower should not be following Followee"
+    );
 
     // Cleanup
     test.cleanup_user(&follower_id).await?;

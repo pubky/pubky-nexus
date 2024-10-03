@@ -50,7 +50,9 @@ async fn test_homeserver_unfollow() -> Result<()> {
     test.delete_follow(&follow_url).await?;
 
     // GRAPH_OP: Check if relationship was deleted
-    let exist = find_follow_relationship(&follower_id, &followee_id).await.unwrap();
+    let exist = find_follow_relationship(&follower_id, &followee_id)
+        .await
+        .unwrap();
 
     assert!(!exist, "The follow edge not removed");
 
@@ -58,19 +60,25 @@ async fn test_homeserver_unfollow() -> Result<()> {
     let (_exist, member) = Followers::check_set_member(&[&followee_id], &follower_id)
         .await
         .unwrap();
-    assert!(!member, "Followee user index cannot have Follower user in the followers list");
+    assert!(
+        !member,
+        "Followee user index cannot have Follower user in the followers list"
+    );
 
     let (_exist, member) = Following::check_set_member(&[&follower_id], &followee_id)
         .await
         .unwrap();
-    assert!(!member, "Follower user index cannot have Followee user in the following list");
+    assert!(
+        !member,
+        "Follower user index cannot have Followee user in the following list"
+    );
 
     // Check the relationship
     let relationship = Relationship::get_by_id(&followee_id, Some(&follower_id))
         .await
         .unwrap()
         .expect("Something went wrong");
-    
+
     assert!(
         !relationship.following,
         "Follower cannot be following Followee"
