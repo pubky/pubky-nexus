@@ -2,7 +2,7 @@ use crate::db::kv::index::json::JsonAction;
 use crate::models::notification::Notification;
 use crate::models::pubky_app::traits::Validatable;
 use crate::models::pubky_app::PubkyAppFollow;
-use crate::models::user::{Followers, Following};
+use crate::models::user::{Followers, Following, Friends};
 use crate::models::user::{PubkyId, UserCounts, UserFollows};
 use axum::body::Bytes;
 use log::debug;
@@ -14,10 +14,8 @@ pub async fn put(
     blob: Bytes,
 ) -> Result<(), Box<dyn Error + Sync + Send>> {
     debug!("Indexing new follow: {} -> {}", follower_id, followee_id);
-
     // TODO: Deserialize and validate content of follow data (not needed, but we could validate the timestamp)
     let _follow = <PubkyAppFollow as Validatable>::try_from(&blob).await?;
-
     sync_put(follower_id, followee_id).await
 }
 
@@ -26,22 +24,32 @@ pub async fn sync_put(
     followee_id: PubkyId,
 ) -> Result<(), Box<dyn Error + Sync + Send>> {
     // SAVE TO GRAPH
+    // (follower_id)-[:FOLLOWS]->(followee_id)
     Followers::put_to_graph(&follower_id, &followee_id).await?;
 
+    // Checks whether the followee was following the follower (Is this a new friendship?)
+    let will_be_friends = is_followee_following_follower(&follower_id, &followee_id).await?;
+
     // SAVE TO INDEX
-    // (follower_id)-[:FOLLOWS]->(followee_id)
+    // Add new follower to the followee index
     Followers(vec![follower_id.to_string()])
         .put_to_index(&followee_id)
         .await?;
+    // Add in the Following:follower_id index a followee user
     Following(vec![followee_id.to_string()])
         .put_to_index(&follower_id)
         .await?;
 
-    let new_friend =
-        update_follows_counts(&follower_id, &followee_id, JsonAction::Increment(1)).await?;
+    update_follow_counts(
+        &follower_id,
+        &followee_id,
+        JsonAction::Increment(1),
+        will_be_friends,
+    )
+    .await?;
 
     // Notify the followee
-    Notification::new_follow(&follower_id, &followee_id, new_friend).await?;
+    Notification::new_follow(&follower_id, &followee_id, will_be_friends).await?;
 
     Ok(())
 }
@@ -61,17 +69,26 @@ pub async fn sync_del(
 ) -> Result<(), Box<dyn Error + Sync + Send>> {
     // DELETE FROM GRAPH
     Followers::del_from_graph(&follower_id, &followee_id).await?;
+    // Check if that users are friends. Is this a break? :(
+    let were_friends = Friends::check(&follower_id, &followee_id).await?;
 
     // REMOVE FROM INDEX
-    Following(vec![followee_id.to_string()])
-        .del_from_index(&follower_id)
-        .await?;
+    // Remove a follower to the followee index
     Followers(vec![follower_id.to_string()])
         .del_from_index(&followee_id)
         .await?;
+    // Remove from the Following:follower_id index a followee user
+    Following(vec![followee_id.to_string()])
+        .del_from_index(&follower_id)
+        .await?;
 
-    let were_friends =
-        update_follows_counts(&follower_id, &followee_id, JsonAction::Decrement(1)).await?;
+    update_follow_counts(
+        &follower_id,
+        &followee_id,
+        JsonAction::Decrement(1),
+        were_friends,
+    )
+    .await?;
 
     // Notify the followee
     Notification::lost_follow(&follower_id, &followee_id, were_friends).await?;
@@ -79,20 +96,32 @@ pub async fn sync_del(
     Ok(())
 }
 
-async fn update_follows_counts(
+async fn update_follow_counts(
     follower_id: &str,
     followee_id: &str,
     counter: JsonAction,
-) -> Result<bool, Box<dyn Error + Sync + Send>> {
+    update_friend_relationship: bool,
+) -> Result<(), Box<dyn Error + Sync + Send>> {
     // Update UserCount related indexes
     UserCounts::update_index_field(follower_id, "following", counter.clone()).await?;
     UserCounts::update(followee_id, "followers", counter.clone()).await?;
 
-    // Checks whether the followee was following the follower (Is this a new friendship?)
-    let are_friends = Followers::check(follower_id, followee_id).await?;
-    if are_friends {
+    if update_friend_relationship {
         UserCounts::update_index_field(follower_id, "friends", counter.clone()).await?;
         UserCounts::update_index_field(followee_id, "friends", counter.clone()).await?;
     }
-    Ok(are_friends)
+    Ok(())
+}
+
+pub async fn is_followee_following_follower(
+    user_a_id: &str,
+    user_b_id: &str,
+) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    let (a_follows_b, b_follows_a) = tokio::try_join!(
+        Following::check(user_a_id, user_b_id),
+        Following::check(user_b_id, user_a_id),
+    )?;
+    // Cannot exist any previous relationship between A and B. If not, it would be duplicate event
+    // (A)-[:FOLLOWS]->(B)
+    Ok(!a_follows_b && b_follows_a)
 }
