@@ -65,8 +65,11 @@ async fn test_homeserver_bookmark() -> Result<()> {
     assert_eq!(result_bookmarks.0.len(), 1);
     assert_eq!(result_bookmarks.0[0].details.id, post_id);
 
-    let exist_bookmark = Bookmark::get_from_index(&user_id, &post_id, &user_id).await.unwrap();
+    let exist_bookmark = Bookmark::get_from_index(&user_id, &post_id, &user_id)
+        .await
+        .unwrap();
     assert!(exist_bookmark.is_some(), "The bookmark has to be indexed");
+    
     let bookmark = exist_bookmark.unwrap();
     assert_eq!(bookmark.id, bookmark_id, "Bookmark ids does not match");
 

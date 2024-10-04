@@ -90,10 +90,7 @@ impl WatcherTest {
         Ok(())
     }
 
-    pub async fn delete_bookmark(
-        &mut self,
-        bookmark_url: &str
-    ) -> Result<()> {
+    pub async fn delete_bookmark(&mut self, bookmark_url: &str) -> Result<()> {
         self.client.delete(bookmark_url).await?;
         self.ensure_event_processing_complete().await
     }

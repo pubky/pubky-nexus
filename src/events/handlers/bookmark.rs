@@ -39,10 +39,7 @@ pub async fn sync_put(
     Bookmark::put_to_graph(&author_id, &post_id, &user_id, &id, indexed_at).await?;
 
     // SAVE TO INDEX
-    let bookmark_details = Bookmark {
-        id,
-        indexed_at,
-    };
+    let bookmark_details = Bookmark { id, indexed_at };
     bookmark_details
         .put_to_index(&author_id, &post_id, &user_id)
         .await?;
@@ -63,7 +60,7 @@ pub async fn sync_del(
 ) -> Result<(), Box<dyn Error + Sync + Send>> {
     // DELETE FROM GRAPH
     let deleted_bookmark_info = Bookmark::del_from_graph(&user_id, &bookmark_id).await?;
-    
+
     if deleted_bookmark_info.is_some() {
         let (post_id, author_id) = deleted_bookmark_info.unwrap();
         // DELETE FROM INDEXes

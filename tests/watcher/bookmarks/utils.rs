@@ -1,7 +1,11 @@
 use anyhow::Result;
 use pubky_nexus::{get_neo4j_graph, models::post::Bookmark, queries};
 
-pub async fn find_post_bookmark(author: &str, post_id: &str, bookmarker_id: &str) -> Result<Bookmark> {
+pub async fn find_post_bookmark(
+    author: &str,
+    post_id: &str,
+    bookmarker_id: &str,
+) -> Result<Bookmark> {
     let mut row_stream;
     {
         let graph = get_neo4j_graph().unwrap();

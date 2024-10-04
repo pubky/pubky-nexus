@@ -16,19 +16,18 @@ pub struct Bookmark {
 impl RedisOps for Bookmark {}
 
 impl Bookmark {
-
     pub async fn put_to_graph(
         author_id: &str,
         post_id: &str,
         user_id: &str,
-        bookmark_id: &str, 
-        indexed_at: i64
+        bookmark_id: &str,
+        indexed_at: i64,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let query = queries::write::create_post_bookmark(
-            &user_id,
-            author_id.as_ref(),
-            &post_id,
-            &bookmark_id,
+            user_id,
+            author_id,
+            post_id,
+            bookmark_id,
             indexed_at,
         );
         exec_single_row(query).await
@@ -139,12 +138,12 @@ impl Bookmark {
 
     pub async fn del_from_graph(
         user_id: &str,
-        bookmark_id: &str
+        bookmark_id: &str,
     ) -> Result<Option<(String, String)>, Box<dyn std::error::Error + Send + Sync>> {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
-            let query = queries::write::delete_bookmark(&user_id, &bookmark_id);
+            let query = queries::write::delete_bookmark(user_id, bookmark_id);
 
             let graph = graph.lock().await;
             result = graph.execute(query).await?;
@@ -153,8 +152,8 @@ impl Bookmark {
         while let Some(row) = result.next().await? {
             let post_id: Option<String> = row.get("post_id").unwrap_or(None);
             let author_id: Option<String> = row.get("author_id").unwrap_or(None);
-            if post_id.is_some() && author_id.is_some() {
-                return Ok(Some((post_id.unwrap(), author_id.unwrap())));
+            if let (Some(post_id), Some(author_id)) = (post_id, author_id) {
+                return Ok(Some((post_id, author_id)));
             }
         }
         Ok(None)
@@ -163,10 +162,9 @@ impl Bookmark {
     pub async fn del_from_index(
         bookmarker_id: &str,
         post_id: &str,
-        author_id: &str
+        author_id: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        Self::remove_from_index_multiple_json(&[&[author_id, post_id, bookmarker_id]])
-            .await?;
+        Self::remove_from_index_multiple_json(&[&[author_id, post_id, bookmarker_id]]).await?;
         PostStream::remove_from_bookmarks_sorted_set(bookmarker_id, post_id, author_id).await?;
         Ok(())
     }
