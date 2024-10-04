@@ -65,7 +65,7 @@ async fn test_homeserver_reply_repost() -> Result<()> {
         .await
         .unwrap();
 
-    assert_eq!(total_engagement.is_some(), true);
+    assert!(total_engagement.is_some());
     assert_eq!(total_engagement.unwrap(), 2);
 
     // Assert the parent post has changed stats. Post:Counts:user_id:post_id

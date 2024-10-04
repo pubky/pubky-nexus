@@ -13,7 +13,7 @@ pub async fn put(user_id: PubkyId, blob: Bytes) -> Result<(), Box<dyn Error + Sy
     debug!("Indexing new user profile: {}", user_id);
 
     // Serialize and validate
-    let user = <PubkyAppUser as Validatable>::try_from(&blob).await?;
+    let user = <PubkyAppUser as Validatable>::try_from(&blob, &user_id).await?;
 
     sync_put(user, user_id).await
 }

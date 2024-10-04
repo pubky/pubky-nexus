@@ -5,7 +5,7 @@ use pubky::PubkyClient;
 use pubky_common::crypto::{Keypair, PublicKey};
 use pubky_nexus::{
     models::pubky_app::{
-        traits::{GenerateHashId, GenerateTimestampId},
+        traits::{HashId, TimestampId},
         PostKind, PubkyAppPost, PubkyAppTag, PubkyAppUser,
     },
     Config,

@@ -1,7 +1,11 @@
-use super::traits::{GenerateTimestampId, Validatable};
+use super::traits::{TimestampId, Validatable};
+use axum::async_trait;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use utoipa::ToSchema;
+
+// Validation
+const MAX_SHORT_CONTENT_LENGTH: usize = 1000;
 
 /// Represents the type of pubky-app posted data
 /// Used primarily to best display the content in UI
@@ -51,11 +55,20 @@ pub struct PubkyAppPost {
     pub embed: Option<PostEmbed>,
 }
 
-impl GenerateTimestampId for PubkyAppPost {}
+impl TimestampId for PubkyAppPost {}
 
+#[async_trait]
 impl Validatable for PubkyAppPost {
     //TODO: implement full validation rules. Min/Max lengths, post kinds, etc.
-    async fn validate(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn validate(&self, id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.validate_id(id).await?;
+
+        if let PostKind::Short = &self.kind {
+            if self.content.len() > MAX_SHORT_CONTENT_LENGTH {
+                return Err("Post content exceeds maximum length for Short kind".into());
+            }
+        }
+        // TODO: additional validation?
         Ok(())
     }
 }

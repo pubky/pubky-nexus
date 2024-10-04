@@ -1,7 +1,5 @@
 use crate::db::kv::index::json::JsonAction;
 use crate::models::notification::Notification;
-use crate::models::pubky_app::traits::Validatable;
-use crate::models::pubky_app::PubkyAppFollow;
 use crate::models::user::{Followers, Following, Friends};
 use crate::models::user::{PubkyId, UserCounts, UserFollows};
 use axum::body::Bytes;
@@ -11,11 +9,13 @@ use std::error::Error;
 pub async fn put(
     follower_id: PubkyId,
     followee_id: PubkyId,
-    blob: Bytes,
+    _blob: Bytes,
 ) -> Result<(), Box<dyn Error + Sync + Send>> {
     debug!("Indexing new follow: {} -> {}", follower_id, followee_id);
-    // TODO: Deserialize and validate content of follow data (not needed, but we could validate the timestamp)
-    let _follow = <PubkyAppFollow as Validatable>::try_from(&blob).await?;
+
+    // TODO: in case we want to validate the content of this homeserver object or its `created_at` timestamp
+    // let _follow = <PubkyAppFollow as Validatable>::try_from(&blob, &followee_id).await?;
+
     sync_put(follower_id, followee_id).await
 }
 

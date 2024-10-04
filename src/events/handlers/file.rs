@@ -28,7 +28,7 @@ pub async fn put(
     debug!("Indexing new file resource at {}/{}", user_id, file_id);
 
     // Serialize and validate
-    let file_input = <PubkyAppFile as Validatable>::try_from(&blob).await?;
+    let file_input = <PubkyAppFile as Validatable>::try_from(&blob, &file_id).await?;
 
     let file_meta = ingest(&user_id, file_id.as_str(), &file_input, client).await?;
 

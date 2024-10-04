@@ -36,7 +36,7 @@ async fn test_homeserver_post_engagement() -> Result<()> {
     let total_engagement = check_member_total_engagement_user_posts(&alice_post_key)
         .await
         .unwrap();
-    assert_eq!(total_engagement.is_some(), true);
+    assert!(total_engagement.is_some());
     assert_eq!(total_engagement.unwrap(), 0);
 
     // Create new user
@@ -81,7 +81,7 @@ async fn test_homeserver_post_engagement() -> Result<()> {
     let total_engagement = check_member_total_engagement_user_posts(&alice_post_key)
         .await
         .unwrap();
-    assert_eq!(total_engagement.is_some(), true);
+    assert!(total_engagement.is_some());
     assert_eq!(total_engagement.unwrap(), 2);
 
     // // // TODO: Impl DEL post. Assert the reply does not exist in Nexus

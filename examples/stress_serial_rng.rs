@@ -8,7 +8,7 @@ use pubky_common::{
 };
 use pubky_nexus::{
     models::pubky_app::{
-        traits::{GenerateHashId, GenerateTimestampId},
+        traits::{HashId, TimestampId},
         PostKind, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppTag, PubkyAppUser,
     },
     Config,

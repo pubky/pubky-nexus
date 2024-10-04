@@ -1,5 +1,9 @@
-use super::traits::{GenerateHashId, Validatable};
+use super::traits::{HashId, Validatable};
+use axum::async_trait;
 use serde::{Deserialize, Serialize};
+
+// Validation
+const MAX_TAG_LABEL_LENGTH: usize = 20;
 
 /// Represents raw homeserver tag with id
 /// URI: /pub/pubky.app/tags/:tag_id
@@ -16,21 +20,32 @@ pub struct PubkyAppTag {
     pub created_at: i64,
 }
 
-impl GenerateHashId for PubkyAppTag {
+#[async_trait]
+impl HashId for PubkyAppTag {
     /// Tag ID is created based on the hash of the URI tagged and the label used
     fn get_id_data(&self) -> String {
         format!("{}:{}", self.uri, self.label)
     }
 }
+
+#[async_trait]
 impl Validatable for PubkyAppTag {
-    async fn validate(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // TODO: validate ID and content of incoming tag is correct
+    async fn validate(&self, id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.validate_id(id).await?;
+
+        // Validate label length
+        if &self.label.len() > &MAX_TAG_LABEL_LENGTH {
+            return Err("Tag label exceeds maximum length".into());
+        }
+
+        // TODO: more validation?
+
         Ok(())
     }
 }
 
 #[test]
-fn testcreate_id() {
+fn test_create_id() {
     let tag = PubkyAppTag {
         uri: "user_id/pub/pubky.app/posts/post_id".to_string(),
         created_at: 1627849723,

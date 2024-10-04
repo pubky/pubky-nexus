@@ -31,7 +31,7 @@ async fn test_homeserver_post_pioneer() -> Result<()> {
     // CACHE_OP: Assert cache has not been updated. Missing followers
     // pioneers score: Sorted:Users:Pioneers
     let pioneer_score = check_member_user_pioneer(&alice_id).await.unwrap();
-    assert_eq!(pioneer_score.is_some(), true);
+    assert!(pioneer_score.is_some());
     assert_eq!(pioneer_score.unwrap(), 0);
 
     // Create new user
@@ -52,7 +52,7 @@ async fn test_homeserver_post_pioneer() -> Result<()> {
     // CACHE_OP: Assert if cache has been updated
     // pioneers score: Sorted:Users:Pioneers
     let pioneer_score = check_member_user_pioneer(&alice_id).await.unwrap();
-    assert_eq!(pioneer_score.is_some(), true);
+    assert!(pioneer_score.is_some());
     assert_eq!(pioneer_score.unwrap(), 1);
 
     // Bob replies to popular alice post
@@ -84,7 +84,7 @@ async fn test_homeserver_post_pioneer() -> Result<()> {
 
     // CACHE_OP: Assert if cache has been updated
     let pioneer_score = check_member_user_pioneer(&bob_id).await.unwrap();
-    assert_eq!(pioneer_score.is_some(), true);
+    assert!(pioneer_score.is_some());
     // Pioneer score does not update because popular user does not have any interaction
     assert_eq!(pioneer_score.unwrap(), 0);
 
@@ -93,7 +93,7 @@ async fn test_homeserver_post_pioneer() -> Result<()> {
 
     // CACHE_OP: Assert if cache has been updated
     let pioneer_score = check_member_user_pioneer(&bob_id).await.unwrap();
-    assert_eq!(pioneer_score.is_some(), true);
+    assert!(pioneer_score.is_some());
     assert_eq!(pioneer_score.unwrap(), 2);
 
     // TODO: Impl DEL post. Assert the reply does not exist in Nexus

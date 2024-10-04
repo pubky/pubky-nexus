@@ -6,7 +6,7 @@ use pubky_common::crypto::Keypair;
 use pubky_homeserver::Homeserver;
 use pubky_nexus::{
     models::pubky_app::{
-        traits::GenerateTimestampId, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser,
+        traits::TimestampId, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser,
     },
     setup, Config, EventProcessor,
 };

@@ -1,21 +1,68 @@
+use axum::async_trait;
 use axum::body::Bytes;
-use base32::{encode, Alphabet};
+use base32::{decode, encode, Alphabet};
 use blake3::Hasher;
+use chrono::{DateTime, Duration, NaiveDate, Utc};
 use pubky_common::timestamp::Timestamp;
 use serde::de::DeserializeOwned;
 
-pub trait GenerateTimestampId {
+#[async_trait]
+pub trait TimestampId {
+    /// Creates a unique identifier based on the current timestamp.
     fn create_id(&self) -> String {
         let timestamp = Timestamp::now();
         timestamp.to_string()
     }
+
+    /// Validates that the provided ID is a valid Crockford Base32-encoded timestamp,
+    /// 13 characters long, and represents a reasonable timestamp.
+    async fn validate_id(&self, id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Ensure ID is 13 characters long
+        if id.len() != 13 {
+            return Err("Invalid ID length: must be 13 characters".into());
+        }
+
+        // Decode the Crockford Base32-encoded ID
+        let decoded_bytes =
+            decode(Alphabet::Crockford, id).ok_or("Failed to decode Crockford Base32 ID")?;
+
+        if decoded_bytes.len() != 8 {
+            return Err("Invalid ID length after decoding".into());
+        }
+
+        // Convert the decoded bytes to a timestamp in microseconds
+        let timestamp_micros = i64::from_be_bytes(decoded_bytes.try_into().unwrap_or_default());
+        let timestamp: i64 = timestamp_micros / 1_000_000;
+
+        // Convert the timestamp to a DateTime<Utc>
+        let id_datetime = DateTime::from_timestamp(timestamp, 0)
+            .unwrap_or_default()
+            .date_naive();
+
+        // Define October 1st, 2024, at 00:00:00 UTC
+        let oct_first_2024 = NaiveDate::from_ymd_opt(2024, 10, 1).expect("Invalid date");
+
+        // Allowable future duration (2 hours)
+        let max_future = Utc::now().date_naive() + Duration::hours(2);
+
+        // Validate that the ID's timestamp is after October 1st, 2024
+        if id_datetime < oct_first_2024 {
+            return Err("Invalid ID: timestamp must be after October 1st, 2024".into());
+        }
+
+        // Validate that the ID's timestamp is not more than 2 hours in the future
+        if id_datetime > max_future {
+            return Err("Invalid ID: timestamp is too far in the future".into());
+        }
+
+        Ok(())
+    }
 }
 
 /// Trait for generating an ID based on the struct's data.
-pub trait GenerateHashId {
-    fn get_id_data(&self) -> String {
-        String::new()
-    }
+#[async_trait]
+pub trait HashId {
+    fn get_id_data(&self) -> String;
 
     /// Creates a unique identifier for bookmarks and tag homeserver paths instance.
     ///
@@ -44,23 +91,27 @@ pub trait GenerateHashId {
         // Encode the first half of the hash in Base32 using the Z-base32 alphabet
         encode(Alphabet::Z, half_hash)
     }
+
+    /// Validates that the provided ID matches the generated ID.
+    async fn validate_id(&self, id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let generated_id = self.create_id();
+        if generated_id != id {
+            return Err(format!("Invalid ID: expected {}, found {}", generated_id, id).into());
+        }
+        Ok(())
+    }
 }
 
+#[async_trait]
 pub trait Validatable: Sized + DeserializeOwned {
-    /// Attempts to create an instance of the implementing struct from a `Bytes` object.
-    fn try_from(
+    async fn try_from(
         blob: &Bytes,
-    ) -> impl std::future::Future<Output = Result<Self, Box<dyn std::error::Error + Send + Sync>>>
-    {
-        async {
-            let instance: Self = serde_json::from_slice(blob)?;
-            instance.validate().await?;
-            Ok(instance)
-        }
+        id: &str,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let instance: Self = serde_json::from_slice(blob)?;
+        instance.validate(id).await?;
+        Ok(instance)
     }
 
-    /// Validates the instance according to the implementing struct's rules.
-    fn validate(
-        &self,
-    ) -> impl std::future::Future<Output = Result<(), Box<dyn std::error::Error + Send + Sync>>>;
+    async fn validate(&self, id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 }
