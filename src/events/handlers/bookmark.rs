@@ -62,9 +62,13 @@ pub async fn sync_del(
     bookmark_id: String,
 ) -> Result<(), Box<dyn Error + Sync + Send>> {
     // DELETE FROM GRAPH
-    Bookmark::del_from_graph(&user_id, &bookmark_id).await?;
-
-    // DELETE FROM INDEXes
+    let deleted_bookmark_info = Bookmark::del_from_graph(&user_id, &bookmark_id).await?;
+    
+    if deleted_bookmark_info.is_some() {
+        let (post_id, author_id) = deleted_bookmark_info.unwrap();
+        // DELETE FROM INDEXes
+        Bookmark::del_from_index(&user_id, &post_id, &author_id).await?;
+    }
 
     Ok(())
 }

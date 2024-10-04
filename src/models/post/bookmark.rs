@@ -140,17 +140,34 @@ impl Bookmark {
     pub async fn del_from_graph(
         user_id: &str,
         bookmark_id: &str
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let query = queries::write::delete_bookmark(&user_id, &bookmark_id);
-        exec_single_row(query).await
+    ) -> Result<Option<(String, String)>, Box<dyn std::error::Error + Send + Sync>> {
+        let mut result;
+        {
+            let graph = get_neo4j_graph()?;
+            let query = queries::write::delete_bookmark(&user_id, &bookmark_id);
+
+            let graph = graph.lock().await;
+            result = graph.execute(query).await?;
+        }
+
+        while let Some(row) = result.next().await? {
+            let post_id: Option<String> = row.get("post_id").unwrap_or(None);
+            let author_id: Option<String> = row.get("author_id").unwrap_or(None);
+            if post_id.is_some() && author_id.is_some() {
+                return Ok(Some((post_id.unwrap(), author_id.unwrap())));
+            }
+        }
+        Ok(None)
     }
 
-    // pub async fn del_from_index(
-
-    // ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    //     self.put_index_json(&[author_id, post_id, viewer_id])
-    //         .await?;
-    //     PostStream::add_to_bookmarks_sorted_set(self, viewer_id, post_id, author_id).await?;
-    //     Ok(())
-    // }
+    pub async fn del_from_index(
+        bookmarker_id: &str,
+        post_id: &str,
+        author_id: &str
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Self::remove_from_index_multiple_json(&[&[author_id, post_id, bookmarker_id]])
+            .await?;
+        PostStream::remove_from_bookmarks_sorted_set(bookmarker_id, post_id, author_id).await?;
+        Ok(())
+    }
 }

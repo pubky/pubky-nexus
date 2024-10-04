@@ -2,7 +2,7 @@ use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::{
-    post::PostStream,
+    post::{Bookmark, PostStream},
     pubky_app::{traits::GenerateHashId, PubkyAppBookmark, PubkyAppPost, PubkyAppUser},
 };
 
@@ -65,19 +65,10 @@ async fn test_homeserver_bookmark() -> Result<()> {
     assert_eq!(result_bookmarks.0.len(), 1);
     assert_eq!(result_bookmarks.0[0].details.id, post_id);
 
-    // Step 5: Delete the bookmark
-    test.client.delete(bookmark_url.as_str()).await?;
-    test.ensure_event_processing_complete().await?;
-
-    // Step 6: Verify the bookmark has been deleted
-    // let _result_bookmarks_after_delete = PostStream::get_bookmarked_posts(&user_id, None, None)
-    //     .await
-    //     .unwrap();
-    // TODO: handle delete bookmark from Redis
-    // assert!(
-    //     result_bookmarks_after_delete.is_none(),
-    //     "The bookmark should have been deleted"
-    // );
+    let exist_bookmark = Bookmark::get_from_index(&user_id, &post_id, &user_id).await.unwrap();
+    assert!(exist_bookmark.is_some(), "The bookmark has to be indexed");
+    let bookmark = exist_bookmark.unwrap();
+    assert_eq!(bookmark.id, bookmark_id, "Bookmark ids does not match");
 
     // Cleanup user and post
     test.cleanup_post(&user_id, &post_id).await?;
