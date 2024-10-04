@@ -20,7 +20,7 @@ use std::collections::HashSet;
 use std::time::Instant;
 
 // Configuration constants
-static NUM_USERS: usize = 2000;
+static NUM_USERS: usize = 1000;
 static SEED: u64 = 42;
 
 // Adjusted distribution parameters
