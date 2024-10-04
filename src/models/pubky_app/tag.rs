@@ -34,7 +34,7 @@ impl Validatable for PubkyAppTag {
         self.validate_id(id).await?;
 
         // Validate label length
-        if &self.label.len() > &MAX_TAG_LABEL_LENGTH {
+        if self.label.len() > MAX_TAG_LABEL_LENGTH {
             return Err("Tag label exceeds maximum length".into());
         }
 

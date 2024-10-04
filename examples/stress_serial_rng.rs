@@ -311,7 +311,7 @@ async fn create_follows(
     client: &PubkyClient,
     pk: &String,
     current_index: usize,
-    user_ids: &Vec<String>,
+    user_ids: &[String],
     rng: &mut StdRng,
     follows_dist: &LogNormal<f64>,
     max_follows: usize,
@@ -446,8 +446,8 @@ async fn create_tags(
     client: &PubkyClient,
     pk: &String,
     current_index: usize,
-    user_ids: &Vec<String>,
-    user_posts: &Vec<Vec<String>>,
+    user_ids: &[String],
+    user_posts: &[Vec<String>],
     rng: &mut StdRng,
     tags_dist: &LogNormal<f64>,
     max_tags: usize,
@@ -580,8 +580,8 @@ fn calculate_actual_averages(
 }
 
 // Function to print percentiles
-fn print_percentiles(data: &Vec<usize>, label: &str) {
-    let mut data = data.clone();
+fn print_percentiles(data: &[usize], label: &str) {
+    let mut data = data.to_owned();
     data.sort_unstable();
 
     let percentiles = [25.0, 50.0, 75.0, 90.0, 95.0, 99.0, 99.5, 99.7, 99.9, 99.99];
