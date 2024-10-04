@@ -35,7 +35,7 @@ async fn test_homeserver_follow_notification() -> Result<()> {
     let followee_id = test.create_user(&followee_keypair, &followee_user).await?;
 
     // Step 3: Follower follows the followee
-    let follow_url = test.create_follow(&follower_id, &followee_id).await?;
+    test.create_follow(&follower_id, &followee_id).await?;
 
     // Verify the followee gets a "New Follow" notification
     let notifications = Notification::get_by_id(&followee_id, None, None, None, None)
@@ -60,7 +60,7 @@ async fn test_homeserver_follow_notification() -> Result<()> {
     }
 
     // Step 4: Followee follows the follower back
-    let follow_back_url = test.create_follow(&followee_id, &follower_id).await?;
+    test.create_follow(&followee_id, &follower_id).await?;
 
     // Verify the follower gets a "New Friend" notification
     let notifications_follower = Notification::get_by_id(&follower_id, None, None, None, None)
@@ -81,43 +81,6 @@ async fn test_homeserver_follow_notification() -> Result<()> {
     } else {
         panic!("Expected a new friend notification, found something else");
     }
-
-    // Step 5: Follower unfollows the followee
-    test.client.delete(follow_url.as_str()).await?;
-    test.ensure_event_processing_complete().await?;
-
-    // Verify the followee gets a "Lost Friend" notification
-    let notifications = Notification::get_by_id(&followee_id, None, None, None, None)
-        .await
-        .unwrap();
-
-    assert_eq!(
-        notifications.len(),
-        2,
-        "Followee should have 2 notifications after unfollow"
-    );
-    if let NotificationBody::LostFriend { unfollowed_by } = &notifications[0].body {
-        assert_eq!(
-            unfollowed_by, &follower_id,
-            "Notification should contain the correct follower"
-        );
-    } else {
-        panic!("Expected a lost friend notification, found something else");
-    }
-
-    // Step 6: Followee unfollows the follower (no new notification should be generated)
-    test.client.delete(follow_back_url.as_str()).await?;
-    test.ensure_event_processing_complete().await?;
-
-    // Verify the follower gets no new notification after unfollow
-    let notifications_follower = Notification::get_by_id(&follower_id, None, None, None, None)
-        .await
-        .unwrap();
-    assert_eq!(
-        notifications_follower.len(),
-        1,
-        "Follower should have no new notifications after unfollow"
-    );
 
     // Cleanup
     test.cleanup_user(&follower_id).await?;

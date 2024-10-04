@@ -1,5 +1,9 @@
-mod friends;
-mod notification;
-mod raw;
-mod sequential;
+mod del;
+mod del_friends;
+mod del_notification;
+mod del_sequential;
+mod put;
+mod put_friends;
+mod put_notification;
+mod put_sequential;
 mod utils;

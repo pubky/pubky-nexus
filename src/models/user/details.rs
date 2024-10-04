@@ -97,7 +97,7 @@ impl UserDetails {
         })
     }
 
-    pub async fn delete(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn del_from_graph(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Delete user_details on Redis
         Self::remove_from_index_multiple_json(&[&[&self.id]]).await?;
 
