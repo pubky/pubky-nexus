@@ -2,10 +2,12 @@ use super::traits::{TimestampId, Validatable};
 use axum::async_trait;
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use url::Url;
 use utoipa::ToSchema;
 
 // Validation
 const MAX_SHORT_CONTENT_LENGTH: usize = 1000;
+const MAX_LONG_CONTENT_LENGTH: usize = 50000;
 
 /// Represents the type of pubky-app posted data
 /// Used primarily to best display the content in UI
@@ -59,16 +61,75 @@ impl TimestampId for PubkyAppPost {}
 
 #[async_trait]
 impl Validatable for PubkyAppPost {
+    async fn sanitize(self) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        // Sanitize content
+        let content = self.content.trim().to_string();
+
+        // Define content length limits based on PostKind
+        let max_content_length = match self.kind {
+            PostKind::Short => MAX_SHORT_CONTENT_LENGTH,
+            PostKind::Long => MAX_LONG_CONTENT_LENGTH,
+            _ => MAX_SHORT_CONTENT_LENGTH, // Default limit for other kinds
+        };
+
+        let content = if content.len() > max_content_length {
+            content[..max_content_length].to_string()
+        } else {
+            content
+        };
+
+        // Sanitize parent URI if present
+        let parent = if let Some(uri_str) = &self.parent {
+            match Url::parse(uri_str) {
+                Ok(url) => Some(url.to_string()), // Valid URI, use normalized version
+                Err(_) => None,                   // Invalid URI, discard or handle appropriately
+            }
+        } else {
+            None
+        };
+
+        // Sanitize embed if present
+        let embed = if let Some(embed) = &self.embed {
+            match Url::parse(&embed.uri) {
+                Ok(url) => Some(PostEmbed {
+                    kind: embed.kind.clone(),
+                    uri: url.to_string(), // Use normalized version
+                }),
+                Err(_) => None, // Invalid URI, discard or handle appropriately
+            }
+        } else {
+            None
+        };
+
+        Ok(PubkyAppPost {
+            content,
+            kind: self.kind,
+            parent,
+            embed,
+        })
+    }
+
     //TODO: implement full validation rules. Min/Max lengths, post kinds, etc.
     async fn validate(&self, id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.validate_id(id).await?;
 
-        if let PostKind::Short = &self.kind {
-            if self.content.len() > MAX_SHORT_CONTENT_LENGTH {
-                return Err("Post content exceeds maximum length for Short kind".into());
+        // Validate content length
+        match self.kind {
+            PostKind::Short => {
+                if self.content.len() > MAX_SHORT_CONTENT_LENGTH {
+                    return Err("Post content exceeds maximum length for Short kind".into());
+                }
             }
-        }
+            PostKind::Long => {
+                if self.content.len() > MAX_LONG_CONTENT_LENGTH {
+                    return Err("Post content exceeds maximum length for Long kind".into());
+                }
+            }
+            _ => (),
+        };
+
         // TODO: additional validation?
+
         Ok(())
     }
 }

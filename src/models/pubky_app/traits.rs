@@ -108,10 +108,15 @@ pub trait Validatable: Sized + DeserializeOwned {
         blob: &Bytes,
         id: &str,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let instance: Self = serde_json::from_slice(blob)?;
+        let mut instance: Self = serde_json::from_slice(blob)?;
+        instance = instance.sanitize().await?;
         instance.validate(id).await?;
         Ok(instance)
     }
 
     async fn validate(&self, id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+
+    async fn sanitize(self) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(self)
+    }
 }
