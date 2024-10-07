@@ -4,6 +4,7 @@ use redis::{AsyncCommands, JsonAsyncCommands};
 use serde::{de::DeserializeOwned, Serialize};
 use std::error::Error;
 
+#[derive(Clone)]
 pub enum JsonAction {
     Increment(i64),
     Decrement(i64),

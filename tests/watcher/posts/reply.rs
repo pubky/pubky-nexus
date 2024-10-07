@@ -91,14 +91,14 @@ async fn test_homeserver_post_reply() -> Result<()> {
     let total_engagement = check_member_total_engagement_user_posts(&[&user_id, &parent_post_id])
         .await
         .unwrap();
-    assert_eq!(total_engagement.is_some(), true);
+    assert!(total_engagement.is_some());
     assert_eq!(total_engagement.unwrap(), 1);
 
     // Sorted:Posts:User:user_id
     let post_timeline = check_member_user_post_timeline(&user_id, &reply_id)
         .await
         .unwrap();
-    assert_eq!(post_timeline.is_some(), true);
+    assert!(post_timeline.is_some());
     assert_eq!(
         post_timeline.unwrap(),
         reply_post_details.indexed_at as isize

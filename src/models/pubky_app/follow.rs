@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
-
 use super::traits::Validatable;
+use axum::async_trait;
+use serde::{Deserialize, Serialize};
 
 /// Represents raw homeserver follow object with timestamp
 /// URI: /pub/pubky.app/follows/:user_id
@@ -14,9 +14,10 @@ pub struct PubkyAppFollow {
     pub created_at: i64,
 }
 
+#[async_trait]
 impl Validatable for PubkyAppFollow {
-    // TODO: validate follow
-    async fn validate(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn validate(&self, _id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // TODO: additional follow validation? E.g, validate `created_at` ?
         Ok(())
     }
 }

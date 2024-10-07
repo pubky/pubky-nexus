@@ -4,7 +4,7 @@ use chrono::Utc;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::{
     notification::{Notification, NotificationBody},
-    pubky_app::{traits::GenerateHashId, PubkyAppTag, PubkyAppUser},
+    pubky_app::{traits::HashId, PubkyAppTag, PubkyAppUser},
 };
 
 #[tokio::test]

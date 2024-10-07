@@ -17,7 +17,7 @@ pub async fn put(
     debug!("Indexing new bookmark: {} -> {}", user_id, bookmark_id);
 
     // Deserialize and validate bookmark
-    let bookmark = <PubkyAppBookmark as Validatable>::try_from(&blob).await?;
+    let bookmark = <PubkyAppBookmark as Validatable>::try_from(&blob, &bookmark_id).await?;
 
     sync_put(user_id, bookmark, bookmark_id).await
 }

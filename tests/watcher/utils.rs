@@ -6,7 +6,7 @@ use pubky_common::crypto::Keypair;
 use pubky_homeserver::Homeserver;
 use pubky_nexus::{
     models::pubky_app::{
-        traits::GenerateTimestampId, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser,
+        traits::TimestampId, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser,
     },
     setup, Config, EventProcessor,
 };
@@ -141,12 +141,8 @@ impl WatcherTest {
         Ok(follow_url)
     }
 
-    pub async fn delete_follow(&mut self, follower_id: &str, followee_id: &str) -> Result<()> {
-        let follow_url = format!(
-            "pubky://{}/pub/pubky.app/follows/{}",
-            follower_id, followee_id
-        );
-        self.client.delete(follow_url.as_str()).await?;
+    pub async fn delete_follow(&mut self, follow_url: &str) -> Result<()> {
+        self.client.delete(follow_url).await?;
         // Process the event
         self.ensure_event_processing_complete().await?;
         Ok(())

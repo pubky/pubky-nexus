@@ -3,7 +3,7 @@ use anyhow::Result;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::{
     post::{Bookmark, PostStream},
-    pubky_app::{traits::GenerateHashId, PubkyAppBookmark, PubkyAppPost, PubkyAppUser},
+    pubky_app::{traits::HashId, PubkyAppBookmark, PubkyAppPost, PubkyAppUser},
 };
 
 use super::utils::find_post_bookmark;
@@ -69,7 +69,7 @@ async fn test_homeserver_bookmark() -> Result<()> {
         .await
         .unwrap();
     assert!(exist_bookmark.is_some(), "The bookmark has to be indexed");
-    
+
     let bookmark = exist_bookmark.unwrap();
     assert_eq!(bookmark.id, bookmark_id, "Bookmark ids does not match");
 

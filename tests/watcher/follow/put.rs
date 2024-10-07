@@ -5,13 +5,13 @@ use pubky_common::crypto::Keypair;
 use pubky_nexus::{
     models::{
         pubky_app::PubkyAppUser,
-        user::{Followers, Following, Relationship, UserFollows},
+        user::{Followers, Following, Relationship},
     },
     RedisOps,
 };
 
 #[tokio::test]
-async fn test_homeserver_raw_follow() -> Result<()> {
+async fn test_homeserver_put_follow() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Create first user (follower)
@@ -50,8 +50,8 @@ async fn test_homeserver_raw_follow() -> Result<()> {
     let exist = find_follow_relationship(&follower_id, &followee_id)
         .await
         .unwrap();
-    assert_eq!(
-        exist, true,
+    assert!(
+        exist,
         "The follow relationship was not created in the Graph"
     );
 
@@ -85,27 +85,6 @@ async fn test_homeserver_raw_follow() -> Result<()> {
 
     let exist_count = find_user_counts(&follower_id).await;
     assert_eq!(exist_count.following, 1);
-
-    // Unfollow the user
-    test.delete_follow(&follower_id, &followee_id).await?;
-
-    // Verify the follower relationship no longer exists in Nexus
-    let result_followers = Followers::get_by_id(&followee_id, None, None)
-        .await
-        .unwrap();
-
-    assert!(
-        result_followers.is_none() || result_followers.unwrap().0.is_empty(),
-        "The followee should have no followers"
-    );
-
-    let result_following = Following::get_by_id(&follower_id, None, None)
-        .await
-        .unwrap();
-    assert!(
-        result_following.is_none() || result_following.unwrap().0.is_empty(),
-        "The follower should not be following anyone"
-    );
 
     // Cleanup
     test.cleanup_user(&follower_id).await?;

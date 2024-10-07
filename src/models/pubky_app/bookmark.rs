@@ -1,4 +1,5 @@
-use super::traits::{GenerateHashId, Validatable};
+use super::traits::{HashId, Validatable};
+use axum::async_trait;
 use serde::{Deserialize, Serialize};
 
 /// Represents raw homeserver bookmark with id
@@ -6,24 +7,28 @@ use serde::{Deserialize, Serialize};
 ///
 /// Example URI:
 ///
-/// `/pub/pubky.app/bookmarks/kx8uzgiq5f75bqofp51nq8r11r`
+/// `/pub/pubky.app/bookmarks/AF7KQ6NEV5XV1EG5DVJ2E74JJ4`
 ///
+/// Where bookmark_id is Crockford-base32(Blake3("{uri_bookmarked}"")[:half])
 #[derive(Serialize, Deserialize, Default)]
 pub struct PubkyAppBookmark {
     pub uri: String,
     pub created_at: i64,
 }
 
-impl GenerateHashId for PubkyAppBookmark {
+#[async_trait]
+impl HashId for PubkyAppBookmark {
     /// Bookmark ID is created based on the hash of the URI bookmarked
     fn get_id_data(&self) -> String {
         self.uri.clone()
     }
 }
 
+#[async_trait]
 impl Validatable for PubkyAppBookmark {
-    async fn validate(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // TODO: validate ID of incoming bookmark is correct
+    async fn validate(&self, id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.validate_id(id).await?;
+        // TODO: more bookmarks validation?
         Ok(())
     }
 }

@@ -1,25 +1,20 @@
-use crate::db::graph::exec::exec_single_row;
 use crate::db::kv::index::json::JsonAction;
 use crate::models::notification::Notification;
-use crate::models::pubky_app::traits::Validatable;
-use crate::models::pubky_app::PubkyAppFollow;
 use crate::models::user::{Followers, Following, Friends};
 use crate::models::user::{PubkyId, UserCounts, UserFollows};
-use crate::{queries, RedisOps};
 use axum::body::Bytes;
-use chrono::Utc;
 use log::debug;
 use std::error::Error;
 
 pub async fn put(
     follower_id: PubkyId,
     followee_id: PubkyId,
-    blob: Bytes,
+    _blob: Bytes,
 ) -> Result<(), Box<dyn Error + Sync + Send>> {
     debug!("Indexing new follow: {} -> {}", follower_id, followee_id);
 
-    // TODO: Deserialize and validate content of follow data (not needed, but we could validate the timestamp)
-    let _follow = <PubkyAppFollow as Validatable>::try_from(&blob).await?;
+    // TODO: in case we want to validate the content of this homeserver object or its `created_at` timestamp
+    // let _follow = <PubkyAppFollow as Validatable>::try_from(&blob, &followee_id).await?;
 
     sync_put(follower_id, followee_id).await
 }
@@ -29,33 +24,32 @@ pub async fn sync_put(
     followee_id: PubkyId,
 ) -> Result<(), Box<dyn Error + Sync + Send>> {
     // SAVE TO GRAPH
-    let indexed_at = Utc::now().timestamp_millis();
-    let query = queries::write::create_follow(&follower_id, &followee_id, indexed_at);
-    exec_single_row(query).await?;
+    // (follower_id)-[:FOLLOWS]->(followee_id)
+    Followers::put_to_graph(&follower_id, &followee_id).await?;
+
+    // Checks whether the followee was following the follower (Is this a new friendship?)
+    let will_be_friends = is_followee_following_follower(&follower_id, &followee_id).await?;
 
     // SAVE TO INDEX
-    // Update follow indexes
-    // (follower_id)-[:FOLLOWS]->(followee_id)
+    // Add new follower to the followee index
     Followers(vec![follower_id.to_string()])
         .put_to_index(&followee_id)
         .await?;
+    // Add in the Following:follower_id index a followee user
     Following(vec![followee_id.to_string()])
         .put_to_index(&follower_id)
         .await?;
 
-    // Update UserCount related indexes
-    UserCounts::update_index_field(&follower_id, "following", JsonAction::Increment(1)).await?;
-    UserCounts::update(&followee_id, "followers", JsonAction::Increment(1)).await?;
-
-    // Checks whether the followee was following the follower (Is this a new friendship?)
-    let new_friend = Followers::check(&follower_id, &followee_id).await?;
-    if new_friend {
-        UserCounts::update_index_field(&follower_id, "friends", JsonAction::Increment(1)).await?;
-        UserCounts::update_index_field(&followee_id, "friends", JsonAction::Increment(1)).await?;
-    }
+    update_follow_counts(
+        &follower_id,
+        &followee_id,
+        JsonAction::Increment(1),
+        will_be_friends,
+    )
+    .await?;
 
     // Notify the followee
-    Notification::new_follow(&follower_id, &followee_id, new_friend).await?;
+    Notification::new_follow(&follower_id, &followee_id, will_be_friends).await?;
 
     Ok(())
 }
@@ -65,24 +59,69 @@ pub async fn del(
     followee_id: PubkyId,
 ) -> Result<(), Box<dyn Error + Sync + Send>> {
     debug!("Deleting follow: {} -> {}", follower_id, followee_id);
+    // Maybe we could do it here but lets follow the naming convention
+    sync_del(follower_id, followee_id).await
+}
 
-    // Delete the follow relationship from Neo4j
-    let query = queries::write::delete_follow(&follower_id, &followee_id);
-    exec_single_row(query).await?;
+pub async fn sync_del(
+    follower_id: PubkyId,
+    followee_id: PubkyId,
+) -> Result<(), Box<dyn Error + Sync + Send>> {
+    // DELETE FROM GRAPH
+    Followers::del_from_graph(&follower_id, &followee_id).await?;
+    // Check if that users are friends. Is this a break? :(
+    let were_friends = Friends::check(&follower_id, &followee_id).await?;
 
-    // Checks whether the follower and followee were friends
-    let were_friends = Friends::check(&followee_id, &follower_id).await?;
-
-    // Update follow indexes
-    Following(vec![followee_id.to_string()])
-        .remove_from_index_set(&[&follower_id])
-        .await?;
+    // REMOVE FROM INDEX
+    // Remove a follower to the followee index
     Followers(vec![follower_id.to_string()])
-        .remove_from_index_set(&[&followee_id])
+        .del_from_index(&followee_id)
         .await?;
+    // Remove from the Following:follower_id index a followee user
+    Following(vec![followee_id.to_string()])
+        .del_from_index(&follower_id)
+        .await?;
+
+    update_follow_counts(
+        &follower_id,
+        &followee_id,
+        JsonAction::Decrement(1),
+        were_friends,
+    )
+    .await?;
 
     // Notify the followee
     Notification::lost_follow(&follower_id, &followee_id, were_friends).await?;
 
     Ok(())
+}
+
+async fn update_follow_counts(
+    follower_id: &str,
+    followee_id: &str,
+    counter: JsonAction,
+    update_friend_relationship: bool,
+) -> Result<(), Box<dyn Error + Sync + Send>> {
+    // Update UserCount related indexes
+    UserCounts::update_index_field(follower_id, "following", counter.clone()).await?;
+    UserCounts::update(followee_id, "followers", counter.clone()).await?;
+
+    if update_friend_relationship {
+        UserCounts::update_index_field(follower_id, "friends", counter.clone()).await?;
+        UserCounts::update_index_field(followee_id, "friends", counter.clone()).await?;
+    }
+    Ok(())
+}
+
+pub async fn is_followee_following_follower(
+    user_a_id: &str,
+    user_b_id: &str,
+) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    let (a_follows_b, b_follows_a) = tokio::try_join!(
+        Following::check(user_a_id, user_b_id),
+        Following::check(user_b_id, user_a_id),
+    )?;
+    // Cannot exist any previous relationship between A and B. If not, it would be duplicate event
+    // (A)-[:FOLLOWS]->(B)
+    Ok(!a_follows_b && b_follows_a)
 }

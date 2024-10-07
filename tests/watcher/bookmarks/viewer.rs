@@ -4,7 +4,7 @@ use anyhow::Result;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::{
     post::PostStream,
-    pubky_app::{traits::GenerateHashId, PubkyAppBookmark, PubkyAppPost, PubkyAppUser},
+    pubky_app::{traits::HashId, PubkyAppBookmark, PubkyAppPost, PubkyAppUser},
 };
 
 #[tokio::test]
@@ -74,7 +74,6 @@ async fn test_homeserver_viewer_bookmark() -> Result<()> {
 
     assert_eq!(result_bookmarks.0.len(), 1);
     assert_eq!(result_bookmarks.0[0].details.id, post_id);
-
 
     // Cleanup user and post
     test.cleanup_post(&user_id, &post_id).await?;

@@ -5,9 +5,7 @@ use anyhow::Result;
 use chrono::Utc;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::notification::Notification;
-use pubky_nexus::models::pubky_app::{
-    traits::GenerateHashId, PubkyAppPost, PubkyAppTag, PubkyAppUser,
-};
+use pubky_nexus::models::pubky_app::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser};
 use pubky_nexus::models::tag::post::TagPost;
 use pubky_nexus::models::tag::stream::Taggers;
 use pubky_nexus::models::tag::traits::TagCollection;
@@ -73,7 +71,7 @@ async fn test_homeserver_tag_post() -> Result<()> {
         .await
         .unwrap();
 
-    assert_eq!(cache_post_tag.is_some(), true);
+    assert!(cache_post_tag.is_some());
     let cache_tag_details = cache_post_tag.unwrap();
     assert_eq!(cache_tag_details.len(), 1);
 
@@ -122,7 +120,7 @@ async fn test_homeserver_tag_post() -> Result<()> {
     let total_engagement = check_member_total_engagement_post_tag(&post_key, label)
         .await
         .unwrap();
-    assert_eq!(total_engagement.is_some(), true);
+    assert!(total_engagement.is_some());
     assert_eq!(total_engagement.unwrap(), 1);
 
     // TODO: Hot tag. Uncomment when DEL is impl

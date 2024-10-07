@@ -2380,6 +2380,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tower-http 0.6.1",
+ "url",
  "utoipa",
  "utoipa-swagger-ui",
 ]

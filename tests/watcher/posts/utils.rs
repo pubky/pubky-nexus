@@ -20,7 +20,7 @@ pub async fn find_post_details(user_id: &str, post_id: &str) -> Result<PostDetai
     let mut row_stream;
     {
         let graph = get_neo4j_graph().unwrap();
-        let query = get_post_details_by_id(&user_id, &post_id);
+        let query = get_post_details_by_id(user_id, post_id);
 
         let graph = graph.lock().await;
         row_stream = graph.execute(query).await.unwrap();
@@ -37,7 +37,7 @@ pub async fn check_member_global_timeline_user_post(
     user_id: &str,
     post_id: &str,
 ) -> Result<Option<isize>> {
-    let post_key: &[&str] = &[&user_id, &post_id];
+    let post_key: &[&str] = &[user_id, post_id];
     let global_timeline = PostStream::check_sorted_set_member(&POST_TIMELINE_KEY_PARTS, post_key)
         .await
         .unwrap();
@@ -48,8 +48,8 @@ pub async fn check_member_user_post_timeline(
     user_id: &str,
     post_id: &str,
 ) -> Result<Option<isize>> {
-    let post_stream_key_parts = [&POST_PER_USER_KEY_PARTS[..], &[&user_id]].concat();
-    let post_timeline = PostStream::check_sorted_set_member(&post_stream_key_parts, &[&post_id])
+    let post_stream_key_parts = [&POST_PER_USER_KEY_PARTS[..], &[user_id]].concat();
+    let post_timeline = PostStream::check_sorted_set_member(&post_stream_key_parts, &[post_id])
         .await
         .unwrap();
     Ok(post_timeline)
@@ -57,7 +57,7 @@ pub async fn check_member_user_post_timeline(
 
 pub async fn check_member_total_engagement_user_posts(post_key: &[&str]) -> Result<Option<isize>> {
     let total_engagement =
-        PostStream::check_sorted_set_member(&POST_TOTAL_ENGAGEMENT_KEY_PARTS, &post_key)
+        PostStream::check_sorted_set_member(&POST_TOTAL_ENGAGEMENT_KEY_PARTS, post_key)
             .await
             .unwrap();
     Ok(total_engagement)
@@ -67,7 +67,7 @@ pub async fn find_reply_relationship_parent_uri(user_id: &str, post_id: &str) ->
     let mut row_stream;
     {
         let graph = get_neo4j_graph().unwrap();
-        let query = post_reply_relationships(&user_id, &post_id);
+        let query = post_reply_relationships(user_id, post_id);
 
         let graph = graph.lock().await;
         row_stream = graph.execute(query).await.unwrap();
@@ -92,7 +92,7 @@ pub async fn find_repost_relationship_parent_uri(user_id: &str, post_id: &str) -
     let mut row_stream;
     {
         let graph = get_neo4j_graph().unwrap();
-        let query = post_repost_relationships(&user_id, &post_id);
+        let query = post_repost_relationships(user_id, post_id);
 
         let graph = graph.lock().await;
         row_stream = graph.execute(query).await.unwrap();

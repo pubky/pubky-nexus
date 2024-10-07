@@ -80,7 +80,10 @@ impl UserStream {
             }
         }
 
-        Ok(Some(Self(user_views)))
+        match user_views.is_empty() {
+            true => Ok(None),
+            false => Ok(Some(Self(user_views))),
+        }
     }
 
     /// Adds the post to a Redis sorted set using the follower counts as score.
