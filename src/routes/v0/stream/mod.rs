@@ -7,18 +7,26 @@ mod posts;
 mod users;
 
 pub fn routes() -> Router {
-    register_routes!(Router::new(),
-        //  User stream
+    let router = register_routes!(Router::new(),
+        // User stream
         endpoints::STREAM_USERS_ROUTE => users::stream_users_handler,
         endpoints::STREAM_USERS_USERNAME_SEARCH_ROUTE => users::stream_username_search_handler,
         endpoints::STREAM_USERS_MOSTFOLLOWED_ROUTE => users::stream_most_followed_users_handler,
         endpoints::STREAM_USERS_PIONEERS_ROUTE => users::stream_pioneer_users_handler,
+
         // Post stream
         endpoints::STREAM_POSTS_ROUTE => posts::stream_global_posts_handler,
         endpoints::STREAM_POSTS_USER_ROUTE => posts::stream_user_posts_handler,
         endpoints::STREAM_POSTS_REACH_ROUTE => posts::stream_posts_by_reach_handler,
         endpoints::STREAM_POSTS_BOOKMARKED_ROUTE => posts::stream_bookmarked_posts_handler,
-        endpoints::STREAM_POSTS_TAG_ROUTE => posts::stream_posts_by_tags_handler
+        endpoints::STREAM_POSTS_TAG_ROUTE => posts::stream_posts_by_tags_handler,
+    );
+
+    // Register the POST route separately
+
+    router.route(
+        endpoints::STREAM_USERS_BY_IDS_ROUTE,
+        axum::routing::post(users::stream_users_by_ids_handler),
     )
 }
 
