@@ -43,15 +43,7 @@ pub async fn list_notifications_handler(
     let limit = query.limit.unwrap_or(20);
 
     match Notification::get_by_id(&user_id, Some(limit), Some(skip), query.start, query.end).await {
-        Ok(notifications) => {
-            if notifications.is_empty() {
-                Err(Error::UserNotFound {
-                    user_id: user_id.to_string(),
-                })
-            } else {
-                Ok(Json(notifications))
-            }
-        }
+        Ok(notifications) => Ok(Json(notifications)),
         Err(source) => Err(Error::InternalServerError { source }),
     }
 }
