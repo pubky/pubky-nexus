@@ -16,11 +16,11 @@ impl RedisOps for UserDetails {}
 
 #[async_trait]
 impl Collection<&str> for UserDetails {
-    fn graph_query(id_list: &[&str]) -> Query {
+    fn collection_details_graph_query(id_list: &[&str]) -> Query {
         queries::read::get_users_details_by_ids(id_list)
     }
 
-    fn to_graph_query(&self) -> Result<Query, Box<dyn std::error::Error + Send + Sync>> {
+    fn put_graph_query(&self) -> Result<Query, Box<dyn std::error::Error + Send + Sync>> {
         queries::write::create_user(self)
     }
 
@@ -100,7 +100,6 @@ impl UserDetails {
     pub async fn del_from_graph(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Delete user_details on Redis
         Self::remove_from_index_multiple_json(&[&[&self.id]]).await?;
-
         // Delete user graph node;
         exec_single_row(queries::write::delete_user(&self.id)).await?;
 

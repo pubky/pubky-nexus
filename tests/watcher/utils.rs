@@ -80,6 +80,12 @@ impl WatcherTest {
         Ok(())
     }
 
+    pub async fn delete_tag(&mut self, tag_url: &str) -> Result<()> {
+        self.client.delete(tag_url).await?;
+        self.ensure_event_processing_complete().await?;
+        Ok(())
+    }
+
     pub async fn create_bookmark(
         &mut self,
         bookmark_url: &str,

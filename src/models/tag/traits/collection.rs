@@ -97,7 +97,7 @@ where
         let mut result;
         {
             // We cannot use LIMIT clause because we need all data related
-            let query = Self::graph_query(user_id, extra_param);
+            let query = Self::read_graph_query(user_id, extra_param);
             let graph = get_neo4j_graph()?;
 
             let graph = graph.lock().await;
@@ -205,6 +205,28 @@ where
         Ok(())
     }
 
+    async fn del_from_graph(
+        user_id: &str,
+        tag_id: &str,
+    ) -> Result<Option<(String, Option<String>)>, Box<dyn std::error::Error + Send + Sync>> {
+        let mut result;
+        {
+            let graph = get_neo4j_graph()?;
+            let query = queries::write::delete_tag(user_id, tag_id);
+
+            let graph = graph.lock().await;
+            result = graph.execute(query).await?;
+        }
+
+        if let Some(row) = result.next().await? {
+            println!("{:?}", row);
+            let post_id: Option<String> = row.get("post_id").unwrap_or(None);
+            let user_id: String = row.get("user_id").unwrap();
+            return Ok(Some((user_id, post_id)));
+        }
+        Ok(None)
+    }
+
     /// Returns the unique key parts used to identify a tag in the Redis database
     fn get_tag_prefix<'a>() -> [&'a str; 2];
 
@@ -214,7 +236,7 @@ where
     /// * extra_param - An optional parameter for specifying additional constraints on the query. Options: post_id
     /// # Returns
     /// A query object representing the query to execute in Neo4j.
-    fn graph_query(user_id: &str, extra_param: Option<&str>) -> Query {
+    fn read_graph_query(user_id: &str, extra_param: Option<&str>) -> Query {
         match extra_param {
             Some(extra_id) => queries::read::post_tags(user_id, extra_id),
             None => queries::read::user_tags(user_id),

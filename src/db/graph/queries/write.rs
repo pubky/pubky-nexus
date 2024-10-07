@@ -192,8 +192,20 @@ pub fn create_user_tag(
 
 pub fn delete_tag(user_id: &str, tag_id: &str) -> Query {
     query(
-        "MATCH (user:User {id: $user_id})-[t:TAGGED {id: $tag_id}]->(target)
-         DELETE t",
+        "MATCH (user:User {id: $user_id})-[tag:TAGGED {id: $tag_id}]->(target)
+         OPTIONAL MATCH (target)<-[:AUTHORED]-(author:User)
+         WITH
+            CASE 
+                WHEN target:User THEN target.id 
+                ELSE author.id 
+            END AS user_id,
+            CASE 
+                WHEN target:Post THEN target.id 
+                ELSE NULL 
+            END AS post_id,
+            tag
+         //DELETE tag  
+         RETURN user_id, post_id"
     )
     .param("user_id", user_id)
     .param("tag_id", tag_id)
