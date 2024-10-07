@@ -12,7 +12,7 @@ const MAX_TAG_LABEL_LENGTH: usize = 20;
 ///
 /// `/pub/pubky.app/tags/xsmykwj3jdzdwbox6bu5yjowzw`
 ///
-/// Where tag_id is z-base32(Sha256("{uri_tagged}:{")))[:8]
+/// Where tag_id is Crockford-base32(Blake3("{uri_tagged}:{label}")[:half])
 #[derive(Serialize, Deserialize, Default)]
 pub struct PubkyAppTag {
     pub uri: String,

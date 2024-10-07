@@ -70,12 +70,12 @@ pub trait HashId {
     /// 1. Concatenating the `uri` and `label` fields of the `PubkyAppTag` with a colon (`:`) separator.
     /// 2. Hashing the concatenated string using the `blake3` hashing algorithm.
     /// 3. Taking the first half of the bytes from the resulting `blake3` hash.
-    /// 4. Encoding those bytes using the Z-base32 alphabet (Base32 variant).
+    /// 4. Encoding those bytes using the Crockford alphabet (Base32 variant).
     ///
-    /// The resulting Base32-encoded string is returned as the tag ID.
+    /// The resulting Crockford-encoded string is returned as the tag ID.
     ///
     /// # Returns
-    /// - A `String` representing the Base32-encoded tag ID derived from the `blake3` hash of the concatenated `uri` and `label`.
+    /// - A `String` representing the Crockford-encoded tag ID derived from the `blake3` hash of the concatenated `uri` and `label`.
     fn create_id(&self) -> String {
         let data = self.get_id_data();
 
@@ -89,7 +89,7 @@ pub trait HashId {
         let half_hash = &blake3_hash.as_bytes()[..half_hash_length];
 
         // Encode the first half of the hash in Base32 using the Z-base32 alphabet
-        encode(Alphabet::Z, half_hash)
+        encode(Alphabet::Crockford, half_hash)
     }
 
     /// Validates that the provided ID matches the generated ID.
