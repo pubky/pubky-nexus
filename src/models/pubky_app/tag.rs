@@ -1,6 +1,7 @@
 use super::traits::{HashId, Validatable};
 use axum::async_trait;
 use serde::{Deserialize, Serialize};
+use url::Url;
 
 // Validation
 const MAX_TAG_LABEL_LENGTH: usize = 20;
@@ -30,6 +31,30 @@ impl HashId for PubkyAppTag {
 
 #[async_trait]
 impl Validatable for PubkyAppTag {
+    async fn sanitize(self) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        // Convert label to lowercase and trim
+        let label = self.label.trim().to_lowercase();
+
+        // Enforce maximum label length
+        let label = if label.len() > MAX_TAG_LABEL_LENGTH {
+            label[..MAX_TAG_LABEL_LENGTH].to_string()
+        } else {
+            label
+        };
+
+        // Sanitize URI
+        let uri = match Url::parse(&self.uri) {
+            Ok(url) => url.to_string(),
+            Err(_) => return Err("Invalid URI in tag".into()),
+        };
+
+        Ok(PubkyAppTag {
+            uri,
+            label,
+            created_at: self.created_at,
+        })
+    }
+
     async fn validate(&self, id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.validate_id(id).await?;
 
