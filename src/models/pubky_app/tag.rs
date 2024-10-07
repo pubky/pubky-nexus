@@ -10,7 +10,7 @@ const MAX_TAG_LABEL_LENGTH: usize = 20;
 ///
 /// Example URI:
 ///
-/// `/pub/pubky.app/tags/xsmykwj3jdzdwbox6bu5yjowzw`
+/// `/pub/pubky.app/tags/FPB0AM9S93Q3M1GFY1KV09GMQM`
 ///
 /// Where tag_id is Crockford-base32(Blake3("{uri_tagged}:{label}")[:half])
 #[derive(Serialize, Deserialize, Default)]

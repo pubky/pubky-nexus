@@ -7,8 +7,9 @@ use serde::{Deserialize, Serialize};
 ///
 /// Example URI:
 ///
-/// `/pub/pubky.app/bookmarks/kx8uzgiq5f75bqofp51nq8r11r`
+/// `/pub/pubky.app/bookmarks/AF7KQ6NEV5XV1EG5DVJ2E74JJ4`
 ///
+/// Where bookmark_id is Crockford-base32(Blake3("{uri_bookmarked}"")[:half])
 #[derive(Serialize, Deserialize, Default)]
 pub struct PubkyAppBookmark {
     pub uri: String,
