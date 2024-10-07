@@ -50,8 +50,8 @@ async fn test_homeserver_put_follow() -> Result<()> {
     let exist = find_follow_relationship(&follower_id, &followee_id)
         .await
         .unwrap();
-    assert_eq!(
-        exist, true,
+    assert!(
+        exist,
         "The follow relationship was not created in the Graph"
     );
 

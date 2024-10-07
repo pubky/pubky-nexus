@@ -1,6 +1,6 @@
+use super::traits::{TimestampId, Validatable};
+use axum::async_trait;
 use serde::{Deserialize, Serialize};
-
-use super::traits::{GenerateTimestampId, Validatable};
 
 /// Profile schema
 #[derive(Deserialize, Serialize, Debug)]
@@ -12,11 +12,15 @@ pub struct PubkyAppFile {
     pub size: u64,
 }
 
-impl GenerateTimestampId for PubkyAppFile {}
+impl TimestampId for PubkyAppFile {}
 
+#[async_trait]
 impl Validatable for PubkyAppFile {
     // TODO: content_type validation.
-    async fn validate(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn validate(&self, id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.validate_id(id).await?;
+        // TODO: content_type validation.
+        // TODO: size and other validation.
         Ok(())
     }
 }

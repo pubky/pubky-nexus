@@ -70,19 +70,19 @@ async fn test_homeserver_put_post_event() -> Result<()> {
     let global_timeline = check_member_global_timeline_user_post(&user_id, &post_id)
         .await
         .unwrap();
-    assert_eq!(global_timeline.is_some(), true);
+    assert!(global_timeline.is_some());
     assert_eq!(global_timeline.unwrap(), post_details.indexed_at as isize);
 
     // Sorted:Posts:User:user_id
     let post_timeline = check_member_user_post_timeline(&user_id, &post_id)
         .await
         .unwrap();
-    assert_eq!(post_timeline.is_some(), true);
+    assert!(post_timeline.is_some());
     assert_eq!(post_timeline.unwrap(), post_details.indexed_at as isize);
 
     // Has pioneer score. Sorted:Users:Pioneers
     let pioneer_score = check_member_user_pioneer(&user_id).await.unwrap();
-    assert_eq!(pioneer_score.is_some(), true);
+    assert!(pioneer_score.is_some());
     assert_eq!(pioneer_score.unwrap(), 0);
 
     let exist_count = find_user_counts(&user_id).await;

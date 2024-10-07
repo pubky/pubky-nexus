@@ -22,7 +22,7 @@ pub async fn put(
     debug!("Indexing new post: {}/{}", author_id, post_id);
 
     // Serialize and validate
-    let post = <PubkyAppPost as Validatable>::try_from(&blob).await?;
+    let post = <PubkyAppPost as Validatable>::try_from(&blob, &post_id).await?;
 
     sync_put(post, author_id, post_id).await
 }

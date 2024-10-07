@@ -72,17 +72,17 @@ async fn test_homeserver_user_put_event() -> Result<()> {
     .await
     .unwrap();
 
-    assert_eq!(is_member.is_some(), true);
+    assert!(is_member.is_some());
     assert_eq!(is_member.unwrap(), 0);
 
     // pioneers score: Sorted:Users:Pioneers
     let pioneer_score = check_member_user_pioneer(&user_id).await.unwrap();
-    assert_eq!(pioneer_score.is_some(), true);
+    assert!(pioneer_score.is_some());
     assert_eq!(pioneer_score.unwrap(), 0);
 
     // most_followed score: Sorted:Users:MostFollowed
     let pioneer_score = check_member_most_followed(&user_id).await.unwrap();
-    assert_eq!(pioneer_score.is_some(), true);
+    assert!(pioneer_score.is_some());
     assert_eq!(pioneer_score.unwrap(), 0);
 
     // Cleanup

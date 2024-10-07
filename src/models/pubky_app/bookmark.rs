@@ -1,4 +1,5 @@
-use super::traits::{GenerateHashId, Validatable};
+use super::traits::{HashId, Validatable};
+use axum::async_trait;
 use serde::{Deserialize, Serialize};
 
 /// Represents raw homeserver bookmark with id
@@ -14,16 +15,19 @@ pub struct PubkyAppBookmark {
     pub created_at: i64,
 }
 
-impl GenerateHashId for PubkyAppBookmark {
+#[async_trait]
+impl HashId for PubkyAppBookmark {
     /// Bookmark ID is created based on the hash of the URI bookmarked
     fn get_id_data(&self) -> String {
         self.uri.clone()
     }
 }
 
+#[async_trait]
 impl Validatable for PubkyAppBookmark {
-    async fn validate(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // TODO: validate ID of incoming bookmark is correct
+    async fn validate(&self, id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.validate_id(id).await?;
+        // TODO: more bookmarks validation?
         Ok(())
     }
 }
