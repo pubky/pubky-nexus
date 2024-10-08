@@ -1,0 +1,92 @@
+use crate::watcher::utils::WatcherTest;
+use anyhow::Result;
+use pubky_common::crypto::Keypair;
+use pubky_nexus::models::{
+    post::{Bookmark, PostStream},
+    pubky_app::{traits::HashId, PubkyAppBookmark, PubkyAppPost, PubkyAppUser},
+};
+
+use super::utils::find_post_bookmark;
+
+#[tokio::test]
+async fn test_homeserver_unbookmark() -> Result<()> {
+    let mut test = WatcherTest::setup().await?;
+
+    // Step 1: Create a user
+    let keypair = Keypair::random();
+    let bookmarker = PubkyAppUser {
+        bio: Some("test_homeserver_unbookmark".to_string()),
+        image: None,
+        links: None,
+        name: "Watcher:Unbookmark:Bookmarker".to_string(),
+        status: None,
+    };
+    let bookmarker_id = test.create_user(&keypair, &bookmarker).await?;
+
+    let author_keypair = Keypair::random();
+    let author = PubkyAppUser {
+        bio: Some("test_homeserver_unbookmark".to_string()),
+        image: None,
+        links: None,
+        name: "Watcher:Unbookmark:Author".to_string(),
+        status: None,
+    };
+    let author_id = test.create_user(&author_keypair, &author).await?;
+
+    // Step 2: Create a post under that user
+    let post = PubkyAppPost {
+        content: "Watcher:Unbookmark:Author:Post".to_string(),
+        kind: PubkyAppPost::default().kind,
+        parent: None,
+        embed: None,
+    };
+    let post_id = test.create_post(&author_id, &post).await?;
+
+    // Step 3: Add a bookmark to the post. Before create a new user
+    let bookmark = PubkyAppBookmark {
+        uri: format!("pubky://{}/pub/pubky.app/posts/{}", author_id, post_id),
+        created_at: chrono::Utc::now().timestamp_millis(),
+    };
+    let bookmark_blob = serde_json::to_vec(&bookmark)?;
+    let bookmark_id = bookmark.create_id();
+    let bookmark_url = format!(
+        "pubky://{}/pub/pubky.app/bookmarks/{}",
+        bookmarker_id, bookmark_id
+    );
+
+    // Put bookmark
+    test.create_bookmark(&bookmark_url, bookmark_blob)
+        .await
+        .unwrap();
+
+    // Step 4: Delete bookmark
+    test.delete_bookmark(&bookmark_url).await?;
+
+    // GRAPH_OP: Assert if the event writes the graph
+    let result = find_post_bookmark(&author_id, &post_id, &bookmarker_id).await;
+
+    if let Ok(bookmark) = result {
+        anyhow::bail!("The bookmark with {:} id still exist", bookmark.id);
+    }
+
+    // CACHE_OP: Assert the index is clear of the bookmark
+    let bookmarks = PostStream::get_bookmarked_posts(&bookmarker_id, None, None)
+        .await
+        .unwrap();
+    assert!(bookmarks.is_none(), "The bookmar list should be empty");
+
+    let exist_bookmark = Bookmark::get_from_index(&author_id, &post_id, &bookmarker_id)
+        .await
+        .unwrap();
+    assert!(
+        exist_bookmark.is_none(),
+        "The bookmark cannot exist after deletion"
+    );
+
+    // Cleanup user and post
+    test.cleanup_post(&author_id, &post_id).await?;
+    test.cleanup_user(&bookmarker_id).await?;
+    test.cleanup_user(&author_id).await?;
+
+    Ok(())
+}

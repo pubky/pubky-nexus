@@ -90,6 +90,11 @@ impl WatcherTest {
         Ok(())
     }
 
+    pub async fn delete_bookmark(&mut self, bookmark_url: &str) -> Result<()> {
+        self.client.delete(bookmark_url).await?;
+        self.ensure_event_processing_complete().await
+    }
+
     pub async fn cleanup_user(&mut self, user_id: &str) -> Result<()> {
         let url = format!("pubky://{}/pub/pubky.app/profile.json", user_id);
         self.client.delete(url.as_str()).await?;
