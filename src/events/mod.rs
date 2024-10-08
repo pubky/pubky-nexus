@@ -73,7 +73,7 @@ impl Event {
         let parsed_uri = ParsedUri::try_from(uri.as_str()).unwrap_or_default();
 
         let resource_type = match uri {
-            _ if uri.ends_with("profile.json") => ResourceType::User {
+            _ if uri.ends_with("/pub/pubky.app/profile.json") => ResourceType::User {
                 user_id: parsed_uri.user_id,
             },
             _ if uri.contains("/posts/") => ResourceType::Post {
