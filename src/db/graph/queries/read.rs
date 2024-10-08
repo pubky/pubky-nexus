@@ -191,7 +191,7 @@ pub fn user_counts(user_id: &str) -> neo4rs::Query {
         OPTIONAL MATCH (follower:User)-[:FOLLOWS]->(u)
         OPTIONAL MATCH (u)-[:FOLLOWS]->(friend:User)-[:FOLLOWS]->(u)
         OPTIONAL MATCH (u)-[:AUTHORED]->(post:Post)
-        OPTIONAL MATCH (u)-[tag:TAGGED]->(:Post)
+        OPTIONAL MATCH (u)-[tag:TAGGED]->()
         WITH u, COUNT(DISTINCT following) AS following, 
                 COUNT(DISTINCT follower) AS followers, 
                 COUNT(DISTINCT friend) AS friends, 

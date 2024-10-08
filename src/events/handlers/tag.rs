@@ -75,6 +75,8 @@ async fn put_sync_post(
 
     // TODO: Handle the errors
     let _ = tokio::join!(
+        // Update user counts for tagger
+        UserCounts::update(&tagger_user_id, "tags", JsonAction::Increment(1)),
         // Increment in one the post tags
         PostCounts::update_index_field(post_key_slice, "tags", JsonAction::Increment(1)),
         // Add label to post
@@ -129,8 +131,8 @@ async fn put_sync_user(
     .await?;
 
     // SAVE TO INDEX
-    // Update user counts in the user
-    UserCounts::update(&tagged_user_id, "tags", JsonAction::Increment(1)).await?;
+    // Update user counts for tagger
+    UserCounts::update(&tagger_user_id, "tags", JsonAction::Increment(1)).await?;
 
     // Add tagger to the user taggers list
     TagUser::add_tagger_to_index(&tagged_user_id, None, &tagger_user_id, &tag_label).await?;
