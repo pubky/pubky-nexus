@@ -1,4 +1,4 @@
-use std::{env::current_dir, error::Error};
+use std::error::Error;
 
 use axum::body::Bytes;
 use log::debug;
@@ -8,14 +8,17 @@ use tokio::{
     io::AsyncWriteExt,
 };
 
-use crate::models::{
-    file::{
-        details::{FileMeta, FileUrls},
-        FileDetails,
+use crate::{
+    models::{
+        file::{
+            details::{FileMeta, FileUrls},
+            FileDetails,
+        },
+        pubky_app::{traits::Validatable, PubkyAppFile},
+        traits::Collection,
+        user::PubkyId,
     },
-    pubky_app::{traits::Validatable, PubkyAppFile},
-    traits::Collection,
-    user::PubkyId,
+    Config,
 };
 
 pub async fn put(
@@ -74,7 +77,7 @@ async fn store_blob(
     path: String,
     blob: &Bytes,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let storage_path = format!("{}/static/files", current_dir()?.display());
+    let storage_path = Config::from_env().file_path;
     let full_path = format!("{}/{}", storage_path, path);
 
     let path_exists = match fs::metadata(full_path.as_str()).await {
@@ -97,7 +100,7 @@ async fn remove_blob(
     name: String,
     path: String,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let storage_path = format!("{}/static/files", current_dir()?.display());
+    let storage_path = Config::from_env().file_path;
     let file_path = format!("{}/{}/{}", storage_path, path, name);
 
     remove_file(file_path).await?;
