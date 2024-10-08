@@ -9,6 +9,8 @@ pub type Result<T> = core::result::Result<T, Error>;
 pub enum Error {
     #[error("User not found: {user_id}")]
     UserNotFound { user_id: String },
+    #[error("Stream is empty: {message}")]
+    EmptyStream { message: String },
     #[error("Post not found: {author_id} {post_id}")]
     PostNotFound { author_id: String, post_id: String },
     #[error("Internal server error: {source}")]
@@ -30,6 +32,7 @@ impl IntoResponse for Error {
         let status_code = match self {
             Error::UserNotFound { .. } => StatusCode::NOT_FOUND,
             Error::PostNotFound { .. } => StatusCode::NOT_FOUND,
+            Error::EmptyStream { .. } => StatusCode::NOT_FOUND,
             Error::FileNotFound { .. } => StatusCode::NOT_FOUND,
             Error::BookmarksNotFound { .. } => StatusCode::NOT_FOUND,
             Error::TagsNotFound { .. } => StatusCode::NOT_FOUND,
@@ -44,6 +47,7 @@ impl IntoResponse for Error {
             Error::PostNotFound { author_id, post_id } => {
                 debug!("Post not found: {} {}", author_id, post_id)
             }
+            Error::EmptyStream { message } => debug!("Empty stream: {}", message),
             Error::FileNotFound {} => {
                 debug!("File not found.")
             }

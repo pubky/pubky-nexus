@@ -39,9 +39,8 @@ pub async fn stream_global_posts_handler(
 
     match PostStream::get_global_posts(sorting, query.viewer_id, Some(skip), Some(limit)).await {
         Ok(Some(stream)) => Ok(Json(stream)),
-        Ok(None) => Err(Error::PostNotFound {
-            author_id: String::from("global"),
-            post_id: String::from("N/A"),
+        Ok(None) => Err(Error::EmptyStream {
+            message: "The global stream of posts is empty".to_string(),
         }),
         Err(source) => Err(Error::InternalServerError { source }),
     }
@@ -83,9 +82,8 @@ pub async fn stream_user_posts_handler(
 
     match PostStream::get_user_posts(&user_id, query.viewer_id, Some(skip), Some(limit)).await {
         Ok(Some(stream)) => Ok(Json(stream)),
-        Ok(None) => Err(Error::PostNotFound {
-            author_id: String::from("global"),
-            post_id: String::from("N/A"),
+        Ok(None) => Err(Error::EmptyStream {
+            message: format!("The stream of posts for user '{}' is empty", user_id),
         }),
         Err(source) => Err(Error::InternalServerError { source }),
     }
@@ -124,13 +122,20 @@ pub async fn stream_posts_by_reach_handler(
     let limit = query.limit.unwrap_or(10);
     let reach = query.reach.unwrap_or(PostStreamReach::Following);
 
-    match PostStream::get_posts_by_reach(reach, Some(query.viewer_id), Some(skip), Some(limit))
-        .await
+    match PostStream::get_posts_by_reach(
+        reach.clone(),
+        Some(query.viewer_id.clone()),
+        Some(skip),
+        Some(limit),
+    )
+    .await
     {
         Ok(Some(stream)) => Ok(Json(stream)),
-        Ok(None) => Err(Error::PostNotFound {
-            author_id: String::from("global"),
-            post_id: String::from("N/A"),
+        Ok(None) => Err(Error::EmptyStream {
+            message: format!(
+                "The stream of posts by reach {:?} of user '{}' is empty",
+                reach, query.viewer_id
+            ),
         }),
         Err(source) => Err(Error::InternalServerError { source }),
     }
@@ -209,9 +214,8 @@ pub async fn stream_posts_by_tags_handler(
     .await
     {
         Ok(Some(stream)) => Ok(Json(stream)),
-        Ok(None) => Err(Error::PostNotFound {
-            author_id: String::from("global"),
-            post_id: String::from("N/A"),
+        Ok(None) => Err(Error::EmptyStream {
+            message: format!("The stream of posts by tag label {} is empty", label),
         }),
         Err(source) => Err(Error::InternalServerError { source }),
     }

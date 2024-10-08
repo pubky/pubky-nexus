@@ -42,8 +42,8 @@ pub async fn stream_users_handler(
     let user_id = match query.user_id {
         Some(user_id) => user_id,
         None => {
-            return Err(Error::UserNotFound {
-                user_id: "user_id query param not provided".to_string(),
+            return Err(Error::InvalidInput {
+                message: "user_id query param not provided".to_string(),
             })
         }
     };
@@ -59,12 +59,17 @@ pub async fn stream_users_handler(
         query.viewer_id.as_deref(),
         Some(skip),
         Some(limit),
-        stream_type,
+        stream_type.clone(),
     )
     .await
     {
         Ok(Some(stream)) => Ok(Json(stream)),
-        Ok(None) => Err(Error::UserNotFound { user_id }),
+        Ok(None) => Err(Error::EmptyStream {
+            message: format!(
+                "No users found for the requested stream: {}, {:?}",
+                user_id, stream_type
+            ),
+        }),
         Err(source) => Err(Error::InternalServerError { source }),
     }
 }
@@ -121,8 +126,8 @@ pub async fn stream_username_search_handler(
     .await
     {
         Ok(Some(stream)) => Ok(Json(stream)),
-        Ok(None) => Err(Error::UserNotFound {
-            user_id: "No users found for this username".to_string(),
+        Ok(None) => Err(Error::EmptyStream {
+            message: format!("No users found for the username '{}'", username),
         }),
         Err(source) => Err(Error::InternalServerError { source }),
     }
@@ -168,8 +173,8 @@ pub async fn stream_most_followed_users_handler(
     .await
     {
         Ok(Some(stream)) => Ok(Json(stream)),
-        Ok(None) => Err(Error::UserNotFound {
-            user_id: "Most Followed".to_string(),
+        Ok(None) => Err(Error::EmptyStream {
+            message: "Most Followed stream has no users".to_string(),
         }),
         Err(source) => Err(Error::InternalServerError { source }),
     }
@@ -208,8 +213,8 @@ pub async fn stream_pioneer_users_handler(
     .await
     {
         Ok(Some(stream)) => Ok(Json(stream)),
-        Ok(None) => Err(Error::UserNotFound {
-            user_id: "Pioneers".to_string(),
+        Ok(None) => Err(Error::EmptyStream {
+            message: "Pioneers stream has no users".to_string(),
         }),
         Err(source) => Err(Error::InternalServerError { source }),
     }
@@ -259,8 +264,11 @@ pub async fn stream_users_by_ids_handler(
 
     match UserStream::from_listed_user_ids(&request.user_ids, request.viewer_id.as_deref()).await {
         Ok(Some(stream)) => Ok(Json(stream)),
-        Ok(None) => Err(Error::UserNotFound {
-            user_id: "Users not found".to_string(),
+        Ok(None) => Err(Error::EmptyStream {
+            message: format!(
+                "No users found for the requested stream with user ids: {:?}",
+                request.user_ids
+            ),
         }),
         Err(source) => Err(Error::InternalServerError { source }),
     }

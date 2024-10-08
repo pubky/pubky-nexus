@@ -24,7 +24,7 @@ pub enum PostStreamSorting {
     TotalEngagement,
 }
 
-#[derive(Deserialize, ToSchema)]
+#[derive(Deserialize, ToSchema, Debug, Clone)]
 pub enum PostStreamReach {
     Following,
     Followers,
