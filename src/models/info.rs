@@ -11,6 +11,7 @@ pub struct ServerInfo {
     pub name: String,
     pub repository: String,
     pub version: String,
+    pub commit_hash: String,
     pub last_index_snapshot: u64,
     pub base_file_url: String,
 }
@@ -26,6 +27,9 @@ impl ServerInfo {
             name: env!("CARGO_PKG_NAME").to_string(),
             repository: env!("CARGO_PKG_REPOSITORY").to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
+            commit_hash: option_env!("GIT_COMMIT_HASH")
+                .unwrap_or("unknown")
+                .to_string(),
             last_index_snapshot,
             base_file_url: config.base_file_url,
         }
