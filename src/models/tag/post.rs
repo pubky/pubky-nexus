@@ -10,7 +10,13 @@ use super::traits::TaggersCollection;
 pub const POST_TAGS_KEY_PARTS: [&str; 2] = ["Posts", "Tag"];
 
 #[derive(Serialize, Deserialize, Debug, Clone, ToSchema, Default)]
-pub struct TagPost;
+pub struct TagPost(pub Vec<String>);
+
+impl AsRef<[String]> for TagPost {
+    fn as_ref(&self) -> &[String] {
+        &self.0
+    }
+}
 
 #[async_trait]
 impl RedisOps for TagPost {

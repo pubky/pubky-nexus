@@ -8,7 +8,7 @@ use crate::models::pubky_app::PubkyAppTag;
 use crate::models::tag::post::TagPost;
 use crate::models::tag::search::TagSearch;
 use crate::models::tag::stream::Taggers;
-use crate::models::tag::traits::TagCollection;
+use crate::models::tag::traits::{TagCollection, TaggersCollection};
 use crate::models::tag::user::TagUser;
 use crate::models::user::{PubkyId, UserCounts, UserTags};
 use crate::{queries, ScoreAction};
@@ -152,16 +152,21 @@ async fn put_sync_user(
 pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), Box<dyn Error + Sync + Send>> {
     debug!("Deleting tag: {} -> {}", user_id, tag_id);
     // DELETE FROM GRAPH
-    let tag_details = TagUser::del_from_graph("7kbjzgcx3xygokesys6jso13tt9u5n995p9q54a1co7cai9ujcso", "2Z1N9KW8ABXG0").await?;
+    // Maybe better if we add as a local function instead of part of the trait?
+    let tag_details = TagUser::del_from_graph(
+        "7kbjzgcx3xygokesys6jso13tt9u5n995p9q54a1co7cai9ujcso",
+        "2Z1N9KW8ABXG0",
+    )
+    .await?;
     // CHOOSE THE EVENT TYPE
     match tag_details {
-        Some(tagged) => {
-            match tagged.1 {
-                Some(post_id) => del_sync_post(user_id, &post_id, &tagged.0, &tag_id).await?,
-                None => del_sync_user(user_id, &tagged.0, &tag_id).await?
+        Some(tagged) => match tagged.1 {
+            Some(post_id) => {
+                del_sync_post(user_id, &post_id, &tagged.0, &tagged.2).await?
             }
+            None => del_sync_user(user_id, &tagged.0, &tagged.2).await?,
         },
-        None => println!("EXIT")
+        None => println!("EXIT"),
     }
 
     //let (user_id, post_id) = TagUser::del_from_graph("bb3xoth8hijfn6z6zahkutb6cfea5fzzs67gtziud74iusr1whgo", "2Z1N9M5M80YG0").await?;
@@ -172,9 +177,19 @@ pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), Box<dyn Error +
 async fn del_sync_user(
     tagger_id: PubkyId,
     tagged_id: &str,
-    tag_id: &str,
+    tag_label: &str,
 ) -> Result<(), Box<dyn Error + Sync + Send>> {
-    println!("TAG USER DEL: {:?}", tagger_id);
+    // Update user counts in the user
+    // TODO: In the comming commits, will be tagged field
+    UserCounts::update(&tagged_id, "tags", JsonAction::Decrement(1)).await?;
+    // TODO: For the comming commits
+    //UserCounts::update(&tagger_id, "tags", JsonAction::Decrement(1)).await?;
+    // Remove tagger to the user taggers list
+    TagUser(vec![tagger_id.to_string()])
+        .del_from_index(tagged_id, None, tag_label)
+        .await?;
+    // Decrement label count to the user profile tag
+    TagUser::update_index_score(&tagged_id, None, &tag_label, ScoreAction::Increment(1.0)).await?;
     Ok(())
 }
 
@@ -182,7 +197,7 @@ async fn del_sync_post(
     tagger_id: PubkyId,
     post_id: &str,
     author_id: &str,
-    tag_id: &str,
+    tag_label: &str,
 ) -> Result<(), Box<dyn Error + Sync + Send>> {
     println!("TAG POST DEL: {:?}", tagger_id);
     Ok(())

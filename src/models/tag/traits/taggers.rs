@@ -8,7 +8,7 @@ pub type Taggers = Vec<String>;
 #[async_trait]
 pub trait TaggersCollection
 where
-    Self: RedisOps,
+    Self: RedisOps + AsRef<[String]>,
 {
     /// Retrieves taggers associated with a given user ID and label.
     /// # Arguments
@@ -30,10 +30,10 @@ where
         let skip = skip.unwrap_or(0);
         let limit = limit.unwrap_or(40);
         let key_parts = Self::create_label_index(user_id, extra_param, label);
-        Self::try_from_index(key_parts, Some(skip), Some(limit)).await
+        Self::get_from_index(key_parts, Some(skip), Some(limit)).await
     }
 
-    async fn try_from_index(
+    async fn get_from_index(
         key_parts: Vec<&str>,
         skip: Option<usize>,
         limit: Option<usize>,
@@ -57,5 +57,19 @@ where
             Some(extra_id) => vec![user_id, extra_id, label],
             None => vec![user_id, label],
         }
+    }
+
+    /// Remove a tagger from the label tagger list
+    async fn del_from_index(
+        &self,
+        author_id: &str,
+        extra_param: Option<&str>,
+        tag_label: &str,
+    ) -> Result<(), DynError> {
+        let key = match extra_param {
+            Some(post_id) => vec![author_id, post_id, tag_label],
+            None => vec![author_id, tag_label],
+        };
+        self.remove_from_index_set(&key).await
     }
 }

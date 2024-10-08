@@ -8,7 +8,13 @@ use super::traits::{TagCollection, TaggersCollection};
 pub const USER_TAGS_KEY_PARTS: [&str; 2] = ["Users", "Tag"];
 
 #[derive(Serialize, Deserialize, Debug, Clone, ToSchema, Default)]
-pub struct TagUser;
+pub struct TagUser(pub Vec<String>);
+
+impl AsRef<[String]> for TagUser {
+    fn as_ref(&self) -> &[String] {
+        &self.0
+    }
+}
 
 #[async_trait]
 impl RedisOps for TagUser {

@@ -203,9 +203,10 @@ pub fn delete_tag(user_id: &str, tag_id: &str) -> Query {
                 WHEN target:Post THEN target.id 
                 ELSE NULL 
             END AS post_id,
-            tag
+            tag,
+            tag.label AS label
          //DELETE tag  
-         RETURN user_id, post_id"
+         RETURN user_id, post_id, label"
     )
     .param("user_id", user_id)
     .param("tag_id", tag_id)

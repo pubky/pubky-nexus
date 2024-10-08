@@ -208,7 +208,7 @@ where
     async fn del_from_graph(
         user_id: &str,
         tag_id: &str,
-    ) -> Result<Option<(String, Option<String>)>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<(String, Option<String>, String)>, Box<dyn std::error::Error + Send + Sync>> {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
@@ -222,7 +222,8 @@ where
             println!("{:?}", row);
             let post_id: Option<String> = row.get("post_id").unwrap_or(None);
             let user_id: String = row.get("user_id").unwrap();
-            return Ok(Some((user_id, post_id)));
+            let label: String = row.get("label").unwrap();
+            return Ok(Some((user_id, post_id, label)));
         }
         Ok(None)
     }

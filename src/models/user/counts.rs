@@ -124,7 +124,6 @@ impl UserCounts {
     pub async fn delete(user_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Delete user_details on Redis
         Self::remove_from_index_multiple_json(&[&[user_id]]).await?;
-
         Ok(())
     }
 }
