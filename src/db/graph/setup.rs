@@ -14,6 +14,8 @@ pub async fn setup_graph() -> Result<(), Box<dyn std::error::Error>> {
         "CREATE INDEX postIdIndex IF NOT EXISTS FOR (p:Post) ON (p.id)",
         "CREATE INDEX taggedLabelIndex IF NOT EXISTS FOR ()-[r:TAGGED]-() ON (r.label)",
         "CREATE INDEX fileIdIndex IF NOT EXISTS FOR (f:File) ON (f.owner_id, f.id)",
+        "CREATE FULLTEXT INDEX ft_user_username IF NOT EXISTS FOR (u:User) ON EACH [u.name] OPTIONS {analyzer: 'standard'}",
+        "CREATE FULLTEXT INDEX ft_tag_label IF NOT EXISTS FOR (t:TAGGED) ON EACH [t.label]",
     ];
 
     let queries = constraints.iter().chain(indexes.iter());

@@ -1,4 +1,3 @@
-use crate::models::user::UserSearch;
 use crate::models::{
     pubky_app::{traits::Validatable, PubkyAppUser},
     traits::Collection,
@@ -28,7 +27,6 @@ pub async fn sync_put(
     user_details.put_to_graph().await?;
     // SAVE TO INDEX
     let user_id = user_details.id.clone();
-    UserSearch::put_to_index(&[&user_details]).await?;
     UserCounts::default().put_to_index(&user_id).await?;
     UserDetails::put_to_index(&[&user_id], vec![Some(user_details)]).await?;
     Ok(())
