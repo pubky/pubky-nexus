@@ -48,6 +48,7 @@ impl ApiDoc {
         combined.merge(stream::StreamApiDoc::merge_docs());
         combined.merge(search::SearchApiDoc::merge_docs());
         combined.merge(search::SearchApiDoc::merge_docs());
+        combined.merge(file::FileApiDoc::merge_docs());
         combined.merge(tag::TagApiDoc::merge_docs());
         combined.merge(notification::NotificationApiDoc::merge_docs());
         combined
