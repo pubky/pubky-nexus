@@ -56,7 +56,7 @@ impl Event {
         pubky_client: PubkyClient,
     ) -> Result<Option<Self>, Box<dyn std::error::Error + Sync + Send>> {
         debug!("New event: {}", line);
-        let parts: Vec<&str> = line.splitn(2, ' ').collect();
+        let parts: Vec<&str> = line.split(' ').collect();
         if parts.len() != 2 {
             return Err(format!("Malformed event line: {}", line).into());
         }

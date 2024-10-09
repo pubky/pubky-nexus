@@ -5,14 +5,20 @@ use crate::{Error, Result};
 use axum::extract::Query;
 use axum::Json;
 use log::info;
+use serde::Deserialize;
 use utoipa::OpenApi;
+
+#[derive(Deserialize)]
+pub struct FilesListQueryParams {
+    uris: String,
+}
 
 #[utoipa::path(
     get,
     path = FILE_LIST_ROUTE,
     tag = "Files by URIs",
     params(
-        ("uris" = Vec<String>, Query, description = "List of Pubky Uris")
+        ("uris" = String, Query, description = "a json stringified List of Pubky Uris")
     ),
     responses(
         (status = 200, description = "List of File Details", body = Vec<FileDetails>),
@@ -20,10 +26,18 @@ use utoipa::OpenApi;
     )
 )]
 pub async fn file_details_by_uris_handler(
-    Query(uris): Query<Vec<String>>,
+    Query(params): Query<FilesListQueryParams>,
 ) -> Result<Json<Vec<FileDetails>>> {
-    info!("GET {FILE_LIST_ROUTE} uris:{:?}", uris);
+    info!("GET {FILE_LIST_ROUTE} uris:{:?}", params.uris);
 
+    let uris = match serde_json::from_str::<Vec<String>>(params.uris.as_str()) {
+        Err(_) => {
+            return Err(Error::InvalidInput {
+                message: "Invalid uris param".to_string(),
+            });
+        }
+        Ok(value) => value,
+    };
     let keys: Vec<Vec<String>> = uris
         .into_iter()
         .map(|uri| FileDetails::file_key_from_uri(uri.as_str()))

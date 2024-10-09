@@ -13,6 +13,30 @@ pub struct FileUrls {
     pub main: String,
 }
 
+mod json_string {
+    use serde::{self, Deserialize, Deserializer, Serialize, Serializer};
+
+    // Deserialize function: convert the JSON string into a struct
+    pub fn deserialize<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: Deserialize<'de>,
+    {
+        let json_str: &'de str = <&str>::deserialize(deserializer)?;
+        serde_json::from_str(json_str).map_err(serde::de::Error::custom)
+    }
+
+    // Serialize function: convert the struct back into a JSON string
+    pub fn serialize<S, T>(value: &T, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+        T: Serialize,
+    {
+        let json_str = serde_json::to_string(value).map_err(serde::ser::Error::custom)?;
+        serializer.serialize_str(&json_str)
+    }
+}
+
 /// Represents a file and its metadata, including links to the actual binary of the file.
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema, Default)]
 pub struct FileDetails {
@@ -25,6 +49,7 @@ pub struct FileDetails {
     pub name: String,
     pub size: u64,
     pub content_type: String,
+    #[serde(with = "json_string")]
     pub urls: FileUrls,
 }
 
@@ -101,7 +126,7 @@ impl FileDetails {
     }
 
     pub fn file_key_from_uri(uri: &str) -> Vec<String> {
-        let path = uri.replace("pubky:", "");
+        let path = uri.replace("pubky://", "");
         let parts: Vec<&str> = path.split("/").collect();
 
         vec![String::from(parts[0]), String::from(parts[parts.len() - 1])]

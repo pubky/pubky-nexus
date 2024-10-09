@@ -184,7 +184,7 @@ pub fn create_file(file: &FileDetails) -> Result<Query, Box<dyn std::error::Erro
     let query = query(
         "MERGE (f:File {id: $id, owner_id: $owner_id})
          SET f.uri = $uri, f.indexed_at = $indexed_at, f.created_at = $created_at, f.size = $size,
-            f.src = $src, f.content_type = $content_type, f.urls = $urls;",
+            f.src = $src, f.name = $name, f.content_type = $content_type, f.urls = $urls;",
     )
     .param("id", file.id.to_string())
     .param("owner_id", file.owner_id.to_string())
