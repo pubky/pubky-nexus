@@ -131,7 +131,10 @@ async fn put_sync_user(
     .await?;
 
     // SAVE TO INDEX
-    // Update user counts for tagger
+    // Update user counts for the tagged user
+    UserCounts::update(&tagged_user_id, "tagged", JsonAction::Increment(1)).await?;
+
+    // Update user counts for the tagger user
     UserCounts::update(&tagger_user_id, "tags", JsonAction::Increment(1)).await?;
 
     // Add tagger to the user taggers list

@@ -1,4 +1,4 @@
-use crate::watcher::utils::WatcherTest;
+use crate::watcher::{users::utils::find_user_counts, utils::WatcherTest};
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::{
@@ -82,6 +82,10 @@ async fn test_homeserver_unbookmark() -> Result<()> {
         exist_bookmark.is_none(),
         "The bookmark cannot exist after deletion"
     );
+
+    // Verify bookmark counts have return to 0 for this user
+    let user_counts = find_user_counts(&bookmarker_id).await;
+    assert_eq!(user_counts.bookmarks, 0);
 
     // Cleanup user and post
     test.cleanup_post(&author_id, &post_id).await?;
