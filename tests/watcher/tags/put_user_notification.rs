@@ -8,17 +8,17 @@ use pubky_nexus::models::{
 };
 
 #[tokio::test]
-async fn test_homeserver_tag_user_notification() -> Result<()> {
+async fn test_homeserver_put_tag_user_notification() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Create the first user (tagged user)
     let tagged_keypair = Keypair::random();
 
     let tagged_user = PubkyAppUser {
-        bio: Some("test_homeserver_tag_user_notification".to_string()),
+        bio: Some("test_homeserver_put_tag_user_notification".to_string()),
         image: None,
         links: None,
-        name: "Watcher:TagUserNotification:TaggedUser".to_string(),
+        name: "Watcher:PutTagNotification:TaggedUser".to_string(),
         status: None,
     };
     let tagged_user_id = test.create_user(&tagged_keypair, &tagged_user).await?;
@@ -27,10 +27,10 @@ async fn test_homeserver_tag_user_notification() -> Result<()> {
     let tagger_keypair = Keypair::random();
 
     let tagger_user = PubkyAppUser {
-        bio: Some("test_homeserver_tag_user_notification".to_string()),
+        bio: Some("test_homeserver_put_tag_user_notification".to_string()),
         image: None,
         links: None,
-        name: "Watcher:TagUserNotification:TaggerUser".to_string(),
+        name: "Watcher:PutTagNotification:TaggerUser".to_string(),
         status: None,
     };
     let tagger_user_id = test.create_user(&tagger_keypair, &tagger_user).await?;

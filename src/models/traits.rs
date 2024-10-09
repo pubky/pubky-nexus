@@ -90,7 +90,7 @@ where
         let mut result;
         {
             let graph = get_neo4j_graph()?;
-            let query = Self::graph_query(ids);
+            let query = Self::collection_details_graph_query(ids);
 
             let graph = graph.lock().await;
             result = graph.execute(query).await?;
@@ -155,7 +155,7 @@ where
 
     // Save new graph node
     async fn put_to_graph(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        exec_single_row(self.to_graph_query()?).await
+        exec_single_row(self.put_graph_query()?).await
     }
 
     async fn reindex(collection_ids: &[T]) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -172,10 +172,13 @@ where
 
     /// Returns the neo4j query to return a list records by passing a list of ids.
     /// The query should return each record in the "record" attribute of the node.
-    fn graph_query(id_list: &[T]) -> Query;
+    fn collection_details_graph_query(id_list: &[T]) -> Query;
 
     /// Returns the neo4j query to put a record into the graph.
-    fn to_graph_query(&self) -> Result<Query, Box<dyn std::error::Error + Send + Sync>>;
+    fn put_graph_query(&self) -> Result<Query, Box<dyn std::error::Error + Send + Sync>>;
+
+    /// Returns the neo4j query to delete a node/relationship from the graph.
+    // fn del_graph_query(&self) -> Result<Query, Box<dyn std::error::Error + Send + Sync>>;
 
     async fn extend_on_index_miss(
         elements: &[std::option::Option<Self>],

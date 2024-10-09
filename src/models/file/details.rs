@@ -36,11 +36,11 @@ impl RedisOps for FileDetails {}
 
 #[async_trait]
 impl Collection<&[&str]> for FileDetails {
-    fn graph_query(id_list: &[&[&str]]) -> Query {
+    fn collection_details_graph_query(id_list: &[&[&str]]) -> Query {
         queries::get::get_files_by_ids(id_list)
     }
 
-    fn to_graph_query(&self) -> Result<Query, Box<dyn std::error::Error + Send + Sync>> {
+    fn put_graph_query(&self) -> Result<Query, Box<dyn std::error::Error + Send + Sync>> {
         queries::put::create_file(self)
     }
 

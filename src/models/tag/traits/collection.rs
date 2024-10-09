@@ -71,9 +71,17 @@ where
         {
             Some(tag_scores) => {
                 let mut tags = Vec::with_capacity(limit_tags);
-                for (label, _) in tag_scores.iter() {
-                    tags.push(Self::create_label_index(user_id, extra_param, label));
+                // TODO: Temporal fix. Should it delete SORTED SET value if score is 0?
+                for (label, score) in tag_scores.iter() {
+                    // Just process the tags that has score
+                    if score >= &1.0 {
+                        tags.push(Self::create_label_index(user_id, extra_param, label));
+                    }
                 }
+                if tags.is_empty() {
+                    return Ok(None);
+                }
+
                 let tags_ref: Vec<&str> = tags.iter().map(|label| label.as_str()).collect();
                 let taggers = Self::try_from_multiple_sets(&tags_ref, Some(limit_taggers)).await?;
                 let tag_details_list = TagDetails::from_index(tag_scores, taggers);
@@ -97,7 +105,7 @@ where
         let mut result;
         {
             // We cannot use LIMIT clause because we need all data related
-            let query = Self::graph_query(user_id, extra_param);
+            let query = Self::read_graph_query(user_id, extra_param);
             let graph = get_neo4j_graph()?;
 
             let graph = graph.lock().await;
@@ -205,6 +213,50 @@ where
         Ok(())
     }
 
+    /// Deletes a tag relationship between a user and a tagged target (User or Post) in the graph database.
+    /// # Arguments
+    /// * `user_id` - The ID of the user who owns the tag relationship.
+    /// * `tag_id` - The ID of the tag to be deleted.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing:
+    /// * `Some((Option<String>, Option<String>, Option<String>, String))`: If the tag was found and deleted:
+    ///   - `Option<String>` for the `user_id` of the target (if the target is a user, otherwise `None`),
+    ///   - `Option<String>` for the `post_id` of the target (if the target is a post, otherwise `None`),
+    ///   - `Option<String>` for the `author_id` of the post (if applicable, otherwise `None`),
+    ///   - `String` for the tag label.
+    /// * `None` if no matching tag relationship is found.
+    ///
+    /// # Errors
+    ///
+    /// Returns a boxed `std::error::Error` if there is any issue querying or executing the delete operation in Neo4j.
+    async fn del_from_graph(
+        user_id: &str,
+        tag_id: &str,
+    ) -> Result<
+        Option<(Option<String>, Option<String>, Option<String>, String)>,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
+        let mut result;
+        {
+            let graph = get_neo4j_graph()?;
+            let query = queries::put::delete_tag(user_id, tag_id);
+
+            let graph = graph.lock().await;
+            result = graph.execute(query).await?;
+        }
+
+        if let Some(row) = result.next().await? {
+            let user_id: Option<String> = row.get("user_id").unwrap_or(None);
+            let author_id: Option<String> = row.get("author_id").unwrap_or(None);
+            let post_id: Option<String> = row.get("post_id").unwrap_or(None);
+            let label: String = row.get("label").expect("Query should return tag label");
+            return Ok(Some((user_id, post_id, author_id, label)));
+        }
+        Ok(None)
+    }
+
     /// Returns the unique key parts used to identify a tag in the Redis database
     fn get_tag_prefix<'a>() -> [&'a str; 2];
 
@@ -214,7 +266,7 @@ where
     /// * extra_param - An optional parameter for specifying additional constraints on the query. Options: post_id
     /// # Returns
     /// A query object representing the query to execute in Neo4j.
-    fn graph_query(user_id: &str, extra_param: Option<&str>) -> Query {
+    fn read_graph_query(user_id: &str, extra_param: Option<&str>) -> Query {
         match extra_param {
             Some(extra_id) => queries::get::post_tags(user_id, extra_id),
             None => queries::get::user_tags(user_id),
