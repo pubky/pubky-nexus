@@ -76,7 +76,7 @@ impl Bookmark {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
-            let query = queries::read::post_bookmark(author_id, post_id, viewer_id);
+            let query = queries::get::post_bookmark(author_id, post_id, viewer_id);
 
             let graph = graph.lock().await;
             result = graph.execute(query).await?;
@@ -116,7 +116,7 @@ impl Bookmark {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
-            let query = queries::read::user_bookmarks(user_id);
+            let query = queries::get::user_bookmarks(user_id);
 
             let graph = graph.lock().await;
             result = graph.execute(query).await?;

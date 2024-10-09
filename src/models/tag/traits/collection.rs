@@ -216,8 +216,8 @@ where
     /// A query object representing the query to execute in Neo4j.
     fn graph_query(user_id: &str, extra_param: Option<&str>) -> Query {
         match extra_param {
-            Some(extra_id) => queries::read::post_tags(user_id, extra_id),
-            None => queries::read::user_tags(user_id),
+            Some(extra_id) => queries::get::post_tags(user_id, extra_id),
+            None => queries::get::user_tags(user_id),
         }
     }
 

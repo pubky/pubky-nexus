@@ -16,7 +16,7 @@ impl RedisOps for UserDetails {}
 #[async_trait]
 impl Collection<&str> for UserDetails {
     fn graph_query(id_list: &[&str]) -> Query {
-        queries::read::get_users_details_by_ids(id_list)
+        queries::get::get_users_details_by_ids(id_list)
     }
 
     fn to_graph_query(&self) -> Result<Query, Box<dyn std::error::Error + Send + Sync>> {

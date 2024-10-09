@@ -9,7 +9,7 @@ pub async fn find_post_bookmark(
     let mut row_stream;
     {
         let graph = get_neo4j_graph().unwrap();
-        let query = queries::read::post_bookmark(author, post_id, bookmarker_id);
+        let query = queries::get::post_bookmark(author, post_id, bookmarker_id);
 
         let graph = graph.lock().await;
         row_stream = graph.execute(query).await.unwrap();

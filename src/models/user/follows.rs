@@ -158,7 +158,7 @@ impl UserFollows for Followers {
     }
 
     fn get_query(user_id: &str, skip: Option<usize>, limit: Option<usize>) -> Query {
-        queries::read::get_user_followers(user_id, skip, limit)
+        queries::get::get_user_followers(user_id, skip, limit)
     }
 
     fn get_ids_field_name() -> &'static str {
@@ -172,7 +172,7 @@ impl UserFollows for Following {
     }
 
     fn get_query(user_id: &str, skip: Option<usize>, limit: Option<usize>) -> Query {
-        queries::read::get_user_following(user_id, skip, limit)
+        queries::get::get_user_following(user_id, skip, limit)
     }
 
     fn get_ids_field_name() -> &'static str {
