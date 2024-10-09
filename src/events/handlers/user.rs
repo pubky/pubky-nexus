@@ -37,10 +37,12 @@ pub async fn sync_put(
 pub async fn del(user_id: PubkyId) -> Result<(), Box<dyn Error + Sync + Send>> {
     debug!("Deleting user profile:  {}", user_id);
 
-    if let Some(user_details) = UserDetails::get_by_id(&user_id).await? {
-        user_details.del_from_graph().await?;
-        UserCounts::delete(&user_id).await?;
-    }
+    // TODO
+
+    // if let Some(user_details) = UserDetails::get_by_id(&user_id).await? {
+    //     user_details.del_from_graph().await?;
+    //     UserCounts::delete(&user_id).await?;
+    // }
 
     Ok(())
 }

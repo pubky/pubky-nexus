@@ -2,6 +2,7 @@ use crate::models::tag::traits::taggers::Taggers;
 use crate::models::tag::traits::{TagCollection, TaggersCollection};
 use crate::models::tag::user::TagUser;
 use crate::models::tag::TagDetails;
+use crate::models::user::{ProfileTag, UserTags};
 use crate::routes::v0::endpoints::{USER_TAGGERS_ROUTE, USER_TAGS_ROUTE};
 use crate::routes::v0::queries::PaginationQuery;
 use crate::routes::v0::TagsQuery;
@@ -77,6 +78,6 @@ pub async fn user_taggers_handler(
 #[derive(OpenApi)]
 #[openapi(
     paths(user_tags_handler, user_taggers_handler),
-    components(schemas(TagDetails))
+    components(schemas(TagDetails, UserTags, ProfileTag))
 )]
 pub struct UserTagsApiDoc;

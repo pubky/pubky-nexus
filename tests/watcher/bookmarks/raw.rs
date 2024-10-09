@@ -1,8 +1,8 @@
-use crate::watcher::utils::WatcherTest;
+use crate::watcher::{users::utils::find_user_counts, utils::WatcherTest};
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::{
-    post::PostStream,
+    post::{Bookmark, PostStream},
     pubky_app::{traits::HashId, PubkyAppBookmark, PubkyAppPost, PubkyAppUser},
 };
 
@@ -56,6 +56,10 @@ async fn test_homeserver_bookmark() -> Result<()> {
         .unwrap();
     assert_eq!(user_bookmark.id, bookmark_id);
 
+    // Verify bookmark counts have increased for this user
+    let user_counts = find_user_counts(&user_id).await;
+    assert_eq!(user_counts.bookmarks, 1);
+
     // INDEX_OP: Assert if the event writes the indexes
     let result_bookmarks = PostStream::get_bookmarked_posts(&user_id, None, None)
         .await
@@ -65,19 +69,13 @@ async fn test_homeserver_bookmark() -> Result<()> {
     assert_eq!(result_bookmarks.0.len(), 1);
     assert_eq!(result_bookmarks.0[0].details.id, post_id);
 
-    // Step 5: Delete the bookmark
-    test.client.delete(bookmark_url.as_str()).await?;
-    test.ensure_event_processing_complete().await?;
+    let exist_bookmark = Bookmark::get_from_index(&user_id, &post_id, &user_id)
+        .await
+        .unwrap();
+    assert!(exist_bookmark.is_some(), "The bookmark has to be indexed");
 
-    // Step 6: Verify the bookmark has been deleted
-    // let _result_bookmarks_after_delete = PostStream::get_bookmarked_posts(&user_id, None, None)
-    //     .await
-    //     .unwrap();
-    // TODO: handle delete bookmark from Redis
-    // assert!(
-    //     result_bookmarks_after_delete.is_none(),
-    //     "The bookmark should have been deleted"
-    // );
+    let bookmark = exist_bookmark.unwrap();
+    assert_eq!(bookmark.id, bookmark_id, "Bookmark ids does not match");
 
     // Cleanup user and post
     test.cleanup_post(&user_id, &post_id).await?;

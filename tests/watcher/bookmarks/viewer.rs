@@ -75,20 +75,6 @@ async fn test_homeserver_viewer_bookmark() -> Result<()> {
     assert_eq!(result_bookmarks.0.len(), 1);
     assert_eq!(result_bookmarks.0[0].details.id, post_id);
 
-    // Step 5: Delete the bookmark
-    test.client.delete(bookmark_url.as_str()).await?;
-    test.ensure_event_processing_complete().await?;
-
-    // Step 6: Verify the bookmark has been deleted
-    // let _result_bookmarks_after_delete = PostStream::get_bookmarked_posts(&viewer_id, None, None)
-    //     .await
-    //     .unwrap();
-    // TODO: handle delete bookmark from Redis
-    // assert!(
-    //     result_bookmarks_after_delete.is_none(),
-    //     "The bookmark should have been deleted"
-    // );
-
     // Cleanup user and post
     test.cleanup_post(&user_id, &post_id).await?;
     test.cleanup_user(&user_id).await?;

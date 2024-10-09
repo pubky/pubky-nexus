@@ -24,7 +24,7 @@ pub enum PostStreamSorting {
     TotalEngagement,
 }
 
-#[derive(Deserialize, ToSchema)]
+#[derive(Deserialize, ToSchema, Debug, Clone)]
 pub enum PostStreamReach {
     Following,
     Followers,
@@ -34,7 +34,7 @@ pub enum PostStreamReach {
     // All,
 }
 
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema, Debug)]
 pub struct PostStream(pub Vec<PostView>);
 
 impl RedisOps for PostStream {}
@@ -327,6 +327,17 @@ impl PostStream {
         let post_key = format!("{}:{}", author_id, post_id);
         let score = bookmark.indexed_at as f64;
         Self::put_index_sorted_set(&key_parts, &[(score, post_key.as_str())]).await
+    }
+
+    /// Remove a bookmark from Redis sorted
+    pub async fn remove_from_bookmarks_sorted_set(
+        bookmarker_id: &str,
+        post_id: &str,
+        author_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let key_parts = [&BOOKMARKS_USER_KEY_PARTS[..], &[bookmarker_id]].concat();
+        let post_key = format!("{}:{}", author_id, post_id);
+        Self::remove_from_index_sorted_set(&key_parts, &[&post_key]).await
     }
 
     /// Adds the post to a Redis sorted set using the total engagement as the score.

@@ -1,6 +1,5 @@
 use super::id::PubkyId;
 use super::UserSearch;
-use crate::db::graph::exec::exec_single_row;
 use crate::models::pubky_app::{PubkyAppUser, UserLink};
 use crate::models::traits::Collection;
 use crate::{queries, RedisOps};
@@ -97,14 +96,15 @@ impl UserDetails {
         })
     }
 
-    pub async fn del_from_graph(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Delete user_details on Redis
-        Self::remove_from_index_multiple_json(&[&[&self.id]]).await?;
-        // Delete user graph node;
-        exec_single_row(queries::write::delete_user(&self.id)).await?;
+    // pub async fn del_from_graph(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    //     // Delete user_details on Redis
+    //     Self::remove_from_index_multiple_json(&[&[&self.id]]).await?;
 
-        Ok(())
-    }
+    //     // Delete user graph node;
+    //     exec_single_row(queries::write::delete_user(&self.id)).await?;
+
+    //     Ok(())
+    // }
 }
 
 #[cfg(test)]

@@ -21,6 +21,7 @@ pub fn routes() -> Router {
     let route_user = user::routes();
     let route_stream = stream::routes();
     let route_search = search::routes();
+    let route_file = file::routes();
     let route_tag = tag::routes();
     let route_notification = notification::routes();
     let route_openapi =
@@ -31,6 +32,7 @@ pub fn routes() -> Router {
         .merge(route_user)
         .merge(route_stream)
         .merge(route_search)
+        .merge(route_file)
         .merge(route_tag)
         .merge(route_notification)
         .merge(route_openapi)
@@ -48,6 +50,7 @@ impl ApiDoc {
         combined.merge(stream::StreamApiDoc::merge_docs());
         combined.merge(search::SearchApiDoc::merge_docs());
         combined.merge(search::SearchApiDoc::merge_docs());
+        combined.merge(file::FileApiDoc::merge_docs());
         combined.merge(tag::TagApiDoc::merge_docs());
         combined.merge(notification::NotificationApiDoc::merge_docs());
         combined

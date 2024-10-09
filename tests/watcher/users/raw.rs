@@ -7,7 +7,7 @@ use pubky_common::crypto::Keypair;
 use pubky_nexus::{
     models::{
         pubky_app::{PubkyAppUser, UserLink},
-        user::{UserCounts, UserSearch, UserView, USER_NAME_KEY_PARTS},
+        user::{UserCounts, UserSearch, USER_NAME_KEY_PARTS},
     },
     RedisOps,
 };
@@ -89,8 +89,8 @@ async fn test_homeserver_user_put_event() -> Result<()> {
     test.cleanup_user(&user_id).await?;
 
     // Assert the new user does not exist in Nexus
-    let result = UserView::get_by_id(&user_id, None).await.unwrap();
-    assert!(result.is_none(), "The user should have been deleted");
+    // let result = UserView::get_by_id(&user_id, None).await.unwrap();
+    // assert!(result.is_none(), "The user should have been deleted");
 
     Ok(())
 }

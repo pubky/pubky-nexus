@@ -14,6 +14,8 @@ pub struct UserCounts {
     pub following: u32,
     pub followers: u32,
     pub friends: u32,
+    pub bookmarks: u32,
+    pub tagged: u32,
 }
 
 impl RedisOps for UserCounts {}
@@ -121,9 +123,10 @@ impl UserCounts {
         Ok(())
     }
 
-    pub async fn delete(user_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Delete user_details on Redis
-        Self::remove_from_index_multiple_json(&[&[user_id]]).await?;
-        Ok(())
-    }
+    // pub async fn delete(user_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    //     // Delete user_details on Redis
+    //     Self::remove_from_index_multiple_json(&[&[user_id]]).await?;
+
+    //     Ok(())
+    // }
 }

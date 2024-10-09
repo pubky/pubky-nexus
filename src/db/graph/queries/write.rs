@@ -143,8 +143,10 @@ pub fn create_post_bookmark(
 
 pub fn delete_bookmark(user_id: &str, bookmark_id: &str) -> Query {
     query(
-        "MATCH (u:User {id: $user_id})-[b:BOOKMARKED {id: $bookmark_id}]->(target)
-         DELETE b",
+        "MATCH (u:User {id: $user_id})-[b:BOOKMARKED {id: $bookmark_id}]->(post:Post)<-[:AUTHORED]-(author:User)
+         WITH post.id as post_id, author.id as author_id, b
+         DELETE b
+         RETURN post_id, author_id",
     )
     .param("user_id", user_id)
     .param("bookmark_id", bookmark_id)

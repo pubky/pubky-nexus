@@ -1,3 +1,4 @@
+use crate::models::file::details::FileUrls;
 use crate::models::file::FileDetails;
 use crate::models::traits::Collection;
 use crate::routes::v0::endpoints::FILE_ROUTE;
@@ -42,5 +43,8 @@ pub async fn file_details_handler(Path(file_uri): Path<String>) -> Result<Json<F
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(file_details_handler), components(schemas(FileDetails)))]
+#[openapi(
+    paths(file_details_handler),
+    components(schemas(FileDetails, FileUrls))
+)]
 pub struct FileDetailsApiDoc;

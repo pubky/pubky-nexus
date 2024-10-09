@@ -9,7 +9,7 @@ use utoipa::ToSchema;
 pub const USER_MOSTFOLLOWED_KEY_PARTS: [&str; 2] = ["Users", "MostFollowed"];
 pub const USER_PIONEERS_KEY_PARTS: [&str; 2] = ["Users", "Pioneers"];
 
-#[derive(Deserialize, ToSchema, Debug)]
+#[derive(Deserialize, ToSchema, Debug, Clone)]
 pub enum UserStreamType {
     Followers,
     Following,
