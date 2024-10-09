@@ -158,7 +158,7 @@ pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), Box<dyn Error +
     debug!("Deleting tag: {} -> {}", user_id, tag_id);
 
     // Delete the tag relationship from the graph
-    let query = queries::write::delete_tag(&user_id, &tag_id);
+    let query = queries::del::delete_tag(&user_id, &tag_id);
     exec_single_row(query).await?;
 
     Ok(())

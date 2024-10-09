@@ -23,7 +23,7 @@ impl Bookmark {
         bookmark_id: &str,
         indexed_at: i64,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let query = queries::write::create_post_bookmark(
+        let query = queries::put::create_post_bookmark(
             user_id,
             author_id,
             post_id,
@@ -76,7 +76,7 @@ impl Bookmark {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
-            let query = queries::read::post_bookmark(author_id, post_id, viewer_id);
+            let query = queries::get::post_bookmark(author_id, post_id, viewer_id);
 
             let graph = graph.lock().await;
             result = graph.execute(query).await?;
@@ -116,7 +116,7 @@ impl Bookmark {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
-            let query = queries::read::user_bookmarks(user_id);
+            let query = queries::get::user_bookmarks(user_id);
 
             let graph = graph.lock().await;
             result = graph.execute(query).await?;
@@ -143,7 +143,7 @@ impl Bookmark {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
-            let query = queries::write::delete_bookmark(user_id, bookmark_id);
+            let query = queries::del::delete_bookmark(user_id, bookmark_id);
 
             let graph = graph.lock().await;
             result = graph.execute(query).await?;
