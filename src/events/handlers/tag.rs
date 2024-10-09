@@ -205,10 +205,47 @@ async fn del_sync_user(
 
 async fn del_sync_post(
     tagger_id: PubkyId,
-    _post_id: &str,
-    _author_id: &str,
-    _tag_label: &str,
+    post_id: &str,
+    author_id: &str,
+    tag_label: &str,
 ) -> Result<(), Box<dyn Error + Sync + Send>> {
-    println!("TAG POST DEL: {:?}", tagger_id);
+    // SAVE TO INDEXES
+    let post_key_slice: &[&str] = &[author_id, post_id];
+    let tag_post = TagPost(vec![tagger_id.to_string()]);
+    let tagger = Taggers(vec![tagger_id.to_string()]);
+
+    // TODO: Handle the errors
+    let _ = tokio::join!(
+        // Update user counts for tagger
+        UserCounts::update(&tagger_id, "tags", JsonAction::Decrement(1)),
+        // Decrement in one the post tags
+        PostCounts::update_index_field(post_key_slice, "tags", JsonAction::Decrement(1)),
+        // Decrement label score in the post
+        TagPost::update_index_score(
+            author_id,
+            Some(post_id),
+            tag_label,
+            ScoreAction::Decrement(1.0)
+        ),
+        tag_post.del_from_index(author_id, Some(post_id), tag_label),
+        // Decrement in one post global engagement
+        PostStream::update_index_score(author_id, post_id, ScoreAction::Decrement(1.0)),
+        // Add post to label total engagement
+        TagSearch::update_index_score(
+            author_id,
+            post_id,
+            tag_label,
+            ScoreAction::Decrement(1.0)
+        ),
+        // Add label to hot tags
+        Taggers::update_index_score(tag_label, ScoreAction::Decrement(1.0)),
+        // Add tagger to post taggers
+        tagger.del_to_index(tag_label)
+    );
+
+    // Add post to global label timeline
+    // TODO: If we delete lexicographical search, that one should be deleted
+    TagSearch::add_to_timeline_sorted_set(author_id, post_id, tag_label).await?;
+
     Ok(())
 }

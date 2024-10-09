@@ -9,7 +9,11 @@ use pubky_nexus::{
     RedisOps,
 };
 
-pub async fn find_post_tag(user_id: &str, post_id: &str, tag_name: &str) -> Result<TagDetails> {
+pub async fn find_post_tag(
+    user_id: &str,
+    post_id: &str,
+    tag_name: &str,
+) -> Result<Option<TagDetails>> {
     let mut row_stream;
     {
         let graph = get_neo4j_graph().unwrap();
@@ -20,8 +24,13 @@ pub async fn find_post_tag(user_id: &str, post_id: &str, tag_name: &str) -> Resu
     }
 
     let row = row_stream.next().await.unwrap();
-    if let Ok(result) = row.unwrap().get::<TagDetails>("tag_details") {
-        return Ok(result);
+    match row {
+        Some(result) => {
+            if let Ok(result) = result.get::<Option<TagDetails>>("tag_details") {
+                return Ok(result);
+            }
+        }
+        None => return Ok(None),
     }
     anyhow::bail!("User/Post/Tag node not found in Nexus graph");
 }

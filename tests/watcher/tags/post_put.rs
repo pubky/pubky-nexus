@@ -1,5 +1,6 @@
 use super::utils::{check_member_total_engagement_post_tag, find_post_tag};
 use crate::watcher::posts::utils::{check_member_total_engagement_user_posts, find_post_counts};
+use crate::watcher::users::utils::find_user_counts;
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
@@ -12,24 +13,24 @@ use pubky_nexus::models::tag::traits::TagCollection;
 use pubky_nexus::RedisOps;
 
 #[tokio::test]
-async fn test_homeserver_tag_post() -> Result<()> {
+async fn test_homeserver_put_tag_post() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Step 1: Create a user
     let keypair = Keypair::random();
 
     let tagger = PubkyAppUser {
-        bio: Some("test_homeserver_tag_post".to_string()),
+        bio: Some("test_homeserver_put_tag_post".to_string()),
         image: None,
         links: None,
-        name: "Watcher:TagPost:User".to_string(),
+        name: "Watcher:PutTagPost:User".to_string(),
         status: None,
     };
     let tagger_user_id = test.create_user(&keypair, &tagger).await?;
 
     // Step 2: Create a post under that user
     let post = PubkyAppPost {
-        content: "Watcher:TagPost:User:Post".to_string(),
+        content: "Watcher:PutTagPost:User:Post".to_string(),
         kind: PubkyAppPost::default().kind,
         parent: None,
         embed: None,
@@ -53,15 +54,14 @@ async fn test_homeserver_tag_post() -> Result<()> {
     // Put tag
     test.create_tag(&tag_url, tag_blob).await?;
 
-    // Ensure event processing is complete
-    test.ensure_event_processing_complete().await?;
-
     // Step 4: Verify tag existence and data consistency
 
     // GRAPH_OP: Check if the tag exists in the graph database
     let post_tag = find_post_tag(&tagger_user_id, &post_id, label)
         .await
-        .expect("Failed to find updated post tag in graph database");
+        .unwrap()
+        .expect("Failed to find post tag in graph database");
+
     assert_eq!(post_tag.label, label);
     assert_eq!(post_tag.taggers_count, 1);
     assert_eq!(post_tag.taggers[0], tagger_user_id);
@@ -85,6 +85,10 @@ async fn test_homeserver_tag_post() -> Result<()> {
     // Check if post counts updated: Post:Counts:user_id:post_id
     let post_counts = find_post_counts(&tagger_user_id, &post_id).await;
     assert_eq!(post_counts.tags, 1);
+
+    // Check if user counts updated: User:Counts:user_id
+    let user_counts = find_user_counts(&tagger_user_id).await;
+    assert_eq!(user_counts.tags, 1);
 
     // Check if the user is related with tag: Tag:Taggers:tag_name
     let (_exist, member) = Taggers::check_set_member(&[label], &tagger_user_id)
