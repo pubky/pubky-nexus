@@ -154,8 +154,8 @@ pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), Box<dyn Error +
     // DELETE FROM GRAPH
     // Maybe better if we add as a local function instead of part of the trait?
     let tag_details = TagUser::del_from_graph(
-        "7kbjzgcx3xygokesys6jso13tt9u5n995p9q54a1co7cai9ujcso",
-        "2Z1N9KW8ABXG0",
+        &user_id,
+        &tag_id,
     )
     .await?;
     // CHOOSE THE EVENT TYPE

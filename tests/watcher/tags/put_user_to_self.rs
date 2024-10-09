@@ -48,6 +48,7 @@ async fn test_homeserver_tag_user() -> Result<()> {
     // GRAPH_OP: Check if the tag exists in the graph database
     let user_tag = find_user_tag(&user_id, label)
         .await
+        .unwrap()
         .expect("Failed to find user tag in graph database");
     assert_eq!(user_tag.label, label);
     assert_eq!(user_tag.taggers_count, 1);

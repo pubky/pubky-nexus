@@ -58,16 +58,37 @@ async fn test_homeserver_del_tag_to_another_user() -> Result<()> {
     // Put tag
     test.create_tag(tag_url.as_str(), tag_blob).await?;
 
+    let user_counts = find_user_counts(&tagger_user_id).await;
+    assert_eq!(user_counts.tags, 0);
+
     // Step 3: Delete the tag
     test.delete_tag(&tag_url).await?;
 
     // Step 4: Assert tag deletion
+    // GRAPH_OP: Check if the tag node was deleted
+    let user_tag = find_user_tag(&tagged_user_id, label).await.unwrap();
+    assert!(user_tag.is_none());
+    
+    // CACHE_OP: Check if the tag is correctly updated in the cache
+    let cache_user_tag = TagUser::get_from_index(&tagger_user_id, None, None, None)
+        .await
+        .expect("Failed to get tag from cache");
 
-    // TODO: uncomment tests when fixed redis de-indexing
-    // assert!(
-    //     result_user.tags.is_empty(),
-    //     "The tag should have been deleted"
-    // );
+    assert!(cache_user_tag.is_none(), "The SORTED SET index cannot exist for the tag");
+
+    // Check if user counts is updated, User:Counts:user_id
+    // let user_counts = find_user_counts(&tagged_user_id).await;
+    // assert_eq!(user_counts.tags, 0);
+
+    let user_counts = find_user_counts(&tagger_user_id).await;
+    assert_eq!(user_counts.tags, 0);
+
+    // // Check user pionner score: Sorted:Users:Pioneers
+    let pioneer_score = check_member_user_pioneer(&tagger_user_id)
+        .await
+        .expect("Failed to check user pioneer score");
+    assert!(pioneer_score.is_some(), "Pioneer score should be present");
+    assert_eq!(pioneer_score.unwrap(), 0);
 
     // Cleanup user
     test.cleanup_user(&tagged_user_id).await?;

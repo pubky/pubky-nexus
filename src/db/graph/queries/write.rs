@@ -205,7 +205,7 @@ pub fn delete_tag(user_id: &str, tag_id: &str) -> Query {
             END AS post_id,
             tag,
             tag.label AS label
-         //DELETE tag  
+         DELETE tag
          RETURN user_id, post_id, label"
     )
     .param("user_id", user_id)

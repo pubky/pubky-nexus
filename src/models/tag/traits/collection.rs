@@ -219,7 +219,6 @@ where
         }
 
         if let Some(row) = result.next().await? {
-            println!("{:?}", row);
             let post_id: Option<String> = row.get("post_id").unwrap_or(None);
             let user_id: String = row.get("user_id").unwrap();
             let label: String = row.get("label").unwrap();
