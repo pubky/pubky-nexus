@@ -208,7 +208,8 @@ where
     async fn del_from_graph(
         user_id: &str,
         tag_id: &str,
-    ) -> Result<Option<(String, Option<String>, String)>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<(String, Option<String>, String)>, Box<dyn std::error::Error + Send + Sync>>
+    {
         let mut result;
         {
             let graph = get_neo4j_graph()?;

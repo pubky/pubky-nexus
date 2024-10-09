@@ -9,21 +9,20 @@ use pubky_common::crypto::Keypair;
 use pubky_nexus::models::{
     pubky_app::{traits::HashId, PubkyAppTag, PubkyAppUser},
     tag::{traits::TagCollection, user::TagUser},
-    user::UserView,
 };
 
 #[tokio::test]
-async fn test_homeserver_tag_to_another_user() -> Result<()> {
+async fn test_homeserver_put_tag_user_another() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Step 1: Create the users
     let keypair = Keypair::random();
 
     let tagged_user = PubkyAppUser {
-        bio: Some("test_homeserver_tag_to_another_user".to_string()),
+        bio: Some("test_homeserver_put_tag_user_another".to_string()),
         image: None,
         links: None,
-        name: "Watcher:TagToAnotherUser:TaggedUser".to_string(),
+        name: "Watcher:PutTagAnother:TaggedUser".to_string(),
         status: None,
     };
     let tagged_user_id = test.create_user(&keypair, &tagged_user).await?;
@@ -31,10 +30,10 @@ async fn test_homeserver_tag_to_another_user() -> Result<()> {
     let keypair = Keypair::random();
 
     let tagger_user = PubkyAppUser {
-        bio: Some("test_homeserver_tag_to_another_user".to_string()),
+        bio: Some("test_homeserver_put_tag_user_another".to_string()),
         image: None,
         links: None,
-        name: "Watcher:TagToAnotherUser:TaggerUser".to_string(),
+        name: "Watcher:PutTagAnother:TaggerUser".to_string(),
         status: None,
     };
     let tagger_user_id = test.create_user(&keypair, &tagger_user).await?;
@@ -99,22 +98,6 @@ async fn test_homeserver_tag_to_another_user() -> Result<()> {
         .expect("Failed to check user pioneer score");
     assert!(pioneer_score.is_some(), "Pioneer score should be present");
     assert_eq!(pioneer_score.unwrap(), 0);
-
-    // Step 4: Delete the tag
-    test.client.delete(tag_url.as_str()).await?;
-    test.ensure_event_processing_complete().await?;
-
-    // Step 5: Verify the tag has been deleted
-    let _result_user = UserView::get_by_id(&tagged_user_id, None)
-        .await
-        .expect("Failed to get user view")
-        .expect("User should exist");
-
-    // TODO: uncomment tests when fixed redis de-indexing
-    // assert!(
-    //     result_user.tags.is_empty(),
-    //     "The tag should have been deleted"
-    // );
 
     // Cleanup user
     test.cleanup_user(&tagged_user_id).await?;

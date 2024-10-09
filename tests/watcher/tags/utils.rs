@@ -42,10 +42,10 @@ pub async fn find_user_tag(user_id: &str, tag_name: &str) -> Result<Option<TagDe
             if let Ok(result) = result.get::<Option<TagDetails>>("tag_details") {
                 return Ok(result);
             }
-        },
-        None => return Ok(None)
+        }
+        None => return Ok(None),
     }
-    
+
     anyhow::bail!("User/Post/Tag node not found in Nexus graph");
 }
 
