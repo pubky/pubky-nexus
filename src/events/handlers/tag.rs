@@ -199,7 +199,7 @@ async fn del_sync_user(
         .await?;
 
     // Decrement label count to the user profile tag
-    TagUser::update_index_score(tagged_id, None, tag_label, ScoreAction::Increment(1.0)).await?;
+    TagUser::update_index_score(tagged_id, None, tag_label, ScoreAction::Decrement(1.0)).await?;
     Ok(())
 }
 
