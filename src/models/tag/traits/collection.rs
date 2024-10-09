@@ -171,7 +171,7 @@ where
         indexed_at: i64,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let query = match extra_param {
-            Some(post_id) => queries::write::create_post_tag(
+            Some(post_id) => queries::put::create_post_tag(
                 tagger_user_id,
                 tagged_user_id,
                 post_id,
@@ -179,7 +179,7 @@ where
                 label,
                 indexed_at,
             ),
-            None => queries::write::create_user_tag(
+            None => queries::put::create_user_tag(
                 tagger_user_id,
                 tagged_user_id,
                 tag_id,

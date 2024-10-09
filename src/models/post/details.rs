@@ -118,6 +118,6 @@ impl PostDetails {
     // Save new graph node
     pub async fn put_to_graph(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Save new graph node;
-        exec_single_row(queries::write::create_post(self)?).await
+        exec_single_row(queries::put::create_post(self)?).await
     }
 }

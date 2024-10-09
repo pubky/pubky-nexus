@@ -19,16 +19,6 @@ pub fn create_user(user: &UserDetails) -> Result<Query, Box<dyn std::error::Erro
     Ok(query)
 }
 
-// Delete a user node
-// Will delete all relationships of this user as well!
-pub fn delete_user(user_id: &str) -> Query {
-    query(
-        "MATCH (u:User {id: $id})
-         DETACH DELETE u;",
-    )
-    .param("id", user_id.to_string())
-}
-
 // Create a post node
 // TODO: DIscuss if it is necessary here or create a URI when we get the post_id, get_posts_details_by_id
 pub fn create_post(post: &PostDetails) -> Result<Query, Box<dyn std::error::Error + Send + Sync>> {
@@ -112,16 +102,6 @@ pub fn create_follow(follower_id: &str, followee_id: &str, indexed_at: i64) -> Q
     .param("indexed_at", indexed_at)
 }
 
-/// Delete a follows relationship between two users
-pub fn delete_follow(follower_id: &str, followee_id: &str) -> Query {
-    query(
-        "MATCH (follower:User {id: $follower_id})-[r:FOLLOWS]->(followee:User {id: $followee_id})
-         DELETE r;",
-    )
-    .param("follower_id", follower_id.to_string())
-    .param("followee_id", followee_id.to_string())
-}
-
 pub fn create_post_bookmark(
     user_id: &str,
     author_id: &str,
@@ -139,17 +119,6 @@ pub fn create_post_bookmark(
     .param("post_id", post_id)
     .param("bookmark_id", bookmark_id)
     .param("indexed_at", indexed_at)
-}
-
-pub fn delete_bookmark(user_id: &str, bookmark_id: &str) -> Query {
-    query(
-        "MATCH (u:User {id: $user_id})-[b:BOOKMARKED {id: $bookmark_id}]->(post:Post)<-[:AUTHORED]-(author:User)
-         WITH post.id as post_id, author.id as author_id, b
-         DELETE b
-         RETURN post_id, author_id",
-    )
-    .param("user_id", user_id)
-    .param("bookmark_id", bookmark_id)
 }
 
 pub fn create_post_tag(
@@ -192,15 +161,6 @@ pub fn create_user_tag(
     .param("indexed_at", indexed_at)
 }
 
-pub fn delete_tag(user_id: &str, tag_id: &str) -> Query {
-    query(
-        "MATCH (user:User {id: $user_id})-[t:TAGGED {id: $tag_id}]->(target)
-         DELETE t",
-    )
-    .param("user_id", user_id)
-    .param("tag_id", tag_id)
-}
-
 // Create a file node
 pub fn create_file(file: &FileDetails) -> Result<Query, Box<dyn std::error::Error + Send + Sync>> {
     let urls = serde_json::to_string(&file.urls)?;
@@ -222,14 +182,4 @@ pub fn create_file(file: &FileDetails) -> Result<Query, Box<dyn std::error::Erro
     .param("urls", urls);
 
     Ok(query)
-}
-
-// Delete a file node
-pub fn delete_file(owner_id: &str, file_id: &str) -> Query {
-    query(
-        "MATCH (f:File {id: $id, owner_id: $owner_id})
-         DETACH DELETE f;",
-    )
-    .param("id", file_id.to_string())
-    .param("owner_id", owner_id.to_string())
 }

@@ -20,7 +20,7 @@ impl Collection<&str> for UserDetails {
     }
 
     fn to_graph_query(&self) -> Result<Query, Box<dyn std::error::Error + Send + Sync>> {
-        queries::write::create_user(self)
+        queries::put::create_user(self)
     }
 
     async fn extend_on_index_miss(

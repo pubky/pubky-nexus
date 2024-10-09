@@ -41,7 +41,7 @@ impl Collection<&[&str]> for FileDetails {
     }
 
     fn to_graph_query(&self) -> Result<Query, Box<dyn std::error::Error + Send + Sync>> {
-        queries::write::create_file(self)
+        queries::put::create_file(self)
     }
 
     async fn extend_on_index_miss(
@@ -95,7 +95,7 @@ impl FileDetails {
         Self::remove_from_index_multiple_json(&[&[&self.owner_id, &self.id]]).await?;
 
         // Delete graph node;
-        exec_single_row(queries::write::delete_file(&self.owner_id, &self.id)).await?;
+        exec_single_row(queries::del::delete_file(&self.owner_id, &self.id)).await?;
 
         Ok(())
     }

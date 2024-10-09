@@ -133,7 +133,7 @@ async fn put_reply_relationship(
 ) -> Result<(), Box<dyn Error + Sync + Send>> {
     let parsed_uri = ParsedUri::try_from(parent_uri)?;
     if let (parent_author_id, Some(parent_post_id)) = (parsed_uri.user_id, parsed_uri.post_id) {
-        exec_single_row(queries::write::create_reply_relationship(
+        exec_single_row(queries::put::create_reply_relationship(
             author_id,
             post_id,
             &parent_author_id,
@@ -152,7 +152,7 @@ async fn put_repost_relationship(
 ) -> Result<(), Box<dyn Error + Sync + Send>> {
     let parsed_uri = ParsedUri::try_from(embed_uri)?;
     if let (reposted_author_id, Some(reposted_post_id)) = (parsed_uri.user_id, parsed_uri.post_id) {
-        exec_single_row(queries::write::create_repost_relationship(
+        exec_single_row(queries::put::create_repost_relationship(
             author_id,
             post_id,
             &reposted_author_id,
@@ -181,7 +181,7 @@ pub async fn put_mentioned_relationships(
             if let Ok(pubky_id) = PubkyId::try_from(user_id_candidate) {
                 // Create the MENTIONED relationship in the graph
                 let query =
-                    queries::write::create_mention_relationship(author_id, post_id, &pubky_id);
+                    queries::put::create_mention_relationship(author_id, post_id, &pubky_id);
                 exec_single_row(query).await?;
                 if let Some(mentioned_user_id) =
                     Notification::new_mention(author_id, &pubky_id, post_id).await?
