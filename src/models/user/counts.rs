@@ -14,6 +14,8 @@ pub struct UserCounts {
     pub following: u32,
     pub followers: u32,
     pub friends: u32,
+    pub bookmarks: u32,
+    pub tagged: u32,
 }
 
 impl RedisOps for UserCounts {}

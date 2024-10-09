@@ -1,8 +1,9 @@
+use crate::db::kv::index::json::JsonAction;
 use crate::events::uri::ParsedUri;
 use crate::models::post::Bookmark;
 use crate::models::pubky_app::traits::Validatable;
 use crate::models::pubky_app::PubkyAppBookmark;
-use crate::models::user::PubkyId;
+use crate::models::user::{PubkyId, UserCounts};
 use axum::body::Bytes;
 use chrono::Utc;
 use log::debug;
@@ -43,6 +44,10 @@ pub async fn sync_put(
     bookmark_details
         .put_to_index(&author_id, &post_id, &user_id)
         .await?;
+
+    // Update user counts with the new bookmark
+    UserCounts::update(&user_id, "bookmarks", JsonAction::Increment(1)).await?;
+
     Ok(())
 }
 
@@ -66,6 +71,9 @@ pub async fn sync_del(
         // DELETE FROM INDEXes
         Bookmark::del_from_index(&user_id, &post_id, &author_id).await?;
     }
+
+    // Update user counts with the new bookmark
+    UserCounts::update(&user_id, "bookmarks", JsonAction::Decrement(1)).await?;
 
     Ok(())
 }

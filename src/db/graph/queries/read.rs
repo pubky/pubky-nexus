@@ -187,24 +187,43 @@ pub fn user_counts(user_id: &str) -> neo4rs::Query {
     query(
         "
         MATCH (u:User {id: $user_id})
-        OPTIONAL MATCH (u)-[:FOLLOWS]->(following:User)
-        OPTIONAL MATCH (follower:User)-[:FOLLOWS]->(u)
+
+        // Collect outgoing relationships to Users
+        OPTIONAL MATCH (u)-[rel_u_user:FOLLOWS|TAGGED]->(other_user:User)
+        WITH u, collect(rel_u_user) AS rels_u_user
+
+        // Collect incoming relationships from Users
+        OPTIONAL MATCH (user_to_u:User)-[rel_user_u:FOLLOWS|TAGGED]->(u)
+        WITH u, rels_u_user, collect(rel_user_u) AS rels_user_u
+
+        // Find friends
         OPTIONAL MATCH (u)-[:FOLLOWS]->(friend:User)-[:FOLLOWS]->(u)
-        OPTIONAL MATCH (u)-[:AUTHORED]->(post:Post)
-        OPTIONAL MATCH (u)-[tag:TAGGED]->()
-        WITH u, COUNT(DISTINCT following) AS following, 
-                COUNT(DISTINCT follower) AS followers, 
-                COUNT(DISTINCT friend) AS friends, 
-                COUNT(DISTINCT post) AS posts, 
-                COUNT(DISTINCT tag) AS tags
+        WITH u, rels_u_user, rels_user_u, collect(friend) AS friends
+
+        // Collect relationships to Posts
+        OPTIONAL MATCH (u)-[rel_u_post:BOOKMARKED|AUTHORED|TAGGED]->(p:Post)
+        WITH u, rels_u_user, rels_user_u, friends, collect(rel_u_post) AS rels_u_post
+
+        // Calculate counts
+        WITH u,
+            size([rel IN rels_u_user WHERE type(rel) = 'FOLLOWS']) AS following,
+            size([rel IN rels_user_u WHERE type(rel) = 'FOLLOWS']) AS followers,
+            size(friends) AS friends_count,
+            size([rel IN rels_u_post WHERE type(rel) = 'AUTHORED']) AS posts,
+            size([rel IN rels_u_post WHERE type(rel) = 'TAGGED']) AS post_tags,
+            size([rel IN rels_u_user WHERE type(rel) = 'TAGGED']) AS user_tags,
+            size([rel IN rels_u_post WHERE type(rel) = 'BOOKMARKED']) AS bookmarks,
+            size([rel IN rels_user_u WHERE type(rel) = 'TAGGED']) AS tagged
         RETURN 
             u IS NOT NULL AS exists,
             {
                 following: following,
                 followers: followers,
-                friends: friends,
+                friends: friends_count,
                 posts: posts,
-                tags: tags
+                tags: user_tags + post_tags,
+                bookmarks: bookmarks,
+                tagged: tagged
             } AS counts
         ",
     )
