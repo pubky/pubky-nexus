@@ -37,11 +37,11 @@ impl RedisOps for FileDetails {}
 #[async_trait]
 impl Collection<&[&str]> for FileDetails {
     fn collection_details_graph_query(id_list: &[&[&str]]) -> Query {
-        queries::read::get_files_by_ids(id_list)
+        queries::get::get_files_by_ids(id_list)
     }
 
     fn put_graph_query(&self) -> Result<Query, Box<dyn std::error::Error + Send + Sync>> {
-        queries::write::create_file(self)
+        queries::put::create_file(self)
     }
 
     async fn extend_on_index_miss(
@@ -95,7 +95,7 @@ impl FileDetails {
         Self::remove_from_index_multiple_json(&[&[&self.owner_id, &self.id]]).await?;
 
         // Delete graph node;
-        exec_single_row(queries::write::delete_file(&self.owner_id, &self.id)).await?;
+        exec_single_row(queries::del::delete_file(&self.owner_id, &self.id)).await?;
 
         Ok(())
     }

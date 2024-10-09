@@ -1,7 +1,7 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
 use crate::db::kv::index::sorted_sets::Sorting;
 use crate::models::post::{PostDetails, PostStreamSorting};
-use crate::queries::read::{global_tags_by_post, global_tags_by_post_engagement};
+use crate::queries::get::{global_tags_by_post, global_tags_by_post_engagement};
 use crate::{RedisOps, ScoreAction};
 use neo4rs::Query;
 use serde::{Deserialize, Serialize};

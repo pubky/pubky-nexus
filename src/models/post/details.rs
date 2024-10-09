@@ -60,7 +60,7 @@ impl PostDetails {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
-            let query = queries::read::get_post_by_id(author_id, post_id);
+            let query = queries::get::get_post_by_id(author_id, post_id);
 
             let graph = graph.lock().await;
             result = graph.execute(query).await?;
@@ -118,6 +118,6 @@ impl PostDetails {
     // Save new graph node
     pub async fn put_to_graph(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Save new graph node;
-        exec_single_row(queries::write::create_post(self)?).await
+        exec_single_row(queries::put::create_post(self)?).await
     }
 }
