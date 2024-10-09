@@ -1,5 +1,6 @@
 use crate::db::connectors::redis::get_redis_conn;
 use log::debug;
+use redis::Script;
 use redis::{AsyncCommands, JsonAsyncCommands};
 use serde::{de::DeserializeOwned, Serialize};
 use std::error::Error;
@@ -8,6 +9,20 @@ use std::error::Error;
 pub enum JsonAction {
     Increment(i64),
     Decrement(i64),
+}
+
+pub struct ValueRange {
+    min: i64,
+    max: i64,
+}
+
+impl Default for ValueRange {
+    fn default() -> Self {
+        Self {
+            min: 0,
+            max: u32::MAX as i64,
+        }
+    }
 }
 
 /// Sets a value in Redis, supporting both JSON objects and boolean values.
@@ -52,6 +67,7 @@ pub async fn put<T: Serialize + Send + Sync>(
 }
 
 /// Modifies a numeric field in a Redis JSON object by either incrementing or decrementing it.
+/// Uses LUA to ensure the value is never negative
 ///
 /// This function uses the RedisJSON `JSON.NUMINCRBY` command to either increment or decrement a numeric field at a given path
 /// based on the `JsonAction` provided.
@@ -71,6 +87,7 @@ pub async fn modify_json_field(
     key: &str,
     field: &str,
     action: JsonAction,
+    range: Option<ValueRange>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{}:{}", prefix, key);
@@ -82,15 +99,64 @@ pub async fn modify_json_field(
         JsonAction::Decrement(value) => -value, // Negate the value for decrement
     };
 
-    // Use RedisJSON NUMINCRBY to modify the value of the specified field
-    let _: () = redis_conn
-        .json_num_incr_by(&index_key, &json_path, amount)
-        .await?;
+    // Use default range if None provided
+    let range = range.unwrap_or_default();
+
+    // Lua script to safely increment/decrement without going below zero
+    let script = Script::new(
+        r#"
+        local path = ARGV[1]
+        local amount = tonumber(ARGV[2])
+        local min_value = tonumber(ARGV[3])
+        local max_value = tonumber(ARGV[4])
+        local current = 0
+
+        -- Fetch the current value as a JSON string
+        local current_value = redis.call('JSON.GET', KEYS[1], path)
+
+        if current_value ~= nil then
+            -- Decode the JSON string into a Lua table
+            local decoded = cjson.decode(current_value)
+            
+            if type(decoded) == 'table' then
+                -- If the decoded value is an array, extract the first element
+                if #decoded > 0 then
+                    current = tonumber(decoded[1]) or 0
+                end
+            elseif type(decoded) == 'number' then
+                -- If the decoded value is a number, use it directly
+                current = decoded
+            end
+        end
+
+        local new_value = current + amount
+
+        -- Enforce min and max boundaries
+        if new_value < min_value then
+            new_value = min_value
+        elseif new_value > max_value then
+            new_value = max_value
+        end
+
+        -- Set the new value
+        redis.call('JSON.SET', KEYS[1], path, new_value)
+        return new_value
+    "#,
+    );
 
     debug!(
-        "Modified field: {} in key: {} by {}",
+        "Modifiying field: {} in key: {} by {}",
         field, index_key, amount
     );
+
+    let _: i64 = script
+        .key(index_key)
+        .arg(json_path)
+        .arg(amount.to_string())
+        .arg(range.min.to_string())
+        .arg(range.max.to_string())
+        .invoke_async(&mut redis_conn)
+        .await?;
 
     Ok(())
 }
