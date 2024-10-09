@@ -165,19 +165,13 @@ pub fn delete_tag(user_id: &str, tag_id: &str) -> Query {
     query(
         "MATCH (user:User {id: $user_id})-[tag:TAGGED {id: $tag_id}]->(target)
          OPTIONAL MATCH (target)<-[:AUTHORED]-(author:User)
-         WITH
-            CASE 
-                WHEN target:User THEN target.id 
-                ELSE author.id 
-            END AS user_id,
-            CASE 
-                WHEN target:Post THEN target.id 
-                ELSE NULL 
-            END AS post_id,
-            tag,
-            tag.label AS label
+         WITH CASE WHEN target:User THEN target.id ELSE null END AS user_id,
+              CASE WHEN target:Post THEN target.id ELSE null END AS post_id,
+              CASE WHEN target:Post THEN author.id ELSE null END AS author_id,
+              tag.label AS label,
+              tag
          DELETE tag
-         RETURN user_id, post_id, label",
+         RETURN user_id, post_id, author_id, label",
     )
     .param("user_id", user_id)
     .param("tag_id", tag_id)

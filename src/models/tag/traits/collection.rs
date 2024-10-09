@@ -208,8 +208,10 @@ where
     async fn del_from_graph(
         user_id: &str,
         tag_id: &str,
-    ) -> Result<Option<(String, Option<String>, String)>, Box<dyn std::error::Error + Send + Sync>>
-    {
+    ) -> Result<
+        Option<(Option<String>, Option<String>, Option<String>, String)>,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
@@ -220,10 +222,11 @@ where
         }
 
         if let Some(row) = result.next().await? {
+            let user_id: Option<String> = row.get("user_id").unwrap_or(None);
+            let author_id: Option<String> = row.get("author_id").unwrap_or(None);
             let post_id: Option<String> = row.get("post_id").unwrap_or(None);
-            let user_id: String = row.get("user_id").unwrap();
-            let label: String = row.get("label").unwrap();
-            return Ok(Some((user_id, post_id, label)));
+            let label: String = row.get("label").expect("Query should return tag label");
+            return Ok(Some((user_id, post_id, author_id, label)));
         }
         Ok(None)
     }

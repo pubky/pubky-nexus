@@ -159,12 +159,25 @@ pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), Box<dyn Error +
     // Maybe better if we add as a local function instead of part of the trait?
     let tag_details = TagUser::del_from_graph(&user_id, &tag_id).await?;
     // CHOOSE THE EVENT TYPE
-    match tag_details {
-        Some(tagged) => match tagged.1 {
-            Some(post_id) => del_sync_post(user_id, &post_id, &tagged.0, &tagged.2).await?,
-            None => del_sync_user(user_id, &tagged.0, &tagged.2).await?,
-        },
-        None => debug!("DEL-Tag: Could not find the tag"),
+    if let Some((tagged_user_id, post_id, author_id, label)) = tag_details {
+        match (tagged_user_id, post_id, author_id) {
+            // Delete user related indexes
+            (Some(tagged_id), None, None) => {
+                del_sync_user(user_id, &tagged_id, &label).await?;
+            }
+
+            // Delete post related indexes
+            (None, Some(post_id), Some(author_id)) => {
+                del_sync_post(user_id, &post_id, &author_id, &label).await?;
+            }
+
+            // Handle other unexpected cases
+            _ => {
+                debug!("DEL-Tag: Unexpected combination of tag details");
+            }
+        }
+    } else {
+        debug!("DEL-Tag: Could not find the tag");
     }
     Ok(())
 }
@@ -186,7 +199,7 @@ async fn del_sync_user(
         .await?;
 
     // Decrement label count to the user profile tag
-    TagUser::update_index_score(tagged_id, None, tag_label, ScoreAction::Increment(1.0)).await?;
+    TagUser::update_index_score(tagged_id, None, tag_label, ScoreAction::Decrement(1.0)).await?;
     Ok(())
 }
 
