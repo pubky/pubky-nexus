@@ -73,11 +73,14 @@ where
                 let mut tags = Vec::with_capacity(limit_tags);
                 // TODO: Temporal fix. Should it delete SORTED SET value if score is 0?
                 for (label, score) in tag_scores.iter() {
+                    // Just process the tags that has score
                     if score >= &1.0 {
                         tags.push(Self::create_label_index(user_id, extra_param, label));
                     }
                 }
-                if tags.len() == 0 { return Ok(None); }
+                if tags.is_empty() {
+                    return Ok(None);
+                }
 
                 let tags_ref: Vec<&str> = tags.iter().map(|label| label.as_str()).collect();
                 let taggers = Self::try_from_multiple_sets(&tags_ref, Some(limit_taggers)).await?;
