@@ -1,4 +1,5 @@
 mod post_del;
+mod post_muti_user;
 mod post_notification;
 mod post_put;
 mod user_notification;

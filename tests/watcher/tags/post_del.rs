@@ -80,9 +80,10 @@ async fn test_homeserver_del_tag_post() -> Result<()> {
     // Assert post tag indexes are updated
     // - Post:Taggers:author_id:post_id:label
     // - Sorted:Posts:Tag:author_id:post_id
-    let cache_post_tag = <TagPost as TagCollection>::get_from_index(&author_user_id, Some(&post_id), None, None)
-        .await
-        .expect("Failed to get tag from cache");
+    let cache_post_tag =
+        <TagPost as TagCollection>::get_from_index(&author_user_id, Some(&post_id), None, None)
+            .await
+            .expect("Failed to get tag from cache");
 
     assert!(
         cache_post_tag.is_none(),
@@ -91,7 +92,9 @@ async fn test_homeserver_del_tag_post() -> Result<()> {
 
     // Post:Taggers:author_id:post_id:label
     let post_key = vec![author_user_id.as_str(), post_id.as_str(), label];
-    let taggers = <TagPost as TaggersCollection>::get_from_index(post_key, None, None).await.unwrap();
+    let taggers = <TagPost as TaggersCollection>::get_from_index(post_key, None, None)
+        .await
+        .unwrap();
     assert!(taggers.is_none());
 
     // Check if post counts updated: Post:Counts:user_id:post_id
@@ -135,7 +138,10 @@ async fn test_homeserver_del_tag_post() -> Result<()> {
     assert!(tag_timeline.is_none());
 
     // Assert hot tag score: Sorted:Post:Global:Hot:label
-    let total_engagement = Taggers::check_sorted_set_member(&TAG_GLOBAL_HOT, &[label]).await.unwrap().unwrap();
+    let total_engagement = Taggers::check_sorted_set_member(&TAG_GLOBAL_HOT, &[label])
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(total_engagement, 0);
 
     // Cleanup user and post

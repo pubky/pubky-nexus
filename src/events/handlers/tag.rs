@@ -229,12 +229,7 @@ async fn del_sync_post(
         // Decrement in one post global engagement
         PostStream::update_index_score(author_id, post_id, ScoreAction::Decrement(1.0)),
         // Add post to label total engagement
-        TagSearch::update_index_score(
-            author_id,
-            post_id,
-            tag_label,
-            ScoreAction::Decrement(1.0)
-        ),
+        TagSearch::update_index_score(author_id, post_id, tag_label, ScoreAction::Decrement(1.0)),
         // Decrease the score of hot tags
         Taggers::update_index_score(tag_label, ScoreAction::Decrement(1.0)),
         // Delete tagger to global post taggers

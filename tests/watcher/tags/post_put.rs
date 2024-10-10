@@ -55,9 +55,12 @@ async fn test_homeserver_put_tag_post() -> Result<()> {
     );
 
     // Avoid errors, if the score does not exist. Using that variable in the last assert of the test
-    let actual_tag_hot_score = match Taggers::check_sorted_set_member(&TAG_GLOBAL_HOT, &[label]).await.unwrap() {
+    let actual_tag_hot_score = match Taggers::check_sorted_set_member(&TAG_GLOBAL_HOT, &[label])
+        .await
+        .unwrap()
+    {
         Some(score) => score,
-        None => 0
+        None => 0,
     };
 
     // Put tag
@@ -108,8 +111,10 @@ async fn test_homeserver_put_tag_post() -> Result<()> {
         .unwrap();
     assert!(timeline.is_some());
 
-    // Assert if the post cached time and the timeline time are the same 
-    let post_details = PostDetails::get_from_index(&tagger_user_id, &post_id).await.unwrap();
+    // Assert if the post cached time and the timeline time are the same
+    let post_details = PostDetails::get_from_index(&tagger_user_id, &post_id)
+        .await
+        .unwrap();
     assert!(post_details.is_some());
     assert_eq!(timeline.unwrap(), post_details.unwrap().indexed_at as isize);
 
@@ -151,7 +156,10 @@ async fn test_homeserver_put_tag_post() -> Result<()> {
     );
 
     // Assert hot tag score: Sorted:Post:Global:Hot:label
-    let total_engagement = Taggers::check_sorted_set_member(&TAG_GLOBAL_HOT, &[label]).await.unwrap().unwrap();
+    let total_engagement = Taggers::check_sorted_set_member(&TAG_GLOBAL_HOT, &[label])
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(total_engagement, actual_tag_hot_score + 1);
 
     // Cleanup user and post
