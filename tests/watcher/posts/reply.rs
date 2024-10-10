@@ -1,6 +1,7 @@
 use super::utils::{
-    check_member_total_engagement_user_posts, check_member_user_post_timeline, find_post_counts,
-    find_post_details, find_reply_relationship_parent_uri,
+    check_member_global_timeline_user_post, check_member_total_engagement_user_posts,
+    check_member_user_post_timeline, find_post_counts, find_post_details,
+    find_reply_relationship_parent_uri,
 };
 use crate::watcher::{users::utils::find_user_counts, utils::WatcherTest};
 use anyhow::Result;
@@ -95,15 +96,33 @@ async fn test_homeserver_post_reply() -> Result<()> {
     assert_eq!(total_engagement.unwrap(), 1);
 
     // Sorted:Posts:User:user_id
-    let post_timeline = check_member_user_post_timeline(&user_id, &reply_id)
+    // Check that replies are NOT in the user's timeline
+    let user_timeline_timestamp = check_member_user_post_timeline(&user_id, &reply_id)
         .await
-        .unwrap();
-    assert!(post_timeline.is_some());
-    assert_eq!(
-        post_timeline.unwrap(),
-        reply_post_details.indexed_at as isize
+        .unwrap_or_default();
+    assert!(
+        user_timeline_timestamp.is_none(),
+        "Replies should not be in the user's timeline"
     );
 
+    // Check that replies are NOT in the global timeline
+    let global_timeline_timestamp = check_member_global_timeline_user_post(&user_id, &reply_id)
+        .await
+        .unwrap_or_default();
+    assert!(
+        global_timeline_timestamp.is_none(),
+        "Replies should not be in the global timeline"
+    );
+
+    // Check that replies are NOT in the global total engagement sorted set
+    let reply_key = format!("{}:{}", user_id, &reply_id);
+    let global_total_engagement = check_member_total_engagement_user_posts(&[&reply_key])
+        .await
+        .unwrap_or_default();
+    assert!(
+        global_total_engagement.is_none(),
+        "Replies should not be in the global total engagement sorted set"
+    );
     // Assert the parent post has changed stats
     // User:Counts:user_id:post_id
     let post_count = find_user_counts(&user_id).await;
