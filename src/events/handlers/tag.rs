@@ -103,7 +103,7 @@ async fn put_sync_post(
     );
 
     // Add post to global label timeline
-    TagSearch::add_to_timeline_sorted_set(&author_id, &post_id, &tag_label).await?;
+    TagSearch::put_to_index(&author_id, &post_id, &tag_label).await?;
 
     // Save new notification
     Notification::new_post_tag(&tagger_user_id, &author_id, &tag_label, &post_uri).await?;
@@ -165,12 +165,10 @@ pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), Box<dyn Error +
             (Some(tagged_id), None, None) => {
                 del_sync_user(user_id, &tagged_id, &label).await?;
             }
-
             // Delete post related indexes
             (None, Some(post_id), Some(author_id)) => {
                 del_sync_post(user_id, &post_id, &author_id, &label).await?;
             }
-
             // Handle other unexpected cases
             _ => {
                 debug!("DEL-Tag: Unexpected combination of tag details");
@@ -237,15 +235,14 @@ async fn del_sync_post(
             tag_label,
             ScoreAction::Decrement(1.0)
         ),
-        // Add label to hot tags
+        // Decrease the score of hot tags
         Taggers::update_index_score(tag_label, ScoreAction::Decrement(1.0)),
-        // Add tagger to post taggers
-        tagger.del_to_index(tag_label)
+        // Delete tagger to global post taggers
+        tagger.del_from_index(tag_label)
     );
 
     // Add post to global label timeline
-    // TODO: If we delete lexicographical search, that one should be deleted
-    TagSearch::add_to_timeline_sorted_set(author_id, post_id, tag_label).await?;
+    TagSearch::del_from_index(author_id, post_id, tag_label).await?;
 
     Ok(())
 }

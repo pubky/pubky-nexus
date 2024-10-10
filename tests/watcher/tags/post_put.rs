@@ -1,14 +1,16 @@
 use super::utils::{check_member_total_engagement_post_tag, find_post_tag};
 use crate::watcher::posts::utils::{check_member_total_engagement_user_posts, find_post_counts};
+use crate::watcher::tags::utils::check_member_post_tag_global_timeline;
 use crate::watcher::users::utils::find_user_counts;
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::notification::Notification;
+use pubky_nexus::models::post::PostDetails;
 use pubky_nexus::models::pubky_app::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser};
 use pubky_nexus::models::tag::post::TagPost;
-use pubky_nexus::models::tag::stream::Taggers;
+use pubky_nexus::models::tag::stream::{Taggers, TAG_GLOBAL_HOT};
 use pubky_nexus::models::tag::traits::TagCollection;
 use pubky_nexus::RedisOps;
 
@@ -38,7 +40,8 @@ async fn test_homeserver_put_tag_post() -> Result<()> {
     let post_id = test.create_post(&tagger_user_id, &post).await?;
 
     // Step 3: Tagger user adds a tag to the his own post
-    let label = "cool";
+    let label = "merkle_tree";
+
     let tag = PubkyAppTag {
         uri: format!("pubky://{}/pub/pubky.app/posts/{}", tagger_user_id, post_id),
         label: label.to_string(),
@@ -50,6 +53,12 @@ async fn test_homeserver_put_tag_post() -> Result<()> {
         tagger_user_id,
         tag.create_id()
     );
+
+    // Avoid errors, if the score does not exist. Using that variable in the last assert of the test
+    let actual_tag_hot_score = match Taggers::check_sorted_set_member(&TAG_GLOBAL_HOT, &[label]).await.unwrap() {
+        Some(score) => score,
+        None => 0
+    };
 
     // Put tag
     test.create_tag(&tag_url, tag_blob).await?;
@@ -82,6 +91,28 @@ async fn test_homeserver_put_tag_post() -> Result<()> {
     // Find user as tagger in the post: Posts:Taggers:user_id:post_id
     assert_eq!(cache_tag_details[0].taggers[0], tagger_user_id);
 
+    let post_key: [&str; 2] = [&tagger_user_id, &post_id];
+
+    // Assert if the new tag increments the score of engagement
+    // Tag global engagement: Sorted:Tags:Global:Post:TotalEngagement
+    let tag_total_engagement = check_member_total_engagement_post_tag(&post_key, label)
+        .await
+        .unwrap();
+    assert!(tag_total_engagement.is_some());
+    assert_eq!(tag_total_engagement.unwrap(), 1);
+
+    // Assert if new tag indexes new post to the timeline
+    // Tag global timeline: Sorted:Tags:Global:Post:Timeline
+    let timeline = check_member_post_tag_global_timeline(&post_key, label)
+        .await
+        .unwrap();
+    assert!(timeline.is_some());
+
+    // Assert if the post cached time and the timeline time are the same 
+    let post_details = PostDetails::get_from_index(&tagger_user_id, &post_id).await.unwrap();
+    assert!(post_details.is_some());
+    assert_eq!(timeline.unwrap(), post_details.unwrap().indexed_at as isize);
+
     // Check if post counts updated: Post:Counts:user_id:post_id
     let post_counts = find_post_counts(&tagger_user_id, &post_id).await;
     assert_eq!(post_counts.tags, 1);
@@ -96,9 +127,8 @@ async fn test_homeserver_put_tag_post() -> Result<()> {
         .expect("Failed to check tagger in Taggers set");
     assert!(member);
 
-    let post_key: [&str; 2] = [&tagger_user_id, &post_id];
-
-    // Check global post engagement: Sorted:Posts:Global:TotalEngagement:user_id:post_id
+    // Assert if the new tag increments the engagement
+    // global post engagement: Sorted:Posts:Global:TotalEngagement:user_id:post_id
     let total_engagement = check_member_total_engagement_user_posts(&post_key)
         .await
         .expect("Failed to check total engagement for user posts");
@@ -108,7 +138,7 @@ async fn test_homeserver_put_tag_post() -> Result<()> {
     );
     assert_eq!(total_engagement.unwrap(), 1);
 
-    // Check if the author user has a new notification
+    // Assert if the author user does not have a new notification
     // Self-tagging posts should not trigger notifications.
     // Sorted:Notification:user_id
     let notifications = Notification::get_by_id(&tagger_user_id, None, None, None, None)
@@ -120,38 +150,9 @@ async fn test_homeserver_put_tag_post() -> Result<()> {
         "Post author should have 0 notification. Self tagging."
     );
 
-    // Tag global engagement: Sorted:Tags:Global:Post:TotalEngagement
-    let total_engagement = check_member_total_engagement_post_tag(&post_key, label)
-        .await
-        .unwrap();
-    assert!(total_engagement.is_some());
-    assert_eq!(total_engagement.unwrap(), 1);
-
-    // TODO: Hot tag. Uncomment when DEL is impl
-    // let total_engagement = Taggers::check_sorted_set_member(&TAG_GLOBAL_HOT, &tag_label_slice).await.unwrap().unwrap();
-    // assert_eq!(total_engagement, 1);
-
-    // Check if the user is related with tag
-    let (_exist, member) = Taggers::check_set_member(&[label], &tagger_user_id)
-        .await
-        .unwrap();
-    assert!(member);
-
-    // Step 5:
-    test.client.delete(tag_url.as_str()).await?;
-    test.ensure_event_processing_complete().await?;
-
-    // // Step 6: Verify the tag has been deleted
-    // let _result_post = PostView::get_by_id(&user_id, &post_id, None, None, None)
-    //     .await
-    //     .unwrap()
-    //     .unwrap();
-
-    // TODO: uncomment tests when fixed redis indexing
-    // assert_eq!(
-    //     result_post.tags[0].taggers_count, 0,
-    //     "The tag should have been deleted"
-    // );
+    // Assert hot tag score: Sorted:Post:Global:Hot:label
+    let total_engagement = Taggers::check_sorted_set_member(&TAG_GLOBAL_HOT, &[label]).await.unwrap().unwrap();
+    assert_eq!(total_engagement, actual_tag_hot_score + 1);
 
     // Cleanup user and post
     test.cleanup_post(&tagger_user_id, &post_id).await?;

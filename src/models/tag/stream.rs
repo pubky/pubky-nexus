@@ -48,7 +48,7 @@ impl Taggers {
         Self::put_index_set(&[label], &[user_id]).await
     }
 
-    pub async fn del_to_index(&self, label: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub async fn del_from_index(&self, label: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
         self.remove_from_index_set(&[label]).await
     }
 }

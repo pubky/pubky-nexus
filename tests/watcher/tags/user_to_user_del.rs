@@ -16,7 +16,7 @@ async fn test_homeserver_del_tag_to_another_user() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Step 1: Create the users
-    let keypair = Keypair::random();
+    let tagged_keypair = Keypair::random();
 
     let tagged_user = PubkyAppUser {
         bio: Some("test_homeserver_del_tag_to_another_user".to_string()),
@@ -25,9 +25,9 @@ async fn test_homeserver_del_tag_to_another_user() -> Result<()> {
         name: "Watcher:DelTagToAnother:TaggedUser".to_string(),
         status: None,
     };
-    let tagged_user_id = test.create_user(&keypair, &tagged_user).await?;
+    let tagged_user_id = test.create_user(&tagged_keypair, &tagged_user).await?;
 
-    let keypair = Keypair::random();
+    let tagger_keypair = Keypair::random();
 
     let tagger_user = PubkyAppUser {
         bio: Some("test_homeserver_del_tag_to_another_user".to_string()),
@@ -36,7 +36,7 @@ async fn test_homeserver_del_tag_to_another_user() -> Result<()> {
         name: "Watcher:DelTagToAnother:TaggerUser".to_string(),
         status: None,
     };
-    let tagger_user_id = test.create_user(&keypair, &tagger_user).await?;
+    let tagger_user_id = test.create_user(&tagger_keypair, &tagger_user).await?;
 
     // Step 2: Add a tag to the user
     let label = "neo4j";
