@@ -47,7 +47,7 @@ pub struct FileDetails {
     pub created_at: i64,
     pub src: String,
     pub name: String,
-    pub size: u64,
+    pub size: i64,
     pub content_type: String,
     #[serde(with = "json_string")]
     pub urls: FileUrls,

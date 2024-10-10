@@ -163,14 +163,10 @@ async fn test_files_by_ids() -> Result<()> {
     let test_file_user2 = "sfgetccnq7s3h57a7imf6n7k5fqxus33yg85f1ndhnrnofjdmhjy";
     let test_file_uri2 = format!("pubky://{test_file_user2}/pub/pubky.app/files/{test_file_id2}");
 
-    let uris = serde_json::to_string(&vec![test_file_uri, test_file_uri2])?;
     let res = client
-        .do_get(
-            format!(
-                "/v0/files/by-ids?uris={}",
-                url::form_urlencoded::byte_serialize(uris.as_bytes()).collect::<String>()
-            )
-            .as_str(),
+        .do_post(
+            "/v0/files/by-ids",
+            json!({"uris": [test_file_uri, test_file_uri2]}),
         )
         .await?;
 

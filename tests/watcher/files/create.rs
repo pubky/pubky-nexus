@@ -37,7 +37,7 @@ async fn test_put_pubkyapp_file() -> Result<()> {
         name: "myfile".to_string(),
         content_type: "text/plain".to_string(),
         src: blob_url.clone(),
-        size: json_data.len() as u64,
+        size: json_data.len() as i64,
         created_at: Utc::now().timestamp_millis(),
     };
 

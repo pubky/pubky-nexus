@@ -191,7 +191,7 @@ pub fn create_file(file: &FileDetails) -> Result<Query, Box<dyn std::error::Erro
     .param("uri", file.uri.to_string())
     .param("indexed_at", file.indexed_at)
     .param("created_at", file.created_at)
-    .param("size", file.size.to_string())
+    .param("size", file.size)
     .param("src", file.src.to_string())
     .param("name", file.name.to_string())
     .param("content_type", file.content_type.to_string())
