@@ -33,6 +33,8 @@ pub async fn put(
     // Serialize and validate
     let file_input = <PubkyAppFile as Validatable>::try_from(&blob, &file_id).await?;
 
+    debug!("file input {:?}", file_input);
+
     let file_meta = ingest(&user_id, file_id.as_str(), &file_input, client).await?;
 
     // Create FileDetails object
@@ -64,6 +66,7 @@ async fn ingest(
 ) -> Result<FileMeta, Box<dyn std::error::Error + Send + Sync>> {
     let response = client.get(pubkyapp_file.src.as_str()).await?.unwrap();
 
+    debug!("response {:?}", response);
     store_blob(file_id.to_string(), user_id.to_string(), &response).await?;
 
     let static_path = format!("{}/{}", user_id, file_id);
@@ -80,10 +83,14 @@ async fn store_blob(
     let storage_path = Config::from_env().file_path;
     let full_path = format!("{}/{}", storage_path, path);
 
+    debug!("store blob in full_path: {}", full_path);
+
     let path_exists = match fs::metadata(full_path.as_str()).await {
         Err(_) => false,
         Ok(metadata) => metadata.is_dir(),
     };
+
+    debug!("path exists: {}", path_exists);
 
     if !path_exists {
         fs::create_dir_all(full_path.as_str()).await?;
