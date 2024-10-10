@@ -7,9 +7,12 @@ mod details;
 mod list;
 
 pub fn routes() -> Router {
-    register_routes!(Router::new(),
+    let router = register_routes!(Router::new(),
         endpoints::FILE_ROUTE => details::file_details_handler,
-        endpoints::FILE_LIST_ROUTE => list::file_details_by_uris_handler,
+    );
+    router.route(
+        endpoints::FILE_LIST_ROUTE,
+        axum::routing::post(list::file_details_by_uris_handler),
     )
 }
 

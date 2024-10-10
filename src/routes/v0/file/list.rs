@@ -2,29 +2,33 @@ use crate::models::file::FileDetails;
 use crate::models::traits::Collection;
 use crate::routes::v0::endpoints::FILE_LIST_ROUTE;
 use crate::{Error, Result};
-use axum::extract::Query;
 use axum::Json;
 use log::info;
+use serde::Deserialize;
 use utoipa::OpenApi;
 
+#[derive(Deserialize)]
+pub struct FilesByIdsBody {
+    uris: Vec<String>,
+}
+
 #[utoipa::path(
-    get,
+    post,
     path = FILE_LIST_ROUTE,
     tag = "Files by URIs",
-    params(
-        ("uris" = Vec<String>, Query, description = "List of Pubky Uris")
-    ),
+    request_body = FilesByIdsBody,
     responses(
         (status = 200, description = "List of File Details", body = Vec<FileDetails>),
         (status = 500, description = "Internal server error")
     )
 )]
 pub async fn file_details_by_uris_handler(
-    Query(uris): Query<Vec<String>>,
+    Json(body): Json<FilesByIdsBody>,
 ) -> Result<Json<Vec<FileDetails>>> {
-    info!("GET {FILE_LIST_ROUTE} uris:{:?}", uris);
+    info!("GET {FILE_LIST_ROUTE} uris:{:?}", body.uris);
 
-    let keys: Vec<Vec<String>> = uris
+    let keys: Vec<Vec<String>> = body
+        .uris
         .into_iter()
         .map(|uri| FileDetails::file_key_from_uri(uri.as_str()))
         .collect();
