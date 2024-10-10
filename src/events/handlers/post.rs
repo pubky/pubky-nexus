@@ -35,6 +35,9 @@ pub async fn sync_put(
     // Create PostDetails object
     let post_details = PostDetails::from_homeserver(post.clone(), &author_id, &post_id).await?;
 
+    // We avoid indexing replies into feed sorted sets
+    let add_to_feeds = post.parent.is_none();
+
     // SAVE TO GRAPH
     post_details.put_to_graph().await?;
 
@@ -48,7 +51,7 @@ pub async fn sync_put(
     // SAVE TO INDEX
     // Create post counts index
     PostCounts::default()
-        .put_to_index(&author_id, &post_id)
+        .put_to_index(&author_id, &post_id, add_to_feeds)
         .await?;
     // Update user counts with the new post
     UserCounts::update(&author_id, "posts", JsonAction::Increment(1)).await?;
@@ -100,7 +103,7 @@ pub async fn sync_put(
     .put_to_index(&author_id, &post_id)
     .await?;
 
-    post_details.put_to_index(&author_id).await?;
+    post_details.put_to_index(&author_id, add_to_feeds).await?;
 
     Ok(())
 }

@@ -5,6 +5,8 @@ pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
     query(
         "
             MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+            OPTIONAL MATCH (p)-[replied:REPLIED]->(Post)
+            WITH u, p, (replied IS NOT NULL) AS is_reply
             RETURN {
                 uri: 'pubky://' + u.id + '/pub/pubky.app/posts/' + p.id,
                 content: p.content,
@@ -14,7 +16,8 @@ pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
                 // default value when the specified property is null
                 // Avoids enum deserialization ERROR
                 kind: COALESCE(p.kind, 'Short')
-            } as details
+            } as details,
+            is_reply
         ",
     )
     .param("author_id", author_id)
@@ -27,16 +30,19 @@ pub fn post_counts(author_id: &str, post_id: &str) -> Query {
          OPTIONAL MATCH (p)<-[tag:TAGGED]-()
          OPTIONAL MATCH (p)<-[reply:REPLIED]-()
          OPTIONAL MATCH (p)<-[repost:REPOSTED]-()
+         OPTIONAL MATCH (p)-[replied:REPLIED]->(Post)
          WITH p, COUNT(DISTINCT tag) AS tags_count,
                  COUNT(DISTINCT reply) AS replies_count,
-                 COUNT(DISTINCT repost) AS reposts_count
+                 COUNT(DISTINCT repost) AS reposts_count,
+                 (replied IS NOT NULL) AS is_reply
          RETURN 
             p IS NOT NULL AS exists,
             {
                 tags: tags_count,
                 replies: replies_count,
                 reposts: reposts_count
-            } AS counts
+            } AS counts,
+            is_reply
         ",
     )
     .param("author_id", author_id)

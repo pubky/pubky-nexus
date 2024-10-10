@@ -26,8 +26,10 @@ impl PostCounts {
             Some(counts) => Ok(Some(counts)),
             None => {
                 let graph_response = Self::get_from_graph(author_id, post_id).await?;
-                if let Some(post_counts) = graph_response {
-                    post_counts.put_to_index(author_id, post_id).await?;
+                if let Some((post_counts, is_reply)) = graph_response {
+                    post_counts
+                        .put_to_index(author_id, post_id, !is_reply)
+                        .await?;
                     return Ok(Some(post_counts));
                 }
                 Ok(None)
@@ -49,7 +51,7 @@ impl PostCounts {
     pub async fn get_from_graph(
         author_id: &str,
         post_id: &str,
-    ) -> Result<Option<PostCounts>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<(PostCounts, bool)>, Box<dyn std::error::Error + Send + Sync>> {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
@@ -62,10 +64,10 @@ impl PostCounts {
         if let Some(row) = result.next().await? {
             let post_exists: bool = row.get("exists").unwrap_or(false);
             if post_exists {
-                match row.get("counts") {
-                    Ok(post_counts) => return Ok(Some(post_counts)),
-                    Err(_e) => return Ok(None),
-                }
+                let counts: PostCounts = row.get("counts")?;
+                let is_reply: bool = row.get("is_reply").unwrap_or(false);
+
+                return Ok(Some((counts, is_reply)));
             }
         }
         Ok(None)
@@ -75,9 +77,12 @@ impl PostCounts {
         &self,
         author_id: &str,
         post_id: &str,
+        add_to_feeds: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.put_index_json(&[author_id, post_id]).await?;
-        PostStream::add_to_engagement_sorted_set(self, author_id, post_id).await?;
+        if add_to_feeds {
+            PostStream::add_to_engagement_sorted_set(self, author_id, post_id).await?;
+        }
         Ok(())
     }
 
@@ -95,7 +100,7 @@ impl PostCounts {
         post_id: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         match Self::get_from_graph(author_id, post_id).await? {
-            Some(counts) => counts.put_to_index(author_id, post_id).await?,
+            Some((counts, is_reply)) => counts.put_to_index(author_id, post_id, !is_reply).await?,
             None => log::error!(
                 "{}:{} Could not found post counts in the graph",
                 author_id,
