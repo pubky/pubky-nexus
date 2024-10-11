@@ -1,11 +1,12 @@
 use super::{Bookmark, PostCounts, PostDetails, PostView};
 use crate::{
     db::kv::index::sorted_sets::Sorting,
+    get_neo4j_graph,
     models::{
         tag::search::TagSearch,
         user::{Followers, Following, Friends, UserFollows},
     },
-    RedisOps, ScoreAction,
+    queries, RedisOps, ScoreAction,
 };
 use serde::{Deserialize, Serialize};
 use std::error::Error;
@@ -64,10 +65,28 @@ impl PostStream {
 
         let post_keys = match use_index {
             true => {
-                Self::get_from_index(viewer_id, author_id, sorting, reach, tag, skip, limit).await?
+                Self::get_from_index(
+                    viewer_id.clone(),
+                    author_id,
+                    sorting,
+                    reach,
+                    tag,
+                    skip,
+                    limit,
+                )
+                .await?
             }
             false => {
-                Self::get_from_graph(viewer_id, author_id, sorting, reach, tag, skip, limit).await?
+                Self::get_from_graph(
+                    viewer_id.clone(),
+                    author_id,
+                    sorting,
+                    reach,
+                    tag,
+                    skip,
+                    limit,
+                )
+                .await?
             }
         };
 
@@ -149,7 +168,25 @@ impl PostStream {
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
-        Ok(vec![])
+        let mut result;
+        {
+            let graph = get_neo4j_graph()?;
+            let query =
+                queries::get::post_stream(viewer_id, author_id, reach, tags, sorting, skip, limit);
+
+            let graph = graph.lock().await;
+            result = graph.execute(query).await?;
+        }
+
+        let mut post_keys = Vec::new();
+
+        while let Some(row) = result.next().await? {
+            let author_id: String = row.get("author_id")?;
+            let post_id: String = row.get("post_id")?;
+            post_keys.push(format!("{}:{}", author_id, post_id));
+        }
+
+        Ok(post_keys)
     }
 
     pub async fn get_global_posts_keys(
