@@ -19,6 +19,7 @@ pub struct PostDetails {
     pub author: String,
     pub kind: PostKind,
     pub uri: String,
+    pub attachments: Option<Vec<String>>,
 }
 
 impl RedisOps for PostDetails {}
@@ -101,6 +102,7 @@ impl PostDetails {
             indexed_at: Utc::now().timestamp_millis(),
             author: author_id.0.clone(),
             kind: homeserver_post.kind,
+            attachments: homeserver_post.attachments,
         })
     }
 

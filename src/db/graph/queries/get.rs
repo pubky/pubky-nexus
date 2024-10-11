@@ -15,7 +15,8 @@ pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
                 author: u.id,
                 // default value when the specified property is null
                 // Avoids enum deserialization ERROR
-                kind: COALESCE(p.kind, 'Short')
+                kind: COALESCE(p.kind, 'Short'),
+                attachments: p.attachments
             } as details,
             is_reply
         ",
