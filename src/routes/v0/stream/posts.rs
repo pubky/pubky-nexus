@@ -36,6 +36,12 @@ pub async fn stream_posts_handler(
     let sorting = query.sorting.unwrap_or(PostStreamSorting::Timeline);
     let reach = query.reach.unwrap_or(PostStreamReach::All);
 
+    if reach != PostStreamReach::All {
+        return Err(Error::InvalidInput {
+            message: "Viewer ID is required for streams by reach other than 'all'".to_string(),
+        });
+    }
+
     match PostStream::get_posts(
         query.viewer_id.clone(),
         query.author_id.clone(),

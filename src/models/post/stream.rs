@@ -25,7 +25,7 @@ pub enum PostStreamSorting {
     TotalEngagement,
 }
 
-#[derive(Deserialize, ToSchema, Debug, Clone)]
+#[derive(Deserialize, ToSchema, Debug, Clone, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum PostStreamReach {
     All,

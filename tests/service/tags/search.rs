@@ -89,7 +89,7 @@ async fn test_tag_search_with_limit_and_skip() -> Result<()> {
 #[tokio::test]
 async fn test_post_specific_tag_with_no_result() -> Result<()> {
     let path = format!("{}/{}", ROOT_PATH, "randommm");
-    make_wrong_request(&path).await?;
+    make_wrong_request(&path, None).await?;
 
     Ok(())
 }
