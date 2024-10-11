@@ -69,11 +69,10 @@ async fn test_homeserver_viewer_bookmark() -> Result<()> {
     // INDEX_OP: Assert if the event writes the indexes
     let result_bookmarks = PostStream::get_bookmarked_posts(&viewer_id, None, None)
         .await
-        .unwrap()
-        .expect("The bookmark should have been created");
+        .unwrap();
 
-    assert_eq!(result_bookmarks.0.len(), 1);
-    assert_eq!(result_bookmarks.0[0].details.id, post_id);
+    assert_eq!(result_bookmarks.len(), 1);
+    assert_eq!(result_bookmarks[0], format!("{}:{}", user_id, post_id));
 
     // Cleanup user and post
     test.cleanup_post(&user_id, &post_id).await?;
