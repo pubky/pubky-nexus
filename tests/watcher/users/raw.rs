@@ -20,7 +20,7 @@ async fn test_homeserver_user_put_event() -> Result<()> {
 
     let user = PubkyAppUser {
         bio: Some("test_homeserver_user_event".to_string()),
-        image: Some("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IArs4c6QAAAA1JREFUGFdjiO4O+w8ABL0CPPcYQa4AAAAASUVORK5CYII=".to_string()),
+        image: Some("pubky://4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro/pub/pubky.app/files/003286NSMY490".to_string()),
         links: Some(vec![UserLink {
             title: "User Event".to_string(),
             url: "pubky://watcher.nexus".to_string(),
@@ -39,6 +39,7 @@ async fn test_homeserver_user_put_event() -> Result<()> {
     assert_eq!(user_details.name, user.name);
     assert_eq!(user_details.bio, user.bio);
     assert_eq!(user_details.status, user.status);
+    assert_eq!(user_details.image, user.image);
 
     let result_links = user_details.links.unwrap_or_default();
     let expected_links = user.links.unwrap_or_default();

@@ -7,13 +7,14 @@ pub fn create_user(user: &UserDetails) -> Result<Query, Box<dyn std::error::Erro
 
     let query = query(
         "MERGE (u:User {id: $id})
-         SET u.name = $name, u.bio = $bio, u.status = $status, u.links = $links, u.indexed_at = $indexed_at;",
+         SET u.name = $name, u.bio = $bio, u.status = $status, u.links = $links, u.image = $image, u.indexed_at = $indexed_at;",
     )
     .param("id", user.id.as_ref())
     .param("name", user.name.to_string())
     .param("bio", user.bio.as_ref().unwrap_or(&"null".to_string()).to_string())
     .param("status", user.status.as_ref().unwrap_or(&"null".to_string()).to_string())
     .param("links", links)
+    .param("image", user.image.as_ref().unwrap_or(&String::from("null")).to_string())
     .param("indexed_at", user.indexed_at);
 
     Ok(query)

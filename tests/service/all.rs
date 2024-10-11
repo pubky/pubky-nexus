@@ -36,6 +36,7 @@ async fn test_user_endpoint() -> Result<()> {
     assert_eq!(body["details"]["name"], "Aldert");
     assert_eq!(body["details"]["status"], "working");
     assert_eq!(body["details"]["id"], user_id);
+    assert_eq!(body["details"]["image"], "pubky://4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro/pub/pubky.app/files/003286NSMY490");
     assert_eq!(body["counts"]["friends"], 8);
     assert_eq!(body["counts"]["posts"], 4);
 
