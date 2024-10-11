@@ -186,16 +186,23 @@ async fn test_stream_combined_parameters() -> Result<()> {
         "{ROOT_PATH}?viewer_id={}&reach=following&tag={}&sorting=totalengagement",
         viewer_id, tag
     );
+
     let body = make_request(&path).await?;
 
-    assert!(body.is_array());
+    // Deserialize the response body into a PostStream object
+    let post_stream: PostStream = serde_json::from_value(body)?;
 
-    for post in body.as_array().expect("Post stream should be an array") {
-        let post_tags = post["tags"].as_array().expect("Post should have tags");
+    // Ensure the stream has posts
+    assert!(!post_stream.0.is_empty(), "Post stream should not be empty");
+
+    // Iterate over each post and check if it contains the requested tag
+    for post in post_stream.0 {
+        let has_tag = post.tags.iter().any(|tag_item| tag_item.label == tag); // Use iterators to check if any tag matches the label
 
         assert!(
-            post_tags.iter().any(|t| t.as_str() == Some(tag)),
-            "Post should be tagged with the requested tag"
+            has_tag,
+            "Post should be tagged with the requested tag: {}",
+            tag
         );
     }
 
