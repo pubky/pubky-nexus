@@ -6,6 +6,7 @@ use crate::models::post::{
     PostCounts, PostRelationships, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS,
 };
 use crate::models::pubky_app::traits::Validatable;
+use crate::models::pubky_app::PostKind;
 use crate::models::user::UserCounts;
 use crate::models::{post::PostDetails, pubky_app::PubkyAppPost, user::PubkyId};
 use crate::{queries, RedisOps, ScoreAction};
@@ -120,11 +121,18 @@ async fn resolve_post_type_interaction<'a>(
         put_reply_relationship(author_id, post_id, parent_uri).await?;
         interaction.push(("replies", parent_uri.as_str()));
     }
-    // Handle "REPOSTED" relationship and counts if `embed.uri` is Some
+
+    // Handle "REPOSTED" relationship and counts if `embed.uri` is Some and `kind` is "short"
     if let Some(embed) = &post.embed {
-        put_repost_relationship(author_id, post_id, &embed.uri).await?;
-        interaction.push(("reposts", embed.uri.as_str()));
+        match embed.kind {
+            PostKind::Short => {
+                put_repost_relationship(author_id, post_id, &embed.uri).await?;
+                interaction.push(("reposts", embed.uri.as_str()));
+            }
+            _ => (),
+        }
     }
+
     Ok(interaction)
 }
 
