@@ -1,17 +1,19 @@
 use crate::service::utils::{make_request, make_wrong_request};
 use anyhow::Result;
-use pubky_nexus::routes::v0::endpoints;
+use pubky_nexus::{models::post::PostStream, routes::v0::endpoints};
 use serde_json::Value;
 
 const ROOT_PATH: &str = endpoints::STREAM_POSTS_ROUTE;
 
 // Ar
 const USER_ID: &str = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
+// User with most bookmarks
+const BOOKMARKED_ID: &str = "h3fghnb3x59oh7r53x8y6a5x38oatqyjym9b31ybss17zqdnhcoy";
+// Peter user from test/tags.cypher
+const VIEWER_ID: &str = "f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a";
 
 const TAG_LABEL_1: &str = "bitcoin";
 const TAG_LABEL_2: &str = "opensource";
-// Peter user from test/tags.cypher
-const VIEWER_ID: &str = "f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a";
 
 const POST_A: &str = "V8N1P3L9J4X0";
 const POST_B: &str = "3NFG9K0L5QH4";
@@ -133,7 +135,7 @@ async fn test_stream_posts_followers() -> Result<()> {
 
 #[tokio::test]
 async fn test_stream_bookmarked_posts() -> Result<()> {
-    let viewer_id = USER_ID;
+    let viewer_id = BOOKMARKED_ID;
     let path = format!("{ROOT_PATH}?viewer_id={}&reach=bookmarks", viewer_id);
     let body = make_request(&path).await?;
 
@@ -156,15 +158,22 @@ async fn test_stream_posts_by_tag() -> Result<()> {
 
     assert!(body.is_array());
 
-    for post in body.as_array().expect("Post stream should be an array") {
-        let post_tags = post["tags"].as_array().expect("Post should have tags");
+    // Deserialize the response body into a PostStream object
+    let post_stream: PostStream = serde_json::from_value(body)?;
+
+    // Ensure the stream has posts
+    assert!(!post_stream.0.is_empty(), "Post stream should not be empty");
+
+    // Iterate over each post and check if it contains the requested tag
+    for post in post_stream.0 {
+        let has_tag = post.tags.iter().any(|tag| tag.label == TAG_LABEL_1);
 
         assert!(
-            post_tags.iter().any(|t| t.as_str() == Some(TAG_LABEL_1)),
-            "Post should be tagged with the requested tag"
+            has_tag,
+            "Post should be tagged with the requested tag: {}",
+            TAG_LABEL_1
         );
     }
-
     Ok(())
 }
 
@@ -197,7 +206,7 @@ async fn test_stream_combined_parameters() -> Result<()> {
 async fn test_stream_reach_without_viewer_id() -> Result<()> {
     // Missing viewer_id for a reach query should fail
     let path = format!("{ROOT_PATH}?reach=following");
-    make_wrong_request(&path, None).await?;
+    make_wrong_request(&path, Some(400)).await?;
 
     Ok(())
 }
