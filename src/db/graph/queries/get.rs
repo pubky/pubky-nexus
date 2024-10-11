@@ -317,25 +317,33 @@ pub fn get_tags_by_user_ids(users_id: &[&str]) -> Query {
     .param("ids", users_id)
 }
 
-pub fn get_thread(author_id: &str, post_id: &str, skip: usize, limit: usize) -> Query {
-    query(
+pub fn get_thread(
+    author_id: &str,
+    post_id: &str,
+    depth: usize,
+    skip: usize,
+    limit: usize,
+) -> Query {
+    let query_string = format!(
         "
-        MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
-        CALL {
+        MATCH (u:User {{id: $author_id}})-[:AUTHORED]->(p:Post {{id: $post_id}})
+        CALL {{
             WITH p
             // Recursively get all replies and their authors
-            MATCH (reply_author:User)-[:AUTHORED]->(reply:Post)-[:REPLIED*]->(p)
+            MATCH (reply_author:User)-[:AUTHORED]->(reply:Post)-[:REPLIED*1..{}]->(p)
             RETURN reply, reply_author
             ORDER BY reply.indexed_at ASC
             SKIP $skip LIMIT $limit
-        }
-        RETURN p AS root_post, collect({reply_id: reply.id, author_id: reply_author.id}) AS replies
+        }}
+        RETURN p AS root_post, collect({{reply_id: reply.id, author_id: reply_author.id}}) AS replies
         ",
-    )
-    .param("author_id", author_id)
-    .param("post_id", post_id)
-    .param("skip", skip as i64)
-    .param("limit", limit as i64)
+        depth
+    );
+    query(&query_string)
+        .param("author_id", author_id)
+        .param("post_id", post_id)
+        .param("skip", skip as i64)
+        .param("limit", limit as i64)
 }
 
 pub fn get_files_by_ids(key_pair: &[&[&str]]) -> Query {

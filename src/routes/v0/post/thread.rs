@@ -10,6 +10,7 @@ use utoipa::OpenApi;
 #[derive(Deserialize)]
 pub struct ThreadQuery {
     viewer_id: Option<String>,
+    depth: Option<usize>,
     skip: Option<usize>,
     limit: Option<usize>,
 }
@@ -41,12 +42,14 @@ pub async fn thread_handler(
     );
 
     let skip = query.skip.unwrap_or(0);
-    let limit = query.limit.unwrap_or(6); // Default limit if not provided
+    let limit = query.limit.unwrap_or(6).min(20); // Default limit if not provided
+    let depth = query.depth.unwrap_or(1).min(3);
 
     match PostThread::get_by_id(
         &author_id,
         &post_id,
         query.viewer_id.as_deref(),
+        depth,
         skip,
         limit,
     )

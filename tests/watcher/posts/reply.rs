@@ -129,7 +129,7 @@ async fn test_homeserver_post_reply() -> Result<()> {
     assert_eq!(post_count.posts, 2);
 
     // GRAPH_OP: Fetch the post thread and confirm the reply is present
-    let thread = PostThread::get_by_id(&user_id, &parent_post_id, None, 0, 10)
+    let thread = PostThread::get_by_id(&user_id, &parent_post_id, None, 1, 0, 10)
         .await
         .expect("Failed to fetch post thread")
         .expect("The post thread should exist");
