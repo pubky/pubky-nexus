@@ -124,12 +124,9 @@ async fn resolve_post_type_interaction<'a>(
 
     // Handle "REPOSTED" relationship and counts if `embed.uri` is Some and `kind` is "short"
     if let Some(embed) = &post.embed {
-        match embed.kind {
-            PostKind::Short => {
-                put_repost_relationship(author_id, post_id, &embed.uri).await?;
-                interaction.push(("reposts", embed.uri.as_str()));
-            }
-            _ => (),
+        if let PostKind::Short = embed.kind {
+            put_repost_relationship(author_id, post_id, &embed.uri).await?;
+            interaction.push(("reposts", embed.uri.as_str()));
         }
     }
 
