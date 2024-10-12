@@ -27,12 +27,13 @@ pub enum PostStreamSorting {
 
 #[derive(Deserialize, ToSchema, Debug, Clone, PartialEq)]
 #[serde(rename_all = "lowercase")]
-pub enum PostStreamReach {
+pub enum ViewerStreamSource {
     All,
     Following,
     Followers,
     Friends,
     Bookmarks,
+    // 4U,
 }
 
 #[derive(Serialize, Deserialize, ToSchema, Debug)]
@@ -55,13 +56,13 @@ impl PostStream {
         viewer_id: Option<String>,
         author_id: Option<String>,
         sorting: PostStreamSorting,
-        reach: PostStreamReach,
-        tag: Option<String>,
+        source: ViewerStreamSource,
+        tags: Option<Vec<String>>,
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
         // Decide whether to use index or fallback to graph query
-        let use_index = Self::can_use_index(&sorting, &author_id, &reach, &tag);
+        let use_index = Self::can_use_index(&sorting, &author_id, &source, &tags);
 
         let post_keys = match use_index {
             true => {
@@ -69,8 +70,8 @@ impl PostStream {
                     viewer_id.clone(),
                     author_id,
                     sorting,
-                    reach,
-                    tag,
+                    source,
+                    tags,
                     skip,
                     limit,
                 )
@@ -81,8 +82,8 @@ impl PostStream {
                     viewer_id.clone(),
                     author_id,
                     sorting,
-                    reach,
-                    tag,
+                    source,
+                    tags,
                     skip,
                     limit,
                 )
@@ -101,22 +102,22 @@ impl PostStream {
     fn can_use_index(
         sorting: &PostStreamSorting,
         author_id: &Option<String>,
-        reach: &PostStreamReach,
-        tags: &Option<String>,
+        source: &ViewerStreamSource,
+        tags: &Option<Vec<String>>,
     ) -> bool {
-        match (sorting, reach, tags, author_id) {
+        match (sorting, source, tags, author_id) {
             // We have a sorted set for posts by a specific author
             (PostStreamSorting::Timeline, _, None, Some(_)) => true,
             // We have a sorted set for global for any sorting
-            (_, PostStreamReach::All, None, None) => true,
-            // We have a sorted set for posts by tag for any sorting
-            (_, PostStreamReach::All, Some(_), _) => true,
-            // We can use sorted set for posts by reach only for timeline
-            (PostStreamSorting::Timeline, PostStreamReach::Following, None, None) => true,
-            (PostStreamSorting::Timeline, PostStreamReach::Followers, None, None) => true,
-            (PostStreamSorting::Timeline, PostStreamReach::Friends, None, None) => true,
+            (_, ViewerStreamSource::All, None, None) => true,
+            // We have a sorted set for posts by tags for any sorting for a single tag
+            (_, ViewerStreamSource::All, Some(tags), _) if tags.len() == 1 => true,
+            // We can use sorted set for posts by source only for timeline
+            (PostStreamSorting::Timeline, ViewerStreamSource::Following, None, None) => true,
+            (PostStreamSorting::Timeline, ViewerStreamSource::Followers, None, None) => true,
+            (PostStreamSorting::Timeline, ViewerStreamSource::Friends, None, None) => true,
             // We have a sorted set for bookmarks only for timeline
-            (PostStreamSorting::Timeline, PostStreamReach::Bookmarks, None, None) => true,
+            (PostStreamSorting::Timeline, ViewerStreamSource::Bookmarks, None, None) => true,
             // Other combinations require querying the graph
             _ => false,
         }
@@ -127,22 +128,22 @@ impl PostStream {
         viewer_id: Option<String>,
         author_id: Option<String>,
         sorting: PostStreamSorting,
-        reach: PostStreamReach,
-        tag: Option<String>,
+        source: ViewerStreamSource,
+        tags: Option<Vec<String>>,
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
-        match (reach, tag, author_id) {
+        match (source, tags, author_id) {
             // Global post streams
-            (PostStreamReach::All, None, None) => {
+            (ViewerStreamSource::All, None, None) => {
                 Self::get_global_posts_keys(sorting, skip, limit).await
             }
-            // Streams by tag
-            (PostStreamReach::All, Some(label), None) => {
-                Self::get_posts_keys_by_tag(&label, sorting, skip, limit).await
+            // Streams by tags
+            (ViewerStreamSource::All, Some(tags), None) if tags.len() == 1 => {
+                Self::get_posts_keys_by_tag(&tags[0], sorting, skip, limit).await
             }
             // Bookmark streams
-            (PostStreamReach::Bookmarks, None, None) => {
+            (ViewerStreamSource::Bookmarks, None, None) => {
                 Self::get_bookmarked_posts(
                     &viewer_id.ok_or("Viewer ID is required for bookmark streams")?,
                     skip,
@@ -150,8 +151,8 @@ impl PostStream {
                 )
                 .await
             }
-            // Streams by simple reach
-            (reach, None, None) => Self::get_posts_by_reach(reach, viewer_id, skip, limit).await,
+            // Streams by simple source
+            (source, None, None) => Self::get_posts_by_source(source, viewer_id, skip, limit).await,
             // Streams by only author
             (_, None, Some(author_id)) => Self::get_user_posts(&author_id, skip, limit).await,
             _ => Ok(vec![]),
@@ -163,8 +164,8 @@ impl PostStream {
         viewer_id: Option<String>,
         author_id: Option<String>,
         sorting: PostStreamSorting,
-        reach: PostStreamReach,
-        tags: Option<String>,
+        source: ViewerStreamSource,
+        tags: Option<Vec<String>>,
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
@@ -172,7 +173,7 @@ impl PostStream {
         {
             let graph = get_neo4j_graph()?;
             let query =
-                queries::get::post_stream(viewer_id, author_id, reach, tags, sorting, skip, limit);
+                queries::get::post_stream(viewer_id, author_id, source, tags, sorting, skip, limit);
 
             let graph = graph.lock().await;
             result = graph.execute(query).await?;
@@ -271,8 +272,8 @@ impl PostStream {
         }
     }
 
-    pub async fn get_posts_by_reach(
-        reach: PostStreamReach,
+    pub async fn get_posts_by_source(
+        source: ViewerStreamSource,
         viewer_id: Option<String>,
         skip: Option<usize>,
         limit: Option<usize>,
@@ -282,20 +283,20 @@ impl PostStream {
             Some(v_id) => v_id,
         };
 
-        let user_ids = match reach {
-            PostStreamReach::Following => {
+        let user_ids = match source {
+            ViewerStreamSource::Following => {
                 Following::get_by_id(&viewer_id, None, None)
                     .await?
                     .unwrap_or_default()
                     .0
             }
-            PostStreamReach::Followers => {
+            ViewerStreamSource::Followers => {
                 Followers::get_by_id(&viewer_id, None, None)
                     .await?
                     .unwrap_or_default()
                     .0
             }
-            PostStreamReach::Friends => {
+            ViewerStreamSource::Friends => {
                 Friends::get_by_id(&viewer_id, None, None)
                     .await?
                     .unwrap_or_default()

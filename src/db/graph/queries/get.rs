@@ -1,6 +1,6 @@
 use neo4rs::{query, Query};
 
-use crate::models::post::{PostStreamReach, PostStreamSorting};
+use crate::models::post::{PostStreamSorting, ViewerStreamSource};
 
 // Retrieve post node by post id and author id
 pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
@@ -349,8 +349,8 @@ pub fn get_files_by_ids(key_pair: &[&[&str]]) -> Query {
 pub fn post_stream(
     viewer_id: Option<String>,
     author_id: Option<String>,
-    reach: PostStreamReach,
-    tag: Option<String>,
+    source: ViewerStreamSource,
+    tags: Option<Vec<String>>,
     sorting: PostStreamSorting,
     skip: Option<usize>,
     limit: Option<usize>,
@@ -370,30 +370,31 @@ pub fn post_stream(
         cypher.push_str("WHERE author.id = $author_id\n");
     }
 
-    // Apply reach
+    // Apply source
     if viewer_id.is_some() {
-        match reach {
-            PostStreamReach::Following => {
+        match source {
+            ViewerStreamSource::Following => {
                 cypher.push_str("MATCH (viewer)-[:FOLLOWS]->(author)\n");
             }
-            PostStreamReach::Followers => {
+            ViewerStreamSource::Followers => {
                 cypher.push_str("MATCH (viewer)<-[:FOLLOWS]-(author)\n");
             }
-            PostStreamReach::Friends => {
+            ViewerStreamSource::Friends => {
                 cypher.push_str("MATCH (viewer)-[:FOLLOWS]->(author)-[:FOLLOWS]->(viewer)\n");
             }
-            PostStreamReach::Bookmarks => {
+            ViewerStreamSource::Bookmarks => {
                 cypher.push_str("MATCH (viewer)-[:BOOKMARKED]->(p)\n");
             }
-            PostStreamReach::All => {
+            ViewerStreamSource::All => {
                 // No additional match needed
             }
         }
     }
 
     // Apply tags
-    if tag.is_some() {
-        cypher.push_str("MATCH (tagger:User)-[tag:TAGGED {label: $label}]->(p)\n");
+    if tags.is_some() {
+        cypher.push_str("MATCH (User)-[tag:TAGGED]->(p)\n");
+        cypher.push_str("WHERE tag.label IN $labels\n");
     }
 
     // Apply Sorting
@@ -442,8 +443,8 @@ pub fn post_stream(
     if let Some(viewer_id) = viewer_id {
         query = query.param("viewer_id", viewer_id);
     }
-    if let Some(label) = tag {
-        query = query.param("label", label);
+    if let Some(labels) = tags {
+        query = query.param("labels", labels);
     }
     if let Some(author_id) = author_id {
         query = query.param("author_id", author_id);

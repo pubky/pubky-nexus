@@ -1,4 +1,4 @@
-use crate::models::post::{PostStream, PostStreamReach, PostStreamSorting};
+use crate::models::post::{PostStream, PostStreamSorting, ViewerStreamSource};
 use crate::routes::v0::endpoints::STREAM_POSTS_ROUTE;
 use crate::routes::v0::queries::PostStreamQuery;
 use crate::{Error, Result};
@@ -6,6 +6,8 @@ use axum::extract::Query;
 use axum::Json;
 use log::info;
 use utoipa::OpenApi;
+
+const MAX_TAGS: usize = 5;
 
 #[utoipa::path(
     get,
@@ -17,8 +19,8 @@ use utoipa::OpenApi;
         ("skip" = Option<usize>, Query, description = "Skip N posts"),
         ("limit" = Option<usize>, Query, description = "Retrieve N posts"),
         ("sorting" = Option<PostStreamSorting>, Query, description = "Sorting method"),
-        ("reach" = Option<PostStreamReach>, Query, description = "Reach type (following, followers, friends, bookmarks, all)"),
-        ("tag" = Option<String>, Query, description = "Filter by tag label")
+        ("source" = Option<ViewerStreamSource>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, all)"),
+        ("tag" = Option<Vec<String>>, Query, description = "Filter by a list of tag labels (max 5)")
     ),
     responses(
         (status = 200, description = "Posts stream", body = PostStream),
@@ -34,20 +36,29 @@ pub async fn stream_posts_handler(
     let skip = query.skip.unwrap_or(0);
     let limit = query.limit.unwrap_or(10).min(30);
     let sorting = query.sorting.unwrap_or(PostStreamSorting::Timeline);
-    let reach = query.reach.unwrap_or(PostStreamReach::All);
+    let source = query.source.unwrap_or(ViewerStreamSource::All);
 
-    if reach != PostStreamReach::All && query.viewer_id.is_none() {
+    if source != ViewerStreamSource::All && query.viewer_id.is_none() {
         return Err(Error::InvalidInput {
-            message: "Viewer ID is required for streams with a reach other than 'all'".to_string(),
+            message: "Viewer ID is required for streams with a source other than 'all'".to_string(),
         });
     }
 
+    // Enforce maximum number of tags
+    if let Some(ref tags) = query.tags {
+        if tags.len() > MAX_TAGS {
+            return Err(Error::InvalidInput {
+                message: format!("Too many tags provided; maximum allowed is {}", MAX_TAGS),
+            });
+        }
+    }
+
     match PostStream::get_posts(
-        query.viewer_id.clone(),
-        query.author_id.clone(),
+        query.viewer_id,
+        query.author_id,
         sorting,
-        reach,
-        query.tag.clone(),
+        source,
+        query.tags,
         Some(skip),
         Some(limit),
     )
@@ -64,6 +75,6 @@ pub async fn stream_posts_handler(
 #[derive(OpenApi)]
 #[openapi(
     paths(stream_posts_handler,),
-    components(schemas(PostStream, PostStreamSorting, PostStreamReach))
+    components(schemas(PostStream, PostStreamSorting, ViewerStreamSource))
 )]
 pub struct StreamPostsApiDocs;

@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use pubky_nexus::models::post::{PostStream, PostStreamReach, PostStreamSorting};
+use pubky_nexus::models::post::{PostStream, PostStreamSorting, ViewerStreamSource};
 use pubky_nexus::models::user::{UserStream, UserStreamType};
 use setup::run_setup;
 use std::time::Duration;
@@ -25,10 +25,10 @@ fn bench_stream_followers_timeline(c: &mut Criterion) {
                 Some(viewer_id.to_string()),
                 None,
                 PostStreamSorting::Timeline,
-                PostStreamReach::Following,
+                ViewerStreamSource::Following,
                 None,
                 None,
-                Some(10),
+                Some(20),
             )
             .await
             .unwrap();
@@ -53,10 +53,10 @@ fn bench_stream_following_timeline(c: &mut Criterion) {
                 Some(viewer_id.to_string()),
                 None,
                 PostStreamSorting::Timeline,
-                PostStreamReach::Followers,
+                ViewerStreamSource::Followers,
                 None,
                 None,
-                Some(10),
+                Some(20),
             )
             .await
             .unwrap();
@@ -81,10 +81,10 @@ fn bench_stream_friends_timeline(c: &mut Criterion) {
                 Some(viewer_id.to_string()),
                 None,
                 PostStreamSorting::Timeline,
-                PostStreamReach::Friends,
+                ViewerStreamSource::Friends,
                 None,
                 None,
-                Some(10),
+                Some(20),
             )
             .await
             .unwrap();
@@ -108,10 +108,10 @@ fn bench_stream_all_timeline(c: &mut Criterion) {
                 None,
                 None,
                 PostStreamSorting::Timeline,
-                PostStreamReach::All,
+                ViewerStreamSource::All,
                 None,
                 None,
-                Some(10),
+                Some(20),
             )
             .await
             .unwrap();
@@ -127,7 +127,7 @@ fn bench_stream_bookmarks_timeline(c: &mut Criterion) {
 
     run_setup();
 
-    let viewer_id = "h3fghnb3x59oh7r53x8y6a5x38oatqyjym9b31ybss17zqdnhcoy"; // Example viewer ID
+    let viewer_id = "h3fghnb3x59oh7r53x8y6a5x38oatqyjym9b31ybss17zqdnhcoy";
     let rt = Runtime::new().unwrap();
 
     c.bench_function("stream_posts_bookmarks_timeline", |b| {
@@ -136,10 +136,10 @@ fn bench_stream_bookmarks_timeline(c: &mut Criterion) {
                 Some(viewer_id.to_string()),
                 None,
                 PostStreamSorting::Timeline,
-                PostStreamReach::Bookmarks,
+                ViewerStreamSource::Bookmarks,
                 None,
                 None,
-                Some(10),
+                Some(20),
             )
             .await
             .unwrap();
@@ -164,10 +164,10 @@ fn bench_stream_followers_total_engagement(c: &mut Criterion) {
                 Some(viewer_id.to_string()),
                 None,
                 PostStreamSorting::TotalEngagement,
-                PostStreamReach::Followers,
+                ViewerStreamSource::Followers,
                 None,
                 None,
-                Some(10),
+                Some(20),
             )
             .await
             .unwrap();
@@ -192,10 +192,10 @@ fn bench_stream_following_total_engagement(c: &mut Criterion) {
                 Some(viewer_id.to_string()),
                 None,
                 PostStreamSorting::TotalEngagement,
-                PostStreamReach::Following,
+                ViewerStreamSource::Following,
                 None,
                 None,
-                Some(10),
+                Some(20),
             )
             .await
             .unwrap();
@@ -220,10 +220,10 @@ fn bench_stream_friends_total_engagement(c: &mut Criterion) {
                 Some(viewer_id.to_string()),
                 None,
                 PostStreamSorting::TotalEngagement,
-                PostStreamReach::Friends,
+                ViewerStreamSource::Friends,
                 None,
                 None,
-                Some(10),
+                Some(20),
             )
             .await
             .unwrap();
@@ -247,10 +247,10 @@ fn bench_stream_all_total_engagement(c: &mut Criterion) {
                 None,
                 None,
                 PostStreamSorting::TotalEngagement,
-                PostStreamReach::All,
+                ViewerStreamSource::All,
                 None,
                 None,
-                Some(10),
+                Some(20),
             )
             .await
             .unwrap();
@@ -266,7 +266,7 @@ fn bench_stream_bookmarks_total_engagement(c: &mut Criterion) {
 
     run_setup();
 
-    let viewer_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
+    let viewer_id = "h3fghnb3x59oh7r53x8y6a5x38oatqyjym9b31ybss17zqdnhcoy";
     let rt = Runtime::new().unwrap();
 
     c.bench_function("stream_posts_bookmarks_total_engagement", |b| {
@@ -275,10 +275,10 @@ fn bench_stream_bookmarks_total_engagement(c: &mut Criterion) {
                 Some(viewer_id.to_string()),
                 None,
                 PostStreamSorting::TotalEngagement,
-                PostStreamReach::Bookmarks,
+                ViewerStreamSource::Bookmarks,
                 None,
                 None,
-                Some(10),
+                Some(20),
             )
             .await
             .unwrap();
@@ -303,10 +303,10 @@ fn bench_stream_author_timeline(c: &mut Criterion) {
                 None,
                 Some(author_id.to_string()), // Filter by author_id
                 PostStreamSorting::Timeline, // Sort by timeline
-                PostStreamReach::All, // No reach filter, as we are only interested in the author
+                ViewerStreamSource::All, // No reach filter, as we are only interested in the author
                 None,
                 None,
-                Some(10),
+                Some(20),
             )
             .await
             .unwrap();
@@ -331,10 +331,10 @@ fn bench_stream_author_total_engagement(c: &mut Criterion) {
                 None,
                 Some(author_id.to_string()),        // Filter by author_id
                 PostStreamSorting::TotalEngagement, // Sort by total engagement
-                PostStreamReach::All, // No reach filter, as we are only interested in the author
+                ViewerStreamSource::All, // No reach filter, as we are only interested in the author
                 None,
                 None,
-                Some(10),
+                Some(20),
             )
             .await
             .unwrap();
@@ -357,12 +357,12 @@ fn bench_stream_tag_timeline(c: &mut Criterion) {
         b.to_async(&rt).iter(|| async {
             let post_stream = PostStream::get_posts(
                 None,
-                None,                        // No author_id filter
-                PostStreamSorting::Timeline, // Sort by timeline
-                PostStreamReach::All,        // No reach filtering
-                Some(tag_label.to_string()), // Filter by tag label
+                None,                              // No author_id filter
+                PostStreamSorting::Timeline,       // Sort by timeline
+                ViewerStreamSource::All,           // No reach filtering
+                Some(vec![tag_label.to_string()]), // Filter by tag label
                 Some(0),
-                Some(10),
+                Some(20),
             )
             .await
             .unwrap();
@@ -387,10 +387,10 @@ fn bench_stream_tag_total_engagement(c: &mut Criterion) {
                 None,
                 None,                               // No author_id filter
                 PostStreamSorting::TotalEngagement, // Sort by total engagement
-                PostStreamReach::All,               // No reach filtering
-                Some(tag_label.to_string()),        // Filter by tag label
+                ViewerStreamSource::All,            // No reach filtering
+                Some(vec![tag_label.to_string()]),  // Filter by tag label
                 Some(0),
-                Some(10),
+                Some(20),
             )
             .await
             .unwrap();
@@ -413,7 +413,7 @@ fn bench_stream_most_followed(c: &mut Criterion) {
     c.bench_function("stream_most_followed", |b| {
         b.to_async(&rt).iter(|| async {
             let user_stream =
-                UserStream::get_by_id("", None, None, Some(10), UserStreamType::MostFollowed)
+                UserStream::get_by_id("", None, None, Some(20), UserStreamType::MostFollowed)
                     .await
                     .unwrap();
             criterion::black_box(user_stream);
@@ -433,7 +433,7 @@ fn bench_stream_pioneers(c: &mut Criterion) {
     c.bench_function("stream_pioneers", |b| {
         b.to_async(&rt).iter(|| async {
             let user_stream =
-                UserStream::get_by_id("", None, None, Some(10), UserStreamType::MostFollowed)
+                UserStream::get_by_id("", None, None, Some(20), UserStreamType::MostFollowed)
                     .await
                     .unwrap();
             criterion::black_box(user_stream);

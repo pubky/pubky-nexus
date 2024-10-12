@@ -1,4 +1,5 @@
-use crate::models::post::{PostStreamReach, PostStreamSorting};
+use crate::models::post::{PostStreamSorting, ViewerStreamSource};
+use serde::de::Deserializer;
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -20,6 +21,21 @@ pub struct PostStreamQuery {
     pub skip: Option<usize>,
     pub limit: Option<usize>,
     pub sorting: Option<PostStreamSorting>,
-    pub reach: Option<PostStreamReach>,
-    pub tag: Option<String>,
+    pub source: Option<ViewerStreamSource>,
+    #[serde(default, deserialize_with = "deserialize_comma_separated")]
+    pub tags: Option<Vec<String>>,
+}
+
+// Custom deserializer for comma-separated tags
+fn deserialize_comma_separated<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s: Option<String> = Option::deserialize(deserializer)?;
+    if let Some(s) = s {
+        // Split by comma and trim any excess whitespace
+        let tags: Vec<String> = s.split(',').map(|tag| tag.trim().to_string()).collect();
+        return Ok(Some(tags));
+    }
+    Ok(None)
 }
