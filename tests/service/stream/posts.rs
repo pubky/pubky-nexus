@@ -248,7 +248,7 @@ async fn test_stream_bookmarks_without_viewer_id() -> Result<()> {
 #[tokio::test]
 async fn test_post_tag_search() -> Result<()> {
     let post_order = vec![POST_C, POST_B, POST_A, POST_D, POST_E, POST_F];
-    let path = format!("{}?tag={}", ROOT_PATH, TAG_LABEL_2);
+    let path = format!("{}?tag={}&limit=6", ROOT_PATH, TAG_LABEL_2);
     let body = make_request(&path).await?;
 
     assert!(body.is_array());
@@ -331,7 +331,7 @@ async fn test_post_tag_search_with_viewer_id() -> Result<()> {
     let tags = body.as_array().expect("Stream tags should be an array");
 
     // Check the total posts using that tag
-    assert_eq!(tags.len(), 6);
+    assert_eq!(tags.len(), 8);
 
     assert_eq!(tags[0]["bookmark"]["id"], BOOKMARK_ID);
 
@@ -341,7 +341,10 @@ async fn test_post_tag_search_with_viewer_id() -> Result<()> {
 #[tokio::test]
 async fn test_post_tag_search_by_engagement() -> Result<()> {
     let post_order = vec![POST_A, POST_C, POST_B, POST_G, POST_F, POST_H];
-    let path = format!("{}?tag={}&sorting=totalengagement", ROOT_PATH, TAG_LABEL_2);
+    let path = format!(
+        "{}?tag={}&sorting=totalengagement&limit=6",
+        ROOT_PATH, TAG_LABEL_2
+    );
     let body = make_request(&path).await?;
 
     assert!(body.is_array());

@@ -32,7 +32,7 @@ pub async fn stream_posts_handler(
     info!("GET {STREAM_POSTS_ROUTE}");
 
     let skip = query.skip.unwrap_or(0);
-    let limit = query.limit.unwrap_or(10);
+    let limit = query.limit.unwrap_or(10).min(30);
     let sorting = query.sorting.unwrap_or(PostStreamSorting::Timeline);
     let reach = query.reach.unwrap_or(PostStreamReach::All);
 

@@ -230,10 +230,13 @@ impl PostStream {
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
-        let skip = skip.unwrap_or(0);
-        let limit = limit.unwrap_or(6);
-
-        let post_search_result = TagSearch::get_by_label(label, Some(sorting), skip, limit).await?;
+        let post_search_result = TagSearch::get_by_label(
+            label,
+            Some(sorting),
+            skip.expect("Skip should be provided"),
+            limit.expect("Limit should be provided"),
+        )
+        .await?;
 
         match post_search_result {
             Some(post_keys) => Ok(post_keys
