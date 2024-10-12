@@ -1,0 +1,140 @@
+use crate::db::connectors::neo4j::get_neo4j_graph;
+use crate::db::graph::exec::exec_single_row;
+use crate::{queries, RedisOps};
+use axum::async_trait;
+use chrono::Utc;
+use serde::{Deserialize, Serialize};
+use std::error::Error;
+use utoipa::ToSchema;
+
+#[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
+pub struct Muted(pub Vec<String>);
+
+impl AsRef<[String]> for Muted {
+    fn as_ref(&self) -> &[String] {
+        &self.0
+    }
+}
+
+#[async_trait]
+impl RedisOps for Muted {}
+
+impl Muted {
+    fn from_vec(vec: Vec<String>) -> Self {
+        Self(vec)
+    }
+
+    pub async fn get_by_id(
+        user_id: &str,
+        skip: Option<usize>,
+        limit: Option<usize>,
+    ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
+        match Self::get_from_index(user_id, skip, limit).await? {
+            Some(mutes) => Ok(Some(Self::from_vec(mutes))),
+            None => {
+                let graph_response = Self::get_from_graph(user_id, skip, limit).await?;
+                if let Some(follows) = graph_response {
+                    follows.put_to_index(user_id).await?;
+                    return Ok(Some(follows));
+                }
+                Ok(None)
+            }
+        }
+    }
+
+    async fn get_from_index(
+        user_id: &str,
+        skip: Option<usize>,
+        limit: Option<usize>,
+    ) -> Result<Option<Vec<String>>, Box<dyn Error + Send + Sync>> {
+        Self::try_from_index_set(&[user_id], skip, limit).await
+    }
+
+    async fn get_from_graph(
+        user_id: &str,
+        skip: Option<usize>,
+        limit: Option<usize>,
+    ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
+        let mut result;
+        {
+            let graph = get_neo4j_graph()?;
+            let query = queries::get::get_user_muted(user_id, skip, limit);
+
+            let graph = graph.lock().await;
+            result = graph.execute(query).await?;
+        }
+
+        if let Some(row) = result.next().await? {
+            let user_exists: bool = row.get("user_exists").unwrap_or(false);
+            if !user_exists {
+                return Ok(None);
+            }
+
+            match row.get::<Option<Vec<String>>>("muted_ids") {
+                Ok(response) => {
+                    if let Some(connections) = response {
+                        return Ok(Some(Self::from_vec(connections)));
+                    } else {
+                        return Ok(Some(Self::default()));
+                    }
+                }
+                Err(_e) => return Ok(None),
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub async fn put_to_index(
+        &self,
+        user_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let user_list_ref: Vec<&str> = self.as_ref().iter().map(|id| id.as_str()).collect();
+        Self::put_index_set(&[user_id], &user_list_ref).await
+    }
+
+    pub async fn put_to_graph(
+        user_id: &str,
+        muted_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let indexed_at = Utc::now().timestamp_millis();
+        let query = queries::put::create_mute(user_id, muted_id, indexed_at);
+        exec_single_row(query).await
+    }
+
+    pub async fn reindex(author_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        match Self::get_from_graph(author_id, None, None).await? {
+            Some(follow) => follow.put_to_index(author_id).await?,
+            None => log::error!(
+                "{}: Could not found user follow relationship in the graph",
+                author_id
+            ),
+        }
+        Ok(())
+    }
+
+    pub async fn del_from_graph(
+        user_id: &str,
+        muted_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let query = queries::del::delete_mute(user_id, muted_id);
+        exec_single_row(query).await
+    }
+
+    pub async fn del_from_index(
+        &self,
+        user_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.remove_from_index_set(&[user_id]).await
+    }
+
+    // Checks whether a user is muted
+    pub async fn check(
+        user_id: &str,
+        muted_id: &str,
+    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        let user_key_parts = &[user_id][..];
+        let (_, muted) = Self::check_set_member(user_key_parts, muted_id).await?;
+        Ok(muted)
+    }
+}

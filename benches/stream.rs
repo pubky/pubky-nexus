@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use pubky_nexus::models::post::{PostStream, PostStreamSorting, ViewerStreamSource};
-use pubky_nexus::models::user::{UserStream, UserStreamType};
+use pubky_nexus::models::user::{UserStream, UserStreamSource};
 use setup::run_setup;
 use std::time::Duration;
 use tokio::runtime::Runtime;
@@ -413,7 +413,7 @@ fn bench_stream_most_followed(c: &mut Criterion) {
     c.bench_function("stream_most_followed", |b| {
         b.to_async(&rt).iter(|| async {
             let user_stream =
-                UserStream::get_by_id("", None, None, Some(20), UserStreamType::MostFollowed)
+                UserStream::get_by_id(None, None, Some(20), UserStreamSource::MostFollowed)
                     .await
                     .unwrap();
             criterion::black_box(user_stream);
@@ -433,7 +433,7 @@ fn bench_stream_pioneers(c: &mut Criterion) {
     c.bench_function("stream_pioneers", |b| {
         b.to_async(&rt).iter(|| async {
             let user_stream =
-                UserStream::get_by_id("", None, None, Some(20), UserStreamType::MostFollowed)
+                UserStream::get_by_id(None, None, Some(20), UserStreamSource::Pioneers)
                     .await
                     .unwrap();
             criterion::black_box(user_stream);

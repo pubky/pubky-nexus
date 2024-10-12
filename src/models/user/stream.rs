@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use super::{Followers, Following, Friends, UserCounts, UserFollows, UserSearch, UserView};
+use super::{Followers, Following, Friends, Muted, UserCounts, UserFollows, UserSearch, UserView};
 use crate::{db::kv::index::sorted_sets::Sorting, RedisOps};
 use serde::{Deserialize, Serialize};
 use tokio::task::spawn;
@@ -10,10 +10,12 @@ pub const USER_MOSTFOLLOWED_KEY_PARTS: [&str; 2] = ["Users", "MostFollowed"];
 pub const USER_PIONEERS_KEY_PARTS: [&str; 2] = ["Users", "Pioneers"];
 
 #[derive(Deserialize, ToSchema, Debug, Clone)]
-pub enum UserStreamType {
+#[serde(rename_all = "lowercase")]
+pub enum UserStreamSource {
     Followers,
     Following,
     Friends,
+    Muted,
     MostFollowed,
     Pioneers,
 }
@@ -25,13 +27,12 @@ impl RedisOps for UserStream {}
 
 impl UserStream {
     pub async fn get_by_id(
-        user_id: &str,
         viewer_id: Option<&str>,
         skip: Option<usize>,
         limit: Option<usize>,
-        list_type: UserStreamType,
+        source: UserStreamSource,
     ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
-        let user_ids = Self::get_user_list_from_reach(user_id, list_type, skip, limit).await?;
+        let user_ids = Self::get_user_list_from_source(viewer_id, source, skip, limit).await?;
         match user_ids {
             Some(users) => Self::from_listed_user_ids(&users, viewer_id).await,
             None => Ok(None),
@@ -108,23 +109,48 @@ impl UserStream {
     }
 
     // Get list of users based on the specified reach type
-    pub async fn get_user_list_from_reach(
-        user_id: &str,
-        list_type: UserStreamType,
+    pub async fn get_user_list_from_source(
+        viewer_id: Option<&str>,
+        source: UserStreamSource,
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Option<Vec<String>>, Box<dyn Error + Send + Sync>> {
-        let user_ids = match list_type {
-            UserStreamType::Followers => Followers::get_by_id(user_id, skip, limit)
-                .await?
-                .map(|followers| followers.0),
-            UserStreamType::Following => Following::get_by_id(user_id, skip, limit)
-                .await?
-                .map(|following| following.0),
-            UserStreamType::Friends => Friends::get_by_id(user_id, skip, limit)
-                .await?
-                .map(|following| following.0),
-            UserStreamType::MostFollowed => Self::try_from_index_sorted_set(
+        let user_ids = match source {
+            UserStreamSource::Followers => Followers::get_by_id(
+                viewer_id.expect(
+                    "Viewer ID should be provided for user streams with source 'followers'",
+                ),
+                skip,
+                limit,
+            )
+            .await?
+            .map(|u| u.0),
+            UserStreamSource::Following => Following::get_by_id(
+                viewer_id.expect(
+                    "Viewer ID should be provided for user streams with source 'following'",
+                ),
+                skip,
+                limit,
+            )
+            .await?
+            .map(|u| u.0),
+            UserStreamSource::Friends => Friends::get_by_id(
+                viewer_id
+                    .expect("Viewer ID should be provided for user streams with source 'friends'"),
+                skip,
+                limit,
+            )
+            .await?
+            .map(|u| u.0),
+            UserStreamSource::Muted => Muted::get_by_id(
+                viewer_id
+                    .expect("Viewer ID should be provided for user streams with source 'muted'"),
+                skip,
+                limit,
+            )
+            .await?
+            .map(|u| u.0),
+            UserStreamSource::MostFollowed => Self::try_from_index_sorted_set(
                 &USER_MOSTFOLLOWED_KEY_PARTS,
                 None,
                 None,
@@ -134,7 +160,7 @@ impl UserStream {
             )
             .await?
             .map(|set| set.into_iter().map(|(user_id, _score)| user_id).collect()),
-            UserStreamType::Pioneers => Self::try_from_index_sorted_set(
+            UserStreamSource::Pioneers => Self::try_from_index_sorted_set(
                 &USER_PIONEERS_KEY_PARTS,
                 None,
                 None,

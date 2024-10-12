@@ -6,6 +6,7 @@ pub struct ParsedUri {
     pub user_id: PubkyId,
     pub post_id: Option<String>,
     pub follow_id: Option<PubkyId>,
+    pub muted_id: Option<PubkyId>,
     pub bookmark_id: Option<String>,
     pub tag_id: Option<String>,
     pub file_id: Option<String>,
@@ -46,6 +47,11 @@ impl TryFrom<&str> for ParsedUri {
         // Extract follow_id if present
         if let Some(follow_id) = extract_segment(uri, "/follows/", "/") {
             parsed_uri.follow_id = Some(PubkyId::try_from(follow_id)?);
+        }
+
+        // Extract muted_id if present
+        if let Some(muted_id) = extract_segment(uri, "/muted/", "/") {
+            parsed_uri.muted_id = Some(PubkyId::try_from(muted_id)?);
         }
 
         // Extract bookmark_id if present

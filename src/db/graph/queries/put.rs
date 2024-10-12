@@ -109,6 +109,17 @@ pub fn create_follow(follower_id: &str, followee_id: &str, indexed_at: i64) -> Q
     .param("indexed_at", indexed_at)
 }
 
+/// Create a muted relationship between two users
+pub fn create_mute(user_id: &str, muted_id: &str, indexed_at: i64) -> Query {
+    query(
+        "MATCH (user:User {id: $user_id}), (muted:User {id: $muted_id})
+         MERGE (user)-[:MUTED {indexed_at: $indexed_at}]->(muted);",
+    )
+    .param("user_id", user_id.to_string())
+    .param("muted_id", muted_id.to_string())
+    .param("indexed_at", indexed_at)
+}
+
 pub fn create_post_bookmark(
     user_id: &str,
     author_id: &str,

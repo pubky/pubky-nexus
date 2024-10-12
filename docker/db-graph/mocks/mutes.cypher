@@ -1,0 +1,31 @@
+// Set up some parameters
+:param alice => 'db6w580d5h63fbhtd88y8zz7pai9rkjwqt9omg6i7dz31dynrgcy';
+:param bob => '58jc5bujzoj35g55pqjo6ykfdu9t156j8cxkh5ubdwgsnch1qag0';
+:param charlie => '5f4e800ogmkhqeyo5ijdix3ma6rw9byj8m36yrjp78pnxxc379to';
+:param dave => 'rz6oe4yda9em9b4m7ymt8gym3r9g5gfa51su3rgdj9oszyz787n5';
+
+// ################################
+// ##### Create Users #############
+// ################################
+MERGE (u:User {id: $alice}) SET u.name = "Alice", u.indexed_at = 1724134095;
+MERGE (u:User {id: $bob}) SET u.name = "Bob", u.indexed_at = 1724134095;
+MERGE (u:User {id: $charlie}) SET u.name = "Charlie", u.indexed_at = 1724134095;
+MERGE (u:User {id: $dave}) SET u.name = "Dave", u.indexed_at = 1724134095;
+
+// ########################################
+// ##### Create MUTED relationships #######
+// ########################################
+MATCH (from:User {id: $alice}), (to:User {id: $bob})
+MERGE (from)-[:MUTED {id: "M1", indexed_at: 1724534095}]->(to);
+
+MATCH (from:User {id: $alice}), (to:User {id: $charlie})
+MERGE (from)-[:MUTED {id: "M2", indexed_at: 1724534100}]->(to);
+
+MATCH (from:User {id: $alice}), (to:User {id: $dave})
+MERGE (from)-[:MUTED {id: "M3", indexed_at: 1724534110}]->(to);
+
+MATCH (from:User {id: $charlie}), (to:User {id: $alice})
+MERGE (from)-[:MUTED {id: "M4", indexed_at: 1724534120}]->(to);
+
+MATCH (from:User {id: $dave}), (to:User {id: $bob})
+MERGE (from)-[:MUTED {id: "M5", indexed_at: 1724534130}]->(to);

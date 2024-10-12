@@ -10,7 +10,7 @@ pub fn delete_user(user_id: &str) -> Query {
     .param("id", user_id.to_string())
 }
 
-/// Delete a follows relationship between two users
+// Delete a follows relationship between two users
 pub fn delete_follow(follower_id: &str, followee_id: &str) -> Query {
     query(
         "MATCH (follower:User {id: $follower_id})-[r:FOLLOWS]->(followee:User {id: $followee_id})
@@ -18,6 +18,16 @@ pub fn delete_follow(follower_id: &str, followee_id: &str) -> Query {
     )
     .param("follower_id", follower_id.to_string())
     .param("followee_id", followee_id.to_string())
+}
+
+// Delete a muted relationship between two users
+pub fn delete_mute(user_id: &str, muted_id: &str) -> Query {
+    query(
+        "MATCH (user:User {id: $user_id})-[r:FOLLOWS]->(muted:User {id: $muted_id})
+         DELETE r;",
+    )
+    .param("user_id", user_id.to_string())
+    .param("muted_id", muted_id.to_string())
 }
 
 // Delete bookmarked relationship

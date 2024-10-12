@@ -17,6 +17,7 @@ pub const USER_TAGGERS_ROUTE: &str = concatcp!(USER_ROUTE, "/taggers/{label}");
 pub const USER_FOLLOWERS_ROUTE: &str = concatcp!(USER_ROUTE, "/followers");
 pub const USER_FOLLOWING_ROUTE: &str = concatcp!(USER_ROUTE, "/following");
 pub const USER_FRIENDS_ROUTE: &str = concatcp!(USER_ROUTE, "/friends");
+pub const USER_MUTED_ROUTE: &str = concatcp!(USER_ROUTE, "/muted");
 
 // -- POST endpoints --
 const POST_PREFIX: &str = concatcp!(VERSION_ROUTE, "/post");
@@ -34,12 +35,9 @@ pub const THREAD_ROUTE: &str = concatcp!(THREAD_PREFIX, "/{author_id}/{post_id}"
 
 // -- STREAM endpoints --
 const STREAM_PREFIX: &str = concatcp!(VERSION_ROUTE, "/stream");
-// TREAM of UserView objects
+// STREAM of UserView objects
 pub const STREAM_USERS_ROUTE: &str = concatcp!(STREAM_PREFIX, "/users");
-pub const STREAM_USERS_USERNAME_SEARCH_ROUTE: &str =
-    concatcp!(STREAM_USERS_ROUTE, "/username-search");
-pub const STREAM_USERS_MOSTFOLLOWED_ROUTE: &str = concatcp!(STREAM_USERS_ROUTE, "/most-followed");
-pub const STREAM_USERS_PIONEERS_ROUTE: &str = concatcp!(STREAM_USERS_ROUTE, "/pioneers");
+pub const STREAM_USERS_USERNAME_SEARCH_ROUTE: &str = concatcp!(STREAM_USERS_ROUTE, "/username");
 pub const STREAM_USERS_BY_IDS_ROUTE: &str = concatcp!(STREAM_USERS_ROUTE, "/by_ids");
 // STREAM of PostView objects
 pub const STREAM_POSTS_ROUTE: &str = concatcp!(STREAM_PREFIX, "/posts");

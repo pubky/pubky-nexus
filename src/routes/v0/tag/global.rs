@@ -1,6 +1,5 @@
 use crate::models::tag::global::TagGlobal;
-use crate::models::tag::stream::{HotTag, HotTags, Taggers};
-use crate::models::user::UserStreamType;
+use crate::models::tag::stream::{HotTag, HotTags, TagStreamReach, Taggers};
 use crate::routes::v0::endpoints::{TAG_HOT_ROUTE, TAG_REACH_ROUTE, TAG_TAGGERS_ROUTE};
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
@@ -53,7 +52,7 @@ pub async fn hot_tags_handler(Query(query): Query<HotTagsQuery>) -> Result<Json<
 
 #[derive(Deserialize)]
 pub struct TagTaggersQuery {
-    reach: Option<UserStreamType>,
+    reach: Option<TagStreamReach>,
 }
 
 #[utoipa::path(
@@ -62,7 +61,7 @@ pub struct TagTaggersQuery {
     tag = "Global tag Taggers",
     params(
         ("label" = String, Path, description = "Tag name"),
-        ("reach" = UserStreamType, Path, description = "Reach type: Follower | Following | Friends")
+        ("reach" = TagStreamReach, Path, description = "Reach type: Follower | Following | Friends")
     ),
     responses(
         (status = 200, description = "Taggers", body = Vec<String>),
@@ -91,7 +90,7 @@ pub async fn tag_taggers_handler(
 #[derive(Deserialize)]
 pub struct TagsByReachQuery {
     user_id: String,
-    reach: Option<UserStreamType>,
+    reach: Option<TagStreamReach>,
 }
 
 #[utoipa::path(
@@ -100,7 +99,7 @@ pub struct TagsByReachQuery {
     tag = "Global Tags by reach",
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
-        ("reach" = UserStreamType, Path, description = "Reach type: Follower | Following | Friends")
+        ("reach" = TagStreamReach, Path, description = "Reach type: Follower | Following | Friends")
     ),
     responses(
         (status = 200, description = "Retrieve tags by reach cluster", body = Vec<HotTag>),
@@ -111,7 +110,7 @@ pub struct TagsByReachQuery {
 pub async fn tags_by_reach_handler(Path(path): Path<TagsByReachQuery>) -> Result<Json<HotTags>> {
     info!("GET {TAG_REACH_ROUTE}");
 
-    let reach = path.reach.unwrap_or(UserStreamType::Following);
+    let reach = path.reach.unwrap_or(TagStreamReach::Following);
     let user_id = path.user_id;
 
     match HotTags::get_stream_tags_by_reach(user_id, reach).await {
