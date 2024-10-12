@@ -57,6 +57,7 @@ async fn test_homeserver_mentions_notifications() -> Result<()> {
         kind: PostKind::Short,
         parent: None,
         embed: None,
+        attachments: None,
     };
 
     let post_id = test.create_post(&author_user_id, &post).await?;

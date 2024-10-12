@@ -1,3 +1,4 @@
+mod attachments;
 mod engagement;
 mod pioneer;
 mod raw;

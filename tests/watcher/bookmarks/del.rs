@@ -39,6 +39,7 @@ async fn test_homeserver_unbookmark() -> Result<()> {
         kind: PubkyAppPost::default().kind,
         parent: None,
         embed: None,
+        attachments: None,
     };
     let post_id = test.create_post(&author_id, &post).await?;
 

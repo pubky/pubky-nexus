@@ -32,6 +32,7 @@ async fn test_homeserver_post_repost() -> Result<()> {
         kind: PostKind::Short,
         parent: None,
         embed: None,
+        attachments: None,
     };
 
     let parent_post_id = test.create_post(&user_id, &parent_post).await?;
@@ -47,6 +48,7 @@ async fn test_homeserver_post_repost() -> Result<()> {
             kind: PostKind::Short,
             uri: parent_uri.clone(),
         }),
+        attachments: None,
     };
 
     let repost_id = test.create_post(&user_id, &repost).await?;

@@ -30,6 +30,7 @@ async fn test_homeserver_put_post_event() -> Result<()> {
         kind: PostKind::Short,
         parent: None,
         embed: None,
+        attachments: None,
     };
 
     let post_id = test.create_post(&user_id, &post).await?;

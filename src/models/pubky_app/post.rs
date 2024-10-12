@@ -55,6 +55,7 @@ pub struct PubkyAppPost {
     pub kind: PostKind,
     pub parent: Option<String>, // If a reply, the URI of the parent post.
     pub embed: Option<PostEmbed>,
+    pub attachments: Option<Vec<String>>,
 }
 
 impl TimestampId for PubkyAppPost {}
@@ -106,6 +107,7 @@ impl Validatable for PubkyAppPost {
             kind: self.kind,
             parent,
             embed,
+            attachments: self.attachments,
         })
     }
 
