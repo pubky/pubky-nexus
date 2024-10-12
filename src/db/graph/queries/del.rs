@@ -23,7 +23,7 @@ pub fn delete_follow(follower_id: &str, followee_id: &str) -> Query {
 // Delete a muted relationship between two users
 pub fn delete_mute(user_id: &str, muted_id: &str) -> Query {
     query(
-        "MATCH (user:User {id: $user_id})-[r:FOLLOWS]->(muted:User {id: $muted_id})
+        "MATCH (user:User {id: $user_id})-[r:MUTED]->(muted:User {id: $muted_id})
          DELETE r;",
     )
     .param("user_id", user_id.to_string())

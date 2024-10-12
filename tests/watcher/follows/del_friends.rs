@@ -1,4 +1,4 @@
-use crate::watcher::{follow::utils::find_follow_relationship, utils::WatcherTest};
+use crate::watcher::{follows::utils::find_follow_relationship, utils::WatcherTest};
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{

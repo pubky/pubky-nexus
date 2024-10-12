@@ -90,7 +90,7 @@ impl Event {
                 follower_id: parsed_uri.user_id,
                 followee_id: parsed_uri.follow_id.ok_or("Missing followee_id")?,
             },
-            _ if uri.contains("/muted/") => ResourceType::Mute {
+            _ if uri.contains("/mutes/") => ResourceType::Mute {
                 user_id: parsed_uri.user_id,
                 muted_id: parsed_uri.muted_id.ok_or("Missing muted_id")?,
             },

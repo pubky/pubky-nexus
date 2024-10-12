@@ -50,7 +50,7 @@ impl TryFrom<&str> for ParsedUri {
         }
 
         // Extract muted_id if present
-        if let Some(muted_id) = extract_segment(uri, "/muted/", "/") {
+        if let Some(muted_id) = extract_segment(uri, "/mutes/", "/") {
             parsed_uri.muted_id = Some(PubkyId::try_from(muted_id)?);
         }
 
