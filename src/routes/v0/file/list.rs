@@ -5,9 +5,9 @@ use crate::{Error, Result};
 use axum::Json;
 use log::info;
 use serde::Deserialize;
-use utoipa::OpenApi;
+use utoipa::{OpenApi, ToSchema};
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct FilesByIdsBody {
     uris: Vec<String>,
 }
@@ -52,5 +52,8 @@ pub async fn file_details_by_uris_handler(
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(file_details_by_uris_handler), components(schemas(FileDetails)))]
+#[openapi(
+    paths(file_details_by_uris_handler),
+    components(schemas(FileDetails, FilesByIdsBody))
+)]
 pub struct FilesListApiDoc;
