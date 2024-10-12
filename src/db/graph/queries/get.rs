@@ -1,5 +1,7 @@
 use neo4rs::{query, Query};
 
+use crate::models::post::{PostStreamSorting, ViewerStreamSource};
+
 // Retrieve post node by post id and author id
 pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
     query(
@@ -355,4 +357,112 @@ pub fn get_files_by_ids(key_pair: &[&[&str]]) -> Query {
         ",
     )
     .param("pairs", key_pair)
+}
+
+// Build the graph query based on parameters
+pub fn post_stream(
+    viewer_id: Option<String>,
+    author_id: Option<String>,
+    source: ViewerStreamSource,
+    tags: Option<Vec<String>>,
+    sorting: PostStreamSorting,
+    skip: Option<usize>,
+    limit: Option<usize>,
+) -> Query {
+    let mut cypher = String::new();
+
+    // Start with the viewer node if needed
+    if viewer_id.is_some() {
+        cypher.push_str("MATCH (viewer:User {id: $viewer_id})\n");
+    }
+
+    // Base match for posts and authors
+    cypher.push_str("MATCH (p:Post)<-[:AUTHORED]-(author:User)\n");
+
+    // Apply author filter if provided
+    if author_id.is_some() {
+        cypher.push_str("WHERE author.id = $author_id\n");
+    }
+
+    // Apply source
+    if viewer_id.is_some() {
+        match source {
+            ViewerStreamSource::Following => {
+                cypher.push_str("MATCH (viewer)-[:FOLLOWS]->(author)\n");
+            }
+            ViewerStreamSource::Followers => {
+                cypher.push_str("MATCH (viewer)<-[:FOLLOWS]-(author)\n");
+            }
+            ViewerStreamSource::Friends => {
+                cypher.push_str("MATCH (viewer)-[:FOLLOWS]->(author)-[:FOLLOWS]->(viewer)\n");
+            }
+            ViewerStreamSource::Bookmarks => {
+                cypher.push_str("MATCH (viewer)-[:BOOKMARKED]->(p)\n");
+            }
+            ViewerStreamSource::All => {
+                // No additional match needed
+            }
+        }
+    }
+
+    // Apply tags
+    if tags.is_some() {
+        cypher.push_str("MATCH (User)-[tag:TAGGED]->(p)\n");
+        cypher.push_str("WHERE tag.label IN $labels\n");
+    }
+
+    // Apply Sorting
+    // Conditionally compute engagement counts only for TotalEngagement sorting
+    let order_clause = match sorting {
+        PostStreamSorting::Timeline => "ORDER BY p.indexed_at DESC".to_string(),
+        PostStreamSorting::TotalEngagement => {
+            // TODO: These optional matches could potentially be combined/collected to improve perf
+            cypher.push_str(
+                "
+                // Count tags
+                OPTIONAL MATCH (p)<-[tag:TAGGED]-(:User)  
+                WITH p, author, COUNT(DISTINCT tag) AS tags_count
+
+                // Count replies
+                OPTIONAL MATCH (p)<-[reply:REPLIED]-(:Post)  // Count replies
+                WITH p, author, tags_count, COUNT(DISTINCT reply) AS replies_count
+
+                // Count reposts
+                OPTIONAL MATCH (p)<-[repost:REPOSTED]-(:Post)  
+                WITH p, author, tags_count, replies_count, COUNT(DISTINCT repost) AS reposts_count
+                ",
+            );
+            "ORDER BY (tags_count + replies_count + reposts_count) DESC".to_string()
+        }
+    };
+
+    // Final return statement
+    cypher.push_str(&format!(
+        "RETURN author.id AS author_id, p.id AS post_id\n{}\n",
+        order_clause
+    ));
+
+    // Apply skip and limit
+    if let Some(skip) = skip {
+        cypher.push_str(&format!("SKIP {}\n", skip));
+    }
+    if let Some(limit) = limit {
+        cypher.push_str(&format!("LIMIT {}\n", limit));
+    }
+
+    // Build the query and apply parameters using `param` method
+    let mut query = query(&cypher);
+
+    // Insert parameters
+    if let Some(viewer_id) = viewer_id {
+        query = query.param("viewer_id", viewer_id);
+    }
+    if let Some(labels) = tags {
+        query = query.param("labels", labels);
+    }
+    if let Some(author_id) = author_id {
+        query = query.param("author_id", author_id);
+    }
+
+    query
 }

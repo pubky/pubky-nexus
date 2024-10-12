@@ -1,11 +1,12 @@
 use super::{Bookmark, PostCounts, PostDetails, PostView};
 use crate::{
     db::kv::index::sorted_sets::Sorting,
+    get_neo4j_graph,
     models::{
         tag::search::TagSearch,
         user::{Followers, Following, Friends, UserFollows},
     },
-    RedisOps, ScoreAction,
+    queries, RedisOps, ScoreAction,
 };
 use serde::{Deserialize, Serialize};
 use std::error::Error;
@@ -24,14 +25,15 @@ pub enum PostStreamSorting {
     TotalEngagement,
 }
 
-#[derive(Deserialize, ToSchema, Debug, Clone)]
-pub enum PostStreamReach {
+#[derive(Deserialize, ToSchema, Debug, Clone, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum ViewerStreamSource {
+    All,
     Following,
     Followers,
     Friends,
-    // TODO unify by_reach, global and per user into a single handler with options!
-    // Bookmarks,
-    // All,
+    Bookmarks,
+    // 4U,
 }
 
 #[derive(Serialize, Deserialize, ToSchema, Debug)]
@@ -50,13 +52,150 @@ impl PostStream {
         Self(Vec::new())
     }
 
-    pub async fn get_global_posts(
-        sorting: PostStreamSorting,
+    pub async fn get_posts(
         viewer_id: Option<String>,
+        author_id: Option<String>,
+        sorting: PostStreamSorting,
+        source: ViewerStreamSource,
+        tags: Option<Vec<String>>,
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
-        let posts_sorted_set = match sorting {
+        // Decide whether to use index or fallback to graph query
+        let use_index = Self::can_use_index(&sorting, &author_id, &source, &tags);
+
+        let post_keys = match use_index {
+            true => {
+                Self::get_from_index(
+                    viewer_id.clone(),
+                    author_id,
+                    sorting,
+                    source,
+                    tags,
+                    skip,
+                    limit,
+                )
+                .await?
+            }
+            false => {
+                Self::get_from_graph(
+                    viewer_id.clone(),
+                    author_id,
+                    sorting,
+                    source,
+                    tags,
+                    skip,
+                    limit,
+                )
+                .await?
+            }
+        };
+
+        if post_keys.is_empty() {
+            return Ok(None);
+        }
+
+        Self::from_listed_post_ids(viewer_id, &post_keys).await
+    }
+
+    // Determine if we have a quick access sorted set for this combination
+    fn can_use_index(
+        sorting: &PostStreamSorting,
+        author_id: &Option<String>,
+        source: &ViewerStreamSource,
+        tags: &Option<Vec<String>>,
+    ) -> bool {
+        match (sorting, source, tags, author_id) {
+            // We have a sorted set for posts by a specific author
+            (PostStreamSorting::Timeline, _, None, Some(_)) => true,
+            // We have a sorted set for global for any sorting
+            (_, ViewerStreamSource::All, None, None) => true,
+            // We have a sorted set for posts by tags for any sorting for a single tag
+            (_, ViewerStreamSource::All, Some(tags), _) if tags.len() == 1 => true,
+            // We can use sorted set for posts by source only for timeline
+            (PostStreamSorting::Timeline, ViewerStreamSource::Following, None, None) => true,
+            (PostStreamSorting::Timeline, ViewerStreamSource::Followers, None, None) => true,
+            (PostStreamSorting::Timeline, ViewerStreamSource::Friends, None, None) => true,
+            // We have a sorted set for bookmarks only for timeline
+            (PostStreamSorting::Timeline, ViewerStreamSource::Bookmarks, None, None) => true,
+            // Other combinations require querying the graph
+            _ => false,
+        }
+    }
+
+    // Fetch posts from index
+    async fn get_from_index(
+        viewer_id: Option<String>,
+        author_id: Option<String>,
+        sorting: PostStreamSorting,
+        source: ViewerStreamSource,
+        tags: Option<Vec<String>>,
+        skip: Option<usize>,
+        limit: Option<usize>,
+    ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+        match (source, tags, author_id) {
+            // Global post streams
+            (ViewerStreamSource::All, None, None) => {
+                Self::get_global_posts_keys(sorting, skip, limit).await
+            }
+            // Streams by tags
+            (ViewerStreamSource::All, Some(tags), None) if tags.len() == 1 => {
+                Self::get_posts_keys_by_tag(&tags[0], sorting, skip, limit).await
+            }
+            // Bookmark streams
+            (ViewerStreamSource::Bookmarks, None, None) => {
+                Self::get_bookmarked_posts(
+                    &viewer_id.ok_or("Viewer ID is required for bookmark streams")?,
+                    skip,
+                    limit,
+                )
+                .await
+            }
+            // Streams by simple source
+            (source, None, None) => Self::get_posts_by_source(source, viewer_id, skip, limit).await,
+            // Streams by only author
+            (_, None, Some(author_id)) => Self::get_user_posts(&author_id, skip, limit).await,
+            _ => Ok(vec![]),
+        }
+    }
+
+    // Fetch posts from index
+    async fn get_from_graph(
+        viewer_id: Option<String>,
+        author_id: Option<String>,
+        sorting: PostStreamSorting,
+        source: ViewerStreamSource,
+        tags: Option<Vec<String>>,
+        skip: Option<usize>,
+        limit: Option<usize>,
+    ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+        let mut result;
+        {
+            let graph = get_neo4j_graph()?;
+            let query =
+                queries::get::post_stream(viewer_id, author_id, source, tags, sorting, skip, limit);
+
+            let graph = graph.lock().await;
+            result = graph.execute(query).await?;
+        }
+
+        let mut post_keys = Vec::new();
+
+        while let Some(row) = result.next().await? {
+            let author_id: String = row.get("author_id")?;
+            let post_id: String = row.get("post_id")?;
+            post_keys.push(format!("{}:{}", author_id, post_id));
+        }
+
+        Ok(post_keys)
+    }
+
+    pub async fn get_global_posts_keys(
+        sorting: PostStreamSorting,
+        skip: Option<usize>,
+        limit: Option<usize>,
+    ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+        let sorted_set = match sorting {
             PostStreamSorting::TotalEngagement => {
                 Self::try_from_index_sorted_set(
                     &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
@@ -80,22 +219,37 @@ impl PostStream {
                 .await?
             }
         };
+        match sorted_set {
+            Some(post_keys) => Ok(post_keys.into_iter().map(|(key, _)| key).collect()),
+            None => Ok(vec![]),
+        }
+    }
 
-        match posts_sorted_set {
-            Some(post_keys) => {
-                let post_keys: Vec<String> = post_keys.into_iter().map(|(key, _)| key).collect();
-                Self::from_listed_post_ids(viewer_id, &post_keys).await
-            }
-            None => Ok(None),
+    pub async fn get_posts_keys_by_tag(
+        label: &str,
+        sorting: PostStreamSorting,
+        skip: Option<usize>,
+        limit: Option<usize>,
+    ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+        let skip = skip.unwrap_or(0);
+        let limit = limit.unwrap_or(10);
+
+        let post_search_result = TagSearch::get_by_label(label, Some(sorting), skip, limit).await?;
+
+        match post_search_result {
+            Some(post_keys) => Ok(post_keys
+                .into_iter()
+                .map(|post_score| post_score.post_key)
+                .collect()),
+            None => Ok(vec![]),
         }
     }
 
     pub async fn get_user_posts(
         user_id: &str,
-        viewer_id: Option<String>,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
         let key_parts = [&POST_PER_USER_KEY_PARTS[..], &[user_id]].concat();
         let post_ids = Self::try_from_index_sorted_set(
             &key_parts,
@@ -108,47 +262,47 @@ impl PostStream {
         .await?;
 
         if let Some(post_ids) = post_ids {
-            let post_keys: Vec<String> = post_ids
+            let post_keys = post_ids
                 .into_iter()
                 .map(|(post_id, _)| format!("{}:{}", user_id, post_id))
                 .collect();
-
-            Self::from_listed_post_ids(viewer_id, &post_keys).await
+            Ok(post_keys)
         } else {
-            Ok(None)
+            Ok(vec![])
         }
     }
 
-    pub async fn get_posts_by_reach(
-        reach: PostStreamReach,
+    pub async fn get_posts_by_source(
+        source: ViewerStreamSource,
         viewer_id: Option<String>,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
         let viewer_id = match viewer_id {
-            None => return Ok(None),
+            None => return Ok(vec![]),
             Some(v_id) => v_id,
         };
 
-        let user_ids = match reach {
-            PostStreamReach::Following => {
+        let user_ids = match source {
+            ViewerStreamSource::Following => {
                 Following::get_by_id(&viewer_id, None, None)
                     .await?
                     .unwrap_or_default()
                     .0
             }
-            PostStreamReach::Followers => {
+            ViewerStreamSource::Followers => {
                 Followers::get_by_id(&viewer_id, None, None)
                     .await?
                     .unwrap_or_default()
                     .0
             }
-            PostStreamReach::Friends => {
+            ViewerStreamSource::Friends => {
                 Friends::get_by_id(&viewer_id, None, None)
                     .await?
                     .unwrap_or_default()
                     .0
             }
+            _ => vec![],
         };
 
         if !user_ids.is_empty() {
@@ -158,9 +312,9 @@ impl PostStream {
                 limit,
             )
             .await?;
-            Self::from_listed_post_ids(Some(viewer_id), &post_keys).await
+            Ok(post_keys)
         } else {
-            Ok(None)
+            Ok(vec![])
         }
     }
 
@@ -168,7 +322,7 @@ impl PostStream {
         user_id: &str,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
         let key_parts = [&BOOKMARKS_USER_KEY_PARTS[..], &[user_id]].concat();
         let post_keys = Self::try_from_index_sorted_set(
             &key_parts,
@@ -181,16 +335,15 @@ impl PostStream {
         .await?;
 
         if let Some(post_keys) = post_keys {
-            let post_keys: Vec<String> = post_keys.into_iter().map(|(key, _)| key).collect();
-            Self::from_listed_post_ids(Some(user_id.to_string()), &post_keys).await
+            Ok(post_keys.into_iter().map(|(key, _)| key).collect())
         } else {
-            Ok(None)
+            Ok(vec![])
         }
     }
 
     // Streams for followers / followings / friends are expensive.
     // We are truncating to the first 200 user_ids. We could also random draw 200.
-    // TODO rethink
+    // TODO rethink, we could also fallback to graph
     async fn get_posts_for_user_ids(
         user_ids: &[&str],
         skip: Option<usize>,
@@ -242,37 +395,10 @@ impl PostStream {
         Ok(selected_post_keys)
     }
 
-    pub async fn get_posts_by_tag(
-        label: &str,
-        sort_by: Option<PostStreamSorting>,
-        viewer_id: Option<String>,
-        skip: Option<usize>,
-        limit: Option<usize>,
-    ) -> Result<Option<PostStream>, Box<dyn Error + Send + Sync>> {
-        let skip = skip.unwrap_or(0);
-        let limit = limit.unwrap_or(6);
-
-        let post_search_result = TagSearch::get_by_label(label, sort_by, skip, limit).await?;
-
-        match post_search_result {
-            Some(post_keys) => {
-                let post_keys: Vec<String> = post_keys
-                    .into_iter()
-                    .map(|post_score| post_score.post_key)
-                    .collect();
-                Self::from_listed_post_ids(viewer_id, &post_keys).await
-            }
-            None => Ok(None),
-        }
-    }
-
     pub async fn from_listed_post_ids(
         viewer_id: Option<String>,
         post_keys: &[String],
     ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
-        // TODO: potentially we could use a new redis_com.mget() with a single call to retrieve all
-        // post views at once and build the postss on the fly.
-        // But still, using tokio to create them concurrently has VERY high performance.
         let viewer_id = viewer_id.map(|id| id.to_string());
         let mut handles = Vec::with_capacity(post_keys.len());
 
