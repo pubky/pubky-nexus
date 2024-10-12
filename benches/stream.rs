@@ -69,7 +69,7 @@ fn bench_stream_posts_timeline(c: &mut Criterion) {
     c.bench_function("stream_posts_timeline", |b| {
         b.to_async(&rt).iter(|| async {
             let post_stream =
-                PostStream::get_global_posts(PostStreamSorting::Timeline, None, None, Some(10))
+                PostStream::get_global_posts_keys(PostStreamSorting::Timeline, None, Some(10))
                     .await
                     .unwrap();
             criterion::black_box(post_stream);
@@ -88,9 +88,8 @@ fn bench_stream_posts_total_engagement(c: &mut Criterion) {
 
     c.bench_function("stream_posts_total_engagement", |b| {
         b.to_async(&rt).iter(|| async {
-            let post_stream = PostStream::get_global_posts(
+            let post_stream = PostStream::get_global_posts_keys(
                 PostStreamSorting::TotalEngagement,
-                None,
                 None,
                 Some(10),
             )
@@ -156,7 +155,7 @@ fn bench_stream_user_posts(c: &mut Criterion) {
         &user_id,
         |b, &id| {
             b.to_async(&rt).iter(|| async {
-                let post_stream = PostStream::get_user_posts(id, None, None, Some(10))
+                let post_stream = PostStream::get_user_posts(id, None, Some(10))
                     .await
                     .unwrap();
                 criterion::black_box(post_stream);
@@ -280,9 +279,14 @@ fn bench_stream_post_tag_timeline(c: &mut Criterion) {
         &label,
         |b, &label| {
             b.to_async(&rt).iter(|| async {
-                let result = PostStream::get_posts_by_tag(label, None, None, None, None)
-                    .await
-                    .unwrap();
+                let result = PostStream::get_posts_keys_by_tag(
+                    label,
+                    PostStreamSorting::Timeline,
+                    None,
+                    Some(10),
+                )
+                .await
+                .unwrap();
                 criterion::black_box(result);
             });
         },
@@ -304,12 +308,11 @@ fn bench_stream_post_tag_engagement(c: &mut Criterion) {
         &label,
         |b, &label| {
             b.to_async(&rt).iter(|| async {
-                let result = PostStream::get_posts_by_tag(
+                let result = PostStream::get_posts_keys_by_tag(
                     label,
-                    Some(PostStreamSorting::TotalEngagement),
+                    PostStreamSorting::TotalEngagement,
                     None,
-                    None,
-                    None,
+                    Some(10),
                 )
                 .await
                 .unwrap();
