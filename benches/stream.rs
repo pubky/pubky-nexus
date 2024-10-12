@@ -1,4 +1,4 @@
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use pubky_nexus::models::post::{PostStream, PostStreamReach, PostStreamSorting};
 use pubky_nexus::models::user::{UserStream, UserStreamType};
 use setup::run_setup;
@@ -361,7 +361,7 @@ fn bench_stream_tag_timeline(c: &mut Criterion) {
                 PostStreamSorting::Timeline, // Sort by timeline
                 PostStreamReach::All,        // No reach filtering
                 Some(tag_label.to_string()), // Filter by tag label
-                None,
+                Some(0),
                 Some(10),
             )
             .await
@@ -389,7 +389,7 @@ fn bench_stream_tag_total_engagement(c: &mut Criterion) {
                 PostStreamSorting::TotalEngagement, // Sort by total engagement
                 PostStreamReach::All,               // No reach filtering
                 Some(tag_label.to_string()),        // Filter by tag label
-                None,
+                Some(0),
                 Some(10),
             )
             .await
