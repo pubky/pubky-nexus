@@ -15,12 +15,12 @@ const MAX_TAGS: usize = 5;
     tag = "Stream Posts",
     params(
         ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
-        ("author_id" = Option<String>, Query, description = "Author User ID to filter posts by a specific user"),
+        ("author_id" = Option<String>, Query, description = "Filter posts by an specific author User ID"),
         ("skip" = Option<usize>, Query, description = "Skip N posts"),
         ("limit" = Option<usize>, Query, description = "Retrieve N posts"),
         ("sorting" = Option<PostStreamSorting>, Query, description = "Sorting method"),
         ("source" = Option<ViewerStreamSource>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, all)"),
-        ("tag" = Option<Vec<String>>, Query, description = "Filter by a list of tag labels (max 5)")
+        ("tags" = Option<Vec<String>>, Query, description = "Filter by a list of comma separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned.")
     ),
     responses(
         (status = 200, description = "Posts stream", body = PostStream),

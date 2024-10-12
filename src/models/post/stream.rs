@@ -11,6 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use tokio::task::spawn;
+use tokio::time::{timeout, Duration};
 use utoipa::ToSchema;
 
 pub const POST_TIMELINE_KEY_PARTS: [&str; 3] = ["Posts", "Global", "Timeline"];
@@ -176,7 +177,13 @@ impl PostStream {
                 queries::get::post_stream(viewer_id, author_id, source, tags, sorting, skip, limit);
 
             let graph = graph.lock().await;
-            result = graph.execute(query).await?;
+
+            // Set a 10-second timeout for the query execution
+            result = match timeout(Duration::from_secs(10), graph.execute(query)).await {
+                Ok(Ok(res)) => res,                    // Successfully executed within the timeout
+                Ok(Err(e)) => return Err(Box::new(e)), // Query failed
+                Err(_) => return Err("Query timed out".into()), // Timeout error
+            };
         }
 
         let mut post_keys = Vec::new();
