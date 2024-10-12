@@ -111,7 +111,7 @@ async fn test_hot_tags_by_followers_reach() -> Result<()> {
 
 #[tokio::test]
 async fn test_hot_tags_by_friends_reach() -> Result<()> {
-    let endpoint = &format!("/v0/tag/reached/{}/following", PEER_PUBKY);
+    let endpoint = &format!("/v0/tag/reached/{}/friends", PEER_PUBKY);
 
     let body = make_request(endpoint).await?;
     assert!(body.is_array());

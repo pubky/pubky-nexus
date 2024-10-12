@@ -33,7 +33,7 @@ pub async fn find_user_details(user_id: &str) -> Result<UserDetails> {
     let mut row_stream;
     {
         let graph = get_neo4j_graph().unwrap();
-        let query = queries::get::get_users_details_by_ids(&vec![user_id]);
+        let query = queries::get::get_users_details_by_ids(&[user_id]);
 
         let graph = graph.lock().await;
         row_stream = graph.execute(query).await.unwrap();

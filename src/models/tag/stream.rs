@@ -16,7 +16,7 @@ pub const TAG_GLOBAL_HOT: [&str; 3] = ["Tags", "Global", "Hot"];
 #[derive(Serialize, Deserialize, Debug, ToSchema)]
 pub struct Taggers(pub Vec<String>);
 
-#[derive(Deserialize, Debug, ToSchema)]
+#[derive(Deserialize, Debug, ToSchema, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum TagStreamReach {
     Followers,
@@ -171,16 +171,23 @@ impl HotTags {
     ) -> Result<Option<HotTags>, Box<dyn Error + Send + Sync>> {
         // We cannot use here limit and skip because we want to get all the users reach
         let users = match reach {
-            TagStreamReach::Followers => Followers::get_by_id(&user_id, None, Some(usize::MAX))
-                .await?
-                .map(|u| u.0),
-            TagStreamReach::Following => Following::get_by_id(&user_id, None, Some(usize::MAX))
-                .await?
-                .map(|u| u.0),
-            TagStreamReach::Friends => Friends::get_by_id(&user_id, None, Some(usize::MAX))
-                .await?
-                .map(|u| u.0),
+            TagStreamReach::Followers => {
+                Followers::get_by_id(&user_id, None, Some(isize::MAX as usize))
+                    .await?
+                    .map(|u| u.0)
+            }
+            TagStreamReach::Following => {
+                Following::get_by_id(&user_id, None, Some(isize::MAX as usize))
+                    .await?
+                    .map(|u| u.0)
+            }
+            TagStreamReach::Friends => {
+                Friends::get_by_id(&user_id, None, Some(isize::MAX as usize))
+                    .await?
+                    .map(|u| u.0)
+            }
         };
+
         match users {
             Some(users) => get_users_tags_by_reach(&users).await,
             None => Ok(None),

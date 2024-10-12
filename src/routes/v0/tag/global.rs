@@ -108,15 +108,18 @@ pub struct TagsByReachQuery {
     )
 )]
 pub async fn tags_by_reach_handler(Path(path): Path<TagsByReachQuery>) -> Result<Json<HotTags>> {
-    info!("GET {TAG_REACH_ROUTE}");
+    info!(
+        "GET {TAG_REACH_ROUTE}: {:?}, {:?}",
+        path.user_id, path.reach
+    );
 
     let reach = path.reach.unwrap_or(TagStreamReach::Following);
     let user_id = path.user_id;
 
-    match HotTags::get_stream_tags_by_reach(user_id, reach).await {
+    match HotTags::get_stream_tags_by_reach(user_id, reach.clone()).await {
         Ok(Some(hot_tags)) => Ok(Json(hot_tags)),
         Ok(None) => Err(Error::TagsNotFound {
-            reach: String::from("REACH"),
+            reach: format!("{:?}", reach),
         }),
         Err(source) => {
             error!("Internal Server ERROR: {:?}", source);

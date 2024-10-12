@@ -73,12 +73,12 @@ impl Muted {
             match row.get::<Option<Vec<String>>>("muted_ids") {
                 Ok(response) => {
                     if let Some(connections) = response {
-                        return Ok(Some(Self::from_vec(connections)));
+                        Ok(Some(Self::from_vec(connections)))
                     } else {
-                        return Ok(Some(Self::default()));
+                        Ok(Some(Self::default()))
                     }
                 }
-                Err(_e) => return Ok(None),
+                Err(_e) => Ok(None),
             }
         } else {
             Ok(None)
