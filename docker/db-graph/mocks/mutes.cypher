@@ -16,16 +16,16 @@ MERGE (u:User {id: $dave}) SET u.name = "Dave", u.indexed_at = 1724134095;
 // ##### Create MUTED relationships #######
 // ########################################
 MATCH (from:User {id: $alice}), (to:User {id: $bob})
-MERGE (from)-[:MUTED {id: "M1", indexed_at: 1724534095}]->(to);
+MERGE (from)-[:MUTED {indexed_at: 1724534095}]->(to);
 
 MATCH (from:User {id: $alice}), (to:User {id: $charlie})
-MERGE (from)-[:MUTED {id: "M2", indexed_at: 1724534100}]->(to);
+MERGE (from)-[:MUTED {indexed_at: 1724534100}]->(to);
 
 MATCH (from:User {id: $alice}), (to:User {id: $dave})
-MERGE (from)-[:MUTED {id: "M3", indexed_at: 1724534110}]->(to);
+MERGE (from)-[:MUTED {indexed_at: 1724534110}]->(to);
 
 MATCH (from:User {id: $charlie}), (to:User {id: $alice})
-MERGE (from)-[:MUTED {id: "M4", indexed_at: 1724534120}]->(to);
+MERGE (from)-[:MUTED {indexed_at: 1724534120}]->(to);
 
 MATCH (from:User {id: $dave}), (to:User {id: $bob})
-MERGE (from)-[:MUTED {id: "M5", indexed_at: 1724534130}]->(to);
+MERGE (from)-[:MUTED {indexed_at: 1724534130}]->(to);
