@@ -27,7 +27,7 @@ pub struct UserStreamQuery {
         ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
         ("skip" = Option<usize>, Query, description = "Skip N followers"),
         ("limit" = Option<usize>, Query, description = "Retrieve N followers"),
-        ("stream_type" = Option<UserStreamSource>, Query, description = "Stream Type")
+        ("source" = Option<UserStreamSource>, Query, description = "Source of users for the stream.")
     ),
     responses(
         (status = 200, description = "Users stream", body = UserStream),
