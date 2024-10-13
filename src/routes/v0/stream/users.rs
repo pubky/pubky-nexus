@@ -11,6 +11,7 @@ use utoipa::{OpenApi, ToSchema};
 
 #[derive(Deserialize)]
 pub struct UserStreamQuery {
+    user_id: Option<String>,
     viewer_id: Option<String>,
     skip: Option<usize>,
     limit: Option<usize>,
@@ -22,6 +23,7 @@ pub struct UserStreamQuery {
     path = STREAM_USERS_ROUTE,
     tag = "Stream Users",
     params(
+        ("user_id" = Option<String>, Query, description = "User ID to use for streams with source following, followers, friends and muted"),
         ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
         ("skip" = Option<usize>, Query, description = "Skip N followers"),
         ("limit" = Option<usize>, Query, description = "Retrieve N followers"),
@@ -45,30 +47,29 @@ pub async fn stream_users_handler(
     let limit = query.limit.unwrap_or(20);
     let source = query.source.unwrap_or(UserStreamSource::Followers);
 
-    if query.viewer_id.is_none() {
+    if query.user_id.is_none() {
         match source {
             UserStreamSource::Followers => {
                 return Err(Error::InvalidInput {
-                    message: "viewer_id query param must be provided for source 'followers'"
+                    message: "user_id query param must be provided for source 'followers'"
                         .to_string(),
                 })
             }
             UserStreamSource::Following => {
                 return Err(Error::InvalidInput {
-                    message: "viewer_id query param must be provided for source 'following'"
+                    message: "user_id query param must be provided for source 'following'"
                         .to_string(),
                 })
             }
             UserStreamSource::Friends => {
                 return Err(Error::InvalidInput {
-                    message: "viewer_id query param must be provided for source 'friends'"
+                    message: "user_id query param must be provided for source 'friends'"
                         .to_string(),
                 })
             }
             UserStreamSource::Muted => {
                 return Err(Error::InvalidInput {
-                    message: "viewer_id query param must be provided for source 'muted'"
-                        .to_string(),
+                    message: "user_id query param must be provided for source 'muted'".to_string(),
                 })
             }
             _ => (),
@@ -76,6 +77,7 @@ pub async fn stream_users_handler(
     }
 
     match UserStream::get_by_id(
+        query.user_id.as_deref(),
         query.viewer_id.as_deref(),
         Some(skip),
         Some(limit),
@@ -87,7 +89,7 @@ pub async fn stream_users_handler(
         Ok(None) => Err(Error::EmptyStream {
             message: format!(
                 "No users found for the requested stream: {:?} {:?}",
-                source, query.viewer_id
+                source, query.user_id
             ),
         }),
         Err(source) => Err(Error::InternalServerError { source }),

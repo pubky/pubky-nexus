@@ -564,7 +564,7 @@ async fn test_stream_following() -> Result<()> {
     let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
     let res = client
         .do_get(&format!(
-            "/v0/stream/users?viewer_id={}&source=following",
+            "/v0/stream/users?user_id={}&source=following",
             user_id
         ))
         .await?;
@@ -610,7 +610,7 @@ async fn test_stream_following() -> Result<()> {
     // Test non-existing user
     let res = client
         .do_get(&format!(
-            "/v0/stream/users?viewer_id={}&source=following",
+            "/v0/stream/users?user_id={}&source=following",
             "bad_user_id"
         ))
         .await?;

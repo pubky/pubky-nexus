@@ -27,12 +27,13 @@ impl RedisOps for UserStream {}
 
 impl UserStream {
     pub async fn get_by_id(
+        user_id: Option<&str>,
         viewer_id: Option<&str>,
         skip: Option<usize>,
         limit: Option<usize>,
         source: UserStreamSource,
     ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
-        let user_ids = Self::get_user_list_from_source(viewer_id, source, skip, limit).await?;
+        let user_ids = Self::get_user_list_from_source(user_id, source, skip, limit).await?;
         match user_ids {
             Some(users) => Self::from_listed_user_ids(&users, viewer_id).await,
             None => Ok(None),
@@ -110,41 +111,37 @@ impl UserStream {
 
     // Get list of users based on the specified reach type
     pub async fn get_user_list_from_source(
-        viewer_id: Option<&str>,
+        user_id: Option<&str>,
         source: UserStreamSource,
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Option<Vec<String>>, Box<dyn Error + Send + Sync>> {
         let user_ids = match source {
             UserStreamSource::Followers => Followers::get_by_id(
-                viewer_id.expect(
-                    "Viewer ID should be provided for user streams with source 'followers'",
-                ),
+                user_id
+                    .expect("User ID should be provided for user streams with source 'followers'"),
                 skip,
                 limit,
             )
             .await?
             .map(|u| u.0),
             UserStreamSource::Following => Following::get_by_id(
-                viewer_id.expect(
-                    "Viewer ID should be provided for user streams with source 'following'",
-                ),
+                user_id
+                    .expect("User ID should be provided for user streams with source 'following'"),
                 skip,
                 limit,
             )
             .await?
             .map(|u| u.0),
             UserStreamSource::Friends => Friends::get_by_id(
-                viewer_id
-                    .expect("Viewer ID should be provided for user streams with source 'friends'"),
+                user_id.expect("User ID should be provided for user streams with source 'friends'"),
                 skip,
                 limit,
             )
             .await?
             .map(|u| u.0),
             UserStreamSource::Muted => Muted::get_by_id(
-                viewer_id
-                    .expect("Viewer ID should be provided for user streams with source 'muted'"),
+                user_id.expect("User ID should be provided for user streams with source 'muted'"),
                 skip,
                 limit,
             )
