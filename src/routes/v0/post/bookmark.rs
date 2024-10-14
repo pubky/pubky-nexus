@@ -1,5 +1,5 @@
 use crate::models::post::Bookmark;
-use crate::routes::v0::endpoints::POST_BOOKMARK_ROUTE;
+use crate::routes::v0::endpoints::SWAGGER_POST_BOOKMARK_ROUTE;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
@@ -14,7 +14,7 @@ pub struct PostQuery {
 
 #[utoipa::path(
     get,
-    path = POST_BOOKMARK_ROUTE,
+    path = SWAGGER_POST_BOOKMARK_ROUTE,
     tag = "Post Bookmark",
     params(
         ("author_id" = String, Path, description = "Author Pubky ID"),
@@ -32,7 +32,7 @@ pub async fn post_bookmark_handler(
     Query(query): Query<PostQuery>,
 ) -> Result<Json<Bookmark>> {
     info!(
-        "GET {POST_BOOKMARK_ROUTE} author_id:{}, post_id:{}, viewer_id:{}",
+        "GET {SWAGGER_POST_BOOKMARK_ROUTE} author_id:{}, post_id:{}, viewer_id:{}",
         author_id,
         post_id,
         query.viewer_id.clone().unwrap_or_default()

@@ -1,7 +1,7 @@
 use crate::models::post::{PostRelationships, PostView};
 use crate::models::tag::post::TagPost;
 use crate::models::tag::TagDetails;
-use crate::routes::v0::endpoints::POST_ROUTE;
+use crate::routes::v0::endpoints::SWAGGER_POST_ROUTE;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
@@ -18,7 +18,7 @@ pub struct PostQuery {
 
 #[utoipa::path(
     get,
-    path = POST_ROUTE,
+    path = SWAGGER_POST_ROUTE,
     tag = "Post",
     params(
         ("author_id" = String, Path, description = "Author Pubky ID"),
@@ -38,7 +38,7 @@ pub async fn post_view_handler(
     Query(query): Query<PostQuery>,
 ) -> Result<Json<PostView>> {
     info!(
-        "GET {POST_ROUTE} author_id:{}, post_id:{}, viewer_id:{}, max_tags:{:?}, max_taggers:{:?}",
+        "GET {SWAGGER_POST_ROUTE} author_id:{}, post_id:{}, viewer_id:{}, max_tags:{:?}, max_taggers:{:?}",
         author_id,
         post_id,
         query.viewer_id.clone().unwrap_or_default(),

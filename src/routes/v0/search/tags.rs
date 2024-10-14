@@ -1,5 +1,5 @@
 use crate::models::tag::search::TagSearch;
-use crate::routes::v0::endpoints::SEARCH_TAGS_ROUTE;
+use crate::routes::v0::endpoints::SWAGGER_SEARCH_TAGS_ROUTE;
 use crate::routes::v0::queries::PostStreamQuery;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
@@ -9,7 +9,7 @@ use utoipa::OpenApi;
 
 #[utoipa::path(
     get,
-    path = SEARCH_TAGS_ROUTE,
+    path = SWAGGER_SEARCH_TAGS_ROUTE,
     tag = "Search Post by Tags",
     params(
         ("sorting" = Option<PostStreamSorting>, Query, description = "Sorting method"),
@@ -27,7 +27,7 @@ pub async fn search_post_tags_handler(
     Query(query): Query<PostStreamQuery>,
 ) -> Result<Json<Vec<TagSearch>>> {
     info!(
-        "GET {SEARCH_TAGS_ROUTE} label:{}, sort_by: {:?}, skip: {:?}, limit: {:?}",
+        "GET {SWAGGER_SEARCH_TAGS_ROUTE} label:{}, sort_by: {:?}, skip: {:?}, limit: {:?}",
         label, query.sorting, query.skip, query.limit
     );
 

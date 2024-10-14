@@ -1,7 +1,7 @@
 use crate::models::file::details::FileUrls;
 use crate::models::file::FileDetails;
 use crate::models::traits::Collection;
-use crate::routes::v0::endpoints::FILE_ROUTE;
+use crate::routes::v0::endpoints::SWAGGER_FILE_ROUTE;
 use crate::{Error, Result};
 use axum::extract::Path;
 use axum::Json;
@@ -10,7 +10,7 @@ use utoipa::OpenApi;
 
 #[utoipa::path(
     get,
-    path = FILE_ROUTE,
+    path = SWAGGER_FILE_ROUTE,
     tag = "File Details",
     params(
         ("file_uri" = String, Path, description = "File Pubky Uri")
@@ -22,7 +22,7 @@ use utoipa::OpenApi;
     )
 )]
 pub async fn file_details_handler(Path(file_uri): Path<String>) -> Result<Json<FileDetails>> {
-    info!("GET {FILE_ROUTE} file_uri:{}", file_uri);
+    info!("GET {SWAGGER_FILE_ROUTE} file_uri:{}", file_uri);
 
     let file_key = FileDetails::file_key_from_uri(&file_uri);
     let result = FileDetails::get_by_ids(

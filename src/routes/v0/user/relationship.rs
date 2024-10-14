@@ -1,5 +1,5 @@
 use crate::models::user::Relationship;
-use crate::routes::v0::endpoints::RELATIONSHIP_ROUTE;
+use crate::routes::v0::endpoints::SWAGGER_RELATIONSHIP_ROUTE;
 use crate::{Error, Result};
 use axum::extract::Path;
 use axum::Json;
@@ -8,7 +8,7 @@ use utoipa::OpenApi;
 
 #[utoipa::path(
     get,
-    path = RELATIONSHIP_ROUTE,
+    path = SWAGGER_RELATIONSHIP_ROUTE,
     tag = "User <> Viewer Relationship",
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
@@ -24,7 +24,7 @@ pub async fn user_relationship_handler(
     Path((user_id, viewer_id)): Path<(String, String)>,
 ) -> Result<Json<Relationship>> {
     info!(
-        "GET {RELATIONSHIP_ROUTE} user_id:{}, viewer_id:{}",
+        "GET {SWAGGER_RELATIONSHIP_ROUTE} user_id:{}, viewer_id:{}",
         user_id, viewer_id
     );
 
