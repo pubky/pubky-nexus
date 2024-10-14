@@ -1,6 +1,6 @@
 use crate::models::pubky_app::UserLink;
 use crate::models::user::{PubkyId, UserDetails};
-use crate::routes::v0::endpoints::USER_DETAILS_ROUTE;
+use crate::routes::v0::endpoints::SWAGGER_USER_DETAILS_ROUTE;
 use crate::{Error, Result};
 use axum::extract::Path;
 use axum::Json;
@@ -9,7 +9,7 @@ use utoipa::OpenApi;
 
 #[utoipa::path(
     get,
-    path = USER_DETAILS_ROUTE,
+    path = SWAGGER_USER_DETAILS_ROUTE,
     tag = "User Details",
     params(
         ("user_id" = String, Path, description = "User Pubky ID")
@@ -21,7 +21,7 @@ use utoipa::OpenApi;
     )
 )]
 pub async fn user_details_handler(Path(user_id): Path<String>) -> Result<Json<UserDetails>> {
-    info!("GET {USER_DETAILS_ROUTE} user_id:{}", user_id);
+    info!("GET {SWAGGER_USER_DETAILS_ROUTE} user_id:{}", user_id);
 
     match UserDetails::get_by_id(&user_id).await {
         Ok(Some(details)) => Ok(Json(details)),

@@ -1,5 +1,5 @@
 use crate::models::post::PostCounts;
-use crate::routes::v0::endpoints::POST_COUNTS_ROUTE;
+use crate::routes::v0::endpoints::SWAGGER_POST_COUNTS_ROUTE;
 use crate::{Error, Result};
 use axum::extract::Path;
 use axum::Json;
@@ -8,7 +8,7 @@ use utoipa::OpenApi;
 
 #[utoipa::path(
     get,
-    path = POST_COUNTS_ROUTE,
+    path = SWAGGER_POST_COUNTS_ROUTE,
     tag = "Post Counts",
     params(
         ("author_id" = String, Path, description = "Author Pubky ID"),
@@ -24,7 +24,7 @@ pub async fn post_counts_handler(
     Path((author_id, post_id)): Path<(String, String)>,
 ) -> Result<Json<PostCounts>> {
     info!(
-        "GET {POST_COUNTS_ROUTE} author_id:{}, post_id:{}",
+        "GET {SWAGGER_POST_COUNTS_ROUTE} author_id:{}, post_id:{}",
         author_id, post_id
     );
 

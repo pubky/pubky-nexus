@@ -3,7 +3,7 @@ use crate::models::tag::traits::{TagCollection, TaggersCollection};
 use crate::models::tag::user::TagUser;
 use crate::models::tag::TagDetails;
 use crate::models::user::{ProfileTag, UserTags};
-use crate::routes::v0::endpoints::{USER_TAGGERS_ROUTE, USER_TAGS_ROUTE};
+use crate::routes::v0::endpoints::{SWAGGER_USER_TAGGERS_ROUTE, SWAGGER_USER_TAGS_ROUTE};
 use crate::routes::v0::queries::PaginationQuery;
 use crate::routes::v0::TagsQuery;
 use crate::{Error, Result};
@@ -14,7 +14,7 @@ use utoipa::OpenApi;
 
 #[utoipa::path(
     get,
-    path = USER_TAGS_ROUTE,
+    path = SWAGGER_USER_TAGS_ROUTE,
     tag = "User Tags",
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
@@ -32,7 +32,7 @@ pub async fn user_tags_handler(
     Query(query): Query<TagsQuery>,
 ) -> Result<Json<Vec<TagDetails>>> {
     info!(
-        "GET {USER_TAGS_ROUTE} user_id:{}, limit_tags:{:?}, limit_taggers:{:?}",
+        "GET {SWAGGER_USER_TAGS_ROUTE} user_id:{}, limit_tags:{:?}, limit_taggers:{:?}",
         user_id, query.limit_tags, query.limit_taggers
     );
 
@@ -45,7 +45,7 @@ pub async fn user_tags_handler(
 
 #[utoipa::path(
     get,
-    path = USER_TAGGERS_ROUTE,
+    path = SWAGGER_USER_TAGGERS_ROUTE,
     tag = "User label Taggers",
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
@@ -64,7 +64,7 @@ pub async fn user_taggers_handler(
     Query(query): Query<PaginationQuery>,
 ) -> Result<Json<Taggers>> {
     info!(
-        "GET {USER_TAGGERS_ROUTE} user_id:{}, label: {}, skip:{:?}, limit:{:?}",
+        "GET {SWAGGER_USER_TAGGERS_ROUTE} user_id:{}, label: {}, skip:{:?}, limit:{:?}",
         user_id, label, query.skip, query.limit
     );
 

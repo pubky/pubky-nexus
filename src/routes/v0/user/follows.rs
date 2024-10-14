@@ -1,6 +1,6 @@
 use crate::models::user::{Followers, Following, Friends, UserFollows};
 use crate::routes::v0::endpoints::{
-    USER_FOLLOWERS_ROUTE, USER_FOLLOWING_ROUTE, USER_FRIENDS_ROUTE,
+    SWAGGER_USER_FOLLOWERS_ROUTE, SWAGGER_USER_FOLLOWING_ROUTE, SWAGGER_USER_FRIENDS_ROUTE,
 };
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
@@ -17,7 +17,7 @@ pub struct FollowsQuery {
 
 #[utoipa::path(
     get,
-    path = USER_FOLLOWERS_ROUTE,
+    path = SWAGGER_USER_FOLLOWERS_ROUTE,
     tag = "User Followers List",
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
@@ -34,7 +34,7 @@ pub async fn user_followers_handler(
     Path(user_id): Path<String>,
     Query(query): Query<FollowsQuery>,
 ) -> Result<Json<Followers>> {
-    info!("GET {USER_FOLLOWERS_ROUTE} user_id:{}", user_id);
+    info!("GET {SWAGGER_USER_FOLLOWERS_ROUTE} user_id:{}", user_id);
 
     let skip = query.skip.unwrap_or(0);
     let limit = query.limit.unwrap_or(200);
@@ -48,7 +48,7 @@ pub async fn user_followers_handler(
 
 #[utoipa::path(
     get,
-    path = USER_FOLLOWING_ROUTE,
+    path = SWAGGER_USER_FOLLOWING_ROUTE,
     tag = "User Following List",
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
@@ -65,7 +65,7 @@ pub async fn user_following_handler(
     Path(user_id): Path<String>,
     Query(query): Query<FollowsQuery>,
 ) -> Result<Json<Following>> {
-    info!("GET {USER_FOLLOWING_ROUTE} user_id:{}", user_id);
+    info!("GET {SWAGGER_USER_FOLLOWING_ROUTE} user_id:{}", user_id);
 
     let skip = query.skip.unwrap_or(0);
     let limit = query.limit.unwrap_or(200);
@@ -79,7 +79,7 @@ pub async fn user_following_handler(
 
 #[utoipa::path(
     get,
-    path = USER_FRIENDS_ROUTE,
+    path = SWAGGER_USER_FRIENDS_ROUTE,
     tag = "User Friends List",
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
@@ -96,7 +96,7 @@ pub async fn user_friends_handler(
     Path(user_id): Path<String>,
     Query(query): Query<FollowsQuery>,
 ) -> Result<Json<Friends>> {
-    info!("GET {USER_FRIENDS_ROUTE} user_id:{}", user_id);
+    info!("GET {SWAGGER_USER_FRIENDS_ROUTE} user_id:{}", user_id);
 
     let skip = query.skip.unwrap_or(0);
     let limit = query.limit.unwrap_or(200);

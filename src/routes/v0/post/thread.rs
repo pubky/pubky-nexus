@@ -1,5 +1,5 @@
 use crate::models::post::PostThread;
-use crate::routes::v0::endpoints::THREAD_ROUTE;
+use crate::routes::v0::endpoints::SWAGGER_THREAD_ROUTE;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
@@ -17,7 +17,7 @@ pub struct ThreadQuery {
 
 #[utoipa::path(
     get,
-    path = THREAD_ROUTE,
+    path = SWAGGER_THREAD_ROUTE,
     tag = "Post Thread",
     params(
         ("author_id" = String, Path, description = "Author Pubky ID"),
@@ -37,7 +37,7 @@ pub async fn thread_handler(
     Query(query): Query<ThreadQuery>,
 ) -> Result<Json<PostThread>> {
     info!(
-        "GET {THREAD_ROUTE} author_id:{}, post_id:{}, viewer_id:{:?}, skip:{:?}, limit:{:?}",
+        "GET {SWAGGER_THREAD_ROUTE} author_id:{}, post_id:{}, viewer_id:{:?}, skip:{:?}, limit:{:?}",
         author_id, post_id, query.viewer_id, query.skip, query.limit
     );
 
