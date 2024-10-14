@@ -51,6 +51,7 @@ async fn test_homeserver_multi_user() -> Result<()> {
         kind: PubkyAppPost::default().kind,
         parent: None,
         embed: None,
+        attachments: None
     };
     // Create a post for the current user
     let post_id = test.create_post(author_id, &post).await?;

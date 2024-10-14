@@ -46,6 +46,7 @@ async fn test_homeserver_del_tag_post() -> Result<()> {
         kind: PubkyAppPost::default().kind,
         parent: None,
         embed: None,
+        attachments: None
     };
     let post_id = test.create_post(&author_user_id, &post).await?;
 
