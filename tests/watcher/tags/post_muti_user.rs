@@ -47,7 +47,7 @@ async fn test_homeserver_multi_user() -> Result<()> {
     let author_id = &user_ids[0];
 
     let post = PubkyAppPost {
-        content: format!("Watcher:MultiUser:User:Post"),
+        content: "Watcher:MultiUser:User:Post".to_string(),
         kind: PubkyAppPost::default().kind,
         parent: None,
         embed: None,
@@ -65,21 +65,13 @@ async fn test_homeserver_multi_user() -> Result<()> {
 
     // Avoid errors, if the score does not exist. Using that variable in the last assert of the test
     let actual_water_tag_hot_score =
-        match Taggers::check_sorted_set_member(&TAG_GLOBAL_HOT, &[label_water])
+        Taggers::check_sorted_set_member(&TAG_GLOBAL_HOT, &[label_water])
             .await
-            .unwrap()
-        {
-            Some(score) => score,
-            None => 0,
-        };
+            .unwrap().unwrap_or_default();
     let actual_fire_tag_hot_score =
-        match Taggers::check_sorted_set_member(&TAG_GLOBAL_HOT, &[label_fire])
+        Taggers::check_sorted_set_member(&TAG_GLOBAL_HOT, &[label_fire])
             .await
-            .unwrap()
-        {
-            Some(score) => score,
-            None => 0,
-        };
+            .unwrap().unwrap_or_default();
 
     // Step 2: Create tags
     let mut tag_urls = Vec::with_capacity(5);
@@ -123,7 +115,7 @@ async fn test_homeserver_multi_user() -> Result<()> {
 
     // Step 3: Assert all the PUT operations
     // GRAPH_OP: Check if the tag exists in the graph database
-    let post_water_tag = find_post_tag(&author_id, &post_id, label_water)
+    let post_water_tag = find_post_tag(author_id, &post_id, label_water)
         .await
         .unwrap()
         .expect("Failed to find post tag in graph database");
@@ -134,7 +126,7 @@ async fn test_homeserver_multi_user() -> Result<()> {
     assert!(post_water_tag.taggers.contains(tagger_b_id));
     assert!(post_water_tag.taggers.contains(tagger_c_id));
 
-    let post_fire_tag = find_post_tag(&author_id, &post_id, label_fire)
+    let post_fire_tag = find_post_tag(author_id, &post_id, label_fire)
         .await
         .unwrap()
         .expect("Failed to find post tag in graph database");
@@ -146,7 +138,7 @@ async fn test_homeserver_multi_user() -> Result<()> {
 
     // CACHE_OP: Check if the tag is correctly cached
     let cache_post_tag =
-        <TagPost as TagCollection>::get_from_index(&author_id, Some(&post_id), None, None)
+        <TagPost as TagCollection>::get_from_index(author_id, Some(&post_id), None, None)
             .await
             .unwrap();
 
@@ -167,7 +159,7 @@ async fn test_homeserver_multi_user() -> Result<()> {
     assert!(cache_tag_details[1].taggers.contains(tagger_b_id));
     assert!(cache_tag_details[1].taggers.contains(tagger_c_id));
 
-    let post_key: [&str; 2] = [&author_id, &post_id];
+    let post_key: [&str; 2] = [author_id, &post_id];
 
     // Assert if the new tag increments the score of engagement
     // Tag global engagement: Sorted:Tags:Global:Post:TotalEngagement
@@ -184,27 +176,27 @@ async fn test_homeserver_multi_user() -> Result<()> {
     assert_eq!(tag_total_engagement.unwrap(), 2);
 
     // Check if post counts updated: Post:Counts:user_id:post_id
-    let post_counts = find_post_counts(&author_id, &post_id).await;
+    let post_counts = find_post_counts(author_id, &post_id).await;
     assert_eq!(post_counts.tags, 5);
 
     // Check if user counts updated: User:Counts:user_id
-    let tagger_a_user_counts = find_user_counts(&tagger_a_id).await;
+    let tagger_a_user_counts = find_user_counts(tagger_a_id).await;
     assert_eq!(tagger_a_user_counts.tags, 1);
-    let tagger_b_user_counts = find_user_counts(&tagger_b_id).await;
+    let tagger_b_user_counts = find_user_counts(tagger_b_id).await;
     assert_eq!(tagger_b_user_counts.tags, 2);
-    let tagger_c_user_counts = find_user_counts(&tagger_c_id).await;
+    let tagger_c_user_counts = find_user_counts(tagger_c_id).await;
     assert_eq!(tagger_c_user_counts.tags, 2);
 
     // Check if the user is related with tag: Tag:Taggers:tag_name
     for tagger_id in water_taggers {
-        let (_exist, member) = Taggers::check_set_member(&[label_water], &tagger_id)
+        let (_exist, member) = Taggers::check_set_member(&[label_water], tagger_id)
             .await
             .expect("Failed to check tagger in Taggers set");
         assert!(member);
     }
 
     for tagger_id in fire_taggers {
-        let (_exist, member) = Taggers::check_set_member(&[label_fire], &tagger_id)
+        let (_exist, member) = Taggers::check_set_member(&[label_fire], tagger_id)
             .await
             .expect("Failed to check tagger in Taggers set");
         assert!(member);
@@ -240,12 +232,12 @@ async fn test_homeserver_multi_user() -> Result<()> {
 
     // Step 5: Assert all the DEL operations
     // GRAPH_OP: Check if the tag exists in the graph database
-    let post_tag = find_post_tag(&author_id, &post_id, label_water)
+    let post_tag = find_post_tag(author_id, &post_id, label_water)
         .await
         .unwrap();
     assert!(post_tag.is_none());
 
-    let post_tag = find_post_tag(&author_id, &post_id, label_fire)
+    let post_tag = find_post_tag(author_id, &post_id, label_fire)
         .await
         .unwrap();
     assert!(post_tag.is_none());
@@ -254,7 +246,7 @@ async fn test_homeserver_multi_user() -> Result<()> {
     // - Post:Taggers:author_id:post_id:label
     // - Sorted:Posts:Tag:author_id:post_id
     let cache_post_tag =
-        <TagPost as TagCollection>::get_from_index(&author_id, Some(&post_id), None, None)
+        <TagPost as TagCollection>::get_from_index(author_id, Some(&post_id), None, None)
             .await
             .expect("Failed to get tag from cache");
     assert!(
@@ -278,25 +270,25 @@ async fn test_homeserver_multi_user() -> Result<()> {
     assert!(fire_tag_collection.is_none());
 
     // Check if post counts updated: Post:Counts:user_id:post_id
-    let post_counts = find_post_counts(&author_id, &post_id).await;
+    let post_counts = find_post_counts(author_id, &post_id).await;
     assert_eq!(post_counts.tags, 0);
 
     // Check if user counts updated: User:Counts:user_id
     for tagger_id in water_taggers {
-        let user_counts = find_user_counts(&tagger_id).await;
+        let user_counts = find_user_counts(tagger_id).await;
         assert_eq!(user_counts.tags, 0);
     }
 
     // Check if the user is related with tag: Tag:Taggers:tag_name
     for tagger_id in water_taggers {
-        let (_exist, member) = Taggers::check_set_member(&[label_water], &tagger_id)
+        let (_exist, member) = Taggers::check_set_member(&[label_water], tagger_id)
             .await
             .expect("Failed to check tagger in Taggers set");
         assert!(!member);
     }
 
     for tagger_id in fire_taggers {
-        let (_exist, member) = Taggers::check_set_member(&[label_fire], &tagger_id)
+        let (_exist, member) = Taggers::check_set_member(&[label_fire], tagger_id)
             .await
             .expect("Failed to check tagger in Taggers set");
         assert!(!member);
@@ -334,7 +326,7 @@ async fn test_homeserver_multi_user() -> Result<()> {
         .unwrap();
     assert_eq!(fire_total_engagement, actual_fire_tag_hot_score);
 
-    let notifications = Notification::get_by_id(&author_id, None, None, None, None)
+    let notifications = Notification::get_by_id(author_id, None, None, None, None)
         .await
         .unwrap();
     assert_eq!(
