@@ -44,6 +44,7 @@ pub struct UserDetails {
     #[serde(deserialize_with = "deserialize_user_links")]
     pub links: Option<Vec<UserLink>>,
     pub status: Option<String>,
+    pub image: Option<String>,
     pub indexed_at: i64,
 }
 
@@ -91,6 +92,7 @@ impl UserDetails {
             bio: homeserver_user.bio,
             status: homeserver_user.status,
             links: homeserver_user.links,
+            image: homeserver_user.image,
             id: user_id.clone(),
             indexed_at: Utc::now().timestamp_millis(),
         })

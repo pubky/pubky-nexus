@@ -1,15 +1,13 @@
-use crate::models::post::{PostStream, PostStreamReach, PostStreamSorting};
-use crate::routes::v0::endpoints::{
-    STREAM_POSTS_BOOKMARKED_ROUTE, STREAM_POSTS_REACH_ROUTE, STREAM_POSTS_ROUTE,
-    STREAM_POSTS_TAG_ROUTE, STREAM_POSTS_USER_ROUTE,
-};
+use crate::models::post::{PostStream, PostStreamSorting, ViewerStreamSource};
+use crate::routes::v0::endpoints::STREAM_POSTS_ROUTE;
 use crate::routes::v0::queries::PostStreamQuery;
 use crate::{Error, Result};
 use axum::extract::Query;
 use axum::Json;
 use log::info;
-use serde::Deserialize;
 use utoipa::OpenApi;
+
+const MAX_TAGS: usize = 5;
 
 #[utoipa::path(
     get,
@@ -17,9 +15,12 @@ use utoipa::OpenApi;
     tag = "Stream Posts",
     params(
         ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
+        ("author_id" = Option<String>, Query, description = "Filter posts by an specific author User ID"),
         ("skip" = Option<usize>, Query, description = "Skip N posts"),
         ("limit" = Option<usize>, Query, description = "Retrieve N posts"),
-        ("sorting" = Option<PostStreamSorting>, Query, description = "Sorting method")
+        ("sorting" = Option<PostStreamSorting>, Query, description = "Sorting method"),
+        ("source" = Option<ViewerStreamSource>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, all)"),
+        ("tags" = Option<Vec<String>>, Query, description = "Filter by a list of comma separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned.")
     ),
     responses(
         (status = 200, description = "Posts stream", body = PostStream),
@@ -27,104 +28,37 @@ use utoipa::OpenApi;
         (status = 500, description = "Internal server error")
     )
 )]
-
-pub async fn stream_global_posts_handler(
+pub async fn stream_posts_handler(
     Query(query): Query<PostStreamQuery>,
 ) -> Result<Json<PostStream>> {
     info!("GET {STREAM_POSTS_ROUTE}");
 
     let skip = query.skip.unwrap_or(0);
-    let limit = query.limit.unwrap_or(10);
+    let limit = query.limit.unwrap_or(10).min(30);
     let sorting = query.sorting.unwrap_or(PostStreamSorting::Timeline);
+    let source = query.source.unwrap_or(ViewerStreamSource::All);
 
-    match PostStream::get_global_posts(sorting, query.viewer_id, Some(skip), Some(limit)).await {
-        Ok(Some(stream)) => Ok(Json(stream)),
-        Ok(None) => Err(Error::EmptyStream {
-            message: "The global stream of posts is empty".to_string(),
-        }),
-        Err(source) => Err(Error::InternalServerError { source }),
+    if source != ViewerStreamSource::All && query.viewer_id.is_none() {
+        return Err(Error::InvalidInput {
+            message: "Viewer ID is required for streams with a source other than 'all'".to_string(),
+        });
     }
-}
 
-use axum::extract::Path;
-
-#[derive(Deserialize)]
-pub struct UserPostStreamQuery {
-    viewer_id: Option<String>,
-    skip: Option<usize>,
-    limit: Option<usize>,
-}
-
-#[utoipa::path(
-    get,
-    path = STREAM_POSTS_USER_ROUTE,
-    tag = "Stream Posts by User",
-    params(
-        ("user_id" = String, Path, description = "User ID whose posts to retrieve"),
-        ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
-        ("skip" = Option<usize>, Query, description = "Skip N posts"),
-        ("limit" = Option<usize>, Query, description = "Retrieve N posts")
-    ),
-    responses(
-        (status = 200, description = "User's posts stream", body = PostStream),
-        (status = 404, description = "Posts not found"),
-        (status = 500, description = "Internal server error")
-    )
-)]
-pub async fn stream_user_posts_handler(
-    Path(user_id): Path<String>,
-    Query(query): Query<UserPostStreamQuery>,
-) -> Result<Json<PostStream>> {
-    info!("GET {STREAM_POSTS_USER_ROUTE}");
-
-    let skip = query.skip.unwrap_or(0);
-    let limit = query.limit.unwrap_or(10);
-
-    match PostStream::get_user_posts(&user_id, query.viewer_id, Some(skip), Some(limit)).await {
-        Ok(Some(stream)) => Ok(Json(stream)),
-        Ok(None) => Err(Error::EmptyStream {
-            message: format!("The stream of posts for user '{}' is empty", user_id),
-        }),
-        Err(source) => Err(Error::InternalServerError { source }),
+    // Enforce maximum number of tags
+    if let Some(ref tags) = query.tags {
+        if tags.len() > MAX_TAGS {
+            return Err(Error::InvalidInput {
+                message: format!("Too many tags provided; maximum allowed is {}", MAX_TAGS),
+            });
+        }
     }
-}
 
-#[derive(Deserialize)]
-pub struct PostStreamReachQuery {
-    viewer_id: String,
-    skip: Option<usize>,
-    limit: Option<usize>,
-    reach: Option<PostStreamReach>,
-}
-
-#[utoipa::path(
-    get,
-    path = STREAM_POSTS_REACH_ROUTE,
-    tag = "Stream Posts by Reach",
-    params(
-        ("viewer_id" = String, Query, description = "Viewer Pubky ID"),
-        ("reach" = PostStreamReach, Query, description = "Reach type (Following, Followers, Friends)"),
-        ("skip" = Option<usize>, Query, description = "Skip N posts"),
-        ("limit" = Option<usize>, Query, description = "Retrieve N posts")
-    ),
-    responses(
-        (status = 200, description = "Posts stream by reach", body = PostStream),
-        (status = 404, description = "Posts not found"),
-        (status = 500, description = "Internal server error")
-    )
-)]
-pub async fn stream_posts_by_reach_handler(
-    Query(query): Query<PostStreamReachQuery>,
-) -> Result<Json<PostStream>> {
-    info!("GET {STREAM_POSTS_REACH_ROUTE}");
-
-    let skip = query.skip.unwrap_or(0);
-    let limit = query.limit.unwrap_or(10);
-    let reach = query.reach.unwrap_or(PostStreamReach::Following);
-
-    match PostStream::get_posts_by_reach(
-        reach.clone(),
-        Some(query.viewer_id.clone()),
+    match PostStream::get_posts(
+        query.viewer_id,
+        query.author_id,
+        sorting,
+        source,
+        query.tags,
         Some(skip),
         Some(limit),
     )
@@ -132,90 +66,7 @@ pub async fn stream_posts_by_reach_handler(
     {
         Ok(Some(stream)) => Ok(Json(stream)),
         Ok(None) => Err(Error::EmptyStream {
-            message: format!(
-                "The stream of posts by reach {:?} of user '{}' is empty",
-                reach, query.viewer_id
-            ),
-        }),
-        Err(source) => Err(Error::InternalServerError { source }),
-    }
-}
-
-#[derive(Deserialize)]
-pub struct BookmarkedPostStreamQuery {
-    skip: Option<usize>,
-    limit: Option<usize>,
-}
-
-#[utoipa::path(
-    get,
-    path = STREAM_POSTS_BOOKMARKED_ROUTE,
-    tag = "Stream Bookmarked Posts",
-    params(
-        ("user_id" = String, Path, description = "User ID whose bookmarked posts to retrieve"),
-        ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
-        ("skip" = Option<usize>, Query, description = "Skip N posts"),
-        ("limit" = Option<usize>, Query, description = "Retrieve N posts")
-    ),
-    responses(
-        (status = 200, description = "Bookmarked posts stream", body = PostStream),
-        (status = 404, description = "Posts not found"),
-        (status = 500, description = "Internal server error")
-    )
-)]
-pub async fn stream_bookmarked_posts_handler(
-    Path(user_id): Path<String>,
-    Query(query): Query<BookmarkedPostStreamQuery>,
-) -> Result<Json<PostStream>> {
-    info!("GET {STREAM_POSTS_BOOKMARKED_ROUTE}");
-
-    let skip = query.skip.unwrap_or(0);
-    let limit = query.limit.unwrap_or(10);
-
-    match PostStream::get_bookmarked_posts(&user_id, Some(skip), Some(limit)).await {
-        Ok(Some(stream)) => Ok(Json(stream)),
-        Ok(None) => Err(Error::BookmarksNotFound { user_id }),
-        Err(source) => Err(Error::InternalServerError { source }),
-    }
-}
-
-#[utoipa::path(
-    get,
-    path = STREAM_POSTS_TAG_ROUTE,
-    tag = "Search Post stream by Tags",
-    params(
-        ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
-        ("sorting" = Option<PostStreamSorting>, Query, description = "Sorting method"),
-        ("skip" = Option<usize>, Query, description = "Skip N results"),
-        ("limit" = Option<usize>, Query, description = "Limit the number of results")
-    ),
-    responses(
-        (status = 200, description = "Search results", body = PostStream),
-        (status = 404, description = "No posts found"),
-        (status = 500, description = "Internal server error")
-    )
-)]
-pub async fn stream_posts_by_tags_handler(
-    Path(label): Path<String>,
-    Query(query): Query<PostStreamQuery>,
-) -> Result<Json<PostStream>> {
-    info!(
-        "GET {STREAM_POSTS_TAG_ROUTE} label:{}, sort_by: {:?}, viewer_id: {:?}, skip: {:?}, limit: {:?}",
-        label, query.sorting, query.viewer_id, query.skip, query.limit
-    );
-
-    match PostStream::get_posts_by_tag(
-        &label,
-        query.sorting,
-        query.viewer_id,
-        query.skip,
-        query.limit,
-    )
-    .await
-    {
-        Ok(Some(stream)) => Ok(Json(stream)),
-        Ok(None) => Err(Error::EmptyStream {
-            message: format!("The stream of posts by tag label {} is empty", label),
+            message: "No posts found for the given criteria.".to_string(),
         }),
         Err(source) => Err(Error::InternalServerError { source }),
     }
@@ -223,13 +74,7 @@ pub async fn stream_posts_by_tags_handler(
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(
-        stream_global_posts_handler,
-        stream_user_posts_handler,
-        stream_posts_by_reach_handler,
-        stream_bookmarked_posts_handler,
-        stream_posts_by_tags_handler
-    ),
-    components(schemas(PostStream, PostStreamSorting, PostStreamReach))
+    paths(stream_posts_handler,),
+    components(schemas(PostStream, PostStreamSorting, ViewerStreamSource))
 )]
 pub struct StreamPostsApiDocs;

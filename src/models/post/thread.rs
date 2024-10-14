@@ -18,6 +18,7 @@ impl PostThread {
         author_id: &str,
         post_id: &str,
         viewer_id: Option<&str>,
+        depth: usize,
         skip: usize,
         limit: usize,
     ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
@@ -25,7 +26,7 @@ impl PostThread {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
-            let query = queries::get::get_thread(author_id, post_id, skip, limit);
+            let query = queries::get::get_thread(author_id, post_id, depth, skip, limit);
             let graph = graph.lock().await;
             result = graph.execute(query).await?;
         }

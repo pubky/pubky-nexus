@@ -75,6 +75,7 @@ async fn main() -> Result<()> {
                 kind: PostKind::Short,
                 parent: None,
                 embed: None,
+                attachments: None,
             };
             let post_id = post.create_id();
             let post_url = format!("pubky://{}/pub/pubky.app/posts/{}", &pk, post_id);

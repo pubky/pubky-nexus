@@ -26,6 +26,7 @@ async fn test_homeserver_post_repost_notification() -> Result<()> {
         kind: PostKind::Short,
         parent: None,
         embed: None,
+        attachments: None,
     };
 
     let alice_post_id = test.create_post(&alice_id, &parent_post).await?;
@@ -40,6 +41,7 @@ async fn test_homeserver_post_repost_notification() -> Result<()> {
             kind: PostKind::Short,
             uri: parent_uri.clone(),
         }),
+        attachments: None,
     };
 
     let alice_reply_id = test.create_post(&alice_id, &alice_repost).await?;
@@ -75,6 +77,7 @@ async fn test_homeserver_post_repost_notification() -> Result<()> {
             kind: PostKind::Short,
             uri: parent_uri.clone(),
         }),
+        attachments: None,
     };
 
     let bob_reply_id = test.create_post(&bob_id, &bob_repost).await?;

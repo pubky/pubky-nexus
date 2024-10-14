@@ -38,10 +38,11 @@ pub async fn check_member_global_timeline_user_post(
     post_id: &str,
 ) -> Result<Option<isize>> {
     let post_key: &[&str] = &[user_id, post_id];
-    let global_timeline = PostStream::check_sorted_set_member(&POST_TIMELINE_KEY_PARTS, post_key)
-        .await
-        .unwrap();
-    Ok(global_timeline)
+    let global_timeline_timestamp =
+        PostStream::check_sorted_set_member(&POST_TIMELINE_KEY_PARTS, post_key)
+            .await
+            .unwrap();
+    Ok(global_timeline_timestamp)
 }
 
 pub async fn check_member_user_post_timeline(
@@ -49,10 +50,11 @@ pub async fn check_member_user_post_timeline(
     post_id: &str,
 ) -> Result<Option<isize>> {
     let post_stream_key_parts = [&POST_PER_USER_KEY_PARTS[..], &[user_id]].concat();
-    let post_timeline = PostStream::check_sorted_set_member(&post_stream_key_parts, &[post_id])
-        .await
-        .unwrap();
-    Ok(post_timeline)
+    let post_timeline_timestamp =
+        PostStream::check_sorted_set_member(&post_stream_key_parts, &[post_id])
+            .await
+            .unwrap();
+    Ok(post_timeline_timestamp)
 }
 
 pub async fn check_member_total_engagement_user_posts(post_key: &[&str]) -> Result<Option<isize>> {
@@ -148,7 +150,8 @@ pub fn get_post_details_by_id(user_id: &str, post_id: &str) -> Query {
             kind: post.kind,
             indexed_at: post.indexed_at,
             uri: 'pubky://' + user.id + '/pub/pubky.app/posts/' + post.id,
-            author: user.id
+            author: user.id,
+            attachments: post.attachments
         } AS details
         ",
     )

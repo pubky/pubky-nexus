@@ -9,7 +9,7 @@ pub struct PubkyAppFile {
     pub created_at: i64,
     pub src: String,
     pub content_type: String,
-    pub size: u64,
+    pub size: i64,
 }
 
 impl TimestampId for PubkyAppFile {}

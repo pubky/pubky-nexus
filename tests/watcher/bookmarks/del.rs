@@ -39,6 +39,7 @@ async fn test_homeserver_unbookmark() -> Result<()> {
         kind: PubkyAppPost::default().kind,
         parent: None,
         embed: None,
+        attachments: None,
     };
     let post_id = test.create_post(&author_id, &post).await?;
 
@@ -73,7 +74,7 @@ async fn test_homeserver_unbookmark() -> Result<()> {
     let bookmarks = PostStream::get_bookmarked_posts(&bookmarker_id, None, None)
         .await
         .unwrap();
-    assert!(bookmarks.is_none(), "The bookmar list should be empty");
+    assert!(bookmarks.is_empty(), "The bookmark list should be empty");
 
     let exist_bookmark = Bookmark::get_from_index(&author_id, &post_id, &bookmarker_id)
         .await

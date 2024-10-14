@@ -29,6 +29,7 @@ async fn test_homeserver_bookmark() -> Result<()> {
         kind: PubkyAppPost::default().kind,
         parent: None,
         embed: None,
+        attachments: None,
     };
     let post_id = test.create_post(&user_id, &post).await?;
 
@@ -63,11 +64,10 @@ async fn test_homeserver_bookmark() -> Result<()> {
     // INDEX_OP: Assert if the event writes the indexes
     let result_bookmarks = PostStream::get_bookmarked_posts(&user_id, None, None)
         .await
-        .unwrap()
-        .expect("The bookmark should have been created");
+        .unwrap();
 
-    assert_eq!(result_bookmarks.0.len(), 1);
-    assert_eq!(result_bookmarks.0[0].details.id, post_id);
+    assert_eq!(result_bookmarks.len(), 1);
+    assert_eq!(result_bookmarks[0], format!("{}:{}", user_id, post_id));
 
     let exist_bookmark = Bookmark::get_from_index(&user_id, &post_id, &user_id)
         .await

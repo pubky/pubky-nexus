@@ -115,14 +115,18 @@ impl WatcherTest {
         Ok(())
     }
 
-    pub async fn create_file(&mut self, user_id: &str, file: &PubkyAppFile) -> Result<String> {
+    pub async fn create_file(
+        &mut self,
+        user_id: &str,
+        file: &PubkyAppFile,
+    ) -> Result<(String, String)> {
         let file_id = file.create_id();
         let file_json = to_vec(file)?;
         let url = format!("pubky://{}/pub/pubky.app/files/{}", user_id, file_id);
         self.client.put(url.as_str(), &file_json).await?;
 
         self.ensure_event_processing_complete().await?;
-        Ok(file_id)
+        Ok((file_id, url))
     }
 
     pub async fn cleanup_file(&mut self, user_id: &str, file_id: &str) -> Result<()> {

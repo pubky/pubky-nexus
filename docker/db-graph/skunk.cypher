@@ -9,7 +9,7 @@ MERGE (u:User {id: "4b3xhs34k1c8xbem1tj9phr4nf8xkn6w1eckkie3gipmgsfsbw6y"}) SET 
 MERGE (u:User {id: "4djq8fdfmdxkunjdywm876ipfntifdtc1p74oj9s3mqm8fj1eb1y"}) SET u.name = "anonymous", u.bio = "", u.status = "noStatus", u.indexed_at = 1724134095 , u.links = "[]";
 MERGE (u:User {id: "4nacrqeuwh35kwrziy4m376uuyi7czazubgtyog4adm77ayqigxo"}) SET u.name = "anonymous", u.bio = "", u.status = "noStatus", u.indexed_at = 1724134095 , u.links = "[]";
 MERGE (u:User {id: "4p1qa1ko7wuta4f1qm8io495cqsmefbgfp85wtnm9bj55gqbhjpo"}) SET u.name = "Intruder", u.bio = "", u.status = "noStatus", u.indexed_at = 1724134095 , u.links = "[]";
-MERGE (u:User {id: "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro"}) SET u.name = "Aldert", u.bio = "Lead Designer & Brand Manager. Building meaningful products and brands that empower society. Accelerating hyperbitcoinization at Synonym.", u.status = "working", u.indexed_at = 1724134095 , u.links = "[{\"title\":\"website\",\"url\":\"https://www.synonym.to\"},{\"title\":\"x\",\"url\":\"https://x.com/aldert\"}]";
+MERGE (u:User {id: "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro"}) SET u.name = "Aldert", u.bio = "Lead Designer & Brand Manager. Building meaningful products and brands that empower society. Accelerating hyperbitcoinization at Synonym.", u.status = "working", u.indexed_at = 1724134095, u.image = "pubky://4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro/pub/pubky.app/files/003286NSMY490", u.links = "[{\"title\":\"website\",\"url\":\"https://www.synonym.to\"},{\"title\":\"x\",\"url\":\"https://x.com/aldert\"}]";
 MERGE (u:User {id: "58jc5bujzoj35g55pqjo6ykfdu9t156j8cxkh5ubdwgsnch1qagy"}) SET u.name = "Satoshi Nakamoto", u.bio = "", u.status = "noStatus", u.indexed_at = 1724134095 , u.links = "[{\"title\":\"Instagram\",\"url\":\"https://instagram.com/@teste\"}]";
 MERGE (u:User {id: "5bem6bm75ku5pqz4em3bcsbm6n5grywja15x3739eesjhsdo6nfy"}) SET u.name = "Jared Cassin", u.bio = "Vis reprehenderit tabgo audentia suffoco curis voluptatum coruscus.", u.status = "undefined", u.indexed_at = 1724134095 , u.links = "[{\"url\":\"https://loving-drive.net/\",\"title\":\"website\"}]";
 MERGE (u:User {id: "5ddrprkjm19mz8rokgnqgisommz3zdnfz1yhg1is9kmaoujwrsby"}) SET u.name = "anonymous", u.bio = "", u.status = "noStatus", u.indexed_at = 1724134095 , u.links = "[]";
@@ -1397,7 +1397,7 @@ MATCH (p1:Post {id: "2ZCEHK3P6KX00"}), (p2:Post {id: "2ZCVS8MYJXH00"}) MERGE (p2
 MERGE (p:Post {id: "2ZCVXBPATDZG0"}) SET p.content = "undefined", p.kind = "Short", p.indexed_at = 1718614390755;
 MATCH (u:User {id: "kt1ujy3zxs1tpxsxrqkdpmon5co959paiknw1s4r1rf1gsnqxnao"}), (p:Post {id: "2ZCVXBPATDZG0"}) MERGE (u)-[:AUTHORED]->(p);
 MATCH (p1:Post {id: "2ZCEHJM8SJW00"}), (p2:Post {id: "2ZCVXBPATDZG0"}) MERGE (p2)-[:REPOSTED]->(p1);
-MERGE (p:Post {id: "2ZCW1TGR5BKG0"}) SET p.content = "I am told we can reply now!", p.kind = "Short", p.indexed_at = 1718616844478;
+MERGE (p:Post {id: "2ZCW1TGR5BKG0"}) SET p.content = "I am told we can reply now!", p.kind = "Short", p.indexed_at = 1718616844478, p.attachments = ["pubky://y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy/pub/pubky.app/files/2ZKH7K7M9G3G0"];
 MATCH (u:User {id: "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy"}), (p:Post {id: "2ZCW1TGR5BKG0"}) MERGE (u)-[:AUTHORED]->(p);
 MERGE (p:Post {id: "2ZCWD3684B700"}) SET p.content = "Yes we can", p.kind = "Short", p.indexed_at = 1718623040774;
 MATCH (u:User {id: "pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy"}), (p:Post {id: "2ZCWD3684B700"}) MERGE (u)-[:AUTHORED]->(p);

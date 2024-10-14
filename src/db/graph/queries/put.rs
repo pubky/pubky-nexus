@@ -7,13 +7,14 @@ pub fn create_user(user: &UserDetails) -> Result<Query, Box<dyn std::error::Erro
 
     let query = query(
         "MERGE (u:User {id: $id})
-         SET u.name = $name, u.bio = $bio, u.status = $status, u.links = $links, u.indexed_at = $indexed_at;",
+         SET u.name = $name, u.bio = $bio, u.status = $status, u.links = $links, u.image = $image, u.indexed_at = $indexed_at;",
     )
     .param("id", user.id.as_ref())
     .param("name", user.name.to_string())
     .param("bio", user.bio.as_ref().unwrap_or(&"null".to_string()).to_string())
     .param("status", user.status.as_ref().unwrap_or(&"null".to_string()).to_string())
     .param("links", links)
+    .param("image", user.image.as_ref().unwrap_or(&String::from("null")).to_string())
     .param("indexed_at", user.indexed_at);
 
     Ok(query)
@@ -27,13 +28,18 @@ pub fn create_post(post: &PostDetails) -> Result<Query, Box<dyn std::error::Erro
          MERGE (u)-[:AUTHORED]->(p:Post {id: $post_id})
          SET p.content = $content,
              p.indexed_at = $indexed_at,
-             p.kind = $kind",
+             p.kind = $kind,
+             p.attachments = $attachments",
     )
     .param("author_id", post.author.to_string())
     .param("post_id", post.id.to_string())
     .param("content", post.content.to_string())
     .param("indexed_at", post.indexed_at)
-    .param("kind", post.kind.to_string());
+    .param("kind", post.kind.to_string())
+    .param(
+        "attachments",
+        post.attachments.clone().unwrap_or(vec![] as Vec<String>),
+    );
 
     Ok(query)
 }
@@ -184,14 +190,14 @@ pub fn create_file(file: &FileDetails) -> Result<Query, Box<dyn std::error::Erro
     let query = query(
         "MERGE (f:File {id: $id, owner_id: $owner_id})
          SET f.uri = $uri, f.indexed_at = $indexed_at, f.created_at = $created_at, f.size = $size,
-            f.src = $src, f.content_type = $content_type, f.urls = $urls;",
+            f.src = $src, f.name = $name, f.content_type = $content_type, f.urls = $urls;",
     )
     .param("id", file.id.to_string())
     .param("owner_id", file.owner_id.to_string())
     .param("uri", file.uri.to_string())
     .param("indexed_at", file.indexed_at)
     .param("created_at", file.created_at)
-    .param("size", file.size.to_string())
+    .param("size", file.size)
     .param("src", file.src.to_string())
     .param("name", file.name.to_string())
     .param("content_type", file.content_type.to_string())

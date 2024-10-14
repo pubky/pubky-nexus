@@ -11,7 +11,7 @@ pub use counts::PostCounts;
 pub use details::PostDetails;
 pub use relationships::PostRelationships;
 pub use stream::{
-    PostStream, PostStreamReach, PostStreamSorting, POST_PER_USER_KEY_PARTS,
+    PostStream, PostStreamSorting, ViewerStreamSource, POST_PER_USER_KEY_PARTS,
     POST_TIMELINE_KEY_PARTS, POST_TOTAL_ENGAGEMENT_KEY_PARTS,
 };
 pub use thread::PostThread;

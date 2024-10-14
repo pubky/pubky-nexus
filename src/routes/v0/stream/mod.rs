@@ -15,11 +15,7 @@ pub fn routes() -> Router {
         endpoints::STREAM_USERS_PIONEERS_ROUTE => users::stream_pioneer_users_handler,
 
         // Post stream
-        endpoints::STREAM_POSTS_ROUTE => posts::stream_global_posts_handler,
-        endpoints::STREAM_POSTS_USER_ROUTE => posts::stream_user_posts_handler,
-        endpoints::STREAM_POSTS_REACH_ROUTE => posts::stream_posts_by_reach_handler,
-        endpoints::STREAM_POSTS_BOOKMARKED_ROUTE => posts::stream_bookmarked_posts_handler,
-        endpoints::STREAM_POSTS_TAG_ROUTE => posts::stream_posts_by_tags_handler,
+        endpoints::STREAM_POSTS_ROUTE => posts::stream_posts_handler,
     );
 
     // Register the POST route separately

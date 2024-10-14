@@ -277,6 +277,7 @@ async fn create_posts(
             kind: PostKind::Short,
             parent: None,
             embed: None,
+            attachments: None,
         };
         let post_id = post.create_id();
         let post_url = format!("pubky://{}/pub/pubky.app/posts/{}", pk, post_id);
@@ -410,7 +411,7 @@ async fn create_files(
             name: format!("file_{}", random_string(rng, 5)),
             content_type: "text/plain".to_string(),
             src: blob_url.clone(),
-            size: blob_json.len() as u64,
+            size: blob_json.len() as i64,
             created_at: Utc::now().timestamp_millis(),
         };
 

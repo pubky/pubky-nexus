@@ -22,7 +22,7 @@ fn bench_thread_retrieval(c: &mut Criterion) {
         &(author_id, post_id),
         |b, &(author_id, post_id)| {
             b.to_async(&rt).iter(|| async {
-                let thread = PostThread::get_by_id(author_id, post_id, None, 0, 10)
+                let thread = PostThread::get_by_id(author_id, post_id, None, 3, 0, 10)
                     .await
                     .unwrap();
                 criterion::black_box(thread);

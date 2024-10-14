@@ -99,7 +99,7 @@ async fn test_user_tags_full_filter_active() -> Result<()> {
 async fn test_post_does_not_exist() -> Result<()> {
     let endpoint = format!("/v0/post/{}/{}/tags", PEER_PUBKY, "JTDX9ZSWPQF8");
     // TODO: Control post not found error control
-    make_wrong_request(&endpoint).await?;
+    make_wrong_request(&endpoint, None).await?;
     Ok(())
 }
 
@@ -110,7 +110,7 @@ async fn test_user_does_not_exist() -> Result<()> {
         "db6w58pd5h63fbhtd88y8zz7pai9rkjwqt9omg6i7dz31dynrgc4", POST_ID
     );
     // TODO: Control post not found error control
-    make_wrong_request(&endpoint).await?;
+    make_wrong_request(&endpoint, None).await?;
     Ok(())
 }
 
@@ -201,7 +201,7 @@ async fn test_post_specific_tag_with_no_result() -> Result<()> {
         "/v0/post/{}/{}/taggers/{}?skip=3&limit=1",
         PEER_PUBKY, POST_ID, FREE_LABEL
     );
-    make_wrong_request(&path).await?;
+    make_wrong_request(&path, None).await?;
 
     Ok(())
 }
