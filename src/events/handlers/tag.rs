@@ -228,15 +228,15 @@ async fn del_sync_post(
         tag_post.del_from_index(author_id, Some(post_id), tag_label),
         // Decrement in one post global engagement
         PostStream::update_index_score(author_id, post_id, ScoreAction::Decrement(1.0)),
-        // Add post to label total engagement
+        // Decrease post from label total engagement
         TagSearch::update_index_score(author_id, post_id, tag_label, ScoreAction::Decrement(1.0)),
         // Decrease the score of hot tags
         Taggers::update_index_score(tag_label, ScoreAction::Decrement(1.0)),
-        // Delete tagger to global post taggers
+        // Delete tagger from global post tags
         tagger.del_from_index(tag_label)
     );
 
-    // Add post to global label timeline
+    // Delete post from global label timeline
     TagSearch::del_from_index(author_id, post_id, tag_label).await?;
 
     Ok(())
