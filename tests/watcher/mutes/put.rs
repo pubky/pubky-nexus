@@ -3,7 +3,7 @@ use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::pubky_app::PubkyAppUser;
-use pubky_nexus::models::user::Muted;
+use pubky_nexus::models::user::{Muted, Relationship};
 
 #[tokio::test]
 async fn test_homeserver_put_mute() -> Result<()> {
@@ -43,6 +43,17 @@ async fn test_homeserver_put_mute() -> Result<()> {
     assert!(
         muted,
         "Mutee should be present in the muter user's mute list"
+    );
+
+    // UserRelationships
+    let relationship = Relationship::get_by_id(&mutee_id, Some(&muter_id))
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(
+        relationship.muted,
+        "The user relationship between muter and mutee should be muted=true"
     );
 
     // Cleanup
