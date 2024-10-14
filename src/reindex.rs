@@ -67,7 +67,7 @@ pub async fn reindex() {
         .await
         .expect("Failed to store the global hot tags");
 
-    TagSearch::index_post_tags_from_graph()
+    TagSearch::reindex()
         .await
         .expect("Failed to store the global post tags");
 

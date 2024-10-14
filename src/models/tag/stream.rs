@@ -14,7 +14,7 @@ use crate::{RedisOps, ScoreAction};
 pub const TAG_GLOBAL_HOT: [&str; 3] = ["Tags", "Global", "Hot"];
 
 #[derive(Serialize, Deserialize, Debug, ToSchema)]
-pub struct Taggers(Vec<String>);
+pub struct Taggers(pub Vec<String>);
 
 #[async_trait]
 impl RedisOps for Taggers {
@@ -46,6 +46,10 @@ impl Taggers {
         user_id: &str,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         Self::put_index_set(&[label], &[user_id]).await
+    }
+
+    pub async fn del_from_index(&self, label: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
+        self.remove_from_index_set(&[label]).await
     }
 }
 
