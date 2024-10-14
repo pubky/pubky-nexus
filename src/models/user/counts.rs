@@ -25,17 +25,18 @@ impl UserCounts {
     pub async fn get_by_id(
         user_id: &str,
     ) -> Result<Option<UserCounts>, Box<dyn std::error::Error + Send + Sync>> {
-        match Self::get_from_index(user_id).await? {
-            Some(counts) => Ok(Some(counts)),
-            None => {
-                let graph_response = Self::get_from_graph(user_id).await?;
-                if let Some(user_counts) = graph_response {
-                    user_counts.put_to_index(user_id).await?;
-                    return Ok(Some(user_counts));
-                }
-                Ok(None)
-            }
-        }
+        // match Self::get_from_index(user_id).await? {
+        //     Some(counts) => Ok(Some(counts)),
+        //     None => {
+        //         let graph_response = Self::get_from_graph(user_id).await?;
+        //         if let Some(user_counts) = graph_response {
+        //             user_counts.put_to_index(user_id).await?;
+        //             return Ok(Some(user_counts));
+        //         }
+        //         Ok(None)
+        //     }
+        // }
+        Self::get_from_graph(user_id).await
     }
 
     /// Retrieves the counts from Neo4j.
