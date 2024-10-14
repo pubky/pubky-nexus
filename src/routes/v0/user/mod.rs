@@ -1,5 +1,5 @@
-use crate::register_routes;
 use crate::routes::v0::endpoints;
+use crate::{register_routes, to_axum};
 use axum::Router;
 use utoipa::OpenApi;
 
@@ -12,15 +12,15 @@ mod view;
 
 pub fn routes() -> Router {
     register_routes!(Router::new(),
-        endpoints::USER_ROUTE => view::user_view_handler,
-        endpoints::USER_DETAILS_ROUTE => details::user_details_handler,
-        endpoints::RELATIONSHIP_ROUTE => relationship::user_relationship_handler,
-        endpoints::USER_TAGS_ROUTE => tags::user_tags_handler,
-        endpoints::USER_TAGGERS_ROUTE => tags::user_taggers_handler,
-        endpoints::USER_COUNTS_ROUTE => counts::user_counts_handler,
-        endpoints::USER_FOLLOWERS_ROUTE => follows::user_followers_handler,
-        endpoints::USER_FOLLOWING_ROUTE => follows::user_following_handler,
-        endpoints::USER_FRIENDS_ROUTE => follows::user_friends_handler,
+        to_axum!(endpoints::USER_ROUTE) => view::user_view_handler,
+        to_axum!(endpoints::USER_DETAILS_ROUTE) => details::user_details_handler,
+        to_axum!(endpoints::RELATIONSHIP_ROUTE) => relationship::user_relationship_handler,
+        to_axum!(endpoints::USER_TAGS_ROUTE) => tags::user_tags_handler,
+        to_axum!(endpoints::USER_TAGGERS_ROUTE) => tags::user_taggers_handler,
+        to_axum!(endpoints::USER_COUNTS_ROUTE) => counts::user_counts_handler,
+        to_axum!(endpoints::USER_FOLLOWERS_ROUTE) => follows::user_followers_handler,
+        to_axum!(endpoints::USER_FOLLOWING_ROUTE) => follows::user_following_handler,
+        to_axum!(endpoints::USER_FRIENDS_ROUTE) => follows::user_friends_handler,
     )
 }
 

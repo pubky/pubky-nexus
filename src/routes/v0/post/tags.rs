@@ -2,7 +2,7 @@ use crate::models::tag::post::TagPost;
 use crate::models::tag::traits::taggers::Taggers;
 use crate::models::tag::traits::{TagCollection, TaggersCollection};
 use crate::models::tag::TagDetails;
-use crate::routes::v0::endpoints::{SWAGGER_POST_TAGGERS_ROUTE, SWAGGER_POST_TAGS_ROUTE};
+use crate::routes::v0::endpoints::{POST_TAGGERS_ROUTE, POST_TAGS_ROUTE};
 use crate::routes::v0::queries::PaginationQuery;
 use crate::routes::v0::TagsQuery;
 use crate::{Error, Result};
@@ -13,7 +13,7 @@ use utoipa::OpenApi;
 
 #[utoipa::path(
     get,
-    path = SWAGGER_POST_TAGS_ROUTE,
+    path = POST_TAGS_ROUTE,
     tag = "Post Tags",
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
@@ -32,7 +32,7 @@ pub async fn post_tags_handler(
     Query(query): Query<TagsQuery>,
 ) -> Result<Json<Vec<TagDetails>>> {
     info!(
-        "GET {SWAGGER_POST_TAGS_ROUTE} user_id:{}, post_id: {}, limit_tags:{:?}, limit_taggers:{:?}",
+        "GET {POST_TAGS_ROUTE} user_id:{}, post_id: {}, limit_tags:{:?}, limit_taggers:{:?}",
         user_id, post_id, query.limit_tags, query.limit_taggers
     );
     match TagPost::get_by_id(
@@ -51,7 +51,7 @@ pub async fn post_tags_handler(
 
 #[utoipa::path(
     get,
-    path = SWAGGER_POST_TAGGERS_ROUTE,
+    path = POST_TAGGERS_ROUTE,
     tag = "Post specific label Taggers",
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
@@ -71,7 +71,7 @@ pub async fn post_taggers_handler(
     Query(query): Query<PaginationQuery>,
 ) -> Result<Json<Taggers>> {
     info!(
-        "GET {SWAGGER_POST_TAGGERS_ROUTE} user_id:{}, post_id: {}, label: {}, skip:{:?}, limit:{:?}",
+        "GET {POST_TAGGERS_ROUTE} user_id:{}, post_id: {}, label: {}, skip:{:?}, limit:{:?}",
         user_id, post_id, label, query.skip, query.limit
     );
     match TagPost::get_tagger_by_id(&user_id, Some(&post_id), &label, query.skip, query.limit).await
