@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use super::Event;
 use crate::{
     models::{homeserver::Homeserver, user::PubkyId},
@@ -8,13 +10,12 @@ use pkarr::mainline::dht::Testnet;
 use pubky::PubkyClient;
 use reqwest::Client;
 
-const MAX_RETRIES: usize = 3;
-
 pub struct EventProcessor {
     pubky_client: PubkyClient,
     http_client: Client,
     homeserver: Homeserver,
     limit: u32,
+    max_retries: u64,
 }
 
 impl EventProcessor {
@@ -24,6 +25,7 @@ impl EventProcessor {
         let pubky_client = Self::init_pubky_client(config);
         let homeserver = Homeserver::from_config(config).await?;
         let limit = config.events_limit;
+        let max_retries = config.max_retries;
 
         info!(
             "Initialized Event Processor for homeserver: {:?}",
@@ -35,6 +37,7 @@ impl EventProcessor {
             http_client: Client::new(),
             homeserver,
             limit,
+            max_retries,
         })
     }
 
@@ -58,6 +61,7 @@ impl EventProcessor {
             http_client: Client::new(),
             homeserver,
             limit: 100,
+            max_retries: 3,
         }
     }
 
@@ -124,7 +128,7 @@ impl EventProcessor {
                 Ok(_) => break Ok(()),
                 Err(e) => {
                     attempts += 1;
-                    if attempts >= MAX_RETRIES {
+                    if attempts >= self.max_retries {
                         error!(
                             "Error while handling event after {} attempts: {}",
                             attempts, e
@@ -133,10 +137,10 @@ impl EventProcessor {
                     } else {
                         error!(
                             "Error while handling event: {}. Retrying attempt {}/{}",
-                            e, attempts, MAX_RETRIES
+                            e, attempts, self.max_retries
                         );
                         // Optionally, add a delay between retries
-                        // tokio::time::sleep(Duration::from_millis(100)).await;
+                        tokio::time::sleep(Duration::from_millis(100)).await;
                     }
                 }
             }

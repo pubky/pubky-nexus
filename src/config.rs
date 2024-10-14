@@ -21,6 +21,7 @@ pub struct Config {
     pub homeserver_url: String,
     pub events_limit: u32,
     pub watcher_sleep: u64,
+    pub max_retries: u64,
 }
 
 impl Config {
@@ -57,6 +58,10 @@ impl Config {
                 .unwrap_or("5000".to_string())
                 .parse()
                 .unwrap_or(5000),
+            max_retries: env::var("MAX_RETRIES")
+                .unwrap_or("1".to_string())
+                .parse()
+                .unwrap_or(1),
             neo4j_username: env::var("NEO4J_DB_USERNAME").expect("NEO4J_DB_USERNAME not set"),
             neo4j_password: env::var("NEO4J_PASSWORD").expect("NEO4J_PASSWORD not set"),
         }
