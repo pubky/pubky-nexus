@@ -1,6 +1,6 @@
 use crate::models::post::PostDetails;
 use crate::models::pubky_app::PostKind;
-use crate::routes::v0::endpoints::SWAGGER_POST_DETAILS_ROUTE;
+use crate::routes::v0::endpoints::POST_DETAILS_ROUTE;
 use crate::{Error, Result};
 use axum::extract::Path;
 use axum::Json;
@@ -9,7 +9,7 @@ use utoipa::OpenApi;
 
 #[utoipa::path(
     get,
-    path = SWAGGER_POST_DETAILS_ROUTE,
+    path = POST_DETAILS_ROUTE,
     tag = "Post Details",
     params(
         ("author_id" = String, Path, description = "Author Pubky ID"),
@@ -25,7 +25,7 @@ pub async fn post_details_handler(
     Path((author_id, post_id)): Path<(String, String)>,
 ) -> Result<Json<PostDetails>> {
     info!(
-        "GET {SWAGGER_POST_DETAILS_ROUTE} author_id:{}, post_id:{}",
+        "GET {POST_DETAILS_ROUTE} author_id:{}, post_id:{}",
         author_id, post_id
     );
 

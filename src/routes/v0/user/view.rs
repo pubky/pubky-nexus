@@ -1,6 +1,6 @@
 use crate::models::tag::TagDetails;
 use crate::models::user::UserView;
-use crate::routes::v0::endpoints::SWAGGER_USER_ROUTE;
+use crate::routes::v0::endpoints::USER_ROUTE;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
@@ -15,7 +15,7 @@ pub struct ProfileQuery {
 
 #[utoipa::path(
     get,
-    path = SWAGGER_USER_ROUTE,
+    path = USER_ROUTE,
     tag = "User Profile",
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
@@ -32,7 +32,7 @@ pub async fn user_view_handler(
     Query(query): Query<ProfileQuery>,
 ) -> Result<Json<UserView>> {
     info!(
-        "GET {SWAGGER_USER_ROUTE} user_id:{}, viewer_id:{:?}",
+        "GET {USER_ROUTE} user_id:{}, viewer_id:{:?}",
         user_id, query.viewer_id
     );
 

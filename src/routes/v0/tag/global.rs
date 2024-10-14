@@ -1,9 +1,7 @@
 use crate::models::tag::global::TagGlobal;
 use crate::models::tag::stream::{HotTag, HotTags, Taggers};
 use crate::models::user::UserStreamType;
-use crate::routes::v0::endpoints::{
-    SWAGGER_TAG_REACH_ROUTE, SWAGGER_TAG_TAGGERS_ROUTE, TAG_HOT_ROUTE,
-};
+use crate::routes::v0::endpoints::{TAG_HOT_ROUTE, TAG_REACH_ROUTE, TAG_TAGGERS_ROUTE};
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
@@ -60,7 +58,7 @@ pub struct TagTaggersQuery {
 
 #[utoipa::path(
     get,
-    path = SWAGGER_TAG_TAGGERS_ROUTE,
+    path = TAG_TAGGERS_ROUTE,
     tag = "Global tag Taggers",
     params(
         ("label" = String, Path, description = "Tag name"),
@@ -77,7 +75,7 @@ pub async fn tag_taggers_handler(
     Query(query): Query<TagTaggersQuery>,
 ) -> Result<Json<Vec<String>>> {
     info!(
-        "GET {SWAGGER_TAG_TAGGERS_ROUTE} label:{}, reach:{:?}",
+        "GET {TAG_TAGGERS_ROUTE} label:{}, reach:{:?}",
         label, query.reach
     );
 
@@ -98,7 +96,7 @@ pub struct TagsByReachQuery {
 
 #[utoipa::path(
     get,
-    path = SWAGGER_TAG_REACH_ROUTE,
+    path = TAG_REACH_ROUTE,
     tag = "Global Tags by reach",
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
@@ -111,7 +109,7 @@ pub struct TagsByReachQuery {
     )
 )]
 pub async fn tags_by_reach_handler(Path(path): Path<TagsByReachQuery>) -> Result<Json<HotTags>> {
-    info!("GET {SWAGGER_TAG_REACH_ROUTE}");
+    info!("GET {TAG_REACH_ROUTE}");
 
     let reach = path.reach.unwrap_or(UserStreamType::Following);
     let user_id = path.user_id;
