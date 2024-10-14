@@ -101,7 +101,8 @@ pub fn create_mention_relationship(
 pub fn create_follow(follower_id: &str, followee_id: &str, indexed_at: i64) -> Query {
     query(
         "MATCH (follower:User {id: $follower_id}), (followee:User {id: $followee_id})
-         MERGE (follower)-[:FOLLOWS {indexed_at: $indexed_at}]->(followee);",
+         MERGE (follower)-[r:FOLLOWS]->(followee)
+         SET r.indexed_at = $indexed_at;",
     )
     .param("follower_id", follower_id.to_string())
     .param("followee_id", followee_id.to_string())
@@ -118,7 +119,9 @@ pub fn create_post_bookmark(
     query(
         "MATCH (u:User {id: $user_id})
          MATCH (author:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
-         MERGE (u)-[b:BOOKMARKED {id: $bookmark_id, indexed_at: $indexed_at}]->(p)",
+         MERGE (u)-[b:BOOKMARKED]->(p)
+         SET b.indexed_at = $indexed_at,
+             b.id = $bookmark_id;",
     )
     .param("user_id", user_id)
     .param("author_id", author_id)
@@ -138,7 +141,9 @@ pub fn create_post_tag(
     query(
         "MATCH (author:User {id: $author_id})-[:AUTHORED]->(post:Post {id: $post_id})
          MATCH (user:User {id: $user_id})
-         MERGE (user)-[:TAGGED {id: $tag_id, label: $label, indexed_at: $indexed_at}]->(post)",
+         MERGE (user)-[t:TAGGED {label: $label}]->(post)
+         SET t.indexed_at = $indexed_at,
+             t.id = $tag_id;",
     )
     .param("user_id", user_id)
     .param("author_id", author_id)
@@ -158,7 +163,9 @@ pub fn create_user_tag(
     query(
         "MATCH (tagged_used:User {id: $tagged_user_id})
          MATCH (tagger:User {id: $tagger_user_id})
-         MERGE (tagger)-[:TAGGED {id: $tag_id, label: $label, indexed_at: $indexed_at}]->(tagged_used)",
+         MERGE (tagger)-[t:TAGGED {label: $label}]->(tagged_used)
+         SET t.indexed_at = $indexed_at,
+             t.id = $tag_id;",
     )
     .param("tagger_user_id", tagger_user_id)
     .param("tagged_user_id", tagged_user_id)
