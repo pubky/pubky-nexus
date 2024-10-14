@@ -157,4 +157,23 @@ impl WatcherTest {
         self.ensure_event_processing_complete().await?;
         Ok(())
     }
+
+    pub async fn create_mute(&mut self, muter_id: &str, mutee_id: &str) -> Result<String> {
+        let mute_relationship = PubkyAppFollow {
+            created_at: Utc::now().timestamp_millis(),
+        };
+        let blob = serde_json::to_vec(&mute_relationship)?;
+        let mute_url = format!("pubky://{}/pub/pubky.app/mutes/{}", muter_id, mutee_id);
+        self.client.put(mute_url.as_str(), &blob).await?;
+        // Process the event
+        self.ensure_event_processing_complete().await?;
+        Ok(mute_url)
+    }
+
+    pub async fn delete_mute(&mut self, mute_url: &str) -> Result<()> {
+        self.client.delete(mute_url).await?;
+        // Process the event
+        self.ensure_event_processing_complete().await?;
+        Ok(())
+    }
 }

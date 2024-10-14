@@ -1,5 +1,5 @@
-use super::stream::Taggers;
-use crate::{models::user::UserStreamType, RedisOps};
+use super::stream::{TagStreamReach, Taggers};
+use crate::RedisOps;
 use std::error::Error;
 
 pub struct TagGlobal {}
@@ -7,7 +7,7 @@ pub struct TagGlobal {}
 impl TagGlobal {
     pub async fn get_tag_taggers(
         label: String,
-        reach: Option<UserStreamType>,
+        reach: Option<TagStreamReach>,
     ) -> Result<Option<Vec<String>>, Box<dyn std::error::Error + Send + Sync>> {
         match reach {
             None => read_from_set(&label).await,

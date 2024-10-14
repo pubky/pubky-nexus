@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use pubky_nexus::models::post::{PostStream, PostStreamSorting, ViewerStreamSource};
-use pubky_nexus::models::user::{UserStream, UserStreamType};
+use pubky_nexus::models::user::{UserStream, UserStreamSource};
 use setup::run_setup;
 use std::time::Duration;
 use tokio::runtime::Runtime;
@@ -401,6 +401,33 @@ fn bench_stream_tag_total_engagement(c: &mut Criterion) {
 
 /// USER STREAMS BENCHMARKS
 
+fn bench_stream_following(c: &mut Criterion) {
+    println!("***************************************");
+    println!("Benchmarking the user streams for following users.");
+    println!("***************************************");
+
+    run_setup();
+
+    let rt = Runtime::new().unwrap();
+
+    let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
+
+    c.bench_function("stream_following", |b| {
+        b.to_async(&rt).iter(|| async {
+            let user_stream = UserStream::get_by_id(
+                Some(user_id),
+                None,
+                None,
+                Some(20),
+                UserStreamSource::Pioneers,
+            )
+            .await
+            .unwrap();
+            criterion::black_box(user_stream);
+        });
+    });
+}
+
 fn bench_stream_most_followed(c: &mut Criterion) {
     println!("***************************************");
     println!("Benchmarking the user streams for most followed users.");
@@ -413,7 +440,7 @@ fn bench_stream_most_followed(c: &mut Criterion) {
     c.bench_function("stream_most_followed", |b| {
         b.to_async(&rt).iter(|| async {
             let user_stream =
-                UserStream::get_by_id("", None, None, Some(20), UserStreamType::MostFollowed)
+                UserStream::get_by_id(None, None, None, Some(20), UserStreamSource::MostFollowed)
                     .await
                     .unwrap();
             criterion::black_box(user_stream);
@@ -433,7 +460,7 @@ fn bench_stream_pioneers(c: &mut Criterion) {
     c.bench_function("stream_pioneers", |b| {
         b.to_async(&rt).iter(|| async {
             let user_stream =
-                UserStream::get_by_id("", None, None, Some(20), UserStreamType::MostFollowed)
+                UserStream::get_by_id(None, None, None, Some(20), UserStreamSource::Pioneers)
                     .await
                     .unwrap();
             criterion::black_box(user_stream);
@@ -490,6 +517,7 @@ criterion_group! {
               bench_stream_author_total_engagement,
               bench_stream_tag_timeline,
               bench_stream_tag_total_engagement,
+              bench_stream_following,
               bench_stream_most_followed,
               bench_stream_pioneers,
               bench_stream_users_by_username_search

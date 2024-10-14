@@ -1,5 +1,4 @@
 use anyhow::Result;
-use pubky_nexus::models::user::UserStreamType;
 use serde_json::Value;
 
 use crate::service::utils::make_request;
@@ -74,11 +73,7 @@ async fn test_global_hot_tags() -> Result<()> {
 
 #[tokio::test]
 async fn test_hot_tags_by_following_reach() -> Result<()> {
-    let endpoint = &format!(
-        "/v0/tag/reached/{}/{:?}",
-        PEER_PUBKY,
-        UserStreamType::Following
-    );
+    let endpoint = &format!("/v0/tag/reached/{}/following", PEER_PUBKY,);
 
     let body = make_request(endpoint).await?;
     assert!(body.is_array());
@@ -97,11 +92,7 @@ async fn test_hot_tags_by_following_reach() -> Result<()> {
 
 #[tokio::test]
 async fn test_hot_tags_by_followers_reach() -> Result<()> {
-    let endpoint = &format!(
-        "/v0/tag/reached/{}/{:?}",
-        PEER_PUBKY,
-        UserStreamType::Followers
-    );
+    let endpoint = &format!("/v0/tag/reached/{}/followers", PEER_PUBKY);
 
     let body = make_request(endpoint).await?;
     assert!(body.is_array());
@@ -120,11 +111,7 @@ async fn test_hot_tags_by_followers_reach() -> Result<()> {
 
 #[tokio::test]
 async fn test_hot_tags_by_friends_reach() -> Result<()> {
-    let endpoint = &format!(
-        "/v0/tag/reached/{}/{:?}",
-        PEER_PUBKY,
-        UserStreamType::Friends
-    );
+    let endpoint = &format!("/v0/tag/reached/{}/friends", PEER_PUBKY);
 
     let body = make_request(endpoint).await?;
     assert!(body.is_array());

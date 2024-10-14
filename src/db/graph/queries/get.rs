@@ -271,6 +271,22 @@ pub fn get_user_following(user_id: &str, skip: Option<usize>, limit: Option<usiz
     query(&query_string).param("user_id", user_id)
 }
 
+pub fn get_user_muted(user_id: &str, skip: Option<usize>, limit: Option<usize>) -> Query {
+    let mut query_string = String::from(
+        "MATCH (u:User {id: $user_id}) 
+         OPTIONAL MATCH (u)-[:MUTED]->(muted:User)
+         RETURN COUNT(u) > 0 AS user_exists, 
+                COLLECT(muted.id) AS muted_ids",
+    );
+    if let Some(skip_value) = skip {
+        query_string.push_str(&format!(" SKIP {}", skip_value));
+    }
+    if let Some(limit_value) = limit {
+        query_string.push_str(&format!(" LIMIT {}", limit_value));
+    }
+    query(&query_string).param("user_id", user_id)
+}
+
 // Retrieves posts popular tags and its taggers across the entire network
 pub fn get_global_hot_tags_scores() -> Query {
     query(

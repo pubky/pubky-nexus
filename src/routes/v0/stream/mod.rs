@@ -11,8 +11,6 @@ pub fn routes() -> Router {
         // User stream
         endpoints::STREAM_USERS_ROUTE => users::stream_users_handler,
         endpoints::STREAM_USERS_USERNAME_SEARCH_ROUTE => users::stream_username_search_handler,
-        endpoints::STREAM_USERS_MOSTFOLLOWED_ROUTE => users::stream_most_followed_users_handler,
-        endpoints::STREAM_USERS_PIONEERS_ROUTE => users::stream_pioneer_users_handler,
 
         // Post stream
         endpoints::STREAM_POSTS_ROUTE => posts::stream_posts_handler,

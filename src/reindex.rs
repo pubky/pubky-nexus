@@ -6,7 +6,7 @@ use crate::models::tag::stream::HotTags;
 use crate::models::tag::traits::TagCollection;
 use crate::models::tag::user::TagUser;
 use crate::models::traits::Collection;
-use crate::models::user::{Followers, Following, UserDetails, UserFollows};
+use crate::models::user::{Followers, Following, Muted, UserDetails, UserFollows};
 use crate::{
     db::connectors::neo4j::get_neo4j_graph,
     models::post::{PostCounts, PostDetails, PostRelationships},
@@ -80,6 +80,7 @@ pub async fn reindex_user(user_id: &str) -> Result<(), Box<dyn std::error::Error
         UserCounts::reindex(user_id),
         Followers::reindex(user_id),
         Following::reindex(user_id),
+        Muted::reindex(user_id),
         TagUser::reindex(user_id, None)
     )?;
     Ok(())

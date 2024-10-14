@@ -511,13 +511,60 @@ async fn test_get_friends() -> Result<()> {
 }
 
 #[tokio::test]
+async fn test_get_muted() -> Result<()> {
+    let client = httpc_test::new_client(HOST_URL)?;
+
+    let user_id = "db6w580d5h63fbhtd88y8zz7pai9rkjwqt9omg6i7dz31dynrgcy";
+    let res = client
+        .do_get(&format!("/v0/user/{}/muted", user_id))
+        .await?;
+    assert_eq!(res.status(), 200);
+
+    let body = res.json_body()?;
+    assert!(body.is_array());
+    let muted: Vec<String> = body
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|id| id.as_str().unwrap().to_string())
+        .collect();
+
+    // List of specified IDs the user is expected have muted
+    let specified_ids = vec![
+        "rz6oe4yda9em9b4m7ymt8gym3r9g5gfa51su3rgdj9oszyz787n5".to_string(),
+        "5f4e800ogmkhqeyo5ijdix3ma6rw9byj8m36yrjp78pnxxc379to".to_string(),
+        "58jc5bujzoj35g55pqjo6ykfdu9t156j8cxkh5ubdwgsnch1qag0".to_string(),
+    ];
+
+    // Check if the user muted the specified number of users
+    assert_eq!(
+        muted.len(),
+        specified_ids.len(),
+        "Unexpected number of muted users"
+    );
+
+    // Check if all specified IDs are present in the muted list
+    for id in &specified_ids {
+        assert!(muted.contains(id), "Missing muted ID: {}", id);
+    }
+
+    // Test non-existing user
+    let res = client
+        .do_get(&format!("/v0/user/{}/muted", "bad_user_id"))
+        .await?;
+    assert_eq!(res.status(), 404);
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_stream_following() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 
     let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
     let res = client
         .do_get(&format!(
-            "/v0/stream/users?stream_type=Following&user_id={}",
+            "/v0/stream/users?user_id={}&source=following",
             user_id
         ))
         .await?;
@@ -563,7 +610,7 @@ async fn test_stream_following() -> Result<()> {
     // Test non-existing user
     let res = client
         .do_get(&format!(
-            "/v0/stream/users?stream_type=Following&user_id={}",
+            "/v0/stream/users?user_id={}&source=following",
             "bad_user_id"
         ))
         .await?;
@@ -577,7 +624,9 @@ async fn test_stream_most_followed() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 
     // Test retrieving the most followed users
-    let res = client.do_get("/v0/stream/users/most-followed").await?;
+    let res = client
+        .do_get("/v0/stream/users?source=mostfollowed")
+        .await?;
     assert_eq!(res.status(), 200);
 
     let body = res.json_body()?;
@@ -623,7 +672,7 @@ async fn test_stream_most_followed() -> Result<()> {
 
     // Test limiting the results to 5 users
     let res = client
-        .do_get("/v0/stream/users/most-followed?limit=5")
+        .do_get("/v0/stream/users?source=mostfollowed&limit=5")
         .await?;
     assert_eq!(res.status(), 200);
 
@@ -647,7 +696,7 @@ async fn test_stream_pioneers() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 
     // Test retrieving the most followed users
-    let res = client.do_get("/v0/stream/users/pioneers").await?;
+    let res = client.do_get("/v0/stream/users?source=pioneers").await?;
     assert_eq!(res.status(), 200);
 
     let body = res.json_body()?;
@@ -691,7 +740,7 @@ async fn test_stream_pioneers() -> Result<()> {
 
     // Test limiting the results to 5 users
     let res = client
-        .do_get("/v0/stream/users/most-followed?limit=5")
+        .do_get("/v0/stream/users?source=pioneers&limit=5")
         .await?;
     assert_eq!(res.status(), 200);
 
@@ -1123,10 +1172,7 @@ async fn test_stream_users_by_username_search() -> Result<()> {
     let username = "Jo";
 
     let res = client
-        .do_get(&format!(
-            "/v0/stream/users/username-search?username={}",
-            username
-        ))
+        .do_get(&format!("/v0/stream/users/username?username={}", username))
         .await?;
     assert_eq!(res.status(), 200);
 
