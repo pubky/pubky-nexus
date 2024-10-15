@@ -25,7 +25,11 @@ pub async fn sync_put(
 ) -> Result<(), Box<dyn Error + Sync + Send>> {
     // SAVE TO GRAPH
     // (follower_id)-[:FOLLOWS]->(followee_id)
-    Followers::put_to_graph(&follower_id, &followee_id).await?;
+    let existed = Followers::put_to_graph(&follower_id, &followee_id).await?;
+
+    if existed {
+        return Ok(());
+    }
 
     // Checks whether the followee was following the follower (Is this a new friendship?)
     let will_be_friends = is_followee_following_follower(&follower_id, &followee_id).await?;
@@ -68,8 +72,13 @@ pub async fn sync_del(
     followee_id: PubkyId,
 ) -> Result<(), Box<dyn Error + Sync + Send>> {
     // DELETE FROM GRAPH
-    Followers::del_from_graph(&follower_id, &followee_id).await?;
-    // Check if that users are friends. Is this a break? :(
+    let existed = Followers::del_from_graph(&follower_id, &followee_id).await?;
+
+    if !existed {
+        return Ok(());
+    }
+
+    // Check if the users are friends. Is this a break? :(
     let were_friends = Friends::check(&follower_id, &followee_id).await?;
 
     // REMOVE FROM INDEX

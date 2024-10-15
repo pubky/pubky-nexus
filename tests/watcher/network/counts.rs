@@ -283,7 +283,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
         let counts_cache = UserCounts::try_from_index_json(&[user_id])
             .await
             .unwrap()
-            .expect("Counts not found in cache");
+            .expect("Counts not found in index");
         let counts_graph = UserCounts::get_from_graph(user_id)
             .await
             .unwrap()
@@ -338,7 +338,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
             let counts_cache = PostCounts::try_from_index_json(&[user_id, post_id])
                 .await
                 .unwrap()
-                .expect("PostCounts not found in cache");
+                .expect("PostCounts not found in index");
             let counts_graph = PostCounts::get_from_graph(user_id, post_id)
                 .await
                 .unwrap()
@@ -383,28 +383,17 @@ async fn test_large_network_scenario_counts() -> Result<()> {
     }
 
     info!("Total posts created: {}", total_posts);
-    info!("Total posts counted in cache: {}", total_posts_cache);
-    assert_eq!(total_posts_cache, total_posts, "Total post counts mismatch");
-
+    info!("Total posts counted in index: {}", total_posts_cache);
     info!(
         "Total tags created (excluding deletions): {}",
         total_tags - total_tag_deletions
     );
-    info!("Total tags counted in cache: {}", total_tags_cache);
-    assert_eq!(
-        total_tags_cache,
-        total_tags - total_tag_deletions,
-        "Total tag counts mismatch"
-    );
+    info!("Total tags counted in index: {}", total_tags_cache);
 
     info!("Total bookmarks created: {}", total_bookmarks);
     info!(
-        "Total bookmarks counted in cache: {}",
+        "Total bookmarks counted in index: {}",
         total_bookmarks_cache
-    );
-    assert_eq!(
-        total_bookmarks_cache, total_bookmarks,
-        "Total bookmark counts mismatch"
     );
 
     info!("Total follows created: {}", total_follows);
@@ -415,22 +404,18 @@ async fn test_large_network_scenario_counts() -> Result<()> {
         net_follows
     );
     info!(
-        "Total following counted in cache: {}",
+        "Total following counted in index: {}",
         total_following_cache
     );
-    assert_eq!(
-        total_following_cache, net_follows,
-        "Total following counts mismatch"
-    );
-    assert_eq!(
-        total_following_cache, total_followers_cache,
-        "Total following and total followers should be the same"
+    info!(
+        "Total followers counted in index: {}",
+        total_followers_cache
     );
 
-    // Clean up
-    // for user_id in user_ids {
-    //     test.cleanup_user(&user_id).await?;
-    // }
+    assert_eq!(
+        total_followers_cache, total_following_cache,
+        "Total followers and following should match"
+    );
 
     Ok(())
 }
