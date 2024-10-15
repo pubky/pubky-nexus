@@ -21,7 +21,7 @@ use std::collections::{HashMap, HashSet};
 // We can test two modalities:
 // 1. Processing the events one by one. This is akin to a watcher that is always fully synced.
 // 2. Processing all events at the end. This is akin to syncing an existing homeserver.
-const PROCESS_EVENTS_ONE_BY_ONE: bool = true;
+const PROCESS_EVENTS_ONE_BY_ONE: bool = false;
 
 // Size of network
 const NUM_USERS: usize = 100;

@@ -25,11 +25,18 @@ pub fn create_user(user: &UserDetails) -> Result<Query, Box<dyn std::error::Erro
 pub fn create_post(post: &PostDetails) -> Result<Query, Box<dyn std::error::Error + Send + Sync>> {
     let query = query(
         "MATCH (u:User {id: $author_id})
+
+         // Check if post already existed
+         OPTIONAL MATCH (u)-[:AUTHORED]->(existing:Post {id: $post_id})
+
+         // Write data
          MERGE (u)-[:AUTHORED]->(p:Post {id: $post_id})
          SET p.content = $content,
              p.indexed_at = $indexed_at,
              p.kind = $kind,
-             p.attachments = $attachments",
+             p.attachments = $attachments
+             
+         RETURN existing IS NOT NULL AS existed;",
     )
     .param("author_id", post.author.to_string())
     .param("post_id", post.id.to_string())
