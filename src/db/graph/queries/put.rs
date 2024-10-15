@@ -130,9 +130,17 @@ pub fn create_post_bookmark(
     query(
         "MATCH (u:User {id: $user_id})
          MATCH (author:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+
+         // Check if bookmark already exist
+         OPTIONAL MATCH (u)-[existing_bookmark:BOOKMARKED]->(p) 
+         WITH u, p, existing_bookmark, existing_bookmark IS NOT NULL AS existed
+
+         // Write data
          MERGE (u)-[b:BOOKMARKED]->(p)
          SET b.indexed_at = $indexed_at,
-             b.id = $bookmark_id;",
+             b.id = $bookmark_id
+
+         RETURN existed;",
     )
     .param("user_id", user_id)
     .param("author_id", author_id)

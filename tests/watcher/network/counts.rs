@@ -171,8 +171,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                     bookmark.create_id()
                 );
 
-                test.client
-                    .put(bookmark_url.as_str(), &serde_json::to_vec(&bookmark)?)
+                test.create_bookmark(&bookmark_url, serde_json::to_vec(&bookmark)?)
                     .await?;
                 total_bookmarks += 1;
             }
@@ -189,7 +188,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                 let post_index = rng.gen_range(0..user_posts[&target_user_id.clone()].len());
                 let target_post_id = &user_posts[&target_user_id.clone()][post_index];
 
-                let tag_label = format!("tag{}", rng.gen_range(0..1000)); // FAILs tag labels are repeated, the same, the counts do not match graph vs index. Graph does not duplicate tag, but index counts do increase.
+                let tag_label = format!("tag{}", rng.gen_range(0..100)); // FAILs tag labels are repeated, the same, the counts do not match graph vs index. Graph does not duplicate tag, but index counts do increase.
                 let tag = PubkyAppTag {
                     uri: format!(
                         "pubky://{}/pub/pubky.app/posts/{}",
@@ -209,11 +208,11 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                 // left: 12
                 // right: 11
                 // Randomly decide to delete the tag
-                // if rng.gen_bool(0.1) {
-                //     // 10% chance to delete the tag
-                //     test.delete_tag(&tag_url).await?;
-                //     total_tag_deletions += 1;
-                // }
+                if rng.gen_bool(0.1) {
+                    // 10% chance to delete the tag
+                    test.delete_tag(&tag_url).await?;
+                    total_tag_deletions += 1;
+                }
             }
         }
     }
@@ -318,11 +317,11 @@ async fn test_large_network_scenario_counts() -> Result<()> {
         // Bookmarks counts mismatch for user taagfd54wqsm9erftpbi6q1tstgy1fbfca57jrk8dtkyodj483mo between cache and graph
         //  left: 15
         //  right: 13
-        // assert_eq!(
-        //     counts_cache.bookmarks, counts_graph.bookmarks,
-        //     "Bookmarks counts mismatch for user {} between cache and graph",
-        //     user_id
-        // );
+        assert_eq!(
+            counts_cache.bookmarks, counts_graph.bookmarks,
+            "Bookmarks counts mismatch for user {} between cache and graph",
+            user_id
+        );
         assert_eq!(
             counts_cache.tagged, counts_graph.tagged,
             "Tagged counts mismatch for user {} between cache and graph",

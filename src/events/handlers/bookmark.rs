@@ -37,7 +37,7 @@ pub async fn sync_put(
 
     // Save new bookmark relationship to the graph
     let indexed_at = Utc::now().timestamp_millis();
-    Bookmark::put_to_graph(&author_id, &post_id, &user_id, &id, indexed_at).await?;
+    let existed = Bookmark::put_to_graph(&author_id, &post_id, &user_id, &id, indexed_at).await?;
 
     // SAVE TO INDEX
     let bookmark_details = Bookmark { id, indexed_at };
@@ -45,8 +45,10 @@ pub async fn sync_put(
         .put_to_index(&author_id, &post_id, &user_id)
         .await?;
 
-    // Update user counts with the new bookmark
-    UserCounts::update(&user_id, "bookmarks", JsonAction::Increment(1)).await?;
+    // Update user counts with the new bookmark. Skip if bookmark existed.
+    if !existed {
+        UserCounts::update(&user_id, "bookmarks", JsonAction::Increment(1)).await?;
+    }
 
     Ok(())
 }
@@ -66,14 +68,14 @@ pub async fn sync_del(
     // DELETE FROM GRAPH
     let deleted_bookmark_info = Bookmark::del_from_graph(&user_id, &bookmark_id).await?;
 
-    if deleted_bookmark_info.is_some() {
-        let (post_id, author_id) = deleted_bookmark_info.unwrap();
+    if let Some((post_id, author_id)) = deleted_bookmark_info {
         // DELETE FROM INDEXes
         Bookmark::del_from_index(&user_id, &post_id, &author_id).await?;
-    }
 
-    // Update user counts with the new bookmark
-    UserCounts::update(&user_id, "bookmarks", JsonAction::Decrement(1)).await?;
+        // Update user counts with the new bookmark
+        // Skip updating counts if bookmark was not found in graph
+        UserCounts::update(&user_id, "bookmarks", JsonAction::Decrement(1)).await?;
+    }
 
     Ok(())
 }
