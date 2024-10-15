@@ -101,8 +101,15 @@ pub fn create_mention_relationship(
 pub fn create_follow(follower_id: &str, followee_id: &str, indexed_at: i64) -> Query {
     query(
         "MATCH (follower:User {id: $follower_id}), (followee:User {id: $followee_id})
+
+         // Check if follow already existed
+         OPTIONAL MATCH (follower)-[existing:FOLLOWS]->(followee) 
+
+         // Write data
          MERGE (follower)-[r:FOLLOWS]->(followee)
-         SET r.indexed_at = $indexed_at;",
+         SET r.indexed_at = $indexed_at
+
+         RETURN existing IS NOT NULL AS existed;",
     )
     .param("follower_id", follower_id.to_string())
     .param("followee_id", followee_id.to_string())
@@ -131,16 +138,15 @@ pub fn create_post_bookmark(
         "MATCH (u:User {id: $user_id})
          MATCH (author:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
 
-         // Check if bookmark already exist
-         OPTIONAL MATCH (u)-[existing_bookmark:BOOKMARKED]->(p) 
-         WITH u, p, existing_bookmark, existing_bookmark IS NOT NULL AS existed
+         // Check if bookmark already existed
+         OPTIONAL MATCH (u)-[existing:BOOKMARKED]->(p) 
 
          // Write data
          MERGE (u)-[b:BOOKMARKED]->(p)
          SET b.indexed_at = $indexed_at,
              b.id = $bookmark_id
 
-         RETURN existed;",
+         RETURN existing IS NOT NULL AS existed;",
     )
     .param("user_id", user_id)
     .param("author_id", author_id)
@@ -160,9 +166,16 @@ pub fn create_post_tag(
     query(
         "MATCH (author:User {id: $author_id})-[:AUTHORED]->(post:Post {id: $post_id})
          MATCH (user:User {id: $user_id})
+
+         // Check if tag already existed
+         OPTIONAL MATCH (user)-[existing:TAGGED {label: $label}]->(post) 
+
+         // Write data
          MERGE (user)-[t:TAGGED {label: $label}]->(post)
          SET t.indexed_at = $indexed_at,
-             t.id = $tag_id;",
+             t.id = $tag_id
+
+         RETURN existing IS NOT NULL AS existed;",
     )
     .param("user_id", user_id)
     .param("author_id", author_id)
@@ -182,9 +195,16 @@ pub fn create_user_tag(
     query(
         "MATCH (tagged_used:User {id: $tagged_user_id})
          MATCH (tagger:User {id: $tagger_user_id})
+
+         // Check if tag already existed
+         OPTIONAL MATCH (tagger)-[existing:TAGGED {label: $label}]->(tagged_used) 
+
+         // Write data
          MERGE (tagger)-[t:TAGGED {label: $label}]->(tagged_used)
          SET t.indexed_at = $indexed_at,
-             t.id = $tag_id;",
+             t.id = $tag_id
+
+         RETURN existing IS NOT NULL AS existed;",
     )
     .param("tagger_user_id", tagger_user_id)
     .param("tagged_user_id", tagged_user_id)

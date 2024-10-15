@@ -1,6 +1,6 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
+use crate::db::graph::exec::exec_existed_row;
 use crate::{queries, RedisOps};
-use log::info;
 use neo4rs::Relation;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -31,18 +31,7 @@ impl Bookmark {
             indexed_at,
         );
 
-        let mut result;
-        {
-            let graph = get_neo4j_graph()?;
-            let graph = graph.lock().await;
-            result = graph.execute(query).await?;
-        }
-        let mut existed = false;
-        while let Some(row) = result.next().await? {
-            existed = row.get("existed")?;
-            info!("EXISTEEEED IS {}", existed);
-        }
-        Ok(existed)
+        exec_existed_row(query).await
     }
 
     /// Retrieves counts by user ID, first trying to get from Redis, then from Neo4j if not found.
