@@ -25,6 +25,8 @@ impl UserCounts {
     pub async fn get_by_id(
         user_id: &str,
     ) -> Result<Option<UserCounts>, Box<dyn std::error::Error + Send + Sync>> {
+        // TODO: uncomment the get_from_index approach when index counting is stable
+
         // match Self::get_from_index(user_id).await? {
         //     Some(counts) => Ok(Some(counts)),
         //     None => {
@@ -104,7 +106,7 @@ impl UserCounts {
         Self::update_index_field(author_id, field, action).await?;
         // Just update pioneer and most followed indexes, when that fields are updated
         if field == "followers" || field == "tags" || field == "posts" {
-            let exist_count = Self::get_from_index(author_id).await?;
+            let exist_count = Self::get_by_id(author_id).await?;
             if let Some(user_counts) = exist_count {
                 UserStream::add_to_pioneers_sorted_set(author_id, &user_counts).await?;
                 // Increment followers
