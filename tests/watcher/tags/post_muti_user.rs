@@ -67,11 +67,13 @@ async fn test_homeserver_multi_user() -> Result<()> {
     let actual_water_tag_hot_score =
         Taggers::check_sorted_set_member(&TAG_GLOBAL_HOT, &[label_water])
             .await
-            .unwrap().unwrap_or_default();
+            .unwrap()
+            .unwrap_or_default();
     let actual_fire_tag_hot_score =
         Taggers::check_sorted_set_member(&TAG_GLOBAL_HOT, &[label_fire])
             .await
-            .unwrap().unwrap_or_default();
+            .unwrap()
+            .unwrap_or_default();
 
     // Step 2: Create tags
     let mut tag_urls = Vec::with_capacity(5);
