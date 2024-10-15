@@ -18,6 +18,7 @@ pub struct WatcherTest {
     pub client: PubkyClient,
     pub event_processor: EventProcessor,
     pub config: Config,
+    pub ensure_event_processing: bool,
 }
 
 impl WatcherTest {
@@ -36,15 +37,23 @@ impl WatcherTest {
             homeserver,
             client,
             event_processor,
+            ensure_event_processing: true,
         })
     }
 
+    pub async fn remove_event_processing(mut self) -> Self {
+        self.ensure_event_processing = false;
+        self
+    }
+
     pub async fn ensure_event_processing_complete(&mut self) -> Result<()> {
-        self.event_processor
-            .run()
-            .await
-            .map_err(|e| anyhow::anyhow!(e))?;
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await; // Ensure completion
+        if self.ensure_event_processing {
+            self.event_processor
+                .run()
+                .await
+                .map_err(|e| anyhow::anyhow!(e))?;
+            // tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
         Ok(())
     }
 

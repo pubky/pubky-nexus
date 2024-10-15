@@ -58,7 +58,8 @@ async fn test_homeserver_put_tag_post() -> Result<()> {
     // Avoid errors, if the score does not exist. Using that variable in the last assert of the test
     let actual_tag_hot_score = Taggers::check_sorted_set_member(&TAG_GLOBAL_HOT, &[label])
         .await
-        .unwrap().unwrap_or_default();
+        .unwrap()
+        .unwrap_or_default();
 
     // Put tag
     test.create_tag(&tag_url, tag_blob).await?;

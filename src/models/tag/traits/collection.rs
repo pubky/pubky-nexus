@@ -3,7 +3,7 @@ use neo4rs::Query;
 
 use crate::{
     db::{
-        connectors::neo4j::get_neo4j_graph, graph::exec::exec_single_row,
+        connectors::neo4j::get_neo4j_graph, graph::exec::exec_existed_row,
         kv::index::sorted_sets::Sorting,
     },
     models::tag::{post::POST_TAGS_KEY_PARTS, user::USER_TAGS_KEY_PARTS},
@@ -177,7 +177,7 @@ where
         tag_id: &str,
         label: &str,
         indexed_at: i64,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         let query = match extra_param {
             Some(post_id) => queries::put::create_post_tag(
                 tagger_user_id,
@@ -195,7 +195,7 @@ where
                 indexed_at,
             ),
         };
-        exec_single_row(query).await
+        exec_existed_row(query).await
     }
 
     async fn reindex(

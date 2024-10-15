@@ -39,7 +39,13 @@ pub async fn sync_put(
     let add_to_feeds = post.parent.is_none();
 
     // SAVE TO GRAPH
-    post_details.put_to_graph().await?;
+    let existed = post_details.put_to_graph().await?;
+
+    // TODO: Posts are not editable as of now. Much more handling would be needed.
+    // E.g., is it still a reply to the same post? Is there different mentions? Etc. Are different notifications needed?
+    if existed {
+        return Ok(());
+    }
 
     // PRE-INDEX operations
     let interactions = resolve_post_type_interaction(&post, &author_id, &post_id).await?;

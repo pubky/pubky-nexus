@@ -14,7 +14,10 @@ pub fn delete_user(user_id: &str) -> Query {
 pub fn delete_follow(follower_id: &str, followee_id: &str) -> Query {
     query(
         "MATCH (follower:User {id: $follower_id})-[r:FOLLOWS]->(followee:User {id: $followee_id})
-         DELETE r;",
+        
+         DELETE r
+
+         RETURN r IS NOT NULL AS existed;",
     )
     .param("follower_id", follower_id.to_string())
     .param("followee_id", followee_id.to_string())

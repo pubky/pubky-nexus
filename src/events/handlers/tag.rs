@@ -59,7 +59,7 @@ async fn put_sync_post(
     indexed_at: i64,
 ) -> Result<(), Box<dyn Error + Sync + Send>> {
     // SAVE TO GRAPH
-    TagPost::put_to_graph(
+    let existed = TagPost::put_to_graph(
         &tagger_user_id,
         &author_id,
         Some(&post_id),
@@ -68,6 +68,10 @@ async fn put_sync_post(
         indexed_at,
     )
     .await?;
+
+    if existed {
+        return Ok(());
+    }
 
     // SAVE TO INDEXES
     let post_key_slice: &[&str] = &[&author_id, &post_id];
@@ -119,7 +123,7 @@ async fn put_sync_user(
     indexed_at: i64,
 ) -> Result<(), Box<dyn Error + Sync + Send>> {
     // SAVE TO GRAPH
-    TagUser::put_to_graph(
+    let existed = TagUser::put_to_graph(
         &tagger_user_id,
         &tagged_user_id,
         None,
@@ -128,6 +132,10 @@ async fn put_sync_user(
         indexed_at,
     )
     .await?;
+
+    if existed {
+        return Ok(());
+    }
 
     // SAVE TO INDEX
     // Update user counts for the tagged user
