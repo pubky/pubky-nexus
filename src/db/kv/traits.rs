@@ -4,6 +4,7 @@ use json::JsonAction;
 use serde::{de::DeserializeOwned, Serialize};
 use sorted_sets::{ScoreAction, Sorting, SORTED_PREFIX};
 use std::error::Error;
+use time_series::TimeSeries;
 
 /// A trait for operations involving Redis storage. Implement this trait for types that need to be stored
 /// and retrieved from Redis with serialization and deserialization capabilities.
@@ -633,5 +634,9 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     ) -> Result<Option<Vec<String>>, Box<dyn Error + Send + Sync>> {
         let key = key_parts.join(":");
         sorted_sets::get_lex_range("Sorted", &key, min, max, skip, limit).await
+    }
+
+    async fn timeseries() -> TimeSeries {
+        TimeSeries::new(Self::prefix().await.as_str())
     }
 }
