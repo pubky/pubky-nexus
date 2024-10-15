@@ -22,18 +22,26 @@ impl PostCounts {
         author_id: &str,
         post_id: &str,
     ) -> Result<Option<PostCounts>, Box<dyn std::error::Error + Send + Sync>> {
-        match Self::get_from_index(author_id, post_id).await? {
-            Some(counts) => Ok(Some(counts)),
-            None => {
-                let graph_response = Self::get_from_graph(author_id, post_id).await?;
-                if let Some((post_counts, is_reply)) = graph_response {
-                    post_counts
-                        .put_to_index(author_id, post_id, !is_reply)
-                        .await?;
-                    return Ok(Some(post_counts));
-                }
-                Ok(None)
-            }
+        // TODO: uncomment the get_from_index approach when index counting is stable
+
+        // match Self::get_from_index(author_id, post_id).await? {
+        //     Some(counts) => Ok(Some(counts)),
+        //     None => {
+        //         let graph_response = Self::get_from_graph(author_id, post_id).await?;
+        //         if let Some((post_counts, is_reply)) = graph_response {
+        //             post_counts
+        //                 .put_to_index(author_id, post_id, !is_reply)
+        //                 .await?;
+        //             return Ok(Some(post_counts));
+        //         }
+        //         Ok(None)
+        //     }
+        // }
+
+        if let Some((post_counts, _)) = Self::get_from_graph(author_id, post_id).await? {
+            Ok(Some(post_counts))
+        } else {
+            Ok(None)
         }
     }
 
