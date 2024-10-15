@@ -2,6 +2,7 @@
 
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
+use log::info;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{
     models::{
@@ -23,7 +24,7 @@ use std::collections::{HashMap, HashSet};
 const PROCESS_EVENTS_ONE_BY_ONE: bool = true;
 
 // Size of network
-const NUM_USERS: usize = 50;
+const NUM_USERS: usize = 100;
 
 #[tokio::test]
 async fn test_large_network_scenario_counts() -> Result<()> {
@@ -188,7 +189,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                 let post_index = rng.gen_range(0..user_posts[&target_user_id.clone()].len());
                 let target_post_id = &user_posts[&target_user_id.clone()][post_index];
 
-                let tag_label = format!("tag{}", rng.gen_range(0..100));
+                let tag_label = format!("tag{}", rng.gen_range(0..1000)); // FAILs tag labels are repeated, the same, the counts do not match graph vs index. Graph does not duplicate tag, but index counts do increase.
                 let tag = PubkyAppTag {
                     uri: format!(
                         "pubky://{}/pub/pubky.app/posts/{}",
@@ -203,6 +204,10 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                 test.create_tag(&tag_url, serde_json::to_vec(&tag)?).await?;
                 total_tags += 1;
 
+                // FAILS: possibly deletes a tag twice and decrements twice in index.
+                // Tag counts mismatch for user tesnbp8rctyamkxuc4e1o51yd8zuxf7n9bc96zcwyomu8skrehao between cache and graph
+                // left: 12
+                // right: 11
                 // Randomly decide to delete the tag
                 // if rng.gen_bool(0.1) {
                 //     // 10% chance to delete the tag
@@ -300,6 +305,10 @@ async fn test_large_network_scenario_counts() -> Result<()> {
             "Post counts mismatch for user {} between cache and graph",
             user_id
         );
+        // FAILS: Maybe tagging same user twice with same tag?
+        // Tag counts mismatch for user 7jh4mieniunce1admx4xrgrd3mqabacms64ek8rredxr7fkkpbto between cache and graph
+        // left: 11
+        // right: 10
         assert_eq!(
             counts_cache.tags, counts_graph.tags,
             "Tag counts mismatch for user {} between cache and graph",
@@ -374,23 +383,23 @@ async fn test_large_network_scenario_counts() -> Result<()> {
         total_bookmarks_cache += counts_cache.bookmarks as usize;
     }
 
-    println!("Total posts created: {}", total_posts);
-    println!("Total posts counted in cache: {}", total_posts_cache);
+    info!("Total posts created: {}", total_posts);
+    info!("Total posts counted in cache: {}", total_posts_cache);
     assert_eq!(total_posts_cache, total_posts, "Total post counts mismatch");
 
-    println!(
+    info!(
         "Total tags created (excluding deletions): {}",
         total_tags - total_tag_deletions
     );
-    println!("Total tags counted in cache: {}", total_tags_cache);
+    info!("Total tags counted in cache: {}", total_tags_cache);
     assert_eq!(
         total_tags_cache,
         total_tags - total_tag_deletions,
         "Total tag counts mismatch"
     );
 
-    println!("Total bookmarks created: {}", total_bookmarks);
-    println!(
+    info!("Total bookmarks created: {}", total_bookmarks);
+    info!(
         "Total bookmarks counted in cache: {}",
         total_bookmarks_cache
     );
@@ -399,14 +408,14 @@ async fn test_large_network_scenario_counts() -> Result<()> {
         "Total bookmark counts mismatch"
     );
 
-    println!("Total follows created: {}", total_follows);
-    println!("Total unfollows performed: {}", total_unfollows);
+    info!("Total follows created: {}", total_follows);
+    info!("Total unfollows performed: {}", total_unfollows);
     let net_follows = total_follows - total_unfollows;
-    println!(
+    info!(
         "Net follows (should equal total following counts): {}",
         net_follows
     );
-    println!(
+    info!(
         "Total following counted in cache: {}",
         total_following_cache
     );
