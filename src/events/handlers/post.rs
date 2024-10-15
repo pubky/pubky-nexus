@@ -1,4 +1,4 @@
-use crate::db::graph::exec::exec_single_row;
+use crate::db::graph::exec::{exec_existed_row, exec_single_row};
 use crate::db::kv::index::json::JsonAction;
 use crate::events::uri::ParsedUri;
 use crate::models::notification::Notification;
@@ -6,8 +6,10 @@ use crate::models::post::{
     PostCounts, PostRelationships, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS,
 };
 use crate::models::pubky_app::traits::Validatable;
+use crate::models::pubky_app::PostKind;
 use crate::models::user::UserCounts;
 use crate::models::{post::PostDetails, pubky_app::PubkyAppPost, user::PubkyId};
+use crate::queries::get::post_has_relationships;
 use crate::{queries, RedisOps, ScoreAction};
 use axum::body::Bytes;
 use log::debug;
@@ -205,8 +207,40 @@ pub async fn put_mentioned_relationships(
 }
 
 pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), Box<dyn Error + Sync + Send>> {
-    // TODO: handle deletion of Post resource from databases
     debug!("Deleting post: {}/{}", author_id, post_id);
-    // Implement logic here
+
+    // Graph query to check if there is any edge at all to this post other than AUTHORED. If there is none, delete from graph and redis.
+    // But if there is any, then we simply update the post with keyword content [DELETED].
+    // A deleted post is a post whose content is EXACTLY `"[DELETED]"`
+    let query = post_has_relationships(&author_id, &post_id);
+    let delete_safe = !exec_existed_row(query).await?;
+
+    match delete_safe {
+        true => {
+            PostDetails::delete(&author_id, &post_id).await?;
+            PostCounts::delete(&author_id, &post_id).await?;
+        }
+        false => {
+            let existing_relationships = PostRelationships::get_by_id(&author_id, &post_id).await?;
+            let parent = match existing_relationships {
+                Some(relationships) => relationships.replied,
+                None => None,
+            };
+
+            // We store a dummy that is still a reply if it was one already.
+            let dummy_deleted_post = PubkyAppPost {
+                content: "[DELETED]".to_string(),
+                parent,
+                embed: None,
+                kind: PostKind::Short,
+                attachments: None,
+            };
+
+            sync_put(dummy_deleted_post, author_id, post_id).await?;
+        }
+    };
+
+    // TODO: Notifications for deleted posts
+
     Ok(())
 }

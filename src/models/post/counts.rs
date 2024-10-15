@@ -117,4 +117,14 @@ impl PostCounts {
         }
         Ok(())
     }
+
+    pub async fn delete(
+        author_id: &str,
+        post_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Delete user_details on Redis
+        Self::remove_from_index_multiple_json(&[&[author_id, post_id]]).await?;
+
+        Ok(())
+    }
 }

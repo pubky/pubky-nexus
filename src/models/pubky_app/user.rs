@@ -39,10 +39,16 @@ impl Validatable for PubkyAppUser {
         let sanitized_name = self.name.trim().to_string();
 
         // Crop name to a maximum length of 50 characters
-        let name = if sanitized_name.len() > MAX_USERNAME_LENGTH {
+        let mut name = if sanitized_name.len() > MAX_USERNAME_LENGTH {
             sanitized_name[..MAX_USERNAME_LENGTH].to_string()
         } else {
             sanitized_name
+        };
+
+        // We use username keyword `[DELETED]` for a user whose `profile.json` has been deleted
+        // Therefore this is not a valid username.
+        if name == "[DELETED]".to_string() {
+            name = "anonymous".to_string() //default username
         };
 
         // Sanitize bio

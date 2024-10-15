@@ -10,6 +10,17 @@ pub fn delete_user(user_id: &str) -> Query {
     .param("id", user_id.to_string())
 }
 
+// Delete a post node
+// Will delete all relationships of this user as well!
+pub fn delete_post(author_id: &str, post_id: &str) -> Query {
+    query(
+        "MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+         DETACH DELETE p;",
+    )
+    .param("author_id", author_id.to_string())
+    .param("post_id", post_id.to_string())
+}
+
 // Delete a follows relationship between two users
 pub fn delete_follow(follower_id: &str, followee_id: &str) -> Query {
     query(
