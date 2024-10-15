@@ -60,7 +60,7 @@ impl EventProcessor {
             pubky_client: PubkyClient::builder().testnet(testnet).build(),
             http_client: Client::new(),
             homeserver,
-            limit: 100,
+            limit: 1000,
             max_retries: 3,
         }
     }
