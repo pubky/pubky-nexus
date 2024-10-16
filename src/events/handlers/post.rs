@@ -228,6 +228,7 @@ pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), Box<dyn Erro
         true => {
             PostDetails::delete(&author_id, &post_id).await?;
             PostCounts::delete(&author_id, &post_id).await?;
+            UserCounts::update(&author_id, "posts", JsonAction::Decrement(1)).await?;
         }
         false => {
             let existing_relationships = PostRelationships::get_by_id(&author_id, &post_id).await?;

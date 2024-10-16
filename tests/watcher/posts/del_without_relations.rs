@@ -4,6 +4,7 @@ use pubky_common::crypto::Keypair;
 use pubky_nexus::models::{
     post::{PostCounts, PostDetails, PostView},
     pubky_app::{PostEmbed, PostKind, PubkyAppPost, PubkyAppUser},
+    user::UserCounts,
 };
 
 #[tokio::test]
@@ -55,6 +56,15 @@ async fn test_delete_post_without_relationships() -> Result<()> {
     assert!(
         post_view.is_none(),
         "Post view should not be found after deletion"
+    );
+
+    let user_counts = UserCounts::get_by_id(&user_id)
+        .await
+        .unwrap()
+        .expect("User counts should exist");
+    assert_eq!(
+        user_counts.posts, 0,
+        "User count of posts should be again 0 after deletion"
     );
 
     Ok(())
@@ -123,6 +133,5 @@ async fn test_delete_post_that_reposted() -> Result<()> {
         post_view.is_none(),
         "Repost view should not be found after deletion"
     );
-
     Ok(())
 }
