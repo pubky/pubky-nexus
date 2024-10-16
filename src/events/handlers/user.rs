@@ -31,7 +31,11 @@ pub async fn sync_put(
     // SAVE TO INDEX
     let user_id = user_details.id.clone();
     UserSearch::put_to_index(&[&user_details]).await?;
-    UserCounts::default().put_to_index(&user_id).await?;
+    // If new user (no existing counts) save a new UserCounts.
+    match UserCounts::get_from_index(&user_id).await? {
+        None => UserCounts::default().put_to_index(&user_id).await?,
+        Some(_) => (),
+    };
     UserDetails::put_to_index(&[&user_id], vec![Some(user_details)]).await?;
     Ok(())
 }
