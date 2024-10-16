@@ -352,7 +352,8 @@ pub fn get_thread(
             MATCH (reply_author:User)-[:AUTHORED]->(reply:Post)-[:REPLIED*1..{}]->(p)
             RETURN reply, reply_author
             ORDER BY reply.indexed_at ASC
-            SKIP $skip LIMIT $limit
+            SKIP $skip 
+            LIMIT $limit
         }}
         RETURN p AS root_post, collect({{reply_id: reply.id, author_id: reply_author.id}}) AS replies
         ",
