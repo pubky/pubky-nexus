@@ -1,4 +1,4 @@
-use crate::db::graph::exec::{exec_existed_row, exec_single_row};
+use crate::db::graph::exec::{exec_boolean_row, exec_single_row};
 use crate::db::kv::index::json::JsonAction;
 use crate::events::uri::ParsedUri;
 use crate::models::notification::Notification;
@@ -9,7 +9,7 @@ use crate::models::pubky_app::traits::Validatable;
 use crate::models::pubky_app::PostKind;
 use crate::models::user::UserCounts;
 use crate::models::{post::PostDetails, pubky_app::PubkyAppPost, user::PubkyId};
-use crate::queries::get::post_has_relationships;
+use crate::queries::get::post_is_safe_to_delete;
 use crate::{queries, RedisOps, ScoreAction};
 use axum::body::Bytes;
 use log::debug;
@@ -43,9 +43,12 @@ pub async fn sync_put(
     // SAVE TO GRAPH
     let existed = post_details.put_to_graph().await?;
 
-    // TODO: Posts are not editable as of now. Much more handling would be needed.
-    // E.g., is it still a reply to the same post? Is there different mentions? Etc. Are different notifications needed?
+    // TODO: Posts are not really editable as of now. Much more handling would be needed.
+    // But we can update content even if post existed. Useful for DEL posts (content becomes [DELETED])
+    // Example of yet unhandled: is it still a reply to the same post? Is there different mentions? Etc. Are different notifications needed?
     if existed {
+        // Update content of PostDetails in index and leave!
+        post_details.put_to_index(&author_id, false).await?;
         return Ok(());
     }
 
@@ -218,8 +221,8 @@ pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), Box<dyn Erro
     // Graph query to check if there is any edge at all to this post other than AUTHORED. If there is none, delete from graph and redis.
     // But if there is any, then we simply update the post with keyword content [DELETED].
     // A deleted post is a post whose content is EXACTLY `"[DELETED]"`
-    let query = post_has_relationships(&author_id, &post_id);
-    let delete_safe = !exec_existed_row(query).await?;
+    let query = post_is_safe_to_delete(&author_id, &post_id);
+    let delete_safe = !exec_boolean_row(query).await?;
 
     match delete_safe {
         true => {

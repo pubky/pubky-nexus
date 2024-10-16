@@ -1,6 +1,6 @@
 use super::PostStream;
 use crate::db::connectors::neo4j::get_neo4j_graph;
-use crate::db::graph::exec::{exec_existed_row, exec_single_row};
+use crate::db::graph::exec::{exec_boolean_row, exec_single_row};
 use crate::models::pubky_app::{PostKind, PubkyAppPost};
 use crate::models::user::PubkyId;
 use crate::{queries, RedisOps};
@@ -124,7 +124,7 @@ impl PostDetails {
     // Save new graph node
     pub async fn put_to_graph(&self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         // Save new graph node;
-        exec_existed_row(queries::put::create_post(self)?).await
+        exec_boolean_row(queries::put::create_post(self)?).await
     }
 
     pub async fn delete(

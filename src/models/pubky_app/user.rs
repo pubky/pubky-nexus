@@ -47,7 +47,7 @@ impl Validatable for PubkyAppUser {
 
         // We use username keyword `[DELETED]` for a user whose `profile.json` has been deleted
         // Therefore this is not a valid username.
-        if name == "[DELETED]".to_string() {
+        if name == *"[DELETED]" {
             name = "anonymous".to_string() //default username
         };
 

@@ -69,7 +69,7 @@ impl Validatable for PubkyAppPost {
         // We are using content keyword `[DELETED]` for deleted posts from a homeserver that still have relationships
         // placed by other users (replies, tags, etc). This content is exactly matched by the client to apply effects to deleted content.
         // Placing posts with content `[DELETED]` is not allowed.
-        if content == "[DELETED]".to_string() {
+        if content == *"[DELETED]" {
             content = "empty".to_string()
         }
 

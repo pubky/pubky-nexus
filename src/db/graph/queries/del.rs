@@ -27,8 +27,9 @@ pub fn delete_follow(follower_id: &str, followee_id: &str) -> Query {
         "MATCH (follower:User {id: $follower_id})-[r:FOLLOWS]->(followee:User {id: $followee_id})
         
          DELETE r
-
-         RETURN r IS NOT NULL AS existed;",
+         
+         // returns whether the relationship existed as 'boolean'
+         RETURN r IS NOT NULL AS boolean;",
     )
     .param("follower_id", follower_id.to_string())
     .param("followee_id", followee_id.to_string())
