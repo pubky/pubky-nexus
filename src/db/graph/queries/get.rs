@@ -355,7 +355,7 @@ pub fn get_thread(
             SKIP $skip 
             LIMIT $limit
         }}
-        RETURN p AS root_post, collect({{reply_id: reply.id, author_id: reply_author.id}}) AS replies
+        RETURN collect({{reply_id: reply.id, author_id: reply_author.id}}) AS replies
         ",
         depth
     );
