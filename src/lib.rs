@@ -6,6 +6,7 @@ pub mod models;
 mod reindex;
 pub mod routes;
 mod setup;
+mod static_processor;
 
 pub use config::Config;
 pub use db::connectors::neo4j::get_neo4j_graph;

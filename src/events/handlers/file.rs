@@ -3,10 +3,7 @@ use std::error::Error;
 use axum::body::Bytes;
 use log::debug;
 use pubky::PubkyClient;
-use tokio::{
-    fs::{self, remove_file, File},
-    io::AsyncWriteExt,
-};
+use tokio::fs;
 
 use crate::{
     models::{
@@ -18,7 +15,7 @@ use crate::{
         traits::Collection,
         user::PubkyId,
     },
-    Config,
+    static_processor::store::{remove_blob, store_blob},
 };
 
 pub async fn put(
@@ -66,52 +63,15 @@ async fn ingest(
 ) -> Result<FileMeta, Box<dyn std::error::Error + Send + Sync>> {
     let response = client.get(pubkyapp_file.src.as_str()).await?.unwrap();
 
-    debug!("response {:?}", response);
-    store_blob(file_id.to_string(), user_id.to_string(), &response).await?;
+    let path = format!("{}/{}", user_id, file_id);
+    store_blob(String::from("main"), path.to_string(), &response).await?;
 
-    let static_path = format!("{}/{}", user_id, file_id);
+    let main_static_path = format!("{}/main", path);
     Ok(FileMeta {
-        urls: FileUrls { main: static_path },
+        urls: FileUrls {
+            main: main_static_path,
+        },
     })
-}
-
-async fn store_blob(
-    name: String,
-    path: String,
-    blob: &Bytes,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let storage_path = Config::from_env().file_path;
-    let full_path = format!("{}/{}", storage_path, path);
-
-    debug!("store blob in full_path: {}", full_path);
-
-    let path_exists = match fs::metadata(full_path.as_str()).await {
-        Err(_) => false,
-        Ok(metadata) => metadata.is_dir(),
-    };
-
-    debug!("path exists: {}", path_exists);
-
-    if !path_exists {
-        fs::create_dir_all(full_path.as_str()).await?;
-    }
-
-    let file_path = format!("{}/{}", full_path, name);
-    let mut static_file = File::create_new(file_path).await?;
-    static_file.write_all(blob).await?;
-
-    Ok(())
-}
-
-async fn remove_blob(
-    name: String,
-    path: String,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let storage_path = Config::from_env().file_path;
-    let file_path = format!("{}/{}/{}", storage_path, path, name);
-
-    remove_file(file_path).await?;
-    Ok(())
 }
 
 pub async fn del(user_id: &PubkyId, file_id: String) -> Result<(), Box<dyn Error + Sync + Send>> {
@@ -127,7 +87,22 @@ pub async fn del(user_id: &PubkyId, file_id: String) -> Result<(), Box<dyn Error
         value.delete().await?;
     }
 
-    remove_blob(file_id, user_id.to_string()).await?;
+    let folder_path = format!("{}/{}", user_id, file_id);
 
+    let mut directory = fs::read_dir(folder_path.clone()).await?;
+
+    loop {
+        let entry = directory.next_entry().await?;
+        match entry {
+            Some(path) => {
+                remove_blob(
+                    String::from(path.file_name().to_str().unwrap()),
+                    folder_path.clone(),
+                )
+                .await?
+            }
+            None => break,
+        };
+    }
     Ok(())
 }

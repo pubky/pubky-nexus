@@ -24,6 +24,7 @@ pub fn routes() -> Router {
     let route_file = file::routes();
     let route_tag = tag::routes();
     let route_notification = notification::routes();
+    let file_router = file::routes();
     let route_openapi =
         SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::merge_docs());
 
@@ -36,6 +37,7 @@ pub fn routes() -> Router {
         .merge(route_tag)
         .merge(route_notification)
         .merge(route_openapi)
+        .merge(file_router)
 }
 
 #[derive(OpenApi)]
@@ -53,6 +55,7 @@ impl ApiDoc {
         combined.merge(file::FileApiDoc::merge_docs());
         combined.merge(tag::TagApiDoc::merge_docs());
         combined.merge(notification::NotificationApiDoc::merge_docs());
+        combined.merge(file::FileApiDoc::merge_docs());
         combined
     }
 }
