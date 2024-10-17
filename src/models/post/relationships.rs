@@ -6,6 +6,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use super::stream::POST_REPLIES_TIMELINE_KEY_PARTS;
 use super::PostStream;
 
 #[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
@@ -27,11 +28,16 @@ impl PostRelationships {
         post_id: &str,
     ) -> Result<Option<PostRelationships>, Box<dyn std::error::Error + Send + Sync>> {
         match Self::get_from_index(author_id, post_id).await? {
-            Some(counts) => Ok(Some(counts)),
+            Some((post_relationships, None)) => Ok(Some(post_relationships)),
+            Some((post_relationships, Some(_))) => {
+                // TODO: Make indexed at Option type, from now ok ;)
+                post_relationships.put_to_index(author_id, post_id, 0, true).await?;
+                return Ok(Some(post_relationships));
+            },
             None => {
                 let graph_response = Self::get_from_graph(author_id, post_id).await?;
                 if let Some((post_relationships, indexed_at)) = graph_response {
-                    post_relationships.put_to_index(author_id, post_id, indexed_at).await?;
+                    post_relationships.put_to_index(author_id, post_id, indexed_at, false).await?;
                     return Ok(Some(post_relationships));
                 }
                 Ok(None)
@@ -42,9 +48,19 @@ impl PostRelationships {
     pub async fn get_from_index(
         author_id: &str,
         post_id: &str,
-    ) -> Result<Option<PostRelationships>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<(PostRelationships, Option<(PubkyId, String)>)>, Box<dyn std::error::Error + Send + Sync>> {
         if let Some(post_relationships) = Self::try_from_index_json(&[author_id, post_id]).await? {
-            return Ok(Some(post_relationships));
+            let reply = post_relationships.is_reply();
+            if let Some((parent_author_id, parent_post_id)) = &reply {
+                let key_parts = [&POST_REPLIES_TIMELINE_KEY_PARTS[..], &[parent_author_id, parent_post_id]].concat();
+                let member = [author_id, post_id];
+                let exist = PostRelationships::check_sorted_set_member(&key_parts, &member).await?;
+                if exist.is_none() {
+                    return Ok(Some((post_relationships, reply)));
+                }
+            }
+            // The post it is not a reply or it is indexed, ignore indexing Sorted:Post
+            return Ok(Some((post_relationships, None)));
         }
         Ok(None)
     }
@@ -100,9 +116,12 @@ impl PostRelationships {
         &self,
         author_id: &str,
         post_id: &str,
-        indexed_at: i64
+        indexed_at: i64,
+        relationship_indexed: bool
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.put_index_json(&[author_id, post_id]).await?;
+        if relationship_indexed {
+            self.put_index_json(&[author_id, post_id]).await?;
+        }
         if let Some((parent_author_id, parent_post_id)) = self.is_reply() {
             PostStream::add_to_post_reply_sorted_set(
                 &parent_author_id,
@@ -131,7 +150,7 @@ impl PostRelationships {
         post_id: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         match Self::get_from_graph(author_id, post_id).await? {
-            Some((relationships, indexed_at)) => relationships.put_to_index(author_id, post_id, indexed_at).await?,
+            Some((relationships, indexed_at)) => relationships.put_to_index(author_id, post_id, indexed_at, false).await?,
             None => log::error!(
                 "{}:{} Could not found post relationships in the graph",
                 author_id,
@@ -148,11 +167,16 @@ mod tests {
 
     use super::*;
 
-    const AUTHOR_ID: &str = "pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy";
+    const AUTHOR_A_ID: &str = "pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy";
     const POST_ID: &str = "2ZCWWEQ4TB600";
+    const REPLY_SA_ID: &str = "2ZCWZ5545FA00";
 
-    const USER_ID: &str = "kt1ujy3zxs1tpxsxrqkdpmon5co959paiknw1s4r1rf1gsnqxnao";
-    const REPLY_ID: &str = "2ZCWXSXM1FHG0";
+    const USER_S_ID: &str = "kt1ujy3zxs1tpxsxrqkdpmon5co959paiknw1s4r1rf1gsnqxnao";
+    const REPLY_A_ID: &str = "2ZCWXSXM1FHG0";
+    
+    const USER_J_ID: &str = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
+    const REPLY_SJ_ID: &str = "2ZD52PVKVSY00";
+
 
     #[tokio::test]
     async fn test_reply_get_by_id_fn() {
@@ -161,23 +185,30 @@ mod tests {
         let config = Config::from_env();
         setup(&config).await;
 
-        let parent_post_res = PostRelationships::get_by_id(AUTHOR_ID, POST_ID).await.unwrap();
+        let parent_post_res = PostRelationships::get_by_id(AUTHOR_A_ID, POST_ID).await.unwrap();
         assert!(parent_post_res.is_some(), "Post has to exist");
 
         let parent_post = parent_post_res.unwrap();
         assert!(parent_post.replied.is_none());
         assert!(parent_post.reposted.is_none());
 
-        let reply_post_res = PostRelationships::get_by_id(USER_ID, REPLY_ID).await.unwrap();
+        let reply_post_res = PostRelationships::get_by_id(USER_S_ID, REPLY_A_ID).await.unwrap();
         assert!(reply_post_res.is_some(), "The post has to be a reply");
 
         let reply_post = reply_post_res.unwrap();
 
         if let Some((author_id, post_id)) = reply_post.is_reply() {
-            assert_eq!(author_id.as_str(), AUTHOR_ID);
+            assert_eq!(author_id.as_str(), AUTHOR_A_ID);
             assert_eq!(post_id.as_str(), POST_ID);
         } else {
             assert!(false)
         }
+
+        let reply_post_res = PostRelationships::get_by_id(USER_J_ID, REPLY_SJ_ID).await.unwrap();
+        assert!(reply_post_res.is_some(), "The post has to be a reply");
+
+        let reply_post_res = PostRelationships::get_by_id(AUTHOR_A_ID, REPLY_SA_ID).await.unwrap();
+        assert!(reply_post_res.is_some(), "The post has to be a reply");
+
     }
 }

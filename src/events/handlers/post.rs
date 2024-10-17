@@ -114,7 +114,7 @@ pub async fn sync_put(
         reposted: interaction_url.1,
         mentioned: mentioned_users,
     }
-    .put_to_index(&author_id, &post_id, post_details.indexed_at)
+    .put_to_index(&author_id, &post_id, post_details.indexed_at, false)
     .await?;
 
     post_details.put_to_index(&author_id, add_to_feeds).await?;
