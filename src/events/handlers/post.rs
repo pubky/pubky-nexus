@@ -81,6 +81,14 @@ pub async fn sync_put(
         .await?;
 
         if action == "replies" {
+            PostStream::add_to_post_reply_sorted_set(
+                parent_post_key_parts[0],
+                parent_post_key_parts[1],
+                &author_id,
+                &post_id,
+                post_details.indexed_at,
+            )
+            .await?;
             Notification::new_post_reply(
                 &author_id,
                 parent_uri,

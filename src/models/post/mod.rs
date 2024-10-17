@@ -5,6 +5,7 @@ mod relationships;
 mod stream;
 mod thread;
 mod view;
+mod replies;
 
 pub use bookmark::Bookmark;
 pub use counts::PostCounts;

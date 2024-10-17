@@ -19,8 +19,11 @@ const MAX_TAGS: usize = 5;
         ("skip" = Option<usize>, Query, description = "Skip N posts"),
         ("limit" = Option<usize>, Query, description = "Retrieve N posts"),
         ("sorting" = Option<PostStreamSorting>, Query, description = "Sorting method"),
-        ("source" = Option<ViewerStreamSource>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, all)"),
-        ("tags" = Option<Vec<String>>, Query, description = "Filter by a list of comma separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned.")
+        ("source" = Option<ViewerStreamSource>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, replies, all)"),
+        ("tags" = Option<Vec<String>>, Query, description = "Filter by a list of comma separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned."),
+        ("post_id" = Option<String>, Query, description = "This parameter is needed when we want to retrieve the replies stream for a post"),
+        ("start" = Option<usize>, Query, description = "The start of the stream timeframe. Posts with a timestamp greater than this value will be excluded from the results"),
+        ("end" = Option<usize>, Query, description = "The end of the stream timeframe. Posts with a timestamp less than this value will be excluded from the results"),
     ),
     responses(
         (status = 200, description = "Posts stream", body = PostStream),
@@ -53,14 +56,23 @@ pub async fn stream_posts_handler(
         }
     }
 
+    if source != ViewerStreamSource::Replies && query.post_id.is_none() {
+        return Err(Error::InvalidInput {
+            message: "Post ID is required for streams with a source 'Replies'".to_string(),
+        });
+    }
+
     match PostStream::get_posts(
         query.viewer_id,
         query.author_id,
+        query.post_id,
         sorting,
         source,
         query.tags,
         Some(skip),
         Some(limit),
+        query.start,
+        query.end
     )
     .await
     {

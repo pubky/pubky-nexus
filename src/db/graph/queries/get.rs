@@ -420,6 +420,9 @@ pub fn post_stream(
             ViewerStreamSource::All => {
                 // No additional match needed
             }
+            ViewerStreamSource::Replies => {
+                // No additional match needed
+            }
         }
     }
 

@@ -8,6 +8,7 @@ use crate::{
     },
     queries, RedisOps, ScoreAction,
 };
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use tokio::task::spawn;
@@ -16,6 +17,7 @@ use utoipa::ToSchema;
 
 pub const POST_TIMELINE_KEY_PARTS: [&str; 3] = ["Posts", "Global", "Timeline"];
 pub const POST_TOTAL_ENGAGEMENT_KEY_PARTS: [&str; 3] = ["Posts", "Global", "TotalEngagement"];
+pub const POST_REPLIES_TIMELINE_KEY_PARTS: [&str; 2] = ["Posts", "Replies"];
 pub const POST_PER_USER_KEY_PARTS: [&str; 2] = ["Posts", "User"];
 const BOOKMARKS_USER_KEY_PARTS: [&str; 2] = ["Bookmarks", "User"];
 
@@ -34,6 +36,7 @@ pub enum ViewerStreamSource {
     Followers,
     Friends,
     Bookmarks,
+    Replies
     // 4U,
 }
 
@@ -56,11 +59,14 @@ impl PostStream {
     pub async fn get_posts(
         viewer_id: Option<String>,
         author_id: Option<String>,
+        post_id: Option<String>,
         sorting: PostStreamSorting,
         source: ViewerStreamSource,
         tags: Option<Vec<String>>,
         skip: Option<usize>,
         limit: Option<usize>,
+        start: Option<f64>,
+        end: Option<f64>
     ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
         // Decide whether to use index or fallback to graph query
         let use_index = Self::can_use_index(&sorting, &author_id, &source, &tags);
@@ -70,11 +76,14 @@ impl PostStream {
                 Self::get_from_index(
                     viewer_id.clone(),
                     author_id,
+                    post_id,
                     sorting,
                     source,
                     tags,
                     skip,
                     limit,
+                    start,
+                    end
                 )
                 .await?
             }
@@ -119,6 +128,8 @@ impl PostStream {
             (PostStreamSorting::Timeline, ViewerStreamSource::Friends, None, None) => true,
             // We have a sorted set for bookmarks only for timeline
             (PostStreamSorting::Timeline, ViewerStreamSource::Bookmarks, None, None) => true,
+            // We can use sorted set of post replies
+            (_, ViewerStreamSource::Replies, _, _) => true,
             // Other combinations require querying the graph
             _ => false,
         }
@@ -128,11 +139,14 @@ impl PostStream {
     async fn get_from_index(
         viewer_id: Option<String>,
         author_id: Option<String>,
+        post_id: Option<String>,
         sorting: PostStreamSorting,
         source: ViewerStreamSource,
         tags: Option<Vec<String>>,
         skip: Option<usize>,
         limit: Option<usize>,
+        start: Option<f64>,
+        end: Option<f64>
     ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
         match (source, tags, author_id) {
             // Global post streams
@@ -152,10 +166,20 @@ impl PostStream {
                 )
                 .await
             }
+            (ViewerStreamSource::Replies, None, Some(author_id)) => {
+                Self::get_post_replies(
+                    &author_id,
+                    &post_id.ok_or("Post ID is required for post replies streams")?,
+                    start,
+                    end,
+                    limit
+                ).await
+            }
             // Streams by simple source
             (source, None, None) => Self::get_posts_by_source(source, viewer_id, skip, limit).await,
             // Streams by only author
             (_, None, Some(author_id)) => Self::get_user_posts(&author_id, skip, limit).await,
+            //(ViewerStreamSource::Replies, None)
             _ => Ok(vec![]),
         }
     }
@@ -348,6 +372,28 @@ impl PostStream {
         }
     }
 
+    async fn get_post_replies(
+        author_id: &str,
+        post_id: &str,
+        start: Option<f64>,
+        end: Option<f64>,
+        limit: Option<usize>,
+    ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+        let key_parts = [&POST_PER_USER_KEY_PARTS[..], &[author_id, post_id]].concat();
+        let post_replies = Self::try_from_index_sorted_set(
+            &key_parts,
+            start,
+            end,
+            None,
+            limit,
+            Sorting::Descending
+        ).await?;
+        let ids = post_replies.map_or(Vec::new(), |post_entry| {
+            post_entry.into_iter().map(|(post_id, _)| post_id).collect()
+        });
+        Ok(ids)
+    }
+
     // Streams for followers / followings / friends are expensive.
     // We are truncating to the first 200 user_ids. We could also random draw 200.
     // TODO rethink, we could also fallback to graph
@@ -447,6 +493,32 @@ impl PostStream {
         let key_parts = [&POST_PER_USER_KEY_PARTS[..], &[details.author.as_str()]].concat();
         let score = details.indexed_at as f64;
         Self::put_index_sorted_set(&key_parts, &[(score, details.id.as_str())]).await
+    }
+
+    /// Adds the post response to a Redis sorted set using the `indexed_at` timestamp as the score.
+    pub async fn add_to_post_reply_sorted_set(
+        parent_user_id: &str,
+        parent_post_id: &str,
+        author_id: &str,
+        reply_id: &str,
+        indexed_at: i64
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let key_parts = [&POST_REPLIES_TIMELINE_KEY_PARTS[..], &[parent_user_id, parent_post_id]].concat();
+        let score = indexed_at as f64;
+        let element = format!("{}:{}", author_id, reply_id);
+        Self::put_index_sorted_set(&key_parts, &[(score, element.as_str())]).await
+    }
+
+    /// Adds the post response to a Redis sorted set using the `indexed_at` timestamp as the score.
+    pub async fn remove_from_post_reply_sorted_set(
+        parent_user_id: &str,
+        parent_post_id: &str,
+        author_id: &str,
+        reply_id: &str
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let key_parts = [&POST_REPLIES_TIMELINE_KEY_PARTS[..], &[parent_user_id, parent_post_id]].concat();
+        let element = format!("{}:{}", author_id, reply_id);
+        Self::remove_from_index_sorted_set(&key_parts, &[element.as_str()]).await
     }
 
     /// Adds a bookmark to Redis sorted set using the `indexed_at` timestamp as the score.

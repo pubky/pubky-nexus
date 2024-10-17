@@ -28,6 +28,7 @@ pub const POST_COUNTS_ROUTE: &str = concatcp!(POST_ROUTE, "/counts");
 pub const POST_DETAILS_ROUTE: &str = concatcp!(POST_ROUTE, "/details");
 pub const POST_TAGS_ROUTE: &str = concatcp!(POST_ROUTE, "/tags");
 pub const POST_TAGGERS_ROUTE: &str = concatcp!(POST_ROUTE, "/taggers/{label}");
+pub const POST_REPLIES_ROUTE: &str = concatcp!(POST_PREFIX, "/replies");
 
 // -- THREAD endpoints --
 const THREAD_PREFIX: &str = concatcp!(VERSION_ROUTE, "/thread");
