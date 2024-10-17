@@ -371,7 +371,7 @@ impl PostStream {
         }
     }
 
-    async fn get_post_replies(
+    pub async fn get_post_replies(
         author_id: &str,
         post_id: &str,
         start: Option<f64>,

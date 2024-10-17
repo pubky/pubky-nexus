@@ -28,7 +28,7 @@ impl PostRelationships {
         post_id: &str,
     ) -> Result<Option<PostRelationships>, Box<dyn std::error::Error + Send + Sync>> {
         match Self::get_from_index(author_id, post_id).await? {
-            Some((post_relationships, None)) => Ok(Some(post_relationships)),
+            Some((post_relationships, _)) => Ok(Some(post_relationships)),
             Some((post_relationships, Some(_))) => {
                 // TODO: Make indexed at Option type, from now ok ;)
                 post_relationships.put_to_index(author_id, post_id, 0, true).await?;
@@ -119,7 +119,7 @@ impl PostRelationships {
         indexed_at: i64,
         relationship_indexed: bool
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if relationship_indexed {
+        if !relationship_indexed {
             self.put_index_json(&[author_id, post_id]).await?;
         }
         if let Some((parent_author_id, parent_post_id)) = self.is_reply() {
@@ -163,7 +163,7 @@ impl PostRelationships {
 
 #[cfg(test)]
 mod tests {
-    use crate::{setup, Config};
+    use crate::{db::kv::index::sorted_sets::Sorting, setup, Config};
 
     use super::*;
 
@@ -209,6 +209,17 @@ mod tests {
 
         let reply_post_res = PostRelationships::get_by_id(AUTHOR_A_ID, REPLY_SA_ID).await.unwrap();
         assert!(reply_post_res.is_some(), "The post has to be a reply");
+
+        let replies = PostStream::get_post_replies(
+            USER_S_ID,
+            REPLY_A_ID,
+            None,
+            None,
+            None
+        ).await;
+        
+        assert!(replies.is_ok(), "The post has to have replies");
+        assert_eq!(replies.unwrap().len(), 2);
 
     }
 }
