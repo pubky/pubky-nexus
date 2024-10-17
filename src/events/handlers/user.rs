@@ -44,7 +44,7 @@ pub async fn del(user_id: PubkyId) -> Result<(), Box<dyn Error + Sync + Send>> {
     debug!("Deleting user profile:  {}", user_id);
 
     let query = user_is_safe_to_delete(&user_id);
-    let delete_safe = !exec_boolean_row(query).await?; // No existing relationships for this user
+    let delete_safe = exec_boolean_row(query).await?; // No existing relationships for this user
 
     // 1. Graph query to check if there is any edge at all to this user.
     // 2. If there is no relationships, delete from graph and redis.

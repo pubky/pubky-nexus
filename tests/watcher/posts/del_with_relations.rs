@@ -17,7 +17,7 @@ async fn test_delete_post_with_relationships() -> Result<()> {
         bio: Some("Test user for post deletion".to_string()),
         image: None,
         links: None,
-        name: "UserForPostDeletion".to_string(),
+        name: "Watcher:PostDelete:User".to_string(),
         status: None,
     };
     let user_id = test.create_user(&keypair, &user).await?;

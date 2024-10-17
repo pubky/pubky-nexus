@@ -490,7 +490,7 @@ pub fn user_is_safe_to_delete(user_id: &str) -> Query {
     query(
         "
         MATCH (u:User {id: $user_id})-[r]-()
-        RETURN COUNT(r) > 0 AS boolean
+        RETURN COUNT(r) = 0 AS boolean
         ",
     )
     .param("user_id", user_id)
@@ -514,7 +514,7 @@ pub fn post_is_safe_to_delete(author_id: &str, post_id: &str) -> Query {
             // 3. Outgoing REPLIED relationship to another post
             (type(r) = 'REPLIED' AND startNode(r) = p)
         )
-        RETURN COUNT(r) > 0 AS boolean
+        RETURN COUNT(r) = 0 AS boolean
         ",
     )
     .param("author_id", author_id)

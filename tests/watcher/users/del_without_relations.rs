@@ -16,7 +16,7 @@ async fn test_delete_user_with_relationships() -> Result<()> {
         bio: Some("Test user without relationships".to_string()),
         image: None,
         links: None,
-        name: "UserWithoutRelationships".to_string(),
+        name: "Watcher:UserDel:User".to_string(),
         status: None,
     };
     let user_id = test.create_user(&keypair, &user).await?;
