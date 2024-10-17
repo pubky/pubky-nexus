@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use super::stream::POST_REPLIES_TIMELINE_KEY_PARTS;
-use super::PostStream;
+use super::{PostDetails, PostStream};
 
 #[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
 pub struct PostRelationships {
@@ -28,10 +28,9 @@ impl PostRelationships {
         post_id: &str,
     ) -> Result<Option<PostRelationships>, Box<dyn std::error::Error + Send + Sync>> {
         match Self::get_from_index(author_id, post_id).await? {
-            Some((post_relationships, _)) => Ok(Some(post_relationships)),
-            Some((post_relationships, Some(_))) => {
-                // TODO: Make indexed at Option type, from now ok ;)
-                post_relationships.put_to_index(author_id, post_id, 0, true).await?;
+            Some((post_relationships, None)) => Ok(Some(post_relationships)),
+            Some((post_relationships, Some(timestamp))) => {
+                post_relationships.put_to_index(author_id, post_id, timestamp, true).await?;
                 return Ok(Some(post_relationships));
             },
             None => {
@@ -48,15 +47,20 @@ impl PostRelationships {
     pub async fn get_from_index(
         author_id: &str,
         post_id: &str,
-    ) -> Result<Option<(PostRelationships, Option<(PubkyId, String)>)>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<(PostRelationships, Option<i64>)>, Box<dyn std::error::Error + Send + Sync>> {
         if let Some(post_relationships) = Self::try_from_index_json(&[author_id, post_id]).await? {
             let reply = post_relationships.is_reply();
             if let Some((parent_author_id, parent_post_id)) = &reply {
                 let key_parts = [&POST_REPLIES_TIMELINE_KEY_PARTS[..], &[parent_author_id, parent_post_id]].concat();
                 let member = [author_id, post_id];
                 let exist = PostRelationships::check_sorted_set_member(&key_parts, &member).await?;
+                // In case the reply is missing in cache, index again
                 if exist.is_none() {
-                    return Ok(Some((post_relationships, reply)));
+                    let post_details = PostDetails::get_by_id(author_id, post_id).await?;
+                    if let Some(post) = post_details {
+                        return Ok(Some((post_relationships, Some(post.indexed_at))));
+                    }
+                    return Ok(Some((post_relationships, Some(Utc::now().timestamp_millis()))));
                 }
             }
             // The post it is not a reply or it is indexed, ignore indexing Sorted:Post
@@ -217,6 +221,8 @@ mod tests {
             None,
             None
         ).await;
+
+        println!("{:?}", replies);
         
         assert!(replies.is_ok(), "The post has to have replies");
         assert_eq!(replies.unwrap().len(), 2);
