@@ -122,13 +122,15 @@ impl EventProcessor {
 
     // Generic retry on event handler
     async fn handle_event_with_retry(&self, event: Event) -> Result<(), DynError> {
-        let mut attempts = 0;
+        let mut attempts: u32 = 0;
+        let delay: u32 = 200;
+        let backoff: u32 = 2;
         loop {
             match event.clone().handle().await {
                 Ok(_) => break Ok(()),
                 Err(e) => {
                     attempts += 1;
-                    if attempts >= self.max_retries {
+                    if u64::from(attempts) >= self.max_retries {
                         error!(
                             "Error while handling event after {} attempts: {}",
                             attempts, e
@@ -140,7 +142,9 @@ impl EventProcessor {
                             e, attempts, self.max_retries
                         );
                         // Optionally, add a delay between retries
-                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        let attempt_delay =
+                            u64::from(delay * backoff.pow(u32::from(attempts * 2) - 1));
+                        tokio::time::sleep(Duration::from_millis(attempt_delay)).await;
                     }
                 }
             }
