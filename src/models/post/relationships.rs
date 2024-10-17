@@ -163,7 +163,7 @@ impl PostRelationships {
 
 #[cfg(test)]
 mod tests {
-    use crate::{db::kv::index::sorted_sets::Sorting, setup, Config};
+    use crate::{setup, Config};
 
     use super::*;
 

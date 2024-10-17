@@ -378,7 +378,7 @@ impl PostStream {
         end: Option<f64>,
         limit: Option<usize>,
     ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
-        let key_parts = [&POST_PER_USER_KEY_PARTS[..], &[author_id, post_id]].concat();
+        let key_parts = [&POST_REPLIES_TIMELINE_KEY_PARTS[..], &[author_id, post_id]].concat();
         let post_replies = Self::try_from_index_sorted_set(
             &key_parts,
             start,
