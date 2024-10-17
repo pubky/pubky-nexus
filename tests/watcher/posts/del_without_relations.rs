@@ -125,6 +125,16 @@ async fn test_delete_post_that_reposted() -> Result<()> {
         "Repost counts should not be found after deletion"
     );
 
+    // Parent post counts should have reposts counts 0 once again
+    let post_counts_result = PostCounts::get_by_id(&user_id, &post_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        post_counts_result.reposts, 0,
+        "Original post reposts counts should be 0 after deletion of the repost"
+    );
+
     // Attempt to get post view; should not exist
     let post_view = PostView::get_by_id(&user_id, &repost_id, None, None, None)
         .await

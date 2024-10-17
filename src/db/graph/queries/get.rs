@@ -510,6 +510,9 @@ pub fn post_is_safe_to_delete(author_id: &str, post_id: &str) -> Query {
             OR
             // 2. Outgoing REPOSTED relationship to another post
             (type(r) = 'REPOSTED' AND startNode(r) = p)
+            OR
+            // 3. Outgoing REPLIED relationship to another post
+            (type(r) = 'REPLIED' AND startNode(r) = p)
         )
         RETURN COUNT(r) > 0 AS boolean
         ",

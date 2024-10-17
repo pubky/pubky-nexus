@@ -225,11 +225,7 @@ pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), Box<dyn Erro
     let delete_safe = !exec_boolean_row(query).await?;
 
     match delete_safe {
-        true => {
-            PostDetails::delete(&author_id, &post_id).await?;
-            PostCounts::delete(&author_id, &post_id).await?;
-            UserCounts::update(&author_id, "posts", JsonAction::Decrement(1)).await?;
-        }
+        true => sync_del(author_id, post_id).await?,
         false => {
             let existing_relationships = PostRelationships::get_by_id(&author_id, &post_id).await?;
             let parent = match existing_relationships {
@@ -251,6 +247,62 @@ pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), Box<dyn Erro
     };
 
     // TODO: Notifications for deleted posts
+
+    Ok(())
+}
+
+pub async fn sync_del(
+    author_id: PubkyId,
+    post_id: String,
+) -> Result<(), Box<dyn Error + Sync + Send>> {
+    PostDetails::delete(&author_id, &post_id).await?;
+    PostCounts::delete(&author_id, &post_id).await?;
+    UserCounts::update(&author_id, "posts", JsonAction::Decrement(1)).await?;
+
+    // If it was a reply or a repost, we should Decrement(1) the counts of those related posts.
+    let relationships = PostRelationships::get_by_id(&author_id, &post_id).await?;
+    if let Some(relationships) = relationships {
+        // Decrement counts for resposted post if existed
+        if let Some(reposted) = relationships.reposted {
+            let parsed_uri = ParsedUri::try_from(reposted.as_str())?;
+            let parent_post_key_parts: &[&str] = &[
+                &parsed_uri.user_id,
+                &parsed_uri.post_id.ok_or("Missing post ID")?,
+            ];
+            PostCounts::update_index_field(
+                parent_post_key_parts,
+                "reposts",
+                JsonAction::Decrement(1),
+            )
+            .await?;
+            PostStream::put_score_index_sorted_set(
+                &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
+                parent_post_key_parts,
+                ScoreAction::Decrement(1.0),
+            )
+            .await?;
+        }
+        // Decrement counts for parent post if replied
+        if let Some(replied) = relationships.replied {
+            let parsed_uri = ParsedUri::try_from(replied.as_str())?;
+            let parent_post_key_parts: &[&str] = &[
+                &parsed_uri.user_id,
+                &parsed_uri.post_id.ok_or("Missing post ID")?,
+            ];
+            PostCounts::update_index_field(
+                parent_post_key_parts,
+                "replies",
+                JsonAction::Decrement(1),
+            )
+            .await?;
+            PostStream::put_score_index_sorted_set(
+                &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
+                parent_post_key_parts,
+                ScoreAction::Decrement(1.0),
+            )
+            .await?;
+        }
+    }
 
     Ok(())
 }
