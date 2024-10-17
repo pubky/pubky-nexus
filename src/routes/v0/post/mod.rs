@@ -9,7 +9,6 @@ mod details;
 mod tags;
 mod thread;
 mod view;
-//mod replies;
 
 pub fn routes() -> Router {
     register_routes!(Router::new(),

@@ -8,7 +8,6 @@ use crate::{
     },
     queries, RedisOps, ScoreAction,
 };
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use tokio::task::spawn;

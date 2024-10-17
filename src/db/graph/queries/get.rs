@@ -84,7 +84,8 @@ pub fn post_relationships(author_id: &str, post_id: &str) -> Query {
           replied_author.id AS replied_author_id,
           reposted_post.id AS reposted_post_id, 
           reposted_author.id AS reposted_author_id,
-          COLLECT(mentioned_user.id) AS mentioned_user_ids",
+          COLLECT(mentioned_user.id) AS mentioned_user_ids,
+          p.indexed_at",
     )
     .param("author_id", author_id)
     .param("post_id", post_id)
