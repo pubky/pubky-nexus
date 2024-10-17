@@ -35,8 +35,9 @@ pub fn create_post(post: &PostDetails) -> Result<Query, Box<dyn std::error::Erro
              p.indexed_at = $indexed_at,
              p.kind = $kind,
              p.attachments = $attachments
-             
-         RETURN existing IS NOT NULL AS existed;",
+        
+         // boolean == existed
+         RETURN existing IS NOT NULL AS boolean;",
     )
     .param("author_id", post.author.to_string())
     .param("post_id", post.id.to_string())
@@ -116,7 +117,8 @@ pub fn create_follow(follower_id: &str, followee_id: &str, indexed_at: i64) -> Q
          MERGE (follower)-[r:FOLLOWS]->(followee)
          SET r.indexed_at = $indexed_at
 
-         RETURN existing IS NOT NULL AS existed;",
+         // boolean == existed
+         RETURN existing IS NOT NULL AS boolean;",
     )
     .param("follower_id", follower_id.to_string())
     .param("followee_id", followee_id.to_string())
@@ -152,8 +154,9 @@ pub fn create_post_bookmark(
          MERGE (u)-[b:BOOKMARKED]->(p)
          SET b.indexed_at = $indexed_at,
              b.id = $bookmark_id
-
-         RETURN existing IS NOT NULL AS existed;",
+         
+         // boolean == existed
+         RETURN existing IS NOT NULL AS boolean;",
     )
     .param("user_id", user_id)
     .param("author_id", author_id)
@@ -182,7 +185,7 @@ pub fn create_post_tag(
          SET t.indexed_at = $indexed_at,
              t.id = $tag_id
 
-         RETURN existing IS NOT NULL AS existed;",
+         RETURN existing IS NOT NULL AS boolean;",
     )
     .param("user_id", user_id)
     .param("author_id", author_id)
@@ -211,7 +214,8 @@ pub fn create_user_tag(
          SET t.indexed_at = $indexed_at,
              t.id = $tag_id
 
-         RETURN existing IS NOT NULL AS existed;",
+         // boolean == existed
+         RETURN existing IS NOT NULL AS boolean;",
     )
     .param("tagger_user_id", tagger_user_id)
     .param("tagged_user_id", tagged_user_id)

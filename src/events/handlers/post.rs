@@ -1,4 +1,4 @@
-use crate::db::graph::exec::exec_single_row;
+use crate::db::graph::exec::{exec_boolean_row, exec_single_row};
 use crate::db::kv::index::json::JsonAction;
 use crate::events::uri::ParsedUri;
 use crate::models::notification::Notification;
@@ -6,8 +6,10 @@ use crate::models::post::{
     PostCounts, PostRelationships, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS,
 };
 use crate::models::pubky_app::traits::Validatable;
+use crate::models::pubky_app::PostKind;
 use crate::models::user::UserCounts;
 use crate::models::{post::PostDetails, pubky_app::PubkyAppPost, user::PubkyId};
+use crate::queries::get::post_is_safe_to_delete;
 use crate::{queries, RedisOps, ScoreAction};
 use axum::body::Bytes;
 use log::debug;
@@ -41,9 +43,12 @@ pub async fn sync_put(
     // SAVE TO GRAPH
     let existed = post_details.put_to_graph().await?;
 
-    // TODO: Posts are not editable as of now. Much more handling would be needed.
-    // E.g., is it still a reply to the same post? Is there different mentions? Etc. Are different notifications needed?
+    // TODO: Posts are not really editable as of now. Much more handling would be needed.
+    // But we can update content even if post existed. Useful for DEL posts (content becomes [DELETED])
+    // Example of yet unhandled: is it still a reply to the same post? Is there different mentions? Etc. Are different notifications needed?
     if existed {
+        // Update content of PostDetails in index and leave!
+        post_details.put_to_index(&author_id, false).await?;
         return Ok(());
     }
 
@@ -56,9 +61,15 @@ pub async fn sync_put(
 
     // SAVE TO INDEX
     // Create post counts index
-    PostCounts::default()
-        .put_to_index(&author_id, &post_id, add_to_feeds)
-        .await?;
+    // If new post (no existing counts) save a new PostCounts.
+    match PostCounts::get_from_index(&author_id, &post_id).await? {
+        None => {
+            PostCounts::default()
+                .put_to_index(&author_id, &post_id, add_to_feeds)
+                .await?
+        }
+        Some(_) => (),
+    }
     // Update user counts with the new post
     UserCounts::update(&author_id, "posts", JsonAction::Increment(1)).await?;
 
@@ -205,8 +216,94 @@ pub async fn put_mentioned_relationships(
 }
 
 pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), Box<dyn Error + Sync + Send>> {
-    // TODO: handle deletion of Post resource from databases
     debug!("Deleting post: {}/{}", author_id, post_id);
-    // Implement logic here
+
+    // Graph query to check if there is any edge at all to this post other than AUTHORED, is a reply or is a repost.
+    // If there is none other relationship, we delete from graph and redis.
+    // But if there is any, then we simply update the post with keyword content [DELETED].
+    // A deleted post is a post whose content is EXACTLY `"[DELETED]"`
+    let query = post_is_safe_to_delete(&author_id, &post_id);
+    let delete_safe = exec_boolean_row(query).await?;
+
+    match delete_safe {
+        true => sync_del(author_id, post_id).await?,
+        false => {
+            let existing_relationships = PostRelationships::get_by_id(&author_id, &post_id).await?;
+            let parent = match existing_relationships {
+                Some(relationships) => relationships.replied,
+                None => None,
+            };
+
+            // We store a dummy that is still a reply if it was one already.
+            let dummy_deleted_post = PubkyAppPost {
+                content: "[DELETED]".to_string(),
+                parent,
+                embed: None,
+                kind: PostKind::Short,
+                attachments: None,
+            };
+
+            sync_put(dummy_deleted_post, author_id, post_id).await?;
+        }
+    };
+
+    // TODO: Notifications for deleted posts
+
+    Ok(())
+}
+
+pub async fn sync_del(
+    author_id: PubkyId,
+    post_id: String,
+) -> Result<(), Box<dyn Error + Sync + Send>> {
+    PostDetails::delete(&author_id, &post_id).await?;
+    PostCounts::delete(&author_id, &post_id).await?;
+    UserCounts::update(&author_id, "posts", JsonAction::Decrement(1)).await?;
+
+    // If it was a reply or a repost, we should Decrement(1) the counts of those related posts.
+    let relationships = PostRelationships::get_by_id(&author_id, &post_id).await?;
+    if let Some(relationships) = relationships {
+        // Decrement counts for resposted post if existed
+        if let Some(reposted) = relationships.reposted {
+            let parsed_uri = ParsedUri::try_from(reposted.as_str())?;
+            let parent_post_key_parts: &[&str] = &[
+                &parsed_uri.user_id,
+                &parsed_uri.post_id.ok_or("Missing post ID")?,
+            ];
+            PostCounts::update_index_field(
+                parent_post_key_parts,
+                "reposts",
+                JsonAction::Decrement(1),
+            )
+            .await?;
+            PostStream::put_score_index_sorted_set(
+                &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
+                parent_post_key_parts,
+                ScoreAction::Decrement(1.0),
+            )
+            .await?;
+        }
+        // Decrement counts for parent post if replied
+        if let Some(replied) = relationships.replied {
+            let parsed_uri = ParsedUri::try_from(replied.as_str())?;
+            let parent_post_key_parts: &[&str] = &[
+                &parsed_uri.user_id,
+                &parsed_uri.post_id.ok_or("Missing post ID")?,
+            ];
+            PostCounts::update_index_field(
+                parent_post_key_parts,
+                "replies",
+                JsonAction::Decrement(1),
+            )
+            .await?;
+            PostStream::put_score_index_sorted_set(
+                &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
+                parent_post_key_parts,
+                ScoreAction::Decrement(1.0),
+            )
+            .await?;
+        }
+    }
+
     Ok(())
 }

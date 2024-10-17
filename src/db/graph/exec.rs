@@ -10,8 +10,8 @@ pub async fn exec_single_row(query: Query) -> Result<(), Box<dyn std::error::Err
     Ok(())
 }
 
-// Exec a graph query that has an "existed" return
-pub async fn exec_existed_row(
+// Exec a graph query that has a single "boolean" return
+pub async fn exec_boolean_row(
     query: Query,
 ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
     let mut result;
@@ -20,9 +20,9 @@ pub async fn exec_existed_row(
         let graph = graph.lock().await;
         result = graph.execute(query).await?;
     }
-    let mut existed = false;
+    let mut boolean = false;
     while let Some(row) = result.next().await? {
-        existed = row.get("existed")?;
+        boolean = row.get("boolean")?;
     }
-    Ok(existed)
+    Ok(boolean)
 }
