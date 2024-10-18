@@ -1,6 +1,7 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use pubky_nexus::models::post::{PostStream, PostStreamSorting, ViewerStreamSource};
 use pubky_nexus::models::user::{UserStream, UserStreamSource};
+use pubky_nexus::routes::v0::stream::utils::{PostStreamFilters, PostStreamValues};
 use setup::run_setup;
 use std::time::Duration;
 use tokio::runtime::Runtime;
@@ -21,17 +22,22 @@ fn bench_stream_followers_timeline(c: &mut Criterion) {
 
     c.bench_function("stream_posts_followers", |b| {
         b.to_async(&rt).iter(|| async {
-            let post_stream = PostStream::get_posts(
-                Some(viewer_id.to_string()),
-                None,
+            // Define all the arguments of the post stream
+            let post_stream_values_with_viewer =
+                PostStreamValues::new(Some(viewer_id.to_string()), None, None, None);
+            let post_stream_filter = PostStreamFilters::new(
                 PostStreamSorting::Timeline,
                 ViewerStreamSource::Following,
                 None,
-                None,
                 Some(20),
-            )
-            .await
-            .unwrap();
+                None,
+                None,
+            );
+            // Run the benchmark
+            let post_stream =
+                PostStream::get_posts(post_stream_values_with_viewer, post_stream_filter)
+                    .await
+                    .unwrap();
             criterion::black_box(post_stream);
         });
     });
@@ -49,17 +55,22 @@ fn bench_stream_following_timeline(c: &mut Criterion) {
 
     c.bench_function("stream_posts_following", |b| {
         b.to_async(&rt).iter(|| async {
-            let post_stream = PostStream::get_posts(
-                Some(viewer_id.to_string()),
-                None,
+            // Define all the arguments of the post stream
+            let post_stream_values_with_viewer =
+                PostStreamValues::new(Some(viewer_id.to_string()), None, None, None);
+            let post_stream_filter = PostStreamFilters::new(
                 PostStreamSorting::Timeline,
                 ViewerStreamSource::Followers,
                 None,
-                None,
                 Some(20),
-            )
-            .await
-            .unwrap();
+                None,
+                None,
+            );
+            // Run the benchmark
+            let post_stream =
+                PostStream::get_posts(post_stream_values_with_viewer, post_stream_filter)
+                    .await
+                    .unwrap();
             criterion::black_box(post_stream);
         });
     });
@@ -77,17 +88,22 @@ fn bench_stream_friends_timeline(c: &mut Criterion) {
 
     c.bench_function("stream_posts_friends", |b| {
         b.to_async(&rt).iter(|| async {
-            let post_stream = PostStream::get_posts(
-                Some(viewer_id.to_string()),
-                None,
+            // Define all the arguments of the post stream
+            let post_stream_values_with_viewer =
+                PostStreamValues::new(Some(viewer_id.to_string()), None, None, None);
+            let post_stream_filter = PostStreamFilters::new(
                 PostStreamSorting::Timeline,
                 ViewerStreamSource::Friends,
                 None,
-                None,
                 Some(20),
-            )
-            .await
-            .unwrap();
+                None,
+                None,
+            );
+            // Run the benchmark
+            let post_stream =
+                PostStream::get_posts(post_stream_values_with_viewer, post_stream_filter)
+                    .await
+                    .unwrap();
             criterion::black_box(post_stream);
         });
     });
@@ -104,17 +120,21 @@ fn bench_stream_all_timeline(c: &mut Criterion) {
 
     c.bench_function("stream_posts_all_timeline", |b| {
         b.to_async(&rt).iter(|| async {
-            let post_stream = PostStream::get_posts(
-                None,
-                None,
+            // Define all the arguments of the post stream
+            let post_stream_values_with_viewer = PostStreamValues::new(None, None, None, None);
+            let post_stream_filter = PostStreamFilters::new(
                 PostStreamSorting::Timeline,
                 ViewerStreamSource::All,
                 None,
-                None,
                 Some(20),
-            )
-            .await
-            .unwrap();
+                None,
+                None,
+            );
+            // Run the benchmark
+            let post_stream =
+                PostStream::get_posts(post_stream_values_with_viewer, post_stream_filter)
+                    .await
+                    .unwrap();
             criterion::black_box(post_stream);
         });
     });
@@ -132,17 +152,22 @@ fn bench_stream_bookmarks_timeline(c: &mut Criterion) {
 
     c.bench_function("stream_posts_bookmarks_timeline", |b| {
         b.to_async(&rt).iter(|| async {
-            let post_stream = PostStream::get_posts(
-                Some(viewer_id.to_string()),
-                None,
+            // Define all the arguments of the post stream
+            let post_stream_values_with_viewer =
+                PostStreamValues::new(Some(viewer_id.to_string()), None, None, None);
+            let post_stream_filter = PostStreamFilters::new(
                 PostStreamSorting::Timeline,
                 ViewerStreamSource::Bookmarks,
                 None,
-                None,
                 Some(20),
-            )
-            .await
-            .unwrap();
+                None,
+                None,
+            );
+            // Run the benchmark
+            let post_stream =
+                PostStream::get_posts(post_stream_values_with_viewer, post_stream_filter)
+                    .await
+                    .unwrap();
             criterion::black_box(post_stream);
         });
     });
@@ -160,17 +185,22 @@ fn bench_stream_followers_total_engagement(c: &mut Criterion) {
 
     c.bench_function("stream_posts_followers_total_engagement", |b| {
         b.to_async(&rt).iter(|| async {
-            let post_stream = PostStream::get_posts(
-                Some(viewer_id.to_string()),
-                None,
+            // Define all the arguments of the post stream
+            let post_stream_values_with_viewer =
+                PostStreamValues::new(Some(viewer_id.to_string()), None, None, None);
+            let post_stream_filter = PostStreamFilters::new(
                 PostStreamSorting::TotalEngagement,
                 ViewerStreamSource::Followers,
                 None,
-                None,
                 Some(20),
-            )
-            .await
-            .unwrap();
+                None,
+                None,
+            );
+            // Run the benchmark
+            let post_stream =
+                PostStream::get_posts(post_stream_values_with_viewer, post_stream_filter)
+                    .await
+                    .unwrap();
             criterion::black_box(post_stream);
         });
     });
@@ -188,17 +218,22 @@ fn bench_stream_following_total_engagement(c: &mut Criterion) {
 
     c.bench_function("stream_posts_following_total_engagement", |b| {
         b.to_async(&rt).iter(|| async {
-            let post_stream = PostStream::get_posts(
-                Some(viewer_id.to_string()),
-                None,
+            // Define all the arguments of the post stream
+            let post_stream_values_with_viewer =
+                PostStreamValues::new(Some(viewer_id.to_string()), None, None, None);
+            let post_stream_filter = PostStreamFilters::new(
                 PostStreamSorting::TotalEngagement,
                 ViewerStreamSource::Following,
                 None,
-                None,
                 Some(20),
-            )
-            .await
-            .unwrap();
+                None,
+                None,
+            );
+            // Run the benchmark
+            let post_stream =
+                PostStream::get_posts(post_stream_values_with_viewer, post_stream_filter)
+                    .await
+                    .unwrap();
             criterion::black_box(post_stream);
         });
     });
@@ -216,17 +251,22 @@ fn bench_stream_friends_total_engagement(c: &mut Criterion) {
 
     c.bench_function("stream_posts_friends_total_engagement", |b| {
         b.to_async(&rt).iter(|| async {
-            let post_stream = PostStream::get_posts(
-                Some(viewer_id.to_string()),
-                None,
+            // Define all the arguments of the post stream
+            let post_stream_values_with_viewer =
+                PostStreamValues::new(Some(viewer_id.to_string()), None, None, None);
+            let post_stream_filter = PostStreamFilters::new(
                 PostStreamSorting::TotalEngagement,
                 ViewerStreamSource::Friends,
                 None,
-                None,
                 Some(20),
-            )
-            .await
-            .unwrap();
+                None,
+                None,
+            );
+            // Run the benchmark
+            let post_stream =
+                PostStream::get_posts(post_stream_values_with_viewer, post_stream_filter)
+                    .await
+                    .unwrap();
             criterion::black_box(post_stream);
         });
     });
@@ -243,17 +283,21 @@ fn bench_stream_all_total_engagement(c: &mut Criterion) {
 
     c.bench_function("stream_posts_all_total_engagement", |b| {
         b.to_async(&rt).iter(|| async {
-            let post_stream = PostStream::get_posts(
-                None,
-                None,
+            // Define all the arguments of the post stream
+            let post_stream_values_with_viewer = PostStreamValues::new(None, None, None, None);
+            let post_stream_filter = PostStreamFilters::new(
                 PostStreamSorting::TotalEngagement,
                 ViewerStreamSource::All,
                 None,
-                None,
                 Some(20),
-            )
-            .await
-            .unwrap();
+                None,
+                None,
+            );
+            // Run the benchmark
+            let post_stream =
+                PostStream::get_posts(post_stream_values_with_viewer, post_stream_filter)
+                    .await
+                    .unwrap();
             criterion::black_box(post_stream);
         });
     });
@@ -271,17 +315,22 @@ fn bench_stream_bookmarks_total_engagement(c: &mut Criterion) {
 
     c.bench_function("stream_posts_bookmarks_total_engagement", |b| {
         b.to_async(&rt).iter(|| async {
-            let post_stream = PostStream::get_posts(
-                Some(viewer_id.to_string()),
-                None,
+            // Define all the arguments of the post stream
+            let post_stream_values_with_viewer =
+                PostStreamValues::new(Some(viewer_id.to_string()), None, None, None);
+            let post_stream_filter = PostStreamFilters::new(
                 PostStreamSorting::TotalEngagement,
                 ViewerStreamSource::Bookmarks,
                 None,
-                None,
                 Some(20),
-            )
-            .await
-            .unwrap();
+                None,
+                None,
+            );
+            // Run the benchmark
+            let post_stream =
+                PostStream::get_posts(post_stream_values_with_viewer, post_stream_filter)
+                    .await
+                    .unwrap();
             criterion::black_box(post_stream);
         });
     });
@@ -299,17 +348,22 @@ fn bench_stream_author_timeline(c: &mut Criterion) {
 
     c.bench_function("stream_posts_author_timeline", |b| {
         b.to_async(&rt).iter(|| async {
-            let post_stream = PostStream::get_posts(
-                None,
-                Some(author_id.to_string()), // Filter by author_id
-                PostStreamSorting::Timeline, // Sort by timeline
-                ViewerStreamSource::All, // No reach filter, as we are only interested in the author
-                None,
+            // Define all the arguments of the post stream
+            let post_stream_values_with_viewer =
+                PostStreamValues::new(None, Some(author_id.to_string()), None, None);
+            let post_stream_filter = PostStreamFilters::new(
+                PostStreamSorting::Timeline,
+                ViewerStreamSource::All,
                 None,
                 Some(20),
-            )
-            .await
-            .unwrap();
+                None,
+                None,
+            );
+            // Run the benchmark
+            let post_stream =
+                PostStream::get_posts(post_stream_values_with_viewer, post_stream_filter)
+                    .await
+                    .unwrap();
             criterion::black_box(post_stream);
         });
     });
@@ -327,17 +381,22 @@ fn bench_stream_author_total_engagement(c: &mut Criterion) {
 
     c.bench_function("stream_posts_author_total_engagement", |b| {
         b.to_async(&rt).iter(|| async {
-            let post_stream = PostStream::get_posts(
-                None,
-                Some(author_id.to_string()),        // Filter by author_id
-                PostStreamSorting::TotalEngagement, // Sort by total engagement
-                ViewerStreamSource::All, // No reach filter, as we are only interested in the author
-                None,
+            // Define all the arguments of the post stream
+            let post_stream_values_with_viewer =
+                PostStreamValues::new(None, Some(author_id.to_string()), None, None);
+            let post_stream_filter = PostStreamFilters::new(
+                PostStreamSorting::TotalEngagement,
+                ViewerStreamSource::All,
                 None,
                 Some(20),
-            )
-            .await
-            .unwrap();
+                None,
+                None,
+            );
+            // Run the benchmark
+            let post_stream =
+                PostStream::get_posts(post_stream_values_with_viewer, post_stream_filter)
+                    .await
+                    .unwrap();
             criterion::black_box(post_stream);
         });
     });
@@ -355,17 +414,22 @@ fn bench_stream_tag_timeline(c: &mut Criterion) {
 
     c.bench_function("stream_posts_tag_timeline", |b| {
         b.to_async(&rt).iter(|| async {
-            let post_stream = PostStream::get_posts(
+            // Define all the arguments of the post stream
+            let post_stream_values_with_viewer =
+                PostStreamValues::new(None, None, Some(vec![tag_label.to_string()]), None);
+            let post_stream_filter = PostStreamFilters::new(
+                PostStreamSorting::Timeline,
+                ViewerStreamSource::All,
                 None,
-                None,                              // No author_id filter
-                PostStreamSorting::Timeline,       // Sort by timeline
-                ViewerStreamSource::All,           // No reach filtering
-                Some(vec![tag_label.to_string()]), // Filter by tag label
-                Some(0),
                 Some(20),
-            )
-            .await
-            .unwrap();
+                None,
+                None,
+            );
+            // Run the benchmark
+            let post_stream =
+                PostStream::get_posts(post_stream_values_with_viewer, post_stream_filter)
+                    .await
+                    .unwrap();
             criterion::black_box(post_stream);
         });
     });
@@ -383,17 +447,22 @@ fn bench_stream_tag_total_engagement(c: &mut Criterion) {
 
     c.bench_function("stream_posts_tag_total_engagement", |b| {
         b.to_async(&rt).iter(|| async {
-            let post_stream = PostStream::get_posts(
+            // Define all the arguments of the post stream
+            let post_stream_values_with_viewer =
+                PostStreamValues::new(None, None, Some(vec![tag_label.to_string()]), None);
+            let post_stream_filter = PostStreamFilters::new(
+                PostStreamSorting::TotalEngagement,
+                ViewerStreamSource::All,
                 None,
-                None,                               // No author_id filter
-                PostStreamSorting::TotalEngagement, // Sort by total engagement
-                ViewerStreamSource::All,            // No reach filtering
-                Some(vec![tag_label.to_string()]),  // Filter by tag label
-                Some(0),
                 Some(20),
-            )
-            .await
-            .unwrap();
+                None,
+                None,
+            );
+            // Run the benchmark
+            let post_stream =
+                PostStream::get_posts(post_stream_values_with_viewer, post_stream_filter)
+                    .await
+                    .unwrap();
             criterion::black_box(post_stream);
         });
     });
