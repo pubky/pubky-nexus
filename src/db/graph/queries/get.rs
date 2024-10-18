@@ -488,3 +488,40 @@ pub fn post_stream(
 
     query
 }
+
+// User has any existing relationship. Used to determine
+// the delete behaviour of a User.
+pub fn user_is_safe_to_delete(user_id: &str) -> Query {
+    query(
+        "
+        MATCH (u:User {id: $user_id})-[r]-()
+        RETURN COUNT(r) = 0 AS boolean
+        ",
+    )
+    .param("user_id", user_id)
+}
+
+// Post has any existing relationship. Used to determine
+// the delete behaviour of a Post.
+pub fn post_is_safe_to_delete(author_id: &str, post_id: &str) -> Query {
+    query(
+        "
+        MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+        MATCH (p)-[r]-()
+        WHERE NOT (
+            // Allowed relationships:
+            // 1. Incoming AUTHORED relationship from the specified user
+            (type(r) = 'AUTHORED' AND startNode(r).id = $author_id AND endNode(r) = p)
+            OR
+            // 2. Outgoing REPOSTED relationship to another post
+            (type(r) = 'REPOSTED' AND startNode(r) = p)
+            OR
+            // 3. Outgoing REPLIED relationship to another post
+            (type(r) = 'REPLIED' AND startNode(r) = p)
+        )
+        RETURN COUNT(r) = 0 AS boolean
+        ",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
+}

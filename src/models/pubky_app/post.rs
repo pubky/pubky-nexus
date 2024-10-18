@@ -64,7 +64,14 @@ impl TimestampId for PubkyAppPost {}
 impl Validatable for PubkyAppPost {
     async fn sanitize(self) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         // Sanitize content
-        let content = self.content.trim().to_string();
+        let mut content = self.content.trim().to_string();
+
+        // We are using content keyword `[DELETED]` for deleted posts from a homeserver that still have relationships
+        // placed by other users (replies, tags, etc). This content is exactly matched by the client to apply effects to deleted content.
+        // Placing posts with content `[DELETED]` is not allowed.
+        if content == *"[DELETED]" {
+            content = "empty".to_string()
+        }
 
         // Define content length limits based on PostKind
         let max_content_length = match self.kind {
