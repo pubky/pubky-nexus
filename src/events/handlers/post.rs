@@ -289,11 +289,11 @@ pub async fn sync_del(
 
             // Notification: "A repost of your post was deleted"
             Notification::deleted_post(
-                &parsed_uri.user_id,
+                &author_id,
                 &reposted,
                 &parsed_uri.user_id,
                 &deleted_uri,
-                PostDeleteType::Reply,
+                PostDeleteType::Repost,
             )
             .await?;
         }
@@ -319,7 +319,7 @@ pub async fn sync_del(
 
             // Notification: "A reply to your post was deleted"
             Notification::deleted_post(
-                &parsed_uri.user_id,
+                &author_id,
                 &replied,
                 &parsed_uri.user_id,
                 &deleted_uri,
