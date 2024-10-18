@@ -3,7 +3,8 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-#[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
+#[derive(Serialize, Deserialize, ToSchema, Clone, Debug, PartialEq)]
+#[serde(rename_all = "lowercase")]
 pub enum PostDeleteType {
     Reply,       // A reply to you was deleted.
     Repost,      // A repost of your post was deleted.
@@ -21,7 +22,7 @@ pub struct Notification {
 }
 
 #[derive(Serialize, Deserialize, Clone, ToSchema, Debug)]
-#[serde(tag = "type")]
+#[serde(tag = "type", rename_all = "lowercase")]
 pub enum NotificationBody {
     Follow {
         followed_by: String,

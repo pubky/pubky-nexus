@@ -143,5 +143,6 @@ async fn test_delete_post_that_reposted() -> Result<()> {
         post_view.is_none(),
         "Repost view should not be found after deletion"
     );
+
     Ok(())
 }
