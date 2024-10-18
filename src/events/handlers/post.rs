@@ -62,13 +62,13 @@ pub async fn sync_put(
     // SAVE TO INDEX
     // Create post counts index
     // If new post (no existing counts) save a new PostCounts.
-    match PostCounts::get_from_index(&author_id, &post_id).await? {
-        None => {
-            PostCounts::default()
-                .put_to_index(&author_id, &post_id, add_to_feeds)
-                .await?
-        }
-        Some(_) => (),
+    if PostCounts::get_from_index(&author_id, &post_id)
+        .await?
+        .is_none()
+    {
+        PostCounts::default()
+            .put_to_index(&author_id, &post_id, add_to_feeds)
+            .await?
     }
     // Update user counts with the new post
     UserCounts::update(&author_id, "posts", JsonAction::Increment(1)).await?;

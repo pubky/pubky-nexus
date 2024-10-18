@@ -24,7 +24,7 @@ use std::collections::{HashMap, HashSet};
 const PROCESS_EVENTS_ONE_BY_ONE: bool = true;
 
 // Size of network
-const NUM_USERS: usize = 1;
+const NUM_USERS: usize = 20;
 
 #[tokio::test]
 async fn test_large_network_scenario_counts() -> Result<()> {
@@ -148,7 +148,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
     }
 
     // Users bookmark posts
-    for (_i, user_id) in user_ids.iter().enumerate() {
+    for user_id in user_ids.iter() {
         let num_bookmarks = rng.gen_range(1..=max_bookmarks_per_user);
         for _ in 0..num_bookmarks {
             let target_user_index = rng.gen_range(0..NUM_USERS);
@@ -179,7 +179,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
     }
 
     // Users tag posts of other users
-    for (_i, user_id) in user_ids.iter().enumerate() {
+    for user_id in user_ids.iter() {
         let num_tags = rng.gen_range(1..=max_tags_per_user);
         for _ in 0..num_tags {
             let target_user_index = rng.gen_range(0..NUM_USERS);
