@@ -19,7 +19,6 @@ pub fn routes() -> Router {
         to_axum!(endpoints::THREAD_ROUTE) => thread::thread_handler,
         to_axum!(endpoints::POST_TAGS_ROUTE) => tags::post_tags_handler,
         to_axum!(endpoints::POST_TAGGERS_ROUTE) => tags::post_taggers_handler,
-        //to_axum!(endpoints::POST_REPLIES_ROUTE) => tags::post_taggers_handler,
     )
 }
 
