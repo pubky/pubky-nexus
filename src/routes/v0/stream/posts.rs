@@ -7,6 +7,8 @@ use axum::Json;
 use log::info;
 use utoipa::OpenApi;
 
+use super::utils::{PostStreamFilters, PostStreamValues};
+
 const MAX_TAGS: usize = 5;
 
 #[utoipa::path(
@@ -41,7 +43,7 @@ pub async fn stream_posts_handler(
     let sorting = query.sorting.unwrap_or(PostStreamSorting::Timeline);
     let source = query.source.unwrap_or(ViewerStreamSource::All);
 
-    if source != ViewerStreamSource::All && query.viewer_id.is_none() {
+    if !viewer_query_optional(&source) && query.viewer_id.is_none() {
         return Err(Error::InvalidInput {
             message: "Viewer ID is required for streams with a source other than 'all'".to_string(),
         });
@@ -56,26 +58,27 @@ pub async fn stream_posts_handler(
         }
     }
 
-    if source != ViewerStreamSource::Replies && query.post_id.is_none() {
+    if source == ViewerStreamSource::Replies
+        && (query.post_id.is_none() || query.author_id.is_none())
+    {
         return Err(Error::InvalidInput {
             message: "Post ID is required for streams with a source 'Replies'".to_string(),
         });
     }
 
-    match PostStream::get_posts(
-        query.viewer_id,
-        query.author_id,
-        query.post_id,
+    let post_stream_values =
+        PostStreamValues::new(query.viewer_id, query.author_id, query.tags, query.post_id);
+
+    let post_stream_filters = PostStreamFilters::new(
         sorting,
         source,
-        query.tags,
         Some(skip),
         Some(limit),
         query.start,
-        query.end
-    )
-    .await
-    {
+        query.end,
+    );
+
+    match PostStream::get_posts(post_stream_values, post_stream_filters).await {
         Ok(Some(stream)) => Ok(Json(stream)),
         Ok(None) => Err(Error::EmptyStream {
             message: "No posts found for the given criteria.".to_string(),
@@ -90,3 +93,10 @@ pub async fn stream_posts_handler(
     components(schemas(PostStream, PostStreamSorting, ViewerStreamSource))
 )]
 pub struct StreamPostsApiDocs;
+
+fn viewer_query_optional(source: &ViewerStreamSource) -> bool {
+    matches!(
+        source,
+        ViewerStreamSource::All | ViewerStreamSource::Replies
+    )
+}

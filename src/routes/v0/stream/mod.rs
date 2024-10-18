@@ -5,6 +5,7 @@ use utoipa::OpenApi;
 
 mod posts;
 mod users;
+pub mod utils;
 
 pub fn routes() -> Router {
     let router = register_routes!(Router::new(),

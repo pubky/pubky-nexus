@@ -41,7 +41,6 @@ impl PostThread {
 
         let replies = match result.next().await? {
             Some(row) => {
-
                 let replies: Vec<BoltMap> = row.get("replies").unwrap_or(Vec::new());
 
                 let mut replies_view = Vec::with_capacity(replies.len());
@@ -61,12 +60,12 @@ impl PostThread {
                 }
                 replies_view
             }
-            None => Vec::new()
+            None => Vec::new(),
         };
-        
-        return Ok(Some(PostThread {
+
+        Ok(Some(PostThread {
             root_post: root_post_view,
             replies,
-        }));
+        }))
     }
 }

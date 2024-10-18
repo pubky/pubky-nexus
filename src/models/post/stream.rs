@@ -6,7 +6,9 @@ use crate::{
         tag::search::TagSearch,
         user::{Followers, Following, Friends, UserFollows},
     },
-    queries, RedisOps, ScoreAction,
+    queries,
+    routes::v0::stream::utils::{PostStreamFilters, PostStreamValues},
+    RedisOps, ScoreAction,
 };
 use serde::{Deserialize, Serialize};
 use std::error::Error;
@@ -35,8 +37,7 @@ pub enum ViewerStreamSource {
     Followers,
     Friends,
     Bookmarks,
-    Replies
-    // 4U,
+    Replies, // 4U,
 }
 
 #[derive(Serialize, Deserialize, ToSchema, Debug)]
@@ -56,19 +57,21 @@ impl PostStream {
     }
 
     pub async fn get_posts(
-        viewer_id: Option<String>,
-        author_id: Option<String>,
-        post_id: Option<String>,
-        sorting: PostStreamSorting,
-        source: ViewerStreamSource,
-        tags: Option<Vec<String>>,
-        skip: Option<usize>,
-        limit: Option<usize>,
-        start: Option<f64>,
-        end: Option<f64>
+        post_stream_values: PostStreamValues,
+        post_stream_filters: PostStreamFilters,
     ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
         // Decide whether to use index or fallback to graph query
-        let use_index = Self::can_use_index(&sorting, &author_id, &source, &tags);
+        let use_index = Self::can_use_index(
+            &post_stream_filters.sorting,
+            &post_stream_values.author_id,
+            &post_stream_filters.source,
+            &post_stream_values.tags,
+        );
+
+        let viewer_id = post_stream_values.viewer_id;
+        let author_id = post_stream_values.author_id;
+        let post_id = post_stream_values.post_id;
+        let tags = post_stream_values.tags;
 
         let post_keys = match use_index {
             true => {
@@ -76,27 +79,14 @@ impl PostStream {
                     viewer_id.clone(),
                     author_id,
                     post_id,
-                    sorting,
-                    source,
                     tags,
-                    skip,
-                    limit,
-                    start,
-                    end
+                    post_stream_filters,
                 )
                 .await?
             }
             false => {
-                Self::get_from_graph(
-                    viewer_id.clone(),
-                    author_id,
-                    sorting,
-                    source,
-                    tags,
-                    skip,
-                    limit,
-                )
-                .await?
+                Self::get_from_graph(viewer_id.clone(), author_id, tags, post_stream_filters)
+                    .await?
             }
         };
 
@@ -139,14 +129,16 @@ impl PostStream {
         viewer_id: Option<String>,
         author_id: Option<String>,
         post_id: Option<String>,
-        sorting: PostStreamSorting,
-        source: ViewerStreamSource,
         tags: Option<Vec<String>>,
-        skip: Option<usize>,
-        limit: Option<usize>,
-        start: Option<f64>,
-        end: Option<f64>
+        post_stream_filters: PostStreamFilters,
     ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+        let source = post_stream_filters.source;
+        let sorting = post_stream_filters.sorting;
+        let skip = post_stream_filters.skip;
+        let limit = post_stream_filters.limit;
+        let start = post_stream_filters.start;
+        let end = post_stream_filters.end;
+
         match (source, tags, author_id) {
             // Global post streams
             (ViewerStreamSource::All, None, None) => {
@@ -171,8 +163,9 @@ impl PostStream {
                     &post_id.ok_or("Post ID is required for post replies streams")?,
                     start,
                     end,
-                    limit
-                ).await
+                    limit,
+                )
+                .await
             }
             // Streams by simple source
             (source, None, None) => Self::get_posts_by_source(source, viewer_id, skip, limit).await,
@@ -187,17 +180,21 @@ impl PostStream {
     async fn get_from_graph(
         viewer_id: Option<String>,
         author_id: Option<String>,
-        sorting: PostStreamSorting,
-        source: ViewerStreamSource,
         tags: Option<Vec<String>>,
-        skip: Option<usize>,
-        limit: Option<usize>,
+        post_stream_filters: PostStreamFilters,
     ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
-            let query =
-                queries::get::post_stream(viewer_id, author_id, source, tags, sorting, skip, limit);
+            let query = queries::get::post_stream(
+                viewer_id,
+                author_id,
+                post_stream_filters.source,
+                tags,
+                post_stream_filters.sorting,
+                post_stream_filters.skip,
+                post_stream_filters.limit,
+            );
 
             let graph = graph.lock().await;
 
@@ -385,8 +382,9 @@ impl PostStream {
             end,
             None,
             limit,
-            Sorting::Descending
-        ).await?;
+            Sorting::Descending,
+        )
+        .await?;
         let ids = post_replies.map_or(Vec::new(), |post_entry| {
             post_entry.into_iter().map(|(post_id, _)| post_id).collect()
         });
@@ -500,9 +498,13 @@ impl PostStream {
         parent_post_id: &str,
         author_id: &str,
         reply_id: &str,
-        indexed_at: i64
+        indexed_at: i64,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let key_parts = [&POST_REPLIES_TIMELINE_KEY_PARTS[..], &[parent_user_id, parent_post_id]].concat();
+        let key_parts = [
+            &POST_REPLIES_TIMELINE_KEY_PARTS[..],
+            &[parent_user_id, parent_post_id],
+        ]
+        .concat();
         let score = indexed_at as f64;
         let element = format!("{}:{}", author_id, reply_id);
         Self::put_index_sorted_set(&key_parts, &[(score, element.as_str())]).await
@@ -513,9 +515,13 @@ impl PostStream {
         parent_user_id: &str,
         parent_post_id: &str,
         author_id: &str,
-        reply_id: &str
+        reply_id: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let key_parts = [&POST_REPLIES_TIMELINE_KEY_PARTS[..], &[parent_user_id, parent_post_id]].concat();
+        let key_parts = [
+            &POST_REPLIES_TIMELINE_KEY_PARTS[..],
+            &[parent_user_id, parent_post_id],
+        ]
+        .concat();
         let element = format!("{}:{}", author_id, reply_id);
         Self::remove_from_index_sorted_set(&key_parts, &[element.as_str()]).await
     }

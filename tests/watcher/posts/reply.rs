@@ -7,7 +7,7 @@ use crate::watcher::{users::utils::find_user_counts, utils::WatcherTest};
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::{
-    post::{PostDetails, PostThread},
+    post::{PostDetails, PostStream, PostThread},
     pubky_app::{PostKind, PubkyAppPost, PubkyAppUser},
 };
 
@@ -78,6 +78,14 @@ async fn test_homeserver_post_reply() -> Result<()> {
     assert_eq!(reply_post_details.content, post_detail_cache.content);
     assert_eq!(reply_post_details.uri, post_detail_cache.uri);
     assert_eq!(reply_post_details.indexed_at, post_detail_cache.indexed_at);
+
+    // Sorted:Post:Replies:user_id:post_id
+    let post_replies = PostStream::get_post_replies(&user_id, &parent_post_id, None, None, None)
+        .await
+        .unwrap();
+    assert_eq!(post_replies.len(), 1);
+    let post_key = format!("{}:{}", user_id, reply_id);
+    assert_eq!(post_replies[0], post_key);
 
     // User:Counts:user_id:post_id
     let reply_post_counts = find_post_counts(&user_id, &reply_id).await;
