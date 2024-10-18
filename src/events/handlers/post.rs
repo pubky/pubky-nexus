@@ -1,7 +1,7 @@
 use crate::db::graph::exec::{exec_boolean_row, exec_single_row};
 use crate::db::kv::index::json::JsonAction;
 use crate::events::uri::ParsedUri;
-use crate::models::notification::Notification;
+use crate::models::notification::{Notification, PostDeleteType};
 use crate::models::post::{
     PostCounts, PostRelationships, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS,
 };
@@ -260,6 +260,10 @@ pub async fn sync_del(
     PostCounts::delete(&author_id, &post_id).await?;
     UserCounts::update(&author_id, "posts", JsonAction::Decrement(1)).await?;
 
+    // TODO: remove from sorted sets of posts timeline / popularity / per user
+
+    let deleted_uri = format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}");
+
     // If it was a reply or a repost, we should Decrement(1) the counts of those related posts.
     let relationships = PostRelationships::get_by_id(&author_id, &post_id).await?;
     if let Some(relationships) = relationships {
@@ -282,6 +286,16 @@ pub async fn sync_del(
                 ScoreAction::Decrement(1.0),
             )
             .await?;
+
+            // Notification: "A repost of your post was deleted"
+            Notification::deleted_post(
+                &parsed_uri.user_id,
+                &reposted,
+                &parsed_uri.user_id,
+                &deleted_uri,
+                PostDeleteType::Reply,
+            )
+            .await?;
         }
         // Decrement counts for parent post if replied
         if let Some(replied) = relationships.replied {
@@ -302,6 +316,18 @@ pub async fn sync_del(
                 ScoreAction::Decrement(1.0),
             )
             .await?;
+
+            // Notification: "A reply to your post was deleted"
+            Notification::deleted_post(
+                &parsed_uri.user_id,
+                &replied,
+                &parsed_uri.user_id,
+                &deleted_uri,
+                PostDeleteType::Reply,
+            )
+            .await?;
+
+            // TODO: remove from sorted set of replies
         }
     }
 
