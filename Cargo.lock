@@ -2400,7 +2400,6 @@ dependencies = [
  "futures-util",
  "heed",
  "hex",
- "libc",
  "pkarr 2.2.0 (git+https://github.com/Pubky/pkarr?branch=serde)",
  "postcard",
  "pubky-common",
