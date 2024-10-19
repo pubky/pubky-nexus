@@ -1,14 +1,11 @@
-use criterion::{criterion_group, criterion_main, Criterion};
+use crate::run_setup;
+use criterion::Criterion;
 use pubky_nexus::models::post::{PostStream, PostStreamSorting, ViewerStreamSource};
 use pubky_nexus::routes::v0::stream::utils::{PostStreamFilters, PostStreamValues};
-
-use std::time::Duration;
 use tokio::runtime::Runtime;
-use crate::setup::run_setup;
-
 
 /// REACH RELATED POST STREAMS BENCHMARKS
-fn bench_stream_followers_timeline(c: &mut Criterion) {
+pub fn bench_stream_followers_timeline(c: &mut Criterion) {
     println!("***************************************");
     println!("Benchmarking the post streams with reach 'Followers' sorting 'Timeline'.");
     println!("***************************************");
@@ -41,7 +38,7 @@ fn bench_stream_followers_timeline(c: &mut Criterion) {
     });
 }
 
-fn bench_stream_following_timeline(c: &mut Criterion) {
+pub fn bench_stream_following_timeline(c: &mut Criterion) {
     println!("***************************************");
     println!("Benchmarking the post streams with reach 'Following' sorting 'Timeline'.");
     println!("***************************************");
@@ -74,7 +71,7 @@ fn bench_stream_following_timeline(c: &mut Criterion) {
     });
 }
 
-fn bench_stream_friends_timeline(c: &mut Criterion) {
+pub fn bench_stream_friends_timeline(c: &mut Criterion) {
     println!("***************************************");
     println!("Benchmarking the post streams with reach 'Friends' sorting 'Timeline'.");
     println!("***************************************");
@@ -107,7 +104,7 @@ fn bench_stream_friends_timeline(c: &mut Criterion) {
     });
 }
 
-fn bench_stream_followers_total_engagement(c: &mut Criterion) {
+pub fn bench_stream_followers_total_engagement(c: &mut Criterion) {
     println!("***************************************");
     println!("Benchmarking the post streams with reach 'Followers' sorting 'TotalEngagement'.");
     println!("***************************************");
@@ -140,7 +137,7 @@ fn bench_stream_followers_total_engagement(c: &mut Criterion) {
     });
 }
 
-fn bench_stream_following_total_engagement(c: &mut Criterion) {
+pub fn bench_stream_following_total_engagement(c: &mut Criterion) {
     println!("***************************************");
     println!("Benchmarking the post streams with reach 'Following' sorting 'TotalEngagement'.");
     println!("***************************************");
@@ -173,7 +170,7 @@ fn bench_stream_following_total_engagement(c: &mut Criterion) {
     });
 }
 
-fn bench_stream_friends_total_engagement(c: &mut Criterion) {
+pub fn bench_stream_friends_total_engagement(c: &mut Criterion) {
     println!("***************************************");
     println!("Benchmarking the post streams with reach 'Friends' sorting 'TotalEngagement'.");
     println!("***************************************");
@@ -205,24 +202,3 @@ fn bench_stream_friends_total_engagement(c: &mut Criterion) {
         });
     });
 }
-
-
-fn configure_criterion() -> Criterion {
-    Criterion::default()
-        .measurement_time(Duration::new(5, 0))
-        .sample_size(100)
-        .warm_up_time(Duration::new(1, 0))
-}
-
-criterion_group! {
-    name = benches;
-    config = configure_criterion();
-    targets = bench_stream_followers_timeline,
-              bench_stream_following_timeline,
-              bench_stream_friends_timeline,
-              bench_stream_followers_total_engagement,
-              bench_stream_following_total_engagement,
-              bench_stream_friends_total_engagement,
-}
-
-criterion_main!(benches);

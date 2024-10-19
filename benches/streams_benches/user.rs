@@ -1,12 +1,10 @@
-use criterion::{criterion_group, criterion_main, Criterion};
+use crate::run_setup;
+use criterion::Criterion;
 use pubky_nexus::models::user::{UserStream, UserStreamSource};
-
-use std::time::Duration;
 use tokio::runtime::Runtime;
-use crate::setup::run_setup;
 
 /// USER STREAMS BENCHMARKS
-fn bench_stream_following(c: &mut Criterion) {
+pub fn bench_stream_following(c: &mut Criterion) {
     println!("***************************************");
     println!("Benchmarking the user streams for following users.");
     println!("***************************************");
@@ -33,7 +31,7 @@ fn bench_stream_following(c: &mut Criterion) {
     });
 }
 
-fn bench_stream_most_followed(c: &mut Criterion) {
+pub fn bench_stream_most_followed(c: &mut Criterion) {
     println!("***************************************");
     println!("Benchmarking the user streams for most followed users.");
     println!("***************************************");
@@ -53,7 +51,7 @@ fn bench_stream_most_followed(c: &mut Criterion) {
     });
 }
 
-fn bench_stream_users_by_username_search(c: &mut Criterion) {
+pub fn bench_stream_users_by_username_search(c: &mut Criterion) {
     println!("***************************************");
     println!("Benchmarking the user streams by username search.");
     println!("***************************************");
@@ -78,7 +76,7 @@ fn bench_stream_users_by_username_search(c: &mut Criterion) {
     });
 }
 
-fn bench_stream_pioneers(c: &mut Criterion) {
+pub fn bench_stream_pioneers(c: &mut Criterion) {
     println!("***************************************");
     println!("Benchmarking the user streams for pioneer users.");
     println!("***************************************");
@@ -97,23 +95,3 @@ fn bench_stream_pioneers(c: &mut Criterion) {
         });
     });
 }
-
-
-
-fn configure_criterion() -> Criterion {
-    Criterion::default()
-        .measurement_time(Duration::new(5, 0))
-        .sample_size(100)
-        .warm_up_time(Duration::new(1, 0))
-}
-
-criterion_group! {
-    name = benches;
-    config = configure_criterion();
-    targets = bench_stream_users_by_username_search,
-              bench_stream_pioneers,
-              bench_stream_following,
-              bench_stream_most_followed,
-}
-
-criterion_main!(benches);

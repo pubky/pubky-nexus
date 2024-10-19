@@ -1,13 +1,11 @@
-use criterion::{criterion_group, criterion_main, Criterion};
+use crate::run_setup;
+use criterion::Criterion;
 use pubky_nexus::models::post::{PostStream, PostStreamSorting, ViewerStreamSource};
 use pubky_nexus::routes::v0::stream::utils::{PostStreamFilters, PostStreamValues};
-
-use std::time::Duration;
 use tokio::runtime::Runtime;
-use crate::setup::run_setup;
 
 /// SORTING RELATED POST STREAMS BENCHMARKS
-fn bench_stream_all_timeline(c: &mut Criterion) {
+pub fn bench_stream_all_timeline(c: &mut Criterion) {
     println!("***************************************");
     println!("Benchmarking the post streams with reach 'All' sorting 'Timeline'.");
     println!("***************************************");
@@ -38,8 +36,7 @@ fn bench_stream_all_timeline(c: &mut Criterion) {
     });
 }
 
-
-fn bench_stream_all_total_engagement(c: &mut Criterion) {
+pub fn bench_stream_all_total_engagement(c: &mut Criterion) {
     println!("***************************************");
     println!("Benchmarking the post streams with reach 'All' sorting 'TotalEngagement'.");
     println!("***************************************");
@@ -70,7 +67,7 @@ fn bench_stream_all_total_engagement(c: &mut Criterion) {
     });
 }
 
-fn bench_stream_author_timeline(c: &mut Criterion) {
+pub fn bench_stream_author_timeline(c: &mut Criterion) {
     println!("***************************************");
     println!("Benchmarking the post streams for author_id sorted by 'Timeline'.");
     println!("***************************************");
@@ -103,7 +100,7 @@ fn bench_stream_author_timeline(c: &mut Criterion) {
     });
 }
 
-fn bench_stream_author_total_engagement(c: &mut Criterion) {
+pub fn bench_stream_author_total_engagement(c: &mut Criterion) {
     println!("***************************************");
     println!("Benchmarking the post streams for author_id sorted by 'TotalEngagement'.");
     println!("***************************************");
@@ -135,22 +132,3 @@ fn bench_stream_author_total_engagement(c: &mut Criterion) {
         });
     });
 }
-
-
-fn configure_criterion() -> Criterion {
-    Criterion::default()
-        .measurement_time(Duration::new(5, 0))
-        .sample_size(100)
-        .warm_up_time(Duration::new(1, 0))
-}
-
-criterion_group! {
-    name = benches;
-    config = configure_criterion();
-    targets = bench_stream_all_timeline,
-              bench_stream_all_total_engagement,
-              bench_stream_author_timeline,
-              bench_stream_author_total_engagement,
-}
-
-criterion_main!(benches);
