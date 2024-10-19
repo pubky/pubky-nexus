@@ -77,7 +77,8 @@ name = "follows"
 harness = false
 
 [[bench]]
-name = "stream"
+name = "stream_bookmarks"
+path = "benches/streams/bookmarks.rs"
 harness = false
 
 [[bench]]
