@@ -1,7 +1,7 @@
 use crate::db::graph::exec::{exec_boolean_row, exec_single_row};
 use crate::db::kv::index::json::JsonAction;
 use crate::events::uri::ParsedUri;
-use crate::models::notification::{Notification, PostDeleteType};
+use crate::models::notification::{Notification, PostChangedType};
 use crate::models::post::{
     PostCounts, PostRelationships, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS,
 };
@@ -34,6 +34,7 @@ pub async fn sync_put(
     author_id: PubkyId,
     post_id: String,
 ) -> Result<(), Box<dyn Error + Sync + Send>> {
+    let put_uri = format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}");
     // Create PostDetails object
     let post_details = PostDetails::from_homeserver(post.clone(), &author_id, &post_id).await?;
 
@@ -49,6 +50,33 @@ pub async fn sync_put(
     if existed {
         // Update content of PostDetails in index and leave!
         post_details.put_to_index(&author_id, false).await?;
+
+        // Notifications"
+        if let Some(parent) = post.parent {
+            let parsed_parent = ParsedUri::try_from(parent.as_str())?;
+            if post_details.content == *"[DELETED]" {
+                // Notification: "A reply to your post was deleted"
+                Notification::deleted_post(
+                    &author_id,
+                    &parent,
+                    &parsed_parent.user_id,
+                    &put_uri,
+                    PostChangedType::Reply,
+                )
+                .await?;
+            } else {
+                // Notification: "A reply to your post was edited"
+                Notification::edited_post(
+                    &author_id,
+                    &parent,
+                    &parsed_parent.user_id,
+                    &put_uri,
+                    PostChangedType::Reply,
+                )
+                .await?;
+            }
+        }
+
         return Ok(());
     }
 
@@ -293,7 +321,7 @@ pub async fn sync_del(
                 &reposted,
                 &parsed_uri.user_id,
                 &deleted_uri,
-                PostDeleteType::Repost,
+                PostChangedType::Repost,
             )
             .await?;
         }
@@ -323,7 +351,7 @@ pub async fn sync_del(
                 &replied,
                 &parsed_uri.user_id,
                 &deleted_uri,
-                PostDeleteType::Reply,
+                PostChangedType::Reply,
             )
             .await?;
 

@@ -5,14 +5,15 @@ use utoipa::ToSchema;
 
 #[derive(Serialize, Deserialize, ToSchema, Clone, Debug, PartialEq)]
 #[serde(rename_all = "lowercase")]
-pub enum PostDeleteType {
-    Reply,       // A reply to you was deleted.
-    Repost,      // A repost of your post was deleted.
-    ReplyParent, // The parent post of your reply was deleted.
-    RepostEmbed, // The embedded post of your repost was deleted.
-    ThreadRoot,  // The root post of the thread of your reply was deleted.
-    ThreadReply, // A reply on the thread of your root post was deleted.
-    TaggedPost,  // A post you tagged was deleted.
+pub enum PostChangedType {
+    Reply,       // A reply to you was deleted/edited.
+    Repost,      // A repost of your post was deleted/edited.
+    Bookmark,    // A post you bookmarked was deleted/edited.
+    ReplyParent, // The parent post of your reply was deleted/edited.
+    RepostEmbed, // The embedded post of your repost was deleted/edited.
+    ThreadRoot,  // The root post of the thread of your reply was deleted/edited.
+    ThreadReply, // A reply on the thread of your root post was deleted/edited.
+    TaggedPost,  // A post you tagged was deleted/edited.
 }
 
 #[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
@@ -57,9 +58,15 @@ pub enum NotificationBody {
         post_uri: String,
     },
     PostDeleted {
-        delete_type: PostDeleteType,
+        delete_type: PostChangedType,
         deleted_by: String,
         deleted_uri: String,
+        linked_uri: String,
+    },
+    PostEdited {
+        edit_type: PostChangedType,
+        edited_by: String,
+        edited_uri: String,
         linked_uri: String,
     },
 }
@@ -262,7 +269,7 @@ impl Notification {
         linked_uri: &str,
         linked_post_author: &str,
         deleted_uri: &str,
-        delete_type: PostDeleteType,
+        delete_type: PostChangedType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if user_id == linked_post_author {
             return Ok(());
@@ -271,6 +278,26 @@ impl Notification {
             delete_type,
             deleted_by: user_id.to_string(),
             deleted_uri: deleted_uri.to_string(),
+            linked_uri: linked_uri.to_string(),
+        };
+        let notification = Notification::new(body);
+        notification.put_to_index(linked_post_author).await
+    }
+
+    pub async fn edited_post(
+        user_id: &str,
+        linked_uri: &str,
+        linked_post_author: &str,
+        edited_uri: &str,
+        edit_type: PostChangedType,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if user_id == linked_post_author {
+            return Ok(());
+        }
+        let body = NotificationBody::PostEdited {
+            edit_type,
+            edited_by: user_id.to_string(),
+            edited_uri: edited_uri.to_string(),
             linked_uri: linked_uri.to_string(),
         };
         let notification = Notification::new(body);

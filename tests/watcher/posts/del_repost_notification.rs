@@ -2,7 +2,7 @@ use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::{
-    notification::{Notification, NotificationBody, PostDeleteType},
+    notification::{Notification, NotificationBody, PostChangedType},
     pubky_app::{PostEmbed, PostKind, PubkyAppPost, PubkyAppUser},
 };
 
@@ -93,7 +93,7 @@ async fn test_delete_post_that_reposted_notification() -> Result<()> {
         );
         assert_eq!(
             delete_type,
-            &PostDeleteType::Repost,
+            &PostChangedType::Repost,
             "Delete notification should have the correct type"
         );
     } else {
