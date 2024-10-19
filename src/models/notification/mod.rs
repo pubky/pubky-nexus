@@ -6,12 +6,11 @@ use utoipa::ToSchema;
 #[derive(Serialize, Deserialize, ToSchema, Clone, Debug, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum PostChangedType {
-    Reply,       // A reply to you was deleted/edited.
-    Repost,      // A repost of your post was deleted/edited.
+    Reply,       // Implemented: Del / Edit. A reply to you was deleted/edited.
+    Repost,      // Implemented: Del. A repost of your post was deleted/edited.
     Bookmark,    // A post you bookmarked was deleted/edited.
-    ReplyParent, // The parent post of your reply was deleted/edited.
+    ReplyParent, // Implemented: Del. The parent post of your reply was deleted/edited.
     RepostEmbed, // The embedded post of your repost was deleted/edited.
-    ThreadRoot,  // The root post of the thread of your reply was deleted/edited.
     ThreadReply, // A reply on the thread of your root post was deleted/edited.
     TaggedPost,  // A post you tagged was deleted/edited.
 }

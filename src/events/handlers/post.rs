@@ -64,6 +64,30 @@ pub async fn sync_put(
                     PostChangedType::Reply,
                 )
                 .await?;
+
+                // Notifications "A post you replied has been deleted"
+                let children_keys: Vec<String> =
+                    PostStream::get_post_replies(author_id, post_id, None, None, None).await?;
+                for reply_key in children_keys {
+                    let reply_author_id = reply_key
+                        .split(':')
+                        .next()
+                        .ok_or("Invalid reply key format")?;
+                    let reply_uri = format!(
+                        "pubky://{}/pub/pubky.app/posts/{}",
+                        reply_author_id, post_id
+                    );
+
+                    // Create notification for each reply author
+                    Notification::deleted_post(
+                        &author_id,
+                        &reply_uri,
+                        &reply_author_id.to_string(),
+                        &reply_uri,
+                        PostChangedType::ReplyParent,
+                    )
+                    .await?;
+                }
             } else {
                 // Notification: "A reply to your post was edited"
                 Notification::edited_post(
@@ -74,6 +98,30 @@ pub async fn sync_put(
                     PostChangedType::Reply,
                 )
                 .await?;
+
+                // Notifications "A post you replied has been deleted"
+                let children_keys: Vec<String> =
+                    PostStream::get_post_replies(author_id, post_id, None, None, None).await?;
+                for reply_key in children_keys {
+                    let reply_author_id = reply_key
+                        .split(':')
+                        .next()
+                        .ok_or("Invalid reply key format")?;
+                    let reply_uri = format!(
+                        "pubky://{}/pub/pubky.app/posts/{}",
+                        reply_author_id, post_id
+                    );
+
+                    // Create notification for each reply author
+                    Notification::edited_post(
+                        &author_id,
+                        &reply_uri,
+                        &reply_author_id.to_string(),
+                        &reply_uri,
+                        PostChangedType::ReplyParent,
+                    )
+                    .await?;
+                }
             }
         }
 
