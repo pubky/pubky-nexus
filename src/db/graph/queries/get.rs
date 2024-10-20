@@ -73,6 +73,16 @@ pub fn user_bookmarks(user_id: &str) -> Query {
     .param("user_id", user_id)
 }
 
+// Check all the bookmarks that a post has received
+pub fn post_bookmarks(author_id: &str, post_id: &str) -> Query {
+    query(
+        "MATCH (u:User)-[b:BOOKMARKED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
+         RETURN b.id AS bookmark_id, u.id AS user_id",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
+}
+
 pub fn post_relationships(author_id: &str, post_id: &str) -> Query {
     query(
         "MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})

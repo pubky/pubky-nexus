@@ -11,7 +11,6 @@ pub enum PostChangedType {
     Bookmark,    // A post you bookmarked was deleted/edited.
     ReplyParent, // Implemented: Del. The parent post of your reply was deleted/edited.
     RepostEmbed, // The embedded post of your repost was deleted/edited.
-    ThreadReply, // A reply on the thread of your root post was deleted/edited.
     TaggedPost,  // A post you tagged was deleted/edited.
 }
 
