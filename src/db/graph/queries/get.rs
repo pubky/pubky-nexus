@@ -83,6 +83,16 @@ pub fn post_bookmarks(author_id: &str, post_id: &str) -> Query {
     .param("post_id", post_id)
 }
 
+// Check all the reposts that a post has received
+pub fn post_reposts(author_id: &str, post_id: &str) -> Query {
+    query(
+        "MATCH (reposter:User)-[:AUTHORED]->(repost:Post)-[b:REPOSTED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
+         RETURN reposter.id AS reposter_id, repost.id AS repost_id",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
+}
+
 pub fn post_relationships(author_id: &str, post_id: &str) -> Query {
     query(
         "MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
