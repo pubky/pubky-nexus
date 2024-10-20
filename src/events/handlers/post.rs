@@ -34,7 +34,6 @@ pub async fn sync_put(
     author_id: PubkyId,
     post_id: String,
 ) -> Result<(), Box<dyn Error + Sync + Send>> {
-    let put_uri = format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}");
     // Create PostDetails object
     let post_details = PostDetails::from_homeserver(post.clone(), &author_id, &post_id).await?;
 
@@ -44,87 +43,14 @@ pub async fn sync_put(
     // SAVE TO GRAPH
     let existed = post_details.put_to_graph().await?;
 
-    // TODO: Posts are not really editable as of now. Much more handling would be needed.
-    // But we can update content even if post existed. Useful for DEL posts (content becomes [DELETED])
-    // Example of yet unhandled: is it still a reply to the same post? Is there different mentions? Etc. Are different notifications needed?
     if existed {
-        // Update content of PostDetails in index and leave!
-        post_details.put_to_index(&author_id, false).await?;
-
-        // Notifications"
-        if let Some(parent) = post.parent {
-            let parsed_parent = ParsedUri::try_from(parent.as_str())?;
-            if post_details.content == *"[DELETED]" {
-                // Notification: "A reply to your post was deleted"
-                Notification::deleted_post(
-                    &author_id,
-                    &parent,
-                    &parsed_parent.user_id,
-                    &put_uri,
-                    PostChangedType::Reply,
-                )
-                .await?;
-
-                // Notifications "A post you replied has been deleted"
-                let children_keys: Vec<String> =
-                    PostStream::get_post_replies(author_id, post_id, None, None, None).await?;
-                for reply_key in children_keys {
-                    let reply_author_id = reply_key
-                        .split(':')
-                        .next()
-                        .ok_or("Invalid reply key format")?;
-                    let reply_uri = format!(
-                        "pubky://{}/pub/pubky.app/posts/{}",
-                        reply_author_id, post_id
-                    );
-
-                    // Create notification for each reply author
-                    Notification::deleted_post(
-                        &author_id,
-                        &reply_uri,
-                        &reply_author_id.to_string(),
-                        &reply_uri,
-                        PostChangedType::ReplyParent,
-                    )
-                    .await?;
-                }
-            } else {
-                // Notification: "A reply to your post was edited"
-                Notification::edited_post(
-                    &author_id,
-                    &parent,
-                    &parsed_parent.user_id,
-                    &put_uri,
-                    PostChangedType::Reply,
-                )
-                .await?;
-
-                // Notifications "A post you replied has been deleted"
-                let children_keys: Vec<String> =
-                    PostStream::get_post_replies(author_id, post_id, None, None, None).await?;
-                for reply_key in children_keys {
-                    let reply_author_id = reply_key
-                        .split(':')
-                        .next()
-                        .ok_or("Invalid reply key format")?;
-                    let reply_uri = format!(
-                        "pubky://{}/pub/pubky.app/posts/{}",
-                        reply_author_id, post_id
-                    );
-
-                    // Create notification for each reply author
-                    Notification::edited_post(
-                        &author_id,
-                        &reply_uri,
-                        &reply_author_id.to_string(),
-                        &reply_uri,
-                        PostChangedType::ReplyParent,
-                    )
-                    .await?;
-                }
-            }
+        // If the post existed, let's confirm this is an edit. Is the content different?
+        let existing_details = PostDetails::get_from_index(&author_id, &post_id)
+            .await?
+            .ok_or("An existing post in graph, could not be retrieved from index")?;
+        if existing_details.content != post_details.content {
+            sync_edit(post, author_id, post_id, post_details).await?;
         }
-
         return Ok(());
     }
 
@@ -201,6 +127,90 @@ pub async fn sync_put(
     Ok(())
 }
 
+async fn sync_edit(
+    post: PubkyAppPost,
+    author_id: PubkyId,
+    post_id: String,
+    post_details: PostDetails,
+) -> Result<(), Box<dyn Error + Sync + Send>> {
+    let edited_uri = format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}");
+    // Update content of PostDetails!
+    post_details.put_to_index(&author_id, false).await?;
+
+    // Notifications
+    if let Some(parent) = post.parent {
+        let parsed_parent = ParsedUri::try_from(parent.as_str())?;
+        if post_details.content == *"[DELETED]" {
+            // Notification: "A reply to your post was deleted"
+            Notification::deleted_post(
+                &author_id,
+                &parent,
+                &parsed_parent.user_id,
+                &edited_uri,
+                PostChangedType::Reply,
+            )
+            .await?;
+
+            // Notifications "A post you replied has been deleted"
+            let children_keys: Vec<String> =
+                PostStream::get_post_replies(author_id, post_id, None, None, None).await?;
+            for reply_key in children_keys {
+                let reply_author_id = reply_key
+                    .split(':')
+                    .next()
+                    .ok_or("Invalid reply key format")?;
+                let reply_uri = format!(
+                    "pubky://{}/pub/pubky.app/posts/{}",
+                    reply_author_id, post_id
+                );
+
+                // Create notification for each reply author
+                Notification::deleted_post(
+                    &author_id,
+                    &reply_uri,
+                    &reply_author_id.to_string(),
+                    &reply_uri,
+                    PostChangedType::ReplyParent,
+                )
+                .await?;
+            }
+        } else {
+            // Notification: "A reply to your post was edited"
+            Notification::edited_post(
+                &author_id,
+                &parent,
+                &parsed_parent.user_id,
+                &edited_uri,
+                PostChangedType::Reply,
+            )
+            .await?;
+
+            // Notifications "A post you replied has been deleted"
+            let children_keys: Vec<String> =
+                PostStream::get_post_replies(author_id, post_id, None, None, None).await?;
+            for reply_key in children_keys {
+                let reply_author_id = reply_key
+                    .split(':')
+                    .next()
+                    .ok_or("Invalid reply key format")?;
+                let reply_uri = format!(
+                    "pubky://{}/pub/pubky.app/posts/{}",
+                    reply_author_id, post_id
+                );
+
+                // Create notification for each reply author
+                Notification::edited_post(
+                    &author_id,
+                    &reply_uri,
+                    &reply_author_id.to_string(),
+                    &reply_uri,
+                    PostChangedType::ReplyParent,
+                )
+                .await?;
+            }
+        }
+    }
+}
 async fn resolve_post_type_interaction<'a>(
     post: &'a PubkyAppPost,
     author_id: &str,
