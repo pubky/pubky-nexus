@@ -264,24 +264,31 @@ pub async fn sync_del(
     author_id: PubkyId,
     post_id: String,
 ) -> Result<(), Box<dyn Error + Sync + Send>> {
-    PostDetails::delete(&author_id, &post_id).await?;
+    let deleted_uri = format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}");
+    // If it was a reply or a repost, we should Decrement(1) the counts of those related posts.
+    let relationships = PostRelationships::get_by_id(&author_id, &post_id).await?;
+
+    PostDetails::delete(&author_id, &post_id, relationships.is_none()).await?;
     PostCounts::delete(&author_id, &post_id).await?;
     UserCounts::update(&author_id, "posts", JsonAction::Decrement(1)).await?;
 
-    // TODO: remove from sorted sets of posts timeline / popularity / per user
+    // TODO: remove from sorted sets of posts / popularity. Might be done
 
-    let deleted_uri = format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}");
+    let mut is_reply: Option<(PubkyId, String)> = None;
 
-    // If it was a reply or a repost, we should Decrement(1) the counts of those related posts.
-    let relationships = PostRelationships::get_by_id(&author_id, &post_id).await?;
     if let Some(relationships) = relationships {
         // Decrement counts for resposted post if existed
         if let Some(reposted) = relationships.reposted {
             let parsed_uri = ParsedUri::try_from(reposted.as_str())?;
+            let parent_post_id = parsed_uri.post_id.ok_or("Missing post ID")?;
+
             let parent_post_key_parts: &[&str] = &[
                 &parsed_uri.user_id,
-                &parsed_uri.post_id.ok_or("Missing post ID")?,
+                &parent_post_id,
             ];
+
+            is_reply = Some((parsed_uri.user_id.clone(), parent_post_id.clone()));
+
             PostCounts::update_index_field(
                 parent_post_key_parts,
                 "reposts",
@@ -334,10 +341,10 @@ pub async fn sync_del(
                 PostDeleteType::Reply,
             )
             .await?;
-
-            // TODO: remove from sorted set of replies
         }
     }
+
+    PostRelationships::delete(&author_id, &post_id, is_reply).await?;
 
     Ok(())
 }

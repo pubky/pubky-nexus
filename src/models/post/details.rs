@@ -83,6 +83,7 @@ impl PostDetails {
         add_to_feeds: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.put_index_json(&[author_id, &self.id]).await?;
+        // We just add the root posts, others are not indexed 
         if add_to_feeds {
             PostStream::add_to_timeline_sorted_set(self).await?;
             PostStream::add_to_per_user_sorted_set(self).await?;
@@ -130,13 +131,17 @@ impl PostDetails {
     pub async fn delete(
         author_id: &str,
         post_id: &str,
+        remove_from_feeds: bool
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Delete user_details on Redis
         Self::remove_from_index_multiple_json(&[&[author_id, post_id]]).await?;
-
-        // Delete post graph node;
+        // Delete post graph node
         exec_single_row(queries::del::delete_post(author_id, post_id)).await?;
-
+        // We just remove the root posts, others are not indexed 
+        if remove_from_feeds {
+            PostStream::remove_from_timeline_sorted_set(author_id, post_id).await?;
+            PostStream::remove_from_per_user_sorted_set(author_id, post_id).await?;
+        }
         Ok(())
     }
 }

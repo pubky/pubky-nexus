@@ -492,6 +492,24 @@ impl PostStream {
         Self::put_index_sorted_set(&key_parts, &[(score, details.id.as_str())]).await
     }
 
+    /// Adds the post to a Redis sorted set using the `indexed_at` timestamp as the score.
+    pub async fn remove_from_timeline_sorted_set(
+        author_id: &str,
+        post_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let element = format!("{}:{}", author_id, post_id);
+        Self::remove_from_index_sorted_set(&POST_TIMELINE_KEY_PARTS, &[element.as_str()]).await
+    }
+
+    /// Adds the post to a Redis sorted set using the `indexed_at` timestamp as the score.
+    pub async fn remove_from_per_user_sorted_set(
+        author_id: &str,
+        post_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let key_parts = [&POST_PER_USER_KEY_PARTS[..], &[author_id]].concat();
+        Self::remove_from_index_sorted_set(&key_parts, &[post_id]).await
+    }
+
     /// Adds the post response to a Redis sorted set using the `indexed_at` timestamp as the score.
     pub async fn add_to_post_reply_sorted_set(
         parent_user_id: &str,

@@ -166,6 +166,25 @@ impl PostRelationships {
         None
     }
 
+    pub async fn delete(
+        author_id: &str,
+        post_id: &str,
+        is_reply: Option<(PubkyId, String)>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Self::remove_from_index_multiple_json(&[&[author_id, post_id]]).await?;
+        if is_reply.is_some() {
+            let (parent_author_id, parent_post_id) = is_reply.unwrap();
+            PostStream::remove_from_post_reply_sorted_set(
+                &parent_author_id,
+                &parent_post_id,
+                author_id,
+                post_id
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
     pub async fn reindex(
         author_id: &str,
         post_id: &str,
