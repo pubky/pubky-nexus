@@ -51,7 +51,7 @@ async fn test_stream_posts_global_timeline() -> Result<()> {
 
 #[tokio::test]
 async fn test_stream_posts_global_total_engagement() -> Result<()> {
-    let path = format!("{ROOT_PATH}?sorting=totalengagement");
+    let path = format!("{ROOT_PATH}?sorting=total_engagement");
     let body = make_request(&path).await?;
 
     assert!(body.is_array());
@@ -222,7 +222,7 @@ async fn test_stream_combined_parameters() -> Result<()> {
     let viewer_id = USER_ID;
     let tag = TAG_LABEL_1;
     let path = format!(
-        "{ROOT_PATH}?viewer_id={}&source=following&tags={}&sorting=totalengagement",
+        "{ROOT_PATH}?viewer_id={}&source=following&tags={}&sorting=total_engagement",
         viewer_id, tag
     );
 
@@ -381,7 +381,7 @@ async fn test_post_tag_search_with_viewer_id() -> Result<()> {
 async fn test_post_tag_search_by_engagement() -> Result<()> {
     let post_order = vec![POST_A, POST_C, POST_B, POST_G, POST_F, POST_H];
     let path = format!(
-        "{}?tags={}&sorting=totalengagement&limit=6",
+        "{}?tags={}&sorting=total_engagement&limit=6",
         ROOT_PATH, TAG_LABEL_2
     );
     let body = make_request(&path).await?;
@@ -403,7 +403,7 @@ async fn test_post_tag_search_by_engagement() -> Result<()> {
 async fn test_post_tag_search_by_engagement_with_limit() -> Result<()> {
     let post_order = vec![POST_A, POST_C];
     let path = format!(
-        "{}?tags={}&sorting=totalengagement&limit=2",
+        "{}?tags={}&sorting=total_engagement&limit=2",
         ROOT_PATH, TAG_LABEL_2
     );
     let body = make_request(&path).await?;
@@ -425,7 +425,7 @@ async fn test_post_tag_search_by_engagement_with_limit() -> Result<()> {
 async fn test_post_tag_search_by_engagement_with_skip() -> Result<()> {
     let post_order = vec![POST_E, POST_D];
     let path = format!(
-        "{}?tags={}&sorting=totalengagement&skip=6",
+        "{}?tags={}&sorting=total_engagement&skip=6",
         ROOT_PATH, TAG_LABEL_2
     );
     let body = make_request(&path).await?;
@@ -447,7 +447,7 @@ async fn test_post_tag_search_by_engagement_with_skip() -> Result<()> {
 async fn test_post_tag_search_by_engagement_with_skip_and_limit() -> Result<()> {
     let post_order = vec![POST_C];
     let path = format!(
-        "{}?tags={}&sorting=totalengagement&skip=1&limit=1",
+        "{}?tags={}&sorting=total_engagement&skip=1&limit=1",
         ROOT_PATH, TAG_LABEL_2
     );
     let body = make_request(&path).await?;

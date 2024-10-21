@@ -1,4 +1,3 @@
-use super::post::PostStream;
 use crate::{db::kv::index::sorted_sets::Sorting, get_neo4j_graph, queries, RedisOps};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -373,7 +372,7 @@ impl Notification {
             result = graph.execute(query).await?;
         }
 
-        for row in result.next().await? {
+        while let Some(row) = result.next().await? {
             let tagger_id: &str = row.get("tagger_id").unwrap_or_default();
             let tag_id: &str = row.get("tagger_id").unwrap_or_default();
             let tag_uri = format!("pubky://{}/pub/pubky.app/tags/{}", tagger_id, tag_id);
@@ -420,7 +419,7 @@ impl Notification {
             result = graph.execute(query).await?;
         }
 
-        for row in result.next().await? {
+        while let Some(row) = result.next().await? {
             let bookmarker_id: &str = row.get("bookmarker_id").unwrap_or_default();
             let bookmark_id: &str = row.get("bookmark_id").unwrap_or_default();
             let tag_uri = format!(
@@ -470,7 +469,7 @@ impl Notification {
             result = graph.execute(query).await?;
         }
 
-        for row in result.next().await? {
+        while let Some(row) = result.next().await? {
             let reposter_id: &str = row.get("reposter_id").unwrap_or_default();
             let repost_id: &str = row.get("repost_id").unwrap_or_default();
             let tag_uri = format!("pubky://{}/pub/pubky.app/tags/{}", reposter_id, repost_id);
