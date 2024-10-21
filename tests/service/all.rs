@@ -625,7 +625,7 @@ async fn test_stream_most_followed() -> Result<()> {
 
     // Test retrieving the most followed users
     let res = client
-        .do_get("/v0/stream/users?source=mostfollowed")
+        .do_get("/v0/stream/users?source=most_followed")
         .await?;
     assert_eq!(res.status(), 200);
 
@@ -672,7 +672,7 @@ async fn test_stream_most_followed() -> Result<()> {
 
     // Test limiting the results to 5 users
     let res = client
-        .do_get("/v0/stream/users?source=mostfollowed&limit=5")
+        .do_get("/v0/stream/users?source=most_followed&limit=5")
         .await?;
     assert_eq!(res.status(), 200);
 

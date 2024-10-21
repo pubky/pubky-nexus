@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 #[derive(Serialize, Deserialize, ToSchema, Clone, Debug, PartialEq)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum PostChangedSource {
     Reply,       // A reply to you was deleted/edited.
     Repost,      // A repost of your post was deleted/edited.
@@ -27,7 +27,7 @@ pub struct Notification {
 }
 
 #[derive(Serialize, Deserialize, Clone, ToSchema, Debug)]
-#[serde(tag = "type", rename_all = "lowercase")]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum NotificationBody {
     Follow {
         followed_by: String,
