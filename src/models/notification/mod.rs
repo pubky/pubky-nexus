@@ -7,11 +7,11 @@ use utoipa::ToSchema;
 #[derive(Serialize, Deserialize, ToSchema, Clone, Debug, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum PostChangedSource {
-    Reply,       // Implemented: Del / Edit. A reply to you was deleted/edited.
-    Repost,      // Implemented: Del. A repost of your post was deleted/edited.
+    Reply,       // A reply to you was deleted/edited.
+    Repost,      // A repost of your post was deleted/edited.
     Bookmark,    // A post you bookmarked was deleted/edited.
-    ReplyParent, // Implemented: Del. The parent post of your reply was deleted/edited.
-    RepostEmbed, // The embedded post of your repost was deleted/edited.
+    ReplyParent, // The parent post of your reply was deleted/edited.
+    RepostEmbed, // The embedded post on your repost was deleted/edited.
     TaggedPost,  // A post you tagged was deleted/edited.
 }
 
@@ -411,16 +411,93 @@ impl Notification {
         changed_uri: &str,
         changed_type: PostChangedType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let mut result;
+        {
+            let graph = get_neo4j_graph()?;
+            let query = queries::get::get_post_bookmarks(author_id, post_id);
+
+            let graph = graph.lock().await;
+            result = graph.execute(query).await?;
+        }
+
+        for row in result.next().await? {
+            let bookmarker_id: &str = row.get("bookmarker_id").unwrap_or_default();
+            let bookmark_id: &str = row.get("bookmark_id").unwrap_or_default();
+            let tag_uri = format!(
+                "pubky://{}/pub/pubky.app/tags/{}",
+                bookmarker_id, bookmark_id
+            );
+            let notification_body = match changed_type {
+                PostChangedType::Deleted => NotificationBody::PostDeleted {
+                    delete_source: PostChangedSource::Bookmark,
+                    deleted_by: author_id.to_string(),
+                    deleted_uri: changed_uri.to_string(),
+                    linked_uri: tag_uri.to_string(),
+                },
+                PostChangedType::Edited => NotificationBody::PostEdited {
+                    edit_source: PostChangedSource::Bookmark,
+                    edited_by: author_id.to_string(),
+                    edited_uri: changed_uri.to_string(),
+                    linked_uri: tag_uri.to_string(),
+                },
+            };
+
+            if author_id == bookmarker_id {
+                // Do not notify for changed tagged posts to author
+                continue;
+            };
+
+            let notification = Notification::new(notification_body);
+            notification.put_to_index(bookmarker_id).await?;
+        }
+
         Ok(())
     }
 
     // A post you reposted was edited/deleted
-    pub async fn changed_bookmarked_post(
+    pub async fn changed_reposted_post(
         author_id: &str,
         post_id: &str,
         changed_uri: &str,
         changed_type: PostChangedType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let mut result;
+        {
+            let graph = get_neo4j_graph()?;
+            let query = queries::get::get_post_reposts(author_id, post_id);
+
+            let graph = graph.lock().await;
+            result = graph.execute(query).await?;
+        }
+
+        for row in result.next().await? {
+            let reposter_id: &str = row.get("reposter_id").unwrap_or_default();
+            let repost_id: &str = row.get("repost_id").unwrap_or_default();
+            let tag_uri = format!("pubky://{}/pub/pubky.app/tags/{}", reposter_id, repost_id);
+            let notification_body = match changed_type {
+                PostChangedType::Deleted => NotificationBody::PostDeleted {
+                    delete_source: PostChangedSource::Bookmark,
+                    deleted_by: author_id.to_string(),
+                    deleted_uri: changed_uri.to_string(),
+                    linked_uri: tag_uri.to_string(),
+                },
+                PostChangedType::Edited => NotificationBody::PostEdited {
+                    edit_source: PostChangedSource::Bookmark,
+                    edited_by: author_id.to_string(),
+                    edited_uri: changed_uri.to_string(),
+                    linked_uri: tag_uri.to_string(),
+                },
+            };
+
+            if author_id == reposter_id {
+                // Do not notify for changed tagged posts to author
+                continue;
+            };
+
+            let notification = Notification::new(notification_body);
+            notification.put_to_index(reposter_id).await?;
+        }
+
         Ok(())
     }
 }

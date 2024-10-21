@@ -76,8 +76,8 @@ pub fn user_bookmarks(user_id: &str) -> Query {
 // Get all the bookmarks that a post has received (used for edit/delete notifications)
 pub fn get_post_bookmarks(author_id: &str, post_id: &str) -> Query {
     query(
-        "MATCH (u:User)-[b:BOOKMARKED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
-         RETURN b.id AS bookmark_id, u.id AS user_id",
+        "MATCH (bookmarker:User)-[b:BOOKMARKED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
+         RETURN b.id AS bookmark_id, bookmarker.id AS bookmarker_id",
     )
     .param("author_id", author_id)
     .param("post_id", post_id)

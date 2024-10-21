@@ -168,6 +168,15 @@ async fn sync_edit(
         )
         .await?;
 
+        // A post you reposted was deleted
+        Notification::changed_reposted_post(
+            &author_id,
+            &post_id,
+            &changed_uri,
+            PostChangedType::Deleted,
+        )
+        .await?;
+
         // Notification: "A reply to your post was deleted"
         if let Some(parent) = post.parent {
             let parsed_parent = ParsedUri::try_from(parent.as_str())?;
@@ -201,6 +210,15 @@ async fn sync_edit(
 
         // A post you bookmarked was edited
         Notification::changed_bookmarked_post(
+            &author_id,
+            &post_id,
+            &changed_uri,
+            PostChangedType::Edited,
+        )
+        .await?;
+
+        // A post you reposted was edited
+        Notification::changed_reposted_post(
             &author_id,
             &post_id,
             &changed_uri,
