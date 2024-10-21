@@ -2345,6 +2345,7 @@ dependencies = [
  "once_cell",
  "pkarr 2.2.0 (git+https://github.com/Pubky/pkarr?branch=serde)",
  "postcard",
+ "pubky-timestamp",
  "rand",
  "serde",
  "thiserror",
@@ -2386,6 +2387,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "pubky-timestamp"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "084b6e5bfcc186781b71257d636b660f20e94bb588c3ba52393fd9faf7a7bfda"
+dependencies = [
+ "base32",
+ "document-features",
+ "getrandom",
+ "httpdate",
+ "js-sys",
+ "once_cell",
+ "serde",
+]
+
+[[package]]
 name = "pubky_homeserver"
 version = "0.1.0"
 dependencies = [
@@ -2400,6 +2416,8 @@ dependencies = [
  "futures-util",
  "heed",
  "hex",
+ "httpdate",
+ "libc",
  "pkarr 2.2.0 (git+https://github.com/Pubky/pkarr?branch=serde)",
  "postcard",
  "pubky-common",
