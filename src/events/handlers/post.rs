@@ -1,7 +1,7 @@
 use crate::db::graph::exec::{exec_boolean_row, exec_single_row};
 use crate::db::kv::index::json::JsonAction;
 use crate::events::uri::ParsedUri;
-use crate::models::notification::{Notification, PostChangedType};
+use crate::models::notification::{Notification, PostChangedSource, PostChangedType};
 use crate::models::post::{
     PostCounts, PostRelationships, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS,
 };
@@ -133,83 +133,96 @@ async fn sync_edit(
     post_id: String,
     post_details: PostDetails,
 ) -> Result<(), Box<dyn Error + Sync + Send>> {
-    let edited_uri = format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}");
+    // Construct the URI of the post that changed
+    let changed_uri = format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}");
+
     // Update content of PostDetails!
     post_details.put_to_index(&author_id, false).await?;
 
     // Notifications
-    if let Some(parent) = post.parent {
-        let parsed_parent = ParsedUri::try_from(parent.as_str())?;
-        if post_details.content == *"[DELETED]" {
-            // Notification: "A reply to your post was deleted"
+    if post_details.content == *"[DELETED]" {
+        // A post you replied to was deleted
+        Notification::changed_parent_post(
+            &author_id,
+            &post_id,
+            &changed_uri,
+            PostChangedType::Deleted,
+        )
+        .await?;
+
+        // A post you tagged was deleted
+        Notification::changed_tagged_post(
+            &author_id,
+            &post_id,
+            &changed_uri,
+            PostChangedType::Deleted,
+        )
+        .await?;
+
+        // A post you bookmarked was deleted
+        Notification::changed_bookmarked_post(
+            &author_id,
+            &post_id,
+            &changed_uri,
+            PostChangedType::Deleted,
+        )
+        .await?;
+
+        // Notification: "A reply to your post was deleted"
+        if let Some(parent) = post.parent {
+            let parsed_parent = ParsedUri::try_from(parent.as_str())?;
             Notification::deleted_post(
                 &author_id,
                 &parent,
                 &parsed_parent.user_id,
-                &edited_uri,
-                PostChangedType::Reply,
+                &changed_uri,
+                PostChangedSource::Reply,
             )
             .await?;
+        }
+    } else {
+        // Notifications "A post you replied to has been edited"
+        Notification::changed_parent_post(
+            &author_id,
+            &post_id,
+            &changed_uri,
+            PostChangedType::Edited,
+        )
+        .await?;
 
-            // Notifications "A post you replied has been deleted"
-            let children_keys: Vec<String> =
-                PostStream::get_post_replies(author_id, post_id, None, None, None).await?;
-            for reply_key in children_keys {
-                let reply_author_id = reply_key
-                    .split(':')
-                    .next()
-                    .ok_or("Invalid reply key format")?;
-                let reply_uri = format!(
-                    "pubky://{}/pub/pubky.app/posts/{}",
-                    reply_author_id, post_id
-                );
+        // A post you tagged was edited
+        Notification::changed_tagged_post(
+            &author_id,
+            &post_id,
+            &changed_uri,
+            PostChangedType::Edited,
+        )
+        .await?;
 
-                // Create notification for each reply author
-                Notification::deleted_post(
-                    &author_id,
-                    &reply_uri,
-                    &reply_author_id.to_string(),
-                    &reply_uri,
-                    PostChangedType::ReplyParent,
-                )
-                .await?;
-            }
-        } else {
-            // Notification: "A reply to your post was edited"
+        // A post you bookmarked was edited
+        Notification::changed_bookmarked_post(
+            &author_id,
+            &post_id,
+            &changed_uri,
+            PostChangedType::Edited,
+        )
+        .await?;
+
+        // Notification: "A reply to your post was edited"
+        if let Some(parent) = post.parent {
+            let parsed_parent = ParsedUri::try_from(parent.as_str())?;
             Notification::edited_post(
                 &author_id,
                 &parent,
                 &parsed_parent.user_id,
-                &edited_uri,
-                PostChangedType::Reply,
+                &changed_uri,
+                PostChangedSource::Reply,
             )
             .await?;
-
-            // Notifications "A post you replied has been deleted"
-            let children_keys: Vec<String> =
-                PostStream::get_post_replies(author_id, post_id, None, None, None).await?;
-            for reply_key in children_keys {
-                let reply_author_id = reply_key
-                    .split(':')
-                    .next()
-                    .ok_or("Invalid reply key format")?;
-                let reply_uri = format!(
-                    "pubky://{}/pub/pubky.app/posts/{}",
-                    reply_author_id, post_id
-                );
-
-                // Create notification for each reply author
-                Notification::edited_post(
-                    &author_id,
-                    &reply_uri,
-                    &reply_author_id.to_string(),
-                    &reply_uri,
-                    PostChangedType::ReplyParent,
-                )
-                .await?;
-            }
         }
-    }
+    };
+
+    Ok(())
 }
 async fn resolve_post_type_interaction<'a>(
     post: &'a PubkyAppPost,
@@ -379,7 +392,7 @@ pub async fn sync_del(
                 &reposted,
                 &parsed_uri.user_id,
                 &deleted_uri,
-                PostChangedType::Repost,
+                PostChangedSource::Repost,
             )
             .await?;
         }
@@ -409,7 +422,7 @@ pub async fn sync_del(
                 &replied,
                 &parsed_uri.user_id,
                 &deleted_uri,
-                PostChangedType::Reply,
+                PostChangedSource::Reply,
             )
             .await?;
 

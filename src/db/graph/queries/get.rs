@@ -73,8 +73,8 @@ pub fn user_bookmarks(user_id: &str) -> Query {
     .param("user_id", user_id)
 }
 
-// Check all the bookmarks that a post has received
-pub fn post_bookmarks(author_id: &str, post_id: &str) -> Query {
+// Get all the bookmarks that a post has received (used for edit/delete notifications)
+pub fn get_post_bookmarks(author_id: &str, post_id: &str) -> Query {
     query(
         "MATCH (u:User)-[b:BOOKMARKED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
          RETURN b.id AS bookmark_id, u.id AS user_id",
@@ -83,11 +83,21 @@ pub fn post_bookmarks(author_id: &str, post_id: &str) -> Query {
     .param("post_id", post_id)
 }
 
-// Check all the reposts that a post has received
-pub fn post_reposts(author_id: &str, post_id: &str) -> Query {
+// Get all the reposts that a post has received (used for edit/delete notifications)
+pub fn get_post_reposts(author_id: &str, post_id: &str) -> Query {
     query(
         "MATCH (reposter:User)-[:AUTHORED]->(repost:Post)-[b:REPOSTED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
          RETURN reposter.id AS reposter_id, repost.id AS repost_id",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
+}
+
+// Get all the tags/taggers that a post has received (used for edit/delete notifications)
+pub fn get_post_tags(author_id: &str, post_id: &str) -> Query {
+    query(
+        "MATCH (tagger:User)-[t:TAGGED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
+         RETURN tagger.id AS tagger_id, t.id AS tag_id",
     )
     .param("author_id", author_id)
     .param("post_id", post_id)

@@ -1,17 +1,23 @@
-use crate::{db::kv::index::sorted_sets::Sorting, RedisOps};
+use super::post::PostStream;
+use crate::{db::kv::index::sorted_sets::Sorting, get_neo4j_graph, queries, RedisOps};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 #[derive(Serialize, Deserialize, ToSchema, Clone, Debug, PartialEq)]
 #[serde(rename_all = "lowercase")]
-pub enum PostChangedType {
+pub enum PostChangedSource {
     Reply,       // Implemented: Del / Edit. A reply to you was deleted/edited.
     Repost,      // Implemented: Del. A repost of your post was deleted/edited.
     Bookmark,    // A post you bookmarked was deleted/edited.
     ReplyParent, // Implemented: Del. The parent post of your reply was deleted/edited.
     RepostEmbed, // The embedded post of your repost was deleted/edited.
     TaggedPost,  // A post you tagged was deleted/edited.
+}
+
+pub enum PostChangedType {
+    Edited,
+    Deleted,
 }
 
 #[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
@@ -56,13 +62,13 @@ pub enum NotificationBody {
         post_uri: String,
     },
     PostDeleted {
-        delete_type: PostChangedType,
+        delete_source: PostChangedSource,
         deleted_by: String,
         deleted_uri: String,
         linked_uri: String,
     },
     PostEdited {
-        edit_type: PostChangedType,
+        edit_source: PostChangedSource,
         edited_by: String,
         edited_uri: String,
         linked_uri: String,
@@ -267,13 +273,13 @@ impl Notification {
         linked_uri: &str,
         linked_post_author: &str,
         deleted_uri: &str,
-        delete_type: PostChangedType,
+        delete_source: PostChangedSource,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if user_id == linked_post_author {
             return Ok(());
         }
         let body = NotificationBody::PostDeleted {
-            delete_type,
+            delete_source,
             deleted_by: user_id.to_string(),
             deleted_uri: deleted_uri.to_string(),
             linked_uri: linked_uri.to_string(),
@@ -287,18 +293,134 @@ impl Notification {
         linked_uri: &str,
         linked_post_author: &str,
         edited_uri: &str,
-        edit_type: PostChangedType,
+        edit_source: PostChangedSource,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if user_id == linked_post_author {
             return Ok(());
         }
         let body = NotificationBody::PostEdited {
-            edit_type,
+            edit_source,
             edited_by: user_id.to_string(),
             edited_uri: edited_uri.to_string(),
             linked_uri: linked_uri.to_string(),
         };
         let notification = Notification::new(body);
         notification.put_to_index(linked_post_author).await
+    }
+
+    // Delete and Edit post notifications to users who interacted
+
+    // A post you replied to was edited/deleted
+    pub async fn changed_parent_post(
+        author_id: &str,
+        post_id: &str,
+        changed_uri: &str,
+        changed_type: PostChangedType,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let replies_keys: Vec<String> = vec![];
+        // TODO:
+        // PostStream::get_post_replies(author_id, post_id, None, None, None).await?;
+        for reply_key in replies_keys {
+            let reply_author_id = reply_key
+                .split(':')
+                .next()
+                .ok_or("Invalid reply key format")?;
+            let reply_uri = format!(
+                "pubky://{}/pub/pubky.app/posts/{}",
+                reply_author_id, post_id
+            );
+
+            if author_id == reply_author_id {
+                // Do not notify for deleted replies of self to a post of self
+                continue;
+            };
+
+            let notification_body = match changed_type {
+                PostChangedType::Deleted => NotificationBody::PostDeleted {
+                    delete_source: PostChangedSource::ReplyParent,
+                    deleted_by: author_id.to_string(),
+                    deleted_uri: changed_uri.to_string(),
+                    linked_uri: reply_uri.to_string(),
+                },
+                PostChangedType::Edited => NotificationBody::PostEdited {
+                    edit_source: PostChangedSource::ReplyParent,
+                    edited_by: author_id.to_string(),
+                    edited_uri: changed_uri.to_string(),
+                    linked_uri: reply_uri.to_string(),
+                },
+            };
+
+            let notification = Notification::new(notification_body);
+            notification.put_to_index(reply_author_id).await?
+        }
+
+        Ok(())
+    }
+
+    // A post you tagged was edited/deleted
+    pub async fn changed_tagged_post(
+        author_id: &str,
+        post_id: &str,
+        changed_uri: &str,
+        changed_type: PostChangedType,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let mut result;
+        {
+            let graph = get_neo4j_graph()?;
+            let query = queries::get::get_post_tags(author_id, post_id);
+
+            let graph = graph.lock().await;
+            result = graph.execute(query).await?;
+        }
+
+        for row in result.next().await? {
+            let tagger_id: &str = row.get("tagger_id").unwrap_or_default();
+            let tag_id: &str = row.get("tagger_id").unwrap_or_default();
+            let tag_uri = format!("pubky://{}/pub/pubky.app/tags/{}", tagger_id, tag_id);
+            let notification_body = match changed_type {
+                PostChangedType::Deleted => NotificationBody::PostDeleted {
+                    delete_source: PostChangedSource::TaggedPost,
+                    deleted_by: author_id.to_string(),
+                    deleted_uri: changed_uri.to_string(),
+                    linked_uri: tag_uri.to_string(),
+                },
+                PostChangedType::Edited => NotificationBody::PostEdited {
+                    edit_source: PostChangedSource::TaggedPost,
+                    edited_by: author_id.to_string(),
+                    edited_uri: changed_uri.to_string(),
+                    linked_uri: tag_uri.to_string(),
+                },
+            };
+
+            if author_id == tagger_id {
+                // Do not notify for changed tagged posts to author
+                continue;
+            };
+
+            let notification = Notification::new(notification_body);
+            notification.put_to_index(tagger_id).await?;
+        }
+
+        Ok(())
+    }
+
+    // A post you bookmarked was edited/deleted
+    pub async fn changed_bookmarked_post(
+        author_id: &str,
+        post_id: &str,
+        changed_uri: &str,
+        changed_type: PostChangedType,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Ok(())
+    }
+
+    // A post you reposted was edited/deleted
+    pub async fn changed_bookmarked_post(
+        author_id: &str,
+        post_id: &str,
+        changed_uri: &str,
+        changed_type: PostChangedType,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Ok(())
     }
 }
