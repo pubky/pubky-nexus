@@ -108,9 +108,18 @@ impl EventProcessor {
                     self.homeserver.put_to_index().await?;
                     info!("Cursor for the next request: {}", cursor);
                 }
-            } else if let Some(event) = Event::from_str(line, self.pubky_client.clone())? {
-                debug!("Processing event: {:?}", event);
-                self.handle_event_with_retry(event).await?;
+            } else {
+                let event = match Event::from_str(line, self.pubky_client.clone()) {
+                    Ok(event) => event,
+                    Err(e) => {
+                        error!("Error while creating event line from line: {}", e);
+                        None
+                    }
+                };
+                if let Some(event) = event {
+                    debug!("Processing event: {:?}", event);
+                    self.handle_event_with_retry(event).await?;
+                }
             }
         }
 
