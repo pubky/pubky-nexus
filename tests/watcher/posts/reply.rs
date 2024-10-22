@@ -4,14 +4,14 @@ use super::utils::{
     find_reply_relationship_parent_uri,
 };
 use crate::watcher::{
-    posts::utils::check_member_post_replies, users::utils::find_user_counts, utils::WatcherTest,
+    users::utils::find_user_counts, utils::WatcherTest,
 };
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
-use pubky_nexus::models::{
-    post::{PostDetails, PostStream, PostThread},
+use pubky_nexus::{models::{
+    post::{PostDetails, PostRelationships, PostStream, PostThread},
     pubky_app::{PostKind, PubkyAppPost, PubkyAppUser},
-};
+}, RedisOps};
 
 #[tokio::test]
 async fn test_homeserver_post_reply() -> Result<()> {
@@ -80,8 +80,7 @@ async fn test_homeserver_post_reply() -> Result<()> {
     assert_eq!(thread.replies[0].details.id, reply_id);
     assert_eq!(thread.replies[0].details.content, reply_post.content);
 
-    // CACHE_OP: Check if the event writes in the graph
-
+    // CACHE_OP: Check if the event writes in the index
     // ########### PARENT RELATED INDEXES ################
     // Sorted:Post:Replies:user_id:post_id
     let post_replies = PostStream::get_post_replies(&user_id, &parent_post_id, None, None, None)
@@ -102,16 +101,10 @@ async fn test_homeserver_post_reply() -> Result<()> {
     assert!(total_engagement.is_some());
     assert_eq!(total_engagement.unwrap(), 1);
 
-    // Check if post reply was added in parent post replies list
-    // Sorted:Posts:Replies:user_id:post_id
-    let post_replies = check_member_post_replies(&user_id, &parent_post_id, &[&user_id, &reply_id])
-        .await
-        .unwrap();
-    assert!(post_replies.is_some());
-    assert_eq!(
-        post_replies.unwrap(),
-        reply_post_details.indexed_at as isize
-    );
+    // Assert the parent post has changed stats
+    // User:Counts:user_id:post_id
+    let post_count = find_user_counts(&user_id).await;
+    assert_eq!(post_count.posts, 2);
 
     // ########### REPLY RELATED INDEXES ################
     //User:Details:user_id:post_id
@@ -131,6 +124,21 @@ async fn test_homeserver_post_reply() -> Result<()> {
     assert_eq!(reply_post_counts.reposts, 0);
     assert_eq!(reply_post_counts.tags, 0);
     assert_eq!(reply_post_counts.replies, 0);
+
+    // Post:Relationships:user_id:post_id
+    let post_relationships = PostRelationships::try_from_index_json(&[&user_id, &reply_id])
+        .await
+        .unwrap();
+    assert!(
+        post_relationships.is_some(),
+        "Reply should have some relationship"
+    );
+    let relationships = post_relationships.unwrap();
+    assert!(
+        relationships.replied.is_some(),
+        "Reply should have parent post URI"
+    );
+    assert_eq!(relationships.replied.unwrap(), parent_uri, "The parent URIs does not match");
 
     // Sorted:Posts:User:user_id
     // Check that replies are NOT in the user's timeline
@@ -160,10 +168,6 @@ async fn test_homeserver_post_reply() -> Result<()> {
         global_total_engagement.is_none(),
         "Replies should not be in the global total engagement sorted set"
     );
-    // Assert the parent post has changed stats
-    // User:Counts:user_id:post_id
-    let post_count = find_user_counts(&user_id).await;
-    assert_eq!(post_count.posts, 2);
 
     test.cleanup_post(&user_id, &reply_id).await?;
     // let result_post = PostView::get_by_id(&user_id, &post_id, None, None, None)

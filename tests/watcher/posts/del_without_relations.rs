@@ -1,4 +1,4 @@
-use crate::watcher::utils::WatcherTest;
+use crate::watcher::{posts::utils::check_member_post_replies, users::utils::find_user_counts, utils::WatcherTest};
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{
@@ -161,21 +161,9 @@ async fn test_delete_post_that_reposted() -> Result<()> {
     // Delete the post using the event handler
     test.cleanup_post(&user_id, &repost_id).await?;
 
-    // Attempt to find post details; should not exist
-    let post_details_result = PostDetails::get_by_id(&user_id, &repost_id).await.unwrap();
-    assert!(
-        post_details_result.is_none(),
-        "Repost details should not be found after deletion"
-    );
+    // GRAPH_OP + CACHE_OP: Assert relationship does not exist in the data layer
 
-    // Attempt to find post counts; should not exist
-    let post_counts_result = PostCounts::get_by_id(&user_id, &repost_id).await.unwrap();
-    assert!(
-        post_counts_result.is_none(),
-        "Repost counts should not be found after deletion"
-    );
-
-    // Parent post counts should have reposts counts 0 once again
+    // PARENT post counts should have reposts counts 0 once again
     let post_counts_result = PostCounts::get_by_id(&user_id, &post_id)
         .await
         .unwrap()
@@ -185,7 +173,21 @@ async fn test_delete_post_that_reposted() -> Result<()> {
         "Original post reposts counts should be 0 after deletion of the repost"
     );
 
-    // Attempt to get post view; should not exist
+    // Attempt to find REPOST details; should not exist
+    let post_details_result = PostDetails::get_by_id(&user_id, &repost_id).await.unwrap();
+    assert!(
+        post_details_result.is_none(),
+        "Repost details should not be found after deletion"
+    );
+
+    // Attempt to find REPOST counts; should not exist
+    let post_counts_result = PostCounts::get_by_id(&user_id, &repost_id).await.unwrap();
+    assert!(
+        post_counts_result.is_none(),
+        "Repost counts should not be found after deletion"
+    );
+
+    // Attempt to get REPOST view; should not exist
     let post_view = PostView::get_by_id(&user_id, &repost_id, None, None, None)
         .await
         .unwrap();
@@ -194,14 +196,8 @@ async fn test_delete_post_that_reposted() -> Result<()> {
         "Repost view should not be found after deletion"
     );
 
-    // Post:Relationships:user_id:post_id
-    let post_relationships = PostRelationships::try_from_index_json(&[&user_id, &repost_id])
-        .await
-        .unwrap();
-    assert!(
-        post_relationships.is_none(),
-        "Post should not have any relationships"
-    );
+    // CACHE_OP: Check if the event writes in the index
+    // ########### PARENT RELATED INDEXES ################
 
     // Assert the parent post decrease in one the engagement score
     // Sorted:Post:Global:TotalEngagement
@@ -212,7 +208,45 @@ async fn test_delete_post_that_reposted() -> Result<()> {
         post_engagement.is_some(),
         "Parent post should have global total engagement score, it seems that it does not exist"
     );
-    assert_eq!(post_engagement.unwrap(), 0, "Post engagement should decrease in one after repost deletion");
+    assert_eq!(
+        post_engagement.unwrap(),
+        0,
+        "Post engagement should decrease in one after repost deletion"
+    );
+
+    // Assert the parent user counts has changed stats
+    // User:Counts:user_id:post_id
+    let post_count = find_user_counts(&user_id).await;
+    assert_eq!(post_count.posts, 1);
+
+    // ########### REPLY RELATED INDEXES ################
+    // Post:Relationships:user_id:post_id
+    let post_relationships = PostRelationships::try_from_index_json(&[&user_id, &repost_id])
+        .await
+        .unwrap();
+    assert!(
+        post_relationships.is_none(),
+        "Post should not have any relationships"
+    );
+
+    // Sorted:Posts:User:user_id
+    // Check if the deleted repost does not exist
+    let repost_timeline = check_member_user_post_timeline(&user_id, &repost_id)
+        .await
+        .unwrap();
+    assert!(
+        repost_timeline.is_none(),
+        "Repost cannot exist in user timeline after deletion"
+    );
+
+    // Check if the deleted repost does not exist
+    let repost_global_timeline = check_member_global_timeline_user_post(&user_id, &repost_id)
+        .await
+        .unwrap();
+    assert!(
+        repost_global_timeline.is_none(),
+        "Repost cannot exist in global timeline after deletion"
+    );
 
     Ok(())
 }
@@ -246,7 +280,10 @@ async fn test_delete_post_that_replied() -> Result<()> {
     let reply = PubkyAppPost {
         content: "Watcher:PostDeleteReplied:User:Reply".to_string(),
         kind: PostKind::Short,
-        parent: Some(format!("pubky://{}/pub/pubky.app/posts/{}", user_id, post_id)),
+        parent: Some(format!(
+            "pubky://{}/pub/pubky.app/posts/{}",
+            user_id, post_id
+        )),
         embed: None,
         attachments: None,
     };
@@ -255,21 +292,8 @@ async fn test_delete_post_that_replied() -> Result<()> {
     // Delete the post using the event handler
     test.cleanup_post(&user_id, &reply_id).await?;
 
-    // Attempt to find post details; should not exist
-    let post_details_result = PostDetails::get_by_id(&user_id, &reply_id).await.unwrap();
-    assert!(
-        post_details_result.is_none(),
-        "Repost details should not be found after deletion"
-    );
-
-    // Attempt to find post counts; should not exist
-    let post_counts_result = PostCounts::get_by_id(&user_id, &reply_id).await.unwrap();
-    assert!(
-        post_counts_result.is_none(),
-        "Repost counts should not be found after deletion"
-    );
-
-    // Parent post counts should have reposts counts 0 once again
+    // GRAPH_OP + CACHE_OP: Assert relationship does not exist in the data layer
+    // PARENT post counts should have reposts counts 0 once again
     let post_counts_result = PostCounts::get_by_id(&user_id, &post_id)
         .await
         .unwrap()
@@ -279,7 +303,21 @@ async fn test_delete_post_that_replied() -> Result<()> {
         "Original post reposts counts should be 0 after deletion of the repost"
     );
 
-    // Attempt to get post view; should not exist
+    // Attempt to find post REPLY details; should not exist
+    let post_details_result = PostDetails::get_by_id(&user_id, &reply_id).await.unwrap();
+    assert!(
+        post_details_result.is_none(),
+        "Repost details should not be found after deletion"
+    );
+
+    // Attempt to find post REPLY counts; should not exist
+    let post_counts_result = PostCounts::get_by_id(&user_id, &reply_id).await.unwrap();
+    assert!(
+        post_counts_result.is_none(),
+        "Repost counts should not be found after deletion"
+    );
+
+    // Attempt to get post REPLY view; should not exist
     let post_view = PostView::get_by_id(&user_id, &reply_id, None, None, None)
         .await
         .unwrap();
@@ -288,14 +326,8 @@ async fn test_delete_post_that_replied() -> Result<()> {
         "Repost view should not be found after deletion"
     );
 
-    // Post:Relationships:user_id:post_id
-    let post_relationships = PostRelationships::try_from_index_json(&[&user_id, &reply_id])
-        .await
-        .unwrap();
-    assert!(
-        post_relationships.is_none(),
-        "Post should not have any relationships"
-    );
+    // CACHE_OP: Check if the event writes in the index
+    // ########### PARENT RELATED INDEXES ################
 
     // Assert the parent post decrease in one the engagement score
     // Sorted:Post:Global:TotalEngagement
@@ -306,7 +338,28 @@ async fn test_delete_post_that_replied() -> Result<()> {
         post_engagement.is_some(),
         "Parent post should have global total engagement score, it seems that it does not exist"
     );
-    assert_eq!(post_engagement.unwrap(), 0, "Post engagement should decrease in one after reply deletion");
+    assert_eq!(
+        post_engagement.unwrap(),
+        0,
+        "Post engagement should decrease in one after reply deletion"
+    );
+
+    // Check if post reply was deleted from parent post replies list
+    // Sorted:Posts:Replies:user_id:post_id
+    let post_replies = check_member_post_replies(&user_id, &post_id, &[&user_id, &reply_id])
+        .await
+        .unwrap();
+    assert!(post_replies.is_none(), "Reply id cannot exist in post replies");
+
+    // ########### REPLY RELATED INDEXES ################
+    // Post:Relationships:user_id:post_id
+    let post_relationships = PostRelationships::try_from_index_json(&[&user_id, &reply_id])
+        .await
+        .unwrap();
+    assert!(
+        post_relationships.is_none(),
+        "Post should not have any relationships"
+    );
 
     Ok(())
 }

@@ -6,10 +6,10 @@ use crate::watcher::users::utils::find_user_counts;
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
-use pubky_nexus::models::{
-    post::PostDetails,
+use pubky_nexus::{models::{
+    post::{PostDetails, PostRelationships},
     pubky_app::{PostEmbed, PostKind, PubkyAppPost, PubkyAppUser},
-};
+}, RedisOps};
 
 #[tokio::test]
 async fn test_homeserver_post_repost() -> Result<()> {
@@ -70,14 +70,14 @@ async fn test_homeserver_post_repost() -> Result<()> {
         .unwrap();
     assert_eq!(reply_parent_uri, parent_uri);
 
-    // CACHE_OP: Check if the event writes in the graph
+    // CACHE_OP: Check if the event writes in the index
 
     // ########### PARENT RELATED INDEXES ################
     // Assert the parent post has changed stats, User:Counts:user_id:post_id
     let post_count = find_post_counts(&user_id, &parent_post_id).await;
     assert_eq!(post_count.reposts, 1);
 
-    // Assert the parent post has changed stats
+    // Assert the parent user counts has changed stats
     // User:Counts:user_id:post_id
     let post_count = find_user_counts(&user_id).await;
     assert_eq!(post_count.posts, 2);
@@ -103,6 +103,21 @@ async fn test_homeserver_post_repost() -> Result<()> {
     assert_eq!(repost_post_details.content, post_detail_cache.content);
     assert_eq!(repost_post_details.uri, post_detail_cache.uri);
     assert_eq!(repost_post_details.indexed_at, post_detail_cache.indexed_at);
+
+    // Post:Relationships:user_id:post_id
+    let post_relationships = PostRelationships::try_from_index_json(&[&user_id, &repost_id])
+        .await
+        .unwrap();
+    assert!(
+        post_relationships.is_some(),
+        "Repost should have some relationship"
+    );
+    let relationships = post_relationships.unwrap();
+    assert!(
+        relationships.reposted.is_some(),
+        "Repost should have parent post URI"
+    );
+    assert_eq!(relationships.reposted.unwrap(), parent_uri, "The parent URIs does not match");
 
     // User:Counts:user_id:post_id
     let reply_post_counts = find_post_counts(&user_id, &repost_id).await;
