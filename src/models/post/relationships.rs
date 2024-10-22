@@ -178,7 +178,7 @@ impl PostRelationships {
                 &parent_author_id,
                 &parent_post_id,
                 author_id,
-                post_id
+                post_id,
             )
             .await?;
         }

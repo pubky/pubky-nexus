@@ -265,14 +265,15 @@ pub async fn sync_del(
     post_id: String,
 ) -> Result<(), Box<dyn Error + Sync + Send>> {
     let deleted_uri = format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}");
-    // If it was a reply or a repost, we should Decrement(1) the counts of those related posts.
+
     let relationships = PostRelationships::get_by_id(&author_id, &post_id).await?;
+    // If the post is reply or repost, cannot delete from the main feeds
+    // In the main feed, we just include the root posts
+    let remove_from_feeds = can_remove_post_from_feed(&relationships);
 
-    PostDetails::delete(&author_id, &post_id, relationships.is_none()).await?;
-    PostCounts::delete(&author_id, &post_id, relationships.is_none()).await?;
+    PostDetails::delete(&author_id, &post_id, remove_from_feeds).await?;
+    PostCounts::delete(&author_id, &post_id, remove_from_feeds).await?;
     UserCounts::update(&author_id, "posts", JsonAction::Decrement(1)).await?;
-
-    // TODO: remove from sorted sets of posts / popularity. Might be done
 
     let mut is_reply: Option<(PubkyId, String)> = None;
 
@@ -282,10 +283,7 @@ pub async fn sync_del(
             let parsed_uri = ParsedUri::try_from(reposted.as_str())?;
             let parent_post_id = parsed_uri.post_id.ok_or("Missing post ID")?;
 
-            let parent_post_key_parts: &[&str] = &[
-                &parsed_uri.user_id,
-                &parent_post_id,
-            ];
+            let parent_post_key_parts: &[&str] = &[&parsed_uri.user_id, &parent_post_id];
 
             is_reply = Some((parsed_uri.user_id.clone(), parent_post_id.clone()));
 
@@ -347,4 +345,9 @@ pub async fn sync_del(
     PostRelationships::delete(&author_id, &post_id, is_reply).await?;
 
     Ok(())
+}
+
+
+fn can_remove_post_from_feed(relationship: &Option<PostRelationships>) -> bool {
+    matches!(relationship, Some(post_relationship) if post_relationship.replied.is_none() && post_relationship.reposted.is_none())
 }

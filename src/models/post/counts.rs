@@ -121,12 +121,12 @@ impl PostCounts {
     pub async fn delete(
         author_id: &str,
         post_id: &str,
-        delete_from_feeds: bool
+        remove_from_feeds: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Delete user_details on Redis
         Self::remove_from_index_multiple_json(&[&[author_id, post_id]]).await?;
         // Delete the posts that does not have any relationship as might be replies and reposts. Just root posts
-        if delete_from_feeds {
+        if remove_from_feeds {
             PostStream::delete_from_engagement_sorted_set(author_id, post_id).await?;
         }
         Ok(())

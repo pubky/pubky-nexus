@@ -149,7 +149,7 @@ async fn test_homeserver_post_reply() -> Result<()> {
     assert_eq!(thread.replies[0].details.id, reply_id);
     assert_eq!(thread.replies[0].details.content, reply_post.content);
 
-    // // TODO: Impl DEL post. Assert the reply does not exist in Nexus
+
     test.cleanup_post(&user_id, &reply_id).await?;
     // let result_post = PostView::get_by_id(&user_id, &post_id, None, None, None)
     //     .await
