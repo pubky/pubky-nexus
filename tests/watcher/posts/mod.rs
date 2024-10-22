@@ -4,10 +4,12 @@ mod del_reply_parent_notification;
 
 mod del_bookmarked_notification;
 mod del_repost_notification;
+mod del_reposted_notification;
 mod del_with_relations;
 mod del_without_relations;
 mod edit_bookmarked_notification;
 mod edit_reply_parent_notification;
+mod edit_reposted_notification;
 mod engagement;
 mod pioneer;
 mod raw;

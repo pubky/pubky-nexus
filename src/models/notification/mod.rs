@@ -475,13 +475,13 @@ impl Notification {
             let repost_uri = format!("pubky://{}/pub/pubky.app/posts/{}", reposter_id, repost_id);
             let notification_body = match changed_type {
                 PostChangedType::Deleted => NotificationBody::PostDeleted {
-                    delete_source: PostChangedSource::Bookmark,
+                    delete_source: PostChangedSource::RepostEmbed,
                     deleted_by: author_id.to_string(),
                     deleted_uri: changed_uri.to_string(),
                     linked_uri: repost_uri.to_string(),
                 },
                 PostChangedType::Edited => NotificationBody::PostEdited {
-                    edit_source: PostChangedSource::Bookmark,
+                    edit_source: PostChangedSource::RepostEmbed,
                     edited_by: author_id.to_string(),
                     edited_uri: changed_uri.to_string(),
                     linked_uri: repost_uri.to_string(),
