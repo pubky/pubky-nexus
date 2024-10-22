@@ -67,18 +67,20 @@ async fn test_homeserver_post_reply() -> Result<()> {
         .unwrap();
     assert_eq!(reply_parent_uri, parent_uri);
 
-    // CACHE_OP: Check if the event writes in the graph
-    //User:Details:user_id:post_id
-    let post_detail_cache: PostDetails = PostDetails::get_from_index(&user_id, &reply_id)
+    // PARENT GRAPH_OP: Fetch the post thread and confirm the reply is present
+    let thread = PostThread::get_by_id(&user_id, &parent_post_id, None, 1, 0, 10)
         .await
-        .unwrap()
-        .expect("The new post detail was not served from Nexus cache");
+        .expect("Failed to fetch post thread")
+        .expect("The post thread should exist");
 
-    assert_eq!(reply_post_details.id, post_detail_cache.id);
-    assert_eq!(reply_post_details.content, post_detail_cache.content);
-    assert_eq!(reply_post_details.uri, post_detail_cache.uri);
-    assert_eq!(reply_post_details.indexed_at, post_detail_cache.indexed_at);
+    assert_eq!(thread.root_post.details.id, parent_post_id);
+    assert_eq!(thread.replies.len(), 1);
+    assert_eq!(thread.replies[0].details.id, reply_id);
+    assert_eq!(thread.replies[0].details.content, reply_post.content);
 
+    // CACHE_OP: Check if the event writes in the graph
+
+    // ########### PARENT RELATED INDEXES ################
     // Sorted:Post:Replies:user_id:post_id
     let post_replies = PostStream::get_post_replies(&user_id, &parent_post_id, None, None, None)
         .await
@@ -86,13 +88,6 @@ async fn test_homeserver_post_reply() -> Result<()> {
     assert_eq!(post_replies.len(), 1);
     let post_key = format!("{}:{}", user_id, reply_id);
     assert_eq!(post_replies[0], post_key);
-
-    // User:Counts:user_id:post_id
-    let reply_post_counts = find_post_counts(&user_id, &reply_id).await;
-
-    assert_eq!(reply_post_counts.reposts, 0);
-    assert_eq!(reply_post_counts.tags, 0);
-    assert_eq!(reply_post_counts.replies, 0);
 
     // Assert the parent post has changed stats, User:Counts:user_id:post_id
     let post_count = find_post_counts(&user_id, &parent_post_id).await;
@@ -104,6 +99,25 @@ async fn test_homeserver_post_reply() -> Result<()> {
         .unwrap();
     assert!(total_engagement.is_some());
     assert_eq!(total_engagement.unwrap(), 1);
+
+    // ########### REPLY RELATED INDEXES ################
+    //User:Details:user_id:post_id
+    let post_detail_cache: PostDetails = PostDetails::get_from_index(&user_id, &reply_id)
+        .await
+        .unwrap()
+        .expect("The new post detail was not served from Nexus cache");
+
+    assert_eq!(reply_post_details.id, post_detail_cache.id);
+    assert_eq!(reply_post_details.content, post_detail_cache.content);
+    assert_eq!(reply_post_details.uri, post_detail_cache.uri);
+    assert_eq!(reply_post_details.indexed_at, post_detail_cache.indexed_at);
+
+    // User:Counts:user_id:post_id
+    let reply_post_counts = find_post_counts(&user_id, &reply_id).await;
+
+    assert_eq!(reply_post_counts.reposts, 0);
+    assert_eq!(reply_post_counts.tags, 0);
+    assert_eq!(reply_post_counts.replies, 0);    
 
     // Sorted:Posts:User:user_id
     // Check that replies are NOT in the user's timeline
@@ -137,18 +151,6 @@ async fn test_homeserver_post_reply() -> Result<()> {
     // User:Counts:user_id:post_id
     let post_count = find_user_counts(&user_id).await;
     assert_eq!(post_count.posts, 2);
-
-    // GRAPH_OP: Fetch the post thread and confirm the reply is present
-    let thread = PostThread::get_by_id(&user_id, &parent_post_id, None, 1, 0, 10)
-        .await
-        .expect("Failed to fetch post thread")
-        .expect("The post thread should exist");
-
-    assert_eq!(thread.root_post.details.id, parent_post_id);
-    assert_eq!(thread.replies.len(), 1);
-    assert_eq!(thread.replies[0].details.id, reply_id);
-    assert_eq!(thread.replies[0].details.content, reply_post.content);
-
 
     test.cleanup_post(&user_id, &reply_id).await?;
     // let result_post = PostView::get_by_id(&user_id, &post_id, None, None, None)

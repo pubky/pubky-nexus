@@ -1,6 +1,6 @@
 use super::utils::{
     check_member_total_engagement_user_posts, check_member_user_post_timeline, find_post_counts,
-    find_post_details, find_repost_relationship_parent_uri,
+    find_post_details, find_repost_relationship_parent_uri, check_member_global_timeline_user_post
 };
 use crate::watcher::users::utils::find_user_counts;
 use crate::watcher::utils::WatcherTest;
@@ -72,6 +72,27 @@ async fn test_homeserver_post_repost() -> Result<()> {
 
     // CACHE_OP: Check if the event writes in the graph
 
+    // ########### PARENT RELATED INDEXES ################
+    // Assert the parent post has changed stats, User:Counts:user_id:post_id
+    let post_count = find_post_counts(&user_id, &parent_post_id).await;
+    assert_eq!(post_count.reposts, 1);
+
+    // Assert the parent post has changed stats
+    // User:Counts:user_id:post_id
+    let post_count = find_user_counts(&user_id).await;
+    assert_eq!(post_count.posts, 2);
+
+    // Check if parent post engagement: Sorted:Posts:Global:TotalEngagement:user_id:post_id
+    let parent_total_engagement = check_member_total_engagement_user_posts(&[&user_id, &parent_post_id])
+        .await
+        .unwrap();
+    assert!(
+        parent_total_engagement.is_some(),
+        "Parent post total engagement should be increased by one"
+    );
+    assert_eq!(parent_total_engagement.unwrap(), 1);
+
+    // ########### REPOST RELATED INDEXES ################
     //User:Details:user_id:post_id
     let post_detail_cache: PostDetails = PostDetails::get_from_index(&user_id, &repost_id)
         .await
@@ -90,31 +111,40 @@ async fn test_homeserver_post_repost() -> Result<()> {
     assert_eq!(reply_post_counts.tags, 0);
     assert_eq!(reply_post_counts.replies, 0);
 
-    // Assert the parent post has changed stats, User:Counts:user_id:post_id
-    let post_count = find_post_counts(&user_id, &parent_post_id).await;
-    assert_eq!(post_count.reposts, 1);
-
-    // Check if parent post engagement: Sorted:Posts:Global:TotalEngagement:user_id:post_id
-    let total_engagement = check_member_total_engagement_user_posts(&[&user_id, &parent_post_id])
-        .await
-        .unwrap();
-    assert!(total_engagement.is_some());
-    assert_eq!(total_engagement.unwrap(), 1);
-
     // Sorted:Posts:User:user_id
-    let post_timeline = check_member_user_post_timeline(&user_id, &repost_id)
+    // Check that repost is in the user's timeline
+    let repost_timeline = check_member_user_post_timeline(&user_id, &repost_id)
         .await
         .unwrap();
-    assert!(post_timeline.is_some());
+    assert!(repost_timeline.is_some());
     assert_eq!(
-        post_timeline.unwrap(),
+        repost_timeline.unwrap(),
         repost_post_details.indexed_at as isize
     );
 
-    // Assert the parent post has changed stats
-    // User:Counts:user_id:post_id
-    let post_count = find_user_counts(&user_id).await;
-    assert_eq!(post_count.posts, 2);
+    // Check that repost is in the global timeline
+    let repost_global_timeline_timestamp = check_member_global_timeline_user_post(&user_id, &repost_id)
+        .await
+        .unwrap();
+    assert!(
+        repost_global_timeline_timestamp.is_some(),
+        "Repost should be in the global timeline"
+    );
+    assert_eq!(
+        repost_global_timeline_timestamp.unwrap(),
+        repost_post_details.indexed_at as isize
+    );
+
+    // Check that repost is in the global total engagement sorted set
+    let repost_key = format!("{}:{}", user_id, &repost_id);
+
+    let repost_global_total_engagement = check_member_total_engagement_user_posts(&[&repost_key])
+        .await
+        .unwrap_or_default();
+    assert!(
+        repost_global_total_engagement.is_some(),
+        "Repost should be in the global total engagement sorted set"
+    );
 
     // // TODO: Impl DEL post. Assert the repost does not exist in Nexus
     test.cleanup_post(&user_id, &repost_id).await?;
