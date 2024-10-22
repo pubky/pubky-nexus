@@ -269,7 +269,7 @@ pub async fn sync_del(
     let relationships = PostRelationships::get_by_id(&author_id, &post_id).await?;
 
     PostDetails::delete(&author_id, &post_id, relationships.is_none()).await?;
-    PostCounts::delete(&author_id, &post_id).await?;
+    PostCounts::delete(&author_id, &post_id, relationships.is_none()).await?;
     UserCounts::update(&author_id, "posts", JsonAction::Decrement(1)).await?;
 
     // TODO: remove from sorted sets of posts / popularity. Might be done

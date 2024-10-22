@@ -585,6 +585,18 @@ impl PostStream {
         .await
     }
 
+    pub async fn delete_from_engagement_sorted_set(
+        author_id: &str,
+        post_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let post_key = format!("{}:{}", author_id, post_id);
+        Self::remove_from_index_sorted_set(
+            &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
+            &[&post_key]
+        )
+        .await
+    }
+
     pub async fn update_index_score(
         author_id: &str,
         post_id: &str,
