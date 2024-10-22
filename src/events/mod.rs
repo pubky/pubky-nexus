@@ -109,7 +109,7 @@ impl Event {
             _ if uri.contains("/blobs") => return Ok(None),
             _ => {
                 error!("Unrecognized resource in URI: {}", uri);
-                return Ok(None);
+                return Err("Unrecognized resource in URI".into());
             }
         };
 
