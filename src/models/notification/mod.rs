@@ -374,7 +374,7 @@ impl Notification {
 
         while let Some(row) = result.next().await? {
             let tagger_id: &str = row.get("tagger_id").unwrap_or_default();
-            let tag_id: &str = row.get("tagger_id").unwrap_or_default();
+            let tag_id: &str = row.get("tag_id").unwrap_or_default();
             let tag_uri = format!("pubky://{}/pub/pubky.app/tags/{}", tagger_id, tag_id);
             let notification_body = match changed_type {
                 PostChangedType::Deleted => NotificationBody::PostDeleted {
