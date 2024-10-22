@@ -422,8 +422,8 @@ impl Notification {
         while let Some(row) = result.next().await? {
             let bookmarker_id: &str = row.get("bookmarker_id").unwrap_or_default();
             let bookmark_id: &str = row.get("bookmark_id").unwrap_or_default();
-            let tag_uri = format!(
-                "pubky://{}/pub/pubky.app/tags/{}",
+            let bookmark_uri = format!(
+                "pubky://{}/pub/pubky.app/bookmarks/{}",
                 bookmarker_id, bookmark_id
             );
             let notification_body = match changed_type {
@@ -431,13 +431,13 @@ impl Notification {
                     delete_source: PostChangedSource::Bookmark,
                     deleted_by: author_id.to_string(),
                     deleted_uri: changed_uri.to_string(),
-                    linked_uri: tag_uri.to_string(),
+                    linked_uri: bookmark_uri.to_string(),
                 },
                 PostChangedType::Edited => NotificationBody::PostEdited {
                     edit_source: PostChangedSource::Bookmark,
                     edited_by: author_id.to_string(),
                     edited_uri: changed_uri.to_string(),
-                    linked_uri: tag_uri.to_string(),
+                    linked_uri: bookmark_uri.to_string(),
                 },
             };
 
@@ -472,19 +472,19 @@ impl Notification {
         while let Some(row) = result.next().await? {
             let reposter_id: &str = row.get("reposter_id").unwrap_or_default();
             let repost_id: &str = row.get("repost_id").unwrap_or_default();
-            let tag_uri = format!("pubky://{}/pub/pubky.app/tags/{}", reposter_id, repost_id);
+            let repost_uri = format!("pubky://{}/pub/pubky.app/posts/{}", reposter_id, repost_id);
             let notification_body = match changed_type {
                 PostChangedType::Deleted => NotificationBody::PostDeleted {
                     delete_source: PostChangedSource::Bookmark,
                     deleted_by: author_id.to_string(),
                     deleted_uri: changed_uri.to_string(),
-                    linked_uri: tag_uri.to_string(),
+                    linked_uri: repost_uri.to_string(),
                 },
                 PostChangedType::Edited => NotificationBody::PostEdited {
                     edit_source: PostChangedSource::Bookmark,
                     edited_by: author_id.to_string(),
                     edited_uri: changed_uri.to_string(),
-                    linked_uri: tag_uri.to_string(),
+                    linked_uri: repost_uri.to_string(),
                 },
             };
 

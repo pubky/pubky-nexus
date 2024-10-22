@@ -16,7 +16,7 @@ async fn test_delete_post_that_reposted_notification() -> Result<()> {
         bio: Some("Test user for post deletion".to_string()),
         image: None,
         links: None,
-        name: "Watcher:PostDeleteNotification:User".to_string(),
+        name: "Watcher:RepostDeleteNotification:User".to_string(),
         status: None,
     };
     let poster_id = test.create_user(&keypair, &user).await?;
