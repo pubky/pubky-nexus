@@ -385,10 +385,10 @@ impl PostStream {
             Sorting::Descending,
         )
         .await?;
-        let ids = post_replies.map_or(Vec::new(), |post_entry| {
+        let replies_keys = post_replies.map_or(Vec::new(), |post_entry| {
             post_entry.into_iter().map(|(post_id, _)| post_id).collect()
         });
-        Ok(ids)
+        Ok(replies_keys)
     }
 
     // Streams for followers / followings / friends are expensive.
@@ -512,17 +512,14 @@ impl PostStream {
 
     /// Adds the post response to a Redis sorted set using the `indexed_at` timestamp as the score.
     pub async fn add_to_post_reply_sorted_set(
-        parent_user_id: &str,
-        parent_post_id: &str,
+        // parent_user_id: &str,
+        // parent_post_id: &str,
+        parent_post_key_parts: &[&str; 2],
         author_id: &str,
         reply_id: &str,
         indexed_at: i64,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let key_parts = [
-            &POST_REPLIES_TIMELINE_KEY_PARTS[..],
-            &[parent_user_id, parent_post_id],
-        ]
-        .concat();
+        let key_parts = [&POST_REPLIES_TIMELINE_KEY_PARTS[..], parent_post_key_parts].concat();
         let score = indexed_at as f64;
         let element = format!("{}:{}", author_id, reply_id);
         Self::put_index_sorted_set(&key_parts, &[(score, element.as_str())]).await
@@ -530,16 +527,11 @@ impl PostStream {
 
     /// Adds the post response to a Redis sorted set using the `indexed_at` timestamp as the score.
     pub async fn remove_from_post_reply_sorted_set(
-        parent_user_id: &str,
-        parent_post_id: &str,
+        parent_post_key_parts: &[&str; 2],
         author_id: &str,
         reply_id: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let key_parts = [
-            &POST_REPLIES_TIMELINE_KEY_PARTS[..],
-            &[parent_user_id, parent_post_id],
-        ]
-        .concat();
+        let key_parts = [&POST_REPLIES_TIMELINE_KEY_PARTS[..], parent_post_key_parts].concat();
         let element = format!("{}:{}", author_id, reply_id);
         Self::remove_from_index_sorted_set(&key_parts, &[element.as_str()]).await
     }

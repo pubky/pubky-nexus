@@ -3,15 +3,16 @@ use super::utils::{
     check_member_user_post_timeline, find_post_counts, find_post_details,
     find_reply_relationship_parent_uri,
 };
-use crate::watcher::{
-    users::utils::find_user_counts, utils::WatcherTest,
-};
+use crate::watcher::{users::utils::find_user_counts, utils::WatcherTest};
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
-use pubky_nexus::{models::{
-    post::{PostDetails, PostRelationships, PostStream, PostThread},
-    pubky_app::{PostKind, PubkyAppPost, PubkyAppUser},
-}, RedisOps};
+use pubky_nexus::{
+    models::{
+        post::{PostDetails, PostRelationships, PostStream, PostThread},
+        pubky_app::{PostKind, PubkyAppPost, PubkyAppUser},
+    },
+    RedisOps,
+};
 
 #[tokio::test]
 async fn test_homeserver_post_reply() -> Result<()> {
@@ -138,7 +139,11 @@ async fn test_homeserver_post_reply() -> Result<()> {
         relationships.replied.is_some(),
         "Reply should have parent post URI"
     );
-    assert_eq!(relationships.replied.unwrap(), parent_uri, "The parent URIs does not match");
+    assert_eq!(
+        relationships.replied.unwrap(),
+        parent_uri,
+        "The parent URIs does not match"
+    );
 
     // Sorted:Posts:User:user_id
     // Check that replies are NOT in the user's timeline

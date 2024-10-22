@@ -7,8 +7,8 @@ pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
     query(
         "
             MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
-            OPTIONAL MATCH (p)-[replied:REPLIED]->(Post)
-            WITH u, p, (replied IS NOT NULL) AS is_reply
+            OPTIONAL MATCH (p)-[replied:REPLIED]->(parent_post:Post)<-[:AUTHORED]-(author:User)
+            WITH u, p, parent_post, author
             RETURN {
                 uri: 'pubky://' + u.id + '/pub/pubky.app/posts/' + p.id,
                 content: p.content,
@@ -20,7 +20,8 @@ pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
                 kind: COALESCE(p.kind, 'Short'),
                 attachments: p.attachments
             } as details,
-            is_reply
+            COLLECT([author.id, parent_post.id]) AS reply
+
         ",
     )
     .param("author_id", author_id)
@@ -84,8 +85,7 @@ pub fn post_relationships(author_id: &str, post_id: &str) -> Query {
           replied_author.id AS replied_author_id,
           reposted_post.id AS reposted_post_id, 
           reposted_author.id AS reposted_author_id,
-          COLLECT(mentioned_user.id) AS mentioned_user_ids,
-          p.indexed_at as indexed_at",
+          COLLECT(mentioned_user.id) AS mentioned_user_ids",
     )
     .param("author_id", author_id)
     .param("post_id", post_id)

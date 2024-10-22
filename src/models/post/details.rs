@@ -34,8 +34,8 @@ impl PostDetails {
             Some(details) => Ok(Some(details)),
             None => {
                 let graph_response = Self::get_from_graph(author_id, post_id).await?;
-                if let Some((post_details, is_reply)) = graph_response {
-                    post_details.put_to_index(author_id, !is_reply).await?;
+                if let Some((post_details, reply)) = graph_response {
+                    post_details.put_to_index(author_id, reply, false).await?;
                     return Ok(Some(post_details));
                 }
                 Ok(None)
@@ -57,7 +57,8 @@ impl PostDetails {
     pub async fn get_from_graph(
         author_id: &str,
         post_id: &str,
-    ) -> Result<Option<(PostDetails, bool)>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<(PostDetails, Option<[String; 2]>)>, Box<dyn std::error::Error + Send + Sync>>
+    {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
@@ -70,8 +71,13 @@ impl PostDetails {
         match result.next().await? {
             Some(row) => {
                 let post: PostDetails = row.get("details")?;
-                let is_reply: bool = row.get("is_reply").unwrap_or(false);
-                Ok(Some((post, is_reply)))
+                let reply_value: Vec<(String, String)> = row.get("reply").unwrap_or(Vec::new());
+                let reply = match reply_value.len() {
+                    0 => None,
+                    // First index would be parent_author_id and the second one parent_post_id
+                    _ => Some([reply_value[0].0.clone(), reply_value[0].1.clone()]),
+                };
+                Ok(Some((post, reply)))
             }
             None => Ok(None),
         }
@@ -80,13 +86,30 @@ impl PostDetails {
     pub async fn put_to_index(
         &self,
         author_id: &str,
-        add_to_feeds: bool,
+        parent_key_wrapper: Option<[String; 2]>,
+        update: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.put_index_json(&[author_id, &self.id]).await?;
-        // We just add the root posts, others are not indexed
-        if add_to_feeds {
-            PostStream::add_to_timeline_sorted_set(self).await?;
-            PostStream::add_to_per_user_sorted_set(self).await?;
+        // When we delete a post that has ancestor, ignore other index updates
+        if update {
+            return Ok(());
+        }
+        // The replies are not indexed in the global feeds so we will ignore that indexing
+        // Reason, the way we render the feeds in the CLIENT
+        match parent_key_wrapper {
+            None => {
+                PostStream::add_to_timeline_sorted_set(self).await?;
+                PostStream::add_to_per_user_sorted_set(self).await?;
+            }
+            Some([parent_author_id, parent_post_id]) => {
+                PostStream::add_to_post_reply_sorted_set(
+                    &[&parent_author_id, &parent_post_id],
+                    author_id,
+                    &self.id,
+                    self.indexed_at,
+                )
+                .await?;
+            }
         }
         Ok(())
     }
@@ -112,7 +135,7 @@ impl PostDetails {
         post_id: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         match Self::get_from_graph(author_id, post_id).await? {
-            Some((details, is_reply)) => details.put_to_index(author_id, !is_reply).await?,
+            Some((details, reply)) => details.put_to_index(author_id, reply, false).await?,
             None => log::error!(
                 "{}:{} Could not found post counts in the graph",
                 author_id,
@@ -131,17 +154,50 @@ impl PostDetails {
     pub async fn delete(
         author_id: &str,
         post_id: &str,
-        remove_from_feeds: bool,
+        parent_post_key_wrapper: Option<[String; 2]>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Delete user_details on Redis
         Self::remove_from_index_multiple_json(&[&[author_id, post_id]]).await?;
         // Delete post graph node
         exec_single_row(queries::del::delete_post(author_id, post_id)).await?;
-        // We just remove the root posts, others are not indexed
-        if remove_from_feeds {
-            PostStream::remove_from_timeline_sorted_set(author_id, post_id).await?;
-            PostStream::remove_from_per_user_sorted_set(author_id, post_id).await?;
+        // The replies are not indexed in the global feeds
+        match parent_post_key_wrapper {
+            None => {
+                PostStream::remove_from_timeline_sorted_set(author_id, post_id).await?;
+                PostStream::remove_from_per_user_sorted_set(author_id, post_id).await?;
+            }
+            Some([parent_author_id, parent_post_id]) => {
+                PostStream::remove_from_post_reply_sorted_set(
+                    &[&parent_author_id, &parent_post_id],
+                    author_id,
+                    post_id,
+                )
+                .await?;
+            }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{setup, Config};
+
+    use super::*;
+
+    const AUTHOR_A_ID: &str = "h3fghnb3x59oh7r53x8y6a5x38oatqyjym9b31ybss17zqdnhcoy";
+    const REPLY_ID: &str = "2ZECXVXHZBE00";
+    const POST_ID: &str = "2ZECRNM66G900";
+
+    #[tokio::test]
+    async fn test_post_details_get_from_graph() {
+        // Open connections against ddbb
+        let config = Config::from_env();
+        setup(&config).await;
+        let _res = PostDetails::get_by_id(AUTHOR_A_ID, REPLY_ID).await.unwrap();
+        let replies = PostStream::get_post_replies(AUTHOR_A_ID, POST_ID, None, None, None)
+            .await
+            .unwrap();
+        assert_eq!(format!("{}:{}", AUTHOR_A_ID, REPLY_ID), replies[0]);
     }
 }

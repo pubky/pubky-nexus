@@ -1,15 +1,19 @@
 use super::utils::{
-    check_member_total_engagement_user_posts, check_member_user_post_timeline, find_post_counts,
-    find_post_details, find_repost_relationship_parent_uri, check_member_global_timeline_user_post
+    check_member_global_timeline_user_post, check_member_total_engagement_user_posts,
+    check_member_user_post_timeline, find_post_counts, find_post_details,
+    find_repost_relationship_parent_uri,
 };
 use crate::watcher::users::utils::find_user_counts;
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
-use pubky_nexus::{models::{
-    post::{PostDetails, PostRelationships},
-    pubky_app::{PostEmbed, PostKind, PubkyAppPost, PubkyAppUser},
-}, RedisOps};
+use pubky_nexus::{
+    models::{
+        post::{PostDetails, PostRelationships},
+        pubky_app::{PostEmbed, PostKind, PubkyAppPost, PubkyAppUser},
+    },
+    RedisOps,
+};
 
 #[tokio::test]
 async fn test_homeserver_post_repost() -> Result<()> {
@@ -83,9 +87,10 @@ async fn test_homeserver_post_repost() -> Result<()> {
     assert_eq!(post_count.posts, 2);
 
     // Check if parent post engagement: Sorted:Posts:Global:TotalEngagement:user_id:post_id
-    let parent_total_engagement = check_member_total_engagement_user_posts(&[&user_id, &parent_post_id])
-        .await
-        .unwrap();
+    let parent_total_engagement =
+        check_member_total_engagement_user_posts(&[&user_id, &parent_post_id])
+            .await
+            .unwrap();
     assert!(
         parent_total_engagement.is_some(),
         "Parent post total engagement should be increased by one"
@@ -117,7 +122,11 @@ async fn test_homeserver_post_repost() -> Result<()> {
         relationships.reposted.is_some(),
         "Repost should have parent post URI"
     );
-    assert_eq!(relationships.reposted.unwrap(), parent_uri, "The parent URIs does not match");
+    assert_eq!(
+        relationships.reposted.unwrap(),
+        parent_uri,
+        "The parent URIs does not match"
+    );
 
     // User:Counts:user_id:post_id
     let reply_post_counts = find_post_counts(&user_id, &repost_id).await;
@@ -138,9 +147,10 @@ async fn test_homeserver_post_repost() -> Result<()> {
     );
 
     // Check that repost is in the global timeline
-    let repost_global_timeline_timestamp = check_member_global_timeline_user_post(&user_id, &repost_id)
-        .await
-        .unwrap();
+    let repost_global_timeline_timestamp =
+        check_member_global_timeline_user_post(&user_id, &repost_id)
+            .await
+            .unwrap();
     assert!(
         repost_global_timeline_timestamp.is_some(),
         "Repost should be in the global timeline"

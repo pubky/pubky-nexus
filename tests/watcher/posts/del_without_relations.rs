@@ -1,4 +1,6 @@
-use crate::watcher::{posts::utils::check_member_post_replies, users::utils::find_user_counts, utils::WatcherTest};
+use crate::watcher::{
+    posts::utils::check_member_post_replies, users::utils::find_user_counts, utils::WatcherTest,
+};
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{
@@ -349,7 +351,10 @@ async fn test_delete_post_that_replied() -> Result<()> {
     let post_replies = check_member_post_replies(&user_id, &post_id, &[&user_id, &reply_id])
         .await
         .unwrap();
-    assert!(post_replies.is_none(), "Reply id cannot exist in post replies");
+    assert!(
+        post_replies.is_none(),
+        "Reply id cannot exist in post replies"
+    );
 
     // ########### REPLY RELATED INDEXES ################
     // Post:Relationships:user_id:post_id
