@@ -347,7 +347,7 @@ pub async fn sync_del(
     Ok(())
 }
 
-
+// The only posts that has a feed are root posts and reposts. Replies does not belong to that feeds
 fn can_remove_post_from_feed(relationship: &Option<PostRelationships>) -> bool {
-    matches!(relationship, Some(post_relationship) if post_relationship.replied.is_none() && post_relationship.reposted.is_none())
+    matches!(relationship, Some(post_relationship) if post_relationship.replied.is_none()/*&& post_relationship.reposted.is_none()*/)
 }
