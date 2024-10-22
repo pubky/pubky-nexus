@@ -3,7 +3,9 @@ use super::utils::{
     check_member_user_post_timeline, find_post_counts, find_post_details,
     find_reply_relationship_parent_uri,
 };
-use crate::watcher::{users::utils::find_user_counts, utils::WatcherTest};
+use crate::watcher::{
+    posts::utils::check_member_post_replies, users::utils::find_user_counts, utils::WatcherTest,
+};
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::{
@@ -100,6 +102,17 @@ async fn test_homeserver_post_reply() -> Result<()> {
     assert!(total_engagement.is_some());
     assert_eq!(total_engagement.unwrap(), 1);
 
+    // Check if post reply was added in parent post replies list
+    // Sorted:Posts:Replies:user_id:post_id
+    let post_replies = check_member_post_replies(&user_id, &parent_post_id, &[&user_id, &reply_id])
+        .await
+        .unwrap();
+    assert!(post_replies.is_some());
+    assert_eq!(
+        post_replies.unwrap(),
+        reply_post_details.indexed_at as isize
+    );
+
     // ########### REPLY RELATED INDEXES ################
     //User:Details:user_id:post_id
     let post_detail_cache: PostDetails = PostDetails::get_from_index(&user_id, &reply_id)
@@ -117,7 +130,7 @@ async fn test_homeserver_post_reply() -> Result<()> {
 
     assert_eq!(reply_post_counts.reposts, 0);
     assert_eq!(reply_post_counts.tags, 0);
-    assert_eq!(reply_post_counts.replies, 0);    
+    assert_eq!(reply_post_counts.replies, 0);
 
     // Sorted:Posts:User:user_id
     // Check that replies are NOT in the user's timeline

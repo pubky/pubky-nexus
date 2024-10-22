@@ -3,8 +3,7 @@ use neo4rs::{query, Query};
 use pubky_nexus::{
     get_neo4j_graph,
     models::post::{
-        PostCounts, PostDetails, PostStream, POST_PER_USER_KEY_PARTS, POST_TIMELINE_KEY_PARTS,
-        POST_TOTAL_ENGAGEMENT_KEY_PARTS,
+        PostCounts, PostDetails, PostStream, POST_PER_USER_KEY_PARTS, POST_REPLIES_TIMELINE_KEY_PARTS, POST_TIMELINE_KEY_PARTS, POST_TOTAL_ENGAGEMENT_KEY_PARTS
     },
     RedisOps,
 };
@@ -63,6 +62,19 @@ pub async fn check_member_total_engagement_user_posts(post_key: &[&str]) -> Resu
             .await
             .unwrap();
     Ok(total_engagement)
+}
+
+pub async fn check_member_post_replies(author_id: &str, post_id: &str, post_key: &[&str]) -> Result<Option<isize>> {
+    let key_parts = [
+        &POST_REPLIES_TIMELINE_KEY_PARTS[..],
+        &[author_id, post_id]
+    ].concat();
+
+    let post_replies =
+        PostStream::check_sorted_set_member(&key_parts, post_key)
+            .await
+            .unwrap();
+    Ok(post_replies)
 }
 
 pub async fn find_reply_relationship_parent_uri(user_id: &str, post_id: &str) -> Result<String> {
