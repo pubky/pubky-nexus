@@ -72,6 +72,8 @@ impl TagSearch {
     pub async fn get_by_label(
         label: &str,
         sort_by: Option<PostStreamSorting>,
+        start: Option<f64>,
+        end: Option<f64>,
         skip: usize,
         limit: usize,
     ) -> Result<Option<Vec<TagSearch>>, Box<dyn Error + Send + Sync>> {
@@ -79,8 +81,8 @@ impl TagSearch {
             Some(PostStreamSorting::TotalEngagement) => {
                 Self::try_from_index_sorted_set(
                     &[&TAG_GLOBAL_POST_ENGAGEMENT[..], &[label]].concat(),
-                    None,
-                    None,
+                    start,
+                    end,
                     Some(skip),
                     Some(limit),
                     Sorting::Descending,
@@ -91,8 +93,8 @@ impl TagSearch {
             _ => {
                 Self::try_from_index_sorted_set(
                     &[&TAG_GLOBAL_POST_TIMELINE[..], &[label]].concat(),
-                    None,
-                    None,
+                    start,
+                    end,
                     Some(skip),
                     Some(limit),
                     Sorting::Descending,

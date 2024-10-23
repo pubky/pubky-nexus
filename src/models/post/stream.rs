@@ -134,24 +134,26 @@ impl PostStream {
     ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
         let source = post_stream_filters.source;
         let sorting = post_stream_filters.sorting;
-        let skip = post_stream_filters.skip;
-        let limit = post_stream_filters.limit;
         let start = post_stream_filters.start;
         let end = post_stream_filters.end;
+        let skip = post_stream_filters.skip;
+        let limit = post_stream_filters.limit;
 
         match (source, tags, author_id) {
             // Global post streams
             (ViewerStreamSource::All, None, None) => {
-                Self::get_global_posts_keys(sorting, skip, limit).await
+                Self::get_global_posts_keys(sorting, start, end, skip, limit).await
             }
             // Streams by tags
             (ViewerStreamSource::All, Some(tags), None) if tags.len() == 1 => {
-                Self::get_posts_keys_by_tag(&tags[0], sorting, skip, limit).await
+                Self::get_posts_keys_by_tag(&tags[0], sorting, start, end, skip, limit).await
             }
             // Bookmark streams
             (ViewerStreamSource::Bookmarks, None, None) => {
                 Self::get_bookmarked_posts(
                     &viewer_id.ok_or("Viewer ID is required for bookmark streams")?,
+                    start,
+                    end,
                     skip,
                     limit,
                 )
@@ -170,7 +172,9 @@ impl PostStream {
             // Streams by simple source
             (source, None, None) => Self::get_posts_by_source(source, viewer_id, skip, limit).await,
             // Streams by only author
-            (_, None, Some(author_id)) => Self::get_user_posts(&author_id, skip, limit).await,
+            (_, None, Some(author_id)) => {
+                Self::get_user_posts(&author_id, start, end, skip, limit).await
+            }
             //(ViewerStreamSource::Replies, None)
             _ => Ok(vec![]),
         }
@@ -219,6 +223,8 @@ impl PostStream {
 
     pub async fn get_global_posts_keys(
         sorting: PostStreamSorting,
+        start: Option<f64>,
+        end: Option<f64>,
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
@@ -226,8 +232,8 @@ impl PostStream {
             PostStreamSorting::TotalEngagement => {
                 Self::try_from_index_sorted_set(
                     &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
-                    None,
-                    None,
+                    start,
+                    end,
                     skip,
                     limit,
                     Sorting::Descending,
@@ -237,8 +243,8 @@ impl PostStream {
             PostStreamSorting::Timeline => {
                 Self::try_from_index_sorted_set(
                     &POST_TIMELINE_KEY_PARTS,
-                    None,
-                    None,
+                    start,
+                    end,
                     skip,
                     limit,
                     Sorting::Descending,
@@ -255,13 +261,16 @@ impl PostStream {
     pub async fn get_posts_keys_by_tag(
         label: &str,
         sorting: PostStreamSorting,
+        start: Option<f64>,
+        end: Option<f64>,
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
         let skip = skip.unwrap_or(0);
         let limit = limit.unwrap_or(10);
 
-        let post_search_result = TagSearch::get_by_label(label, Some(sorting), skip, limit).await?;
+        let post_search_result =
+            TagSearch::get_by_label(label, Some(sorting), start, end, skip, limit).await?;
 
         match post_search_result {
             Some(post_keys) => Ok(post_keys
@@ -274,14 +283,16 @@ impl PostStream {
 
     pub async fn get_user_posts(
         user_id: &str,
+        start: Option<f64>,
+        end: Option<f64>,
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
         let key_parts = [&POST_PER_USER_KEY_PARTS[..], &[user_id]].concat();
         let post_ids = Self::try_from_index_sorted_set(
             &key_parts,
-            None,
-            None,
+            start,
+            end,
             skip,
             limit,
             Sorting::Descending,
@@ -347,14 +358,16 @@ impl PostStream {
 
     pub async fn get_bookmarked_posts(
         user_id: &str,
+        start: Option<f64>,
+        end: Option<f64>,
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
         let key_parts = [&BOOKMARKS_USER_KEY_PARTS[..], &[user_id]].concat();
         let post_keys = Self::try_from_index_sorted_set(
             &key_parts,
-            None,
-            None,
+            start,
+            end,
             skip,
             limit,
             Sorting::Descending,
