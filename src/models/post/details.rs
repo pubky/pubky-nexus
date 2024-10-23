@@ -57,7 +57,7 @@ impl PostDetails {
     pub async fn get_from_graph(
         author_id: &str,
         post_id: &str,
-    ) -> Result<Option<(PostDetails, Option<[String; 2]>)>, Box<dyn std::error::Error + Send + Sync>>
+    ) -> Result<Option<(PostDetails, Option<(String, String)>)>, Box<dyn std::error::Error + Send + Sync>>
     {
         let mut result;
         {
@@ -72,12 +72,11 @@ impl PostDetails {
             Some(row) => {
                 let post: PostDetails = row.get("details")?;
                 let reply_value: Vec<(String, String)> = row.get("reply").unwrap_or(Vec::new());
-                let reply = match reply_value.len() {
-                    0 => None,
-                    // First index would be parent_author_id and the second one parent_post_id
-                    _ => Some([reply_value[0].0.clone(), reply_value[0].1.clone()]),
+                let reply_key = match reply_value.is_empty() {  
+                    true =>  None,
+                    false => Some(reply_value[0].clone())
                 };
-                Ok(Some((post, reply)))
+                Ok(Some((post, reply_key)))
             }
             None => Ok(None),
         }
@@ -86,12 +85,12 @@ impl PostDetails {
     pub async fn put_to_index(
         &self,
         author_id: &str,
-        parent_key_wrapper: Option<[String; 2]>,
-        update: bool,
+        parent_key_wrapper: Option<(String, String)>,
+        is_edit: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.put_index_json(&[author_id, &self.id]).await?;
         // When we delete a post that has ancestor, ignore other index updates
-        if update {
+        if is_edit {
             return Ok(());
         }
         // The replies are not indexed in the global feeds so we will ignore that indexing
@@ -101,7 +100,7 @@ impl PostDetails {
                 PostStream::add_to_timeline_sorted_set(self).await?;
                 PostStream::add_to_per_user_sorted_set(self).await?;
             }
-            Some([parent_author_id, parent_post_id]) => {
+            Some((parent_author_id, parent_post_id)) => {
                 PostStream::add_to_post_reply_sorted_set(
                     &[&parent_author_id, &parent_post_id],
                     author_id,

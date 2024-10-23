@@ -75,7 +75,7 @@ pub async fn sync_put(
 
     let mut interaction_url: (Option<String>, Option<String>) = (None, None);
     // Use that index wrapper to add a post reply
-    let mut reply_parent_post_key_wrapper: Option<[String; 2]> = None;
+    let mut reply_parent_post_key_wrapper: Option<(String, String)> = None;
 
     // Post creation from an interaction: REPLY or REPOST
     for (action, parent_uri) in interactions {
@@ -99,7 +99,7 @@ pub async fn sync_put(
         if action == "replies" {
             // Populate the reply parent keys to after index the reply
             reply_parent_post_key_wrapper =
-                Some([parent_author_id.to_string(), parent_post_id.clone()]);
+                Some((parent_author_id.to_string(), parent_post_id.clone()));
 
             PostStream::add_to_post_reply_sorted_set(
                 parent_post_key_parts,
