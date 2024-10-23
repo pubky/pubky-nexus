@@ -63,4 +63,3 @@ async fn test_stream_invalid_sorting() -> Result<()> {
 
     Ok(())
 }
-
