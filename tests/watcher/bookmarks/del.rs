@@ -71,7 +71,7 @@ async fn test_homeserver_unbookmark() -> Result<()> {
     }
 
     // CACHE_OP: Assert the index is clear of the bookmark
-    let bookmarks = PostStream::get_bookmarked_posts(&bookmarker_id, None, None)
+    let bookmarks = PostStream::get_bookmarked_posts(&bookmarker_id, None, None, None, None)
         .await
         .unwrap();
     assert!(bookmarks.is_empty(), "The bookmark list should be empty");

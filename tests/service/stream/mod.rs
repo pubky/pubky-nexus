@@ -6,8 +6,7 @@ pub mod reach;
 pub mod replies;
 pub mod user;
 pub mod utils;
-pub mod w_multiple_filters;
-pub mod w_tags;
+pub mod tags;
 
 pub const ROOT_PATH: &str = endpoints::STREAM_POSTS_ROUTE;
 
