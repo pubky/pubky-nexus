@@ -57,8 +57,10 @@ impl PostDetails {
     pub async fn get_from_graph(
         author_id: &str,
         post_id: &str,
-    ) -> Result<Option<(PostDetails, Option<(String, String)>)>, Box<dyn std::error::Error + Send + Sync>>
-    {
+    ) -> Result<
+        Option<(PostDetails, Option<(String, String)>)>,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
@@ -72,9 +74,9 @@ impl PostDetails {
             Some(row) => {
                 let post: PostDetails = row.get("details")?;
                 let reply_value: Vec<(String, String)> = row.get("reply").unwrap_or(Vec::new());
-                let reply_key = match reply_value.is_empty() {  
-                    true =>  None,
-                    false => Some(reply_value[0].clone())
+                let reply_key = match reply_value.is_empty() {
+                    true => None,
+                    false => Some(reply_value[0].clone()),
                 };
                 Ok(Some((post, reply_key)))
             }
