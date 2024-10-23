@@ -75,6 +75,9 @@ pub enum NotificationBody {
     },
 }
 
+type QueryFunction = fn(&str, &str) -> neo4rs::Query;
+type ExtractFunction = Box<dyn Fn(&Row) -> (String, String) + Send>;
+
 impl Default for NotificationBody {
     fn default() -> Self {
         NotificationBody::Follow {
@@ -307,14 +310,9 @@ impl Notification {
         changed_type: &PostChangedType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Define the notification types and associated data
-        let notification_types: Vec<(
-            fn(&str, &str) -> neo4rs::Query,              // Function pointer type
-            PostChangedSource,                            // Enum variant
-            Box<dyn Fn(&Row) -> (String, String) + Send>, // Boxed closure trait object
-        )> = vec![
-            // Replies
+        let notification_types: Vec<(QueryFunction, PostChangedSource, ExtractFunction)> = vec![
             (
-                queries::get::get_post_replies as fn(&str, &str) -> neo4rs::Query,
+                queries::get::get_post_replies as QueryFunction,
                 PostChangedSource::ReplyParent,
                 Box::new(|row: &Row| {
                     let replier_id: &str = row.get("replier_id").unwrap_or_default();
@@ -324,9 +322,8 @@ impl Notification {
                     (replier_id.to_string(), linked_uri)
                 }),
             ),
-            // Tags
             (
-                queries::get::get_post_tags as fn(&str, &str) -> neo4rs::Query,
+                queries::get::get_post_tags as QueryFunction,
                 PostChangedSource::TaggedPost,
                 Box::new(|row: &Row| {
                     let tagger_id: &str = row.get("tagger_id").unwrap_or_default();
@@ -335,9 +332,8 @@ impl Notification {
                     (tagger_id.to_string(), linked_uri)
                 }),
             ),
-            // Bookmarks
             (
-                queries::get::get_post_bookmarks as fn(&str, &str) -> neo4rs::Query,
+                queries::get::get_post_bookmarks as QueryFunction,
                 PostChangedSource::Bookmark,
                 Box::new(|row: &Row| {
                     let bookmarker_id: &str = row.get("bookmarker_id").unwrap_or_default();
@@ -349,9 +345,8 @@ impl Notification {
                     (bookmarker_id.to_string(), linked_uri)
                 }),
             ),
-            // Reposts
             (
-                queries::get::get_post_reposts as fn(&str, &str) -> neo4rs::Query,
+                queries::get::get_post_reposts as QueryFunction,
                 PostChangedSource::RepostEmbed,
                 Box::new(|row: &Row| {
                     let reposter_id: &str = row.get("reposter_id").unwrap_or_default();
