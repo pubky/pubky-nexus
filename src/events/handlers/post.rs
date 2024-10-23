@@ -140,108 +140,33 @@ async fn sync_edit(
     post_details.put_to_index(&author_id, false).await?;
 
     // Notifications
-    if post_details.content == *"[DELETED]" {
-        // A post you replied to was deleted
-        Notification::changed_parent_post(
-            &author_id,
-            &post_id,
-            &changed_uri,
-            PostChangedType::Deleted,
-        )
-        .await?;
-
-        // A post you tagged was deleted
-        Notification::changed_tagged_post(
-            &author_id,
-            &post_id,
-            &changed_uri,
-            PostChangedType::Deleted,
-        )
-        .await?;
-
-        // A post you bookmarked was deleted
-        Notification::changed_bookmarked_post(
-            &author_id,
-            &post_id,
-            &changed_uri,
-            PostChangedType::Deleted,
-        )
-        .await?;
-
-        // A post you reposted was deleted
-        Notification::changed_reposted_post(
-            &author_id,
-            &post_id,
-            &changed_uri,
-            PostChangedType::Deleted,
-        )
-        .await?;
-
-        // Notification: "A reply to your post was deleted"
-        if let Some(parent) = post.parent {
-            let parsed_parent = ParsedUri::try_from(parent.as_str())?;
-            Notification::deleted_post(
-                &author_id,
-                &parent,
-                &parsed_parent.user_id,
-                &changed_uri,
-                PostChangedSource::Reply,
-            )
-            .await?;
-        }
+    // Determine the change type
+    let change_type = if post_details.content == *"[DELETED]" {
+        PostChangedType::Deleted
     } else {
-        // Notifications "A post you replied to has been edited"
-        Notification::changed_parent_post(
+        PostChangedType::Edited
+    };
+
+    // Send notifications to users who interacted with the post
+    Notification::changed_post(&author_id, &post_id, &changed_uri, &change_type).await?;
+
+    // Handle "A reply to your post was edited/deleted"
+    if let Some(parent) = post.parent {
+        let parsed_parent = ParsedUri::try_from(parent.as_str())?;
+        Notification::post_children_changed(
             &author_id,
-            &post_id,
+            &parent,
+            &parsed_parent.user_id,
             &changed_uri,
-            PostChangedType::Edited,
+            PostChangedSource::Reply,
+            &change_type,
         )
         .await?;
-
-        // A post you tagged was edited
-        Notification::changed_tagged_post(
-            &author_id,
-            &post_id,
-            &changed_uri,
-            PostChangedType::Edited,
-        )
-        .await?;
-
-        // A post you bookmarked was edited
-        Notification::changed_bookmarked_post(
-            &author_id,
-            &post_id,
-            &changed_uri,
-            PostChangedType::Edited,
-        )
-        .await?;
-
-        // A post you reposted was edited
-        Notification::changed_reposted_post(
-            &author_id,
-            &post_id,
-            &changed_uri,
-            PostChangedType::Edited,
-        )
-        .await?;
-
-        // Notification: "A reply to your post was edited"
-        if let Some(parent) = post.parent {
-            let parsed_parent = ParsedUri::try_from(parent.as_str())?;
-            Notification::edited_post(
-                &author_id,
-                &parent,
-                &parsed_parent.user_id,
-                &changed_uri,
-                PostChangedSource::Reply,
-            )
-            .await?;
-        }
     };
 
     Ok(())
 }
+
 async fn resolve_post_type_interaction<'a>(
     post: &'a PubkyAppPost,
     author_id: &str,
@@ -405,12 +330,13 @@ pub async fn sync_del(
             .await?;
 
             // Notification: "A repost of your post was deleted"
-            Notification::deleted_post(
+            Notification::post_children_changed(
                 &author_id,
                 &reposted,
                 &parsed_uri.user_id,
                 &deleted_uri,
                 PostChangedSource::Repost,
+                &PostChangedType::Deleted,
             )
             .await?;
         }
@@ -435,12 +361,13 @@ pub async fn sync_del(
             .await?;
 
             // Notification: "A reply to your post was deleted"
-            Notification::deleted_post(
+            Notification::post_children_changed(
                 &author_id,
                 &replied,
                 &parsed_uri.user_id,
                 &deleted_uri,
                 PostChangedSource::Reply,
+                &PostChangedType::Deleted,
             )
             .await?;
 
