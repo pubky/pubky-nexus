@@ -17,7 +17,7 @@ pub const TAG_GLOBAL_HOT: [&str; 3] = ["Tags", "Global", "Hot"];
 pub struct Taggers(pub Vec<String>);
 
 #[derive(Deserialize, Debug, ToSchema, Clone)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum TagStreamReach {
     Followers,
     Following,

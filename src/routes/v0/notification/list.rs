@@ -1,4 +1,4 @@
-use crate::models::notification::{Notification, NotificationBody, PostDeleteType};
+use crate::models::notification::{Notification, NotificationBody, PostChangedSource};
 use crate::routes::v0::endpoints::NOTIFICATION_ROUTE;
 use crate::{Error, Result};
 use axum::extract::Query;
@@ -51,6 +51,6 @@ pub async fn list_notifications_handler(
 #[derive(OpenApi)]
 #[openapi(
     paths(list_notifications_handler,),
-    components(schemas(Notification, NotificationBody, PostDeleteType))
+    components(schemas(Notification, NotificationBody, PostChangedSource))
 )]
 pub struct NotificationsApiDocs;

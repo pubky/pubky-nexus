@@ -2,7 +2,7 @@ use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::{
-    notification::{Notification, NotificationBody, PostDeleteType},
+    notification::{Notification, NotificationBody, PostChangedSource},
     pubky_app::{PostEmbed, PostKind, PubkyAppPost, PubkyAppUser},
 };
 
@@ -16,7 +16,7 @@ async fn test_delete_post_that_reposted_notification() -> Result<()> {
         bio: Some("Test user for post deletion".to_string()),
         image: None,
         links: None,
-        name: "Watcher:PostDeleteNotification:User".to_string(),
+        name: "Watcher:RepostDeleteNotification:User".to_string(),
         status: None,
     };
     let poster_id = test.create_user(&keypair, &user).await?;
@@ -71,7 +71,7 @@ async fn test_delete_post_that_reposted_notification() -> Result<()> {
 
     let notification = &notifications[0];
     if let NotificationBody::PostDeleted {
-        delete_type,
+        delete_source,
         deleted_by,
         deleted_uri,
         linked_uri,
@@ -92,8 +92,8 @@ async fn test_delete_post_that_reposted_notification() -> Result<()> {
             "Notification should contain the correct linked post URI"
         );
         assert_eq!(
-            delete_type,
-            &PostDeleteType::Repost,
+            delete_source,
+            &PostChangedSource::Repost,
             "Delete notification should have the correct type"
         );
     } else {

@@ -1,7 +1,7 @@
 use crate::db::graph::exec::{exec_boolean_row, exec_single_row};
 use crate::db::kv::index::json::JsonAction;
 use crate::events::uri::ParsedUri;
-use crate::models::notification::{Notification, PostDeleteType};
+use crate::models::notification::{Notification, PostChangedSource, PostChangedType};
 use crate::models::post::{
     PostCounts, PostRelationships, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS,
 };
@@ -43,12 +43,14 @@ pub async fn sync_put(
     // SAVE TO GRAPH
     let existed = post_details.put_to_graph().await?;
 
-    // TODO: Posts are not really editable as of now. Much more handling would be needed.
-    // But we can update content even if post existed. Useful for DEL posts (content becomes [DELETED])
-    // Example of yet unhandled: is it still a reply to the same post? Is there different mentions? Etc. Are different notifications needed?
     if existed {
-        // Update content of PostDetails in index and leave!
-        post_details.put_to_index(&author_id, None, true).await?;
+        // If the post existed, let's confirm this is an edit. Is the content different?
+        let existing_details = PostDetails::get_from_index(&author_id, &post_id)
+            .await?
+            .ok_or("An existing post in graph, could not be retrieved from index")?;
+        if existing_details.content != post_details.content {
+            sync_edit(post, author_id, post_id, post_details).await?;
+        }
         return Ok(());
     }
 
@@ -134,6 +136,46 @@ pub async fn sync_put(
     post_details
         .put_to_index(&author_id, reply_parent_post_key_wrapper, false)
         .await?;
+
+    Ok(())
+}
+
+async fn sync_edit(
+    post: PubkyAppPost,
+    author_id: PubkyId,
+    post_id: String,
+    post_details: PostDetails,
+) -> Result<(), Box<dyn Error + Sync + Send>> {
+    // Construct the URI of the post that changed
+    let changed_uri = format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}");
+
+    // Update content of PostDetails!
+    post_details.put_to_index(&author_id, None, true).await?;
+
+    // Notifications
+    // Determine the change type
+    let change_type = if post_details.content == *"[DELETED]" {
+        PostChangedType::Deleted
+    } else {
+        PostChangedType::Edited
+    };
+
+    // Send notifications to users who interacted with the post
+    Notification::changed_post(&author_id, &post_id, &changed_uri, &change_type).await?;
+
+    // Handle "A reply to your post was edited/deleted"
+    if let Some(parent) = post.parent {
+        let parsed_parent = ParsedUri::try_from(parent.as_str())?;
+        Notification::post_children_changed(
+            &author_id,
+            &parent,
+            &parsed_parent.user_id,
+            &changed_uri,
+            PostChangedSource::Reply,
+            &change_type,
+        )
+        .await?;
+    };
 
     Ok(())
 }
@@ -304,12 +346,13 @@ pub async fn sync_del(
             .await?;
 
             // Notification: "A repost of your post was deleted"
-            Notification::deleted_post(
+            Notification::post_children_changed(
                 &author_id,
                 &reposted,
                 &parsed_uri.user_id,
                 &deleted_uri,
-                PostDeleteType::Repost,
+                PostChangedSource::Repost,
+                &PostChangedType::Deleted,
             )
             .await?;
         }
@@ -337,12 +380,13 @@ pub async fn sync_del(
             .await?;
 
             // Notification: "A reply to your post was deleted"
-            Notification::deleted_post(
+            Notification::post_children_changed(
                 &author_id,
                 &replied,
                 &parent_user_id,
                 &deleted_uri,
-                PostDeleteType::Reply,
+                PostChangedSource::Reply,
+                &PostChangedType::Deleted,
             )
             .await?;
         }

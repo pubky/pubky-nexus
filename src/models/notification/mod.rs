@@ -1,18 +1,23 @@
-use crate::{db::kv::index::sorted_sets::Sorting, RedisOps};
+use crate::{db::kv::index::sorted_sets::Sorting, get_neo4j_graph, queries, RedisOps};
 use chrono::Utc;
+use neo4rs::Row;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 #[derive(Serialize, Deserialize, ToSchema, Clone, Debug, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum PostDeleteType {
-    Reply,       // A reply to you was deleted.
-    Repost,      // A repost of your post was deleted.
-    ReplyParent, // The parent post of your reply was deleted.
-    RepostEmbed, // The embedded post of your repost was deleted.
-    ThreadRoot,  // The root post of the thread of your reply was deleted.
-    ThreadReply, // A reply on the thread of your root post was deleted.
-    TaggedPost,  // A post you tagged was deleted.
+#[serde(rename_all = "snake_case")]
+pub enum PostChangedSource {
+    Reply,       // A reply to you was deleted/edited.
+    Repost,      // A repost of your post was deleted/edited.
+    Bookmark,    // A post you bookmarked was deleted/edited.
+    ReplyParent, // The parent post of your reply was deleted/edited.
+    RepostEmbed, // The embedded post on your repost was deleted/edited.
+    TaggedPost,  // A post you tagged was deleted/edited.
+}
+
+pub enum PostChangedType {
+    Edited,
+    Deleted,
 }
 
 #[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
@@ -22,7 +27,7 @@ pub struct Notification {
 }
 
 #[derive(Serialize, Deserialize, Clone, ToSchema, Debug)]
-#[serde(tag = "type", rename_all = "lowercase")]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum NotificationBody {
     Follow {
         followed_by: String,
@@ -57,12 +62,21 @@ pub enum NotificationBody {
         post_uri: String,
     },
     PostDeleted {
-        delete_type: PostDeleteType,
+        delete_source: PostChangedSource,
         deleted_by: String,
         deleted_uri: String,
         linked_uri: String,
     },
+    PostEdited {
+        edit_source: PostChangedSource,
+        edited_by: String,
+        edited_uri: String,
+        linked_uri: String,
+    },
 }
+
+type QueryFunction = fn(&str, &str) -> neo4rs::Query;
+type ExtractFunction = Box<dyn Fn(&Row) -> (String, String) + Send>;
 
 impl Default for NotificationBody {
     fn default() -> Self {
@@ -257,23 +271,130 @@ impl Notification {
         notification.put_to_index(embed_post_author).await
     }
 
-    pub async fn deleted_post(
+    pub async fn post_children_changed(
         user_id: &str,
         linked_uri: &str,
         linked_post_author: &str,
-        deleted_uri: &str,
-        delete_type: PostDeleteType,
+        changed_uri: &str,
+        change_source: PostChangedSource,
+        changed_type: &PostChangedType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if user_id == linked_post_author {
             return Ok(());
         }
-        let body = NotificationBody::PostDeleted {
-            delete_type,
-            deleted_by: user_id.to_string(),
-            deleted_uri: deleted_uri.to_string(),
-            linked_uri: linked_uri.to_string(),
+        let body = match changed_type {
+            PostChangedType::Deleted => NotificationBody::PostDeleted {
+                delete_source: change_source,
+                deleted_by: user_id.to_string(),
+                deleted_uri: changed_uri.to_string(),
+                linked_uri: linked_uri.to_string(),
+            },
+            PostChangedType::Edited => NotificationBody::PostEdited {
+                edit_source: change_source,
+                edited_by: user_id.to_string(),
+                edited_uri: changed_uri.to_string(),
+                linked_uri: linked_uri.to_string(),
+            },
         };
         let notification = Notification::new(body);
         notification.put_to_index(linked_post_author).await
+    }
+
+    // Delete and Edit post notifications to users who interacted
+
+    // A post you replied/reposted/tagged/bookmarked was edited or deleted
+    pub async fn changed_post(
+        author_id: &str,
+        post_id: &str,
+        changed_uri: &str,
+        changed_type: &PostChangedType,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Define the notification types and associated data
+        let notification_types: Vec<(QueryFunction, PostChangedSource, ExtractFunction)> = vec![
+            (
+                queries::get::get_post_replies as QueryFunction,
+                PostChangedSource::ReplyParent,
+                Box::new(|row: &Row| {
+                    let replier_id: &str = row.get("replier_id").unwrap_or_default();
+                    let reply_id: &str = row.get("reply_id").unwrap_or_default();
+                    let linked_uri =
+                        format!("pubky://{}/pub/pubky.app/posts/{}", replier_id, reply_id);
+                    (replier_id.to_string(), linked_uri)
+                }),
+            ),
+            (
+                queries::get::get_post_tags as QueryFunction,
+                PostChangedSource::TaggedPost,
+                Box::new(|row: &Row| {
+                    let tagger_id: &str = row.get("tagger_id").unwrap_or_default();
+                    let tag_id: &str = row.get("tag_id").unwrap_or_default();
+                    let linked_uri = format!("pubky://{}/pub/pubky.app/tags/{}", tagger_id, tag_id);
+                    (tagger_id.to_string(), linked_uri)
+                }),
+            ),
+            (
+                queries::get::get_post_bookmarks as QueryFunction,
+                PostChangedSource::Bookmark,
+                Box::new(|row: &Row| {
+                    let bookmarker_id: &str = row.get("bookmarker_id").unwrap_or_default();
+                    let bookmark_id: &str = row.get("bookmark_id").unwrap_or_default();
+                    let linked_uri = format!(
+                        "pubky://{}/pub/pubky.app/bookmarks/{}",
+                        bookmarker_id, bookmark_id
+                    );
+                    (bookmarker_id.to_string(), linked_uri)
+                }),
+            ),
+            (
+                queries::get::get_post_reposts as QueryFunction,
+                PostChangedSource::RepostEmbed,
+                Box::new(|row: &Row| {
+                    let reposter_id: &str = row.get("reposter_id").unwrap_or_default();
+                    let repost_id: &str = row.get("repost_id").unwrap_or_default();
+                    let linked_uri =
+                        format!("pubky://{}/pub/pubky.app/posts/{}", reposter_id, repost_id);
+                    (reposter_id.to_string(), linked_uri)
+                }),
+            ),
+        ];
+
+        for (query_fn, post_changed_source, extract_fn) in notification_types {
+            let mut result;
+            {
+                let graph = get_neo4j_graph()?;
+                let query = query_fn(author_id, post_id);
+
+                let graph = graph.lock().await;
+                result = graph.execute(query).await?;
+            }
+
+            while let Some(row) = result.next().await? {
+                let (user_id, linked_uri) = extract_fn(&row);
+
+                if author_id == user_id {
+                    // Do not notify the author themselves
+                    continue;
+                }
+
+                let notification_body = match changed_type {
+                    PostChangedType::Deleted => NotificationBody::PostDeleted {
+                        delete_source: post_changed_source.clone(),
+                        deleted_by: author_id.to_string(),
+                        deleted_uri: changed_uri.to_string(),
+                        linked_uri,
+                    },
+                    PostChangedType::Edited => NotificationBody::PostEdited {
+                        edit_source: post_changed_source.clone(),
+                        edited_by: author_id.to_string(),
+                        edited_uri: changed_uri.to_string(),
+                        linked_uri,
+                    },
+                };
+
+                let notification = Notification::new(notification_body);
+                notification.put_to_index(&user_id).await?;
+            }
+        }
+        Ok(())
     }
 }

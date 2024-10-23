@@ -2,7 +2,7 @@ use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::{
-    notification::{Notification, NotificationBody, PostDeleteType},
+    notification::{Notification, NotificationBody, PostChangedSource},
     pubky_app::{PostKind, PubkyAppPost, PubkyAppUser},
 };
 
@@ -71,7 +71,7 @@ async fn test_delete_post_that_replied_notification() -> Result<()> {
 
     let notification = &notifications[0];
     if let NotificationBody::PostDeleted {
-        delete_type,
+        delete_source,
         deleted_by,
         deleted_uri,
         linked_uri,
@@ -92,8 +92,8 @@ async fn test_delete_post_that_replied_notification() -> Result<()> {
             "Notification should contain the correct linked post URI"
         );
         assert_eq!(
-            delete_type,
-            &PostDeleteType::Reply,
+            delete_source,
+            &PostChangedSource::Reply,
             "Delete notification should have the correct type"
         );
     } else {

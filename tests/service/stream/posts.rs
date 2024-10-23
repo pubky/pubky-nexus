@@ -25,7 +25,7 @@ async fn test_stream_posts_global_timeline() -> Result<()> {
 
 #[tokio::test]
 async fn test_stream_posts_global_total_engagement() -> Result<()> {
-    let path = format!("{ROOT_PATH}?sorting=totalengagement");
+    let path = format!("{ROOT_PATH}?sorting=total_engagement");
     let body = make_request(&path).await?;
 
     assert!(body.is_array());
