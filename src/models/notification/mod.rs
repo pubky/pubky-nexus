@@ -307,51 +307,59 @@ impl Notification {
         changed_type: &PostChangedType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Define the notification types and associated data
-        let notification_types = vec![
+        let notification_types: Vec<(
+            fn(&str, &str) -> neo4rs::Query,              // Function pointer type
+            PostChangedSource,                            // Enum variant
+            Box<dyn Fn(&Row) -> (String, String) + Send>, // Boxed closure trait object
+        )> = vec![
+            // Replies
             (
-                queries::get::get_post_replies,
+                queries::get::get_post_replies as fn(&str, &str) -> neo4rs::Query,
                 PostChangedSource::ReplyParent,
-                |row: &Row| {
+                Box::new(|row: &Row| {
                     let replier_id: &str = row.get("replier_id").unwrap_or_default();
                     let reply_id: &str = row.get("reply_id").unwrap_or_default();
                     let linked_uri =
                         format!("pubky://{}/pub/pubky.app/posts/{}", replier_id, reply_id);
-                    (replier_id, linked_uri)
-                },
+                    (replier_id.to_string(), linked_uri)
+                }),
             ),
+            // Tags
             (
-                queries::get::get_post_tags,
+                queries::get::get_post_tags as fn(&str, &str) -> neo4rs::Query,
                 PostChangedSource::TaggedPost,
-                |row: &Row| {
+                Box::new(|row: &Row| {
                     let tagger_id: &str = row.get("tagger_id").unwrap_or_default();
                     let tag_id: &str = row.get("tag_id").unwrap_or_default();
                     let linked_uri = format!("pubky://{}/pub/pubky.app/tags/{}", tagger_id, tag_id);
-                    (tagger_id, linked_uri)
-                },
+                    (tagger_id.to_string(), linked_uri)
+                }),
             ),
+            // Bookmarks
             (
-                queries::get::get_post_bookmarks,
+                queries::get::get_post_bookmarks as fn(&str, &str) -> neo4rs::Query,
                 PostChangedSource::Bookmark,
-                |row: &Row| {
+                Box::new(|row: &Row| {
                     let bookmarker_id: &str = row.get("bookmarker_id").unwrap_or_default();
                     let bookmark_id: &str = row.get("bookmark_id").unwrap_or_default();
                     let linked_uri = format!(
                         "pubky://{}/pub/pubky.app/bookmarks/{}",
                         bookmarker_id, bookmark_id
                     );
-                    (bookmarker_id, linked_uri)
-                },
+                    (bookmarker_id.to_string(), linked_uri)
+                }),
             ),
+            // Reposts
             (
-                queries::get::get_post_reposts,
+                queries::get::get_post_reposts as fn(&str, &str) -> neo4rs::Query,
                 PostChangedSource::RepostEmbed,
-                |row: &Row| {
+                Box::new(|row: &Row| {
                     let reposter_id: &str = row.get("reposter_id").unwrap_or_default();
                     let repost_id: &str = row.get("repost_id").unwrap_or_default();
                     let linked_uri =
                         format!("pubky://{}/pub/pubky.app/posts/{}", reposter_id, repost_id);
-                    (reposter_id, linked_uri)
-                },
+                    (reposter_id.to_string(), linked_uri)
+                }),
             ),
         ];
 
@@ -375,13 +383,13 @@ impl Notification {
 
                 let notification_body = match changed_type {
                     PostChangedType::Deleted => NotificationBody::PostDeleted {
-                        delete_source: post_changed_source,
+                        delete_source: post_changed_source.clone(),
                         deleted_by: author_id.to_string(),
                         deleted_uri: changed_uri.to_string(),
                         linked_uri,
                     },
                     PostChangedType::Edited => NotificationBody::PostEdited {
-                        edit_source: post_changed_source,
+                        edit_source: post_changed_source.clone(),
                         edited_by: author_id.to_string(),
                         edited_uri: changed_uri.to_string(),
                         linked_uri,
@@ -389,10 +397,9 @@ impl Notification {
                 };
 
                 let notification = Notification::new(notification_body);
-                notification.put_to_index(user_id).await?;
+                notification.put_to_index(&user_id).await?;
             }
         }
-
         Ok(())
     }
 }
