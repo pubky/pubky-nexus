@@ -77,7 +77,7 @@ name = "follows"
 harness = false
 
 [[bench]]
-name = "stream"
+name = "streams"
 harness = false
 
 [[bench]]

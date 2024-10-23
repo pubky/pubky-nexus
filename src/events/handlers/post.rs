@@ -76,16 +76,21 @@ pub async fn sync_put(
     UserCounts::update(&author_id, "posts", JsonAction::Increment(1)).await?;
 
     let mut interaction_url: (Option<String>, Option<String>) = (None, None);
+    // Use that index wrapper to add a post reply
+    let mut reply_parent_post_key_wrapper: Option<(String, String)> = None;
 
     // Post creation from an interaction: REPLY or REPOST
     for (action, parent_uri) in interactions {
         let parsed_uri = ParsedUri::try_from(parent_uri)?;
-        let parent_post_key_parts: &[&str] = &[
-            &parsed_uri.user_id,
-            &parsed_uri.post_id.ok_or("Missing post ID")?,
-        ];
+
+        let parent_author_id = parsed_uri.user_id;
+        let parent_post_id = parsed_uri.post_id.ok_or("Missing post ID")?;
+
+        let parent_post_key_parts: &[&str; 2] = &[&parent_author_id, &parent_post_id];
+
         PostCounts::update_index_field(parent_post_key_parts, action, JsonAction::Increment(1))
             .await?;
+
         PostStream::put_score_index_sorted_set(
             &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
             parent_post_key_parts,
@@ -94,22 +99,28 @@ pub async fn sync_put(
         .await?;
 
         if action == "replies" {
+            // Populate the reply parent keys to after index the reply
+            reply_parent_post_key_wrapper =
+                Some((parent_author_id.to_string(), parent_post_id.clone()));
+
+            PostStream::add_to_post_reply_sorted_set(
+                parent_post_key_parts,
+                &author_id,
+                &post_id,
+                post_details.indexed_at,
+            )
+            .await?;
             Notification::new_post_reply(
                 &author_id,
                 parent_uri,
                 &post_details.uri,
-                &parsed_uri.user_id,
+                &parent_author_id,
             )
             .await?;
             interaction_url.0 = Some(String::from(parent_uri));
         } else {
-            Notification::new_repost(
-                &author_id,
-                parent_uri,
-                &post_details.uri,
-                &parsed_uri.user_id,
-            )
-            .await?;
+            Notification::new_repost(&author_id, parent_uri, &post_details.uri, &parent_author_id)
+                .await?;
             interaction_url.1 = Some(String::from(parent_uri));
         }
     }
@@ -122,7 +133,9 @@ pub async fn sync_put(
     .put_to_index(&author_id, &post_id)
     .await?;
 
-    post_details.put_to_index(&author_id, add_to_feeds).await?;
+    post_details
+        .put_to_index(&author_id, reply_parent_post_key_wrapper, false)
+        .await?;
 
     Ok(())
 }
@@ -137,7 +150,7 @@ async fn sync_edit(
     let changed_uri = format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}");
 
     // Update content of PostDetails!
-    post_details.put_to_index(&author_id, false).await?;
+    post_details.put_to_index(&author_id, None, true).await?;
 
     // Notifications
     // Determine the change type
@@ -298,24 +311,27 @@ pub async fn sync_del(
     author_id: PubkyId,
     post_id: String,
 ) -> Result<(), Box<dyn Error + Sync + Send>> {
-    PostDetails::delete(&author_id, &post_id).await?;
-    PostCounts::delete(&author_id, &post_id).await?;
-    UserCounts::update(&author_id, "posts", JsonAction::Decrement(1)).await?;
-
-    // TODO: remove from sorted sets of posts timeline / popularity / per user
-
     let deleted_uri = format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}");
 
-    // If it was a reply or a repost, we should Decrement(1) the counts of those related posts.
     let relationships = PostRelationships::get_by_id(&author_id, &post_id).await?;
+    // If the post is reply or repost, cannot delete from the main feeds
+    // In the main feed, we just include the root posts
+    let remove_from_feeds = can_remove_post_from_feed(&relationships);
+
+    PostCounts::delete(&author_id, &post_id, remove_from_feeds).await?;
+    UserCounts::update(&author_id, "posts", JsonAction::Decrement(1)).await?;
+
+    // Use that index wrapper to delete a post reply
+    let mut reply_parent_post_key_wrapper: Option<[String; 2]> = None;
+
     if let Some(relationships) = relationships {
         // Decrement counts for resposted post if existed
         if let Some(reposted) = relationships.reposted {
             let parsed_uri = ParsedUri::try_from(reposted.as_str())?;
-            let parent_post_key_parts: &[&str] = &[
-                &parsed_uri.user_id,
-                &parsed_uri.post_id.ok_or("Missing post ID")?,
-            ];
+            let parent_post_id = parsed_uri.post_id.ok_or("Missing post ID")?;
+
+            let parent_post_key_parts: &[&str] = &[&parsed_uri.user_id, &parent_post_id];
+
             PostCounts::update_index_field(
                 parent_post_key_parts,
                 "reposts",
@@ -343,19 +359,22 @@ pub async fn sync_del(
         // Decrement counts for parent post if replied
         if let Some(replied) = relationships.replied {
             let parsed_uri = ParsedUri::try_from(replied.as_str())?;
-            let parent_post_key_parts: &[&str] = &[
-                &parsed_uri.user_id,
-                &parsed_uri.post_id.ok_or("Missing post ID")?,
-            ];
+            let parent_user_id = parsed_uri.user_id;
+            let parent_post_id = parsed_uri.post_id.ok_or("Missing post ID")?;
+
+            let parent_post_key_parts: [&str; 2] = [&parent_user_id, &parent_post_id];
+            reply_parent_post_key_wrapper =
+                Some([parent_user_id.to_string(), parent_post_id.clone()]);
+
             PostCounts::update_index_field(
-                parent_post_key_parts,
+                &parent_post_key_parts,
                 "replies",
                 JsonAction::Decrement(1),
             )
             .await?;
             PostStream::put_score_index_sorted_set(
                 &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
-                parent_post_key_parts,
+                &parent_post_key_parts,
                 ScoreAction::Decrement(1.0),
             )
             .await?;
@@ -364,16 +383,21 @@ pub async fn sync_del(
             Notification::post_children_changed(
                 &author_id,
                 &replied,
-                &parsed_uri.user_id,
+                &parent_user_id,
                 &deleted_uri,
                 PostChangedSource::Reply,
                 &PostChangedType::Deleted,
             )
             .await?;
-
-            // TODO: remove from sorted set of replies
         }
     }
+    PostDetails::delete(&author_id, &post_id, reply_parent_post_key_wrapper).await?;
+    PostRelationships::delete(&author_id, &post_id).await?;
 
     Ok(())
+}
+
+// The only posts that has a feed are root posts and reposts. Replies does not belong to that feeds
+fn can_remove_post_from_feed(relationship: &Option<PostRelationships>) -> bool {
+    matches!(relationship, Some(post_relationship) if post_relationship.replied.is_none()/*&& post_relationship.reposted.is_none()*/)
 }

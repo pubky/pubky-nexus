@@ -96,6 +96,14 @@ impl PostRelationships {
         Ok(())
     }
 
+    pub async fn delete(
+        author_id: &str,
+        post_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Self::remove_from_index_multiple_json(&[&[author_id, post_id]]).await?;
+        Ok(())
+    }
+
     pub async fn reindex(
         author_id: &str,
         post_id: &str,
