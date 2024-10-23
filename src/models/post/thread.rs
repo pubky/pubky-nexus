@@ -22,6 +22,14 @@ impl PostThread {
         skip: usize,
         limit: usize,
     ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
+        // Fetch the root post view
+        let root_post_view = PostView::get_by_id(author_id, post_id, viewer_id, None, None).await?;
+
+        let root_post_view = match root_post_view {
+            None => return Ok(None),
+            Some(root_post_view) => root_post_view,
+        };
+
         // Fetch the root post and its replies from Neo4j.
         let mut result;
         {
@@ -31,48 +39,33 @@ impl PostThread {
             result = graph.execute(query).await?;
         }
 
-        if let Some(row) = result.next().await? {
-            let root_post_view =
-                PostView::get_by_id(author_id, post_id, viewer_id, None, None).await?;
+        let replies = match result.next().await? {
+            Some(row) => {
+                let replies: Vec<BoltMap> = row.get("replies").unwrap_or(Vec::new());
 
-            let root_post_view = match root_post_view {
-                None => return Ok(None),
-                Some(root_post_view) => root_post_view,
-            };
+                let mut replies_view = Vec::with_capacity(replies.len());
 
-            // Extract replies and their authors
-            let replies: Vec<BoltMap> = match row.get("replies") {
-                Ok(replies) => replies,
-                Err(_e) => {
-                    return Ok(Some(PostThread {
-                        root_post: root_post_view,
-                        replies: Vec::new(),
-                    }))
+                for reply in replies {
+                    let reply_id: String = reply.get("reply_id").unwrap_or(String::new());
+                    let reply_author_id: String = reply.get("author_id").unwrap_or(String::new());
+
+                    // Make sure we have both variables
+                    if !reply_id.is_empty() && !reply_author_id.is_empty() {
+                        let reply_view =
+                            PostView::get_by_id(&reply_author_id, &reply_id, viewer_id, None, None)
+                                .await?
+                                .unwrap_or_default();
+                        replies_view.push(reply_view);
+                    }
                 }
-            };
-
-            let mut replies_view = Vec::with_capacity(replies.len());
-
-            for reply in replies {
-                let reply_id: String = reply.get("reply_id").unwrap_or(String::new());
-                let reply_author_id: String = reply.get("author_id").unwrap_or(String::new());
-
-                // Make sure we have both variables
-                if !reply_id.is_empty() && !reply_author_id.is_empty() {
-                    let reply_view =
-                        PostView::get_by_id(&reply_author_id, &reply_id, viewer_id, None, None)
-                            .await?
-                            .unwrap_or_default();
-                    replies_view.push(reply_view);
-                }
+                replies_view
             }
+            None => Vec::new(),
+        };
 
-            return Ok(Some(PostThread {
-                root_post: root_post_view,
-                replies: replies_view,
-            }));
-        }
-
-        Ok(None)
+        Ok(Some(PostThread {
+            root_post: root_post_view,
+            replies,
+        }))
     }
 }

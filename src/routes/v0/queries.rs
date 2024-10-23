@@ -24,6 +24,9 @@ pub struct PostStreamQuery {
     pub source: Option<ViewerStreamSource>,
     #[serde(default, deserialize_with = "deserialize_comma_separated")]
     pub tags: Option<Vec<String>>,
+    pub post_id: Option<String>,
+    pub start: Option<f64>,
+    pub end: Option<f64>,
 }
 
 // Custom deserializer for comma-separated tags

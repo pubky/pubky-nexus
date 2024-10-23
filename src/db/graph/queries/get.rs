@@ -7,8 +7,8 @@ pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
     query(
         "
             MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
-            OPTIONAL MATCH (p)-[replied:REPLIED]->(Post)
-            WITH u, p, (replied IS NOT NULL) AS is_reply
+            OPTIONAL MATCH (p)-[replied:REPLIED]->(parent_post:Post)<-[:AUTHORED]-(author:User)
+            WITH u, p, parent_post, author
             RETURN {
                 uri: 'pubky://' + u.id + '/pub/pubky.app/posts/' + p.id,
                 content: p.content,
@@ -20,7 +20,8 @@ pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
                 kind: COALESCE(p.kind, 'Short'),
                 attachments: p.attachments
             } as details,
-            is_reply
+            COLLECT([author.id, parent_post.id]) AS reply
+
         ",
     )
     .param("author_id", author_id)
@@ -352,9 +353,10 @@ pub fn get_thread(
             MATCH (reply_author:User)-[:AUTHORED]->(reply:Post)-[:REPLIED*1..{}]->(p)
             RETURN reply, reply_author
             ORDER BY reply.indexed_at ASC
-            SKIP $skip LIMIT $limit
+            SKIP $skip 
+            LIMIT $limit
         }}
-        RETURN p AS root_post, collect({{reply_id: reply.id, author_id: reply_author.id}}) AS replies
+        RETURN collect({{reply_id: reply.id, author_id: reply_author.id}}) AS replies
         ",
         depth
     );
@@ -417,6 +419,9 @@ pub fn post_stream(
                 cypher.push_str("MATCH (viewer)-[:BOOKMARKED]->(p)\n");
             }
             ViewerStreamSource::All => {
+                // No additional match needed
+            }
+            ViewerStreamSource::Replies => {
                 // No additional match needed
             }
         }
