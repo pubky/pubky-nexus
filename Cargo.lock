@@ -2311,7 +2311,7 @@ dependencies = [
 [[package]]
 name = "pubky-common"
 version = "0.1.0"
-source = "git+https://github.com/pubky/pubky-core.git#9e8abde3bb0fbcd222e376b70a3fba3cc7ba6007"
+source = "git+https://github.com/pubky/pubky-core.git?tag=pubky-v0.3.0#aede289c2606204fe944919b5024ee8cefe32c50"
 dependencies = [
  "argon2",
  "base32",
@@ -2381,7 +2381,7 @@ dependencies = [
 [[package]]
 name = "pubky_homeserver"
 version = "0.1.0"
-source = "git+https://github.com/pubky/pubky-core.git#9e8abde3bb0fbcd222e376b70a3fba3cc7ba6007"
+source = "git+https://github.com/pubky/pubky-core.git?tag=pubky-v0.3.0#aede289c2606204fe944919b5024ee8cefe32c50"
 dependencies = [
  "anyhow",
  "axum",
@@ -2398,7 +2398,7 @@ dependencies = [
  "libc",
  "pkarr 2.2.1-alpha.2",
  "postcard",
- "pubky-common 0.1.0 (git+https://github.com/pubky/pubky-core.git)",
+ "pubky-common 0.1.0 (git+https://github.com/pubky/pubky-core.git?tag=pubky-v0.3.0)",
  "serde",
  "tokio",
  "toml",

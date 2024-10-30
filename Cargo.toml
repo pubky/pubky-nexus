@@ -40,7 +40,7 @@ url = "2.5.2"
 anyhow = "1.0.89"
 httpc-test = "0.1.10"
 criterion = { version = "0.5.1", features = ["async_tokio"] }
-pubky_homeserver = { git = "https://github.com/pubky/pubky-core.git" }
+pubky_homeserver = { git = "https://github.com/pubky/pubky-core.git", tag = "pubky-v0.3.0" }
 rand = "0.8.5"
 rand_distr = "0.4.3"
 
