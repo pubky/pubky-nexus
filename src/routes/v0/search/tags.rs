@@ -1,3 +1,4 @@
+use crate::models::post::PostStreamSorting;
 use crate::models::tag::search::TagSearch;
 use crate::routes::v0::endpoints::SEARCH_TAGS_ROUTE;
 use crate::routes::v0::queries::PostStreamQuery;

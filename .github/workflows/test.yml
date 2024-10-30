@@ -19,9 +19,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          submodules: true # Needed for the `pubky` submodule as it's private and has unpublished crates
-          token: ${{ secrets.PAT_PUBKY }}
 
       - name: Set up Rust
         uses: actions-rs/toolchain@v1
