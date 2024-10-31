@@ -327,7 +327,7 @@ async fn test_get_post() -> Result<()> {
     assert_eq!(body["counts"]["tags"].as_u64(), Some(5));
     assert_eq!(body["counts"]["replies"].as_u64(), Some(2));
     assert_eq!(body["counts"]["reposts"].as_u64(), Some(1));
-    assert_eq!(body["bookmark"]["indexed_at"].as_u64(), Some(1721764200));
+    assert_eq!(body["bookmark"]["indexed_at"].as_u64(), Some(1721764200000));
     assert_eq!(body["bookmark"]["id"], "2Z9PFGC3WWWW0");
 
     // Panic if tags vector is bigger that 1

@@ -1538,7 +1538,7 @@ MATCH (u:User {id: "pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy"}), (p:
 MATCH (p1:Post {id: "2ZDMP31SBG500"}), (p2:Post {id: "2ZDMPCWN784G0"}) MERGE (p2)-[:REPLIED]->(p1);
 MERGE (p:Post {id: "2ZDMZ753WA2G0"}) SET p.content = "Testing event stream", p.kind = "Short", p.indexed_at = 1719055216955;
 MATCH (u:User {id: "pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy"}), (p:Post {id: "2ZDMZ753WA2G0"}) MERGE (u)-[:AUTHORED]->(p);
-MERGE (p:Post {id: "2ZDMZEGPKVK00"}) SET p.content = "Works like a charm", p.kind = "Short", p.indexed_at = 1719055343433
+MERGE (p:Post {id: "2ZDMZEGPKVK00"}) SET p.content = "Works like a charm", p.kind = "Short", p.indexed_at = 1719055343433;
 MATCH (u:User {id: "pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy"}), (p:Post {id: "2ZDMZEGPKVK00"}) MERGE (u)-[:AUTHORED]->(p);
 MATCH (p1:Post {id: "2ZDMZ753WA2G0"}), (p2:Post {id: "2ZDMZEGPKVK00"}) MERGE (p2)-[:REPLIED]->(p1);
 MERGE (p:Post {id: "2ZDMZN6T5RXG0"}) SET p.content = "New event ", p.kind = "Short", p.indexed_at = 1719055458384;
@@ -2164,7 +2164,7 @@ $62,352.01
 🔽 -3.12%
 R$ 341.566,00
 
-#Bitcoin #price", p.kind = "Short", p.indexed_at = 1719208801762
+#Bitcoin #price", p.kind = "Short", p.indexed_at = 1719208801762;
 MATCH (u:User {id: "kzq3o8y8w1b7ffogpq73okop4gb3ahm31ytwwk1na8p6gpr4511o"}), (p:Post {id: "2ZDXPJZ3SB600"}) MERGE (u)-[:AUTHORED]->(p);
 MERGE (p:Post {id: "2ZDXX4HE9DPG0"}) SET p.content = "💸 Bitcoin Fees
 

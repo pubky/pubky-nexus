@@ -46,7 +46,8 @@ MATCH (from:User {id: $arst}) MERGE (from)-[:TAGGED {label: $dev_tag, id: "6LMNO
 
 MATCH (from:User {id: $anonymous}), (to:User {id: $Wobly}) MERGE (from)-[:TAGGED {label: $hike_tag, id: "0DEFG3HIJKL45N", indexed_at: 1724534140000}]->(to);
 MATCH (from:User {id: $nakamoto}), (to:User {id: $Wobly}) MERGE (from)-[:TAGGED {label: $hike_tag, id: "2HIJK3LM4NOPQR", indexed_at: 1724534100000}]->(to);
-MATCH (from:User {id: $peter}), (to:User {id: $Wobly}) MERGE (from)-[:TAGGED {label: $dev_tag, id: "9QRST3UVWXY45Z", indexed_at: 1724534185000}]->(to);MATCH (from:User {id: $anonymous}), (to:User {id: $Wobly}) MERGE (from)-[:TAGGED {label: $cycle_tag, id: "6TUVW789YZ01234", indexed_at: 1724534225000****000}]->(to);
+MATCH (from:User {id: $peter}), (to:User {id: $Wobly}) MERGE (from)-[:TAGGED {label: $dev_tag, id: "9QRST3UVWXY45Z", indexed_at: 1724534185000}]->(to);
+MATCH (from:User {id: $anonymous}), (to:User {id: $Wobly}) MERGE (from)-[:TAGGED {label: $cycle_tag, id: "6TUVW789YZ01234", indexed_at: 1724534225000}]->(to);
 MATCH (from:User {id: $nakamoto}), (to:User {id: $Wobly}) MERGE (from)-[:TAGGED {label: $pubky_tag, id: "7CDEF890GHIJ123", indexed_at: 1724534230000}]->(to);
 MATCH (from:User {id: $peter}), (to:User {id: $Wobly}) MERGE (from)-[:TAGGED {label: $hike_tag, id: "8LMNOP901QRST45", indexed_at: 1724534235000}]->(to);
 MATCH (from:User {id: $Wobly}) MERGE (from)-[:TAGGED {label: $dev_tag, id: "9UVWXY0123ZAB56", indexed_at: 1724534240000}]->(from);
@@ -105,5 +106,4 @@ MATCH (u:User {id: $nakamoto}), (p:Post {id: "2VDW8YBDZJ02"}) MERGE (u)-[:TAGGED
 MATCH (u:User {id: $Wobly}), (p:Post {id: "2VDW8YBDZJ02"}) MERGE (u)-[:TAGGED {label: $free_post_tag, id: "6TDW8ZMHJF29", indexed_at: 1724134092000}]->(p);
 MATCH (u:User {id: $peter}), (p:Post {id: "2VDW8YBDZJ02"}) MERGE (u)-[:TAGGED {label: $free_post_tag, id: "7VDW8ZRJKN3Y", indexed_at: 1724134092000}]->(p);
 MATCH (u:User {id: $peter}), (p:Post {id: "2VDW8YBDZJ02"}) MERGE (u)-[:TAGGED {label: $human_right_post_tag, id: "8SDX8YQMKP19", indexed_at: 1724134092000}]->(p);
-MATCH (u:User {id: $peter}), (p:Post {id: "2VDW8YBDZJ02"}) MERGE (u)-[:BOOKMARKED {id: "2Z9PFGC3WWWT0", indexed_at: 1721764200000****000}]->(p);
-
+MATCH (u:User {id: $peter}), (p:Post {id: "2VDW8YBDZJ02"}) MERGE (u)-[:BOOKMARKED {id: "2Z9PFGC3WWWT0", indexed_at: 1721764200000}]->(p);
