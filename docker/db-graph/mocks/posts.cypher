@@ -19,6 +19,14 @@ MERGE (u:User {id: $cairo}) SET u.name = "Cairo", u.bio = "", u.status = "undefi
 MERGE (u:User {id: $detroit}) SET u.name = "Detroit", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095000 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
 MERGE (u:User {id: $eixample}) SET u.name = "Eixample", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095000 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
 
+// #####################################
+// ####### Create follows ##############
+// #####################################
+MATCH (u1:User {id: $amsterdam}), (u2:User {id: $bogota}) MERGE (u1)-[:FOLLOWS {indexed_at: 1730475736, id: "P73K85JG5SZT6"}]->(u2);
+MATCH (u1:User {id: $detroit}), (u2:User {id: $bogota}) MERGE (u1)-[:FOLLOWS {indexed_at: 1730475730, id: "P73K85JG5SZT7"}]->(u2);
+MATCH (u1:User {id: $amsterdam}), (u2:User {id: $cairo}) MERGE (u1)-[:FOLLOWS {indexed_at: 1730475725, id: "P73K85JG5SZT5"}]->(u2);
+MATCH (u1:User {id: $detroit}), (u2:User {id: $cairo}) MERGE (u1)-[:FOLLOWS {indexed_at: 1730475740, id: "P73K85JG5SZS6"}]->(u2);
+
 // ###############################
 // ##### Posts related tags ######
 // ###############################

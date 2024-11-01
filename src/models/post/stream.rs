@@ -198,6 +198,8 @@ impl PostStream {
                 post_stream_filters.sorting,
                 post_stream_filters.skip,
                 post_stream_filters.limit,
+                post_stream_filters.start,
+                post_stream_filters.end
             );
 
             let graph = graph.lock().await;

@@ -427,6 +427,8 @@ pub fn post_stream(
     sorting: PostStreamSorting,
     skip: Option<usize>,
     limit: Option<usize>,
+    start: Option<f64>,
+    end: Option<f64>,
 ) -> Query {
     let mut cypher = String::new();
 
@@ -467,11 +469,32 @@ pub fn post_stream(
         }
     }
 
+    let mut where_clause_applied = false;
+
     // Apply tags
     if tags.is_some() {
         cypher.push_str("MATCH (User)-[tag:TAGGED]->(p)\n");
         cypher.push_str("WHERE tag.label IN $labels\n");
+        where_clause_applied = true;
     }
+    // Apply time interval conditions
+    if let Some(_) = start {
+        if where_clause_applied {
+            cypher.push_str("AND p.indexed_at <= $start\n");
+        } else {
+            cypher.push_str("WHERE p.indexed_at <= $start\n");
+        }
+    }
+
+    if let Some(_) = end {
+        if where_clause_applied {
+            cypher.push_str("AND p.indexed_at >= $end\n");
+        } else {
+            cypher.push_str("WHERE p.indexed_at >= $end\n");
+        }
+    }
+    // Make unique the posts, cannot be repeated
+    cypher.push_str("WITH DISTINCT p.id AS post_id, author, p\n");
 
     // Apply Sorting
     // Conditionally compute engagement counts only for TotalEngagement sorting
@@ -512,7 +535,9 @@ pub fn post_stream(
         cypher.push_str(&format!("LIMIT {}\n", limit));
     }
 
+    
     // Build the query and apply parameters using `param` method
+    println!("QUERY: {:?}", cypher);
     let mut query = query(&cypher);
 
     // Insert parameters
@@ -524,6 +549,14 @@ pub fn post_stream(
     }
     if let Some(author_id) = author_id {
         query = query.param("author_id", author_id);
+    }
+
+    if let Some(start_interval) = start {
+        query = query.param("start", start_interval);
+    }
+
+    if let Some(end_interval) = end {
+        query = query.param("end", end_interval);
     }
 
     query
