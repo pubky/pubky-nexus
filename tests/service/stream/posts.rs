@@ -1,11 +1,25 @@
 use crate::service::utils::{make_request, make_wrong_request};
-use pubky_nexus::models::post::PostStream;
 use anyhow::Result;
+use pubky_nexus::models::post::PostStream;
 
-use super::utils::search_tag_in_post;
+use super::utils::{search_tag_in_post, verify_post_list, verify_timeline_post_list};
 use super::{POST_A, POST_B, POST_C, POST_F, POST_G, POST_H};
 use super::{ROOT_PATH, USER_ID};
 use super::{TAG_LABEL_1, TAG_LABEL_2};
+
+// Post order by timeline
+pub const POST_TA: &str = "2ZKB76Q194T00";
+pub const POST_TB: &str = "2ZJQQJ3BKKD00";
+pub const POST_TC: &str = "2ZJQQBWW6E600";
+pub const POST_TD: &str = "2ZJP575MCRTG0";
+pub const POST_TE: &str = "2ZJJJW6THBXG0";
+pub const POST_TF: &str = "2ZJJ16FPXTD00";
+pub const POST_TG: &str = "2ZHT82S7G2M00";
+pub const POST_TH: &str = "2ZHGFZ14S60G0";
+pub const POST_TI: &str = "2ZHBY7EB1R000";
+pub const POST_TJ: &str = "2ZHBWACN323G0";
+
+pub const START_TIMELINE: &str = "1722261385301";
 
 #[tokio::test]
 async fn test_stream_posts_global_timeline() -> Result<()> {
@@ -24,6 +38,44 @@ async fn test_stream_posts_global_timeline() -> Result<()> {
         }
         previous_indexed_at = Some(indexed_at);
     }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stream_posts_global_timeline_with_start() -> Result<()> {
+    let path = format!("{ROOT_PATH}?sorting=timeline&start={START_TIMELINE}");
+
+    let body = make_request(&path).await?;
+    let post_list = vec![
+        POST_TA, POST_TB, POST_TC, POST_TD, POST_TE, POST_TF, POST_TG, POST_TH, POST_TI, POST_TJ,
+    ];
+
+    verify_timeline_post_list(post_list, body);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stream_posts_global_timeline_with_start_and_limit() -> Result<()> {
+    let path = format!("{ROOT_PATH}?sorting=timeline&start={START_TIMELINE}&limit=5");
+
+    let body = make_request(&path).await?;
+    let post_list = vec![POST_TA, POST_TB, POST_TC, POST_TD, POST_TE];
+
+    verify_timeline_post_list(post_list, body);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stream_posts_global_timeline_with_start_and_limit_and_skip() -> Result<()> {
+    let path = format!("{ROOT_PATH}?sorting=timeline&start={START_TIMELINE}&skip=3&limit=5");
+
+    let body = make_request(&path).await?;
+    let post_list = vec![POST_TD, POST_TE, POST_TF, POST_TG, POST_TH];
+
+    verify_timeline_post_list(post_list, body);
 
     Ok(())
 }
@@ -56,6 +108,69 @@ async fn test_stream_posts_global_total_engagement() -> Result<()> {
         }
         previous_engagement = Some(total_engagement);
     }
+
+    Ok(())
+}
+
+// Post order by engagment
+pub const POST_EA: &str = "2Z1N8QBESER00";
+pub const POST_EB: &str = "2Z1N8QBETW700";
+pub const POST_EC: &str = "2Z1N9M56X4EG0";
+pub const POST_ED: &str = "2Z1N9M56W8D00";
+pub const POST_EE: &str = "2Z1N8QBERHB00";
+pub const POST_EF: &str = "2Z1N8QBETHK00";
+pub const POST_EG: &str = "2Z1N8QBETQK00";
+pub const POST_EH: &str = "2Z1N9M56WSCG0";
+pub const POST_EI: &str = "2Z1NCPSDTW400";
+pub const POST_EJ: &str = "2Z1N8QBETTM00";
+pub const POST_E0: &str = "2Z1PBYS0F90G0";
+pub const POST_E1: &str = "2ZECRNM66G900";
+
+pub const ENGAGEMENT_SCORE: &str = "10";
+
+#[tokio::test]
+async fn test_stream_posts_global_total_engagement_with_start_score() -> Result<()> {
+    let path = format!(
+        "{}?sorting=total_engagement&start={}",
+        ROOT_PATH, ENGAGEMENT_SCORE
+    );
+
+    let body = make_request(&path).await?;
+    let post_list = vec![
+        POST_EA, POST_EB, POST_EC, POST_ED, POST_EE, POST_EF, POST_EG, POST_EH, POST_EI, POST_EJ,
+    ];
+
+    verify_post_list(post_list, body);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stream_posts_global_total_engagement_with_start_end_score() -> Result<()> {
+    let path = format!(
+        "{}?sorting=total_engagement&start={}&end={}",
+        ROOT_PATH, ENGAGEMENT_SCORE, ENGAGEMENT_SCORE
+    );
+
+    let body = make_request(&path).await?;
+    let post_list = vec![POST_EA, POST_EB, POST_EC];
+
+    verify_post_list(post_list, body);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stream_posts_global_total_engagement_with_end_score() -> Result<()> {
+    let path = format!(
+        "{}?sorting=total_engagement&end={}",
+        ROOT_PATH, ENGAGEMENT_SCORE
+    );
+
+    let body = make_request(&path).await?;
+    let post_list = vec![POST_E0, POST_E1, POST_EA, POST_EB, POST_EC];
+
+    verify_post_list(post_list, body);
 
     Ok(())
 }
@@ -155,7 +270,6 @@ async fn test_stream_combined_parameters() -> Result<()> {
 
     Ok(())
 }
-
 
 #[tokio::test]
 async fn test_stream_invalid_sorting() -> Result<()> {
