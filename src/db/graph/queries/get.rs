@@ -477,47 +477,74 @@ pub fn post_stream(
         cypher.push_str("WHERE tag.label IN $labels\n");
         where_clause_applied = true;
     }
-    // Apply time interval conditions
-    if let Some(_) = start {
-        if where_clause_applied {
-            cypher.push_str("AND p.indexed_at <= $start\n");
-        } else {
-            cypher.push_str("WHERE p.indexed_at <= $start\n");
+    // Apply time interval conditions. Only can be applied with timeline sorting
+    // The engagament score has to be computed
+    if sorting == PostStreamSorting::Timeline {
+        if let Some(_) = start {
+            if where_clause_applied {
+                cypher.push_str("AND p.indexed_at <= $start\n");
+            } else {
+                cypher.push_str("WHERE p.indexed_at <= $start\n");
+                where_clause_applied = true;
+            }
+        }
+
+        if let Some(_) = end {
+            if where_clause_applied {
+                cypher.push_str("AND p.indexed_at >= $end\n");
+            } else {
+                cypher.push_str("WHERE p.indexed_at >= $end\n");
+            }
         }
     }
 
-    if let Some(_) = end {
-        if where_clause_applied {
-            cypher.push_str("AND p.indexed_at >= $end\n");
-        } else {
-            cypher.push_str("WHERE p.indexed_at >= $end\n");
-        }
-    }
     // Make unique the posts, cannot be repeated
-    cypher.push_str("WITH DISTINCT p.id AS post_id, author, p\n");
+    cypher.push_str("WITH DISTINCT p, author\n");
 
     // Apply Sorting
     // Conditionally compute engagement counts only for TotalEngagement sorting
     let order_clause = match sorting {
         PostStreamSorting::Timeline => "ORDER BY p.indexed_at DESC".to_string(),
         PostStreamSorting::TotalEngagement => {
-            // TODO: These optional matches could potentially be combined/collected to improve perf
+            // TODO: These optional matches could potentially be combined/collected to improve performance
             cypher.push_str(
                 "
                 // Count tags
                 OPTIONAL MATCH (p)<-[tag:TAGGED]-(:User)  
-                WITH p, author, COUNT(DISTINCT tag) AS tags_count
-
                 // Count replies
-                OPTIONAL MATCH (p)<-[reply:REPLIED]-(:Post)  // Count replies
-                WITH p, author, tags_count, COUNT(DISTINCT reply) AS replies_count
-
+                OPTIONAL MATCH (p)<-[reply:REPLIED]-(:Post)
                 // Count reposts
                 OPTIONAL MATCH (p)<-[repost:REPOSTED]-(:Post)  
-                WITH p, author, tags_count, replies_count, COUNT(DISTINCT repost) AS reposts_count
+
+                //WITH p, author, COUNT(DISTINCT tag) AS tags_count
+                //WITH p, author, tags_count, COUNT(DISTINCT reply) AS replies_count
+                //WITH p, author, tags_count, replies_count, COUNT(DISTINCT repost) AS reposts_count
+
+                WITH p, author, 
+                    COUNT(DISTINCT tag) AS tags_count,
+                    COUNT(DISTINCT reply) AS replies_count,
+                    COUNT(DISTINCT repost) AS reposts_count,
+                    (COUNT(DISTINCT tag) + COUNT(DISTINCT reply) + COUNT(DISTINCT repost)) AS total_engagement
                 ",
             );
-            "ORDER BY (tags_count + replies_count + reposts_count) DESC".to_string()
+
+            where_clause_applied = false;
+
+            // And total_engagement to filter by engagement the post
+            if let Some(_) = start {
+                cypher.push_str("WHERE total_engagement <= $start\n");
+                where_clause_applied = true;
+            }
+
+            if let Some(_) = end {
+                if where_clause_applied {
+                    cypher.push_str("AND total_engagement >= $end\n");
+                } else {
+                    cypher.push_str("WHERE total_engagement >= $end\n");
+                }
+            }
+
+            "ORDER BY total_engagement DESC".to_string()
         }
     };
 
@@ -535,7 +562,6 @@ pub fn post_stream(
         cypher.push_str(&format!("LIMIT {}\n", limit));
     }
 
-    
     // Build the query and apply parameters using `param` method
     println!("QUERY: {:?}", cypher);
     let mut query = query(&cypher);

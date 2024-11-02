@@ -26,6 +26,12 @@ pub fn verify_post_list(mock_posts: Vec<&str>, response: Value) {
     );
     let fetched_posts = response.as_array().expect("Post stream should be an array");
     assert!(!fetched_posts.is_empty(), "Post stream should not be empty");
+    assert_eq!(
+        fetched_posts.len(),
+        mock_posts.len(),
+        "The endpoint result has to have the same lenght as mock data"
+    );
+
     for (index, post) in fetched_posts.iter().enumerate() {
         assert_eq!(
             mock_posts[index], post["details"]["id"],
@@ -41,6 +47,11 @@ pub fn verify_timeline_post_list(mock_posts: Vec<&str>, response: Value) {
     );
     let fetched_posts = response.as_array().expect("Post stream should be an array");
     assert!(!fetched_posts.is_empty(), "Post stream should not be empty");
+    assert_eq!(
+        fetched_posts.len(),
+        mock_posts.len(),
+        "The endpoint result has to have the same lenght as mock data"
+    );
 
     let mut previous_indexed_at = None;
 

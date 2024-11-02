@@ -81,6 +81,10 @@ MERGE (p3:Post {id: "N7Q2F5W8J0L3"}) SET p3.content = "Open-source drives innova
 MATCH (u3:User {id: $cairo}), (p3:Post {id: "N7Q2F5W8J0L3"}) MERGE (u3)-[:AUTHORED]->(p3);
 MATCH (u:User {id: $amsterdam}), (p:Post {id: "N7Q2F5W8J0L3"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "V8N1P3L9J4X0", indexed_at: 1724134080000}]->(p);
 MATCH (u:User {id: $bogota}), (p:Post {id: "N7Q2F5W8J0L3"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "J4N8Q1W2F6J3", indexed_at: 1724134092000}]->(p);
+MATCH (u:User {id: $detroit}), (p:Post {id: "N7Q2F5W8J0L3"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "V8N1P3L9J45R", indexed_at: 1724134080000}]->(p);
+MATCH (u:User {id: $eixample}), (p:Post {id: "N7Q2F5W8J0L3"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "J4N8Q1W2F6K8", indexed_at: 1724134092000}]->(p);
+MATCH (u:User {id: $amsterdam}), (p:Post {id: "N7Q2F5W8J0L3"}) MERGE (u)-[:TAGGED {label: $encryption_tag, id: "V8N1P3L9J421", indexed_at: 1724134095000}]->(p);
+MATCH (u:User {id: $eixample}), (p:Post {id: "N7Q2F5W8J0L3"}) MERGE (u)-[:TAGGED {label: $encryption_tag, id: "J4N8Q1W2F6LJ", indexed_at: 1724134077000}]->(p);
 
 // ##################################
 // ##### Posts related replies ######
