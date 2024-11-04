@@ -285,8 +285,9 @@ async fn test_stream_posts_by_timeline_reach_friends_with_tag() -> Result<()> {
 
 #[tokio::test]
 async fn test_stream_not_found_posts_by_timeline_reach_friends_with_tag() -> Result<()> {
-
-    let path = format!("{ROOT_PATH}?sorting=timeline&tags=opensource&source=friends&viewer_id={EIXAMPLE}&skip=2");
+    let path = format!(
+        "{ROOT_PATH}?sorting=timeline&tags=opensource&source=friends&viewer_id={EIXAMPLE}&skip=2"
+    );
     make_wrong_request(&path, Some(404)).await?;
 
     Ok(())

@@ -1,6 +1,6 @@
 use neo4rs::{query, Query};
 
-use crate::models::post::{PostStreamSorting, ViewerStreamSource};
+use crate::{models::post::{PostStreamSorting, ViewerStreamSource}, routes::v0::stream::utils::PostStreamFilters};
 
 // Retrieve post node by post id and author id
 pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
@@ -422,13 +422,8 @@ pub fn get_files_by_ids(key_pair: &[&[&str]]) -> Query {
 pub fn post_stream(
     viewer_id: Option<String>,
     author_id: Option<String>,
-    source: ViewerStreamSource,
     tags: Option<Vec<String>>,
-    sorting: PostStreamSorting,
-    skip: Option<usize>,
-    limit: Option<usize>,
-    start: Option<f64>,
-    end: Option<f64>,
+    post_stream_filters: PostStreamFilters
 ) -> Query {
     let mut cypher = String::new();
 
@@ -447,7 +442,7 @@ pub fn post_stream(
 
     // Apply source
     if viewer_id.is_some() {
-        match source {
+        match post_stream_filters.source {
             ViewerStreamSource::Following => {
                 cypher.push_str("MATCH (viewer)-[:FOLLOWS]->(author)\n");
             }
@@ -479,8 +474,8 @@ pub fn post_stream(
     }
     // Apply time interval conditions. Only can be applied with timeline sorting
     // The engagament score has to be computed
-    if sorting == PostStreamSorting::Timeline {
-        if let Some(_) = start {
+    if post_stream_filters.sorting == PostStreamSorting::Timeline {
+        if post_stream_filters.start.is_some() {
             if where_clause_applied {
                 cypher.push_str("AND p.indexed_at <= $start\n");
             } else {
@@ -489,7 +484,7 @@ pub fn post_stream(
             }
         }
 
-        if let Some(_) = end {
+        if post_stream_filters.end.is_some() {
             if where_clause_applied {
                 cypher.push_str("AND p.indexed_at >= $end\n");
             } else {
@@ -503,7 +498,7 @@ pub fn post_stream(
 
     // Apply Sorting
     // Conditionally compute engagement counts only for TotalEngagement sorting
-    let order_clause = match sorting {
+    let order_clause = match post_stream_filters.sorting {
         PostStreamSorting::Timeline => "ORDER BY p.indexed_at DESC".to_string(),
         PostStreamSorting::TotalEngagement => {
             // TODO: These optional matches could potentially be combined/collected to improve performance
@@ -531,12 +526,12 @@ pub fn post_stream(
             where_clause_applied = false;
 
             // And total_engagement to filter by engagement the post
-            if let Some(_) = start {
+            if post_stream_filters.start.is_some() {
                 cypher.push_str("WHERE total_engagement <= $start\n");
                 where_clause_applied = true;
             }
 
-            if let Some(_) = end {
+            if post_stream_filters.end.is_some() {
                 if where_clause_applied {
                     cypher.push_str("AND total_engagement >= $end\n");
                 } else {
@@ -555,15 +550,14 @@ pub fn post_stream(
     ));
 
     // Apply skip and limit
-    if let Some(skip) = skip {
+    if let Some(skip) = post_stream_filters.skip {
         cypher.push_str(&format!("SKIP {}\n", skip));
     }
-    if let Some(limit) = limit {
+    if let Some(limit) = post_stream_filters.limit {
         cypher.push_str(&format!("LIMIT {}\n", limit));
     }
 
     // Build the query and apply parameters using `param` method
-    println!("QUERY: {:?}", cypher);
     let mut query = query(&cypher);
 
     // Insert parameters
@@ -577,11 +571,11 @@ pub fn post_stream(
         query = query.param("author_id", author_id);
     }
 
-    if let Some(start_interval) = start {
+    if let Some(start_interval) = post_stream_filters.start {
         query = query.param("start", start_interval);
     }
 
-    if let Some(end_interval) = end {
+    if let Some(end_interval) = post_stream_filters.end {
         query = query.param("end", end_interval);
     }
 

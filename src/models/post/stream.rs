@@ -193,13 +193,8 @@ impl PostStream {
             let query = queries::get::post_stream(
                 viewer_id,
                 author_id,
-                post_stream_filters.source,
                 tags,
-                post_stream_filters.sorting,
-                post_stream_filters.skip,
-                post_stream_filters.limit,
-                post_stream_filters.start,
-                post_stream_filters.end,
+                post_stream_filters
             );
 
             let graph = graph.lock().await;

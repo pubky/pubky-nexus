@@ -14,10 +14,10 @@ pub const POST_TC: &str = "2ZJQQBWW6E600";
 pub const POST_TD: &str = "2ZJP575MCRTG0";
 pub const POST_TE: &str = "2ZJJJW6THBXG0";
 pub const POST_TF: &str = "2ZJJ16FPXTD00";
-pub const POST_TG: &str = "2ZHT82S7G2M00";
-pub const POST_TH: &str = "2ZHGFZ14S60G0";
-pub const POST_TI: &str = "2ZHBY7EB1R000";
-pub const POST_TJ: &str = "2ZHBWACN323G0";
+pub const POST_TG: &str = "2ZJHCZNTJDWG0";
+pub const POST_TH: &str = "2ZJ2V2B0YZJ00";
+pub const POST_TI: &str = "2ZJ2V0NA6NSG0";
+pub const POST_TJ: &str = "2ZHT82S7G2M00";
 
 pub const START_TIMELINE: &str = "1722261385301";
 
@@ -116,15 +116,17 @@ async fn test_stream_posts_global_total_engagement() -> Result<()> {
 pub const POST_EA: &str = "2Z1N8QBESER00";
 pub const POST_EB: &str = "2Z1N8QBETW700";
 pub const POST_EC: &str = "2Z1N9M56X4EG0";
-pub const POST_ED: &str = "2Z1N9M56W8D00";
-pub const POST_EE: &str = "2Z1N8QBERHB00";
-pub const POST_EF: &str = "2Z1N8QBETHK00";
-pub const POST_EG: &str = "2Z1N8QBETQK00";
-pub const POST_EH: &str = "2Z1N9M56WSCG0";
-pub const POST_EI: &str = "2Z1NCPSDTW400";
-pub const POST_EJ: &str = "2Z1N8QBETTM00";
+pub const POST_ED: &str = "2Z1N9M56X7DG0";
+pub const POST_EF: &str = "2Z1N9M56W8D00";
+pub const POST_EG: &str = "2Z1N9M56X5VG0";
+pub const POST_EH: &str = "2Z1N9M56WJKG0";
+pub const POST_EI: &str = "2Z1N8QBETDS00";
+pub const POST_EJ: &str = "2Z1N8QBERHB00";
+pub const POST_EK: &str = "2Z1N8QBETHK00";
+
 pub const POST_E0: &str = "2Z1PBYS0F90G0";
 pub const POST_E1: &str = "2ZECRNM66G900";
+pub const POST_00: &str = "2Z1P68V42JJ00";
 
 pub const ENGAGEMENT_SCORE: &str = "10";
 
@@ -137,7 +139,7 @@ async fn test_stream_posts_global_total_engagement_with_start_score() -> Result<
 
     let body = make_request(&path).await?;
     let post_list = vec![
-        POST_EA, POST_EB, POST_EC, POST_ED, POST_EE, POST_EF, POST_EG, POST_EH, POST_EI, POST_EJ,
+        POST_EA, POST_EB, POST_EC, POST_ED, POST_EF, POST_EG, POST_EH, POST_EI, POST_EJ, POST_EK,
     ];
 
     verify_post_list(post_list, body);
@@ -168,7 +170,7 @@ async fn test_stream_posts_global_total_engagement_with_end_score() -> Result<()
     );
 
     let body = make_request(&path).await?;
-    let post_list = vec![POST_E0, POST_E1, POST_EA, POST_EB, POST_EC];
+    let post_list = vec![POST_00, POST_E0, POST_E1, POST_EA, POST_EB, POST_EC];
 
     verify_post_list(post_list, body);
 
@@ -177,7 +179,7 @@ async fn test_stream_posts_global_total_engagement_with_end_score() -> Result<()
 
 #[tokio::test]
 async fn test_post_tag_search_by_engagement() -> Result<()> {
-    let post_order = vec![POST_A, POST_C, POST_B, POST_H];
+    let post_order = vec![POST_A, POST_H, POST_C, POST_B];
     let path = format!(
         "{}?tags={}&sorting=total_engagement&limit=4",
         ROOT_PATH, TAG_LABEL_2
@@ -219,7 +221,7 @@ async fn test_post_tag_search_by_engagement_with_skip() -> Result<()> {
 
 #[tokio::test]
 async fn test_post_tag_search_by_engagement_with_skip_and_limit() -> Result<()> {
-    let post_order = vec![POST_C];
+    let post_order = vec![POST_H];
     let path = format!(
         "{}?tags={}&sorting=total_engagement&skip=1&limit=1",
         ROOT_PATH, TAG_LABEL_2
