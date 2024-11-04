@@ -259,8 +259,40 @@ async fn test_stream_posts_by_timeline_reach_followers_with_tag_start_and_end() 
     .await
 }
 
-// Remaining test cases follow the same pattern.
+// ##### REACH: FRIENDS ####
+// User from posts.cypher mock
+const EIXAMPLE: &str = "8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy";
 
+// Post order by timeline
+pub const POST_TA_FR: &str = "L3W5N0F8Q2J7";
+pub const POST_TB_FR: &str = "M4X1P9L2J6K8";
+
+#[tokio::test]
+async fn test_stream_posts_by_timeline_reach_friends_with_tag() -> Result<()> {
+    test_reach_filter_with_posts(
+        EIXAMPLE,
+        None,
+        "friends",
+        Some(TAG_LABEL_2),
+        None,
+        None,
+        None,
+        None,
+        &[POST_TA_FR, POST_TB_FR],
+    )
+    .await
+}
+
+#[tokio::test]
+async fn test_stream_not_found_posts_by_timeline_reach_friends_with_tag() -> Result<()> {
+
+    let path = format!("{ROOT_PATH}?sorting=timeline&tags=opensource&source=friends&viewer_id={EIXAMPLE}&skip=2");
+    make_wrong_request(&path, Some(404)).await?;
+
+    Ok(())
+}
+
+// Remaining test cases follow the same pattern.
 #[tokio::test]
 async fn test_stream_reach_without_viewer_id() -> Result<()> {
     // Missing viewer_id for a reach query should fail

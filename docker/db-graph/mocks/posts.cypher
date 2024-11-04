@@ -27,6 +27,9 @@ MATCH (u1:User {id: $detroit}), (u2:User {id: $bogota}) MERGE (u1)-[:FOLLOWS {in
 MATCH (u1:User {id: $amsterdam}), (u2:User {id: $cairo}) MERGE (u1)-[:FOLLOWS {indexed_at: 1730475725, id: "P73K85JG5SZT5"}]->(u2);
 MATCH (u1:User {id: $detroit}), (u2:User {id: $cairo}) MERGE (u1)-[:FOLLOWS {indexed_at: 1730475740, id: "P73K85JG5SZS6"}]->(u2);
 
+MATCH (u1:User {id: $detroit}), (u2:User {id: $eixample}) MERGE (u1)-[:FOLLOWS {indexed_at: 1730475900, id: "P73K44JG5SZT7"}]->(u2);
+MATCH (u1:User {id: $eixample}), (u2:User {id: $detroit}) MERGE (u1)-[:FOLLOWS {indexed_at: 1730475940, id: "P73K85JG5DZT7"}]->(u2);
+
 // ###############################
 // ##### Posts related tags ######
 // ###############################
