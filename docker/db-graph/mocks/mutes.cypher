@@ -7,25 +7,25 @@
 // ################################
 // ##### Create Users #############
 // ################################
-MERGE (u:User {id: $alice}) SET u.name = "Alice", u.indexed_at = 1724134095;
-MERGE (u:User {id: $bob}) SET u.name = "Bob", u.indexed_at = 1724134095;
-MERGE (u:User {id: $charlie}) SET u.name = "Charlie", u.indexed_at = 1724134095;
-MERGE (u:User {id: $dave}) SET u.name = "Dave", u.indexed_at = 1724134095;
+MERGE (u:User {id: $alice}) SET u.name = "Alice", u.indexed_at = 1724134095000;
+MERGE (u:User {id: $bob}) SET u.name = "Bob", u.indexed_at = 1724134095000;
+MERGE (u:User {id: $charlie}) SET u.name = "Charlie", u.indexed_at = 1724134095000;
+MERGE (u:User {id: $dave}) SET u.name = "Dave", u.indexed_at = 1724134095000;
 
 // ########################################
 // ##### Create MUTED relationships #######
 // ########################################
 MATCH (from:User {id: $alice}), (to:User {id: $bob})
-MERGE (from)-[:MUTED {indexed_at: 1724534095}]->(to);
+MERGE (from)-[:MUTED {indexed_at: 1724534095000}]->(to);
 
 MATCH (from:User {id: $alice}), (to:User {id: $charlie})
-MERGE (from)-[:MUTED {indexed_at: 1724534100}]->(to);
+MERGE (from)-[:MUTED {indexed_at: 1724534100000}]->(to);
 
 MATCH (from:User {id: $alice}), (to:User {id: $dave})
-MERGE (from)-[:MUTED {indexed_at: 1724534110}]->(to);
+MERGE (from)-[:MUTED {indexed_at: 1724534110000}]->(to);
 
 MATCH (from:User {id: $charlie}), (to:User {id: $alice})
-MERGE (from)-[:MUTED {indexed_at: 1724534120}]->(to);
+MERGE (from)-[:MUTED {indexed_at: 1724534120000}]->(to);
 
 MATCH (from:User {id: $dave}), (to:User {id: $bob})
-MERGE (from)-[:MUTED {indexed_at: 1724534130}]->(to);
+MERGE (from)-[:MUTED {indexed_at: 1724534130000}]->(to);

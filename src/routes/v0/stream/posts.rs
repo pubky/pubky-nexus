@@ -24,6 +24,7 @@ const MAX_TAGS: usize = 5;
         ("source" = Option<ViewerStreamSource>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, replies, all)"),
         ("tags" = Option<Vec<String>>, Query, description = "Filter by a list of comma separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned."),
         ("post_id" = Option<String>, Query, description = "This parameter is needed when we want to retrieve the replies stream for a post"),
+        // TODO: Explain better start/end, sometimes the start could be a score, depending stream type. Do we need to have in that cases, start/end
         ("start" = Option<usize>, Query, description = "The start of the stream timeframe. Posts with a timestamp greater than this value will be excluded from the results"),
         ("end" = Option<usize>, Query, description = "The end of the stream timeframe. Posts with a timestamp less than this value will be excluded from the results"),
     ),

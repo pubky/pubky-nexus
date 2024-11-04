@@ -13,66 +13,81 @@
 // ##### Create users ###########
 // ##############################
 
-MERGE (u:User {id: $amsterdam}) SET u.name = "Amsterdam", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
-MERGE (u:User {id: $bogota}) SET u.name = "Bogota", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
-MERGE (u:User {id: $cairo}) SET u.name = "Cairo", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
-MERGE (u:User {id: $detroit}) SET u.name = "Detroit", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
-MERGE (u:User {id: $eixample}) SET u.name = "Eixample", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
+MERGE (u:User {id: $amsterdam}) SET u.name = "Amsterdam", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095000 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
+MERGE (u:User {id: $bogota}) SET u.name = "Bogota", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095000 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
+MERGE (u:User {id: $cairo}) SET u.name = "Cairo", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095000 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
+MERGE (u:User {id: $detroit}) SET u.name = "Detroit", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095000 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
+MERGE (u:User {id: $eixample}) SET u.name = "Eixample", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095000 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
+
+// #####################################
+// ####### Create follows ##############
+// #####################################
+MATCH (u1:User {id: $amsterdam}), (u2:User {id: $bogota}) MERGE (u1)-[:FOLLOWS {indexed_at: 1730475736, id: "P73K85JG5SZT6"}]->(u2);
+MATCH (u1:User {id: $detroit}), (u2:User {id: $bogota}) MERGE (u1)-[:FOLLOWS {indexed_at: 1730475730, id: "P73K85JG5SZT7"}]->(u2);
+MATCH (u1:User {id: $amsterdam}), (u2:User {id: $cairo}) MERGE (u1)-[:FOLLOWS {indexed_at: 1730475725, id: "P73K85JG5SZT5"}]->(u2);
+MATCH (u1:User {id: $detroit}), (u2:User {id: $cairo}) MERGE (u1)-[:FOLLOWS {indexed_at: 1730475740, id: "P73K85JG5SZS6"}]->(u2);
+
+MATCH (u1:User {id: $detroit}), (u2:User {id: $eixample}) MERGE (u1)-[:FOLLOWS {indexed_at: 1730475900, id: "P73K44JG5SZT7"}]->(u2);
+MATCH (u1:User {id: $eixample}), (u2:User {id: $detroit}) MERGE (u1)-[:FOLLOWS {indexed_at: 1730475940, id: "P73K85JG5DZT7"}]->(u2);
 
 // ###############################
 // ##### Posts related tags ######
 // ###############################
 MERGE (p:Post {id: "V8N1P3L9J4X0"}) SET p.content = "API security is crucial for ensuring user privacy and data protection", p.kind = "Short", p.indexed_at = 1709308315917;
 MATCH (u:User {id: $amsterdam}), (p:Post {id: "V8N1P3L9J4X0"}) MERGE (u)-[:AUTHORED]->(p);
-MATCH (u:User {id: $bogota}), (p:Post {id: "V8N1P3L9J4X0"}) MERGE (u)-[:TAGGED {label: $api_tag, id: "6JDN8B3W4F5M", indexed_at: 1724544095}]->(p);
-MATCH (u:User {id: $cairo}), (p:Post {id: "V8N1P3L9J4X0"}) MERGE (u)-[:TAGGED {label: $api_tag, id: "7T0R9X6A2E1L", indexed_at: 1724134080}]->(p);
-MATCH (u:User {id: $detroit}), (p:Post {id: "V8N1P3L9J4X0"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "8G7Q5N4W1Z3P", indexed_at: 1724134092}]->(p);
-MATCH (u:User {id: $eixample}), (p:Post {id: "V8N1P3L9J4X0"}) MERGE (u)-[:TAGGED {label: $api_tag, id: "9B4M8L0X2K7F", indexed_at: 1724334095}]->(p);
-MATCH (u:User {id: $eixample}), (p:Post {id: "V8N1P3L9J4X0"}) MERGE (u)-[:TAGGED {label: $encryption_tag, id: "A5S6P9V3Q0T", indexed_at: 1724134080}]->(p);
-MATCH (u:User {id: $detroit}), (p:Post {id: "V8N1P3L9J4X0"}) MERGE (u)-[:TAGGED {label: $encryption_tag, id: "B7X8N2F4W1J9", indexed_at: 1724134092}]->(p);
-MATCH (u:User {id: $cairo}), (p:Post {id: "V8N1P3L9J4X0"}) MERGE (u)-[:TAGGED {label: $encryption_tag, id: "C1L2P4M7Q8R", indexed_at: 1724334095}]->(p);
-MATCH (u:User {id: $bogota}), (p:Post {id: "V8N1P3L9J4X0"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "D3W5K8X2J9N", indexed_at: 1724334095}]->(p);
+MATCH (u:User {id: $bogota}), (p:Post {id: "V8N1P3L9J4X0"}) MERGE (u)-[:TAGGED {label: $api_tag, id: "6JDN8B3W4F5M", indexed_at: 1724544095000}]->(p);
+MATCH (u:User {id: $cairo}), (p:Post {id: "V8N1P3L9J4X0"}) MERGE (u)-[:TAGGED {label: $api_tag, id: "7T0R9X6A2E1L", indexed_at: 1724134080000}]->(p);
+MATCH (u:User {id: $detroit}), (p:Post {id: "V8N1P3L9J4X0"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "8G7Q5N4W1Z3P", indexed_at: 1724134092000}]->(p);
+MATCH (u:User {id: $eixample}), (p:Post {id: "V8N1P3L9J4X0"}) MERGE (u)-[:TAGGED {label: $api_tag, id: "9B4M8L0X2K7F", indexed_at: 1724334095000}]->(p);
+MATCH (u:User {id: $eixample}), (p:Post {id: "V8N1P3L9J4X0"}) MERGE (u)-[:TAGGED {label: $encryption_tag, id: "A5S6P9V3Q0T", indexed_at: 1724134080000}]->(p);
+MATCH (u:User {id: $detroit}), (p:Post {id: "V8N1P3L9J4X0"}) MERGE (u)-[:TAGGED {label: $encryption_tag, id: "B7X8N2F4W1J9", indexed_at: 1724134092000}]->(p);
+MATCH (u:User {id: $cairo}), (p:Post {id: "V8N1P3L9J4X0"}) MERGE (u)-[:TAGGED {label: $encryption_tag, id: "C1L2P4M7Q8R", indexed_at: 1724334095000}]->(p);
+MATCH (u:User {id: $bogota}), (p:Post {id: "V8N1P3L9J4X0"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "D3W5K8X2J9N", indexed_at: 1724334095000}]->(p);
 
 
 MERGE (p2:Post {id: "3NFG9K0L5QH4"}) SET p2.content = "Open-source software promotes transparency and enhances user trust in digital privacy", p2.kind = "Short", p2.indexed_at = 1719308316921;
 MATCH (u2:User {id: $amsterdam}), (p2:Post {id: "3NFG9K0L5QH4"}) MERGE (u2)-[:AUTHORED]->(p2);
-MATCH (u:User {id: $bogota}), (p:Post {id: "3NFG9K0L5QH4"}) MERGE (u)-[:TAGGED {label:$opensource_tag, id: "E4F6M1P0Q2R7", indexed_at: 1724544095}]->(p);
-MATCH (u:User {id: $detroit}), (p:Post {id: "3NFG9K0L5QH4"}) MERGE (u)-[:TAGGED {label: $api_tag, id: "F8N2W3X9J4L", indexed_at: 1724134080}]->(p);
-MATCH (u:User {id: $cairo}), (p:Post {id: "3NFG9K0L5QH4"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "G5P7Q8L0X1D", indexed_at: 1724134092}]->(p);
-MATCH (u:User {id: $eixample}), (p:Post {id: "3NFG9K0L5QH4"}) MERGE (u)-[:TAGGED {label: $encryption_tag, id: "H9X2M4F7N3J", indexed_at: 1724134096}]->(p);
+MATCH (u:User {id: $bogota}), (p:Post {id: "3NFG9K0L5QH4"}) MERGE (u)-[:TAGGED {label:$opensource_tag, id: "E4F6M1P0Q2R7", indexed_at: 1724544095000}]->(p);
+MATCH (u:User {id: $detroit}), (p:Post {id: "3NFG9K0L5QH4"}) MERGE (u)-[:TAGGED {label: $api_tag, id: "F8N2W3X9J4L", indexed_at: 1724134080000}]->(p);
+MATCH (u:User {id: $cairo}), (p:Post {id: "3NFG9K0L5QH4"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "G5P7Q8L0X1D", indexed_at: 1724134092000}]->(p);
+MATCH (u:User {id: $eixample}), (p:Post {id: "3NFG9K0L5QH4"}) MERGE (u)-[:TAGGED {label: $encryption_tag, id: "H9X2M4F7N3J", indexed_at: 1724134096000}]->(p);
 
 MERGE (p3:Post {id: "A5D6P9V3Q0T"}) SET p3.content = "Encryption standards are vital for securing communications and preserving user privacy", p3.kind = "Short", p3.indexed_at = 1729308318234;
 MATCH (u3:User {id: $bogota}), (p3:Post {id: "A5D6P9V3Q0T"}) MERGE (u3)-[:AUTHORED]->(p3);
-MATCH (u:User {id: $amsterdam}), (p:Post {id: "A5D6P9V3Q0T"}) MERGE (u)-[:TAGGED {label: $encryption_tag, id: "J0L8Q1P5W4K", indexed_at: 1724134080}]->(p);
-MATCH (u:User {id: $detroit}), (p:Post {id: "A5D6P9V3Q0T"}) MERGE (u)-[:TAGGED {label: $encryption_tag, id: "K2N7W9F4X1D", indexed_at: 1724134092}]->(p);
-MATCH (u:User {id: $cairo}), (p:Post {id: "A5D6P9V3Q0T"}) MERGE (u)-[:TAGGED {label: $encryption_tag, id: "L3P8X0J2Q7M", indexed_at: 1724134092}]->(p);
-MATCH (u:User {id: $eixample}), (p:Post {id: "A5D6P9V3Q0T"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "M4W1N9F2X8J", indexed_at: 1724134092}]->(p);
-MATCH (u:User {id: $eixample}), (p:Post {id: "A5D6P9V3Q0T"}) MERGE (u)-[:BOOKMARKED {id: "A9G7F2L4Q1W3", indexed_at: 1721764200}]->(p);
+MATCH (u:User {id: $amsterdam}), (p:Post {id: "A5D6P9V3Q0T"}) MERGE (u)-[:TAGGED {label: $encryption_tag, id: "J0L8Q1P5W4K", indexed_at: 1724134080000}]->(p);
+MATCH (u:User {id: $detroit}), (p:Post {id: "A5D6P9V3Q0T"}) MERGE (u)-[:TAGGED {label: $encryption_tag, id: "K2N7W9F4X1D", indexed_at: 1724134092000}]->(p);
+MATCH (u:User {id: $cairo}), (p:Post {id: "A5D6P9V3Q0T"}) MERGE (u)-[:TAGGED {label: $encryption_tag, id: "L3P8X0J2Q7M", indexed_at: 1724134092000}]->(p);
+MATCH (u:User {id: $eixample}), (p:Post {id: "A5D6P9V3Q0T"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "M4W1N9F2X8J", indexed_at: 1724134092000}]->(p);
+MATCH (u:User {id: $eixample}), (p:Post {id: "A5D6P9V3Q0T"}) MERGE (u)-[:BOOKMARKED {id: "A9G7F2L4Q1W3", indexed_at: 1721764200000}]->(p);
 
 MERGE (p3:Post {id: "C3L7W0F9Q4K8"}) SET p3.content = "Open-source projects often lead the way in implementing cutting-edge privacy tech innovations", p3.kind = "Short", p3.indexed_at = 1693824823456;
 MATCH (u3:User {id: $bogota}), (p3:Post {id: "C3L7W0F9Q4K8"}) MERGE (u3)-[:AUTHORED]->(p3);
-MATCH (u:User {id: $amsterdam}), (p:Post {id: "C3L7W0F9Q4K8"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "D2X5P9M1J7L0", indexed_at: 1724134080}]->(p);
-MATCH (u:User {id: $detroit}), (p:Post {id: "C3L7W0F9Q4K8"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "E4N8Q1W2F6J3", indexed_at: 1724134092}]->(p);
+MATCH (u:User {id: $amsterdam}), (p:Post {id: "C3L7W0F9Q4K8"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "D2X5P9M1J7L0", indexed_at: 1724134080000}]->(p);
+MATCH (u:User {id: $detroit}), (p:Post {id: "C3L7W0F9Q4K8"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "E4N8Q1W2F6J3", indexed_at: 1724134092000}]->(p);
 
 MERGE (p3:Post {id: "K1P6Q9M2X4J8"}) SET p3.content = "Open-source code supports transparency", p3.kind = "Short", p3.indexed_at = 1693824190123;
 MATCH (u3:User {id: $bogota}), (p3:Post {id: "K1P6Q9M2X4J8"}) MERGE (u3)-[:AUTHORED]->(p3);
-MATCH (u:User {id: $amsterdam}), (p:Post {id: "K1P6Q9M2X4J8"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "P8M1X4L2Q9J7", indexed_at: 1724134080}]->(p);
-MATCH (u:User {id: $detroit}), (p:Post {id: "K1P6Q9M2X4J8"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "Q9N2W5F0J8K1", indexed_at: 1724134092}]->(p);
+MATCH (u:User {id: $amsterdam}), (p:Post {id: "K1P6Q9M2X4J8"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "P8M1X4L2Q9J7", indexed_at: 1724134080000}]->(p);
+MATCH (u:User {id: $detroit}), (p:Post {id: "K1P6Q9M2X4J8"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "Q9N2W5F0J8K1", indexed_at: 1724134092000}]->(p);
 
 MERGE (p3:Post {id: "L3W5N0F8Q2J7"}) SET p3.content = "Open-source solutions build trusty", p3.kind = "Short", p3.indexed_at = 1693823567890;
 MATCH (u3:User {id: $detroit}), (p3:Post {id: "L3W5N0F8Q2J7"}) MERGE (u3)-[:AUTHORED]->(p3);
-MATCH (u:User {id: $amsterdam}), (p:Post {id: "L3W5N0F8Q2J7"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "R1L3X7P2F9J8", indexed_at: 1724134080}]->(p);
-MATCH (u:User {id: $bogota}), (p:Post {id: "L3W5N0F8Q2J7"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "S4M0Q2N6F1J9", indexed_at: 1724134092}]->(p);
+MATCH (u:User {id: $amsterdam}), (p:Post {id: "L3W5N0F8Q2J7"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "R1L3X7P2F9J8", indexed_at: 1724134080000}]->(p);
+MATCH (u:User {id: $bogota}), (p:Post {id: "L3W5N0F8Q2J7"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "S4M0Q2N6F1J9", indexed_at: 1724134092000}]->(p);
 
 MERGE (p3:Post {id: "M4X1P9L2J6K8"}) SET p3.content = "Open-source enables security auditing", p3.kind = "Short", p3.indexed_at = 1693822934567;
 MATCH (u3:User {id: $detroit}), (p3:Post {id: "M4X1P9L2J6K8"}) MERGE (u3)-[:AUTHORED]->(p3);
-MATCH (u:User {id: $amsterdam}), (p:Post {id: "M4X1P9L2J6K8"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "T5X8L1P3J4N2", indexed_at: 1724134080}]->(p);
-MATCH (u:User {id: $bogota}), (p:Post {id: "M4X1P9L2J6K8"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "U6Q7F0M2X1J8", indexed_at: 1724134092}]->(p);
+MATCH (u:User {id: $amsterdam}), (p:Post {id: "M4X1P9L2J6K8"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "T5X8L1P3J4N2", indexed_at: 1724134080000}]->(p);
+MATCH (u:User {id: $bogota}), (p:Post {id: "M4X1P9L2J6K8"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "U6Q7F0M2X1J8", indexed_at: 1724134092000}]->(p);
 
 MERGE (p3:Post {id: "N7Q2F5W8J0L3"}) SET p3.content = "Open-source drives innovation forward", p3.kind = "Short", p3.indexed_at = 1693822331234;
 MATCH (u3:User {id: $cairo}), (p3:Post {id: "N7Q2F5W8J0L3"}) MERGE (u3)-[:AUTHORED]->(p3);
-MATCH (u:User {id: $amsterdam}), (p:Post {id: "N7Q2F5W8J0L3"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "V8N1P3L9J4X0", indexed_at: 1724134080}]->(p);
-MATCH (u:User {id: $bogota}), (p:Post {id: "N7Q2F5W8J0L3"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "J4N8Q1W2F6J3", indexed_at: 1724134092}]->(p);
+MATCH (u:User {id: $amsterdam}), (p:Post {id: "N7Q2F5W8J0L3"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "V8N1P3L9J4X0", indexed_at: 1724134080000}]->(p);
+MATCH (u:User {id: $bogota}), (p:Post {id: "N7Q2F5W8J0L3"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "J4N8Q1W2F6J3", indexed_at: 1724134092000}]->(p);
+MATCH (u:User {id: $detroit}), (p:Post {id: "N7Q2F5W8J0L3"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "V8N1P3L9J45R", indexed_at: 1724134080000}]->(p);
+MATCH (u:User {id: $eixample}), (p:Post {id: "N7Q2F5W8J0L3"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "J4N8Q1W2F6K8", indexed_at: 1724134092000}]->(p);
+MATCH (u:User {id: $amsterdam}), (p:Post {id: "N7Q2F5W8J0L3"}) MERGE (u)-[:TAGGED {label: $encryption_tag, id: "V8N1P3L9J421", indexed_at: 1724134095000}]->(p);
+MATCH (u:User {id: $eixample}), (p:Post {id: "N7Q2F5W8J0L3"}) MERGE (u)-[:TAGGED {label: $encryption_tag, id: "J4N8Q1W2F6LJ", indexed_at: 1724134077000}]->(p);
 
 // ##################################
 // ##### Posts related replies ######

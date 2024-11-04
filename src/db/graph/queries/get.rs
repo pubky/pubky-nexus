@@ -1,6 +1,9 @@
 use neo4rs::{query, Query};
 
-use crate::models::post::{PostStreamSorting, ViewerStreamSource};
+use crate::{
+    models::post::{PostStreamSorting, ViewerStreamSource},
+    routes::v0::stream::utils::PostStreamFilters,
+};
 
 // Retrieve post node by post id and author id
 pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
@@ -422,11 +425,8 @@ pub fn get_files_by_ids(key_pair: &[&[&str]]) -> Query {
 pub fn post_stream(
     viewer_id: Option<String>,
     author_id: Option<String>,
-    source: ViewerStreamSource,
     tags: Option<Vec<String>>,
-    sorting: PostStreamSorting,
-    skip: Option<usize>,
-    limit: Option<usize>,
+    post_stream_filters: PostStreamFilters,
 ) -> Query {
     let mut cypher = String::new();
 
@@ -445,7 +445,7 @@ pub fn post_stream(
 
     // Apply source
     if viewer_id.is_some() {
-        match source {
+        match post_stream_filters.source {
             ViewerStreamSource::Following => {
                 cypher.push_str("MATCH (viewer)-[:FOLLOWS]->(author)\n");
             }
@@ -467,34 +467,82 @@ pub fn post_stream(
         }
     }
 
+    let mut where_clause_applied = false;
+
     // Apply tags
     if tags.is_some() {
         cypher.push_str("MATCH (User)-[tag:TAGGED]->(p)\n");
         cypher.push_str("WHERE tag.label IN $labels\n");
+        where_clause_applied = true;
     }
+    // Apply time interval conditions. Only can be applied with timeline sorting
+    // The engagament score has to be computed
+    if post_stream_filters.sorting == PostStreamSorting::Timeline {
+        if post_stream_filters.start.is_some() {
+            if where_clause_applied {
+                cypher.push_str("AND p.indexed_at <= $start\n");
+            } else {
+                cypher.push_str("WHERE p.indexed_at <= $start\n");
+                where_clause_applied = true;
+            }
+        }
+
+        if post_stream_filters.end.is_some() {
+            if where_clause_applied {
+                cypher.push_str("AND p.indexed_at >= $end\n");
+            } else {
+                cypher.push_str("WHERE p.indexed_at >= $end\n");
+            }
+        }
+    }
+
+    // Make unique the posts, cannot be repeated
+    cypher.push_str("WITH DISTINCT p, author\n");
 
     // Apply Sorting
     // Conditionally compute engagement counts only for TotalEngagement sorting
-    let order_clause = match sorting {
+    let order_clause = match post_stream_filters.sorting {
         PostStreamSorting::Timeline => "ORDER BY p.indexed_at DESC".to_string(),
         PostStreamSorting::TotalEngagement => {
-            // TODO: These optional matches could potentially be combined/collected to improve perf
+            // TODO: These optional matches could potentially be combined/collected to improve performance
             cypher.push_str(
                 "
                 // Count tags
                 OPTIONAL MATCH (p)<-[tag:TAGGED]-(:User)  
-                WITH p, author, COUNT(DISTINCT tag) AS tags_count
-
                 // Count replies
-                OPTIONAL MATCH (p)<-[reply:REPLIED]-(:Post)  // Count replies
-                WITH p, author, tags_count, COUNT(DISTINCT reply) AS replies_count
-
+                OPTIONAL MATCH (p)<-[reply:REPLIED]-(:Post)
                 // Count reposts
                 OPTIONAL MATCH (p)<-[repost:REPOSTED]-(:Post)  
-                WITH p, author, tags_count, replies_count, COUNT(DISTINCT repost) AS reposts_count
+
+                //WITH p, author, COUNT(DISTINCT tag) AS tags_count
+                //WITH p, author, tags_count, COUNT(DISTINCT reply) AS replies_count
+                //WITH p, author, tags_count, replies_count, COUNT(DISTINCT repost) AS reposts_count
+
+                WITH p, author, 
+                    COUNT(DISTINCT tag) AS tags_count,
+                    COUNT(DISTINCT reply) AS replies_count,
+                    COUNT(DISTINCT repost) AS reposts_count,
+                    (COUNT(DISTINCT tag) + COUNT(DISTINCT reply) + COUNT(DISTINCT repost)) AS total_engagement
                 ",
             );
-            "ORDER BY (tags_count + replies_count + reposts_count) DESC".to_string()
+
+            where_clause_applied = false;
+
+            // And total_engagement to filter by engagement the post
+            if post_stream_filters.start.is_some() {
+                cypher.push_str("WHERE total_engagement <= $start\n");
+                where_clause_applied = true;
+            }
+
+            if post_stream_filters.end.is_some() {
+                if where_clause_applied {
+                    cypher.push_str("AND total_engagement >= $end\n");
+                } else {
+                    cypher.push_str("WHERE total_engagement >= $end\n");
+                }
+            }
+
+            "ORDER BY total_engagement DESC".to_string()
         }
     };
 
@@ -505,10 +553,10 @@ pub fn post_stream(
     ));
 
     // Apply skip and limit
-    if let Some(skip) = skip {
+    if let Some(skip) = post_stream_filters.skip {
         cypher.push_str(&format!("SKIP {}\n", skip));
     }
-    if let Some(limit) = limit {
+    if let Some(limit) = post_stream_filters.limit {
         cypher.push_str(&format!("LIMIT {}\n", limit));
     }
 
@@ -524,6 +572,14 @@ pub fn post_stream(
     }
     if let Some(author_id) = author_id {
         query = query.param("author_id", author_id);
+    }
+
+    if let Some(start_interval) = post_stream_filters.start {
+        query = query.param("start", start_interval);
+    }
+
+    if let Some(end_interval) = post_stream_filters.end {
+        query = query.param("end", end_interval);
     }
 
     query

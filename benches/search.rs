@@ -45,7 +45,9 @@ fn bench_tag_search_by_timeline(c: &mut Criterion) {
         &label,
         |b, &label| {
             b.to_async(&rt).iter(|| async {
-                let result = TagSearch::get_by_label(label, None, 0, 20).await.unwrap();
+                let result = TagSearch::get_by_label(label, None, None, None, 0, 20)
+                    .await
+                    .unwrap();
                 criterion::black_box(result);
             });
         },

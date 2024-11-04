@@ -62,7 +62,7 @@ async fn test_homeserver_bookmark() -> Result<()> {
     assert_eq!(user_counts.bookmarks, 1);
 
     // INDEX_OP: Assert if the event writes the indexes
-    let result_bookmarks = PostStream::get_bookmarked_posts(&user_id, None, None)
+    let result_bookmarks = PostStream::get_bookmarked_posts(&user_id, None, None, None, None)
         .await
         .unwrap();
 
