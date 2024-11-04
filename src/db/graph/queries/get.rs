@@ -1,6 +1,9 @@
 use neo4rs::{query, Query};
 
-use crate::{models::post::{PostStreamSorting, ViewerStreamSource}, routes::v0::stream::utils::PostStreamFilters};
+use crate::{
+    models::post::{PostStreamSorting, ViewerStreamSource},
+    routes::v0::stream::utils::PostStreamFilters,
+};
 
 // Retrieve post node by post id and author id
 pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
@@ -423,7 +426,7 @@ pub fn post_stream(
     viewer_id: Option<String>,
     author_id: Option<String>,
     tags: Option<Vec<String>>,
-    post_stream_filters: PostStreamFilters
+    post_stream_filters: PostStreamFilters,
 ) -> Query {
     let mut cypher = String::new();
 

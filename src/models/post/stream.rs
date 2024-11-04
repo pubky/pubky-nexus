@@ -190,12 +190,7 @@ impl PostStream {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
-            let query = queries::get::post_stream(
-                viewer_id,
-                author_id,
-                tags,
-                post_stream_filters
-            );
+            let query = queries::get::post_stream(viewer_id, author_id, tags, post_stream_filters);
 
             let graph = graph.lock().await;
 
