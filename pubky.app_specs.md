@@ -6,6 +6,8 @@
 
 This document specifies the data models and validation rules for the Pubky.app client and homeserver interactions. It defines the structures of data entities, their properties, and the validation rules to ensure data integrity and consistency. This specification is intended for developers who wish to implement their own libraries or clients compatible with Pubky.app.
 
+This document intents to be a faithful representation of our [Rust pubky.app models](https://github.com/pubky/pubky-nexus/tree/main/src/models/pubky_app). If you intend to develop in Rust, use them directly. In case of disagreement between this document and the Rust implementation, the Rust implementation prevails.
+
 ## Data Models
 
 ### PubkyAppUser
