@@ -1,9 +1,12 @@
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
-use pubky_nexus::models::{
-    notification::{Notification, NotificationBody, PostChangedSource},
-    pubky_app::{PostEmbed, PostKind, PubkyAppPost, PubkyAppUser},
+use pubky_nexus::{
+    models::{
+        notification::{Notification, NotificationBody, PostChangedSource},
+        pubky_app::{PostEmbed, PostKind, PubkyAppPost, PubkyAppUser},
+    },
+    routes::v0::queries::PaginationQuery,
 };
 
 #[tokio::test]
@@ -59,7 +62,7 @@ async fn test_delete_post_that_reposted_notification() -> Result<()> {
     test.cleanup_post(&reposter_id, &repost_id).await?;
 
     // Verify that the poster gets the correct notification
-    let notifications = Notification::get_by_id(&poster_id, None, None, None, None)
+    let notifications = Notification::get_by_id(&poster_id, PaginationQuery::default())
         .await
         .unwrap();
 

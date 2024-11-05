@@ -1,5 +1,6 @@
 use crate::models::post::PostThread;
 use crate::routes::v0::endpoints::THREAD_ROUTE;
+use crate::routes::v0::queries::PaginationQuery;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
@@ -9,10 +10,10 @@ use utoipa::OpenApi;
 
 #[derive(Deserialize)]
 pub struct ThreadQuery {
-    viewer_id: Option<String>,
-    depth: Option<usize>,
-    skip: Option<usize>,
-    limit: Option<usize>,
+    pub viewer_id: Option<String>,
+    pub depth: Option<usize>,
+    #[serde(flatten)]
+    pub pagination: PaginationQuery,
 }
 
 #[utoipa::path(
@@ -38,23 +39,10 @@ pub async fn thread_handler(
 ) -> Result<Json<PostThread>> {
     info!(
         "GET {THREAD_ROUTE} author_id:{}, post_id:{}, viewer_id:{:?}, skip:{:?}, limit:{:?}",
-        author_id, post_id, query.viewer_id, query.skip, query.limit
+        author_id, post_id, query.viewer_id, query.pagination.skip, query.pagination.limit
     );
 
-    let skip = query.skip.unwrap_or(0);
-    let limit = query.limit.unwrap_or(6).min(20); // Default limit if not provided
-    let depth = query.depth.unwrap_or(1).min(3);
-
-    match PostThread::get_by_id(
-        &author_id,
-        &post_id,
-        query.viewer_id.as_deref(),
-        depth,
-        skip,
-        limit,
-    )
-    .await
-    {
+    match PostThread::get_by_id(&author_id, &post_id, query).await {
         Ok(Some(thread)) => Ok(Json(thread)),
         Ok(None) => Err(Error::PostNotFound { author_id, post_id }),
         Err(source) => Err(Error::InternalServerError { source }),

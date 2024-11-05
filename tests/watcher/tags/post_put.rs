@@ -12,6 +12,7 @@ use pubky_nexus::models::pubky_app::{traits::HashId, PubkyAppPost, PubkyAppTag, 
 use pubky_nexus::models::tag::post::TagPost;
 use pubky_nexus::models::tag::stream::{Taggers, TAG_GLOBAL_HOT};
 use pubky_nexus::models::tag::traits::TagCollection;
+use pubky_nexus::routes::v0::queries::PaginationQuery;
 use pubky_nexus::RedisOps;
 
 #[tokio::test]
@@ -144,7 +145,7 @@ async fn test_homeserver_put_tag_post() -> Result<()> {
     // Assert if the author user does not have a new notification
     // Self-tagging posts should not trigger notifications.
     // Sorted:Notification:user_id
-    let notifications = Notification::get_by_id(&tagger_user_id, None, None, None, None)
+    let notifications = Notification::get_by_id(&tagger_user_id, PaginationQuery::default())
         .await
         .unwrap();
     assert_eq!(

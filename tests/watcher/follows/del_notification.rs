@@ -1,9 +1,12 @@
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
-use pubky_nexus::models::{
-    notification::{Notification, NotificationBody},
-    pubky_app::PubkyAppUser,
+use pubky_nexus::{
+    models::{
+        notification::{Notification, NotificationBody},
+        pubky_app::PubkyAppUser,
+    },
+    routes::v0::queries::PaginationQuery,
 };
 
 #[tokio::test]
@@ -43,7 +46,7 @@ async fn test_homeserver_unfollow_notification() -> Result<()> {
     test.delete_follow(&follow_uri).await?;
 
     // Verify the followee gets a "Lost Friend" notification
-    let notifications = Notification::get_by_id(&followee_id, None, None, None, None)
+    let notifications = Notification::get_by_id(&followee_id, PaginationQuery::default())
         .await
         .unwrap();
 
@@ -65,7 +68,7 @@ async fn test_homeserver_unfollow_notification() -> Result<()> {
     test.delete_follow(&follow_back_uri).await?;
 
     // Verify the follower gets no new notification after unfollow
-    let notifications_follower = Notification::get_by_id(&follower_id, None, None, None, None)
+    let notifications_follower = Notification::get_by_id(&follower_id, PaginationQuery::default())
         .await
         .unwrap();
     assert_eq!(

@@ -11,6 +11,7 @@ use pubky_nexus::{
         post::{PostDetails, PostRelationships, PostStream, PostThread},
         pubky_app::{PostKind, PubkyAppPost, PubkyAppUser},
     },
+    routes::v0::{post::ThreadQuery, queries::PaginationQuery},
     RedisOps,
 };
 
@@ -70,8 +71,19 @@ async fn test_homeserver_post_reply() -> Result<()> {
         .unwrap();
     assert_eq!(reply_parent_uri, parent_uri);
 
+    let query = ThreadQuery {
+        viewer_id: None,
+        depth: Some(1),
+        pagination: PaginationQuery {
+            skip: Some(0),
+            limit: Some(10),
+            start: None,
+            end: None,
+        },
+    };
+
     // PARENT GRAPH_OP: Fetch the post thread and confirm the reply is present
-    let thread = PostThread::get_by_id(&user_id, &parent_post_id, None, 1, 0, 10)
+    let thread = PostThread::get_by_id(&user_id, &parent_post_id, query)
         .await
         .expect("Failed to fetch post thread")
         .expect("The post thread should exist");

@@ -2,9 +2,12 @@ use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
 use pubky_common::crypto::Keypair;
-use pubky_nexus::models::{
-    notification::{Notification, NotificationBody, PostChangedSource},
-    pubky_app::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser},
+use pubky_nexus::{
+    models::{
+        notification::{Notification, NotificationBody, PostChangedSource},
+        pubky_app::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser},
+    },
+    routes::v0::queries::PaginationQuery,
 };
 
 #[tokio::test]
@@ -61,7 +64,7 @@ async fn test_delete_tagged_post_notification() -> Result<()> {
     test.cleanup_post(&user_a_id, &post_id).await?;
 
     // Verify that User B receives a notification about the deletion
-    let notifications = Notification::get_by_id(&user_b_id, None, None, None, None)
+    let notifications = Notification::get_by_id(&user_b_id, PaginationQuery::default())
         .await
         .unwrap();
 

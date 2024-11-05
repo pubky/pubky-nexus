@@ -3,6 +3,7 @@ use crate::db::kv::index::sorted_sets::Sorting;
 use crate::models::post::{PostDetails, PostStreamSorting};
 use crate::models::tag::traits::TaggersCollection;
 use crate::queries::get::{global_tags_by_post, global_tags_by_post_engagement};
+use crate::routes::v0::queries::PaginationQuery;
 use crate::{RedisOps, ScoreAction};
 use neo4rs::Query;
 use serde::{Deserialize, Serialize};
@@ -72,19 +73,16 @@ impl TagSearch {
     pub async fn get_by_label(
         label: &str,
         sort_by: Option<PostStreamSorting>,
-        start: Option<f64>,
-        end: Option<f64>,
-        skip: usize,
-        limit: usize,
+        pagination: PaginationQuery,
     ) -> Result<Option<Vec<TagSearch>>, Box<dyn Error + Send + Sync>> {
         let post_score_list = match sort_by {
             Some(PostStreamSorting::TotalEngagement) => {
                 Self::try_from_index_sorted_set(
                     &[&TAG_GLOBAL_POST_ENGAGEMENT[..], &[label]].concat(),
-                    start,
-                    end,
-                    Some(skip),
-                    Some(limit),
+                    pagination.start,
+                    pagination.end,
+                    pagination.skip,
+                    pagination.limit,
                     Sorting::Descending,
                 )
                 .await?
@@ -93,10 +91,10 @@ impl TagSearch {
             _ => {
                 Self::try_from_index_sorted_set(
                     &[&TAG_GLOBAL_POST_TIMELINE[..], &[label]].concat(),
-                    start,
-                    end,
-                    Some(skip),
-                    Some(limit),
+                    pagination.start,
+                    pagination.end,
+                    pagination.skip,
+                    pagination.limit,
                     Sorting::Descending,
                 )
                 .await?

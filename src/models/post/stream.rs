@@ -7,7 +7,10 @@ use crate::{
         user::{Followers, Following, Friends, UserFollows},
     },
     queries,
-    routes::v0::stream::utils::{PostStreamFilters, PostStreamValues},
+    routes::v0::{
+        queries::PaginationQuery,
+        stream::queries::{Filters, PostStreamQuery},
+    },
     RedisOps, ScoreAction,
 };
 use serde::{Deserialize, Serialize};
@@ -57,36 +60,40 @@ impl PostStream {
     }
 
     pub async fn get_posts(
-        post_stream_values: PostStreamValues,
-        post_stream_filters: PostStreamFilters,
+        stream_params: PostStreamQuery,
     ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
         // Decide whether to use index or fallback to graph query
         let use_index = Self::can_use_index(
-            &post_stream_filters.sorting,
-            &post_stream_values.author_id,
-            &post_stream_filters.source,
-            &post_stream_values.tags,
+            stream_params.sorting.as_ref().unwrap(),
+            &stream_params.filters.author_id,
+            stream_params.filters.source.as_ref().unwrap(),
+            &stream_params.filters.tags,
         );
 
-        let viewer_id = post_stream_values.viewer_id;
-        let author_id = post_stream_values.author_id;
-        let post_id = post_stream_values.post_id;
-        let tags = post_stream_values.tags;
+        let viewer_id = stream_params.viewer_id;
+        let sorting = stream_params.sorting.unwrap();
+        // let author_id = stream_params.filters.author_id;
+        // let post_id = stream_params.filters.post_id;
+        // let tags = stream_params.filters.tags;
 
         let post_keys = match use_index {
             true => {
                 Self::get_from_index(
                     viewer_id.clone(),
-                    author_id,
-                    post_id,
-                    tags,
-                    post_stream_filters,
+                    sorting,
+                    stream_params.filters,
+                    stream_params.pagination,
                 )
                 .await?
             }
             false => {
-                Self::get_from_graph(viewer_id.clone(), author_id, tags, post_stream_filters)
-                    .await?
+                Self::get_from_graph(
+                    viewer_id.clone(),
+                    sorting,
+                    stream_params.filters,
+                    stream_params.pagination,
+                )
+                .await?
             }
         };
 
@@ -127,17 +134,18 @@ impl PostStream {
     // Fetch posts from index
     async fn get_from_index(
         viewer_id: Option<String>,
-        author_id: Option<String>,
-        post_id: Option<String>,
-        tags: Option<Vec<String>>,
-        post_stream_filters: PostStreamFilters,
+        sorting: PostStreamSorting,
+        filters: Filters,
+        pagination: PaginationQuery,
     ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
-        let source = post_stream_filters.source;
-        let sorting = post_stream_filters.sorting;
-        let start = post_stream_filters.start;
-        let end = post_stream_filters.end;
-        let skip = post_stream_filters.skip;
-        let limit = post_stream_filters.limit;
+        let source = filters.source.unwrap();
+        let author_id = filters.author_id;
+        let post_id = filters.post_id;
+        let tags = filters.tags;
+        let start = pagination.start;
+        let end = pagination.end;
+        let skip = pagination.skip;
+        let limit = pagination.limit;
 
         match (source, tags, author_id) {
             // Global post streams
@@ -183,14 +191,14 @@ impl PostStream {
     // Fetch posts from index
     async fn get_from_graph(
         viewer_id: Option<String>,
-        author_id: Option<String>,
-        tags: Option<Vec<String>>,
-        post_stream_filters: PostStreamFilters,
+        sorting: PostStreamSorting,
+        filters: Filters,
+        pagination: PaginationQuery,
     ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
-            let query = queries::get::post_stream(viewer_id, author_id, tags, post_stream_filters);
+            let query = queries::get::post_stream(viewer_id, sorting, filters, pagination);
 
             let graph = graph.lock().await;
 
@@ -261,8 +269,15 @@ impl PostStream {
         let skip = skip.unwrap_or(0);
         let limit = limit.unwrap_or(10);
 
+        let pag = PaginationQuery {
+            start,
+            end,
+            skip: Some(skip),
+            limit: Some(limit),
+        };
+
         let post_search_result =
-            TagSearch::get_by_label(label, Some(sorting), start, end, skip, limit).await?;
+            TagSearch::get_by_label(label, Some(sorting), pag /*start, end, skip, limit*/).await?;
 
         match post_search_result {
             Some(post_keys) => Ok(post_keys

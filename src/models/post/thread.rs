@@ -1,6 +1,7 @@
 use super::PostView;
 use crate::db::connectors::neo4j::get_neo4j_graph;
 use crate::queries;
+use crate::routes::v0::post::ThreadQuery;
 use neo4rs::BoltMap;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -17,11 +18,14 @@ impl PostThread {
     pub async fn get_by_id(
         author_id: &str,
         post_id: &str,
-        viewer_id: Option<&str>,
-        depth: usize,
-        skip: usize,
-        limit: usize,
+        endpoint_query: ThreadQuery,
     ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
+        // Set the default params
+        let skip = endpoint_query.pagination.skip.unwrap_or(0);
+        let limit = endpoint_query.pagination.limit.unwrap_or(6).min(20);
+        let depth = endpoint_query.depth.unwrap_or(1).min(3);
+        let viewer_id = endpoint_query.viewer_id.as_deref();
+
         // Fetch the root post view
         let root_post_view = PostView::get_by_id(author_id, post_id, viewer_id, None, None).await?;
 

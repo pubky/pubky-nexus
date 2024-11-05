@@ -4,6 +4,7 @@ use pubky_common::crypto::Keypair;
 use pubky_nexus::models::notification::{Notification, NotificationBody};
 use pubky_nexus::models::user::Relationship;
 use pubky_nexus::models::{pubky_app::PubkyAppUser, user::UserCounts};
+use pubky_nexus::routes::v0::queries::PaginationQuery;
 use pubky_nexus::RedisOps;
 
 #[tokio::test]
@@ -124,7 +125,7 @@ async fn test_homeserver_sequential_unfollow() -> Result<()> {
         "Danonino should be following Followee"
     );
 
-    let notifications_danonino = Notification::get_by_id(&danonino_id, None, None, None, None)
+    let notifications_danonino = Notification::get_by_id(&danonino_id, PaginationQuery::default())
         .await
         .unwrap();
 

@@ -1,6 +1,7 @@
 use crate::models::tag::global::TagGlobal;
 use crate::models::tag::stream::{HotTag, HotTags, TagStreamReach, Taggers};
 use crate::routes::v0::endpoints::{TAG_HOT_ROUTE, TAG_REACH_ROUTE, TAG_TAGGERS_ROUTE};
+use crate::routes::v0::queries::PaginationQuery;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
@@ -10,18 +11,18 @@ use utoipa::OpenApi;
 
 #[derive(Deserialize)]
 pub struct HotTagsQuery {
-    skip: Option<usize>,
-    limit: Option<usize>,
     max_taggers: Option<usize>,
+    #[serde(flatten)]
+    pagination: PaginationQuery,
 }
 
 #[utoipa::path(
     get,
     path = TAG_HOT_ROUTE,
     params(
+        ("max_taggers" = Option<usize>, Query, description = "Retrieve N user_id for each tag"),
         ("skip" = Option<usize>, Query, description = "Skip N tags"),
-        ("limit" = Option<usize>, Query, description = "Retrieve N tag"),
-        ("max_taggers" = Option<usize>, Query, description = "Retrieve N user_id for each tag")
+        ("limit" = Option<usize>, Query, description = "Retrieve N tag")
     ),
     tag = "Global hot Tags",
     responses(
@@ -34,11 +35,11 @@ pub struct HotTagsQuery {
 pub async fn hot_tags_handler(Query(query): Query<HotTagsQuery>) -> Result<Json<HotTags>> {
     info!(
         "GET {TAG_HOT_ROUTE} skip:{:?}, limit:{:?}, max_tagger: {:?}",
-        query.skip, query.limit, query.max_taggers
+        query.pagination.skip, query.pagination.limit, query.max_taggers
     );
 
-    let skip = query.skip.unwrap_or(0);
-    let limit = query.limit.unwrap_or(40);
+    let skip = query.pagination.skip.unwrap_or(0);
+    let limit = query.pagination.limit.unwrap_or(40);
     let max_taggers = query.max_taggers.unwrap_or(20);
 
     match HotTags::get_global_tags_stream(Some(skip), Some(limit), Some(max_taggers)).await {

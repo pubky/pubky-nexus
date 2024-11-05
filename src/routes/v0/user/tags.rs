@@ -61,14 +61,14 @@ pub async fn user_tags_handler(
 )]
 pub async fn user_taggers_handler(
     Path((user_id, label)): Path<(String, String)>,
-    Query(query): Query<PaginationQuery>,
+    Query(pagination): Query<PaginationQuery>,
 ) -> Result<Json<Taggers>> {
     info!(
         "GET {USER_TAGGERS_ROUTE} user_id:{}, label: {}, skip:{:?}, limit:{:?}",
-        user_id, label, query.skip, query.limit
+        user_id, label, pagination.skip, pagination.limit
     );
 
-    match TagUser::get_tagger_by_id(&user_id, None, &label, query.skip, query.limit).await {
+    match TagUser::get_tagger_by_id(&user_id, None, &label, pagination).await {
         Ok(Some(tags)) => Ok(Json(tags)),
         Ok(None) => Err(Error::UserNotFound { user_id }),
         Err(source) => Err(Error::InternalServerError { source }),

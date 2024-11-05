@@ -1,9 +1,12 @@
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
-use pubky_nexus::models::{
-    notification::{Notification, NotificationBody},
-    pubky_app::{PostKind, PubkyAppPost, PubkyAppUser},
+use pubky_nexus::{
+    models::{
+        notification::{Notification, NotificationBody},
+        pubky_app::{PostKind, PubkyAppPost, PubkyAppUser},
+    },
+    routes::v0::queries::PaginationQuery,
 };
 
 #[tokio::test]
@@ -63,7 +66,7 @@ async fn test_homeserver_mentions_notifications() -> Result<()> {
     let post_id = test.create_post(&author_user_id, &post).await?;
 
     // Check if mentioned User 1 received a Mention notification
-    let notifications_1 = Notification::get_by_id(&mentioned_user_1_id, None, None, None, None)
+    let notifications_1 = Notification::get_by_id(&mentioned_user_1_id, PaginationQuery::default())
         .await
         .unwrap();
     assert_eq!(
@@ -92,7 +95,7 @@ async fn test_homeserver_mentions_notifications() -> Result<()> {
     }
 
     // Check if mentioned User 2 received a Mention notification
-    let notifications_2 = Notification::get_by_id(&mentioned_user_2_id, None, None, None, None)
+    let notifications_2 = Notification::get_by_id(&mentioned_user_2_id, PaginationQuery::default())
         .await
         .unwrap();
     assert_eq!(
