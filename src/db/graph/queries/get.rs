@@ -250,32 +250,38 @@ pub fn user_counts(user_id: &str) -> neo4rs::Query {
 
         // Find friends
         OPTIONAL MATCH (u)-[:FOLLOWS]->(friend:User)-[:FOLLOWS]->(u)
-        WITH u, rels_u_user, rels_user_u, collect(friend) AS friends
+        WITH u, rels_u_user, rels_user_u, count(friend) AS friends
 
         // Collect relationships to Posts
         OPTIONAL MATCH (u)-[rel_u_post:BOOKMARKED|AUTHORED|TAGGED]->(p:Post)
         WITH u, rels_u_user, rels_user_u, friends, collect(rel_u_post) AS rels_u_post
 
+        // Count replies authored by the user
+        OPTIONAL MATCH (u)-[:AUTHORED]->(reply:Post)-[:REPLIED]->(:Post)
+        WITH u, rels_u_user, rels_user_u, friends, rels_u_post, count(reply) AS replies
+
         // Calculate counts
         WITH u,
             size([rel IN rels_u_user WHERE type(rel) = 'FOLLOWS']) AS following,
             size([rel IN rels_user_u WHERE type(rel) = 'FOLLOWS']) AS followers,
-            size(friends) AS friends_count,
+            friends,
             size([rel IN rels_u_post WHERE type(rel) = 'AUTHORED']) AS posts,
             size([rel IN rels_u_post WHERE type(rel) = 'TAGGED']) AS post_tags,
             size([rel IN rels_u_user WHERE type(rel) = 'TAGGED']) AS user_tags,
             size([rel IN rels_u_post WHERE type(rel) = 'BOOKMARKED']) AS bookmarks,
-            size([rel IN rels_user_u WHERE type(rel) = 'TAGGED']) AS tagged
+            size([rel IN rels_user_u WHERE type(rel) = 'TAGGED']) AS tagged,
+            replies
         RETURN 
             u IS NOT NULL AS exists,
             {
                 following: following,
                 followers: followers,
-                friends: friends_count,
+                friends: friends,
                 posts: posts,
                 tags: user_tags + post_tags,
                 bookmarks: bookmarks,
-                tagged: tagged
+                tagged: tagged,
+                replies: replies
             } AS counts
         ",
     )

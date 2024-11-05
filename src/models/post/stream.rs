@@ -17,8 +17,9 @@ use utoipa::ToSchema;
 
 pub const POST_TIMELINE_KEY_PARTS: [&str; 3] = ["Posts", "Global", "Timeline"];
 pub const POST_TOTAL_ENGAGEMENT_KEY_PARTS: [&str; 3] = ["Posts", "Global", "TotalEngagement"];
-pub const POST_REPLIES_TIMELINE_KEY_PARTS: [&str; 2] = ["Posts", "Replies"];
-pub const POST_PER_USER_KEY_PARTS: [&str; 2] = ["Posts", "User"];
+pub const POST_PER_USER_KEY_PARTS: [&str; 2] = ["Posts", "AuthorParents"];
+pub const POST_REPLIES_PER_USER_KEY_PARTS: [&str; 2] = ["Posts", "AuthorReplies"];
+pub const POST_REPLIES_PER_POST_KEY_PARTS: [&str; 2] = ["Posts", "PostReplies"];
 const BOOKMARKS_USER_KEY_PARTS: [&str; 2] = ["Bookmarks", "User"];
 
 #[derive(ToSchema, Deserialize, Debug, Clone, PartialEq, Default)]
@@ -373,7 +374,7 @@ impl PostStream {
         end: Option<f64>,
         limit: Option<usize>,
     ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
-        let key_parts = [&POST_REPLIES_TIMELINE_KEY_PARTS[..], &[author_id, post_id]].concat();
+        let key_parts = [&POST_REPLIES_PER_POST_KEY_PARTS[..], &[author_id, post_id]].concat();
         let post_replies = Self::try_from_index_sorted_set(
             &key_parts,
             start,
@@ -517,7 +518,7 @@ impl PostStream {
         reply_id: &str,
         indexed_at: i64,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let key_parts = [&POST_REPLIES_TIMELINE_KEY_PARTS[..], parent_post_key_parts].concat();
+        let key_parts = [&POST_REPLIES_PER_POST_KEY_PARTS[..], parent_post_key_parts].concat();
         let score = indexed_at as f64;
         let element = format!("{}:{}", author_id, reply_id);
         Self::put_index_sorted_set(&key_parts, &[(score, element.as_str())]).await
@@ -529,7 +530,7 @@ impl PostStream {
         author_id: &str,
         reply_id: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let key_parts = [&POST_REPLIES_TIMELINE_KEY_PARTS[..], parent_post_key_parts].concat();
+        let key_parts = [&POST_REPLIES_PER_POST_KEY_PARTS[..], parent_post_key_parts].concat();
         let element = format!("{}:{}", author_id, reply_id);
         Self::remove_from_index_sorted_set(&key_parts, &[element.as_str()]).await
     }
