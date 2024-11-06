@@ -85,10 +85,10 @@ impl PostCounts {
         &self,
         author_id: &str,
         post_id: &str,
-        add_to_feeds: bool,
+        is_reply: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.put_index_json(&[author_id, post_id]).await?;
-        if add_to_feeds {
+        if !is_reply {
             PostStream::add_to_engagement_sorted_set(self, author_id, post_id).await?;
         }
         Ok(())

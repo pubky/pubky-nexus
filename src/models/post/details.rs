@@ -110,6 +110,7 @@ impl PostDetails {
                     self.indexed_at,
                 )
                 .await?;
+                PostStream::add_to_replies_per_user_sorted_set(self).await?;
             }
         }
         Ok(())
@@ -174,6 +175,7 @@ impl PostDetails {
                     post_id,
                 )
                 .await?;
+                PostStream::remove_from_replies_per_user_sorted_set(author_id, post_id).await?;
             }
         }
         Ok(())

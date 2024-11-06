@@ -39,7 +39,7 @@ pub async fn sync_put(
     let post_details = PostDetails::from_homeserver(post.clone(), &author_id, &post_id).await?;
 
     // We avoid indexing replies into feed sorted sets
-    let add_to_feeds = post.parent.is_none();
+    let is_reply = post.parent.is_some();
 
     // SAVE TO GRAPH
     let existed = post_details.put_to_graph().await?;
@@ -70,11 +70,14 @@ pub async fn sync_put(
         .is_none()
     {
         PostCounts::default()
-            .put_to_index(&author_id, &post_id, add_to_feeds)
+            .put_to_index(&author_id, &post_id, is_reply)
             .await?
     }
     // Update user counts with the new post
     UserCounts::update(&author_id, "posts", JsonAction::Increment(1)).await?;
+    if is_reply {
+        UserCounts::update(&author_id, "replies", JsonAction::Increment(1)).await?;
+    };
 
     let mut interaction_url: (Option<String>, Option<String>) = (None, None);
     // Use that index wrapper to add a post reply
@@ -303,8 +306,6 @@ pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), Box<dyn Erro
         }
     };
 
-    // TODO: Notifications for deleted posts
-
     Ok(())
 }
 
@@ -317,10 +318,13 @@ pub async fn sync_del(
     let relationships = PostRelationships::get_by_id(&author_id, &post_id).await?;
     // If the post is reply or repost, cannot delete from the main feeds
     // In the main feed, we just include the root posts
-    let remove_from_feeds = can_remove_post_from_feed(&relationships);
+    let is_reply = is_reply(&relationships);
 
-    PostCounts::delete(&author_id, &post_id, remove_from_feeds).await?;
+    PostCounts::delete(&author_id, &post_id, !is_reply).await?;
     UserCounts::update(&author_id, "posts", JsonAction::Decrement(1)).await?;
+    if is_reply {
+        UserCounts::update(&author_id, "replies", JsonAction::Decrement(1)).await?;
+    };
 
     // Use that index wrapper to delete a post reply
     let mut reply_parent_post_key_wrapper: Option<[String; 2]> = None;
@@ -399,6 +403,6 @@ pub async fn sync_del(
 }
 
 // The only posts that has a feed are root posts and reposts. Replies does not belong to that feeds
-fn can_remove_post_from_feed(relationship: &Option<PostRelationships>) -> bool {
-    matches!(relationship, Some(post_relationship) if post_relationship.replied.is_none()/*&& post_relationship.reposted.is_none()*/)
+fn is_reply(relationship: &Option<PostRelationships>) -> bool {
+    matches!(relationship, Some(post_relationship) if post_relationship.replied.is_some()/*&& post_relationship.reposted.is_none()*/)
 }

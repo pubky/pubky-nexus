@@ -535,6 +535,28 @@ impl PostStream {
         Self::remove_from_index_sorted_set(&key_parts, &[element.as_str()]).await
     }
 
+    /// Adds the post to a Redis sorted set of replies per author using the `indexed_at` timestamp as the score.
+    pub async fn add_to_replies_per_user_sorted_set(
+        details: &PostDetails,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let key_parts = [
+            &POST_REPLIES_PER_USER_KEY_PARTS[..],
+            &[details.author.as_str()],
+        ]
+        .concat();
+        let score = details.indexed_at as f64;
+        Self::put_index_sorted_set(&key_parts, &[(score, details.id.as_str())]).await
+    }
+
+    /// Adds the post to a Redis sorted set using the `indexed_at` timestamp as the score.
+    pub async fn remove_from_replies_per_user_sorted_set(
+        author_id: &str,
+        post_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let key_parts = [&POST_REPLIES_PER_USER_KEY_PARTS[..], &[author_id]].concat();
+        Self::remove_from_index_sorted_set(&key_parts, &[post_id]).await
+    }
+
     /// Adds a bookmark to Redis sorted set using the `indexed_at` timestamp as the score.
     pub async fn add_to_bookmarks_sorted_set(
         bookmark: &Bookmark,
