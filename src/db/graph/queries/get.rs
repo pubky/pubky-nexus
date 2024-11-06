@@ -2,7 +2,7 @@ use neo4rs::{query, Query};
 
 use crate::{
     models::post::{PostStreamSorting, ViewerStreamSource},
-    routes::v0::{queries::PaginationQuery, stream::queries::Filters},
+    routes::v0::{queries::PaginationQuery, stream::queries::{Filters, ViewerStreamSourceQuery}},
 };
 
 // Retrieve post node by post id and author id
@@ -423,47 +423,45 @@ pub fn get_files_by_ids(key_pair: &[&[&str]]) -> Query {
 
 // Build the graph query based on parameters
 pub fn post_stream(
-    viewer_id: Option<String>,
+    source: ViewerStreamSourceQuery,
     sorting: PostStreamSorting,
     filters: Filters,
     pagination: PaginationQuery,
 ) -> Query {
     let mut cypher = String::new();
 
-    // Start with the viewer node if needed
-    if viewer_id.is_some() {
-        cypher.push_str("MATCH (viewer:User {id: $viewer_id})\n");
+    // Start with the observer node if needed
+    if source.has_observer().is_some() {
+        cypher.push_str("MATCH (observer:User {id: $observer_id})\n");
     }
 
     // Base match for posts and authors
     cypher.push_str("MATCH (p:Post)<-[:AUTHORED]-(author:User)\n");
 
     // Apply author filter if provided
-    if filters.author_id.is_some() {
+    if source.has_author().is_some() {
         cypher.push_str("WHERE author.id = $author_id\n");
     }
 
     // Apply source
-    if viewer_id.is_some() {
-        match filters.source.unwrap() {
-            ViewerStreamSource::Following => {
-                cypher.push_str("MATCH (viewer)-[:FOLLOWS]->(author)\n");
-            }
-            ViewerStreamSource::Followers => {
-                cypher.push_str("MATCH (viewer)<-[:FOLLOWS]-(author)\n");
-            }
-            ViewerStreamSource::Friends => {
-                cypher.push_str("MATCH (viewer)-[:FOLLOWS]->(author)-[:FOLLOWS]->(viewer)\n");
-            }
-            ViewerStreamSource::Bookmarks => {
-                cypher.push_str("MATCH (viewer)-[:BOOKMARKED]->(p)\n");
-            }
-            ViewerStreamSource::All => {
-                // No additional match needed
-            }
-            ViewerStreamSource::Replies => {
-                // No additional match needed
-            }
+    match source {
+        ViewerStreamSourceQuery::Following{ .. } => {
+            cypher.push_str("MATCH (observer)-[:FOLLOWS]->(author)\n");
+        }
+        ViewerStreamSourceQuery::Followers{ .. } => {
+            cypher.push_str("MATCH (observer)<-[:FOLLOWS]-(author)\n");
+        }
+        ViewerStreamSourceQuery::Friends{ .. } => {
+            cypher.push_str("MATCH (observer)-[:FOLLOWS]->(author)-[:FOLLOWS]->(observer)\n");
+        }
+        ViewerStreamSourceQuery::Bookmarks{ .. } => {
+            cypher.push_str("MATCH (observer)-[:BOOKMARKED]->(p)\n");
+        }
+        ViewerStreamSourceQuery::All{ .. } => {
+            // No additional match needed
+        }
+        ViewerStreamSourceQuery::Replies{ .. } => {
+            // No additional match needed
         }
     }
 
@@ -565,14 +563,14 @@ pub fn post_stream(
     let mut query = query(&cypher);
 
     // Insert parameters
-    if let Some(viewer_id) = viewer_id {
-        query = query.param("viewer_id", viewer_id);
+    if let Some(observer_id) = source.has_observer() {
+        query = query.param("observer_id", observer_id.to_string());
     }
     if let Some(labels) = filters.tags {
         query = query.param("labels", labels);
     }
-    if let Some(author_id) = filters.author_id {
-        query = query.param("author_id", author_id);
+    if let Some(author_id) = source.has_author() {
+        query = query.param("author_id", author_id.to_string());
     }
 
     if let Some(start_interval) = pagination.start {

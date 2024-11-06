@@ -9,7 +9,7 @@ use crate::{
     queries,
     routes::v0::{
         queries::PaginationQuery,
-        stream::queries::{Filters, PostStreamQuery},
+        stream::queries::{Filters, PostStreamQuery, ViewerStreamSourceQuery},
     },
     RedisOps, ScoreAction,
 };
@@ -65,21 +65,18 @@ impl PostStream {
         // Decide whether to use index or fallback to graph query
         let use_index = Self::can_use_index(
             stream_params.sorting.as_ref().unwrap(),
-            &stream_params.filters.author_id,
-            stream_params.filters.source.as_ref().unwrap(),
+            &stream_params.source,
             &stream_params.filters.tags,
         );
 
-        let viewer_id = stream_params.viewer_id;
+        let viewer_id = stream_params.viewer_id.clone();
+
         let sorting = stream_params.sorting.unwrap();
-        // let author_id = stream_params.filters.author_id;
-        // let post_id = stream_params.filters.post_id;
-        // let tags = stream_params.filters.tags;
 
         let post_keys = match use_index {
             true => {
                 Self::get_from_index(
-                    viewer_id.clone(),
+                    stream_params.source,
                     sorting,
                     stream_params.filters,
                     stream_params.pagination,
@@ -88,10 +85,11 @@ impl PostStream {
             }
             false => {
                 Self::get_from_graph(
-                    viewer_id.clone(),
+                    stream_params.source,
                     sorting,
                     stream_params.filters,
                     stream_params.pagination,
+                    
                 )
                 .await?
             }
@@ -107,25 +105,24 @@ impl PostStream {
     // Determine if we have a quick access sorted set for this combination
     fn can_use_index(
         sorting: &PostStreamSorting,
-        author_id: &Option<String>,
-        source: &ViewerStreamSource,
+        source: &ViewerStreamSourceQuery,
         tags: &Option<Vec<String>>,
     ) -> bool {
-        match (sorting, source, tags, author_id) {
+        match (sorting, source, tags) {
             // We have a sorted set for posts by a specific author
-            (PostStreamSorting::Timeline, _, None, Some(_)) => true,
+            (PostStreamSorting::Timeline, ViewerStreamSourceQuery::All { author_id: Some(_) }, None) => true,
             // We have a sorted set for global for any sorting
-            (_, ViewerStreamSource::All, None, None) => true,
+            (_, ViewerStreamSourceQuery::All{ author_id: None }, None) => true,
             // We have a sorted set for posts by tags for any sorting for a single tag
-            (_, ViewerStreamSource::All, Some(tags), _) if tags.len() == 1 => true,
+            (_, ViewerStreamSourceQuery::All{ .. }, Some(tags)) if tags.len() == 1 => true,
             // We can use sorted set for posts by source only for timeline
-            (PostStreamSorting::Timeline, ViewerStreamSource::Following, None, None) => true,
-            (PostStreamSorting::Timeline, ViewerStreamSource::Followers, None, None) => true,
-            (PostStreamSorting::Timeline, ViewerStreamSource::Friends, None, None) => true,
+            (PostStreamSorting::Timeline, ViewerStreamSourceQuery::Following{ .. }, None) => true,
+            (PostStreamSorting::Timeline, ViewerStreamSourceQuery::Followers{ .. }, None) => true,
+            (PostStreamSorting::Timeline, ViewerStreamSourceQuery::Friends{ .. }, None) => true,
             // We have a sorted set for bookmarks only for timeline
-            (PostStreamSorting::Timeline, ViewerStreamSource::Bookmarks, None, None) => true,
+            (PostStreamSorting::Timeline, ViewerStreamSourceQuery::Bookmarks{ .. }, None) => true,
             // We can use sorted set of post replies
-            (_, ViewerStreamSource::Replies, _, _) => true,
+            (_, ViewerStreamSourceQuery::Replies{ .. }, _) => true,
             // Other combinations require querying the graph
             _ => false,
         }
@@ -133,33 +130,30 @@ impl PostStream {
 
     // Fetch posts from index
     async fn get_from_index(
-        viewer_id: Option<String>,
+        source: ViewerStreamSourceQuery,
         sorting: PostStreamSorting,
         filters: Filters,
         pagination: PaginationQuery,
     ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
-        let source = filters.source.unwrap();
-        let author_id = filters.author_id;
-        let post_id = filters.post_id;
         let tags = filters.tags;
         let start = pagination.start;
         let end = pagination.end;
         let skip = pagination.skip;
         let limit = pagination.limit;
 
-        match (source, tags, author_id) {
+        match (source, tags) {
             // Global post streams
-            (ViewerStreamSource::All, None, None) => {
+            (ViewerStreamSourceQuery::All{ author_id: None }, None) => {
                 Self::get_global_posts_keys(sorting, start, end, skip, limit).await
             }
             // Streams by tags
-            (ViewerStreamSource::All, Some(tags), None) if tags.len() == 1 => {
+            (ViewerStreamSourceQuery::All{ author_id: None }, Some(tags)) if tags.len() == 1 => {
                 Self::get_posts_keys_by_tag(&tags[0], sorting, start, end, skip, limit).await
             }
             // Bookmark streams
-            (ViewerStreamSource::Bookmarks, None, None) => {
+            (ViewerStreamSourceQuery::Bookmarks {observer_id}, None) => {
                 Self::get_bookmarked_posts(
-                    &viewer_id.ok_or("Viewer ID is required for bookmark streams")?,
+                    &observer_id,
                     start,
                     end,
                     skip,
@@ -167,30 +161,33 @@ impl PostStream {
                 )
                 .await
             }
-            (ViewerStreamSource::Replies, None, Some(author_id)) => {
-                Self::get_post_replies(
-                    &author_id,
-                    &post_id.ok_or("Post ID is required for post replies streams")?,
-                    start,
-                    end,
-                    limit,
-                )
-                .await
-            }
-            // Streams by simple source
-            (source, None, None) => Self::get_posts_by_source(source, viewer_id, skip, limit).await,
+            (ViewerStreamSourceQuery::Replies {author_id, post_id}, None) => {
+                match post_id {
+                    Some(id) => Self::get_post_replies(
+                        &author_id,
+                        &id,
+                        start,
+                        end,
+                        limit,
+                    )
+                    .await,
+                    None => Ok(vec!["User post replies COMMING...".to_string()])
+                }
+            },
             // Streams by only author
-            (_, None, Some(author_id)) => {
-                Self::get_user_posts(&author_id, start, end, skip, limit).await
-            }
-            //(ViewerStreamSource::Replies, None)
+            (ViewerStreamSourceQuery::All{ author_id: Some(id) }, None) => {
+                Self::get_user_posts(&id, start, end, skip, limit).await
+            },
+            // Streams by simple source: Following, Followers, Friends
+            (source, None) => Self::get_posts_by_source(source, skip, limit).await,
             _ => Ok(vec![]),
         }
     }
 
     // Fetch posts from index
     async fn get_from_graph(
-        viewer_id: Option<String>,
+        //viewer_id: Option<String>,
+        source: ViewerStreamSourceQuery,
         sorting: PostStreamSorting,
         filters: Filters,
         pagination: PaginationQuery,
@@ -198,7 +195,7 @@ impl PostStream {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
-            let query = queries::get::post_stream(viewer_id, sorting, filters, pagination);
+            let query = queries::get::post_stream(source, sorting, filters, pagination);
 
             let graph = graph.lock().await;
 
@@ -318,31 +315,26 @@ impl PostStream {
     }
 
     pub async fn get_posts_by_source(
-        source: ViewerStreamSource,
-        viewer_id: Option<String>,
+        source: ViewerStreamSourceQuery,
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
-        let viewer_id = match viewer_id {
-            None => return Ok(vec![]),
-            Some(v_id) => v_id,
-        };
 
         let user_ids = match source {
-            ViewerStreamSource::Following => {
-                Following::get_by_id(&viewer_id, None, None)
+            ViewerStreamSourceQuery::Following{observer_id} => {
+                Following::get_by_id(&observer_id, None, None)
                     .await?
                     .unwrap_or_default()
                     .0
             }
-            ViewerStreamSource::Followers => {
-                Followers::get_by_id(&viewer_id, None, None)
+            ViewerStreamSourceQuery::Followers{observer_id} => {
+                Followers::get_by_id(&observer_id, None, None)
                     .await?
                     .unwrap_or_default()
                     .0
             }
-            ViewerStreamSource::Friends => {
-                Friends::get_by_id(&viewer_id, None, None)
+            ViewerStreamSourceQuery::Friends{observer_id} => {
+                Friends::get_by_id(&observer_id, None, None)
                     .await?
                     .unwrap_or_default()
                     .0
@@ -469,6 +461,7 @@ impl PostStream {
         viewer_id: Option<String>,
         post_keys: &[String],
     ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
+        // TODO: ViewerId we get from the source, Replies and All does not have
         let viewer_id = viewer_id.map(|id| id.to_string());
         let mut handles = Vec::with_capacity(post_keys.len());
 

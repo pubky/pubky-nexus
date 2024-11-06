@@ -1,5 +1,6 @@
 use serde::de::{self, Deserializer};
 use serde::Deserialize;
+use utoipa::ToSchema;
 
 #[derive(Deserialize)]
 pub struct TagsQuery {
@@ -7,7 +8,7 @@ pub struct TagsQuery {
     pub limit_taggers: Option<usize>,
 }
 
-#[derive(Default, Deserialize)]
+#[derive(Default, Deserialize, Debug, ToSchema)]
 pub struct PaginationQuery {
     #[serde(default, deserialize_with = "parse_string_to_usize")]
     pub skip: Option<usize>,
