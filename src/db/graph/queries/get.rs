@@ -1,8 +1,11 @@
 use neo4rs::{query, Query};
 
-use crate::{
-    models::post::{PostStreamSorting, ViewerStreamSource},
-    routes::v0::{queries::PaginationQuery, stream::queries::{Filters, ViewerStreamSourceQuery}},
+use crate::routes::v0::{
+    queries::PaginationQuery,
+    stream::{
+        queries::{Filters, ViewerStreamSourceQuery},
+        PostStreamSorting,
+    },
 };
 
 // Retrieve post node by post id and author id
@@ -445,22 +448,22 @@ pub fn post_stream(
 
     // Apply source
     match source {
-        ViewerStreamSourceQuery::Following{ .. } => {
+        ViewerStreamSourceQuery::Following { .. } => {
             cypher.push_str("MATCH (observer)-[:FOLLOWS]->(author)\n");
         }
-        ViewerStreamSourceQuery::Followers{ .. } => {
+        ViewerStreamSourceQuery::Followers { .. } => {
             cypher.push_str("MATCH (observer)<-[:FOLLOWS]-(author)\n");
         }
-        ViewerStreamSourceQuery::Friends{ .. } => {
+        ViewerStreamSourceQuery::Friends { .. } => {
             cypher.push_str("MATCH (observer)-[:FOLLOWS]->(author)-[:FOLLOWS]->(observer)\n");
         }
-        ViewerStreamSourceQuery::Bookmarks{ .. } => {
+        ViewerStreamSourceQuery::Bookmarks { .. } => {
             cypher.push_str("MATCH (observer)-[:BOOKMARKED]->(p)\n");
         }
-        ViewerStreamSourceQuery::All{ .. } => {
+        ViewerStreamSourceQuery::All { .. } => {
             // No additional match needed
         }
-        ViewerStreamSourceQuery::Replies{ .. } => {
+        ViewerStreamSourceQuery::Replies { .. } => {
             // No additional match needed
         }
     }

@@ -1,51 +1,13 @@
-use axum::http::StatusCode;
-use axum::{extract::Query, response::IntoResponse, Json};
-use log::info;
-use thiserror::Error;
+use crate::routes::v0::stream::queries::ViewerStreamSource;
+use crate::routes::v0::stream::PostStreamSorting;
+use crate::Error;
+use axum::{extract::Query, Json};
 use utoipa::OpenApi;
-use crate::{Error, Result};
 
-use crate::models::post::{PostStream, PostStreamSorting, ViewerStreamSource};
+use crate::models::post::PostStream;
 use crate::routes::v0::endpoints::STREAM_POSTS_ROUTE;
 
 use super::queries::PostStreamQuery;
-
-// #[derive(Debug, Error)]
-// pub enum Error {
-//     #[error("Missing parameter: {0}")]
-//     MissingParam(String),
-//     #[error("Invalid source: {0}")]
-//     InvalidSource(String),
-//     #[error("Invalid query: {0}")]
-//     InvalidQuery(String),
-//     #[error("Empty stream: {message}")]
-//     EmptyStream { message: String },
-//     #[error("Internal server error")]
-//     InternalServerError,
-// }
-
-// impl IntoResponse for Error {
-//     fn into_response(self) -> axum::response::Response {
-//         let (status, body) = match self {
-//             Error::MissingParam(msg) => (
-//                 StatusCode::BAD_REQUEST,
-//                 format!("Missing parameter: {}", msg),
-//             ),
-//             Error::InvalidSource(msg) => {
-//                 (StatusCode::BAD_REQUEST, format!("Invalid source: {}", msg))
-//             }
-//             Error::InvalidQuery(msg) => {
-//                 (StatusCode::BAD_REQUEST, format!("Invalid query: {}", msg))
-//             }
-//             Error::EmptyStream { message } => (StatusCode::NOT_FOUND, message),
-//             _ => (
-//                 StatusCode::INTERNAL_SERVER_ERROR,
-//                 "Internal server error".to_string(),
-//             ),
-//         };
-//         (status, body).into_response()
-//     }
-// }
 
 type AppResult<T> = std::result::Result<T, Error>;
 
@@ -87,11 +49,6 @@ pub async fn stream_posts_handler(
         }
     }
     println!("QUERY: {:?}", query);
-
-    // Use `query.source` as needed
-    println!("Parsed source: {:?}", query.source);
-
-    // ... rest of your handler logic
 
     match PostStream::get_posts(query).await {
         Ok(Some(stream)) => Ok(Json(stream)),

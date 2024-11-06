@@ -15,7 +15,7 @@ pub async fn test_reach_filter_with_posts(
     limit: Option<usize>,
     expected_posts: &[&str],
 ) -> Result<()> {
-    let mut path = format!("{ROOT_PATH}?viewer_id={}&source={}", user_id, source);
+    let mut path = format!("{ROOT_PATH}?observer_id={}&source={}", user_id, source);
 
     let mut verify_timeline = true;
 

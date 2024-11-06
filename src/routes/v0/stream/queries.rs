@@ -1,9 +1,26 @@
-use serde::Deserialize;
+use crate::routes::v0::queries::PaginationQuery;
 use serde::de::{self, Deserializer, MapAccess, Visitor};
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use utoipa::ToSchema;
-use crate::models::post::PostStreamSorting;
-use crate::routes::v0::queries::PaginationQuery;
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum PostStreamSorting {
+    Timeline,
+    TotalEngagement,
+}
+
+#[derive(Deserialize, ToSchema, Debug, Clone, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ViewerStreamSource {
+    All,
+    Following,
+    Followers,
+    Friends,
+    Bookmarks,
+    Replies, // 4U,
+}
 
 #[derive(Deserialize, Debug, ToSchema)]
 pub struct PostStreamQuery {
@@ -21,7 +38,7 @@ pub struct PostStreamQuery {
 #[derive(Deserialize, Debug, ToSchema)]
 pub struct Filters {
     #[serde(default, deserialize_with = "deserialize_comma_separated")]
-    pub tags: Option<Vec<String>>
+    pub tags: Option<Vec<String>>,
 }
 
 impl PostStreamQuery {
@@ -46,35 +63,52 @@ where
     Ok(None)
 }
 
-#[derive(Debug, ToSchema)]
+#[derive(ToSchema, Debug, Clone, PartialEq)]
 pub enum ViewerStreamSourceQuery {
     // Author replies or post replies related streams
-    Replies { post_id: Option<String>, author_id: String },
-    Following { observer_id: String },
-    Followers { observer_id: String },
-    Friends { observer_id: String },
-    Bookmarks { observer_id: String },
+    Replies {
+        post_id: Option<String>,
+        author_id: String,
+    },
+    Following {
+        observer_id: String,
+    },
+    Followers {
+        observer_id: String,
+    },
+    Friends {
+        observer_id: String,
+    },
+    Bookmarks {
+        observer_id: String,
+    },
     // Global stream or author related stream
-    All { author_id: Option<String>},
+    All {
+        author_id: Option<String>,
+    },
 }
 
 impl ViewerStreamSourceQuery {
     pub fn has_observer(&self) -> Option<&String> {
         match self {
-            ViewerStreamSourceQuery::Followers { observer_id } |
-            ViewerStreamSourceQuery::Following { observer_id } |
-            ViewerStreamSourceQuery::Friends { observer_id } |
-            ViewerStreamSourceQuery::Bookmarks { observer_id }
-                => Some(observer_id),
-            _ => None
+            ViewerStreamSourceQuery::Followers { observer_id }
+            | ViewerStreamSourceQuery::Following { observer_id }
+            | ViewerStreamSourceQuery::Friends { observer_id }
+            | ViewerStreamSourceQuery::Bookmarks { observer_id } => Some(observer_id),
+            _ => None,
         }
     }
 
     pub fn has_author(&self) -> Option<&String> {
         match self {
-            ViewerStreamSourceQuery::Replies { author_id, post_id: _ } => Some(author_id),
-            ViewerStreamSourceQuery::All { author_id: Some(author_id) } => Some(author_id),
-            _ => None
+            ViewerStreamSourceQuery::Replies {
+                author_id,
+                post_id: _,
+            } => Some(author_id),
+            ViewerStreamSourceQuery::All {
+                author_id: Some(author_id),
+            } => Some(author_id),
+            _ => None,
         }
     }
 }
@@ -137,24 +171,26 @@ impl<'de> Visitor<'de> for ViewerStreamSourceVisitor {
                 Ok(ViewerStreamSourceQuery::Replies { post_id, author_id })
             }
             "following" => {
-                let observer_id = observer_id.ok_or_else(|| de::Error::missing_field("observer_id"))?;
+                let observer_id =
+                    observer_id.ok_or_else(|| de::Error::missing_field("observer_id"))?;
                 Ok(ViewerStreamSourceQuery::Following { observer_id })
             }
             "followers" => {
-                let observer_id = observer_id.ok_or_else(|| de::Error::missing_field("observer_id"))?;
+                let observer_id =
+                    observer_id.ok_or_else(|| de::Error::missing_field("observer_id"))?;
                 Ok(ViewerStreamSourceQuery::Followers { observer_id })
             }
             "friends" => {
-                let observer_id = observer_id.ok_or_else(|| de::Error::missing_field("observer_id"))?;
+                let observer_id =
+                    observer_id.ok_or_else(|| de::Error::missing_field("observer_id"))?;
                 Ok(ViewerStreamSourceQuery::Friends { observer_id })
             }
             "bookmarks" => {
-                let observer_id = observer_id.ok_or_else(|| de::Error::missing_field("observer_id"))?;
+                let observer_id =
+                    observer_id.ok_or_else(|| de::Error::missing_field("observer_id"))?;
                 Ok(ViewerStreamSourceQuery::Bookmarks { observer_id })
             }
-            "all" => {
-                Ok(ViewerStreamSourceQuery::All { author_id })
-            },
+            "all" => Ok(ViewerStreamSourceQuery::All { author_id }),
             // Not sure if we want to throw an error or set the default source `All`
             other => Err(de::Error::unknown_variant(
                 other,

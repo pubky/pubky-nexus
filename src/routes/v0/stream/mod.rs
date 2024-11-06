@@ -7,6 +7,8 @@ mod posts;
 pub mod queries;
 mod users;
 
+pub use queries::{PostStreamQuery, PostStreamSorting};
+
 pub fn routes() -> Router {
     let router = register_routes!(Router::new(),
         // User stream

@@ -1,7 +1,7 @@
-use crate::models::post::PostStreamSorting;
 use crate::models::tag::search::TagSearch;
 use crate::routes::v0::endpoints::SEARCH_TAGS_ROUTE;
 use crate::routes::v0::queries::PaginationQuery;
+use crate::routes::v0::stream::PostStreamSorting;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;

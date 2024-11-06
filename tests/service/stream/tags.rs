@@ -87,7 +87,10 @@ async fn test_post_tag_search_with_skip_and_limit() -> Result<()> {
 async fn test_post_tag_search_with_viewer_id() -> Result<()> {
     const BOOKMARK_ID: &str = "A9G7F2L4Q1W3";
 
-    let path = format!("{}?tags={}&viewer_id={}", ROOT_PATH, TAG_LABEL_2, VIEWER_ID);
+    let path = format!(
+        "{}?tags={}&observer_id={}",
+        ROOT_PATH, TAG_LABEL_2, VIEWER_ID
+    );
     let body = make_request(&path).await?;
 
     assert!(body.is_array());
