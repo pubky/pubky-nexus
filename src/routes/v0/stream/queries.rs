@@ -135,7 +135,7 @@ impl<'de> Visitor<'de> for ViewerStreamSourceVisitor {
     where
         M: MapAccess<'de>,
     {
-        let mut source: Option<String> = None;
+        let mut source: Option<ViewerStreamSource> = None;
         let mut post_id: Option<String> = None;
         let mut author_id: Option<String> = None;
         let mut observer_id: Option<String> = None;
@@ -146,7 +146,7 @@ impl<'de> Visitor<'de> for ViewerStreamSourceVisitor {
                     if source.is_some() {
                         return Err(de::Error::duplicate_field("source"));
                     }
-                    source = Some(map.next_value()?);
+                    source = Some(map.next_value::<ViewerStreamSource>()?);
                 }
                 "post_id" => {
                     post_id = Some(map.next_value()?);
@@ -164,45 +164,33 @@ impl<'de> Visitor<'de> for ViewerStreamSourceVisitor {
             }
         }
 
-        let source = source.ok_or_else(|| de::Error::missing_field("source"))?;
-        match source.as_str() {
-            "replies" => {
+        match source {
+            Some(ViewerStreamSource::Replies) => {
                 let author_id = author_id.ok_or_else(|| de::Error::missing_field("author_id"))?;
                 Ok(ViewerStreamSourceQuery::Replies { post_id, author_id })
             }
-            "following" => {
+            Some(ViewerStreamSource::Following) => {
                 let observer_id =
                     observer_id.ok_or_else(|| de::Error::missing_field("observer_id"))?;
                 Ok(ViewerStreamSourceQuery::Following { observer_id })
             }
-            "followers" => {
+            Some(ViewerStreamSource::Followers) => {
                 let observer_id =
                     observer_id.ok_or_else(|| de::Error::missing_field("observer_id"))?;
                 Ok(ViewerStreamSourceQuery::Followers { observer_id })
             }
-            "friends" => {
+            Some(ViewerStreamSource::Friends) => {
                 let observer_id =
                     observer_id.ok_or_else(|| de::Error::missing_field("observer_id"))?;
                 Ok(ViewerStreamSourceQuery::Friends { observer_id })
             }
-            "bookmarks" => {
+            Some(ViewerStreamSource::Bookmarks) => {
                 let observer_id =
                     observer_id.ok_or_else(|| de::Error::missing_field("observer_id"))?;
                 Ok(ViewerStreamSourceQuery::Bookmarks { observer_id })
             }
-            "all" => Ok(ViewerStreamSourceQuery::All { author_id }),
-            // Not sure if we want to throw an error or set the default source `All`
-            other => Err(de::Error::unknown_variant(
-                other,
-                &[
-                    "replies",
-                    "following",
-                    "followers",
-                    "friends",
-                    "bookmarks",
-                    "all",
-                ],
-            )),
+            Some(ViewerStreamSource::All) => Ok(ViewerStreamSourceQuery::All { author_id }),
+            None => Ok(ViewerStreamSourceQuery::All { author_id: None }),
         }
     }
 }
