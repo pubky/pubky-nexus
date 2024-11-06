@@ -189,8 +189,7 @@ impl<'de> Visitor<'de> for ViewerStreamSourceVisitor {
                     observer_id.ok_or_else(|| de::Error::missing_field("observer_id"))?;
                 Ok(ViewerStreamSourceQuery::Bookmarks { observer_id })
             }
-            Some(ViewerStreamSource::All) => Ok(ViewerStreamSourceQuery::All { author_id }),
-            None => Ok(ViewerStreamSourceQuery::All { author_id: None }),
+            _ => Ok(ViewerStreamSourceQuery::All { author_id }),
         }
     }
 }

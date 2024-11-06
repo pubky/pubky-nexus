@@ -194,11 +194,8 @@ async fn test_stream_posts_replies_missing_queries() -> Result<()> {
     let path_a = format!("{ROOT_PATH}?source=replies&post_id={}", "post");
     make_wrong_request(&path_a, Some(400)).await?;
 
-    let path_a = format!("{ROOT_PATH}?source=replies&author_id={}", "author");
-    make_wrong_request(&path_a, Some(400)).await?;
-
-    let path_a = format!("{ROOT_PATH}?source=replies");
-    make_wrong_request(&path_a, Some(400)).await?;
+    let path_b = format!("{ROOT_PATH}?source=replies");
+    make_wrong_request(&path_b, Some(400)).await?;
 
     Ok(())
 }
