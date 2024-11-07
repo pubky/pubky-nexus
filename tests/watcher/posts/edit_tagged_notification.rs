@@ -7,7 +7,7 @@ use pubky_nexus::{
         notification::{Notification, NotificationBody, PostChangedSource},
         pubky_app::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser},
     },
-    routes::v0::queries::PaginationQuery,
+    types::Pagination,
 };
 
 #[tokio::test]
@@ -72,7 +72,7 @@ async fn test_edit_tagged_post_notification() -> Result<()> {
     test.ensure_event_processing_complete().await?;
 
     // Verify that User B receives a notification about the edit
-    let notifications = Notification::get_by_id(&user_b_id, PaginationQuery::default())
+    let notifications = Notification::get_by_id(&user_b_id, Pagination::default())
         .await
         .unwrap();
 

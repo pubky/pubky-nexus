@@ -1,7 +1,7 @@
 use crate::models::tag::global::TagGlobal;
 use crate::models::tag::stream::{HotTag, HotTags, TagStreamReach, Taggers};
 use crate::routes::v0::endpoints::{TAG_HOT_ROUTE, TAG_REACH_ROUTE, TAG_TAGGERS_ROUTE};
-use crate::routes::v0::queries::PaginationQuery;
+use crate::types::Pagination;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
@@ -13,7 +13,7 @@ use utoipa::OpenApi;
 pub struct HotTagsQuery {
     max_taggers: Option<usize>,
     #[serde(flatten)]
-    pagination: PaginationQuery,
+    pagination: Pagination,
 }
 
 #[utoipa::path(

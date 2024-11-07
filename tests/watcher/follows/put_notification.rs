@@ -6,7 +6,7 @@ use pubky_nexus::{
         notification::{Notification, NotificationBody},
         pubky_app::PubkyAppUser,
     },
-    routes::v0::queries::PaginationQuery,
+    types::Pagination,
 };
 
 #[tokio::test]
@@ -41,7 +41,7 @@ async fn test_homeserver_follow_notification() -> Result<()> {
     test.create_follow(&follower_id, &followee_id).await?;
 
     // Verify the followee gets a "New Follow" notification
-    let notifications = Notification::get_by_id(&followee_id, PaginationQuery::default())
+    let notifications = Notification::get_by_id(&followee_id, Pagination::default())
         .await
         .unwrap();
 
@@ -66,7 +66,7 @@ async fn test_homeserver_follow_notification() -> Result<()> {
     test.create_follow(&followee_id, &follower_id).await?;
 
     // Verify the follower gets a "New Friend" notification
-    let notifications_follower = Notification::get_by_id(&follower_id, PaginationQuery::default())
+    let notifications_follower = Notification::get_by_id(&follower_id, Pagination::default())
         .await
         .unwrap();
 

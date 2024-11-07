@@ -1,10 +1,9 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
-use crate::db::kv::index::sorted_sets::Sorting;
+use crate::db::kv::index::sorted_sets::SortOrder;
 use crate::models::post::PostDetails;
 use crate::models::tag::traits::TaggersCollection;
 use crate::queries::get::{global_tags_by_post, global_tags_by_post_engagement};
-use crate::routes::v0::queries::PaginationQuery;
-use crate::routes::v0::stream::PostStreamSorting;
+use crate::types::{Pagination, StreamSorting};
 use crate::{RedisOps, ScoreAction};
 use neo4rs::Query;
 use serde::{Deserialize, Serialize};
@@ -73,18 +72,18 @@ impl TagSearch {
 
     pub async fn get_by_label(
         label: &str,
-        sort_by: Option<PostStreamSorting>,
-        pagination: PaginationQuery,
+        sort_by: Option<StreamSorting>,
+        pagination: Pagination,
     ) -> Result<Option<Vec<TagSearch>>, Box<dyn Error + Send + Sync>> {
         let post_score_list = match sort_by {
-            Some(PostStreamSorting::TotalEngagement) => {
+            Some(StreamSorting::TotalEngagement) => {
                 Self::try_from_index_sorted_set(
                     &[&TAG_GLOBAL_POST_ENGAGEMENT[..], &[label]].concat(),
                     pagination.start,
                     pagination.end,
                     pagination.skip,
                     pagination.limit,
-                    Sorting::Descending,
+                    SortOrder::Descending,
                 )
                 .await?
             }
@@ -96,7 +95,7 @@ impl TagSearch {
                     pagination.end,
                     pagination.skip,
                     pagination.limit,
-                    Sorting::Descending,
+                    SortOrder::Descending,
                 )
                 .await?
             }

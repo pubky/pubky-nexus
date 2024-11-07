@@ -8,7 +8,7 @@ use pubky_nexus::{
         notification::{Notification, NotificationBody},
         pubky_app::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser},
     },
-    routes::v0::queries::PaginationQuery,
+    types::Pagination,
 };
 
 #[tokio::test]
@@ -80,7 +80,7 @@ async fn test_homeserver_tag_post_notification() -> Result<()> {
     assert_eq!(post_tag.taggers[0], tagger_id);
 
     // Check if the author of the post has a new notification
-    let notifications = Notification::get_by_id(&author_id, PaginationQuery::default())
+    let notifications = Notification::get_by_id(&author_id, Pagination::default())
         .await
         .unwrap();
     assert_eq!(

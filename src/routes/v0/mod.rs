@@ -7,13 +7,13 @@ pub mod file;
 pub mod info;
 pub mod notification;
 pub mod post;
-pub mod queries;
 pub mod search;
 pub mod stream;
 pub mod tag;
+pub mod types;
 pub mod user;
 
-pub use queries::TagsQuery;
+pub use types::TagsQuery;
 
 pub fn routes() -> Router {
     let routes_info = info::routes();

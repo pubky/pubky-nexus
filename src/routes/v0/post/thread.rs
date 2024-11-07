@@ -1,6 +1,6 @@
 use crate::models::post::PostThread;
 use crate::routes::v0::endpoints::THREAD_ROUTE;
-use crate::routes::v0::queries::PaginationQuery;
+use crate::types::Pagination;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
@@ -13,7 +13,7 @@ pub struct ThreadQuery {
     pub viewer_id: Option<String>,
     pub depth: Option<usize>,
     #[serde(flatten)]
-    pub pagination: PaginationQuery,
+    pub pagination: Pagination,
 }
 
 #[utoipa::path(

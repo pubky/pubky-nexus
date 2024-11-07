@@ -7,7 +7,7 @@ use pubky_nexus::{
         notification::{Notification, NotificationBody},
         pubky_app::{traits::HashId, PubkyAppTag, PubkyAppUser},
     },
-    routes::v0::queries::PaginationQuery,
+    types::Pagination,
 };
 
 #[tokio::test]
@@ -57,7 +57,7 @@ async fn test_homeserver_put_tag_user_notification() -> Result<()> {
     test.create_tag(tag_url.as_str(), tag_blob).await?;
 
     // Check if the tagged user received a notification
-    let notifications = Notification::get_by_id(&tagged_user_id, PaginationQuery::default())
+    let notifications = Notification::get_by_id(&tagged_user_id, Pagination::default())
         .await
         .unwrap();
     assert_eq!(

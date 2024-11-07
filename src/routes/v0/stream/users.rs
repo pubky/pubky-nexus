@@ -2,7 +2,7 @@ use crate::models::user::{UserStream, UserStreamSource};
 use crate::routes::v0::endpoints::{
     STREAM_USERS_BY_IDS_ROUTE, STREAM_USERS_ROUTE, STREAM_USERS_USERNAME_SEARCH_ROUTE,
 };
-use crate::routes::v0::queries::PaginationQuery;
+use crate::types::Pagination;
 use crate::{Error, Result};
 use axum::extract::Query;
 use axum::Json;
@@ -102,7 +102,7 @@ pub struct UserStreamSearchQuery {
     username: String,
     viewer_id: Option<String>,
     #[serde(flatten)]
-    pagination: PaginationQuery,
+    pagination: Pagination,
 }
 
 #[utoipa::path(

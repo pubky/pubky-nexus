@@ -1,6 +1,6 @@
 use crate::models::user::Muted;
 use crate::routes::v0::endpoints::USER_MUTED_ROUTE;
-use crate::routes::v0::queries::PaginationQuery;
+use crate::types::Pagination;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
@@ -24,7 +24,7 @@ use utoipa::OpenApi;
 )]
 pub async fn user_muted_handler(
     Path(user_id): Path<String>,
-    Query(query): Query<PaginationQuery>,
+    Query(query): Query<Pagination>,
 ) -> Result<Json<Muted>> {
     info!("GET {USER_MUTED_ROUTE} user_id:{}", user_id);
 

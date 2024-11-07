@@ -1,8 +1,8 @@
-use crate::models::user::{Followers, Following, Friends, UserFollows};
+use crate::models::follow::{Followers, Following, Friends, UserFollows};
 use crate::routes::v0::endpoints::{
     USER_FOLLOWERS_ROUTE, USER_FOLLOWING_ROUTE, USER_FRIENDS_ROUTE,
 };
-use crate::routes::v0::queries::PaginationQuery;
+use crate::types::Pagination;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
@@ -26,7 +26,7 @@ use utoipa::OpenApi;
 )]
 pub async fn user_followers_handler(
     Path(user_id): Path<String>,
-    Query(query): Query<PaginationQuery>,
+    Query(query): Query<Pagination>,
 ) -> Result<Json<Followers>> {
     info!("GET {USER_FOLLOWERS_ROUTE} user_id:{}", user_id);
 
@@ -57,7 +57,7 @@ pub async fn user_followers_handler(
 )]
 pub async fn user_following_handler(
     Path(user_id): Path<String>,
-    Query(query): Query<PaginationQuery>,
+    Query(query): Query<Pagination>,
 ) -> Result<Json<Following>> {
     info!("GET {USER_FOLLOWING_ROUTE} user_id:{}", user_id);
 
@@ -88,7 +88,7 @@ pub async fn user_following_handler(
 )]
 pub async fn user_friends_handler(
     Path(user_id): Path<String>,
-    Query(query): Query<PaginationQuery>,
+    Query(query): Query<Pagination>,
 ) -> Result<Json<Friends>> {
     info!("GET {USER_FRIENDS_ROUTE} user_id:{}", user_id);
 

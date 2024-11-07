@@ -6,8 +6,8 @@ use std::error::Error;
 use std::ops::Deref;
 use utoipa::ToSchema;
 
-use crate::db::kv::index::sorted_sets::Sorting;
-use crate::models::user::{Followers, Following, Friends, UserFollows};
+use crate::db::kv::index::sorted_sets::SortOrder;
+use crate::models::follow::{Followers, Following, Friends, UserFollows};
 use crate::{db::connectors::neo4j::get_neo4j_graph, queries};
 use crate::{RedisOps, ScoreAction};
 
@@ -131,7 +131,7 @@ impl HotTags {
             None,
             skip,
             limit,
-            Sorting::Descending,
+            SortOrder::Descending,
         )
         .await?
         .unwrap_or_default();

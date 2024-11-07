@@ -1,6 +1,6 @@
 use crate::models::user::UserSearch;
 use crate::routes::v0::endpoints::SEARCH_USERS_ROUTE;
-use crate::routes::v0::queries::PaginationQuery;
+use crate::types::Pagination;
 use crate::{Error, Result};
 use axum::extract::Query;
 use axum::Json;
@@ -12,7 +12,7 @@ use utoipa::OpenApi;
 pub struct SearchQuery {
     username: Option<String>,
     #[serde(flatten)]
-    pagination: PaginationQuery,
+    pagination: Pagination,
 }
 
 #[utoipa::path(

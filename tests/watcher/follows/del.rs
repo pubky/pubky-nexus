@@ -4,8 +4,9 @@ use anyhow::Result;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{
     models::{
+        follow::{Followers, Following, UserFollows},
         pubky_app::PubkyAppUser,
-        user::{Followers, Following, Relationship, UserFollows},
+        user::Relationship,
     },
     RedisOps,
 };

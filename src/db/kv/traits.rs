@@ -2,7 +2,7 @@ use super::index::*;
 use axum::async_trait;
 use json::JsonAction;
 use serde::{de::DeserializeOwned, Serialize};
-use sorted_sets::{ScoreAction, Sorting, SORTED_PREFIX};
+use sorted_sets::{ScoreAction, SortOrder, SORTED_PREFIX};
 use std::error::Error;
 
 /// A trait for operations involving Redis storage. Implement this trait for types that need to be stored
@@ -598,7 +598,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         end: Option<f64>,
         skip: Option<usize>,
         limit: Option<usize>,
-        sorting: Sorting,
+        sorting: SortOrder,
     ) -> Result<Option<Vec<(String, f64)>>, Box<dyn Error + Send + Sync>> {
         let key = key_parts.join(":");
 

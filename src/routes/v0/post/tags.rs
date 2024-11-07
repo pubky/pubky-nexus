@@ -3,8 +3,8 @@ use crate::models::tag::traits::taggers::Taggers;
 use crate::models::tag::traits::{TagCollection, TaggersCollection};
 use crate::models::tag::TagDetails;
 use crate::routes::v0::endpoints::{POST_TAGGERS_ROUTE, POST_TAGS_ROUTE};
-use crate::routes::v0::queries::PaginationQuery;
 use crate::routes::v0::TagsQuery;
+use crate::types::Pagination;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
@@ -66,7 +66,7 @@ pub async fn post_tags_handler(
 )]
 pub async fn post_taggers_handler(
     Path((user_id, post_id, label)): Path<(String, String, String)>,
-    Query(pagination): Query<PaginationQuery>,
+    Query(pagination): Query<Pagination>,
 ) -> Result<Json<Taggers>> {
     info!(
         "GET {POST_TAGGERS_ROUTE} user_id:{}, post_id: {}, label: {}, skip:{:?}, limit:{:?}",

@@ -1,11 +1,9 @@
 use neo4rs::{query, Query};
 
-use crate::routes::v0::{
-    queries::PaginationQuery,
-    stream::{
-        queries::{Filters, ViewerStreamSourceQuery},
-        PostStreamSorting,
-    },
+use crate::types::Pagination;
+use crate::{
+    routes::v0::stream::queries::{Filters, StreamSource},
+    types::StreamSorting,
 };
 
 // Retrieve post node by post id and author id
@@ -426,10 +424,10 @@ pub fn get_files_by_ids(key_pair: &[&[&str]]) -> Query {
 
 // Build the graph query based on parameters
 pub fn post_stream(
-    source: ViewerStreamSourceQuery,
-    sorting: PostStreamSorting,
+    source: StreamSource,
+    sorting: StreamSorting,
     filters: Filters,
-    pagination: PaginationQuery,
+    pagination: Pagination,
 ) -> Query {
     let mut cypher = String::new();
 
@@ -448,22 +446,22 @@ pub fn post_stream(
 
     // Apply source
     match source {
-        ViewerStreamSourceQuery::Following { .. } => {
+        StreamSource::Following { .. } => {
             cypher.push_str("MATCH (observer)-[:FOLLOWS]->(author)\n");
         }
-        ViewerStreamSourceQuery::Followers { .. } => {
+        StreamSource::Followers { .. } => {
             cypher.push_str("MATCH (observer)<-[:FOLLOWS]-(author)\n");
         }
-        ViewerStreamSourceQuery::Friends { .. } => {
+        StreamSource::Friends { .. } => {
             cypher.push_str("MATCH (observer)-[:FOLLOWS]->(author)-[:FOLLOWS]->(observer)\n");
         }
-        ViewerStreamSourceQuery::Bookmarks { .. } => {
+        StreamSource::Bookmarks { .. } => {
             cypher.push_str("MATCH (observer)-[:BOOKMARKED]->(p)\n");
         }
-        ViewerStreamSourceQuery::All { .. } => {
+        StreamSource::All { .. } => {
             // No additional match needed
         }
-        ViewerStreamSourceQuery::Replies { .. } => {
+        StreamSource::Replies { .. } => {
             // No additional match needed
         }
     }
@@ -478,7 +476,7 @@ pub fn post_stream(
     }
     // Apply time interval conditions. Only can be applied with timeline sorting
     // The engagament score has to be computed
-    if sorting == PostStreamSorting::Timeline {
+    if sorting == StreamSorting::Timeline {
         if pagination.start.is_some() {
             if where_clause_applied {
                 cypher.push_str("AND p.indexed_at <= $start\n");
@@ -500,11 +498,11 @@ pub fn post_stream(
     // Make unique the posts, cannot be repeated
     cypher.push_str("WITH DISTINCT p, author\n");
 
-    // Apply Sorting
+    // Apply StreamSorting
     // Conditionally compute engagement counts only for TotalEngagement sorting
     let order_clause = match sorting {
-        PostStreamSorting::Timeline => "ORDER BY p.indexed_at DESC".to_string(),
-        PostStreamSorting::TotalEngagement => {
+        StreamSorting::Timeline => "ORDER BY p.indexed_at DESC".to_string(),
+        StreamSorting::TotalEngagement => {
             // TODO: These optional matches could potentially be combined/collected to improve performance
             cypher.push_str(
                 "

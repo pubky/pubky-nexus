@@ -4,8 +4,8 @@ use crate::models::tag::user::TagUser;
 use crate::models::tag::TagDetails;
 use crate::models::user::{ProfileTag, UserTags};
 use crate::routes::v0::endpoints::{USER_TAGGERS_ROUTE, USER_TAGS_ROUTE};
-use crate::routes::v0::queries::PaginationQuery;
 use crate::routes::v0::TagsQuery;
+use crate::types::Pagination;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
@@ -61,7 +61,7 @@ pub async fn user_tags_handler(
 )]
 pub async fn user_taggers_handler(
     Path((user_id, label)): Path<(String, String)>,
-    Query(pagination): Query<PaginationQuery>,
+    Query(pagination): Query<Pagination>,
 ) -> Result<Json<Taggers>> {
     info!(
         "GET {USER_TAGGERS_ROUTE} user_id:{}, label: {}, skip:{:?}, limit:{:?}",

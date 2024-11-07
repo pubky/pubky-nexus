@@ -5,6 +5,7 @@ use pubky_nexus::models::tag::post::TagPost;
 use pubky_nexus::models::tag::stream::{HotTags, TagStreamReach};
 use pubky_nexus::models::tag::traits::{TagCollection, TaggersCollection};
 use pubky_nexus::models::tag::user::TagUser;
+use pubky_nexus::routes::v0::types::PaginationQuery;
 use setup::run_setup;
 use std::time::Duration;
 use tokio::runtime::Runtime;
@@ -48,9 +49,10 @@ fn bench_get_user_tag_taggers(c: &mut Criterion) {
         &user_id,
         |b, &id| {
             b.to_async(&rt).iter(|| async {
-                let taggers = TagUser::get_tagger_by_id(id, None, "pubky", None, None)
-                    .await
-                    .unwrap();
+                let taggers =
+                    TagUser::get_tagger_by_id(id, None, "pubky", PaginationQuery::default())
+                        .await
+                        .unwrap();
                 criterion::black_box(taggers);
             });
         },
@@ -103,10 +105,14 @@ fn bench_get_post_tag_taggers(c: &mut Criterion) {
         &[user_id, post_id],
         |b, &params| {
             b.to_async(&rt).iter(|| async {
-                let taggers =
-                    TagPost::get_tagger_by_id(params[0], Some(params[1]), "free", None, None)
-                        .await
-                        .unwrap();
+                let taggers = TagPost::get_tagger_by_id(
+                    params[0],
+                    Some(params[1]),
+                    "free",
+                    PaginationQuery::default(),
+                )
+                .await
+                .unwrap();
                 criterion::black_box(taggers);
             });
         },

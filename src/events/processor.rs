@@ -1,10 +1,8 @@
 use std::time::Duration;
 
 use super::Event;
-use crate::{
-    models::{homeserver::Homeserver, user::PubkyId},
-    Config,
-};
+use crate::types::PubkyId;
+use crate::{models::homeserver::Homeserver, Config};
 use log::{debug, error, info};
 use pkarr::mainline::dht::Testnet;
 use pubky::PubkyClient;

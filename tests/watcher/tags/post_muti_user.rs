@@ -20,7 +20,7 @@ use pubky_nexus::{
             traits::{TagCollection, TaggersCollection},
         },
     },
-    routes::v0::queries::PaginationQuery,
+    types::Pagination,
     RedisOps,
 };
 
@@ -329,7 +329,7 @@ async fn test_homeserver_multi_user() -> Result<()> {
         .unwrap();
     assert_eq!(fire_total_engagement, actual_fire_tag_hot_score);
 
-    let notifications = Notification::get_by_id(author_id, PaginationQuery::default())
+    let notifications = Notification::get_by_id(author_id, Pagination::default())
         .await
         .unwrap();
     assert_eq!(

@@ -11,7 +11,8 @@ use pubky_nexus::{
         post::{PostDetails, PostRelationships, PostStream, PostThread},
         pubky_app::{PostKind, PubkyAppPost, PubkyAppUser},
     },
-    routes::v0::{post::ThreadQuery, queries::PaginationQuery},
+    routes::v0::post::ThreadQuery,
+    types::Pagination,
     RedisOps,
 };
 
@@ -74,7 +75,7 @@ async fn test_homeserver_post_reply() -> Result<()> {
     let query = ThreadQuery {
         viewer_id: None,
         depth: Some(1),
-        pagination: PaginationQuery {
+        pagination: Pagination {
             skip: Some(0),
             limit: Some(10),
             start: None,

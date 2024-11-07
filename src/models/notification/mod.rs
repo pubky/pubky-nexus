@@ -1,7 +1,5 @@
-use crate::{
-    db::kv::index::sorted_sets::Sorting, get_neo4j_graph, queries,
-    routes::v0::queries::PaginationQuery, RedisOps,
-};
+use crate::types::Pagination;
+use crate::{db::kv::index::sorted_sets::SortOrder, get_neo4j_graph, queries, RedisOps};
 use chrono::Utc;
 use neo4rs::Row;
 use serde::{Deserialize, Serialize};
@@ -117,7 +115,7 @@ impl Notification {
     /// Lists notifications from the sorted set for the user, based on skip and limit, or timestamp range.
     pub async fn get_by_id(
         user_id: &str,
-        pagination: PaginationQuery,
+        pagination: Pagination,
     ) -> Result<Vec<Self>, Box<dyn std::error::Error + Send + Sync>> {
         // Set the default params for pagination
         let skip = pagination.skip.unwrap_or(0);
@@ -129,7 +127,7 @@ impl Notification {
             pagination.end,
             Some(skip),
             Some(limit),
-            Sorting::Descending, // Sorting in descending order by score (timestamp)
+            SortOrder::Descending, // StreamSorting in descending order by score (timestamp)
         )
         .await?;
 

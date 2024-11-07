@@ -1,5 +1,6 @@
 use super::DynError;
-use crate::{routes::v0::queries::PaginationQuery, RedisOps};
+use crate::types::Pagination;
+use crate::RedisOps;
 use axum::async_trait;
 
 // TODO: There is another struct with the same name. model/tag/stream
@@ -24,7 +25,7 @@ where
         user_id: &str,
         extra_param: Option<&str>,
         label: &str,
-        pagination: PaginationQuery,
+        pagination: Pagination,
     ) -> Result<Option<Taggers>, DynError> {
         // Set default params for pagination
         let skip = pagination.skip.unwrap_or(0);

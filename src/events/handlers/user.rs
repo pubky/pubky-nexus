@@ -3,9 +3,10 @@ use crate::models::user::UserSearch;
 use crate::models::{
     pubky_app::{traits::Validatable, PubkyAppUser},
     traits::Collection,
-    user::{PubkyId, UserCounts, UserDetails},
+    user::{UserCounts, UserDetails},
 };
 use crate::queries::get::user_is_safe_to_delete;
+use crate::types::PubkyId;
 use axum::body::Bytes;
 use log::debug;
 use std::error::Error;

@@ -6,7 +6,7 @@ use pubky_nexus::{
         notification::{Notification, NotificationBody},
         pubky_app::{PostKind, PubkyAppPost, PubkyAppUser},
     },
-    routes::v0::queries::PaginationQuery,
+    types::Pagination,
 };
 
 #[tokio::test]
@@ -66,7 +66,7 @@ async fn test_homeserver_mentions_notifications() -> Result<()> {
     let post_id = test.create_post(&author_user_id, &post).await?;
 
     // Check if mentioned User 1 received a Mention notification
-    let notifications_1 = Notification::get_by_id(&mentioned_user_1_id, PaginationQuery::default())
+    let notifications_1 = Notification::get_by_id(&mentioned_user_1_id, Pagination::default())
         .await
         .unwrap();
     assert_eq!(
@@ -95,7 +95,7 @@ async fn test_homeserver_mentions_notifications() -> Result<()> {
     }
 
     // Check if mentioned User 2 received a Mention notification
-    let notifications_2 = Notification::get_by_id(&mentioned_user_2_id, PaginationQuery::default())
+    let notifications_2 = Notification::get_by_id(&mentioned_user_2_id, Pagination::default())
         .await
         .unwrap();
     assert_eq!(

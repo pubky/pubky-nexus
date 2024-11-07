@@ -1,7 +1,8 @@
 use crate::db::kv::index::json::JsonAction;
+use crate::models::follow::{Followers, Following, Friends, UserFollows};
 use crate::models::notification::Notification;
-use crate::models::user::{Followers, Following, Friends};
-use crate::models::user::{PubkyId, UserCounts, UserFollows};
+use crate::models::user::UserCounts;
+use crate::types::PubkyId;
 use axum::body::Bytes;
 use log::debug;
 use std::error::Error;

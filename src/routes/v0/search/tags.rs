@@ -1,7 +1,7 @@
 use crate::models::tag::search::TagSearch;
 use crate::routes::v0::endpoints::SEARCH_TAGS_ROUTE;
-use crate::routes::v0::queries::PaginationQuery;
-use crate::routes::v0::stream::PostStreamSorting;
+use crate::types::Pagination;
+use crate::types::StreamSorting;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
@@ -11,9 +11,9 @@ use utoipa::OpenApi;
 
 #[derive(Deserialize)]
 pub struct SearchTagsQuery {
-    pub sorting: Option<PostStreamSorting>,
+    pub sorting: Option<StreamSorting>,
     #[serde(flatten)]
-    pub pagination: PaginationQuery,
+    pub pagination: Pagination,
 }
 
 #[utoipa::path(
@@ -22,7 +22,7 @@ pub struct SearchTagsQuery {
     tag = "Search Post by Tags",
     params(
         ("label" = String, Path, description = "Tag name"),
-        ("sorting" = Option<PostStreamSorting>, Query, description = "Sorting method"),
+        ("sorting" = Option<StreamSorting>, Query, description = "StreamSorting method"),
         ("start" = Option<usize>, Query, description = "The start of the stream timeframe. Posts with a timestamp greater than this value will be excluded from the results"),
         ("end" = Option<usize>, Query, description = "The end of the stream timeframe. Posts with a timestamp less than this value will be excluded from the results"),
         ("skip" = Option<usize>, Query, description = "Skip N results"),

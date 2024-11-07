@@ -1,7 +1,8 @@
-use crate::routes::v0::stream::queries::ViewerStreamSource;
-use crate::routes::v0::stream::PostStreamSorting;
+use crate::routes::v0::stream::queries::StreamSourceQuery;
+use crate::types::StreamSorting;
 use crate::Error;
 use axum::{extract::Query, Json};
+use log::info;
 use utoipa::OpenApi;
 
 use crate::models::post::PostStream;
@@ -11,19 +12,18 @@ use super::queries::PostStreamQuery;
 
 type AppResult<T> = std::result::Result<T, Error>;
 
-const MAX_TAGS: usize = 5;
-
 #[utoipa::path(
     get,
     path = STREAM_POSTS_ROUTE,
     tag = "Stream Posts",
     params(
-        ("source" = Option<ViewerStreamSource>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, replies, all)"),
+        ("source" = Option<StreamSourceQuery>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, replies, all)"),
         ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
-        ("observer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
+        // TODO: Define better
+        ("observer_id" = Option<String>, Query, description = "Observer Pubky ID. The center"),
         ("author_id" = Option<String>, Query, description = "Filter posts by an specific author User ID"),
         ("post_id" = Option<String>, Query, description = "This parameter is needed when we want to retrieve the replies stream for a post"),
-        ("sorting" = Option<PostStreamSorting>, Query, description = "Sorting method"),
+        ("sorting" = Option<StreamSorting>, Query, description = "StreamSorting method"),
         ("tags" = Option<Vec<String>>, Query, description = "Filter by a list of comma-separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned."),
         ("skip" = Option<usize>, Query, description = "Skip N posts"),
         ("limit" = Option<usize>, Query, description = "Retrieve N posts"),
@@ -39,15 +39,11 @@ const MAX_TAGS: usize = 5;
 pub async fn stream_posts_handler(
     Query(mut query): Query<PostStreamQuery>,
 ) -> AppResult<Json<PostStream>> {
+    info!("GET {STREAM_POSTS_ROUTE}");
+
     query.initialize_defaults();
-    // Enforce maximum number of tags
-    if let Some(ref tags) = query.filters.tags {
-        if tags.len() > MAX_TAGS {
-            return Err(Error::InvalidInput {
-                message: format!("Too many tags provided; maximum allowed is {}", MAX_TAGS),
-            });
-        }
-    }
+    query.validate()?;
+
     println!("QUERY: {:?}", query);
 
     match PostStream::get_posts(query).await {
@@ -62,6 +58,6 @@ pub async fn stream_posts_handler(
 #[derive(OpenApi)]
 #[openapi(
     paths(stream_posts_handler,),
-    components(schemas(PostStream, PostStreamSorting))
+    components(schemas(PostStream, StreamSorting))
 )]
 pub struct StreamPostsApiDocs;

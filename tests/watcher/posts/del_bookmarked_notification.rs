@@ -6,7 +6,7 @@ use pubky_nexus::{
         notification::{Notification, NotificationBody, PostChangedSource},
         pubky_app::{traits::HashId, PostKind, PubkyAppBookmark, PubkyAppPost, PubkyAppUser},
     },
-    routes::v0::queries::PaginationQuery,
+    types::Pagination,
 };
 
 #[tokio::test]
@@ -62,7 +62,7 @@ async fn test_delete_bookmarked_post_notification() -> Result<()> {
     test.cleanup_post(&user_a_id, &post_id).await?;
 
     // Verify that User B receives a notification about the deletion
-    let notifications = Notification::get_by_id(&user_b_id, PaginationQuery::default())
+    let notifications = Notification::get_by_id(&user_b_id, Pagination::default())
         .await
         .unwrap();
 

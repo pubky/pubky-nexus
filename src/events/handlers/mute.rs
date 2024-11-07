@@ -1,4 +1,5 @@
-use crate::models::user::{Muted, PubkyId};
+use crate::models::user::Muted;
+use crate::types::PubkyId;
 use axum::body::Bytes;
 use log::debug;
 use std::error::Error;
