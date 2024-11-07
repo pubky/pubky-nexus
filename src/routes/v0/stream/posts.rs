@@ -1,4 +1,3 @@
-use crate::routes::v0::stream::queries::StreamSourceQuery;
 use crate::types::StreamSorting;
 use crate::Error;
 use axum::{extract::Query, Json};
@@ -8,7 +7,7 @@ use utoipa::OpenApi;
 use crate::models::post::PostStream;
 use crate::routes::v0::endpoints::STREAM_POSTS_ROUTE;
 
-use super::queries::PostStreamQuery;
+use super::queries::{PostStreamQuery, StreamSource};
 
 type AppResult<T> = std::result::Result<T, Error>;
 
@@ -17,7 +16,7 @@ type AppResult<T> = std::result::Result<T, Error>;
     path = STREAM_POSTS_ROUTE,
     tag = "Stream Posts",
     params(
-        ("source" = Option<StreamSourceQuery>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, replies, all)"),
+        ("source" = Option<StreamSource>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, replies, all)"),
         ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
         // TODO: Define better
         ("observer_id" = Option<String>, Query, description = "Observer Pubky ID. The center"),
@@ -58,6 +57,6 @@ pub async fn stream_posts_handler(
 #[derive(OpenApi)]
 #[openapi(
     paths(stream_posts_handler,),
-    components(schemas(PostStream, StreamSorting))
+    components(schemas(PostStream, StreamSorting, StreamSource))
 )]
 pub struct StreamPostsApiDocs;
