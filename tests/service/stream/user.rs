@@ -4,7 +4,10 @@ use anyhow::Result;
 
 #[tokio::test]
 async fn test_stream_user_posts() -> Result<()> {
-    let path = format!("{ROOT_PATH}?author_id={}&sorting=timeline", USER_ID);
+    let path = format!(
+        "{ROOT_PATH}?author_id={}&source=author&sorting=timeline",
+        USER_ID
+    );
     let body = make_request(&path).await?;
 
     assert!(body.is_array());

@@ -83,7 +83,7 @@ async fn test_stream_user_bookmarks_by_timeline_with_skip_end() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_stream_bookmarks_without_viewer_id() -> Result<()> {
+async fn test_stream_bookmarks_without_observer_id() -> Result<()> {
     // Missing observer_id for bookmark reach should fail
     let path = format!("{ROOT_PATH}?source=bookmarks");
     make_wrong_request(&path, Some(400)).await?;

@@ -10,9 +10,10 @@ use utoipa::ToSchema;
 
 pub type DynError = Box<dyn Error + Send + Sync>;
 
-#[derive(Debug, Serialize, Deserialize, ToSchema, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, ToSchema, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum StreamSorting {
+    #[default]
     Timeline,
     TotalEngagement,
 }

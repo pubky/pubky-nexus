@@ -53,7 +53,7 @@ pub async fn stream_posts_handler(
     }
 
     let source = query.source.unwrap_or_default(); // StreamSource::All is default
-    let sorting = query.sorting.unwrap_or(StreamSorting::Timeline);
+    let sorting = query.sorting.unwrap_or_default(); // StreamSorting::Timeline) is default
 
     match PostStream::get_posts(
         source,
