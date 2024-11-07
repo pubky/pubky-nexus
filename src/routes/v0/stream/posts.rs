@@ -1,15 +1,15 @@
+use super::queries::{PostStreamQuery, StreamSource};
+use crate::models::post::PostStream;
+use crate::routes::v0::endpoints::STREAM_POSTS_ROUTE;
 use crate::types::StreamSorting;
 use crate::Error;
 use axum::{extract::Query, Json};
 use log::info;
 use utoipa::OpenApi;
 
-use crate::models::post::PostStream;
-use crate::routes::v0::endpoints::STREAM_POSTS_ROUTE;
-
-use super::queries::{PostStreamQuery, StreamSource};
-
 type AppResult<T> = std::result::Result<T, Error>;
+
+const MAX_TAGS: usize = 5;
 
 #[utoipa::path(
     get,
@@ -18,8 +18,7 @@ type AppResult<T> = std::result::Result<T, Error>;
     params(
         ("source" = Option<StreamSource>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, replies, all)"),
         ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
-        // TODO: Define better
-        ("observer_id" = Option<String>, Query, description = "Observer Pubky ID. The center"),
+        ("observer_id" = Option<String>, Query, description = "Observer Pubky ID. The central point for streams with Reach"),
         ("author_id" = Option<String>, Query, description = "Filter posts by an specific author User ID"),
         ("post_id" = Option<String>, Query, description = "This parameter is needed when we want to retrieve the replies stream for a post"),
         ("sorting" = Option<StreamSorting>, Query, description = "StreamSorting method"),
@@ -41,11 +40,30 @@ pub async fn stream_posts_handler(
     info!("GET {STREAM_POSTS_ROUTE}");
 
     query.initialize_defaults();
-    query.validate()?;
 
     println!("QUERY: {:?}", query);
 
-    match PostStream::get_posts(query).await {
+    // Enforce maximum number of tags
+    if let Some(ref tags) = query.tags {
+        if tags.len() > MAX_TAGS {
+            return Err(Error::InvalidInput {
+                message: format!("Too many tags provided; maximum allowed is {}", MAX_TAGS),
+            });
+        }
+    }
+
+    let source = query.source.unwrap_or_default(); // StreamSource::All is default
+    let sorting = query.sorting.unwrap_or(StreamSorting::Timeline);
+
+    match PostStream::get_posts(
+        source,
+        query.pagination,
+        sorting,
+        query.viewer_id,
+        query.tags,
+    )
+    .await
+    {
         Ok(Some(stream)) => Ok(Json(stream)),
         Ok(None) => Err(Error::EmptyStream {
             message: "No posts found for the given criteria.".to_string(),

@@ -1,10 +1,7 @@
 use neo4rs::{query, Query};
 
 use crate::types::Pagination;
-use crate::{
-    routes::v0::stream::queries::{Filters, StreamSource},
-    types::StreamSorting,
-};
+use crate::{routes::v0::stream::queries::StreamSource, types::StreamSorting};
 
 // Retrieve post node by post id and author id
 pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
@@ -426,7 +423,7 @@ pub fn get_files_by_ids(key_pair: &[&[&str]]) -> Query {
 pub fn post_stream(
     source: StreamSource,
     sorting: StreamSorting,
-    filters: Filters,
+    tags: &Option<Vec<String>>,
     pagination: Pagination,
 ) -> Query {
     let mut cypher = String::new();
@@ -458,10 +455,7 @@ pub fn post_stream(
         StreamSource::Bookmarks { .. } => {
             cypher.push_str("MATCH (observer)-[:BOOKMARKED]->(p)\n");
         }
-        StreamSource::All { .. } => {
-            // No additional match needed
-        }
-        StreamSource::Replies { .. } => {
+        _ => {
             // No additional match needed
         }
     }
@@ -469,7 +463,7 @@ pub fn post_stream(
     let mut where_clause_applied = false;
 
     // Apply tags
-    if filters.tags.is_some() {
+    if tags.is_some() {
         cypher.push_str("MATCH (User)-[tag:TAGGED]->(p)\n");
         cypher.push_str("WHERE tag.label IN $labels\n");
         where_clause_applied = true;
@@ -567,7 +561,7 @@ pub fn post_stream(
     if let Some(observer_id) = source.has_observer() {
         query = query.param("observer_id", observer_id.to_string());
     }
-    if let Some(labels) = filters.tags {
+    if let Some(labels) = tags.clone() {
         query = query.param("labels", labels);
     }
     if let Some(author_id) = source.has_author() {

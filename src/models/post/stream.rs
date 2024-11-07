@@ -8,7 +8,7 @@ use crate::{
         tag::search::TagSearch,
     },
     queries,
-    routes::v0::stream::queries::{Filters, PostStreamQuery, StreamSource},
+    routes::v0::stream::queries::StreamSource,
     RedisOps, ScoreAction,
 };
 use serde::{Deserialize, Serialize};
@@ -40,38 +40,18 @@ impl PostStream {
     }
 
     pub async fn get_posts(
-        stream_params: PostStreamQuery,
+        source: StreamSource,
+        pagination: Pagination,
+        sorting: StreamSorting,
+        viewer_id: Option<String>,
+        tags: Option<Vec<String>>,
     ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
         // Decide whether to use index or fallback to graph query
-        let use_index = Self::can_use_index(
-            stream_params.sorting.as_ref().unwrap(),
-            &stream_params.source,
-            &stream_params.filters.tags,
-        );
-
-        let viewer_id = stream_params.viewer_id.clone();
-
-        let sorting = stream_params.sorting.unwrap();
+        let use_index = Self::can_use_index(&sorting, &source, &tags);
 
         let post_keys = match use_index {
-            true => {
-                Self::get_from_index(
-                    stream_params.source,
-                    sorting,
-                    stream_params.filters,
-                    stream_params.pagination,
-                )
-                .await?
-            }
-            false => {
-                Self::get_from_graph(
-                    stream_params.source,
-                    sorting,
-                    stream_params.filters,
-                    stream_params.pagination,
-                )
-                .await?
-            }
+            true => Self::get_from_index(source, sorting, &tags, pagination).await?,
+            false => Self::get_from_graph(source, sorting, &tags, pagination).await?,
         };
 
         if post_keys.is_empty() {
@@ -89,11 +69,11 @@ impl PostStream {
     ) -> bool {
         match (sorting, source, tags) {
             // We have a sorted set for posts by a specific author
-            (StreamSorting::Timeline, StreamSource::All { author_id: Some(_) }, None) => true,
+            (StreamSorting::Timeline, StreamSource::Author { author_id: Some(_) }, None) => true,
             // We have a sorted set for global for any sorting
-            (_, StreamSource::All { author_id: None }, None) => true,
+            (_, StreamSource::All, None) => true,
             // We have a sorted set for posts by tags for any sorting for a single tag
-            (_, StreamSource::All { .. }, Some(tags)) if tags.len() == 1 => true,
+            (_, StreamSource::All, Some(tags)) if tags.len() == 1 => true,
             // We can use sorted set for posts by source only for timeline
             (StreamSorting::Timeline, StreamSource::Following { .. }, None) => true,
             (StreamSorting::Timeline, StreamSource::Followers { .. }, None) => true,
@@ -111,10 +91,9 @@ impl PostStream {
     async fn get_from_index(
         source: StreamSource,
         sorting: StreamSorting,
-        filters: Filters,
+        tags: &Option<Vec<String>>,
         pagination: Pagination,
     ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
-        let tags = filters.tags;
         let start = pagination.start;
         let end = pagination.end;
         let skip = pagination.skip;
@@ -122,11 +101,11 @@ impl PostStream {
 
         match (source, tags) {
             // Global post streams
-            (StreamSource::All { author_id: None }, None) => {
+            (StreamSource::All, None) => {
                 Self::get_global_posts_keys(sorting, start, end, skip, limit).await
             }
             // Streams by tags
-            (StreamSource::All { author_id: None }, Some(tags)) if tags.len() == 1 => {
+            (StreamSource::All, Some(tags)) if tags.len() == 1 => {
                 Self::get_posts_keys_by_tag(&tags[0], sorting, start, end, skip, limit).await
             }
             // Bookmark streams
@@ -139,7 +118,7 @@ impl PostStream {
             },
             // Streams by only author
             (
-                StreamSource::All {
+                StreamSource::Author {
                     author_id: Some(id),
                 },
                 None,
@@ -154,13 +133,13 @@ impl PostStream {
     async fn get_from_graph(
         source: StreamSource,
         sorting: StreamSorting,
-        filters: Filters,
+        tags: &Option<Vec<String>>,
         pagination: Pagination,
     ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
-            let query = queries::get::post_stream(source, sorting, filters, pagination);
+            let query = queries::get::post_stream(source, sorting, tags, pagination);
 
             let graph = graph.lock().await;
 
