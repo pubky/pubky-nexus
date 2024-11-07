@@ -1,7 +1,7 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use pubky_nexus::{
     models::post::PostThread,
-    routes::v0::{post::ThreadQuery, types::PaginationQuery},
+    routes::v0::post::ThreadQuery, types::Pagination,
 };
 use setup::run_setup;
 use std::time::Duration;
@@ -28,7 +28,7 @@ fn bench_thread_retrieval(c: &mut Criterion) {
                 let params = ThreadQuery {
                     viewer_id: None,
                     depth: Some(3),
-                    pagination: PaginationQuery {
+                    pagination: Pagination {
                         skip: Some(0),
                         limit: Some(10),
                         start: None,
