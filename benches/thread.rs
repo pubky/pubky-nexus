@@ -1,8 +1,5 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use pubky_nexus::{
-    models::post::PostThread,
-    routes::v0::post::ThreadQuery, types::Pagination,
-};
+use pubky_nexus::{models::post::PostThread, routes::v0::post::ThreadQuery, types::Pagination};
 use setup::run_setup;
 use std::time::Duration;
 use tokio::runtime::Runtime;

@@ -1,6 +1,6 @@
 use super::utils::verify_post_list;
 use super::ROOT_PATH;
-use crate::service::utils::{make_request, make_wrong_request};
+use crate::service::utils::make_request;
 use anyhow::Result;
 
 // User with most bookmarks
@@ -78,15 +78,6 @@ async fn test_stream_user_bookmarks_by_timeline_with_skip_end() -> Result<()> {
     let body = make_request(&path).await?;
     let post_list = vec![POST_TA, POST_TB, POST_TC, POST_TD, POST_TE];
     verify_post_list(post_list, body);
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_stream_bookmarks_without_viewer_id() -> Result<()> {
-    // Missing observer_id for bookmark reach should fail
-    let path = format!("{ROOT_PATH}?source=bookmarks");
-    make_wrong_request(&path, Some(400)).await?;
 
     Ok(())
 }

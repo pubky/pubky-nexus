@@ -1,26 +1,59 @@
-use crate::routes::v0::stream::queries::StreamSourceQuery;
+use crate::routes::v0::endpoints::STREAM_POSTS_ROUTE;
 use crate::types::StreamSorting;
-use crate::Error;
+use crate::{
+    models::post::{PostStream, StreamSource},
+    types::Pagination,
+};
+use crate::{Error, Result as AppResult};
 use axum::{extract::Query, Json};
 use log::info;
-use utoipa::OpenApi;
+use serde::{Deserialize, Deserializer};
+use utoipa::{OpenApi, ToSchema};
 
-use crate::models::post::PostStream;
-use crate::routes::v0::endpoints::STREAM_POSTS_ROUTE;
+const MAX_TAGS: usize = 5;
 
-use super::queries::PostStreamQuery;
+#[derive(Deserialize, Debug, ToSchema)]
+pub struct PostStreamQuery {
+    #[serde(flatten, default)]
+    pub source: Option<StreamSource>,
+    #[serde(flatten)]
+    pub pagination: Pagination,
+    pub sorting: Option<StreamSorting>,
+    pub viewer_id: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_comma_separated")]
+    pub tags: Option<Vec<String>>,
+}
 
-type AppResult<T> = std::result::Result<T, Error>;
+impl PostStreamQuery {
+    pub fn initialize_defaults(&mut self) {
+        self.pagination.skip.get_or_insert(0);
+        self.pagination.limit = Some(self.pagination.limit.unwrap_or(10).min(30));
+        self.sorting.get_or_insert(StreamSorting::Timeline);
+    }
+}
+
+// Custom deserializer for comma-separated tags
+fn deserialize_comma_separated<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s: Option<String> = Option::deserialize(deserializer)?;
+    if let Some(s) = s {
+        // Split by comma and trim any excess whitespace
+        let tags: Vec<String> = s.split(',').map(|tag| tag.trim().to_string()).collect();
+        return Ok(Some(tags));
+    }
+    Ok(None)
+}
 
 #[utoipa::path(
     get,
     path = STREAM_POSTS_ROUTE,
     tag = "Stream Posts",
     params(
-        ("source" = Option<StreamSourceQuery>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, replies, all)"),
+        ("source" = Option<StreamSource>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, replies, all)"),
         ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
-        // TODO: Define better
-        ("observer_id" = Option<String>, Query, description = "Observer Pubky ID. The center"),
+        ("observer_id" = Option<String>, Query, description = "Observer Pubky ID. The central point for streams with Reach"),
         ("author_id" = Option<String>, Query, description = "Filter posts by an specific author User ID"),
         ("post_id" = Option<String>, Query, description = "This parameter is needed when we want to retrieve the replies stream for a post"),
         ("sorting" = Option<StreamSorting>, Query, description = "StreamSorting method"),
@@ -34,7 +67,15 @@ type AppResult<T> = std::result::Result<T, Error>;
         (status = 200, description = "Posts stream", body = PostStream),
         (status = 404, description = "Posts not found"),
         (status = 500, description = "Internal server error")
-    )
+    ),
+    description = "Retrieve a stream of posts. The `source` parameter determines the type of stream. Depending on the `source`, certain parameters are required:
+
+    - `following`, `followers`, `friends`, `bookmarks`: Requires `observer_id`.
+    - `post_replies`: Requires `author_id` and `post_id` to filter replies to a specific post.
+    - `author`:  Requires  `author_id` to filter posts by a specific author.
+    
+    Ensure that you provide the necessary parameters based on the selected `source`. If the required parameter is not
+    provided, the provided `source` will be ignored and the stream type will default to `all`"
 )]
 pub async fn stream_posts_handler(
     Query(mut query): Query<PostStreamQuery>,
@@ -42,11 +83,30 @@ pub async fn stream_posts_handler(
     info!("GET {STREAM_POSTS_ROUTE}");
 
     query.initialize_defaults();
-    query.validate()?;
 
     println!("QUERY: {:?}", query);
 
-    match PostStream::get_posts(query).await {
+    // Enforce maximum number of tags
+    if let Some(ref tags) = query.tags {
+        if tags.len() > MAX_TAGS {
+            return Err(Error::InvalidInput {
+                message: format!("Too many tags provided; maximum allowed is {}", MAX_TAGS),
+            });
+        }
+    }
+
+    let source = query.source.unwrap_or_default(); // StreamSource::All is default
+    let sorting = query.sorting.unwrap_or_default(); // StreamSorting::Timeline) is default
+
+    match PostStream::get_posts(
+        source,
+        query.pagination,
+        sorting,
+        query.viewer_id,
+        query.tags,
+    )
+    .await
+    {
         Ok(Some(stream)) => Ok(Json(stream)),
         Ok(None) => Err(Error::EmptyStream {
             message: "No posts found for the given criteria.".to_string(),
@@ -58,6 +118,6 @@ pub async fn stream_posts_handler(
 #[derive(OpenApi)]
 #[openapi(
     paths(stream_posts_handler,),
-    components(schemas(PostStream, StreamSorting))
+    components(schemas(PostStream, StreamSorting, StreamSource))
 )]
 pub struct StreamPostsApiDocs;

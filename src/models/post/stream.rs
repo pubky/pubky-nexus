@@ -7,9 +7,7 @@ use crate::{
         follow::{Followers, Following, Friends, UserFollows},
         tag::search::TagSearch,
     },
-    queries,
-    routes::v0::stream::queries::{Filters, PostStreamQuery, StreamSource},
-    RedisOps, ScoreAction,
+    queries, RedisOps, ScoreAction,
 };
 use serde::{Deserialize, Serialize};
 use std::error::Error;
@@ -22,6 +20,55 @@ pub const POST_TOTAL_ENGAGEMENT_KEY_PARTS: [&str; 3] = ["Posts", "Global", "Tota
 pub const POST_REPLIES_TIMELINE_KEY_PARTS: [&str; 2] = ["Posts", "Replies"];
 pub const POST_PER_USER_KEY_PARTS: [&str; 2] = ["Posts", "User"];
 const BOOKMARKS_USER_KEY_PARTS: [&str; 2] = ["Bookmarks", "User"];
+
+#[derive(ToSchema, Deserialize, Debug, Clone, PartialEq, Default)]
+#[serde(tag = "source", rename_all = "snake_case")]
+pub enum StreamSource {
+    PostReplies {
+        post_id: String,
+        author_id: String,
+    },
+    Following {
+        observer_id: String,
+    },
+    Followers {
+        observer_id: String,
+    },
+    Friends {
+        observer_id: String,
+    },
+    Bookmarks {
+        observer_id: String,
+    },
+    Author {
+        author_id: String,
+    },
+    #[default]
+    All,
+}
+
+impl StreamSource {
+    pub fn get_observer(&self) -> Option<&String> {
+        match self {
+            StreamSource::Followers { observer_id }
+            | StreamSource::Following { observer_id }
+            | StreamSource::Friends { observer_id }
+            | StreamSource::Bookmarks { observer_id } => Some(observer_id),
+            _ => None,
+        }
+    }
+
+    pub fn get_author(&self) -> Option<&String> {
+        match self {
+            StreamSource::PostReplies {
+                author_id,
+                post_id: _,
+            } => Some(author_id),
+            StreamSource::Author { author_id } => Some(author_id),
+            _ => None,
+        }
+    }
+}
 
 #[derive(Serialize, Deserialize, ToSchema, Debug)]
 pub struct PostStream(pub Vec<PostView>);
@@ -40,38 +87,18 @@ impl PostStream {
     }
 
     pub async fn get_posts(
-        stream_params: PostStreamQuery,
+        source: StreamSource,
+        pagination: Pagination,
+        sorting: StreamSorting,
+        viewer_id: Option<String>,
+        tags: Option<Vec<String>>,
     ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
         // Decide whether to use index or fallback to graph query
-        let use_index = Self::can_use_index(
-            stream_params.sorting.as_ref().unwrap(),
-            &stream_params.source,
-            &stream_params.filters.tags,
-        );
-
-        let viewer_id = stream_params.viewer_id.clone();
-
-        let sorting = stream_params.sorting.unwrap();
+        let use_index = Self::can_use_index(&sorting, &source, &tags);
 
         let post_keys = match use_index {
-            true => {
-                Self::get_from_index(
-                    stream_params.source,
-                    sorting,
-                    stream_params.filters,
-                    stream_params.pagination,
-                )
-                .await?
-            }
-            false => {
-                Self::get_from_graph(
-                    stream_params.source,
-                    sorting,
-                    stream_params.filters,
-                    stream_params.pagination,
-                )
-                .await?
-            }
+            true => Self::get_from_index(source, sorting, &tags, pagination).await?,
+            false => Self::get_from_graph(source, sorting, &tags, pagination).await?,
         };
 
         if post_keys.is_empty() {
@@ -89,11 +116,11 @@ impl PostStream {
     ) -> bool {
         match (sorting, source, tags) {
             // We have a sorted set for posts by a specific author
-            (StreamSorting::Timeline, StreamSource::All { author_id: Some(_) }, None) => true,
+            (StreamSorting::Timeline, StreamSource::Author { .. }, None) => true,
             // We have a sorted set for global for any sorting
-            (_, StreamSource::All { author_id: None }, None) => true,
+            (_, StreamSource::All, None) => true,
             // We have a sorted set for posts by tags for any sorting for a single tag
-            (_, StreamSource::All { .. }, Some(tags)) if tags.len() == 1 => true,
+            (_, StreamSource::All, Some(tags)) if tags.len() == 1 => true,
             // We can use sorted set for posts by source only for timeline
             (StreamSorting::Timeline, StreamSource::Following { .. }, None) => true,
             (StreamSorting::Timeline, StreamSource::Followers { .. }, None) => true,
@@ -101,7 +128,7 @@ impl PostStream {
             // We have a sorted set for bookmarks only for timeline
             (StreamSorting::Timeline, StreamSource::Bookmarks { .. }, None) => true,
             // We can use sorted set of post replies
-            (_, StreamSource::Replies { .. }, _) => true,
+            (_, StreamSource::PostReplies { .. }, _) => true,
             // Other combinations require querying the graph
             _ => false,
         }
@@ -111,10 +138,9 @@ impl PostStream {
     async fn get_from_index(
         source: StreamSource,
         sorting: StreamSorting,
-        filters: Filters,
+        tags: &Option<Vec<String>>,
         pagination: Pagination,
     ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
-        let tags = filters.tags;
         let start = pagination.start;
         let end = pagination.end;
         let skip = pagination.skip;
@@ -122,28 +148,24 @@ impl PostStream {
 
         match (source, tags) {
             // Global post streams
-            (StreamSource::All { author_id: None }, None) => {
+            (StreamSource::All, None) => {
                 Self::get_global_posts_keys(sorting, start, end, skip, limit).await
             }
             // Streams by tags
-            (StreamSource::All { author_id: None }, Some(tags)) if tags.len() == 1 => {
+            (StreamSource::All, Some(tags)) if tags.len() == 1 => {
                 Self::get_posts_keys_by_tag(&tags[0], sorting, start, end, skip, limit).await
             }
             // Bookmark streams
             (StreamSource::Bookmarks { observer_id }, None) => {
                 Self::get_bookmarked_posts(&observer_id, start, end, skip, limit).await
             }
-            (StreamSource::Replies { author_id, post_id }, None) => match post_id {
-                Some(id) => Self::get_post_replies(&author_id, &id, start, end, limit).await,
-                None => Ok(vec!["User post replies COMMING...".to_string()]),
-            },
+            (StreamSource::PostReplies { author_id, post_id }, None) => {
+                Self::get_post_replies(&author_id, &post_id, start, end, limit).await
+            }
             // Streams by only author
-            (
-                StreamSource::All {
-                    author_id: Some(id),
-                },
-                None,
-            ) => Self::get_user_posts(&id, start, end, skip, limit).await,
+            (StreamSource::Author { author_id }, None) => {
+                Self::get_user_posts(&author_id, start, end, skip, limit).await
+            }
             // Streams by simple source: Following, Followers, Friends
             (source, None) => Self::get_posts_by_source(source, skip, limit).await,
             _ => Ok(vec![]),
@@ -154,13 +176,13 @@ impl PostStream {
     async fn get_from_graph(
         source: StreamSource,
         sorting: StreamSorting,
-        filters: Filters,
+        tags: &Option<Vec<String>>,
         pagination: Pagination,
     ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
-            let query = queries::get::post_stream(source, sorting, filters, pagination);
+            let query = queries::get::post_stream(source, sorting, tags, pagination);
 
             let graph = graph.lock().await;
 
@@ -425,7 +447,6 @@ impl PostStream {
         viewer_id: Option<String>,
         post_keys: &[String],
     ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
-        // TODO: ViewerId we get from the source, Replies and All does not have
         let viewer_id = viewer_id.map(|id| id.to_string());
         let mut handles = Vec::with_capacity(post_keys.len());
 
