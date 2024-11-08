@@ -1,7 +1,7 @@
 use crate::{run_setup, streams_benches::LIMIT_20};
 use criterion::Criterion;
+use pubky_nexus::models::post::{PostStream, StreamSource};
 use pubky_nexus::types::StreamSorting;
-use pubky_nexus::{models::post::PostStream, routes::v0::stream::queries::StreamSource};
 use tokio::runtime::Runtime;
 
 const AUTHOR_ID: &str = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
@@ -68,7 +68,7 @@ pub fn bench_stream_author_timeline(c: &mut Criterion) {
         b.to_async(&rt).iter(|| async {
             // Define all the arguments of the post stream
             let source = StreamSource::Author {
-                author_id: Some(AUTHOR_ID.to_string()),
+                author_id: AUTHOR_ID.to_string(),
             };
 
             // Run the benchmark
@@ -94,7 +94,7 @@ pub fn bench_stream_author_total_engagement(c: &mut Criterion) {
         b.to_async(&rt).iter(|| async {
             // Define all the arguments of the post stream
             let source = StreamSource::Author {
-                author_id: Some(AUTHOR_ID.to_string()),
+                author_id: AUTHOR_ID.to_string(),
             };
 
             // Run the benchmark

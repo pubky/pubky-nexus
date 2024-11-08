@@ -1,15 +1,50 @@
-use super::queries::{PostStreamQuery, StreamSource};
-use crate::models::post::PostStream;
 use crate::routes::v0::endpoints::STREAM_POSTS_ROUTE;
 use crate::types::StreamSorting;
-use crate::Error;
+use crate::{
+    models::post::{PostStream, StreamSource},
+    types::Pagination,
+};
+use crate::{Error, Result as AppResult};
 use axum::{extract::Query, Json};
 use log::info;
-use utoipa::OpenApi;
-
-type AppResult<T> = std::result::Result<T, Error>;
+use serde::{Deserialize, Deserializer};
+use utoipa::{OpenApi, ToSchema};
 
 const MAX_TAGS: usize = 5;
+
+#[derive(Deserialize, Debug, ToSchema)]
+pub struct PostStreamQuery {
+    #[serde(flatten, default)]
+    pub source: Option<StreamSource>,
+    #[serde(flatten)]
+    pub pagination: Pagination,
+    pub sorting: Option<StreamSorting>,
+    pub viewer_id: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_comma_separated")]
+    pub tags: Option<Vec<String>>,
+}
+
+impl PostStreamQuery {
+    pub fn initialize_defaults(&mut self) {
+        self.pagination.skip.get_or_insert(0);
+        self.pagination.limit = Some(self.pagination.limit.unwrap_or(10).min(30));
+        self.sorting.get_or_insert(StreamSorting::Timeline);
+    }
+}
+
+// Custom deserializer for comma-separated tags
+fn deserialize_comma_separated<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s: Option<String> = Option::deserialize(deserializer)?;
+    if let Some(s) = s {
+        // Split by comma and trim any excess whitespace
+        let tags: Vec<String> = s.split(',').map(|tag| tag.trim().to_string()).collect();
+        return Ok(Some(tags));
+    }
+    Ok(None)
+}
 
 #[utoipa::path(
     get,
@@ -32,7 +67,15 @@ const MAX_TAGS: usize = 5;
         (status = 200, description = "Posts stream", body = PostStream),
         (status = 404, description = "Posts not found"),
         (status = 500, description = "Internal server error")
-    )
+    ),
+    description = "Retrieve a stream of posts. The `source` parameter determines the type of stream. Depending on the `source`, certain parameters are required:
+
+    - `following`, `followers`, `friends`, `bookmarks`: Requires `observer_id`.
+    - `post_replies`: Requires `author_id` and `post_id` to filter replies to a specific post.
+    - `author`:  Requires  `author_id` to filter posts by a specific author.
+    
+    Ensure that you provide the necessary parameters based on the selected `source`. If the required parameter is not
+    provided, the provided `source` will be ignored and the stream type will default to `all`"
 )]
 pub async fn stream_posts_handler(
     Query(mut query): Query<PostStreamQuery>,

@@ -1,7 +1,8 @@
 use neo4rs::{query, Query};
 
+use crate::models::post::StreamSource;
 use crate::types::Pagination;
-use crate::{routes::v0::stream::queries::StreamSource, types::StreamSorting};
+use crate::types::StreamSorting;
 
 // Retrieve post node by post id and author id
 pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
@@ -429,7 +430,7 @@ pub fn post_stream(
     let mut cypher = String::new();
 
     // Start with the observer node if needed
-    if source.has_observer().is_some() {
+    if source.get_observer().is_some() {
         cypher.push_str("MATCH (observer:User {id: $observer_id})\n");
     }
 
@@ -437,7 +438,7 @@ pub fn post_stream(
     cypher.push_str("MATCH (p:Post)<-[:AUTHORED]-(author:User)\n");
 
     // Apply author filter if provided
-    if source.has_author().is_some() {
+    if source.get_author().is_some() {
         cypher.push_str("WHERE author.id = $author_id\n");
     }
 
@@ -558,13 +559,13 @@ pub fn post_stream(
     let mut query = query(&cypher);
 
     // Insert parameters
-    if let Some(observer_id) = source.has_observer() {
+    if let Some(observer_id) = source.get_observer() {
         query = query.param("observer_id", observer_id.to_string());
     }
     if let Some(labels) = tags.clone() {
         query = query.param("labels", labels);
     }
-    if let Some(author_id) = source.has_author() {
+    if let Some(author_id) = source.get_author() {
         query = query.param("author_id", author_id.to_string());
     }
 

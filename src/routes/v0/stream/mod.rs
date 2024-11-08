@@ -4,10 +4,7 @@ use axum::Router;
 use utoipa::OpenApi;
 
 mod posts;
-pub mod queries;
 mod users;
-
-pub use queries::PostStreamQuery;
 
 pub fn routes() -> Router {
     let router = register_routes!(Router::new(),

@@ -7,9 +7,7 @@ use crate::{
         follow::{Followers, Following, Friends, UserFollows},
         tag::search::TagSearch,
     },
-    queries,
-    routes::v0::stream::queries::StreamSource,
-    RedisOps, ScoreAction,
+    queries, RedisOps, ScoreAction,
 };
 use serde::{Deserialize, Serialize};
 use std::error::Error;
@@ -22,6 +20,55 @@ pub const POST_TOTAL_ENGAGEMENT_KEY_PARTS: [&str; 3] = ["Posts", "Global", "Tota
 pub const POST_REPLIES_TIMELINE_KEY_PARTS: [&str; 2] = ["Posts", "Replies"];
 pub const POST_PER_USER_KEY_PARTS: [&str; 2] = ["Posts", "User"];
 const BOOKMARKS_USER_KEY_PARTS: [&str; 2] = ["Bookmarks", "User"];
+
+#[derive(ToSchema, Deserialize, Debug, Clone, PartialEq, Default)]
+#[serde(tag = "source", rename_all = "snake_case")]
+pub enum StreamSource {
+    PostReplies {
+        post_id: String,
+        author_id: String,
+    },
+    Following {
+        observer_id: String,
+    },
+    Followers {
+        observer_id: String,
+    },
+    Friends {
+        observer_id: String,
+    },
+    Bookmarks {
+        observer_id: String,
+    },
+    Author {
+        author_id: String,
+    },
+    #[default]
+    All,
+}
+
+impl StreamSource {
+    pub fn get_observer(&self) -> Option<&String> {
+        match self {
+            StreamSource::Followers { observer_id }
+            | StreamSource::Following { observer_id }
+            | StreamSource::Friends { observer_id }
+            | StreamSource::Bookmarks { observer_id } => Some(observer_id),
+            _ => None,
+        }
+    }
+
+    pub fn get_author(&self) -> Option<&String> {
+        match self {
+            StreamSource::PostReplies {
+                author_id,
+                post_id: _,
+            } => Some(author_id),
+            StreamSource::Author { author_id } => Some(author_id),
+            _ => None,
+        }
+    }
+}
 
 #[derive(Serialize, Deserialize, ToSchema, Debug)]
 pub struct PostStream(pub Vec<PostView>);
@@ -69,7 +116,7 @@ impl PostStream {
     ) -> bool {
         match (sorting, source, tags) {
             // We have a sorted set for posts by a specific author
-            (StreamSorting::Timeline, StreamSource::Author { author_id: Some(_) }, None) => true,
+            (StreamSorting::Timeline, StreamSource::Author { .. }, None) => true,
             // We have a sorted set for global for any sorting
             (_, StreamSource::All, None) => true,
             // We have a sorted set for posts by tags for any sorting for a single tag
@@ -81,7 +128,7 @@ impl PostStream {
             // We have a sorted set for bookmarks only for timeline
             (StreamSorting::Timeline, StreamSource::Bookmarks { .. }, None) => true,
             // We can use sorted set of post replies
-            (_, StreamSource::Replies { .. }, _) => true,
+            (_, StreamSource::PostReplies { .. }, _) => true,
             // Other combinations require querying the graph
             _ => false,
         }
@@ -112,17 +159,13 @@ impl PostStream {
             (StreamSource::Bookmarks { observer_id }, None) => {
                 Self::get_bookmarked_posts(&observer_id, start, end, skip, limit).await
             }
-            (StreamSource::Replies { author_id, post_id }, None) => match post_id {
-                Some(id) => Self::get_post_replies(&author_id, &id, start, end, limit).await,
-                None => Ok(vec!["User post replies COMMING...".to_string()]),
-            },
+            (StreamSource::PostReplies { author_id, post_id }, None) => {
+                Self::get_post_replies(&author_id, &post_id, start, end, limit).await
+            }
             // Streams by only author
-            (
-                StreamSource::Author {
-                    author_id: Some(id),
-                },
-                None,
-            ) => Self::get_user_posts(&id, start, end, skip, limit).await,
+            (StreamSource::Author { author_id }, None) => {
+                Self::get_user_posts(&author_id, start, end, skip, limit).await
+            }
             // Streams by simple source: Following, Followers, Friends
             (source, None) => Self::get_posts_by_source(source, skip, limit).await,
             _ => Ok(vec![]),
@@ -404,7 +447,6 @@ impl PostStream {
         viewer_id: Option<String>,
         post_keys: &[String],
     ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
-        // TODO: ViewerId we get from the source, Replies and All does not have
         let viewer_id = viewer_id.map(|id| id.to_string());
         let mut handles = Vec::with_capacity(post_keys.len());
 
