@@ -4,7 +4,7 @@ use neo4rs::Query;
 use crate::{
     db::{
         connectors::neo4j::get_neo4j_graph, graph::exec::exec_boolean_row,
-        kv::index::sorted_sets::Sorting,
+        kv::index::sorted_sets::SortOrder,
     },
     models::tag::{post::POST_TAGS_KEY_PARTS, user::USER_TAGS_KEY_PARTS},
     queries, RedisOps, ScoreAction,
@@ -65,7 +65,7 @@ where
             None,
             None,
             Some(limit_tags),
-            Sorting::Descending,
+            SortOrder::Descending,
         )
         .await?
         {

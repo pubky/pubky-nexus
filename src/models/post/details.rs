@@ -2,7 +2,7 @@ use super::PostStream;
 use crate::db::connectors::neo4j::get_neo4j_graph;
 use crate::db::graph::exec::{exec_boolean_row, exec_single_row};
 use crate::models::pubky_app::{PostKind, PubkyAppPost};
-use crate::models::user::PubkyId;
+use crate::types::PubkyId;
 use crate::{queries, RedisOps};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};

@@ -244,11 +244,11 @@ async fn test_post_tag_search_by_engagement_with_skip_and_limit() -> Result<()> 
 #[tokio::test]
 async fn test_stream_combined_parameters() -> Result<()> {
     // This one should hit the graph
-    let viewer_id = USER_ID;
+    let observer_id = USER_ID;
     let tag = TAG_LABEL_1;
     let path = format!(
-        "{ROOT_PATH}?viewer_id={}&source=following&tags={}&sorting=total_engagement",
-        viewer_id, tag
+        "{ROOT_PATH}?observer_id={}&source=following&tags={}&sorting=total_engagement",
+        observer_id, tag
     );
 
     let body = make_request(&path).await?;

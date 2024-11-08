@@ -5,7 +5,7 @@ use anyhow::Result;
 
 #[tokio::test]
 async fn test_stream_posts_following() -> Result<()> {
-    let path = format!("{ROOT_PATH}?viewer_id={}&source=following", USER_ID);
+    let path = format!("{ROOT_PATH}?observer_id={}&source=following", USER_ID);
     let body = make_request(&path).await?;
 
     assert!(body.is_array());
@@ -22,7 +22,7 @@ async fn test_stream_posts_following() -> Result<()> {
 
 #[tokio::test]
 async fn test_stream_posts_followers() -> Result<()> {
-    let path = format!("{ROOT_PATH}?viewer_id={}&source=followers", USER_ID);
+    let path = format!("{ROOT_PATH}?observer_id={}&source=followers", USER_ID);
     let body = make_request(&path).await?;
 
     assert!(body.is_array());
@@ -286,28 +286,9 @@ async fn test_stream_posts_by_timeline_reach_friends_with_tag() -> Result<()> {
 #[tokio::test]
 async fn test_stream_not_found_posts_by_timeline_reach_friends_with_tag() -> Result<()> {
     let path = format!(
-        "{ROOT_PATH}?sorting=timeline&tags=opensource&source=friends&viewer_id={EIXAMPLE}&skip=2"
+        "{ROOT_PATH}?sorting=timeline&tags=opensource&source=friends&observer_id={EIXAMPLE}&skip=2"
     );
     make_wrong_request(&path, Some(404)).await?;
-
-    Ok(())
-}
-
-// Remaining test cases follow the same pattern.
-#[tokio::test]
-async fn test_stream_reach_without_viewer_id() -> Result<()> {
-    // Missing viewer_id for a reach query should fail
-    let path = format!("{ROOT_PATH}?source=following");
-    make_wrong_request(&path, Some(400)).await?;
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_stream_invalid_reach() -> Result<()> {
-    // Invalid reach value should fail
-    let path = format!("{ROOT_PATH}?source=invalid_reach");
-    make_wrong_request(&path, Some(400)).await?;
 
     Ok(())
 }

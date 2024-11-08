@@ -1,8 +1,9 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
-use crate::db::kv::index::sorted_sets::Sorting;
-use crate::models::post::{PostDetails, PostStreamSorting};
+use crate::db::kv::index::sorted_sets::SortOrder;
+use crate::models::post::PostDetails;
 use crate::models::tag::traits::TaggersCollection;
 use crate::queries::get::{global_tags_by_post, global_tags_by_post_engagement};
+use crate::types::{Pagination, StreamSorting};
 use crate::{RedisOps, ScoreAction};
 use neo4rs::Query;
 use serde::{Deserialize, Serialize};
@@ -71,21 +72,18 @@ impl TagSearch {
 
     pub async fn get_by_label(
         label: &str,
-        sort_by: Option<PostStreamSorting>,
-        start: Option<f64>,
-        end: Option<f64>,
-        skip: usize,
-        limit: usize,
+        sort_by: Option<StreamSorting>,
+        pagination: Pagination,
     ) -> Result<Option<Vec<TagSearch>>, Box<dyn Error + Send + Sync>> {
         let post_score_list = match sort_by {
-            Some(PostStreamSorting::TotalEngagement) => {
+            Some(StreamSorting::TotalEngagement) => {
                 Self::try_from_index_sorted_set(
                     &[&TAG_GLOBAL_POST_ENGAGEMENT[..], &[label]].concat(),
-                    start,
-                    end,
-                    Some(skip),
-                    Some(limit),
-                    Sorting::Descending,
+                    pagination.start,
+                    pagination.end,
+                    pagination.skip,
+                    pagination.limit,
+                    SortOrder::Descending,
                 )
                 .await?
             }
@@ -93,11 +91,11 @@ impl TagSearch {
             _ => {
                 Self::try_from_index_sorted_set(
                     &[&TAG_GLOBAL_POST_TIMELINE[..], &[label]].concat(),
-                    start,
-                    end,
-                    Some(skip),
-                    Some(limit),
-                    Sorting::Descending,
+                    pagination.start,
+                    pagination.end,
+                    pagination.skip,
+                    pagination.limit,
+                    SortOrder::Descending,
                 )
                 .await?
             }

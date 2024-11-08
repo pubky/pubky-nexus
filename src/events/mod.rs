@@ -1,8 +1,7 @@
+use crate::types::PubkyId;
 use log::{debug, error};
 use pubky::PubkyClient;
 use uri::ParsedUri;
-
-use crate::models::user::PubkyId;
 
 pub mod handlers;
 pub mod processor;

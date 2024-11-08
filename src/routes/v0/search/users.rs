@@ -1,5 +1,6 @@
 use crate::models::user::UserSearch;
 use crate::routes::v0::endpoints::SEARCH_USERS_ROUTE;
+use crate::types::Pagination;
 use crate::{Error, Result};
 use axum::extract::Query;
 use axum::Json;
@@ -10,8 +11,8 @@ use utoipa::OpenApi;
 #[derive(Deserialize)]
 pub struct SearchQuery {
     username: Option<String>,
-    skip: Option<usize>,
-    limit: Option<usize>,
+    #[serde(flatten)]
+    pagination: Pagination,
 }
 
 #[utoipa::path(
@@ -42,8 +43,8 @@ pub async fn search_users_handler(Query(query): Query<SearchQuery>) -> Result<Js
 
     info!("GET {SEARCH_USERS_ROUTE} username:{}", username);
 
-    let skip = query.skip.unwrap_or(0);
-    let limit = query.limit.unwrap_or(200);
+    let skip = query.pagination.skip.unwrap_or(0);
+    let limit = query.pagination.limit.unwrap_or(200);
 
     match UserSearch::get_by_name(username, Some(skip), Some(limit)).await {
         Ok(Some(user_search)) => Ok(Json(user_search)),

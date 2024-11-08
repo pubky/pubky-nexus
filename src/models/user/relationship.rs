@@ -1,6 +1,7 @@
+use crate::models::follow::{Followers, UserFollows};
 use crate::models::user::Muted;
 
-use super::{Followers, UserCounts, UserFollows};
+use super::UserCounts;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 

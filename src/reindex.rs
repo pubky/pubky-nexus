@@ -1,4 +1,5 @@
 use crate::db::kv::flush::clear_redis;
+use crate::models::follow::{Followers, Following, UserFollows};
 use crate::models::post::Bookmark;
 use crate::models::tag::post::TagPost;
 use crate::models::tag::search::TagSearch;
@@ -6,7 +7,7 @@ use crate::models::tag::stream::HotTags;
 use crate::models::tag::traits::TagCollection;
 use crate::models::tag::user::TagUser;
 use crate::models::traits::Collection;
-use crate::models::user::{Followers, Following, Muted, UserDetails, UserFollows};
+use crate::models::user::{Muted, UserDetails};
 use crate::{
     db::connectors::neo4j::get_neo4j_graph,
     models::post::{PostCounts, PostDetails, PostRelationships},

@@ -8,8 +8,9 @@ use crate::models::post::{
 use crate::models::pubky_app::traits::Validatable;
 use crate::models::pubky_app::PostKind;
 use crate::models::user::UserCounts;
-use crate::models::{post::PostDetails, pubky_app::PubkyAppPost, user::PubkyId};
+use crate::models::{post::PostDetails, pubky_app::PubkyAppPost};
 use crate::queries::get::post_is_safe_to_delete;
+use crate::types::PubkyId;
 use crate::{queries, RedisOps, ScoreAction};
 use axum::body::Bytes;
 use log::debug;

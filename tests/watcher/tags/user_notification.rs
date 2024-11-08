@@ -2,9 +2,12 @@ use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
 use pubky_common::crypto::Keypair;
-use pubky_nexus::models::{
-    notification::{Notification, NotificationBody},
-    pubky_app::{traits::HashId, PubkyAppTag, PubkyAppUser},
+use pubky_nexus::{
+    models::{
+        notification::{Notification, NotificationBody},
+        pubky_app::{traits::HashId, PubkyAppTag, PubkyAppUser},
+    },
+    types::Pagination,
 };
 
 #[tokio::test]
@@ -54,7 +57,7 @@ async fn test_homeserver_put_tag_user_notification() -> Result<()> {
     test.create_tag(tag_url.as_str(), tag_blob).await?;
 
     // Check if the tagged user received a notification
-    let notifications = Notification::get_by_id(&tagged_user_id, None, None, None, None)
+    let notifications = Notification::get_by_id(&tagged_user_id, Pagination::default())
         .await
         .unwrap();
     assert_eq!(

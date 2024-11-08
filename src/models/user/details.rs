@@ -1,8 +1,8 @@
-use super::id::PubkyId;
 use super::UserSearch;
 use crate::db::graph::exec::exec_single_row;
 use crate::models::pubky_app::{PubkyAppUser, UserLink};
 use crate::models::traits::Collection;
+use crate::types::PubkyId;
 use crate::{queries, RedisOps};
 use axum::async_trait;
 use chrono::Utc;

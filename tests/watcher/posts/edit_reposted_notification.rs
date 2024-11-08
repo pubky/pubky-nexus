@@ -1,9 +1,12 @@
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
-use pubky_nexus::models::{
-    notification::{Notification, NotificationBody, PostChangedSource},
-    pubky_app::{PostEmbed, PostKind, PubkyAppPost, PubkyAppUser},
+use pubky_nexus::{
+    models::{
+        notification::{Notification, NotificationBody, PostChangedSource},
+        pubky_app::{PostEmbed, PostKind, PubkyAppPost, PubkyAppUser},
+    },
+    types::Pagination,
 };
 
 #[tokio::test]
@@ -67,7 +70,7 @@ async fn test_edit_reposted_post_notification() -> Result<()> {
     test.ensure_event_processing_complete().await?;
 
     // Verify that User B receives a notification about the edit
-    let notifications = Notification::get_by_id(&user_b_id, None, None, None, None)
+    let notifications = Notification::get_by_id(&user_b_id, Pagination::default())
         .await
         .unwrap();
 

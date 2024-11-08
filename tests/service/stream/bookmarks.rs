@@ -1,6 +1,6 @@
 use super::utils::verify_post_list;
 use super::ROOT_PATH;
-use crate::service::utils::{make_request, make_wrong_request};
+use crate::service::utils::make_request;
 use anyhow::Result;
 
 // User with most bookmarks
@@ -8,8 +8,8 @@ const BOOKMARKER_ID: &str = "o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ng
 
 #[tokio::test]
 async fn test_stream_bookmarked_posts() -> Result<()> {
-    let viewer_id = BOOKMARKER_ID;
-    let path = format!("{ROOT_PATH}?viewer_id={}&source=bookmarks", viewer_id);
+    let observer_id = BOOKMARKER_ID;
+    let path = format!("{ROOT_PATH}?observer_id={}&source=bookmarks", observer_id);
     let body = make_request(&path).await?;
 
     assert!(body.is_array());
@@ -43,7 +43,7 @@ pub const END_TIMELINE: &str = "1724134141150";
 #[tokio::test]
 async fn test_stream_user_bookmarks_by_timeline_with_start() -> Result<()> {
     let path =
-        format!("{ROOT_PATH}?viewer_id={BOOKMARKER_ID}&source=bookmarks&start={START_TIMELINE}");
+        format!("{ROOT_PATH}?observer_id={BOOKMARKER_ID}&source=bookmarks&start={START_TIMELINE}");
 
     let body = make_request(&path).await?;
     let post_list = vec![
@@ -57,7 +57,7 @@ async fn test_stream_user_bookmarks_by_timeline_with_start() -> Result<()> {
 #[tokio::test]
 async fn test_stream_user_bookmarks_by_timeline_with_start_and_end() -> Result<()> {
     let path = format!(
-        "{ROOT_PATH}?viewer_id={BOOKMARKER_ID}&source=bookmarks&start={START_TIMELINE}&end={END_TIMELINE}"
+        "{ROOT_PATH}?observer_id={BOOKMARKER_ID}&source=bookmarks&start={START_TIMELINE}&end={END_TIMELINE}"
     );
 
     let body = make_request(&path).await?;
@@ -72,21 +72,12 @@ async fn test_stream_user_bookmarks_by_timeline_with_start_and_end() -> Result<(
 #[tokio::test]
 async fn test_stream_user_bookmarks_by_timeline_with_skip_end() -> Result<()> {
     let path = format!(
-        "{ROOT_PATH}?viewer_id={BOOKMARKER_ID}&source=bookmarks&limit=5&end={END_TIMELINE}"
+        "{ROOT_PATH}?observer_id={BOOKMARKER_ID}&source=bookmarks&limit=5&end={END_TIMELINE}"
     );
 
     let body = make_request(&path).await?;
     let post_list = vec![POST_TA, POST_TB, POST_TC, POST_TD, POST_TE];
     verify_post_list(post_list, body);
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_stream_bookmarks_without_viewer_id() -> Result<()> {
-    // Missing viewer_id for bookmark reach should fail
-    let path = format!("{ROOT_PATH}?source=bookmarks");
-    make_wrong_request(&path, Some(400)).await?;
 
     Ok(())
 }

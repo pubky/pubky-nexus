@@ -4,6 +4,7 @@ use anyhow::Result;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::notification::{Notification, NotificationBody};
 use pubky_nexus::models::pubky_app::{PostKind, PubkyAppPost, PubkyAppUser};
+use pubky_nexus::types::Pagination;
 
 #[tokio::test]
 async fn test_homeserver_post_reply_notification() -> Result<()> {
@@ -44,7 +45,7 @@ async fn test_homeserver_post_reply_notification() -> Result<()> {
     let alice_reply_id = test.create_post(&alice_id, &reply_post).await?;
 
     // Verify that alice does not get a REPLY notification
-    let notifications = Notification::get_by_id(&alice_id, None, None, None, None)
+    let notifications = Notification::get_by_id(&alice_id, Pagination::default())
         .await
         .unwrap();
     assert_eq!(
@@ -77,7 +78,7 @@ async fn test_homeserver_post_reply_notification() -> Result<()> {
     let bob_reply_id = test.create_post(&bob_id, &reply_post).await?;
 
     // Verify that alice gets a REPLY notification
-    let notifications = Notification::get_by_id(&alice_id, None, None, None, None)
+    let notifications = Notification::get_by_id(&alice_id, Pagination::default())
         .await
         .unwrap();
 

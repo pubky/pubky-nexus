@@ -1,4 +1,4 @@
-use crate::models::user::PubkyId;
+use crate::types::PubkyId;
 use std::convert::TryFrom;
 
 #[derive(Default, Debug)]

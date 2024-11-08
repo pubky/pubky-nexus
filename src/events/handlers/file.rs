@@ -8,6 +8,7 @@ use tokio::{
     io::AsyncWriteExt,
 };
 
+use crate::types::PubkyId;
 use crate::{
     models::{
         file::{
@@ -16,7 +17,6 @@ use crate::{
         },
         pubky_app::{traits::Validatable, PubkyAppFile},
         traits::Collection,
-        user::PubkyId,
     },
     Config,
 };

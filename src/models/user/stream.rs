@@ -1,7 +1,8 @@
 use std::error::Error;
 
-use super::{Followers, Following, Friends, Muted, UserCounts, UserFollows, UserSearch, UserView};
-use crate::{db::kv::index::sorted_sets::Sorting, RedisOps};
+use super::{Muted, UserCounts, UserSearch, UserView};
+use crate::models::follow::{Followers, Following, Friends, UserFollows};
+use crate::{db::kv::index::sorted_sets::SortOrder, RedisOps};
 use serde::{Deserialize, Serialize};
 use tokio::task::spawn;
 use utoipa::ToSchema;
@@ -153,7 +154,7 @@ impl UserStream {
                 None,
                 skip,
                 limit,
-                Sorting::Descending,
+                SortOrder::Descending,
             )
             .await?
             .map(|set| set.into_iter().map(|(user_id, _score)| user_id).collect()),
@@ -163,7 +164,7 @@ impl UserStream {
                 None,
                 skip,
                 limit,
-                Sorting::Descending,
+                SortOrder::Descending,
             )
             .await?
             .map(|set| set.into_iter().map(|(user_id, _score)| user_id).collect()),

@@ -10,6 +10,8 @@ mod tags;
 mod thread;
 mod view;
 
+pub use thread::ThreadQuery;
+
 pub fn routes() -> Router {
     register_routes!(Router::new(),
         to_axum!(endpoints::POST_ROUTE) => view::post_view_handler,

@@ -3,9 +3,12 @@ use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
 use pubky_common::crypto::Keypair;
-use pubky_nexus::models::{
-    notification::{Notification, NotificationBody},
-    pubky_app::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser},
+use pubky_nexus::{
+    models::{
+        notification::{Notification, NotificationBody},
+        pubky_app::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser},
+    },
+    types::Pagination,
 };
 
 #[tokio::test]
@@ -77,7 +80,7 @@ async fn test_homeserver_tag_post_notification() -> Result<()> {
     assert_eq!(post_tag.taggers[0], tagger_id);
 
     // Check if the author of the post has a new notification
-    let notifications = Notification::get_by_id(&author_id, None, None, None, None)
+    let notifications = Notification::get_by_id(&author_id, Pagination::default())
         .await
         .unwrap();
     assert_eq!(

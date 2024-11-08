@@ -1,4 +1,5 @@
 use super::DynError;
+use crate::types::Pagination;
 use crate::RedisOps;
 use axum::async_trait;
 
@@ -24,11 +25,12 @@ where
         user_id: &str,
         extra_param: Option<&str>,
         label: &str,
-        skip: Option<usize>,
-        limit: Option<usize>,
+        pagination: Pagination,
     ) -> Result<Option<Taggers>, DynError> {
-        let skip = skip.unwrap_or(0);
-        let limit = limit.unwrap_or(40);
+        // Set default params for pagination
+        let skip = pagination.skip.unwrap_or(0);
+        let limit = pagination.limit.unwrap_or(40);
+
         let key_parts = Self::create_label_index(user_id, extra_param, label);
         Self::get_from_index(key_parts, Some(skip), Some(limit)).await
     }

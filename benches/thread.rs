@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use pubky_nexus::models::post::PostThread;
+use pubky_nexus::{models::post::PostThread, routes::v0::post::ThreadQuery, types::Pagination};
 use setup::run_setup;
 use std::time::Duration;
 use tokio::runtime::Runtime;
@@ -22,7 +22,17 @@ fn bench_thread_retrieval(c: &mut Criterion) {
         &(author_id, post_id),
         |b, &(author_id, post_id)| {
             b.to_async(&rt).iter(|| async {
-                let thread = PostThread::get_by_id(author_id, post_id, None, 3, 0, 10)
+                let params = ThreadQuery {
+                    viewer_id: None,
+                    depth: Some(3),
+                    pagination: Pagination {
+                        skip: Some(0),
+                        limit: Some(10),
+                        start: None,
+                        end: None,
+                    },
+                };
+                let thread = PostThread::get_by_id(author_id, post_id, params)
                     .await
                     .unwrap();
                 criterion::black_box(thread);

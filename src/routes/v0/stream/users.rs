@@ -2,6 +2,7 @@ use crate::models::user::{UserStream, UserStreamSource};
 use crate::routes::v0::endpoints::{
     STREAM_USERS_BY_IDS_ROUTE, STREAM_USERS_ROUTE, STREAM_USERS_USERNAME_SEARCH_ROUTE,
 };
+use crate::types::Pagination;
 use crate::{Error, Result};
 use axum::extract::Query;
 use axum::Json;
@@ -100,8 +101,8 @@ pub async fn stream_users_handler(
 pub struct UserStreamSearchQuery {
     username: String,
     viewer_id: Option<String>,
-    skip: Option<usize>,
-    limit: Option<usize>,
+    #[serde(flatten)]
+    pagination: Pagination,
 }
 
 #[utoipa::path(
@@ -131,8 +132,8 @@ pub async fn stream_username_search_handler(
         });
     }
 
-    let skip = query.skip.unwrap_or(0);
-    let limit = query.limit.unwrap_or(20);
+    let skip = query.pagination.skip.unwrap_or(0);
+    let limit = query.pagination.limit.unwrap_or(20);
 
     info!(
         "GET {STREAM_USERS_USERNAME_SEARCH_ROUTE}?username={}",
