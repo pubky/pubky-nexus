@@ -1,11 +1,12 @@
 use pubky_nexus::routes::v0::endpoints;
 
+pub mod author;
+pub mod author_replies;
 pub mod bookmarks;
+pub mod post_replies;
 pub mod posts;
 pub mod reach;
-pub mod replies;
 pub mod tags;
-pub mod user;
 pub mod utils;
 
 pub const ROOT_PATH: &str = endpoints::STREAM_POSTS_ROUTE;

@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use std::time::Duration;
-use streams_benches::{bookmarks, reach, sorting, tag, user};
+use streams_benches::{author, bookmarks, reach, sorting, tag, user};
 
 mod setup;
 mod streams_benches;
@@ -18,6 +18,8 @@ criterion_group! {
     config = configure_criterion();
     targets = bookmarks::bench_stream_bookmarks_timeline,
               bookmarks::bench_stream_bookmarks_total_engagement,
+              author::bench_stream_author_timeline,
+              author::bench_stream_author_replies_timeline,
               reach::bench_stream_followers_timeline,
               reach::bench_stream_following_timeline,
               reach::bench_stream_friends_timeline,

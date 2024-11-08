@@ -44,6 +44,9 @@ pub enum StreamSource {
     Author {
         author_id: String,
     },
+    AuthorReplies {
+        author_id: String,
+    },
     #[default]
     All,
 }
@@ -66,6 +69,7 @@ impl StreamSource {
                 post_id: _,
             } => Some(author_id),
             StreamSource::Author { author_id } => Some(author_id),
+            StreamSource::AuthorReplies { author_id } => Some(author_id),
             _ => None,
         }
     }
@@ -130,6 +134,8 @@ impl PostStream {
             (StreamSorting::Timeline, StreamSource::Bookmarks { .. }, None) => true,
             // We can use sorted set of post replies
             (_, StreamSource::PostReplies { .. }, _) => true,
+            // We can use sorted set of author replies
+            (_, StreamSource::AuthorReplies { .. }, _) => true,
             // Other combinations require querying the graph
             _ => false,
         }
@@ -160,12 +166,17 @@ impl PostStream {
             (StreamSource::Bookmarks { observer_id }, None) => {
                 Self::get_bookmarked_posts(&observer_id, start, end, skip, limit).await
             }
+            // Stream of replies to specific a post
             (StreamSource::PostReplies { author_id, post_id }, None) => {
                 Self::get_post_replies(&author_id, &post_id, start, end, limit).await
             }
-            // Streams by only author
+            // Stream of parent post from a given author
             (StreamSource::Author { author_id }, None) => {
-                Self::get_user_posts(&author_id, start, end, skip, limit).await
+                Self::get_author_posts(&author_id, start, end, skip, limit, false).await
+            }
+            // Streams of replies from a given author
+            (StreamSource::AuthorReplies { author_id }, None) => {
+                Self::get_author_posts(&author_id, start, end, skip, limit, true).await
             }
             // Streams by simple source: Following, Followers, Friends
             (source, None) => Self::get_posts_by_source(source, skip, limit).await,
@@ -273,14 +284,21 @@ impl PostStream {
         }
     }
 
-    pub async fn get_user_posts(
+    pub async fn get_author_posts(
         user_id: &str,
         start: Option<f64>,
         end: Option<f64>,
         skip: Option<usize>,
         limit: Option<usize>,
+        replies: bool,
     ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
-        let key_parts = [&POST_PER_USER_KEY_PARTS[..], &[user_id]].concat();
+        // Retrieve only parents or only reply posts written by the author from index
+        let key_parts = match replies {
+            true => POST_REPLIES_PER_USER_KEY_PARTS,
+            false => POST_PER_USER_KEY_PARTS,
+        };
+
+        let key_parts = [&key_parts[..], &[user_id]].concat();
         let post_ids = Self::try_from_index_sorted_set(
             &key_parts,
             start,
