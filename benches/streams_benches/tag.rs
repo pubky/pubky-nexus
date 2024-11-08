@@ -29,7 +29,7 @@ pub fn bench_stream_tag_timeline(c: &mut Criterion) {
                 LIMIT_20,
                 StreamSorting::Timeline,
                 None,
-                Some(vec![TAG.to_string()])
+                Some(vec![TAG.to_string()]),
             )
             .await
             .unwrap();
@@ -44,7 +44,7 @@ pub fn bench_stream_tag_total_engagement(c: &mut Criterion) {
     println!("***************************************");
 
     run_setup();
-    
+
     let rt = Runtime::new().unwrap();
 
     c.bench_function("stream_posts_tag_total_engagement", |b| {
@@ -58,7 +58,7 @@ pub fn bench_stream_tag_total_engagement(c: &mut Criterion) {
                 LIMIT_20,
                 StreamSorting::TotalEngagement,
                 None,
-                Some(vec![TAG.to_string()])
+                Some(vec![TAG.to_string()]),
             )
             .await
             .unwrap();

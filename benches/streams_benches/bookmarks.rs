@@ -15,7 +15,7 @@ pub fn bench_stream_bookmarks_timeline(c: &mut Criterion) {
     println!("***************************************************************************");
 
     run_setup();
-    
+
     let rt = Runtime::new().unwrap();
 
     c.bench_function("stream_posts_bookmarks_timeline", |b| {
@@ -26,15 +26,10 @@ pub fn bench_stream_bookmarks_timeline(c: &mut Criterion) {
             };
 
             // Run the benchmark
-            let post_stream = PostStream::get_posts(
-                source,
-                LIMIT_20,
-                StreamSorting::Timeline,
-                None,
-                None
-            )
-            .await
-            .unwrap();
+            let post_stream =
+                PostStream::get_posts(source, LIMIT_20, StreamSorting::Timeline, None, None)
+                    .await
+                    .unwrap();
             criterion::black_box(post_stream);
         });
     });
@@ -56,15 +51,10 @@ pub fn bench_stream_bookmarks_total_engagement(c: &mut Criterion) {
             };
 
             // Run the benchmark
-            let post_stream = PostStream::get_posts(
-                source,
-                LIMIT_20,
-                StreamSorting::TotalEngagement,
-                None,
-                None
-            )
-            .await
-            .unwrap();
+            let post_stream =
+                PostStream::get_posts(source, LIMIT_20, StreamSorting::TotalEngagement, None, None)
+                    .await
+                    .unwrap();
             criterion::black_box(post_stream);
         });
     });
