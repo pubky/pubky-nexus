@@ -38,7 +38,7 @@ pub async fn sync_put(
     // Create PostDetails object
     let post_details = PostDetails::from_homeserver(post.clone(), &author_id, &post_id).await?;
 
-    // We avoid indexing replies into feed sorted sets
+    // We avoid indexing replies into global feed sorted sets
     let is_reply = post.parent.is_some();
 
     // SAVE TO GRAPH

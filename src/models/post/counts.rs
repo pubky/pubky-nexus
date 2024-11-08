@@ -88,6 +88,8 @@ impl PostCounts {
         is_reply: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.put_index_json(&[author_id, post_id]).await?;
+
+        // avoid indexing replies into global feeds
         if !is_reply {
             PostStream::add_to_engagement_sorted_set(self, author_id, post_id).await?;
         }
@@ -108,7 +110,7 @@ impl PostCounts {
         post_id: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         match Self::get_from_graph(author_id, post_id).await? {
-            Some((counts, is_reply)) => counts.put_to_index(author_id, post_id, !is_reply).await?,
+            Some((counts, is_reply)) => counts.put_to_index(author_id, post_id, is_reply).await?,
             None => log::error!(
                 "{}:{} Could not found post counts in the graph",
                 author_id,

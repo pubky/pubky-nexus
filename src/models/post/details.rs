@@ -96,7 +96,6 @@ impl PostDetails {
             return Ok(());
         }
         // The replies are not indexed in the global feeds so we will ignore that indexing
-        // Reason, the way we render the feeds in the CLIENT
         match parent_key_wrapper {
             None => {
                 PostStream::add_to_timeline_sorted_set(self).await?;
