@@ -1,6 +1,6 @@
 [package]
 name = "pubky-nexus"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Nexus between homeservers and Pubky-App. Pubky-nexus constructs a social graph out of all of the events on pubky-core homeservers and exposes a social-media-like API capable of powerful Web-of-Trust inference."
 homepage = "https://github.com/pubky"

@@ -1,6 +1,6 @@
 # Pubky.app Data Model Specification
 
-*Version 0.1*
+*Version 0.2.0*
 
 ## Introduction
 
