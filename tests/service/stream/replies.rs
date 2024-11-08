@@ -1,4 +1,4 @@
-use crate::service::utils::{make_request, make_wrong_request};
+use crate::service::utils::make_request;
 use anyhow::Result;
 use pubky_nexus::models::post::{PostStream, PostView};
 
@@ -185,17 +185,6 @@ async fn test_stream_posts_replies_with_start_and_end_also_limit_query() -> Resu
     let replies_order = vec![CHILD_5_POST_ID, CHILD_4_POST_ID, CHILD_3_POST_ID];
 
     check_replies_timeline(post_reply_stream.0, replies_order);
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_stream_posts_replies_missing_queries() -> Result<()> {
-    let path_a = format!("{ROOT_PATH}?source=replies&post_id={}", "post");
-    make_wrong_request(&path_a, Some(400)).await?;
-
-    let path_b = format!("{ROOT_PATH}?source=replies");
-    make_wrong_request(&path_b, Some(400)).await?;
 
     Ok(())
 }

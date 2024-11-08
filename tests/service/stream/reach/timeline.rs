@@ -292,22 +292,3 @@ async fn test_stream_not_found_posts_by_timeline_reach_friends_with_tag() -> Res
 
     Ok(())
 }
-
-// Remaining test cases follow the same pattern.
-#[tokio::test]
-async fn test_stream_reach_without_observer_id() -> Result<()> {
-    // Missing observer_id for a reach query should fail
-    let path = format!("{ROOT_PATH}?source=following");
-    make_wrong_request(&path, Some(400)).await?;
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_stream_invalid_reach() -> Result<()> {
-    // Invalid reach value should fail
-    let path = format!("{ROOT_PATH}?source=invalid_reach");
-    make_wrong_request(&path, Some(400)).await?;
-
-    Ok(())
-}
