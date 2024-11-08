@@ -73,6 +73,7 @@ where
     - `following`, `followers`, `friends`, `bookmarks`: Requires `observer_id`.
     - `post_replies`: Requires `author_id` and `post_id` to filter replies to a specific post.
     - `author`:  Requires  `author_id` to filter posts by a specific author.
+    - `author_replies`:  Requires  `author_id` to filter replies by a specific author.
     
     Ensure that you provide the necessary parameters based on the selected `source`. If the required parameter is not
     provided, the provided `source` will be ignored and the stream type will default to `all`"
