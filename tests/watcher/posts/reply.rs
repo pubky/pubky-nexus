@@ -1,7 +1,7 @@
 use super::utils::{
     check_member_global_timeline_user_post, check_member_total_engagement_user_posts,
-    check_member_user_post_timeline, find_post_counts, find_post_details,
-    find_reply_relationship_parent_uri,
+    check_member_user_post_timeline, check_member_user_replies_timeline, find_post_counts,
+    find_post_details, find_reply_relationship_parent_uri,
 };
 use crate::watcher::{users::utils::find_user_counts, utils::WatcherTest};
 use anyhow::Result;
@@ -104,7 +104,7 @@ async fn test_homeserver_post_reply() -> Result<()> {
     let post_key = format!("{}:{}", user_id, reply_id);
     assert_eq!(post_replies[0], post_key);
 
-    // Assert the parent post has changed stats, User:Counts:user_id:post_id
+    // Assert the parent post has changed stats, Post:Counts:user_id:post_id
     let post_count = find_post_counts(&user_id, &parent_post_id).await;
     assert_eq!(post_count.replies, 1);
 
@@ -115,10 +115,11 @@ async fn test_homeserver_post_reply() -> Result<()> {
     assert!(total_engagement.is_some());
     assert_eq!(total_engagement.unwrap(), 1);
 
-    // Assert the parent post has changed stats
-    // User:Counts:user_id:post_id
-    let post_count = find_user_counts(&user_id).await;
-    assert_eq!(post_count.posts, 2);
+    // Assert the user has changed stats
+    // User:Counts:user_id
+    let user_count = find_user_counts(&user_id).await;
+    assert_eq!(user_count.posts, 2);
+    assert_eq!(user_count.replies, 1);
 
     // ########### REPLY RELATED INDEXES ################
     //User:Details:user_id:post_id
@@ -158,14 +159,24 @@ async fn test_homeserver_post_reply() -> Result<()> {
         "The parent URIs does not match"
     );
 
-    // Sorted:Posts:User:user_id
+    // Sorted:Posts:AuthorParents:user_id
     // Check that replies are NOT in the user's timeline
     let user_timeline_timestamp = check_member_user_post_timeline(&user_id, &reply_id)
         .await
         .unwrap_or_default();
     assert!(
         user_timeline_timestamp.is_none(),
-        "Replies should not be in the user's timeline"
+        "Replies should not be in the user's main timeline"
+    );
+
+    // Sorted:Posts:AuthorReplies:user_id
+    // Check that replies are in the user's replies timeline
+    let user_replies_timeline_timestamp = check_member_user_replies_timeline(&user_id, &reply_id)
+        .await
+        .unwrap_or_default();
+    assert!(
+        user_replies_timeline_timestamp.is_some(),
+        "Replies should be in the user's main timeline"
     );
 
     // Check that replies are NOT in the global timeline

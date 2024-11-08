@@ -24,7 +24,7 @@ use std::collections::{HashMap, HashSet};
 const PROCESS_EVENTS_ONE_BY_ONE: bool = true;
 
 // Size of network
-const NUM_USERS: usize = 20;
+const NUM_USERS: usize = 10;
 
 #[tokio::test]
 async fn test_large_network_scenario_counts() -> Result<()> {

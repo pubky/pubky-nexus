@@ -17,8 +17,9 @@ use utoipa::ToSchema;
 
 pub const POST_TIMELINE_KEY_PARTS: [&str; 3] = ["Posts", "Global", "Timeline"];
 pub const POST_TOTAL_ENGAGEMENT_KEY_PARTS: [&str; 3] = ["Posts", "Global", "TotalEngagement"];
-pub const POST_REPLIES_TIMELINE_KEY_PARTS: [&str; 2] = ["Posts", "Replies"];
-pub const POST_PER_USER_KEY_PARTS: [&str; 2] = ["Posts", "User"];
+pub const POST_PER_USER_KEY_PARTS: [&str; 2] = ["Posts", "AuthorParents"];
+pub const POST_REPLIES_PER_USER_KEY_PARTS: [&str; 2] = ["Posts", "AuthorReplies"];
+pub const POST_REPLIES_PER_POST_KEY_PARTS: [&str; 2] = ["Posts", "PostReplies"];
 const BOOKMARKS_USER_KEY_PARTS: [&str; 2] = ["Bookmarks", "User"];
 
 #[derive(ToSchema, Deserialize, Debug, Clone, PartialEq, Default)]
@@ -43,6 +44,9 @@ pub enum StreamSource {
     Author {
         author_id: String,
     },
+    AuthorReplies {
+        author_id: String,
+    },
     #[default]
     All,
 }
@@ -65,6 +69,7 @@ impl StreamSource {
                 post_id: _,
             } => Some(author_id),
             StreamSource::Author { author_id } => Some(author_id),
+            StreamSource::AuthorReplies { author_id } => Some(author_id),
             _ => None,
         }
     }
@@ -129,6 +134,8 @@ impl PostStream {
             (StreamSorting::Timeline, StreamSource::Bookmarks { .. }, None) => true,
             // We can use sorted set of post replies
             (_, StreamSource::PostReplies { .. }, _) => true,
+            // We can use sorted set of author replies
+            (_, StreamSource::AuthorReplies { .. }, _) => true,
             // Other combinations require querying the graph
             _ => false,
         }
@@ -159,14 +166,19 @@ impl PostStream {
             (StreamSource::Bookmarks { observer_id }, None) => {
                 Self::get_bookmarked_posts(&observer_id, start, end, skip, limit).await
             }
+            // Stream of replies to specific a post
             (StreamSource::PostReplies { author_id, post_id }, None) => {
                 Self::get_post_replies(&author_id, &post_id, start, end, limit).await
             }
-            // Streams by only author
+            // Stream of parent post from a given author
             (StreamSource::Author { author_id }, None) => {
-                Self::get_user_posts(&author_id, start, end, skip, limit).await
+                Self::get_author_posts(&author_id, start, end, skip, limit, false).await
             }
-            // Streams by simple source: Following, Followers, Friends
+            // Streams of replies from a given author
+            (StreamSource::AuthorReplies { author_id }, None) => {
+                Self::get_author_posts(&author_id, start, end, skip, limit, true).await
+            }
+            // Streams by simple source/reach: Following, Followers, Friends
             (source, None) => Self::get_posts_by_source(source, skip, limit).await,
             _ => Ok(vec![]),
         }
@@ -272,14 +284,21 @@ impl PostStream {
         }
     }
 
-    pub async fn get_user_posts(
+    pub async fn get_author_posts(
         user_id: &str,
         start: Option<f64>,
         end: Option<f64>,
         skip: Option<usize>,
         limit: Option<usize>,
+        replies: bool,
     ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
-        let key_parts = [&POST_PER_USER_KEY_PARTS[..], &[user_id]].concat();
+        // Retrieve only parents or only reply posts written by the author from index
+        let key_parts = match replies {
+            true => POST_REPLIES_PER_USER_KEY_PARTS,
+            false => POST_PER_USER_KEY_PARTS,
+        };
+
+        let key_parts = [&key_parts[..], &[user_id]].concat();
         let post_ids = Self::try_from_index_sorted_set(
             &key_parts,
             start,
@@ -373,7 +392,7 @@ impl PostStream {
         end: Option<f64>,
         limit: Option<usize>,
     ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
-        let key_parts = [&POST_REPLIES_TIMELINE_KEY_PARTS[..], &[author_id, post_id]].concat();
+        let key_parts = [&POST_REPLIES_PER_POST_KEY_PARTS[..], &[author_id, post_id]].concat();
         let post_replies = Self::try_from_index_sorted_set(
             &key_parts,
             start,
@@ -517,7 +536,7 @@ impl PostStream {
         reply_id: &str,
         indexed_at: i64,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let key_parts = [&POST_REPLIES_TIMELINE_KEY_PARTS[..], parent_post_key_parts].concat();
+        let key_parts = [&POST_REPLIES_PER_POST_KEY_PARTS[..], parent_post_key_parts].concat();
         let score = indexed_at as f64;
         let element = format!("{}:{}", author_id, reply_id);
         Self::put_index_sorted_set(&key_parts, &[(score, element.as_str())]).await
@@ -529,9 +548,31 @@ impl PostStream {
         author_id: &str,
         reply_id: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let key_parts = [&POST_REPLIES_TIMELINE_KEY_PARTS[..], parent_post_key_parts].concat();
+        let key_parts = [&POST_REPLIES_PER_POST_KEY_PARTS[..], parent_post_key_parts].concat();
         let element = format!("{}:{}", author_id, reply_id);
         Self::remove_from_index_sorted_set(&key_parts, &[element.as_str()]).await
+    }
+
+    /// Adds the post to a Redis sorted set of replies per author using the `indexed_at` timestamp as the score.
+    pub async fn add_to_replies_per_user_sorted_set(
+        details: &PostDetails,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let key_parts = [
+            &POST_REPLIES_PER_USER_KEY_PARTS[..],
+            &[details.author.as_str()],
+        ]
+        .concat();
+        let score = details.indexed_at as f64;
+        Self::put_index_sorted_set(&key_parts, &[(score, details.id.as_str())]).await
+    }
+
+    /// Adds the post to a Redis sorted set using the `indexed_at` timestamp as the score.
+    pub async fn remove_from_replies_per_user_sorted_set(
+        author_id: &str,
+        post_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let key_parts = [&POST_REPLIES_PER_USER_KEY_PARTS[..], &[author_id]].concat();
+        Self::remove_from_index_sorted_set(&key_parts, &[post_id]).await
     }
 
     /// Adds a bookmark to Redis sorted set using the `indexed_at` timestamp as the score.

@@ -11,6 +11,7 @@ use super::UserStream;
 pub struct UserCounts {
     pub tags: u32,
     pub posts: u32,
+    pub replies: u32,
     pub following: u32,
     pub followers: u32,
     pub friends: u32,

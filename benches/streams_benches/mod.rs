@@ -1,3 +1,4 @@
+pub mod author;
 pub mod bookmarks;
 pub mod reach;
 pub mod sorting;
