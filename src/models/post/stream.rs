@@ -178,7 +178,7 @@ impl PostStream {
             (StreamSource::AuthorReplies { author_id }, None) => {
                 Self::get_author_posts(&author_id, start, end, skip, limit, true).await
             }
-            // Streams by simple source: Following, Followers, Friends
+            // Streams by simple source/reach: Following, Followers, Friends
             (source, None) => Self::get_posts_by_source(source, skip, limit).await,
             _ => Ok(vec![]),
         }
