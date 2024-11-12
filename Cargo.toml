@@ -14,7 +14,7 @@ pkarr = { git = "https://github.com/Pubky/pkarr", branch = "v3", package = "pkar
     "async",
 ] }
 pubky = "0.3.0"
-tokio = { version = "1.41.0", features = ["full"] }
+tokio = { version = "1.41.1", features = ["full"] }
 axum = "0.7.7"
 redis = { version = "0.27.5", features = ["tokio-comp", "json"] }
 neo4rs = "0.8.0"
