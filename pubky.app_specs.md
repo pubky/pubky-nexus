@@ -245,6 +245,62 @@ This document intents to be a faithful representation of our [Rust pubky.app mod
   - Converted to lowercase.
   - Maximum length of 20 characters.
 
+--- 
+
+### PubkyAppFeed
+
+**Description:** Represents a feed configuration, allowing users to customize the content they see based on tags, reach, layout, and sort order.
+
+**URI:** `/feeds/:feed_id`
+
+**Fields:**
+
+- `feed` (object, required): The main configuration object for the feed.
+  - `tags` (array of strings, optional): Tags used to filter content within the feed.
+  - `reach` (string, required): Defines the visibility or scope of the feed. Possible values are:
+    - `following`: Content from followed users.
+    - `followers`: Content from follower users.
+    - `friends`: Content from mutual following users.
+    - `all`: Public content accessible to everyone.
+  - `layout` (string, required): Specifies the layout of the feed. Options include:
+    - `columns`: Organizes feed content in a columnar format.
+    - `wide`: Arranges content in a standard wide format.
+    - `visual`: Arranges content in visual format.
+  - `sort` (string, required): Determines the sorting order of the feed content. Supported values are:
+    - `recent`: Most recent content first.
+    - `popularity`: Content with the highest engagement.
+  - `content` (string, required): Defines the type of content displayed. Options include:
+    - `all`: Includes all content types.
+    - `posts`: Only posts are shown.
+    - `images`: Only media images.
+    - `videos`: Only media videos.
+    - `links`: Only links.
+
+- `name` (string, required): The user-defined name for this feed configuration.
+- `created_at` (integer, required): Timestamp (Unix epoch in milliseconds) representing when the feed was created.
+
+**Validation Rules:**
+
+- **ID Validation:**
+  - The `feed_id` in the URI is a **Hash ID** generated from the serialized feed object (the JSON object for `feed`), computed using Blake3 and encoded in Crockford Base32.
+  - The generated `feed_id` must match the provided `feed_id`.
+
+---
+
+### PubkyAppLastRead
+
+**Description:** Represents the last read timestamp for notifications, used to track when the user last checked for new activity.
+
+**URI:** `/pub/pubky.app/last_read`
+
+**Fields:**
+
+- `timestamp` (integer, required): Unix epoch time in milliseconds of the last time the user checked notifications.
+
+**Validation Rules:**
+
+- **`timestamp`:** Must be a valid timestamp in milliseconds.
+
 ---
 
 ## ID Generation
