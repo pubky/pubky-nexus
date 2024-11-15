@@ -36,53 +36,49 @@ pub struct UserLink {
 #[async_trait]
 impl Validatable for PubkyAppUser {
     async fn sanitize(self) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let sanitized_name = self.name.trim().to_string();
-
-        // Crop name to a maximum length of 50 characters
-        let mut name = if sanitized_name.len() > MAX_USERNAME_LENGTH {
-            sanitized_name[..MAX_USERNAME_LENGTH].to_string()
-        } else {
-            sanitized_name
-        };
+        // Sanitize name
+        let sanitized_name = self.name.trim();
+        // Crop name to a maximum length of MAX_USERNAME_LENGTH characters
+        let mut name = sanitized_name
+            .chars()
+            .take(MAX_USERNAME_LENGTH)
+            .collect::<String>();
 
         // We use username keyword `[DELETED]` for a user whose `profile.json` has been deleted
         // Therefore this is not a valid username.
         if name == *"[DELETED]" {
-            name = "anonymous".to_string() //default username
-        };
+            name = "anonymous".to_string(); // default username
+        }
 
         // Sanitize bio
-        let bio = self.bio.map(|b| {
-            let trimmed = b.trim().to_string();
-            if trimmed.len() > MAX_BIO_LENGTH {
-                trimmed[..MAX_BIO_LENGTH].to_string()
-            } else {
-                trimmed
-            }
-        });
+        let bio = self
+            .bio
+            .map(|b| b.trim().chars().take(MAX_BIO_LENGTH).collect::<String>());
 
         // Sanitize image URL with URL parsing
         let image = match &self.image {
             Some(image_url) => {
-                let sanitized_image_url = image_url.trim().to_string();
+                let sanitized_image_url = image_url.trim();
 
-                match Url::parse(&sanitized_image_url) {
-                    Ok(_) => Some(sanitized_image_url), // Valid image URL
-                    Err(_) => None,                     // Invalid image URL, set to None
+                match Url::parse(sanitized_image_url) {
+                    Ok(_) => {
+                        // Ensure the URL is within the allowed limit
+                        let url = sanitized_image_url
+                            .chars()
+                            .take(MAX_IMAGE_LENGTH)
+                            .collect::<String>();
+                        Some(url) // Valid image URL
+                    }
+                    Err(_) => None, // Invalid image URL, set to None
                 }
             }
             None => None,
         };
 
         // Sanitize status
-        let status = self.status.map(|s| {
-            let trimmed = s.trim().to_string();
-            if trimmed.len() > MAX_STATUS_LENGTH {
-                trimmed[..MAX_STATUS_LENGTH].to_string()
-            } else {
-                trimmed
-            }
-        });
+        let status = self
+            .status
+            .map(|s| s.trim().chars().take(MAX_STATUS_LENGTH).collect::<String>());
 
         // Sanitize links
         let links = self.links.map(|links_vec| {
@@ -90,25 +86,23 @@ impl Validatable for PubkyAppUser {
                 .into_iter()
                 .take(MAX_LINKS)
                 .filter_map(|link| {
-                    let title = link.title.trim().to_string();
-                    let sanitized_url = link.url.trim().to_string();
+                    let title = link.title.trim();
+                    let sanitized_url = link.url.trim();
 
                     // Parse and validate the URL
-                    match Url::parse(&sanitized_url) {
+                    match Url::parse(sanitized_url) {
                         Ok(_) => {
                             // Ensure the title is within the allowed limit
-                            let title = if title.len() > MAX_LINK_TITLE_LENGTH {
-                                title[..MAX_LINK_TITLE_LENGTH].to_string()
-                            } else {
-                                title
-                            };
+                            let title = title
+                                .chars()
+                                .take(MAX_LINK_TITLE_LENGTH)
+                                .collect::<String>();
 
                             // Ensure the URL is within the allowed limit
-                            let url = if sanitized_url.len() > MAX_LINK_URL_LENGTH {
-                                sanitized_url[..MAX_LINK_URL_LENGTH].to_string()
-                            } else {
-                                sanitized_url
-                            };
+                            let url = sanitized_url
+                                .chars()
+                                .take(MAX_LINK_URL_LENGTH)
+                                .collect::<String>();
 
                             // Only keep valid URLs
                             Some(UserLink { title, url })
@@ -133,20 +127,21 @@ impl Validatable for PubkyAppUser {
 
     async fn validate(&self, _id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Validate name length
-        if self.name.len() < MIN_USERNAME_LENGTH || self.name.len() > MAX_USERNAME_LENGTH {
+        let name_length = self.name.chars().count();
+        if !(MIN_USERNAME_LENGTH..=MAX_USERNAME_LENGTH).contains(&name_length) {
             return Err("Invalid name length".into());
         }
 
         // Validate bio length
         if let Some(bio) = &self.bio {
-            if bio.len() > MAX_BIO_LENGTH {
+            if bio.chars().count() > MAX_BIO_LENGTH {
                 return Err("Bio exceeds maximum length".into());
             }
         }
 
         // Validate image length
         if let Some(image) = &self.image {
-            if image.len() > MAX_IMAGE_LENGTH {
+            if image.chars().count() > MAX_IMAGE_LENGTH {
                 return Err("Image URI exceeds maximum length".into());
             }
         }
@@ -157,7 +152,8 @@ impl Validatable for PubkyAppUser {
                 return Err("Too many links".into());
             }
             for link in links {
-                if link.title.len() > MAX_LINK_TITLE_LENGTH || link.url.len() > MAX_LINK_URL_LENGTH
+                if link.title.chars().count() > MAX_LINK_TITLE_LENGTH
+                    || link.url.chars().count() > MAX_LINK_URL_LENGTH
                 {
                     return Err("Link title or URL too long".into());
                 }
@@ -166,7 +162,7 @@ impl Validatable for PubkyAppUser {
 
         // Validate status length
         if let Some(status) = &self.status {
-            if status.len() > MAX_STATUS_LENGTH {
+            if status.chars().count() > MAX_STATUS_LENGTH {
                 return Err("Status exceeds maximum length".into());
             }
         }

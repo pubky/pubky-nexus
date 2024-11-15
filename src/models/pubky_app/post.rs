@@ -80,11 +80,7 @@ impl Validatable for PubkyAppPost {
             _ => MAX_SHORT_CONTENT_LENGTH, // Default limit for other kinds
         };
 
-        let content = if content.len() > max_content_length {
-            content[..max_content_length].to_string()
-        } else {
-            content
-        };
+        let content = content.chars().take(max_content_length).collect::<String>();
 
         // Sanitize parent URI if present
         let parent = if let Some(uri_str) = &self.parent {
@@ -125,13 +121,13 @@ impl Validatable for PubkyAppPost {
         // Validate content length
         match self.kind {
             PostKind::Short => {
-                if self.content.len() > MAX_SHORT_CONTENT_LENGTH {
+                if self.content.chars().count() > MAX_SHORT_CONTENT_LENGTH {
                     return Err("Post content exceeds maximum length for Short kind".into());
                 }
             }
             PostKind::Long => {
-                if self.content.len() > MAX_LONG_CONTENT_LENGTH {
-                    return Err("Post content exceeds maximum length for Long kind".into());
+                if self.content.chars().count() > MAX_LONG_CONTENT_LENGTH {
+                    return Err("Post content exceeds maximum length for Short kind".into());
                 }
             }
             _ => (),
