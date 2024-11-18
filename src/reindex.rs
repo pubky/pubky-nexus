@@ -8,6 +8,7 @@ use crate::models::tag::traits::TagCollection;
 use crate::models::tag::user::TagUser;
 use crate::models::traits::Collection;
 use crate::models::user::{Muted, UserDetails};
+use crate::types::DynError;
 use crate::{
     db::connectors::neo4j::get_neo4j_graph,
     models::post::{PostCounts, PostDetails, PostRelationships},
@@ -75,7 +76,7 @@ pub async fn reindex() {
     info!("Reindexing completed successfully.");
 }
 
-pub async fn reindex_user(user_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub async fn reindex_user(user_id: &str) -> Result<(), DynError> {
     tokio::try_join!(
         Bookmark::reindex(user_id),
         UserCounts::reindex(user_id),
@@ -87,10 +88,7 @@ pub async fn reindex_user(user_id: &str) -> Result<(), Box<dyn std::error::Error
     Ok(())
 }
 
-pub async fn reindex_post(
-    author_id: &str,
-    post_id: &str,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub async fn reindex_post(author_id: &str, post_id: &str) -> Result<(), DynError> {
     tokio::try_join!(
         PostDetails::reindex(author_id, post_id),
         PostCounts::reindex(author_id, post_id),
@@ -100,7 +98,7 @@ pub async fn reindex_post(
     Ok(())
 }
 
-async fn get_all_user_ids() -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
+async fn get_all_user_ids() -> Result<Vec<String>, DynError> {
     let mut result;
     {
         let graph = get_neo4j_graph()?;
@@ -120,8 +118,7 @@ async fn get_all_user_ids() -> Result<Vec<String>, Box<dyn std::error::Error + S
     Ok(user_ids)
 }
 
-async fn get_all_post_ids(
-) -> Result<Vec<(String, String)>, Box<dyn std::error::Error + Send + Sync>> {
+async fn get_all_post_ids() -> Result<Vec<(String, String)>, DynError> {
     let mut result;
     {
         let graph = get_neo4j_graph()?;

@@ -1,3 +1,4 @@
+use crate::types::DynError;
 use once_cell::sync::OnceCell;
 use redis::aio::MultiplexedConnection;
 use redis::Client;
@@ -48,8 +49,7 @@ impl fmt::Debug for RedisConnector {
 }
 
 /// Retrieves a Redis connection.
-pub async fn get_redis_conn(
-) -> Result<MultiplexedConnection, Box<dyn std::error::Error + Send + Sync>> {
+pub async fn get_redis_conn() -> Result<MultiplexedConnection, DynError> {
     let redis_client = REDIS_CONNECTOR
         .get()
         .ok_or("RedisConnector not initialized")?

@@ -1,6 +1,6 @@
 use crate::db::connectors::redis::get_redis_conn;
+use crate::types::DynError;
 use redis::AsyncCommands;
-use std::error::Error;
 
 pub enum SortOrder {
     Ascending,
@@ -33,7 +33,7 @@ pub async fn check_member(
     prefix: &str,
     key: &str,
     member: &str,
-) -> Result<Option<isize>, Box<dyn Error + Send + Sync>> {
+) -> Result<Option<isize>, DynError> {
     let index_key = format!("{}:{}", prefix, key);
     let mut redis_conn = get_redis_conn().await?;
     // Use the ZSCORE command to check if the member exists in the sorted set
@@ -56,11 +56,7 @@ pub async fn check_member(
 /// # Errors
 ///
 /// Returns an error if the operation fails.
-pub async fn put(
-    prefix: &str,
-    key: &str,
-    items: &[(f64, &str)],
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+pub async fn put(prefix: &str, key: &str, items: &[(f64, &str)]) -> Result<(), DynError> {
     if items.is_empty() {
         return Ok(());
     }
@@ -89,7 +85,7 @@ pub async fn put_score(
     key: &str,
     member: &str,
     score_mutation: ScoreAction,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+) -> Result<(), DynError> {
     let index_key = format!("{}:{}", prefix, key);
     let mut redis_conn = get_redis_conn().await?;
     let value = match score_mutation {
@@ -131,7 +127,7 @@ pub async fn get_range(
     skip: Option<usize>,
     limit: Option<usize>,
     sorting: SortOrder,
-) -> Result<Option<Vec<(String, f64)>>, Box<dyn Error + Send + Sync>> {
+) -> Result<Option<Vec<(String, f64)>>, DynError> {
     let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{}:{}", prefix, key);
 
@@ -174,7 +170,7 @@ pub async fn get_lex_range(
     max: &str,
     skip: Option<usize>,
     limit: Option<usize>,
-) -> Result<Option<Vec<String>>, Box<dyn Error + Send + Sync>> {
+) -> Result<Option<Vec<String>>, DynError> {
     let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{}:{}", prefix, key);
     let skip = skip.unwrap_or(0) as isize;
@@ -195,11 +191,7 @@ pub async fn get_lex_range(
 /// # Arguments
 ///
 /// * `items` - A slice of elements to remove.
-pub async fn _remove(
-    prefix: &str,
-    key: &str,
-    items: &[&str],
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+pub async fn _remove(prefix: &str, key: &str, items: &[&str]) -> Result<(), DynError> {
     if items.is_empty() {
         return Ok(());
     }
@@ -224,11 +216,7 @@ pub async fn _remove(
 /// # Errors
 ///
 /// Returns an error if the operation fails.
-pub async fn del(
-    prefix: &str,
-    key: &str,
-    values: &[&str],
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+pub async fn del(prefix: &str, key: &str, values: &[&str]) -> Result<(), DynError> {
     if values.is_empty() {
         return Ok(());
     }

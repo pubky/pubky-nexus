@@ -2,6 +2,7 @@ use crate::models::follow::{Followers, UserFollows};
 use crate::models::user::Muted;
 
 use super::UserCounts;
+use crate::types::DynError;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -18,7 +19,7 @@ impl Relationship {
     pub async fn get_by_id(
         user_id: &str,
         viewer_id: Option<&str>,
-    ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<Self>, DynError> {
         match viewer_id {
             None => Ok(None),
             Some(v_id) => Self::get_from_index(user_id, v_id).await,
@@ -29,7 +30,7 @@ impl Relationship {
     pub async fn get_from_index(
         user_id: &str,
         viewer_id: &str,
-    ) -> Result<Option<Relationship>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<Relationship>, DynError> {
         let user_exist = UserCounts::get_from_index(user_id).await?;
         let viewer_exist = UserCounts::get_from_index(viewer_id).await?;
 

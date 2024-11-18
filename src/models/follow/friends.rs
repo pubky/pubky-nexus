@@ -1,6 +1,6 @@
+use crate::types::DynError;
 use crate::RedisOps;
 use serde::{Deserialize, Serialize};
-use std::error::Error;
 use utoipa::ToSchema;
 
 use super::followers::Followers;
@@ -15,7 +15,7 @@ impl Friends {
         user_id: &str,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Option<Self>, DynError> {
         // Fetch following and followers, limit to 10K
         let following = Following::get_by_id(user_id, None, Some(10000))
             .await?
@@ -48,10 +48,7 @@ impl Friends {
     }
 
     // Checks wjether user_a and user_b are friends
-    pub async fn check(
-        user_a_id: &str,
-        user_b_id: &str,
-    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    pub async fn check(user_a_id: &str, user_b_id: &str) -> Result<bool, DynError> {
         let user_a_key_parts = &[user_a_id][..];
         let user_b_key_parts = &[user_b_id][..];
 

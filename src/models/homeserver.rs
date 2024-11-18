@@ -1,3 +1,4 @@
+use crate::types::DynError;
 use crate::types::PubkyId;
 use crate::{Config, RedisOps};
 use serde::{Deserialize, Serialize};
@@ -28,9 +29,7 @@ impl Homeserver {
     }
 
     /// Retrieves the homeserver from Redis.
-    pub async fn get_from_index(
-        id: &str,
-    ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn get_from_index(id: &str) -> Result<Option<Self>, DynError> {
         if let Some(homeserver) = Self::try_from_index_json(&[id]).await? {
             return Ok(Some(homeserver));
         }
@@ -38,14 +37,12 @@ impl Homeserver {
     }
 
     /// Stores the homeserver in Redis.
-    pub async fn put_to_index(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn put_to_index(&self) -> Result<(), DynError> {
         self.put_index_json(&[&self.id]).await?;
         Ok(())
     }
 
-    pub async fn from_config(
-        config: &Config,
-    ) -> Result<Homeserver, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn from_config(config: &Config) -> Result<Homeserver, DynError> {
         let homeserver_id = config.homeserver.clone();
         let homeserver_url = config.homeserver_url.clone();
 

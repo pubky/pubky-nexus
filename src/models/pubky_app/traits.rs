@@ -1,3 +1,4 @@
+use crate::types::DynError;
 use axum::async_trait;
 use axum::body::Bytes;
 use base32::{decode, encode, Alphabet};
@@ -16,7 +17,7 @@ pub trait TimestampId {
 
     /// Validates that the provided ID is a valid Crockford Base32-encoded timestamp,
     /// 13 characters long, and represents a reasonable timestamp.
-    async fn validate_id(&self, id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn validate_id(&self, id: &str) -> Result<(), DynError> {
         // Ensure ID is 13 characters long
         if id.len() != 13 {
             return Err("Invalid ID length: must be 13 characters".into());
@@ -93,7 +94,7 @@ pub trait HashId {
     }
 
     /// Validates that the provided ID matches the generated ID.
-    async fn validate_id(&self, id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn validate_id(&self, id: &str) -> Result<(), DynError> {
         let generated_id = self.create_id();
         if generated_id != id {
             return Err(format!("Invalid ID: expected {}, found {}", generated_id, id).into());
@@ -104,19 +105,16 @@ pub trait HashId {
 
 #[async_trait]
 pub trait Validatable: Sized + DeserializeOwned {
-    async fn try_from(
-        blob: &Bytes,
-        id: &str,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    async fn try_from(blob: &Bytes, id: &str) -> Result<Self, DynError> {
         let mut instance: Self = serde_json::from_slice(blob)?;
         instance = instance.sanitize().await?;
         instance.validate(id).await?;
         Ok(instance)
     }
 
-    async fn validate(&self, id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+    async fn validate(&self, id: &str) -> Result<(), DynError>;
 
-    async fn sanitize(self) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    async fn sanitize(self) -> Result<Self, DynError> {
         Ok(self)
     }
 }

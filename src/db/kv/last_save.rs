@@ -1,7 +1,7 @@
 use crate::db::connectors::redis::get_redis_conn;
-use std::error::Error;
+use crate::types::DynError;
 
-pub async fn get_last_rdb_save_time() -> Result<u64, Box<dyn Error + Send + Sync>> {
+pub async fn get_last_rdb_save_time() -> Result<u64, DynError> {
     let mut redis_conn = get_redis_conn().await?;
     let info: String = redis::cmd("INFO")
         .arg("persistence")

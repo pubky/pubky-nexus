@@ -1,8 +1,8 @@
+use crate::types::DynError;
 use axum::async_trait;
 use neo4rs::Query;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use std::error::Error;
 use std::ops::Deref;
 use utoipa::ToSchema;
 
@@ -45,18 +45,15 @@ impl Taggers {
     pub async fn update_index_score(
         label: &str,
         score_action: ScoreAction,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    ) -> Result<(), DynError> {
         Self::put_score_index_sorted_set(&TAG_GLOBAL_HOT, &[label], score_action).await
     }
 
-    pub async fn put_to_index(
-        label: &str,
-        user_id: &str,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub async fn put_to_index(label: &str, user_id: &str) -> Result<(), DynError> {
         Self::put_index_set(&[label], &[user_id]).await
     }
 
-    pub async fn del_from_index(&self, label: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub async fn del_from_index(&self, label: &str) -> Result<(), DynError> {
         self.remove_from_index_set(&[label]).await
     }
 }
@@ -93,7 +90,7 @@ impl FromIterator<HotTag> for HotTags {
 }
 
 impl HotTags {
-    pub async fn set_global_tag_scores() -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub async fn set_global_tag_scores() -> Result<(), DynError> {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
@@ -124,7 +121,7 @@ impl HotTags {
         skip: Option<usize>,
         limit: Option<usize>,
         taggers_limit: Option<usize>,
-    ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Option<Self>, DynError> {
         let hot_tags = Self::try_from_index_sorted_set(
             &TAG_GLOBAL_HOT,
             None,
@@ -168,7 +165,7 @@ impl HotTags {
     pub async fn get_stream_tags_by_reach(
         user_id: String,
         reach: TagStreamReach,
-    ) -> Result<Option<HotTags>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Option<HotTags>, DynError> {
         // We cannot use here limit and skip because we want to get all the users reach
         let users = match reach {
             TagStreamReach::Followers => {
@@ -195,19 +192,14 @@ impl HotTags {
     }
 }
 
-async fn get_users_tags_by_reach(
-    users: &[String],
-) -> Result<Option<HotTags>, Box<dyn Error + Send + Sync>> {
+async fn get_users_tags_by_reach(users: &[String]) -> Result<Option<HotTags>, DynError> {
     let user_slice = users.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
     let query = queries::get::get_tags_by_user_ids(user_slice.as_slice());
     retrieve_from_graph::<HotTags>(query, "hot_tags").await
 }
 
 // Generic function to retrieve data from Neo4J
-async fn retrieve_from_graph<T>(
-    query: Query,
-    key: &str,
-) -> Result<Option<T>, Box<dyn Error + Send + Sync>>
+async fn retrieve_from_graph<T>(query: Query, key: &str) -> Result<Option<T>, DynError>
 where
     // Key point: DeserializeOwned ensures we can deserialize into any type that implements it
     T: DeserializeOwned + Send + Sync,

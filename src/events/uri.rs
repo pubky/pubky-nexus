@@ -1,3 +1,4 @@
+use crate::types::DynError;
 use crate::types::PubkyId;
 use std::convert::TryFrom;
 
@@ -13,7 +14,7 @@ pub struct ParsedUri {
 }
 
 impl TryFrom<&str> for ParsedUri {
-    type Error = Box<dyn std::error::Error + Send + Sync>;
+    type Error = DynError;
 
     fn try_from(uri: &str) -> Result<Self, Self::Error> {
         let mut parsed_uri = ParsedUri::default();

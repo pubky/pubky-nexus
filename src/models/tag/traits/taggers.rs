@@ -1,5 +1,4 @@
-use super::DynError;
-use crate::types::Pagination;
+use crate::types::{DynError, Pagination};
 use crate::RedisOps;
 use axum::async_trait;
 

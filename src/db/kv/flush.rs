@@ -1,7 +1,7 @@
 use crate::db::connectors::redis::get_redis_conn;
-use std::error::Error;
+use crate::types::DynError;
 
-pub async fn clear_redis() -> Result<(), Box<dyn Error + Send + Sync>> {
+pub async fn clear_redis() -> Result<(), DynError> {
     let mut redis_conn = get_redis_conn().await?;
     let _: () = redis::cmd("FLUSHDB").query_async(&mut redis_conn).await?;
     Ok(())

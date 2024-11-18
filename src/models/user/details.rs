@@ -2,6 +2,7 @@ use super::UserSearch;
 use crate::db::graph::exec::exec_single_row;
 use crate::models::pubky_app::{PubkyAppUser, UserLink};
 use crate::models::traits::Collection;
+use crate::types::DynError;
 use crate::types::PubkyId;
 use crate::{queries, RedisOps};
 use axum::async_trait;
@@ -20,13 +21,11 @@ impl Collection<&str> for UserDetails {
         queries::get::get_users_details_by_ids(id_list)
     }
 
-    fn put_graph_query(&self) -> Result<Query, Box<dyn std::error::Error + Send + Sync>> {
+    fn put_graph_query(&self) -> Result<Query, DynError> {
         queries::put::create_user(self)
     }
 
-    async fn extend_on_index_miss(
-        details: &[std::option::Option<Self>],
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn extend_on_index_miss(details: &[std::option::Option<Self>]) -> Result<(), DynError> {
         let user_details_refs: Vec<&UserDetails> = details
             .iter()
             .filter_map(|detail| detail.as_ref())
@@ -76,9 +75,7 @@ where
 
 impl UserDetails {
     /// Retrieves details by user ID, first trying to get from Redis, then from Neo4j if not found.
-    pub async fn get_by_id(
-        user_id: &str,
-    ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn get_by_id(user_id: &str) -> Result<Option<Self>, DynError> {
         // Delegate to UserDetailsCollection::get_by_ids for single item retrieval
         let details_collection = Self::get_by_ids(&[user_id]).await?;
         Ok(details_collection.into_iter().flatten().next())
@@ -87,7 +84,7 @@ impl UserDetails {
     pub async fn from_homeserver(
         homeserver_user: PubkyAppUser,
         user_id: &PubkyId,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Self, DynError> {
         Ok(UserDetails {
             name: homeserver_user.name,
             bio: homeserver_user.bio,
@@ -99,7 +96,7 @@ impl UserDetails {
         })
     }
 
-    pub async fn delete(user_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn delete(user_id: &str) -> Result<(), DynError> {
         // Delete user_details on Redis
         Self::remove_from_index_multiple_json(&[&[user_id]]).await?;
 

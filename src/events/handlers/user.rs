@@ -6,12 +6,12 @@ use crate::models::{
     user::{UserCounts, UserDetails},
 };
 use crate::queries::get::user_is_safe_to_delete;
+use crate::types::DynError;
 use crate::types::PubkyId;
 use axum::body::Bytes;
 use log::debug;
-use std::error::Error;
 
-pub async fn put(user_id: PubkyId, blob: Bytes) -> Result<(), Box<dyn Error + Sync + Send>> {
+pub async fn put(user_id: PubkyId, blob: Bytes) -> Result<(), DynError> {
     // Process profile.json and update the databases
     debug!("Indexing new user profile: {}", user_id);
 
@@ -21,10 +21,7 @@ pub async fn put(user_id: PubkyId, blob: Bytes) -> Result<(), Box<dyn Error + Sy
     sync_put(user, user_id).await
 }
 
-pub async fn sync_put(
-    user: PubkyAppUser,
-    user_id: PubkyId,
-) -> Result<(), Box<dyn Error + Sync + Send>> {
+pub async fn sync_put(user: PubkyAppUser, user_id: PubkyId) -> Result<(), DynError> {
     // Create UserDetails object
     let user_details = UserDetails::from_homeserver(user, &user_id).await?;
     // SAVE TO GRAPH
@@ -40,7 +37,7 @@ pub async fn sync_put(
     Ok(())
 }
 
-pub async fn del(user_id: PubkyId) -> Result<(), Box<dyn Error + Sync + Send>> {
+pub async fn del(user_id: PubkyId) -> Result<(), DynError> {
     debug!("Deleting user profile:  {}", user_id);
 
     let query = user_is_safe_to_delete(&user_id);

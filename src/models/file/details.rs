@@ -1,6 +1,7 @@
 use crate::db::graph::exec::exec_single_row;
 use crate::models::pubky_app::PubkyAppFile;
 use crate::models::traits::Collection;
+use crate::types::DynError;
 use crate::{queries, RedisOps};
 use axum::async_trait;
 use chrono::Utc;
@@ -65,13 +66,11 @@ impl Collection<&[&str]> for FileDetails {
         queries::get::get_files_by_ids(id_list)
     }
 
-    fn put_graph_query(&self) -> Result<Query, Box<dyn std::error::Error + Send + Sync>> {
+    fn put_graph_query(&self) -> Result<Query, DynError> {
         queries::put::create_file(self)
     }
 
-    async fn extend_on_index_miss(
-        _: &[std::option::Option<Self>],
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn extend_on_index_miss(_: &[std::option::Option<Self>]) -> Result<(), DynError> {
         Ok(())
     }
 }
@@ -115,7 +114,7 @@ impl FileDetails {
         }
     }
 
-    pub async fn delete(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn delete(&self) -> Result<(), DynError> {
         // Delete on Redis
         Self::remove_from_index_multiple_json(&[&[&self.owner_id, &self.id]]).await?;
 

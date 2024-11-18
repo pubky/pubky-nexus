@@ -1,5 +1,5 @@
 use super::{Bookmark, PostCounts, PostDetails, PostView};
-use crate::types::{Pagination, StreamSorting};
+use crate::types::{DynError, Pagination, StreamSorting};
 use crate::{
     db::kv::index::sorted_sets::SortOrder,
     get_neo4j_graph,
@@ -10,7 +10,6 @@ use crate::{
     queries, RedisOps, ScoreAction,
 };
 use serde::{Deserialize, Serialize};
-use std::error::Error;
 use tokio::task::spawn;
 use tokio::time::{timeout, Duration};
 use utoipa::ToSchema;
@@ -97,7 +96,7 @@ impl PostStream {
         sorting: StreamSorting,
         viewer_id: Option<String>,
         tags: Option<Vec<String>>,
-    ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Option<Self>, DynError> {
         // Decide whether to use index or fallback to graph query
         let use_index = Self::can_use_index(&sorting, &source, &tags);
 
@@ -147,7 +146,7 @@ impl PostStream {
         sorting: StreamSorting,
         tags: &Option<Vec<String>>,
         pagination: Pagination,
-    ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Vec<String>, DynError> {
         let start = pagination.start;
         let end = pagination.end;
         let skip = pagination.skip;
@@ -190,7 +189,7 @@ impl PostStream {
         sorting: StreamSorting,
         tags: &Option<Vec<String>>,
         pagination: Pagination,
-    ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Vec<String>, DynError> {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
@@ -223,7 +222,7 @@ impl PostStream {
         end: Option<f64>,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Vec<String>, DynError> {
         let sorted_set = match sorting {
             StreamSorting::TotalEngagement => {
                 Self::try_from_index_sorted_set(
@@ -261,7 +260,7 @@ impl PostStream {
         end: Option<f64>,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Vec<String>, DynError> {
         let skip = skip.unwrap_or(0);
         let limit = limit.unwrap_or(10);
 
@@ -291,7 +290,7 @@ impl PostStream {
         skip: Option<usize>,
         limit: Option<usize>,
         replies: bool,
-    ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Vec<String>, DynError> {
         // Retrieve only parents or only reply posts written by the author from index
         let key_parts = match replies {
             true => POST_REPLIES_PER_USER_KEY_PARTS,
@@ -324,7 +323,7 @@ impl PostStream {
         source: StreamSource,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Vec<String>, DynError> {
         let user_ids = match source {
             StreamSource::Following { observer_id } => {
                 Following::get_by_id(&observer_id, None, None)
@@ -366,7 +365,7 @@ impl PostStream {
         end: Option<f64>,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Vec<String>, DynError> {
         let key_parts = [&BOOKMARKS_USER_KEY_PARTS[..], &[user_id]].concat();
         let post_keys = Self::try_from_index_sorted_set(
             &key_parts,
@@ -391,7 +390,7 @@ impl PostStream {
         start: Option<f64>,
         end: Option<f64>,
         limit: Option<usize>,
-    ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Vec<String>, DynError> {
         let key_parts = [&POST_REPLIES_PER_POST_KEY_PARTS[..], &[author_id, post_id]].concat();
         let post_replies = Self::try_from_index_sorted_set(
             &key_parts,
@@ -415,7 +414,7 @@ impl PostStream {
         user_ids: &[&str],
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Vec<String>, DynError> {
         let mut post_keys = Vec::new();
 
         // Limit the number of user IDs to process to the first 200
@@ -465,7 +464,7 @@ impl PostStream {
     pub async fn from_listed_post_ids(
         viewer_id: Option<String>,
         post_keys: &[String],
-    ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<Self>, DynError> {
         let viewer_id = viewer_id.map(|id| id.to_string());
         let mut handles = Vec::with_capacity(post_keys.len());
 
@@ -492,9 +491,7 @@ impl PostStream {
     }
 
     /// Adds the post to a Redis sorted set using the `indexed_at` timestamp as the score.
-    pub async fn add_to_timeline_sorted_set(
-        details: &PostDetails,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn add_to_timeline_sorted_set(details: &PostDetails) -> Result<(), DynError> {
         let element = format!("{}:{}", details.author, details.id);
         let score = details.indexed_at as f64;
         Self::put_index_sorted_set(&POST_TIMELINE_KEY_PARTS, &[(score, element.as_str())]).await
@@ -504,15 +501,13 @@ impl PostStream {
     pub async fn remove_from_timeline_sorted_set(
         author_id: &str,
         post_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), DynError> {
         let element = format!("{}:{}", author_id, post_id);
         Self::remove_from_index_sorted_set(&POST_TIMELINE_KEY_PARTS, &[element.as_str()]).await
     }
 
     /// Adds the post to a Redis sorted set using the `indexed_at` timestamp as the score.
-    pub async fn add_to_per_user_sorted_set(
-        details: &PostDetails,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn add_to_per_user_sorted_set(details: &PostDetails) -> Result<(), DynError> {
         let key_parts = [&POST_PER_USER_KEY_PARTS[..], &[details.author.as_str()]].concat();
         let score = details.indexed_at as f64;
         Self::put_index_sorted_set(&key_parts, &[(score, details.id.as_str())]).await
@@ -522,7 +517,7 @@ impl PostStream {
     pub async fn remove_from_per_user_sorted_set(
         author_id: &str,
         post_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), DynError> {
         let key_parts = [&POST_PER_USER_KEY_PARTS[..], &[author_id]].concat();
         Self::remove_from_index_sorted_set(&key_parts, &[post_id]).await
     }
@@ -535,7 +530,7 @@ impl PostStream {
         author_id: &str,
         reply_id: &str,
         indexed_at: i64,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), DynError> {
         let key_parts = [&POST_REPLIES_PER_POST_KEY_PARTS[..], parent_post_key_parts].concat();
         let score = indexed_at as f64;
         let element = format!("{}:{}", author_id, reply_id);
@@ -547,16 +542,14 @@ impl PostStream {
         parent_post_key_parts: &[&str; 2],
         author_id: &str,
         reply_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), DynError> {
         let key_parts = [&POST_REPLIES_PER_POST_KEY_PARTS[..], parent_post_key_parts].concat();
         let element = format!("{}:{}", author_id, reply_id);
         Self::remove_from_index_sorted_set(&key_parts, &[element.as_str()]).await
     }
 
     /// Adds the post to a Redis sorted set of replies per author using the `indexed_at` timestamp as the score.
-    pub async fn add_to_replies_per_user_sorted_set(
-        details: &PostDetails,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn add_to_replies_per_user_sorted_set(details: &PostDetails) -> Result<(), DynError> {
         let key_parts = [
             &POST_REPLIES_PER_USER_KEY_PARTS[..],
             &[details.author.as_str()],
@@ -570,7 +563,7 @@ impl PostStream {
     pub async fn remove_from_replies_per_user_sorted_set(
         author_id: &str,
         post_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), DynError> {
         let key_parts = [&POST_REPLIES_PER_USER_KEY_PARTS[..], &[author_id]].concat();
         Self::remove_from_index_sorted_set(&key_parts, &[post_id]).await
     }
@@ -581,7 +574,7 @@ impl PostStream {
         bookmarker_id: &str,
         post_id: &str,
         author_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), DynError> {
         let key_parts = [&BOOKMARKS_USER_KEY_PARTS[..], &[bookmarker_id]].concat();
         let post_key = format!("{}:{}", author_id, post_id);
         let score = bookmark.indexed_at as f64;
@@ -593,7 +586,7 @@ impl PostStream {
         bookmarker_id: &str,
         post_id: &str,
         author_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), DynError> {
         let key_parts = [&BOOKMARKS_USER_KEY_PARTS[..], &[bookmarker_id]].concat();
         let post_key = format!("{}:{}", author_id, post_id);
         Self::remove_from_index_sorted_set(&key_parts, &[&post_key]).await
@@ -604,7 +597,7 @@ impl PostStream {
         counts: &PostCounts,
         author_id: &str,
         post_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), DynError> {
         let element = format!("{}:{}", author_id, post_id);
         let score = counts.tags + counts.replies + counts.reposts;
         let score = score as f64;
@@ -619,7 +612,7 @@ impl PostStream {
     pub async fn delete_from_engagement_sorted_set(
         author_id: &str,
         post_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), DynError> {
         let post_key = format!("{}:{}", author_id, post_id);
         Self::remove_from_index_sorted_set(&POST_TOTAL_ENGAGEMENT_KEY_PARTS, &[&post_key]).await
     }
@@ -628,7 +621,7 @@ impl PostStream {
         author_id: &str,
         post_id: &str,
         score_action: ScoreAction,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), DynError> {
         let post_key_slice = &[author_id, post_id];
         Self::put_score_index_sorted_set(
             &POST_TOTAL_ENGAGEMENT_KEY_PARTS,

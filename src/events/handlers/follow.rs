@@ -2,16 +2,12 @@ use crate::db::kv::index::json::JsonAction;
 use crate::models::follow::{Followers, Following, Friends, UserFollows};
 use crate::models::notification::Notification;
 use crate::models::user::UserCounts;
+use crate::types::DynError;
 use crate::types::PubkyId;
 use axum::body::Bytes;
 use log::debug;
-use std::error::Error;
 
-pub async fn put(
-    follower_id: PubkyId,
-    followee_id: PubkyId,
-    _blob: Bytes,
-) -> Result<(), Box<dyn Error + Sync + Send>> {
+pub async fn put(follower_id: PubkyId, followee_id: PubkyId, _blob: Bytes) -> Result<(), DynError> {
     debug!("Indexing new follow: {} -> {}", follower_id, followee_id);
 
     // TODO: in case we want to validate the content of this homeserver object or its `created_at` timestamp
@@ -20,10 +16,7 @@ pub async fn put(
     sync_put(follower_id, followee_id).await
 }
 
-pub async fn sync_put(
-    follower_id: PubkyId,
-    followee_id: PubkyId,
-) -> Result<(), Box<dyn Error + Sync + Send>> {
+pub async fn sync_put(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), DynError> {
     // SAVE TO GRAPH
     // (follower_id)-[:FOLLOWS]->(followee_id)
     let existed = Followers::put_to_graph(&follower_id, &followee_id).await?;
@@ -59,19 +52,13 @@ pub async fn sync_put(
     Ok(())
 }
 
-pub async fn del(
-    follower_id: PubkyId,
-    followee_id: PubkyId,
-) -> Result<(), Box<dyn Error + Sync + Send>> {
+pub async fn del(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), DynError> {
     debug!("Deleting follow: {} -> {}", follower_id, followee_id);
     // Maybe we could do it here but lets follow the naming convention
     sync_del(follower_id, followee_id).await
 }
 
-pub async fn sync_del(
-    follower_id: PubkyId,
-    followee_id: PubkyId,
-) -> Result<(), Box<dyn Error + Sync + Send>> {
+pub async fn sync_del(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), DynError> {
     // DELETE FROM GRAPH
     let existed = Followers::del_from_graph(&follower_id, &followee_id).await?;
 
@@ -111,7 +98,7 @@ async fn update_follow_counts(
     followee_id: &str,
     counter: JsonAction,
     update_friend_relationship: bool,
-) -> Result<(), Box<dyn Error + Sync + Send>> {
+) -> Result<(), DynError> {
     // Update UserCount related indexes
     UserCounts::update_index_field(follower_id, "following", counter.clone()).await?;
     UserCounts::update(followee_id, "followers", counter.clone()).await?;
@@ -126,7 +113,7 @@ async fn update_follow_counts(
 pub async fn is_followee_following_follower(
     user_a_id: &str,
     user_b_id: &str,
-) -> Result<bool, Box<dyn Error + Send + Sync>> {
+) -> Result<bool, DynError> {
     let (a_follows_b, b_follows_a) = tokio::try_join!(
         Following::check(user_a_id, user_b_id),
         Following::check(user_b_id, user_a_id),

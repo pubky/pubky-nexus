@@ -1,6 +1,5 @@
-use std::error::Error;
-
 use super::UserDetails;
+use crate::types::DynError;
 use crate::RedisOps;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -17,7 +16,7 @@ impl UserSearch {
         name: &str,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Option<Self>, DynError> {
         // Perform the lexicographical range search
         let elements = Self::get_from_index(name, skip, limit).await?;
 
@@ -43,7 +42,7 @@ impl UserSearch {
         name: &str,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<Option<Vec<String>>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<Vec<String>>, DynError> {
         // Convert the username to lowercase to ensure case-insensitive search
         let name = name.to_lowercase();
 
@@ -57,9 +56,7 @@ impl UserSearch {
     /// Adds multiple `user_id`s to the Redis sorted set using the username as index.
     ///
     /// This method takes a list of `UserDetails` and adds them all to the sorted set at once.
-    pub async fn put_to_index(
-        details_list: &[&UserDetails],
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn put_to_index(details_list: &[&UserDetails]) -> Result<(), DynError> {
         // Collect all the `username:user_id` pairs and their corresponding scores
         let mut items: Vec<(f64, String)> = Vec::with_capacity(details_list.len());
 

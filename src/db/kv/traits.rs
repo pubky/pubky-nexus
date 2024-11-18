@@ -1,9 +1,9 @@
 use super::index::*;
+use crate::types::DynError;
 use axum::async_trait;
 use json::JsonAction;
 use serde::{de::DeserializeOwned, Serialize};
 use sorted_sets::{ScoreAction, SortOrder, SORTED_PREFIX};
-use std::error::Error;
 
 /// A trait for operations involving Redis storage. Implement this trait for types that need to be stored
 /// and retrieved from Redis with serialization and deserialization capabilities.
@@ -51,7 +51,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// # Errors
     ///
     /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
-    async fn put_index_json(&self, key_parts: &[&str]) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn put_index_json(&self, key_parts: &[&str]) -> Result<(), DynError> {
         json::put(
             &Self::prefix().await,
             &key_parts.join(":"),
@@ -78,9 +78,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// # Errors
     ///
     /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
-    async fn try_from_index_json(
-        key_parts: &[&str],
-    ) -> Result<Option<Self>, Box<dyn Error + Send + Sync>> {
+    async fn try_from_index_json(key_parts: &[&str]) -> Result<Option<Self>, DynError> {
         json::get(&Self::prefix().await, &key_parts.join(":"), None).await
     }
 
@@ -99,7 +97,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// A `Vec<Option<Self>>` containing the deserialized data if found, or `None` if a key does not exist.
     async fn try_from_index_multiple_json(
         key_parts_list: &[&[&str]],
-    ) -> Result<Vec<Option<Self>>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Vec<Option<Self>>, DynError> {
         let prefix = Self::prefix().await;
         let keys: Vec<String> = key_parts_list
             .iter()
@@ -132,7 +130,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     async fn put_multiple_json_indexes(
         key_parts_list: &[&[&str]],
         collection: Vec<Option<Self>>,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> // The items in the collection must be serializable
+    ) -> Result<(), DynError> // The items in the collection must be serializable
     {
         let mut data = Vec::with_capacity(key_parts_list.len());
         for (i, key_parts) in key_parts_list.iter().enumerate() {
@@ -160,9 +158,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// # Errors
     ///
     /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
-    async fn remove_from_index_multiple_json(
-        key_parts_list: &[&[&str]],
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn remove_from_index_multiple_json(key_parts_list: &[&[&str]]) -> Result<(), DynError> {
         let prefix = Self::prefix().await;
         let keys: Vec<String> = key_parts_list
             .iter()
@@ -194,7 +190,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         key_parts: &[&str],
         field: &str,
         action: JsonAction,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    ) -> Result<(), DynError> {
         let prefix = Self::prefix().await;
         let key = key_parts.join(":");
         json::modify_json_field(&prefix, &key, field, action, None).await
@@ -217,10 +213,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     ///
     /// Returns an error if the operation fails, such as if the Redis connection is unavailable or
     /// if there is an issue with serialization.
-    async fn put_index_list<T>(
-        &self,
-        key_parts: &[&str],
-    ) -> Result<(), Box<dyn Error + Send + Sync>>
+    async fn put_index_list<T>(&self, key_parts: &[&str]) -> Result<(), DynError>
     where
         Self: AsRef<[T]>,            // Self can be dereferenced into a slice of T
         T: AsRef<str> + Send + Sync, // The items must be convertible to &str
@@ -262,7 +255,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         key_parts: &[&str],
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<Option<Vec<String>>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Option<Vec<String>>, DynError> {
         let prefix = Self::prefix().await;
         let key = key_parts.join(":");
         lists::get_range(&prefix, &key, skip, limit).await
@@ -286,10 +279,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     ///
     /// Returns an error if the operation fails, such as if the Redis connection is unavailable or
     /// if there is an issue with serialization.
-    async fn put_index_set(
-        key_parts: &[&str],
-        values: &[&str],
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn put_index_set(key_parts: &[&str], values: &[&str]) -> Result<(), DynError> {
         let prefix = Self::prefix().await;
         let key = key_parts.join(":");
         // Store the values in the Redis set
@@ -308,10 +298,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// # Errors
     ///
     /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
-    async fn remove_from_index_set<T>(
-        &self,
-        key_parts: &[&str],
-    ) -> Result<(), Box<dyn Error + Send + Sync>>
+    async fn remove_from_index_set<T>(&self, key_parts: &[&str]) -> Result<(), DynError>
     where
         Self: AsRef<[T]>,            // Self can be dereferenced into a slice of T
         T: AsRef<str> + Send + Sync, // The items must be convertible to &str
@@ -349,7 +336,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         key_parts: &[&str],
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<Option<Vec<String>>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Option<Vec<String>>, DynError> {
         let prefix = Self::prefix().await;
         let key = key_parts.join(":");
         sets::get_range(&prefix, &key, skip, limit).await
@@ -374,10 +361,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// # Errors
     ///
     /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
-    async fn check_set_member(
-        key_parts: &[&str],
-        member: &str,
-    ) -> Result<(bool, bool), Box<dyn Error + Send + Sync>> {
+    async fn check_set_member(key_parts: &[&str], member: &str) -> Result<(bool, bool), DynError> {
         let prefix = Self::prefix().await;
         let key = key_parts.join(":");
         sets::check_member(&prefix, &key, member).await
@@ -399,9 +383,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// # Errors
     ///
     /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
-    async fn get_set_size(
-        key_parts: &[&str],
-    ) -> Result<Option<usize>, Box<dyn Error + Send + Sync>> {
+    async fn get_set_size(key_parts: &[&str]) -> Result<Option<usize>, DynError> {
         let prefix = Self::prefix().await;
         let key = key_parts.join(":");
         sets::get_size(&prefix, &key).await
@@ -432,7 +414,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     async fn try_from_multiple_sets(
         key_parts_list: &[&str],
         limit: Option<usize>,
-    ) -> Result<Vec<Option<(Vec<String>, usize)>>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Vec<Option<(Vec<String>, usize)>>, DynError> {
         let prefix = Self::prefix().await;
         sets::get_multiple_sets(&prefix, key_parts_list, limit).await
     }
@@ -462,7 +444,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         common_key: &[&str],
         index: &[&str],
         collections_refs: &[Vec<&str>],
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    ) -> Result<(), DynError> {
         // Ensure the lengths of keys_refs and collections_refs match
         if index.len() != collections_refs.len() {
             // TODO: Maybe create redis related errors
@@ -497,7 +479,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     async fn check_sorted_set_member(
         key_parts: &[&str],
         member: &[&str],
-    ) -> Result<Option<isize>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Option<isize>, DynError> {
         let key = key_parts.join(":");
         let member_key = member.join(":");
         sorted_sets::check_member(SORTED_PREFIX, &key, &member_key).await
@@ -520,7 +502,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     async fn put_index_sorted_set(
         key_parts: &[&str],
         elements: &[(f64, &str)],
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    ) -> Result<(), DynError> {
         let key = key_parts.join(":");
         // Store the elements in the Redis sorted set
         sorted_sets::put(SORTED_PREFIX, &key, elements).await
@@ -540,7 +522,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         key_parts: &[&str],
         member: &[&str],
         score_mutation: ScoreAction,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    ) -> Result<(), DynError> {
         let key = key_parts.join(":");
         let member_key = member.join(":");
         sorted_sets::put_score(SORTED_PREFIX, &key, &member_key, score_mutation).await
@@ -562,7 +544,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     async fn remove_from_index_sorted_set(
         key_parts: &[&str],
         items: &[&str],
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    ) -> Result<(), DynError> {
         if items.is_empty() {
             return Ok(());
         }
@@ -599,7 +581,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         skip: Option<usize>,
         limit: Option<usize>,
         sorting: SortOrder,
-    ) -> Result<Option<Vec<(String, f64)>>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Option<Vec<(String, f64)>>, DynError> {
         let key = key_parts.join(":");
 
         sorted_sets::get_range("Sorted", &key, end, start, skip, limit, sorting).await
@@ -630,7 +612,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         max: &str,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<Option<Vec<String>>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Option<Vec<String>>, DynError> {
         let key = key_parts.join(":");
         sorted_sets::get_lex_range("Sorted", &key, min, max, skip, limit).await
     }

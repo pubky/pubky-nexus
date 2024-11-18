@@ -1,4 +1,4 @@
-use pubky_nexus::models::tag::traits::DynError;
+use pubky_nexus::types::DynError;
 
 use crate::service::utils::HOST_URL;
 

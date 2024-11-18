@@ -1,14 +1,10 @@
 use crate::models::user::Muted;
+use crate::types::DynError;
 use crate::types::PubkyId;
 use axum::body::Bytes;
 use log::debug;
-use std::error::Error;
 
-pub async fn put(
-    user_id: PubkyId,
-    muted_id: PubkyId,
-    _blob: Bytes,
-) -> Result<(), Box<dyn Error + Sync + Send>> {
+pub async fn put(user_id: PubkyId, muted_id: PubkyId, _blob: Bytes) -> Result<(), DynError> {
     debug!("Indexing new mute: {} -> {}", user_id, muted_id);
 
     // TODO: in case we want to validate the content of this homeserver object or its `created_at` timestamp
@@ -17,10 +13,7 @@ pub async fn put(
     sync_put(user_id, muted_id).await
 }
 
-pub async fn sync_put(
-    user_id: PubkyId,
-    muted_id: PubkyId,
-) -> Result<(), Box<dyn Error + Sync + Send>> {
+pub async fn sync_put(user_id: PubkyId, muted_id: PubkyId) -> Result<(), DynError> {
     // SAVE TO GRAPH
     // (user_id)-[:MUTED]->(muted_id)
     Muted::put_to_graph(&user_id, &muted_id).await?;
@@ -33,15 +26,12 @@ pub async fn sync_put(
     Ok(())
 }
 
-pub async fn del(user_id: PubkyId, muted_id: PubkyId) -> Result<(), Box<dyn Error + Sync + Send>> {
+pub async fn del(user_id: PubkyId, muted_id: PubkyId) -> Result<(), DynError> {
     debug!("Deleting mute: {} -> {}", user_id, muted_id);
     sync_del(user_id, muted_id).await
 }
 
-pub async fn sync_del(
-    user_id: PubkyId,
-    muted_id: PubkyId,
-) -> Result<(), Box<dyn Error + Sync + Send>> {
+pub async fn sync_del(user_id: PubkyId, muted_id: PubkyId) -> Result<(), DynError> {
     // DELETE FROM GRAPH
     Muted::del_from_graph(&user_id, &muted_id).await?;
 

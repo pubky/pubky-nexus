@@ -1,6 +1,6 @@
 use crate::db::connectors::redis::get_redis_conn;
+use crate::types::DynError;
 use redis::AsyncCommands;
-use std::error::Error;
 
 /// Adds elements to a Redis set.
 ///
@@ -16,11 +16,7 @@ use std::error::Error;
 /// # Errors
 ///
 /// Returns an error if the operation fails.
-pub async fn put(
-    prefix: &str,
-    key: &str,
-    values: &[&str],
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+pub async fn put(prefix: &str, key: &str, values: &[&str]) -> Result<(), DynError> {
     if values.is_empty() {
         return Ok(());
     }
@@ -55,7 +51,7 @@ pub async fn get_range(
     key: &str,
     skip: Option<usize>,
     limit: Option<usize>,
-) -> Result<Option<Vec<String>>, Box<dyn Error + Send + Sync>> {
+) -> Result<Option<Vec<String>>, DynError> {
     let mut redis_conn = get_redis_conn().await?;
 
     let index_key = format!("{}:{}", prefix, key);
@@ -119,11 +115,7 @@ pub async fn get_range(
 /// `Ok((false, false))` if the set does not exist.
 ///
 /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
-pub async fn check_member(
-    prefix: &str,
-    key: &str,
-    member: &str,
-) -> Result<(bool, bool), Box<dyn Error + Send + Sync>> {
+pub async fn check_member(prefix: &str, key: &str, member: &str) -> Result<(bool, bool), DynError> {
     let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{}:{}", prefix, key);
 
@@ -159,10 +151,7 @@ pub async fn check_member(
 /// # Errors
 ///
 /// Returns an error if the Redis connection or the SCARD operation fails.
-pub async fn get_size(
-    prefix: &str,
-    key: &str,
-) -> Result<Option<usize>, Box<dyn Error + Send + Sync>> {
+pub async fn get_size(prefix: &str, key: &str) -> Result<Option<usize>, DynError> {
     let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{}:{}", prefix, key);
 
@@ -206,7 +195,7 @@ pub async fn get_multiple_sets(
     prefix: &str,
     keys: &[&str],
     limit: Option<usize>,
-) -> Result<Vec<Option<(Vec<String>, usize)>>, Box<dyn Error + Send + Sync>> {
+) -> Result<Vec<Option<(Vec<String>, usize)>>, DynError> {
     let mut redis_conn = get_redis_conn().await?;
 
     // Create a Redis pipeline
@@ -264,7 +253,7 @@ pub async fn put_multiple_sets(
     common_key: &[&str],
     index: &[&str],
     collections: &[&[&str]],
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+) -> Result<(), DynError> {
     let mut redis_conn = get_redis_conn().await?;
     let mut pipe = redis::pipe();
 
@@ -294,11 +283,7 @@ pub async fn put_multiple_sets(
 /// # Errors
 ///
 /// Returns an error if the operation fails.
-pub async fn del(
-    prefix: &str,
-    key: &str,
-    values: &[&str],
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+pub async fn del(prefix: &str, key: &str, values: &[&str]) -> Result<(), DynError> {
     if values.is_empty() {
         return Ok(());
     }

@@ -1,4 +1,5 @@
 use super::traits::Validatable;
+use crate::types::DynError;
 use axum::async_trait;
 use log::error;
 use serde::{Deserialize, Serialize};
@@ -35,7 +36,7 @@ pub struct UserLink {
 
 #[async_trait]
 impl Validatable for PubkyAppUser {
-    async fn sanitize(self) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    async fn sanitize(self) -> Result<Self, DynError> {
         // Sanitize name
         let sanitized_name = self.name.trim();
         // Crop name to a maximum length of MAX_USERNAME_LENGTH characters
@@ -125,7 +126,7 @@ impl Validatable for PubkyAppUser {
         })
     }
 
-    async fn validate(&self, _id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn validate(&self, _id: &str) -> Result<(), DynError> {
         // Validate name length
         let name_length = self.name.chars().count();
         if !(MIN_USERNAME_LENGTH..=MAX_USERNAME_LENGTH).contains(&name_length) {

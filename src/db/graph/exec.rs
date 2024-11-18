@@ -1,8 +1,9 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
+use crate::types::DynError;
 use neo4rs::Query;
 
 // Exec a graph query without a return
-pub async fn exec_single_row(query: Query) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub async fn exec_single_row(query: Query) -> Result<(), DynError> {
     let graph = get_neo4j_graph()?;
     let graph = graph.lock().await;
     let mut result = graph.execute(query).await?;
@@ -11,9 +12,7 @@ pub async fn exec_single_row(query: Query) -> Result<(), Box<dyn std::error::Err
 }
 
 // Exec a graph query that has a single "boolean" return
-pub async fn exec_boolean_row(
-    query: Query,
-) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+pub async fn exec_boolean_row(query: Query) -> Result<bool, DynError> {
     let mut result;
     {
         let graph = get_neo4j_graph()?;

@@ -1,5 +1,6 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
 use crate::db::kv::index::json::JsonAction;
+use crate::types::DynError;
 use crate::{queries, RedisOps};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -18,10 +19,7 @@ impl RedisOps for PostCounts {}
 
 impl PostCounts {
     /// Retrieves counts by user ID, first trying to get from Redis, then from Neo4j if not found.
-    pub async fn get_by_id(
-        author_id: &str,
-        post_id: &str,
-    ) -> Result<Option<PostCounts>, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn get_by_id(author_id: &str, post_id: &str) -> Result<Option<PostCounts>, DynError> {
         // TODO: uncomment the get_from_index approach when index counting is stable
 
         // match Self::get_from_index(author_id, post_id).await? {
@@ -48,7 +46,7 @@ impl PostCounts {
     pub async fn get_from_index(
         author_id: &str,
         post_id: &str,
-    ) -> Result<Option<PostCounts>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<PostCounts>, DynError> {
         if let Some(post_counts) = Self::try_from_index_json(&[author_id, post_id]).await? {
             return Ok(Some(post_counts));
         }
@@ -59,7 +57,7 @@ impl PostCounts {
     pub async fn get_from_graph(
         author_id: &str,
         post_id: &str,
-    ) -> Result<Option<(PostCounts, bool)>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<(PostCounts, bool)>, DynError> {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
@@ -86,7 +84,7 @@ impl PostCounts {
         author_id: &str,
         post_id: &str,
         is_reply: bool,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), DynError> {
         self.put_index_json(&[author_id, post_id]).await?;
 
         // avoid indexing replies into global feeds
@@ -100,15 +98,12 @@ impl PostCounts {
         index_key: &[&str],
         field: &str,
         action: JsonAction,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), DynError> {
         Self::modify_json_field(index_key, field, action).await?;
         Ok(())
     }
 
-    pub async fn reindex(
-        author_id: &str,
-        post_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn reindex(author_id: &str, post_id: &str) -> Result<(), DynError> {
         match Self::get_from_graph(author_id, post_id).await? {
             Some((counts, is_reply)) => counts.put_to_index(author_id, post_id, is_reply).await?,
             None => log::error!(
@@ -124,7 +119,7 @@ impl PostCounts {
         author_id: &str,
         post_id: &str,
         remove_from_feeds: bool,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), DynError> {
         // Delete user_details on Redis
         Self::remove_from_index_multiple_json(&[&[author_id, post_id]]).await?;
         // Delete the posts that does not have any relationship as might be replies and reposts. Just root posts
