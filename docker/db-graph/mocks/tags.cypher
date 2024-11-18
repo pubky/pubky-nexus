@@ -81,7 +81,7 @@ MATCH (from:User {id: $peter}) MERGE (from)-[:TAGGED {label: $dev_tag, id: "9TUV
 // ###############################
 // ##### Posts related tags ######
 // ###############################
-MERGE (p:Post {id: "HC3T5CEPBPHQ"}) SET p.content = "Privacy is a Human Right", p.kind = "Short", p.indexed_at = 1719308315917;
+MERGE (p:Post {id: "HC3T5CEPBPHQ"}) SET p.content = "Privacy is a Human Right", p.kind = "short", p.indexed_at = 1719308315917;
 MATCH (u:User {id: $peter}), (p:Post {id: "HC3T5CEPBPHQ"}) MERGE (u)-[:AUTHORED]->(p);
 MATCH (u:User {id: $arst}), (p:Post {id: "HC3T5CEPBPHQ"}) MERGE (u)-[:TAGGED {label: $go_post_tag, id: "0RDVNJ0XR560", indexed_at: 1724544095000}]->(p);
 MATCH (u:User {id: $nakamoto}), (p:Post {id: "HC3T5CEPBPHQ"}) MERGE (u)-[:TAGGED {label: $go_post_tag, id: "S02JBP48173F", indexed_at: 1724134080000}]->(p);
@@ -93,14 +93,14 @@ MATCH (u:User {id: $anonymous}), (p:Post {id: "HC3T5CEPBPHQ"}) MERGE (u)-[:TAGGE
 MATCH (u:User {id: $arst}), (p:Post {id: "HC3T5CEPBPHQ"}) MERGE (u)-[:TAGGED {label: $defend_post_tag, id: "HTDX9ZSTNQ47", indexed_at: 1724334095000}]->(p);
 
 
-MERGE (p2:Post {id: "1TDV7XBCF4M1"}) SET p2.content = "Freedom of speech is essential for democracy", p2.kind = "Short", p2.indexed_at = 1719308316921;
+MERGE (p2:Post {id: "1TDV7XBCF4M1"}) SET p2.content = "Freedom of speech is essential for democracy", p2.kind = "short", p2.indexed_at = 1719308316921;
 MATCH (u2:User {id: $anonymous}), (p2:Post {id: "1TDV7XBCF4M1"}) MERGE (u2)-[:AUTHORED]->(p2);
 MATCH (u:User {id: $arst}), (p:Post {id: "1TDV7XBCF4M1"}) MERGE (u)-[:TAGGED {label:$privacy_post_tag, id: "1RDV7ZX9BX93", indexed_at: 1724544095000}]->(p);
 MATCH (u:User {id: $nakamoto}), (p:Post {id: "1TDV7XBCF4M1"}) MERGE (u)-[:TAGGED {label: $privacy_post_tag, id: "2TDW8YKH56JN", indexed_at: 1724134080000}]->(p);
 MATCH (u:User {id: $Wobly}), (p:Post {id: "1TDV7XBCF4M1"}) MERGE (u)-[:TAGGED {label: $human_right_post_tag, id: "3VDX9ZM7C4P1", indexed_at: 1724134092000}]->(p);
 MATCH (u:User {id: $Wobly}), (p:Post {id: "1TDV7XBCF4M1"}) MERGE (u)-[:TAGGED {label: $free_post_tag, id: "3VDX9ZM7C4P5", indexed_at: 1724134096000}]->(p);
 
-MERGE (p3:Post {id: "2VDW8YBDZJ02"}) SET p3.content = "Decentralization is key to preserving freedom", p3.kind = "Short", p3.indexed_at = 1719308318234;
+MERGE (p3:Post {id: "2VDW8YBDZJ02"}) SET p3.content = "Decentralization is key to preserving freedom", p3.kind = "short", p3.indexed_at = 1719308318234;
 MATCH (u3:User {id: $anonymous}), (p3:Post {id: "2VDW8YBDZJ02"}) MERGE (u3)-[:AUTHORED]->(p3);
 MATCH (u:User {id: $nakamoto}), (p:Post {id: "2VDW8YBDZJ02"}) MERGE (u)-[:TAGGED {label: $free_post_tag, id: "4SDW8YPKDL2M", indexed_at: 1724134080000}]->(p);
 MATCH (u:User {id: $Wobly}), (p:Post {id: "2VDW8YBDZJ02"}) MERGE (u)-[:TAGGED {label: $free_post_tag, id: "6TDW8ZMHJF29", indexed_at: 1724134092000}]->(p);

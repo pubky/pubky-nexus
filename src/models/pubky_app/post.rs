@@ -1,7 +1,6 @@
 use super::traits::{TimestampId, Validatable};
 use axum::async_trait;
 use serde::{Deserialize, Serialize};
-use std::fmt;
 use url::Url;
 use utoipa::ToSchema;
 
@@ -12,6 +11,7 @@ const MAX_LONG_CONTENT_LENGTH: usize = 50000;
 /// Represents the type of pubky-app posted data
 /// Used primarily to best display the content in UI
 #[derive(Serialize, Deserialize, ToSchema, Default, Debug, Clone)]
+#[serde(rename_all = "lowercase")]
 pub enum PostKind {
     #[default]
     Short,
@@ -20,19 +20,6 @@ pub enum PostKind {
     Video,
     Link,
     File,
-}
-
-impl fmt::Display for PostKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            PostKind::Short => write!(f, "Short"),
-            PostKind::Long => write!(f, "Long"),
-            PostKind::Image => write!(f, "Image"),
-            PostKind::Video => write!(f, "Video"),
-            PostKind::Link => write!(f, "Link"),
-            PostKind::File => write!(f, "File"),
-        }
-    }
 }
 
 /// Used primarily to best display the content in UI
