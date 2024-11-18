@@ -1396,7 +1396,7 @@ MATCH (p1:Post {id: "2ZCEHK3P6KX00"}), (p2:Post {id: "2ZCVS8MYJXH00"}) MERGE (p2
 MERGE (p:Post {id: "2ZCVXBPATDZG0"}) SET p.content = "undefined", p.kind = "short", p.indexed_at = 1718614390755;
 MATCH (u:User {id: "kt1ujy3zxs1tpxsxrqkdpmon5co959paiknw1s4r1rf1gsnqxnao"}), (p:Post {id: "2ZCVXBPATDZG0"}) MERGE (u)-[:AUTHORED]->(p);
 MATCH (p1:Post {id: "2ZCEHJM8SJW00"}), (p2:Post {id: "2ZCVXBPATDZG0"}) MERGE (p2)-[:REPOSTED]->(p1);
-MERGE (p:Post {id: "2ZCW1TGR5BKG0"}) SET p.content = "I am told we can reply now!", p.kind = "short", p.indexed_at = 1718616844478;
+MERGE (p:Post {id: "2ZCW1TGR5BKG0"}) SET p.content = "I am told we can reply now!", p.kind = "short", p.indexed_at = 1718616844478, p.attachments = ["pubky://y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy/pub/pubky.app/files/2ZKH7K7M9G3G0"];
 MATCH (u:User {id: "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy"}), (p:Post {id: "2ZCW1TGR5BKG0"}) MERGE (u)-[:AUTHORED]->(p);
 MERGE (p:Post {id: "2ZCWD3684B700"}) SET p.content = "Yes we can", p.kind = "short", p.indexed_at = 1718623040774;
 MATCH (u:User {id: "pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy"}), (p:Post {id: "2ZCWD3684B700"}) MERGE (u)-[:AUTHORED]->(p);
