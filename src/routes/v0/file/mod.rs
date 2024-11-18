@@ -1,5 +1,5 @@
-use crate::register_routes;
 use crate::routes::v0::endpoints;
+use crate::{register_routes, to_axum};
 use axum::Router;
 use utoipa::OpenApi;
 
@@ -7,9 +7,12 @@ mod details;
 mod list;
 
 pub fn routes() -> Router {
-    register_routes!(Router::new(),
-        endpoints::FILE_ROUTE => details::file_details_handler,
-        endpoints::FILE_LIST_ROUTE => list::file_details_by_uris_handler,
+    let router = register_routes!(Router::new(),
+        to_axum!(endpoints::FILE_ROUTE) => details::file_details_handler,
+    );
+    router.route(
+        to_axum!(endpoints::FILE_LIST_ROUTE),
+        axum::routing::post(list::file_details_by_uris_handler),
     )
 }
 

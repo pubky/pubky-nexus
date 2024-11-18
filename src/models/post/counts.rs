@@ -22,18 +22,26 @@ impl PostCounts {
         author_id: &str,
         post_id: &str,
     ) -> Result<Option<PostCounts>, Box<dyn std::error::Error + Send + Sync>> {
-        match Self::get_from_index(author_id, post_id).await? {
-            Some(counts) => Ok(Some(counts)),
-            None => {
-                let graph_response = Self::get_from_graph(author_id, post_id).await?;
-                if let Some((post_counts, is_reply)) = graph_response {
-                    post_counts
-                        .put_to_index(author_id, post_id, !is_reply)
-                        .await?;
-                    return Ok(Some(post_counts));
-                }
-                Ok(None)
-            }
+        // TODO: uncomment the get_from_index approach when index counting is stable
+
+        // match Self::get_from_index(author_id, post_id).await? {
+        //     Some(counts) => Ok(Some(counts)),
+        //     None => {
+        //         let graph_response = Self::get_from_graph(author_id, post_id).await?;
+        //         if let Some((post_counts, is_reply)) = graph_response {
+        //             post_counts
+        //                 .put_to_index(author_id, post_id, !is_reply)
+        //                 .await?;
+        //             return Ok(Some(post_counts));
+        //         }
+        //         Ok(None)
+        //     }
+        // }
+
+        if let Some((post_counts, _)) = Self::get_from_graph(author_id, post_id).await? {
+            Ok(Some(post_counts))
+        } else {
+            Ok(None)
         }
     }
 
@@ -77,10 +85,12 @@ impl PostCounts {
         &self,
         author_id: &str,
         post_id: &str,
-        add_to_feeds: bool,
+        is_reply: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.put_index_json(&[author_id, post_id]).await?;
-        if add_to_feeds {
+
+        // avoid indexing replies into global feeds
+        if !is_reply {
             PostStream::add_to_engagement_sorted_set(self, author_id, post_id).await?;
         }
         Ok(())
@@ -100,12 +110,26 @@ impl PostCounts {
         post_id: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         match Self::get_from_graph(author_id, post_id).await? {
-            Some((counts, is_reply)) => counts.put_to_index(author_id, post_id, !is_reply).await?,
+            Some((counts, is_reply)) => counts.put_to_index(author_id, post_id, is_reply).await?,
             None => log::error!(
                 "{}:{} Could not found post counts in the graph",
                 author_id,
                 post_id
             ),
+        }
+        Ok(())
+    }
+
+    pub async fn delete(
+        author_id: &str,
+        post_id: &str,
+        remove_from_feeds: bool,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Delete user_details on Redis
+        Self::remove_from_index_multiple_json(&[&[author_id, post_id]]).await?;
+        // Delete the posts that does not have any relationship as might be replies and reposts. Just root posts
+        if remove_from_feeds {
+            PostStream::delete_from_engagement_sorted_set(author_id, post_id).await?;
         }
         Ok(())
     }

@@ -1,8 +1,7 @@
+use crate::types::PubkyId;
 use log::{debug, error};
 use pubky::PubkyClient;
 use uri::ParsedUri;
-
-use crate::models::user::PubkyId;
 
 pub mod handlers;
 pub mod processor;
@@ -20,6 +19,10 @@ enum ResourceType {
     Follow {
         follower_id: PubkyId,
         followee_id: PubkyId,
+    },
+    Mute {
+        user_id: PubkyId,
+        muted_id: PubkyId,
     },
     Bookmark {
         user_id: PubkyId,
@@ -56,7 +59,7 @@ impl Event {
         pubky_client: PubkyClient,
     ) -> Result<Option<Self>, Box<dyn std::error::Error + Sync + Send>> {
         debug!("New event: {}", line);
-        let parts: Vec<&str> = line.splitn(2, ' ').collect();
+        let parts: Vec<&str> = line.split(' ').collect();
         if parts.len() != 2 {
             return Err(format!("Malformed event line: {}", line).into());
         }
@@ -72,6 +75,8 @@ impl Event {
         let uri = parts[1].to_string();
         let parsed_uri = ParsedUri::try_from(uri.as_str()).unwrap_or_default();
 
+        //TODO: This conversion to a match statement that only uses IF conditions is silly.
+        // We could be patter matching the split test for "posts", "follows", etc maybe?
         let resource_type = match uri {
             _ if uri.ends_with("/pub/pubky.app/profile.json") => ResourceType::User {
                 user_id: parsed_uri.user_id,
@@ -83,6 +88,10 @@ impl Event {
             _ if uri.contains("/follows/") => ResourceType::Follow {
                 follower_id: parsed_uri.user_id,
                 followee_id: parsed_uri.follow_id.ok_or("Missing followee_id")?,
+            },
+            _ if uri.contains("/mutes/") => ResourceType::Mute {
+                user_id: parsed_uri.user_id,
+                muted_id: parsed_uri.muted_id.ok_or("Missing muted_id")?,
             },
             _ if uri.contains("/bookmarks/") => ResourceType::Bookmark {
                 user_id: parsed_uri.user_id,
@@ -99,7 +108,7 @@ impl Event {
             _ if uri.contains("/blobs") => return Ok(None),
             _ => {
                 error!("Unrecognized resource in URI: {}", uri);
-                return Ok(None);
+                return Err("Unrecognized resource in URI".into());
             }
         };
 
@@ -145,6 +154,9 @@ impl Event {
                 follower_id,
                 followee_id,
             } => handlers::follow::put(follower_id, followee_id, blob).await?,
+            ResourceType::Mute { user_id, muted_id } => {
+                handlers::mute::put(user_id, muted_id, blob).await?
+            }
             ResourceType::Bookmark {
                 user_id,
                 bookmark_id,
@@ -172,6 +184,9 @@ impl Event {
                 follower_id,
                 followee_id,
             } => handlers::follow::del(follower_id, followee_id).await?,
+            ResourceType::Mute { user_id, muted_id } => {
+                handlers::mute::del(user_id, muted_id).await?
+            }
             ResourceType::Bookmark {
                 user_id,
                 bookmark_id,

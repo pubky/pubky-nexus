@@ -1,12 +1,16 @@
 use neo4rs::{query, Query};
 
+use crate::models::post::StreamSource;
+use crate::types::Pagination;
+use crate::types::StreamSorting;
+
 // Retrieve post node by post id and author id
 pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
     query(
         "
             MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
-            OPTIONAL MATCH (p)-[replied:REPLIED]->(Post)
-            WITH u, p, (replied IS NOT NULL) AS is_reply
+            OPTIONAL MATCH (p)-[replied:REPLIED]->(parent_post:Post)<-[:AUTHORED]-(author:User)
+            WITH u, p, parent_post, author
             RETURN {
                 uri: 'pubky://' + u.id + '/pub/pubky.app/posts/' + p.id,
                 content: p.content,
@@ -15,9 +19,11 @@ pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
                 author: u.id,
                 // default value when the specified property is null
                 // Avoids enum deserialization ERROR
-                kind: COALESCE(p.kind, 'Short')
+                kind: COALESCE(p.kind, 'Short'),
+                attachments: p.attachments
             } as details,
-            is_reply
+            COLLECT([author.id, parent_post.id]) AS reply
+
         ",
     )
     .param("author_id", author_id)
@@ -68,6 +74,46 @@ pub fn user_bookmarks(user_id: &str) -> Query {
          RETURN b, p.id AS post_id, author.id AS author_id",
     )
     .param("user_id", user_id)
+}
+
+// Get all the bookmarks that a post has received (used for edit/delete notifications)
+pub fn get_post_bookmarks(author_id: &str, post_id: &str) -> Query {
+    query(
+        "MATCH (bookmarker:User)-[b:BOOKMARKED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
+         RETURN b.id AS bookmark_id, bookmarker.id AS bookmarker_id",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
+}
+
+// Get all the reposts that a post has received (used for edit/delete notifications)
+pub fn get_post_reposts(author_id: &str, post_id: &str) -> Query {
+    query(
+        "MATCH (reposter:User)-[:AUTHORED]->(repost:Post)-[:REPOSTED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
+         RETURN reposter.id AS reposter_id, repost.id AS repost_id",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
+}
+
+// Get all the replies that a post has received (used for edit/delete notifications)
+pub fn get_post_replies(author_id: &str, post_id: &str) -> Query {
+    query(
+        "MATCH (replier:User)-[:AUTHORED]->(reply:Post)-[:REPLIED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
+         RETURN replier.id AS replier_id, reply.id AS reply_id",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
+}
+
+// Get all the tags/taggers that a post has received (used for edit/delete notifications)
+pub fn get_post_tags(author_id: &str, post_id: &str) -> Query {
+    query(
+        "MATCH (tagger:User)-[t:TAGGED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
+         RETURN tagger.id AS tagger_id, t.id AS tag_id",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
 }
 
 pub fn post_relationships(author_id: &str, post_id: &str) -> Query {
@@ -204,32 +250,38 @@ pub fn user_counts(user_id: &str) -> neo4rs::Query {
 
         // Find friends
         OPTIONAL MATCH (u)-[:FOLLOWS]->(friend:User)-[:FOLLOWS]->(u)
-        WITH u, rels_u_user, rels_user_u, collect(friend) AS friends
+        WITH u, rels_u_user, rels_user_u, count(friend) AS friends
 
         // Collect relationships to Posts
         OPTIONAL MATCH (u)-[rel_u_post:BOOKMARKED|AUTHORED|TAGGED]->(p:Post)
         WITH u, rels_u_user, rels_user_u, friends, collect(rel_u_post) AS rels_u_post
 
+        // Count replies authored by the user
+        OPTIONAL MATCH (u)-[:AUTHORED]->(reply:Post)-[:REPLIED]->(:Post)
+        WITH u, rels_u_user, rels_user_u, friends, rels_u_post, count(reply) AS replies
+
         // Calculate counts
         WITH u,
             size([rel IN rels_u_user WHERE type(rel) = 'FOLLOWS']) AS following,
             size([rel IN rels_user_u WHERE type(rel) = 'FOLLOWS']) AS followers,
-            size(friends) AS friends_count,
+            friends,
             size([rel IN rels_u_post WHERE type(rel) = 'AUTHORED']) AS posts,
             size([rel IN rels_u_post WHERE type(rel) = 'TAGGED']) AS post_tags,
             size([rel IN rels_u_user WHERE type(rel) = 'TAGGED']) AS user_tags,
             size([rel IN rels_u_post WHERE type(rel) = 'BOOKMARKED']) AS bookmarks,
-            size([rel IN rels_user_u WHERE type(rel) = 'TAGGED']) AS tagged
+            size([rel IN rels_user_u WHERE type(rel) = 'TAGGED']) AS tagged,
+            replies
         RETURN 
             u IS NOT NULL AS exists,
             {
                 following: following,
                 followers: followers,
-                friends: friends_count,
+                friends: friends,
                 posts: posts,
                 tags: user_tags + post_tags,
                 bookmarks: bookmarks,
-                tagged: tagged
+                tagged: tagged,
+                replies: replies
             } AS counts
         ",
     )
@@ -258,6 +310,22 @@ pub fn get_user_following(user_id: &str, skip: Option<usize>, limit: Option<usiz
          OPTIONAL MATCH (u)-[:FOLLOWS]->(following:User)
          RETURN COUNT(u) > 0 AS user_exists, 
                 COLLECT(following.id) AS following_ids",
+    );
+    if let Some(skip_value) = skip {
+        query_string.push_str(&format!(" SKIP {}", skip_value));
+    }
+    if let Some(limit_value) = limit {
+        query_string.push_str(&format!(" LIMIT {}", limit_value));
+    }
+    query(&query_string).param("user_id", user_id)
+}
+
+pub fn get_user_muted(user_id: &str, skip: Option<usize>, limit: Option<usize>) -> Query {
+    let mut query_string = String::from(
+        "MATCH (u:User {id: $user_id}) 
+         OPTIONAL MATCH (u)-[:MUTED]->(muted:User)
+         RETURN COUNT(u) > 0 AS user_exists, 
+                COLLECT(muted.id) AS muted_ids",
     );
     if let Some(skip_value) = skip {
         query_string.push_str(&format!(" SKIP {}", skip_value));
@@ -317,25 +385,34 @@ pub fn get_tags_by_user_ids(users_id: &[&str]) -> Query {
     .param("ids", users_id)
 }
 
-pub fn get_thread(author_id: &str, post_id: &str, skip: usize, limit: usize) -> Query {
-    query(
+pub fn get_thread(
+    author_id: &str,
+    post_id: &str,
+    depth: usize,
+    skip: usize,
+    limit: usize,
+) -> Query {
+    let query_string = format!(
         "
-        MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
-        CALL {
+        MATCH (u:User {{id: $author_id}})-[:AUTHORED]->(p:Post {{id: $post_id}})
+        CALL {{
             WITH p
             // Recursively get all replies and their authors
-            MATCH (reply_author:User)-[:AUTHORED]->(reply:Post)-[:REPLIED*]->(p)
+            MATCH (reply_author:User)-[:AUTHORED]->(reply:Post)-[:REPLIED*1..{}]->(p)
             RETURN reply, reply_author
             ORDER BY reply.indexed_at ASC
-            SKIP $skip LIMIT $limit
-        }
-        RETURN p AS root_post, collect({reply_id: reply.id, author_id: reply_author.id}) AS replies
+            SKIP $skip 
+            LIMIT $limit
+        }}
+        RETURN collect({{reply_id: reply.id, author_id: reply_author.id}}) AS replies
         ",
-    )
-    .param("author_id", author_id)
-    .param("post_id", post_id)
-    .param("skip", skip as i64)
-    .param("limit", limit as i64)
+        depth
+    );
+    query(&query_string)
+        .param("author_id", author_id)
+        .param("post_id", post_id)
+        .param("skip", skip as i64)
+        .param("limit", limit as i64)
 }
 
 pub fn get_files_by_ids(key_pair: &[&[&str]]) -> Query {
@@ -347,4 +424,201 @@ pub fn get_files_by_ids(key_pair: &[&[&str]]) -> Query {
         ",
     )
     .param("pairs", key_pair)
+}
+
+// Build the graph query based on parameters
+pub fn post_stream(
+    source: StreamSource,
+    sorting: StreamSorting,
+    tags: &Option<Vec<String>>,
+    pagination: Pagination,
+) -> Query {
+    let mut cypher = String::new();
+
+    // Start with the observer node if needed
+    if source.get_observer().is_some() {
+        cypher.push_str("MATCH (observer:User {id: $observer_id})\n");
+    }
+
+    // Base match for posts and authors
+    cypher.push_str("MATCH (p:Post)<-[:AUTHORED]-(author:User)\n");
+
+    // Apply author filter if provided
+    if source.get_author().is_some() {
+        cypher.push_str("WHERE author.id = $author_id\n");
+    }
+
+    // Apply source
+    match source {
+        StreamSource::Following { .. } => {
+            cypher.push_str("MATCH (observer)-[:FOLLOWS]->(author)\n");
+        }
+        StreamSource::Followers { .. } => {
+            cypher.push_str("MATCH (observer)<-[:FOLLOWS]-(author)\n");
+        }
+        StreamSource::Friends { .. } => {
+            cypher.push_str("MATCH (observer)-[:FOLLOWS]->(author)-[:FOLLOWS]->(observer)\n");
+        }
+        StreamSource::Bookmarks { .. } => {
+            cypher.push_str("MATCH (observer)-[:BOOKMARKED]->(p)\n");
+        }
+        _ => {
+            // No additional match needed
+        }
+    }
+
+    let mut where_clause_applied = false;
+
+    // Apply tags
+    if tags.is_some() {
+        cypher.push_str("MATCH (User)-[tag:TAGGED]->(p)\n");
+        cypher.push_str("WHERE tag.label IN $labels\n");
+        where_clause_applied = true;
+    }
+    // Apply time interval conditions. Only can be applied with timeline sorting
+    // The engagament score has to be computed
+    if sorting == StreamSorting::Timeline {
+        if pagination.start.is_some() {
+            if where_clause_applied {
+                cypher.push_str("AND p.indexed_at <= $start\n");
+            } else {
+                cypher.push_str("WHERE p.indexed_at <= $start\n");
+                where_clause_applied = true;
+            }
+        }
+
+        if pagination.end.is_some() {
+            if where_clause_applied {
+                cypher.push_str("AND p.indexed_at >= $end\n");
+            } else {
+                cypher.push_str("WHERE p.indexed_at >= $end\n");
+            }
+        }
+    }
+
+    // Make unique the posts, cannot be repeated
+    cypher.push_str("WITH DISTINCT p, author\n");
+
+    // Apply StreamSorting
+    // Conditionally compute engagement counts only for TotalEngagement sorting
+    let order_clause = match sorting {
+        StreamSorting::Timeline => "ORDER BY p.indexed_at DESC".to_string(),
+        StreamSorting::TotalEngagement => {
+            // TODO: These optional matches could potentially be combined/collected to improve performance
+            cypher.push_str(
+                "
+                // Count tags
+                OPTIONAL MATCH (p)<-[tag:TAGGED]-(:User)  
+                // Count replies
+                OPTIONAL MATCH (p)<-[reply:REPLIED]-(:Post)
+                // Count reposts
+                OPTIONAL MATCH (p)<-[repost:REPOSTED]-(:Post)  
+
+                // TODO: Check if it is necessary that aggregation
+                //WITH p, author, COUNT(DISTINCT tag) AS tags_count
+                //WITH p, author, tags_count, COUNT(DISTINCT reply) AS replies_count
+                //WITH p, author, tags_count, replies_count, COUNT(DISTINCT repost) AS reposts_count
+
+                WITH p, author, 
+                    COUNT(DISTINCT tag) AS tags_count,
+                    COUNT(DISTINCT reply) AS replies_count,
+                    COUNT(DISTINCT repost) AS reposts_count,
+                    (COUNT(DISTINCT tag) + COUNT(DISTINCT reply) + COUNT(DISTINCT repost)) AS total_engagement
+                ",
+            );
+
+            where_clause_applied = false;
+
+            // And total_engagement to filter by engagement the post
+            if pagination.start.is_some() {
+                cypher.push_str("WHERE total_engagement <= $start\n");
+                where_clause_applied = true;
+            }
+
+            if pagination.end.is_some() {
+                if where_clause_applied {
+                    cypher.push_str("AND total_engagement >= $end\n");
+                } else {
+                    cypher.push_str("WHERE total_engagement >= $end\n");
+                }
+            }
+
+            "ORDER BY total_engagement DESC".to_string()
+        }
+    };
+
+    // Final return statement
+    cypher.push_str(&format!(
+        "RETURN author.id AS author_id, p.id AS post_id\n{}\n",
+        order_clause
+    ));
+
+    // Apply skip and limit
+    if let Some(skip) = pagination.skip {
+        cypher.push_str(&format!("SKIP {}\n", skip));
+    }
+    if let Some(limit) = pagination.limit {
+        cypher.push_str(&format!("LIMIT {}\n", limit));
+    }
+
+    // Build the query and apply parameters using `param` method
+    let mut query = query(&cypher);
+
+    // Insert parameters
+    if let Some(observer_id) = source.get_observer() {
+        query = query.param("observer_id", observer_id.to_string());
+    }
+    if let Some(labels) = tags.clone() {
+        query = query.param("labels", labels);
+    }
+    if let Some(author_id) = source.get_author() {
+        query = query.param("author_id", author_id.to_string());
+    }
+
+    if let Some(start_interval) = pagination.start {
+        query = query.param("start", start_interval);
+    }
+
+    if let Some(end_interval) = pagination.end {
+        query = query.param("end", end_interval);
+    }
+
+    query
+}
+
+// User has any existing relationship. Used to determine
+// the delete behaviour of a User.
+pub fn user_is_safe_to_delete(user_id: &str) -> Query {
+    query(
+        "
+        MATCH (u:User {id: $user_id})-[r]-()
+        RETURN COUNT(r) = 0 AS boolean
+        ",
+    )
+    .param("user_id", user_id)
+}
+
+// Post has any existing relationship. Used to determine
+// the delete behaviour of a Post.
+pub fn post_is_safe_to_delete(author_id: &str, post_id: &str) -> Query {
+    query(
+        "
+        MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+        MATCH (p)-[r]-()
+        WHERE NOT (
+            // Allowed relationships:
+            // 1. Incoming AUTHORED relationship from the specified user
+            (type(r) = 'AUTHORED' AND startNode(r).id = $author_id AND endNode(r) = p)
+            OR
+            // 2. Outgoing REPOSTED relationship to another post
+            (type(r) = 'REPOSTED' AND startNode(r) = p)
+            OR
+            // 3. Outgoing REPLIED relationship to another post
+            (type(r) = 'REPLIED' AND startNode(r) = p)
+        )
+        RETURN COUNT(r) = 0 AS boolean
+        ",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
 }

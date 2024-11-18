@@ -1,14 +1,19 @@
 use super::utils::{
     check_member_global_timeline_user_post, check_member_total_engagement_user_posts,
-    check_member_user_post_timeline, find_post_counts, find_post_details,
-    find_reply_relationship_parent_uri,
+    check_member_user_post_timeline, check_member_user_replies_timeline, find_post_counts,
+    find_post_details, find_reply_relationship_parent_uri,
 };
 use crate::watcher::{users::utils::find_user_counts, utils::WatcherTest};
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
-use pubky_nexus::models::{
-    post::{PostDetails, PostThread},
-    pubky_app::{PostKind, PubkyAppPost, PubkyAppUser},
+use pubky_nexus::{
+    models::{
+        post::{PostDetails, PostRelationships, PostStream, PostThread},
+        pubky_app::{PostKind, PubkyAppPost, PubkyAppUser},
+    },
+    routes::v0::post::ThreadQuery,
+    types::Pagination,
+    RedisOps,
 };
 
 #[tokio::test]
@@ -32,6 +37,7 @@ async fn test_homeserver_post_reply() -> Result<()> {
         kind: PostKind::Short,
         parent: None,
         embed: None,
+        attachments: None,
     };
 
     let parent_post_id = test.create_post(&user_id, &parent_post).await?;
@@ -44,6 +50,7 @@ async fn test_homeserver_post_reply() -> Result<()> {
         kind: PostKind::Short,
         parent: Some(parent_uri.clone()),
         embed: None,
+        attachments: None,
     };
 
     let reply_id = test.create_post(&user_id, &reply_post).await?;
@@ -65,7 +72,56 @@ async fn test_homeserver_post_reply() -> Result<()> {
         .unwrap();
     assert_eq!(reply_parent_uri, parent_uri);
 
-    // CACHE_OP: Check if the event writes in the graph
+    let query = ThreadQuery {
+        viewer_id: None,
+        depth: Some(1),
+        pagination: Pagination {
+            skip: Some(0),
+            limit: Some(10),
+            start: None,
+            end: None,
+        },
+    };
+
+    // PARENT GRAPH_OP: Fetch the post thread and confirm the reply is present
+    let thread = PostThread::get_by_id(&user_id, &parent_post_id, query)
+        .await
+        .expect("Failed to fetch post thread")
+        .expect("The post thread should exist");
+
+    assert_eq!(thread.root_post.details.id, parent_post_id);
+    assert_eq!(thread.replies.len(), 1);
+    assert_eq!(thread.replies[0].details.id, reply_id);
+    assert_eq!(thread.replies[0].details.content, reply_post.content);
+
+    // CACHE_OP: Check if the event writes in the index
+    // ########### PARENT RELATED INDEXES ################
+    // Sorted:Post:Replies:user_id:post_id
+    let post_replies = PostStream::get_post_replies(&user_id, &parent_post_id, None, None, None)
+        .await
+        .unwrap();
+    assert_eq!(post_replies.len(), 1);
+    let post_key = format!("{}:{}", user_id, reply_id);
+    assert_eq!(post_replies[0], post_key);
+
+    // Assert the parent post has changed stats, Post:Counts:user_id:post_id
+    let post_count = find_post_counts(&user_id, &parent_post_id).await;
+    assert_eq!(post_count.replies, 1);
+
+    // Check if parent post engagement: Sorted:Posts:Global:TotalEngagement:user_id:post_id
+    let total_engagement = check_member_total_engagement_user_posts(&[&user_id, &parent_post_id])
+        .await
+        .unwrap();
+    assert!(total_engagement.is_some());
+    assert_eq!(total_engagement.unwrap(), 1);
+
+    // Assert the user has changed stats
+    // User:Counts:user_id
+    let user_count = find_user_counts(&user_id).await;
+    assert_eq!(user_count.posts, 2);
+    assert_eq!(user_count.replies, 1);
+
+    // ########### REPLY RELATED INDEXES ################
     //User:Details:user_id:post_id
     let post_detail_cache: PostDetails = PostDetails::get_from_index(&user_id, &reply_id)
         .await
@@ -84,25 +140,43 @@ async fn test_homeserver_post_reply() -> Result<()> {
     assert_eq!(reply_post_counts.tags, 0);
     assert_eq!(reply_post_counts.replies, 0);
 
-    // Assert the parent post has changed stats, User:Counts:user_id:post_id
-    let post_count = find_post_counts(&user_id, &parent_post_id).await;
-    assert_eq!(post_count.replies, 1);
-
-    // Check if parent post engagement: Sorted:Posts:Global:TotalEngagement:user_id:post_id
-    let total_engagement = check_member_total_engagement_user_posts(&[&user_id, &parent_post_id])
+    // Post:Relationships:user_id:post_id
+    let post_relationships = PostRelationships::try_from_index_json(&[&user_id, &reply_id])
         .await
         .unwrap();
-    assert!(total_engagement.is_some());
-    assert_eq!(total_engagement.unwrap(), 1);
+    assert!(
+        post_relationships.is_some(),
+        "Reply should have some relationship"
+    );
+    let relationships = post_relationships.unwrap();
+    assert!(
+        relationships.replied.is_some(),
+        "Reply should have parent post URI"
+    );
+    assert_eq!(
+        relationships.replied.unwrap(),
+        parent_uri,
+        "The parent URIs does not match"
+    );
 
-    // Sorted:Posts:User:user_id
+    // Sorted:Posts:AuthorParents:user_id
     // Check that replies are NOT in the user's timeline
     let user_timeline_timestamp = check_member_user_post_timeline(&user_id, &reply_id)
         .await
         .unwrap_or_default();
     assert!(
         user_timeline_timestamp.is_none(),
-        "Replies should not be in the user's timeline"
+        "Replies should not be in the user's main timeline"
+    );
+
+    // Sorted:Posts:AuthorReplies:user_id
+    // Check that replies are in the user's replies timeline
+    let user_replies_timeline_timestamp = check_member_user_replies_timeline(&user_id, &reply_id)
+        .await
+        .unwrap_or_default();
+    assert!(
+        user_replies_timeline_timestamp.is_some(),
+        "Replies should be in the user's main timeline"
     );
 
     // Check that replies are NOT in the global timeline
@@ -123,23 +197,7 @@ async fn test_homeserver_post_reply() -> Result<()> {
         global_total_engagement.is_none(),
         "Replies should not be in the global total engagement sorted set"
     );
-    // Assert the parent post has changed stats
-    // User:Counts:user_id:post_id
-    let post_count = find_user_counts(&user_id).await;
-    assert_eq!(post_count.posts, 2);
 
-    // GRAPH_OP: Fetch the post thread and confirm the reply is present
-    let thread = PostThread::get_by_id(&user_id, &parent_post_id, None, 0, 10)
-        .await
-        .expect("Failed to fetch post thread")
-        .expect("The post thread should exist");
-
-    assert_eq!(thread.root_post.details.id, parent_post_id);
-    assert_eq!(thread.replies.len(), 1);
-    assert_eq!(thread.replies[0].details.id, reply_id);
-    assert_eq!(thread.replies[0].details.content, reply_post.content);
-
-    // // TODO: Impl DEL post. Assert the reply does not exist in Nexus
     test.cleanup_post(&user_id, &reply_id).await?;
     // let result_post = PostView::get_by_id(&user_id, &post_id, None, None, None)
     //     .await

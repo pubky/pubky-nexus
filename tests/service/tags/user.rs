@@ -95,7 +95,7 @@ async fn test_user_does_not_exist() -> Result<()> {
         "db6w58pd5h63fbhtd88y8zz7pai9rkjwqt9omg6i7dz31dynrgc4"
     );
     // TODO: Control post not found error control
-    make_wrong_request(&endpoint).await?;
+    make_wrong_request(&endpoint, None).await?;
     Ok(())
 }
 
@@ -180,7 +180,7 @@ async fn test_user_specific_tag_with_no_result() -> Result<()> {
         "/v0/user/{}/taggers/{}?skip=3&limit=1",
         PUBKY_PEER, PUBKY_LABEL
     );
-    make_wrong_request(&path).await?;
+    make_wrong_request(&path, None).await?;
 
     Ok(())
 }

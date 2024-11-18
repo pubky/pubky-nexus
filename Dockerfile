@@ -1,7 +1,7 @@
 # ========================
 # Build Stage
 # ========================
-FROM rust:1.81.0-alpine3.20 AS builder
+FROM rust:1.82.0-alpine3.20 AS builder
 
 # Install build dependencies, including static OpenSSL libraries
 RUN apk add --no-cache \
@@ -10,7 +10,8 @@ RUN apk add --no-cache \
     openssl-libs-static \
     pkgconfig \
     build-base \
-    curl
+    curl \
+    git
 
 # Set environment variables for static linking with OpenSSL
 ENV OPENSSL_STATIC=yes

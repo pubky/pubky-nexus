@@ -1,5 +1,5 @@
-use crate::register_routes;
 use crate::routes::v0::endpoints;
+use crate::{register_routes, to_axum};
 use axum::Router;
 use utoipa::OpenApi;
 
@@ -8,8 +8,8 @@ mod users;
 
 pub fn routes() -> Router {
     register_routes!(Router::new(),
-        endpoints::SEARCH_USERS_ROUTE => users::search_users_handler,
-        endpoints::SEARCH_TAGS_ROUTE => tags::search_post_tags_handler
+        to_axum!(endpoints::SEARCH_USERS_ROUTE) => users::search_users_handler,
+        to_axum!(endpoints::SEARCH_TAGS_ROUTE) => tags::search_post_tags_handler
     )
 }
 

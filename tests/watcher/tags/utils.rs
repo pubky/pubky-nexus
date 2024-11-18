@@ -3,13 +3,17 @@ use neo4rs::{query, Query};
 use pubky_nexus::{
     get_neo4j_graph,
     models::tag::{
-        search::{TagSearch, TAG_GLOBAL_POST_ENGAGEMENT},
+        search::{TagSearch, TAG_GLOBAL_POST_ENGAGEMENT, TAG_GLOBAL_POST_TIMELINE},
         TagDetails,
     },
     RedisOps,
 };
 
-pub async fn find_post_tag(user_id: &str, post_id: &str, tag_name: &str) -> Result<TagDetails> {
+pub async fn find_post_tag(
+    user_id: &str,
+    post_id: &str,
+    tag_name: &str,
+) -> Result<Option<TagDetails>> {
     let mut row_stream;
     {
         let graph = get_neo4j_graph().unwrap();
@@ -20,8 +24,13 @@ pub async fn find_post_tag(user_id: &str, post_id: &str, tag_name: &str) -> Resu
     }
 
     let row = row_stream.next().await.unwrap();
-    if let Ok(result) = row.unwrap().get::<TagDetails>("tag_details") {
-        return Ok(result);
+    match row {
+        Some(result) => {
+            if let Ok(result) = result.get::<Option<TagDetails>>("tag_details") {
+                return Ok(result);
+            }
+        }
+        None => return Ok(None),
     }
     anyhow::bail!("User/Post/Tag node not found in Nexus graph");
 }
@@ -60,6 +69,19 @@ pub async fn check_member_total_engagement_post_tag(
     .await
     .unwrap();
     Ok(total_engagement)
+}
+
+pub async fn check_member_post_tag_global_timeline(
+    post_key: &[&str],
+    label: &str,
+) -> Result<Option<isize>> {
+    let exist_in_timeline = TagSearch::check_sorted_set_member(
+        &[&TAG_GLOBAL_POST_TIMELINE[..], &[label]].concat(),
+        post_key,
+    )
+    .await
+    .unwrap();
+    Ok(exist_in_timeline)
 }
 
 // Retrieve post related tag

@@ -35,12 +35,8 @@ impl Validatable for PubkyAppTag {
         // Convert label to lowercase and trim
         let label = self.label.trim().to_lowercase();
 
-        // Enforce maximum label length
-        let label = if label.len() > MAX_TAG_LABEL_LENGTH {
-            label[..MAX_TAG_LABEL_LENGTH].to_string()
-        } else {
-            label
-        };
+        // Enforce maximum label length safely
+        let label = label.chars().take(MAX_TAG_LABEL_LENGTH).collect::<String>();
 
         // Sanitize URI
         let uri = match Url::parse(&self.uri) {
@@ -58,8 +54,8 @@ impl Validatable for PubkyAppTag {
     async fn validate(&self, id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.validate_id(id).await?;
 
-        // Validate label length
-        if self.label.len() > MAX_TAG_LABEL_LENGTH {
+        // Validate label length based on characters
+        if self.label.chars().count() > MAX_TAG_LABEL_LENGTH {
             return Err("Tag label exceeds maximum length".into());
         }
 

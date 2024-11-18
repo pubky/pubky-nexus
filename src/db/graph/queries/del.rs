@@ -10,14 +10,39 @@ pub fn delete_user(user_id: &str) -> Query {
     .param("id", user_id.to_string())
 }
 
-/// Delete a follows relationship between two users
+// Delete a post node
+// Will delete all relationships of this user as well!
+pub fn delete_post(author_id: &str, post_id: &str) -> Query {
+    query(
+        "MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+         DETACH DELETE p;",
+    )
+    .param("author_id", author_id.to_string())
+    .param("post_id", post_id.to_string())
+}
+
+// Delete a follows relationship between two users
 pub fn delete_follow(follower_id: &str, followee_id: &str) -> Query {
     query(
         "MATCH (follower:User {id: $follower_id})-[r:FOLLOWS]->(followee:User {id: $followee_id})
-         DELETE r;",
+        
+         DELETE r
+         
+         // returns whether the relationship existed as 'boolean'
+         RETURN r IS NOT NULL AS boolean;",
     )
     .param("follower_id", follower_id.to_string())
     .param("followee_id", followee_id.to_string())
+}
+
+// Delete a muted relationship between two users
+pub fn delete_mute(user_id: &str, muted_id: &str) -> Query {
+    query(
+        "MATCH (user:User {id: $user_id})-[r:MUTED]->(muted:User {id: $muted_id})
+         DELETE r;",
+    )
+    .param("user_id", user_id.to_string())
+    .param("muted_id", muted_id.to_string())
 }
 
 // Delete bookmarked relationship

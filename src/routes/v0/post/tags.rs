@@ -3,8 +3,8 @@ use crate::models::tag::traits::taggers::Taggers;
 use crate::models::tag::traits::{TagCollection, TaggersCollection};
 use crate::models::tag::TagDetails;
 use crate::routes::v0::endpoints::{POST_TAGGERS_ROUTE, POST_TAGS_ROUTE};
-use crate::routes::v0::queries::PaginationQuery;
 use crate::routes::v0::TagsQuery;
+use crate::types::Pagination;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
@@ -17,9 +17,7 @@ use utoipa::OpenApi;
     tag = "Post Tags",
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
-        ("post_id" = String, Path, description = "Post ID"),
-        ("skip" = Option<usize>, Query, description = "Upper limit on the number of tags for the post"),
-        ("limit" = Option<usize>, Query, description = "Upper limit on the number of taggers per tag")
+        ("post_id" = String, Path, description = "Post ID")
     ),
     responses(
         (status = 200, description = "Post tags", body = TagPost),
@@ -68,14 +66,13 @@ pub async fn post_tags_handler(
 )]
 pub async fn post_taggers_handler(
     Path((user_id, post_id, label)): Path<(String, String, String)>,
-    Query(query): Query<PaginationQuery>,
+    Query(pagination): Query<Pagination>,
 ) -> Result<Json<Taggers>> {
     info!(
         "GET {POST_TAGGERS_ROUTE} user_id:{}, post_id: {}, label: {}, skip:{:?}, limit:{:?}",
-        user_id, post_id, label, query.skip, query.limit
+        user_id, post_id, label, pagination.skip, pagination.limit
     );
-    match TagPost::get_tagger_by_id(&user_id, Some(&post_id), &label, query.skip, query.limit).await
-    {
+    match TagPost::get_tagger_by_id(&user_id, Some(&post_id), &label, pagination).await {
         Ok(Some(tags)) => Ok(Json(tags)),
         Ok(None) => Err(Error::UserNotFound { user_id }),
         Err(source) => Err(Error::InternalServerError { source }),

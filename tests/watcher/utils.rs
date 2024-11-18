@@ -18,6 +18,7 @@ pub struct WatcherTest {
     pub client: PubkyClient,
     pub event_processor: EventProcessor,
     pub config: Config,
+    pub ensure_event_processing: bool,
 }
 
 impl WatcherTest {
@@ -36,15 +37,23 @@ impl WatcherTest {
             homeserver,
             client,
             event_processor,
+            ensure_event_processing: true,
         })
     }
 
+    pub async fn remove_event_processing(mut self) -> Self {
+        self.ensure_event_processing = false;
+        self
+    }
+
     pub async fn ensure_event_processing_complete(&mut self) -> Result<()> {
-        self.event_processor
-            .run()
-            .await
-            .map_err(|e| anyhow::anyhow!(e))?;
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await; // Ensure completion
+        if self.ensure_event_processing {
+            self.event_processor
+                .run()
+                .await
+                .map_err(|e| anyhow::anyhow!(e))?;
+            // tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
         Ok(())
     }
 
@@ -115,14 +124,18 @@ impl WatcherTest {
         Ok(())
     }
 
-    pub async fn create_file(&mut self, user_id: &str, file: &PubkyAppFile) -> Result<String> {
+    pub async fn create_file(
+        &mut self,
+        user_id: &str,
+        file: &PubkyAppFile,
+    ) -> Result<(String, String)> {
         let file_id = file.create_id();
         let file_json = to_vec(file)?;
         let url = format!("pubky://{}/pub/pubky.app/files/{}", user_id, file_id);
         self.client.put(url.as_str(), &file_json).await?;
 
         self.ensure_event_processing_complete().await?;
-        Ok(file_id)
+        Ok((file_id, url))
     }
 
     pub async fn cleanup_file(&mut self, user_id: &str, file_id: &str) -> Result<()> {
@@ -149,6 +162,25 @@ impl WatcherTest {
 
     pub async fn delete_follow(&mut self, follow_url: &str) -> Result<()> {
         self.client.delete(follow_url).await?;
+        // Process the event
+        self.ensure_event_processing_complete().await?;
+        Ok(())
+    }
+
+    pub async fn create_mute(&mut self, muter_id: &str, mutee_id: &str) -> Result<String> {
+        let mute_relationship = PubkyAppFollow {
+            created_at: Utc::now().timestamp_millis(),
+        };
+        let blob = serde_json::to_vec(&mute_relationship)?;
+        let mute_url = format!("pubky://{}/pub/pubky.app/mutes/{}", muter_id, mutee_id);
+        self.client.put(mute_url.as_str(), &blob).await?;
+        // Process the event
+        self.ensure_event_processing_complete().await?;
+        Ok(mute_url)
+    }
+
+    pub async fn delete_mute(&mut self, mute_url: &str) -> Result<()> {
+        self.client.delete(mute_url).await?;
         // Process the event
         self.ensure_event_processing_complete().await?;
         Ok(())

@@ -1,5 +1,8 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use pubky_nexus::models::{tag::search::TagSearch, user::UserSearch};
+use pubky_nexus::{
+    models::{tag::search::TagSearch, user::UserSearch},
+    types::Pagination,
+};
 use setup::run_setup;
 use std::time::Duration;
 use tokio::runtime::Runtime;
@@ -45,7 +48,15 @@ fn bench_tag_search_by_timeline(c: &mut Criterion) {
         &label,
         |b, &label| {
             b.to_async(&rt).iter(|| async {
-                let result = TagSearch::get_by_label(label, None, 0, 20).await.unwrap();
+                let pagination = Pagination {
+                    skip: Some(0),
+                    limit: Some(20),
+                    start: None,
+                    end: None,
+                };
+                let result = TagSearch::get_by_label(label, None, pagination)
+                    .await
+                    .unwrap();
                 criterion::black_box(result);
             });
         },

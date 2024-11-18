@@ -1,5 +1,4 @@
 use anyhow::Result;
-use pubky_nexus::models::user::UserStreamType;
 use serde_json::Value;
 
 use crate::service::utils::make_request;
@@ -67,18 +66,14 @@ async fn test_global_hot_tags() -> Result<()> {
 
     // Analyse the tag that is in the 4th index
     let hot_tag = StreamTagMockup::new(String::from("ha"), 9, 16, 9);
-    compare_unit_hot_tag(&tags[4], hot_tag);
+    compare_unit_hot_tag(&tags[3], hot_tag);
 
     Ok(())
 }
 
 #[tokio::test]
 async fn test_hot_tags_by_following_reach() -> Result<()> {
-    let endpoint = &format!(
-        "/v0/tag/reached/{}/{:?}",
-        PEER_PUBKY,
-        UserStreamType::Following
-    );
+    let endpoint = &format!("/v0/tag/reached/{}/following", PEER_PUBKY,);
 
     let body = make_request(endpoint).await?;
     assert!(body.is_array());
@@ -89,7 +84,7 @@ async fn test_hot_tags_by_following_reach() -> Result<()> {
     analyse_hot_tags_structure(tags);
 
     // Analyse the tag that is in the 1st index
-    let hot_tag = StreamTagMockup::new(String::from("pubky"), 4, 5, 4);
+    let hot_tag = StreamTagMockup::new(String::from("test"), 4, 5, 4);
     compare_unit_hot_tag(&tags[1], hot_tag);
 
     Ok(())
@@ -97,34 +92,7 @@ async fn test_hot_tags_by_following_reach() -> Result<()> {
 
 #[tokio::test]
 async fn test_hot_tags_by_followers_reach() -> Result<()> {
-    let endpoint = &format!(
-        "/v0/tag/reached/{}/{:?}",
-        PEER_PUBKY,
-        UserStreamType::Followers
-    );
-
-    let body = make_request(endpoint).await?;
-    assert!(body.is_array());
-
-    let tags = body.as_array().expect("Post stream should be an array");
-
-    // Validate that the posts belong to the specified user's bookmarks
-    analyse_hot_tags_structure(tags);
-
-    // Analyse the tag that is in the 1st index
-    let hot_tag = StreamTagMockup::new(String::from("test"), 3, 3, 3);
-    compare_unit_hot_tag(&tags[1], hot_tag);
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_hot_tags_by_friends_reach() -> Result<()> {
-    let endpoint = &format!(
-        "/v0/tag/reached/{}/{:?}",
-        PEER_PUBKY,
-        UserStreamType::Friends
-    );
+    let endpoint = &format!("/v0/tag/reached/{}/followers", PEER_PUBKY);
 
     let body = make_request(endpoint).await?;
     assert!(body.is_array());
@@ -137,6 +105,25 @@ async fn test_hot_tags_by_friends_reach() -> Result<()> {
     // Analyse the tag that is in the 1st index
     let hot_tag = StreamTagMockup::new(String::from("pubky"), 2, 3, 2);
     compare_unit_hot_tag(&tags[1], hot_tag);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_hot_tags_by_friends_reach() -> Result<()> {
+    let endpoint = &format!("/v0/tag/reached/{}/friends", PEER_PUBKY);
+
+    let body = make_request(endpoint).await?;
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Post stream should be an array");
+
+    // Validate that the posts belong to the specified user's bookmarks
+    analyse_hot_tags_structure(tags);
+
+    // Analyse the tag that is in the 1st index
+    let hot_tag = StreamTagMockup::new(String::from("pubky"), 2, 3, 2);
+    compare_unit_hot_tag(&tags[0], hot_tag);
 
     Ok(())
 }

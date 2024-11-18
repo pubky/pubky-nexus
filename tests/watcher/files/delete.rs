@@ -40,7 +40,7 @@ async fn test_delete_pubkyapp_file() -> Result<()> {
         created_at: Utc::now().timestamp_millis(),
     };
 
-    let file_id = test.create_file(&user_id, &file).await?;
+    let (file_id, _) = test.create_file(&user_id, &file).await?;
 
     // Act
 

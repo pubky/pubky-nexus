@@ -6,15 +6,23 @@ use std::error::Error;
 use std::ops::Deref;
 use utoipa::ToSchema;
 
-use crate::db::kv::index::sorted_sets::Sorting;
-use crate::models::user::{UserStream, UserStreamType};
+use crate::db::kv::index::sorted_sets::SortOrder;
+use crate::models::follow::{Followers, Following, Friends, UserFollows};
 use crate::{db::connectors::neo4j::get_neo4j_graph, queries};
 use crate::{RedisOps, ScoreAction};
 
 pub const TAG_GLOBAL_HOT: [&str; 3] = ["Tags", "Global", "Hot"];
 
 #[derive(Serialize, Deserialize, Debug, ToSchema)]
-pub struct Taggers(Vec<String>);
+pub struct Taggers(pub Vec<String>);
+
+#[derive(Deserialize, Debug, ToSchema, Clone)]
+#[serde(rename_all = "snake_case")]
+pub enum TagStreamReach {
+    Followers,
+    Following,
+    Friends,
+}
 
 #[async_trait]
 impl RedisOps for Taggers {
@@ -46,6 +54,10 @@ impl Taggers {
         user_id: &str,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         Self::put_index_set(&[label], &[user_id]).await
+    }
+
+    pub async fn del_from_index(&self, label: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
+        self.remove_from_index_set(&[label]).await
     }
 }
 
@@ -119,7 +131,7 @@ impl HotTags {
             None,
             skip,
             limit,
-            Sorting::Descending,
+            SortOrder::Descending,
         )
         .await?
         .unwrap_or_default();
@@ -155,12 +167,27 @@ impl HotTags {
 
     pub async fn get_stream_tags_by_reach(
         user_id: String,
-        reach: UserStreamType,
+        reach: TagStreamReach,
     ) -> Result<Option<HotTags>, Box<dyn Error + Send + Sync>> {
-        // We cannot use here limit and skip because we want to get all the users reach by
-        let users =
-            UserStream::get_user_list_from_reach(&user_id, reach, None, Some(isize::MAX as usize))
-                .await?;
+        // We cannot use here limit and skip because we want to get all the users reach
+        let users = match reach {
+            TagStreamReach::Followers => {
+                Followers::get_by_id(&user_id, None, Some(isize::MAX as usize))
+                    .await?
+                    .map(|u| u.0)
+            }
+            TagStreamReach::Following => {
+                Following::get_by_id(&user_id, None, Some(isize::MAX as usize))
+                    .await?
+                    .map(|u| u.0)
+            }
+            TagStreamReach::Friends => {
+                Friends::get_by_id(&user_id, None, Some(isize::MAX as usize))
+                    .await?
+                    .map(|u| u.0)
+            }
+        };
+
         match users {
             Some(users) => get_users_tags_by_reach(&users).await,
             None => Ok(None),

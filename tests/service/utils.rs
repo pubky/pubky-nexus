@@ -17,11 +17,14 @@ pub async fn make_request(endpoint: &str) -> Result<Value, httpc_test::Error> {
     Ok(body)
 }
 
-pub async fn make_wrong_request(endpoint: &str) -> Result<(), httpc_test::Error> {
+pub async fn make_wrong_request(
+    endpoint: &str,
+    error_code: Option<u16>,
+) -> Result<(), httpc_test::Error> {
     let client = httpc_test::new_client(HOST_URL)?;
 
     let res = client.do_get(endpoint).await?;
 
-    assert_eq!(res.status(), 404);
+    assert_eq!(res.status(), error_code.unwrap_or(404));
     Ok(())
 }

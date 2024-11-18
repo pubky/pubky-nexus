@@ -1,7 +1,6 @@
+use crate::types::PubkyId;
 use crate::{Config, RedisOps};
 use serde::{Deserialize, Serialize};
-
-use super::user::PubkyId;
 
 /// Represents a homeserver with its public key, URL, and cursor.
 #[derive(Serialize, Deserialize, Debug)]

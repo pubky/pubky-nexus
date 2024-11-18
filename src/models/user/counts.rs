@@ -11,6 +11,7 @@ use super::UserStream;
 pub struct UserCounts {
     pub tags: u32,
     pub posts: u32,
+    pub replies: u32,
     pub following: u32,
     pub followers: u32,
     pub friends: u32,
@@ -25,17 +26,20 @@ impl UserCounts {
     pub async fn get_by_id(
         user_id: &str,
     ) -> Result<Option<UserCounts>, Box<dyn std::error::Error + Send + Sync>> {
-        match Self::get_from_index(user_id).await? {
-            Some(counts) => Ok(Some(counts)),
-            None => {
-                let graph_response = Self::get_from_graph(user_id).await?;
-                if let Some(user_counts) = graph_response {
-                    user_counts.put_to_index(user_id).await?;
-                    return Ok(Some(user_counts));
-                }
-                Ok(None)
-            }
-        }
+        // TODO: uncomment the get_from_index approach when index counting is stable
+
+        // match Self::get_from_index(user_id).await? {
+        //     Some(counts) => Ok(Some(counts)),
+        //     None => {
+        //         let graph_response = Self::get_from_graph(user_id).await?;
+        //         if let Some(user_counts) = graph_response {
+        //             user_counts.put_to_index(user_id).await?;
+        //             return Ok(Some(user_counts));
+        //         }
+        //         Ok(None)
+        //     }
+        // }
+        Self::get_from_graph(user_id).await
     }
 
     /// Retrieves the counts from Neo4j.
@@ -95,20 +99,20 @@ impl UserCounts {
     }
 
     pub async fn update(
-        author_id: &str,
+        user_id: &str,
         field: &str,
         action: JsonAction,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Update user counts index
-        Self::update_index_field(author_id, field, action).await?;
+        Self::update_index_field(user_id, field, action).await?;
         // Just update pioneer and most followed indexes, when that fields are updated
         if field == "followers" || field == "tags" || field == "posts" {
-            let exist_count = Self::get_from_index(author_id).await?;
+            let exist_count = Self::get_by_id(user_id).await?;
             if let Some(user_counts) = exist_count {
-                UserStream::add_to_pioneers_sorted_set(author_id, &user_counts).await?;
+                UserStream::add_to_pioneers_sorted_set(user_id, &user_counts).await?;
                 // Increment followers
                 if field == "followers" {
-                    UserStream::add_to_most_followed_sorted_set(author_id, &user_counts).await?
+                    UserStream::add_to_most_followed_sorted_set(user_id, &user_counts).await?
                 }
             }
         }
@@ -123,10 +127,10 @@ impl UserCounts {
         Ok(())
     }
 
-    // pub async fn delete(user_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    //     // Delete user_details on Redis
-    //     Self::remove_from_index_multiple_json(&[&[user_id]]).await?;
+    pub async fn delete(user_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Delete user_details on Redis
+        Self::remove_from_index_multiple_json(&[&[user_id]]).await?;
 
-    //     Ok(())
-    // }
+        Ok(())
+    }
 }

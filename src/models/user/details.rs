@@ -1,7 +1,8 @@
-use super::id::PubkyId;
 use super::UserSearch;
+use crate::db::graph::exec::exec_single_row;
 use crate::models::pubky_app::{PubkyAppUser, UserLink};
 use crate::models::traits::Collection;
+use crate::types::PubkyId;
 use crate::{queries, RedisOps};
 use axum::async_trait;
 use chrono::Utc;
@@ -44,6 +45,7 @@ pub struct UserDetails {
     #[serde(deserialize_with = "deserialize_user_links")]
     pub links: Option<Vec<UserLink>>,
     pub status: Option<String>,
+    pub image: Option<String>,
     pub indexed_at: i64,
 }
 
@@ -91,20 +93,21 @@ impl UserDetails {
             bio: homeserver_user.bio,
             status: homeserver_user.status,
             links: homeserver_user.links,
+            image: homeserver_user.image,
             id: user_id.clone(),
             indexed_at: Utc::now().timestamp_millis(),
         })
     }
 
-    // pub async fn del_from_graph(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    //     // Delete user_details on Redis
-    //     Self::remove_from_index_multiple_json(&[&[&self.id]]).await?;
+    pub async fn delete(user_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Delete user_details on Redis
+        Self::remove_from_index_multiple_json(&[&[user_id]]).await?;
 
-    //     // Delete user graph node;
-    //     exec_single_row(queries::write::delete_user(&self.id)).await?;
+        // Delete user graph node;
+        exec_single_row(queries::del::delete_user(user_id)).await?;
 
-    //     Ok(())
-    // }
+        Ok(())
+    }
 }
 
 #[cfg(test)]

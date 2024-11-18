@@ -1,4 +1,4 @@
 pub mod all;
-pub mod posts;
+pub mod stream;
 pub mod tags;
 pub mod utils;

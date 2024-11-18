@@ -2,7 +2,7 @@ use crate::db::connectors::redis::get_redis_conn;
 use redis::AsyncCommands;
 use std::error::Error;
 
-pub enum Sorting {
+pub enum SortOrder {
     Ascending,
     Descending,
 }
@@ -130,7 +130,7 @@ pub async fn get_range(
     max_score: Option<f64>,
     skip: Option<usize>,
     limit: Option<usize>,
-    sorting: Sorting,
+    sorting: SortOrder,
 ) -> Result<Option<Vec<(String, f64)>>, Box<dyn Error + Send + Sync>> {
     let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{}:{}", prefix, key);
@@ -142,12 +142,12 @@ pub async fn get_range(
 
     // ZRANGE with the WITHSCORES option retrieves both: the elements and their scores
     let elements: Vec<(String, f64)> = match sorting {
-        Sorting::Ascending => {
+        SortOrder::Ascending => {
             redis_conn
                 .zrangebyscore_limit_withscores(index_key, min_score, max_score, skip, limit)
                 .await?
         }
-        Sorting::Descending => {
+        SortOrder::Descending => {
             redis_conn
                 .zrevrangebyscore_limit_withscores(index_key, max_score, min_score, skip, limit)
                 .await?

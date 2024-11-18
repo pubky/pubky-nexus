@@ -65,6 +65,9 @@ impl UserSearch {
 
         for details in details_list {
             // Convert the username to lowercase before storing
+            if details.name == "[DELETED]" {
+                break;
+            }
             let username = details.name.to_lowercase();
             let user_id = &details.id;
             let score = 0.0;

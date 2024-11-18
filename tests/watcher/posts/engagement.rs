@@ -25,6 +25,7 @@ async fn test_homeserver_post_engagement() -> Result<()> {
         kind: PostKind::Short,
         parent: None,
         embed: None,
+        attachments: None,
     };
 
     let alice_post_id = test.create_post(&alice_id, &alice_post).await?;
@@ -59,6 +60,7 @@ async fn test_homeserver_post_engagement() -> Result<()> {
         kind: PostKind::Short,
         parent: Some(parent_uri.clone()),
         embed: None,
+        attachments: None,
     };
 
     let _reply_id = test.create_post(&bob_id, &reply).await?;
@@ -74,6 +76,7 @@ async fn test_homeserver_post_engagement() -> Result<()> {
             kind: PostKind::Short,
             uri: post_uri.clone(),
         }),
+        attachments: None,
     };
 
     let _repost_id = test.create_post(&bob_id, &repost).await?;

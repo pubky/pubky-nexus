@@ -1,19 +1,11 @@
-use crate::models::notification::{Notification, NotificationBody, PostDeleteType};
+use crate::models::notification::{Notification, NotificationBody, PostChangedSource};
 use crate::routes::v0::endpoints::NOTIFICATION_ROUTE;
+use crate::types::Pagination;
 use crate::{Error, Result};
-use axum::extract::Query;
+use axum::extract::{Path, Query};
 use axum::Json;
 use log::info;
-use serde::Deserialize;
 use utoipa::OpenApi;
-
-#[derive(Deserialize)]
-pub struct NotificationQuery {
-    skip: Option<usize>,
-    limit: Option<usize>,
-    start: Option<f64>, // Start timestamp (optional)
-    end: Option<f64>,   // End timestamp (optional)
-}
 
 #[utoipa::path(
     get,
@@ -21,7 +13,6 @@ pub struct NotificationQuery {
     tag = "Notifications",
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
-        ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
         ("skip" = Option<usize>, Query, description = "Skip N notifications"),
         ("limit" = Option<usize>, Query, description = "Retrieve N notifications"),
         ("start" = Option<String>, Query, description = "Start timestamp for notification retrieval"),
@@ -34,15 +25,12 @@ pub struct NotificationQuery {
     )
 )]
 pub async fn list_notifications_handler(
-    Query(query): Query<NotificationQuery>,
-    axum::extract::Path(user_id): axum::extract::Path<String>,
+    Path(user_id): axum::extract::Path<String>,
+    Query(pagination): Query<Pagination>,
 ) -> Result<Json<Vec<Notification>>> {
     info!("GET {NOTIFICATION_ROUTE} for user_id: {}", user_id);
 
-    let skip = query.skip.unwrap_or(0);
-    let limit = query.limit.unwrap_or(20);
-
-    match Notification::get_by_id(&user_id, Some(limit), Some(skip), query.start, query.end).await {
+    match Notification::get_by_id(&user_id, pagination).await {
         Ok(notifications) => Ok(Json(notifications)),
         Err(source) => Err(Error::InternalServerError { source }),
     }
@@ -51,6 +39,6 @@ pub async fn list_notifications_handler(
 #[derive(OpenApi)]
 #[openapi(
     paths(list_notifications_handler,),
-    components(schemas(Notification, NotificationBody, PostDeleteType))
+    components(schemas(Notification, NotificationBody, PostChangedSource))
 )]
 pub struct NotificationsApiDocs;

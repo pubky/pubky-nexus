@@ -1,12 +1,16 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
-use crate::db::kv::index::sorted_sets::Sorting;
-use crate::models::post::{PostDetails, PostStreamSorting};
+use crate::db::kv::index::sorted_sets::SortOrder;
+use crate::models::post::PostDetails;
+use crate::models::tag::traits::TaggersCollection;
 use crate::queries::get::{global_tags_by_post, global_tags_by_post_engagement};
+use crate::types::{Pagination, StreamSorting};
 use crate::{RedisOps, ScoreAction};
 use neo4rs::Query;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use utoipa::ToSchema;
+
+use super::post::TagPost;
 
 pub const TAG_GLOBAL_POST_TIMELINE: [&str; 4] = ["Tags", "Global", "Post", "Timeline"];
 pub const TAG_GLOBAL_POST_ENGAGEMENT: [&str; 4] = ["Tags", "Global", "Post", "TotalEngagement"];
@@ -31,7 +35,7 @@ impl RedisOps for TagSearch {}
 
 impl TagSearch {
     /// Indexes post tags into global sorted sets for timeline and engagement metrics.
-    pub async fn index_post_tags_from_graph() -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub async fn reindex() -> Result<(), Box<dyn Error + Send + Sync>> {
         Self::add_to_global_sorted_set(global_tags_by_post(), TAG_GLOBAL_POST_TIMELINE).await?;
         Self::add_to_global_sorted_set(
             global_tags_by_post_engagement(),
@@ -68,19 +72,18 @@ impl TagSearch {
 
     pub async fn get_by_label(
         label: &str,
-        sort_by: Option<PostStreamSorting>,
-        skip: usize,
-        limit: usize,
+        sort_by: Option<StreamSorting>,
+        pagination: Pagination,
     ) -> Result<Option<Vec<TagSearch>>, Box<dyn Error + Send + Sync>> {
         let post_score_list = match sort_by {
-            Some(PostStreamSorting::TotalEngagement) => {
+            Some(StreamSorting::TotalEngagement) => {
                 Self::try_from_index_sorted_set(
                     &[&TAG_GLOBAL_POST_ENGAGEMENT[..], &[label]].concat(),
-                    None,
-                    None,
-                    Some(skip),
-                    Some(limit),
-                    Sorting::Descending,
+                    pagination.start,
+                    pagination.end,
+                    pagination.skip,
+                    pagination.limit,
+                    SortOrder::Descending,
                 )
                 .await?
             }
@@ -88,11 +91,11 @@ impl TagSearch {
             _ => {
                 Self::try_from_index_sorted_set(
                     &[&TAG_GLOBAL_POST_TIMELINE[..], &[label]].concat(),
-                    None,
-                    None,
-                    Some(skip),
-                    Some(limit),
-                    Sorting::Descending,
+                    pagination.start,
+                    pagination.end,
+                    pagination.skip,
+                    pagination.limit,
+                    SortOrder::Descending,
                 )
                 .await?
             }
@@ -120,7 +123,7 @@ impl TagSearch {
         .await
     }
 
-    pub async fn add_to_timeline_sorted_set(
+    pub async fn put_to_index(
         author_id: &str,
         post_id: &str,
         tag_label: &str,
@@ -140,6 +143,22 @@ impl TagSearch {
                 )
                 .await?;
             }
+        }
+        Ok(())
+    }
+
+    pub async fn del_from_index(
+        author_id: &str,
+        post_id: &str,
+        tag_label: &str,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let post_label_key = vec![author_id, post_id, tag_label];
+        let label_taggers = TagPost::get_from_index(post_label_key, None, None).await?;
+        // Make sure that post does not have more taggers with that tag. Post:Taggers:user_id:post_id:label
+        if label_taggers.is_none() {
+            let key_parts = [&TAG_GLOBAL_POST_TIMELINE[..], &[tag_label]].concat();
+            let post_key = format!("{}:{}", author_id, post_id);
+            Self::remove_from_index_sorted_set(&key_parts, &[&post_key]).await?;
         }
         Ok(())
     }

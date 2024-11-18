@@ -42,6 +42,7 @@ pub struct PubkyAppPost {
     pub kind: PostKind,
     pub parent: Option<String>, // If a reply, the URI of the parent post.
     pub embed: Option<PostEmbed>,
+    pub attachments: Option<Vec<String>>,
 }
 
 impl TimestampId for PubkyAppPost {}
@@ -50,7 +51,14 @@ impl TimestampId for PubkyAppPost {}
 impl Validatable for PubkyAppPost {
     async fn sanitize(self) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         // Sanitize content
-        let content = self.content.trim().to_string();
+        let mut content = self.content.trim().to_string();
+
+        // We are using content keyword `[DELETED]` for deleted posts from a homeserver that still have relationships
+        // placed by other users (replies, tags, etc). This content is exactly matched by the client to apply effects to deleted content.
+        // Placing posts with content `[DELETED]` is not allowed.
+        if content == *"[DELETED]" {
+            content = "empty".to_string()
+        }
 
         // Define content length limits based on PostKind
         let max_content_length = match self.kind {
@@ -59,11 +67,7 @@ impl Validatable for PubkyAppPost {
             _ => MAX_SHORT_CONTENT_LENGTH, // Default limit for other kinds
         };
 
-        let content = if content.len() > max_content_length {
-            content[..max_content_length].to_string()
-        } else {
-            content
-        };
+        let content = content.chars().take(max_content_length).collect::<String>();
 
         // Sanitize parent URI if present
         let parent = if let Some(uri_str) = &self.parent {
@@ -93,6 +97,7 @@ impl Validatable for PubkyAppPost {
             kind: self.kind,
             parent,
             embed,
+            attachments: self.attachments,
         })
     }
 
@@ -103,13 +108,13 @@ impl Validatable for PubkyAppPost {
         // Validate content length
         match self.kind {
             PostKind::Short => {
-                if self.content.len() > MAX_SHORT_CONTENT_LENGTH {
-                    return Err("Post content exceeds maximum length for 'short' kind".into());
+                if self.content.chars().count() > MAX_SHORT_CONTENT_LENGTH {
+                    return Err("Post content exceeds maximum length for Short kind".into());
                 }
             }
             PostKind::Long => {
-                if self.content.len() > MAX_LONG_CONTENT_LENGTH {
-                    return Err("Post content exceeds maximum length for 'long' kind".into());
+                if self.content.chars().count() > MAX_LONG_CONTENT_LENGTH {
+                    return Err("Post content exceeds maximum length for Short kind".into());
                 }
             }
             _ => (),

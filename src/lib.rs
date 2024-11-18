@@ -6,6 +6,7 @@ pub mod models;
 mod reindex;
 pub mod routes;
 mod setup;
+pub mod types;
 
 pub use config::Config;
 pub use db::connectors::neo4j::get_neo4j_graph;
@@ -17,3 +18,6 @@ pub use error::{Error, Result};
 pub use events::processor::EventProcessor;
 pub use reindex::reindex;
 pub use setup::setup;
+
+#[macro_use]
+extern crate const_format;

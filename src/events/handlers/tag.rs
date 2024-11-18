@@ -9,7 +9,8 @@ use crate::models::tag::search::TagSearch;
 use crate::models::tag::stream::Taggers;
 use crate::models::tag::traits::{TagCollection, TaggersCollection};
 use crate::models::tag::user::TagUser;
-use crate::models::user::{PubkyId, UserCounts};
+use crate::models::user::UserCounts;
+use crate::types::PubkyId;
 use crate::ScoreAction;
 use axum::body::Bytes;
 use chrono::Utc;
@@ -59,7 +60,7 @@ async fn put_sync_post(
     indexed_at: i64,
 ) -> Result<(), Box<dyn Error + Sync + Send>> {
     // SAVE TO GRAPH
-    TagPost::put_to_graph(
+    let existed = TagPost::put_to_graph(
         &tagger_user_id,
         &author_id,
         Some(&post_id),
@@ -68,6 +69,10 @@ async fn put_sync_post(
         indexed_at,
     )
     .await?;
+
+    if existed {
+        return Ok(());
+    }
 
     // SAVE TO INDEXES
     let post_key_slice: &[&str] = &[&author_id, &post_id];
@@ -103,7 +108,7 @@ async fn put_sync_post(
     );
 
     // Add post to global label timeline
-    TagSearch::add_to_timeline_sorted_set(&author_id, &post_id, &tag_label).await?;
+    TagSearch::put_to_index(&author_id, &post_id, &tag_label).await?;
 
     // Save new notification
     Notification::new_post_tag(&tagger_user_id, &author_id, &tag_label, &post_uri).await?;
@@ -119,7 +124,7 @@ async fn put_sync_user(
     indexed_at: i64,
 ) -> Result<(), Box<dyn Error + Sync + Send>> {
     // SAVE TO GRAPH
-    TagUser::put_to_graph(
+    let existed = TagUser::put_to_graph(
         &tagger_user_id,
         &tagged_user_id,
         None,
@@ -128,6 +133,10 @@ async fn put_sync_user(
         indexed_at,
     )
     .await?;
+
+    if existed {
+        return Ok(());
+    }
 
     // SAVE TO INDEX
     // Update user counts for the tagged user
@@ -165,12 +174,10 @@ pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), Box<dyn Error +
             (Some(tagged_id), None, None) => {
                 del_sync_user(user_id, &tagged_id, &label).await?;
             }
-
             // Delete post related indexes
             (None, Some(post_id), Some(author_id)) => {
                 del_sync_post(user_id, &post_id, &author_id, &label).await?;
             }
-
             // Handle other unexpected cases
             _ => {
                 debug!("DEL-Tag: Unexpected combination of tag details");
@@ -205,10 +212,41 @@ async fn del_sync_user(
 
 async fn del_sync_post(
     tagger_id: PubkyId,
-    _post_id: &str,
-    _author_id: &str,
-    _tag_label: &str,
+    post_id: &str,
+    author_id: &str,
+    tag_label: &str,
 ) -> Result<(), Box<dyn Error + Sync + Send>> {
-    println!("TAG POST DEL: {:?}", tagger_id);
+    // SAVE TO INDEXES
+    let post_key_slice: &[&str] = &[author_id, post_id];
+    let tag_post = TagPost(vec![tagger_id.to_string()]);
+    let tagger = Taggers(vec![tagger_id.to_string()]);
+
+    // TODO: Handle the errors
+    let _ = tokio::join!(
+        // Update user counts for tagger
+        UserCounts::update(&tagger_id, "tags", JsonAction::Decrement(1)),
+        // Decrement in one the post tags
+        PostCounts::update_index_field(post_key_slice, "tags", JsonAction::Decrement(1)),
+        // Decrement label score in the post
+        TagPost::update_index_score(
+            author_id,
+            Some(post_id),
+            tag_label,
+            ScoreAction::Decrement(1.0)
+        ),
+        tag_post.del_from_index(author_id, Some(post_id), tag_label),
+        // Decrement in one post global engagement
+        PostStream::update_index_score(author_id, post_id, ScoreAction::Decrement(1.0)),
+        // Decrease post from label total engagement
+        TagSearch::update_index_score(author_id, post_id, tag_label, ScoreAction::Decrement(1.0)),
+        // Decrease the score of hot tags
+        Taggers::update_index_score(tag_label, ScoreAction::Decrement(1.0)),
+        // Delete tagger from global post tags
+        tagger.del_from_index(tag_label)
+    );
+
+    // Delete post from global label timeline
+    TagSearch::del_from_index(author_id, post_id, tag_label).await?;
+
     Ok(())
 }

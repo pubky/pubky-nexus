@@ -1,28 +1,19 @@
-use super::{Followers, UserCounts, UserFollows};
+use crate::models::follow::{Followers, UserFollows};
+use crate::models::user::Muted;
+
+use super::UserCounts;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 /// Represents the relationship of the user that views and user being viewed.
-#[derive(Serialize, Deserialize, ToSchema, Debug)]
+#[derive(Serialize, Deserialize, ToSchema, Debug, Default)]
 pub struct Relationship {
     pub following: bool,
     pub followed_by: bool,
-}
-
-impl Default for Relationship {
-    fn default() -> Self {
-        Self::new()
-    }
+    pub muted: bool,
 }
 
 impl Relationship {
-    pub fn new() -> Self {
-        Self {
-            following: false,
-            followed_by: false,
-        }
-    }
-
     // Retrieves user-viewer relationship
     pub async fn get_by_id(
         user_id: &str,
@@ -47,14 +38,16 @@ impl Relationship {
             return Ok(None);
         }
 
-        let (following, followed_by) = tokio::try_join!(
+        let (following, followed_by, muted) = tokio::try_join!(
             Followers::check(user_id, viewer_id),
-            Followers::check(viewer_id, user_id)
+            Followers::check(viewer_id, user_id),
+            Muted::check(viewer_id, user_id),
         )?;
 
         Ok(Some(Self {
             followed_by,
             following,
+            muted,
         }))
     }
 }
