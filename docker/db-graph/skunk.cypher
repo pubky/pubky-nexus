@@ -2288,7 +2288,7 @@ MERGE (p:Post {id: "2ZDZ7PM0JVK00"}) SET p.content = "⚡ Lightning Network
 
 #Bitcoin #LightningNetwork", p.kind = "short", p.indexed_at = 1719235802557;
 MATCH (u:User {id: "kzq3o8y8w1b7ffogpq73okop4gb3ahm31ytwwk1na8p6gpr4511o"}), (p:Post {id: "2ZDZ7PM0JVK00"}) MERGE (u)-[:AUTHORED]->(p);
-MERGE (p:Post {id: "2ZDZ87NZ4H700"}) SET p.content = "https://www.youtube.com/watch?v=8j4fhsLcT4k", p.kind = "Link", p.indexed_at = 1719236095665;
+MERGE (p:Post {id: "2ZDZ87NZ4H700"}) SET p.content = "https://www.youtube.com/watch?v=8j4fhsLcT4k", p.kind = "link", p.indexed_at = 1719236095665;
 MATCH (u:User {id: "pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy"}), (p:Post {id: "2ZDZ87NZ4H700"}) MERGE (u)-[:AUTHORED]->(p);
 MERGE (p:Post {id: "2ZDZHGVTQV600"}) SET p.content = "💸 Bitcoin Fees
 
