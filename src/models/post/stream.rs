@@ -97,7 +97,7 @@ impl PostStream {
         sorting: StreamSorting,
         viewer_id: Option<String>,
         tags: Option<Vec<String>>,
-        kind: Option<PostKind>
+        kind: Option<PostKind>,
     ) -> Result<Option<Self>, DynError> {
         // Decide whether to use index or fallback to graph query
         let use_index = kind.is_none() && Self::can_use_index(&sorting, &source, &tags);
@@ -191,7 +191,7 @@ impl PostStream {
         sorting: StreamSorting,
         tags: &Option<Vec<String>>,
         pagination: Pagination,
-        kind: Option<PostKind>
+        kind: Option<PostKind>,
     ) -> Result<Vec<String>, DynError> {
         let mut result;
         {

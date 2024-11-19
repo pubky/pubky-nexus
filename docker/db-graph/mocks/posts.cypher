@@ -118,3 +118,93 @@ MATCH (p1:Post {id: "1A1P4D8C9K0F"}), (p6:Post {id: "6G3ZB9X0H7M4"}) MERGE (p6)-
 MERGE (p7:Post {id: "7N8K0Y1C3T2Q"}) SET p7.content = "what is next?", p7.kind = "short", p7.indexed_at = 1719477230208;
 MATCH (cai:User {id: $cairo}), (p7:Post {id: "7N8K0Y1C3T2Q"}) MERGE (cai)-[:AUTHORED]->(p7);
 MATCH (p1:Post {id: "1A1P4D8C9K0F"}), (p7:Post {id: "7N8K0Y1C3T2Q"}) MERGE (p7)-[:REPLIED]->(p1);
+
+
+// ##################################
+// ########## Posts kinds ###########
+// ##################################
+// Long posts
+MERGE (p:Post {id: "4ZCW1TGL5BKG1"}) SET p.content = "Long post, article A", p.kind = "long", p.indexed_at = 1819477230300;
+MATCH (u:User {id: $bogota}), (p:Post {id: "4ZCW1TGL5BKG1"}) MERGE (u)-[:AUTHORED]->(p);
+MERGE (p:Post {id: "4ZCW1TGL5BKG2"}) SET p.content = "Long post, article B", p.kind = "long", p.indexed_at = 1819477230305;
+MATCH (u:User {id: $cairo}), (p:Post {id: "4ZCW1TGL5BKG2"}) MERGE (u)-[:AUTHORED]->(p);
+MERGE (p:Post {id: "4ZCW1TGL5BKG3"}) SET p.content = "Long post, article C", p.kind = "long", p.indexed_at = 1819477230310;
+MATCH (u:User {id: $cairo}), (p:Post {id: "4ZCW1TGL5BKG3"}) MERGE (u)-[:AUTHORED]->(p);
+MERGE (p:Post {id: "4ZCW1TGL5BKG4"}) SET p.content = "Long post, article D", p.kind = "long", p.indexed_at = 1819477230320;
+MATCH (u:User {id: $bogota}), (p:Post {id: "4ZCW1TGL5BKG4"}) MERGE (u)-[:AUTHORED]->(p);
+MERGE (p:Post {id: "4ZCW1TGL5BKG5"}) SET p.content = "Long post, article E", p.kind = "long", p.indexed_at = 1819477230330;
+MATCH (u:User {id: $cairo}), (p:Post {id: "4ZCW1TGL5BKG5"}) MERGE (u)-[:AUTHORED]->(p);
+MERGE (p:Post {id: "4ZCW1TGL5BKG6"}) SET p.content = "Long post, article F", p.kind = "long", p.indexed_at = 1819477230340;
+MATCH (u:User {id: $bogota}), (p:Post {id: "4ZCW1TGL5BKG6"}) MERGE (u)-[:AUTHORED]->(p);
+MERGE (p:Post {id: "4ZCW1TGL5BKG7"}) SET p.content = "Long post, article G", p.kind = "long", p.indexed_at = 1819477230350;
+MATCH (u:User {id: $eixample}), (p:Post {id: "4ZCW1TGL5BKG7"}) MERGE (u)-[:AUTHORED]->(p);
+MERGE (p:Post {id: "4ZCW1TGL5BKG8"}) SET p.content = "Long post, article H", p.kind = "long", p.indexed_at = 1819477230360;
+MATCH (u:User {id: $eixample}), (p:Post {id: "4ZCW1TGL5BKG8"}) MERGE (u)-[:AUTHORED]->(p);
+// Image posts
+MERGE (p:Post {id: "5YCW1TGL5BKG1"}) SET p.content = "IMAGE post, SVG A", p.kind = "image", p.indexed_at = 1820477299300;
+MATCH (u:User {id: $bogota}), (p:Post {id: "5YCW1TGL5BKG1"}) MERGE (u)-[:AUTHORED]->(p);
+MERGE (p:Post {id: "5YCW1TGL5BKG2"}) SET p.content = "IMAGE post, SVG B", p.kind = "image", p.indexed_at = 1820477299305;
+MATCH (u:User {id: $cairo}), (p:Post {id: "5YCW1TGL5BKG2"}) MERGE (u)-[:AUTHORED]->(p);
+MERGE (p:Post {id: "5YCW1TGL5BKG3"}) SET p.content = "IMAGE post, SVG C", p.kind = "image", p.indexed_at = 1820477299310;
+MATCH (u:User {id: $cairo}), (p:Post {id: "5YCW1TGL5BKG3"}) MERGE (u)-[:AUTHORED]->(p);
+MERGE (p:Post {id: "5YCW1TGL5BKG4"}) SET p.content = "IMAGE post, SVG D", p.kind = "image", p.indexed_at = 1820477299320;
+MATCH (u:User {id: $bogota}), (p:Post {id: "5YCW1TGL5BKG4"}) MERGE (u)-[:AUTHORED]->(p);
+MERGE (p:Post {id: "5YCW1TGL5BKG5"}) SET p.content = "IMAGE post, SVG E", p.kind = "image", p.indexed_at = 1820477299330;
+MATCH (u:User {id: $cairo}), (p:Post {id: "5YCW1TGL5BKG5"}) MERGE (u)-[:AUTHORED]->(p);
+MERGE (p:Post {id: "5YCW1TGL5BKG6"}) SET p.content = "IMAGE post, SVG F", p.kind = "image", p.indexed_at = 1820477299340;
+MATCH (u:User {id: $bogota}), (p:Post {id: "5YCW1TGL5BKG6"}) MERGE (u)-[:AUTHORED]->(p);
+MERGE (p:Post {id: "5YCW1TGL5BKG7"}) SET p.content = "IMAGE post, SVG G", p.kind = "image", p.indexed_at = 1820477299350;
+MATCH (u:User {id: $eixample}), (p:Post {id: "5YCW1TGL5BKG7"}) MERGE (u)-[:AUTHORED]->(p);
+MERGE (p:Post {id: "5YCW1TGL5BKG8"}) SET p.content = "IMAGE post, SVG H", p.kind = "image", p.indexed_at = 1820477299360;
+MATCH (u:User {id: $eixample}), (p:Post {id: "5YCW1TGL5BKG8"}) MERGE (u)-[:AUTHORED]->(p);
+// Video posts
+MERGE (p:Post {id: "MLOW1TGL5BKH1"}) SET p.content = "VIDEO post, mkv A", p.kind = "video", p.indexed_at = 1980477299300;
+MATCH (u:User {id: $bogota}), (p:Post {id: "MLOW1TGL5BKH1"}) MERGE (u)-[:AUTHORED]->(p);
+MERGE (p:Post {id: "MLOW1TGL5BKH2"}) SET p.content = "VIDEO post, mkv B", p.kind = "video", p.indexed_at = 1980477299305;
+MATCH (u:User {id: $cairo}), (p:Post {id: "MLOW1TGL5BKH2"}) MERGE (u)-[:AUTHORED]->(p);
+MERGE (p:Post {id: "MLOW1TGL5BKH3"}) SET p.content = "VIDEO post, mkv C", p.kind = "video", p.indexed_at = 1980477299310;
+MATCH (u:User {id: $cairo}), (p:Post {id: "MLOW1TGL5BKH3"}) MERGE (u)-[:AUTHORED]->(p);
+MERGE (p:Post {id: "MLOW1TGL5BKH4"}) SET p.content = "VIDEO post, mkv D", p.kind = "video", p.indexed_at = 1980477299320;
+MATCH (u:User {id: $bogota}), (p:Post {id: "MLOW1TGL5BKH4"}) MERGE (u)-[:AUTHORED]->(p);
+MERGE (p:Post {id: "MLOW1TGL5BKH5"}) SET p.content = "VIDEO post, mkv E", p.kind = "video", p.indexed_at = 1980477299330;
+MATCH (u:User {id: $cairo}), (p:Post {id: "MLOW1TGL5BKH5"}) MERGE (u)-[:AUTHORED]->(p);
+MERGE (p:Post {id: "MLOW1TGL5BKH6"}) SET p.content = "VIDEO post, mkv F", p.kind = "video", p.indexed_at = 1980477299340;
+MATCH (u:User {id: $bogota}), (p:Post {id: "MLOW1TGL5BKH6"}) MERGE (u)-[:AUTHORED]->(p);
+MERGE (p:Post {id: "MLOW1TGL5BKH7"}) SET p.content = "VIDEO post, mkv G", p.kind = "video", p.indexed_at = 1980477299350;
+MATCH (u:User {id: $eixample}), (p:Post {id: "MLOW1TGL5BKH7"}) MERGE (u)-[:AUTHORED]->(p);
+MERGE (p:Post {id: "MLOW1TGL5BKH8"}) SET p.content = "VIDEO post, mkv H", p.kind = "video", p.indexed_at = 1980477299360;
+MATCH (u:User {id: $eixample}), (p:Post {id: "MLOW1TGL5BKH8"}) MERGE (u)-[:AUTHORED]->(p);
+// File posts
+MERGE (p:Post {id: "GJMW1TGL5BKG1"}) SET p.content = "FILE post, pdf A", p.kind = "file", p.indexed_at = 1980477299302;
+MATCH (u:User {id: $bogota}), (p:Post {id: "GJMW1TGL5BKG1"}) MERGE (u)-[:AUTHORED]->(p);
+MERGE (p:Post {id: "GJMW1TGL5BKG2"}) SET p.content = "FILE post, pdf B", p.kind = "file", p.indexed_at = 1980477299307;
+MATCH (u:User {id: $cairo}), (p:Post {id: "GJMW1TGL5BKG2"}) MERGE (u)-[:AUTHORED]->(p);
+MERGE (p:Post {id: "GJMW1TGL5BKG3"}) SET p.content = "FILE post, pdf C", p.kind = "file", p.indexed_at = 1980477299312;
+MATCH (u:User {id: $cairo}), (p:Post {id: "GJMW1TGL5BKG3"}) MERGE (u)-[:AUTHORED]->(p);
+MERGE (p:Post {id: "GJMW1TGL5BKG4"}) SET p.content = "FILE post, pdf D", p.kind = "file", p.indexed_at = 1980477299322;
+MATCH (u:User {id: $bogota}), (p:Post {id: "GJMW1TGL5BKG4"}) MERGE (u)-[:AUTHORED]->(p);
+MERGE (p:Post {id: "GJMW1TGL5BKG5"}) SET p.content = "FILE post, pdf E", p.kind = "file", p.indexed_at = 1980477299332;
+MATCH (u:User {id: $cairo}), (p:Post {id: "GJMW1TGL5BKG5"}) MERGE (u)-[:AUTHORED]->(p);
+MERGE (p:Post {id: "GJMW1TGL5BKG6"}) SET p.content = "FILE post, pdf F", p.kind = "file", p.indexed_at = 1980477299342;
+MATCH (u:User {id: $bogota}), (p:Post {id: "GJMW1TGL5BKG6"}) MERGE (u)-[:AUTHORED]->(p);
+MERGE (p:Post {id: "GJMW1TGL5BKG7"}) SET p.content = "FILE post, pdf G", p.kind = "file", p.indexed_at = 1980477299352;
+MATCH (u:User {id: $eixample}), (p:Post {id: "GJMW1TGL5BKG7"}) MERGE (u)-[:AUTHORED]->(p);
+MERGE (p:Post {id: "GJMW1TGL5BKG8"}) SET p.content = "FILE post, pdf H", p.kind = "file", p.indexed_at = 1980477299362;
+MATCH (u:User {id: $eixample}), (p:Post {id: "GJMW1TGL5BKG8"}) MERGE (u)-[:AUTHORED]->(p);
+// Link posts
+MERGE (p:Post {id: "SIJW1TGL5BKG1"}) SET p.content = "LINK post, pubky A", p.kind = "link", p.indexed_at = 1980477299304;
+MATCH (u:User {id: $bogota}), (p:Post {id: "SIJW1TGL5BKG1"}) MERGE (u)-[:AUTHORED]->(p);
+MERGE (p:Post {id: "SIJW1TGL5BKG2"}) SET p.content = "LINK post, pubky B", p.kind = "link", p.indexed_at = 1980477299309;
+MATCH (u:User {id: $cairo}), (p:Post {id: "SIJW1TGL5BKG2"}) MERGE (u)-[:AUTHORED]->(p);
+MERGE (p:Post {id: "SIJW1TGL5BKG3"}) SET p.content = "LINK post, pubky C", p.kind = "link", p.indexed_at = 1980477299318;
+MATCH (u:User {id: $cairo}), (p:Post {id: "SIJW1TGL5BKG3"}) MERGE (u)-[:AUTHORED]->(p);
+MERGE (p:Post {id: "SIJW1TGL5BKG4"}) SET p.content = "LINK post, pubky D", p.kind = "link", p.indexed_at = 1980477299328;
+MATCH (u:User {id: $bogota}), (p:Post {id: "SIJW1TGL5BKG4"}) MERGE (u)-[:AUTHORED]->(p);
+MERGE (p:Post {id: "SIJW1TGL5BKG5"}) SET p.content = "LINK post, pubky E", p.kind = "link", p.indexed_at = 1980477299338;
+MATCH (u:User {id: $cairo}), (p:Post {id: "SIJW1TGL5BKG5"}) MERGE (u)-[:AUTHORED]->(p);
+MERGE (p:Post {id: "SIJW1TGL5BKG6"}) SET p.content = "LINK post, pubky F", p.kind = "link", p.indexed_at = 1980477299348;
+MATCH (u:User {id: $bogota}), (p:Post {id: "SIJW1TGL5BKG6"}) MERGE (u)-[:AUTHORED]->(p);
+MERGE (p:Post {id: "SIJW1TGL5BKG7"}) SET p.content = "LINK post, pubky G", p.kind = "link", p.indexed_at = 1980477299358;
+MATCH (u:User {id: $eixample}), (p:Post {id: "SIJW1TGL5BKG7"}) MERGE (u)-[:AUTHORED]->(p);
+MERGE (p:Post {id: "SIJW1TGL5BKG8"}) SET p.content = "LINK post, pubky H", p.kind = "link", p.indexed_at = 1980477299368;
+MATCH (u:User {id: $eixample}), (p:Post {id: "SIJW1TGL5BKG8"}) MERGE (u)-[:AUTHORED]->(p);

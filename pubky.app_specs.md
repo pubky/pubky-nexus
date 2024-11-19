@@ -365,7 +365,7 @@ This document intents to be a faithful representation of our [Rust pubky.app mod
 ```json
 {
   "content": "Hello world! This is my first post.",
-  "kind": "Short",
+  "kind": "short",
   "parent": null,
   "embed": null,
   "attachments": null

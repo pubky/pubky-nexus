@@ -29,6 +29,7 @@ pub fn bench_stream_tag_timeline(c: &mut Criterion) {
                 StreamSorting::Timeline,
                 None,
                 Some(vec![TAG.to_string()]),
+                None,
             )
             .await
             .unwrap();
@@ -58,6 +59,7 @@ pub fn bench_stream_tag_total_engagement(c: &mut Criterion) {
                 StreamSorting::TotalEngagement,
                 None,
                 Some(vec![TAG.to_string()]),
+                None,
             )
             .await
             .unwrap();

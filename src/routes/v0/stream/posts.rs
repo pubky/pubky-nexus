@@ -23,7 +23,7 @@ pub struct PostStreamQuery {
     pub viewer_id: Option<String>,
     #[serde(default, deserialize_with = "deserialize_comma_separated")]
     pub tags: Option<Vec<String>>,
-    pub kind: Option<PostKind>
+    pub kind: Option<PostKind>,
 }
 
 impl PostStreamQuery {
@@ -108,7 +108,7 @@ pub async fn stream_posts_handler(
         sorting,
         query.viewer_id,
         query.tags,
-        query.kind
+        query.kind,
     )
     .await
     {

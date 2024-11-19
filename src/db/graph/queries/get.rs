@@ -20,7 +20,7 @@ pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
                 author: u.id,
                 // default value when the specified property is null
                 // Avoids enum deserialization ERROR
-                kind: COALESCE(p.kind, 'Short'),
+                kind: COALESCE(p.kind, 'short'),
                 attachments: p.attachments
             } as details,
             COLLECT([author.id, parent_post.id]) AS reply
@@ -433,7 +433,7 @@ pub fn post_stream(
     sorting: StreamSorting,
     tags: &Option<Vec<String>>,
     pagination: Pagination,
-    kind: Option<PostKind>
+    kind: Option<PostKind>,
 ) -> Query {
     let mut cypher = String::new();
 
@@ -485,7 +485,7 @@ pub fn post_stream(
         }
     }
 
-    let mut where_clause_applied = false || kind.is_some();
+    let mut where_clause_applied = kind.is_some();
 
     // Apply tags
     if tags.is_some() {
@@ -496,15 +496,15 @@ pub fn post_stream(
     // Apply time interval conditions. Only can be applied with timeline sorting
     // The engagament score has to be computed
     if sorting == StreamSorting::Timeline {
-        if let Some(_) = pagination.start {
+        if pagination.start.is_some() {
             append_sorting_where_clause(
                 &mut cypher,
                 "p.indexed_at <= $start",
                 &mut where_clause_applied,
             );
         }
-    
-        if let Some(_) = pagination.end {
+
+        if pagination.end.is_some() {
             append_sorting_where_clause(
                 &mut cypher,
                 "p.indexed_at >= $end",
@@ -543,7 +543,7 @@ pub fn post_stream(
             where_clause_applied = false;
 
             // Add total_engagement to filter by engagement the post
-            if let Some(_) = pagination.start {
+            if pagination.start.is_some() {
                 append_sorting_where_clause(
                     &mut cypher,
                     "total_engagement <= $start",
@@ -551,7 +551,7 @@ pub fn post_stream(
                 );
             }
 
-            if let Some(_) = pagination.end {
+            if pagination.end.is_some() {
                 append_sorting_where_clause(
                     &mut cypher,
                     "total_engagement >= $end",
@@ -577,20 +577,18 @@ pub fn post_stream(
         cypher.push_str(&format!("LIMIT {}\n", limit));
     }
 
-    println!("Query: {:?}", cypher);
-
     // Build the query and apply parameters using `param` method
     build_query_with_params(&cypher, &source, tags, kind, &pagination)
 }
 
-/// Appends a condition to the Cypher query, using `WHERE` if no `WHERE` clause 
+/// Appends a condition to the Cypher query, using `WHERE` if no `WHERE` clause
 /// has been applied yet, or `AND` if a `WHERE` clause is already present.
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `cypher` - A mutable reference to the Cypher query string to which the condition will be appended
 /// * `condition` - The condition to be added to the query
-/// * `where_clause_applied` - A mutable reference to a boolean flag indicating whether a `WHERE` clause 
+/// * `where_clause_applied` - A mutable reference to a boolean flag indicating whether a `WHERE` clause
 ///   has already been applied to the query.
 fn append_sorting_where_clause(
     cypher: &mut String,

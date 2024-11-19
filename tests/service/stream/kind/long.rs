@@ -1,0 +1,86 @@
+use crate::service::stream::utils::verify_post_list;
+use crate::service::stream::ROOT_PATH;
+use crate::service::utils::make_request;
+use anyhow::Result;
+
+const BOGOTA: &str = "ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny";
+
+const POST_L1: &str = "4ZCW1TGL5BKG8";
+const POST_L2: &str = "4ZCW1TGL5BKG7";
+const POST_L3: &str = "4ZCW1TGL5BKG6";
+const POST_L4: &str = "4ZCW1TGL5BKG5";
+const POST_L5: &str = "4ZCW1TGL5BKG4";
+const POST_L6: &str = "4ZCW1TGL5BKG3";
+const POST_L7: &str = "4ZCW1TGL5BKG2";
+const POST_L8: &str = "4ZCW1TGL5BKG1";
+
+pub const START_TIMELINE: &str = "1819477230345";
+pub const END_TIMELINE: &str = "1819477230308";
+
+#[tokio::test]
+async fn test_stream_long_post_kind() -> Result<()> {
+    let path = format!("{ROOT_PATH}?kind=long");
+
+    let body = make_request(&path).await?;
+    let post_list = vec![
+        POST_L1, POST_L2, POST_L3, POST_L4, POST_L5, POST_L6, POST_L7, POST_L8,
+    ];
+    verify_post_list(post_list, body);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stream_long_post_kind_with_start() -> Result<()> {
+    let path = format!("{ROOT_PATH}?kind=long&start={START_TIMELINE}");
+
+    let body = make_request(&path).await?;
+    let post_list = vec![POST_L3, POST_L4, POST_L5, POST_L6, POST_L7, POST_L8];
+    verify_post_list(post_list, body);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stream_long_post_kind_with_end() -> Result<()> {
+    let path = format!("{ROOT_PATH}?kind=long&end={START_TIMELINE}");
+
+    let body = make_request(&path).await?;
+    let post_list = vec![POST_L1, POST_L2];
+    verify_post_list(post_list, body);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stream_long_post_kind_with_start_and_end() -> Result<()> {
+    let path = format!("{ROOT_PATH}?kind=long&start={START_TIMELINE}&end={END_TIMELINE}");
+
+    let body = make_request(&path).await?;
+    let post_list = vec![POST_L3, POST_L4, POST_L5, POST_L6];
+    verify_post_list(post_list, body);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stream_long_post_kind_with_author() -> Result<()> {
+    let path = format!("{ROOT_PATH}?kind=long&author_id={BOGOTA}&source=author");
+
+    let body = make_request(&path).await?;
+    let post_list = vec![POST_L3, POST_L5, POST_L8];
+    verify_post_list(post_list, body);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stream_long_post_kind_with_author_skip_and_limit() -> Result<()> {
+    let path = format!("{ROOT_PATH}?kind=long&author_id={BOGOTA}&source=author&skip=1&limit=1");
+
+    let body = make_request(&path).await?;
+    let post_list = vec![POST_L5];
+    verify_post_list(post_list, body);
+
+    Ok(())
+}
