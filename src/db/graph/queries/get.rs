@@ -496,21 +496,20 @@ pub fn post_stream(
     // Apply time interval conditions. Only can be applied with timeline sorting
     // The engagament score has to be computed
     if sorting == StreamSorting::Timeline {
-        if pagination.start.is_some() {
-            if where_clause_applied {
-                cypher.push_str("AND p.indexed_at <= $start\n");
-            } else {
-                cypher.push_str("WHERE p.indexed_at <= $start\n");
-                where_clause_applied = true;
-            }
+        if let Some(_) = pagination.start {
+            append_sorting_where_clause(
+                &mut cypher,
+                "p.indexed_at <= $start",
+                &mut where_clause_applied,
+            );
         }
-
-        if pagination.end.is_some() {
-            if where_clause_applied {
-                cypher.push_str("AND p.indexed_at >= $end\n");
-            } else {
-                cypher.push_str("WHERE p.indexed_at >= $end\n");
-            }
+    
+        if let Some(_) = pagination.end {
+            append_sorting_where_clause(
+                &mut cypher,
+                "p.indexed_at >= $end",
+                &mut where_clause_applied,
+            );
         }
     }
 
@@ -530,12 +529,7 @@ pub fn post_stream(
                 // Count replies
                 OPTIONAL MATCH (p)<-[reply:REPLIED]-(:Post)
                 // Count reposts
-                OPTIONAL MATCH (p)<-[repost:REPOSTED]-(:Post)  
-
-                // TODO: Check if it is necessary that aggregation
-                //WITH p, author, COUNT(DISTINCT tag) AS tags_count
-                //WITH p, author, tags_count, COUNT(DISTINCT reply) AS replies_count
-                //WITH p, author, tags_count, replies_count, COUNT(DISTINCT repost) AS reposts_count
+                OPTIONAL MATCH (p)<-[repost:REPOSTED]-(:Post)
 
                 WITH p, author, 
                     COUNT(DISTINCT tag) AS tags_count,
@@ -545,20 +539,24 @@ pub fn post_stream(
                 ",
             );
 
+            // Initialise again
             where_clause_applied = false;
 
-            // And total_engagement to filter by engagement the post
-            if pagination.start.is_some() {
-                cypher.push_str("WHERE total_engagement <= $start\n");
-                where_clause_applied = true;
+            // Add total_engagement to filter by engagement the post
+            if let Some(_) = pagination.start {
+                append_sorting_where_clause(
+                    &mut cypher,
+                    "total_engagement <= $start",
+                    &mut where_clause_applied,
+                );
             }
 
-            if pagination.end.is_some() {
-                if where_clause_applied {
-                    cypher.push_str("AND total_engagement >= $end\n");
-                } else {
-                    cypher.push_str("WHERE total_engagement >= $end\n");
-                }
+            if let Some(_) = pagination.end {
+                append_sorting_where_clause(
+                    &mut cypher,
+                    "total_engagement >= $end",
+                    &mut where_clause_applied,
+                );
             }
 
             "ORDER BY total_engagement DESC".to_string()
@@ -582,9 +580,53 @@ pub fn post_stream(
     println!("Query: {:?}", cypher);
 
     // Build the query and apply parameters using `param` method
-    let mut query = query(&cypher);
+    build_query_with_params(&cypher, &source, tags, kind, &pagination)
+}
 
-    // Insert parameters
+/// Appends a condition to the Cypher query, using `WHERE` if no `WHERE` clause 
+/// has been applied yet, or `AND` if a `WHERE` clause is already present.
+/// 
+/// # Arguments
+/// 
+/// * `cypher` - A mutable reference to the Cypher query string to which the condition will be appended
+/// * `condition` - The condition to be added to the query
+/// * `where_clause_applied` - A mutable reference to a boolean flag indicating whether a `WHERE` clause 
+///   has already been applied to the query.
+fn append_sorting_where_clause(
+    cypher: &mut String,
+    condition: &str,
+    where_clause_applied: &mut bool,
+) {
+    if *where_clause_applied {
+        cypher.push_str(&format!("AND {condition}\n"));
+    } else {
+        cypher.push_str(&format!("WHERE {condition}\n"));
+        *where_clause_applied = true;
+    }
+}
+
+/// Builds a `Query` object by applying the necessary parameters to the Cypher query string.
+///
+/// This function takes the constructed Cypher query string and applies all the relevant parameters
+/// based on the provided `source`, `tags`, `kind`, and `pagination`. It ensures that all parameters
+/// used in the query are properly set with their corresponding values.
+///
+/// # Arguments
+///
+/// * `cypher` - The Cypher query string that has been constructed.
+/// * `source` - The `StreamSource` specifying the origin of the posts (e.g., Following, Followers).
+/// * `tags` - An optional list of tag labels to filter the posts.
+/// * `kind` - An optional `PostKind` to filter the posts by their kind.
+/// * `pagination` - The `Pagination` object containing pagination parameters like `start`, `end`, `skip`, and `limit`.
+fn build_query_with_params(
+    cypher: &str,
+    source: &StreamSource,
+    tags: &Option<Vec<String>>,
+    kind: Option<PostKind>,
+    pagination: &Pagination,
+) -> Query {
+    let mut query = query(cypher);
+
     if let Some(observer_id) = source.get_observer() {
         query = query.param("observer_id", observer_id.to_string());
     }
@@ -597,11 +639,9 @@ pub fn post_stream(
     if let Some(post_kind) = kind {
         query = query.param("kind", post_kind);
     }
-
     if let Some(start_interval) = pagination.start {
         query = query.param("start", start_interval);
     }
-
     if let Some(end_interval) = pagination.end {
         query = query.param("end", end_interval);
     }
