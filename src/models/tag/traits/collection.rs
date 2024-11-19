@@ -1,3 +1,4 @@
+use crate::types::DynError;
 use axum::async_trait;
 use neo4rs::Query;
 
@@ -11,8 +12,6 @@ use crate::{
 };
 
 use crate::models::tag::TagDetails;
-
-use super::DynError;
 
 /// Trait for managing a collection of tags
 ///
@@ -177,7 +176,7 @@ where
         tag_id: &str,
         label: &str,
         indexed_at: i64,
-    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<bool, DynError> {
         let query = match extra_param {
             Some(post_id) => queries::put::create_post_tag(
                 tagger_user_id,
@@ -198,10 +197,7 @@ where
         exec_boolean_row(query).await
     }
 
-    async fn reindex(
-        author_id: &str,
-        extra_param: Option<&str>,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn reindex(author_id: &str, extra_param: Option<&str>) -> Result<(), DynError> {
         match Self::get_from_graph(author_id, extra_param).await? {
             Some(tag_user) => Self::put_to_index(author_id, extra_param, &tag_user).await?,
             None => log::error!(
@@ -234,10 +230,7 @@ where
     async fn del_from_graph(
         user_id: &str,
         tag_id: &str,
-    ) -> Result<
-        Option<(Option<String>, Option<String>, Option<String>, String)>,
-        Box<dyn std::error::Error + Send + Sync>,
-    > {
+    ) -> Result<Option<(Option<String>, Option<String>, Option<String>, String)>, DynError> {
         let mut result;
         {
             let graph = get_neo4j_graph()?;

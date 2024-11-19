@@ -10,17 +10,13 @@ use crate::models::pubky_app::PostKind;
 use crate::models::user::UserCounts;
 use crate::models::{post::PostDetails, pubky_app::PubkyAppPost};
 use crate::queries::get::post_is_safe_to_delete;
+use crate::types::DynError;
 use crate::types::PubkyId;
 use crate::{queries, RedisOps, ScoreAction};
 use axum::body::Bytes;
 use log::debug;
-use std::error::Error;
 
-pub async fn put(
-    author_id: PubkyId,
-    post_id: String,
-    blob: Bytes,
-) -> Result<(), Box<dyn Error + Sync + Send>> {
+pub async fn put(author_id: PubkyId, post_id: String, blob: Bytes) -> Result<(), DynError> {
     // Process Post resource and update the databases
     debug!("Indexing new post: {}/{}", author_id, post_id);
 
@@ -34,7 +30,7 @@ pub async fn sync_put(
     post: PubkyAppPost,
     author_id: PubkyId,
     post_id: String,
-) -> Result<(), Box<dyn Error + Sync + Send>> {
+) -> Result<(), DynError> {
     // Create PostDetails object
     let post_details = PostDetails::from_homeserver(post.clone(), &author_id, &post_id).await?;
 
@@ -149,7 +145,7 @@ async fn sync_edit(
     author_id: PubkyId,
     post_id: String,
     post_details: PostDetails,
-) -> Result<(), Box<dyn Error + Sync + Send>> {
+) -> Result<(), DynError> {
     // Construct the URI of the post that changed
     let changed_uri = format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}");
 
@@ -188,7 +184,7 @@ async fn resolve_post_type_interaction<'a>(
     post: &'a PubkyAppPost,
     author_id: &str,
     post_id: &str,
-) -> Result<Vec<(&'a str, &'a str)>, Box<dyn Error + Sync + Send>> {
+) -> Result<Vec<(&'a str, &'a str)>, DynError> {
     let mut interaction: Vec<(&str, &str)> = Vec::new();
 
     // Handle "REPLIED" relationship and counts if `parent` is Some
@@ -213,7 +209,7 @@ async fn put_reply_relationship(
     author_id: &str,
     post_id: &str,
     parent_uri: &str,
-) -> Result<(), Box<dyn Error + Sync + Send>> {
+) -> Result<(), DynError> {
     let parsed_uri = ParsedUri::try_from(parent_uri)?;
     if let (parent_author_id, Some(parent_post_id)) = (parsed_uri.user_id, parsed_uri.post_id) {
         exec_single_row(queries::put::create_reply_relationship(
@@ -232,7 +228,7 @@ async fn put_repost_relationship(
     author_id: &str,
     post_id: &str,
     embed_uri: &str,
-) -> Result<(), Box<dyn Error + Sync + Send>> {
+) -> Result<(), DynError> {
     let parsed_uri = ParsedUri::try_from(embed_uri)?;
     if let (reposted_author_id, Some(reposted_post_id)) = (parsed_uri.user_id, parsed_uri.post_id) {
         exec_single_row(queries::put::create_repost_relationship(
@@ -251,7 +247,7 @@ pub async fn put_mentioned_relationships(
     author_id: &PubkyId,
     post_id: &str,
     content: &str,
-) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<Vec<String>, DynError> {
     let prefix = "pk:";
     let user_id_len = 52;
     let mut mention_users = Vec::new();
@@ -278,7 +274,7 @@ pub async fn put_mentioned_relationships(
     Ok(mention_users)
 }
 
-pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), Box<dyn Error + Sync + Send>> {
+pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), DynError> {
     debug!("Deleting post: {}/{}", author_id, post_id);
 
     // Graph query to check if there is any edge at all to this post other than AUTHORED, is a reply or is a repost.
@@ -313,10 +309,7 @@ pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), Box<dyn Erro
     Ok(())
 }
 
-pub async fn sync_del(
-    author_id: PubkyId,
-    post_id: String,
-) -> Result<(), Box<dyn Error + Sync + Send>> {
+pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynError> {
     let deleted_uri = format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}");
 
     let relationships = PostRelationships::get_by_id(&author_id, &post_id).await?;

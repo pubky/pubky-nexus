@@ -1,3 +1,4 @@
+use crate::types::DynError;
 use crate::types::Pagination;
 use crate::{db::kv::index::sorted_sets::SortOrder, get_neo4j_graph, queries, RedisOps};
 use chrono::Utc;
@@ -98,10 +99,7 @@ impl Notification {
     }
 
     /// Stores the `NotificationBody` in the sorted set for the user using the timestamp as the score.
-    async fn put_to_index(
-        &self,
-        user_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn put_to_index(&self, user_id: &str) -> Result<(), DynError> {
         let notification_body_json = serde_json::to_string(&self.body)?;
         let score = self.timestamp as f64;
 
@@ -113,10 +111,7 @@ impl Notification {
     }
 
     /// Lists notifications from the sorted set for the user, based on skip and limit, or timestamp range.
-    pub async fn get_by_id(
-        user_id: &str,
-        pagination: Pagination,
-    ) -> Result<Vec<Self>, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn get_by_id(user_id: &str, pagination: Pagination) -> Result<Vec<Self>, DynError> {
         // Set the default params for pagination
         let skip = pagination.skip.unwrap_or(0);
         let limit = pagination.limit.unwrap_or(20);
@@ -151,7 +146,7 @@ impl Notification {
         user_id: &str,
         followee_id: &str,
         new_friend: bool,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), DynError> {
         let body = match new_friend {
             true => NotificationBody::NewFriend {
                 followed_by: user_id.to_string(),
@@ -171,7 +166,7 @@ impl Notification {
         user_id: &str,
         followee_id: &str,
         were_friends: bool,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), DynError> {
         if !were_friends {
             return Ok(());
         }
@@ -190,7 +185,7 @@ impl Notification {
         author_id: &str,
         label: &str,
         post_uri: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), DynError> {
         if user_id == author_id {
             return Ok(());
         }
@@ -207,7 +202,7 @@ impl Notification {
         tagger_user_id: &str,
         tagged_user_id: &str,
         label: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), DynError> {
         if tagger_user_id == tagged_user_id {
             return Ok(());
         }
@@ -224,7 +219,7 @@ impl Notification {
         parent_uri: &str,
         reply_uri: &str,
         parent_post_author: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), DynError> {
         if user_id == parent_post_author {
             return Ok(());
         }
@@ -241,7 +236,7 @@ impl Notification {
         user_id: &str,
         mentioned_id: &str,
         post_id: &str,
-    ) -> Result<Option<String>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<String>, DynError> {
         if user_id == mentioned_id {
             return Ok(None);
         }
@@ -260,7 +255,7 @@ impl Notification {
         embed_uri: &str,
         repost_uri: &str,
         embed_post_author: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), DynError> {
         if user_id == embed_post_author {
             return Ok(());
         }
@@ -280,7 +275,7 @@ impl Notification {
         changed_uri: &str,
         change_source: PostChangedSource,
         changed_type: &PostChangedType,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), DynError> {
         if user_id == linked_post_author {
             return Ok(());
         }
@@ -310,7 +305,7 @@ impl Notification {
         post_id: &str,
         changed_uri: &str,
         changed_type: &PostChangedType,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), DynError> {
         // Define the notification types and associated data
         let notification_types: Vec<(QueryFunction, PostChangedSource, ExtractFunction)> = vec![
             (

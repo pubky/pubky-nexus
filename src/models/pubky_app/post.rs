@@ -1,4 +1,5 @@
 use super::traits::{TimestampId, Validatable};
+use crate::types::DynError;
 use axum::async_trait;
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -49,7 +50,7 @@ impl TimestampId for PubkyAppPost {}
 
 #[async_trait]
 impl Validatable for PubkyAppPost {
-    async fn sanitize(self) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    async fn sanitize(self) -> Result<Self, DynError> {
         // Sanitize content
         let mut content = self.content.trim().to_string();
 
@@ -102,7 +103,7 @@ impl Validatable for PubkyAppPost {
     }
 
     //TODO: implement full validation rules. Min/Max lengths, post kinds, etc.
-    async fn validate(&self, id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn validate(&self, id: &str) -> Result<(), DynError> {
         self.validate_id(id).await?;
 
         // Validate content length

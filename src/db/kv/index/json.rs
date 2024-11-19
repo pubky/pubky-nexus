@@ -1,9 +1,9 @@
 use crate::db::connectors::redis::get_redis_conn;
+use crate::types::DynError;
 use log::debug;
 use redis::Script;
 use redis::{AsyncCommands, JsonAsyncCommands};
 use serde::{de::DeserializeOwned, Serialize};
-use std::error::Error;
 
 #[derive(Clone)]
 pub enum JsonAction {
@@ -47,7 +47,7 @@ pub async fn put<T: Serialize + Send + Sync>(
     value: &T,
     path: Option<&str>,
     expiration: Option<i64>,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+) -> Result<(), DynError> {
     let index_key = format!("{}:{}", prefix, key);
 
     match serde_json::to_value(value)? {
@@ -88,7 +88,7 @@ pub async fn modify_json_field(
     field: &str,
     action: JsonAction,
     range: Option<ValueRange>,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+) -> Result<(), DynError> {
     let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{}:{}", prefix, key);
     let json_path = format!("$.{}", field); // Access the field using JSON path
@@ -175,7 +175,7 @@ async fn handle_put_boolean(
     key: &str,
     value: bool,
     expiration: Option<i64>,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+) -> Result<(), DynError> {
     let mut redis_conn = get_redis_conn().await?;
 
     let int_value = if value { 1 } else { 0 };
@@ -203,7 +203,7 @@ async fn handle_put_json<T: Serialize + Send + Sync>(
     value: &T,
     path: Option<&str>,
     expiration: Option<i64>,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+) -> Result<(), DynError> {
     let mut redis_conn = get_redis_conn().await?;
 
     let json_path = path.unwrap_or("$");
@@ -257,7 +257,7 @@ async fn handle_put_json<T: Serialize + Send + Sync>(
 pub async fn put_multiple<T: Serialize>(
     prefix: &str,
     data: &[(impl AsRef<str>, T)],
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+) -> Result<(), DynError> {
     let mut redis_conn = get_redis_conn().await?;
 
     // Create a pipeline-like command sequence
@@ -302,7 +302,7 @@ pub async fn get<T: DeserializeOwned + Send + Sync>(
     prefix: &str,
     key: &str,
     path: Option<&str>,
-) -> Result<Option<T>, Box<dyn Error + Send + Sync>> {
+) -> Result<Option<T>, DynError> {
     let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{}:{}", prefix, key);
     let json_path = path.unwrap_or("$").to_string(); // Ensure path is a String
@@ -341,7 +341,7 @@ pub async fn get_multiple<T: DeserializeOwned + Send + Sync>(
     prefix: &str,
     keys: &[impl AsRef<str>],
     path: Option<&str>,
-) -> Result<Vec<Option<T>>, Box<dyn Error + Send + Sync>> {
+) -> Result<Vec<Option<T>>, DynError> {
     let mut redis_conn = get_redis_conn().await?;
     let json_path = path.unwrap_or("$");
 
@@ -392,10 +392,7 @@ fn deserialize_values<T: DeserializeOwned>(values: Vec<Option<String>>) -> Vec<O
 /// # Errors
 ///
 /// Returns an error if the operation fails.
-pub async fn _get_bool(
-    prefix: &str,
-    key: &str,
-) -> Result<Option<bool>, Box<dyn Error + Send + Sync>> {
+pub async fn _get_bool(prefix: &str, key: &str) -> Result<Option<bool>, DynError> {
     let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{}:{}", prefix, key);
 
@@ -427,10 +424,7 @@ pub async fn _get_bool(
 /// # Errors
 ///
 /// Returns an error if the operation fails.
-pub async fn del_multiple(
-    prefix: &str,
-    keys: &[impl AsRef<str>],
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+pub async fn del_multiple(prefix: &str, keys: &[impl AsRef<str>]) -> Result<(), DynError> {
     let mut redis_conn = get_redis_conn().await?;
 
     // Generate full keys with prefix

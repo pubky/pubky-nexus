@@ -1,5 +1,6 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
 use crate::db::graph::exec::exec_boolean_row;
+use crate::types::DynError;
 use crate::{queries, RedisOps};
 use neo4rs::Relation;
 use serde::{Deserialize, Serialize};
@@ -22,7 +23,7 @@ impl Bookmark {
         user_id: &str,
         bookmark_id: &str,
         indexed_at: i64,
-    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<bool, DynError> {
         let query = queries::put::create_post_bookmark(
             user_id,
             author_id,
@@ -39,7 +40,7 @@ impl Bookmark {
         author_id: &str,
         post_id: &str,
         viewer_id: Option<&str>,
-    ) -> Result<Option<Bookmark>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<Bookmark>, DynError> {
         // Return None early if no viewer_id supplied
         let viewer_id = match viewer_id {
             Some(viewer_id) => viewer_id,
@@ -62,7 +63,7 @@ impl Bookmark {
         author_id: &str,
         post_id: &str,
         viewer_id: &str,
-    ) -> Result<Option<Bookmark>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<Bookmark>, DynError> {
         if let Some(bookmark) = Self::try_from_index_json(&[author_id, post_id, viewer_id]).await? {
             return Ok(Some(bookmark));
         }
@@ -74,7 +75,7 @@ impl Bookmark {
         author_id: &str,
         post_id: &str,
         viewer_id: &str,
-    ) -> Result<Option<Bookmark>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<Bookmark>, DynError> {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
@@ -105,7 +106,7 @@ impl Bookmark {
         author_id: &str,
         post_id: &str,
         viewer_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), DynError> {
         self.put_index_json(&[author_id, post_id, viewer_id])
             .await?;
         PostStream::add_to_bookmarks_sorted_set(self, viewer_id, post_id, author_id).await?;
@@ -114,7 +115,7 @@ impl Bookmark {
 
     /// Retrieves all post_keys a user bookmarked from Neo4j
     /// TODO: using in reindex, Refactor
-    pub async fn reindex(user_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn reindex(user_id: &str) -> Result<(), DynError> {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
@@ -141,7 +142,7 @@ impl Bookmark {
     pub async fn del_from_graph(
         user_id: &str,
         bookmark_id: &str,
-    ) -> Result<Option<(String, String)>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<(String, String)>, DynError> {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
@@ -165,7 +166,7 @@ impl Bookmark {
         bookmarker_id: &str,
         post_id: &str,
         author_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), DynError> {
         Self::remove_from_index_multiple_json(&[&[author_id, post_id, bookmarker_id]]).await?;
         PostStream::remove_from_bookmarks_sorted_set(bookmarker_id, post_id, author_id).await?;
         Ok(())

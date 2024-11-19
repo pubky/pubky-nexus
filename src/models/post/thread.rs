@@ -2,6 +2,7 @@ use super::PostView;
 use crate::db::connectors::neo4j::get_neo4j_graph;
 use crate::queries;
 use crate::routes::v0::post::ThreadQuery;
+use crate::types::DynError;
 use neo4rs::BoltMap;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -19,7 +20,7 @@ impl PostThread {
         author_id: &str,
         post_id: &str,
         endpoint_query: ThreadQuery,
-    ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<Self>, DynError> {
         // Set the default params
         let skip = endpoint_query.pagination.skip.unwrap_or(0);
         let limit = endpoint_query.pagination.limit.unwrap_or(6).min(20);

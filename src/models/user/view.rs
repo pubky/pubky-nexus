@@ -5,6 +5,7 @@ use super::{Relationship, UserCounts, UserDetails};
 use crate::models::tag::traits::TagCollection;
 use crate::models::tag::user::TagUser;
 use crate::models::tag::TagDetails;
+use crate::types::DynError;
 
 /// Represents a Pubky user with relational data including tags, counts, bookmark and relationship with other posts.
 #[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
@@ -20,7 +21,7 @@ impl UserView {
     pub async fn get_by_id(
         user_id: &str,
         viewer_id: Option<&str>,
-    ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<Self>, DynError> {
         // Perform all operations concurrently
         let (details, counts, relationship, tags) = tokio::try_join!(
             UserDetails::get_by_id(user_id),

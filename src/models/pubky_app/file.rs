@@ -1,4 +1,5 @@
 use super::traits::{TimestampId, Validatable};
+use crate::types::DynError;
 use axum::async_trait;
 use serde::{Deserialize, Serialize};
 
@@ -17,7 +18,7 @@ impl TimestampId for PubkyAppFile {}
 #[async_trait]
 impl Validatable for PubkyAppFile {
     // TODO: content_type validation.
-    async fn validate(&self, id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn validate(&self, id: &str) -> Result<(), DynError> {
         self.validate_id(id).await?;
         // TODO: content_type validation.
         // TODO: size and other validation.

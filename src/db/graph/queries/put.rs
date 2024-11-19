@@ -1,8 +1,9 @@
 use crate::models::{file::FileDetails, post::PostDetails, user::UserDetails};
+use crate::types::DynError;
 use neo4rs::{query, Query};
 
 // Create a user node
-pub fn create_user(user: &UserDetails) -> Result<Query, Box<dyn std::error::Error + Send + Sync>> {
+pub fn create_user(user: &UserDetails) -> Result<Query, DynError> {
     let links = serde_json::to_string(&user.links)?;
 
     let query = query(
@@ -22,7 +23,7 @@ pub fn create_user(user: &UserDetails) -> Result<Query, Box<dyn std::error::Erro
 
 // Create a post node
 // TODO: DIscuss if it is necessary here or create a URI when we get the post_id, get_posts_details_by_id
-pub fn create_post(post: &PostDetails) -> Result<Query, Box<dyn std::error::Error + Send + Sync>> {
+pub fn create_post(post: &PostDetails) -> Result<Query, DynError> {
     let kind = serde_json::to_string(&post.kind)?;
 
     let query = query(
@@ -243,7 +244,7 @@ pub fn delete_tag(user_id: &str, tag_id: &str) -> Query {
 }
 
 // Create a file node
-pub fn create_file(file: &FileDetails) -> Result<Query, Box<dyn std::error::Error + Send + Sync>> {
+pub fn create_file(file: &FileDetails) -> Result<Query, DynError> {
     let urls = serde_json::to_string(&file.urls)?;
 
     let query = query(

@@ -1,3 +1,4 @@
+use crate::types::DynError;
 use pkarr::PublicKey;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -8,7 +9,7 @@ use utoipa::ToSchema;
 pub struct PubkyId(pub String);
 
 impl PubkyId {
-    pub fn try_from(str: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    pub fn try_from(str: &str) -> Result<Self, DynError> {
         // Validate string is a valid Pkarr public key
         PublicKey::try_from(str)?;
         Ok(PubkyId(str.to_string()))

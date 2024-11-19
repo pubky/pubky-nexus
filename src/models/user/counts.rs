@@ -1,5 +1,6 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
 use crate::db::kv::index::json::JsonAction;
+use crate::types::DynError;
 use crate::{queries, RedisOps};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -23,9 +24,7 @@ impl RedisOps for UserCounts {}
 
 impl UserCounts {
     /// Retrieves counts by user ID, first trying to get from Redis, then from Neo4j if not found.
-    pub async fn get_by_id(
-        user_id: &str,
-    ) -> Result<Option<UserCounts>, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn get_by_id(user_id: &str) -> Result<Option<UserCounts>, DynError> {
         // TODO: uncomment the get_from_index approach when index counting is stable
 
         // match Self::get_from_index(user_id).await? {
@@ -43,9 +42,7 @@ impl UserCounts {
     }
 
     /// Retrieves the counts from Neo4j.
-    pub async fn get_from_graph(
-        user_id: &str,
-    ) -> Result<Option<UserCounts>, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn get_from_graph(user_id: &str) -> Result<Option<UserCounts>, DynError> {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
@@ -70,19 +67,14 @@ impl UserCounts {
         Ok(None)
     }
 
-    pub async fn get_from_index(
-        user_id: &str,
-    ) -> Result<Option<UserCounts>, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn get_from_index(user_id: &str) -> Result<Option<UserCounts>, DynError> {
         if let Some(user_counts) = Self::try_from_index_json(&[user_id]).await? {
             return Ok(Some(user_counts));
         }
         Ok(None)
     }
 
-    pub async fn put_to_index(
-        &self,
-        user_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn put_to_index(&self, user_id: &str) -> Result<(), DynError> {
         self.put_index_json(&[user_id]).await?;
         UserStream::add_to_most_followed_sorted_set(user_id, self).await?;
         UserStream::add_to_pioneers_sorted_set(user_id, self).await?;
@@ -93,16 +85,12 @@ impl UserCounts {
         author_id: &str,
         field: &str,
         action: JsonAction,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), DynError> {
         Self::modify_json_field(&[author_id], field, action).await?;
         Ok(())
     }
 
-    pub async fn update(
-        user_id: &str,
-        field: &str,
-        action: JsonAction,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn update(user_id: &str, field: &str, action: JsonAction) -> Result<(), DynError> {
         // Update user counts index
         Self::update_index_field(user_id, field, action).await?;
         // Just update pioneer and most followed indexes, when that fields are updated
@@ -119,7 +107,7 @@ impl UserCounts {
         Ok(())
     }
 
-    pub async fn reindex(author_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn reindex(author_id: &str) -> Result<(), DynError> {
         match Self::get_from_graph(author_id).await? {
             Some(counts) => counts.put_to_index(author_id).await?,
             None => log::error!("{}: Could not found user counts in the graph", author_id),
@@ -127,7 +115,7 @@ impl UserCounts {
         Ok(())
     }
 
-    pub async fn delete(user_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn delete(user_id: &str) -> Result<(), DynError> {
         // Delete user_details on Redis
         Self::remove_from_index_multiple_json(&[&[user_id]]).await?;
 

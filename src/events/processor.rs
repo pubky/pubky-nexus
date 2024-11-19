@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use super::Event;
+use crate::types::DynError;
 use crate::types::PubkyId;
 use crate::{models::homeserver::Homeserver, Config};
 use log::{debug, error, info};
@@ -17,9 +18,7 @@ pub struct EventProcessor {
 }
 
 impl EventProcessor {
-    pub async fn from_config(
-        config: &Config,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn from_config(config: &Config) -> Result<Self, DynError> {
         let pubky_client = Self::init_pubky_client(config);
         let homeserver = Homeserver::from_config(config).await?;
         let limit = config.events_limit;
@@ -63,7 +62,7 @@ impl EventProcessor {
         }
     }
 
-    pub async fn run(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn run(&mut self) -> Result<(), DynError> {
         let lines = { self.poll_events().await.unwrap_or_default() };
         if let Some(lines) = lines {
             self.process_event_lines(lines).await?;
@@ -95,10 +94,7 @@ impl EventProcessor {
         }
     }
 
-    async fn process_event_lines(
-        &mut self,
-        lines: Vec<String>,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn process_event_lines(&mut self, lines: Vec<String>) -> Result<(), DynError> {
         for line in &lines {
             if line.starts_with("cursor:") {
                 if let Some(cursor) = line.strip_prefix("cursor: ") {
@@ -125,10 +121,7 @@ impl EventProcessor {
     }
 
     // Generic retry on event handler
-    async fn handle_event_with_retry(
-        &self,
-        event: Event,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn handle_event_with_retry(&self, event: Event) -> Result<(), DynError> {
         let mut attempts = 0;
         loop {
             match event.clone().handle().await {

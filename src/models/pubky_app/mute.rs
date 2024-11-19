@@ -1,4 +1,5 @@
 use super::traits::Validatable;
+use crate::types::DynError;
 use axum::async_trait;
 use serde::{Deserialize, Serialize};
 
@@ -16,7 +17,7 @@ pub struct PubkyAppMute {
 
 #[async_trait]
 impl Validatable for PubkyAppMute {
-    async fn validate(&self, _id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn validate(&self, _id: &str) -> Result<(), DynError> {
         // TODO: additional Mute validation? E.g, validate `created_at` ?
         Ok(())
     }

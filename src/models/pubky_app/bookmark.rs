@@ -1,4 +1,5 @@
 use super::traits::{HashId, Validatable};
+use crate::types::DynError;
 use axum::async_trait;
 use serde::{Deserialize, Serialize};
 
@@ -26,7 +27,7 @@ impl HashId for PubkyAppBookmark {
 
 #[async_trait]
 impl Validatable for PubkyAppBookmark {
-    async fn validate(&self, id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn validate(&self, id: &str) -> Result<(), DynError> {
         self.validate_id(id).await?;
         // TODO: more bookmarks validation?
         Ok(())

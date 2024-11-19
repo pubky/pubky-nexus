@@ -1,5 +1,4 @@
-use std::error::Error;
-
+use crate::types::DynError;
 use axum::body::Bytes;
 use log::debug;
 use pubky::PubkyClient;
@@ -27,7 +26,7 @@ pub async fn put(
     file_id: String,
     blob: Bytes,
     client: &PubkyClient,
-) -> Result<(), Box<dyn Error + Sync + Send>> {
+) -> Result<(), DynError> {
     debug!("Indexing new file resource at {}/{}", user_id, file_id);
 
     // Serialize and validate
@@ -63,7 +62,7 @@ async fn ingest(
     file_id: &str,
     pubkyapp_file: &PubkyAppFile,
     client: &PubkyClient,
-) -> Result<FileMeta, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<FileMeta, DynError> {
     let response = client.get(pubkyapp_file.src.as_str()).await?.unwrap();
 
     debug!("response {:?}", response);
@@ -75,11 +74,7 @@ async fn ingest(
     })
 }
 
-async fn store_blob(
-    name: String,
-    path: String,
-    blob: &Bytes,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn store_blob(name: String, path: String, blob: &Bytes) -> Result<(), DynError> {
     let storage_path = Config::from_env().file_path;
     let full_path = format!("{}/{}", storage_path, path);
 
@@ -103,10 +98,7 @@ async fn store_blob(
     Ok(())
 }
 
-async fn remove_blob(
-    name: String,
-    path: String,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn remove_blob(name: String, path: String) -> Result<(), DynError> {
     let storage_path = Config::from_env().file_path;
     let file_path = format!("{}/{}/{}", storage_path, path, name);
 
@@ -114,7 +106,7 @@ async fn remove_blob(
     Ok(())
 }
 
-pub async fn del(user_id: &PubkyId, file_id: String) -> Result<(), Box<dyn Error + Sync + Send>> {
+pub async fn del(user_id: &PubkyId, file_id: String) -> Result<(), DynError> {
     debug!("Deleting File resource at {}/{}", user_id, file_id);
     let result = FileDetails::get_by_ids(
         vec![vec![user_id.as_str(), file_id.as_str()].as_slice()].as_slice(),

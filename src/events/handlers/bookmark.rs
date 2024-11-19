@@ -4,18 +4,14 @@ use crate::models::post::Bookmark;
 use crate::models::pubky_app::traits::Validatable;
 use crate::models::pubky_app::PubkyAppBookmark;
 use crate::models::user::UserCounts;
+use crate::types::DynError;
 use crate::types::PubkyId;
 use axum::body::Bytes;
 use chrono::Utc;
 use log::debug;
-use std::error::Error;
 
 //TODO: only /posts/ are bookmarkable as of now.
-pub async fn put(
-    user_id: PubkyId,
-    bookmark_id: String,
-    blob: Bytes,
-) -> Result<(), Box<dyn Error + Sync + Send>> {
+pub async fn put(user_id: PubkyId, bookmark_id: String, blob: Bytes) -> Result<(), DynError> {
     debug!("Indexing new bookmark: {} -> {}", user_id, bookmark_id);
 
     // Deserialize and validate bookmark
@@ -28,7 +24,7 @@ pub async fn sync_put(
     user_id: PubkyId,
     bookmark: PubkyAppBookmark,
     id: String,
-) -> Result<(), Box<dyn Error + Sync + Send>> {
+) -> Result<(), DynError> {
     // Parse the URI to extract author_id and post_id using the updated parse_post_uri
     let parsed_uri = ParsedUri::try_from(bookmark.uri.as_str())?;
     let (author_id, post_id) = (
@@ -54,18 +50,12 @@ pub async fn sync_put(
     Ok(())
 }
 
-pub async fn del(
-    user_id: PubkyId,
-    bookmark_id: String,
-) -> Result<(), Box<dyn Error + Sync + Send>> {
+pub async fn del(user_id: PubkyId, bookmark_id: String) -> Result<(), DynError> {
     debug!("Deleting bookmark: {} -> {}", user_id, bookmark_id);
     sync_del(user_id, bookmark_id).await
 }
 
-pub async fn sync_del(
-    user_id: PubkyId,
-    bookmark_id: String,
-) -> Result<(), Box<dyn Error + Sync + Send>> {
+pub async fn sync_del(user_id: PubkyId, bookmark_id: String) -> Result<(), DynError> {
     // DELETE FROM GRAPH
     let deleted_bookmark_info = Bookmark::del_from_graph(&user_id, &bookmark_id).await?;
 

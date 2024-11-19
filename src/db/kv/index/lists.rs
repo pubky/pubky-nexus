@@ -1,6 +1,6 @@
 use crate::db::connectors::redis::get_redis_conn;
+use crate::types::DynError;
 use redis::AsyncCommands;
-use std::error::Error;
 
 /// Adds elements to a Redis list.
 ///
@@ -16,11 +16,7 @@ use std::error::Error;
 /// # Errors
 ///
 /// Returns an error if the operation fails.
-pub async fn put(
-    prefix: &str,
-    key: &str,
-    values: &[&str],
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+pub async fn put(prefix: &str, key: &str, values: &[&str]) -> Result<(), DynError> {
     if values.is_empty() {
         return Ok(());
     }
@@ -54,7 +50,7 @@ pub async fn get_range(
     key: &str,
     skip: Option<usize>,
     limit: Option<usize>,
-) -> Result<Option<Vec<String>>, Box<dyn Error + Send + Sync>> {
+) -> Result<Option<Vec<String>>, DynError> {
     let mut redis_conn = get_redis_conn().await?;
 
     let index_key = format!("{}:{}", prefix, key);

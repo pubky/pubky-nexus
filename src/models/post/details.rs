@@ -2,6 +2,7 @@ use super::PostStream;
 use crate::db::connectors::neo4j::get_neo4j_graph;
 use crate::db::graph::exec::{exec_boolean_row, exec_single_row};
 use crate::models::pubky_app::{PostKind, PubkyAppPost};
+use crate::types::DynError;
 use crate::types::PubkyId;
 use crate::{queries, RedisOps};
 use chrono::Utc;
@@ -29,7 +30,7 @@ impl PostDetails {
     pub async fn get_by_id(
         author_id: &str,
         post_id: &str,
-    ) -> Result<Option<PostDetails>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<PostDetails>, DynError> {
         match Self::get_from_index(author_id, post_id).await? {
             Some(details) => Ok(Some(details)),
             None => {
@@ -46,7 +47,7 @@ impl PostDetails {
     pub async fn get_from_index(
         author_id: &str,
         post_id: &str,
-    ) -> Result<Option<PostDetails>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<PostDetails>, DynError> {
         if let Some(post_details) = Self::try_from_index_json(&[author_id, post_id]).await? {
             return Ok(Some(post_details));
         }
@@ -57,10 +58,7 @@ impl PostDetails {
     pub async fn get_from_graph(
         author_id: &str,
         post_id: &str,
-    ) -> Result<
-        Option<(PostDetails, Option<(String, String)>)>,
-        Box<dyn std::error::Error + Send + Sync>,
-    > {
+    ) -> Result<Option<(PostDetails, Option<(String, String)>)>, DynError> {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
@@ -89,7 +87,7 @@ impl PostDetails {
         author_id: &str,
         parent_key_wrapper: Option<(String, String)>,
         is_edit: bool,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), DynError> {
         self.put_index_json(&[author_id, &self.id]).await?;
         // When we delete a post that has ancestor, ignore other index updates
         if is_edit {
@@ -119,7 +117,7 @@ impl PostDetails {
         homeserver_post: PubkyAppPost,
         author_id: &PubkyId,
         post_id: &String,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Self, DynError> {
         Ok(PostDetails {
             uri: format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}"),
             content: homeserver_post.content,
@@ -131,10 +129,7 @@ impl PostDetails {
         })
     }
 
-    pub async fn reindex(
-        author_id: &str,
-        post_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn reindex(author_id: &str, post_id: &str) -> Result<(), DynError> {
         match Self::get_from_graph(author_id, post_id).await? {
             Some((details, reply)) => details.put_to_index(author_id, reply, false).await?,
             None => log::error!(
@@ -147,7 +142,7 @@ impl PostDetails {
     }
 
     // Save new graph node
-    pub async fn put_to_graph(&self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn put_to_graph(&self) -> Result<bool, DynError> {
         // Save new graph node;
         exec_boolean_row(queries::put::create_post(self)?).await
     }
@@ -156,7 +151,7 @@ impl PostDetails {
         author_id: &str,
         post_id: &str,
         parent_post_key_wrapper: Option<[String; 2]>,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), DynError> {
         // Delete user_details on Redis
         Self::remove_from_index_multiple_json(&[&[author_id, post_id]]).await?;
         // Delete post graph node

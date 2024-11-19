@@ -3,11 +3,11 @@ use crate::db::kv::index::sorted_sets::SortOrder;
 use crate::models::post::PostDetails;
 use crate::models::tag::traits::TaggersCollection;
 use crate::queries::get::{global_tags_by_post, global_tags_by_post_engagement};
+use crate::types::DynError;
 use crate::types::{Pagination, StreamSorting};
 use crate::{RedisOps, ScoreAction};
 use neo4rs::Query;
 use serde::{Deserialize, Serialize};
-use std::error::Error;
 use utoipa::ToSchema;
 
 use super::post::TagPost;
@@ -35,7 +35,7 @@ impl RedisOps for TagSearch {}
 
 impl TagSearch {
     /// Indexes post tags into global sorted sets for timeline and engagement metrics.
-    pub async fn reindex() -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub async fn reindex() -> Result<(), DynError> {
         Self::add_to_global_sorted_set(global_tags_by_post(), TAG_GLOBAL_POST_TIMELINE).await?;
         Self::add_to_global_sorted_set(
             global_tags_by_post_engagement(),
@@ -47,10 +47,7 @@ impl TagSearch {
 
     /// Retrieves post tags from a Neo4j graph and updates global sorted sets
     /// for both timeline and engagement-based metrics.
-    async fn add_to_global_sorted_set(
-        query: Query,
-        index_key: [&str; 4],
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn add_to_global_sorted_set(query: Query, index_key: [&str; 4]) -> Result<(), DynError> {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
@@ -74,7 +71,7 @@ impl TagSearch {
         label: &str,
         sort_by: Option<StreamSorting>,
         pagination: Pagination,
-    ) -> Result<Option<Vec<TagSearch>>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Option<Vec<TagSearch>>, DynError> {
         let post_score_list = match sort_by {
             Some(StreamSorting::TotalEngagement) => {
                 Self::try_from_index_sorted_set(
@@ -112,7 +109,7 @@ impl TagSearch {
         post_id: &str,
         label: &str,
         score_action: ScoreAction,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    ) -> Result<(), DynError> {
         let tag_global_engagement_key_parts = [&TAG_GLOBAL_POST_ENGAGEMENT[..], &[label]].concat();
         let post_key_slice: &[&str] = &[author_id, post_id];
         Self::put_score_index_sorted_set(
@@ -127,7 +124,7 @@ impl TagSearch {
         author_id: &str,
         post_id: &str,
         tag_label: &str,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    ) -> Result<(), DynError> {
         let post_key_slice: &[&str] = &[author_id, post_id];
         let key_parts = [&TAG_GLOBAL_POST_TIMELINE[..], &[tag_label]].concat();
         let tag_search = Self::check_sorted_set_member(&key_parts, post_key_slice)
@@ -151,7 +148,7 @@ impl TagSearch {
         author_id: &str,
         post_id: &str,
         tag_label: &str,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    ) -> Result<(), DynError> {
         let post_label_key = vec![author_id, post_id, tag_label];
         let label_taggers = TagPost::get_from_index(post_label_key, None, None).await?;
         // Make sure that post does not have more taggers with that tag. Post:Taggers:user_id:post_id:label

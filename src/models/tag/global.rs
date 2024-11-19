@@ -1,6 +1,6 @@
 use super::stream::{TagStreamReach, Taggers};
+use crate::types::DynError;
 use crate::RedisOps;
-use std::error::Error;
 
 pub struct TagGlobal {}
 
@@ -8,7 +8,7 @@ impl TagGlobal {
     pub async fn get_tag_taggers(
         label: String,
         reach: Option<TagStreamReach>,
-    ) -> Result<Option<Vec<String>>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<Vec<String>>, DynError> {
         match reach {
             None => read_from_set(&label).await,
             _ => Ok(None),
@@ -16,8 +16,6 @@ impl TagGlobal {
     }
 }
 
-pub async fn read_from_set(
-    label: &str,
-) -> Result<Option<Vec<String>>, Box<dyn Error + Send + Sync>> {
+pub async fn read_from_set(label: &str) -> Result<Option<Vec<String>>, DynError> {
     Taggers::try_from_index_set(&[label], None, None).await
 }

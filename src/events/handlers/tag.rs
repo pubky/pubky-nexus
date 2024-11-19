@@ -10,18 +10,14 @@ use crate::models::tag::stream::Taggers;
 use crate::models::tag::traits::{TagCollection, TaggersCollection};
 use crate::models::tag::user::TagUser;
 use crate::models::user::UserCounts;
+use crate::types::DynError;
 use crate::types::PubkyId;
 use crate::ScoreAction;
 use axum::body::Bytes;
 use chrono::Utc;
 use log::debug;
-use std::error::Error;
 
-pub async fn put(
-    tagger_id: PubkyId,
-    tag_id: String,
-    blob: Bytes,
-) -> Result<(), Box<dyn Error + Sync + Send>> {
+pub async fn put(tagger_id: PubkyId, tag_id: String, blob: Bytes) -> Result<(), DynError> {
     debug!("Indexing new tag: {} -> {}", tagger_id, tag_id);
 
     // Deserialize and validate tag
@@ -58,7 +54,7 @@ async fn put_sync_post(
     tag_label: String,
     post_uri: String,
     indexed_at: i64,
-) -> Result<(), Box<dyn Error + Sync + Send>> {
+) -> Result<(), DynError> {
     // SAVE TO GRAPH
     let existed = TagPost::put_to_graph(
         &tagger_user_id,
@@ -122,7 +118,7 @@ async fn put_sync_user(
     tag_id: String,
     tag_label: String,
     indexed_at: i64,
-) -> Result<(), Box<dyn Error + Sync + Send>> {
+) -> Result<(), DynError> {
     // SAVE TO GRAPH
     let existed = TagUser::put_to_graph(
         &tagger_user_id,
@@ -162,7 +158,7 @@ async fn put_sync_user(
     Ok(())
 }
 
-pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), Box<dyn Error + Sync + Send>> {
+pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), DynError> {
     debug!("Deleting tag: {} -> {}", user_id, tag_id);
     // DELETE FROM GRAPH
     // Maybe better if we add as a local function instead of part of the trait?
@@ -193,7 +189,7 @@ async fn del_sync_user(
     tagger_id: PubkyId,
     tagged_id: &str,
     tag_label: &str,
-) -> Result<(), Box<dyn Error + Sync + Send>> {
+) -> Result<(), DynError> {
     // Update user counts in the tagged
     UserCounts::update(tagged_id, "tagged", JsonAction::Decrement(1)).await?;
 
@@ -215,7 +211,7 @@ async fn del_sync_post(
     post_id: &str,
     author_id: &str,
     tag_label: &str,
-) -> Result<(), Box<dyn Error + Sync + Send>> {
+) -> Result<(), DynError> {
     // SAVE TO INDEXES
     let post_key_slice: &[&str] = &[author_id, post_id];
     let tag_post = TagPost(vec![tagger_id.to_string()]);

@@ -5,6 +5,7 @@ use super::{Bookmark, PostCounts, PostDetails, PostRelationships};
 use crate::models::tag::post::TagPost;
 use crate::models::tag::traits::TagCollection;
 use crate::models::tag::TagDetails;
+use crate::types::DynError;
 
 /// Represents a Pubky user with relational data including tags, counts, and relationship with a viewer.
 #[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
@@ -24,7 +25,7 @@ impl PostView {
         viewer_id: Option<&str>,
         max_tags: Option<usize>,
         max_taggers: Option<usize>,
-    ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<Self>, DynError> {
         // Perform all operations concurrently
         let (details, counts, bookmark, relationships, tags) = tokio::try_join!(
             PostDetails::get_by_id(author_id, post_id),

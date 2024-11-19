@@ -1,4 +1,5 @@
 use super::traits::{HashId, Validatable};
+use crate::types::DynError;
 use axum::async_trait;
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -31,7 +32,7 @@ impl HashId for PubkyAppTag {
 
 #[async_trait]
 impl Validatable for PubkyAppTag {
-    async fn sanitize(self) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    async fn sanitize(self) -> Result<Self, DynError> {
         // Convert label to lowercase and trim
         let label = self.label.trim().to_lowercase();
 
@@ -51,7 +52,7 @@ impl Validatable for PubkyAppTag {
         })
     }
 
-    async fn validate(&self, id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn validate(&self, id: &str) -> Result<(), DynError> {
         self.validate_id(id).await?;
 
         // Validate label length based on characters
