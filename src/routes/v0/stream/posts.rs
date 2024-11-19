@@ -1,3 +1,4 @@
+use crate::models::pubky_app::PostKind;
 use crate::routes::v0::endpoints::STREAM_POSTS_ROUTE;
 use crate::types::StreamSorting;
 use crate::{
@@ -22,6 +23,7 @@ pub struct PostStreamQuery {
     pub viewer_id: Option<String>,
     #[serde(default, deserialize_with = "deserialize_comma_separated")]
     pub tags: Option<Vec<String>>,
+    pub kind: Option<PostKind>
 }
 
 impl PostStreamQuery {
@@ -58,6 +60,7 @@ where
         ("post_id" = Option<String>, Query, description = "This parameter is needed when we want to retrieve the replies stream for a post"),
         ("sorting" = Option<StreamSorting>, Query, description = "StreamSorting method"),
         ("tags" = Option<Vec<String>>, Query, description = "Filter by a list of comma-separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned."),
+        ("kind" = Option<PostKind>, Query, description = "Specifies the type of posts to retrieve: short, long, image, video, link and file"),
         ("skip" = Option<usize>, Query, description = "Skip N posts"),
         ("limit" = Option<usize>, Query, description = "Retrieve N posts"),
         ("start" = Option<usize>, Query, description = "The start of the stream timeframe or score. Posts with a timestamp/score greater than this value will be excluded from the results"),
@@ -105,6 +108,7 @@ pub async fn stream_posts_handler(
         sorting,
         query.viewer_id,
         query.tags,
+        query.kind
     )
     .await
     {

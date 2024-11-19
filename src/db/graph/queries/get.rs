@@ -1,6 +1,7 @@
 use neo4rs::{query, Query};
 
 use crate::models::post::StreamSource;
+use crate::models::pubky_app::PostKind;
 use crate::types::Pagination;
 use crate::types::StreamSorting;
 
@@ -432,6 +433,7 @@ pub fn post_stream(
     sorting: StreamSorting,
     tags: &Option<Vec<String>>,
     pagination: Pagination,
+    kind: Option<PostKind>
 ) -> Query {
     let mut cypher = String::new();
 
@@ -443,10 +445,25 @@ pub fn post_stream(
     // Base match for posts and authors
     cypher.push_str("MATCH (p:Post)<-[:AUTHORED]-(author:User)\n");
 
-    // Apply author filter if provided
+    // Initialise where clause
+    let mut conditions = Vec::new();
+
+    // If source has an author, add where clause
     if source.get_author().is_some() {
-        cypher.push_str("WHERE author.id = $author_id\n");
+        conditions.push("author.id = $author_id");
     }
+
+    // If post kind is provided, add the corresponding condition
+    if kind.is_some() {
+        conditions.push("p.kind = $kind");
+    }
+
+    // Combine all clauses into a single WHERE statement
+    if !conditions.is_empty() {
+        let where_clause = format!("WHERE {}\n", conditions.join(" AND "));
+        cypher.push_str(&where_clause);
+    }
+
 
     // Apply source
     match source {
@@ -573,6 +590,9 @@ pub fn post_stream(
     }
     if let Some(author_id) = source.get_author() {
         query = query.param("author_id", author_id.to_string());
+    }
+    if let Some(post_kind) = kind {
+        query = query.param("kind", post_kind);
     }
 
     if let Some(start_interval) = pagination.start {

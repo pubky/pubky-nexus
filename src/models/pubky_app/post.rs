@@ -1,6 +1,7 @@
 use super::traits::{TimestampId, Validatable};
 use crate::types::DynError;
 use axum::async_trait;
+use neo4rs::BoltType;
 use serde::{Deserialize, Serialize};
 use url::Url;
 use utoipa::ToSchema;
@@ -21,6 +22,24 @@ pub enum PostKind {
     Video,
     Link,
     File,
+}
+
+/// This implementation maps each `PostKind` variant to its string
+/// representation (e.g., `PostKind::Short` to `"short"`) and then
+/// converts it into a `BoltType`, which is used in Neo4j queries
+/// via the `neo4rs` crate
+impl From<PostKind> for BoltType {
+    fn from(kind: PostKind) -> Self {
+        let kind_str = match kind {
+            PostKind::Short => "short",
+            PostKind::Long => "long",
+            PostKind::Image => "image",
+            PostKind::Video => "video",
+            PostKind::Link => "link",
+            PostKind::File => "file",
+        };
+        BoltType::from(kind_str)
+    }
 }
 
 /// Used primarily to best display the content in UI
