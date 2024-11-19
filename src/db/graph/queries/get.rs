@@ -438,6 +438,7 @@ pub fn post_stream(
     let mut cypher = String::new();
 
     // Start with the observer node if needed
+    // Needed that one for source pattern matching
     if source.get_observer().is_some() {
         cypher.push_str("MATCH (observer:User {id: $observer_id})\n");
     }
@@ -448,7 +449,8 @@ pub fn post_stream(
     // Initialise where clause
     let mut conditions = Vec::new();
 
-    // If source has an author, add where clause
+    // If source has an author, add where clause. It is related with source pattern matching
+    // If the source is Author, it is enough adding where clause. Not need to relate nodes
     if source.get_author().is_some() {
         conditions.push("author.id = $author_id");
     }
@@ -463,7 +465,6 @@ pub fn post_stream(
         let where_clause = format!("WHERE {}\n", conditions.join(" AND "));
         cypher.push_str(&where_clause);
     }
-
 
     // Apply source
     match source {
@@ -484,7 +485,7 @@ pub fn post_stream(
         }
     }
 
-    let mut where_clause_applied = false;
+    let mut where_clause_applied = false || kind.is_some();
 
     // Apply tags
     if tags.is_some() {
@@ -577,6 +578,8 @@ pub fn post_stream(
     if let Some(limit) = pagination.limit {
         cypher.push_str(&format!("LIMIT {}\n", limit));
     }
+
+    println!("Query: {:?}", cypher);
 
     // Build the query and apply parameters using `param` method
     let mut query = query(&cypher);
