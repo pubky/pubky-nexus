@@ -8,6 +8,8 @@
 :param api_tag => 'api';
 :param encryption_tag => 'encryption';
 :param opensource_tag => 'opensource';
+:param Fk_tag => '4k';
+:param pubky_tag => 'pubky';
 
 // ##############################
 // ##### Create users ###########
@@ -126,6 +128,8 @@ MATCH (p1:Post {id: "1A1P4D8C9K0F"}), (p7:Post {id: "7N8K0Y1C3T2Q"}) MERGE (p7)-
 // Long posts
 MERGE (p:Post {id: "4ZCW1TGL5BKG1"}) SET p.content = "Long post, article A", p.kind = "long", p.indexed_at = 1819477230300;
 MATCH (u:User {id: $bogota}), (p:Post {id: "4ZCW1TGL5BKG1"}) MERGE (u)-[:AUTHORED]->(p);
+MATCH (u:User {id: $detroit}), (p:Post {id: "4ZCW1TGL5BKG1"}) MERGE (u)-[:TAGGED {label: $pubky_tag, id: "K2N7W9F4XRT", indexed_at: 1724934008000}]->(p);
+MATCH (u:User {id: $amsterdam}), (p:Post {id: "4ZCW1TGL5BKG1"}) MERGE (u)-[:TAGGED {label: $pubky_tag, id: "K2N7Z9F4XKO", indexed_at: 1724664008000}]->(p);
 MERGE (p:Post {id: "4ZCW1TGL5BKG2"}) SET p.content = "Long post, article B", p.kind = "long", p.indexed_at = 1819477230305;
 MATCH (u:User {id: $cairo}), (p:Post {id: "4ZCW1TGL5BKG2"}) MERGE (u)-[:AUTHORED]->(p);
 MERGE (p:Post {id: "4ZCW1TGL5BKG3"}) SET p.content = "Long post, article C", p.kind = "long", p.indexed_at = 1819477230310;
@@ -143,10 +147,14 @@ MATCH (u:User {id: $eixample}), (p:Post {id: "4ZCW1TGL5BKG8"}) MERGE (u)-[:AUTHO
 // Image posts
 MERGE (p:Post {id: "5YCW1TGL5BKG1"}) SET p.content = "IMAGE post, SVG A", p.kind = "image", p.indexed_at = 1820477299300;
 MATCH (u:User {id: $bogota}), (p:Post {id: "5YCW1TGL5BKG1"}) MERGE (u)-[:AUTHORED]->(p);
+MATCH (u:User {id: $detroit}), (p:Post {id: "5YCW1TGL5BKG1"}) MERGE (u)-[:TAGGED {label: $pubky_tag, id: "K2N7W9F4DE3", indexed_at: 1724934072000}]->(p);
+MATCH (u:User {id: $amsterdam}), (p:Post {id: "5YCW1TGL5BKG1"}) MERGE (u)-[:TAGGED {label: $pubky_tag, id: "K2N7Z9F4KX0", indexed_at: 1724665008050}]->(p);
 MERGE (p:Post {id: "5YCW1TGL5BKG2"}) SET p.content = "IMAGE post, SVG B", p.kind = "image", p.indexed_at = 1820477299305;
 MATCH (u:User {id: $cairo}), (p:Post {id: "5YCW1TGL5BKG2"}) MERGE (u)-[:AUTHORED]->(p);
 MERGE (p:Post {id: "5YCW1TGL5BKG3"}) SET p.content = "IMAGE post, SVG C", p.kind = "image", p.indexed_at = 1820477299310;
 MATCH (u:User {id: $cairo}), (p:Post {id: "5YCW1TGL5BKG3"}) MERGE (u)-[:AUTHORED]->(p);
+MATCH (u:User {id: $detroit}), (p:Post {id: "5YCW1TGL5BKG3"}) MERGE (u)-[:TAGGED {label: $pubky_tag, id: "K2N7W9F8KE3", indexed_at: 1724934005020}]->(p);
+MATCH (u:User {id: $amsterdam}), (p:Post {id: "5YCW1TGL5BKG3"}) MERGE (u)-[:TAGGED {label: $pubky_tag, id: "K2N7Z3P4KXC", indexed_at: 1724623009700}]->(p);
 MERGE (p:Post {id: "5YCW1TGL5BKG4"}) SET p.content = "IMAGE post, SVG D", p.kind = "image", p.indexed_at = 1820477299320;
 MATCH (u:User {id: $bogota}), (p:Post {id: "5YCW1TGL5BKG4"}) MERGE (u)-[:AUTHORED]->(p);
 MERGE (p:Post {id: "5YCW1TGL5BKG5"}) SET p.content = "IMAGE post, SVG E", p.kind = "image", p.indexed_at = 1820477299330;
@@ -160,6 +168,8 @@ MATCH (u:User {id: $eixample}), (p:Post {id: "5YCW1TGL5BKG8"}) MERGE (u)-[:AUTHO
 // Video posts
 MERGE (p:Post {id: "MLOW1TGL5BKH1"}) SET p.content = "VIDEO post, mkv A", p.kind = "video", p.indexed_at = 1980477299300;
 MATCH (u:User {id: $bogota}), (p:Post {id: "MLOW1TGL5BKH1"}) MERGE (u)-[:AUTHORED]->(p);
+MATCH (u:User {id: $detroit}), (p:Post {id: "MLOW1TGL5BKH1"}) MERGE (u)-[:TAGGED {label: $pubky_tag, id: "K2N7W9333E3", indexed_at: 1724934125485}]->(p);
+MATCH (u:User {id: $eixample}), (p:Post {id: "MLOW1TGL5BKH1"}) MERGE (u)-[:TAGGED {label: $Fk_tag, id: "K2N7Z3SQKXT", indexed_at: 1724623009842}]->(p);
 MERGE (p:Post {id: "MLOW1TGL5BKH2"}) SET p.content = "VIDEO post, mkv B", p.kind = "video", p.indexed_at = 1980477299305;
 MATCH (u:User {id: $cairo}), (p:Post {id: "MLOW1TGL5BKH2"}) MERGE (u)-[:AUTHORED]->(p);
 MERGE (p:Post {id: "MLOW1TGL5BKH3"}) SET p.content = "VIDEO post, mkv C", p.kind = "video", p.indexed_at = 1980477299310;
@@ -172,6 +182,8 @@ MERGE (p:Post {id: "MLOW1TGL5BKH6"}) SET p.content = "VIDEO post, mkv F", p.kind
 MATCH (u:User {id: $bogota}), (p:Post {id: "MLOW1TGL5BKH6"}) MERGE (u)-[:AUTHORED]->(p);
 MERGE (p:Post {id: "MLOW1TGL5BKH7"}) SET p.content = "VIDEO post, mkv G", p.kind = "video", p.indexed_at = 1980477299350;
 MATCH (u:User {id: $eixample}), (p:Post {id: "MLOW1TGL5BKH7"}) MERGE (u)-[:AUTHORED]->(p);
+MATCH (u:User {id: $detroit}), (p:Post {id: "MLOW1TGL5BKH7"}) MERGE (u)-[:TAGGED {label: $pubky_tag, id: "K2N7W933JI3", indexed_at: 1724934965485}]->(p);
+MATCH (u:User {id: $eixample}), (p:Post {id: "MLOW1TGL5BKH7"}) MERGE (u)-[:TAGGED {label: $Fk_tag, id: "K2N7ZEPMKXT", indexed_at: 1724642209842}]->(p);
 MERGE (p:Post {id: "MLOW1TGL5BKH8"}) SET p.content = "VIDEO post, mkv H", p.kind = "video", p.indexed_at = 1980477299360;
 MATCH (u:User {id: $eixample}), (p:Post {id: "MLOW1TGL5BKH8"}) MERGE (u)-[:AUTHORED]->(p);
 // File posts
@@ -185,6 +197,8 @@ MERGE (p:Post {id: "GJMW1TGL5BKG4"}) SET p.content = "FILE post, pdf D", p.kind 
 MATCH (u:User {id: $bogota}), (p:Post {id: "GJMW1TGL5BKG4"}) MERGE (u)-[:AUTHORED]->(p);
 MERGE (p:Post {id: "GJMW1TGL5BKG5"}) SET p.content = "FILE post, pdf E", p.kind = "file", p.indexed_at = 1980477299332;
 MATCH (u:User {id: $cairo}), (p:Post {id: "GJMW1TGL5BKG5"}) MERGE (u)-[:AUTHORED]->(p);
+MATCH (u:User {id: $detroit}), (p:Post {id: "GJMW1TGL5BKG5"}) MERGE (u)-[:TAGGED {label: $pubky_tag, id: "K2N7WKK8KEP", indexed_at: 1724934267420}]->(p);
+MATCH (u:User {id: $amsterdam}), (p:Post {id: "GJMW1TGL5BKG5"}) MERGE (u)-[:TAGGED {label: $pubky_tag, id: "K2N7Z3ZZKXT", indexed_at: 1724626114700}]->(p);
 MERGE (p:Post {id: "GJMW1TGL5BKG6"}) SET p.content = "FILE post, pdf F", p.kind = "file", p.indexed_at = 1980477299342;
 MATCH (u:User {id: $bogota}), (p:Post {id: "GJMW1TGL5BKG6"}) MERGE (u)-[:AUTHORED]->(p);
 MERGE (p:Post {id: "GJMW1TGL5BKG7"}) SET p.content = "FILE post, pdf G", p.kind = "file", p.indexed_at = 1980477299352;
@@ -200,6 +214,8 @@ MERGE (p:Post {id: "SIJW1TGL5BKG3"}) SET p.content = "LINK post, pubky C", p.kin
 MATCH (u:User {id: $cairo}), (p:Post {id: "SIJW1TGL5BKG3"}) MERGE (u)-[:AUTHORED]->(p);
 MERGE (p:Post {id: "SIJW1TGL5BKG4"}) SET p.content = "LINK post, pubky D", p.kind = "link", p.indexed_at = 1980477299328;
 MATCH (u:User {id: $bogota}), (p:Post {id: "SIJW1TGL5BKG4"}) MERGE (u)-[:AUTHORED]->(p);
+MATCH (u:User {id: $detroit}), (p:Post {id: "SIJW1TGL5BKG4"}) MERGE (u)-[:TAGGED {label: $pubky_tag, id: "K2N7WKKSWDR", indexed_at: 1724935214520}]->(p);
+MATCH (u:User {id: $amsterdam}), (p:Post {id: "SIJW1TGL5BKG4"}) MERGE (u)-[:TAGGED {label: $pubky_tag, id: "K2N7Z3ZZKOO", indexed_at: 1724626669700}]->(p);
 MERGE (p:Post {id: "SIJW1TGL5BKG5"}) SET p.content = "LINK post, pubky E", p.kind = "link", p.indexed_at = 1980477299338;
 MATCH (u:User {id: $cairo}), (p:Post {id: "SIJW1TGL5BKG5"}) MERGE (u)-[:AUTHORED]->(p);
 MERGE (p:Post {id: "SIJW1TGL5BKG6"}) SET p.content = "LINK post, pubky F", p.kind = "link", p.indexed_at = 1980477299348;

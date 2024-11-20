@@ -1,13 +1,11 @@
 use super::utils::test_reach_filter_with_posts;
-use crate::service::stream::ROOT_PATH;
+use crate::service::stream::{ROOT_PATH, AMSTERDAM, BOGOTA};
 use crate::service::{stream::TAG_LABEL_2, utils::make_wrong_request};
 use anyhow::Result;
 
 // ›››››› THE BELLOW REQUESTS HITS THE GRAPH ‹‹‹‹‹‹‹
 
 // ##### REACH: FOLLOWING ####
-// User from posts.cypher mock
-const AMSTERDAM_USER: &str = "emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy";
 
 // Post order by timeline
 pub const POST_EA_ING: &str = "N7Q2F5W8J0L3";
@@ -20,7 +18,7 @@ const START_SCORE: &str = "5";
 #[tokio::test]
 async fn test_stream_posts_by_engagement_reach_following_with_tag() -> Result<()> {
     test_reach_filter_with_posts(
-        AMSTERDAM_USER,
+        AMSTERDAM,
         Some("total_engagement"),
         "following",
         Some(TAG_LABEL_2),
@@ -36,7 +34,7 @@ async fn test_stream_posts_by_engagement_reach_following_with_tag() -> Result<()
 #[tokio::test]
 async fn test_stream_posts_by_engagement_reach_following_with_tag_and_start() -> Result<()> {
     test_reach_filter_with_posts(
-        AMSTERDAM_USER,
+        AMSTERDAM,
         Some("total_engagement"),
         "following",
         Some(TAG_LABEL_2),
@@ -52,7 +50,7 @@ async fn test_stream_posts_by_engagement_reach_following_with_tag_and_start() ->
 #[tokio::test]
 async fn test_stream_posts_by_engagement_reach_following_with_tag_start_and_skip() -> Result<()> {
     test_reach_filter_with_posts(
-        AMSTERDAM_USER,
+        AMSTERDAM,
         Some("total_engagement"),
         "following",
         Some(TAG_LABEL_2),
@@ -69,7 +67,7 @@ async fn test_stream_posts_by_engagement_reach_following_with_tag_start_and_skip
 async fn test_stream_posts_by_engagement_reach_following_with_tag_start_skip_and_limit(
 ) -> Result<()> {
     test_reach_filter_with_posts(
-        AMSTERDAM_USER,
+        AMSTERDAM,
         Some("total_engagement"),
         "following",
         Some(TAG_LABEL_2),
@@ -87,7 +85,7 @@ async fn test_stream_posts_by_engagement_reach_following_with_tag_start_skip_and
 #[tokio::test]
 async fn test_stream_posts_by_engagement_reach_following_with_tag_and_end() -> Result<()> {
     test_reach_filter_with_posts(
-        AMSTERDAM_USER,
+        AMSTERDAM,
         Some("total_engagement"),
         "following",
         Some(TAG_LABEL_2),
@@ -103,7 +101,7 @@ async fn test_stream_posts_by_engagement_reach_following_with_tag_and_end() -> R
 #[tokio::test]
 async fn test_stream_posts_by_engagement_reach_following_with_tag_start_and_end() -> Result<()> {
     test_reach_filter_with_posts(
-        AMSTERDAM_USER,
+        AMSTERDAM,
         Some("total_engagement"),
         "following",
         Some(TAG_LABEL_2),
@@ -117,8 +115,6 @@ async fn test_stream_posts_by_engagement_reach_following_with_tag_start_and_end(
 }
 
 // ##### REACH: FOLLOWERS ####
-// User from posts.cypher mock
-const BOGOTA_USER: &str = "ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny";
 
 // Post order by timeline
 pub const POST_EA_ER: &str = "V8N1P3L9J4X0";
@@ -129,7 +125,7 @@ pub const POST_ED_ER: &str = "L3W5N0F8Q2J7";
 #[tokio::test]
 async fn test_stream_posts_by_engagement_reach_followers_with_tag() -> Result<()> {
     test_reach_filter_with_posts(
-        BOGOTA_USER,
+        BOGOTA,
         Some("total_engagement"),
         "followers",
         Some(TAG_LABEL_2),
@@ -145,7 +141,7 @@ async fn test_stream_posts_by_engagement_reach_followers_with_tag() -> Result<()
 #[tokio::test]
 async fn test_stream_posts_by_engagement_reach_followers_with_tag_and_start() -> Result<()> {
     test_reach_filter_with_posts(
-        BOGOTA_USER,
+        BOGOTA,
         Some("total_engagement"),
         "followers",
         Some(TAG_LABEL_2),
@@ -161,7 +157,7 @@ async fn test_stream_posts_by_engagement_reach_followers_with_tag_and_start() ->
 #[tokio::test]
 async fn test_stream_posts_by_engagement_reach_followers_with_tag_start_and_skip() -> Result<()> {
     test_reach_filter_with_posts(
-        BOGOTA_USER,
+        BOGOTA,
         Some("total_engagement"),
         "followers",
         Some(TAG_LABEL_2),
@@ -178,7 +174,7 @@ async fn test_stream_posts_by_engagement_reach_followers_with_tag_start_and_skip
 async fn test_stream_posts_by_engagement_reach_followers_with_tag_start_skip_and_limit(
 ) -> Result<()> {
     test_reach_filter_with_posts(
-        BOGOTA_USER,
+        BOGOTA,
         Some("total_engagement"),
         "followers",
         Some(TAG_LABEL_2),
@@ -196,7 +192,7 @@ async fn test_stream_posts_by_engagement_reach_followers_with_tag_start_skip_and
 #[tokio::test]
 async fn test_stream_posts_by_engagement_reach_followers_with_tag_and_end() -> Result<()> {
     test_reach_filter_with_posts(
-        BOGOTA_USER,
+        BOGOTA,
         Some("total_engagement"),
         "followers",
         Some(TAG_LABEL_2),
@@ -212,7 +208,7 @@ async fn test_stream_posts_by_engagement_reach_followers_with_tag_and_end() -> R
 #[tokio::test]
 async fn test_stream_posts_by_engagement_reach_followers_with_tag_start_and_end() -> Result<()> {
     test_reach_filter_with_posts(
-        BOGOTA_USER,
+        BOGOTA,
         Some("total_engagement"),
         "followers",
         Some(TAG_LABEL_2),

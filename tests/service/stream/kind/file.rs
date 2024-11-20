@@ -1,9 +1,11 @@
-use crate::service::stream::utils::verify_post_list;
+use crate::service::stream::utils::verify_post_list_kind;
 use crate::service::stream::ROOT_PATH;
 use crate::service::utils::make_request;
 use anyhow::Result;
+use super::DETROIT;
+use crate::service::stream::{AMSTERDAM, BOGOTA};
 
-const BOGOTA: &str = "ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny";
+const KIND: &str = "file";
 
 const POST_F1: &str = "GJMW1TGL5BKG8";
 const POST_F2: &str = "GJMW1TGL5BKG7";
@@ -19,68 +21,103 @@ pub const END_TIMELINE: &str = "1980477299309";
 
 #[tokio::test]
 async fn test_stream_file_post_kind() -> Result<()> {
-    let path = format!("{ROOT_PATH}?kind=file");
+    let path = format!("{ROOT_PATH}?kind={KIND}");
 
     let body = make_request(&path).await?;
     let post_list = vec![
         POST_F1, POST_F2, POST_F3, POST_F4, POST_F5, POST_F6, POST_F7, POST_F8,
     ];
-    verify_post_list(post_list, body);
+    verify_post_list_kind(post_list, body, KIND);
 
     Ok(())
 }
 
 #[tokio::test]
 async fn test_stream_file_post_kind_with_start() -> Result<()> {
-    let path = format!("{ROOT_PATH}?kind=file&start={START_TIMELINE}");
+    let path = format!("{ROOT_PATH}?kind={KIND}&start={START_TIMELINE}");
 
     let body = make_request(&path).await?;
     let post_list = vec![POST_F3, POST_F4, POST_F5, POST_F6, POST_F7, POST_F8];
-    verify_post_list(post_list, body);
+    verify_post_list_kind(post_list, body, KIND);
 
     Ok(())
 }
 
 #[tokio::test]
 async fn test_stream_file_post_kind_with_end() -> Result<()> {
-    let path = format!("{ROOT_PATH}?kind=file&end={START_TIMELINE}");
+    let path = format!("{ROOT_PATH}?kind={KIND}&end={START_TIMELINE}");
 
     let body = make_request(&path).await?;
     let post_list = vec![POST_F1, POST_F2];
-    verify_post_list(post_list, body);
+    verify_post_list_kind(post_list, body, KIND);
 
     Ok(())
 }
 
 #[tokio::test]
 async fn test_stream_file_post_kind_with_start_and_end() -> Result<()> {
-    let path = format!("{ROOT_PATH}?kind=file&start={START_TIMELINE}&end={END_TIMELINE}");
+    let path = format!("{ROOT_PATH}?kind={KIND}&start={START_TIMELINE}&end={END_TIMELINE}");
 
     let body = make_request(&path).await?;
     let post_list = vec![POST_F3, POST_F4, POST_F5, POST_F6];
-    verify_post_list(post_list, body);
+    verify_post_list_kind(post_list, body, KIND);
 
     Ok(())
 }
 
 #[tokio::test]
 async fn test_stream_file_post_kind_with_author() -> Result<()> {
-    let path = format!("{ROOT_PATH}?kind=file&author_id={BOGOTA}&source=author");
+    let path = format!("{ROOT_PATH}?kind={KIND}&author_id={BOGOTA}&source=author");
 
     let body = make_request(&path).await?;
     let post_list = vec![POST_F3, POST_F5, POST_F8];
-    verify_post_list(post_list, body);
+    verify_post_list_kind(post_list, body, KIND);
 
     Ok(())
 }
 
 #[tokio::test]
 async fn test_stream_file_post_kind_with_author_skip_and_limit() -> Result<()> {
-    let path = format!("{ROOT_PATH}?kind=file&author_id={BOGOTA}&source=author&skip=1&limit=1");
+    let path = format!("{ROOT_PATH}?kind={KIND}&author_id={BOGOTA}&source=author&skip=1&limit=1");
 
     let body = make_request(&path).await?;
     let post_list = vec![POST_F5];
-    verify_post_list(post_list, body);
+    verify_post_list_kind(post_list, body, KIND);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stream_post_kind_followers() -> Result<()> {
+    let path = format!("{ROOT_PATH}?source=followers&observer_id={DETROIT}&kind={KIND}");
+
+    let body = make_request(&path).await?;
+    let post_list = vec![POST_F1, POST_F2];
+    verify_post_list_kind(post_list, body, KIND);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stream_post_kind_following() -> Result<()> {
+    let path = format!("{ROOT_PATH}?source=following&observer_id={AMSTERDAM}&kind={KIND}");
+
+    let body = make_request(&path).await?;
+    let post_list = vec![
+        POST_F3, POST_F4, POST_F5, POST_F6, POST_F7, POST_F8
+    ];
+    verify_post_list_kind(post_list, body, KIND);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stream_post_kind_friends() -> Result<()> {
+    let path = format!("{ROOT_PATH}?source=friends&observer_id={DETROIT}&kind={KIND}");
+
+    let body = make_request(&path).await?;
+    let post_list = vec![POST_F1, POST_F2];
+    verify_post_list_kind(post_list, body, KIND);
 
     Ok(())
 }
