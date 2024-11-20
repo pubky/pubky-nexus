@@ -25,14 +25,13 @@ pub const END_TIMELINE: &str = "1980477299303";
 pub const PUBKY_TAG: &str = "pubky";
 pub const FK_TAG: &str = "4k";
 
-
 #[tokio::test]
 async fn test_stream_post_kind() -> Result<()> {
     let path = format!("{ROOT_PATH}?author_id={BOGOTA}&source=author");
 
     let body = make_request(&path).await?;
     let post_list = vec![
-        POST_A1, POST_A2, POST_A3, POST_A4, POST_A5, POST_A6, POST_A7, POST_A8, POST_A9, POST_A10
+        POST_A1, POST_A2, POST_A3, POST_A4, POST_A5, POST_A6, POST_A7, POST_A8, POST_A9, POST_A10,
     ];
     verify_post_list(post_list, body);
 
@@ -41,12 +40,12 @@ async fn test_stream_post_kind() -> Result<()> {
 
 #[tokio::test]
 async fn test_stream_post_kind_with_start_and_end() -> Result<()> {
-    let path = format!("{ROOT_PATH}?author_id={BOGOTA}&source=author&start={START_TIMELINE}&end={END_TIMELINE}");
+    let path = format!(
+        "{ROOT_PATH}?author_id={BOGOTA}&source=author&start={START_TIMELINE}&end={END_TIMELINE}"
+    );
 
     let body = make_request(&path).await?;
-    let post_list = vec![
-        POST_A3, POST_A4, POST_A5, POST_A6, POST_A7
-    ];
+    let post_list = vec![POST_A3, POST_A4, POST_A5, POST_A6, POST_A7];
     verify_post_list(post_list, body);
 
     Ok(())
@@ -57,9 +56,7 @@ async fn test_stream_post_kind_with_tag() -> Result<()> {
     let path = format!("{ROOT_PATH}?author_id={BOGOTA}&source=author&tags={PUBKY_TAG}");
 
     let body = make_request(&path).await?;
-    let post_list = vec![
-        POST_A4, POST_A9, POST_W_PUBKY_TAG_1, POST_W_PUBKY_TAG_2
-    ];
+    let post_list = vec![POST_A4, POST_A9, POST_W_PUBKY_TAG_1, POST_W_PUBKY_TAG_2];
     verify_post_list(post_list, body);
 
     Ok(())

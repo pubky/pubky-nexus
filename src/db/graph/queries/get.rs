@@ -466,26 +466,23 @@ pub fn post_stream(
         cypher.push_str(&where_clause);
     }
 
-    // Apply source
-    match source {
-        StreamSource::Following { .. } => {
-            cypher.push_str("MATCH (observer)-[:FOLLOWS]->(author)\n");
-        }
-        StreamSource::Followers { .. } => {
-            cypher.push_str("MATCH (observer)<-[:FOLLOWS]-(author)\n");
-        }
+    // Apply source MATCH clause
+    let ignored_source_match = if let Some(query) = match source {
+        StreamSource::Following { .. } => Some("MATCH (observer)-[:FOLLOWS]->(author)\n"),
+        StreamSource::Followers { .. } => Some("MATCH (observer)<-[:FOLLOWS]-(author)\n"),
         StreamSource::Friends { .. } => {
-            cypher.push_str("MATCH (observer)-[:FOLLOWS]->(author)-[:FOLLOWS]->(observer)\n");
+            Some("MATCH (observer)-[:FOLLOWS]->(author)-[:FOLLOWS]->(observer)\n")
         }
-        StreamSource::Bookmarks { .. } => {
-            cypher.push_str("MATCH (observer)-[:BOOKMARKED]->(p)\n");
-        }
-        _ => {
-            // No additional match needed
-        }
-    }
+        StreamSource::Bookmarks { .. } => Some("MATCH (observer)-[:BOOKMARKED]->(p)\n"),
+        _ => None,
+    } {
+        cypher.push_str(query);
+        false
+    } else {
+        true
+    };
 
-    let mut where_clause_applied = kind.is_some();
+    let mut where_clause_applied = kind.is_some() && ignored_source_match;
 
     // Apply tags
     if tags.is_some() {

@@ -1,9 +1,9 @@
+use super::DETROIT;
 use crate::service::stream::utils::verify_post_list_kind;
 use crate::service::stream::ROOT_PATH;
+use crate::service::stream::{AMSTERDAM, BOGOTA};
 use crate::service::utils::make_request;
 use anyhow::Result;
-use super::DETROIT;
-use crate::service::stream::{AMSTERDAM, BOGOTA};
 
 const KIND: &str = "link";
 
@@ -95,6 +95,8 @@ async fn test_stream_link_post_kind_with_author_skip_and_limit() -> Result<()> {
     Ok(())
 }
 
+// ##### REACH: FOLLOWERS ####
+
 #[tokio::test]
 async fn test_stream_post_kind_followers() -> Result<()> {
     let path = format!("{ROOT_PATH}?source=followers&observer_id={DETROIT}&kind={KIND}");
@@ -106,18 +108,46 @@ async fn test_stream_post_kind_followers() -> Result<()> {
     Ok(())
 }
 
+const REACH_START_TIMELINE: &str = "1980477299360";
+
+#[tokio::test]
+async fn test_stream_post_kind_followers_with_start() -> Result<()> {
+    let path = format!("{ROOT_PATH}?source=followers&observer_id={DETROIT}&kind={KIND}&start={REACH_START_TIMELINE}");
+
+    let body = make_request(&path).await?;
+    let post_list = vec![POST_L2];
+    verify_post_list_kind(post_list, body, KIND);
+
+    Ok(())
+}
+
+// ##### REACH: FOLLOWING ####
+
 #[tokio::test]
 async fn test_stream_post_kind_following() -> Result<()> {
     let path = format!("{ROOT_PATH}?source=following&observer_id={AMSTERDAM}&kind={KIND}");
 
     let body = make_request(&path).await?;
-    let post_list = vec![
-        POST_L3, POST_L4, POST_L5, POST_L6, POST_L7, POST_L8
-    ];
+    let post_list = vec![POST_L3, POST_L4, POST_L5, POST_L6, POST_L7, POST_L8];
     verify_post_list_kind(post_list, body, KIND);
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_stream_post_kind_following_with_start() -> Result<()> {
+    let path = format!(
+        "{ROOT_PATH}?source=following&observer_id={AMSTERDAM}&kind={KIND}&start=1980477299330"
+    );
+
+    let body = make_request(&path).await?;
+    let post_list = vec![POST_L5, POST_L6, POST_L7, POST_L8];
+    verify_post_list_kind(post_list, body, KIND);
+
+    Ok(())
+}
+
+// ##### REACH: FRIENDS ####
 
 #[tokio::test]
 async fn test_stream_post_kind_friends() -> Result<()> {
@@ -125,6 +155,19 @@ async fn test_stream_post_kind_friends() -> Result<()> {
 
     let body = make_request(&path).await?;
     let post_list = vec![POST_L1, POST_L2];
+    verify_post_list_kind(post_list, body, KIND);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stream_post_kind_friends_with_start() -> Result<()> {
+    let path = format!(
+        "{ROOT_PATH}?source=friends&observer_id={DETROIT}&kind={KIND}&start={REACH_START_TIMELINE}"
+    );
+
+    let body = make_request(&path).await?;
+    let post_list = vec![POST_L2];
     verify_post_list_kind(post_list, body, KIND);
 
     Ok(())

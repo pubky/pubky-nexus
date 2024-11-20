@@ -1,5 +1,5 @@
 use super::utils::test_reach_filter_with_posts;
-use crate::service::stream::{ROOT_PATH, AMSTERDAM, BOGOTA};
+use crate::service::stream::{AMSTERDAM, BOGOTA, ROOT_PATH};
 use crate::service::{stream::TAG_LABEL_2, utils::make_wrong_request};
 use anyhow::Result;
 
