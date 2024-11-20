@@ -435,7 +435,11 @@ pub fn post_stream(
     pagination: Pagination,
     kind: Option<PostKind>,
 ) -> Query {
+    // Initialize the cypher query
     let mut cypher = String::new();
+
+    // Initialize where_clause_applied to false
+    let mut where_clause_applied = false;
 
     // Start with the observer node if needed
     // Needed that one for source pattern matching
@@ -446,28 +450,8 @@ pub fn post_stream(
     // Base match for posts and authors
     cypher.push_str("MATCH (p:Post)<-[:AUTHORED]-(author:User)\n");
 
-    // Initialise where clause
-    let mut conditions = Vec::new();
-
-    // If source has an author, add where clause. It is related with source pattern matching
-    // If the source is Author, it is enough adding where clause. Not need to relate nodes
-    if source.get_author().is_some() {
-        conditions.push("author.id = $author_id");
-    }
-
-    // If post kind is provided, add the corresponding condition
-    if kind.is_some() {
-        conditions.push("p.kind = $kind");
-    }
-
-    // Combine all clauses into a single WHERE statement
-    if !conditions.is_empty() {
-        let where_clause = format!("WHERE {}\n", conditions.join(" AND "));
-        cypher.push_str(&where_clause);
-    }
-
     // Apply source MATCH clause
-    let ignored_source_match = if let Some(query) = match source {
+    if let Some(query) = match source {
         StreamSource::Following { .. } => Some("MATCH (observer)-[:FOLLOWS]->(author)\n"),
         StreamSource::Followers { .. } => Some("MATCH (observer)<-[:FOLLOWS]-(author)\n"),
         StreamSource::Friends { .. } => {
@@ -477,24 +461,38 @@ pub fn post_stream(
         _ => None,
     } {
         cypher.push_str(query);
-        false
-    } else {
-        true
-    };
-
-    let mut where_clause_applied = kind.is_some() && ignored_source_match;
+    }
 
     // Apply tags
     if tags.is_some() {
         cypher.push_str("MATCH (User)-[tag:TAGGED]->(p)\n");
-        cypher.push_str("WHERE tag.label IN $labels\n");
-        where_clause_applied = true;
+        append_condition(
+            &mut cypher,
+            "tag.label IN $labels",
+            &mut where_clause_applied,
+        );
     }
+
+    // If source has an author, add where clause. It is related with source pattern matching
+    // If the source is Author, it is enough adding where clause. Not need to relate nodes
+    if source.get_author().is_some() {
+        append_condition(
+            &mut cypher,
+            "author.id = $author_id",
+            &mut where_clause_applied,
+        );
+    }
+
+    // If post kind is provided, add the corresponding condition
+    if kind.is_some() {
+        append_condition(&mut cypher, "p.kind = $kind", &mut where_clause_applied);
+    }
+
     // Apply time interval conditions. Only can be applied with timeline sorting
     // The engagament score has to be computed
     if sorting == StreamSorting::Timeline {
         if pagination.start.is_some() {
-            append_sorting_where_clause(
+            append_condition(
                 &mut cypher,
                 "p.indexed_at <= $start",
                 &mut where_clause_applied,
@@ -502,7 +500,7 @@ pub fn post_stream(
         }
 
         if pagination.end.is_some() {
-            append_sorting_where_clause(
+            append_condition(
                 &mut cypher,
                 "p.indexed_at >= $end",
                 &mut where_clause_applied,
@@ -541,7 +539,7 @@ pub fn post_stream(
 
             // Add total_engagement to filter by engagement the post
             if pagination.start.is_some() {
-                append_sorting_where_clause(
+                append_condition(
                     &mut cypher,
                     "total_engagement <= $start",
                     &mut where_clause_applied,
@@ -549,7 +547,7 @@ pub fn post_stream(
             }
 
             if pagination.end.is_some() {
-                append_sorting_where_clause(
+                append_condition(
                     &mut cypher,
                     "total_engagement >= $end",
                     &mut where_clause_applied,
@@ -574,6 +572,8 @@ pub fn post_stream(
         cypher.push_str(&format!("LIMIT {}\n", limit));
     }
 
+    println!("{:?}", cypher);
+
     // Build the query and apply parameters using `param` method
     build_query_with_params(&cypher, &source, tags, kind, &pagination)
 }
@@ -587,11 +587,7 @@ pub fn post_stream(
 /// * `condition` - The condition to be added to the query
 /// * `where_clause_applied` - A mutable reference to a boolean flag indicating whether a `WHERE` clause
 ///   has already been applied to the query.
-fn append_sorting_where_clause(
-    cypher: &mut String,
-    condition: &str,
-    where_clause_applied: &mut bool,
-) {
+fn append_condition(cypher: &mut String, condition: &str, where_clause_applied: &mut bool) {
     if *where_clause_applied {
         cypher.push_str(&format!("AND {condition}\n"));
     } else {
@@ -632,7 +628,7 @@ fn build_query_with_params(
         query = query.param("author_id", author_id.to_string());
     }
     if let Some(post_kind) = kind {
-        query = query.param("kind", post_kind);
+        query = query.param("kind", post_kind.to_string());
     }
     if let Some(start_interval) = pagination.start {
         query = query.param("start", start_interval);
