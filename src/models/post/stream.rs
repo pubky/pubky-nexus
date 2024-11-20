@@ -1,4 +1,5 @@
 use super::{Bookmark, PostCounts, PostDetails, PostView};
+use crate::models::pubky_app::PostKind;
 use crate::types::{DynError, Pagination, StreamSorting};
 use crate::{
     db::kv::index::sorted_sets::SortOrder,
@@ -96,13 +97,14 @@ impl PostStream {
         sorting: StreamSorting,
         viewer_id: Option<String>,
         tags: Option<Vec<String>>,
+        kind: Option<PostKind>,
     ) -> Result<Option<Self>, DynError> {
         // Decide whether to use index or fallback to graph query
-        let use_index = Self::can_use_index(&sorting, &source, &tags);
+        let use_index = Self::can_use_index(&sorting, &source, &tags, &kind);
 
         let post_keys = match use_index {
             true => Self::get_from_index(source, sorting, &tags, pagination).await?,
-            false => Self::get_from_graph(source, sorting, &tags, pagination).await?,
+            false => Self::get_from_graph(source, sorting, &tags, pagination, kind).await?,
         };
 
         if post_keys.is_empty() {
@@ -117,7 +119,11 @@ impl PostStream {
         sorting: &StreamSorting,
         source: &StreamSource,
         tags: &Option<Vec<String>>,
+        kind: &Option<PostKind>,
     ) -> bool {
+        if kind.is_some() {
+            return false;
+        }
         match (sorting, source, tags) {
             // We have a sorted set for posts by a specific author
             (StreamSorting::Timeline, StreamSource::Author { .. }, None) => true,
@@ -189,11 +195,12 @@ impl PostStream {
         sorting: StreamSorting,
         tags: &Option<Vec<String>>,
         pagination: Pagination,
+        kind: Option<PostKind>,
     ) -> Result<Vec<String>, DynError> {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
-            let query = queries::get::post_stream(source, sorting, tags, pagination);
+            let query = queries::get::post_stream(source, sorting, tags, pagination, kind);
 
             let graph = graph.lock().await;
 

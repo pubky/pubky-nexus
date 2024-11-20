@@ -26,7 +26,7 @@ pub fn bench_stream_followers_timeline(c: &mut Criterion) {
 
             // Run the benchmark
             let post_stream =
-                PostStream::get_posts(source, LIMIT_20, StreamSorting::Timeline, None, None)
+                PostStream::get_posts(source, LIMIT_20, StreamSorting::Timeline, None, None, None)
                     .await
                     .unwrap();
             criterion::black_box(post_stream);
@@ -52,7 +52,7 @@ pub fn bench_stream_following_timeline(c: &mut Criterion) {
 
             // Run the benchmark
             let post_stream =
-                PostStream::get_posts(source, LIMIT_20, StreamSorting::Timeline, None, None)
+                PostStream::get_posts(source, LIMIT_20, StreamSorting::Timeline, None, None, None)
                     .await
                     .unwrap();
             criterion::black_box(post_stream);
@@ -78,7 +78,7 @@ pub fn bench_stream_friends_timeline(c: &mut Criterion) {
 
             // Run the benchmark
             let post_stream =
-                PostStream::get_posts(source, LIMIT_20, StreamSorting::Timeline, None, None)
+                PostStream::get_posts(source, LIMIT_20, StreamSorting::Timeline, None, None, None)
                     .await
                     .unwrap();
             criterion::black_box(post_stream);
@@ -103,10 +103,16 @@ pub fn bench_stream_followers_total_engagement(c: &mut Criterion) {
             };
 
             // Run the benchmark
-            let post_stream =
-                PostStream::get_posts(source, LIMIT_20, StreamSorting::TotalEngagement, None, None)
-                    .await
-                    .unwrap();
+            let post_stream = PostStream::get_posts(
+                source,
+                LIMIT_20,
+                StreamSorting::TotalEngagement,
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
             criterion::black_box(post_stream);
         });
     });
@@ -129,10 +135,16 @@ pub fn bench_stream_following_total_engagement(c: &mut Criterion) {
             };
 
             // Run the benchmark
-            let post_stream =
-                PostStream::get_posts(source, LIMIT_20, StreamSorting::TotalEngagement, None, None)
-                    .await
-                    .unwrap();
+            let post_stream = PostStream::get_posts(
+                source,
+                LIMIT_20,
+                StreamSorting::TotalEngagement,
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
             criterion::black_box(post_stream);
         });
     });
@@ -155,10 +167,16 @@ pub fn bench_stream_friends_total_engagement(c: &mut Criterion) {
             };
 
             // Run the benchmark
-            let post_stream =
-                PostStream::get_posts(source, LIMIT_20, StreamSorting::TotalEngagement, None, None)
-                    .await
-                    .unwrap();
+            let post_stream = PostStream::get_posts(
+                source,
+                LIMIT_20,
+                StreamSorting::TotalEngagement,
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
             criterion::black_box(post_stream);
         });
     });

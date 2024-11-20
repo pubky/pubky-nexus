@@ -2,6 +2,7 @@ use super::traits::{TimestampId, Validatable};
 use crate::types::DynError;
 use axum::async_trait;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use url::Url;
 use utoipa::ToSchema;
 
@@ -21,6 +22,16 @@ pub enum PostKind {
     Video,
     Link,
     File,
+}
+
+impl fmt::Display for PostKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let string_repr = serde_json::to_value(self)
+            .ok()
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_default();
+        write!(f, "{}", string_repr)
+    }
 }
 
 /// Used primarily to best display the content in UI

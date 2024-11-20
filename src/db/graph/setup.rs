@@ -12,6 +12,8 @@ pub async fn setup_graph() -> Result<(), Box<dyn std::error::Error>> {
     let indexes = [
         "CREATE INDEX userIdIndex IF NOT EXISTS FOR (u:User) ON (u.id)",
         "CREATE INDEX postIdIndex IF NOT EXISTS FOR (p:Post) ON (p.id)",
+        "CREATE INDEX postTimestampIndex IF NOT EXISTS FOR (p:Post) ON (p.indexed_at)",
+        "CREATE INDEX postKindIndex IF NOT EXISTS FOR (p:Post) ON (p.kind)",
         "CREATE INDEX taggedLabelIndex IF NOT EXISTS FOR ()-[r:TAGGED]-() ON (r.label)",
         "CREATE INDEX fileIdIndex IF NOT EXISTS FOR (f:File) ON (f.owner_id, f.id)",
     ];

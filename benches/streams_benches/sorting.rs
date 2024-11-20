@@ -21,7 +21,7 @@ pub fn bench_stream_all_timeline(c: &mut Criterion) {
 
             // Run the benchmark
             let post_stream =
-                PostStream::get_posts(source, LIMIT_20, StreamSorting::Timeline, None, None)
+                PostStream::get_posts(source, LIMIT_20, StreamSorting::Timeline, None, None, None)
                     .await
                     .unwrap();
             criterion::black_box(post_stream);
@@ -44,10 +44,16 @@ pub fn bench_stream_all_total_engagement(c: &mut Criterion) {
             let source = StreamSource::All;
 
             // Run the benchmark
-            let post_stream =
-                PostStream::get_posts(source, LIMIT_20, StreamSorting::TotalEngagement, None, None)
-                    .await
-                    .unwrap();
+            let post_stream = PostStream::get_posts(
+                source,
+                LIMIT_20,
+                StreamSorting::TotalEngagement,
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
             criterion::black_box(post_stream);
         });
     });
