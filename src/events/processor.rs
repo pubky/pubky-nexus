@@ -97,7 +97,7 @@ impl EventProcessor {
                     info!("Cursor for the next request: {}", cursor);
                 }
             } else {
-                let event = match Event::from_str(line) {
+                let event = match Event::from_event_str(line) {
                     Ok(event) => event,
                     Err(e) => {
                         error!("Error while creating event line from line: {}", e);

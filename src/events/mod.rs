@@ -163,7 +163,9 @@ impl EventFailed {
 }
 
 impl Event {
-    pub fn from_str(line: &str) -> Result<Option<Self>, Box<dyn std::error::Error + Sync + Send>> {
+    pub fn from_event_str(
+        line: &str,
+    ) -> Result<Option<Self>, Box<dyn std::error::Error + Sync + Send>> {
         debug!("New event: {}", line);
         let parts: Vec<&str> = line.split(' ').collect();
         if parts.len() != 2 {
