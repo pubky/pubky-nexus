@@ -117,6 +117,8 @@ impl UserStream {
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Option<Vec<String>>, DynError> {
+        // TODO: Cache for 3 hours
+        // TODO: Randomize after retrieving from cache or at query time?
         let mut result;
         {
             let graph = get_neo4j_graph()?;

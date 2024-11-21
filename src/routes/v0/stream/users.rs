@@ -25,7 +25,7 @@ pub struct UserStreamQuery {
     description = "Stream users",
     tag = "Stream",
     params(
-        ("user_id" = Option<String>, Query, description = "User ID to use for streams with source following, followers, friends and muted"),
+        ("user_id" = Option<String>, Query, description = "User ID to use for streams with source 'following', 'followers', 'friends', 'muted' and 'recommended'"),
         ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
         ("skip" = Option<usize>, Query, description = "Skip N followers"),
         ("limit" = Option<usize>, Query, description = "Retrieve N followers"),
