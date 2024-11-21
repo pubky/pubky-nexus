@@ -28,9 +28,9 @@ services:
       NEO4J_server_memory_heap_max__size: 2G
       # NEO4J_apoc_uuid_enabled: false
       # Enable APOC
-      NEO4JLABS_PLUGINS: '["apoc"]'
-      NEO4J_dbms_security_procedures_unrestricted: 'apoc.*'
-      NEO4J_dbms_security_procedures_allowlist: 'apoc.*'
+      # NEO4JLABS_PLUGINS: '["apoc"]'
+      # NEO4J_dbms_security_procedures_unrestricted: 'apoc.*'
+      # NEO4J_dbms_security_procedures_allowlist: 'apoc.*'
 
 
   redis:
