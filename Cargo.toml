@@ -56,6 +56,10 @@ path = "src/service.rs"
 name = "watcher"
 path = "src/watcher.rs"
 
+[[bin]]
+name = "retry"
+path = "src/retry.rs"
+
 [[bench]]
 name = "user"
 harness = false

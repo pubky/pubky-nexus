@@ -21,7 +21,7 @@ pub struct Config {
     pub homeserver_url: String,
     pub events_limit: u32,
     pub watcher_sleep: u64,
-    pub max_retries: u64,
+    pub max_retries: i32,
 }
 
 impl Config {

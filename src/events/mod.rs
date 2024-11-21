@@ -1,16 +1,20 @@
-use crate::{types::PubkyId, RedisOps};
+use crate::{db::kv::index::sorted_sets::SortOrder, types::PubkyId, RedisOps};
 use chrono::Utc;
 use log::{debug, error};
 use pubky::PubkyClient;
 use serde::{Deserialize, Serialize};
+use std::error::Error;
 use uri::ParsedUri;
 
 pub mod handlers;
 pub mod processor;
 pub mod uri;
 
+pub const EVENT_ERROR_PREFIX: &str = "error";
+pub const EVENT_RECOVERED_PREFIX: &str = "recovered";
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
-enum ResourceType {
+pub enum ResourceType {
     User {
         user_id: PubkyId,
     },
@@ -42,7 +46,7 @@ enum ResourceType {
 
 // Look for the end pattern after the start index, or use the end of the string if not found
 #[derive(Debug, Clone, Deserialize, Serialize)]
-enum EventType {
+pub enum EventType {
     Put,
     Del,
 }
@@ -59,13 +63,107 @@ pub struct EventInfo {
     event: Event,
     created_at: i64,
     attempts: i32,
-    last_attempt_at: i64,
+    last_attempt_at: Option<i64>,
 }
 
 impl RedisOps for EventInfo {}
 
+impl EventInfo {
+    pub fn new(event: Event, created_at: i64, attempts: i32, last_attempt_at: Option<i64>) -> Self {
+        EventInfo {
+            event,
+            attempts,
+            created_at,
+            last_attempt_at,
+        }
+    }
+
+    pub async fn retry(
+        mut self,
+        pubky_client: &PubkyClient,
+        max_retries: i32,
+    ) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
+        let event_uri = self.event.uri.as_str();
+        if let Err(e) = self.clone().event.handle(pubky_client).await {
+            self.attempts += 1;
+            self.last_attempt_at = Some(Utc::now().timestamp_millis());
+            error!(
+                "Error while handling retry of event {} with attempt {}: {}",
+                event_uri, self.attempts, e
+            );
+
+            if self.attempts > max_retries {
+                self.put_index_json(&[EVENT_ERROR_PREFIX, event_uri])
+                    .await?;
+                EventInfo::remove_from_index_multiple_json(&[&[event_uri]]).await?;
+                EventFailed::delete(&self).await?;
+            } else {
+                EventFailed::log(&self).await?;
+            }
+        } else {
+            self.put_index_json(&[EVENT_RECOVERED_PREFIX, event_uri])
+                .await?;
+            EventInfo::remove_from_index_multiple_json(&[&[event_uri]]).await?;
+            EventFailed::delete(&self).await?;
+        }
+        Ok(())
+    }
+
+    pub fn get_attempts(self) -> i32 {
+        self.attempts
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct EventFailed {}
+impl RedisOps for EventFailed {}
+
+impl EventFailed {
+    pub async fn log(info: &EventInfo) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let score = if info.attempts == 0 {
+            info.created_at
+        } else {
+            info.created_at + ((2 ^ info.attempts) * 1000) as i64
+        };
+        EventFailed::put_index_sorted_set(
+            &[EventFailed::prefix().await.as_str()],
+            &[(score as f64, info.event.uri.as_str())],
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn delete(info: &EventInfo) -> Result<(), Box<dyn Error + Send + Sync>> {
+        EventFailed::remove_from_index_sorted_set(
+            &[EventFailed::prefix().await.as_str()],
+            &[info.event.uri.as_str()],
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn list(
+        start: Option<f64>,
+        end: Option<f64>,
+        skip: Option<usize>,
+        limit: Option<usize>,
+        sorting: SortOrder,
+    ) -> Result<Option<Vec<(String, f64)>>, Box<dyn Error + Send + Sync>> {
+        let result = EventFailed::try_from_index_sorted_set(
+            &[EventFailed::prefix().await.as_str()],
+            start,
+            end,
+            skip,
+            limit,
+            sorting,
+        )
+        .await?;
+        Ok(result)
+    }
+}
+
 impl Event {
-    fn from_str(line: &str) -> Result<Option<Self>, Box<dyn std::error::Error + Sync + Send>> {
+    pub fn from_str(line: &str) -> Result<Option<Self>, Box<dyn std::error::Error + Sync + Send>> {
         debug!("New event: {}", line);
         let parts: Vec<&str> = line.split(' ').collect();
         if parts.len() != 2 {
@@ -125,6 +223,14 @@ impl Event {
             event_type,
             resource_type,
         }))
+    }
+
+    pub fn new(uri: String, event_type: EventType, resource_type: ResourceType) -> Self {
+        Event {
+            uri,
+            event_type,
+            resource_type,
+        }
     }
 
     async fn handle(
@@ -187,13 +293,9 @@ impl Event {
 
     async fn log_failure(self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
         let now = Utc::now().timestamp_millis();
-        let info = EventInfo {
-            event: self.clone(),
-            created_at: now,
-            attempts: 0,
-            last_attempt_at: now,
-        };
+        let info = EventInfo::new(self.clone(), now, 0, None);
         info.put_index_json(&[self.uri.as_str()]).await?;
+        EventFailed::log(&info).await?;
         Ok(())
     }
 

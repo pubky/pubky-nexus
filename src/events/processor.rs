@@ -12,7 +12,6 @@ pub struct EventProcessor {
     http_client: Client,
     homeserver: Homeserver,
     limit: u32,
-    max_retries: u64,
 }
 
 impl EventProcessor {
@@ -20,7 +19,6 @@ impl EventProcessor {
         let pubky_client = Self::init_pubky_client(config);
         let homeserver = Homeserver::from_config(config).await?;
         let limit = config.events_limit;
-        let max_retries = config.max_retries;
 
         info!(
             "Initialized Event Processor for homeserver: {:?}",
@@ -32,7 +30,6 @@ impl EventProcessor {
             http_client: Client::new(),
             homeserver,
             limit,
-            max_retries,
         })
     }
 
@@ -56,7 +53,6 @@ impl EventProcessor {
             http_client: Client::new(),
             homeserver,
             limit: 1000,
-            max_retries: 3,
         }
     }
 
