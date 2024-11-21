@@ -3,6 +3,7 @@
 docker/.env
 docker/.database/neo4j/*
 !docker/.database/neo4j/plugins
+!docker/.database/neo4j/conf
 docker/.database/redis
 **/.DS_Store
 /static
