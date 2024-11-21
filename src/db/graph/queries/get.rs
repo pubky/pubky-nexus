@@ -646,3 +646,29 @@ pub fn post_is_safe_to_delete(author_id: &str, post_id: &str) -> Query {
     .param("author_id", author_id)
     .param("post_id", post_id)
 }
+
+pub fn recommended_users(
+    user_id: &str,
+    skip: Option<usize>,
+    limit: Option<usize>,
+) -> neo4rs::Query {
+    let skip = skip.unwrap_or(0);
+    let limit = limit.unwrap_or(10);
+
+    query(
+        "
+        MATCH (viewer:User {id: $user_id})
+        MATCH (viewer)-[:FOLLOWS*1..3]->(potential:User)
+        WHERE NOT (viewer)-[:FOLLOWS]->(potential)
+        WITH DISTINCT potential
+        MATCH (potential)-[:AUTHORED]->(post:Post)
+        WITH potential, COUNT(post) AS post_count
+        WHERE post_count >= 5
+        RETURN potential.id AS recommended_user_id
+        SKIP $skip LIMIT $limit
+    ",
+    )
+    .param("user_id", user_id.to_string())
+    .param("skip", skip as i64)
+    .param("limit", limit as i64)
+}

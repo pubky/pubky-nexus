@@ -2,6 +2,7 @@ use super::{Muted, UserCounts, UserSearch, UserView};
 use crate::models::follow::{Followers, Following, Friends, UserFollows};
 use crate::types::DynError;
 use crate::{db::kv::index::sorted_sets::SortOrder, RedisOps};
+use crate::{get_neo4j_graph, queries};
 use serde::{Deserialize, Serialize};
 use tokio::task::spawn;
 use utoipa::ToSchema;
@@ -18,6 +19,7 @@ pub enum UserStreamSource {
     Muted,
     MostFollowed,
     Pioneers,
+    Recommended,
 }
 
 #[derive(Serialize, Deserialize, ToSchema, Default)]
@@ -109,6 +111,36 @@ impl UserStream {
         Self::put_index_sorted_set(&USER_PIONEERS_KEY_PARTS, &[(score, user_id)]).await
     }
 
+    /// Retrieves recommended user IDs based on the specified criteria.
+    async fn get_recommended_id(
+        viewer_id: &str,
+        skip: Option<usize>,
+        limit: Option<usize>,
+    ) -> Result<Option<Vec<String>>, DynError> {
+        let mut result;
+        {
+            let graph = get_neo4j_graph()?;
+            let query = queries::get::recommended_users(viewer_id, skip, limit);
+
+            let graph = graph.lock().await;
+            result = graph.execute(query).await?;
+        }
+
+        let mut user_ids = Vec::new();
+
+        while let Some(row) = result.next().await? {
+            if let Some(user_id) = row.get::<Option<String>>("recommended_user_id")? {
+                user_ids.push(user_id);
+            }
+        }
+
+        if user_ids.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(user_ids))
+        }
+    }
+
     // Get list of users based on the specified reach type
     pub async fn get_user_list_from_source(
         user_id: Option<&str>,
@@ -167,6 +199,16 @@ impl UserStream {
             )
             .await?
             .map(|set| set.into_iter().map(|(user_id, _score)| user_id).collect()),
+            UserStreamSource::Recommended => {
+                UserStream::get_recommended_id(
+                    user_id.expect(
+                        "User ID should be provided for user streams with source 'recommended'",
+                    ),
+                    skip,
+                    limit,
+                )
+                .await?
+            }
         };
         Ok(user_ids)
     }
