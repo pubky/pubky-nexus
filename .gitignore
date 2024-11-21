@@ -1,6 +1,8 @@
 /target
 .env
-docker/.database
 docker/.env
+docker/.database/neo4j/*
+!docker/.database/neo4j/plugins
+docker/.database/redis
 **/.DS_Store
 /static
