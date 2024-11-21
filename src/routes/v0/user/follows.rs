@@ -12,7 +12,8 @@ use utoipa::OpenApi;
 #[utoipa::path(
     get,
     path = USER_FOLLOWERS_ROUTE,
-    tag = "User Followers List",
+    description = "List user's follower IDs",
+    tag = "User",
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
         ("skip" = Option<usize>, Query, description = "Skip N followers"),
@@ -43,7 +44,8 @@ pub async fn user_followers_handler(
 #[utoipa::path(
     get,
     path = USER_FOLLOWING_ROUTE,
-    tag = "User Following List",
+    description = "List user's following IDs",
+    tag = "User",
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
         ("skip" = Option<usize>, Query, description = "Skip N following"),
@@ -74,7 +76,8 @@ pub async fn user_following_handler(
 #[utoipa::path(
     get,
     path = USER_FRIENDS_ROUTE,
-    tag = "User Friends List",
+    description = "List user's friend IDs",
+    tag = "User",
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
         ("skip" = Option<usize>, Query, description = "Skip N friends"),

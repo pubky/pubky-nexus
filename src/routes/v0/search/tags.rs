@@ -19,7 +19,8 @@ pub struct SearchTagsQuery {
 #[utoipa::path(
     get,
     path = SEARCH_TAGS_ROUTE,
-    tag = "Search Post by Tags",
+    description = "Search Post by Tags",
+    tag = "Search",
     params(
         ("label" = String, Path, description = "Tag name"),
         ("sorting" = Option<StreamSorting>, Query, description = "StreamSorting method"),

@@ -11,7 +11,8 @@ use utoipa::OpenApi;
 #[utoipa::path(
     get,
     path = USER_DETAILS_ROUTE,
-    tag = "User Details",
+    description = "User details",
+    tag = "User",
     params(
         ("user_id" = String, Path, description = "User Pubky ID")
     ),

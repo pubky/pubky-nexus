@@ -11,7 +11,8 @@ use utoipa::OpenApi;
 #[utoipa::path(
     get,
     path = FILE_ROUTE,
-    tag = "File Details",
+    description = "File details",
+    tag = "File",
     params(
         ("file_uri" = String, Path, description = "File Pubky Uri")
     ),

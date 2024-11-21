@@ -8,7 +8,7 @@ use utoipa::OpenApi;
 #[utoipa::path(
     get,
     path = INFO_ROUTE,
-    tag = "Service Info",
+    tag = "Info",
     responses(
         (status = 200, description = "Server info", body = ServerInfo)
     )

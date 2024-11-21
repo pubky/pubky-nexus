@@ -18,7 +18,8 @@ pub struct SearchQuery {
 #[utoipa::path(
     get,
     path = SEARCH_USERS_ROUTE,
-    tag = "Search Users",
+    description = "Search user id by username",
+    tag = "Search",
     params(
         ("username" = Option<String>, Query, description = "Username to search for"),
         ("skip" = Option<usize>, Query, description = "Skip N results"),

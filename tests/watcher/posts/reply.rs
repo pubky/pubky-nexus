@@ -8,11 +8,9 @@ use anyhow::Result;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{
     models::{
-        post::{PostDetails, PostRelationships, PostStream, PostThread},
+        post::{PostDetails, PostRelationships, PostStream},
         pubky_app::{PostKind, PubkyAppPost, PubkyAppUser},
     },
-    routes::v0::post::ThreadQuery,
-    types::Pagination,
     RedisOps,
 };
 
@@ -71,28 +69,6 @@ async fn test_homeserver_post_reply() -> Result<()> {
         .await
         .unwrap();
     assert_eq!(reply_parent_uri, parent_uri);
-
-    let query = ThreadQuery {
-        viewer_id: None,
-        depth: Some(1),
-        pagination: Pagination {
-            skip: Some(0),
-            limit: Some(10),
-            start: None,
-            end: None,
-        },
-    };
-
-    // PARENT GRAPH_OP: Fetch the post thread and confirm the reply is present
-    let thread = PostThread::get_by_id(&user_id, &parent_post_id, query)
-        .await
-        .expect("Failed to fetch post thread")
-        .expect("The post thread should exist");
-
-    assert_eq!(thread.root_post.details.id, parent_post_id);
-    assert_eq!(thread.replies.len(), 1);
-    assert_eq!(thread.replies[0].details.id, reply_id);
-    assert_eq!(thread.replies[0].details.content, reply_post.content);
 
     // CACHE_OP: Check if the event writes in the index
     // ########### PARENT RELATED INDEXES ################

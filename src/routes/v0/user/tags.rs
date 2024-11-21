@@ -15,7 +15,8 @@ use utoipa::OpenApi;
 #[utoipa::path(
     get,
     path = USER_TAGS_ROUTE,
-    tag = "User Tags",
+    description = "User Tags",
+    tag = "User",
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
         ("limit_tags" = Option<usize>, Query, description = "Upper limit on the number of tags for the user"),
@@ -46,7 +47,8 @@ pub async fn user_tags_handler(
 #[utoipa::path(
     get,
     path = USER_TAGGERS_ROUTE,
-    tag = "User label Taggers",
+    description = "User label taggers",
+    tag = "User",
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
         ("label" = String, Path, description = "Tag name"),

@@ -81,10 +81,6 @@ name = "streams"
 harness = false
 
 [[bench]]
-name = "thread"
-harness = false
-
-[[bench]]
 name = "search"
 harness = false
 

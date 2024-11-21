@@ -24,7 +24,8 @@ pub struct HotTagsQuery {
         ("skip" = Option<usize>, Query, description = "Skip N tags"),
         ("limit" = Option<usize>, Query, description = "Retrieve N tag")
     ),
-    tag = "Global hot Tags",
+    tag = "Tags",
+    description = "Global hot Tags",
     responses(
         // TODO: Add hot tags
         (status = 200, description = "Retrieve hot tags", body = Vec<HotTag>),
@@ -59,7 +60,8 @@ pub struct TagTaggersQuery {
 #[utoipa::path(
     get,
     path = TAG_TAGGERS_ROUTE,
-    tag = "Global tag Taggers",
+    description = "Global tag Taggers",
+    tag = "Tags",
     params(
         ("label" = String, Path, description = "Tag name"),
         ("reach" = TagStreamReach, Path, description = "Reach type: Follower | Following | Friends")
@@ -97,7 +99,8 @@ pub struct TagsByReachQuery {
 #[utoipa::path(
     get,
     path = TAG_REACH_ROUTE,
-    tag = "Global Tags by reach",
+    description = "Global Tags by reach",
+    tag = "Tags",
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
         ("reach" = TagStreamReach, Path, description = "Reach type: Follower | Following | Friends")

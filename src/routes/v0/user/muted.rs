@@ -10,7 +10,8 @@ use utoipa::OpenApi;
 #[utoipa::path(
     get,
     path = USER_MUTED_ROUTE,
-    tag = "User Muted List",
+    description = "List user's muted IDs",
+    tag = "User",
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
         ("skip" = Option<usize>, Query, description = "Skip N muted users"),
