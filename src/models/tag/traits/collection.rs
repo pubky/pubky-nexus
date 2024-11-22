@@ -166,7 +166,7 @@ where
             Some(post_id) => vec![author_id, post_id, tag_label],
             None => vec![author_id, tag_label],
         };
-        Self::put_index_set(&key, &[tagger_user_id], None).await
+        Self::put_index_set(&key, &[tagger_user_id], None, None).await
     }
 
     async fn put_to_graph(

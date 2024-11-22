@@ -29,14 +29,17 @@ pub async fn put(
     let index_key = format!("{}:{}", prefix, key);
     let mut redis_conn = get_redis_conn().await?;
 
-    // Add elements to the set
-    let _: () = redis_conn.sadd(&index_key, values).await?;
+    // Create a pipeline for atomicity and efficiency
+    let mut pipe = redis::pipe();
+    pipe.sadd(&index_key, values);
 
-    // Set expiration if specified
+    // Add expiration to the pipeline if specified
     if let Some(ttl) = expiration {
-        let _: () = redis_conn.expire(&index_key, ttl).await?;
+        pipe.expire(&index_key, ttl);
     }
 
+    // Execute the pipeline
+    let _: () = pipe.query_async(&mut redis_conn).await?;
     Ok(())
 }
 

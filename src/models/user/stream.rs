@@ -9,6 +9,7 @@ use utoipa::ToSchema;
 
 pub const USER_MOSTFOLLOWED_KEY_PARTS: [&str; 2] = ["Users", "MostFollowed"];
 pub const USER_PIONEERS_KEY_PARTS: [&str; 2] = ["Users", "Pioneers"];
+pub const CACHE_USER_RECOMMENDED_KEY_PARTS: [&str; 3] = ["Cache", "Users", "Recommended"];
 
 #[derive(Deserialize, ToSchema, Debug, Clone)]
 #[serde(rename_all = "snake_case")]
@@ -111,14 +112,14 @@ impl UserStream {
         Self::put_index_sorted_set(&USER_PIONEERS_KEY_PARTS, &[(score, user_id)]).await
     }
     /// Retrieves recommended user IDs based on the specified criteria.
-    async fn get_recommended_id(
+    async fn get_recommended_ids(
         viewer_id: &str,
         limit: Option<usize>,
     ) -> Result<Option<Vec<String>>, DynError> {
-        let limit = limit.unwrap_or(5) as isize;
+        let count = limit.unwrap_or(5) as isize;
 
         // Attempt to get cached data from Redis
-        if let Some(cached_data) = Self::try_get_cached_recommended(viewer_id, limit).await? {
+        if let Some(cached_data) = Self::try_get_cached_recommended(viewer_id, count).await? {
             return Ok(Some(cached_data));
         }
 
@@ -144,8 +145,10 @@ impl UserStream {
         if user_ids.is_empty() {
             Ok(None)
         } else {
-            // Cache the result in Redis with a TTL of 12 hours
-            Self::cache_recommended_users(viewer_id, &user_ids, 12 * 60 * 60).await?;
+            Self::cache_recommended_users(viewer_id, &user_ids).await?;
+            if let Some(limit) = limit {
+                user_ids.truncate(limit);
+            };
             Ok(Some(user_ids))
         }
     }
@@ -155,18 +158,25 @@ impl UserStream {
         count: isize,
     ) -> Result<Option<Vec<String>>, DynError> {
         let key_parts = &["Cache", "Recommended", viewer_id];
-        Self::try_get_random_from_index_set(key_parts, count).await
+        Self::try_get_random_from_index_set(
+            key_parts,
+            count,
+            Some(CACHE_USER_RECOMMENDED_KEY_PARTS.join(":")),
+        )
+        .await
     }
 
     /// Helper method to cache recommended users in Redis with a TTL.
-    async fn cache_recommended_users(
-        viewer_id: &str,
-        user_ids: &[String],
-        expiration: i64,
-    ) -> Result<(), DynError> {
-        let key_parts = &["Cache", "Recommended", viewer_id];
+    async fn cache_recommended_users(viewer_id: &str, user_ids: &[String]) -> Result<(), DynError> {
         let values: Vec<&str> = user_ids.iter().map(|s| s.as_str()).collect();
-        Self::put_index_set(key_parts, &values, Some(expiration)).await
+        // Cache the result in Redis with a TTL of 12 hours
+        Self::put_index_set(
+            &[viewer_id],
+            &values,
+            Some(12 * 60 * 60),
+            Some(CACHE_USER_RECOMMENDED_KEY_PARTS.join(":")),
+        )
+        .await
     }
 
     // Get list of users based on the specified reach type
@@ -228,7 +238,7 @@ impl UserStream {
             .await?
             .map(|set| set.into_iter().map(|(user_id, _score)| user_id).collect()),
             UserStreamSource::Recommended => {
-                UserStream::get_recommended_id(
+                UserStream::get_recommended_ids(
                     user_id.expect(
                         "User ID should be provided for user streams with source 'recommended'",
                     ),

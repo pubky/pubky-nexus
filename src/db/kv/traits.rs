@@ -283,8 +283,9 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         key_parts: &[&str],
         values: &[&str],
         expiration: Option<i64>,
+        prefix: Option<String>,
     ) -> Result<(), DynError> {
-        let prefix = Self::prefix().await;
+        let prefix = prefix.unwrap_or(Self::prefix().await);
         let key = key_parts.join(":");
         // Store the values in the Redis set
         sets::put(&prefix, &key, values, expiration).await
@@ -488,8 +489,9 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     async fn try_get_random_from_index_set(
         key_parts: &[&str],
         count: isize,
+        prefix: Option<String>,
     ) -> Result<Option<Vec<String>>, DynError> {
-        let prefix = Self::prefix().await;
+        let prefix = prefix.unwrap_or(Self::prefix().await);
         let key = key_parts.join(":");
         sets::get_random_members(&prefix, &key, count).await
     }

@@ -87,7 +87,7 @@ impl Muted {
 
     pub async fn put_to_index(&self, user_id: &str) -> Result<(), DynError> {
         let user_list_ref: Vec<&str> = self.as_ref().iter().map(|id| id.as_str()).collect();
-        Self::put_index_set(&[user_id], &user_list_ref, None).await
+        Self::put_index_set(&[user_id], &user_list_ref, None, None).await
     }
 
     pub async fn put_to_graph(user_id: &str, muted_id: &str) -> Result<(), DynError> {
