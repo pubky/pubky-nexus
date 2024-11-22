@@ -17,7 +17,9 @@ use utoipa::OpenApi;
     tag = "Post Tags",
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
-        ("post_id" = String, Path, description = "Post ID")
+        ("post_id" = String, Path, description = "Post ID"),
+        ("limit_tags" = Option<usize>, Query, description = "Upper limit on the number of tags for the posts"),
+        ("limit_taggers" = Option<usize>, Query, description = "Upper limit on the number of taggers per tag"),
     ),
     responses(
         (status = 200, description = "Post tags", body = TagPost),
@@ -38,6 +40,8 @@ pub async fn post_tags_handler(
         Some(&post_id),
         query.limit_tags,
         query.limit_taggers,
+        None,
+        None // Avoid by default WoT tags in a Post
     )
     .await
     {

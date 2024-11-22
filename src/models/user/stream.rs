@@ -70,7 +70,7 @@ impl UserStream {
             let user_id = user_id.clone();
             let viewer_id = viewer_id.clone();
             let handle =
-                spawn(async move { UserView::get_by_id(&user_id, viewer_id.as_deref()).await });
+                spawn(async move { UserView::get_by_id(&user_id, viewer_id.as_deref(), None).await });
             handles.push(handle);
         }
 

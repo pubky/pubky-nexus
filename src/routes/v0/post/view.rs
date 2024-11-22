@@ -2,19 +2,12 @@ use crate::models::post::{PostRelationships, PostView};
 use crate::models::tag::post::TagPost;
 use crate::models::tag::TagDetails;
 use crate::routes::v0::endpoints::POST_ROUTE;
+use crate::routes::v0::TagsQuery;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
 use log::info;
-use serde::Deserialize;
 use utoipa::OpenApi;
-
-#[derive(Deserialize)]
-pub struct PostQuery {
-    viewer_id: Option<String>,
-    max_tags: Option<usize>,
-    max_taggers: Option<usize>,
-}
 
 #[utoipa::path(
     get,
@@ -35,23 +28,23 @@ pub struct PostQuery {
 )]
 pub async fn post_view_handler(
     Path((author_id, post_id)): Path<(String, String)>,
-    Query(query): Query<PostQuery>,
+    Query(query): Query<TagsQuery>,
 ) -> Result<Json<PostView>> {
     info!(
-        "GET {POST_ROUTE} author_id:{}, post_id:{}, viewer_id:{}, max_tags:{:?}, max_taggers:{:?}",
+        "GET {POST_ROUTE} author_id:{}, post_id:{}, viewer_id:{}, limit_tags:{:?}, limit_taggers:{:?}",
         author_id,
         post_id,
         query.viewer_id.clone().unwrap_or_default(),
-        query.max_tags,
-        query.max_taggers
+        query.limit_tags,
+        query.limit_taggers
     );
-
+    // Avoid by default WoT tags in a Post. We could add as `depth` argument for that specific use case
     match PostView::get_by_id(
         &author_id,
         &post_id,
         query.viewer_id.as_deref(),
-        query.max_tags,
-        query.max_taggers,
+        query.limit_tags,
+        query.limit_taggers,
     )
     .await
     {

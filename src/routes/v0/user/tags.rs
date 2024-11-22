@@ -19,7 +19,9 @@ use utoipa::OpenApi;
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
         ("limit_tags" = Option<usize>, Query, description = "Upper limit on the number of tags for the user"),
-        ("limit_taggers" = Option<usize>, Query, description = "Upper limit on the number of taggers per tag")
+        ("limit_taggers" = Option<usize>, Query, description = "Upper limit on the number of taggers per tag"),
+        ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
+        ("depth" = Option<usize>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 4, will be ignored")
     ),
     responses(
         (status = 200, description = "User tags", body = UserTags),
@@ -32,11 +34,11 @@ pub async fn user_tags_handler(
     Query(query): Query<TagsQuery>,
 ) -> Result<Json<Vec<TagDetails>>> {
     info!(
-        "GET {USER_TAGS_ROUTE} user_id:{}, limit_tags:{:?}, limit_taggers:{:?}",
-        user_id, query.limit_tags, query.limit_taggers
+        "GET {USER_TAGS_ROUTE} user_id:{}, limit_tags:{:?}, limit_taggers:{:?}, viewer_id:{:?}, depth:{:?}",
+        user_id, query.limit_tags, query.limit_taggers, query.viewer_id, query.depth
     );
 
-    match TagUser::get_by_id(&user_id, None, query.limit_tags, query.limit_taggers).await {
+    match TagUser::get_by_id(&user_id, None, query.limit_tags, query.limit_taggers, query.viewer_id.as_deref(), query.depth).await {
         Ok(Some(tags)) => Ok(Json(tags)),
         Ok(None) => Err(Error::UserNotFound { user_id }),
         Err(source) => Err(Error::InternalServerError { source }),

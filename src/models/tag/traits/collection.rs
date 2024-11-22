@@ -27,7 +27,15 @@ where
         extra_param: Option<&str>,
         limit_tags: Option<usize>,
         limit_taggers: Option<usize>,
+        viewer_id: Option<&str>,
+        depth: Option<u8>
     ) -> Result<Option<Vec<TagDetails>>, DynError> {
+        // Query for the tags that are in its WoT
+        if viewer_id.is_some() && matches!(depth, Some(1..=3)) {
+            // QUERY GRAPH
+            return Ok(None); 
+        }
+        // Get global tags for that user
         match Self::get_from_index(user_id, extra_param, limit_tags, limit_taggers).await? {
             Some(tag_details) => Ok(Some(tag_details)),
             None => {
