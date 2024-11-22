@@ -39,8 +39,14 @@ where
                 let graph = get_neo4j_graph()?;
                 let graph = graph.lock().await;
                 result = graph.execute(query).await?;
-                while let Some(row) = result.next().await? {
-                    println!("ROW: {:?}", row);
+                if let Some(row) = result.next().await? {
+                    let user_exists: bool = row.get("exists").unwrap_or(false);
+                    if user_exists {
+                        match row.get::<Vec<TagDetails>>("tags") {
+                            Ok(tagged_from) => return Ok(Some(tagged_from)),
+                            Err(_e) => return Ok(None),
+                        }
+                    }
                 }
             }
             return Ok(None); 

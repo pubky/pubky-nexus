@@ -263,17 +263,22 @@ pub fn get_viewer_trusted_network_tags(user_id: &str, viewer_id: &str, depth: u8
     }
 
     // Combine the CALL block with UNION
-    let call_clause = format!(
-        "CALL {{\n{}\n}}\n",
-        call_statements.join("\nUNION\n")
-    );
-    
+    let call_clause = format!("CALL {{\n{}\n}}\n", call_statements.join("\nUNION\n"));
+
     cypher.push_str(&call_clause);
 
     // Match the viewer network users tags
     cypher.push_str("MATCH (potentialTagger)-[tag:TAGGED]->(tagged:User {id: $target_id})\n");
+    cypher.push_str("WITH tag.label AS label, collect(potentialTagger.id) AS taggerIds\n");
     // Final query string
-    cypher.push_str("RETURN DISTINCT potentialTagger.id AS tagger_id, tag.label AS tag_label");
+    cypher.push_str(
+        "RETURN taggerIds IS NOT NULL AS exists,
+    collect({
+        label: label,
+        taggers: taggerIds,
+        taggers_count: SIZE(taggerIds)
+    }) AS tags",
+    );
 
     println!("CYPHER: {}", cypher);
 
