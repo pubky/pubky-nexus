@@ -236,6 +236,53 @@ pub fn user_tags(user_id: &str) -> neo4rs::Query {
     .param("user_id", user_id)
 }
 
+pub fn get_viewer_trusted_network_tags(user_id: &str, viewer_id: &str, depth: u8) -> neo4rs::Query {
+    // Initialize the cypher query
+    let mut cypher = String::new();
+
+    // Create the viewer trusted network
+    cypher.push_str("MATCH (viewer:User {id: $viewer_id})\n");
+
+    let mut call_statements = Vec::new();
+
+    // Dynamically generate Cypher for each depth level
+    for distance in 1..=depth {
+        let depth_match = if distance == 1 {
+            format!("(viewer)-[:FOLLOWS]->(tagger:User)")
+        } else {
+            format!(
+                "(viewer)-[:FOLLOWS]->{}(tagger:User)",
+                "(:User)-[:FOLLOWS]->".repeat(distance as usize - 1)
+            )
+        };
+
+        call_statements.push(format!(
+            "WITH viewer MATCH {} RETURN tagger AS potentialTagger",
+            depth_match
+        ));
+    }
+
+    // Combine the CALL block with UNION
+    let call_clause = format!(
+        "CALL {{\n{}\n}}\n",
+        call_statements.join("\nUNION\n")
+    );
+    
+    cypher.push_str(&call_clause);
+
+    // Match the viewer network users tags
+    cypher.push_str("MATCH (potentialTagger)-[tag:TAGGED]->(tagged:User {id: $target_id})\n");
+    // Final query string
+    cypher.push_str("RETURN DISTINCT potentialTagger.id AS tagger_id, tag.label AS tag_label");
+
+    println!("CYPHER: {}", cypher);
+
+    // Build the Query object with parameters
+    Query::new(cypher)
+        .param("viewer_id", viewer_id)
+        .param("target_id", user_id)
+}
+
 pub fn user_counts(user_id: &str) -> neo4rs::Query {
     query(
         "

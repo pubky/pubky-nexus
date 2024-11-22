@@ -31,8 +31,18 @@ where
         depth: Option<u8>
     ) -> Result<Option<Vec<TagDetails>>, DynError> {
         // Query for the tags that are in its WoT
+        // Actually we just apply that search to User node
         if viewer_id.is_some() && matches!(depth, Some(1..=3)) {
-            // QUERY GRAPH
+            let mut result;
+            {
+                let query = queries::get::get_viewer_trusted_network_tags(user_id, viewer_id.unwrap(), depth.unwrap());
+                let graph = get_neo4j_graph()?;
+                let graph = graph.lock().await;
+                result = graph.execute(query).await?;
+                while let Some(row) = result.next().await? {
+                    println!("ROW: {:?}", row);
+                }
+            }
             return Ok(None); 
         }
         // Get global tags for that user

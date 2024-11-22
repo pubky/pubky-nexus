@@ -6,6 +6,14 @@
 :param Wobly => 'rz6oe4yda9em9b4m7ymttgym3r9g5gfa51su3rgdj9oszyz787ny';
 :param anonymous => 'mwsnc3qzej8hks6motdeyj8ag7gzaf3ft5emcjzk9wn5erxg968y';
 
+:param epictto => 'bbkdkhm97pytrb785rdpornkjpcxi331hpq446ckn6rhb4abiguy';
+:param aurelio => 'c4yotzcb76d31y44jsymtdcowqg7oyqej46jty3yy7ybtzt9x41o';
+:param zenon => 'cjoodgkwaf1bwepoe8m6zsp8guobh5wdwmqqnk496jcd175jjwey';
+:param senek => 'cuimec4ngawamq8wa6fjzki6boxmwqcm11x6g7ontufrjwgdaxqo';
+:param crispo => 'eroud7pzna7aacy5ob6ziekmm3sjg3m8hkpafcdjnwbmxambzyuy';
+:param patro => 'f9rxf5hu1isngupfe6ff741bh7uqjxjwokqc4u3eribzmi89bcxy';
+
+
 :param pubky_tag => 'pubky';
 :param hike_tag => 'hike';
 :param cycle_tag => 'cycle';
@@ -13,6 +21,9 @@
 :param p2p => 'p2p';
 :param pkarr => 'pkarr';
 :param satoshi => 'satoshi';
+:param now => 'now';
+:param athens => 'athens';
+
 
 //:param go_post_tag => '🔥';
 :param go_post_tag => 'lg';
@@ -30,6 +41,12 @@ MERGE (u:User {id: $arst}) SET u.name = "arst", u.bio = "", u.status = "undefine
 MERGE (u:User {id: $nakamoto}) SET u.name = "nakamoto", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095000 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
 MERGE (u:User {id: $Wobly}) SET u.name = "Wobly", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095000 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
 MERGE (u:User {id: $anonymous}) SET u.name = "anonymous", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095000 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
+MERGE (u:User {id: $epictto}) SET u.name = "epictto", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095000 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
+MERGE (u:User {id: $aurelio}) SET u.name = "aurelio", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095000 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
+MERGE (u:User {id: $zenon}) SET u.name = "zenon", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095000 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
+MERGE (u:User {id: $senek}) SET u.name = "senek", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095000 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
+MERGE (u:User {id: $crispo}) SET u.name = "crispo", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095000 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
+MERGE (u:User {id: $patro}) SET u.name = "patro", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095000 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
 
 
 // ##############################
@@ -107,3 +124,26 @@ MATCH (u:User {id: $Wobly}), (p:Post {id: "2VDW8YBDZJ02"}) MERGE (u)-[:TAGGED {l
 MATCH (u:User {id: $peter}), (p:Post {id: "2VDW8YBDZJ02"}) MERGE (u)-[:TAGGED {label: $free_post_tag, id: "7VDW8ZRJKN3Y", indexed_at: 1724134092000}]->(p);
 MATCH (u:User {id: $peter}), (p:Post {id: "2VDW8YBDZJ02"}) MERGE (u)-[:TAGGED {label: $human_right_post_tag, id: "8SDX8YQMKP19", indexed_at: 1724134092000}]->(p);
 MATCH (u:User {id: $peter}), (p:Post {id: "2VDW8YBDZJ02"}) MERGE (u)-[:BOOKMARKED {id: "2Z9PFGC3WWWT0", indexed_at: 1721764200000}]->(p);
+
+// ###############################
+// ##### WoT related tags ######
+// ###############################
+MATCH (u1:User {id: $epictto}), (u2:User {id: $zenon}) MERGE (u1)-[:FOLLOWS {indexed_at: 1230475736154, id: "GR3K85JG5EST1"}]->(u2);
+MATCH (u1:User {id: $zenon}), (u2:User {id: $senek}) MERGE (u1)-[:FOLLOWS {indexed_at: 1230475736485, id: "GR3K85JG5EST2"}]->(u2);
+MATCH (u1:User {id: $senek}), (u2:User {id: $crispo}) MERGE (u1)-[:FOLLOWS {indexed_at: 1230475736785, id: "GR3K85JG5EST3"}]->(u2);
+MATCH (u1:User {id: $crispo}), (u2:User {id: $patro}) MERGE (u1)-[:FOLLOWS {indexed_at: 1230475736359, id: "GR3K85JG5EST4"}]->(u2);
+MATCH (u1:User {id: $senek}), (u2:User {id: $epictto}) MERGE (u1)-[:FOLLOWS {indexed_at: 1230475736999, id: "GR3K85JG5EST5"}]->(u2);
+
+MATCH (from:User {id: $zenon}), (to:User {id: $aurelio}) MERGE (from)-[:TAGGED {label: $now, id: "GR3K85JG5EST6", indexed_at: 1224534095400}]->(to);
+MATCH (from:User {id: $senek}), (to:User {id: $aurelio}) MERGE (from)-[:TAGGED {label: $now, id: "GR3K85JG5EST7", indexed_at: 1224534095300}]->(to);
+MATCH (from:User {id: $crispo}), (to:User {id: $aurelio}) MERGE (from)-[:TAGGED {label: $now, id: "GR3K85JG5EST8", indexed_at: 1224534095200}]->(to);
+MATCH (from:User {id: $patro}), (to:User {id: $aurelio}) MERGE (from)-[:TAGGED {label: $now, id: "GR3K85JG5EST9", indexed_at: 1224534095100}]->(to);
+
+
+
+:param epictto => 'bbkdkhm97pytrb785rdpornkjpcxi331hpq446ckn6rhb4abiguy';
+:param aurelio => 'c4yotzcb76d31y44jsymtdcowqg7oyqej46jty3yy7ybtzt9x41o';
+:param zenon => 'cjoodgkwaf1bwepoe8m6zsp8guobh5wdwmqqnk496jcd175jjwey';
+:param senek => 'cuimec4ngawamq8wa6fjzki6boxmwqcm11x6g7ontufrjwgdaxqo';
+:param crispo => 'eroud7pzna7aacy5ob6ziekmm3sjg3m8hkpafcdjnwbmxambzyuy';
+:param patro => 'f9rxf5hu1isngupfe6ff741bh7uqjxjwokqc4u3eribzmi89bcxy';
