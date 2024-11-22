@@ -12,6 +12,7 @@
 :param senek => 'cuimec4ngawamq8wa6fjzki6boxmwqcm11x6g7ontufrjwgdaxqo';
 :param crispo => 'eroud7pzna7aacy5ob6ziekmm3sjg3m8hkpafcdjnwbmxambzyuy';
 :param patro => 'f9rxf5hu1isngupfe6ff741bh7uqjxjwokqc4u3eribzmi89bcxy';
+:param zeus => 'frnx4hncm9a94cqbxoudfa6eo58b477d4wuab1zmexw4j9icwmqy';
 
 
 :param pubky_tag => 'pubky';
@@ -47,6 +48,7 @@ MERGE (u:User {id: $zenon}) SET u.name = "zenon", u.bio = "", u.status = "undefi
 MERGE (u:User {id: $senek}) SET u.name = "senek", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095000 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
 MERGE (u:User {id: $crispo}) SET u.name = "crispo", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095000 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
 MERGE (u:User {id: $patro}) SET u.name = "patro", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095000 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
+MERGE (u:User {id: $zeus}) SET u.name = "zeus", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095000 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
 
 
 // ##############################
@@ -133,17 +135,12 @@ MATCH (u1:User {id: $zenon}), (u2:User {id: $senek}) MERGE (u1)-[:FOLLOWS {index
 MATCH (u1:User {id: $senek}), (u2:User {id: $crispo}) MERGE (u1)-[:FOLLOWS {indexed_at: 1230475736785, id: "GR3K85JG5EST3"}]->(u2);
 MATCH (u1:User {id: $crispo}), (u2:User {id: $patro}) MERGE (u1)-[:FOLLOWS {indexed_at: 1230475736359, id: "GR3K85JG5EST4"}]->(u2);
 MATCH (u1:User {id: $senek}), (u2:User {id: $epictto}) MERGE (u1)-[:FOLLOWS {indexed_at: 1230475736999, id: "GR3K85JG5EST5"}]->(u2);
+MATCH (u1:User {id: $senek}), (u2:User {id: $zeus}) MERGE (u1)-[:FOLLOWS {indexed_at: 1230475736990, id: "GR3K85JG5ET11"}]->(u2);
 
 MATCH (from:User {id: $zenon}), (to:User {id: $aurelio}) MERGE (from)-[:TAGGED {label: $now, id: "GR3K85JG5EST6", indexed_at: 1224534095400}]->(to);
 MATCH (from:User {id: $senek}), (to:User {id: $aurelio}) MERGE (from)-[:TAGGED {label: $now, id: "GR3K85JG5EST7", indexed_at: 1224534095300}]->(to);
 MATCH (from:User {id: $crispo}), (to:User {id: $aurelio}) MERGE (from)-[:TAGGED {label: $now, id: "GR3K85JG5EST8", indexed_at: 1224534095200}]->(to);
 MATCH (from:User {id: $patro}), (to:User {id: $aurelio}) MERGE (from)-[:TAGGED {label: $now, id: "GR3K85JG5EST9", indexed_at: 1224534095100}]->(to);
-
-
-
-:param epictto => 'bbkdkhm97pytrb785rdpornkjpcxi331hpq446ckn6rhb4abiguy';
-:param aurelio => 'c4yotzcb76d31y44jsymtdcowqg7oyqej46jty3yy7ybtzt9x41o';
-:param zenon => 'cjoodgkwaf1bwepoe8m6zsp8guobh5wdwmqqnk496jcd175jjwey';
-:param senek => 'cuimec4ngawamq8wa6fjzki6boxmwqcm11x6g7ontufrjwgdaxqo';
-:param crispo => 'eroud7pzna7aacy5ob6ziekmm3sjg3m8hkpafcdjnwbmxambzyuy';
-:param patro => 'f9rxf5hu1isngupfe6ff741bh7uqjxjwokqc4u3eribzmi89bcxy';
+MATCH (from:User {id: $zeus}), (to:User {id: $aurelio}) MERGE (from)-[:TAGGED {label: $now, id: "GR3K85JG5ET10", indexed_at: 1224534095000}]->(to);
+MATCH (from:User {id: $zenon}), (to:User {id: $aurelio}) MERGE (from)-[:TAGGED {label: $athens, id: "GR3K85JG5ET11", indexed_at: 1224534094400}]->(to);
+MATCH (from:User {id: $senek}), (to:User {id: $aurelio}) MERGE (from)-[:TAGGED {label: $athens, id: "GR3K85JG5ET12", indexed_at: 1224534094300}]->(to);
