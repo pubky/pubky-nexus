@@ -46,7 +46,7 @@ pub async fn stream_users_handler(
     );
 
     let skip = query.skip.unwrap_or(0);
-    let limit = query.limit.unwrap_or(20);
+    let limit = query.limit.unwrap_or(6).min(20);
     let source = query.source.unwrap_or(UserStreamSource::Followers);
 
     if query.user_id.is_none() {

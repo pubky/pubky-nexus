@@ -50,7 +50,7 @@ impl Taggers {
     }
 
     pub async fn put_to_index(label: &str, user_id: &str) -> Result<(), DynError> {
-        Self::put_index_set(&[label], &[user_id]).await
+        Self::put_index_set(&[label], &[user_id], None).await
     }
 
     pub async fn del_from_index(&self, label: &str) -> Result<(), DynError> {
@@ -110,7 +110,7 @@ impl HotTags {
                 // Add all the users_id in the SET
                 for (label, user_list) in hot_tags_users.into_iter() {
                     let values_ref: Vec<&str> = user_list.iter().map(|id| id.as_str()).collect();
-                    Taggers::put_index_set(&[label], &values_ref).await?;
+                    Taggers::put_index_set(&[label], &values_ref, None).await?;
                 }
             }
         }

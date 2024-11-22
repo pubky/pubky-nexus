@@ -110,19 +110,24 @@ impl UserStream {
         let score = (counts.tags + counts.posts) as f64 * (counts.followers as f64).sqrt();
         Self::put_index_sorted_set(&USER_PIONEERS_KEY_PARTS, &[(score, user_id)]).await
     }
-
     /// Retrieves recommended user IDs based on the specified criteria.
     async fn get_recommended_id(
         viewer_id: &str,
-        skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Option<Vec<String>>, DynError> {
-        // TODO: Cache for 3 hours
-        // TODO: Randomize after retrieving from cache or at query time?
+        let limit = limit.unwrap_or(5) as isize;
+
+        // Attempt to get cached data from Redis
+        if let Some(cached_data) = Self::try_get_cached_recommended(viewer_id, limit).await? {
+            return Ok(Some(cached_data));
+        }
+
+        // Cache miss; proceed to query Neo4j
         let mut result;
         {
             let graph = get_neo4j_graph()?;
-            let query = queries::get::recommended_users(viewer_id, skip, limit);
+            // Query Neo4j for 30 user IDs
+            let query = queries::get::recommend_users(viewer_id, 30);
 
             let graph = graph.lock().await;
             result = graph.execute(query).await?;
@@ -139,8 +144,29 @@ impl UserStream {
         if user_ids.is_empty() {
             Ok(None)
         } else {
+            // Cache the result in Redis with a TTL of 12 hours
+            Self::cache_recommended_users(viewer_id, &user_ids, 12 * 60 * 60).await?;
             Ok(Some(user_ids))
         }
+    }
+
+    async fn try_get_cached_recommended(
+        viewer_id: &str,
+        count: isize,
+    ) -> Result<Option<Vec<String>>, DynError> {
+        let key_parts = &["Cache", "Recommended", viewer_id];
+        Self::try_get_random_from_index_set(key_parts, count).await
+    }
+
+    /// Helper method to cache recommended users in Redis with a TTL.
+    async fn cache_recommended_users(
+        viewer_id: &str,
+        user_ids: &[String],
+        expiration: i64,
+    ) -> Result<(), DynError> {
+        let key_parts = &["Cache", "Recommended", viewer_id];
+        let values: Vec<&str> = user_ids.iter().map(|s| s.as_str()).collect();
+        Self::put_index_set(key_parts, &values, Some(expiration)).await
     }
 
     // Get list of users based on the specified reach type
@@ -206,7 +232,6 @@ impl UserStream {
                     user_id.expect(
                         "User ID should be provided for user streams with source 'recommended'",
                     ),
-                    skip,
                     limit,
                 )
                 .await?

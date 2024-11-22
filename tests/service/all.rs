@@ -564,7 +564,7 @@ async fn test_stream_following() -> Result<()> {
     let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
     let res = client
         .do_get(&format!(
-            "/v0/stream/users?user_id={}&source=following",
+            "/v0/stream/users?user_id={}&source=following&limit=20",
             user_id
         ))
         .await?;
@@ -625,7 +625,7 @@ async fn test_stream_most_followed() -> Result<()> {
 
     // Test retrieving the most followed users
     let res = client
-        .do_get("/v0/stream/users?source=most_followed")
+        .do_get("/v0/stream/users?source=most_followed&limit=20")
         .await?;
     assert_eq!(res.status(), 200);
 
