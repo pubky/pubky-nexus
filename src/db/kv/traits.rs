@@ -279,11 +279,16 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     ///
     /// Returns an error if the operation fails, such as if the Redis connection is unavailable or
     /// if there is an issue with serialization.
-    async fn put_index_set(key_parts: &[&str], values: &[&str]) -> Result<(), DynError> {
-        let prefix = Self::prefix().await;
+    async fn put_index_set(
+        key_parts: &[&str],
+        values: &[&str],
+        expiration: Option<i64>,
+        prefix: Option<String>,
+    ) -> Result<(), DynError> {
+        let prefix = prefix.unwrap_or(Self::prefix().await);
         let key = key_parts.join(":");
         // Store the values in the Redis set
-        sets::put(&prefix, &key, values).await
+        sets::put(&prefix, &key, values, expiration).await
     }
 
     /// Removes elements from a Redis set using the provided key parts.
@@ -461,6 +466,34 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         let slice: &[&[&str]] = refs.as_slice();
 
         sets::put_multiple_sets(&prefix, common_key, index, slice).await
+    }
+
+    /// Retrieves random elements from a Redis set using the provided key parts.
+    ///
+    /// This method fetches random elements from a Redis set stored under the key generated from the provided `key_parts`.
+    /// The number of elements retrieved is defined by the `count` parameter.
+    ///
+    /// # Arguments
+    ///
+    /// * `key_parts` - Components of the key under which the set is stored.
+    /// * `count` - The number of random elements to retrieve.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(Some(Vec<String>))` if the set exists and random elements are retrieved.
+    /// Returns `Ok(None)` if the set does not exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the Redis operation fails.
+    async fn try_get_random_from_index_set(
+        key_parts: &[&str],
+        count: isize,
+        prefix: Option<String>,
+    ) -> Result<Option<Vec<String>>, DynError> {
+        let prefix = prefix.unwrap_or(Self::prefix().await);
+        let key = key_parts.join(":");
+        sets::get_random_members(&prefix, &key, count).await
     }
 
     // ############################################################

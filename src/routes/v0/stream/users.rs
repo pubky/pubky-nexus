@@ -25,7 +25,7 @@ pub struct UserStreamQuery {
     description = "Stream users",
     tag = "Stream",
     params(
-        ("user_id" = Option<String>, Query, description = "User ID to use for streams with source following, followers, friends and muted"),
+        ("user_id" = Option<String>, Query, description = "User ID to use for streams with source 'following', 'followers', 'friends', 'muted' and 'recommended'"),
         ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
         ("skip" = Option<usize>, Query, description = "Skip N followers"),
         ("limit" = Option<usize>, Query, description = "Retrieve N followers"),
@@ -46,7 +46,7 @@ pub async fn stream_users_handler(
     );
 
     let skip = query.skip.unwrap_or(0);
-    let limit = query.limit.unwrap_or(20);
+    let limit = query.limit.unwrap_or(6).min(20);
     let source = query.source.unwrap_or(UserStreamSource::Followers);
 
     if query.user_id.is_none() {
@@ -72,6 +72,12 @@ pub async fn stream_users_handler(
             UserStreamSource::Muted => {
                 return Err(Error::InvalidInput {
                     message: "user_id query param must be provided for source 'muted'".to_string(),
+                })
+            }
+            UserStreamSource::Recommended => {
+                return Err(Error::InvalidInput {
+                    message: "user_id query param must be provided for source 'recommended'"
+                        .to_string(),
                 })
             }
             _ => (),
