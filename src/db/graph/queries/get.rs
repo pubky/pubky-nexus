@@ -653,12 +653,12 @@ pub fn recommend_users(user_id: &str, limit: usize) -> neo4rs::Query {
         MATCH (user:User {id: $user_id})
         MATCH (user)-[:FOLLOWS*1..3]->(potential:User)
         WHERE NOT (user)-[:FOLLOWS]->(potential)
+        AND potential.id <> $user_id
         WITH DISTINCT potential
         MATCH (potential)-[:AUTHORED]->(post:Post)
         WITH potential, COUNT(post) AS post_count
         WHERE post_count >= 5
         RETURN potential.id AS recommended_user_id
-        ORDER BY rand()
         LIMIT $limit
     ",
     )
