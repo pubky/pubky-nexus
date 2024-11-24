@@ -113,13 +113,13 @@ impl UserStream {
     }
     /// Retrieves recommended user IDs based on the specified criteria.
     async fn get_recommended_ids(
-        viewer_id: &str,
+        user_id: &str,
         limit: Option<usize>,
     ) -> Result<Option<Vec<String>>, DynError> {
         let count = limit.unwrap_or(5) as isize;
 
         // Attempt to get cached data from Redis
-        if let Some(cached_data) = Self::try_get_cached_recommended(viewer_id, count).await? {
+        if let Some(cached_data) = Self::try_get_cached_recommended(user_id, count).await? {
             return Ok(Some(cached_data));
         }
 
@@ -128,7 +128,7 @@ impl UserStream {
         {
             let graph = get_neo4j_graph()?;
             // Query Neo4j for 30 user IDs
-            let query = queries::get::recommend_users(viewer_id, 30);
+            let query = queries::get::recommend_users(user_id, 30);
 
             let graph = graph.lock().await;
             result = graph.execute(query).await?;
@@ -145,7 +145,7 @@ impl UserStream {
         if user_ids.is_empty() {
             Ok(None)
         } else {
-            Self::cache_recommended_users(viewer_id, &user_ids).await?;
+            Self::cache_recommended_users(user_id, &user_ids).await?;
             if let Some(limit) = limit {
                 user_ids.truncate(limit);
             };
@@ -154,10 +154,10 @@ impl UserStream {
     }
 
     async fn try_get_cached_recommended(
-        viewer_id: &str,
+        user_id: &str,
         count: isize,
     ) -> Result<Option<Vec<String>>, DynError> {
-        let key_parts = &["Cache", "Recommended", viewer_id];
+        let key_parts = &["Cache", "Recommended", user_id];
         Self::try_get_random_from_index_set(
             key_parts,
             count,
@@ -167,11 +167,11 @@ impl UserStream {
     }
 
     /// Helper method to cache recommended users in Redis with a TTL.
-    async fn cache_recommended_users(viewer_id: &str, user_ids: &[String]) -> Result<(), DynError> {
+    async fn cache_recommended_users(user_id: &str, user_ids: &[String]) -> Result<(), DynError> {
         let values: Vec<&str> = user_ids.iter().map(|s| s.as_str()).collect();
         // Cache the result in Redis with a TTL of 12 hours
         Self::put_index_set(
-            &[viewer_id],
+            &[user_id],
             &values,
             Some(12 * 60 * 60),
             Some(CACHE_USER_RECOMMENDED_KEY_PARTS.join(":")),
@@ -189,7 +189,7 @@ impl UserStream {
         let user_ids = match source {
             UserStreamSource::Followers => Followers::get_by_id(
                 user_id
-                    .expect("User ID should be provided for user streams with source 'followers'"),
+                    .ok_or("User ID should be provided for user streams with source 'followers'")?,
                 skip,
                 limit,
             )
@@ -197,21 +197,22 @@ impl UserStream {
             .map(|u| u.0),
             UserStreamSource::Following => Following::get_by_id(
                 user_id
-                    .expect("User ID should be provided for user streams with source 'following'"),
+                    .ok_or("User ID should be provided for user streams with source 'following'")?,
                 skip,
                 limit,
             )
             .await?
             .map(|u| u.0),
             UserStreamSource::Friends => Friends::get_by_id(
-                user_id.expect("User ID should be provided for user streams with source 'friends'"),
+                user_id
+                    .ok_or("User ID should be provided for user streams with source 'friends'")?,
                 skip,
                 limit,
             )
             .await?
             .map(|u| u.0),
             UserStreamSource::Muted => Muted::get_by_id(
-                user_id.expect("User ID should be provided for user streams with source 'muted'"),
+                user_id.ok_or("User ID should be provided for user streams with source 'muted'")?,
                 skip,
                 limit,
             )
@@ -239,9 +240,9 @@ impl UserStream {
             .map(|set| set.into_iter().map(|(user_id, _score)| user_id).collect()),
             UserStreamSource::Recommended => {
                 UserStream::get_recommended_ids(
-                    user_id.expect(
+                    user_id.ok_or(
                         "User ID should be provided for user streams with source 'recommended'",
-                    ),
+                    )?,
                     limit,
                 )
                 .await?

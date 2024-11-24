@@ -74,6 +74,12 @@ pub async fn stream_users_handler(
                     message: "user_id query param must be provided for source 'muted'".to_string(),
                 })
             }
+            UserStreamSource::Recommended => {
+                return Err(Error::InvalidInput {
+                    message: "user_id query param must be provided for source 'recommended'"
+                        .to_string(),
+                })
+            }
             _ => (),
         }
     }
