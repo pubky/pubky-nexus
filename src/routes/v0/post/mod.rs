@@ -7,10 +7,7 @@ mod bookmark;
 mod counts;
 mod details;
 mod tags;
-mod thread;
 mod view;
-
-pub use thread::ThreadQuery;
 
 pub fn routes() -> Router {
     register_routes!(Router::new(),
@@ -18,7 +15,6 @@ pub fn routes() -> Router {
         to_axum!(endpoints::POST_DETAILS_ROUTE) => details::post_details_handler,
         to_axum!(endpoints::POST_COUNTS_ROUTE) => counts::post_counts_handler,
         to_axum!(endpoints::POST_BOOKMARK_ROUTE) => bookmark::post_bookmark_handler,
-        to_axum!(endpoints::THREAD_ROUTE) => thread::thread_handler,
         to_axum!(endpoints::POST_TAGS_ROUTE) => tags::post_tags_handler,
         to_axum!(endpoints::POST_TAGGERS_ROUTE) => tags::post_taggers_handler,
     )
@@ -34,7 +30,6 @@ impl PostApiDoc {
         combined.merge(counts::PostCountsApiDoc::openapi());
         combined.merge(bookmark::BookmarkApiDoc::openapi());
         combined.merge(details::PostDetailsApiDoc::openapi());
-        combined.merge(thread::ThreadViewApiDoc::openapi());
         combined.merge(tags::PostTagsApiDoc::openapi());
         combined
     }

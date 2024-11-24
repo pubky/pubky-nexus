@@ -51,7 +51,7 @@ where
 #[utoipa::path(
     get,
     path = STREAM_POSTS_ROUTE,
-    tag = "Stream Posts",
+    tag = "Stream",
     params(
         ("source" = Option<StreamSource>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, replies, all)"),
         ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
@@ -71,7 +71,9 @@ where
         (status = 404, description = "Posts not found"),
         (status = 500, description = "Internal server error")
     ),
-    description = "Retrieve a stream of posts. The `source` parameter determines the type of stream. Depending on the `source`, certain parameters are required:
+    description = "Stream Posts
+    
+    Retrieve a stream of posts. The `source` parameter determines the type of stream. Depending on the `source`, certain parameters are required:
 
     - `following`, `followers`, `friends`, `bookmarks`: Requires `observer_id`.
     - `post_replies`: Requires `author_id` and `post_id` to filter replies to a specific post.

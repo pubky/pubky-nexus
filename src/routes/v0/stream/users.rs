@@ -22,7 +22,8 @@ pub struct UserStreamQuery {
 #[utoipa::path(
     get,
     path = STREAM_USERS_ROUTE,
-    tag = "Stream Users",
+    description = "Stream users",
+    tag = "Stream",
     params(
         ("user_id" = Option<String>, Query, description = "User ID to use for streams with source following, followers, friends and muted"),
         ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
@@ -108,7 +109,8 @@ pub struct UserStreamSearchQuery {
 #[utoipa::path(
     get,
     path = STREAM_USERS_USERNAME_SEARCH_ROUTE,
-    tag = "Stream of Users by Username Search Result",
+    tag = "Stream",
+    description = "Stream of user from username search result",
     params(
         ("username" = String, Query, description = "Username to search for"),
         ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
@@ -168,7 +170,8 @@ pub struct UserStreamByIdsRequest {
 #[utoipa::path(
     post,
     path = STREAM_USERS_BY_IDS_ROUTE,
-    tag = "Stream Users By ID",
+    tag = "Stream",
+    description = "Stream users by ID",
     request_body = UserStreamByIdsRequest,
     responses(
         (status = 200, description = "Users stream", body = UserStream),
@@ -212,7 +215,11 @@ pub async fn stream_users_by_ids_handler(
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(stream_users_handler, stream_users_by_ids_handler),
+    paths(
+        stream_users_handler,
+        stream_username_search_handler,
+        stream_users_by_ids_handler
+    ),
     components(schemas(UserStream, UserStreamSource, UserStreamByIdsRequest))
 )]
 pub struct StreamUsersApiDocs;

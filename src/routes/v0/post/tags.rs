@@ -14,7 +14,8 @@ use utoipa::OpenApi;
 #[utoipa::path(
     get,
     path = POST_TAGS_ROUTE,
-    tag = "Post Tags",
+    description = "Post tags",
+    tag = "Post",
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
         ("post_id" = String, Path, description = "Post ID")
@@ -50,7 +51,8 @@ pub async fn post_tags_handler(
 #[utoipa::path(
     get,
     path = POST_TAGGERS_ROUTE,
-    tag = "Post specific label Taggers",
+    description = "Post specific label Taggers",
+    tag = "Post",
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
         ("label" = String, Path, description = "Tag name"),
