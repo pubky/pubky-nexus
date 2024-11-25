@@ -429,6 +429,37 @@ pub fn get_hot_tags_by_reach(
     .param("limit", limit as i64)
 }
 
+pub fn get_hot_tags(from: i64, to: i64, skip: usize, limit: usize, max_taggers: usize) -> Query {
+    query(
+        format!(
+            "
+        MATCH (user: User)-[tag:TAGGED]->(tagged)
+        where tag.created_at >= $from AND tag.created_at < $to
+        WITH 
+            tag.label AS label,
+            COLLECT(DISTINCT user.id)[..{}] AS taggers,
+            COUNT(DISTINCT tagged) AS uniqueTaggedCount,
+            COUNT(DISTINCT user.id) AS taggers_count
+        WITH {{
+            label: label,
+            taggers_id: taggers,
+            tagged_count: uniqueTaggedCount,
+            taggers_count: taggers_count
+        }} AS hot_tag
+        ORDER BY hot_tag.tagged_count DESC, hot_tag.label ASC
+        SKIP $skip LIMIT $limit
+        RETURN COLLECT(hot_tag) as hot_tags
+    ",
+            max_taggers
+        )
+        .as_str(),
+    )
+    .param("skip", skip as i64)
+    .param("limit", limit as i64)
+    .param("from", from)
+    .param("to", to)
+}
+
 pub fn get_thread(
     author_id: &str,
     post_id: &str,
