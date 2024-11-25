@@ -367,11 +367,9 @@ pub fn get_tag_taggers_by_reach(
     label: &str,
     user_id: &str,
     reach_subquery: String,
-    skip: Option<usize>,
-    limit: Option<usize>,
+    skip: usize,
+    limit: usize,
 ) -> Query {
-    let skip = skip.unwrap_or(0);
-    let limit: usize = limit.unwrap_or(10);
     query(
         format!(
             "

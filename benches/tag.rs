@@ -160,7 +160,7 @@ fn bench_get_global_tag_taggers(c: &mut Criterion) {
         |b, &params| {
             b.to_async(&rt).iter(|| async {
                 let tag_taggers =
-                    TagGlobal::get_tag_taggers(String::from(params[0]), None, None, None, None)
+                    TagGlobal::get_tag_taggers(String::from(params[0]), None, None, 0, 20)
                         .await
                         .unwrap();
                 criterion::black_box(tag_taggers);

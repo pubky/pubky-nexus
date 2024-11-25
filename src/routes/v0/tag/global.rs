@@ -103,15 +103,10 @@ pub async fn tag_taggers_handler(
         label, query
     );
 
-    match TagGlobal::get_tag_taggers(
-        label.clone(),
-        query.user_id,
-        query.reach,
-        query.pagination.skip,
-        query.pagination.limit,
-    )
-    .await
-    {
+    let skip = query.pagination.skip.unwrap_or(0);
+    let limit = query.pagination.limit.unwrap_or(20);
+
+    match TagGlobal::get_tag_taggers(label.clone(), query.user_id, query.reach, skip, limit).await {
         Ok(Some(post)) => Ok(Json(post)),
         Ok(None) => Err(Error::TagsNotFound { reach: label }),
         Err(source) => Err(Error::InternalServerError { source }),

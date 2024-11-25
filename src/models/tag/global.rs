@@ -10,11 +10,11 @@ impl TagGlobal {
         label: String,
         user_id: Option<String>,
         reach: Option<TagStreamReach>,
-        skip: Option<usize>,
-        limit: Option<usize>,
+        skip: usize,
+        limit: usize,
     ) -> Result<Option<Vec<String>>, DynError> {
         match user_id {
-            None => read_from_set(&label, skip, limit).await,
+            None => read_from_set(&label, Some(skip), Some(limit)).await,
             Some(id) => get_tag_taggers_by_reach(&label, &id, reach.unwrap(), skip, limit).await,
         }
     }
@@ -32,8 +32,8 @@ pub async fn get_tag_taggers_by_reach(
     label: &str,
     user_id: &str,
     reach: TagStreamReach,
-    skip: Option<usize>,
-    limit: Option<usize>,
+    skip: usize,
+    limit: usize,
 ) -> Result<Option<Vec<String>>, DynError> {
     let query = queries::get::get_tag_taggers_by_reach(
         label,
