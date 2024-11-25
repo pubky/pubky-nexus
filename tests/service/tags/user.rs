@@ -88,6 +88,28 @@ async fn test_user_tags_full_filter_active() -> Result<()> {
     Ok(())
 }
 
+// ##### WoT user tags ####
+
+#[tokio::test]
+async fn test_user_wot_tags() -> Result<()> {
+    let path = format!("/v0/user/{}/tags?limit_tags=1&limit_taggers=1", PUBKY_PEER);
+    let body = make_request(&path).await?;
+
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Tag list should be an array");
+    assert_eq!(tags.len(), 1);
+
+    // Validate that the posts belong to the specified user's bookmarks
+    analyse_tag_details_structure(tags);
+
+    // // Analyse the tag that is in the 4th index
+    let hot_tag = TagMockup::new(String::from("pubky"), 1, 3);
+    compare_tag_details(&tags[0], hot_tag);
+
+    Ok(())
+}
+
 #[tokio::test]
 async fn test_user_does_not_exist() -> Result<()> {
     let endpoint = format!(

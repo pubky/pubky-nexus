@@ -96,6 +96,8 @@ impl UserStream {
         Self::put_index_sorted_set(
             &USER_MOSTFOLLOWED_KEY_PARTS,
             &[(counts.followers as f64, user_id)],
+            None,
+            None
         )
         .await
     }
@@ -106,7 +108,7 @@ impl UserStream {
         counts: &UserCounts,
     ) -> Result<(), DynError> {
         let score = (counts.tags + counts.posts) as f64 * (counts.followers as f64).sqrt();
-        Self::put_index_sorted_set(&USER_PIONEERS_KEY_PARTS, &[(score, user_id)]).await
+        Self::put_index_sorted_set(&USER_PIONEERS_KEY_PARTS, &[(score, user_id)], None, None).await
     }
 
     // Get list of users based on the specified reach type
@@ -154,6 +156,7 @@ impl UserStream {
                 skip,
                 limit,
                 SortOrder::Descending,
+                None
             )
             .await?
             .map(|set| set.into_iter().map(|(user_id, _score)| user_id).collect()),
@@ -164,6 +167,7 @@ impl UserStream {
                 skip,
                 limit,
                 SortOrder::Descending,
+                None
             )
             .await?
             .map(|set| set.into_iter().map(|(user_id, _score)| user_id).collect()),

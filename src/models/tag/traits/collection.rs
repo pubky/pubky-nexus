@@ -13,6 +13,11 @@ use crate::{
 
 use crate::models::tag::TagDetails;
 
+const CACHE_SORTED_SET_PREFIX: &str = "Cache:Sorted";
+const CACHE_SET_PREFIX: &str = "Cache";
+// Minutes
+const CACHE_TTL: i64 = 180;
+
 /// Trait for managing a collection of tags
 ///
 /// This trait provides methods for querying, indexing, and storing tag-related data
@@ -85,6 +90,7 @@ where
             None,
             Some(limit_tags),
             SortOrder::Descending,
+            None
         )
         .await?
         {
@@ -102,7 +108,7 @@ where
                 }
 
                 let tags_ref: Vec<&str> = tags.iter().map(|label| label.as_str()).collect();
-                let taggers = Self::try_from_multiple_sets(&tags_ref, Some(limit_taggers)).await?;
+                let taggers = Self::try_from_multiple_sets(None, &tags_ref, Some(limit_taggers)).await?;
                 let tag_details_list = TagDetails::from_index(tag_scores, taggers);
                 Ok(Some(tag_details_list))
             }
@@ -118,7 +124,7 @@ where
     ) -> Result<Option<Vec<TagDetails>>, DynError> {
         let limit_tags = limit_tags.unwrap_or(5);
         let limit_taggers = limit_taggers.unwrap_or(5);
-        let key_parts = Self::create_cache_sorted_set_key_parts(user_id, viewer_id);
+        let key_parts = Self::create_sorted_set_key_parts(user_id, Some(viewer_id));
         // Get related tags
         match Self::try_from_index_sorted_set(
             &key_parts,
@@ -127,6 +133,7 @@ where
             None,
             Some(limit_tags),
             SortOrder::Descending,
+            Some(CACHE_SORTED_SET_PREFIX)
         )
         .await?
         {
@@ -144,7 +151,7 @@ where
                 }
 
                 let tags_ref: Vec<&str> = tags.iter().map(|label| label.as_str()).collect();
-                let taggers = Self::try_from_multiple_sets(&tags_ref, Some(limit_taggers)).await?;
+                let taggers = Self::try_from_multiple_sets(Some(CACHE_SET_PREFIX.to_string()), &tags_ref, Some(limit_taggers)).await?;
                 let tag_details_list = TagDetails::from_index(tag_scores, taggers);
                 Ok(Some(tag_details_list))
             }
@@ -224,9 +231,9 @@ where
         let (tag_scores, (labels, taggers)) = TagDetails::process_tag_details(tags);
 
         let key_parts = Self::create_sorted_set_key_parts(user_id, extra_param);
-        Self::put_index_sorted_set(&key_parts, tag_scores.as_slice()).await?;
+        Self::put_index_sorted_set(&key_parts, tag_scores.as_slice(), None, None).await?;
         let common_key = Self::create_set_common_key(user_id, extra_param);
-        Self::put_multiple_set_indexes(&common_key, &labels, &taggers).await
+        Self::put_multiple_set_indexes(&common_key, &labels, &taggers, None, None).await
     }
 
     async fn put_to_cache(
@@ -236,10 +243,10 @@ where
     ) -> Result<(), DynError> {
         let (tag_scores, (labels, taggers)) = TagDetails::process_tag_details(tags);
 
-        let key_parts = Self::create_cache_sorted_set_key_parts(user_id, viewer_id);
-        Self::put_index_sorted_set(&key_parts, tag_scores.as_slice()).await?;
+        let key_parts = Self::create_sorted_set_key_parts(user_id, Some(viewer_id));
+        Self::put_index_sorted_set(&key_parts, tag_scores.as_slice(), Some(CACHE_SORTED_SET_PREFIX), Some(CACHE_TTL)).await?;
         let common_key = Self::create_cache_set_common_key(user_id, viewer_id);
-        Self::put_multiple_set_indexes(&common_key, &labels, &taggers).await
+        Self::put_multiple_set_indexes(&common_key, &labels, &taggers, Some(CACHE_SET_PREFIX.to_string()), Some(CACHE_TTL)).await
     }
 
     async fn update_index_score(
@@ -351,9 +358,6 @@ where
 
     /// Returns the unique key parts used to identify a tag in the Redis database
     fn get_tag_prefix<'a>() -> [&'a str; 2];
-    fn get_cache_tag_prefix<'a>() -> [&'a str; 3] {
-        ["Cache", "Model", "Tags"]
-    }
 
     /// Creates a Neo4j query to retrieve tags
     /// # Arguments
@@ -386,14 +390,6 @@ where
         }
     }
 
-    fn create_cache_sorted_set_key_parts<'a>(
-        user_id: &'a str,
-        viewer_id: &'a str,
-    ) -> Vec<&'a str> {
-        let prefix = Self::get_cache_tag_prefix();
-        [&prefix[..], &[viewer_id, user_id]].concat()
-    }
-
     /// Constructs a slice of common key
     /// # Arguments
     /// * user_id - The key of the user.
@@ -408,7 +404,7 @@ where
     }
 
     fn create_cache_set_common_key<'a>(user_id: &'a str, viewer_id: &'a str) -> Vec<&'a str> {
-        vec!["Cache", viewer_id, user_id]
+        vec![viewer_id, user_id]
     }
 
     /// Constructs an index key based on user key, an optional extra parameter and a tag label.
@@ -426,6 +422,7 @@ where
     }
 
     fn create_cache_label_index(user_id: &str, viewer_id: &str, label: &String) -> String {
-        format!("Cache:{}:{}:{}", viewer_id, user_id, label)
+        // In that index, the viewer_id will be the one that will group user_ids
+        format!("{}:{}:{}", viewer_id, user_id, label)
     }
 }

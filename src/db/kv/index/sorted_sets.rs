@@ -56,7 +56,7 @@ pub async fn check_member(
 /// # Errors
 ///
 /// Returns an error if the operation fails.
-pub async fn put(prefix: &str, key: &str, items: &[(f64, &str)]) -> Result<(), DynError> {
+pub async fn put(prefix: &str, key: &str, items: &[(f64, &str)], expiration: Option<i64>) -> Result<(), DynError> {
     if items.is_empty() {
         return Ok(());
     }
@@ -64,8 +64,16 @@ pub async fn put(prefix: &str, key: &str, items: &[(f64, &str)]) -> Result<(), D
     let index_key = format!("{}:{}", prefix, key);
     let mut redis_conn = get_redis_conn().await?;
 
-    let _: () = redis_conn.zadd_multiple(&index_key, items).await?;
+    let mut pipe = redis::pipe();
 
+    pipe.zadd_multiple(&index_key, items);
+
+    if let Some(ttl) = expiration {
+        // TTL convert to seconds
+        pipe.expire(&index_key, ttl * 60);
+    }
+
+    let _: () = pipe.query_async(&mut redis_conn).await?;
     Ok(())
 }
 

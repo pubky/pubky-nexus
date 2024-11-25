@@ -412,11 +412,15 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     ///
     /// This function will return an error if the operation fails, such as in cases of a Redis connection issue.
     async fn try_from_multiple_sets(
+        prefix: Option<String>,
         key_parts_list: &[&str],
-        limit: Option<usize>,
+        limit: Option<usize>
     ) -> Result<Vec<Option<(Vec<String>, usize)>>, DynError> {
-        let prefix = Self::prefix().await;
-        sets::get_multiple_sets(&prefix, key_parts_list, limit).await
+        let combined_prefix = match prefix {
+            Some(p) => format!("{}:{}", p, Self::prefix().await),
+            None => Self::prefix().await,
+        };
+        sets::get_multiple_sets(&combined_prefix, key_parts_list, limit).await
     }
 
     /// Adds elements to multiple Redis sets using the provided keys and collections.
@@ -444,15 +448,18 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         common_key: &[&str],
         index: &[&str],
         collections_refs: &[Vec<&str>],
+        prefix: Option<String>,
+        expiration: Option<i64>
     ) -> Result<(), DynError> {
         // Ensure the lengths of keys_refs and collections_refs match
         if index.len() != collections_refs.len() {
             // TODO: Maybe create redis related errors
             return Err("Keys refs and collections refs length mismatch".into());
         }
-
-        // Get the prefix for the Redis keys
-        let prefix = Self::prefix().await;
+        let combined_prefix = match prefix {
+            Some(p) => format!("{}:{}", p, Self::prefix().await),
+            None => Self::prefix().await,
+        };
 
         let refs: Vec<&[&str]> = collections_refs
             .iter()
@@ -460,7 +467,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
             .collect();
         let slice: &[&[&str]] = refs.as_slice();
 
-        sets::put_multiple_sets(&prefix, common_key, index, slice).await
+        sets::put_multiple_sets(&combined_prefix, common_key, index, slice, expiration).await
     }
 
     // ############################################################
@@ -502,10 +509,13 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     async fn put_index_sorted_set(
         key_parts: &[&str],
         elements: &[(f64, &str)],
+        prefix: Option<&str>,
+        expiration: Option<i64>
     ) -> Result<(), DynError> {
+        let prefix = prefix.unwrap_or(SORTED_PREFIX);
         let key = key_parts.join(":");
         // Store the elements in the Redis sorted set
-        sorted_sets::put(SORTED_PREFIX, &key, elements).await
+        sorted_sets::put(prefix, &key, elements, expiration).await
     }
 
     /// Updates the score of a member in a Redis sorted set.
@@ -581,10 +591,12 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         skip: Option<usize>,
         limit: Option<usize>,
         sorting: SortOrder,
+        prefix: Option<&str>
     ) -> Result<Option<Vec<(String, f64)>>, DynError> {
         let key = key_parts.join(":");
+        let prefix = prefix.unwrap_or("Sorted");
 
-        sorted_sets::get_range("Sorted", &key, end, start, skip, limit, sorting).await
+        sorted_sets::get_range(prefix, &key, end, start, skip, limit, sorting).await
     }
 
     /// Retrieves a lexicographical range of elements from a Redis sorted set using the provided key parts.

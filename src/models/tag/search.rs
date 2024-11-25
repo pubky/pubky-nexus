@@ -61,7 +61,7 @@ impl TagSearch {
             let sorted_set: Vec<(f64, &str)> = row.get("sorted_set").unwrap_or(Vec::new());
             if !label.is_empty() && !sorted_set.is_empty() {
                 let key_parts = [&index_key[..], &[label]].concat();
-                Self::put_index_sorted_set(&key_parts, &sorted_set).await?;
+                Self::put_index_sorted_set(&key_parts, &sorted_set, None, None).await?;
             }
         }
         Ok(())
@@ -81,6 +81,7 @@ impl TagSearch {
                     pagination.skip,
                     pagination.limit,
                     SortOrder::Descending,
+                    None
                 )
                 .await?
             }
@@ -93,6 +94,7 @@ impl TagSearch {
                     pagination.skip,
                     pagination.limit,
                     SortOrder::Descending,
+                    None
                 )
                 .await?
             }
@@ -137,6 +139,8 @@ impl TagSearch {
                 Self::put_index_sorted_set(
                     &key_parts,
                     &[(post_details.indexed_at as f64, &member_key)],
+                    None,
+                    None
                 )
                 .await?;
             }

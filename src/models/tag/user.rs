@@ -6,7 +6,6 @@ use utoipa::ToSchema;
 use super::traits::{TagCollection, TaggersCollection};
 
 pub const USER_TAGS_KEY_PARTS: [&str; 2] = ["Users", "Tag"];
-pub const USER_DISTANCE_TAGS_KEY_PARTS: [&str; 3] = ["Cache", "Users", "Tag"];
 
 #[derive(Serialize, Deserialize, Debug, Clone, ToSchema, Default)]
 pub struct TagUser(pub Vec<String>);
@@ -27,10 +26,6 @@ impl RedisOps for TagUser {
 impl TagCollection for TagUser {
     fn get_tag_prefix<'a>() -> [&'a str; 2] {
         USER_TAGS_KEY_PARTS
-    }
-
-    fn get_cache_tag_prefix<'a>() -> [&'a str; 3] {
-        USER_DISTANCE_TAGS_KEY_PARTS
     }
 }
 

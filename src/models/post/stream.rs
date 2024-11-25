@@ -239,6 +239,7 @@ impl PostStream {
                     skip,
                     limit,
                     SortOrder::Descending,
+                    None
                 )
                 .await?
             }
@@ -250,6 +251,7 @@ impl PostStream {
                     skip,
                     limit,
                     SortOrder::Descending,
+                    None
                 )
                 .await?
             }
@@ -312,6 +314,7 @@ impl PostStream {
             skip,
             limit,
             SortOrder::Descending,
+            None
         )
         .await?;
 
@@ -381,6 +384,7 @@ impl PostStream {
             skip,
             limit,
             SortOrder::Descending,
+            None
         )
         .await?;
 
@@ -406,6 +410,7 @@ impl PostStream {
             None,
             limit,
             SortOrder::Descending,
+            None
         )
         .await?;
         let replies_keys = post_replies.map_or(Vec::new(), |post_entry| {
@@ -438,6 +443,7 @@ impl PostStream {
                 None, // We do not apply skip and limit here, as we need the full sorted set
                 None,
                 SortOrder::Descending,
+                None
             )
             .await?
             {
@@ -501,7 +507,7 @@ impl PostStream {
     pub async fn add_to_timeline_sorted_set(details: &PostDetails) -> Result<(), DynError> {
         let element = format!("{}:{}", details.author, details.id);
         let score = details.indexed_at as f64;
-        Self::put_index_sorted_set(&POST_TIMELINE_KEY_PARTS, &[(score, element.as_str())]).await
+        Self::put_index_sorted_set(&POST_TIMELINE_KEY_PARTS, &[(score, element.as_str())], None, None).await
     }
 
     /// Adds the post to a Redis sorted set using the `indexed_at` timestamp as the score.
@@ -517,7 +523,7 @@ impl PostStream {
     pub async fn add_to_per_user_sorted_set(details: &PostDetails) -> Result<(), DynError> {
         let key_parts = [&POST_PER_USER_KEY_PARTS[..], &[details.author.as_str()]].concat();
         let score = details.indexed_at as f64;
-        Self::put_index_sorted_set(&key_parts, &[(score, details.id.as_str())]).await
+        Self::put_index_sorted_set(&key_parts, &[(score, details.id.as_str())], None, None).await
     }
 
     /// Adds the post to a Redis sorted set using the `indexed_at` timestamp as the score.
@@ -541,7 +547,7 @@ impl PostStream {
         let key_parts = [&POST_REPLIES_PER_POST_KEY_PARTS[..], parent_post_key_parts].concat();
         let score = indexed_at as f64;
         let element = format!("{}:{}", author_id, reply_id);
-        Self::put_index_sorted_set(&key_parts, &[(score, element.as_str())]).await
+        Self::put_index_sorted_set(&key_parts, &[(score, element.as_str())], None, None).await
     }
 
     /// Adds the post response to a Redis sorted set using the `indexed_at` timestamp as the score.
@@ -563,7 +569,7 @@ impl PostStream {
         ]
         .concat();
         let score = details.indexed_at as f64;
-        Self::put_index_sorted_set(&key_parts, &[(score, details.id.as_str())]).await
+        Self::put_index_sorted_set(&key_parts, &[(score, details.id.as_str())], None, None).await
     }
 
     /// Adds the post to a Redis sorted set using the `indexed_at` timestamp as the score.
@@ -585,7 +591,7 @@ impl PostStream {
         let key_parts = [&BOOKMARKS_USER_KEY_PARTS[..], &[bookmarker_id]].concat();
         let post_key = format!("{}:{}", author_id, post_id);
         let score = bookmark.indexed_at as f64;
-        Self::put_index_sorted_set(&key_parts, &[(score, post_key.as_str())]).await
+        Self::put_index_sorted_set(&key_parts, &[(score, post_key.as_str())], None, None).await
     }
 
     /// Remove a bookmark from Redis sorted
@@ -612,6 +618,8 @@ impl PostStream {
         Self::put_index_sorted_set(
             &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
             &[(score, element.as_str())],
+            None,
+            None
         )
         .await
     }
