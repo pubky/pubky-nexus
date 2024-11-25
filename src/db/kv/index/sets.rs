@@ -5,24 +5,41 @@ use redis::AsyncCommands;
 /// Adds elements to a Redis set.
 ///
 /// This function adds elements to the specified Redis set. If the set doesn't exist,
-/// it creates a new set.
+/// it creates a new set. Optionally, a time-to-live (TTL) can be set for the key.
 ///
 /// # Arguments
 ///
 /// * `prefix` - A string slice representing the prefix for the Redis keys.
 /// * `key` - A string slice representing the key under which the set is stored.
 /// * `values` - A slice of string slices representing the elements to be added to the set.
+/// * `expiration` - An optional `i64` specifying the TTL (in seconds) for the set. If `None`, no TTL will be set.
 ///
 /// # Errors
 ///
 /// Returns an error if the operation fails.
-pub async fn put(prefix: &str, key: &str, values: &[&str]) -> Result<(), DynError> {
+pub async fn put(
+    prefix: &str,
+    key: &str,
+    values: &[&str],
+    expiration: Option<i64>,
+) -> Result<(), DynError> {
     if values.is_empty() {
         return Ok(());
     }
     let index_key = format!("{}:{}", prefix, key);
     let mut redis_conn = get_redis_conn().await?;
-    let _: () = redis_conn.sadd(index_key, values).await?;
+
+    // Create a pipeline for atomicity and efficiency
+    let mut pipe = redis::pipe();
+    pipe.sadd(&index_key, values);
+
+    // Add expiration to the pipeline if specified
+    if let Some(ttl) = expiration {
+        pipe.expire(&index_key, ttl);
+    }
+
+    // Execute the pipeline
+    let _: () = pipe.query_async(&mut redis_conn).await?;
     Ok(())
 }
 
@@ -298,4 +315,50 @@ pub async fn del(prefix: &str, key: &str, values: &[&str]) -> Result<(), DynErro
     // Remove the elements from the set
     let _: () = redis_conn.srem(index_key, values).await?;
     Ok(())
+}
+
+/// Retrieves random members from a Redis set.
+///
+/// This function uses the `SRANDMEMBER` command to fetch random elements from the specified Redis set.
+/// If `count` is positive, the function retrieves up to `count` unique random elements from the set.
+/// If `count` is negative, the function retrieves `|count|` random elements, allowing duplicates.
+///
+/// # Arguments
+///
+/// * `prefix` - A string slice representing the prefix for the Redis keys.
+/// * `key` - A string slice representing the key under which the set is stored.
+/// * `count` - The number of random elements to retrieve. If positive, retrieves unique elements. If negative, allows duplicates.
+///
+/// # Returns
+///
+/// Returns a `Result` containing:
+/// * `Ok(Some(Vec<String>))` - A vector of random elements if the set exists.
+/// * `Ok(None)` - If the set does not exist.
+/// * `Err` - An error if the Redis operation fails.
+///
+/// # Errors
+///
+/// Returns an error if the Redis connection or the SRANDMEMBER operation fails.
+pub async fn get_random_members(
+    prefix: &str,
+    key: &str,
+    count: isize,
+) -> Result<Option<Vec<String>>, DynError> {
+    let mut redis_conn = get_redis_conn().await?;
+    let index_key = format!("{}:{}", prefix, key);
+
+    // Check if the set exists
+    let set_exists: bool = redis_conn.exists(&index_key).await?;
+    if !set_exists {
+        return Ok(None);
+    }
+
+    // Retrieve random members using `redis::cmd` for flexibility
+    let random_members: Vec<String> = redis::cmd("SRANDMEMBER")
+        .arg(&index_key)
+        .arg(count)
+        .query_async(&mut redis_conn)
+        .await?;
+
+    Ok(Some(random_members))
 }

@@ -8,6 +8,7 @@ pub mod post_replies;
 pub mod posts;
 pub mod reach;
 pub mod tags;
+pub mod users;
 pub mod utils;
 
 pub const ROOT_PATH: &str = endpoints::STREAM_POSTS_ROUTE;

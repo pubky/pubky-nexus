@@ -12,6 +12,7 @@ use utoipa::OpenApi;
 #[utoipa::path(
     get,
     path = POST_ROUTE,
+    description = "Post view",
     tag = "Post",
     params(
         ("author_id" = String, Path, description = "Author Pubky ID"),

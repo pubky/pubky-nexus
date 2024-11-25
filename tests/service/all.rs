@@ -564,7 +564,7 @@ async fn test_stream_following() -> Result<()> {
     let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
     let res = client
         .do_get(&format!(
-            "/v0/stream/users?user_id={}&source=following",
+            "/v0/stream/users?user_id={}&source=following&limit=20",
             user_id
         ))
         .await?;
@@ -625,7 +625,7 @@ async fn test_stream_most_followed() -> Result<()> {
 
     // Test retrieving the most followed users
     let res = client
-        .do_get("/v0/stream/users?source=most_followed")
+        .do_get("/v0/stream/users?source=most_followed&limit=20")
         .await?;
     assert_eq!(res.status(), 200);
 
@@ -965,97 +965,6 @@ async fn test_stream_users_by_ids_with_viewer_id() -> Result<()> {
             "is_following should be a boolean"
         );
     }
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_thread_replies() -> Result<()> {
-    let client = httpc_test::new_client(HOST_URL)?;
-
-    // Set the root post's author_id and post_id
-    let author_id = "7oq5wj1adxk1u94ojh6eknwj3b4z88zcbb51dbam5zn7zeqnzoio";
-    let post_id = "0RE51NMRZAQG";
-
-    // Make a request to the thread endpoint
-    let res = client
-        .do_get(&format!("/v0/thread/{}/{}", author_id, post_id))
-        .await?;
-
-    // Assert that the response status is 200
-    assert_eq!(res.status(), 200);
-
-    // Parse the response body as JSON
-    let body = res.json_body()?;
-
-    // Ensure the root_post and replies are present in the response
-    assert!(
-        body["root_post"].is_object(),
-        "root_post should be an object"
-    );
-    assert!(body["replies"].is_array(), "replies should be an array");
-
-    // Validate the root_post fields
-    let root_post = body["root_post"]
-        .as_object()
-        .expect("root_post should be an object");
-    assert!(
-        root_post["details"]["indexed_at"].is_number(),
-        "root_post indexed_at should be a number"
-    );
-    assert!(
-        root_post["details"]["content"].is_string(),
-        "root_post content should be a string"
-    );
-    assert!(
-        root_post["details"]["author"].is_string(),
-        "root_post author should be a string"
-    );
-
-    // Validate the replies
-    let replies = body["replies"]
-        .as_array()
-        .expect("replies should be an array");
-
-    let mut previous_indexed_at = None;
-
-    for reply in replies {
-        assert!(
-            reply["details"]["indexed_at"].is_number(),
-            "reply indexed_at should be a number"
-        );
-        assert!(
-            reply["details"]["content"].is_string(),
-            "reply content should be a string"
-        );
-        assert!(
-            reply["details"]["author"].is_string(),
-            "reply author should be a string"
-        );
-        // Validate chronological order
-        let indexed_at = reply["details"]["indexed_at"]
-            .as_i64()
-            .expect("indexed_at should be a valid number");
-
-        if let Some(prev) = previous_indexed_at {
-            assert!(
-                indexed_at >= prev,
-                "replies should be in chronological order"
-            );
-        }
-        previous_indexed_at = Some(indexed_at);
-    }
-
-    // Make a request to the thread endpoint for non existing root post
-    let res = client
-        .do_get(&format!(
-            "/v0/thread/{}/{}",
-            "non_existing_author", "not_existing_id"
-        ))
-        .await?;
-
-    // Assert that the response status is 404
-    assert_eq!(res.status(), 404);
 
     Ok(())
 }

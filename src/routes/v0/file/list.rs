@@ -15,7 +15,8 @@ pub struct FilesByIdsBody {
 #[utoipa::path(
     post,
     path = FILE_LIST_ROUTE,
-    tag = "Files by URIs",
+    description = "List files by URIs",
+    tag = "File",
     request_body = FilesByIdsBody,
     responses(
         (status = 200, description = "List of File Details", body = Vec<FileDetails>),

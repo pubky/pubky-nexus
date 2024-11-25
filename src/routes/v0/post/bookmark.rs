@@ -15,7 +15,8 @@ pub struct PostQuery {
 #[utoipa::path(
     get,
     path = POST_BOOKMARK_ROUTE,
-    tag = "Post Bookmark",
+    description = "Post bookmark",
+    tag = "Post",
     params(
         ("author_id" = String, Path, description = "Author Pubky ID"),
         ("post_id" = String, Path, description = "Post Crockford32 ID"),
