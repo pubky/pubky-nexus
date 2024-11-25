@@ -239,7 +239,7 @@ impl PostStream {
                     skip,
                     limit,
                     SortOrder::Descending,
-                    None
+                    None,
                 )
                 .await?
             }
@@ -251,7 +251,7 @@ impl PostStream {
                     skip,
                     limit,
                     SortOrder::Descending,
-                    None
+                    None,
                 )
                 .await?
             }
@@ -314,7 +314,7 @@ impl PostStream {
             skip,
             limit,
             SortOrder::Descending,
-            None
+            None,
         )
         .await?;
 
@@ -384,7 +384,7 @@ impl PostStream {
             skip,
             limit,
             SortOrder::Descending,
-            None
+            None,
         )
         .await?;
 
@@ -410,7 +410,7 @@ impl PostStream {
             None,
             limit,
             SortOrder::Descending,
-            None
+            None,
         )
         .await?;
         let replies_keys = post_replies.map_or(Vec::new(), |post_entry| {
@@ -443,7 +443,7 @@ impl PostStream {
                 None, // We do not apply skip and limit here, as we need the full sorted set
                 None,
                 SortOrder::Descending,
-                None
+                None,
             )
             .await?
             {
@@ -507,7 +507,13 @@ impl PostStream {
     pub async fn add_to_timeline_sorted_set(details: &PostDetails) -> Result<(), DynError> {
         let element = format!("{}:{}", details.author, details.id);
         let score = details.indexed_at as f64;
-        Self::put_index_sorted_set(&POST_TIMELINE_KEY_PARTS, &[(score, element.as_str())], None, None).await
+        Self::put_index_sorted_set(
+            &POST_TIMELINE_KEY_PARTS,
+            &[(score, element.as_str())],
+            None,
+            None,
+        )
+        .await
     }
 
     /// Adds the post to a Redis sorted set using the `indexed_at` timestamp as the score.
@@ -619,7 +625,7 @@ impl PostStream {
             &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
             &[(score, element.as_str())],
             None,
-            None
+            None,
         )
         .await
     }

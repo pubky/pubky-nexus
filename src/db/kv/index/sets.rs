@@ -270,7 +270,7 @@ pub async fn put_multiple_sets(
     common_key: &[&str],
     index: &[&str],
     collections: &[&[&str]],
-    expiration: Option<i64>
+    expiration: Option<i64>,
 ) -> Result<(), DynError> {
     let mut redis_conn = get_redis_conn().await?;
     let mut pipe = redis::pipe();
@@ -278,7 +278,7 @@ pub async fn put_multiple_sets(
     for (i, key) in index.iter().enumerate() {
         let full_index = format!("{}:{}:{}", &prefix, common_key.join(":"), key);
         if !collections[i].is_empty() {
-            pipe.sadd(&full_index, collections[i]);    // Add expiration to the pipeline if specified
+            pipe.sadd(&full_index, collections[i]); // Add expiration to the pipeline if specified
             if let Some(ttl) = expiration {
                 pipe.expire(&full_index, ttl * 60);
             }

@@ -11,7 +11,7 @@ use utoipa::OpenApi;
 #[derive(Deserialize)]
 pub struct ProfileQuery {
     viewer_id: Option<String>,
-    depth: Option<u8>
+    depth: Option<u8>,
 }
 
 #[utoipa::path(

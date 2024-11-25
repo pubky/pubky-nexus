@@ -33,19 +33,19 @@ where
         limit_tags: Option<usize>,
         limit_taggers: Option<usize>,
         viewer_id: Option<&str>,
-        depth: Option<u8>
+        depth: Option<u8>,
     ) -> Result<Option<Vec<TagDetails>>, DynError> {
         // Query for the tags that are in its WoT
         // Actually we just apply that search to User node
         if viewer_id.is_some() && matches!(depth, Some(1..=3)) {
-            let viewer_id = viewer_id.unwrap();
-            match Self::get_from_cache(user_id, viewer_id, limit_tags, limit_taggers).await? {
+            match Self::get_from_index(user_id, viewer_id, limit_tags, limit_taggers, true).await? {
                 Some(tag_details) => return Ok(Some(tag_details)),
                 None => {
                     let depth = depth.unwrap();
-                    let graph_response = Self::get_from_graph_by_distance(user_id, viewer_id, depth).await?;
+                    let graph_response =
+                        Self::get_from_graph(user_id, viewer_id, Some(depth)).await?;
                     if let Some(tag_details) = graph_response {
-                        Self::put_to_cache(user_id, viewer_id, &tag_details).await?;
+                        Self::put_to_index(user_id, viewer_id, &tag_details, true).await?;
                         return Ok(Some(tag_details));
                     }
                     return Ok(None);
@@ -53,12 +53,12 @@ where
             }
         }
         // Get global tags for that user
-        match Self::get_from_index(user_id, extra_param, limit_tags, limit_taggers).await? {
+        match Self::get_from_index(user_id, extra_param, limit_tags, limit_taggers, false).await? {
             Some(tag_details) => Ok(Some(tag_details)),
             None => {
-                let graph_response = Self::get_from_graph(user_id, extra_param).await?;
+                let graph_response = Self::get_from_graph(user_id, extra_param, None).await?;
                 if let Some(tag_details) = graph_response {
-                    Self::put_to_index(user_id, extra_param, &tag_details).await?;
+                    Self::put_to_index(user_id, extra_param, &tag_details, false).await?;
                     return Ok(Some(tag_details));
                 }
                 Ok(None)
@@ -68,7 +68,7 @@ where
     /// Tries to retrieve the tag collection from multiple index in Redis.
     /// # Arguments
     /// * user_id - The key of the user for whom to retrieve tags.
-    /// * extra_param - An optional parameter for specifying additional constraints (e.g., an post_id)
+    /// * extra_param - An optional parameter for specifying additional constraints: post_id, viewer_id (for WoT search)
     /// * limit_tags - A limit on the number of tags to retrieve.
     /// * limit_taggers - A limit on the number of taggers to retrieve.
     /// # Returns
@@ -78,10 +78,19 @@ where
         extra_param: Option<&str>,
         limit_tags: Option<usize>,
         limit_taggers: Option<usize>,
+        is_cache: bool,
     ) -> Result<Option<Vec<TagDetails>>, DynError> {
         let limit_tags = limit_tags.unwrap_or(5);
         let limit_taggers = limit_taggers.unwrap_or(5);
-        let key_parts = Self::create_sorted_set_key_parts(user_id, extra_param);
+        let key_parts = Self::create_sorted_set_key_parts(user_id, extra_param, is_cache);
+        // Prepare the extra prefix for cache search
+        let cache_prefix = match is_cache {
+            true => (
+                Some(CACHE_SORTED_SET_PREFIX),
+                Some(CACHE_SET_PREFIX.to_string()),
+            ),
+            false => (None, None),
+        };
         // Get related tags
         match Self::try_from_index_sorted_set(
             &key_parts,
@@ -90,7 +99,7 @@ where
             None,
             Some(limit_tags),
             SortOrder::Descending,
-            None
+            cache_prefix.0,
         )
         .await?
         {
@@ -100,7 +109,12 @@ where
                 for (label, score) in tag_scores.iter() {
                     // Just process the tags that has score
                     if score >= &1.0 {
-                        tags.push(Self::create_label_index(user_id, extra_param, label));
+                        tags.push(Self::create_label_index(
+                            user_id,
+                            extra_param,
+                            label,
+                            is_cache,
+                        ));
                     }
                 }
                 if tags.is_empty() {
@@ -108,50 +122,9 @@ where
                 }
 
                 let tags_ref: Vec<&str> = tags.iter().map(|label| label.as_str()).collect();
-                let taggers = Self::try_from_multiple_sets(None, &tags_ref, Some(limit_taggers)).await?;
-                let tag_details_list = TagDetails::from_index(tag_scores, taggers);
-                Ok(Some(tag_details_list))
-            }
-            None => Ok(None),
-        }
-    }
-
-    async fn get_from_cache(
-        user_id: &str,
-        viewer_id: &str,
-        limit_tags: Option<usize>,
-        limit_taggers: Option<usize>
-    ) -> Result<Option<Vec<TagDetails>>, DynError> {
-        let limit_tags = limit_tags.unwrap_or(5);
-        let limit_taggers = limit_taggers.unwrap_or(5);
-        let key_parts = Self::create_sorted_set_key_parts(user_id, Some(viewer_id));
-        // Get related tags
-        match Self::try_from_index_sorted_set(
-            &key_parts,
-            None,
-            None,
-            None,
-            Some(limit_tags),
-            SortOrder::Descending,
-            Some(CACHE_SORTED_SET_PREFIX)
-        )
-        .await?
-        {
-            Some(tag_scores) => {
-                let mut tags = Vec::with_capacity(limit_tags);
-                // TODO: Temporal fix. Should it delete SORTED SET value if score is 0?
-                for (label, score) in tag_scores.iter() {
-                    // Just process the tags that has score
-                    if score >= &1.0 {
-                        tags.push(Self::create_cache_label_index(user_id, viewer_id, label));
-                    }
-                }
-                if tags.is_empty() {
-                    return Ok(None);
-                }
-
-                let tags_ref: Vec<&str> = tags.iter().map(|label| label.as_str()).collect();
-                let taggers = Self::try_from_multiple_sets(Some(CACHE_SET_PREFIX.to_string()), &tags_ref, Some(limit_taggers)).await?;
+                let taggers =
+                    Self::try_from_multiple_sets(cache_prefix.1, &tags_ref, Some(limit_taggers))
+                        .await?;
                 let tag_details_list = TagDetails::from_index(tag_scores, taggers);
                 Ok(Some(tag_details_list))
             }
@@ -162,18 +135,26 @@ where
     /// Retrieves the tag collection from the graph database if it is not found in the index.
     /// # Arguments
     /// * user_id - The key of the user for whom to retrieve tags.
-    /// * extra_param - An optional parameter for specifying additional constraints (e.g., an post_id)
+    /// * extra_param - An optional parameter for specifying additional constraints (e.g., post_id, viewer_id (for WoT search) )
     /// # Returns
     /// A Result containing an optional vector of TagDetails, or an error.
     // NAME: get_by_id
     async fn get_from_graph(
         user_id: &str,
         extra_param: Option<&str>,
+        depth: Option<u8>,
     ) -> Result<Option<Vec<TagDetails>>, DynError> {
         let mut result;
         {
             // We cannot use LIMIT clause because we need all data related
-            let query = Self::read_graph_query(user_id, extra_param);
+            let query = match depth {
+                Some(distance) => queries::get::get_viewer_trusted_network_tags(
+                    user_id,
+                    extra_param.unwrap_or_default(),
+                    distance,
+                ),
+                None => Self::read_graph_query(user_id, extra_param),
+            };
             let graph = get_neo4j_graph()?;
 
             let graph = graph.lock().await;
@@ -192,34 +173,10 @@ where
         Ok(None)
     }
 
-    async fn get_from_graph_by_distance(
-        user_id: &str,
-        viewer_id: &str,
-        depth: u8
-    ) -> Result<Option<Vec<TagDetails>>, DynError> {
-        let mut result;
-        {
-            let query = queries::get::get_viewer_trusted_network_tags(user_id, viewer_id, depth);
-            let graph = get_neo4j_graph()?;
-            let graph = graph.lock().await;
-            result = graph.execute(query).await?;
-            if let Some(row) = result.next().await? {
-                let user_exists: bool = row.get("exists").unwrap_or(false);
-                if user_exists {
-                    match row.get::<Vec<TagDetails>>("tags") {
-                        Ok(tagged_from) => return Ok(Some(tagged_from)),
-                        Err(_e) => return Ok(None),
-                    }
-                }
-            }
-        }
-        return Ok(None); 
-    }
-
     /// Adds the retrieved tags to a sorted set and a set in Redis.
     /// # Arguments
     /// * user_id - The key of the user.
-    /// * extra_param - An optional parameter for specifying additional context (e.g., an extra key).
+    /// * extra_param - An optional parameter for specifying additional context (e.g., post_id, viewer_id (for WoT search))
     /// * tags - A slice of TagDetails representing the tags to add.
     /// # Returns
     /// A result indicating success or failure.
@@ -227,26 +184,37 @@ where
         user_id: &str,
         extra_param: Option<&str>,
         tags: &[TagDetails],
+        is_cache: bool,
     ) -> Result<(), DynError> {
         let (tag_scores, (labels, taggers)) = TagDetails::process_tag_details(tags);
 
-        let key_parts = Self::create_sorted_set_key_parts(user_id, extra_param);
-        Self::put_index_sorted_set(&key_parts, tag_scores.as_slice(), None, None).await?;
-        let common_key = Self::create_set_common_key(user_id, extra_param);
-        Self::put_multiple_set_indexes(&common_key, &labels, &taggers, None, None).await
-    }
+        let index_params = match is_cache {
+            true => (
+                Some(CACHE_SORTED_SET_PREFIX),
+                Some(CACHE_TTL),
+                Some(CACHE_SET_PREFIX.to_string()),
+            ),
+            false => (None, None, None),
+        };
 
-    async fn put_to_cache(
-        user_id: &str,
-        viewer_id: &str,
-        tags: &[TagDetails],
-    ) -> Result<(), DynError> {
-        let (tag_scores, (labels, taggers)) = TagDetails::process_tag_details(tags);
+        let key_parts = Self::create_sorted_set_key_parts(user_id, extra_param, is_cache);
+        Self::put_index_sorted_set(
+            &key_parts,
+            tag_scores.as_slice(),
+            index_params.0,
+            index_params.1,
+        )
+        .await?;
 
-        let key_parts = Self::create_sorted_set_key_parts(user_id, Some(viewer_id));
-        Self::put_index_sorted_set(&key_parts, tag_scores.as_slice(), Some(CACHE_SORTED_SET_PREFIX), Some(CACHE_TTL)).await?;
-        let common_key = Self::create_cache_set_common_key(user_id, viewer_id);
-        Self::put_multiple_set_indexes(&common_key, &labels, &taggers, Some(CACHE_SET_PREFIX.to_string()), Some(CACHE_TTL)).await
+        let common_key = Self::create_set_common_key(user_id, extra_param, is_cache);
+        Self::put_multiple_set_indexes(
+            &common_key,
+            &labels,
+            &taggers,
+            index_params.2,
+            index_params.1,
+        )
+        .await
     }
 
     async fn update_index_score(
@@ -304,8 +272,8 @@ where
     }
 
     async fn reindex(author_id: &str, extra_param: Option<&str>) -> Result<(), DynError> {
-        match Self::get_from_graph(author_id, extra_param).await? {
-            Some(tag_user) => Self::put_to_index(author_id, extra_param, &tag_user).await?,
+        match Self::get_from_graph(author_id, extra_param, None).await? {
+            Some(tag_user) => Self::put_to_index(author_id, extra_param, &tag_user, false).await?,
             None => log::error!(
                 "{}:{} Could not found tags in the graph",
                 author_id,
@@ -381,11 +349,15 @@ where
     fn create_sorted_set_key_parts<'a>(
         user_id: &'a str,
         extra_param: Option<&'a str>,
+        is_cache: bool,
     ) -> Vec<&'a str> {
         // Sorted set identifier
         let prefix = Self::get_tag_prefix();
         match extra_param {
-            Some(extra_id) => [&prefix[..], &[user_id, extra_id]].concat(),
+            Some(extra_id) => match is_cache {
+                true => [&prefix[..], &[extra_id, user_id]].concat(),
+                false => [&prefix[..], &[user_id, extra_id]].concat(),
+            },
             None => [&prefix[..], &[user_id]].concat(),
         }
     }
@@ -396,16 +368,23 @@ where
     /// * extra_param - An optional parameter for specifying additional context (e.g., an post_id)
     /// # Returns
     /// A vector of string slices representing the parameters.
-    fn create_set_common_key<'a>(user_id: &'a str, extra_param: Option<&'a str>) -> Vec<&'a str> {
+    fn create_set_common_key<'a>(
+        user_id: &'a str,
+        extra_param: Option<&'a str>,
+        is_cache: bool,
+    ) -> Vec<&'a str> {
         match extra_param {
-            Some(extra_id) => vec![user_id, extra_id],
+            Some(extra_id) => match is_cache {
+                true => vec![extra_id, user_id],
+                false => vec![user_id, extra_id],
+            },
             None => vec![user_id],
         }
     }
 
-    fn create_cache_set_common_key<'a>(user_id: &'a str, viewer_id: &'a str) -> Vec<&'a str> {
-        vec![viewer_id, user_id]
-    }
+    // fn create_cache_set_common_key<'a>(user_id: &'a str, viewer_id: &'a str) -> Vec<&'a str> {
+    //     vec![viewer_id, user_id]
+    // }
 
     /// Constructs an index key based on user key, an optional extra parameter and a tag label.
     /// # Arguments
@@ -414,15 +393,18 @@ where
     /// * label - The label of the tag.
     /// # Returns
     /// A string representing the index key.
-    fn create_label_index(user_id: &str, extra_param: Option<&str>, label: &String) -> String {
+    fn create_label_index(
+        user_id: &str,
+        extra_param: Option<&str>,
+        label: &String,
+        is_cache: bool,
+    ) -> String {
         match extra_param {
-            Some(extra_id) => format!("{}:{}:{}", user_id, extra_id, label),
+            Some(extra_id) => match is_cache {
+                true => format!("{}:{}:{}", extra_id, user_id, label),
+                false => format!("{}:{}:{}", user_id, extra_id, label),
+            },
             None => format!("{}:{}", user_id, label),
         }
-    }
-
-    fn create_cache_label_index(user_id: &str, viewer_id: &str, label: &String) -> String {
-        // In that index, the viewer_id will be the one that will group user_ids
-        format!("{}:{}:{}", viewer_id, user_id, label)
     }
 }

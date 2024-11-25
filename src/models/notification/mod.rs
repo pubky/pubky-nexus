@@ -107,7 +107,7 @@ impl Notification {
             &["Notification", user_id],
             &[(score, notification_body_json.as_str())],
             None,
-            None
+            None,
         )
         .await
     }
@@ -125,7 +125,7 @@ impl Notification {
             Some(skip),
             Some(limit),
             SortOrder::Descending, // StreamSorting in descending order by score (timestamp)
-            None
+            None,
         )
         .await?;
 

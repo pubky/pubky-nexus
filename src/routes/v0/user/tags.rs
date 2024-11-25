@@ -39,7 +39,16 @@ pub async fn user_tags_handler(
         user_id, query.limit_tags, query.limit_taggers, query.viewer_id, query.depth
     );
 
-    match TagUser::get_by_id(&user_id, None, query.limit_tags, query.limit_taggers, query.viewer_id.as_deref(), query.depth).await {
+    match TagUser::get_by_id(
+        &user_id,
+        None,
+        query.limit_tags,
+        query.limit_taggers,
+        query.viewer_id.as_deref(),
+        query.depth,
+    )
+    .await
+    {
         Ok(Some(tags)) => Ok(Json(tags)),
         Ok(None) => Err(Error::UserNotFound { user_id }),
         Err(source) => Err(Error::InternalServerError { source }),

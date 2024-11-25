@@ -24,7 +24,7 @@ impl PostView {
         post_id: &str,
         viewer_id: Option<&str>,
         limit_tags: Option<usize>,
-        limit_taggers: Option<usize>
+        limit_taggers: Option<usize>,
     ) -> Result<Option<Self>, DynError> {
         // Perform all operations concurrently
         let (details, counts, bookmark, relationships, tags) = tokio::try_join!(
@@ -32,7 +32,14 @@ impl PostView {
             PostCounts::get_by_id(author_id, post_id),
             Bookmark::get_by_id(author_id, post_id, viewer_id),
             PostRelationships::get_by_id(author_id, post_id),
-            TagPost::get_by_id(author_id, Some(post_id), limit_tags, limit_taggers, viewer_id, None), // Avoid by default WoT tags in a Post
+            TagPost::get_by_id(
+                author_id,
+                Some(post_id),
+                limit_tags,
+                limit_taggers,
+                viewer_id,
+                None
+            ), // Avoid by default WoT tags in a Post
         )?;
 
         let details = match details {

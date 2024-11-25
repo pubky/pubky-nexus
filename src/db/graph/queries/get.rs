@@ -248,7 +248,7 @@ pub fn get_viewer_trusted_network_tags(user_id: &str, viewer_id: &str, depth: u8
     // Dynamically generate Cypher for each depth level
     for distance in 1..=depth {
         let depth_match = if distance == 1 {
-            format!("(viewer)-[:FOLLOWS]->(tagger:User)")
+            "(viewer)-[:FOLLOWS]->(tagger:User)".to_string()
         } else {
             format!(
                 "(viewer)-[:FOLLOWS]->{}(tagger:User)",

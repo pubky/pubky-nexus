@@ -419,7 +419,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     async fn try_from_multiple_sets(
         prefix: Option<String>,
         key_parts_list: &[&str],
-        limit: Option<usize>
+        limit: Option<usize>,
     ) -> Result<Vec<Option<(Vec<String>, usize)>>, DynError> {
         let combined_prefix = match prefix {
             Some(p) => format!("{}:{}", p, Self::prefix().await),
@@ -454,7 +454,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         index: &[&str],
         collections_refs: &[Vec<&str>],
         prefix: Option<String>,
-        expiration: Option<i64>
+        expiration: Option<i64>,
     ) -> Result<(), DynError> {
         // Ensure the lengths of keys_refs and collections_refs match
         if index.len() != collections_refs.len() {
@@ -543,7 +543,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         key_parts: &[&str],
         elements: &[(f64, &str)],
         prefix: Option<&str>,
-        expiration: Option<i64>
+        expiration: Option<i64>,
     ) -> Result<(), DynError> {
         let prefix = prefix.unwrap_or(SORTED_PREFIX);
         let key = key_parts.join(":");
@@ -624,7 +624,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         skip: Option<usize>,
         limit: Option<usize>,
         sorting: SortOrder,
-        prefix: Option<&str>
+        prefix: Option<&str>,
     ) -> Result<Option<Vec<(String, f64)>>, DynError> {
         let key = key_parts.join(":");
         let prefix = prefix.unwrap_or("Sorted");

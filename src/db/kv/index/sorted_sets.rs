@@ -56,7 +56,12 @@ pub async fn check_member(
 /// # Errors
 ///
 /// Returns an error if the operation fails.
-pub async fn put(prefix: &str, key: &str, items: &[(f64, &str)], expiration: Option<i64>) -> Result<(), DynError> {
+pub async fn put(
+    prefix: &str,
+    key: &str,
+    items: &[(f64, &str)],
+    expiration: Option<i64>,
+) -> Result<(), DynError> {
     if items.is_empty() {
         return Ok(());
     }

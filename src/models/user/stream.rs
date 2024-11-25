@@ -73,7 +73,9 @@ impl UserStream {
             let user_id = user_id.clone();
             let viewer_id = viewer_id.clone();
             let handle =
-                spawn(async move { UserView::get_by_id(&user_id, viewer_id.as_deref(), None).await });
+                spawn(
+                    async move { UserView::get_by_id(&user_id, viewer_id.as_deref(), None).await },
+                );
             handles.push(handle);
         }
 
@@ -100,7 +102,7 @@ impl UserStream {
             &USER_MOSTFOLLOWED_KEY_PARTS,
             &[(counts.followers as f64, user_id)],
             None,
-            None
+            None,
         )
         .await
     }
@@ -227,7 +229,7 @@ impl UserStream {
                 skip,
                 limit,
                 SortOrder::Descending,
-                None
+                None,
             )
             .await?
             .map(|set| set.into_iter().map(|(user_id, _score)| user_id).collect()),
@@ -238,7 +240,7 @@ impl UserStream {
                 skip,
                 limit,
                 SortOrder::Descending,
-                None
+                None,
             )
             .await?
             .map(|set| set.into_iter().map(|(user_id, _score)| user_id).collect()),

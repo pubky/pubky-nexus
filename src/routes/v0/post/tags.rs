@@ -42,7 +42,7 @@ pub async fn post_tags_handler(
         query.limit_tags,
         query.limit_taggers,
         None,
-        None // Avoid by default WoT tags in a Post
+        None, // Avoid by default WoT tags in a Post
     )
     .await
     {

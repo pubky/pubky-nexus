@@ -82,8 +82,8 @@ impl UserSearch {
                 .iter()
                 .map(|(score, member)| (*score, member.as_str()))
                 .collect::<Vec<_>>(),
-                None, 
-                None
+            None,
+            None,
         )
         .await
     }

@@ -81,7 +81,7 @@ impl TagSearch {
                     pagination.skip,
                     pagination.limit,
                     SortOrder::Descending,
-                    None
+                    None,
                 )
                 .await?
             }
@@ -94,7 +94,7 @@ impl TagSearch {
                     pagination.skip,
                     pagination.limit,
                     SortOrder::Descending,
-                    None
+                    None,
                 )
                 .await?
             }
@@ -140,7 +140,7 @@ impl TagSearch {
                     &key_parts,
                     &[(post_details.indexed_at as f64, &member_key)],
                     None,
-                    None
+                    None,
                 )
                 .await?;
             }
