@@ -1,10 +1,11 @@
 use crate::models::tag::global::TagGlobal;
-use crate::models::tag::stream::{HotTag, HotTags, TagStreamReach, Taggers};
+use crate::models::tag::stream::{HotTag, HotTags, TagStreamReach, TaggedType, Taggers};
 use crate::routes::v0::endpoints::{HOT_TAGS_BY_REACH_ROUTE, HOT_TAGS_ROUTE, TAG_TAGGERS_ROUTE};
 use crate::types::Pagination;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
+use chrono::Utc;
 use log::{error, info};
 use serde::Deserialize;
 use utoipa::OpenApi;
@@ -12,6 +13,9 @@ use utoipa::OpenApi;
 #[derive(Deserialize)]
 pub struct HotTagsQuery {
     max_taggers: Option<usize>,
+    from: Option<i64>,
+    to: Option<i64>,
+    tagged_type: Option<TaggedType>,
     #[serde(flatten)]
     pagination: Pagination,
 }
@@ -22,7 +26,10 @@ pub struct HotTagsQuery {
     params(
         ("max_taggers" = Option<usize>, Query, description = "Retrieve N user_id for each tag"),
         ("skip" = Option<usize>, Query, description = "Skip N tags"),
-        ("limit" = Option<usize>, Query, description = "Retrieve N tag")
+        ("limit" = Option<usize>, Query, description = "Retrieve N tag"),
+        ("from" = Option<i64>, Query, description = "Retrieve hot tags from this timestamp"),
+        ("to" = Option<i64>, Query, description = "Retrieve hot tags up to this timestamp"),
+        ("tagged_type" = Option<TaggedType>, Query, description = "Retrieve hot tags by the type of entities tagged with it"),
     ),
     tag = "Global hot Tags",
     responses(
@@ -41,8 +48,11 @@ pub async fn hot_tags_handler(Query(query): Query<HotTagsQuery>) -> Result<Json<
     let skip = query.pagination.skip.unwrap_or(0);
     let limit = query.pagination.limit.unwrap_or(40);
     let max_taggers = query.max_taggers.unwrap_or(20);
+    let from = query.from.unwrap_or(0);
+    let to = query.to.unwrap_or(Utc::now().timestamp_millis());
+    let tagged_type = query.tagged_type;
 
-    match HotTags::get_global_tags_stream(Some(skip), Some(limit), Some(max_taggers)).await {
+    match HotTags::get_global_hot_tags(skip, limit, max_taggers, from, to, tagged_type).await {
         Ok(Some(hot_tags)) => Ok(Json(hot_tags)),
         Ok(None) => Err(Error::TagsNotFound {
             reach: String::from("GLOBAL"),

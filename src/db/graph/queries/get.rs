@@ -2,6 +2,7 @@ use neo4rs::{query, Query};
 
 use crate::models::post::StreamSource;
 use crate::models::pubky_app::PostKind;
+use crate::models::tag::stream::TaggedType;
 use crate::types::Pagination;
 use crate::types::StreamSorting;
 
@@ -429,12 +430,23 @@ pub fn get_hot_tags_by_reach(
     .param("limit", limit as i64)
 }
 
-pub fn get_hot_tags(from: i64, to: i64, skip: usize, limit: usize, max_taggers: usize) -> Query {
+pub fn get_global_hot_tags(
+    from: i64,
+    to: i64,
+    skip: usize,
+    limit: usize,
+    max_taggers: usize,
+    tagged_type: Option<TaggedType>,
+) -> Query {
+    let input_tagged_type = match tagged_type {
+        Some(tagged_type) => format!("{}", tagged_type.to_string()),
+        None => String::from("Post|User"),
+    };
     query(
         format!(
             "
-        MATCH (user: User)-[tag:TAGGED]->(tagged)
-        where tag.created_at >= $from AND tag.created_at < $to
+        MATCH (user: User)-[tag:TAGGED]->(tagged:{}) 
+        WHERE tag.indexed_at >= $from AND tag.indexed_at < $to
         WITH 
             tag.label AS label,
             COLLECT(DISTINCT user.id)[..{}] AS taggers,
@@ -450,7 +462,7 @@ pub fn get_hot_tags(from: i64, to: i64, skip: usize, limit: usize, max_taggers: 
         SKIP $skip LIMIT $limit
         RETURN COLLECT(hot_tag) as hot_tags
     ",
-            max_taggers
+            input_tagged_type, max_taggers
         )
         .as_str(),
     )

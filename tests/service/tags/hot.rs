@@ -27,7 +27,6 @@ impl StreamTagMockup {
 
 // Small unit test to compare all the tags composition
 fn analyse_hot_tags_structure(tags: &Vec<Value>) {
-    println!("Analyzing the tags structure: {:?}", tags);
     for tag in tags {
         assert!(tag["label"].is_string(), "label should be a string");
         assert!(
@@ -57,6 +56,24 @@ fn compare_unit_hot_tag(tag: &Value, hot_tag: StreamTagMockup) {
 #[tokio::test]
 async fn test_global_hot_tags() -> Result<()> {
     let body = make_request("/v0/tags/hot").await?;
+
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Stream tags should be an array");
+
+    // Validate that the posts belong to the specified user's bookmarks
+    analyse_hot_tags_structure(tags);
+
+    // Analyse the tag that is in the 4th index
+    let hot_tag = StreamTagMockup::new(String::from("pubky"), 14, 26, 14);
+    compare_unit_hot_tag(&tags[3], hot_tag);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_global_hot_tags_for_posts() -> Result<()> {
+    let body = make_request("/v0/tags/hot?tagged_type=Post").await?;
 
     assert!(body.is_array());
 

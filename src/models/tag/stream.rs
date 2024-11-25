@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 use std::ops::Deref;
 use utoipa::ToSchema;
 
-use crate::db::kv::index::sorted_sets::SortOrder;
 use crate::{db::connectors::neo4j::get_neo4j_graph, queries};
 use crate::{RedisOps, ScoreAction};
 
@@ -40,6 +39,21 @@ impl TagStreamReach {
     }
 }
 
+#[derive(Deserialize, Debug, ToSchema, Clone)]
+pub enum TaggedType {
+    Post,
+    User,
+}
+
+impl ToString for TaggedType {
+    fn to_string(&self) -> String {
+        match self {
+            TaggedType::Post => String::from("Post"),
+            TaggedType::User => String::from("User"),
+        }
+    }
+}
+
 #[async_trait]
 impl RedisOps for Taggers {
     async fn prefix() -> String {
@@ -54,10 +68,6 @@ impl AsRef<[String]> for Taggers {
 }
 
 impl Taggers {
-    fn from_vec(vec: Vec<String>) -> Self {
-        Self(vec)
-    }
-
     pub async fn update_index_score(
         label: &str,
         score_action: ScoreAction,
@@ -133,49 +143,17 @@ impl HotTags {
         Ok(())
     }
 
-    pub async fn get_global_tags_stream(
-        skip: Option<usize>,
-        limit: Option<usize>,
-        taggers_limit: Option<usize>,
+    pub async fn get_global_hot_tags(
+        skip: usize,
+        limit: usize,
+        taggers_limit: usize,
+        from: i64,
+        to: i64,
+        tagged_type: Option<TaggedType>,
     ) -> Result<Option<Self>, DynError> {
-        let hot_tags = Self::try_from_index_sorted_set(
-            &TAG_GLOBAL_HOT,
-            None,
-            None,
-            skip,
-            limit,
-            SortOrder::Descending,
-        )
-        .await?
-        .unwrap_or_default();
-
-        if hot_tags.is_empty() {
-            return Ok(None);
-        }
-
-        // Collect the labels as a vector of string slices
-        let labels: Vec<&str> = hot_tags.iter().map(|(label, _)| label.as_str()).collect();
-        let label_slice: &[&str] = &labels;
-
-        let list = Taggers::try_from_multiple_sets(label_slice, taggers_limit).await?;
-
-        let hot_tags_stream: HotTags = hot_tags
-            .into_iter()
-            .zip(list)
-            .filter_map(|((label, score), user_ids)| match user_ids {
-                Some((tagger_list, taggers_count)) => {
-                    let taggers_id = Taggers::from_vec(tagger_list);
-                    Some(HotTag {
-                        label,
-                        taggers_id,
-                        tagged_count: score as u64,
-                        taggers_count,
-                    })
-                }
-                None => None,
-            })
-            .collect();
-        Ok(Some(hot_tags_stream))
+        let query =
+            queries::get::get_global_hot_tags(from, to, skip, limit, taggers_limit, tagged_type);
+        retrieve_from_graph::<HotTags>(query, "hot_tags").await
     }
 
     pub async fn get_hot_tags_by_reach(

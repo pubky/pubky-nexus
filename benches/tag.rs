@@ -1,3 +1,4 @@
+use chrono::Utc;
 use criterion::{criterion_group, criterion_main};
 use criterion::{BenchmarkId, Criterion};
 use pubky_nexus::models::tag::global::TagGlobal;
@@ -129,9 +130,10 @@ fn bench_get_global_hot_tags(c: &mut Criterion) {
 
     c.bench_function("bench_get_global_hot_tags", |b| {
         b.to_async(&rt).iter(|| async {
-            let stream_tag = HotTags::get_global_tags_stream(None, Some(40), Some(10))
-                .await
-                .unwrap();
+            let stream_tag =
+                HotTags::get_global_hot_tags(0, 40, 10, 0, Utc::now().timestamp_millis(), None)
+                    .await
+                    .unwrap();
             criterion::black_box(stream_tag);
         });
     });
