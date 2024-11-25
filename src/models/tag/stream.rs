@@ -3,6 +3,7 @@ use axum::async_trait;
 use neo4rs::Query;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use std::fmt::Display;
 use std::ops::Deref;
 use utoipa::ToSchema;
 
@@ -45,11 +46,20 @@ pub enum TaggedType {
     User,
 }
 
-impl ToString for TaggedType {
-    fn to_string(&self) -> String {
+pub struct HotTagsInput {
+    pub from: i64,
+    pub to: i64,
+    pub skip: usize,
+    pub limit: usize,
+    pub taggers_limit: usize,
+    pub tagged_type: Option<TaggedType>,
+}
+
+impl Display for TaggedType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TaggedType::Post => String::from("Post"),
-            TaggedType::User => String::from("User"),
+            TaggedType::Post => write!(f, "Post"),
+            TaggedType::User => write!(f, "User"),
         }
     }
 }
@@ -143,33 +153,18 @@ impl HotTags {
         Ok(())
     }
 
-    pub async fn get_global_hot_tags(
-        skip: usize,
-        limit: usize,
-        taggers_limit: usize,
-        from: i64,
-        to: i64,
-        tagged_type: Option<TaggedType>,
-    ) -> Result<Option<Self>, DynError> {
-        let query =
-            queries::get::get_global_hot_tags(from, to, skip, limit, taggers_limit, tagged_type);
+    pub async fn get_global_hot_tags(tags_query: &HotTagsInput) -> Result<Option<Self>, DynError> {
+        let query = queries::get::get_global_hot_tags(tags_query);
         retrieve_from_graph::<HotTags>(query, "hot_tags").await
     }
 
     pub async fn get_hot_tags_by_reach(
         user_id: String,
         reach: TagStreamReach,
-        skip: usize,
-        limit: usize,
-        max_taggers: usize,
+        tags_query: &HotTagsInput,
     ) -> Result<Option<HotTags>, DynError> {
-        let query = queries::get::get_hot_tags_by_reach(
-            &user_id,
-            reach.to_graph_subquery(),
-            skip,
-            limit,
-            max_taggers,
-        );
+        let query =
+            queries::get::get_hot_tags_by_reach(&user_id, reach.to_graph_subquery(), tags_query);
         retrieve_from_graph::<HotTags>(query, "hot_tags").await
     }
 }

@@ -1,5 +1,7 @@
 use crate::models::tag::global::TagGlobal;
-use crate::models::tag::stream::{HotTag, HotTags, TagStreamReach, TaggedType, Taggers};
+use crate::models::tag::stream::{
+    HotTag, HotTags, HotTagsInput, TagStreamReach, TaggedType, Taggers,
+};
 use crate::routes::v0::endpoints::{HOT_TAGS_BY_REACH_ROUTE, HOT_TAGS_ROUTE, TAG_TAGGERS_ROUTE};
 use crate::types::Pagination;
 use crate::{Error, Result};
@@ -10,9 +12,9 @@ use log::{error, info};
 use serde::Deserialize;
 use utoipa::OpenApi;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct HotTagsQuery {
-    max_taggers: Option<usize>,
+    taggers_limit: Option<usize>,
     from: Option<i64>,
     to: Option<i64>,
     tagged_type: Option<TaggedType>,
@@ -24,7 +26,7 @@ pub struct HotTagsQuery {
     get,
     path = HOT_TAGS_ROUTE,
     params(
-        ("max_taggers" = Option<usize>, Query, description = "Retrieve N user_id for each tag"),
+        ("taggers_limit" = Option<usize>, Query, description = "Retrieve N user_id for each tag"),
         ("skip" = Option<usize>, Query, description = "Skip N tags"),
         ("limit" = Option<usize>, Query, description = "Retrieve N tag"),
         ("from" = Option<i64>, Query, description = "Retrieve hot tags from this timestamp"),
@@ -41,18 +43,27 @@ pub struct HotTagsQuery {
 )]
 pub async fn hot_tags_handler(Query(query): Query<HotTagsQuery>) -> Result<Json<HotTags>> {
     info!(
-        "GET {HOT_TAGS_ROUTE} skip:{:?}, limit:{:?}, max_tagger: {:?}",
-        query.pagination.skip, query.pagination.limit, query.max_taggers
+        "GET {HOT_TAGS_ROUTE} skip:{:?}, limit:{:?}, taggers_limit: {:?}, tagged_type: {:?}, from: {:?}, to: {:?}",
+        query.pagination.skip, query.pagination.limit, query.taggers_limit, query.tagged_type, query.from, query.to
     );
 
     let skip = query.pagination.skip.unwrap_or(0);
     let limit = query.pagination.limit.unwrap_or(40);
-    let max_taggers = query.max_taggers.unwrap_or(20);
+    let taggers_limit = query.taggers_limit.unwrap_or(20);
     let from = query.from.unwrap_or(0);
     let to = query.to.unwrap_or(Utc::now().timestamp_millis());
     let tagged_type = query.tagged_type;
 
-    match HotTags::get_global_hot_tags(skip, limit, max_taggers, from, to, tagged_type).await {
+    let input = HotTagsInput {
+        from,
+        to,
+        skip,
+        limit,
+        taggers_limit,
+        tagged_type,
+    };
+
+    match HotTags::get_global_hot_tags(&input).await {
         Ok(Some(hot_tags)) => Ok(Json(hot_tags)),
         Ok(None) => Err(Error::TagsNotFound {
             reach: String::from("GLOBAL"),
@@ -107,13 +118,6 @@ pub async fn tag_taggers_handler(
     }
 }
 
-#[derive(Deserialize, Debug)]
-pub struct TagsByReachQuery {
-    skip: Option<usize>,
-    limit: Option<usize>,
-    max_taggers: Option<usize>,
-}
-
 #[derive(Deserialize)]
 pub struct TagsByReachPath {
     user_id: String,
@@ -127,9 +131,12 @@ pub struct TagsByReachPath {
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
         ("reach" = TagStreamReach, Path, description = "Reach type: Follower | Following | Friends"),
+        ("taggers_limit" = Option<usize>, Query, description = "Retrieve N user_id for each tag"),
         ("skip" = Option<usize>, Query, description = "Skip N tags"),
         ("limit" = Option<usize>, Query, description = "Retrieve N tag"),
-        ("max_taggers" = Option<usize>, Query, description = "Retrieve N user_id for each tag")
+        ("from" = Option<i64>, Query, description = "Retrieve hot tags from this timestamp"),
+        ("to" = Option<i64>, Query, description = "Retrieve hot tags up to this timestamp"),
+        ("tagged_type" = Option<TaggedType>, Query, description = "Retrieve hot tags by the type of entities tagged with it"),
     ),
     responses(
         (status = 200, description = "Retrieve tags by reach cluster", body = Vec<HotTag>),
@@ -139,7 +146,7 @@ pub struct TagsByReachPath {
 )]
 pub async fn tags_by_reach_handler(
     Path(path): Path<TagsByReachPath>,
-    Query(query): Query<TagsByReachQuery>,
+    Query(query): Query<HotTagsQuery>,
 ) -> Result<Json<HotTags>> {
     info!(
         "GET {HOT_TAGS_BY_REACH_ROUTE} user_id: {:?}, reach: {:?}, query: {:?}",
@@ -149,11 +156,23 @@ pub async fn tags_by_reach_handler(
     let reach = path.reach.unwrap_or(TagStreamReach::Following);
     let user_id = path.user_id;
 
-    let skip = query.skip.unwrap_or(0);
-    let limit = query.limit.unwrap_or(20);
-    let max_taggers = query.max_taggers.unwrap_or(20);
+    let skip = query.pagination.skip.unwrap_or(0);
+    let limit = query.pagination.limit.unwrap_or(40);
+    let taggers_limit = query.taggers_limit.unwrap_or(20);
+    let from = query.from.unwrap_or(0);
+    let to = query.to.unwrap_or(Utc::now().timestamp_millis());
+    let tagged_type = query.tagged_type;
 
-    match HotTags::get_hot_tags_by_reach(user_id, reach, skip, limit, max_taggers).await {
+    let input = HotTagsInput {
+        from,
+        to,
+        skip,
+        limit,
+        taggers_limit,
+        tagged_type,
+    };
+
+    match HotTags::get_hot_tags_by_reach(user_id, reach, &input).await {
         Ok(Some(hot_tags)) => Ok(Json(hot_tags)),
         Ok(None) => Ok(Json(HotTags(vec![]))),
         Err(source) => {

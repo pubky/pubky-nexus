@@ -2,7 +2,7 @@ use neo4rs::{query, Query};
 
 use crate::models::post::StreamSource;
 use crate::models::pubky_app::PostKind;
-use crate::models::tag::stream::TaggedType;
+use crate::models::tag::stream::HotTagsInput;
 use crate::types::Pagination;
 use crate::types::StreamSorting;
 
@@ -396,16 +396,18 @@ pub fn get_tag_taggers_by_reach(
 pub fn get_hot_tags_by_reach(
     user_id: &str,
     reach_subquery: String,
-    skip: usize,
-    limit: usize,
-    max_taggers: usize,
+    tags_query: &HotTagsInput,
 ) -> Query {
+    let input_tagged_type = match &tags_query.tagged_type {
+        Some(tagged_type) => tagged_type.to_string(),
+        None => String::from("Post|User"),
+    };
     query(
         format!(
             "
         {}
-        MATCH (reach)-[tag:TAGGED]->(tagged)
-        WHERE user.id = $user_id
+        MATCH (reach)-[tag:TAGGED]->(tagged:{})
+        WHERE user.id = $user_id AND tag.indexed_at >= $from AND tag.indexed_at < $to
         WITH 
             tag.label AS label,
             COLLECT(DISTINCT reach.id)[..{}] AS taggers,
@@ -421,25 +423,20 @@ pub fn get_hot_tags_by_reach(
         SKIP $skip LIMIT $limit
         RETURN COLLECT(hot_tag) as hot_tags
     ",
-            reach_subquery, max_taggers
+            reach_subquery, input_tagged_type, tags_query.taggers_limit
         )
         .as_str(),
     )
     .param("user_id", user_id)
-    .param("skip", skip as i64)
-    .param("limit", limit as i64)
+    .param("skip", tags_query.skip as i64)
+    .param("limit", tags_query.limit as i64)
+    .param("from", tags_query.from)
+    .param("to", tags_query.to)
 }
 
-pub fn get_global_hot_tags(
-    from: i64,
-    to: i64,
-    skip: usize,
-    limit: usize,
-    max_taggers: usize,
-    tagged_type: Option<TaggedType>,
-) -> Query {
-    let input_tagged_type = match tagged_type {
-        Some(tagged_type) => format!("{}", tagged_type.to_string()),
+pub fn get_global_hot_tags(tags_query: &HotTagsInput) -> Query {
+    let input_tagged_type = match &tags_query.tagged_type {
+        Some(tagged_type) => tagged_type.to_string(),
         None => String::from("Post|User"),
     };
     query(
@@ -462,14 +459,14 @@ pub fn get_global_hot_tags(
         SKIP $skip LIMIT $limit
         RETURN COLLECT(hot_tag) as hot_tags
     ",
-            input_tagged_type, max_taggers
+            input_tagged_type, tags_query.taggers_limit
         )
         .as_str(),
     )
-    .param("skip", skip as i64)
-    .param("limit", limit as i64)
-    .param("from", from)
-    .param("to", to)
+    .param("skip", tags_query.skip as i64)
+    .param("limit", tags_query.limit as i64)
+    .param("from", tags_query.from)
+    .param("to", tags_query.to)
 }
 
 pub fn get_thread(
