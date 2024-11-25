@@ -17,6 +17,7 @@ pub struct UserStreamQuery {
     skip: Option<usize>,
     limit: Option<usize>,
     source: Option<UserStreamSource>,
+    depth: Option<u8>,
 }
 
 #[utoipa::path(
@@ -29,7 +30,8 @@ pub struct UserStreamQuery {
         ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
         ("skip" = Option<usize>, Query, description = "Skip N followers"),
         ("limit" = Option<usize>, Query, description = "Retrieve N followers"),
-        ("source" = Option<UserStreamSource>, Query, description = "Source of users for the stream.")
+        ("source" = Option<UserStreamSource>, Query, description = "Source of users for the stream."),
+        ("depth" = Option<usize>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 4, will be ignored")
     ),
     responses(
         (status = 200, description = "Users stream", body = UserStream),
@@ -90,6 +92,7 @@ pub async fn stream_users_handler(
         Some(skip),
         Some(limit),
         source.clone(),
+        query.depth,
     )
     .await
     {
@@ -172,6 +175,7 @@ pub async fn stream_username_search_handler(
 pub struct UserStreamByIdsRequest {
     pub user_ids: Vec<String>,
     pub viewer_id: Option<String>,
+    depth: Option<u8>,
 }
 #[utoipa::path(
     post,
@@ -179,6 +183,11 @@ pub struct UserStreamByIdsRequest {
     tag = "Stream",
     description = "Stream users by ID",
     request_body = UserStreamByIdsRequest,
+    params(
+        ("user_ids" = Vec<String>, Path, description = "Users Pubky ID array"),
+        ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
+        ("depth" = Option<usize>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 4, will be ignored")
+    ),
     responses(
         (status = 200, description = "Users stream", body = UserStream),
         (status = 404, description = "Users not found"),
@@ -207,7 +216,13 @@ pub async fn stream_users_by_ids_handler(
         });
     }
 
-    match UserStream::from_listed_user_ids(&request.user_ids, request.viewer_id.as_deref()).await {
+    match UserStream::from_listed_user_ids(
+        &request.user_ids,
+        request.viewer_id.as_deref(),
+        request.depth,
+    )
+    .await
+    {
         Ok(Some(stream)) => Ok(Json(stream)),
         Ok(None) => Err(Error::EmptyStream {
             message: format!(

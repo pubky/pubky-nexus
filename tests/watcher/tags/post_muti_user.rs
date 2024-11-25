@@ -141,7 +141,7 @@ async fn test_homeserver_multi_user() -> Result<()> {
 
     // CACHE_OP: Check if the tag is correctly cached
     let cache_post_tag =
-        <TagPost as TagCollection>::get_from_index(author_id, Some(&post_id), None, None)
+        <TagPost as TagCollection>::get_from_index(author_id, Some(&post_id), None, None, false)
             .await
             .unwrap();
 
@@ -249,7 +249,7 @@ async fn test_homeserver_multi_user() -> Result<()> {
     // - Post:Taggers:author_id:post_id:label
     // - Sorted:Posts:Tag:author_id:post_id
     let cache_post_tag =
-        <TagPost as TagCollection>::get_from_index(author_id, Some(&post_id), None, None)
+        <TagPost as TagCollection>::get_from_index(author_id, Some(&post_id), None, None, false)
             .await
             .expect("Failed to get tag from cache");
     assert!(

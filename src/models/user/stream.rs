@@ -35,10 +35,11 @@ impl UserStream {
         skip: Option<usize>,
         limit: Option<usize>,
         source: UserStreamSource,
+        depth: Option<u8>,
     ) -> Result<Option<Self>, DynError> {
         let user_ids = Self::get_user_list_from_source(user_id, source, skip, limit).await?;
         match user_ids {
-            Some(users) => Self::from_listed_user_ids(&users, viewer_id).await,
+            Some(users) => Self::from_listed_user_ids(&users, viewer_id, depth).await,
             None => Ok(None),
         }
     }
@@ -54,7 +55,7 @@ impl UserStream {
             .map(|result| result.0);
 
         match user_ids {
-            Some(users) => Self::from_listed_user_ids(&users, viewer_id).await,
+            Some(users) => Self::from_listed_user_ids(&users, viewer_id, None).await,
             None => Ok(None),
         }
     }
@@ -62,6 +63,7 @@ impl UserStream {
     pub async fn from_listed_user_ids(
         user_ids: &[String],
         viewer_id: Option<&str>,
+        depth: Option<u8>,
     ) -> Result<Option<Self>, DynError> {
         // TODO: potentially we could use a new redis_com.mget() with a single call to retrieve all
         // user details at once and build the user profiles on the fly.
@@ -74,7 +76,7 @@ impl UserStream {
             let viewer_id = viewer_id.clone();
             let handle =
                 spawn(
-                    async move { UserView::get_by_id(&user_id, viewer_id.as_deref(), None).await },
+                    async move { UserView::get_by_id(&user_id, viewer_id.as_deref(), depth).await },
                 );
             handles.push(handle);
         }
