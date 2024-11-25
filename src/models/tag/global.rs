@@ -1,6 +1,7 @@
 use super::stream::{TagStreamReach, Taggers};
+use crate::db::graph::exec::retrieve_from_graph;
 use crate::types::DynError;
-use crate::{get_neo4j_graph, queries, RedisOps};
+use crate::{queries, RedisOps};
 
 pub struct TagGlobal {}
 
@@ -34,9 +35,6 @@ pub async fn get_tag_taggers_by_reach(
     skip: Option<usize>,
     limit: Option<usize>,
 ) -> Result<Option<Vec<String>>, DynError> {
-    let graph = get_neo4j_graph()?;
-    let graph = graph.lock().await;
-
     let query = queries::get::get_tag_taggers_by_reach(
         label,
         user_id,
@@ -44,14 +42,5 @@ pub async fn get_tag_taggers_by_reach(
         skip,
         limit,
     );
-    let mut result = graph.execute(query).await?;
-
-    let mut tagger_ids: Vec<String> = vec![];
-    while let Some(row) = result.next().await? {
-        if let Some(id) = row.get("id")? {
-            tagger_ids.push(id)
-        };
-    }
-
-    Ok(Some(tagger_ids))
+    retrieve_from_graph::<Vec<String>>(query, "tagger_ids").await
 }

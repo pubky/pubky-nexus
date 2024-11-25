@@ -109,8 +109,8 @@ async fn test_hot_tags_by_following_reach() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_hot_tags_by_following_max_taggers() -> Result<()> {
-    let endpoint = &format!("/v0/tags/hot/{}/following?max_taggers=3", PEER_PUBKY,);
+async fn test_hot_tags_by_following_using_taggers_limit() -> Result<()> {
+    let endpoint = &format!("/v0/tags/hot/{}/following?taggers_limit=3", PEER_PUBKY,);
 
     let body = make_request(endpoint).await?;
     assert!(body.is_array());

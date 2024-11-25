@@ -1,7 +1,6 @@
+use crate::db::graph::exec::retrieve_from_graph;
 use crate::types::DynError;
 use axum::async_trait;
-use neo4rs::Query;
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use std::ops::Deref;
@@ -167,25 +166,4 @@ impl HotTags {
             queries::get::get_hot_tags_by_reach(&user_id, reach.to_graph_subquery(), tags_query);
         retrieve_from_graph::<HotTags>(query, "hot_tags").await
     }
-}
-
-// Generic function to retrieve data from Neo4J
-async fn retrieve_from_graph<T>(query: Query, key: &str) -> Result<Option<T>, DynError>
-where
-    // Key point: DeserializeOwned ensures we can deserialize into any type that implements it
-    T: DeserializeOwned + Send + Sync,
-{
-    let mut result;
-    {
-        let graph = get_neo4j_graph()?;
-        let graph = graph.lock().await;
-        result = graph.execute(query).await?;
-    }
-
-    if let Some(row) = result.next().await? {
-        let data: T = row.get(key)?;
-        return Ok(Some(data));
-    }
-
-    Ok(None)
 }

@@ -379,9 +379,9 @@ pub fn get_tag_taggers_by_reach(
             MATCH (reach)-[tag:TAGGED]->()
             WHERE user.id = $user_id AND tag.label = $label
             WITH reach, MAX(tag.indexed_at) AS tag_time
-            RETURN reach.id AS id
             ORDER BY tag_time DESC
             SKIP $skip LIMIT $limit
+            RETURN COLLECT(reach.id) as tagger_ids
             ",
             reach_subquery
         )
