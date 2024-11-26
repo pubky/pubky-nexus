@@ -2,6 +2,8 @@ use crate::types::{DynError, Pagination};
 use crate::RedisOps;
 use axum::async_trait;
 
+use super::collection::CACHE_SET_PREFIX;
+
 // TODO: There is another struct with the same name. model/tag/stream
 pub type Taggers = Vec<String>;
 
@@ -25,21 +27,34 @@ where
         extra_param: Option<&str>,
         label: &str,
         pagination: Pagination,
+        viewer_id: Option<String>,
+        depth: Option<u8>,
     ) -> Result<Option<Taggers>, DynError> {
         // Set default params for pagination
         let skip = pagination.skip.unwrap_or(0);
         let limit = pagination.limit.unwrap_or(40);
+        let mut prefix = None;
+        let key_parts;
+        // Get WoT tags. If we do not first hit the graph using `TagUser::get_by_id` function
+        // for example using, user/{user_id}/tags?viewer_id={viewer_id}&depth={distance} endpoint
+        // we get empty array because it was not cached the WoT tags
+        if viewer_id.is_some() && depth.is_some() && extra_param.is_none(){
+            prefix = Some(CACHE_SET_PREFIX.to_string());
+            key_parts = Self::create_label_index(user_id, viewer_id.as_deref(), label, true);
+        } else {
+            key_parts = Self::create_label_index(user_id, extra_param, label, false);
+        }
 
-        let key_parts = Self::create_label_index(user_id, extra_param, label);
-        Self::get_from_index(key_parts, Some(skip), Some(limit)).await
+        Self::get_from_index(key_parts, Some(skip), Some(limit), prefix).await
     }
 
     async fn get_from_index(
         key_parts: Vec<&str>,
         skip: Option<usize>,
         limit: Option<usize>,
+        prefix: Option<String>,
     ) -> Result<Option<Taggers>, DynError> {
-        Ok(Self::try_from_index_set(&key_parts, skip, limit).await?)
+        Ok(Self::try_from_index_set(&key_parts, skip, limit, prefix).await?)
     }
 
     /// Constructs an index key based on user key, an optional extra parameter and a tag label.
@@ -53,9 +68,13 @@ where
         user_id: &'a str,
         extra_param: Option<&'a str>,
         label: &'a str,
+        is_cache: bool
     ) -> Vec<&'a str> {
         match extra_param {
-            Some(extra_id) => vec![user_id, extra_id, label],
+            Some(extra_id) => match is_cache {
+                true => vec![extra_id, user_id, label],
+                false => vec![user_id, extra_id, label]
+            },
             None => vec![user_id, label],
         }
     }

@@ -341,10 +341,14 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         key_parts: &[&str],
         skip: Option<usize>,
         limit: Option<usize>,
+        prefix: Option<String>,
     ) -> Result<Option<Vec<String>>, DynError> {
-        let prefix = Self::prefix().await;
+        let combined_prefix = match prefix {
+            Some(p) => format!("{}:{}", p, Self::prefix().await),
+            None => Self::prefix().await,
+        };
         let key = key_parts.join(":");
-        sets::get_range(&prefix, &key, skip, limit).await
+        sets::get_range(&combined_prefix, &key, skip, limit).await
     }
 
     /// Checks if a member exists in a Redis set and if the set exists using the provided key parts.

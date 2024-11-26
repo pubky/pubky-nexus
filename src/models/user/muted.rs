@@ -47,7 +47,7 @@ impl Muted {
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Option<Vec<String>>, DynError> {
-        Self::try_from_index_set(&[user_id], skip, limit).await
+        Self::try_from_index_set(&[user_id], skip, limit, None).await
     }
 
     async fn get_from_graph(

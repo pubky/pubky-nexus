@@ -14,7 +14,7 @@ use crate::{
 use crate::models::tag::TagDetails;
 
 const CACHE_SORTED_SET_PREFIX: &str = "Cache:Sorted";
-const CACHE_SET_PREFIX: &str = "Cache";
+pub const CACHE_SET_PREFIX: &str = "Cache";
 // Minutes
 const CACHE_TTL: i64 = 180;
 

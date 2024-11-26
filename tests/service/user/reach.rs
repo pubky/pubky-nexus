@@ -1,6 +1,5 @@
 use anyhow::Result;
-
-const HOST_URL: &str = "http://localhost:8080";
+use crate::service::utils::HOST_URL;
 
 #[tokio::test]
 async fn test_get_followers() -> Result<()> {
