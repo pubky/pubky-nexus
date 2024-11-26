@@ -1,9 +1,9 @@
 use pubky_nexus::routes::v0::endpoints;
 
-pub mod kind;
 pub mod author;
 pub mod author_replies;
 pub mod bookmarks;
+pub mod kind;
 pub mod post_replies;
 pub mod posts;
 pub mod tags;

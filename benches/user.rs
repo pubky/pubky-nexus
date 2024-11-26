@@ -51,7 +51,9 @@ fn bench_get_full_by_id(c: &mut Criterion) {
         &user_id,
         |b, &id| {
             b.to_async(&rt).iter(|| async {
-                let user = UserView::get_by_id(id, Some(viewer_id)).await.unwrap();
+                let user = UserView::get_by_id(id, Some(viewer_id), None)
+                    .await
+                    .unwrap();
                 criterion::black_box(user);
             });
         },

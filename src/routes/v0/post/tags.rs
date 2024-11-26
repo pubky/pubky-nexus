@@ -78,7 +78,8 @@ pub async fn post_taggers_handler(
         "GET {POST_TAGGERS_ROUTE} user_id:{}, post_id: {}, label: {}, skip:{:?}, limit:{:?}",
         user_id, post_id, label, pagination.skip, pagination.limit
     );
-    match TagPost::get_tagger_by_id(&user_id, Some(&post_id), &label, pagination, None, None).await {
+    match TagPost::get_tagger_by_id(&user_id, Some(&post_id), &label, pagination, None, None).await
+    {
         Ok(Some(tags)) => Ok(Json(tags)),
         Ok(None) => Err(Error::UserNotFound { user_id }),
         Err(source) => Err(Error::InternalServerError { source }),

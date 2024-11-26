@@ -1,7 +1,7 @@
+use super::utils::{analyse_tag_details_structure, compare_tag_details, TagMockup};
+use crate::service::utils::{make_request, make_wrong_request};
 use anyhow::Result;
 use serde_json::Value;
-use crate::service::utils::{make_request, make_wrong_request};
-use super::utils::{analyse_tag_details_structure, compare_tag_details, TagMockup};
 
 // ##### WoT user tags ####
 // We need to run all the test sequentially, if not there might be some inconsistency when we make concurrently the requests
@@ -19,11 +19,17 @@ const USER_C: &str = "cuimec4ngawamq8wa6fjzki6boxmwqcm11x6g7ontufrjwgdaxqo";
 #[tokio::test]
 async fn test_wot_user_tags_endpoint() -> Result<()> {
     // Make sure, we still not index the WoT tags
-    let path = format!("/v0/user/{}/taggers/{}?viewer_id={}&depth=2", AURELIO_USER, ATHENS_TAG, EPICTTO_VIEWER);
+    let path = format!(
+        "/v0/user/{}/taggers/{}?viewer_id={}&depth=2",
+        AURELIO_USER, ATHENS_TAG, EPICTTO_VIEWER
+    );
     make_wrong_request(&path, None).await?;
 
     // => Start indexing the WoT tags
-    let path = format!("/v0/user/{}/tags?viewer_id={}&depth=2", AURELIO_USER, EPICTTO_VIEWER);
+    let path = format!(
+        "/v0/user/{}/tags?viewer_id={}&depth=2",
+        AURELIO_USER, EPICTTO_VIEWER
+    );
     let body = make_request(&path).await?;
 
     assert!(body.is_array());
@@ -41,7 +47,10 @@ async fn test_wot_user_tags_endpoint() -> Result<()> {
     compare_tag_details(&tags[0], athens_hot_tag);
 
     // => test_wot_user_tags_endpoint_with_tag_limit
-    let path = format!("/v0/user/{}/tags?viewer_id={}&depth=2&limit_tags=1", AURELIO_USER, EPICTTO_VIEWER);
+    let path = format!(
+        "/v0/user/{}/tags?viewer_id={}&depth=2&limit_tags=1",
+        AURELIO_USER, EPICTTO_VIEWER
+    );
     let body = make_request(&path).await?;
 
     assert!(body.is_array());
@@ -57,7 +66,10 @@ async fn test_wot_user_tags_endpoint() -> Result<()> {
     compare_tag_details(&tags[0], athens_hot_tag);
 
     // => test_wot_user_tags_endpoint_with_tagger_limit
-    let path = format!("/v0/user/{}/tags?viewer_id={}&depth=2&limit_taggers=1", AURELIO_USER, EPICTTO_VIEWER);
+    let path = format!(
+        "/v0/user/{}/tags?viewer_id={}&depth=2&limit_taggers=1",
+        AURELIO_USER, EPICTTO_VIEWER
+    );
     let body = make_request(&path).await?;
 
     assert!(body.is_array());
@@ -75,7 +87,10 @@ async fn test_wot_user_tags_endpoint() -> Result<()> {
     compare_tag_details(&tags[0], athens_hot_tag);
 
     // => test_wot_user_tags_endpoint_with_tag_and_tagger_limit
-    let path = format!("/v0/user/{}/tags?viewer_id={}&depth=2&limit_tags=1&limit_taggers=1", AURELIO_USER, EPICTTO_VIEWER);
+    let path = format!(
+        "/v0/user/{}/tags?viewer_id={}&depth=2&limit_tags=1&limit_taggers=1",
+        AURELIO_USER, EPICTTO_VIEWER
+    );
     let body = make_request(&path).await?;
 
     assert!(body.is_array());
@@ -91,34 +106,40 @@ async fn test_wot_user_tags_endpoint() -> Result<()> {
     compare_tag_details(&tags[0], now_hot_tag);
 
     // => test_wot_user_label_taggers
-    let path = format!("/v0/user/{}/taggers/{}?viewer_id={}&depth=2", AURELIO_USER, ATHENS_TAG, EPICTTO_VIEWER);
+    let path = format!(
+        "/v0/user/{}/taggers/{}?viewer_id={}&depth=2",
+        AURELIO_USER, ATHENS_TAG, EPICTTO_VIEWER
+    );
     let body = make_request(&path).await?;
 
-    let mut mock_taggers= vec![USER_A, USER_B, USER_C];
+    let mut mock_taggers = vec![USER_A, USER_B, USER_C];
     verify_taggers_list(mock_taggers, body);
 
     // => test_wot_user_label_taggers_with_limit
-    let path = format!("/v0/user/{}/taggers/{}?viewer_id={}&depth=2&limit=2", AURELIO_USER, ATHENS_TAG, EPICTTO_VIEWER);
+    let path = format!(
+        "/v0/user/{}/taggers/{}?viewer_id={}&depth=2&limit=2",
+        AURELIO_USER, ATHENS_TAG, EPICTTO_VIEWER
+    );
     let body = make_request(&path).await?;
 
-    mock_taggers= vec![USER_A, USER_B];
+    mock_taggers = vec![USER_A, USER_B];
     verify_taggers_list(mock_taggers, body);
 
     // => test_wot_user_label_taggers_with_limit
-    let path = format!("/v0/user/{}/taggers/{}?viewer_id={}&depth=2&limit=1&skip=1", AURELIO_USER, ATHENS_TAG, EPICTTO_VIEWER);
+    let path = format!(
+        "/v0/user/{}/taggers/{}?viewer_id={}&depth=2&limit=1&skip=1",
+        AURELIO_USER, ATHENS_TAG, EPICTTO_VIEWER
+    );
     let body = make_request(&path).await?;
 
-    mock_taggers= vec![USER_B];
+    mock_taggers = vec![USER_B];
     verify_taggers_list(mock_taggers, body);
 
     Ok(())
 }
 
 fn verify_taggers_list(mock_taggers: Vec<&str>, body: Value) {
-    assert!(
-        body.is_array(),
-        "The response has to be an array of posts"
-    );
+    assert!(body.is_array(), "The response has to be an array of posts");
 
     let taggers = body.as_array().expect("Tag list should be an array");
     assert_eq!(taggers.len(), mock_taggers.len());

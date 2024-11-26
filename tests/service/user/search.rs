@@ -1,5 +1,5 @@
-use anyhow::Result;
 use crate::service::utils::HOST_URL;
+use anyhow::Result;
 
 #[tokio::test]
 async fn test_search_users_by_username() -> Result<()> {

@@ -23,6 +23,7 @@ pub fn bench_stream_following(c: &mut Criterion) {
                 None,
                 Some(20),
                 UserStreamSource::Pioneers,
+                None,
             )
             .await
             .unwrap();
@@ -42,10 +43,16 @@ pub fn bench_stream_most_followed(c: &mut Criterion) {
 
     c.bench_function("stream_most_followed", |b| {
         b.to_async(&rt).iter(|| async {
-            let user_stream =
-                UserStream::get_by_id(None, None, None, Some(20), UserStreamSource::MostFollowed)
-                    .await
-                    .unwrap();
+            let user_stream = UserStream::get_by_id(
+                None,
+                None,
+                None,
+                Some(20),
+                UserStreamSource::MostFollowed,
+                None,
+            )
+            .await
+            .unwrap();
             criterion::black_box(user_stream);
         });
     });
@@ -88,7 +95,7 @@ pub fn bench_stream_pioneers(c: &mut Criterion) {
     c.bench_function("stream_pioneers", |b| {
         b.to_async(&rt).iter(|| async {
             let user_stream =
-                UserStream::get_by_id(None, None, None, Some(20), UserStreamSource::Pioneers)
+                UserStream::get_by_id(None, None, None, Some(20), UserStreamSource::Pioneers, None)
                     .await
                     .unwrap();
             criterion::black_box(user_stream);

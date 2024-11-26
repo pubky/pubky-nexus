@@ -38,7 +38,7 @@ where
         // Get WoT tags. If we do not first hit the graph using `TagUser::get_by_id` function
         // for example using, user/{user_id}/tags?viewer_id={viewer_id}&depth={distance} endpoint
         // we get empty array because it was not cached the WoT tags
-        if viewer_id.is_some() && depth.is_some() && extra_param.is_none(){
+        if viewer_id.is_some() && depth.is_some() && extra_param.is_none() {
             prefix = Some(CACHE_SET_PREFIX.to_string());
             key_parts = Self::create_label_index(user_id, viewer_id.as_deref(), label, true);
         } else {
@@ -68,12 +68,12 @@ where
         user_id: &'a str,
         extra_param: Option<&'a str>,
         label: &'a str,
-        is_cache: bool
+        is_cache: bool,
     ) -> Vec<&'a str> {
         match extra_param {
             Some(extra_id) => match is_cache {
                 true => vec![extra_id, user_id, label],
-                false => vec![user_id, extra_id, label]
+                false => vec![user_id, extra_id, label],
             },
             None => vec![user_id, label],
         }
