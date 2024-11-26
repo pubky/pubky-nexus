@@ -1,12 +1,4 @@
 use crate::types::DynError;
-use axum::body::Bytes;
-use log::debug;
-use pubky::PubkyClient;
-use tokio::{
-    fs::{self, remove_file, File},
-    io::AsyncWriteExt,
-};
-
 use crate::types::PubkyId;
 use crate::{
     models::{
@@ -14,10 +6,17 @@ use crate::{
             details::{FileMeta, FileUrls},
             FileDetails,
         },
-        pubky_app::{traits::Validatable, PubkyAppFile},
         traits::Collection,
     },
     Config,
+};
+use axum::body::Bytes;
+use log::debug;
+use pubky::PubkyClient;
+use pubky_app_specs::{traits::Validatable, PubkyAppFile};
+use tokio::{
+    fs::{self, remove_file, File},
+    io::AsyncWriteExt,
 };
 
 pub async fn put(

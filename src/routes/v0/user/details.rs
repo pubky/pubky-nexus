@@ -1,4 +1,3 @@
-use crate::models::pubky_app::UserLink;
 use crate::models::user::UserDetails;
 use crate::routes::v0::endpoints::USER_DETAILS_ROUTE;
 use crate::types::PubkyId;
@@ -6,6 +5,7 @@ use crate::{Error, Result};
 use axum::extract::Path;
 use axum::Json;
 use log::info;
+use pubky_app_specs::UserLink;
 use utoipa::OpenApi;
 
 #[utoipa::path(

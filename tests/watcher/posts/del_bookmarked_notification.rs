@@ -1,11 +1,9 @@
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
+use pubky_app_specs::{traits::HashId, PostKind, PubkyAppBookmark, PubkyAppPost, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{
-    models::{
-        notification::{Notification, NotificationBody, PostChangedSource},
-        pubky_app::{traits::HashId, PostKind, PubkyAppBookmark, PubkyAppPost, PubkyAppUser},
-    },
+    models::notification::{Notification, NotificationBody, PostChangedSource},
     types::Pagination,
 };
 

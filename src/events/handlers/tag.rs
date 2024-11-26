@@ -2,8 +2,6 @@ use crate::db::kv::index::json::JsonAction;
 use crate::events::uri::ParsedUri;
 use crate::models::notification::Notification;
 use crate::models::post::{PostCounts, PostStream};
-use crate::models::pubky_app::traits::Validatable;
-use crate::models::pubky_app::PubkyAppTag;
 use crate::models::tag::post::TagPost;
 use crate::models::tag::search::TagSearch;
 use crate::models::tag::stream::Taggers;
@@ -16,6 +14,7 @@ use crate::ScoreAction;
 use axum::body::Bytes;
 use chrono::Utc;
 use log::debug;
+use pubky_app_specs::{traits::Validatable, PubkyAppTag};
 
 pub async fn put(tagger_id: PubkyId, tag_id: String, blob: Bytes) -> Result<(), DynError> {
     debug!("Indexing new tag: {} -> {}", tagger_id, tag_id);

@@ -1,6 +1,5 @@
 use super::UserSearch;
 use crate::db::graph::exec::exec_single_row;
-use crate::models::pubky_app::{PubkyAppUser, UserLink};
 use crate::models::traits::Collection;
 use crate::types::DynError;
 use crate::types::PubkyId;
@@ -8,6 +7,7 @@ use crate::{queries, RedisOps};
 use axum::async_trait;
 use chrono::Utc;
 use neo4rs::Query;
+use pubky_app_specs::{PubkyAppUser, UserLink};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json;
 use utoipa::ToSchema;

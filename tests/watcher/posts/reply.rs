@@ -5,12 +5,10 @@ use super::utils::{
 };
 use crate::watcher::{users::utils::find_user_counts, utils::WatcherTest};
 use anyhow::Result;
+use pubky_app_specs::{PostKind, PubkyAppPost, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{
-    models::{
-        post::{PostDetails, PostRelationships, PostStream},
-        pubky_app::{PostKind, PubkyAppPost, PubkyAppUser},
-    },
+    models::post::{PostDetails, PostRelationships, PostStream},
     RedisOps,
 };
 

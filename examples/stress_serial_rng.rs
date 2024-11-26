@@ -2,17 +2,15 @@ use anyhow::Result;
 use chrono::Utc;
 use pkarr::mainline::Testnet;
 use pubky::PubkyClient;
+use pubky_app_specs::{
+    traits::{HashId, TimestampId},
+    PostKind, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppTag, PubkyAppUser,
+};
 use pubky_common::{
     crypto::{Keypair, PublicKey},
     timestamp::Timestamp,
 };
-use pubky_nexus::{
-    models::pubky_app::{
-        traits::{HashId, TimestampId},
-        PostKind, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppTag, PubkyAppUser,
-    },
-    Config,
-};
+use pubky_nexus::Config;
 use rand::rngs::StdRng;
 use rand::{distributions::Alphanumeric, Rng, SeedableRng};
 use rand_distr::{Distribution, LogNormal};

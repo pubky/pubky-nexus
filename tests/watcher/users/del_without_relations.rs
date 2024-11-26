@@ -1,10 +1,8 @@
 use crate::watcher::{users::utils::find_user_details, utils::WatcherTest};
 use anyhow::Result;
+use pubky_app_specs::PubkyAppUser;
 use pubky_common::crypto::Keypair;
-use pubky_nexus::models::{
-    pubky_app::PubkyAppUser,
-    user::{UserCounts, UserView},
-};
+use pubky_nexus::models::user::{UserCounts, UserView};
 
 #[tokio::test]
 async fn test_delete_user_with_relationships() -> Result<()> {

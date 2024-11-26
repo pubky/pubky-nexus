@@ -1,9 +1,10 @@
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
+use pubky_app_specs::PubkyAppUser;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::notification::{Notification, NotificationBody};
 use pubky_nexus::models::user::Relationship;
-use pubky_nexus::models::{pubky_app::PubkyAppUser, user::UserCounts};
+use pubky_nexus::models::user::UserCounts;
 use pubky_nexus::types::Pagination;
 use pubky_nexus::RedisOps;
 

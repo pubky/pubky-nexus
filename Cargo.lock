@@ -2433,6 +2433,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "pubky-app-specs"
+version = "0.2.0"
+source = "git+https://github.com/pubky/pubky-app-specs?branch=main#e4bf4923038232154178a32e18bbd4ba6bb8fb92"
+dependencies = [
+ "axum",
+ "base32",
+ "blake3",
+ "chrono",
+ "pubky-common 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde",
+ "serde_json",
+ "url",
+ "utoipa",
+]
+
+[[package]]
 name = "pubky-common"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2492,6 +2508,7 @@ dependencies = [
  "once_cell",
  "pkarr 2.2.0",
  "pubky",
+ "pubky-app-specs",
  "pubky-common 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "pubky_homeserver",
  "rand",

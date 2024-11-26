@@ -2,8 +2,8 @@ use super::utils::{check_member_total_engagement_user_posts, find_post_counts};
 use crate::watcher::users::utils::find_user_counts;
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
+use pubky_app_specs::{PostEmbed, PostKind, PubkyAppPost, PubkyAppUser};
 use pubky_common::crypto::Keypair;
-use pubky_nexus::models::pubky_app::{PostEmbed, PostKind, PubkyAppPost, PubkyAppUser};
 
 #[tokio::test]
 async fn test_homeserver_reply_repost() -> Result<()> {

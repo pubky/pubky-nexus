@@ -1,8 +1,8 @@
 use crate::run_setup;
 use crate::streams_benches::LIMIT_20;
 use criterion::Criterion;
+use pubky_app_specs::PostKind;
 use pubky_nexus::models::post::{PostStream, StreamSource};
-use pubky_nexus::models::pubky_app::PostKind;
 use pubky_nexus::types::StreamSorting;
 use tokio::runtime::Runtime;
 

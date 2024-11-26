@@ -1,7 +1,7 @@
 use crate::watcher::{users::utils::check_member_user_pioneer, utils::WatcherTest};
 use anyhow::Result;
+use pubky_app_specs::{PostEmbed, PostKind, PubkyAppPost, PubkyAppUser};
 use pubky_common::crypto::Keypair;
-use pubky_nexus::models::pubky_app::{PostEmbed, PostKind, PubkyAppPost, PubkyAppUser};
 
 #[tokio::test]
 async fn test_homeserver_post_pioneer() -> Result<()> {

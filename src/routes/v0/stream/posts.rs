@@ -1,4 +1,3 @@
-use crate::models::pubky_app::PostKind;
 use crate::routes::v0::endpoints::STREAM_POSTS_ROUTE;
 use crate::types::StreamSorting;
 use crate::{
@@ -8,6 +7,7 @@ use crate::{
 use crate::{Error, Result as AppResult};
 use axum::{extract::Query, Json};
 use log::info;
+use pubky_app_specs::PostKind;
 use serde::{Deserialize, Deserializer};
 use utoipa::{OpenApi, ToSchema};
 

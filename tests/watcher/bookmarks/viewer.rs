@@ -1,11 +1,9 @@
 use super::utils::find_post_bookmark;
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
+use pubky_app_specs::{traits::HashId, PubkyAppBookmark, PubkyAppPost, PubkyAppUser};
 use pubky_common::crypto::Keypair;
-use pubky_nexus::models::{
-    post::PostStream,
-    pubky_app::{traits::HashId, PubkyAppBookmark, PubkyAppPost, PubkyAppUser},
-};
+use pubky_nexus::models::post::PostStream;
 
 #[tokio::test]
 async fn test_homeserver_viewer_bookmark() -> Result<()> {

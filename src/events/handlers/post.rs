@@ -2,19 +2,18 @@ use crate::db::graph::exec::{exec_boolean_row, exec_single_row};
 use crate::db::kv::index::json::JsonAction;
 use crate::events::uri::ParsedUri;
 use crate::models::notification::{Notification, PostChangedSource, PostChangedType};
+use crate::models::post::PostDetails;
 use crate::models::post::{
     PostCounts, PostRelationships, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS,
 };
-use crate::models::pubky_app::traits::Validatable;
-use crate::models::pubky_app::PostKind;
 use crate::models::user::UserCounts;
-use crate::models::{post::PostDetails, pubky_app::PubkyAppPost};
 use crate::queries::get::post_is_safe_to_delete;
 use crate::types::DynError;
 use crate::types::PubkyId;
 use crate::{queries, RedisOps, ScoreAction};
 use axum::body::Bytes;
 use log::debug;
+use pubky_app_specs::{traits::Validatable, PostKind, PubkyAppPost};
 
 pub async fn put(author_id: PubkyId, post_id: String, blob: Bytes) -> Result<(), DynError> {
     // Process Post resource and update the databases
