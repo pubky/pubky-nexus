@@ -33,7 +33,8 @@ pub struct HotTagsQuery {
         ("to" = Option<i64>, Query, description = "Retrieve hot tags up to this timestamp"),
         ("tagged_type" = Option<TaggedType>, Query, description = "Retrieve hot tags by the type of entities tagged with it"),
     ),
-    tag = "Global hot Tags",
+    tag = "Tags",
+    description = "Global hot Tags",
     responses(
         // TODO: Add hot tags
         (status = 200, description = "Retrieve hot tags", body = Vec<HotTag>),
@@ -82,7 +83,8 @@ pub struct TagTaggersQuery {
 #[utoipa::path(
     get,
     path = TAG_TAGGERS_ROUTE,
-    tag = "Tag Taggers",
+    description = "Global tag Taggers",
+    tag = "Tags",
     params(
         ("label" = String, Path, description = "Tag name"),
         ("reach" = TagStreamReach, Path, description = "Reach type: Follower | Following | Friends"),
@@ -122,7 +124,8 @@ pub struct TagsByReachPath {
 #[utoipa::path(
     get,
     path = HOT_TAGS_BY_REACH_ROUTE,
-    tag = "Hot Tags by reach",
+    description = "Global Tags by reach",
+    tag = "Tags",
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
         ("reach" = TagStreamReach, Path, description = "Reach type: Follower | Following | Friends"),

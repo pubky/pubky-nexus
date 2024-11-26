@@ -467,36 +467,6 @@ pub fn get_global_hot_tags(tags_query: &HotTagsInput) -> Query {
     .param("to", tags_query.to)
 }
 
-pub fn get_thread(
-    author_id: &str,
-    post_id: &str,
-    depth: usize,
-    skip: usize,
-    limit: usize,
-) -> Query {
-    let query_string = format!(
-        "
-        MATCH (u:User {{id: $author_id}})-[:AUTHORED]->(p:Post {{id: $post_id}})
-        CALL {{
-            WITH p
-            // Recursively get all replies and their authors
-            MATCH (reply_author:User)-[:AUTHORED]->(reply:Post)-[:REPLIED*1..{}]->(p)
-            RETURN reply, reply_author
-            ORDER BY reply.indexed_at ASC
-            SKIP $skip 
-            LIMIT $limit
-        }}
-        RETURN collect({{reply_id: reply.id, author_id: reply_author.id}}) AS replies
-        ",
-        depth
-    );
-    query(&query_string)
-        .param("author_id", author_id)
-        .param("post_id", post_id)
-        .param("skip", skip as i64)
-        .param("limit", limit as i64)
-}
-
 pub fn get_files_by_ids(key_pair: &[&[&str]]) -> Query {
     query(
         "
@@ -756,4 +726,23 @@ pub fn post_is_safe_to_delete(author_id: &str, post_id: &str) -> Query {
     )
     .param("author_id", author_id)
     .param("post_id", post_id)
+}
+
+pub fn recommend_users(user_id: &str, limit: usize) -> neo4rs::Query {
+    query(
+        "
+        MATCH (user:User {id: $user_id})
+        MATCH (user)-[:FOLLOWS*1..3]->(potential:User)
+        WHERE NOT (user)-[:FOLLOWS]->(potential)
+        AND potential.id <> $user_id
+        WITH DISTINCT potential
+        MATCH (potential)-[:AUTHORED]->(post:Post)
+        WITH potential, COUNT(post) AS post_count
+        WHERE post_count >= 5
+        RETURN potential.id AS recommended_user_id
+        LIMIT $limit
+    ",
+    )
+    .param("user_id", user_id.to_string())
+    .param("limit", limit as i64)
 }
