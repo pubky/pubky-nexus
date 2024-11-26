@@ -90,9 +90,34 @@ async fn test_user_tags_full_filter_active() -> Result<()> {
 
 // ##### WoT user tags ####
 
+const AURELIO_USER: &str = "c4yotzcb76d31y44jsymtdcowqg7oyqej46jty3yy7ybtzt9x41o";
+const EPICTTO_VIEWER: &str = "bbkdkhm97pytrb785rdpornkjpcxi331hpq446ckn6rhb4abiguy";
+
 #[tokio::test]
-async fn test_user_wot_tags() -> Result<()> {
-    let path = format!("/v0/user/{}/tags?limit_tags=1&limit_taggers=1", PUBKY_PEER);
+async fn test_wot_user_tags_endpoint() -> Result<()> {
+    let path = format!("/v0/user/{}/tags?viewer_id={}&depth=2", AURELIO_USER, EPICTTO_VIEWER);
+    let body = make_request(&path).await?;
+
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Tag list should be an array");
+    assert_eq!(tags.len(), 2);
+
+    // Validate that the posts belong to the specified user's bookmarks
+    analyse_tag_details_structure(tags);
+
+    // // Analyse the tag that is in the 4th index
+    let now_hot_tag = TagMockup::new(String::from("now"), 2, 2);
+    let athens_hot_tag = TagMockup::new(String::from("athens"), 2, 2);
+    compare_tag_details(&tags[0], now_hot_tag);
+    compare_tag_details(&tags[1], athens_hot_tag);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_wot_user_tags_endpoint_with_tag_limit() -> Result<()> {
+    let path = format!("/v0/user/{}/tags?viewer_id={}&depth=2&limit_tags=1", AURELIO_USER, EPICTTO_VIEWER);
     let body = make_request(&path).await?;
 
     assert!(body.is_array());
@@ -104,8 +129,50 @@ async fn test_user_wot_tags() -> Result<()> {
     analyse_tag_details_structure(tags);
 
     // // Analyse the tag that is in the 4th index
-    let hot_tag = TagMockup::new(String::from("pubky"), 1, 3);
-    compare_tag_details(&tags[0], hot_tag);
+    let now_hot_tag = TagMockup::new(String::from("now"), 2, 2);
+    compare_tag_details(&tags[0], now_hot_tag);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_wot_user_tags_endpoint_with_tagger_limit() -> Result<()> {
+    let path = format!("/v0/user/{}/tags?viewer_id={}&depth=2&limit_taggers=1", AURELIO_USER, EPICTTO_VIEWER);
+    let body = make_request(&path).await?;
+
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Tag list should be an array");
+    assert_eq!(tags.len(), 2);
+
+    // Validate that the posts belong to the specified user's bookmarks
+    analyse_tag_details_structure(tags);
+
+    // // Analyse the tag that is in the 4th index
+    let now_hot_tag = TagMockup::new(String::from("now"), 1, 2);
+    let athens_hot_tag = TagMockup::new(String::from("athens"), 1, 2);
+    compare_tag_details(&tags[0], now_hot_tag);
+    compare_tag_details(&tags[1], athens_hot_tag);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_wot_user_tags_endpoint_with_tag_and_tagger_limit() -> Result<()> {
+    let path = format!("/v0/user/{}/tags?viewer_id={}&depth=2&limit_tags=1&limit_taggers=1", AURELIO_USER, EPICTTO_VIEWER);
+    let body = make_request(&path).await?;
+
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Tag list should be an array");
+    assert_eq!(tags.len(), 1);
+
+    // Validate that the posts belong to the specified user's bookmarks
+    analyse_tag_details_structure(tags);
+
+    // // Analyse the tag that is in the 4th index
+    let now_hot_tag = TagMockup::new(String::from("now"), 1, 2);
+    compare_tag_details(&tags[0], now_hot_tag);
 
     Ok(())
 }
@@ -120,6 +187,8 @@ async fn test_user_does_not_exist() -> Result<()> {
     make_wrong_request(&endpoint, None).await?;
     Ok(())
 }
+
+// #### USER TAGGERS ######
 
 #[tokio::test]
 async fn test_user_specific_tag() -> Result<()> {

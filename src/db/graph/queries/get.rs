@@ -280,8 +280,6 @@ pub fn get_viewer_trusted_network_tags(user_id: &str, viewer_id: &str, depth: u8
     }) AS tags",
     );
 
-    println!("CYPHER: {}", cypher);
-
     // Build the Query object with parameters
     Query::new(cypher)
         .param("viewer_id", viewer_id)
