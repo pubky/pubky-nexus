@@ -13,6 +13,7 @@
 :param crispo => 'eroud7pzna7aacy5ob6ziekmm3sjg3m8hkpafcdjnwbmxambzyuy';
 :param patro => 'f9rxf5hu1isngupfe6ff741bh7uqjxjwokqc4u3eribzmi89bcxy';
 :param zeus => 'frnx4hncm9a94cqbxoudfa6eo58b477d4wuab1zmexw4j9icwmqy';
+:param kirios => 'fs8qf51odhpf9ecoms8i9tbjtyshhjdejpsf3nxcbup3ugs7q4xo';
 
 
 :param pubky_tag => 'pubky';
@@ -49,6 +50,7 @@ MERGE (u:User {id: $senek}) SET u.name = "senek", u.bio = "", u.status = "undefi
 MERGE (u:User {id: $crispo}) SET u.name = "crispo", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095000 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
 MERGE (u:User {id: $patro}) SET u.name = "patro", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095000 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
 MERGE (u:User {id: $zeus}) SET u.name = "zeus", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095000 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
+MERGE (u:User {id: $kirios}) SET u.name = "kirios", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095000 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
 
 
 // ##############################
@@ -136,6 +138,7 @@ MATCH (u1:User {id: $senek}), (u2:User {id: $crispo}) MERGE (u1)-[:FOLLOWS {inde
 MATCH (u1:User {id: $crispo}), (u2:User {id: $patro}) MERGE (u1)-[:FOLLOWS {indexed_at: 1230475736359, id: "GR3K85JG5EST4"}]->(u2);
 MATCH (u1:User {id: $senek}), (u2:User {id: $epictto}) MERGE (u1)-[:FOLLOWS {indexed_at: 1230475736999, id: "GR3K85JG5EST5"}]->(u2);
 MATCH (u1:User {id: $senek}), (u2:User {id: $zeus}) MERGE (u1)-[:FOLLOWS {indexed_at: 1230475736990, id: "GR3K85JG5ET11"}]->(u2);
+MATCH (u1:User {id: $zenon}), (u2:User {id: $kirios}) MERGE (u1)-[:FOLLOWS {indexed_at: 1230475736790, id: "GR3K85JG5DT11"}]->(u2);
 
 MATCH (from:User {id: $zenon}), (to:User {id: $aurelio}) MERGE (from)-[:TAGGED {label: $now, id: "GR3K85JG5EST6", indexed_at: 1224534095400}]->(to);
 MATCH (from:User {id: $senek}), (to:User {id: $aurelio}) MERGE (from)-[:TAGGED {label: $now, id: "GR3K85JG5EST7", indexed_at: 1224534095300}]->(to);
@@ -144,3 +147,4 @@ MATCH (from:User {id: $patro}), (to:User {id: $aurelio}) MERGE (from)-[:TAGGED {
 MATCH (from:User {id: $zeus}), (to:User {id: $aurelio}) MERGE (from)-[:TAGGED {label: $now, id: "GR3K85JG5ET10", indexed_at: 1224534095000}]->(to);
 MATCH (from:User {id: $zenon}), (to:User {id: $aurelio}) MERGE (from)-[:TAGGED {label: $athens, id: "GR3K85JG5ET11", indexed_at: 1224534094400}]->(to);
 MATCH (from:User {id: $senek}), (to:User {id: $aurelio}) MERGE (from)-[:TAGGED {label: $athens, id: "GR3K85JG5ET12", indexed_at: 1224534094300}]->(to);
+MATCH (from:User {id: $kirios}), (to:User {id: $aurelio}) MERGE (from)-[:TAGGED {label: $athens, id: "GR3K85JG5ET13", indexed_at: 1224534094200}]->(to);

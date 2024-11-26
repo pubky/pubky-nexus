@@ -108,9 +108,9 @@ async fn test_wot_user_tags_endpoint() -> Result<()> {
 
     // // Analyse the tag that is in the 4th index
     let now_hot_tag = TagMockup::new(String::from("now"), 2, 2);
-    let athens_hot_tag = TagMockup::new(String::from("athens"), 2, 2);
-    compare_tag_details(&tags[0], now_hot_tag);
-    compare_tag_details(&tags[1], athens_hot_tag);
+    let athens_hot_tag = TagMockup::new(String::from("athens"), 3, 3);
+    compare_tag_details(&tags[1], now_hot_tag);
+    compare_tag_details(&tags[0], athens_hot_tag);
 
     Ok(())
 }
@@ -129,8 +129,8 @@ async fn test_wot_user_tags_endpoint_with_tag_limit() -> Result<()> {
     analyse_tag_details_structure(tags);
 
     // // Analyse the tag that is in the 4th index
-    let now_hot_tag = TagMockup::new(String::from("now"), 2, 2);
-    compare_tag_details(&tags[0], now_hot_tag);
+    let athens_hot_tag = TagMockup::new(String::from("athens"), 3, 3);
+    compare_tag_details(&tags[0], athens_hot_tag);
 
     Ok(())
 }
@@ -150,9 +150,9 @@ async fn test_wot_user_tags_endpoint_with_tagger_limit() -> Result<()> {
 
     // // Analyse the tag that is in the 4th index
     let now_hot_tag = TagMockup::new(String::from("now"), 1, 2);
-    let athens_hot_tag = TagMockup::new(String::from("athens"), 1, 2);
-    compare_tag_details(&tags[0], now_hot_tag);
-    compare_tag_details(&tags[1], athens_hot_tag);
+    let athens_hot_tag = TagMockup::new(String::from("athens"), 1, 3);
+    compare_tag_details(&tags[1], now_hot_tag);
+    compare_tag_details(&tags[0], athens_hot_tag);
 
     Ok(())
 }
@@ -171,7 +171,7 @@ async fn test_wot_user_tags_endpoint_with_tag_and_tagger_limit() -> Result<()> {
     analyse_tag_details_structure(tags);
 
     // // Analyse the tag that is in the 4th index
-    let now_hot_tag = TagMockup::new(String::from("now"), 1, 2);
+    let now_hot_tag = TagMockup::new(String::from("athens"), 1, 3);
     compare_tag_details(&tags[0], now_hot_tag);
 
     Ok(())
