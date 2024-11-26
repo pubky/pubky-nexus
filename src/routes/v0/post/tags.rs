@@ -54,7 +54,7 @@ pub async fn post_tags_handler(
     description = "Post specific label Taggers",
     tag = "Post",
     params(
-        ("user_id" = String, Path, description = "User Pubky ID"),
+        ("author_id" = String, Path, description = "Author Pubky ID"),
         ("label" = String, Path, description = "Tag name"),
         ("post_id" = String, Path, description = "Post ID"),
         ("skip" = Option<usize>, Query, description = "Number of taggers to skip for pagination"),
@@ -67,16 +67,16 @@ pub async fn post_tags_handler(
     )
 )]
 pub async fn post_taggers_handler(
-    Path((user_id, post_id, label)): Path<(String, String, String)>,
+    Path((author_id, post_id, label)): Path<(String, String, String)>,
     Query(pagination): Query<Pagination>,
 ) -> Result<Json<Taggers>> {
     info!(
-        "GET {POST_TAGGERS_ROUTE} user_id:{}, post_id: {}, label: {}, skip:{:?}, limit:{:?}",
-        user_id, post_id, label, pagination.skip, pagination.limit
+        "GET {POST_TAGGERS_ROUTE} author_id:{}, post_id: {}, label: {}, skip:{:?}, limit:{:?}",
+        author_id, post_id, label, pagination.skip, pagination.limit
     );
-    match TagPost::get_tagger_by_id(&user_id, Some(&post_id), &label, pagination).await {
+    match TagPost::get_tagger_by_id(&author_id, Some(&post_id), &label, pagination).await {
         Ok(Some(tags)) => Ok(Json(tags)),
-        Ok(None) => Err(Error::UserNotFound { user_id }),
+        Ok(None) => Err(Error::PostNotFound { author_id, post_id }),
         Err(source) => Err(Error::InternalServerError { source }),
     }
 }
