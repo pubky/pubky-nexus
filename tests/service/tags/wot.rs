@@ -137,7 +137,6 @@ async fn test_wot_user_tags_endpoints() -> Result<()> {
     mock_taggers = vec![USER_B];
     verify_taggers_list(mock_taggers, body);
 
-
     // USER VIEW
     let path = format!(
         "/v0/user/{}?viewer_id={}&depth=2",
@@ -183,18 +182,14 @@ fn verify_user_taggers(mock_taggers: Vec<&str>, tag_details: Value, tag: String)
     println!("{:?}", tag_details);
 
     let tag_details: TagDetails = serde_json::from_value(tag_details).unwrap();
-    
+
     assert_eq!(
         tag_details.taggers_count,
         mock_taggers.len(),
         "The endpoint result has to have the same lenght as mock data"
     );
 
-    assert_eq!(
-        tag,
-        tag_details.label,
-        "The labels does not match"
-    );
+    assert_eq!(tag, tag_details.label, "The labels does not match");
 
     for (index, user_id) in tag_details.taggers.iter().enumerate() {
         assert_eq!(
