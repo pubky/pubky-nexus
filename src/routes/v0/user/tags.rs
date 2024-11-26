@@ -100,7 +100,7 @@ pub async fn user_taggers_handler(
         None,
         &label,
         pagination,
-        tags_query.viewer_id,
+        tags_query.viewer_id.as_deref(),
         tags_query.depth,
     )
     .await

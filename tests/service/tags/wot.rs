@@ -1,6 +1,7 @@
 use super::utils::{analyse_tag_details_structure, compare_tag_details, TagMockup};
 use crate::service::utils::{make_request, make_wrong_request};
 use anyhow::Result;
+use pubky_nexus::models::tag::TagDetails;
 use serde_json::Value;
 
 // ##### WoT user tags ####
@@ -17,12 +18,13 @@ const USER_B: &str = "fs8qf51odhpf9ecoms8i9tbjtyshhjdejpsf3nxcbup3ugs7q4xo";
 const USER_C: &str = "cuimec4ngawamq8wa6fjzki6boxmwqcm11x6g7ontufrjwgdaxqo";
 
 #[tokio::test]
-async fn test_wot_user_tags_endpoint() -> Result<()> {
+async fn test_wot_user_tags_endpoints() -> Result<()> {
     // Make sure, we still not index the WoT tags
     let path = format!(
         "/v0/user/{}/taggers/{}?viewer_id={}&depth=2",
         AURELIO_USER, ATHENS_TAG, EPICTTO_VIEWER
     );
+    // If we get error here, delete the Cache:... indexes
     make_wrong_request(&path, None).await?;
 
     // => Start indexing the WoT tags
@@ -135,6 +137,24 @@ async fn test_wot_user_tags_endpoint() -> Result<()> {
     mock_taggers = vec![USER_B];
     verify_taggers_list(mock_taggers, body);
 
+
+    // USER VIEW
+    let path = format!(
+        "/v0/user/{}?viewer_id={}&depth=2",
+        AURELIO_USER, EPICTTO_VIEWER
+    );
+    let body = make_request(&path).await?;
+    let tags = body["tags"].clone();
+
+    mock_taggers = vec![USER_A, USER_B, USER_C];
+    verify_user_taggers(mock_taggers, tags[0].clone(), String::from(ATHENS_TAG));
+
+    mock_taggers = vec![USER_A, USER_C];
+    verify_user_taggers(mock_taggers, tags[1].clone(), String::from(NOW_TAG));
+
+    // USER STREAM
+    // TODO: MIssing that integration test, user_id-source-depth. Add more mock for that test
+
     Ok(())
 }
 
@@ -152,6 +172,31 @@ fn verify_taggers_list(mock_taggers: Vec<&str>, body: Value) {
     );
 
     for (index, user_id) in taggers.iter().enumerate() {
+        assert_eq!(
+            mock_taggers[index], user_id,
+            "The post ids should be the same"
+        );
+    }
+}
+
+fn verify_user_taggers(mock_taggers: Vec<&str>, tag_details: Value, tag: String) {
+    println!("{:?}", tag_details);
+
+    let tag_details: TagDetails = serde_json::from_value(tag_details).unwrap();
+    
+    assert_eq!(
+        tag_details.taggers_count,
+        mock_taggers.len(),
+        "The endpoint result has to have the same lenght as mock data"
+    );
+
+    assert_eq!(
+        tag,
+        tag_details.label,
+        "The labels does not match"
+    );
+
+    for (index, user_id) in tag_details.taggers.iter().enumerate() {
         assert_eq!(
             mock_taggers[index], user_id,
             "The post ids should be the same"

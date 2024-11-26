@@ -27,7 +27,7 @@ where
         extra_param: Option<&str>,
         label: &str,
         pagination: Pagination,
-        viewer_id: Option<String>,
+        viewer_id: Option<&str>,
         depth: Option<u8>,
     ) -> Result<Option<Taggers>, DynError> {
         // Set default params for pagination
@@ -40,7 +40,7 @@ where
         // we get empty array because it was not cached the WoT tags
         if viewer_id.is_some() && depth.is_some() && extra_param.is_none() {
             prefix = Some(CACHE_SET_PREFIX.to_string());
-            key_parts = Self::create_label_index(user_id, viewer_id.as_deref(), label, true);
+            key_parts = Self::create_label_index(user_id, viewer_id, label, true);
         } else {
             key_parts = Self::create_label_index(user_id, extra_param, label, false);
         }
