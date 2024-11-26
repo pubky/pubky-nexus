@@ -17,7 +17,7 @@ use utoipa::OpenApi;
     description = "Post tags",
     tag = "Post",
     params(
-        ("user_id" = String, Path, description = "User Pubky ID"),
+        ("author_id" = String, Path, description = "Author Pubky ID"),
         ("post_id" = String, Path, description = "Post ID")
     ),
     responses(
@@ -27,15 +27,15 @@ use utoipa::OpenApi;
     )
 )]
 pub async fn post_tags_handler(
-    Path((user_id, post_id)): Path<(String, String)>,
+    Path((author_id, post_id)): Path<(String, String)>,
     Query(query): Query<TagsQuery>,
 ) -> Result<Json<Vec<TagDetails>>> {
     info!(
-        "GET {POST_TAGS_ROUTE} user_id:{}, post_id: {}, limit_tags:{:?}, limit_taggers:{:?}",
-        user_id, post_id, query.limit_tags, query.limit_taggers
+        "GET {POST_TAGS_ROUTE} author_id:{}, post_id: {}, limit_tags:{:?}, limit_taggers:{:?}",
+        author_id, post_id, query.limit_tags, query.limit_taggers
     );
     match TagPost::get_by_id(
-        &user_id,
+        &author_id,
         Some(&post_id),
         query.limit_tags,
         query.limit_taggers,
@@ -43,7 +43,7 @@ pub async fn post_tags_handler(
     .await
     {
         Ok(Some(tags)) => Ok(Json(tags)),
-        Ok(None) => Err(Error::UserNotFound { user_id }),
+        Ok(None) => Err(Error::PostNotFound { author_id, post_id }),
         Err(source) => Err(Error::InternalServerError { source }),
     }
 }
