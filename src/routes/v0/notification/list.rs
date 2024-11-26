@@ -10,8 +10,8 @@ use utoipa::OpenApi;
 #[utoipa::path(
     get,
     path = NOTIFICATION_ROUTE,
-    tag = "Notifications",
-    description = "List notifications",
+    tag = "User",
+    description = "List of user notifications",
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
         ("skip" = Option<usize>, Query, description = "Skip N notifications"),
