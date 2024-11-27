@@ -15,8 +15,8 @@ use crate::models::tag::TagDetails;
 
 const CACHE_SORTED_SET_PREFIX: &str = "Cache:Sorted";
 pub const CACHE_SET_PREFIX: &str = "Cache";
-// Minutes
-const CACHE_TTL: i64 = 180;
+// TTL, 3HR
+const CACHE_TTL: i64 = 3 * 60 * 60;
 
 /// Trait for managing a collection of tags
 ///
@@ -27,6 +27,22 @@ pub trait TagCollection
 where
     Self: RedisOps,
 {
+    /// Retrieves tag details for a given user ID with optional parameters for filtering and limits.
+    ///
+    /// # Parameters
+    /// - `user_id` - A string slice representing the ID of the user for whom the tags are being retrieved
+    /// - `extra_param` - An optional string slice used as an additional filter or context in tag retrieval. If it is Some(), the value is post_id
+    /// - `limit_tags` - An optional limit on the number of tags to retrieve.
+    /// - `limit_taggers` - An optional limit on the number of taggers (users who have tagged) to retrieve.
+    /// - `viewer_id` - An optional string slice representing the ID of the viewer or requester.
+    ///   If `Some`, the function attempts to filter tags based on the viewer's network (WoT - Web of Trust) and the specified depth.
+    /// - `depth` - An optional depth value (1-3) for filtering tags within the viewer's Web of Trust. Values outside the range (1-3) are ignored.
+    ///
+    /// # Behavior
+    ///
+    /// - If `viewer_id` is provided and `depth` is within the range 1-3, it will retrieve the WoT tags
+    /// - If `viewer_id` is not provided or `depth` is out of range, the function retrieves global tags for the user
+    /// - The function ensures results from the graph database are cached in the index for faster future retrievals.
     async fn get_by_id(
         user_id: &str,
         extra_param: Option<&str>,
@@ -65,12 +81,16 @@ where
             }
         }
     }
+
     /// Tries to retrieve the tag collection from multiple index in Redis.
     /// # Arguments
     /// * user_id - The key of the user for whom to retrieve tags.
     /// * extra_param - An optional parameter for specifying additional constraints: post_id, viewer_id (for WoT search)
     /// * limit_tags - A limit on the number of tags to retrieve.
     /// * limit_taggers - A limit on the number of taggers to retrieve.
+    /// * is_cache - A boolean indicating whether to retrieve tags from the cache or the primary index.
+    ///   - `true`: Searches in the cache (e.g., temporary or recently accessed tags).
+    ///   - `false`: Searches in the primary index for more persistent data.
     /// # Returns
     /// A Result containing an optional vector of TagDetails, or an error.
     async fn get_from_index(
@@ -136,9 +156,9 @@ where
     /// # Arguments
     /// * user_id - The key of the user for whom to retrieve tags.
     /// * extra_param - An optional parameter for specifying additional constraints (e.g., post_id, viewer_id (for WoT search) )
+    /// * `depth` - An optional depth value (1-3) for filtering tags within the viewer's Web of Trust.
     /// # Returns
     /// A Result containing an optional vector of TagDetails, or an error.
-    // NAME: get_by_id
     async fn get_from_graph(
         user_id: &str,
         extra_param: Option<&str>,
@@ -178,6 +198,7 @@ where
     /// * user_id - The key of the user.
     /// * extra_param - An optional parameter for specifying additional context (e.g., post_id, viewer_id (for WoT search))
     /// * tags - A slice of TagDetails representing the tags to add.
+    /// * is_cache - A boolean indicating whether to retrieve tags from the cache or the primary index.
     /// # Returns
     /// A result indicating success or failure.
     async fn put_to_index(
@@ -217,6 +238,15 @@ where
         .await
     }
 
+    /// Updates the score of a label in the appropriate Redis index (user or post) based on the given score action.
+    ///
+    /// # Arguments
+    ///
+    /// * `author_id` - A string slice representing the ID of the author whose index is being updated.
+    /// * `extra_param` - An optional parameter for specifying additional context, such as a post ID.
+    /// * `label` - A string slice representing the label whose score is to be updated.
+    /// * `score_action` - The action to perform on the label's score, encapsulated in the `ScoreAction` type
+    ///   (e.g., increment, decrement, or set a specific score).
     async fn update_index_score(
         author_id: &str,
         extra_param: Option<&str>,
@@ -230,6 +260,14 @@ where
         Self::put_score_index_sorted_set(&key, &[label], score_action).await
     }
 
+    /// Adds a tagger (user) to the appropriate Redis index for a specified tag label.
+    /// # Arguments
+    ///
+    /// *`author_id` - A string slice representing the ID of the author whose index is being updated.
+    /// * `extra_param` - An optional parameter for specifying additional context, such as a post ID.
+    /// * `tagger_user_id` - A string slice representing the ID of the user (tagger) being added to the index.
+    /// * `tag_label` - A string slice representing the label of the tag to which the tagger is being added.
+    ///
     async fn add_tagger_to_index(
         author_id: &str,
         extra_param: Option<&str>,
@@ -243,6 +281,19 @@ where
         Self::put_index_set(&key, &[tagger_user_id], None, None).await
     }
 
+    /// Inserts a tag relationship into the graph database.
+    ///
+    /// # Arguments
+    ///
+    /// - `tagger_user_id` - A string slice representing the ID of the user (tagger) creating the tag.
+    /// - `tagged_user_id` - A string slice representing the ID of the user being tagged.
+    /// - `extra_param` - An optional parameter for specifying additional context, such as a post ID.
+    ///   If `Some`, the function creates a tag relationship associated with a specific post;
+    ///   otherwise, it creates a tag relationship between users.
+    /// - `tag_id` - A string slice representing the unique identifier of the tag being created.
+    /// - `label` - A string slice representing the label of the tag.
+    /// - `indexed_at` - A 64-bit integer representing the timestamp (milliseconds)
+    ///   when the tag was indexed.
     async fn put_to_graph(
         tagger_user_id: &str,
         tagged_user_id: &str,
@@ -270,6 +321,15 @@ where
         };
         exec_boolean_row(query).await
     }
+
+    /// Reindexes tags for a given author by retrieving data from the graph database and updating the index.
+    ///
+    /// # Arguments
+    ///
+    /// - `author_id` - A string slice representing the ID of the author whose tags need to be reindexed.
+    /// - `extra_param` - An optional parameter for additional context, such as a post ID.
+    ///   If `Some`, the function retrieves and reindexes tags specific to the post;
+    ///   if `None`, it reindexes tags globally for the author.
 
     async fn reindex(author_id: &str, extra_param: Option<&str>) -> Result<(), DynError> {
         match Self::get_from_graph(author_id, extra_param, None).await? {
@@ -344,6 +404,7 @@ where
     /// # Arguments
     /// * user_id - The key of the user.
     /// * extra_param - An optional parameter for specifying additional context (e.g., an post_id)
+    /// * is_cache - A boolean indicating whether to retrieve tags from the cache or the primary index.
     /// # Returns
     /// A vector of strings representing the parts of the key.
     fn create_sorted_set_key_parts<'a>(
@@ -366,6 +427,7 @@ where
     /// # Arguments
     /// * user_id - The key of the user.
     /// * extra_param - An optional parameter for specifying additional context (e.g., an post_id)
+    /// * is_cache - A boolean indicating whether to retrieve tags from the cache or the primary index.
     /// # Returns
     /// A vector of string slices representing the parameters.
     fn create_set_common_key<'a>(
@@ -382,15 +444,12 @@ where
         }
     }
 
-    // fn create_cache_set_common_key<'a>(user_id: &'a str, viewer_id: &'a str) -> Vec<&'a str> {
-    //     vec![viewer_id, user_id]
-    // }
-
     /// Constructs an index key based on user key, an optional extra parameter and a tag label.
     /// # Arguments
     /// * user_id - The key of the user.
     /// * extra_param - An optional parameter for specifying additional context (e.g., an post_id)
     /// * label - The label of the tag.
+    /// * is_cache - A boolean indicating whether to retrieve tags from the cache or the primary index.
     /// # Returns
     /// A string representing the index key.
     fn create_label_index(

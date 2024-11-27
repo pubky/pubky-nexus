@@ -179,8 +179,6 @@ fn verify_taggers_list(mock_taggers: Vec<&str>, body: Value) {
 }
 
 fn verify_user_taggers(mock_taggers: Vec<&str>, tag_details: Value, tag: String) {
-    println!("{:?}", tag_details);
-
     let tag_details: TagDetails = serde_json::from_value(tag_details).unwrap();
 
     assert_eq!(

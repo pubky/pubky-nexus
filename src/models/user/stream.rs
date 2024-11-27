@@ -10,6 +10,8 @@ use utoipa::ToSchema;
 pub const USER_MOSTFOLLOWED_KEY_PARTS: [&str; 2] = ["Users", "MostFollowed"];
 pub const USER_PIONEERS_KEY_PARTS: [&str; 2] = ["Users", "Pioneers"];
 pub const CACHE_USER_RECOMMENDED_KEY_PARTS: [&str; 3] = ["Cache", "Users", "Recommended"];
+// TTL, 12HR
+pub const CACHE_USER_RECOMMENDED_TTL: i64 = 12 * 60 * 60;
 
 #[derive(Deserialize, ToSchema, Debug, Clone)]
 #[serde(rename_all = "snake_case")]
@@ -179,7 +181,7 @@ impl UserStream {
         Self::put_index_set(
             &[user_id],
             &values,
-            Some(12 * 60 * 60),
+            Some(CACHE_USER_RECOMMENDED_TTL),
             Some(CACHE_USER_RECOMMENDED_KEY_PARTS.join(":")),
         )
         .await

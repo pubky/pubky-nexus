@@ -259,6 +259,7 @@ pub async fn get_multiple_sets(
 /// * `common_key` - A slice of string slices representing the common components of the Redis keys, which will be joined with colons (`:`).
 /// * `index` - A slice of string slices representing the unique identifiers to append to the generated keys.
 /// * `collections` - A slice of slices, where each inner slice contains elements to be added to the corresponding Redis set. The elements in each collection are added to the Redis set identified by the respective key from the `index`.
+/// * `expiration` - An optional `i64` specifying the TTL (in seconds) for the set. If `None`, no TTL will be set.
 ///
 /// # Errors
 ///
@@ -280,7 +281,7 @@ pub async fn put_multiple_sets(
         if !collections[i].is_empty() {
             pipe.sadd(&full_index, collections[i]); // Add expiration to the pipeline if specified
             if let Some(ttl) = expiration {
-                pipe.expire(&full_index, ttl * 60);
+                pipe.expire(&full_index, ttl);
             }
         }
     }

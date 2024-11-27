@@ -274,7 +274,8 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     ///
     /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the set is stored.
     /// * `values` - A list of string that represents the value to add in the index
-    ///
+    /// * `expiration` - An optional `i64` specifying the TTL (in seconds) for the set. If `None`, no TTL will be set.
+    /// * `prefix` - An optional string representing the prefix for the Redis keys. If `Some(String)`, the prefix will be used
     /// # Errors
     ///
     /// Returns an error if the operation fails, such as if the Redis connection is unavailable or
@@ -329,7 +330,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the set is stored.
     /// * `skip` - An optional number of elements to skip (useful for pagination).
     /// * `limit` - An optional number of elements to return (useful for pagination).
-    ///
+    /// * `prefix` - An optional string representing the prefix for the Redis keys. If `Some(String)`, the prefix will be used
     /// # Returns
     ///
     /// Returns a vector of deserialized elements if they exist, or an empty vector if no matching elements are found.
@@ -406,6 +407,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     ///
     /// # Arguments
     ///
+    /// * `prefix` - An optional string representing the prefix for the Redis keys. If `Some(String)`, the prefix will be used
     /// * `key_parts_list` - A slice of string slices, where each inner slice represents the components
     ///   used to construct the Redis key for the corresponding set.
     /// * `limit` - An optional parameter specifying the maximum number of elements to fetch from each set.
@@ -444,6 +446,8 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     ///   This will be combined with each element in `index` to generate the full Redis key.
     /// * `index` - A slice of string slices representing the unique identifiers to append to the `common_key` to form the full Redis keys.
     /// * `collections_refs` - A slice of vectors, where each inner vector contains elements to be added to the corresponding Redis set
+    /// * `prefix` - An optional string representing the prefix for the Redis keys. If `Some(String)`, the prefix will be used
+    /// * `expiration` - An optional `i64` specifying the TTL (in seconds) for the set. If `None`, no TTL will be set.
     ///
     /// # Returns
     ///
@@ -483,11 +487,11 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     ///
     /// This method fetches random elements from a Redis set stored under the key generated from the provided `key_parts`.
     /// The number of elements retrieved is defined by the `count` parameter.
-    ///
     /// # Arguments
     ///
     /// * `key_parts` - Components of the key under which the set is stored.
     /// * `count` - The number of random elements to retrieve.
+    /// * `prefix` - An optional string representing the prefix for the Redis keys. If `Some(String)`, the prefix will be used
     ///
     /// # Returns
     ///
@@ -539,6 +543,8 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the sorted set is stored.
     /// * `elements` - A slice of tuples where each tuple contains a reference to a string slice representing
     ///                the element and a f64 representing the score of the element.
+    /// * `prefix` - An optional string representing the prefix for the Redis keys. If `Some(String)`, the prefix will be used
+    /// * `expiration` - An optional `i64` specifying the TTL (in seconds) for the set. If `None`, no TTL will be set.
     ///
     /// # Errors
     ///
@@ -611,8 +617,11 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// # Arguments
     ///
     /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the sorted set is stored.
+    /// * `start` - An optional value representing the beginning of the stream timeframe or score. If `None`, no lower bound is applied.
+    /// * `end` - An optional value representing the end of the stream timeframe or score. If `None`, no upper bound is applied.
     /// * `skip` - An optional number of elements to skip (useful for pagination).
     /// * `limit` - An optional number of elements to return (useful for pagination).
+    /// * `prefix` - An optional string representing the prefix for the Redis keys. If `Some(String)`, the prefix will be used
     ///
     /// # Returns
     ///
@@ -646,6 +655,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the sorted set is stored.
     /// * `min` - The minimum lexicographical bound (inclusive).
     /// * `max` - The maximum lexicographical bound (exclusive).
+    /// * `skip` - An optional number of elements to skip (useful for pagination).
     /// * `limit` - An optional number of elements to return (useful for pagination).
     ///
     /// # Returns

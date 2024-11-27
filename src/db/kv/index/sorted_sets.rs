@@ -52,6 +52,7 @@ pub async fn check_member(
 /// * `key` - A string slice representing the key under which the sorted set is stored.
 /// * `values` - A slice of tuples where each tuple contains a reference to a string slice representing
 ///              the element and a f64 representing the score of the element.
+/// * `expiration` - An optional `i64` specifying the TTL (in seconds) for the set. If `None`, no TTL will be set.
 ///
 /// # Errors
 ///
@@ -75,7 +76,7 @@ pub async fn put(
 
     if let Some(ttl) = expiration {
         // TTL convert to seconds
-        pipe.expire(&index_key, ttl * 60);
+        pipe.expire(&index_key, ttl);
     }
 
     let _: () = pipe.query_async(&mut redis_conn).await?;
@@ -122,6 +123,7 @@ pub async fn put_score(
 /// * `key` - A string slice representing the key under which the sorted set is stored.
 /// * `min_score` - The minimum score for the range (inclusive).
 /// * `max_score` - The maximum score for the range (inclusive).
+/// * `skip` - An optional number of elements to skip (useful for pagination).
 /// * `limit` - The maximum number of elements to retrieve.
 /// * `sorting` - The sorting order (ascending or descending).
 ///
@@ -173,8 +175,11 @@ pub async fn get_range(
 ///
 /// # Arguments
 ///
+/// * `prefix` - A string slice representing the prefix for the Redis keys.
+/// * `key` - A string slice representing the key under which the sorted set is stored.
 /// * `min` - The minimum lexicographical bound (inclusive).
 /// * `max` - The maximum lexicographical bound (exclusive).
+/// * `skip` - An optional number of elements to skip (useful for pagination).
 /// * `limit` - The maximum number of elements to retrieve.
 pub async fn get_lex_range(
     prefix: &str,
