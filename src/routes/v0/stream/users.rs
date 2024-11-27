@@ -181,7 +181,7 @@ pub struct UserStreamByIdsRequest {
     post,
     path = STREAM_USERS_BY_IDS_ROUTE,
     tag = "Stream",
-    description = "Stream users by ID",
+    description = "Stream users by ID. This is a POST request because we're passing a potentially large list of user IDs in the request body.",
     request_body = UserStreamByIdsRequest,
     params(
         ("user_ids" = Vec<String>, Path, description = "Users Pubky ID array"),

@@ -64,7 +64,7 @@ pub struct TagTaggersQuery {
     tag = "Tags",
     params(
         ("label" = String, Path, description = "Tag name"),
-        ("reach" = TagStreamReach, Path, description = "Reach type: Follower | Following | Friends")
+        ("reach" = TagStreamReach, Path, description = "Reach type: follower | following | friends")
     ),
     responses(
         (status = 200, description = "Taggers", body = Vec<String>),
@@ -103,7 +103,7 @@ pub struct TagsByReachQuery {
     tag = "Tags",
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
-        ("reach" = TagStreamReach, Path, description = "Reach type: Follower | Following | Friends")
+        ("reach" = TagStreamReach, Path, description = "Reach type: follower | following | friends")
     ),
     responses(
         (status = 200, description = "Retrieve tags by reach cluster", body = Vec<HotTag>),
