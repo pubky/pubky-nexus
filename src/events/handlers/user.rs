@@ -1,7 +1,6 @@
 use crate::db::graph::exec::exec_boolean_row;
 use crate::models::user::UserSearch;
 use crate::models::{
-    pubky_app::{traits::Validatable, PubkyAppUser},
     traits::Collection,
     user::{UserCounts, UserDetails},
 };
@@ -10,6 +9,7 @@ use crate::types::DynError;
 use crate::types::PubkyId;
 use axum::body::Bytes;
 use log::debug;
+use pubky_app_specs::{traits::Validatable, PubkyAppUser};
 
 pub async fn put(user_id: PubkyId, blob: Bytes) -> Result<(), DynError> {
     // Process profile.json and update the databases

@@ -2,14 +2,12 @@ use anyhow::Result;
 use chrono::Utc;
 use pkarr::mainline::Testnet;
 use pubky::PubkyClient;
+use pubky_app_specs::{
+    traits::TimestampId, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser,
+};
 use pubky_common::crypto::Keypair;
 use pubky_homeserver::Homeserver;
-use pubky_nexus::{
-    models::pubky_app::{
-        traits::TimestampId, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser,
-    },
-    setup, Config, EventProcessor,
-};
+use pubky_nexus::{setup, Config, EventProcessor};
 use serde_json::to_vec;
 
 /// Struct to hold the setup environment for tests

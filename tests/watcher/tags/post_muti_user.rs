@@ -9,11 +9,11 @@ use crate::watcher::{
 };
 use anyhow::Result;
 use chrono::Utc;
+use pubky_app_specs::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{
     models::{
         notification::Notification,
-        pubky_app::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser},
         tag::{
             post::TagPost,
             stream::{Taggers, TAG_GLOBAL_HOT},

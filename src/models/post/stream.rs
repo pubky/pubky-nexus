@@ -1,5 +1,4 @@
 use super::{Bookmark, PostCounts, PostDetails, PostView};
-use crate::models::pubky_app::PostKind;
 use crate::types::{DynError, Pagination, StreamSorting};
 use crate::{
     db::kv::index::sorted_sets::SortOrder,
@@ -10,6 +9,7 @@ use crate::{
     },
     queries, RedisOps, ScoreAction,
 };
+use pubky_app_specs::PostKind;
 use serde::{Deserialize, Serialize};
 use tokio::task::spawn;
 use tokio::time::{timeout, Duration};

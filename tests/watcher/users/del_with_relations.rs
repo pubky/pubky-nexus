@@ -3,12 +3,9 @@ use crate::watcher::{
     utils::WatcherTest,
 };
 use anyhow::Result;
+use pubky_app_specs::{PostKind, PubkyAppPost, PubkyAppUser};
 use pubky_common::crypto::Keypair;
-use pubky_nexus::models::{
-    pubky_app::{PostKind, PubkyAppPost, PubkyAppUser},
-    user::{UserCounts, UserView},
-};
-
+use pubky_nexus::models::user::{UserCounts, UserView};
 #[tokio::test]
 async fn test_delete_user_with_relationships() -> Result<()> {
     let mut test = WatcherTest::setup().await?;

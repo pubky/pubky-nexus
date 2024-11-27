@@ -1,9 +1,9 @@
 use super::utils::find_post_details;
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
+use pubky_app_specs::{PostKind, PubkyAppPost, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::notification::{Notification, NotificationBody};
-use pubky_nexus::models::pubky_app::{PostKind, PubkyAppPost, PubkyAppUser};
 use pubky_nexus::types::Pagination;
 
 #[tokio::test]

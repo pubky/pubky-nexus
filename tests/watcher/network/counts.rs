@@ -3,16 +3,13 @@
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
 use log::info;
+use pubky_app_specs::{
+    traits::HashId, PostKind, PubkyAppBookmark, PubkyAppMute, PubkyAppPost, PubkyAppTag,
+    PubkyAppUser,
+};
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{
-    models::{
-        post::PostCounts,
-        pubky_app::{
-            traits::HashId, PostKind, PubkyAppBookmark, PubkyAppMute, PubkyAppPost, PubkyAppTag,
-            PubkyAppUser,
-        },
-        user::UserCounts,
-    },
+    models::{post::PostCounts, user::UserCounts},
     RedisOps,
 };
 use rand::{rngs::StdRng, Rng, SeedableRng};

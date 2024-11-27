@@ -2,11 +2,9 @@ use anyhow::Result;
 use log::info;
 use pkarr::mainline::Testnet;
 use pubky::PubkyClient;
+use pubky_app_specs::{PubkyAppUser, UserLink};
 use pubky_common::crypto::{Keypair, PublicKey};
-use pubky_nexus::{
-    models::pubky_app::{PubkyAppUser, UserLink},
-    setup, Config,
-};
+use pubky_nexus::{setup, Config};
 
 #[tokio::main]
 async fn main() -> Result<()> {

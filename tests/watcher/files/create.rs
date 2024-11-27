@@ -1,13 +1,10 @@
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
+use pubky_app_specs::{PubkyAppFile, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 use pubky_common::timestamp::Timestamp;
-use pubky_nexus::models::{
-    file::FileDetails,
-    pubky_app::{PubkyAppFile, PubkyAppUser},
-    traits::Collection,
-};
+use pubky_nexus::models::{file::FileDetails, traits::Collection};
 use serde_json::to_vec;
 
 #[tokio::test]
