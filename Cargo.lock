@@ -2435,7 +2435,8 @@ dependencies = [
 [[package]]
 name = "pubky-app-specs"
 version = "0.2.0"
-source = "git+https://github.com/pubky/pubky-app-specs?branch=main#05deabe9a261910689ef7a25e41a7703feee6fa3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8556efeca9c68c9141aec369741e1f50d8d90b84a6ff8a8dc79bda7207b6ea62"
 dependencies = [
  "async-trait",
  "base32",
