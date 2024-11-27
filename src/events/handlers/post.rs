@@ -90,12 +90,16 @@ pub async fn sync_put(
         PostCounts::update_index_field(parent_post_key_parts, action, JsonAction::Increment(1))
             .await?;
 
-        PostStream::put_score_index_sorted_set(
-            &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
-            parent_post_key_parts,
-            ScoreAction::Increment(1.0),
-        )
-        .await?;
+        // Post replies cannot be included in the total engagement index after they are reposted or receive a reply
+        // Only root posts should be included. Ensure that the parent post is the root post
+        if PostRelationships::is_root(&parent_author_id, &parent_post_id).await? {
+            PostStream::put_score_index_sorted_set(
+                &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
+                parent_post_key_parts,
+                ScoreAction::Increment(1.0),
+            )
+            .await?;
+        }
 
         if action == "replies" {
             // Populate the reply parent keys to after index the reply

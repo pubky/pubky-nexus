@@ -1,7 +1,7 @@
 use crate::db::kv::index::json::JsonAction;
 use crate::events::uri::ParsedUri;
 use crate::models::notification::Notification;
-use crate::models::post::{PostCounts, PostStream};
+use crate::models::post::{PostCounts, PostRelationships, PostStream};
 use crate::models::tag::post::TagPost;
 use crate::models::tag::search::TagSearch;
 use crate::models::tag::stream::Taggers;
@@ -45,6 +45,16 @@ pub async fn put(tagger_id: PubkyId, tag_id: String, blob: Bytes) -> Result<(), 
     }
 }
 
+/// Handles the synchronization of a tagged post by updating the graph, indexes, and related counts.
+/// # Arguments
+/// - `tagger_user_id` - The `PubkyId` of the user tagging the post.
+/// - `author_id` - The `PubkyId` of the author of the tagged post.
+/// - `post_id` - A `String` representing the unique identifier of the post being tagged.
+/// - `tag_id` - A `String` representing the unique identifier of the tag.
+/// - `tag_label` - A `String` representing the label of the tag.
+/// - `post_uri` - A `String` representing the homeserver URI of the tagged post.
+/// - `indexed_at` - A 64-bit integer representing the timestamp when the post was indexed.
+///
 async fn put_sync_post(
     tagger_user_id: PubkyId,
     author_id: PubkyId,
@@ -87,8 +97,6 @@ async fn put_sync_post(
         ),
         // Add user tag in post
         TagPost::add_tagger_to_index(&author_id, Some(&post_id), &tagger_user_id, &tag_label),
-        // Increment in one post global engagement
-        PostStream::update_index_score(&author_id, &post_id, ScoreAction::Increment(1.0)),
         // Add post to label total engagement
         TagSearch::update_index_score(
             &author_id,
@@ -101,6 +109,13 @@ async fn put_sync_post(
         // Add tagger to post taggers
         Taggers::put_to_index(&tag_label, &tagger_user_id)
     );
+
+    // Post replies cannot be included in the total engagement index once they have been tagged
+    // Only root posts should be included. Ensure that the parent post is the root post
+    if PostRelationships::is_root(&author_id, &post_id).await? {
+        // Increment in one post global engagement
+        PostStream::update_index_score(&author_id, &post_id, ScoreAction::Increment(1.0)).await?;
+    }
 
     // Add post to global label timeline
     TagSearch::put_to_index(&author_id, &post_id, &tag_label).await?;
