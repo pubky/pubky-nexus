@@ -382,7 +382,7 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
                 JsonAction::Decrement(1),
             )
             .await?;
-            
+
             // Post replies cannot be included in the total engagement index after the reply is deleted
             // Only root posts should be included. Ensure that the parent post is the root post
             if PostRelationships::is_root(&parent_user_id, &parent_post_id).await? {

@@ -2,7 +2,9 @@ use super::utils::check_member_total_engagement_user_posts;
 use crate::{service::stream::author, watcher::utils::WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
-use pubky_app_specs::{traits::HashId, PostEmbed, PostKind, PubkyAppPost, PubkyAppTag, PubkyAppUser};
+use pubky_app_specs::{
+    traits::HashId, PostEmbed, PostKind, PubkyAppPost, PubkyAppTag, PubkyAppUser,
+};
 use pubky_common::crypto::Keypair;
 
 #[tokio::test]
@@ -33,7 +35,10 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
     let parent_post_id = test.create_post(&author_id, &parent_post).await?;
 
     // Create reply
-    let parent_uri = format!("pubky://{}/pub/pubky.app/posts/{}", author_id, parent_post_id);
+    let parent_uri = format!(
+        "pubky://{}/pub/pubky.app/posts/{}",
+        author_id, parent_post_id
+    );
 
     let reply = PubkyAppPost {
         content: "Watcher:ReplyEngagement:User:Reply".to_string(),

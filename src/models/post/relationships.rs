@@ -53,14 +53,13 @@ impl PostRelationships {
     /// - `Ok(true)` - If the post is a root post (i.e., it has not been replied to or reposted).
     /// - `Ok(false)` - If the post is not a root post (e.g., it has replies, reposts, or does not exist).
     /// - `Err(DynError)` - If an error occurs while retrieving or processing the post data.
-    pub async fn is_root(
-        author_id: &str,
-        post_id: &str
-    ) -> Result<bool, DynError> {
+    pub async fn is_root(author_id: &str, post_id: &str) -> Result<bool, DynError> {
         match Self::try_from_index_json(&[author_id, post_id]).await? {
-            Some(relationship) => Ok(relationship.replied.is_none() && relationship.reposted.is_none()),
+            Some(relationship) => {
+                Ok(relationship.replied.is_none() && relationship.reposted.is_none())
+            }
             // If the post does not exist cannot be the root
-            None => Ok(false)
+            None => Ok(false),
         }
     }
 

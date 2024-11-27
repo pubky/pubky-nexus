@@ -255,7 +255,7 @@ async fn del_sync_post(
 
     // Post replies cannot be included in the total engagement index once the tag have been deleted
     // Only root posts should be included. Ensure that the parent post is the root post
-    if PostRelationships::is_root(&author_id, &post_id).await? {
+    if PostRelationships::is_root(author_id, post_id).await? {
         // Decrement in one post global engagement
         PostStream::update_index_score(author_id, post_id, ScoreAction::Decrement(1.0)).await?;
     }
