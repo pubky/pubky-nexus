@@ -245,8 +245,6 @@ async fn del_sync_post(
             ScoreAction::Decrement(1.0)
         ),
         tag_post.del_from_index(author_id, Some(post_id), tag_label),
-        // Decrement in one post global engagement
-        PostStream::update_index_score(author_id, post_id, ScoreAction::Decrement(1.0)),
         // Decrease post from label total engagement
         TagSearch::update_index_score(author_id, post_id, tag_label, ScoreAction::Decrement(1.0)),
         // Decrease the score of hot tags
@@ -254,6 +252,13 @@ async fn del_sync_post(
         // Delete tagger from global post tags
         tagger.del_from_index(tag_label)
     );
+
+    // Post replies cannot be included in the total engagement index once the tag have been deleted
+    // Only root posts should be included. Ensure that the parent post is the root post
+    if PostRelationships::is_root(&author_id, &post_id).await? {
+        // Decrement in one post global engagement
+        PostStream::update_index_score(author_id, post_id, ScoreAction::Decrement(1.0)).await?;
+    }
 
     // Delete post from global label timeline
     TagSearch::del_from_index(author_id, post_id, tag_label).await?;

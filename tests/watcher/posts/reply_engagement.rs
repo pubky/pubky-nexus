@@ -1,5 +1,5 @@
 use super::utils::check_member_total_engagement_user_posts;
-use crate::watcher::utils::WatcherTest;
+use crate::{service::stream::author, watcher::utils::WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
 use pubky_app_specs::{traits::HashId, PostEmbed, PostKind, PubkyAppPost, PubkyAppTag, PubkyAppUser};
@@ -56,15 +56,15 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
         attachments: None,
     };
 
-    test.create_post(&author_id, &reply).await?;
+    let reply_reply_id = test.create_post(&author_id, &reply).await?;
 
-    // Check if reply post is in total engagement index: Sorted:Posts:Global:TotalEngagement:user_id:post_id
+    // Check if reply post is not in total engagement index: Sorted:Posts:Global:TotalEngagement:user_id:post_id
     let total_engagement = check_member_total_engagement_user_posts(&[&author_id, &reply_id])
         .await
         .unwrap();
     assert!(
         total_engagement.is_none(),
-        "Replies cannot be included in the total engagement list after receiving a reply"
+        "Replies score cannot be incremented in the total engagement list after receiving a reply"
     );
 
     // Create a repost of a reply
@@ -79,15 +79,15 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
         attachments: None,
     };
 
-    test.create_post(&author_id, &repost).await?;
+    let reply_repost_id = test.create_post(&author_id, &repost).await?;
 
-    // Check if reply post is in total engagement index: Sorted:Posts:Global:TotalEngagement:user_id:post_id
+    // Check if reply post is not in total engagement index: Sorted:Posts:Global:TotalEngagement:user_id:post_id
     let total_engagement = check_member_total_engagement_user_posts(&[&author_id, &reply_id])
         .await
         .unwrap();
     assert!(
         total_engagement.is_none(),
-        "Replies cannot be included in the total engagement list after being reposted"
+        "Replies score cannot be incremented in the total engagement list after being reposted"
     );
 
     let tagger_keypair = Keypair::random();
@@ -117,13 +117,48 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
 
     test.create_tag(&tag_url, tag_blob).await?;
 
-    // Check if reply post is in total engagement index: Sorted:Posts:Global:TotalEngagement:user_id:post_id
+    // Check if reply post is not in total engagement index: Sorted:Posts:Global:TotalEngagement:user_id:post_id
     let total_engagement = check_member_total_engagement_user_posts(&[&author_id, &reply_id])
         .await
         .unwrap();
     assert!(
         total_engagement.is_none(),
-        "Replies cannot be included in the total engagement list after being tagged"
+        "Replies score cannot be incremented in the total engagement list after being tagged"
+    );
+
+    // Start deleting the posts and tags added to the reply
+    // Delete the reply
+    test.cleanup_post(&author_id, &reply_reply_id).await?;
+
+    // Check if reply post is not in total engagement index: Sorted:Posts:Global:TotalEngagement:user_id:post_id
+    let total_engagement = check_member_total_engagement_user_posts(&[&author_id, &reply_id])
+        .await
+        .unwrap();
+    assert!(
+        total_engagement.is_none(),
+        "Replies score cannot be decremented in the total engagement list after deleting a reply"
+    );
+
+    test.cleanup_post(&author_id, &reply_repost_id).await?;
+
+    // Check if reply post is not in total engagement index: Sorted:Posts:Global:TotalEngagement:user_id:post_id
+    let total_engagement = check_member_total_engagement_user_posts(&[&author_id, &reply_id])
+        .await
+        .unwrap();
+    assert!(
+        total_engagement.is_none(),
+        "Replies score cannot be decremented in the total engagement list after deleting a repost"
+    );
+
+    test.delete_tag(&tag_url).await?;
+
+    // Check if reply post is not in total engagement index: Sorted:Posts:Global:TotalEngagement:user_id:post_id
+    let total_engagement = check_member_total_engagement_user_posts(&[&author_id, &reply_id])
+        .await
+        .unwrap();
+    assert!(
+        total_engagement.is_none(),
+        "Replies score cannot be decremented in the total engagement list after deleting a tag"
     );
 
     Ok(())

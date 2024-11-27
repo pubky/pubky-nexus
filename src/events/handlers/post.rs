@@ -343,12 +343,17 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
                 JsonAction::Decrement(1),
             )
             .await?;
-            PostStream::put_score_index_sorted_set(
-                &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
-                parent_post_key_parts,
-                ScoreAction::Decrement(1.0),
-            )
-            .await?;
+
+            // Post replies cannot be included in the total engagement index after the repost is deleted
+            // Only root posts should be included. Ensure that the parent post is the root post
+            if PostRelationships::is_root(&parsed_uri.user_id, &parent_post_id).await? {
+                PostStream::put_score_index_sorted_set(
+                    &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
+                    parent_post_key_parts,
+                    ScoreAction::Decrement(1.0),
+                )
+                .await?;
+            }
 
             // Notification: "A repost of your post was deleted"
             Notification::post_children_changed(
@@ -377,12 +382,17 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
                 JsonAction::Decrement(1),
             )
             .await?;
-            PostStream::put_score_index_sorted_set(
-                &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
-                &parent_post_key_parts,
-                ScoreAction::Decrement(1.0),
-            )
-            .await?;
+            
+            // Post replies cannot be included in the total engagement index after the reply is deleted
+            // Only root posts should be included. Ensure that the parent post is the root post
+            if PostRelationships::is_root(&parent_user_id, &parent_post_id).await? {
+                PostStream::put_score_index_sorted_set(
+                    &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
+                    &parent_post_key_parts,
+                    ScoreAction::Decrement(1.0),
+                )
+                .await?;
+            }
 
             // Notification: "A reply to your post was deleted"
             Notification::post_children_changed(
