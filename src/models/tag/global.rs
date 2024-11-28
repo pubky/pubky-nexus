@@ -35,12 +35,6 @@ pub async fn get_tag_taggers_by_reach(
     skip: usize,
     limit: usize,
 ) -> Result<Option<Vec<String>>, DynError> {
-    let query = queries::get::get_tag_taggers_by_reach(
-        label,
-        user_id,
-        reach.to_graph_subquery(),
-        skip,
-        limit,
-    );
+    let query = queries::get::get_tag_taggers_by_reach(label, user_id, reach, skip, limit);
     retrieve_from_graph::<Vec<String>>(query, "tagger_ids").await
 }

@@ -3,6 +3,7 @@ use neo4rs::{query, Query};
 use crate::models::post::StreamSource;
 use crate::models::pubky_app::PostKind;
 use crate::models::tag::stream::HotTagsInput;
+use crate::models::tag::stream::TagStreamReach;
 use crate::types::Pagination;
 use crate::types::StreamSorting;
 
@@ -363,10 +364,21 @@ pub fn get_global_hot_tags_taggers(tag_list: &[&str]) -> Query {
     .param("labels", tag_list)
 }
 
+fn tag_stream_reach_to_graph_subquery(reach: &TagStreamReach) -> String {
+    let query = match reach {
+        TagStreamReach::Followers => "MATCH (user:User)<-[:FOLLOWS]-(reach:User)",
+        TagStreamReach::Following => "MATCH (user:User)-[:FOLLOWS]->(reach:User)",
+        TagStreamReach::Friends => {
+            "MATCH (user:User)-[:FOLLOWS]->(reach:User), (user)<-[:FOLLOWS]-(reach)"
+        }
+    };
+    String::from(query)
+}
+
 pub fn get_tag_taggers_by_reach(
     label: &str,
     user_id: &str,
-    reach_subquery: String,
+    reach: TagStreamReach,
     skip: usize,
     limit: usize,
 ) -> Query {
@@ -381,7 +393,7 @@ pub fn get_tag_taggers_by_reach(
             SKIP $skip LIMIT $limit
             RETURN COLLECT(reach.id) as tagger_ids
             ",
-            reach_subquery
+            tag_stream_reach_to_graph_subquery(&reach)
         )
         .as_str(),
     )
@@ -393,7 +405,7 @@ pub fn get_tag_taggers_by_reach(
 
 pub fn get_hot_tags_by_reach(
     user_id: &str,
-    reach_subquery: String,
+    reach: TagStreamReach,
     tags_query: &HotTagsInput,
 ) -> Query {
     let input_tagged_type = match &tags_query.tagged_type {
@@ -423,7 +435,9 @@ pub fn get_hot_tags_by_reach(
         SKIP $skip LIMIT $limit
         RETURN COLLECT(hot_tag) as hot_tags
     ",
-            reach_subquery, input_tagged_type, tags_query.taggers_limit
+            tag_stream_reach_to_graph_subquery(&reach),
+            input_tagged_type,
+            tags_query.taggers_limit
         )
         .as_str(),
     )

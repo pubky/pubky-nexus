@@ -23,19 +23,6 @@ pub enum TagStreamReach {
     Friends,
 }
 
-impl TagStreamReach {
-    pub fn to_graph_subquery(&self) -> String {
-        let query = match self {
-            TagStreamReach::Followers => "MATCH (user:User)<-[:FOLLOWS]-(reach:User)",
-            TagStreamReach::Following => "MATCH (user:User)-[:FOLLOWS]->(reach:User)",
-            TagStreamReach::Friends => {
-                "MATCH (user:User)-[:FOLLOWS]->(reach:User), (user)<-[:FOLLOWS]-(reach)"
-            }
-        };
-        String::from(query)
-    }
-}
-
 #[derive(Deserialize, Debug, ToSchema, Clone)]
 pub enum TaggedType {
     Post,
@@ -245,11 +232,9 @@ impl HotTags {
         }
 
         let query = match &user_id {
-            Some(id) => queries::get::get_hot_tags_by_reach(
-                id.as_str(),
-                reach.unwrap().to_graph_subquery(),
-                tags_query,
-            ),
+            Some(id) => {
+                queries::get::get_hot_tags_by_reach(id.as_str(), reach.unwrap(), tags_query)
+            }
             None => queries::get::get_global_hot_tags(tags_query),
         };
         let result = retrieve_from_graph::<HotTags>(query, "hot_tags").await?;
