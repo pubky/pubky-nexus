@@ -75,7 +75,7 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
     let reply_reply_id = test.create_post(&author_id, &reply_of_reply).await?;
 
     // Check if reply post is not in total engagement index: Sorted:Posts:Global:TotalEngagement:user_id:post_id
-    let total_engagement = check_member_total_engagement_user_posts(&[&author_id, &reply_reply_id])
+    let total_engagement = check_member_total_engagement_user_posts(&[&author_id, &reply_id])
         .await
         .unwrap();
     assert!(
