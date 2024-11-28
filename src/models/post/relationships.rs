@@ -89,7 +89,7 @@ impl PostRelationships {
     }
 
     pub async fn put_to_index(&self, author_id: &str, post_id: &str) -> Result<(), DynError> {
-        self.put_index_json(&[author_id, post_id]).await?;
+        self.put_index_json(&[author_id, post_id], None).await?;
         Ok(())
     }
 

@@ -91,7 +91,7 @@ async fn test_global_hot_tags_for_posts() -> Result<()> {
 
 #[tokio::test]
 async fn test_hot_tags_by_following_reach() -> Result<()> {
-    let endpoint = &format!("/v0/tags/hot/{}/following", PEER_PUBKY,);
+    let endpoint = &format!("/v0/tags/hot?user_id={}&reach=following", PEER_PUBKY,);
 
     let body = make_request(endpoint).await?;
     assert!(body.is_array());
@@ -110,7 +110,10 @@ async fn test_hot_tags_by_following_reach() -> Result<()> {
 
 #[tokio::test]
 async fn test_hot_tags_by_following_using_taggers_limit() -> Result<()> {
-    let endpoint = &format!("/v0/tags/hot/{}/following?taggers_limit=3", PEER_PUBKY,);
+    let endpoint = &format!(
+        "/v0/tags/hot?user_id={}&reach=following&taggers_limit=3",
+        PEER_PUBKY,
+    );
 
     let body = make_request(endpoint).await?;
     assert!(body.is_array());
@@ -129,7 +132,7 @@ async fn test_hot_tags_by_following_using_taggers_limit() -> Result<()> {
 
 #[tokio::test]
 async fn test_hot_tags_by_followers_reach() -> Result<()> {
-    let endpoint = &format!("/v0/tags/hot/{}/followers", PEER_PUBKY);
+    let endpoint = &format!("/v0/tags/hot?user_id={}&reach=followers", PEER_PUBKY);
 
     let body = make_request(endpoint).await?;
     assert!(body.is_array());
@@ -148,7 +151,7 @@ async fn test_hot_tags_by_followers_reach() -> Result<()> {
 
 #[tokio::test]
 async fn test_hot_tags_by_friends_reach() -> Result<()> {
-    let endpoint = &format!("/v0/tags/hot/{}/friends", PEER_PUBKY);
+    let endpoint = &format!("/v0/tags/hot?user_id={}&reach=friends", PEER_PUBKY);
 
     let body = make_request(endpoint).await?;
     assert!(body.is_array());

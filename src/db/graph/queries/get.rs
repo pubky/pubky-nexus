@@ -400,6 +400,8 @@ pub fn get_hot_tags_by_reach(
         Some(tagged_type) => tagged_type.to_string(),
         None => String::from("Post|User"),
     };
+
+    let (from, to) = tags_query.timeframe.to_timestamp_range();
     query(
         format!(
             "
@@ -428,8 +430,8 @@ pub fn get_hot_tags_by_reach(
     .param("user_id", user_id)
     .param("skip", tags_query.skip as i64)
     .param("limit", tags_query.limit as i64)
-    .param("from", tags_query.from)
-    .param("to", tags_query.to)
+    .param("from", from)
+    .param("to", to)
 }
 
 pub fn get_global_hot_tags(tags_query: &HotTagsInput) -> Query {
@@ -437,6 +439,7 @@ pub fn get_global_hot_tags(tags_query: &HotTagsInput) -> Query {
         Some(tagged_type) => tagged_type.to_string(),
         None => String::from("Post|User"),
     };
+    let (from, to) = tags_query.timeframe.to_timestamp_range();
     query(
         format!(
             "
@@ -463,8 +466,8 @@ pub fn get_global_hot_tags(tags_query: &HotTagsInput) -> Query {
     )
     .param("skip", tags_query.skip as i64)
     .param("limit", tags_query.limit as i64)
-    .param("from", tags_query.from)
-    .param("to", tags_query.to)
+    .param("from", from)
+    .param("to", to)
 }
 
 pub fn get_files_by_ids(key_pair: &[&[&str]]) -> Query {

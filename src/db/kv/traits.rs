@@ -51,13 +51,17 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// # Errors
     ///
     /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
-    async fn put_index_json(&self, key_parts: &[&str]) -> Result<(), DynError> {
+    async fn put_index_json(
+        &self,
+        key_parts: &[&str],
+        expiration: Option<i64>,
+    ) -> Result<(), DynError> {
         json::put(
             &Self::prefix().await,
             &key_parts.join(":"),
             self,
             None,
-            None,
+            expiration,
         )
         .await
     }

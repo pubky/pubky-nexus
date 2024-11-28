@@ -56,7 +56,6 @@ pub const SEARCH_TAGS_ROUTE: &str = concatcp!(SEARCH_PREFIX, "/tags/{label}");
 // Axum routes
 const TAG_PREFIX: &str = concatcp!(VERSION_ROUTE, "/tags");
 pub const HOT_TAGS_ROUTE: &str = concatcp!(TAG_PREFIX, "/hot");
-pub const HOT_TAGS_BY_REACH_ROUTE: &str = concatcp!(HOT_TAGS_ROUTE, "/{user_id}/{reach}");
 pub const TAG_TAGGERS_ROUTE: &str = concatcp!(TAG_PREFIX, "/tag/{label}/taggers");
 
 // FILE endpoints
