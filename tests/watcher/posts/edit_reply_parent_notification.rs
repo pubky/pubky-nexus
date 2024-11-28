@@ -1,6 +1,6 @@
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
-use pubky_app_specs::{PostKind, PubkyAppPost, PubkyAppUser};
+use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{
     models::notification::{Notification, NotificationBody, PostChangedSource},
@@ -36,7 +36,7 @@ async fn test_edit_parent_post_notification() -> Result<()> {
     // User A creates a post
     let mut post = PubkyAppPost {
         content: "Original post by User A".to_string(),
-        kind: PostKind::Short,
+        kind: PubkyAppPostKind::Short,
         parent: None,
         embed: None,
         attachments: None,
@@ -46,7 +46,7 @@ async fn test_edit_parent_post_notification() -> Result<()> {
     // User B replies to User A's post
     let reply = PubkyAppPost {
         content: "Reply by User B".to_string(),
-        kind: PostKind::Short,
+        kind: PubkyAppPostKind::Short,
         parent: Some(format!(
             "pubky://{}/pub/pubky.app/posts/{}",
             user_a_id, post_id

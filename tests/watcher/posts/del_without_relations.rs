@@ -2,7 +2,7 @@ use crate::watcher::{
     posts::utils::check_member_post_replies, users::utils::find_user_counts, utils::WatcherTest,
 };
 use anyhow::Result;
-use pubky_app_specs::{PostEmbed, PostKind, PubkyAppPost, PubkyAppUser};
+use pubky_app_specs::{PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{
     models::{
@@ -35,7 +35,7 @@ async fn test_delete_post_without_relationships() -> Result<()> {
     // Create a post without any relationships
     let post = PubkyAppPost {
         content: "Watcher:PostDelete:User:Post".to_string(),
-        kind: PostKind::Short,
+        kind: PubkyAppPostKind::Short,
         parent: None,
         embed: None,
         attachments: None,
@@ -140,7 +140,7 @@ async fn test_delete_post_that_reposted() -> Result<()> {
     // Create a post without any relationships
     let post = PubkyAppPost {
         content: "Watcher:PostDeleteReposted:User:Post".to_string(),
-        kind: PostKind::Short,
+        kind: PubkyAppPostKind::Short,
         parent: None,
         embed: None,
         attachments: None,
@@ -150,10 +150,10 @@ async fn test_delete_post_that_reposted() -> Result<()> {
     // Create a repost
     let repost = PubkyAppPost {
         content: "Watcher:PostDeleteReposted:User:RePost".to_string(),
-        kind: PostKind::Short,
+        kind: PubkyAppPostKind::Short,
         parent: None,
-        embed: Some(PostEmbed {
-            kind: PostKind::Short,
+        embed: Some(PubkyAppPostEmbed {
+            kind: PubkyAppPostKind::Short,
             uri: format!("pubky://{}/pub/pubky.app/posts/{}", user_id, post_id),
         }),
         attachments: None,
@@ -271,7 +271,7 @@ async fn test_delete_post_that_replied() -> Result<()> {
     // Create a post without any relationships
     let post = PubkyAppPost {
         content: "Watcher:PostDeleteReplied:User:Post".to_string(),
-        kind: PostKind::Short,
+        kind: PubkyAppPostKind::Short,
         parent: None,
         embed: None,
         attachments: None,
@@ -281,7 +281,7 @@ async fn test_delete_post_that_replied() -> Result<()> {
     // Create a reply
     let reply = PubkyAppPost {
         content: "Watcher:PostDeleteReplied:User:Reply".to_string(),
-        kind: PostKind::Short,
+        kind: PubkyAppPostKind::Short,
         parent: Some(format!(
             "pubky://{}/pub/pubky.app/posts/{}",
             user_id, post_id

@@ -1,7 +1,7 @@
 use crate::run_setup;
 use crate::streams_benches::LIMIT_20;
 use criterion::Criterion;
-use pubky_app_specs::PostKind;
+use pubky_app_specs::PubkyAppPostKind;
 use pubky_nexus::models::post::{PostStream, StreamSource};
 use pubky_nexus::types::StreamSorting;
 use tokio::runtime::Runtime;
@@ -28,7 +28,7 @@ pub fn bench_stream_post_kind_short(c: &mut Criterion) {
                 StreamSorting::Timeline,
                 None,
                 None,
-                Some(PostKind::Short),
+                Some(PubkyAppPostKind::Short),
             )
             .await
             .unwrap();
@@ -58,7 +58,7 @@ pub fn bench_stream_post_kind_long(c: &mut Criterion) {
                 StreamSorting::Timeline,
                 None,
                 None,
-                Some(PostKind::Long),
+                Some(PubkyAppPostKind::Long),
             )
             .await
             .unwrap();
@@ -88,7 +88,7 @@ pub fn bench_stream_post_kind_image(c: &mut Criterion) {
                 StreamSorting::Timeline,
                 None,
                 None,
-                Some(PostKind::Image),
+                Some(PubkyAppPostKind::Image),
             )
             .await
             .unwrap();
@@ -118,7 +118,7 @@ pub fn bench_stream_post_kind_video(c: &mut Criterion) {
                 StreamSorting::Timeline,
                 None,
                 None,
-                Some(PostKind::Video),
+                Some(PubkyAppPostKind::Video),
             )
             .await
             .unwrap();
@@ -148,7 +148,7 @@ pub fn bench_stream_post_kind_link(c: &mut Criterion) {
                 StreamSorting::Timeline,
                 None,
                 None,
-                Some(PostKind::Link),
+                Some(PubkyAppPostKind::Link),
             )
             .await
             .unwrap();
@@ -178,7 +178,7 @@ pub fn bench_stream_post_kind_file(c: &mut Criterion) {
                 StreamSorting::Timeline,
                 None,
                 None,
-                Some(PostKind::File),
+                Some(PubkyAppPostKind::File),
             )
             .await
             .unwrap();

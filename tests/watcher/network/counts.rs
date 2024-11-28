@@ -4,7 +4,7 @@ use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
 use log::info;
 use pubky_app_specs::{
-    traits::HashId, PostKind, PubkyAppBookmark, PubkyAppMute, PubkyAppPost, PubkyAppTag,
+    traits::HashId, PubkyAppBookmark, PubkyAppMute, PubkyAppPost, PubkyAppPostKind, PubkyAppTag,
     PubkyAppUser,
 };
 use pubky_common::crypto::Keypair;
@@ -81,7 +81,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
         for _ in 0..num_posts {
             let post = PubkyAppPost {
                 content: format!("{}'s post content", user_names[i]),
-                kind: PostKind::Short,
+                kind: PubkyAppPostKind::Short,
                 parent: None,
                 embed: None,
                 attachments: None,

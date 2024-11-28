@@ -3,7 +3,7 @@ use crate::watcher::{
     utils::WatcherTest,
 };
 use anyhow::Result;
-use pubky_app_specs::{PostKind, PubkyAppPost, PubkyAppUser};
+use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::user::{UserCounts, UserView};
 #[tokio::test]
@@ -24,7 +24,7 @@ async fn test_delete_user_with_relationships() -> Result<()> {
     // Create a post to establish a relationship
     let post = PubkyAppPost {
         content: "User's first post".to_string(),
-        kind: PostKind::Short,
+        kind: PubkyAppPostKind::Short,
         parent: None,
         embed: None,
         attachments: None,

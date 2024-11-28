@@ -1,7 +1,7 @@
 use super::utils::find_post_details;
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
-use pubky_app_specs::{PostKind, PubkyAppPost, PubkyAppUser};
+use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::notification::{Notification, NotificationBody};
 use pubky_nexus::types::Pagination;
@@ -24,7 +24,7 @@ async fn test_homeserver_post_reply_notification() -> Result<()> {
 
     let parent_post = PubkyAppPost {
         content: "Watcher:PostReplyNotification:Alice:Post".to_string(),
-        kind: PostKind::Short,
+        kind: PubkyAppPostKind::Short,
         parent: None,
         embed: None,
         attachments: None,
@@ -36,7 +36,7 @@ async fn test_homeserver_post_reply_notification() -> Result<()> {
 
     let reply_post = PubkyAppPost {
         content: "Watcher:PostReplyNotification:Alice:Reply".to_string(),
-        kind: PostKind::Short,
+        kind: PubkyAppPostKind::Short,
         parent: Some(parent_uri.clone()),
         embed: None,
         attachments: None,
@@ -69,7 +69,7 @@ async fn test_homeserver_post_reply_notification() -> Result<()> {
 
     let reply_post = PubkyAppPost {
         content: "Watcher:PostReplyNotification:Bob:Reply".to_string(),
-        kind: PostKind::Short,
+        kind: PubkyAppPostKind::Short,
         parent: Some(parent_uri.clone()),
         embed: None,
         attachments: None,

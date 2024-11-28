@@ -1,7 +1,7 @@
 use super::utils::find_post_details;
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
-use pubky_app_specs::{PostEmbed, PostKind, PubkyAppPost, PubkyAppUser};
+use pubky_app_specs::{PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::notification::{Notification, NotificationBody};
 use pubky_nexus::types::Pagination;
@@ -24,7 +24,7 @@ async fn test_homeserver_post_repost_notification() -> Result<()> {
 
     let parent_post = PubkyAppPost {
         content: "Watcher:PostRepostNotification:Alice:Post".to_string(),
-        kind: PostKind::Short,
+        kind: PubkyAppPostKind::Short,
         parent: None,
         embed: None,
         attachments: None,
@@ -36,10 +36,10 @@ async fn test_homeserver_post_repost_notification() -> Result<()> {
 
     let alice_repost = PubkyAppPost {
         content: "Watcher:PostRepostNotification:Alice:Reply".to_string(),
-        kind: PostKind::Short,
+        kind: PubkyAppPostKind::Short,
         parent: None,
-        embed: Some(PostEmbed {
-            kind: PostKind::Short,
+        embed: Some(PubkyAppPostEmbed {
+            kind: PubkyAppPostKind::Short,
             uri: parent_uri.clone(),
         }),
         attachments: None,
@@ -72,10 +72,10 @@ async fn test_homeserver_post_repost_notification() -> Result<()> {
 
     let bob_repost = PubkyAppPost {
         content: "Watcher:PostRepostNotification:Bob:Reply".to_string(),
-        kind: PostKind::Short,
+        kind: PubkyAppPostKind::Short,
         parent: None,
-        embed: Some(PostEmbed {
-            kind: PostKind::Short,
+        embed: Some(PubkyAppPostEmbed {
+            kind: PubkyAppPostKind::Short,
             uri: parent_uri.clone(),
         }),
         attachments: None,

@@ -4,7 +4,7 @@ use pkarr::mainline::Testnet;
 use pubky::PubkyClient;
 use pubky_app_specs::{
     traits::{HashId, TimestampId},
-    PostKind, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppTag, PubkyAppUser,
+    PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
 };
 use pubky_common::{
     crypto::{Keypair, PublicKey},
@@ -272,7 +272,7 @@ async fn create_posts(
     for _ in 0..num_posts {
         let post = PubkyAppPost {
             content: random_string(rng, 100),
-            kind: PostKind::Short,
+            kind: PubkyAppPostKind::Short,
             parent: None,
             embed: None,
             attachments: None,

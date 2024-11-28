@@ -22,7 +22,7 @@ pub async fn put(tagger_id: PubkyId, tag_id: String, blob: Bytes) -> Result<(), 
     debug!("Indexing new tag: {} -> {}", tagger_id, tag_id);
 
     // Deserialize and validate tag
-    let tag = <PubkyAppTag as Validatable>::try_from(&blob, &tag_id).await?;
+    let tag = <PubkyAppTag as Validatable>::try_from(&blob, &tag_id)?;
 
     // Parse the embeded URI to extract author_id and post_id using parse_tagged_post_uri
     let parsed_uri = ParsedUri::try_from(tag.uri.as_str())?;

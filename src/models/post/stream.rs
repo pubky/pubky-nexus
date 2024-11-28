@@ -9,7 +9,7 @@ use crate::{
     },
     queries, RedisOps, ScoreAction,
 };
-use pubky_app_specs::PostKind;
+use pubky_app_specs::PubkyAppPostKind;
 use serde::{Deserialize, Serialize};
 use tokio::task::spawn;
 use tokio::time::{timeout, Duration};
@@ -97,7 +97,7 @@ impl PostStream {
         sorting: StreamSorting,
         viewer_id: Option<String>,
         tags: Option<Vec<String>>,
-        kind: Option<PostKind>,
+        kind: Option<PubkyAppPostKind>,
     ) -> Result<Option<Self>, DynError> {
         // Decide whether to use index or fallback to graph query
         let use_index = Self::can_use_index(&sorting, &source, &tags, &kind);
@@ -119,7 +119,7 @@ impl PostStream {
         sorting: &StreamSorting,
         source: &StreamSource,
         tags: &Option<Vec<String>>,
-        kind: &Option<PostKind>,
+        kind: &Option<PubkyAppPostKind>,
     ) -> bool {
         if kind.is_some() {
             return false;
@@ -195,7 +195,7 @@ impl PostStream {
         sorting: StreamSorting,
         tags: &Option<Vec<String>>,
         pagination: Pagination,
-        kind: Option<PostKind>,
+        kind: Option<PubkyAppPostKind>,
     ) -> Result<Vec<String>, DynError> {
         let mut result;
         {

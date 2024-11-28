@@ -2434,16 +2434,11 @@ dependencies = [
 
 [[package]]
 name = "pubky-app-specs"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8556efeca9c68c9141aec369741e1f50d8d90b84a6ff8a8dc79bda7207b6ea62"
+version = "0.2.1"
+source = "git+https://github.com/Pubky/pubky-app-specs?branch=feat/external-api#e169a4561a1ff1966984a3b8b221e6529c8daff0"
 dependencies = [
- "async-trait",
  "base32",
  "blake3",
- "bytes",
- "chrono",
- "pubky-common 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde",
  "serde_json",
  "url",

@@ -2,7 +2,7 @@ use super::utils::{check_member_total_engagement_user_posts, find_post_counts};
 use crate::watcher::users::utils::find_user_counts;
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
-use pubky_app_specs::{PostEmbed, PostKind, PubkyAppPost, PubkyAppUser};
+use pubky_app_specs::{PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 
 #[tokio::test]
@@ -24,7 +24,7 @@ async fn test_homeserver_reply_repost() -> Result<()> {
     // Create root Post
     let parent_post = PubkyAppPost {
         content: "Watcher:ReplyRepost:User:Post".to_string(),
-        kind: PostKind::Short,
+        kind: PubkyAppPostKind::Short,
         parent: None,
         embed: None,
         attachments: None,
@@ -37,7 +37,7 @@ async fn test_homeserver_reply_repost() -> Result<()> {
 
     let reply = PubkyAppPost {
         content: "Watcher:ReplyRepost:User:Reply".to_string(),
-        kind: PostKind::Short,
+        kind: PubkyAppPostKind::Short,
         parent: Some(parent_uri.clone()),
         embed: None,
         attachments: None,
@@ -50,10 +50,10 @@ async fn test_homeserver_reply_repost() -> Result<()> {
 
     let repost = PubkyAppPost {
         content: "Watcher:ReplyRepost:User:Repost".to_string(),
-        kind: PostKind::Short,
+        kind: PubkyAppPostKind::Short,
         parent: None,
-        embed: Some(PostEmbed {
-            kind: PostKind::Short,
+        embed: Some(PubkyAppPostEmbed {
+            kind: PubkyAppPostKind::Short,
             uri: post_uri.clone(),
         }),
         attachments: None,
