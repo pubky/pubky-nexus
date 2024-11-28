@@ -112,7 +112,10 @@ async fn put_sync_post(
 
     // Post replies cannot be included in the total engagement index once they have been tagged
     // Only root posts should be included. Ensure that the parent post is the root post
-    if PostRelationships::is_root(&author_id, &post_id).await? {
+    let relationships = PostRelationships::get_by_id(&author_id, &post_id)
+        .await?
+        .unwrap_or_default();
+    if !relationships.is_reply() {
         // Increment in one post global engagement
         PostStream::update_index_score(&author_id, &post_id, ScoreAction::Increment(1.0)).await?;
     }
@@ -255,7 +258,10 @@ async fn del_sync_post(
 
     // Post replies cannot be included in the total engagement index once the tag have been deleted
     // Only root posts should be included. Ensure that the parent post is the root post
-    if PostRelationships::is_root(author_id, post_id).await? {
+    let relationships = PostRelationships::get_by_id(author_id, post_id)
+        .await?
+        .unwrap_or_default();
+    if !relationships.is_reply() {
         // Decrement in one post global engagement
         PostStream::update_index_score(author_id, post_id, ScoreAction::Decrement(1.0)).await?;
     }

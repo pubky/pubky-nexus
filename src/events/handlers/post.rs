@@ -92,7 +92,10 @@ pub async fn sync_put(
 
         // Post replies cannot be included in the total engagement index after they are reposted or receive a reply
         // Only root posts should be included. Ensure that the parent post is the root post
-        if PostRelationships::is_root(&parent_author_id, &parent_post_id).await? {
+        let parent_relationships = PostRelationships::get_by_id(&parent_author_id, &parent_post_id)
+            .await?
+            .unwrap_or_default();
+        if !parent_relationships.is_reply() {
             PostStream::put_score_index_sorted_set(
                 &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
                 parent_post_key_parts,
@@ -315,10 +318,12 @@ pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), DynError> {
 pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynError> {
     let deleted_uri = format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}");
 
-    let relationships = PostRelationships::get_by_id(&author_id, &post_id).await?;
+    let relationships = PostRelationships::get_by_id(&author_id, &post_id)
+        .await?
+        .unwrap_or_default();
     // If the post is reply or repost, cannot delete from the main feeds
     // In the main feed, we just include the root posts
-    let is_reply = is_reply(&relationships);
+    let is_reply = relationships.is_reply();
 
     PostCounts::delete(&author_id, &post_id, !is_reply).await?;
     UserCounts::update(&author_id, "posts", JsonAction::Decrement(1)).await?;
@@ -329,90 +334,81 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
     // Use that index wrapper to delete a post reply
     let mut reply_parent_post_key_wrapper: Option<[String; 2]> = None;
 
-    if let Some(relationships) = relationships {
-        // Decrement counts for resposted post if existed
-        if let Some(reposted) = relationships.reposted {
-            let parsed_uri = ParsedUri::try_from(reposted.as_str())?;
-            let parent_post_id = parsed_uri.post_id.ok_or("Missing post ID")?;
+    // Decrement counts for resposted post if existed
+    if let Some(reposted) = relationships.reposted {
+        let parsed_uri = ParsedUri::try_from(reposted.as_str())?;
+        let parent_post_id = parsed_uri.post_id.ok_or("Missing post ID")?;
 
-            let parent_post_key_parts: &[&str] = &[&parsed_uri.user_id, &parent_post_id];
+        let parent_post_key_parts: &[&str] = &[&parsed_uri.user_id, &parent_post_id];
 
-            PostCounts::update_index_field(
+        PostCounts::update_index_field(parent_post_key_parts, "reposts", JsonAction::Decrement(1))
+            .await?;
+
+        // Post replies cannot be included in the total engagement index after the repost is deleted
+        // Only root posts should be included. Ensure that the parent post is the root post
+        let parent_relationships =
+            PostRelationships::get_by_id(&parsed_uri.user_id, &parent_post_id)
+                .await?
+                .unwrap_or_default();
+        if !parent_relationships.is_reply() {
+            PostStream::put_score_index_sorted_set(
+                &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
                 parent_post_key_parts,
-                "reposts",
-                JsonAction::Decrement(1),
-            )
-            .await?;
-
-            // Post replies cannot be included in the total engagement index after the repost is deleted
-            // Only root posts should be included. Ensure that the parent post is the root post
-            if PostRelationships::is_root(&parsed_uri.user_id, &parent_post_id).await? {
-                PostStream::put_score_index_sorted_set(
-                    &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
-                    parent_post_key_parts,
-                    ScoreAction::Decrement(1.0),
-                )
-                .await?;
-            }
-
-            // Notification: "A repost of your post was deleted"
-            Notification::post_children_changed(
-                &author_id,
-                &reposted,
-                &parsed_uri.user_id,
-                &deleted_uri,
-                PostChangedSource::Repost,
-                &PostChangedType::Deleted,
+                ScoreAction::Decrement(1.0),
             )
             .await?;
         }
-        // Decrement counts for parent post if replied
-        if let Some(replied) = relationships.replied {
-            let parsed_uri = ParsedUri::try_from(replied.as_str())?;
-            let parent_user_id = parsed_uri.user_id;
-            let parent_post_id = parsed_uri.post_id.ok_or("Missing post ID")?;
 
-            let parent_post_key_parts: [&str; 2] = [&parent_user_id, &parent_post_id];
-            reply_parent_post_key_wrapper =
-                Some([parent_user_id.to_string(), parent_post_id.clone()]);
+        // Notification: "A repost of your post was deleted"
+        Notification::post_children_changed(
+            &author_id,
+            &reposted,
+            &parsed_uri.user_id,
+            &deleted_uri,
+            PostChangedSource::Repost,
+            &PostChangedType::Deleted,
+        )
+        .await?;
+    }
+    // Decrement counts for parent post if replied
+    if let Some(replied) = relationships.replied {
+        let parsed_uri = ParsedUri::try_from(replied.as_str())?;
+        let parent_user_id = parsed_uri.user_id;
+        let parent_post_id = parsed_uri.post_id.ok_or("Missing post ID")?;
 
-            PostCounts::update_index_field(
+        let parent_post_key_parts: [&str; 2] = [&parent_user_id, &parent_post_id];
+        reply_parent_post_key_wrapper = Some([parent_user_id.to_string(), parent_post_id.clone()]);
+
+        PostCounts::update_index_field(&parent_post_key_parts, "replies", JsonAction::Decrement(1))
+            .await?;
+
+        // Post replies cannot be included in the total engagement index after the reply is deleted
+        // Only root posts should be included. Ensure that the parent post is the root post
+        let parent_relationships = PostRelationships::get_by_id(&parent_user_id, &parent_post_id)
+            .await?
+            .unwrap_or_default();
+        if !parent_relationships.is_reply() {
+            PostStream::put_score_index_sorted_set(
+                &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
                 &parent_post_key_parts,
-                "replies",
-                JsonAction::Decrement(1),
-            )
-            .await?;
-
-            // Post replies cannot be included in the total engagement index after the reply is deleted
-            // Only root posts should be included. Ensure that the parent post is the root post
-            if PostRelationships::is_root(&parent_user_id, &parent_post_id).await? {
-                PostStream::put_score_index_sorted_set(
-                    &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
-                    &parent_post_key_parts,
-                    ScoreAction::Decrement(1.0),
-                )
-                .await?;
-            }
-
-            // Notification: "A reply to your post was deleted"
-            Notification::post_children_changed(
-                &author_id,
-                &replied,
-                &parent_user_id,
-                &deleted_uri,
-                PostChangedSource::Reply,
-                &PostChangedType::Deleted,
+                ScoreAction::Decrement(1.0),
             )
             .await?;
         }
+
+        // Notification: "A reply to your post was deleted"
+        Notification::post_children_changed(
+            &author_id,
+            &replied,
+            &parent_user_id,
+            &deleted_uri,
+            PostChangedSource::Reply,
+            &PostChangedType::Deleted,
+        )
+        .await?;
     }
     PostDetails::delete(&author_id, &post_id, reply_parent_post_key_wrapper).await?;
     PostRelationships::delete(&author_id, &post_id).await?;
 
     Ok(())
-}
-
-// The only posts that has a feed are root posts and reposts. Replies does not belong to that feeds
-fn is_reply(relationship: &Option<PostRelationships>) -> bool {
-    matches!(relationship, Some(post_relationship) if post_relationship.replied.is_some()/*&& post_relationship.reposted.is_none()*/)
 }
