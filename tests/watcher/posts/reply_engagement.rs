@@ -1,5 +1,7 @@
-use super::utils::check_member_total_engagement_user_posts;
-use crate::{service::stream::author, watcher::utils::WatcherTest};
+use super::utils::{
+    check_member_global_timeline_user_post, check_member_total_engagement_user_posts,
+};
+use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
 use pubky_app_specs::{
@@ -50,10 +52,19 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
 
     let reply_id = test.create_post(&author_id, &reply).await?;
 
+    // Check if reply post is not in global timeline index: Sorted:Posts:Global:Timeline:user_id:post_id
+    let global_timeline = check_member_global_timeline_user_post(&author_id, &reply_id)
+        .await
+        .unwrap();
+    assert!(
+        global_timeline.is_none(),
+        "Replies cannot be added in the global timeline"
+    );
+
     // Create a reply of a reply
     let reply_uri = format!("pubky://{}/pub/pubky.app/posts/{}", author_id, reply_id);
 
-    let reply = PubkyAppPost {
+    let reply_of_reply = PubkyAppPost {
         content: "Watcher:ReplyEngagement:User:ReplyOfReply".to_string(),
         kind: PostKind::Short,
         parent: Some(reply_uri.clone()),
@@ -61,19 +72,27 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
         attachments: None,
     };
 
-    let reply_reply_id = test.create_post(&author_id, &reply).await?;
+    let reply_reply_id = test.create_post(&author_id, &reply_of_reply).await?;
 
     // Check if reply post is not in total engagement index: Sorted:Posts:Global:TotalEngagement:user_id:post_id
-    let total_engagement = check_member_total_engagement_user_posts(&[&author_id, &reply_id])
+    let total_engagement = check_member_total_engagement_user_posts(&[&author_id, &reply_reply_id])
         .await
         .unwrap();
     assert!(
         total_engagement.is_none(),
         "Replies score cannot be incremented in the total engagement list after receiving a reply"
     );
+    // Check if reply post is not in global timeline index: Sorted:Posts:Global:Timeline:user_id:post_id
+    let global_timeline = check_member_global_timeline_user_post(&author_id, &reply_id)
+        .await
+        .unwrap();
+    assert!(
+        global_timeline.is_none(),
+        "Replies cannot be added in the global timeline"
+    );
 
     // Create a repost of a reply
-    let repost = PubkyAppPost {
+    let reply_repost = PubkyAppPost {
         content: "Watcher:ReplyEngagement:User:Repost".to_string(),
         kind: PostKind::Short,
         parent: None,
@@ -84,7 +103,7 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
         attachments: None,
     };
 
-    let reply_repost_id = test.create_post(&author_id, &repost).await?;
+    let reply_repost_id = test.create_post(&author_id, &reply_repost).await?;
 
     // Check if reply post is not in total engagement index: Sorted:Posts:Global:TotalEngagement:user_id:post_id
     let total_engagement = check_member_total_engagement_user_posts(&[&author_id, &reply_id])
@@ -93,6 +112,14 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
     assert!(
         total_engagement.is_none(),
         "Replies score cannot be incremented in the total engagement list after being reposted"
+    );
+    // Check if reply post is not in global timeline index: Sorted:Posts:Global:Timeline:user_id:post_id
+    let global_timeline = check_member_global_timeline_user_post(&author_id, &reply_repost_id)
+        .await
+        .unwrap();
+    assert!(
+        global_timeline.is_some(),
+        "Repost has to be added in the global timeline"
     );
 
     let tagger_keypair = Keypair::random();
@@ -153,6 +180,14 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
     assert!(
         total_engagement.is_none(),
         "Replies score cannot be decremented in the total engagement list after deleting a repost"
+    );
+    // Check if reply post is not in global timeline index: Sorted:Posts:Global:Timeline:user_id:post_id
+    let global_timeline = check_member_global_timeline_user_post(&author_id, &reply_repost_id)
+        .await
+        .unwrap();
+    assert!(
+        global_timeline.is_none(),
+        "Repost cannot be in global timeline after deletion"
     );
 
     test.delete_tag(&tag_url).await?;
