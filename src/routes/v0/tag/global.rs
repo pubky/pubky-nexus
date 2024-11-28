@@ -2,7 +2,7 @@ use crate::models::tag::global::TagGlobal;
 use crate::models::tag::stream::{
     HotTag, HotTags, HotTagsInput, TagStreamReach, TaggedType, Taggers, Timeframe,
 };
-use crate::routes::v0::endpoints::{HOT_TAGS_ROUTE, TAG_TAGGERS_ROUTE};
+use crate::routes::v0::endpoints::{TAGS_HOT_ROUTE, TAG_TAGGERS_ROUTE};
 use crate::types::Pagination;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
@@ -67,7 +67,7 @@ pub async fn tag_taggers_handler(
 
 #[utoipa::path(
     get,
-    path = HOT_TAGS_ROUTE,
+    path = TAGS_HOT_ROUTE,
     description = "Global Tags by reach",
     tag = "Tags",
     params(
@@ -87,7 +87,7 @@ pub async fn tag_taggers_handler(
     )
 )]
 pub async fn hot_tags_handler(Query(query): Query<HotTagsQuery>) -> Result<Json<HotTags>> {
-    info!("GET {HOT_TAGS_ROUTE}, query: {:?}", query);
+    info!("GET {TAGS_HOT_ROUTE}, query: {:?}", query);
 
     // Check if user_id and reach are provided together
     if query.user_id.is_some() ^ query.reach.is_some() {
