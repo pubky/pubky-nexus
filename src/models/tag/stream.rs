@@ -1,8 +1,10 @@
 use crate::db::graph::exec::retrieve_from_graph;
+use crate::db::kv::index::sorted_sets::SortOrder;
 use crate::types::DynError;
 use axum::async_trait;
 use chrono::Datelike;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fmt::Display;
 use std::ops::Deref;
 use utoipa::ToSchema;
@@ -12,7 +14,9 @@ use crate::{RedisOps, ScoreAction};
 
 pub const TAG_GLOBAL_HOT: [&str; 3] = ["Tags", "Global", "Hot"];
 
-#[derive(Serialize, Deserialize, Debug, ToSchema)]
+const GLOBAL_HOT_TAGS_PREFIX: &str = "Hot_Tags";
+
+#[derive(Serialize, Deserialize, Debug, ToSchema, Clone)]
 pub struct Taggers(pub Vec<String>);
 
 #[derive(Deserialize, Debug, ToSchema, Clone)]
@@ -125,7 +129,7 @@ impl Taggers {
     }
 }
 
-#[derive(Deserialize, Serialize, ToSchema, Debug)]
+#[derive(Deserialize, Serialize, ToSchema, Debug, Clone)]
 pub struct HotTag {
     label: String,
     taggers_id: Taggers,
@@ -134,10 +138,15 @@ pub struct HotTag {
 }
 
 // Define a newtype wrapper
-#[derive(Serialize, Deserialize, Debug, ToSchema, Default)]
+#[derive(Serialize, Deserialize, Debug, ToSchema, Default, Clone)]
 pub struct HotTags(pub Vec<HotTag>);
 
 impl RedisOps for HotTags {}
+
+#[derive(Serialize, Deserialize, Debug, ToSchema, Default)]
+pub struct HotTagsData(pub HashMap<String, HotTag>);
+
+impl RedisOps for HotTagsData {}
 
 // Implement Deref so TagList can be used like Vec<String>
 impl Deref for HotTags {
@@ -187,37 +196,92 @@ impl HotTags {
 
     fn get_cache_key_parts(tags_query: &HotTagsInput) -> Vec<String> {
         match &tags_query.tagged_type {
-            Some(tagged) => vec![
-                tags_query.timeframe.to_string(),
-                tagged.to_string(),
-                tags_query.limit.to_string(),
-                tags_query.skip.to_string(),
-            ],
-            None => vec![
-                tags_query.timeframe.to_string(),
-                tags_query.limit.to_string(),
-                tags_query.skip.to_string(),
-            ],
+            Some(tagged) => vec![tags_query.timeframe.to_string(), tagged.to_string()],
+            None => vec![tags_query.timeframe.to_string(), String::from("All")],
         }
     }
 
-    async fn get_from_cache(tags_query: &HotTagsInput) -> Result<Option<HotTags>, DynError> {
+    async fn get_from_global_cache(tags_query: &HotTagsInput) -> Result<Option<HotTags>, DynError> {
         let key_parts = HotTags::get_cache_key_parts(tags_query);
         let key_parts_vector: Vec<&str> =
             key_parts.iter().map(|s| s.as_str()).collect::<Vec<&str>>();
-        HotTags::try_from_index_json(key_parts_vector.as_slice()).await
+        let data = HotTagsData::try_from_index_json(key_parts_vector.clone().as_slice()).await?;
+        let ranking = HotTags::try_from_index_sorted_set(
+            key_parts_vector.as_slice(),
+            None,
+            None,
+            Some(tags_query.skip),
+            Some(tags_query.limit),
+            SortOrder::Descending,
+            Some(GLOBAL_HOT_TAGS_PREFIX),
+        )
+        .await?;
+
+        if data.is_none() || ranking.is_none() {
+            return Ok(None);
+        }
+
+        let mapping = data.unwrap();
+        // for each value in ranking, look up the value in data
+        let mut hot_tags = Vec::new();
+        for (label, _) in ranking.unwrap() {
+            if let Some(tag) = mapping.0.get(&label) {
+                hot_tags.push(HotTag {
+                    label,
+                    taggers_id: Taggers(
+                        tag.taggers_id
+                            .0
+                            .clone()
+                            .into_iter()
+                            .take(tags_query.taggers_limit)
+                            .collect(),
+                    ),
+                    tagged_count: tag.tagged_count,
+                    taggers_count: tag.taggers_count,
+                });
+            }
+        }
+        Ok(Some(HotTags(hot_tags)))
     }
 
-    async fn set_to_cache(result: &HotTags, tags_query: &HotTagsInput) -> Result<(), DynError> {
+    async fn set_to_global_cache(
+        result: HotTags,
+        tags_query: &HotTagsInput,
+    ) -> Result<(), DynError> {
         let key_parts = HotTags::get_cache_key_parts(tags_query);
         let key_parts_vector: Vec<&str> =
             key_parts.iter().map(|s| s.as_str()).collect::<Vec<&str>>();
-        result
-            .put_index_json(
-                key_parts_vector.as_slice(),
-                Some(tags_query.timeframe.to_cache_period()),
-            )
-            .await
+
+        // turn result which is a vector of HotTag, into a mapping from label to HotTag
+        let mapping = result.clone();
+        let hot_tags_data: HashMap<String, HotTag> = mapping
+            .iter()
+            .map(|item| item.clone())
+            .into_iter()
+            .map(|tag| (tag.label.clone(), tag))
+            .collect();
+
+        // store the data as json in cache
+        HotTagsData::put_index_json(
+            &HotTagsData(hot_tags_data),
+            key_parts_vector.as_slice(),
+            Some(tags_query.timeframe.to_cache_period()),
+        )
+        .await?;
+
+        // store the ranking as sorted set in cache
+        HotTags::put_index_sorted_set(
+            key_parts_vector.as_slice(),
+            result
+                .iter()
+                .map(|tag| (tag.tagged_count as f64, tag.label.as_str()))
+                .collect::<Vec<(f64, &str)>>()
+                .as_slice(),
+            Some(GLOBAL_HOT_TAGS_PREFIX),
+            Some(tags_query.timeframe.to_cache_period()),
+        )
+        .await?;
+        Ok(())
     }
 
     pub async fn get_hot_tags(
@@ -225,26 +289,43 @@ impl HotTags {
         reach: Option<TagStreamReach>,
         tags_query: &HotTagsInput,
     ) -> Result<Option<HotTags>, DynError> {
-        if user_id.is_none() {
-            let cached_hot_tags = HotTags::get_from_cache(tags_query).await?;
-            if cached_hot_tags.is_some() {
-                return Ok(cached_hot_tags);
+        match user_id {
+            Some(user_id) => {
+                HotTags::get_hot_tags_by_reach(user_id, reach.unwrap(), tags_query).await
             }
+            None => HotTags::get_global_hot_tags(tags_query).await,
+        }
+    }
+
+    async fn get_hot_tags_by_reach(
+        user_id: String,
+        reach: TagStreamReach,
+        tags_query: &HotTagsInput,
+    ) -> Result<Option<HotTags>, DynError> {
+        let query = queries::get::get_hot_tags_by_reach(user_id.as_str(), reach, tags_query);
+        retrieve_from_graph::<HotTags>(query, "hot_tags").await
+    }
+
+    async fn get_global_hot_tags(tags_query: &HotTagsInput) -> Result<Option<HotTags>, DynError> {
+        let cached_hot_tags = HotTags::get_from_global_cache(tags_query).await?;
+        if cached_hot_tags.is_some() {
+            return Ok(cached_hot_tags);
         }
 
-        let query = match &user_id {
-            Some(id) => {
-                queries::get::get_hot_tags_by_reach(id.as_str(), reach.unwrap(), tags_query)
-            }
-            None => queries::get::get_global_hot_tags(tags_query),
-        };
+        let query = queries::get::get_global_hot_tags(&HotTagsInput {
+            skip: 0,
+            limit: 100,
+            tagged_type: tags_query.tagged_type.clone(),
+            taggers_limit: 20,
+            timeframe: tags_query.timeframe.clone(),
+        });
         let result = retrieve_from_graph::<HotTags>(query, "hot_tags").await?;
 
         let hot_tags = result.unwrap();
-        if user_id.is_none() && hot_tags.len() > 0 {
-            HotTags::set_to_cache(&hot_tags, tags_query).await?;
+        if hot_tags.len() > 0 {
+            HotTags::set_to_global_cache(hot_tags.clone(), tags_query).await?;
         }
 
-        Ok(Some(hot_tags))
+        HotTags::get_from_global_cache(tags_query).await
     }
 }
