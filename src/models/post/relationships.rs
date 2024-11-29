@@ -35,12 +35,6 @@ impl PostRelationships {
         }
     }
 
-    /// Determines whether the post is a reply.
-    /// Returns true if `self.replied` is `Some`.
-    pub fn is_reply(&self) -> bool {
-        self.replied.is_some()
-    }
-
     pub async fn get_from_index(
         author_id: &str,
         post_id: &str,
