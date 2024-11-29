@@ -37,7 +37,7 @@ async fn test_delete_user_with_relationships() -> Result<()> {
     );
 
     // Attempt to get user view; should not exist
-    let user_view = UserView::get_by_id(&user_id, None).await.unwrap();
+    let user_view = UserView::get_by_id(&user_id, None, None).await.unwrap();
     assert!(
         user_view.is_none(),
         "User view should not be found after deletion"

@@ -106,7 +106,8 @@ impl HotTags {
                 row.get("hot_tags_users").unwrap_or(Vec::new());
             // Make sure both list has content before write the indexes
             if !hot_tags_score.is_empty() && !hot_tags_users.is_empty() {
-                Self::put_index_sorted_set(&TAG_GLOBAL_HOT, hot_tags_score.as_slice()).await?;
+                Self::put_index_sorted_set(&TAG_GLOBAL_HOT, hot_tags_score.as_slice(), None, None)
+                    .await?;
                 // Add all the users_id in the SET
                 for (label, user_list) in hot_tags_users.into_iter() {
                     let values_ref: Vec<&str> = user_list.iter().map(|id| id.as_str()).collect();
@@ -129,6 +130,7 @@ impl HotTags {
             skip,
             limit,
             SortOrder::Descending,
+            None,
         )
         .await?
         .unwrap_or_default();
@@ -141,7 +143,7 @@ impl HotTags {
         let labels: Vec<&str> = hot_tags.iter().map(|(label, _)| label.as_str()).collect();
         let label_slice: &[&str] = &labels;
 
-        let list = Taggers::try_from_multiple_sets(label_slice, taggers_limit).await?;
+        let list = Taggers::try_from_multiple_sets(None, label_slice, taggers_limit).await?;
 
         let hot_tags_stream: HotTags = hot_tags
             .into_iter()

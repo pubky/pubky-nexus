@@ -17,5 +17,5 @@ impl TagGlobal {
 }
 
 pub async fn read_from_set(label: &str) -> Result<Option<Vec<String>>, DynError> {
-    Taggers::try_from_index_set(&[label], None, None).await
+    Taggers::try_from_index_set(&[label], None, None, None).await
 }

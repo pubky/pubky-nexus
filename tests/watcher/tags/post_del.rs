@@ -81,10 +81,15 @@ async fn test_homeserver_del_tag_post() -> Result<()> {
     // Assert post tag indexes are updated
     // - Post:Taggers:author_id:post_id:label
     // - Sorted:Posts:Tag:author_id:post_id
-    let cache_post_tag =
-        <TagPost as TagCollection>::get_from_index(&author_user_id, Some(&post_id), None, None)
-            .await
-            .expect("Failed to get tag from cache");
+    let cache_post_tag = <TagPost as TagCollection>::get_from_index(
+        &author_user_id,
+        Some(&post_id),
+        None,
+        None,
+        false,
+    )
+    .await
+    .expect("Failed to get tag from cache");
 
     assert!(
         cache_post_tag.is_none(),
@@ -93,7 +98,7 @@ async fn test_homeserver_del_tag_post() -> Result<()> {
 
     // Post:Taggers:author_id:post_id:label
     let post_key = vec![author_user_id.as_str(), post_id.as_str(), label];
-    let taggers = <TagPost as TaggersCollection>::get_from_index(post_key, None, None)
+    let taggers = <TagPost as TaggersCollection>::get_from_index(post_key, None, None, None)
         .await
         .unwrap();
     assert!(taggers.is_none());

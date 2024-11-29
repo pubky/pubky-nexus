@@ -10,6 +10,8 @@ use utoipa::ToSchema;
 pub const USER_MOSTFOLLOWED_KEY_PARTS: [&str; 2] = ["Users", "MostFollowed"];
 pub const USER_PIONEERS_KEY_PARTS: [&str; 2] = ["Users", "Pioneers"];
 pub const CACHE_USER_RECOMMENDED_KEY_PARTS: [&str; 3] = ["Cache", "Users", "Recommended"];
+// TTL, 12HR
+pub const CACHE_USER_RECOMMENDED_TTL: i64 = 12 * 60 * 60;
 
 #[derive(Deserialize, ToSchema, Debug, Clone)]
 #[serde(rename_all = "snake_case")]
@@ -35,10 +37,11 @@ impl UserStream {
         skip: Option<usize>,
         limit: Option<usize>,
         source: UserStreamSource,
+        depth: Option<u8>,
     ) -> Result<Option<Self>, DynError> {
         let user_ids = Self::get_user_list_from_source(user_id, source, skip, limit).await?;
         match user_ids {
-            Some(users) => Self::from_listed_user_ids(&users, viewer_id).await,
+            Some(users) => Self::from_listed_user_ids(&users, viewer_id, depth).await,
             None => Ok(None),
         }
     }
@@ -54,7 +57,7 @@ impl UserStream {
             .map(|result| result.0);
 
         match user_ids {
-            Some(users) => Self::from_listed_user_ids(&users, viewer_id).await,
+            Some(users) => Self::from_listed_user_ids(&users, viewer_id, None).await,
             None => Ok(None),
         }
     }
@@ -62,6 +65,7 @@ impl UserStream {
     pub async fn from_listed_user_ids(
         user_ids: &[String],
         viewer_id: Option<&str>,
+        depth: Option<u8>,
     ) -> Result<Option<Self>, DynError> {
         // TODO: potentially we could use a new redis_com.mget() with a single call to retrieve all
         // user details at once and build the user profiles on the fly.
@@ -73,7 +77,9 @@ impl UserStream {
             let user_id = user_id.clone();
             let viewer_id = viewer_id.clone();
             let handle =
-                spawn(async move { UserView::get_by_id(&user_id, viewer_id.as_deref()).await });
+                spawn(
+                    async move { UserView::get_by_id(&user_id, viewer_id.as_deref(), depth).await },
+                );
             handles.push(handle);
         }
 
@@ -99,6 +105,8 @@ impl UserStream {
         Self::put_index_sorted_set(
             &USER_MOSTFOLLOWED_KEY_PARTS,
             &[(counts.followers as f64, user_id)],
+            None,
+            None,
         )
         .await
     }
@@ -109,7 +117,7 @@ impl UserStream {
         counts: &UserCounts,
     ) -> Result<(), DynError> {
         let score = (counts.tags + counts.posts) as f64 * (counts.followers as f64).sqrt();
-        Self::put_index_sorted_set(&USER_PIONEERS_KEY_PARTS, &[(score, user_id)]).await
+        Self::put_index_sorted_set(&USER_PIONEERS_KEY_PARTS, &[(score, user_id)], None, None).await
     }
     /// Retrieves recommended user IDs based on the specified criteria.
     async fn get_recommended_ids(
@@ -173,7 +181,7 @@ impl UserStream {
         Self::put_index_set(
             &[user_id],
             &values,
-            Some(12 * 60 * 60),
+            Some(CACHE_USER_RECOMMENDED_TTL),
             Some(CACHE_USER_RECOMMENDED_KEY_PARTS.join(":")),
         )
         .await
@@ -225,6 +233,7 @@ impl UserStream {
                 skip,
                 limit,
                 SortOrder::Descending,
+                None,
             )
             .await?
             .map(|set| set.into_iter().map(|(user_id, _score)| user_id).collect()),
@@ -235,6 +244,7 @@ impl UserStream {
                 skip,
                 limit,
                 SortOrder::Descending,
+                None,
             )
             .await?
             .map(|set| set.into_iter().map(|(user_id, _score)| user_id).collect()),

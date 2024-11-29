@@ -18,7 +18,9 @@ use utoipa::OpenApi;
     tag = "Post",
     params(
         ("author_id" = String, Path, description = "Author Pubky ID"),
-        ("post_id" = String, Path, description = "Post ID")
+        ("post_id" = String, Path, description = "Post ID"),
+        ("limit_tags" = Option<usize>, Query, description = "Upper limit on the number of tags for the posts"),
+        ("limit_taggers" = Option<usize>, Query, description = "Upper limit on the number of taggers per tag"),
     ),
     responses(
         (status = 200, description = "Post tags", body = TagPost),
@@ -39,6 +41,8 @@ pub async fn post_tags_handler(
         Some(&post_id),
         query.limit_tags,
         query.limit_taggers,
+        None,
+        None, // Avoid by default WoT tags in a Post
     )
     .await
     {
@@ -74,7 +78,9 @@ pub async fn post_taggers_handler(
         "GET {POST_TAGGERS_ROUTE} author_id:{}, post_id: {}, label: {}, skip:{:?}, limit:{:?}",
         author_id, post_id, label, pagination.skip, pagination.limit
     );
-    match TagPost::get_tagger_by_id(&author_id, Some(&post_id), &label, pagination).await {
+    match TagPost::get_tagger_by_id(&author_id, Some(&post_id), &label, pagination, None, None)
+        .await
+    {
         Ok(Some(tags)) => Ok(Json(tags)),
         Ok(None) => Err(Error::PostNotFound { author_id, post_id }),
         Err(source) => Err(Error::InternalServerError { source }),

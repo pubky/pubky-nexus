@@ -99,6 +99,8 @@ async fn test_user_does_not_exist() -> Result<()> {
     Ok(())
 }
 
+// #### USER TAGGERS ######
+
 #[tokio::test]
 async fn test_user_specific_tag() -> Result<()> {
     let path = format!("/v0/user/{}/taggers/{}", PUBKY_PEER, PUBKY_LABEL);

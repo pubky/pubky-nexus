@@ -78,9 +78,10 @@ async fn test_homeserver_put_tag_post() -> Result<()> {
     assert_eq!(post_tag.taggers[0], tagger_user_id);
 
     // CACHE_OP: Check if the tag is correctly cached
-    let cache_post_tag = TagPost::get_from_index(&tagger_user_id, Some(&post_id), None, None)
-        .await
-        .unwrap();
+    let cache_post_tag =
+        TagPost::get_from_index(&tagger_user_id, Some(&post_id), None, None, false)
+            .await
+            .unwrap();
 
     assert!(cache_post_tag.is_some());
     let cache_tag_details = cache_post_tag.unwrap();

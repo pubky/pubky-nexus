@@ -1,5 +1,5 @@
-use crate::service::stream::utils::{verify_post_list, verify_timeline_post_list};
-use crate::service::stream::ROOT_PATH;
+use crate::service::stream::post::utils::{verify_post_list, verify_timeline_post_list};
+use crate::service::stream::post::ROOT_PATH;
 use crate::service::utils::make_request;
 use anyhow::Result;
 

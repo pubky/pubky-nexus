@@ -21,13 +21,14 @@ impl UserView {
     pub async fn get_by_id(
         user_id: &str,
         viewer_id: Option<&str>,
+        depth: Option<u8>,
     ) -> Result<Option<Self>, DynError> {
         // Perform all operations concurrently
         let (details, counts, relationship, tags) = tokio::try_join!(
             UserDetails::get_by_id(user_id),
             UserCounts::get_by_id(user_id),
             Relationship::get_by_id(user_id, viewer_id),
-            TagUser::get_by_id(user_id, None, None, None)
+            TagUser::get_by_id(user_id, None, None, None, viewer_id, depth)
         )?;
 
         let details = match details {

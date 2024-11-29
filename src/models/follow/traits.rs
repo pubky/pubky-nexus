@@ -74,7 +74,7 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Option<Vec<String>>, DynError> {
-        Self::try_from_index_set(&[user_id], skip, limit).await
+        Self::try_from_index_set(&[user_id], skip, limit, None).await
     }
 
     async fn put_to_index(&self, user_id: &str) -> Result<(), DynError> {

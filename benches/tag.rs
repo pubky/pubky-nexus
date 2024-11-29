@@ -23,11 +23,44 @@ fn bench_get_user_tags(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
 
     c.bench_with_input(
+        BenchmarkId::new("bench_get_wot_user_tags", user_id),
+        &user_id,
+        |b, &id| {
+            b.to_async(&rt).iter(|| async {
+                let tag_details_list = TagUser::get_by_id(id, None, None, None, None, None)
+                    .await
+                    .unwrap();
+                criterion::black_box(tag_details_list);
+            });
+        },
+    );
+}
+
+fn bench_get_wot_user_tags(c: &mut Criterion) {
+    println!("******************************************************************************");
+    println!("Test the performance of getting a user tags, using index or graph as needed");
+    println!("******************************************************************************");
+
+    run_setup();
+
+    let user_id = "c4yotzcb76d31y44jsymtdcowqg7oyqej46jty3yy7ybtzt9x41o";
+    let rt = Runtime::new().unwrap();
+
+    c.bench_with_input(
         BenchmarkId::new("bench_get_user_tags", user_id),
         &user_id,
         |b, &id| {
             b.to_async(&rt).iter(|| async {
-                let tag_details_list = TagUser::get_by_id(id, None, None, None).await.unwrap();
+                let tag_details_list = TagUser::get_by_id(
+                    id,
+                    None,
+                    None,
+                    None,
+                    Some("bbkdkhm97pytrb785rdpornkjpcxi331hpq446ckn6rhb4abiguy"),
+                    Some(3),
+                )
+                .await
+                .unwrap();
                 criterion::black_box(tag_details_list);
             });
         },
@@ -49,9 +82,41 @@ fn bench_get_user_tag_taggers(c: &mut Criterion) {
         &user_id,
         |b, &id| {
             b.to_async(&rt).iter(|| async {
-                let taggers = TagUser::get_tagger_by_id(id, None, "pubky", Pagination::default())
-                    .await
-                    .unwrap();
+                let taggers =
+                    TagUser::get_tagger_by_id(id, None, "pubky", Pagination::default(), None, None)
+                        .await
+                        .unwrap();
+                criterion::black_box(taggers);
+            });
+        },
+    );
+}
+
+fn bench_get_wot_user_tag_taggers(c: &mut Criterion) {
+    println!("***************************************************************");
+    println!("Test the performance of getting a user tag taggers, using index");
+    println!("***************************************************************");
+
+    run_setup();
+
+    let user_id = "c4yotzcb76d31y44jsymtdcowqg7oyqej46jty3yy7ybtzt9x41o";
+    let rt = Runtime::new().unwrap();
+
+    c.bench_with_input(
+        BenchmarkId::new("bench_get_user_tag_taggers", user_id),
+        &user_id,
+        |b, &id| {
+            b.to_async(&rt).iter(|| async {
+                let taggers = TagUser::get_tagger_by_id(
+                    id,
+                    None,
+                    "now",
+                    Pagination::default(),
+                    Some("bbkdkhm97pytrb785rdpornkjpcxi331hpq446ckn6rhb4abiguy"),
+                    Some(3),
+                )
+                .await
+                .unwrap();
                 criterion::black_box(taggers);
             });
         },
@@ -77,9 +142,10 @@ fn bench_get_post_tags(c: &mut Criterion) {
         &[user_id, post_id],
         |b, &params| {
             b.to_async(&rt).iter(|| async {
-                let tag_details_list = TagPost::get_by_id(params[0], Some(params[1]), None, None)
-                    .await
-                    .unwrap();
+                let tag_details_list =
+                    TagPost::get_by_id(params[0], Some(params[1]), None, None, None, None)
+                        .await
+                        .unwrap();
                 criterion::black_box(tag_details_list);
             });
         },
@@ -109,6 +175,8 @@ fn bench_get_post_tag_taggers(c: &mut Criterion) {
                     Some(params[1]),
                     "free",
                     Pagination::default(),
+                    None,
+                    None,
                 )
                 .await
                 .unwrap();
@@ -271,7 +339,9 @@ criterion_group! {
     name = benches;
     config = configure_criterion();
     targets =   bench_get_user_tags,
+                bench_get_wot_user_tags,
                 bench_get_user_tag_taggers,
+                bench_get_wot_user_tag_taggers,
                 bench_get_post_tags,
                 bench_get_post_tag_taggers,
                 bench_get_global_hot_tags,

@@ -235,6 +235,56 @@ pub fn user_tags(user_id: &str) -> neo4rs::Query {
     .param("user_id", user_id)
 }
 
+/// Retrieve tags for a user within the viewer's trusted network
+/// # Arguments
+///
+/// - `user_id` - A string slice representing the ID of the user whose tags are being queried.
+/// - `viewer_id` - A string slice representing the ID of the viewer whose trusted network is used as a filter.
+/// - `depth` - A `u8` value specifying the depth of the viewer's trusted network (e.g., 1 for direct connections,
+///   2 for connections of connections, and so on).
+///
+/// # Cypher Query Behavior
+///
+/// - **Nodes and Relationships**:
+///   - Finds the `viewer` node with the given `viewer_id`.
+///   - Finds the `tagged` user node with the given `user_id`.
+///   - Traverses the `FOLLOWS` relationships up to the specified `depth` from the viewer to find trusted `tagger` users.
+///   - Matches `TAGGED` relationships between taggers and the tagged user.
+/// - **Return Values**:
+///   - `exists`: A boolean indicating whether any taggers were found.
+///   - `tags`: A collection of objects, each containing:
+///       - `label`: The tag label.
+///       - `taggers`: A list of tagger user IDs who applied the tag.
+///       - `taggers_count`: The number of taggers who applied the tag.
+pub fn get_viewer_trusted_network_tags(user_id: &str, viewer_id: &str, depth: u8) -> neo4rs::Query {
+    let graph_query = format!(
+        "
+        MATCH (viewer:User {{id: $viewer_id}})
+        MATCH (tagged:User {{id: $user_id}})
+        CALL {{
+            WITH viewer
+            MATCH (viewer)-[:FOLLOWS*1..{depth}]->(tagger:User)
+            RETURN DISTINCT tagger
+        }}
+        MATCH (tagger)-[tag:TAGGED]->(tagged)
+        WITH tag.label AS label, collect(tagger.id) AS taggerIds
+        RETURN 
+            taggerIds IS NOT NULL AS exists,
+            collect({{
+                label: label,
+                taggers: taggerIds,
+                taggers_count: SIZE(taggerIds)
+        }}) AS tags
+        ",
+        depth = depth
+    );
+
+    // Add to the query the params
+    query(graph_query.as_str())
+        .param("user_id", user_id)
+        .param("viewer_id", viewer_id)
+}
+
 pub fn user_counts(user_id: &str) -> neo4rs::Query {
     query(
         "

@@ -1,36 +1,31 @@
 use super::DETROIT;
-use crate::service::stream::utils::verify_post_list_kind;
-use crate::service::stream::ROOT_PATH;
-use crate::service::stream::{AMSTERDAM, BOGOTA};
+use crate::service::stream::post::utils::verify_post_list_kind;
+use crate::service::stream::post::ROOT_PATH;
+use crate::service::stream::post::{AMSTERDAM, BOGOTA};
 use crate::service::utils::make_request;
 use anyhow::Result;
 
-const KIND: &str = "link";
+const KIND: &str = "image";
 
-const POST_L1: &str = "SIJW1TGL5BKG8";
-const POST_L2: &str = "SIJW1TGL5BKG7";
-const POST_L3: &str = "SIJW1TGL5BKG6";
-const POST_L4: &str = "SIJW1TGL5BKG5";
-const POST_L5: &str = "SIJW1TGL5BKG4";
-const POST_L6: &str = "SIJW1TGL5BKG3";
-const POST_L7: &str = "SIJW1TGL5BKG2";
-const POST_L8: &str = "SIJW1TGL5BKG1";
-const POST_ZERO: &str = "2ZHT82S7G2M00";
-const POST_PANDA: &str = "2ZGX2XS9J8R00";
-const POST_YT: &str = "2ZG3QX80XEMG0";
-const POST_PK: &str = "2ZFWAA83B97G0";
+const POST_I1: &str = "5YCW1TGL5BKG8";
+const POST_I2: &str = "5YCW1TGL5BKG7";
+const POST_I3: &str = "5YCW1TGL5BKG6";
+const POST_I4: &str = "5YCW1TGL5BKG5";
+const POST_I5: &str = "5YCW1TGL5BKG4";
+const POST_I6: &str = "5YCW1TGL5BKG3";
+const POST_I7: &str = "5YCW1TGL5BKG2";
+const POST_I8: &str = "5YCW1TGL5BKG1";
 
-pub const START_TIMELINE: &str = "1980477299350";
-pub const END_TIMELINE: &str = "1980477299312";
+pub const START_TIMELINE: &str = "1820477299345";
+pub const END_TIMELINE: &str = "1820477299308";
 
 #[tokio::test]
-async fn test_stream_link_post_kind() -> Result<()> {
+async fn test_stream_image_post_kind() -> Result<()> {
     let path = format!("{ROOT_PATH}?kind={KIND}");
 
     let body = make_request(&path).await?;
     let post_list = vec![
-        POST_L1, POST_L2, POST_L3, POST_L4, POST_L5, POST_L6, POST_L7, POST_L8, POST_ZERO,
-        POST_PANDA,
+        POST_I1, POST_I2, POST_I3, POST_I4, POST_I5, POST_I6, POST_I7, POST_I8,
     ];
     verify_post_list_kind(post_list, body, KIND);
 
@@ -38,84 +33,81 @@ async fn test_stream_link_post_kind() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_stream_link_post_kind_with_start() -> Result<()> {
+async fn test_stream_image_post_kind_with_start() -> Result<()> {
     let path = format!("{ROOT_PATH}?kind={KIND}&start={START_TIMELINE}");
 
     let body = make_request(&path).await?;
-    let post_list = vec![
-        POST_L3, POST_L4, POST_L5, POST_L6, POST_L7, POST_L8, POST_ZERO, POST_PANDA, POST_YT,
-        POST_PK,
-    ];
+    let post_list = vec![POST_I3, POST_I4, POST_I5, POST_I6, POST_I7, POST_I8];
     verify_post_list_kind(post_list, body, KIND);
 
     Ok(())
 }
 
 #[tokio::test]
-async fn test_stream_link_post_kind_with_end() -> Result<()> {
+async fn test_stream_image_post_kind_with_end() -> Result<()> {
     let path = format!("{ROOT_PATH}?kind={KIND}&end={START_TIMELINE}");
 
     let body = make_request(&path).await?;
-    let post_list = vec![POST_L1, POST_L2];
+    let post_list = vec![POST_I1, POST_I2];
     verify_post_list_kind(post_list, body, KIND);
 
     Ok(())
 }
 
 #[tokio::test]
-async fn test_stream_link_post_kind_with_start_and_end() -> Result<()> {
+async fn test_stream_image_post_kind_with_start_and_end() -> Result<()> {
     let path = format!("{ROOT_PATH}?kind={KIND}&start={START_TIMELINE}&end={END_TIMELINE}");
 
     let body = make_request(&path).await?;
-    let post_list = vec![POST_L3, POST_L4, POST_L5, POST_L6];
+    let post_list = vec![POST_I3, POST_I4, POST_I5, POST_I6];
     verify_post_list_kind(post_list, body, KIND);
 
     Ok(())
 }
 
 #[tokio::test]
-async fn test_stream_link_post_kind_with_author() -> Result<()> {
+async fn test_stream_image_post_kind_with_author() -> Result<()> {
     let path = format!("{ROOT_PATH}?kind={KIND}&author_id={BOGOTA}&source=author");
 
     let body = make_request(&path).await?;
-    let post_list = vec![POST_L3, POST_L5, POST_L8];
+    let post_list = vec![POST_I3, POST_I5, POST_I8];
     verify_post_list_kind(post_list, body, KIND);
 
     Ok(())
 }
 
 #[tokio::test]
-async fn test_stream_link_post_kind_with_author_skip_and_limit() -> Result<()> {
+async fn test_stream_image_post_kind_with_author_skip_and_limit() -> Result<()> {
     let path = format!("{ROOT_PATH}?kind={KIND}&author_id={BOGOTA}&source=author&skip=1&limit=1");
 
     let body = make_request(&path).await?;
-    let post_list = vec![POST_L5];
+    let post_list = vec![POST_I5];
     verify_post_list_kind(post_list, body, KIND);
 
     Ok(())
 }
 
-// ##### REACH: FOLLOWERS ####
+// ##### REACH: FOLLOWING ####
 
 #[tokio::test]
 async fn test_stream_post_kind_followers() -> Result<()> {
     let path = format!("{ROOT_PATH}?source=followers&observer_id={DETROIT}&kind={KIND}");
 
     let body = make_request(&path).await?;
-    let post_list = vec![POST_L1, POST_L2];
+    let post_list = vec![POST_I1, POST_I2];
     verify_post_list_kind(post_list, body, KIND);
 
     Ok(())
 }
 
-const REACH_START_TIMELINE: &str = "1980477299360";
+const REACH_START_TIMELINE: &str = "1820477299355";
 
 #[tokio::test]
 async fn test_stream_post_kind_followers_with_start() -> Result<()> {
     let path = format!("{ROOT_PATH}?source=followers&observer_id={DETROIT}&kind={KIND}&start={REACH_START_TIMELINE}");
 
     let body = make_request(&path).await?;
-    let post_list = vec![POST_L2];
+    let post_list = vec![POST_I2];
     verify_post_list_kind(post_list, body, KIND);
 
     Ok(())
@@ -128,7 +120,7 @@ async fn test_stream_post_kind_following() -> Result<()> {
     let path = format!("{ROOT_PATH}?source=following&observer_id={AMSTERDAM}&kind={KIND}");
 
     let body = make_request(&path).await?;
-    let post_list = vec![POST_L3, POST_L4, POST_L5, POST_L6, POST_L7, POST_L8];
+    let post_list = vec![POST_I3, POST_I4, POST_I5, POST_I6, POST_I7, POST_I8];
     verify_post_list_kind(post_list, body, KIND);
 
     Ok(())
@@ -137,11 +129,11 @@ async fn test_stream_post_kind_following() -> Result<()> {
 #[tokio::test]
 async fn test_stream_post_kind_following_with_start() -> Result<()> {
     let path = format!(
-        "{ROOT_PATH}?source=following&observer_id={AMSTERDAM}&kind={KIND}&start=1980477299330"
+        "{ROOT_PATH}?source=following&observer_id={AMSTERDAM}&kind={KIND}&start=1820477299325"
     );
 
     let body = make_request(&path).await?;
-    let post_list = vec![POST_L5, POST_L6, POST_L7, POST_L8];
+    let post_list = vec![POST_I5, POST_I6, POST_I7, POST_I8];
     verify_post_list_kind(post_list, body, KIND);
 
     Ok(())
@@ -154,7 +146,7 @@ async fn test_stream_post_kind_friends() -> Result<()> {
     let path = format!("{ROOT_PATH}?source=friends&observer_id={DETROIT}&kind={KIND}");
 
     let body = make_request(&path).await?;
-    let post_list = vec![POST_L1, POST_L2];
+    let post_list = vec![POST_I1, POST_I2];
     verify_post_list_kind(post_list, body, KIND);
 
     Ok(())
@@ -167,7 +159,7 @@ async fn test_stream_post_kind_friends_with_start() -> Result<()> {
     );
 
     let body = make_request(&path).await?;
-    let post_list = vec![POST_L2];
+    let post_list = vec![POST_I2];
     verify_post_list_kind(post_list, body, KIND);
 
     Ok(())

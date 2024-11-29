@@ -67,7 +67,7 @@ async fn test_homeserver_put_tag_user_another() -> Result<()> {
     assert_eq!(user_tag.taggers[0], tagger_user_id);
 
     // CACHE_OP: Check if the tag is correctly cached
-    let cache_user_tag = TagUser::get_from_index(&tagged_user_id, None, None, None)
+    let cache_user_tag = TagUser::get_from_index(&tagged_user_id, None, None, None, false)
         .await
         .expect("Failed to get tag from cache");
 
