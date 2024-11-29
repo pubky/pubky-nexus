@@ -1,9 +1,9 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use pkarr::mainline::Testnet;
 use pubky::PubkyClient;
+use pubky_app_specs::{PubkyAppUser, UserLink};
 use pubky_common::crypto::Keypair;
 use pubky_homeserver::Homeserver;
-use pubky_nexus::models::pubky_app::{PubkyAppUser, UserLink};
 use pubky_nexus::EventProcessor;
 use setup::run_setup;
 use std::time::Duration;

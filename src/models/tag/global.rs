@@ -25,7 +25,7 @@ pub async fn read_from_set(
     skip: Option<usize>,
     limit: Option<usize>,
 ) -> Result<Option<Vec<String>>, DynError> {
-    Taggers::try_from_index_set(&[label], skip, limit).await
+    Taggers::try_from_index_set(&[label], skip, limit, None).await
 }
 
 pub async fn get_tag_taggers_by_reach(

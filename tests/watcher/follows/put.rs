@@ -1,11 +1,11 @@
 use super::utils::find_follow_relationship;
 use crate::watcher::{users::utils::find_user_counts, utils::WatcherTest};
 use anyhow::Result;
+use pubky_app_specs::PubkyAppUser;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{
     models::{
         follow::{Followers, Following},
-        pubky_app::PubkyAppUser,
         user::Relationship,
     },
     RedisOps,

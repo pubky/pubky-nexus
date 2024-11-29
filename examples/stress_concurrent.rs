@@ -2,14 +2,12 @@ use anyhow::Result;
 use chrono::Utc;
 use pkarr::mainline::Testnet;
 use pubky::PubkyClient;
-use pubky_common::crypto::{Keypair, PublicKey};
-use pubky_nexus::{
-    models::pubky_app::{
-        traits::{HashId, TimestampId},
-        PostKind, PubkyAppPost, PubkyAppTag, PubkyAppUser,
-    },
-    Config,
+use pubky_app_specs::{
+    traits::{HashId, TimestampId},
+    PostKind, PubkyAppPost, PubkyAppTag, PubkyAppUser,
 };
+use pubky_common::crypto::{Keypair, PublicKey};
+use pubky_nexus::Config;
 use rand::Rng;
 use tokio::task;
 

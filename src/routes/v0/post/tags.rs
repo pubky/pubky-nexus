@@ -17,8 +17,10 @@ use utoipa::OpenApi;
     description = "Post tags",
     tag = "Post",
     params(
-        ("user_id" = String, Path, description = "User Pubky ID"),
-        ("post_id" = String, Path, description = "Post ID")
+        ("author_id" = String, Path, description = "Author Pubky ID"),
+        ("post_id" = String, Path, description = "Post ID"),
+        ("limit_tags" = Option<usize>, Query, description = "Upper limit on the number of tags for the posts"),
+        ("limit_taggers" = Option<usize>, Query, description = "Upper limit on the number of taggers per tag"),
     ),
     responses(
         (status = 200, description = "Post tags", body = TagPost),
@@ -27,23 +29,25 @@ use utoipa::OpenApi;
     )
 )]
 pub async fn post_tags_handler(
-    Path((user_id, post_id)): Path<(String, String)>,
+    Path((author_id, post_id)): Path<(String, String)>,
     Query(query): Query<TagsQuery>,
 ) -> Result<Json<Vec<TagDetails>>> {
     info!(
-        "GET {POST_TAGS_ROUTE} user_id:{}, post_id: {}, limit_tags:{:?}, limit_taggers:{:?}",
-        user_id, post_id, query.limit_tags, query.limit_taggers
+        "GET {POST_TAGS_ROUTE} author_id:{}, post_id: {}, limit_tags:{:?}, limit_taggers:{:?}",
+        author_id, post_id, query.limit_tags, query.limit_taggers
     );
     match TagPost::get_by_id(
-        &user_id,
+        &author_id,
         Some(&post_id),
         query.limit_tags,
         query.limit_taggers,
+        None,
+        None, // Avoid by default WoT tags in a Post
     )
     .await
     {
         Ok(Some(tags)) => Ok(Json(tags)),
-        Ok(None) => Err(Error::UserNotFound { user_id }),
+        Ok(None) => Err(Error::PostNotFound { author_id, post_id }),
         Err(source) => Err(Error::InternalServerError { source }),
     }
 }
@@ -54,7 +58,7 @@ pub async fn post_tags_handler(
     description = "Post specific label Taggers",
     tag = "Post",
     params(
-        ("user_id" = String, Path, description = "User Pubky ID"),
+        ("author_id" = String, Path, description = "Author Pubky ID"),
         ("label" = String, Path, description = "Tag name"),
         ("post_id" = String, Path, description = "Post ID"),
         ("skip" = Option<usize>, Query, description = "Number of taggers to skip for pagination"),
@@ -67,16 +71,18 @@ pub async fn post_tags_handler(
     )
 )]
 pub async fn post_taggers_handler(
-    Path((user_id, post_id, label)): Path<(String, String, String)>,
+    Path((author_id, post_id, label)): Path<(String, String, String)>,
     Query(pagination): Query<Pagination>,
 ) -> Result<Json<Taggers>> {
     info!(
-        "GET {POST_TAGGERS_ROUTE} user_id:{}, post_id: {}, label: {}, skip:{:?}, limit:{:?}",
-        user_id, post_id, label, pagination.skip, pagination.limit
+        "GET {POST_TAGGERS_ROUTE} author_id:{}, post_id: {}, label: {}, skip:{:?}, limit:{:?}",
+        author_id, post_id, label, pagination.skip, pagination.limit
     );
-    match TagPost::get_tagger_by_id(&user_id, Some(&post_id), &label, pagination).await {
+    match TagPost::get_tagger_by_id(&author_id, Some(&post_id), &label, pagination, None, None)
+        .await
+    {
         Ok(Some(tags)) => Ok(Json(tags)),
-        Ok(None) => Err(Error::UserNotFound { user_id }),
+        Ok(None) => Err(Error::PostNotFound { author_id, post_id }),
         Err(source) => Err(Error::InternalServerError { source }),
     }
 }

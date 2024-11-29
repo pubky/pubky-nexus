@@ -3,12 +3,9 @@ use crate::watcher::{
     utils::WatcherTest,
 };
 use anyhow::Result;
+use pubky_app_specs::{PostKind, PubkyAppPost, PubkyAppUser};
 use pubky_common::crypto::Keypair;
-use pubky_nexus::models::{
-    pubky_app::{PostKind, PubkyAppPost, PubkyAppUser},
-    user::{UserCounts, UserView},
-};
-
+use pubky_nexus::models::user::{UserCounts, UserView};
 #[tokio::test]
 async fn test_delete_user_with_relationships() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
@@ -67,7 +64,7 @@ async fn test_delete_user_with_relationships() -> Result<()> {
     );
 
     // User view should reflect the updated details
-    let user_view = UserView::get_by_id(&user_id, None).await.unwrap();
+    let user_view = UserView::get_by_id(&user_id, None, None).await.unwrap();
     assert!(
         user_view.is_some(),
         "User view should be present after deletion"
@@ -100,7 +97,7 @@ async fn test_delete_user_with_relationships() -> Result<()> {
     );
 
     // User view should not be found
-    let user_view = UserView::get_by_id(&user_id, None).await.unwrap();
+    let user_view = UserView::get_by_id(&user_id, None, None).await.unwrap();
     assert!(
         user_view.is_none(),
         "User view should not be found after final deletion"

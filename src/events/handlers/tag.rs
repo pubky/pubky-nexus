@@ -2,8 +2,6 @@ use crate::db::kv::index::json::JsonAction;
 use crate::events::uri::ParsedUri;
 use crate::models::notification::Notification;
 use crate::models::post::{PostCounts, PostStream};
-use crate::models::pubky_app::traits::Validatable;
-use crate::models::pubky_app::PubkyAppTag;
 use crate::models::tag::post::TagPost;
 use crate::models::tag::search::TagSearch;
 use crate::models::tag::stream::Taggers;
@@ -16,6 +14,9 @@ use crate::ScoreAction;
 use axum::body::Bytes;
 use chrono::Utc;
 use log::debug;
+use pubky_app_specs::{traits::Validatable, PubkyAppTag};
+
+use super::utils::post_relationships_is_reply;
 
 pub async fn put(tagger_id: PubkyId, tag_id: String, blob: Bytes) -> Result<(), DynError> {
     debug!("Indexing new tag: {} -> {}", tagger_id, tag_id);
@@ -46,6 +47,16 @@ pub async fn put(tagger_id: PubkyId, tag_id: String, blob: Bytes) -> Result<(), 
     }
 }
 
+/// Handles the synchronization of a tagged post by updating the graph, indexes, and related counts.
+/// # Arguments
+/// - `tagger_user_id` - The `PubkyId` of the user tagging the post.
+/// - `author_id` - The `PubkyId` of the author of the tagged post.
+/// - `post_id` - A `String` representing the unique identifier of the post being tagged.
+/// - `tag_id` - A `String` representing the unique identifier of the tag.
+/// - `tag_label` - A `String` representing the label of the tag.
+/// - `post_uri` - A `String` representing the homeserver URI of the tagged post.
+/// - `indexed_at` - A 64-bit integer representing the timestamp when the post was indexed.
+///
 async fn put_sync_post(
     tagger_user_id: PubkyId,
     author_id: PubkyId,
@@ -88,8 +99,6 @@ async fn put_sync_post(
         ),
         // Add user tag in post
         TagPost::add_tagger_to_index(&author_id, Some(&post_id), &tagger_user_id, &tag_label),
-        // Increment in one post global engagement
-        PostStream::update_index_score(&author_id, &post_id, ScoreAction::Increment(1.0)),
         // Add post to label total engagement
         TagSearch::update_index_score(
             &author_id,
@@ -102,6 +111,12 @@ async fn put_sync_post(
         // Add tagger to post taggers
         Taggers::put_to_index(&tag_label, &tagger_user_id)
     );
+
+    // Post replies cannot be included in the total engagement index once they have been tagged
+    if !post_relationships_is_reply(&author_id, &post_id).await? {
+        // Increment in one post global engagement
+        PostStream::update_index_score(&author_id, &post_id, ScoreAction::Increment(1.0)).await?;
+    }
 
     // Add post to global label timeline
     TagSearch::put_to_index(&author_id, &post_id, &tag_label).await?;
@@ -231,8 +246,6 @@ async fn del_sync_post(
             ScoreAction::Decrement(1.0)
         ),
         tag_post.del_from_index(author_id, Some(post_id), tag_label),
-        // Decrement in one post global engagement
-        PostStream::update_index_score(author_id, post_id, ScoreAction::Decrement(1.0)),
         // Decrease post from label total engagement
         TagSearch::update_index_score(author_id, post_id, tag_label, ScoreAction::Decrement(1.0)),
         // Decrease the score of hot tags
@@ -240,6 +253,12 @@ async fn del_sync_post(
         // Delete tagger from global post tags
         tagger.del_from_index(tag_label)
     );
+
+    // Post replies cannot be included in the total engagement index once the tag have been deleted
+    if !post_relationships_is_reply(author_id, post_id).await? {
+        // Decrement in one post global engagement
+        PostStream::update_index_score(author_id, post_id, ScoreAction::Decrement(1.0)).await?;
+    }
 
     // Delete post from global label timeline
     TagSearch::del_from_index(author_id, post_id, tag_label).await?;

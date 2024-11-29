@@ -2,11 +2,11 @@ use crate::watcher::{
     posts::utils::check_member_post_replies, users::utils::find_user_counts, utils::WatcherTest,
 };
 use anyhow::Result;
+use pubky_app_specs::{PostEmbed, PostKind, PubkyAppPost, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{
     models::{
         post::{PostCounts, PostDetails, PostRelationships, PostView},
-        pubky_app::{PostEmbed, PostKind, PubkyAppPost, PubkyAppUser},
         user::UserCounts,
     },
     RedisOps,

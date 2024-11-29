@@ -5,10 +5,10 @@ use crate::watcher::users::utils::find_user_counts;
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
+use pubky_app_specs::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::notification::Notification;
 use pubky_nexus::models::post::PostDetails;
-use pubky_nexus::models::pubky_app::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser};
 use pubky_nexus::models::tag::post::TagPost;
 use pubky_nexus::models::tag::stream::{Taggers, TAG_GLOBAL_HOT};
 use pubky_nexus::models::tag::traits::TagCollection;
@@ -78,9 +78,10 @@ async fn test_homeserver_put_tag_post() -> Result<()> {
     assert_eq!(post_tag.taggers[0], tagger_user_id);
 
     // CACHE_OP: Check if the tag is correctly cached
-    let cache_post_tag = TagPost::get_from_index(&tagger_user_id, Some(&post_id), None, None)
-        .await
-        .unwrap();
+    let cache_post_tag =
+        TagPost::get_from_index(&tagger_user_id, Some(&post_id), None, None, false)
+            .await
+            .unwrap();
 
     assert!(cache_post_tag.is_some());
     let cache_tag_details = cache_post_tag.unwrap();

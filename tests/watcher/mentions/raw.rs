@@ -1,14 +1,9 @@
 use super::utils::find_post_mentions;
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
+use pubky_app_specs::{PostKind, PubkyAppPost, PubkyAppUser};
 use pubky_common::crypto::Keypair;
-use pubky_nexus::{
-    models::{
-        post::PostRelationships,
-        pubky_app::{PostKind, PubkyAppPost, PubkyAppUser},
-    },
-    RedisOps,
-};
+use pubky_nexus::{models::post::PostRelationships, RedisOps};
 
 #[tokio::test]
 async fn test_homeserver_mentions() -> Result<()> {

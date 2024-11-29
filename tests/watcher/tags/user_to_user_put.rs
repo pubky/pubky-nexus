@@ -5,11 +5,9 @@ use crate::watcher::{
 };
 use anyhow::Result;
 use chrono::Utc;
+use pubky_app_specs::{traits::HashId, PubkyAppTag, PubkyAppUser};
 use pubky_common::crypto::Keypair;
-use pubky_nexus::models::{
-    pubky_app::{traits::HashId, PubkyAppTag, PubkyAppUser},
-    tag::{traits::TagCollection, user::TagUser},
-};
+use pubky_nexus::models::tag::{traits::TagCollection, user::TagUser};
 
 #[tokio::test]
 async fn test_homeserver_put_tag_user_another() -> Result<()> {
@@ -69,7 +67,7 @@ async fn test_homeserver_put_tag_user_another() -> Result<()> {
     assert_eq!(user_tag.taggers[0], tagger_user_id);
 
     // CACHE_OP: Check if the tag is correctly cached
-    let cache_user_tag = TagUser::get_from_index(&tagged_user_id, None, None, None)
+    let cache_user_tag = TagUser::get_from_index(&tagged_user_id, None, None, None, false)
         .await
         .expect("Failed to get tag from cache");
 

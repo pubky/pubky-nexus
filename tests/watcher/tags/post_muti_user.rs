@@ -9,11 +9,11 @@ use crate::watcher::{
 };
 use anyhow::Result;
 use chrono::Utc;
+use pubky_app_specs::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{
     models::{
         notification::Notification,
-        pubky_app::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser},
         tag::{
             post::TagPost,
             stream::{Taggers, TAG_GLOBAL_HOT},
@@ -141,7 +141,7 @@ async fn test_homeserver_multi_user() -> Result<()> {
 
     // CACHE_OP: Check if the tag is correctly cached
     let cache_post_tag =
-        <TagPost as TagCollection>::get_from_index(author_id, Some(&post_id), None, None)
+        <TagPost as TagCollection>::get_from_index(author_id, Some(&post_id), None, None, false)
             .await
             .unwrap();
 
@@ -249,7 +249,7 @@ async fn test_homeserver_multi_user() -> Result<()> {
     // - Post:Taggers:author_id:post_id:label
     // - Sorted:Posts:Tag:author_id:post_id
     let cache_post_tag =
-        <TagPost as TagCollection>::get_from_index(author_id, Some(&post_id), None, None)
+        <TagPost as TagCollection>::get_from_index(author_id, Some(&post_id), None, None, false)
             .await
             .expect("Failed to get tag from cache");
     assert!(
@@ -260,14 +260,14 @@ async fn test_homeserver_multi_user() -> Result<()> {
     // Post:Taggers:author_id:post_id:label
     let water_label_key = vec![author_id.as_str(), post_id.as_str(), label_water];
     let water_tag_collection =
-        <TagPost as TaggersCollection>::get_from_index(water_label_key, None, None)
+        <TagPost as TaggersCollection>::get_from_index(water_label_key, None, None, None)
             .await
             .unwrap();
     assert!(water_tag_collection.is_none());
 
     let fire_label_key = vec![author_id.as_str(), post_id.as_str(), label_fire];
     let fire_tag_collection =
-        <TagPost as TaggersCollection>::get_from_index(fire_label_key, None, None)
+        <TagPost as TaggersCollection>::get_from_index(fire_label_key, None, None, None)
             .await
             .unwrap();
     assert!(fire_tag_collection.is_none());

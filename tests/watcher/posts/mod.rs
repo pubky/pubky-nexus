@@ -16,6 +16,7 @@ mod engagement;
 mod pioneer;
 mod raw;
 mod reply;
+mod reply_engagement;
 mod reply_notification;
 mod reply_repost;
 mod repost;

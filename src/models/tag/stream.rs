@@ -173,7 +173,8 @@ impl HotTags {
                 row.get("hot_tags_users").unwrap_or(Vec::new());
             // Make sure both list has content before write the indexes
             if !hot_tags_score.is_empty() && !hot_tags_users.is_empty() {
-                Self::put_index_sorted_set(&TAG_GLOBAL_HOT, hot_tags_score.as_slice()).await?;
+                Self::put_index_sorted_set(&TAG_GLOBAL_HOT, hot_tags_score.as_slice(), None, None)
+                    .await?;
                 // Add all the users_id in the SET
                 for (label, user_list) in hot_tags_users.into_iter() {
                     let values_ref: Vec<&str> = user_list.iter().map(|id| id.as_str()).collect();
