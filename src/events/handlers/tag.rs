@@ -16,7 +16,7 @@ use chrono::Utc;
 use log::debug;
 use pubky_app_specs::{traits::Validatable, PubkyAppTag};
 
-use super::post::post_relationships_is_reply;
+use super::utils::post_relationships_is_reply;
 
 pub async fn put(tagger_id: PubkyId, tag_id: String, blob: Bytes) -> Result<(), DynError> {
     debug!("Indexing new tag: {} -> {}", tagger_id, tag_id);
@@ -113,7 +113,6 @@ async fn put_sync_post(
     );
 
     // Post replies cannot be included in the total engagement index once they have been tagged
-    // Only root posts and reposts should be included
     if !post_relationships_is_reply(&author_id, &post_id).await? {
         // Increment in one post global engagement
         PostStream::update_index_score(&author_id, &post_id, ScoreAction::Increment(1.0)).await?;
@@ -256,7 +255,6 @@ async fn del_sync_post(
     );
 
     // Post replies cannot be included in the total engagement index once the tag have been deleted
-    // Only root posts and reposts should be included
     if !post_relationships_is_reply(author_id, post_id).await? {
         // Decrement in one post global engagement
         PostStream::update_index_score(author_id, post_id, ScoreAction::Decrement(1.0)).await?;

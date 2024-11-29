@@ -15,6 +15,8 @@ use axum::body::Bytes;
 use log::debug;
 use pubky_app_specs::{traits::Validatable, PostKind, PubkyAppPost};
 
+use super::utils::post_relationships_is_reply;
+
 pub async fn put(author_id: PubkyId, post_id: String, blob: Bytes) -> Result<(), DynError> {
     // Process Post resource and update the databases
     debug!("Indexing new post: {}/{}", author_id, post_id);
@@ -91,7 +93,6 @@ pub async fn sync_put(
             .await?;
 
         // Post replies cannot be included in the total engagement index after they receive a reply
-        // Only root posts and reposts should be included.
         if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await? {
             PostStream::put_score_index_sorted_set(
                 &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
@@ -347,7 +348,6 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
             .await?;
 
             // Post replies cannot be included in the total engagement index after the repost is deleted
-            // Only root posts and reposts should be included
             if !post_relationships_is_reply(&parsed_uri.user_id, &parent_post_id).await? {
                 PostStream::put_score_index_sorted_set(
                     &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
@@ -386,7 +386,6 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
             .await?;
 
             // Post replies cannot be included in the total engagement index after the reply is deleted
-            // Only root posts and reposts should be included
             if !post_relationships_is_reply(&parent_user_id, &parent_post_id).await? {
                 PostStream::put_score_index_sorted_set(
                     &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
@@ -412,12 +411,4 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
     PostRelationships::delete(&author_id, &post_id).await?;
 
     Ok(())
-}
-
-pub async fn post_relationships_is_reply(author_id: &str, post_id: &str) -> Result<bool, DynError> {
-    match PostRelationships::get_by_id(author_id, post_id).await? {
-        Some(relationship) => Ok(relationship.replied.is_some()),
-        // Avoid to treat as a not reply because the post does not exist
-        None => Ok(true),
-    }
 }
