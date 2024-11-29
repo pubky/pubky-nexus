@@ -207,7 +207,6 @@ pub async fn get_size(prefix: &str, key: &str) -> Result<Option<usize>, DynError
 /// # Errors
 ///
 /// Returns an error if the Redis connection fails or the pipeline query encounters an issue.
-
 pub async fn get_multiple_sets(
     prefix: &str,
     keys: &[&str],

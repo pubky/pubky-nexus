@@ -169,8 +169,5 @@ where
     /// Returns the neo4j query to put a record into the graph.
     fn put_graph_query(&self) -> Result<Query, DynError>;
 
-    /// Returns the neo4j query to delete a node/relationship from the graph.
-    // fn del_graph_query(&self) -> Result<Query, DynError>;
-
     async fn extend_on_index_miss(elements: &[std::option::Option<Self>]) -> Result<(), DynError>;
 }
