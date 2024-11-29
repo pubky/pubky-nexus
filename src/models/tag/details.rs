@@ -44,7 +44,7 @@ impl TagDetails {
     /// - A list of tag scores paired with their corresponding labels.
     /// - A list of labels and a corresponding list of lists containing tagger identifiers.
     ///
-    pub fn process_tag_details<'a>(tag_details: &'a [TagDetails]) -> TagFieldsTuple {
+    pub fn process_tag_details<'a>(tag_details: &'a [TagDetails]) -> TagFieldsTuple<'a> {
         let mut tag_scores: Vec<(f64, &str)> = Vec::with_capacity(tag_details.len());
         let mut labels = Vec::with_capacity(tag_details.len());
         let mut taggers_id = Vec::with_capacity(tag_details.len());
