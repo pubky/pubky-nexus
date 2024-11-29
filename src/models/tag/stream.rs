@@ -166,31 +166,23 @@ impl FromIterator<HotTag> for HotTags {
 }
 
 impl HotTags {
-    pub async fn set_global_tag_scores() -> Result<(), DynError> {
-        let mut result;
-        {
-            let graph = get_neo4j_graph()?;
-            let graph = graph.lock().await;
-
-            let query = queries::get::get_global_hot_tags_scores();
-            result = graph.execute(query).await?;
-        }
-
-        if let Some(row) = result.next().await? {
-            let hot_tags_score: Vec<(f64, &str)> = row.get("hot_tags_score").unwrap_or(Vec::new());
-            let hot_tags_users: Vec<(&str, Vec<String>)> =
-                row.get("hot_tags_users").unwrap_or(Vec::new());
-            // Make sure both list has content before write the indexes
-            if !hot_tags_score.is_empty() && !hot_tags_users.is_empty() {
-                Self::put_index_sorted_set(&TAG_GLOBAL_HOT, hot_tags_score.as_slice(), None, None)
-                    .await?;
-                // Add all the users_id in the SET
-                for (label, user_list) in hot_tags_users.into_iter() {
-                    let values_ref: Vec<&str> = user_list.iter().map(|id| id.as_str()).collect();
-                    Taggers::put_index_set(&[label], &values_ref, None, None).await?;
-                }
-            }
-        }
+    pub async fn reindex() -> Result<(), DynError> {
+        HotTags::get_global_hot_tags(&HotTagsInput {
+            limit: 100,
+            skip: 0,
+            taggers_limit: 20,
+            timeframe: Timeframe::AllTime,
+            tagged_type: Some(TaggedType::Post),
+        })
+        .await?;
+        HotTags::get_global_hot_tags(&HotTagsInput {
+            limit: 100,
+            skip: 0,
+            taggers_limit: 20,
+            timeframe: Timeframe::ThisMonth,
+            tagged_type: Some(TaggedType::Post),
+        })
+        .await?;
         Ok(())
     }
 
