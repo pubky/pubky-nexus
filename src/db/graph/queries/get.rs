@@ -1,7 +1,7 @@
 use crate::models::post::StreamSource;
 use crate::models::tag::stream::HotTagsInput;
-use crate::models::tag::stream::TagStreamReach;
 use crate::types::Pagination;
+use crate::types::StreamReach;
 use crate::types::StreamSorting;
 use neo4rs::{query, Query};
 use pubky_app_specs::PostKind;
@@ -413,11 +413,11 @@ pub fn get_global_hot_tags_taggers(tag_list: &[&str]) -> Query {
     .param("labels", tag_list)
 }
 
-fn tag_stream_reach_to_graph_subquery(reach: &TagStreamReach) -> String {
+fn stream_reach_to_graph_subquery(reach: &StreamReach) -> String {
     let query = match reach {
-        TagStreamReach::Followers => "MATCH (user:User)<-[:FOLLOWS]-(reach:User)",
-        TagStreamReach::Following => "MATCH (user:User)-[:FOLLOWS]->(reach:User)",
-        TagStreamReach::Friends => {
+        StreamReach::Followers => "MATCH (user:User)<-[:FOLLOWS]-(reach:User)",
+        StreamReach::Following => "MATCH (user:User)-[:FOLLOWS]->(reach:User)",
+        StreamReach::Friends => {
             "MATCH (user:User)-[:FOLLOWS]->(reach:User), (user)<-[:FOLLOWS]-(reach)"
         }
     };
@@ -427,7 +427,7 @@ fn tag_stream_reach_to_graph_subquery(reach: &TagStreamReach) -> String {
 pub fn get_tag_taggers_by_reach(
     label: &str,
     user_id: &str,
-    reach: TagStreamReach,
+    reach: StreamReach,
     skip: usize,
     limit: usize,
 ) -> Query {
@@ -442,7 +442,7 @@ pub fn get_tag_taggers_by_reach(
             SKIP $skip LIMIT $limit
             RETURN COLLECT(reach.id) as tagger_ids
             ",
-            tag_stream_reach_to_graph_subquery(&reach)
+            stream_reach_to_graph_subquery(&reach)
         )
         .as_str(),
     )
@@ -454,7 +454,7 @@ pub fn get_tag_taggers_by_reach(
 
 pub fn get_hot_tags_by_reach(
     user_id: &str,
-    reach: TagStreamReach,
+    reach: StreamReach,
     tags_query: &HotTagsInput,
 ) -> Query {
     let input_tagged_type = match &tags_query.tagged_type {
@@ -484,7 +484,7 @@ pub fn get_hot_tags_by_reach(
         SKIP $skip LIMIT $limit
         RETURN COLLECT(hot_tag) as hot_tags
     ",
-            tag_stream_reach_to_graph_subquery(&reach),
+            stream_reach_to_graph_subquery(&reach),
             input_tagged_type,
             tags_query.taggers_limit
         )

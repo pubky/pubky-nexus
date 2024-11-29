@@ -1,9 +1,9 @@
 use crate::models::tag::global::TagGlobal;
 use crate::models::tag::stream::{
-    HotTag, HotTags, HotTagsInput, TagStreamReach, TaggedType, Taggers, Timeframe,
+    HotTag, HotTags, HotTagsInput, TagStreamReach, TaggedType, Taggers,
 };
 use crate::routes::v0::endpoints::{TAGS_HOT_ROUTE, TAG_TAGGERS_ROUTE};
-use crate::types::Pagination;
+use crate::types::{Pagination, Timeframe};
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;

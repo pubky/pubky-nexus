@@ -1,15 +1,14 @@
 use crate::db::graph::exec::retrieve_from_graph;
 use crate::db::kv::index::sorted_sets::SortOrder;
-use crate::types::DynError;
+use crate::types::{DynError, StreamReach, Timeframe};
 use axum::async_trait;
-use chrono::Datelike;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::ops::Deref;
 use utoipa::ToSchema;
 
-use crate::{db::connectors::neo4j::get_neo4j_graph, queries};
+use crate::queries;
 use crate::{RedisOps, ScoreAction};
 
 pub const TAG_GLOBAL_HOT: [&str; 3] = ["Tags", "Global", "Hot"];
@@ -18,14 +17,6 @@ const GLOBAL_HOT_TAGS_PREFIX: &str = "Hot_Tags";
 
 #[derive(Serialize, Deserialize, Debug, ToSchema, Clone)]
 pub struct Taggers(pub Vec<String>);
-
-#[derive(Deserialize, Debug, ToSchema, Clone)]
-#[serde(rename_all = "snake_case")]
-pub enum TagStreamReach {
-    Followers,
-    Following,
-    Friends,
-}
 
 #[derive(Deserialize, Debug, ToSchema, Clone)]
 pub enum TaggedType {
@@ -38,55 +29,6 @@ impl Display for TaggedType {
         match self {
             TaggedType::Post => write!(f, "Post"),
             TaggedType::User => write!(f, "User"),
-        }
-    }
-}
-
-#[derive(Deserialize, Debug, ToSchema, Clone)]
-pub enum Timeframe {
-    Today,
-    ThisMonth,
-    AllTime,
-}
-
-impl Display for Timeframe {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Timeframe::Today => write!(f, "Today"),
-            Timeframe::ThisMonth => write!(f, "ThisMonth"),
-            Timeframe::AllTime => write!(f, "AllTime"),
-        }
-    }
-}
-
-impl Timeframe {
-    pub fn to_timestamp_range(&self) -> (i64, i64) {
-        let now = chrono::Utc::now();
-        let start = match self {
-            Timeframe::Today => now
-                .date_naive()
-                .and_hms_opt(0, 0, 0)
-                .unwrap()
-                .and_utc()
-                .timestamp_millis(),
-            Timeframe::ThisMonth => now
-                .date_naive()
-                .with_day(1)
-                .unwrap()
-                .and_hms_opt(0, 0, 0)
-                .unwrap()
-                .and_utc()
-                .timestamp_millis(),
-            Timeframe::AllTime => 0,
-        };
-        (start, now.timestamp_millis())
-    }
-
-    pub fn to_cache_period(&self) -> i64 {
-        match self {
-            Timeframe::Today => 60 * 60,
-            Timeframe::ThisMonth => 60 * 60 * 24,
-            Timeframe::AllTime => 60 * 60 * 24,
         }
     }
 }
@@ -278,7 +220,7 @@ impl HotTags {
 
     pub async fn get_hot_tags(
         user_id: Option<String>,
-        reach: Option<TagStreamReach>,
+        reach: Option<StreamReach>,
         tags_query: &HotTagsInput,
     ) -> Result<Option<HotTags>, DynError> {
         match user_id {
@@ -291,7 +233,7 @@ impl HotTags {
 
     async fn get_hot_tags_by_reach(
         user_id: String,
-        reach: TagStreamReach,
+        reach: StreamReach,
         tags_query: &HotTagsInput,
     ) -> Result<Option<HotTags>, DynError> {
         let query = queries::get::get_hot_tags_by_reach(user_id.as_str(), reach, tags_query);

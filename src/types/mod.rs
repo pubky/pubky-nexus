@@ -1,8 +1,10 @@
 mod pagination;
 mod pubky;
+mod timeframe;
 
 pub use pagination::Pagination;
 pub use pubky::PubkyId;
+pub use timeframe::Timeframe;
 
 use serde::{Deserialize, Serialize};
 use std::error::Error;
@@ -16,4 +18,12 @@ pub enum StreamSorting {
     #[default]
     Timeline,
     TotalEngagement,
+}
+
+#[derive(Deserialize, Debug, ToSchema, Clone)]
+#[serde(rename_all = "snake_case")]
+pub enum StreamReach {
+    Followers,
+    Following,
+    Friends,
 }
