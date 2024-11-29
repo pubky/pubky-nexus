@@ -22,7 +22,7 @@ pub fn bench_stream_following(c: &mut Criterion) {
                 None,
                 None,
                 Some(20),
-                UserStreamSource::Pioneers,
+                UserStreamSource::Influencers,
                 None,
             )
             .await
@@ -83,21 +83,27 @@ pub fn bench_stream_users_by_username_search(c: &mut Criterion) {
     });
 }
 
-pub fn bench_stream_pioneers(c: &mut Criterion) {
+pub fn bench_stream_influencers(c: &mut Criterion) {
     println!("***************************************");
-    println!("Benchmarking the user streams for pioneer users.");
+    println!("Benchmarking the user streams for influencer users.");
     println!("***************************************");
 
     run_setup();
 
     let rt = Runtime::new().unwrap();
 
-    c.bench_function("stream_pioneers", |b| {
+    c.bench_function("stream_influencers", |b| {
         b.to_async(&rt).iter(|| async {
-            let user_stream =
-                UserStream::get_by_id(None, None, None, Some(20), UserStreamSource::Pioneers, None)
-                    .await
-                    .unwrap();
+            let user_stream = UserStream::get_by_id(
+                None,
+                None,
+                None,
+                Some(20),
+                UserStreamSource::Influencers,
+                None,
+            )
+            .await
+            .unwrap();
             criterion::black_box(user_stream);
         });
     });

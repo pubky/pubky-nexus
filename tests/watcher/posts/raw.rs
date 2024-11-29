@@ -2,7 +2,7 @@ use super::utils::{
     check_member_global_timeline_user_post, check_member_user_post_timeline, find_post_counts,
 };
 use crate::watcher::posts::utils::find_post_details;
-use crate::watcher::users::utils::{check_member_user_pioneer, find_user_counts};
+use crate::watcher::users::utils::{check_member_user_influencer, find_user_counts};
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
 use pubky_app_specs::{PostKind, PubkyAppPost, PubkyAppUser};
@@ -80,10 +80,10 @@ async fn test_homeserver_put_post_event() -> Result<()> {
     assert!(post_timeline.is_some());
     assert_eq!(post_timeline.unwrap(), post_details.indexed_at as isize);
 
-    // Has pioneer score. Sorted:Users:Pioneers
-    let pioneer_score = check_member_user_pioneer(&user_id).await.unwrap();
-    assert!(pioneer_score.is_some());
-    assert_eq!(pioneer_score.unwrap(), 0);
+    // Has influencer score. Sorted:Users:Influencers
+    let influencer_score = check_member_user_influencer(&user_id).await.unwrap();
+    assert!(influencer_score.is_some());
+    assert_eq!(influencer_score.unwrap(), 0);
 
     let exist_count = find_user_counts(&user_id).await;
     assert_eq!(exist_count.posts, 1);

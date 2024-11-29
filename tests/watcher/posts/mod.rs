@@ -13,7 +13,7 @@ mod edit_reply_parent_notification;
 mod edit_reposted_notification;
 mod edit_tagged_notification;
 mod engagement;
-mod pioneer;
+mod influencer;
 mod raw;
 mod reply;
 mod reply_engagement;
