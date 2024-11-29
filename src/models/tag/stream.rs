@@ -9,7 +9,7 @@ use std::fmt::Display;
 use std::ops::Deref;
 use utoipa::ToSchema;
 
-use crate::{db::connectors::neo4j::get_neo4j_graph, queries};
+use crate::queries;
 use crate::{RedisOps, ScoreAction};
 
 pub const TAG_GLOBAL_HOT: [&str; 3] = ["Tags", "Global", "Hot"];
@@ -248,8 +248,7 @@ impl HotTags {
         let mapping = result.clone();
         let hot_tags_data: HashMap<String, HotTag> = mapping
             .iter()
-            .map(|item| item.clone())
-            .into_iter()
+            .cloned()
             .map(|tag| (tag.label.clone(), tag))
             .collect();
 
