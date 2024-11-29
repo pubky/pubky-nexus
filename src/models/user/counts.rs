@@ -75,7 +75,7 @@ impl UserCounts {
     }
 
     pub async fn put_to_index(&self, user_id: &str) -> Result<(), DynError> {
-        self.put_index_json(&[user_id]).await?;
+        self.put_index_json(&[user_id], None).await?;
         UserStream::add_to_most_followed_sorted_set(user_id, self).await?;
         UserStream::add_to_influencers_sorted_set(user_id, self).await?;
         Ok(())
