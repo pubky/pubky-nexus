@@ -26,4 +26,5 @@ pub enum StreamReach {
     Followers,
     Following,
     Friends,
+    Wot(u8),
 }

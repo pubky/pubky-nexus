@@ -3,6 +3,7 @@ use crate::models::tag::stream::HotTagsInput;
 use crate::types::Pagination;
 use crate::types::StreamReach;
 use crate::types::StreamSorting;
+use crate::types::Timeframe;
 use neo4rs::{query, Query};
 use pubky_app_specs::PostKind;
 
@@ -414,14 +415,19 @@ pub fn get_global_hot_tags_taggers(tag_list: &[&str]) -> Query {
 }
 
 fn stream_reach_to_graph_subquery(reach: &StreamReach) -> String {
-    let query = match reach {
-        StreamReach::Followers => "MATCH (user:User)<-[:FOLLOWS]-(reach:User)",
-        StreamReach::Following => "MATCH (user:User)-[:FOLLOWS]->(reach:User)",
+    match reach {
+        StreamReach::Followers => "MATCH (user:User)<-[:FOLLOWS]-(reach:User)".to_string(),
+        StreamReach::Following => "MATCH (user:User)-[:FOLLOWS]->(reach:User)".to_string(),
         StreamReach::Friends => {
-            "MATCH (user:User)-[:FOLLOWS]->(reach:User), (user)<-[:FOLLOWS]-(reach)"
+            "MATCH (user:User)-[:FOLLOWS]->(reach:User), (user)<-[:FOLLOWS]-(reach)".to_string()
         }
-    };
-    String::from(query)
+        StreamReach::Wot(depth) => {
+            format!(
+                "MATCH (viewer)-[:FOLLOWS*1..{}]->(tagger:User)",
+                depth.clone()
+            )
+        }
+    }
 }
 
 pub fn get_tag_taggers_by_reach(
@@ -529,6 +535,83 @@ pub fn get_global_hot_tags(tags_query: &HotTagsInput) -> Query {
     )
     .param("skip", tags_query.skip as i64)
     .param("limit", tags_query.limit as i64)
+    .param("from", from)
+    .param("to", to)
+}
+
+pub fn get_influencers_by_reach(
+    user_id: &str,
+    reach: StreamReach,
+    skip: usize,
+    limit: usize,
+    timeframe: &Timeframe,
+) -> Query {
+    let (from, to) = timeframe.to_timestamp_range();
+    query(
+        format!(
+            "
+        {}
+        WHERE user.id = $user_id
+
+        OPTIONAL MATCH (others:User)-[follow:FOLLOWS]->(reach)
+        WHERE follow.indexed_at >= $from AND follow.indexed_at < $to
+        
+        OPTIONAL MATCH (reach)-[tag:TAGGED]->(tagged:Post)
+        WHERE tag.indexed_at >= $from AND tag.indexed_at < $to
+        
+        OPTIONAL MATCH (reach)-[post:AUTHORED]->(post:Post)
+        WHERE post.indexed_at >= $from AND post.indexed_at < $to
+
+        WITH reach, COUNT(DISTINCT follow) AS followers_count, COUNT(DISTINCT tag) AS tags_count,
+             COUNT(DISTINCT post) AS posts_count
+        WITH {{
+            id: reach.id,
+            score: (tags_count + posts_count) * sqrt(followers_count),
+        }} AS influencer
+        ORDER BY influencer.score DESC, reach.id ASC
+        SKIP $skip LIMIT $limit
+        RETURN COLLECT(influencer) as influencers
+    ",
+            stream_reach_to_graph_subquery(&reach),
+        )
+        .as_str(),
+    )
+    .param("user_id", user_id)
+    .param("skip", skip as i64)
+    .param("limit", limit as i64)
+    .param("from", from)
+    .param("to", to)
+}
+
+pub fn get_global_influencers(skip: usize, limit: usize, timeframe: &Timeframe) -> Query {
+    let (from, to) = timeframe.to_timestamp_range();
+    query(
+        format!(
+            "
+        OPTIONAL MATCH (others:User)-[follow:FOLLOWS]->(user:User)
+        WHERE follow.indexed_at >= $from AND follow.indexed_at < $to
+
+        OPTIONAL MATCH (user)-[tag:TAGGED]->(tagged:Post)
+        WHERE tag.indexed_at >= $from AND tag.indexed_at < $to
+        
+        OPTIONAL MATCH (user)-[post:AUTHORED]->(post:Post)
+        WHERE post.indexed_at >= $from AND post.indexed_at < $to
+
+        WITH user, COUNT(DISTINCT follow) AS followers_count, COUNT(DISTINCT tag) AS tags_count,
+             COUNT(DISTINCT post) AS posts_count
+        WITH {{
+            id: user.id,
+            score: (tags_count + posts_count) * sqrt(followers_count),
+        }} AS influencer
+        ORDER BY influencer.score DESC, user.id ASC
+        SKIP $skip LIMIT $limit
+        RETURN COLLECT(influencer) as influencers
+    ",
+        )
+        .as_str(),
+    )
+    .param("skip", skip as i64)
+    .param("limit", limit as i64)
     .param("from", from)
     .param("to", to)
 }

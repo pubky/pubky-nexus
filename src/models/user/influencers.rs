@@ -49,19 +49,19 @@ impl Deref for Influencers {
 
 impl Influencers {
     pub async fn reindex() -> Result<(), DynError> {
-        Influencers::get_global_influencers(0, 100, Timeframe::AllTime).await?;
-        Influencers::get_global_influencers(0, 100, Timeframe::ThisMonth).await?;
+        Influencers::get_global_influencers(0, 100, &Timeframe::AllTime).await?;
+        Influencers::get_global_influencers(0, 100, &Timeframe::ThisMonth).await?;
         Ok(())
     }
 
-    fn get_cache_key_parts(timeframe: Timeframe) -> Vec<String> {
+    fn get_cache_key_parts(timeframe: &Timeframe) -> Vec<String> {
         vec![timeframe.to_string()]
     }
 
     async fn get_from_global_cache(
         skip: usize,
         limit: usize,
-        timeframe: Timeframe,
+        timeframe: &Timeframe,
     ) -> Result<Option<Influencers>, DynError> {
         let key_parts = Influencers::get_cache_key_parts(timeframe);
         let key_parts_vector: Vec<&str> =
@@ -98,11 +98,11 @@ impl Influencers {
         Ok(Some(Influencers(influencers)))
     }
 
-    async fn set_to_global_cache(
+    async fn put_to_global_cache(
         result: Influencers,
-        timeframe: Timeframe,
+        timeframe: &Timeframe,
     ) -> Result<(), DynError> {
-        let key_parts = Influencers::get_cache_key_parts(timeframe.clone());
+        let key_parts = Influencers::get_cache_key_parts(timeframe);
         let key_parts_vector: Vec<&str> =
             key_parts.iter().map(|s| s.as_str()).collect::<Vec<&str>>();
 
@@ -143,7 +143,7 @@ impl Influencers {
         reach: Option<StreamReach>,
         skip: usize,
         limit: usize,
-        timeframe: Timeframe,
+        timeframe: &Timeframe,
     ) -> Result<Option<Influencers>, DynError> {
         match user_id {
             Some(user_id) => {
@@ -165,7 +165,7 @@ impl Influencers {
         reach: StreamReach,
         skip: usize,
         limit: usize,
-        timeframe: Timeframe,
+        timeframe: &Timeframe,
     ) -> Result<Option<Influencers>, DynError> {
         let query =
             queries::get::get_influencers_by_reach(user_id.as_str(), reach, skip, limit, timeframe);
@@ -175,19 +175,20 @@ impl Influencers {
     async fn get_global_influencers(
         skip: usize,
         limit: usize,
-        timeframe: Timeframe,
+        timeframe: &Timeframe,
     ) -> Result<Option<Influencers>, DynError> {
-        let cached_influencers = Influencers::get_from_global_cache(skip, limit, timeframe).await?;
+        let cached_influencers =
+            Influencers::get_from_global_cache(skip, limit, &timeframe).await?;
         if cached_influencers.is_some() {
             return Ok(cached_influencers);
         }
 
-        let query = queries::get::get_global_influencers(0, 100, timeframe.clone());
+        let query = queries::get::get_global_influencers(0, 100, &timeframe);
         let result = retrieve_from_graph::<Influencers>(query, "influencers").await?;
 
         let influencers = result.unwrap();
         if influencers.len() > 0 {
-            Influencers::set_to_global_cache(influencers.clone(), timeframe).await?;
+            Influencers::put_to_global_cache(influencers.clone(), timeframe).await?;
         }
 
         Influencers::get_from_global_cache(skip, limit, timeframe).await
