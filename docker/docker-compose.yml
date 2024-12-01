@@ -13,6 +13,8 @@ services:
       - .database/neo4j/data:/data
       - .database/neo4j/logs:/logs
       - ./db-graph:/db-graph
+      # Mount plugins directory for APOC
+      - .database/neo4j/plugins:/plugins
     environment:
       NEO4J_initial_dbms_default__database: ${NEO4J_DB_NAME}
       # IMPORTANT: If you change the auth params and you have already created the config files, will not take effect
@@ -25,6 +27,10 @@ services:
       NEO4J_server_memory_heap_initial__size: 2G
       NEO4J_server_memory_heap_max__size: 2G
       # NEO4J_apoc_uuid_enabled: false
+      # Enable APOC
+      # NEO4JLABS_PLUGINS: '["apoc"]'
+      # NEO4J_dbms_security_procedures_unrestricted: 'apoc.*'
+      # NEO4J_dbms_security_procedures_allowlist: 'apoc.*'
 
 
   redis:
