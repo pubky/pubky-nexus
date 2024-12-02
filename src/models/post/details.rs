@@ -5,7 +5,7 @@ use crate::types::DynError;
 use crate::types::PubkyId;
 use crate::{queries, RedisOps};
 use chrono::Utc;
-use pubky_app_specs::{PostKind, PubkyAppPost};
+use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -18,7 +18,7 @@ pub struct PostDetails {
     pub id: String,
     pub indexed_at: i64,
     pub author: String,
-    pub kind: PostKind,
+    pub kind: PubkyAppPostKind,
     pub uri: String,
     pub attachments: Option<Vec<String>>,
 }

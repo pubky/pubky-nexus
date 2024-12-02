@@ -3,7 +3,7 @@ use crate::watcher::{
     utils::WatcherTest,
 };
 use anyhow::Result;
-use pubky_app_specs::{PubkyAppUser, UserLink};
+use pubky_app_specs::{PubkyAppUser, PubkyAppUserLink};
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{
     models::user::{UserCounts, UserSearch, USER_NAME_KEY_PARTS},
@@ -19,7 +19,7 @@ async fn test_homeserver_user_put_event() -> Result<()> {
     let user = PubkyAppUser {
         bio: Some("test_homeserver_user_event".to_string()),
         image: Some("pubky://4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro/pub/pubky.app/files/003286NSMY490".to_string()),
-        links: Some(vec![UserLink {
+        links: Some(vec![PubkyAppUserLink {
             title: "User Event".to_string(),
             url: "pubky://watcher.nexus".to_string(),
         }]),

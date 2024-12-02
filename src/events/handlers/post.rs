@@ -13,7 +13,7 @@ use crate::types::PubkyId;
 use crate::{queries, RedisOps, ScoreAction};
 use axum::body::Bytes;
 use log::debug;
-use pubky_app_specs::{traits::Validatable, PostKind, PubkyAppPost};
+use pubky_app_specs::{traits::Validatable, PubkyAppPost, PubkyAppPostKind};
 
 use super::utils::post_relationships_is_reply;
 
@@ -22,7 +22,7 @@ pub async fn put(author_id: PubkyId, post_id: String, blob: Bytes) -> Result<(),
     debug!("Indexing new post: {}/{}", author_id, post_id);
 
     // Serialize and validate
-    let post = <PubkyAppPost as Validatable>::try_from(&blob, &post_id).await?;
+    let post = <PubkyAppPost as Validatable>::try_from(&blob, &post_id)?;
 
     sync_put(post, author_id, post_id).await
 }
@@ -199,7 +199,7 @@ async fn resolve_post_type_interaction<'a>(
 
     // Handle "REPOSTED" relationship and counts if `embed.uri` is Some and `kind` is "short"
     if let Some(embed) = &post.embed {
-        if let PostKind::Short = embed.kind {
+        if let PubkyAppPostKind::Short = embed.kind {
             put_repost_relationship(author_id, post_id, &embed.uri).await?;
             interaction.push(("reposts", embed.uri.as_str()));
         }
@@ -302,7 +302,7 @@ pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), DynError> {
                 content: "[DELETED]".to_string(),
                 parent,
                 embed: None,
-                kind: PostKind::Short,
+                kind: PubkyAppPostKind::Short,
                 attachments: None,
             };
 
