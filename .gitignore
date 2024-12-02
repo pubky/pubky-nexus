@@ -1,6 +1,6 @@
 /target
 .env
-docker/.database
+docker/.database*
 docker/.env
 **/.DS_Store
 /static
