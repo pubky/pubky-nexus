@@ -586,8 +586,7 @@ pub fn get_influencers_by_reach(
 pub fn get_global_influencers(skip: usize, limit: usize, timeframe: &Timeframe) -> Query {
     let (from, to) = timeframe.to_timestamp_range();
     query(
-        format!(
-            "
+        "
         OPTIONAL MATCH (others:User)-[follow:FOLLOWS]->(user:User)
         WHERE follow.indexed_at >= $from AND follow.indexed_at < $to
 
@@ -607,8 +606,6 @@ pub fn get_global_influencers(skip: usize, limit: usize, timeframe: &Timeframe) 
         SKIP $skip LIMIT $limit
         RETURN COLLECT(influencer) as influencers
     ",
-        )
-        .as_str(),
     )
     .param("skip", skip as i64)
     .param("limit", limit as i64)

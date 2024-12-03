@@ -190,8 +190,7 @@ impl HotTags {
         let mapping = result.clone();
         let hot_tags_data: HashMap<String, HotTag> = mapping
             .iter()
-            .map(|item| item.clone())
-            .into_iter()
+            .cloned()
             .map(|tag| (tag.label.clone(), tag))
             .collect();
 

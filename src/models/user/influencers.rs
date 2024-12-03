@@ -110,8 +110,7 @@ impl Influencers {
         let mapping = result.clone();
         let influencers_data: HashMap<String, Influencer> = mapping
             .iter()
-            .map(|item| item.clone())
-            .into_iter()
+            .cloned()
             .map(|influencer| (influencer.id.clone(), influencer))
             .collect();
 
@@ -128,7 +127,7 @@ impl Influencers {
             key_parts_vector.as_slice(),
             result
                 .iter()
-                .map(|influencer| (influencer.score as f64, influencer.id.as_str()))
+                .map(|influencer| (influencer.score, influencer.id.as_str()))
                 .collect::<Vec<(f64, &str)>>()
                 .as_slice(),
             Some(GLOBAL_INFLUENCERS_PREFIX),
@@ -176,13 +175,12 @@ impl Influencers {
         limit: usize,
         timeframe: &Timeframe,
     ) -> Result<Option<Influencers>, DynError> {
-        let cached_influencers =
-            Influencers::get_from_global_cache(skip, limit, &timeframe).await?;
+        let cached_influencers = Influencers::get_from_global_cache(skip, limit, timeframe).await?;
         if cached_influencers.is_some() {
             return Ok(cached_influencers);
         }
 
-        let query = queries::get::get_global_influencers(0, 100, &timeframe);
+        let query = queries::get::get_global_influencers(0, 100, timeframe);
         let result = retrieve_from_graph::<Influencers>(query, "influencers").await?;
 
         let influencers = result.unwrap();
