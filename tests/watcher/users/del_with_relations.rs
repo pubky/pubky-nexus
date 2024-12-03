@@ -41,18 +41,15 @@ async fn test_delete_user_with_relationships() -> Result<()> {
         "User name should be '[DELETED]' after deletion"
     );
     assert_eq!(
-        user_details.bio,
-        Some("null".to_string()),
+        user_details.bio, None,
         "User bio should be 'null' after deletion.",
     );
     assert_eq!(
-        user_details.status,
-        Some("null".to_string()),
+        user_details.status, None,
         "User status should be None after deletion"
     );
     assert_eq!(
-        user_details.image,
-        Some("null".to_string()),
+        user_details.image, None,
         "User image should be None after deletion"
     );
 
