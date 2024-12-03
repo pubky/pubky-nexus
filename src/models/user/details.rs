@@ -7,7 +7,7 @@ use crate::{queries, RedisOps};
 use axum::async_trait;
 use chrono::Utc;
 use neo4rs::Query;
-use pubky_app_specs::{PubkyAppUser, UserLink};
+use pubky_app_specs::{PubkyAppUser, PubkyAppUserLink};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json;
 use utoipa::ToSchema;
@@ -42,13 +42,15 @@ pub struct UserDetails {
     pub bio: Option<String>,
     pub id: PubkyId,
     #[serde(deserialize_with = "deserialize_user_links")]
-    pub links: Option<Vec<UserLink>>,
+    pub links: Option<Vec<PubkyAppUserLink>>,
     pub status: Option<String>,
     pub image: Option<String>,
     pub indexed_at: i64,
 }
 
-fn deserialize_user_links<'de, D>(deserializer: D) -> Result<Option<Vec<UserLink>>, D::Error>
+fn deserialize_user_links<'de, D>(
+    deserializer: D,
+) -> Result<Option<Vec<PubkyAppUserLink>>, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -59,13 +61,13 @@ where
     match value {
         serde_json::Value::String(s) => {
             // If it's a string, parse the string as JSON
-            let urls: Option<Vec<UserLink>> =
+            let urls: Option<Vec<PubkyAppUserLink>> =
                 serde_json::from_str(&s).map_err(serde::de::Error::custom)?;
             Ok(urls)
         }
         serde_json::Value::Array(arr) => {
             // If it's already an array, deserialize it directly
-            let urls: Vec<UserLink> = serde_json::from_value(serde_json::Value::Array(arr))
+            let urls: Vec<PubkyAppUserLink> = serde_json::from_value(serde_json::Value::Array(arr))
                 .map_err(serde::de::Error::custom)?;
             Ok(Some(urls))
         }

@@ -1,7 +1,7 @@
 use super::utils::find_post_mentions;
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
-use pubky_app_specs::{PostKind, PubkyAppPost, PubkyAppUser};
+use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{models::post::PostRelationships, RedisOps};
 
@@ -56,7 +56,7 @@ async fn test_homeserver_mentions() -> Result<()> {
     );
     let post = PubkyAppPost {
         content: post_content.clone(),
-        kind: PostKind::Short,
+        kind: PubkyAppPostKind::Short,
         parent: None,
         embed: None,
         attachments: None,

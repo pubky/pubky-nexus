@@ -1,7 +1,7 @@
 use super::utils::check_member_total_engagement_user_posts;
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
-use pubky_app_specs::{PostEmbed, PostKind, PubkyAppPost, PubkyAppUser};
+use pubky_app_specs::{PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 
 #[tokio::test]
@@ -22,7 +22,7 @@ async fn test_homeserver_post_engagement() -> Result<()> {
     // Alice creates a new post
     let alice_post = PubkyAppPost {
         content: "Watcher:PostEngagement:Alice:Post".to_string(),
-        kind: PostKind::Short,
+        kind: PubkyAppPostKind::Short,
         parent: None,
         embed: None,
         attachments: None,
@@ -57,7 +57,7 @@ async fn test_homeserver_post_engagement() -> Result<()> {
 
     let reply = PubkyAppPost {
         content: "Watcher:PostInfluencer:Bob:Reply".to_string(),
-        kind: PostKind::Short,
+        kind: PubkyAppPostKind::Short,
         parent: Some(parent_uri.clone()),
         embed: None,
         attachments: None,
@@ -70,10 +70,10 @@ async fn test_homeserver_post_engagement() -> Result<()> {
 
     let repost = PubkyAppPost {
         content: "Watcher:PostInfluencer:Bob:Repost".to_string(),
-        kind: PostKind::Short,
+        kind: PubkyAppPostKind::Short,
         parent: None,
-        embed: Some(PostEmbed {
-            kind: PostKind::Short,
+        embed: Some(PubkyAppPostEmbed {
+            kind: PubkyAppPostKind::Short,
             uri: post_uri.clone(),
         }),
         attachments: None,

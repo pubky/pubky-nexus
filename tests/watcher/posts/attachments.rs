@@ -2,7 +2,7 @@ use crate::watcher::posts::utils::find_post_details;
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
-use pubky_app_specs::{PostKind, PubkyAppFile, PubkyAppPost, PubkyAppUser};
+use pubky_app_specs::{PubkyAppFile, PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 use pubky_common::timestamp::Timestamp;
 use serde_json::to_vec;
@@ -41,7 +41,7 @@ async fn test_homeserver_post_attachments() -> Result<()> {
 
     let post = PubkyAppPost {
         content: "Watcher:PostEvent:Post".to_string(),
-        kind: PostKind::Short,
+        kind: PubkyAppPostKind::Short,
         parent: None,
         embed: None,
         attachments: Some(vec![file_url.clone()]),

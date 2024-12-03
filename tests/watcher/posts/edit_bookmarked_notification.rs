@@ -1,6 +1,8 @@
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
-use pubky_app_specs::{traits::HashId, PostKind, PubkyAppBookmark, PubkyAppPost, PubkyAppUser};
+use pubky_app_specs::{
+    traits::HashId, PubkyAppBookmark, PubkyAppPost, PubkyAppPostKind, PubkyAppUser,
+};
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{
     models::notification::{Notification, NotificationBody, PostChangedSource},
@@ -36,7 +38,7 @@ async fn test_edit_bookmarked_post_notification() -> Result<()> {
     // User A creates a post
     let mut post = PubkyAppPost {
         content: "Original post by User A".to_string(),
-        kind: PostKind::Short,
+        kind: PubkyAppPostKind::Short,
         parent: None,
         embed: None,
         attachments: None,

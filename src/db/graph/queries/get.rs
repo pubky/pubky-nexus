@@ -5,7 +5,7 @@ use crate::types::StreamReach;
 use crate::types::StreamSorting;
 use crate::types::Timeframe;
 use neo4rs::{query, Query};
-use pubky_app_specs::PostKind;
+use pubky_app_specs::PubkyAppPostKind;
 
 // Retrieve post node by post id and author id
 pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
@@ -633,7 +633,7 @@ pub fn post_stream(
     sorting: StreamSorting,
     tags: &Option<Vec<String>>,
     pagination: Pagination,
-    kind: Option<PostKind>,
+    kind: Option<PubkyAppPostKind>,
 ) -> Query {
     // Initialize the cypher query
     let mut cypher = String::new();
@@ -807,13 +807,13 @@ fn append_condition(cypher: &mut String, condition: &str, where_clause_applied: 
 /// * `cypher` - The Cypher query string that has been constructed.
 /// * `source` - The `StreamSource` specifying the origin of the posts (e.g., Following, Followers).
 /// * `tags` - An optional list of tag labels to filter the posts.
-/// * `kind` - An optional `PostKind` to filter the posts by their kind.
+/// * `kind` - An optional `PubkyAppPostKind` to filter the posts by their kind.
 /// * `pagination` - The `Pagination` object containing pagination parameters like `start`, `end`, `skip`, and `limit`.
 fn build_query_with_params(
     cypher: &str,
     source: &StreamSource,
     tags: &Option<Vec<String>>,
-    kind: Option<PostKind>,
+    kind: Option<PubkyAppPostKind>,
     pagination: &Pagination,
 ) -> Query {
     let mut query = query(cypher);

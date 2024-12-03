@@ -5,7 +5,7 @@ use crate::watcher::posts::utils::find_post_details;
 use crate::watcher::users::utils::{check_member_user_influencer, find_user_counts};
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
-use pubky_app_specs::{PostKind, PubkyAppPost, PubkyAppUser};
+use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::post::{PostCounts, PostDetails};
 
@@ -26,7 +26,7 @@ async fn test_homeserver_put_post_event() -> Result<()> {
 
     let post = PubkyAppPost {
         content: "Watcher:PostEvent:Post".to_string(),
-        kind: PostKind::Short,
+        kind: PubkyAppPostKind::Short,
         parent: None,
         embed: None,
         attachments: None,

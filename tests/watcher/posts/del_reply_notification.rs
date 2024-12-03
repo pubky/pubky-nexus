@@ -1,6 +1,6 @@
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
-use pubky_app_specs::{PostKind, PubkyAppPost, PubkyAppUser};
+use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{
     models::notification::{Notification, NotificationBody, PostChangedSource},
@@ -36,7 +36,7 @@ async fn test_delete_post_that_replied_notification() -> Result<()> {
     // Create a post without any relationships
     let post = PubkyAppPost {
         content: "User's post to be deleted".to_string(),
-        kind: PostKind::Short,
+        kind: PubkyAppPostKind::Short,
         parent: None,
         embed: None,
         attachments: None,
@@ -46,7 +46,7 @@ async fn test_delete_post_that_replied_notification() -> Result<()> {
     // Create a reply
     let reply = PubkyAppPost {
         content: "User's post to be deleted".to_string(),
-        kind: PostKind::Short,
+        kind: PubkyAppPostKind::Short,
         parent: Some(format!(
             "pubky://{}/pub/pubky.app/posts/{}",
             poster_id, post_id

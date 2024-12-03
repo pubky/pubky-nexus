@@ -6,7 +6,7 @@ use super::utils::{
 use crate::watcher::users::utils::find_user_counts;
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
-use pubky_app_specs::{PostEmbed, PostKind, PubkyAppPost, PubkyAppUser};
+use pubky_app_specs::{PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{
     models::post::{PostDetails, PostRelationships},
@@ -31,7 +31,7 @@ async fn test_homeserver_post_repost() -> Result<()> {
 
     let parent_post = PubkyAppPost {
         content: "Watcher:PostRepost:User:Post".to_string(),
-        kind: PostKind::Short,
+        kind: PubkyAppPostKind::Short,
         parent: None,
         embed: None,
         attachments: None,
@@ -44,10 +44,10 @@ async fn test_homeserver_post_repost() -> Result<()> {
 
     let repost = PubkyAppPost {
         content: "Watcher:PostReply:User:Repost".to_string(),
-        kind: PostKind::Short,
+        kind: PubkyAppPostKind::Short,
         parent: None,
-        embed: Some(PostEmbed {
-            kind: PostKind::Short,
+        embed: Some(PubkyAppPostEmbed {
+            kind: PubkyAppPostKind::Short,
             uri: parent_uri.clone(),
         }),
         attachments: None,

@@ -5,7 +5,7 @@ use crate::{Error, Result};
 use axum::extract::Path;
 use axum::Json;
 use log::info;
-use pubky_app_specs::UserLink;
+use pubky_app_specs::PubkyAppUserLink;
 use utoipa::OpenApi;
 
 #[utoipa::path(
@@ -35,6 +35,6 @@ pub async fn user_details_handler(Path(user_id): Path<String>) -> Result<Json<Us
 #[derive(OpenApi)]
 #[openapi(
     paths(user_details_handler),
-    components(schemas(UserDetails, UserLink, PubkyId))
+    components(schemas(UserDetails, PubkyAppUserLink, PubkyId))
 )]
 pub struct UserDetailsApiDoc;
