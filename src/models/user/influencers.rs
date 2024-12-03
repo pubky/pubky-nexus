@@ -15,8 +15,8 @@ const GLOBAL_INFLUENCERS_PREFIX: &str = "Influencers";
 
 #[derive(Deserialize, Serialize, ToSchema, Debug, Clone)]
 pub struct Influencer {
-    id: String,
-    score: f64,
+    pub id: String,
+    pub score: f64,
 }
 
 // Define a newtype wrapper
@@ -139,7 +139,7 @@ impl Influencers {
     }
 
     pub async fn get_influencers(
-        user_id: Option<String>,
+        user_id: Option<&str>,
         reach: Option<StreamReach>,
         skip: usize,
         limit: usize,
@@ -161,14 +161,13 @@ impl Influencers {
     }
 
     async fn get_influencers_by_reach(
-        user_id: String,
+        user_id: &str,
         reach: StreamReach,
         skip: usize,
         limit: usize,
         timeframe: &Timeframe,
     ) -> Result<Option<Influencers>, DynError> {
-        let query =
-            queries::get::get_influencers_by_reach(user_id.as_str(), reach, skip, limit, timeframe);
+        let query = queries::get::get_influencers_by_reach(user_id, reach, skip, limit, timeframe);
         retrieve_from_graph::<Influencers>(query, "influencers").await
     }
 

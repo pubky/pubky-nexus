@@ -2,7 +2,7 @@ use crate::models::user::{UserStream, UserStreamSource};
 use crate::routes::v0::endpoints::{
     STREAM_USERS_BY_IDS_ROUTE, STREAM_USERS_ROUTE, STREAM_USERS_USERNAME_SEARCH_ROUTE,
 };
-use crate::types::Pagination;
+use crate::types::{Pagination, Timeframe};
 use crate::{Error, Result};
 use axum::extract::Query;
 use axum::Json;
@@ -18,6 +18,7 @@ pub struct UserStreamQuery {
     limit: Option<usize>,
     source: Option<UserStreamSource>,
     depth: Option<u8>,
+    timeframe: Option<Timeframe>,
 }
 
 #[utoipa::path(
@@ -31,7 +32,8 @@ pub struct UserStreamQuery {
         ("skip" = Option<usize>, Query, description = "Skip N followers"),
         ("limit" = Option<usize>, Query, description = "Retrieve N followers"),
         ("source" = Option<UserStreamSource>, Query, description = "Source of users for the stream."),
-        ("depth" = Option<usize>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 4, will be ignored")
+        ("depth" = Option<usize>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 4, will be ignored"),
+        ("timeframe" = Option<Timeframe>, Query, description = "Timeframe for sources supporting a range")
     ),
     responses(
         (status = 200, description = "Users stream", body = UserStream),
@@ -50,6 +52,7 @@ pub async fn stream_users_handler(
     let skip = query.skip.unwrap_or(0);
     let limit = query.limit.unwrap_or(6).min(20);
     let source = query.source.unwrap_or(UserStreamSource::Followers);
+    let timeframe = query.timeframe.unwrap_or(Timeframe::AllTime);
 
     if query.user_id.is_none() {
         match source {
@@ -93,6 +96,7 @@ pub async fn stream_users_handler(
         Some(limit),
         source.clone(),
         query.depth,
+        Some(timeframe),
     )
     .await
     {

@@ -1,6 +1,9 @@
 use crate::run_setup;
 use criterion::Criterion;
-use pubky_nexus::models::user::{UserStream, UserStreamSource};
+use pubky_nexus::{
+    models::user::{UserStream, UserStreamSource},
+    types::StreamReach,
+};
 use tokio::runtime::Runtime;
 
 /// USER STREAMS BENCHMARKS
@@ -22,7 +25,8 @@ pub fn bench_stream_following(c: &mut Criterion) {
                 None,
                 None,
                 Some(20),
-                UserStreamSource::Influencers,
+                UserStreamSource::Influencers(StreamReach::Following),
+                None,
                 None,
             )
             .await
@@ -49,6 +53,7 @@ pub fn bench_stream_most_followed(c: &mut Criterion) {
                 None,
                 Some(20),
                 UserStreamSource::MostFollowed,
+                None,
                 None,
             )
             .await
@@ -99,7 +104,8 @@ pub fn bench_stream_influencers(c: &mut Criterion) {
                 None,
                 None,
                 Some(20),
-                UserStreamSource::Influencers,
+                UserStreamSource::Influencers(StreamReach::Wot(3)),
+                None,
                 None,
             )
             .await

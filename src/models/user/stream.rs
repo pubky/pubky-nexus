@@ -1,6 +1,6 @@
-use super::{Muted, UserCounts, UserSearch, UserView};
+use super::{Influencers, Muted, UserCounts, UserSearch, UserView};
 use crate::models::follow::{Followers, Following, Friends, UserFollows};
-use crate::types::DynError;
+use crate::types::{DynError, StreamReach, Timeframe};
 use crate::{db::kv::index::sorted_sets::SortOrder, RedisOps};
 use crate::{get_neo4j_graph, queries};
 use serde::{Deserialize, Serialize};
@@ -21,7 +21,7 @@ pub enum UserStreamSource {
     Friends,
     Muted,
     MostFollowed,
-    Influencers,
+    Influencers(StreamReach),
     Recommended,
 }
 
@@ -38,8 +38,10 @@ impl UserStream {
         limit: Option<usize>,
         source: UserStreamSource,
         depth: Option<u8>,
+        timeframe: Option<Timeframe>,
     ) -> Result<Option<Self>, DynError> {
-        let user_ids = Self::get_user_list_from_source(user_id, source, skip, limit).await?;
+        let user_ids =
+            Self::get_user_list_from_source(user_id, source, skip, limit, timeframe).await?;
         match user_ids {
             Some(users) => Self::from_listed_user_ids(&users, viewer_id, depth).await,
             None => Ok(None),
@@ -194,6 +196,7 @@ impl UserStream {
         source: UserStreamSource,
         skip: Option<usize>,
         limit: Option<usize>,
+        timeframe: Option<Timeframe>,
     ) -> Result<Option<Vec<String>>, DynError> {
         let user_ids = match source {
             UserStreamSource::Followers => Followers::get_by_id(
@@ -238,17 +241,20 @@ impl UserStream {
             )
             .await?
             .map(|set| set.into_iter().map(|(user_id, _score)| user_id).collect()),
-            UserStreamSource::Influencers => Self::try_from_index_sorted_set(
-                &USER_INFLUENCERS_KEY_PARTS,
-                None,
-                None,
-                skip,
-                limit,
-                SortOrder::Descending,
-                None,
+            UserStreamSource::Influencers(reach) => Influencers::get_influencers(
+                user_id,
+                Some(reach),
+                skip.unwrap_or(0),
+                limit.unwrap_or(10).min(100),
+                &timeframe.unwrap_or(Timeframe::AllTime),
             )
             .await?
-            .map(|set| set.into_iter().map(|(user_id, _score)| user_id).collect()),
+            .map(|result| {
+                result
+                    .iter()
+                    .map(|influencer| influencer.id.clone())
+                    .collect()
+            }),
             UserStreamSource::Recommended => {
                 UserStream::get_recommended_ids(
                     user_id.ok_or(
