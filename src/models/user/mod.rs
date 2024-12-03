@@ -12,6 +12,7 @@ mod view;
 pub use counts::UserCounts;
 pub use details::UserDetails;
 //pub use id::PubkyId;
+pub use influencers::Influencers;
 pub use muted::Muted;
 pub use relationship::Relationship;
 pub use search::{UserSearch, USER_NAME_KEY_PARTS};

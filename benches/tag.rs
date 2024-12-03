@@ -1,12 +1,11 @@
-use chrono::Utc;
 use criterion::{criterion_group, criterion_main};
 use criterion::{BenchmarkId, Criterion};
 use pubky_nexus::models::tag::global::TagGlobal;
 use pubky_nexus::models::tag::post::TagPost;
-use pubky_nexus::models::tag::stream::{HotTags, HotTagsInput, TagStreamReach, Timeframe};
+use pubky_nexus::models::tag::stream::{HotTags, HotTagsInput};
 use pubky_nexus::models::tag::traits::{TagCollection, TaggersCollection};
 use pubky_nexus::models::tag::user::TagUser;
-use pubky_nexus::types::Pagination;
+use pubky_nexus::types::{Pagination, StreamReach, Timeframe};
 use setup::run_setup;
 use std::time::Duration;
 use tokio::runtime::Runtime;
@@ -246,7 +245,7 @@ fn bench_get_following_reach_hot_tags(c: &mut Criterion) {
     run_setup();
 
     let user_id = "o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo";
-    let reach_by = format!("{:?}", TagStreamReach::Following);
+    let reach_by = format!("{:?}", StreamReach::Following);
     let rt: Runtime = Runtime::new().unwrap();
 
     c.bench_with_input(
@@ -266,7 +265,7 @@ fn bench_get_following_reach_hot_tags(c: &mut Criterion) {
                 };
                 let profile = HotTags::get_hot_tags(
                     Some(String::from(params[0])),
-                    Some(TagStreamReach::Following),
+                    Some(StreamReach::Following),
                     &input,
                 )
                 .await
@@ -287,7 +286,7 @@ fn bench_get_followers_reach_hot_tags(c: &mut Criterion) {
     run_setup();
 
     let user_id = "o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo";
-    let reach_by = format!("{:?}", TagStreamReach::Followers);
+    let reach_by = format!("{:?}", StreamReach::Followers);
     let rt: Runtime = Runtime::new().unwrap();
 
     c.bench_with_input(
@@ -307,7 +306,7 @@ fn bench_get_followers_reach_hot_tags(c: &mut Criterion) {
                 };
                 let profile = HotTags::get_hot_tags(
                     Some(String::from(params[0])),
-                    Some(TagStreamReach::Followers),
+                    Some(StreamReach::Followers),
                     &input,
                 )
                 .await
@@ -328,7 +327,7 @@ fn bench_get_friends_reach_hot_tags(c: &mut Criterion) {
     run_setup();
 
     let user_id = "o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo";
-    let reach_by = format!("{:?}", TagStreamReach::Friends);
+    let reach_by = format!("{:?}", StreamReach::Friends);
     let rt: Runtime = Runtime::new().unwrap();
 
     c.bench_with_input(
@@ -348,7 +347,7 @@ fn bench_get_friends_reach_hot_tags(c: &mut Criterion) {
                 };
                 let profile = HotTags::get_hot_tags(
                     Some(String::from(params[0])),
-                    Some(TagStreamReach::Friends),
+                    Some(StreamReach::Friends),
                     &input,
                 )
                 .await

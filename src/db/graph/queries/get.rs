@@ -559,14 +559,14 @@ pub fn get_influencers_by_reach(
         OPTIONAL MATCH (reach)-[tag:TAGGED]->(tagged:Post)
         WHERE tag.indexed_at >= $from AND tag.indexed_at < $to
         
-        OPTIONAL MATCH (reach)-[post:AUTHORED]->(post:Post)
-        WHERE post.indexed_at >= $from AND post.indexed_at < $to
+        OPTIONAL MATCH (reach)-[authored:AUTHORED]->(post:Post)
+        WHERE authored.indexed_at >= $from AND authored.indexed_at < $to
 
         WITH reach, COUNT(DISTINCT follow) AS followers_count, COUNT(DISTINCT tag) AS tags_count,
              COUNT(DISTINCT post) AS posts_count
         WITH {{
             id: reach.id,
-            score: (tags_count + posts_count) * sqrt(followers_count),
+            score: (tags_count + posts_count) * sqrt(followers_count)
         }} AS influencer
         ORDER BY influencer.score DESC, reach.id ASC
         SKIP $skip LIMIT $limit
@@ -594,14 +594,14 @@ pub fn get_global_influencers(skip: usize, limit: usize, timeframe: &Timeframe) 
         OPTIONAL MATCH (user)-[tag:TAGGED]->(tagged:Post)
         WHERE tag.indexed_at >= $from AND tag.indexed_at < $to
         
-        OPTIONAL MATCH (user)-[post:AUTHORED]->(post:Post)
-        WHERE post.indexed_at >= $from AND post.indexed_at < $to
+        OPTIONAL MATCH (user)-[authored:AUTHORED]->(post:Post)
+        WHERE authored.indexed_at >= $from AND authored.indexed_at < $to
 
         WITH user, COUNT(DISTINCT follow) AS followers_count, COUNT(DISTINCT tag) AS tags_count,
              COUNT(DISTINCT post) AS posts_count
         WITH {{
             id: user.id,
-            score: (tags_count + posts_count) * sqrt(followers_count),
+            score: (tags_count + posts_count) * sqrt(followers_count)
         }} AS influencer
         ORDER BY influencer.score DESC, user.id ASC
         SKIP $skip LIMIT $limit

@@ -1,6 +1,6 @@
-use super::stream::{TagStreamReach, Taggers};
+use super::stream::Taggers;
 use crate::db::graph::exec::retrieve_from_graph;
-use crate::types::DynError;
+use crate::types::{DynError, StreamReach};
 use crate::{queries, RedisOps};
 
 pub struct TagGlobal {}
@@ -9,7 +9,7 @@ impl TagGlobal {
     pub async fn get_tag_taggers(
         label: String,
         user_id: Option<String>,
-        reach: Option<TagStreamReach>,
+        reach: Option<StreamReach>,
         skip: usize,
         limit: usize,
     ) -> Result<Option<Vec<String>>, DynError> {
@@ -31,7 +31,7 @@ pub async fn read_from_set(
 pub async fn get_tag_taggers_by_reach(
     label: &str,
     user_id: &str,
-    reach: TagStreamReach,
+    reach: StreamReach,
     skip: usize,
     limit: usize,
 ) -> Result<Option<Vec<String>>, DynError> {

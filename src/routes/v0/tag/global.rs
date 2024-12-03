@@ -1,9 +1,7 @@
 use crate::models::tag::global::TagGlobal;
-use crate::models::tag::stream::{
-    HotTag, HotTags, HotTagsInput, TagStreamReach, TaggedType, Taggers,
-};
+use crate::models::tag::stream::{HotTag, HotTags, HotTagsInput, TaggedType, Taggers};
 use crate::routes::v0::endpoints::{TAGS_HOT_ROUTE, TAG_TAGGERS_ROUTE};
-use crate::types::{Pagination, Timeframe};
+use crate::types::{Pagination, StreamReach, Timeframe};
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
@@ -14,7 +12,7 @@ use utoipa::OpenApi;
 #[derive(Deserialize, Debug)]
 pub struct HotTagsQuery {
     user_id: Option<String>,
-    reach: Option<TagStreamReach>,
+    reach: Option<StreamReach>,
     taggers_limit: Option<usize>,
     timeframe: Option<Timeframe>,
     tagged_type: Option<TaggedType>,
@@ -27,7 +25,7 @@ pub struct HotTagsQuery {
 pub struct TagTaggersQuery {
     pagination: Pagination,
     user_id: Option<String>,
-    reach: Option<TagStreamReach>,
+    reach: Option<StreamReach>,
 }
 
 #[utoipa::path(
@@ -37,7 +35,7 @@ pub struct TagTaggersQuery {
     tag = "Tags",
     params(
         ("label" = String, Path, description = "Tag name"),
-        ("reach" = TagStreamReach, Path, description = "Reach type: Follower | Following | Friends"),
+        ("reach" = StreamReach, Path, description = "Reach type: Follower | Following | Friends"),
         ("user_id" = Option<String>, Query, description = "User ID to base reach on"),
     ),
     responses(
@@ -72,7 +70,7 @@ pub async fn tag_taggers_handler(
     tag = "Tags",
     params(
         ("user_id" = Option<String>, Query, description = "User Pubky ID"),
-        ("reach" = Option<TagStreamReach>, Query, description = "Reach type: Follower | Following | Friends"),
+        ("reach" = Option<StreamReach>, Query, description = "Reach type: Follower | Following | Friends"),
         ("taggers_limit" = Option<usize>, Query, description = "Retrieve N user_id for each tag"),
         ("skip" = Option<usize>, Query, description = "Skip N tags"),
         ("limit" = Option<usize>, Query, description = "Retrieve N tag"),
