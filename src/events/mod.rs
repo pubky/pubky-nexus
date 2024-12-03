@@ -106,6 +106,8 @@ impl Event {
                 file_id: parsed_uri.file_id.ok_or("Missing file_id")?,
             },
             _ if uri.contains("/blobs") => return Ok(None),
+            _ if uri.contains("/last_read") => return Ok(None),
+            _ if uri.contains("/settings") => return Ok(None),
             _ => {
                 error!("Unrecognized resource in URI: {}", uri);
                 return Err("Unrecognized resource in URI".into());
