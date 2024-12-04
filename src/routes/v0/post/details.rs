@@ -4,7 +4,7 @@ use crate::{Error, Result};
 use axum::extract::Path;
 use axum::Json;
 use log::info;
-use pubky_app_specs::post::PostKind;
+use pubky_app_specs::PubkyAppPostKind;
 use utoipa::OpenApi;
 
 #[utoipa::path(
@@ -40,6 +40,6 @@ pub async fn post_details_handler(
 #[derive(OpenApi)]
 #[openapi(
     paths(post_details_handler),
-    components(schemas(PostDetails, PostKind))
+    components(schemas(PostDetails, PubkyAppPostKind))
 )]
 pub struct PostDetailsApiDoc;

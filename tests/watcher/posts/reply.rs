@@ -5,7 +5,7 @@ use super::utils::{
 };
 use crate::watcher::{users::utils::find_user_counts, utils::WatcherTest};
 use anyhow::Result;
-use pubky_app_specs::{PostKind, PubkyAppPost, PubkyAppUser};
+use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{
     models::post::{PostDetails, PostRelationships, PostStream},
@@ -30,7 +30,7 @@ async fn test_homeserver_post_reply() -> Result<()> {
 
     let parent_post = PubkyAppPost {
         content: "Watcher:PostReply:User:Post".to_string(),
-        kind: PostKind::Short,
+        kind: PubkyAppPostKind::Short,
         parent: None,
         embed: None,
         attachments: None,
@@ -43,7 +43,7 @@ async fn test_homeserver_post_reply() -> Result<()> {
 
     let reply_post = PubkyAppPost {
         content: "Watcher:PostReply:User:Reply".to_string(),
-        kind: PostKind::Short,
+        kind: PubkyAppPostKind::Short,
         parent: Some(parent_uri.clone()),
         embed: None,
         attachments: None,

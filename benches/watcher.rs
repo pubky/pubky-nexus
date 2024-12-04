@@ -1,7 +1,7 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use pkarr::mainline::Testnet;
 use pubky::PubkyClient;
-use pubky_app_specs::{PubkyAppUser, UserLink};
+use pubky_app_specs::{PubkyAppUser, PubkyAppUserLink};
 use pubky_common::crypto::Keypair;
 use pubky_homeserver::Homeserver;
 use pubky_nexus::EventProcessor;
@@ -36,7 +36,7 @@ async fn create_homeserver_with_events() -> (Testnet, String) {
     let user = PubkyAppUser {
         bio: Some("This is an example bio".to_string()),
         image: Some("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IArs4c6QAAAA1JREFUGFdjiO4O+w8ABL0CPPcYQa4AAAAASUVORK5CYII=".to_string()),
-        links: Some(vec![UserLink {
+        links: Some(vec![PubkyAppUserLink {
             title: "My Website".to_string(),
             url: "https://example.com".to_string(),
         }]),

@@ -2,7 +2,7 @@ use anyhow::Result;
 use log::info;
 use pkarr::mainline::Testnet;
 use pubky::PubkyClient;
-use pubky_app_specs::{PubkyAppUser, UserLink};
+use pubky_app_specs::{traits::HasPath, PubkyAppUser, PubkyAppUserLink, PROTOCOL};
 use pubky_common::crypto::{Keypair, PublicKey};
 use pubky_nexus::{setup, Config};
 
@@ -35,22 +35,27 @@ async fn main() -> Result<()> {
     client.signup(&keypair, &homeserver).await?;
 
     // Create a new profile
-    let user = PubkyAppUser {
-        bio: Some("This is an example bio".to_string()),
-        image: Some("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IArs4c6QAAAA1JREFUGFdjiO4O+w8ABL0CPPcYQa4AAAAASUVORK5CYII=".to_string()),
-        links: Some(vec![UserLink {
+    let user = PubkyAppUser::new(
+        "Satoshi Nakamoto".to_string(),
+        Some("This is an example bio".to_string()),
+        Some("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IArs4c6QAAAA1JREFUGFdjiO4O+w8ABL0CPPcYQa4AAAAASUVORK5CYII=".to_string()),
+        Some(vec![PubkyAppUserLink {
             title: "My Website".to_string(),
             url: "https://example.com".to_string(),
         }]),
-        name: "Satoshi Nakamoto".to_string(),
-        status: Some("Running Bitcoin".to_string()),
-    };
+        Some("Running Bitcoin".to_string()),
+    );
 
     // Serialize the profile to JSON
     let profile_json = serde_json::to_vec(&user)?;
 
-    // Put some content into the Pubky system
-    let url = format!("pubky://{}/pub/pubky.app/profile.json", pk);
+    // Put some content into the Pubky homeserver
+    let url = format!(
+        "{protocol}{pk}{path}",
+        protocol = PROTOCOL,
+        pk = pk,
+        path = user.create_path()
+    );
     client.put(url.as_str(), &profile_json).await?;
 
     Ok(())

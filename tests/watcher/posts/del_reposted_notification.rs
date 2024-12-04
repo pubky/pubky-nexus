@@ -1,6 +1,6 @@
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
-use pubky_app_specs::{PostEmbed, PostKind, PubkyAppPost, PubkyAppUser};
+use pubky_app_specs::{PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{
     models::notification::{Notification, NotificationBody, PostChangedSource},
@@ -36,7 +36,7 @@ async fn test_delete_reposted_post_notification() -> Result<()> {
     // User A creates a post
     let post = PubkyAppPost {
         content: "Original post by User A".to_string(),
-        kind: PostKind::Short,
+        kind: PubkyAppPostKind::Short,
         parent: None,
         embed: None,
         attachments: None,
@@ -46,10 +46,10 @@ async fn test_delete_reposted_post_notification() -> Result<()> {
     // User B reposts User A's post
     let repost = PubkyAppPost {
         content: "".to_string(), // Reposts usually have empty content
-        kind: PostKind::Short,
+        kind: PubkyAppPostKind::Short,
         parent: None,
-        embed: Some(PostEmbed {
-            kind: PostKind::Short,
+        embed: Some(PubkyAppPostEmbed {
+            kind: PubkyAppPostKind::Short,
             uri: format!("pubky://{}/pub/pubky.app/posts/{}", user_a_id, post_id),
         }),
         attachments: None,

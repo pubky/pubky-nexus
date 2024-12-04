@@ -5,7 +5,7 @@ use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
 use pubky_app_specs::{
-    traits::HashId, PostEmbed, PostKind, PubkyAppPost, PubkyAppTag, PubkyAppUser,
+    traits::HashId, PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
 };
 use pubky_common::crypto::Keypair;
 
@@ -28,7 +28,7 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
     // Create root Post
     let parent_post = PubkyAppPost {
         content: "Watcher:ReplyEngagement:User:Post".to_string(),
-        kind: PostKind::Short,
+        kind: PubkyAppPostKind::Short,
         parent: None,
         embed: None,
         attachments: None,
@@ -44,7 +44,7 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
 
     let reply = PubkyAppPost {
         content: "Watcher:ReplyEngagement:User:Reply".to_string(),
-        kind: PostKind::Short,
+        kind: PubkyAppPostKind::Short,
         parent: Some(parent_uri.clone()),
         embed: None,
         attachments: None,
@@ -66,7 +66,7 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
 
     let reply_of_reply = PubkyAppPost {
         content: "Watcher:ReplyEngagement:User:ReplyOfReply".to_string(),
-        kind: PostKind::Short,
+        kind: PubkyAppPostKind::Short,
         parent: Some(reply_uri.clone()),
         embed: None,
         attachments: None,
@@ -94,10 +94,10 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
     // Create a repost of a reply
     let reply_repost = PubkyAppPost {
         content: "Watcher:ReplyEngagement:User:Repost".to_string(),
-        kind: PostKind::Short,
+        kind: PubkyAppPostKind::Short,
         parent: None,
-        embed: Some(PostEmbed {
-            kind: PostKind::Short,
+        embed: Some(PubkyAppPostEmbed {
+            kind: PubkyAppPostKind::Short,
             uri: reply_uri.clone(),
         }),
         attachments: None,

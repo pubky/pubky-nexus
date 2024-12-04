@@ -29,7 +29,7 @@ pub async fn put(
     debug!("Indexing new file resource at {}/{}", user_id, file_id);
 
     // Serialize and validate
-    let file_input = <PubkyAppFile as Validatable>::try_from(&blob, &file_id).await?;
+    let file_input = <PubkyAppFile as Validatable>::try_from(&blob, &file_id)?;
 
     debug!("file input {:?}", file_input);
 

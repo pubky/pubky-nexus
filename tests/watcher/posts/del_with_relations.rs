@@ -1,7 +1,7 @@
 use crate::watcher::utils::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
-use pubky_app_specs::{traits::HashId, PostKind, PubkyAppPost, PubkyAppTag, PubkyAppUser};
+use pubky_app_specs::{traits::HashId, PubkyAppPost, PubkyAppPostKind, PubkyAppTag, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::post::{PostCounts, PostDetails, PostView};
 
@@ -23,7 +23,7 @@ async fn test_delete_post_with_relationships() -> Result<()> {
     // Create a post without any relationships
     let post = PubkyAppPost {
         content: "User's post to be deleted".to_string(),
-        kind: PostKind::Short,
+        kind: PubkyAppPostKind::Short,
         parent: None,
         embed: None,
         attachments: None,

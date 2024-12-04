@@ -14,7 +14,7 @@ pkarr = { git = "https://github.com/Pubky/pkarr", branch = "v3", package = "pkar
     "async",
 ] }
 pubky = "0.3.0"
-pubky-app-specs = "0.2.0"
+pubky-app-specs = { version = "0.2.1", features = ["openapi"] }
 tokio = { version = "1.41.1", features = ["full"] }
 axum = "0.7.9"
 redis = { version = "0.27.5", features = ["tokio-comp", "json"] }
@@ -34,7 +34,7 @@ chrono = "0.4.38"
 pubky-common = "0.1.0"
 reqwest = "0.12.9"
 base32 = "0.5.1"
-blake3 = "1.5.4"
+blake3 = "1.5.5"
 url = "2.5.4"
 
 [dev-dependencies]
