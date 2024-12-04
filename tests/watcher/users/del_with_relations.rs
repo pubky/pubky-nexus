@@ -4,7 +4,9 @@ use crate::watcher::{
 };
 use anyhow::Result;
 use chrono::Utc;
-use pubky_app_specs::{PubkyAppFile, PubkyAppPost, PubkyAppPostKind, PubkyAppUser, PubkyAppUserLink};
+use pubky_app_specs::{
+    PubkyAppFile, PubkyAppPost, PubkyAppPostKind, PubkyAppUser, PubkyAppUserLink,
+};
 use pubky_common::{crypto::Keypair, timestamp::Timestamp};
 use pubky_nexus::models::user::{UserCounts, UserView};
 use serde_json::to_vec;
@@ -184,7 +186,9 @@ async fn test_delete_user_with_relationships() -> Result<()> {
     );
 
     // User view should reflect the updated details
-    let user_view = UserView::get_by_id(&user_with_id, None, None).await.unwrap();
+    let user_view = UserView::get_by_id(&user_with_id, None, None)
+        .await
+        .unwrap();
     assert!(
         user_view.is_some(),
         "User view should be present after deletion"
@@ -219,7 +223,9 @@ async fn test_delete_user_with_relationships() -> Result<()> {
     );
 
     // User view should not be found
-    let user_view = UserView::get_by_id(&user_with_id, None, None).await.unwrap();
+    let user_view = UserView::get_by_id(&user_with_id, None, None)
+        .await
+        .unwrap();
     assert!(
         user_view.is_none(),
         "User view should not be found after final deletion"
