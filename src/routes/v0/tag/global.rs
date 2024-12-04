@@ -15,7 +15,6 @@ pub struct HotTagsQuery {
     reach: Option<StreamReach>,
     taggers_limit: Option<usize>,
     timeframe: Option<Timeframe>,
-    tagged_type: Option<TaggedType>,
 
     #[serde(flatten)]
     pagination: Pagination,
@@ -70,13 +69,11 @@ pub async fn tag_taggers_handler(
     tag = "Tags",
     params(
         ("user_id" = Option<String>, Query, description = "User Pubky ID"),
-        ("reach" = Option<StreamReach>, Query, description = "Reach type: Follower | Following | Friends"),
+        ("reach" = Option<StreamReach>, Query, description = "Reach type: follower | following | friends | wot"),
         ("taggers_limit" = Option<usize>, Query, description = "Retrieve N user_id for each tag"),
         ("skip" = Option<usize>, Query, description = "Skip N tags"),
         ("limit" = Option<usize>, Query, description = "Retrieve N tag"),
-        ("from" = Option<i64>, Query, description = "Retrieve hot tags from this timestamp"),
-        ("to" = Option<i64>, Query, description = "Retrieve hot tags up to this timestamp"),
-        ("tagged_type" = Option<TaggedType>, Query, description = "Retrieve hot tags by the type of entities tagged with it"),
+        ("timeframe" = Option<Timeframe>, Query, description = "Retrieve hot tags for this specific timeframe. Defaults to all_time"),
     ),
     responses(
         (status = 200, description = "Retrieve tags by reach cluster", body = Vec<HotTag>),
@@ -98,14 +95,13 @@ pub async fn hot_tags_handler(Query(query): Query<HotTagsQuery>) -> Result<Json<
     let limit = query.pagination.limit.unwrap_or(40).min(40);
     let taggers_limit = query.taggers_limit.unwrap_or(20).min(20);
     let timeframe = query.timeframe.unwrap_or(Timeframe::AllTime);
-    let tagged_type = query.tagged_type;
 
     let input = HotTagsInput {
         timeframe,
         skip,
         limit,
         taggers_limit,
-        tagged_type,
+        tagged_type: Some(TaggedType::Post),
     };
 
     match HotTags::get_hot_tags(query.user_id, query.reach, &input).await {

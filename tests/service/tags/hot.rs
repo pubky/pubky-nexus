@@ -1,7 +1,8 @@
 use anyhow::Result;
+use reqwest::StatusCode;
 use serde_json::Value;
 
-use crate::service::utils::make_request;
+use crate::service::utils::{make_request, make_wrong_request};
 
 // TODO: Create deterministic integration tests
 
@@ -72,8 +73,8 @@ async fn test_global_hot_tags() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_global_hot_tags_for_posts() -> Result<()> {
-    let body = make_request("/v0/tags/hot?tagged_type=Post").await?;
+async fn test_global_hot_tags_skip_limit() -> Result<()> {
+    let body = make_request("/v0/tags/hot?skip=3&limit=5").await?;
 
     assert!(body.is_array());
 
@@ -82,9 +83,12 @@ async fn test_global_hot_tags_for_posts() -> Result<()> {
     // Validate that the posts belong to the specified user's bookmarks
     analyse_hot_tags_structure(tags);
 
+    // assert limit
+    assert_eq!(tags.len(), 5);
+
     // Analyse the tag that is in the 4th index
     let hot_tag = StreamTagMockup::new(String::from("ha"), 9, 16, 9);
-    compare_unit_hot_tag(&tags[3], hot_tag);
+    compare_unit_hot_tag(&tags[0], hot_tag);
 
     Ok(())
 }
@@ -104,6 +108,24 @@ async fn test_hot_tags_by_following_reach() -> Result<()> {
     // Analyse the tag that is in the 0 index
     let hot_tag = StreamTagMockup::new(String::from("pubky"), 5, 12, 5);
     compare_unit_hot_tag(&tags[0], hot_tag);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_hot_tags_by_reach_no_user_id() -> Result<()> {
+    let endpoint = "/v0/tags/hot?reach=following";
+
+    make_wrong_request(endpoint, Some(StatusCode::BAD_REQUEST.as_u16())).await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_hot_tags_by_reach_no_reach() -> Result<()> {
+    let endpoint = &format!("/v0/tags/hot?user_id={}", PEER_PUBKY);
+
+    make_wrong_request(endpoint, Some(StatusCode::BAD_REQUEST.as_u16())).await?;
 
     Ok(())
 }
