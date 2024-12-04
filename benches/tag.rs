@@ -1,12 +1,11 @@
-use chrono::Utc;
 use criterion::{criterion_group, criterion_main};
 use criterion::{BenchmarkId, Criterion};
 use pubky_nexus::models::tag::global::TagGlobal;
 use pubky_nexus::models::tag::post::TagPost;
-use pubky_nexus::models::tag::stream::{HotTags, HotTagsInput, TagStreamReach, Timeframe};
+use pubky_nexus::models::tag::stream::{HotTags, HotTagsInput, TagStreamReach};
 use pubky_nexus::models::tag::traits::{TagCollection, TaggersCollection};
 use pubky_nexus::models::tag::user::TagUser;
-use pubky_nexus::types::Pagination;
+use pubky_nexus::types::{Pagination, Timeframe};
 use setup::run_setup;
 use std::time::Duration;
 use tokio::runtime::Runtime;
