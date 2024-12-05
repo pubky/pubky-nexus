@@ -39,9 +39,11 @@ impl UserStream {
         source: UserStreamSource,
         depth: Option<u8>,
         timeframe: Option<Timeframe>,
+        preview: Option<bool>,
     ) -> Result<Option<Self>, DynError> {
         let user_ids =
-            Self::get_user_list_from_source(user_id, source, skip, limit, timeframe).await?;
+            Self::get_user_list_from_source(user_id, source, skip, limit, timeframe, preview)
+                .await?;
         match user_ids {
             Some(users) => Self::from_listed_user_ids(&users, viewer_id, depth).await,
             None => Ok(None),
@@ -197,6 +199,7 @@ impl UserStream {
         skip: Option<usize>,
         limit: Option<usize>,
         timeframe: Option<Timeframe>,
+        preview: Option<bool>,
     ) -> Result<Option<Vec<String>>, DynError> {
         let user_ids = match source {
             UserStreamSource::Followers => Followers::get_by_id(
@@ -247,6 +250,7 @@ impl UserStream {
                 skip.unwrap_or(0),
                 limit.unwrap_or(10).min(100),
                 &timeframe.unwrap_or(Timeframe::AllTime),
+                preview.unwrap_or(false),
             )
             .await?
             .map(|result| {

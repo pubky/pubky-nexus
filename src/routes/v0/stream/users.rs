@@ -19,6 +19,7 @@ pub struct UserStreamQuery {
     source: Option<UserStreamSource>,
     depth: Option<u8>,
     timeframe: Option<Timeframe>,
+    preview: Option<bool>,
 }
 
 #[utoipa::path(
@@ -33,7 +34,8 @@ pub struct UserStreamQuery {
         ("limit" = Option<usize>, Query, description = "Retrieve N followers"),
         ("source" = Option<UserStreamSource>, Query, description = "Source of users for the stream."),
         ("depth" = Option<usize>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 4, will be ignored"),
-        ("timeframe" = Option<Timeframe>, Query, description = "Timeframe for sources supporting a range")
+        ("timeframe" = Option<Timeframe>, Query, description = "Timeframe for sources supporting a range"),
+        ("preview" = Option<bool>, Query, description = "Provide a random selection of size 3 for sources supporting preview. Passing preview ignores skip and limit parameters.")
     ),
     responses(
         (status = 200, description = "Users stream", body = UserStream),
@@ -97,6 +99,7 @@ pub async fn stream_users_handler(
         source.clone(),
         query.depth,
         Some(timeframe),
+        query.preview,
     )
     .await
     {

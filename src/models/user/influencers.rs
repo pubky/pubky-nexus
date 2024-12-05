@@ -3,6 +3,7 @@ use crate::db::kv::index::sorted_sets::SortOrder;
 use crate::types::DynError;
 use crate::types::StreamReach;
 use crate::types::Timeframe;
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ops::Deref;
@@ -143,7 +144,14 @@ impl Influencers {
         skip: usize,
         limit: usize,
         timeframe: &Timeframe,
+        preview: bool,
     ) -> Result<Option<Influencers>, DynError> {
+        let (skip, limit) = if preview {
+            let skip = Utc::now().timestamp_subsec_micros() % 98;
+            (skip as usize, 3)
+        } else {
+            (skip, limit)
+        };
         match user_id {
             Some(user_id) => {
                 Influencers::get_influencers_by_reach(
