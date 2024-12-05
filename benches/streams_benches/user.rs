@@ -1,6 +1,9 @@
 use crate::run_setup;
 use criterion::Criterion;
-use pubky_nexus::models::user::{UserStream, UserStreamSource};
+use pubky_nexus::{
+    models::user::{UserStream, UserStreamSource},
+    types::StreamReach,
+};
 use tokio::runtime::Runtime;
 
 /// USER STREAMS BENCHMARKS
@@ -22,7 +25,10 @@ pub fn bench_stream_following(c: &mut Criterion) {
                 None,
                 None,
                 Some(20),
-                UserStreamSource::Pioneers,
+                UserStreamSource::Influencers,
+                Some(StreamReach::Following),
+                None,
+                None,
                 None,
             )
             .await
@@ -49,6 +55,9 @@ pub fn bench_stream_most_followed(c: &mut Criterion) {
                 None,
                 Some(20),
                 UserStreamSource::MostFollowed,
+                None,
+                None,
+                None,
                 None,
             )
             .await
@@ -83,21 +92,30 @@ pub fn bench_stream_users_by_username_search(c: &mut Criterion) {
     });
 }
 
-pub fn bench_stream_pioneers(c: &mut Criterion) {
+pub fn bench_stream_influencers(c: &mut Criterion) {
     println!("***************************************");
-    println!("Benchmarking the user streams for pioneer users.");
+    println!("Benchmarking the user streams for influencer users.");
     println!("***************************************");
 
     run_setup();
 
     let rt = Runtime::new().unwrap();
 
-    c.bench_function("stream_pioneers", |b| {
+    c.bench_function("stream_influencers", |b| {
         b.to_async(&rt).iter(|| async {
-            let user_stream =
-                UserStream::get_by_id(None, None, None, Some(20), UserStreamSource::Pioneers, None)
-                    .await
-                    .unwrap();
+            let user_stream = UserStream::get_by_id(
+                None,
+                None,
+                None,
+                Some(20),
+                UserStreamSource::Influencers,
+                Some((StreamReach::Wot(3))),
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
             criterion::black_box(user_stream);
         });
     });

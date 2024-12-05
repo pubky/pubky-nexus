@@ -78,21 +78,21 @@ async fn test_stream_most_followed() -> Result<()> {
 // ##### PIONEERS USERS ######
 
 #[tokio::test]
-async fn test_stream_pioneers() -> Result<()> {
+async fn test_stream_influencers() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 
     // Test retrieving the most followed users
-    let res = client.do_get("/v0/stream/users?source=pioneers").await?;
+    let res = client.do_get("/v0/stream/users?source=influencers").await?;
     assert_eq!(res.status(), 200);
 
     let body = res.json_body()?;
     assert!(body.is_array());
 
-    let pioneers_users = body.as_array().expect("User stream should be an array");
+    let influencers_users = body.as_array().expect("User stream should be an array");
 
     // Check if the response has the expected number of users
     assert!(
-        !pioneers_users.is_empty(),
+        !influencers_users.is_empty(),
         "There should be at least one user in the most followed stream"
     );
 
@@ -107,12 +107,12 @@ async fn test_stream_pioneers() -> Result<()> {
 
     // Verify that each expected user ID is present in the response
     for id in &expected_user_ids {
-        let exists = pioneers_users.iter().any(|f| f["details"]["id"] == *id);
+        let exists = influencers_users.iter().any(|f| f["details"]["id"] == *id);
         assert!(exists, "Expected user ID not found: {}", id);
     }
 
     // Additional checks for specific user attributes (e.g., name, follower counts)
-    for user in pioneers_users {
+    for user in influencers_users {
         assert!(
             user["details"]["name"].is_string(),
             "Name should be a string"
@@ -126,7 +126,7 @@ async fn test_stream_pioneers() -> Result<()> {
 
     // Test limiting the results to 5 users
     let res = client
-        .do_get("/v0/stream/users?source=pioneers&limit=5")
+        .do_get("/v0/stream/users?source=influencers&limit=5")
         .await?;
     assert_eq!(res.status(), 200);
 

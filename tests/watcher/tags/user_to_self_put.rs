@@ -1,6 +1,6 @@
 use super::utils::find_user_tag;
 use crate::watcher::{
-    users::utils::{check_member_user_pioneer, find_user_counts},
+    users::utils::{check_member_user_influencer, find_user_counts},
     utils::WatcherTest,
 };
 use anyhow::Result;
@@ -72,12 +72,15 @@ async fn test_homeserver_put_tag_user_self() -> Result<()> {
     assert_eq!(user_counts.tags, 1);
     assert_eq!(user_counts.tagged, 1);
 
-    // Check user pionner score: Sorted:Users:Pioneers
-    let pioneer_score = check_member_user_pioneer(&user_id)
+    // Check user pionner score: Sorted:Users:Influencers
+    let influencer_score = check_member_user_influencer(&user_id)
         .await
-        .expect("Failed to check user pioneer score");
-    assert!(pioneer_score.is_some(), "Pioneer score should be present");
-    assert_eq!(pioneer_score.unwrap(), 0);
+        .expect("Failed to check user influencer score");
+    assert!(
+        influencer_score.is_some(),
+        "Influencer score should be present"
+    );
+    assert_eq!(influencer_score.unwrap(), 0);
 
     // Cleanup user
     test.cleanup_user(&user_id).await?;

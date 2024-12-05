@@ -7,7 +7,7 @@ use crate::models::tag::stream::HotTags;
 use crate::models::tag::traits::TagCollection;
 use crate::models::tag::user::TagUser;
 use crate::models::traits::Collection;
-use crate::models::user::{Muted, UserDetails};
+use crate::models::user::{Influencers, Muted, UserDetails};
 use crate::types::DynError;
 use crate::{
     db::connectors::neo4j::get_neo4j_graph,
@@ -65,9 +65,13 @@ pub async fn reindex() {
         }
     }
 
-    HotTags::set_global_tag_scores()
+    HotTags::reindex()
         .await
         .expect("Failed to store the global hot tags");
+
+    Influencers::reindex()
+        .await
+        .expect("Failed to reindex influencers");
 
     TagSearch::reindex()
         .await

@@ -4,6 +4,7 @@
 QUERIES_FILE="/db-graph/skunk.cypher"
 # To achieve deterministic tests, each domain will have its own testing graph
 TAGS_TEST_FILE="/db-graph/mocks/tags.cypher"
+HOT_TAGS_TEST_FILE="/db-graph/mocks/hot-tags.cypher"
 POSTS_TEST_FILE="/db-graph/mocks/posts.cypher"
 FILES_TEST_FILE="/db-graph/mocks/files.cypher"
 MUTES_TEST_FILE="/db-graph/mocks/mutes.cypher"
@@ -20,6 +21,8 @@ fi
 time cypher-shell -u neo4j -p 12345678 -f "$QUERIES_FILE"
 echo "Importing TAGs test graph..."
 time cypher-shell -u neo4j -p 12345678 -f "$TAGS_TEST_FILE"
+echo "Importing HOT TAGs test graph..."
+time cypher-shell -u neo4j -p 12345678 -f "$HOT_TAGS_TEST_FILE"
 echo "Importing POSTs test graph..."
 time cypher-shell -u neo4j -p 12345678 -f "$POSTS_TEST_FILE"
 echo "Importing FILEs test graph..."

@@ -1,6 +1,9 @@
 use crate::models::post::StreamSource;
+use crate::models::tag::stream::HotTagsInput;
 use crate::types::Pagination;
+use crate::types::StreamReach;
 use crate::types::StreamSorting;
+use crate::types::Timeframe;
 use neo4rs::{query, Query};
 use pubky_app_specs::PubkyAppPostKind;
 
@@ -411,28 +414,200 @@ pub fn get_global_hot_tags_taggers(tag_list: &[&str]) -> Query {
     .param("labels", tag_list)
 }
 
-// Analyzes tag usage for a specific list of user IDs. Groups tags by name,
-// showing for each: label, post count and list of user IDs
-// Orders by post_count (descending).
-// Note: Only considers users from the provided users_id list.
-pub fn get_tags_by_user_ids(users_id: &[&str]) -> Query {
+fn stream_reach_to_graph_subquery(reach: &StreamReach) -> String {
+    match reach {
+        StreamReach::Followers => "MATCH (user:User)<-[:FOLLOWS]-(reach:User)".to_string(),
+        StreamReach::Following => "MATCH (user:User)-[:FOLLOWS]->(reach:User)".to_string(),
+        StreamReach::Friends => {
+            "MATCH (user:User)-[:FOLLOWS]->(reach:User), (user)<-[:FOLLOWS]-(reach)".to_string()
+        }
+        StreamReach::Wot(depth) => {
+            format!("MATCH (viewer)-[:FOLLOWS*1..{}]->(tagger:User)", depth)
+        }
+    }
+}
+
+pub fn get_tag_taggers_by_reach(
+    label: &str,
+    user_id: &str,
+    reach: StreamReach,
+    skip: usize,
+    limit: usize,
+) -> Query {
     query(
-        "
-        UNWIND $ids AS id
-        MATCH (u:User)-[tag:TAGGED]->(p:Post)
-        WHERE u.id = id
-        WITH tag.label AS label, COLLECT(DISTINCT u.id) AS taggers, COUNT(DISTINCT p) AS uniquePosts
-        WITH {
+        format!(
+            "
+            {}
+            MATCH (reach)-[tag:TAGGED]->()
+            WHERE user.id = $user_id AND tag.label = $label
+            WITH reach, MAX(tag.indexed_at) AS tag_time
+            ORDER BY tag_time DESC
+            SKIP $skip LIMIT $limit
+            RETURN COLLECT(reach.id) as tagger_ids
+            ",
+            stream_reach_to_graph_subquery(&reach)
+        )
+        .as_str(),
+    )
+    .param("label", label)
+    .param("user_id", user_id)
+    .param("skip", skip as i64)
+    .param("limit", limit as i64)
+}
+
+pub fn get_hot_tags_by_reach(
+    user_id: &str,
+    reach: StreamReach,
+    tags_query: &HotTagsInput,
+) -> Query {
+    let input_tagged_type = match &tags_query.tagged_type {
+        Some(tagged_type) => tagged_type.to_string(),
+        None => String::from("Post|User"),
+    };
+
+    let (from, to) = tags_query.timeframe.to_timestamp_range();
+    query(
+        format!(
+            "
+        {}
+        MATCH (reach)-[tag:TAGGED]->(tagged:{})
+        WHERE user.id = $user_id AND tag.indexed_at >= $from AND tag.indexed_at < $to
+        WITH 
+            tag.label AS label,
+            COLLECT(DISTINCT reach.id)[..{}] AS taggers,
+            COUNT(DISTINCT tagged) AS uniqueTaggedCount,
+            COUNT(DISTINCT reach.id) AS taggers_count
+        WITH {{
             label: label,
             taggers_id: taggers,
-            post_count: uniquePosts,
-            taggers_count: SIZE(taggers)
-        } AS hot_tag
-        ORDER BY hot_tag.post_count DESC
-        RETURN COLLECT(hot_tag) AS hot_tags
+            tagged_count: uniqueTaggedCount,
+            taggers_count: taggers_count
+        }} AS hot_tag
+        ORDER BY hot_tag.tagged_count DESC, hot_tag.label ASC
+        SKIP $skip LIMIT $limit
+        RETURN COLLECT(hot_tag) as hot_tags
+    ",
+            stream_reach_to_graph_subquery(&reach),
+            input_tagged_type,
+            tags_query.taggers_limit
+        )
+        .as_str(),
+    )
+    .param("user_id", user_id)
+    .param("skip", tags_query.skip as i64)
+    .param("limit", tags_query.limit as i64)
+    .param("from", from)
+    .param("to", to)
+}
+
+pub fn get_global_hot_tags(tags_query: &HotTagsInput) -> Query {
+    let input_tagged_type = match &tags_query.tagged_type {
+        Some(tagged_type) => tagged_type.to_string(),
+        None => String::from("Post|User"),
+    };
+    let (from, to) = tags_query.timeframe.to_timestamp_range();
+    query(
+        format!(
+            "
+        MATCH (user: User)-[tag:TAGGED]->(tagged:{}) 
+        WHERE tag.indexed_at >= $from AND tag.indexed_at < $to
+        WITH 
+            tag.label AS label,
+            COLLECT(DISTINCT user.id)[..{}] AS taggers,
+            COUNT(DISTINCT tagged) AS uniqueTaggedCount,
+            COUNT(DISTINCT user.id) AS taggers_count
+        WITH {{
+            label: label,
+            taggers_id: taggers,
+            tagged_count: uniqueTaggedCount,
+            taggers_count: taggers_count
+        }} AS hot_tag
+        ORDER BY hot_tag.tagged_count DESC, hot_tag.label ASC
+        SKIP $skip LIMIT $limit
+        RETURN COLLECT(hot_tag) as hot_tags
+    ",
+            input_tagged_type, tags_query.taggers_limit
+        )
+        .as_str(),
+    )
+    .param("skip", tags_query.skip as i64)
+    .param("limit", tags_query.limit as i64)
+    .param("from", from)
+    .param("to", to)
+}
+
+pub fn get_influencers_by_reach(
+    user_id: &str,
+    reach: StreamReach,
+    skip: usize,
+    limit: usize,
+    timeframe: &Timeframe,
+) -> Query {
+    let (from, to) = timeframe.to_timestamp_range();
+    query(
+        format!(
+            "
+        {}
+        WHERE user.id = $user_id
+
+        OPTIONAL MATCH (others:User)-[follow:FOLLOWS]->(reach)
+        WHERE follow.indexed_at >= $from AND follow.indexed_at < $to
+        
+        OPTIONAL MATCH (reach)-[tag:TAGGED]->(tagged:Post)
+        WHERE tag.indexed_at >= $from AND tag.indexed_at < $to
+        
+        OPTIONAL MATCH (reach)-[authored:AUTHORED]->(post:Post)
+        WHERE authored.indexed_at >= $from AND authored.indexed_at < $to
+
+        WITH reach, COUNT(DISTINCT follow) AS followers_count, COUNT(DISTINCT tag) AS tags_count,
+             COUNT(DISTINCT post) AS posts_count
+        WITH {{
+            id: reach.id,
+            score: (tags_count + posts_count) * sqrt(followers_count)
+        }} AS influencer
+        ORDER BY influencer.score DESC, reach.id ASC
+        SKIP $skip LIMIT $limit
+        RETURN COLLECT(influencer) as influencers
+    ",
+            stream_reach_to_graph_subquery(&reach),
+        )
+        .as_str(),
+    )
+    .param("user_id", user_id)
+    .param("skip", skip as i64)
+    .param("limit", limit as i64)
+    .param("from", from)
+    .param("to", to)
+}
+
+pub fn get_global_influencers(skip: usize, limit: usize, timeframe: &Timeframe) -> Query {
+    let (from, to) = timeframe.to_timestamp_range();
+    query(
+        "
+        OPTIONAL MATCH (others:User)-[follow:FOLLOWS]->(user:User)
+        WHERE follow.indexed_at >= $from AND follow.indexed_at < $to
+
+        OPTIONAL MATCH (user)-[tag:TAGGED]->(tagged:Post)
+        WHERE tag.indexed_at >= $from AND tag.indexed_at < $to
+        
+        OPTIONAL MATCH (user)-[authored:AUTHORED]->(post:Post)
+        WHERE authored.indexed_at >= $from AND authored.indexed_at < $to
+
+        WITH user, COUNT(DISTINCT follow) AS followers_count, COUNT(DISTINCT tag) AS tags_count,
+             COUNT(DISTINCT post) AS posts_count
+        WITH {
+            id: user.id,
+            score: (tags_count + posts_count) * sqrt(followers_count)
+        } AS influencer
+        ORDER BY influencer.score DESC, user.id ASC
+        SKIP $skip LIMIT $limit
+        RETURN COLLECT(influencer) as influencers
     ",
     )
-    .param("ids", users_id)
+    .param("skip", skip as i64)
+    .param("limit", limit as i64)
+    .param("from", from)
+    .param("to", to)
 }
 
 pub fn get_files_by_ids(key_pair: &[&[&str]]) -> Query {
