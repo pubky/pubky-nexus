@@ -92,6 +92,7 @@ async fn test_global_hot_tags_skip_limit() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test]
 async fn test_global_hot_tags_with_today_timeframe() -> Result<()> {
     let body = make_request("/v0/tags/hot?timeframe=today").await?;
 
