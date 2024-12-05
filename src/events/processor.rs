@@ -94,7 +94,7 @@ impl EventProcessor {
         }
     }
 
-    async fn process_event_lines(&mut self, lines: Vec<String>) -> Result<(), DynError> {
+    pub async fn process_event_lines(&mut self, lines: Vec<String>) -> Result<(), DynError> {
         for line in &lines {
             if line.starts_with("cursor:") {
                 if let Some(cursor) = line.strip_prefix("cursor: ") {

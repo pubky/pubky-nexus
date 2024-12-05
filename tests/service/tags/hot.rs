@@ -66,8 +66,8 @@ async fn test_global_hot_tags() -> Result<()> {
     analyse_hot_tags_structure(tags);
 
     // Analyse the tag that is in the 4th index
-    let hot_tag = StreamTagMockup::new(String::from("pubky"), 14, 26, 14);
-    compare_unit_hot_tag(&tags[3], hot_tag);
+    let hot_tag = StreamTagMockup::new(String::from("pubky"), 9, 15, 9);
+    compare_unit_hot_tag(&tags[4], hot_tag);
 
     Ok(())
 }
@@ -75,6 +75,25 @@ async fn test_global_hot_tags() -> Result<()> {
 #[tokio::test]
 async fn test_global_hot_tags_skip_limit() -> Result<()> {
     let body = make_request("/v0/tags/hot?skip=3&limit=5").await?;
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Stream tags should be an array");
+
+    // Validate that the posts belong to the specified user's bookmarks
+    analyse_hot_tags_structure(tags);
+
+    // assert limit
+    assert_eq!(tags.len(), 5);
+
+    // Analyse the tag that is in the 4th index
+    let hot_tag = StreamTagMockup::new(String::from("tag2"), 2, 1, 2);
+    compare_unit_hot_tag(&tags[0], hot_tag);
+
+    Ok(())
+}
+
+async fn test_global_hot_tags_with_today_timeframe() -> Result<()> {
+    let body = make_request("/v0/tags/hot?timeframe=today").await?;
 
     assert!(body.is_array());
 
@@ -87,7 +106,25 @@ async fn test_global_hot_tags_skip_limit() -> Result<()> {
     assert_eq!(tags.len(), 5);
 
     // Analyse the tag that is in the 4th index
-    let hot_tag = StreamTagMockup::new(String::from("ha"), 9, 16, 9);
+    let hot_tag = StreamTagMockup::new(String::from("tag2"), 2, 1, 2);
+    compare_unit_hot_tag(&tags[0], hot_tag);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_global_hot_tags_with_this_month_timeframe() -> Result<()> {
+    let body = make_request("/v0/tags/hot?timeframe=this_month").await?;
+
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Stream tags should be an array");
+
+    // Validate that the posts belong to the specified user's bookmarks
+    analyse_hot_tags_structure(tags);
+
+    // Analyse the tag that is in the 4th index
+    let hot_tag = StreamTagMockup::new(String::from("tag2"), 3, 2, 3);
     compare_unit_hot_tag(&tags[0], hot_tag);
 
     Ok(())
@@ -106,7 +143,7 @@ async fn test_hot_tags_by_following_reach() -> Result<()> {
     analyse_hot_tags_structure(tags);
 
     // Analyse the tag that is in the 0 index
-    let hot_tag = StreamTagMockup::new(String::from("pubky"), 5, 12, 5);
+    let hot_tag = StreamTagMockup::new(String::from("pubky"), 4, 5, 4);
     compare_unit_hot_tag(&tags[0], hot_tag);
 
     Ok(())
@@ -146,7 +183,7 @@ async fn test_hot_tags_by_following_using_taggers_limit() -> Result<()> {
     analyse_hot_tags_structure(tags);
 
     // Analyse the tag that is in the 0 index
-    let hot_tag = StreamTagMockup::new(String::from("pubky"), 3, 12, 5);
+    let hot_tag = StreamTagMockup::new(String::from("pubky"), 3, 5, 4);
     compare_unit_hot_tag(&tags[0], hot_tag);
 
     Ok(())
@@ -165,8 +202,8 @@ async fn test_hot_tags_by_followers_reach() -> Result<()> {
     analyse_hot_tags_structure(tags);
 
     // Analyse the tag that is in the 1st index
-    let hot_tag = StreamTagMockup::new(String::from("pubky"), 3, 10, 3);
-    compare_unit_hot_tag(&tags[1], hot_tag);
+    let hot_tag = StreamTagMockup::new(String::from("pubky"), 2, 3, 2);
+    compare_unit_hot_tag(&tags[0], hot_tag);
 
     Ok(())
 }
@@ -184,8 +221,8 @@ async fn test_hot_tags_by_friends_reach() -> Result<()> {
     analyse_hot_tags_structure(tags);
 
     // Analyse the tag that is in the 1st index
-    let hot_tag = StreamTagMockup::new(String::from("pubky"), 3, 10, 3);
-    compare_unit_hot_tag(&tags[1], hot_tag);
+    let hot_tag = StreamTagMockup::new(String::from("pubky"), 2, 3, 2);
+    compare_unit_hot_tag(&tags[0], hot_tag);
 
     Ok(())
 }
