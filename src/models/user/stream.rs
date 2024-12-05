@@ -21,7 +21,7 @@ pub enum UserStreamSource {
     Friends,
     Muted,
     MostFollowed,
-    Influencers(StreamReach),
+    Influencers,
     Recommended,
 }
 
@@ -37,13 +37,21 @@ impl UserStream {
         skip: Option<usize>,
         limit: Option<usize>,
         source: UserStreamSource,
+        source_reach: Option<StreamReach>,
         depth: Option<u8>,
         timeframe: Option<Timeframe>,
         preview: Option<bool>,
     ) -> Result<Option<Self>, DynError> {
-        let user_ids =
-            Self::get_user_list_from_source(user_id, source, skip, limit, timeframe, preview)
-                .await?;
+        let user_ids = Self::get_user_list_from_source(
+            user_id,
+            source,
+            source_reach,
+            skip,
+            limit,
+            timeframe,
+            preview,
+        )
+        .await?;
         match user_ids {
             Some(users) => Self::from_listed_user_ids(&users, viewer_id, depth).await,
             None => Ok(None),
@@ -196,6 +204,7 @@ impl UserStream {
     pub async fn get_user_list_from_source(
         user_id: Option<&str>,
         source: UserStreamSource,
+        source_reach: Option<StreamReach>,
         skip: Option<usize>,
         limit: Option<usize>,
         timeframe: Option<Timeframe>,
@@ -244,9 +253,9 @@ impl UserStream {
             )
             .await?
             .map(|set| set.into_iter().map(|(user_id, _score)| user_id).collect()),
-            UserStreamSource::Influencers(reach) => Influencers::get_influencers(
+            UserStreamSource::Influencers => Influencers::get_influencers(
                 user_id,
-                Some(reach),
+                Some(source_reach.unwrap_or(StreamReach::Wot(3))),
                 skip.unwrap_or(0),
                 limit.unwrap_or(10).min(100),
                 &timeframe.unwrap_or(Timeframe::AllTime),

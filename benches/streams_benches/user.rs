@@ -25,7 +25,9 @@ pub fn bench_stream_following(c: &mut Criterion) {
                 None,
                 None,
                 Some(20),
-                UserStreamSource::Influencers(StreamReach::Following),
+                UserStreamSource::Influencers,
+                Some(StreamReach::Following),
+                None,
                 None,
                 None,
             )
@@ -53,6 +55,8 @@ pub fn bench_stream_most_followed(c: &mut Criterion) {
                 None,
                 Some(20),
                 UserStreamSource::MostFollowed,
+                None,
+                None,
                 None,
                 None,
             )
@@ -104,7 +108,9 @@ pub fn bench_stream_influencers(c: &mut Criterion) {
                 None,
                 None,
                 Some(20),
-                UserStreamSource::Influencers(StreamReach::Wot(3)),
+                UserStreamSource::Influencers,
+                Some((StreamReach::Wot(3))),
+                None,
                 None,
                 None,
             )
