@@ -65,7 +65,7 @@ pub async fn reindex() {
         }
     }
 
-    HotTags::set_global_tag_scores()
+    HotTags::reindex()
         .await
         .expect("Failed to store the global hot tags");
 

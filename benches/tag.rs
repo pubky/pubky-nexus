@@ -2,10 +2,10 @@ use criterion::{criterion_group, criterion_main};
 use criterion::{BenchmarkId, Criterion};
 use pubky_nexus::models::tag::global::TagGlobal;
 use pubky_nexus::models::tag::post::TagPost;
-use pubky_nexus::models::tag::stream::{HotTags, TagStreamReach};
+use pubky_nexus::models::tag::stream::{HotTags, HotTagsInput, TagStreamReach};
 use pubky_nexus::models::tag::traits::{TagCollection, TaggersCollection};
 use pubky_nexus::models::tag::user::TagUser;
-use pubky_nexus::types::Pagination;
+use pubky_nexus::types::{Pagination, Timeframe};
 use setup::run_setup;
 use std::time::Duration;
 use tokio::runtime::Runtime;
@@ -197,9 +197,14 @@ fn bench_get_global_hot_tags(c: &mut Criterion) {
 
     c.bench_function("bench_get_global_hot_tags", |b| {
         b.to_async(&rt).iter(|| async {
-            let stream_tag = HotTags::get_global_tags_stream(None, Some(40), Some(10))
-                .await
-                .unwrap();
+            let input = HotTagsInput {
+                timeframe: Timeframe::AllTime,
+                skip: 0,
+                limit: 40,
+                taggers_limit: 10,
+                tagged_type: None,
+            };
+            let stream_tag = HotTags::get_hot_tags(None, None, &input).await.unwrap();
             criterion::black_box(stream_tag);
         });
     });
@@ -220,9 +225,10 @@ fn bench_get_global_tag_taggers(c: &mut Criterion) {
         &[label],
         |b, &params| {
             b.to_async(&rt).iter(|| async {
-                let tag_taggers = TagGlobal::get_tag_taggers(String::from(params[0]), None)
-                    .await
-                    .unwrap();
+                let tag_taggers =
+                    TagGlobal::get_tag_taggers(String::from(params[0]), None, None, 0, 20)
+                        .await
+                        .unwrap();
                 criterion::black_box(tag_taggers);
             });
         },
@@ -250,9 +256,17 @@ fn bench_get_following_reach_hot_tags(c: &mut Criterion) {
         &[user_id],
         |b, &params| {
             b.to_async(&rt).iter(|| async {
-                let profile = HotTags::get_stream_tags_by_reach(
-                    String::from(params[0]),
-                    TagStreamReach::Following,
+                let input = HotTagsInput {
+                    timeframe: Timeframe::AllTime,
+                    skip: 0,
+                    limit: 10,
+                    taggers_limit: 20,
+                    tagged_type: None,
+                };
+                let profile = HotTags::get_hot_tags(
+                    Some(String::from(params[0])),
+                    Some(TagStreamReach::Following),
+                    &input,
                 )
                 .await
                 .unwrap();
@@ -283,9 +297,17 @@ fn bench_get_followers_reach_hot_tags(c: &mut Criterion) {
         &[user_id],
         |b, &params| {
             b.to_async(&rt).iter(|| async {
-                let profile = HotTags::get_stream_tags_by_reach(
-                    String::from(params[0]),
-                    TagStreamReach::Followers,
+                let input = HotTagsInput {
+                    timeframe: Timeframe::AllTime,
+                    skip: 0,
+                    limit: 10,
+                    taggers_limit: 20,
+                    tagged_type: None,
+                };
+                let profile = HotTags::get_hot_tags(
+                    Some(String::from(params[0])),
+                    Some(TagStreamReach::Followers),
+                    &input,
                 )
                 .await
                 .unwrap();
@@ -316,9 +338,17 @@ fn bench_get_friends_reach_hot_tags(c: &mut Criterion) {
         &[user_id],
         |b, &params| {
             b.to_async(&rt).iter(|| async {
-                let profile = HotTags::get_stream_tags_by_reach(
-                    String::from(params[0]),
-                    TagStreamReach::Friends,
+                let input = HotTagsInput {
+                    timeframe: Timeframe::AllTime,
+                    skip: 0,
+                    limit: 10,
+                    taggers_limit: 20,
+                    tagged_type: None,
+                };
+                let profile = HotTags::get_hot_tags(
+                    Some(String::from(params[0])),
+                    Some(TagStreamReach::Friends),
+                    &input,
                 )
                 .await
                 .unwrap();

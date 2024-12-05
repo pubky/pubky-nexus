@@ -88,7 +88,7 @@ impl PostDetails {
         parent_key_wrapper: Option<(String, String)>,
         is_edit: bool,
     ) -> Result<(), DynError> {
-        self.put_index_json(&[author_id, &self.id]).await?;
+        self.put_index_json(&[author_id, &self.id], None).await?;
         // When we delete a post that has ancestor, ignore other index updates
         if is_edit {
             return Ok(());

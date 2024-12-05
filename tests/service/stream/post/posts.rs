@@ -120,9 +120,10 @@ pub const POST_ED: &str = "2Z1N9M56X7DG0";
 pub const POST_EF: &str = "2Z1N9M56W8D00";
 pub const POST_EG: &str = "2Z1N9M56X5VG0";
 pub const POST_EH: &str = "2Z1N9M56WJKG0";
-pub const POST_EI: &str = "2Z1N8QBETDS00";
-pub const POST_EJ: &str = "2Z1N8QBERHB00";
-pub const POST_EK: &str = "2Z1N8QBETHK00";
+pub const POST_EI: &str = "0032GZQ338BMP";
+pub const POST_EJ: &str = "2Z1N8QBETDS00";
+pub const POST_EK: &str = "2Z1N8QBERHB00";
+pub const POST_EL: &str = "2Z1N8QBETHK00";
 
 pub const POST_E0: &str = "2Z1PBYS0F90G0";
 pub const POST_E1: &str = "2ZECRNM66G900";
