@@ -595,10 +595,10 @@ pub fn get_global_influencers(skip: usize, limit: usize, timeframe: &Timeframe) 
 
         WITH user, COUNT(DISTINCT follow) AS followers_count, COUNT(DISTINCT tag) AS tags_count,
              COUNT(DISTINCT post) AS posts_count
-        WITH {{
+        WITH {
             id: user.id,
             score: (tags_count + posts_count) * sqrt(followers_count)
-        }} AS influencer
+        } AS influencer
         ORDER BY influencer.score DESC, user.id ASC
         SKIP $skip LIMIT $limit
         RETURN COLLECT(influencer) as influencers
