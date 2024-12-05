@@ -71,7 +71,7 @@ pub async fn tag_taggers_handler(
     tag = "Tags",
     params(
         ("user_id" = Option<String>, Query, description = "User Pubky ID"),
-        ("reach" = Option<TagStreamReach>, Query, description = "Reach type: follower | following | friends | wot"),
+        ("reach" = Option<TagStreamReach>, Query, description = "Reach type: follower | following | friends"),
         ("taggers_limit" = Option<usize>, Query, description = "Retrieve N user_id for each tag"),
         ("skip" = Option<usize>, Query, description = "Skip N tags"),
         ("limit" = Option<usize>, Query, description = "Retrieve N tag"),

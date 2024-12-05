@@ -3,6 +3,7 @@ use crate::models::tag::stream::HotTagsInput;
 use crate::models::tag::stream::TagStreamReach;
 use crate::types::Pagination;
 use crate::types::StreamSorting;
+use log::debug;
 use neo4rs::{query, Query};
 use pubky_app_specs::PubkyAppPostKind;
 
@@ -503,6 +504,7 @@ pub fn get_global_hot_tags(tags_query: &HotTagsInput) -> Query {
         None => String::from("Post|User"),
     };
     let (from, to) = tags_query.timeframe.to_timestamp_range();
+    debug!("get_global_hot_tags query: {:?} {:?}", from, to);
     query(
         format!(
             "
