@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use super::Event;
 use crate::types::DynError;
 use crate::types::PubkyId;
@@ -14,7 +12,6 @@ pub struct EventProcessor {
     http_client: Client,
     homeserver: Homeserver,
     limit: u32,
-    max_retries: u64,
 }
 
 impl EventProcessor {
@@ -22,7 +19,6 @@ impl EventProcessor {
         let pubky_client = Self::init_pubky_client(config);
         let homeserver = Homeserver::from_config(config).await?;
         let limit = config.events_limit;
-        let max_retries = config.max_retries;
 
         info!(
             "Initialized Event Processor for homeserver: {:?}",
@@ -34,7 +30,6 @@ impl EventProcessor {
             http_client: Client::new(),
             homeserver,
             limit,
-            max_retries,
         })
     }
 
@@ -58,7 +53,6 @@ impl EventProcessor {
             http_client: Client::new(),
             homeserver,
             limit: 1000,
-            max_retries: 3,
         }
     }
 
@@ -103,7 +97,7 @@ impl EventProcessor {
                     info!("Cursor for the next request: {}", cursor);
                 }
             } else {
-                let event = match Event::from_str(line, self.pubky_client.clone()) {
+                let event = match Event::from_event_str(line) {
                     Ok(event) => event,
                     Err(e) => {
                         error!("Error while creating event line from line: {}", e);
@@ -112,7 +106,8 @@ impl EventProcessor {
                 };
                 if let Some(event) = event {
                     debug!("Processing event: {:?}", event);
-                    self.handle_event_with_retry(event).await?;
+                    self.handle_event_with_retry(event, &self.pubky_client)
+                        .await?;
                 }
             }
         }
@@ -121,28 +116,17 @@ impl EventProcessor {
     }
 
     // Generic retry on event handler
-    async fn handle_event_with_retry(&self, event: Event) -> Result<(), DynError> {
-        let mut attempts = 0;
-        loop {
-            match event.clone().handle().await {
-                Ok(_) => break Ok(()),
-                Err(e) => {
-                    attempts += 1;
-                    if attempts >= self.max_retries {
-                        error!(
-                            "Error while handling event after {} attempts: {}",
-                            attempts, e
-                        );
-                        break Ok(());
-                    } else {
-                        error!(
-                            "Error while handling event: {}. Retrying attempt {}/{}",
-                            e, attempts, self.max_retries
-                        );
-                        // Optionally, add a delay between retries
-                        tokio::time::sleep(Duration::from_millis(100)).await;
-                    }
-                }
+    async fn handle_event_with_retry(
+        &self,
+        event: Event,
+        pubky_client: &PubkyClient,
+    ) -> Result<(), DynError> {
+        match event.clone().handle(pubky_client).await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                error!("Error while handling event {}", e);
+                event.log_failure().await?;
+                Ok(())
             }
         }
     }

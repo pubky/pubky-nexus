@@ -31,7 +31,8 @@ Nexus is composed of several core components:
 
 - **service.rs**: The REST API server for handling client requests, querying databases, and returning responses to the Pubky-App frontend.
 - **watcher.rs**: The event aggregator that listens to homeserver events, translating them into social graph updates within the Nexus databases.
-- **lib.rs**: A library crate containing common functionalities shared by `service` and `watcher`, including database connectors, models, and queries.
+- **retry.rs**: binary that retries events marked as failed by watcher.
+- **lib.rs**: library crate with all of the common functionalities (connector, models, queries) needed for `watcher`, `service` and `retry`
 
 ### Data Flow
 
@@ -54,17 +55,17 @@ To get started with Nexus, first set up the required databases: Neo4j and Redis.
 1. Clone the repository and navigate to the project directory.
 2. Copy the environment template and set up the Docker environment:
 
-    ```bash
-    cd docker
-    cp .env-sample .env
-    docker-compose up -d
-    ```
+   ```bash
+   cd docker
+   cp .env-sample .env
+   docker-compose up -d
+   ```
 
 3. Populate the Neo4j database with initial data:
 
-    ```bash
-    docker exec neo4j bash /db-graph/run-queries.sh
-    ```
+   ```bash
+   docker exec neo4j bash /db-graph/run-queries.sh
+   ```
 
 Once the `Neo4j` graph database is seeded with data, the next step is to populate the `Redis` database by running the _nexus-service_
 
@@ -72,9 +73,10 @@ Once the `Neo4j` graph database is seeded with data, the next step is to populat
 
 4. Run the Nexus service:
 
-    ```bash
-    cargo run
-    ```
+   ```bash
+   cargo run
+   ```
+
 5. **Access Redis and Neo4j UIs**:
    - Redis UI: [http://localhost:8001/redis-stack/browser](http://localhost:8001/redis-stack/browser)
    - Neo4J UI: [http://localhost:7474/browser/](http://localhost:7474/browser/)
@@ -114,16 +116,16 @@ If tests or the development environment seem out of sync, follow these steps to 
 
 1. **Reset Neo4j**:
 
-    ```bash
-    docker exec neo4j bash -c "cypher-shell -u neo4j -p 12345678 'MATCH (n) DETACH DELETE n;'"
-    docker exec neo4j bash /db-graph/run-queries.sh
-    ```
+   ```bash
+   docker exec neo4j bash -c "cypher-shell -u neo4j -p 12345678 'MATCH (n) DETACH DELETE n;'"
+   docker exec neo4j bash /db-graph/run-queries.sh
+   ```
 
 2. **Re-index Redis Cache**:
 
-    ```bash
-    REINDEX=true cargo run
-    ```
+   ```bash
+   REINDEX=true cargo run
+   ```
 
 ## 🌐 Useful Links
 
