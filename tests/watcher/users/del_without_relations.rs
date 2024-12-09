@@ -4,7 +4,7 @@ use pubky_app_specs::PubkyAppUser;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::user::{UserCounts, UserView};
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_delete_user_without_relationships() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 

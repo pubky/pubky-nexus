@@ -9,7 +9,7 @@ use pubky_app_specs::{traits::HashId, PubkyAppTag, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::tag::{traits::TagCollection, user::TagUser};
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_homeserver_del_tag_to_another_user() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 

@@ -5,7 +5,7 @@ use pubky_app_specs::{traits::HashId, PubkyAppPost, PubkyAppPostKind, PubkyAppTa
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::post::{PostCounts, PostDetails, PostView};
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_delete_post_with_relationships() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
