@@ -7,7 +7,7 @@ use pubky_common::crypto::Keypair;
 use pubky_common::timestamp::Timestamp;
 use serde_json::to_vec;
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_homeserver_post_attachments() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 

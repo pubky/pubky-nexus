@@ -5,7 +5,7 @@ use pubky_app_specs::{traits::HashId, PubkyAppBookmark, PubkyAppPost, PubkyAppUs
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::post::{Bookmark, PostStream};
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_homeserver_unbookmark() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 

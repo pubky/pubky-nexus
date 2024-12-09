@@ -8,7 +8,7 @@ use pubky_nexus::{
 
 use pubky_app_specs::PubkyAppUser;
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_homeserver_unfollow_notification() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 

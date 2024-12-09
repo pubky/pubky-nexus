@@ -7,7 +7,7 @@ use pubky_common::timestamp::Timestamp;
 use pubky_nexus::models::{file::FileDetails, traits::Collection};
 use serde_json::to_vec;
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_put_pubkyapp_file() -> Result<()> {
     // Arrange
     let mut test = WatcherTest::setup().await?;

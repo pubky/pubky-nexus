@@ -10,7 +10,7 @@ use pubky_app_specs::{
 use pubky_common::{crypto::Keypair, timestamp::Timestamp};
 use pubky_nexus::models::user::{UserCounts, UserView};
 use serde_json::to_vec;
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_delete_user_with_relationships() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 

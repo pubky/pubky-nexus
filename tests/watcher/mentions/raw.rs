@@ -5,7 +5,7 @@ use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{models::post::PostRelationships, RedisOps};
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_homeserver_mentions() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 

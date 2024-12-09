@@ -9,7 +9,7 @@ use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::post::{PostCounts, PostDetails};
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_homeserver_put_post_event() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 

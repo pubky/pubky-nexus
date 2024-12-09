@@ -8,7 +8,7 @@ use pubky_nexus::{
     types::Pagination,
 };
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_homeserver_put_tag_user_notification() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 

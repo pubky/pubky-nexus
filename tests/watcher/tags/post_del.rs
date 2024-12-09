@@ -12,7 +12,7 @@ use pubky_nexus::models::tag::stream::{Taggers, TAG_GLOBAL_HOT};
 use pubky_nexus::models::tag::traits::{TagCollection, TaggersCollection};
 use pubky_nexus::RedisOps;
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_homeserver_del_tag_post() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
