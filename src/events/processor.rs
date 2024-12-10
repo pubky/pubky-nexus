@@ -1,6 +1,9 @@
+use std::sync::Arc;
 use std::time::Duration;
 
+use super::retry::SenderMessage;
 use super::Event;
+use crate::events::retry::RetryEvent;
 use crate::types::DynError;
 use crate::types::PubkyId;
 use crate::{models::homeserver::Homeserver, Config};
@@ -8,17 +11,21 @@ use log::{debug, error, info};
 use pkarr::mainline::dht::Testnet;
 use pubky::PubkyClient;
 use reqwest::Client;
+use tokio::sync::mpsc::Sender;
+use tokio::sync::Mutex;
 
 pub struct EventProcessor {
     pubky_client: PubkyClient,
     http_client: Client,
-    homeserver: Homeserver,
+    pub homeserver: Homeserver,
     limit: u32,
     max_retries: u64,
+    pub sender: Arc<Mutex<Sender<SenderMessage>>>
 }
 
 impl EventProcessor {
-    pub async fn from_config(config: &Config) -> Result<Self, DynError> {
+    pub async fn from_config(config: &Config, tx: Arc<Mutex<Sender<SenderMessage>>>) -> Result<Self, DynError> {
+
         let pubky_client = Self::init_pubky_client(config);
         let homeserver = Homeserver::from_config(config).await?;
         let limit = config.events_limit;
@@ -35,6 +42,7 @@ impl EventProcessor {
             homeserver,
             limit,
             max_retries,
+            sender: tx
         })
     }
 
@@ -50,7 +58,7 @@ impl EventProcessor {
         }
     }
 
-    pub async fn test(testnet: &Testnet, homeserver_url: String) -> Self {
+    pub async fn test(testnet: &Testnet, homeserver_url: String, tx: Arc<Mutex<Sender<SenderMessage>>>) -> Self {
         let id = PubkyId("test".to_string());
         let homeserver = Homeserver::new(id, homeserver_url).await.unwrap();
         Self {
@@ -59,6 +67,7 @@ impl EventProcessor {
             homeserver,
             limit: 1000,
             max_retries: 3,
+            sender: tx
         }
     }
 
@@ -112,6 +121,10 @@ impl EventProcessor {
                 };
                 if let Some(event) = event {
                     debug!("Processing event: {:?}", event);
+                    let retry_event = RetryEvent::new(&event.uri, &event.event_type, None, None);
+                    let sender = self.sender.lock().await;
+                    // Send the message to the receiver
+                    let _ = sender.send(SenderMessage::Add(self.homeserver.id.to_string(), retry_event)).await;
                     self.handle_event_with_retry(event).await?;
                 }
             }
