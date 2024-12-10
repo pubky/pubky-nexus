@@ -34,7 +34,7 @@ pub async fn create_video_version(file: &FileDetails, version: FileVersions) -> 
         get_storage_path(),
         file.owner_id,
         file.id,
-        FileVersions::MAIN
+        version
     );
 
     let options = video_options.unwrap();

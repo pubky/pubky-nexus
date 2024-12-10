@@ -1,3 +1,4 @@
+use crate::static_processor::store::get_storage_path;
 use crate::types::DynError;
 use crate::types::PubkyId;
 use axum::body::Bytes;
@@ -63,7 +64,9 @@ async fn ingest(
     let response = client.get(pubkyapp_file.src.as_str()).await?.unwrap();
 
     let path = format!("{}/{}", user_id, file_id);
-    store_blob(String::from("main"), path.to_string(), &response).await?;
+    let storage_path = get_storage_path();
+    let full_path = format!("{}/{}", storage_path, path);
+    store_blob(String::from("main"), full_path.to_string(), &response).await?;
 
     let main_static_path = format!("{}/main", path);
     Ok(FileMeta {
@@ -87,16 +90,18 @@ pub async fn del(user_id: &PubkyId, file_id: String) -> Result<(), DynError> {
     }
 
     let folder_path = format!("{}/{}", user_id, file_id);
+    let storage_path = get_storage_path();
+    let full_path = format!("{}/{}", storage_path, folder_path);
 
-    let mut directory = fs::read_dir(folder_path.clone()).await?;
+    let mut directory = fs::read_dir(full_path.clone()).await?;
 
     loop {
         let entry = directory.next_entry().await?;
         match entry {
-            Some(path) => {
+            Some(file) => {
                 remove_blob(
-                    String::from(path.file_name().to_str().unwrap()),
-                    folder_path.clone(),
+                    String::from(file.file_name().to_str().unwrap()),
+                    full_path.clone(),
                 )
                 .await?
             }

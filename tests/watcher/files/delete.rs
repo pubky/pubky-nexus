@@ -40,6 +40,13 @@ async fn test_delete_pubkyapp_file() -> Result<()> {
     let (file_id, _) = test.create_file(&user_id, &file).await?;
 
     // Act
+    let files_before_delete = FileDetails::get_by_ids(
+        vec![vec![user_id.as_str(), file_id.as_str()].as_slice()].as_slice(),
+    )
+    .await
+    .expect("Failed to fetch files from Nexus");
+    let file_before_delete = files_before_delete[0].as_ref();
+    assert!(file_before_delete.is_some());
 
     test.cleanup_file(&user_id, &file_id).await?;
 
@@ -61,8 +68,11 @@ async fn test_delete_pubkyapp_file() -> Result<()> {
     );
     let client = httpc_test::new_client(nexus_url)?;
 
-    let blob_path = format!("/static/files/{}/{}", user_id, file_id);
-    let response = client.do_get(&blob_path).await?;
+    let blob_static_path = format!(
+        "/static/files/{}",
+        file_before_delete.unwrap().urls.main.clone()
+    );
+    let response = client.do_get(&blob_static_path).await?;
 
     assert_eq!(response.status(), 404);
 

@@ -56,15 +56,12 @@ async fn static_files_middleware(
     }
 
     let files_values = files.unwrap();
-    let file = files_values[0].clone();
+    let file = match files_values[0].clone() {
+        Some(file) => file,
+        None => return Err(StatusCode::NOT_FOUND),
+    };
 
-    if file.is_none() {
-        return Err(StatusCode::NOT_FOUND);
-    }
-
-    let file_value = file.unwrap();
-
-    let file_version = ensure_file_version_exists(&file_value, version.unwrap()).await;
+    let file_version = ensure_file_version_exists(&file, version.unwrap()).await;
 
     if file_version.is_err() {
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
@@ -79,7 +76,7 @@ async fn static_files_middleware(
     if params.dl.is_some() {
         response.headers_mut().insert(
             "content-disposition",
-            format!("attachment; filename=\"{}\"", file_value.name)
+            format!("attachment; filename=\"{}\"", file.name)
                 .parse()
                 .unwrap(),
         );
@@ -87,7 +84,7 @@ async fn static_files_middleware(
 
     response
         .headers_mut()
-        .insert("content-type", file_value.content_type.parse().unwrap());
+        .insert("content-type", file.content_type.parse().unwrap());
     Ok(response)
 }
 

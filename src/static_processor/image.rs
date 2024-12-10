@@ -39,7 +39,7 @@ pub async fn create_image_version(file: &FileDetails, version: FileVersions) -> 
         get_storage_path(),
         file.owner_id,
         file.id,
-        FileVersions::MAIN
+        version
     );
 
     let options = image_options.unwrap();
