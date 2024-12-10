@@ -7,8 +7,9 @@ use pubky_app_specs::{
 };
 use pubky_common::crypto::Keypair;
 use pubky_homeserver::Homeserver;
-use pubky_nexus::{setup, Config, EventProcessor};
+use pubky_nexus::{events::retry::{RetryManager, CHANNEL_BUFFER}, setup, Config, EventProcessor};
 use serde_json::to_vec;
+use tokio::sync::mpsc;
 
 /// Struct to hold the setup environment for tests
 pub struct WatcherTest {
@@ -28,7 +29,10 @@ impl WatcherTest {
         let homeserver = Homeserver::start_test(&testnet).await?;
         let client = PubkyClient::test(&testnet);
         let homeserver_url = format!("http://localhost:{}", homeserver.port());
-        let event_processor = EventProcessor::test(&testnet, homeserver_url).await;
+
+        let retry_manager = RetryManager::initialise(mpsc::channel(CHANNEL_BUFFER));
+
+        let event_processor = EventProcessor::test(&testnet, homeserver_url, retry_manager.sender.clone()).await;
 
         Ok(Self {
             config,

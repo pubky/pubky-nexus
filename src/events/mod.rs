@@ -6,6 +6,7 @@ use uri::ParsedUri;
 pub mod handlers;
 pub mod processor;
 pub mod uri;
+pub mod retry;
 
 #[derive(Debug, Clone)]
 enum ResourceType {
@@ -40,7 +41,7 @@ enum ResourceType {
 
 // Look for the end pattern after the start index, or use the end of the string if not found
 #[derive(Debug, Clone)]
-enum EventType {
+pub enum EventType {
     Put,
     Del,
 }
