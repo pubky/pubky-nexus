@@ -17,6 +17,8 @@ pub struct UserStreamQuery {
     skip: Option<usize>,
     limit: Option<usize>,
     source: Option<UserStreamSource>,
+    author_id: Option<String>,
+    post_id: Option<String>,
     depth: Option<u8>,
 }
 
@@ -31,6 +33,8 @@ pub struct UserStreamQuery {
         ("skip" = Option<usize>, Query, description = "Skip N followers"),
         ("limit" = Option<usize>, Query, description = "Retrieve N followers"),
         ("source" = Option<UserStreamSource>, Query, description = "Source of users for the stream."),
+        ("author_id" = Option<String>, Query, description = "Author id when source is 'post_replies'"),
+        ("post_id" = Option<String>, Query, description = "Post id when source is 'post_replies'"),
         ("depth" = Option<usize>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 4, will be ignored")
     ),
     responses(
@@ -92,6 +96,8 @@ pub async fn stream_users_handler(
         Some(skip),
         Some(limit),
         source.clone(),
+        query.author_id,
+        query.post_id,
         query.depth,
     )
     .await

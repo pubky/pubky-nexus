@@ -1,5 +1,8 @@
+use std::collections::HashSet;
+
 use super::{Muted, UserCounts, UserSearch, UserView};
 use crate::models::follow::{Followers, Following, Friends, UserFollows};
+use crate::models::post::{PostStream, POST_REPLIES_PER_POST_KEY_PARTS};
 use crate::types::DynError;
 use crate::{db::kv::index::sorted_sets::SortOrder, RedisOps};
 use crate::{get_neo4j_graph, queries};
@@ -23,6 +26,7 @@ pub enum UserStreamSource {
     MostFollowed,
     Pioneers,
     Recommended,
+    PostReplies,
 }
 
 #[derive(Serialize, Deserialize, ToSchema, Default)]
@@ -37,9 +41,13 @@ impl UserStream {
         skip: Option<usize>,
         limit: Option<usize>,
         source: UserStreamSource,
+        author_id: Option<String>,
+        post_id: Option<String>,
         depth: Option<u8>,
     ) -> Result<Option<Self>, DynError> {
-        let user_ids = Self::get_user_list_from_source(user_id, source, skip, limit).await?;
+        let user_ids =
+            Self::get_user_list_from_source(user_id, source, author_id, post_id, skip, limit)
+                .await?;
         match user_ids {
             Some(users) => Self::from_listed_user_ids(&users, viewer_id, depth).await,
             None => Ok(None),
@@ -191,6 +199,8 @@ impl UserStream {
     pub async fn get_user_list_from_source(
         user_id: Option<&str>,
         source: UserStreamSource,
+        author_id: Option<String>,
+        post_id: Option<String>,
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Option<Vec<String>>, DynError> {
@@ -256,6 +266,36 @@ impl UserStream {
                     limit,
                 )
                 .await?
+            }
+            UserStreamSource::PostReplies => {
+                let post_id = post_id.unwrap();
+                let author_id = author_id.unwrap();
+                let key_parts = [
+                    &POST_REPLIES_PER_POST_KEY_PARTS[..],
+                    &[author_id.as_str(), post_id.as_str()],
+                ]
+                .concat();
+                let replies = PostStream::try_from_index_sorted_set(
+                    &key_parts,
+                    None,
+                    None,
+                    None,
+                    None,
+                    SortOrder::Descending,
+                    None,
+                )
+                .await?;
+                let unique_user_ids: HashSet<String> = replies
+                    .map(|replies| {
+                        replies
+                            .into_iter()
+                            .map(|reply| reply.0.split(":").next().unwrap().to_string())
+                            .collect::<Vec<String>>()
+                    })
+                    .into_iter()
+                    .flatten()
+                    .collect();
+                Some(unique_user_ids.into_iter().collect())
             }
         };
         Ok(user_ids)
