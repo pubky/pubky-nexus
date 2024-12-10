@@ -12,7 +12,8 @@ use pubky_app_specs::PubkyAppFile;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
 pub enum FileVersions {
     MAIN,
     FEED,
@@ -44,6 +45,8 @@ impl Display for FileVersions {
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema, Default)]
 pub struct FileUrls {
     pub main: String,
+    pub feed: Option<String>,
+    pub small: Option<String>,
 }
 
 mod json_string {
@@ -116,6 +119,8 @@ impl FileDetails {
             owner_id: String::new(),
             urls: FileUrls {
                 main: String::new(),
+                feed: None,
+                small: None,
             },
             src: String::new(),
             name: String::new(),

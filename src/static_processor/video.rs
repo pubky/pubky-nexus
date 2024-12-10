@@ -11,15 +11,16 @@ struct VideoOptions {
     format: String,
 }
 
-fn get_video_option_for_version(version: &FileVersions) -> Option<VideoOptions> {
-    let width = match version {
-        FileVersions::FEED => String::from("720"),
-        _ => return None,
-    };
-    Some(VideoOptions {
-        format: "mp4".to_string(),
-        width,
-    })
+fn get_video_option_for_version(_version: &FileVersions) -> Option<VideoOptions> {
+    return None;
+    // let width = match version {
+    //     FileVersions::FEED => String::from("720"),
+    //     _ => return None,
+    // };
+    // Some(VideoOptions {
+    //     format: "mp4".to_string(),
+    //     width,
+    // })
 }
 
 pub async fn create_video_version(file: &FileDetails, version: FileVersions) -> Result<(), Error> {
@@ -34,7 +35,7 @@ pub async fn create_video_version(file: &FileDetails, version: FileVersions) -> 
         get_storage_path(),
         file.owner_id,
         file.id,
-        version
+        "main"
     );
 
     let options = video_options.unwrap();
@@ -87,24 +88,28 @@ pub async fn process_video(
     }
 }
 
-pub async fn get_video_format(input: &str) -> Result<String, IoError> {
-    let child_output = Command::new("ffmpeg")
-        .arg("-i")
-        .arg(input)
-        .arg("-f")
-        .arg("null")
-        .output() // Automatically pipes stdout and stderr
-        .await?;
+// pub async fn get_video_format(input: &str) -> Result<String, IoError> {
+//     let child_output = Command::new("ffmpeg")
+//         .arg("-i")
+//         .arg(input)
+//         .arg("-f")
+//         .arg("null")
+//         .output() // Automatically pipes stdout and stderr
+//         .await?;
 
-    if child_output.status.success() {
-        Ok(String::from_utf8_lossy(&child_output.stderr).to_string()) // Metadata is usually on stderr
-    } else {
-        Err(IoError::new(
-            ErrorKind::Other,
-            format!(
-                "FFmpeg metadata extraction failed: {}",
-                String::from_utf8_lossy(&child_output.stderr)
-            ),
-        ))
-    }
+//     if child_output.status.success() {
+//         Ok(String::from_utf8_lossy(&child_output.stderr).to_string()) // Metadata is usually on stderr
+//     } else {
+//         Err(IoError::new(
+//             ErrorKind::Other,
+//             format!(
+//                 "FFmpeg metadata extraction failed: {}",
+//                 String::from_utf8_lossy(&child_output.stderr)
+//             ),
+//         ))
+//     }
+// }
+
+pub fn get_video_versions() -> Vec<FileVersions> {
+    vec![]
 }

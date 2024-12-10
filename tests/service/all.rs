@@ -22,8 +22,6 @@ async fn test_static_serving() -> Result<()> {
         Ok(metadata) => metadata.is_dir(),
     };
 
-    println!("file exists? {}", exists);
-
     if !exists {
         create_dir_all(test_file_path)?;
     }

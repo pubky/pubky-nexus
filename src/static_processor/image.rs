@@ -39,7 +39,7 @@ pub async fn create_image_version(file: &FileDetails, version: FileVersions) -> 
         get_storage_path(),
         file.owner_id,
         file.id,
-        version
+        "main"
     );
 
     let options = image_options.unwrap();
@@ -113,5 +113,12 @@ pub async fn get_image_format(input: &str) -> Result<String, IoError> {
                 String::from_utf8_lossy(&child_output.stderr)
             ),
         ))
+    }
+}
+
+pub fn get_image_versions(content_type: &str) -> Vec<FileVersions> {
+    match content_type {
+        value if value.ends_with("gif") => vec![],
+        _ => vec![FileVersions::SMALL, FileVersions::FEED],
     }
 }

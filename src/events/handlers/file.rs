@@ -1,3 +1,4 @@
+use crate::static_processor::get_file_urls_by_content_type;
 use crate::static_processor::store::get_storage_path;
 use crate::types::DynError;
 use crate::types::PubkyId;
@@ -8,10 +9,7 @@ use tokio::fs;
 
 use crate::{
     models::{
-        file::{
-            details::{FileMeta, FileUrls},
-            FileDetails,
-        },
+        file::{details::FileMeta, FileDetails},
         traits::Collection,
     },
     static_processor::store::{remove_blob, store_blob},
@@ -63,17 +61,13 @@ async fn ingest(
 ) -> Result<FileMeta, DynError> {
     let response = client.get(pubkyapp_file.src.as_str()).await?.unwrap();
 
-    let path = format!("{}/{}", user_id, file_id);
+    let path: String = format!("{}/{}", user_id, file_id);
     let storage_path = get_storage_path();
     let full_path = format!("{}/{}", storage_path, path);
     store_blob(String::from("main"), full_path.to_string(), &response).await?;
 
-    let main_static_path = format!("{}/main", path);
-    Ok(FileMeta {
-        urls: FileUrls {
-            main: main_static_path,
-        },
-    })
+    let urls = get_file_urls_by_content_type(pubkyapp_file.content_type.as_str(), &full_path);
+    Ok(FileMeta { urls })
 }
 
 pub async fn del(user_id: &PubkyId, file_id: String) -> Result<(), DynError> {
