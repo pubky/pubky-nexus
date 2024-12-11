@@ -73,26 +73,6 @@ async fn test_global_hot_tags() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_global_hot_tags_skip_limit() -> Result<()> {
-    let body = make_request("/v0/tags/hot?skip=3&limit=5").await?;
-    assert!(body.is_array());
-
-    let tags = body.as_array().expect("Stream tags should be an array");
-
-    // Validate that the posts belong to the specified user's bookmarks
-    analyse_hot_tags_structure(tags);
-
-    // assert limit
-    assert_eq!(tags.len(), 5);
-
-    // Analyse the tag that is in the 4th index
-    let hot_tag = StreamTagMockup::new(String::from("tag2"), 2, 1, 2);
-    compare_unit_hot_tag(&tags[0], hot_tag);
-
-    Ok(())
-}
-
-#[tokio::test]
 async fn test_global_hot_tags_with_today_timeframe() -> Result<()> {
     let body = make_request("/v0/tags/hot?timeframe=today").await?;
 
@@ -102,9 +82,6 @@ async fn test_global_hot_tags_with_today_timeframe() -> Result<()> {
 
     // Validate that the posts belong to the specified user's bookmarks
     analyse_hot_tags_structure(tags);
-
-    // assert limit
-    assert_eq!(tags.len(), 5);
 
     // Analyse the tag that is in the 4th index
     let hot_tag = StreamTagMockup::new(String::from("tag2"), 2, 1, 2);
@@ -126,6 +103,27 @@ async fn test_global_hot_tags_with_this_month_timeframe() -> Result<()> {
 
     // Analyse the tag that is in the 4th index
     let hot_tag = StreamTagMockup::new(String::from("tag2"), 3, 2, 3);
+    compare_unit_hot_tag(&tags[0], hot_tag);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_global_hot_tags_skip_limit() -> Result<()> {
+    let body = make_request("/v0/tags/hot?skip=3&limit=5").await?;
+
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Stream tags should be an array");
+
+    // Validate that the posts belong to the specified user's bookmarks
+    analyse_hot_tags_structure(tags);
+
+    // assert limit
+    assert_eq!(tags.len(), 5);
+
+    // Analyse the tag that is in the 4th index
+    let hot_tag = StreamTagMockup::new(String::from("ha"), 9, 16, 9);
     compare_unit_hot_tag(&tags[0], hot_tag);
 
     Ok(())

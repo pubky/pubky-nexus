@@ -54,7 +54,7 @@ pub async fn stream_users_handler(
     );
 
     let skip = query.skip.unwrap_or(0);
-    let limit = query.limit.unwrap_or(6).min(20);
+    let limit = query.limit.unwrap_or(5).min(20);
     let source = query.source.unwrap_or(UserStreamSource::Followers);
     let timeframe = query.timeframe.unwrap_or(Timeframe::AllTime);
 
@@ -89,8 +89,24 @@ pub async fn stream_users_handler(
                         .to_string(),
                 })
             }
+            UserStreamSource::Influencers => match query.source_reach {
+                None => (),
+                Some(_) => {
+                    return Err(Error::InvalidInput {
+                        message:
+                            "source_reach query param must be provided for source 'influencers' with a user_id"
+                                .to_string(),
+                    })
+                }
+            },
             _ => (),
         }
+    } else if source == UserStreamSource::Influencers && query.source_reach.is_none() {
+        return Err(Error::InvalidInput {
+                message:
+                    "source_reach query param must be provided for source 'influencers' when you pass a user_id"
+                        .to_string(),
+            });
     }
 
     match UserStream::get_by_id(&UserStreamInput {

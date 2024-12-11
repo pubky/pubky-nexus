@@ -584,7 +584,10 @@ pub fn get_global_influencers(skip: usize, limit: usize, timeframe: &Timeframe) 
     let (from, to) = timeframe.to_timestamp_range();
     query(
         "
-        OPTIONAL MATCH (others:User)-[follow:FOLLOWS]->(user:User)
+        MATCH (user:User)
+        WITH DISTINCT user
+
+        OPTIONAL MATCH (others:User)-[follow:FOLLOWS]->(user)
         WHERE follow.indexed_at >= $from AND follow.indexed_at < $to
 
         OPTIONAL MATCH (user)-[tag:TAGGED]->(tagged:Post)
@@ -597,9 +600,10 @@ pub fn get_global_influencers(skip: usize, limit: usize, timeframe: &Timeframe) 
              COUNT(DISTINCT post) AS posts_count
         WITH {
             id: user.id,
-            score: (tags_count + posts_count) * sqrt(followers_count)
+            score: (tags_count + posts_count) * sqrt(followers_count + 1)
         } AS influencer
-        ORDER BY influencer.score DESC, user.id ASC
+        WHERE influencer.id IS NOT NULL
+        ORDER BY influencer.score DESC, influencer.id ASC
         SKIP $skip LIMIT $limit
         RETURN COLLECT(influencer) as influencers
     ",

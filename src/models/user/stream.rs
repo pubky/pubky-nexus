@@ -13,7 +13,7 @@ pub const CACHE_USER_RECOMMENDED_KEY_PARTS: [&str; 3] = ["Cache", "Users", "Reco
 // TTL, 12HR
 pub const CACHE_USER_RECOMMENDED_TTL: i64 = 12 * 60 * 60;
 
-#[derive(Deserialize, ToSchema, Debug, Clone)]
+#[derive(Deserialize, ToSchema, Debug, Clone, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum UserStreamSource {
     Followers,
