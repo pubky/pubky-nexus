@@ -34,7 +34,7 @@ pub struct TagTaggersQuery {
     tag = "Tags",
     params(
         ("label" = String, Path, description = "Tag name"),
-        ("reach" = StreamReach, Path, description = "Reach type: Follower | Following | Friends"),
+        ("reach" = StreamReach, Path, description = "Reach type: Follower | Following | Friends | Wot"),
         ("user_id" = Option<String>, Query, description = "User ID to base reach on"),
     ),
     responses(

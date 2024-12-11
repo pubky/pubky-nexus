@@ -5,14 +5,13 @@ use crate::types::StreamReach;
 use crate::types::Timeframe;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::ops::Deref;
 use utoipa::ToSchema;
 
 use crate::queries;
 use crate::RedisOps;
 
-const GLOBAL_INFLUENCERS_PREFIX: &str = "Influencers";
+const GLOBAL_INFLUENCERS_PREFIX: &str = "Cached:Influencers";
 
 #[derive(Deserialize, Serialize, ToSchema, Debug, Clone)]
 pub struct Influencer {
@@ -25,11 +24,6 @@ pub struct Influencer {
 pub struct Influencers(pub Vec<Influencer>);
 
 impl RedisOps for Influencers {}
-
-#[derive(Serialize, Deserialize, Debug, ToSchema, Default)]
-pub struct InfluencersData(pub HashMap<String, Influencer>);
-
-impl RedisOps for InfluencersData {}
 
 // Create a Influencers instance directly from an iterator of Influencer items
 // Need it in collect()
@@ -67,8 +61,6 @@ impl Influencers {
         let key_parts = Influencers::get_cache_key_parts(timeframe);
         let key_parts_vector: Vec<&str> =
             key_parts.iter().map(|s| s.as_str()).collect::<Vec<&str>>();
-        let data =
-            InfluencersData::try_from_index_json(key_parts_vector.clone().as_slice()).await?;
         let ranking = Influencers::try_from_index_sorted_set(
             key_parts_vector.as_slice(),
             None,
@@ -80,23 +72,16 @@ impl Influencers {
         )
         .await?;
 
-        if data.is_none() || ranking.is_none() {
-            return Ok(None);
-        }
-
-        let mapping = data.unwrap();
-
-        // for each value in ranking, look up the value in data
-        let mut influencers = Vec::new();
-        for (id, _) in ranking.unwrap() {
-            if let Some(influencer) = mapping.0.get(&id) {
-                influencers.push(Influencer {
-                    id,
-                    score: influencer.score,
-                });
+        match ranking {
+            None => Ok(None),
+            Some(ranking) => {
+                let mut influencers = Vec::new();
+                for (id, score) in ranking {
+                    influencers.push(Influencer { id, score });
+                }
+                Ok(Some(Influencers(influencers)))
             }
         }
-        Ok(Some(Influencers(influencers)))
     }
 
     async fn put_to_global_cache(
@@ -106,22 +91,6 @@ impl Influencers {
         let key_parts = Influencers::get_cache_key_parts(timeframe);
         let key_parts_vector: Vec<&str> =
             key_parts.iter().map(|s| s.as_str()).collect::<Vec<&str>>();
-
-        // turn result which is a vector of Influencer, into a mapping from label to Influencer
-        let mapping = result.clone();
-        let influencers_data: HashMap<String, Influencer> = mapping
-            .iter()
-            .cloned()
-            .map(|influencer| (influencer.id.clone(), influencer))
-            .collect();
-
-        // store the data as json in cache
-        InfluencersData::put_index_json(
-            &InfluencersData(influencers_data),
-            key_parts_vector.as_slice(),
-            Some(timeframe.to_cache_period()),
-        )
-        .await?;
 
         // store the ranking as sorted set in cache
         Influencers::put_index_sorted_set(
