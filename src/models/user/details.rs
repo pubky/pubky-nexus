@@ -76,6 +76,25 @@ where
 }
 
 impl UserDetails {
+
+    /// Creates a `UserDetails` object representing a shadow user.
+    ///
+    /// # Description
+    /// A shadow user is a minimal representation of a user in the system. 
+    /// It is used when the user's full profile information is unavailable, typically because 
+    /// the `profile.json` file is missing in the homeserver. Shadow users ensure that a valid 
+    /// placeholder entry exists in the graph and index for the given `PubkyId`.
+    pub fn from_pubky(user_id: PubkyId) -> Self {
+        Self {
+            name: user_id.to_string(),
+            bio: None,
+            id: user_id,
+            links: None,
+            status: None,
+            image: None,
+            indexed_at: 0
+        }
+    }
     /// Retrieves details by user ID, first trying to get from Redis, then from Neo4j if not found.
     pub async fn get_by_id(user_id: &str) -> Result<Option<Self>, DynError> {
         // Delegate to UserDetailsCollection::get_by_ids for single item retrieval

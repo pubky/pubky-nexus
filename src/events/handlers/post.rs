@@ -15,7 +15,7 @@ use axum::body::Bytes;
 use log::debug;
 use pubky_app_specs::{traits::Validatable, PubkyAppPost, PubkyAppPostKind};
 
-use super::utils::post_relationships_is_reply;
+use super::utils::{post_relationships_is_reply, ensure_user_indexed};
 
 pub async fn put(author_id: PubkyId, post_id: String, blob: Bytes) -> Result<(), DynError> {
     // Process Post resource and update the databases
@@ -34,6 +34,9 @@ pub async fn sync_put(
 ) -> Result<(), DynError> {
     // Create PostDetails object
     let post_details = PostDetails::from_homeserver(post.clone(), &author_id, &post_id).await?;
+
+    // Ensure the author's user profile is indexed, creating a shadow user if not found
+    ensure_user_indexed(author_id.clone()).await?;
 
     // We avoid indexing replies into global feed sorted sets
     let is_reply = post.parent.is_some();

@@ -18,12 +18,25 @@ pub async fn put(user_id: PubkyId, blob: Bytes) -> Result<(), DynError> {
     // Serialize and validate
     let user = <PubkyAppUser as Validatable>::try_from(&blob, &user_id)?;
 
-    sync_put(user, user_id).await
+    sync_put(user, user_id, false).await
 }
 
-pub async fn sync_put(user: PubkyAppUser, user_id: PubkyId) -> Result<(), DynError> {
+/// # Description
+/// This function handles the synchronization of a user's data by saving their details to the 
+/// graph database and indexing the relevant data in the search index. If the `shadow` flag is true, 
+/// the user is treated as a "shadow user," meaning only minimal details (derived from their Pubky key) are saved.
+///
+/// # Parameters
+/// - `user`: A `PubkyAppUser` instance containing the user's information. This is only used if `shadow` is false.
+/// - `user_id`: The `PubkyId` of the user to synchronize.
+/// - `shadow`: A boolean flag indicating whether the user should be treated as a shadow user.
+///
+pub async fn sync_put(user: PubkyAppUser, user_id: PubkyId, shadow: bool) -> Result<(), DynError> {
     // Create UserDetails object
-    let user_details = UserDetails::from_homeserver(user, &user_id).await?;
+    let user_details: UserDetails = match shadow {
+        true => UserDetails::from_pubky(user_id),
+        false => UserDetails::from_homeserver(user, &user_id).await?
+    };
     // SAVE TO GRAPH
     user_details.put_to_graph().await?;
     // SAVE TO INDEX
@@ -61,7 +74,7 @@ pub async fn del(user_id: PubkyId) -> Result<(), DynError> {
                 image: None,
             };
 
-            sync_put(deleted_user, user_id).await?;
+            sync_put(deleted_user, user_id, false).await?;
         }
     }
 
