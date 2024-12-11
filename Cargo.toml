@@ -15,9 +15,9 @@ pkarr = { git = "https://github.com/Pubky/pkarr", branch = "v3", package = "pkar
 ] }
 pubky = "0.3.0"
 pubky-app-specs = { version = "0.2.1", features = ["openapi"] }
-tokio = { version = "1.41.1", features = ["full"] }
+tokio = { version = "1.42.0", features = ["full"] }
 axum = "0.7.9"
-redis = { version = "0.27.5", features = ["tokio-comp", "json"] }
+redis = { version = "0.27.6", features = ["tokio-comp", "json"] }
 neo4rs = "0.8.0"
 serde = { version = "1.0.215", features = ["derive"] }
 serde_json = "1.0.133"
@@ -28,9 +28,9 @@ tower-http = { version = "0.6.2", features = ["fs", "cors"] }
 dotenv = "0.15"
 log = "0.4.22"
 env_logger = "0.11.5"
-const_format = "0.2.33"
-thiserror = "2.0.3"
-chrono = "0.4.38"
+const_format = "0.2.34"
+thiserror = "2.0.6"
+chrono = "0.4.39"
 pubky-common = "0.1.0"
 reqwest = "0.12.9"
 base32 = "0.5.1"
@@ -38,12 +38,13 @@ blake3 = "1.5.5"
 url = "2.5.4"
 
 [dev-dependencies]
-anyhow = "1.0.93"
+anyhow = "1.0.94"
 httpc-test = "0.1.10"
 criterion = { version = "0.5.1", features = ["async_tokio"] }
 pubky_homeserver = { git = "https://github.com/pubky/pubky-core.git", tag = "pubky-v0.3.0" }
 rand = "0.8.5"
 rand_distr = "0.4.3"
+tokio-shared-rt = "0.1"
 
 [lib]
 name = "pubky_nexus"

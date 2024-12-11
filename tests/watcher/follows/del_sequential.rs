@@ -8,7 +8,7 @@ use pubky_nexus::models::user::UserCounts;
 use pubky_nexus::types::Pagination;
 use pubky_nexus::RedisOps;
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_homeserver_sequential_unfollow() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 

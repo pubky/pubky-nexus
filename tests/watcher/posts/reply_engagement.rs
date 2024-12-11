@@ -9,7 +9,7 @@ use pubky_app_specs::{
 };
 use pubky_common::crypto::Keypair;
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_homeserver_reply_engagement_control() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
