@@ -6,7 +6,7 @@ use pubky_nexus::models::user::Relationship;
 use pubky_nexus::models::user::UserCounts;
 use pubky_nexus::RedisOps;
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_homeserver_sequential_follow() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 

@@ -11,7 +11,7 @@ use pubky_nexus::{
     RedisOps,
 };
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_homeserver_put_follow() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
