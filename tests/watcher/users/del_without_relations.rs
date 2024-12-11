@@ -4,14 +4,14 @@ use pubky_app_specs::PubkyAppUser;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::user::{UserCounts, UserView};
 
-#[tokio::test]
-async fn test_delete_user_with_relationships() -> Result<()> {
+#[tokio_shared_rt::test(shared)]
+async fn test_delete_user_without_relationships() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Create a new user without any relationships
     let keypair = Keypair::random();
     let user = PubkyAppUser {
-        bio: Some("Test user without relationships".to_string()),
+        bio: Some("test_delete_user_with_relationships".to_string()),
         image: None,
         links: None,
         name: "Watcher:UserDel:User".to_string(),
