@@ -20,6 +20,17 @@ pub enum FileVersions {
     SMALL,
 }
 
+impl FileVersions {
+    pub fn parse_from_str(version: &str) -> Option<Self> {
+        match version {
+            "main" => Some(FileVersions::MAIN),
+            "feed" => Some(FileVersions::FEED),
+            "small" => Some(FileVersions::SMALL),
+            _ => None,
+        }
+    }
+}
+
 impl Display for FileVersions {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let version_string = match self {

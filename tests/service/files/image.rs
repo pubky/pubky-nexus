@@ -1,10 +1,11 @@
-use std::fs::{self, create_dir_all, remove_dir_all};
+use std::fs::{self};
 
 use anyhow::Result;
 use pubky_nexus::{
     models::{file::FileDetails, traits::Collection},
     setup, Config,
 };
+use tokio::fs::create_dir_all;
 
 use crate::service::utils::HOST_URL;
 
@@ -15,7 +16,7 @@ async fn test_static_image_serving_main() -> Result<()> {
     let test_file_user = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
     let test_image_blob_name = "SynonymLogo.png";
 
-    let test_image_dir_path = format!("static/files/{test_file_user}/{test_file_id}/");
+    let test_image_dir_path = format!("static/files/{test_file_user}/{test_file_id}");
     let full_image_path = format!("{}/main", test_image_dir_path.clone());
 
     // make sure directory exists
@@ -24,7 +25,7 @@ async fn test_static_image_serving_main() -> Result<()> {
         Ok(metadata) => metadata.is_dir(),
     };
     if !exists {
-        create_dir_all(&test_image_dir_path)?;
+        create_dir_all(&test_image_dir_path).await?;
     }
     // copy the image from mocks folder to static folder
     fs::copy(
@@ -57,7 +58,6 @@ async fn test_static_image_serving_main() -> Result<()> {
         result_file.content_type
     );
 
-    remove_dir_all(&test_image_dir_path)?;
     Ok(())
 }
 
@@ -68,7 +68,7 @@ async fn test_static_image_serving_feed() -> Result<()> {
     let test_file_user = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
     let test_image_blob_name = "SynonymLogo.png";
 
-    let test_image_dir_path = format!("static/files/{test_file_user}/{test_file_id}/");
+    let test_image_dir_path = format!("static/files/{test_file_user}/{test_file_id}");
     let full_image_path = format!("{}/main", test_image_dir_path.clone());
 
     // make sure directory exists
@@ -77,7 +77,7 @@ async fn test_static_image_serving_feed() -> Result<()> {
         Ok(metadata) => metadata.is_dir(),
     };
     if !exists {
-        create_dir_all(&test_image_dir_path)?;
+        create_dir_all(&test_image_dir_path).await?;
     }
     // copy the image from mocks folder to static folder
     fs::copy(
@@ -117,7 +117,6 @@ async fn test_static_image_serving_feed() -> Result<()> {
         "image/jpeg"
     );
 
-    remove_dir_all(&test_image_dir_path)?;
     Ok(())
 }
 
@@ -128,7 +127,7 @@ async fn test_static_image_serving_small() -> Result<()> {
     let test_file_user = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
     let test_image_blob_name = "SynonymLogo.png";
 
-    let test_image_dir_path = format!("static/files/{test_file_user}/{test_file_id}/");
+    let test_image_dir_path = format!("static/files/{test_file_user}/{test_file_id}");
     let full_image_path = format!("{}/main", test_image_dir_path.clone());
 
     // make sure directory exists
@@ -137,7 +136,7 @@ async fn test_static_image_serving_small() -> Result<()> {
         Ok(metadata) => metadata.is_dir(),
     };
     if !exists {
-        create_dir_all(&test_image_dir_path)?;
+        create_dir_all(&test_image_dir_path).await?;
     }
     // copy the image from mocks folder to static folder
     fs::copy(
@@ -177,6 +176,5 @@ async fn test_static_image_serving_small() -> Result<()> {
         "image/jpeg"
     );
 
-    remove_dir_all(&test_image_dir_path)?;
     Ok(())
 }

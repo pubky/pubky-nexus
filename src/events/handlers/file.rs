@@ -66,7 +66,7 @@ async fn ingest(
     let full_path = format!("{}/{}", storage_path, path);
     store_blob(String::from("main"), full_path.to_string(), &response).await?;
 
-    let urls = get_file_urls_by_content_type(pubkyapp_file.content_type.as_str(), &full_path);
+    let urls = get_file_urls_by_content_type(pubkyapp_file.content_type.as_str(), &path);
     Ok(FileMeta { urls })
 }
 

@@ -1,5 +1,5 @@
 use std::{
-    fs::{self, create_dir_all, remove_dir_all, remove_file, File},
+    fs::{self, File},
     io::Write,
 };
 
@@ -8,6 +8,7 @@ use pubky_nexus::{
     models::{file::FileDetails, traits::Collection},
     setup, Config,
 };
+use tokio::fs::create_dir_all;
 
 use crate::service::utils::HOST_URL;
 
@@ -25,7 +26,7 @@ async fn test_static_serving() -> Result<()> {
     let result_file = files[0].as_ref().expect("Created file was not found.");
 
     let client = httpc_test::new_client(HOST_URL)?;
-    let test_file_path = format!("static/files/{test_file_user}/{test_file_id}/");
+    let test_file_path = format!("static/files/{test_file_user}/{test_file_id}");
     let test_file_name = "main";
 
     let full_path = format!("{}/{}", test_file_path.clone(), test_file_name);
@@ -36,7 +37,7 @@ async fn test_static_serving() -> Result<()> {
     };
 
     if !exists {
-        create_dir_all(test_file_path.clone())?;
+        create_dir_all(test_file_path.clone()).await?;
     }
 
     let mut file = File::create(full_path.as_str())?;
@@ -55,7 +56,6 @@ async fn test_static_serving() -> Result<()> {
         result_file.size
     );
 
-    remove_dir_all(test_file_path)?;
     Ok(())
 }
 
@@ -73,7 +73,7 @@ async fn test_static_serving_dl_param() -> Result<()> {
     let result_file = files[0].as_ref().expect("Created file was not found.");
 
     let client = httpc_test::new_client(HOST_URL)?;
-    let test_file_path = format!("static/files/{test_file_user}/{test_file_id}/");
+    let test_file_path = format!("static/files/{test_file_user}/{test_file_id}");
     let test_file_name = "main";
 
     let full_path = format!("{}/{}", test_file_path.clone(), test_file_name);
@@ -84,7 +84,7 @@ async fn test_static_serving_dl_param() -> Result<()> {
     };
 
     if !exists {
-        create_dir_all(test_file_path.clone())?;
+        create_dir_all(test_file_path.clone()).await?;
     }
 
     let mut file = File::create(full_path.as_str())?;
@@ -110,6 +110,5 @@ async fn test_static_serving_dl_param() -> Result<()> {
         format!("attachment; filename=\"{}\"", result_file.name)
     );
 
-    remove_dir_all(test_file_path)?;
     Ok(())
 }

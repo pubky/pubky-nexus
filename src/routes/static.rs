@@ -59,7 +59,7 @@ async fn static_files_middleware(
     let version = if path_parts.len() == 6 {
         match path_parts[5].is_empty() {
             true => Some(FileVersions::MAIN),
-            false => serde_json::from_str(path_parts[5]).unwrap_or(None),
+            false => FileVersions::parse_from_str(path_parts[5]),
         }
     } else {
         Some(FileVersions::MAIN)
