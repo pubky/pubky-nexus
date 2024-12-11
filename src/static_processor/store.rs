@@ -1,6 +1,6 @@
 use axum::body::Bytes;
 use tokio::{
-    fs::{self, remove_file, File},
+    fs::{self, File},
     io::AsyncWriteExt,
 };
 
@@ -20,13 +20,6 @@ pub async fn store_blob(name: String, path: String, blob: &Bytes) -> Result<(), 
     let mut static_file = File::create_new(file_path).await?;
     static_file.write_all(blob).await?;
 
-    Ok(())
-}
-
-pub async fn remove_blob(name: String, path: String) -> Result<(), DynError> {
-    let file_path = format!("{}/{}", path, name);
-
-    remove_file(file_path).await?;
     Ok(())
 }
 

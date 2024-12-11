@@ -1,9 +1,11 @@
+use std::borrow::BorrowMut;
+
 use crate::{
     models::{
         file::{details::FileVersions, FileDetails},
         traits::Collection,
     },
-    static_processor::{self},
+    static_processor::{self, is_version_available},
     Config,
 };
 use axum::{
@@ -11,8 +13,9 @@ use axum::{
     middleware::{self, Next},
     response::Response,
     routing::get_service,
-    Error, Router,
+    Router,
 };
+use log::debug;
 use reqwest::StatusCode;
 use serde::Deserialize;
 use tokio::fs;
@@ -25,7 +28,7 @@ pub struct FileParams {
 
 async fn static_files_middleware(
     params: Query<FileParams>,
-    request: Request,
+    mut request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
     let path = String::from(request.uri().path());
@@ -33,39 +36,60 @@ async fn static_files_middleware(
     // path_parts: ["", "static", "files", "<USER_ID>", "<FILE_ID>", "<VERSION_NAME>"]
     let path_parts: Vec<&str> = path.split("/").collect();
 
-    if path_parts.len() < 5 {
+    if path_parts.len() < 5 || path_parts.len() > 6 {
         return Err(StatusCode::NOT_FOUND);
     }
 
     let user_id = path_parts[3];
     let file_id = path_parts[4];
-    let version_name = match path_parts.len() {
-        6 => path_parts[5],
-        _ => &FileVersions::MAIN.to_string(),
+    if file_id.is_empty() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    // for backward compatibility with old urls, replace old urls with main version of file
+    let new_uri = if path_parts.len() == 5 {
+        format!("{}/main", request.uri().path())
+    } else if path_parts[5].is_empty() {
+        format!("{}main", request.uri().path())
+    } else {
+        request.uri().path().to_string()
     };
-    let version = FileVersions::from_str(version_name);
+    *request.borrow_mut().uri_mut() = new_uri.parse().unwrap();
+
+    let version = if path_parts.len() == 6 {
+        match path_parts[5].is_empty() {
+            true => Some(FileVersions::MAIN),
+            false => FileVersions::from_str(path_parts[5]),
+        }
+    } else {
+        Some(FileVersions::MAIN)
+    };
 
     if version.is_none() {
         return Err(StatusCode::NOT_FOUND);
     }
 
-    let files = FileDetails::get_by_ids(vec![vec![user_id, file_id].as_slice()].as_slice()).await;
+    let files =
+        match FileDetails::get_by_ids(vec![vec![user_id, file_id].as_slice()].as_slice()).await {
+            Ok(files) => files,
+            Err(_) => {
+                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+            }
+        };
 
-    if files.is_err() {
-        return Err(StatusCode::INTERNAL_SERVER_ERROR);
-    }
-
-    let files_values = files.unwrap();
-    let file = match files_values[0].clone() {
+    let file = match files[0].clone() {
         Some(file) => file,
         None => return Err(StatusCode::NOT_FOUND),
     };
 
-    let file_version = ensure_file_version_exists(&file, version.unwrap()).await;
+    let version_value = version.unwrap();
 
-    if file_version.is_err() {
-        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    let version_available = is_version_available(&file.content_type, version_value.clone());
+    if !version_available {
+        return Err(StatusCode::BAD_REQUEST);
     }
+
+    let file_version_content_type = ensure_file_version_exists(&file, version_value).await?;
 
     let mut response = next.run(request).await;
 
@@ -82,27 +106,37 @@ async fn static_files_middleware(
         );
     }
 
-    response
-        .headers_mut()
-        .insert("content-type", file.content_type.parse().unwrap());
+    response.headers_mut().insert(
+        "content-type",
+        file_version_content_type
+            .unwrap_or(file.content_type)
+            .parse()
+            .unwrap(),
+    );
     Ok(response)
 }
 
 pub async fn ensure_file_version_exists(
     file: &FileDetails,
     version: FileVersions,
-) -> Result<(), Error> {
+) -> Result<Option<String>, StatusCode> {
     if version == FileVersions::MAIN {
-        return Ok(());
+        return Ok(None);
     }
 
     let path = format!("{}/{}/{}", file.owner_id, file.id, version);
 
     if fs::metadata(path).await.is_ok() {
-        return Ok(());
+        return Ok(None);
     }
 
-    static_processor::create_file_version(file, version).await
+    match static_processor::create_file_version(file, version).await {
+        Ok(content_type) => Ok(Some(content_type)),
+        Err(err) => {
+            debug!("Failed to create file version: {:?}", err);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
 }
 
 pub fn routes() -> Router {

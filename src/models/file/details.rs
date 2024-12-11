@@ -12,7 +12,7 @@ use pubky_app_specs::PubkyAppFile;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-#[derive(Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, PartialEq, Serialize, Deserialize, ToSchema, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum FileVersions {
     MAIN,
@@ -27,6 +27,14 @@ impl FileVersions {
             "feed" => Some(FileVersions::FEED),
             "small" => Some(FileVersions::SMALL),
             _ => None,
+        }
+    }
+
+    pub fn to_string(&self) -> String {
+        match self {
+            FileVersions::MAIN => "main".to_string(),
+            FileVersions::FEED => "feed".to_string(),
+            FileVersions::SMALL => "small".to_string(),
         }
     }
 }

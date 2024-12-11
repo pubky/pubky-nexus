@@ -5,14 +5,14 @@ use crate::types::PubkyId;
 use axum::body::Bytes;
 use log::debug;
 use pubky::PubkyClient;
-use tokio::fs;
+use tokio::fs::remove_dir_all;
 
 use crate::{
     models::{
         file::{details::FileMeta, FileDetails},
         traits::Collection,
     },
-    static_processor::store::{remove_blob, store_blob},
+    static_processor::store::store_blob,
 };
 use pubky_app_specs::{traits::Validatable, PubkyAppFile};
 
@@ -87,20 +87,6 @@ pub async fn del(user_id: &PubkyId, file_id: String) -> Result<(), DynError> {
     let storage_path = get_storage_path();
     let full_path = format!("{}/{}", storage_path, folder_path);
 
-    let mut directory = fs::read_dir(full_path.clone()).await?;
-
-    loop {
-        let entry = directory.next_entry().await?;
-        match entry {
-            Some(file) => {
-                remove_blob(
-                    String::from(file.file_name().to_str().unwrap()),
-                    full_path.clone(),
-                )
-                .await?
-            }
-            None => break,
-        };
-    }
+    remove_dir_all(full_path).await?;
     Ok(())
 }

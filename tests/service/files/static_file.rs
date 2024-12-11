@@ -1,5 +1,5 @@
 use std::{
-    fs::{self, create_dir_all, remove_file, File},
+    fs::{self, create_dir_all, remove_dir_all, remove_file, File},
     io::Write,
 };
 
@@ -36,7 +36,7 @@ async fn test_static_serving() -> Result<()> {
     };
 
     if !exists {
-        create_dir_all(test_file_path)?;
+        create_dir_all(test_file_path.clone())?;
     }
 
     let mut file = File::create(full_path.as_str())?;
@@ -55,7 +55,7 @@ async fn test_static_serving() -> Result<()> {
         result_file.size
     );
 
-    remove_file(full_path.as_str())?;
+    remove_dir_all(test_file_path)?;
     Ok(())
 }
 
@@ -84,7 +84,7 @@ async fn test_static_serving_dl_param() -> Result<()> {
     };
 
     if !exists {
-        create_dir_all(test_file_path)?;
+        create_dir_all(test_file_path.clone())?;
     }
 
     let mut file = File::create(full_path.as_str())?;
@@ -110,6 +110,6 @@ async fn test_static_serving_dl_param() -> Result<()> {
         format!("attachment; filename=\"{}\"", result_file.name)
     );
 
-    remove_file(full_path.as_str())?;
+    remove_dir_all(test_file_path)?;
     Ok(())
 }

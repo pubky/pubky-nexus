@@ -1,14 +1,17 @@
-use axum::Error;
 use std::io::{Error as IoError, ErrorKind};
 use tokio::process::Command;
 
-use crate::models::file::{details::FileVersions, FileDetails};
+use crate::{
+    models::file::{details::FileVersions, FileDetails},
+    types::DynError,
+};
 
 use super::store::get_storage_path;
 
 struct VideoOptions {
     width: String,
     format: String,
+    content_type: String,
 }
 
 fn get_video_option_for_version(_version: &FileVersions) -> Option<VideoOptions> {
@@ -23,11 +26,14 @@ fn get_video_option_for_version(_version: &FileVersions) -> Option<VideoOptions>
     // })
 }
 
-pub async fn create_video_version(file: &FileDetails, version: FileVersions) -> Result<(), Error> {
+pub async fn create_video_version(
+    file: &FileDetails,
+    version: FileVersions,
+) -> Result<String, DynError> {
     let video_options = get_video_option_for_version(&version);
 
     if video_options.is_none() {
-        return Ok(());
+        return Err(format!("bad video version: {:?}", version).into());
     }
 
     let input_path = format!(
@@ -48,8 +54,8 @@ pub async fn create_video_version(file: &FileDetails, version: FileVersions) -> 
     )
     .await
     {
-        Ok(_) => Ok(()),
-        Err(err) => Err(Error::new(err)),
+        Ok(_) => Ok(options.content_type),
+        Err(err) => Err(format!("Failed to process video: {}", err).into()),
     }
 }
 
