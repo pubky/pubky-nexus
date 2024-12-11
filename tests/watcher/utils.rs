@@ -32,7 +32,14 @@ impl WatcherTest {
 
         let retry_manager = RetryManager::initialise(mpsc::channel(CHANNEL_BUFFER));
 
-        let event_processor = EventProcessor::test(&testnet, homeserver_url, retry_manager.sender.clone()).await;
+
+        let sender_clone = retry_manager.sender.clone();
+
+        tokio::spawn(async move {
+            retry_manager.exec().await;
+        });
+
+        let event_processor = EventProcessor::test(&testnet, homeserver_url, sender_clone).await;
 
         Ok(Self {
             config,

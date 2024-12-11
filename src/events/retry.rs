@@ -1,5 +1,6 @@
 use std::{collections::LinkedList, sync::Arc};
 use dashmap::DashMap;
+use log::{debug, info};
 use tokio::sync::{mpsc::{Receiver, Sender}, Mutex};
 
 use super::EventType;
@@ -36,9 +37,12 @@ pub enum SenderMessage {
     Add(String, RetryEvent), // Add a new RetryEvent to the fail_events
 }
 
+pub type SenderChannel = Arc<Mutex<Sender<SenderMessage>>>;
+type ReceiverChannel = Arc<Mutex<Receiver<SenderMessage>>>;
+
 pub struct RetryManager {
-    pub sender: Arc<Mutex<Sender<SenderMessage>>>,
-    receiver: Arc<Mutex<Receiver<SenderMessage>>>,
+    pub sender: SenderChannel,
+    receiver: ReceiverChannel,
     fail_events: DashMap<String, LinkedList<RetryEvent>>
 }
 
@@ -76,12 +80,12 @@ impl RetryManager {
 
     async fn retry_events_for_homeserver(&self, homeserver_pubky: &str) {
         if let Some(retry_events) = self.fail_events.get(homeserver_pubky) {
-            println!("** RETRY_MANAGER ===> Trying to fetch the failing events from {:?}", homeserver_pubky);
+            info!("** RETRY_MANAGER ===> Trying to fetch the failing events from {:?}", homeserver_pubky);
             for event in retry_events.iter() {
-                println!("Event URI: {}", event.uri);
+                info!("-> {:?}:{}",event.event_type, event.uri);
             }
         } else {
-            println!("No retry events found for key: {}", homeserver_pubky);
+            info!("No retry events found for key: {}", homeserver_pubky);
         }
     }
 
@@ -93,6 +97,6 @@ impl RetryManager {
             .entry(homeserver_pubky.clone())
             .or_insert_with(LinkedList::new);
         list.push_back(retry_event);
-        println!("** RETRY_MANAGER:  Added fail event for homeserver_pubky: {}", homeserver_pubky);
+        debug!("** RETRY_MANAGER:  Added fail event for homeserver_pubky: {}", homeserver_pubky);
     }
 }

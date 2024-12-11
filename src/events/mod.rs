@@ -55,7 +55,7 @@ pub struct Event {
 }
 
 impl Event {
-    fn from_str(
+    pub fn from_str(
         line: &str,
         pubky_client: PubkyClient,
     ) -> Result<Option<Self>, Box<dyn std::error::Error + Sync + Send>> {
@@ -123,7 +123,7 @@ impl Event {
         }))
     }
 
-    async fn handle(self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
+    pub async fn handle(self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
         match self.event_type {
             EventType::Put => self.handle_put_event().await,
             EventType::Del => self.handle_del_event().await,

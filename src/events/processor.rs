@@ -1,6 +1,6 @@
-use std::sync::Arc;
 use std::time::Duration;
 
+use super::retry::SenderChannel;
 use super::retry::SenderMessage;
 use super::Event;
 use crate::events::retry::RetryEvent;
@@ -11,8 +11,6 @@ use log::{debug, error, info};
 use pkarr::mainline::dht::Testnet;
 use pubky::PubkyClient;
 use reqwest::Client;
-use tokio::sync::mpsc::Sender;
-use tokio::sync::Mutex;
 
 pub struct EventProcessor {
     pubky_client: PubkyClient,
@@ -20,11 +18,11 @@ pub struct EventProcessor {
     pub homeserver: Homeserver,
     limit: u32,
     max_retries: u64,
-    pub sender: Arc<Mutex<Sender<SenderMessage>>>
+    pub sender: SenderChannel
 }
 
 impl EventProcessor {
-    pub async fn from_config(config: &Config, tx: Arc<Mutex<Sender<SenderMessage>>>) -> Result<Self, DynError> {
+    pub async fn from_config(config: &Config, tx: SenderChannel) -> Result<Self, DynError> {
 
         let pubky_client = Self::init_pubky_client(config);
         let homeserver = Homeserver::from_config(config).await?;
@@ -58,7 +56,7 @@ impl EventProcessor {
         }
     }
 
-    pub async fn test(testnet: &Testnet, homeserver_url: String, tx: Arc<Mutex<Sender<SenderMessage>>>) -> Self {
+    pub async fn test(testnet: &Testnet, homeserver_url: String, tx: SenderChannel) -> Self {
         let id = PubkyId("test".to_string());
         let homeserver = Homeserver::new(id, homeserver_url).await.unwrap();
         Self {
@@ -121,10 +119,16 @@ impl EventProcessor {
                 };
                 if let Some(event) = event {
                     debug!("Processing event: {:?}", event);
+                    // Experimental Block ->
                     let retry_event = RetryEvent::new(&event.uri, &event.event_type, None, None);
                     let sender = self.sender.lock().await;
-                    // Send the message to the receiver
-                    let _ = sender.send(SenderMessage::Add(self.homeserver.id.to_string(), retry_event)).await;
+                    // Send the message to the receiver 
+                    let d = sender.send(SenderMessage::Add(self.homeserver.id.to_string(), retry_event)).await;
+                    match d {
+                        Ok(_) => (),
+                        Err(e) => println!("ERROR{:?}", e.to_string())
+                    }
+                    // <- Closing experimental block for sender channel
                     self.handle_event_with_retry(event).await?;
                 }
             }

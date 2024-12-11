@@ -591,8 +591,6 @@ pub fn post_stream(
         cypher.push_str(&format!("LIMIT {}\n", limit));
     }
 
-    println!("{:?}", cypher);
-
     // Build the query and apply parameters using `param` method
     build_query_with_params(&cypher, &source, tags, kind, &pagination)
 }
