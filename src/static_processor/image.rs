@@ -42,7 +42,7 @@ pub async fn create_image_version(
     file: &FileDetails,
     version: FileVersions,
 ) -> Result<String, DynError> {
-    let image_options = get_image_option_for_version(&file, &version);
+    let image_options = get_image_option_for_version(file, &version);
 
     if image_options.is_none() {
         return Err(format!("bad image version: {:?}", version).into());
@@ -94,7 +94,7 @@ pub async fn process_image(
         .arg("-alpha")
         .arg("remove")
         .arg("-resize")
-        .arg(&format!("{}x", width))
+        .arg(format!("{}x", width))
         .arg(output)
         .output() // Automatically pipes stdout and stderr
         .await?;

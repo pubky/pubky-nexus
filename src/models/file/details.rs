@@ -20,25 +20,6 @@ pub enum FileVersions {
     SMALL,
 }
 
-impl FileVersions {
-    pub fn from_str(input: &str) -> Option<FileVersions> {
-        match input {
-            "main" => Some(FileVersions::MAIN),
-            "feed" => Some(FileVersions::FEED),
-            "small" => Some(FileVersions::SMALL),
-            _ => None,
-        }
-    }
-
-    pub fn to_string(&self) -> String {
-        match self {
-            FileVersions::MAIN => "main".to_string(),
-            FileVersions::FEED => "feed".to_string(),
-            FileVersions::SMALL => "small".to_string(),
-        }
-    }
-}
-
 impl Display for FileVersions {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let version_string = match self {

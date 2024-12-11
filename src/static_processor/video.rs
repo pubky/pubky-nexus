@@ -15,7 +15,7 @@ struct VideoOptions {
 }
 
 fn get_video_option_for_version(_version: &FileVersions) -> Option<VideoOptions> {
-    return None;
+    None
     // let width = match version {
     //     FileVersions::FEED => String::from("720"),
     //     _ => return None,
@@ -74,7 +74,7 @@ pub async fn process_video(
         .arg("-i")
         .arg(input)
         .arg("-vf")
-        .arg(&format!("scale={}:-1", width))
+        .arg(format!("scale={}:-1", width))
         .arg("-c:a")
         .arg("copy")
         .arg(output)
