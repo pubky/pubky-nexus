@@ -11,7 +11,7 @@ use pubky_nexus::{
 
 use crate::service::utils::HOST_URL;
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_static_serving() -> Result<()> {
     setup(&Config::from_env()).await;
     let test_file_id = "2ZK2H8P2T5NG0";
@@ -59,7 +59,7 @@ async fn test_static_serving() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_static_serving_dl_param() -> Result<()> {
     setup(&Config::from_env()).await;
     let test_file_id = "2ZKH7K7B2RY00";

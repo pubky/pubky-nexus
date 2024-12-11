@@ -8,7 +8,7 @@ use pubky_nexus::{
 
 use crate::service::utils::HOST_URL;
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_static_image_serving_main() -> Result<()> {
     setup(&Config::from_env()).await;
     let test_file_id = "2ZKH7K7M9G3G0";
@@ -61,7 +61,7 @@ async fn test_static_image_serving_main() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_static_image_serving_feed() -> Result<()> {
     setup(&Config::from_env()).await;
     let test_file_id = "2ZKH7K7M9G3G0";
@@ -121,7 +121,7 @@ async fn test_static_image_serving_feed() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_static_image_serving_small() -> Result<()> {
     setup(&Config::from_env()).await;
     let test_file_id = "2ZKH7K7M9G3G0";

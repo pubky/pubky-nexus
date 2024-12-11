@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::service::utils::HOST_URL;
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_file_details() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
     let test_file_id = "2ZK2H8P2T5NG0";
