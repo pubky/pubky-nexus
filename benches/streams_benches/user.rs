@@ -1,7 +1,7 @@
 use crate::run_setup;
 use criterion::Criterion;
 use pubky_nexus::{
-    models::user::{UserStream, UserStreamSource},
+    models::user::{UserStream, UserStreamInput, UserStreamSource},
     types::StreamReach,
 };
 use tokio::runtime::Runtime;
@@ -20,17 +20,17 @@ pub fn bench_stream_following(c: &mut Criterion) {
 
     c.bench_function("stream_following", |b| {
         b.to_async(&rt).iter(|| async {
-            let user_stream = UserStream::get_by_id(
-                Some(user_id),
-                None,
-                None,
-                Some(20),
-                UserStreamSource::Influencers,
-                Some(StreamReach::Following),
-                None,
-                None,
-                None,
-            )
+            let user_stream = UserStream::get_by_id(&UserStreamInput {
+                user_id: Some(String::from(user_id)),
+                viewer_id: None,
+                skip: None,
+                limit: Some(20),
+                source: UserStreamSource::Influencers,
+                source_reach: Some(StreamReach::Following),
+                depth: None,
+                timeframe: None,
+                preview: None,
+            })
             .await
             .unwrap();
             criterion::black_box(user_stream);
@@ -49,17 +49,17 @@ pub fn bench_stream_most_followed(c: &mut Criterion) {
 
     c.bench_function("stream_most_followed", |b| {
         b.to_async(&rt).iter(|| async {
-            let user_stream = UserStream::get_by_id(
-                None,
-                None,
-                None,
-                Some(20),
-                UserStreamSource::MostFollowed,
-                None,
-                None,
-                None,
-                None,
-            )
+            let user_stream = UserStream::get_by_id(&UserStreamInput {
+                user_id: None,
+                viewer_id: None,
+                skip: None,
+                limit: Some(20),
+                source: UserStreamSource::MostFollowed,
+                source_reach: None,
+                depth: None,
+                timeframe: None,
+                preview: None,
+            })
             .await
             .unwrap();
             criterion::black_box(user_stream);
@@ -103,17 +103,17 @@ pub fn bench_stream_influencers(c: &mut Criterion) {
 
     c.bench_function("stream_influencers", |b| {
         b.to_async(&rt).iter(|| async {
-            let user_stream = UserStream::get_by_id(
-                None,
-                None,
-                None,
-                Some(20),
-                UserStreamSource::Influencers,
-                Some((StreamReach::Wot(3))),
-                None,
-                None,
-                None,
-            )
+            let user_stream = UserStream::get_by_id(&UserStreamInput {
+                user_id: None,
+                viewer_id: None,
+                skip: None,
+                limit: Some(20),
+                source: UserStreamSource::Influencers,
+                source_reach: Some(StreamReach::Wot(3)),
+                depth: None,
+                timeframe: None,
+                preview: None,
+            })
             .await
             .unwrap();
             criterion::black_box(user_stream);

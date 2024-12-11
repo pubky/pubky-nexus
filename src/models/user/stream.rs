@@ -25,35 +25,39 @@ pub enum UserStreamSource {
     Recommended,
 }
 
+pub struct UserStreamInput {
+    pub user_id: Option<String>,
+    pub viewer_id: Option<String>,
+    pub skip: Option<usize>,
+    pub limit: Option<usize>,
+    pub source: UserStreamSource,
+    pub source_reach: Option<StreamReach>,
+    pub depth: Option<u8>,
+    pub timeframe: Option<Timeframe>,
+    pub preview: Option<bool>,
+}
+
 #[derive(Serialize, Deserialize, ToSchema, Default)]
 pub struct UserStream(Vec<UserView>);
 
 impl RedisOps for UserStream {}
 
 impl UserStream {
-    pub async fn get_by_id(
-        user_id: Option<&str>,
-        viewer_id: Option<&str>,
-        skip: Option<usize>,
-        limit: Option<usize>,
-        source: UserStreamSource,
-        source_reach: Option<StreamReach>,
-        depth: Option<u8>,
-        timeframe: Option<Timeframe>,
-        preview: Option<bool>,
-    ) -> Result<Option<Self>, DynError> {
+    pub async fn get_by_id(input: &UserStreamInput) -> Result<Option<Self>, DynError> {
         let user_ids = Self::get_user_list_from_source(
-            user_id,
-            source,
-            source_reach,
-            skip,
-            limit,
-            timeframe,
-            preview,
+            input.user_id.as_deref(),
+            input.source.clone(),
+            input.source_reach.clone(),
+            input.skip,
+            input.limit,
+            input.timeframe.clone(),
+            input.preview,
         )
         .await?;
         match user_ids {
-            Some(users) => Self::from_listed_user_ids(&users, viewer_id, depth).await,
+            Some(users) => {
+                Self::from_listed_user_ids(&users, input.viewer_id.as_deref(), input.depth).await
+            }
             None => Ok(None),
         }
     }
