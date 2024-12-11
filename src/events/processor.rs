@@ -21,6 +21,12 @@ pub struct EventProcessor {
     pub sender: SenderChannel
 }
 
+#[derive(Debug, Clone)]
+pub enum EventErrorType {
+    NotResolveHomeserver,
+    PubkyClientError
+}
+
 impl EventProcessor {
     pub async fn from_config(config: &Config, tx: SenderChannel) -> Result<Self, DynError> {
 
@@ -119,16 +125,6 @@ impl EventProcessor {
                 };
                 if let Some(event) = event {
                     debug!("Processing event: {:?}", event);
-                    // Experimental Block ->
-                    let retry_event = RetryEvent::new(&event.uri, &event.event_type, None, None);
-                    let sender = self.sender.lock().await;
-                    // Send the message to the receiver 
-                    let d = sender.send(SenderMessage::Add(self.homeserver.id.to_string(), retry_event)).await;
-                    match d {
-                        Ok(_) => (),
-                        Err(e) => println!("ERROR{:?}", e.to_string())
-                    }
-                    // <- Closing experimental block for sender channel
                     self.handle_event_with_retry(event).await?;
                 }
             }
@@ -150,6 +146,20 @@ impl EventProcessor {
                             "Error while handling event after {} attempts: {}",
                             attempts, e
                         );
+
+                        // Send the failed event to the retry manager to retry indexing
+                        let mut error_type = None;
+
+                        if e.to_string() == "Generic error: Could not resolve homeserver" {
+                            error_type = Some(EventErrorType::NotResolveHomeserver);
+                        } else if e.to_string().contains("error sending request for url") {
+                            error_type = Some(EventErrorType::PubkyClientError); 
+                        } 
+                        if let Some(error) = error_type {
+                            let fail_event = RetryEvent::new(&event.uri, &event.event_type, None, error);
+                            let sender = self.sender.lock().await;
+                            sender.send(SenderMessage::Add(self.homeserver.id.clone(), fail_event)).await?;
+                        }
                         break Ok(());
                     } else {
                         error!(
