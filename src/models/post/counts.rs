@@ -85,7 +85,7 @@ impl PostCounts {
         post_id: &str,
         is_reply: bool,
     ) -> Result<(), DynError> {
-        self.put_index_json(&[author_id, post_id]).await?;
+        self.put_index_json(&[author_id, post_id], None).await?;
 
         // avoid indexing replies into global feeds
         if !is_reply {

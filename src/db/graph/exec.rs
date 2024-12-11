@@ -1,6 +1,7 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
 use crate::types::DynError;
 use neo4rs::Query;
+use serde::de::DeserializeOwned;
 
 // Exec a graph query without a return
 pub async fn exec_single_row(query: Query) -> Result<(), DynError> {
@@ -24,4 +25,25 @@ pub async fn exec_boolean_row(query: Query) -> Result<bool, DynError> {
         boolean = row.get("boolean")?;
     }
     Ok(boolean)
+}
+
+// Generic function to retrieve data from Neo4J
+pub async fn retrieve_from_graph<T>(query: Query, key: &str) -> Result<Option<T>, DynError>
+where
+    // Key point: DeserializeOwned ensures we can deserialize into any type that implements it
+    T: DeserializeOwned + Send + Sync,
+{
+    let mut result;
+    {
+        let graph = get_neo4j_graph()?;
+        let graph = graph.lock().await;
+        result = graph.execute(query).await?;
+    }
+
+    if let Some(row) = result.next().await? {
+        let data: T = row.get(key)?;
+        return Ok(Some(data));
+    }
+
+    Ok(None)
 }
