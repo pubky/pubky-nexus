@@ -1,6 +1,9 @@
 use crate::models::post::StreamSource;
+use crate::models::tag::stream::HotTagsInput;
+use crate::models::tag::stream::TagStreamReach;
 use crate::types::Pagination;
 use crate::types::StreamSorting;
+use log::debug;
 use neo4rs::{query, Query};
 use pubky_app_specs::PubkyAppPostKind;
 
@@ -411,28 +414,125 @@ pub fn get_global_hot_tags_taggers(tag_list: &[&str]) -> Query {
     .param("labels", tag_list)
 }
 
-// Analyzes tag usage for a specific list of user IDs. Groups tags by name,
-// showing for each: label, post count and list of user IDs
-// Orders by post_count (descending).
-// Note: Only considers users from the provided users_id list.
-pub fn get_tags_by_user_ids(users_id: &[&str]) -> Query {
+fn tag_stream_reach_to_graph_subquery(reach: &TagStreamReach) -> String {
+    let query = match reach {
+        TagStreamReach::Followers => "MATCH (user:User)<-[:FOLLOWS]-(reach:User)",
+        TagStreamReach::Following => "MATCH (user:User)-[:FOLLOWS]->(reach:User)",
+        TagStreamReach::Friends => {
+            "MATCH (user:User)-[:FOLLOWS]->(reach:User), (user)<-[:FOLLOWS]-(reach)"
+        }
+    };
+    String::from(query)
+}
+
+pub fn get_tag_taggers_by_reach(
+    label: &str,
+    user_id: &str,
+    reach: TagStreamReach,
+    skip: usize,
+    limit: usize,
+) -> Query {
     query(
-        "
-        UNWIND $ids AS id
-        MATCH (u:User)-[tag:TAGGED]->(p:Post)
-        WHERE u.id = id
-        WITH tag.label AS label, COLLECT(DISTINCT u.id) AS taggers, COUNT(DISTINCT p) AS uniquePosts
-        WITH {
+        format!(
+            "
+            {}
+            MATCH (reach)-[tag:TAGGED]->()
+            WHERE user.id = $user_id AND tag.label = $label
+            WITH reach, MAX(tag.indexed_at) AS tag_time
+            ORDER BY tag_time DESC
+            SKIP $skip LIMIT $limit
+            RETURN COLLECT(reach.id) as tagger_ids
+            ",
+            tag_stream_reach_to_graph_subquery(&reach)
+        )
+        .as_str(),
+    )
+    .param("label", label)
+    .param("user_id", user_id)
+    .param("skip", skip as i64)
+    .param("limit", limit as i64)
+}
+
+pub fn get_hot_tags_by_reach(
+    user_id: &str,
+    reach: TagStreamReach,
+    tags_query: &HotTagsInput,
+) -> Query {
+    let input_tagged_type = match &tags_query.tagged_type {
+        Some(tagged_type) => tagged_type.to_string(),
+        None => String::from("Post|User"),
+    };
+
+    let (from, to) = tags_query.timeframe.to_timestamp_range();
+    query(
+        format!(
+            "
+        {}
+        MATCH (reach)-[tag:TAGGED]->(tagged:{})
+        WHERE user.id = $user_id AND tag.indexed_at >= $from AND tag.indexed_at < $to
+        WITH 
+            tag.label AS label,
+            COLLECT(DISTINCT reach.id)[..{}] AS taggers,
+            COUNT(DISTINCT tagged) AS uniqueTaggedCount,
+            COUNT(DISTINCT reach.id) AS taggers_count
+        WITH {{
             label: label,
             taggers_id: taggers,
-            post_count: uniquePosts,
-            taggers_count: SIZE(taggers)
-        } AS hot_tag
-        ORDER BY hot_tag.post_count DESC
-        RETURN COLLECT(hot_tag) AS hot_tags
+            tagged_count: uniqueTaggedCount,
+            taggers_count: taggers_count
+        }} AS hot_tag
+        ORDER BY hot_tag.tagged_count DESC, hot_tag.label ASC
+        SKIP $skip LIMIT $limit
+        RETURN COLLECT(hot_tag) as hot_tags
     ",
+            tag_stream_reach_to_graph_subquery(&reach),
+            input_tagged_type,
+            tags_query.taggers_limit
+        )
+        .as_str(),
     )
-    .param("ids", users_id)
+    .param("user_id", user_id)
+    .param("skip", tags_query.skip as i64)
+    .param("limit", tags_query.limit as i64)
+    .param("from", from)
+    .param("to", to)
+}
+
+pub fn get_global_hot_tags(tags_query: &HotTagsInput) -> Query {
+    let input_tagged_type = match &tags_query.tagged_type {
+        Some(tagged_type) => tagged_type.to_string(),
+        None => String::from("Post|User"),
+    };
+    let (from, to) = tags_query.timeframe.to_timestamp_range();
+    debug!("get_global_hot_tags query: {:?} {:?}", from, to);
+    query(
+        format!(
+            "
+        MATCH (user: User)-[tag:TAGGED]->(tagged:{}) 
+        WHERE tag.indexed_at >= $from AND tag.indexed_at < $to
+        WITH 
+            tag.label AS label,
+            COLLECT(DISTINCT user.id)[..{}] AS taggers,
+            COUNT(DISTINCT tagged) AS uniqueTaggedCount,
+            COUNT(DISTINCT user.id) AS taggers_count
+        WITH {{
+            label: label,
+            taggers_id: taggers,
+            tagged_count: uniqueTaggedCount,
+            taggers_count: taggers_count
+        }} AS hot_tag
+        ORDER BY hot_tag.tagged_count DESC, hot_tag.label ASC
+        SKIP $skip LIMIT $limit
+        RETURN COLLECT(hot_tag) as hot_tags
+    ",
+            input_tagged_type, tags_query.taggers_limit
+        )
+        .as_str(),
+    )
+    .param("skip", tags_query.skip as i64)
+    .param("limit", tags_query.limit as i64)
+    .param("from", from)
+    .param("to", to)
 }
 
 pub fn get_files_by_ids(key_pair: &[&[&str]]) -> Query {

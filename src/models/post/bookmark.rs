@@ -107,7 +107,7 @@ impl Bookmark {
         post_id: &str,
         viewer_id: &str,
     ) -> Result<(), DynError> {
-        self.put_index_json(&[author_id, post_id, viewer_id])
+        self.put_index_json(&[author_id, post_id, viewer_id], None)
             .await?;
         PostStream::add_to_bookmarks_sorted_set(self, viewer_id, post_id, author_id).await?;
         Ok(())

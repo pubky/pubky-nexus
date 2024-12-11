@@ -45,6 +45,7 @@ criterion = { version = "0.5.1", features = ["async_tokio"] }
 pubky_homeserver = { git = "https://github.com/pubky/pubky-core.git", tag = "pubky-v0.3.0" }
 rand = "0.8.5"
 rand_distr = "0.4.3"
+tokio-shared-rt = "0.1"
 
 [lib]
 name = "pubky_nexus"

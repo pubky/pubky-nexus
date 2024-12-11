@@ -7,7 +7,7 @@ use pubky_nexus::{
     types::Pagination,
 };
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_delete_post_that_reposted_notification() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
