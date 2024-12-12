@@ -42,6 +42,8 @@ impl PubkyConnector {
         testnet: Option<&Testnet>,
     ) -> Result<(), PubkyConnectorError> {
         // There is not need to initialise
+        // TODO: That one cannot happen in service. We need to throw an error
+        // if testnet.is_some and singletron is_some() error
         if PUBKY_CONNECTOR_SINGLETON.get().is_some() {
             return Ok(());
         }

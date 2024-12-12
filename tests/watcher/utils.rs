@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 use chrono::Utc;
 use pkarr::mainline::Testnet;
@@ -8,6 +10,7 @@ use pubky_common::crypto::Keypair;
 use pubky_homeserver::Homeserver;
 use pubky_nexus::{setup, Config, EventProcessor, PubkyConnector};
 use serde_json::to_vec;
+use tokio::sync::OnceCell;
 
 /// Struct to hold the setup environment for tests
 pub struct WatcherTest {
@@ -22,10 +25,16 @@ impl WatcherTest {
         let config = Config::from_env();
         setup(&config).await;
 
-        let testnet = Testnet::new(10);
+        // Initialise watcher DHT network
+        TestnetDHTNetwork::initialise().unwrap();
+        let testnet = TestnetDHTNetwork::get_testnet_dht_nodes().unwrap();
         let homeserver = Homeserver::start_test(&testnet).await?;
-        // Initialise testnet pubky
-        PubkyConnector::initialise(&config, Some(&testnet))?;
+
+        // Initialise connector
+        match PubkyConnector::initialise(&config, Some(&testnet)) {
+            Ok(_) => println!("PubkyConnector initialised"),
+            Err(_) => println!("PubkyConnector already initialised")
+        }
         let homeserver_url = format!("http://localhost:{}", homeserver.port());
 
         let event_processor = EventProcessor::test(homeserver_url).await;
@@ -196,5 +205,35 @@ impl WatcherTest {
         // Process the event
         self.ensure_event_processing_complete().await?;
         Ok(())
+    }
+}
+
+
+// TODO: TIdy up that one
+static DHT_TESTNET_NETWORK_SINGLETON: OnceCell<TestnetDHTNetwork> = OnceCell::const_new();
+struct TestnetDHTNetwork {
+    nodes: Arc<Testnet>
+}
+
+impl TestnetDHTNetwork {
+    pub fn initialise() -> Result<(), &'static str>{
+        if DHT_TESTNET_NETWORK_SINGLETON.get().is_some() {
+            return Ok(());
+        }
+        let testnet = Self {
+            nodes: Arc::new(Testnet::new(10)),
+        };
+        DHT_TESTNET_NETWORK_SINGLETON
+            .set(testnet)
+            .map_err(|_| "Already initiailsed")?;
+        Ok(())
+    }
+
+    pub fn get_testnet_dht_nodes() -> Result<Arc<Testnet>, &'static str> {
+        if let Some(resolver) = DHT_TESTNET_NETWORK_SINGLETON.get() {
+            Ok(resolver.nodes.clone())
+        } else {
+            Err("PubkyConnectorError::NotInitialized")
+        }
     }
 }
