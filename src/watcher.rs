@@ -7,6 +7,8 @@ use pubky_nexus::{setup, Config, EventProcessor};
 use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
 
+const RETRY_THRESHOLD: u8 = 5;
+
 /// Watches over a homeserver `/events` and writes into the Nexus databases
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
@@ -22,8 +24,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
         retry_manager.exec().await;
     });
 
-    let mut event_processor =
-        EventProcessor::from_config(&config, sender_clone).await?;
+    let mut event_processor = EventProcessor::from_config(&config, sender_clone).await?;
+
+    // Experimental. We need to think how/where achieve that
+    // Maybe add in .env file...
+    let mut retry_failed_events = 0;
 
     loop {
         info!("Fetching events...");
@@ -32,7 +37,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
         }
         // Wait for X milliseconds before fetching events again
         sleep(Duration::from_millis(config.watcher_sleep)).await;
-        let sender = event_processor.sender.lock().await;
-        let _ = sender.send(SenderMessage::Retry(event_processor.homeserver.id.to_string())).await;
+        retry_failed_events += 1;
+
+        if RETRY_THRESHOLD == retry_failed_events {
+            let sender = event_processor.sender.lock().await;
+            let _ = sender
+                .send(SenderMessage::Retry(
+                    event_processor.homeserver.id.to_string(),
+                ))
+                .await;
+        }
     }
 }

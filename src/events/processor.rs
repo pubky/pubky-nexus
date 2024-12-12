@@ -18,18 +18,17 @@ pub struct EventProcessor {
     pub homeserver: Homeserver,
     limit: u32,
     max_retries: u64,
-    pub sender: SenderChannel
+    pub sender: SenderChannel,
 }
 
 #[derive(Debug, Clone)]
 pub enum EventErrorType {
     NotResolveHomeserver,
-    PubkyClientError
+    PubkyClientError,
 }
 
 impl EventProcessor {
     pub async fn from_config(config: &Config, tx: SenderChannel) -> Result<Self, DynError> {
-
         let pubky_client = Self::init_pubky_client(config);
         let homeserver = Homeserver::from_config(config).await?;
         let limit = config.events_limit;
@@ -46,7 +45,7 @@ impl EventProcessor {
             homeserver,
             limit,
             max_retries,
-            sender: tx
+            sender: tx,
         })
     }
 
@@ -71,7 +70,7 @@ impl EventProcessor {
             homeserver,
             limit: 1000,
             max_retries: 3,
-            sender: tx
+            sender: tx,
         }
     }
 
@@ -153,12 +152,15 @@ impl EventProcessor {
                         if e.to_string() == "Generic error: Could not resolve homeserver" {
                             error_type = Some(EventErrorType::NotResolveHomeserver);
                         } else if e.to_string().contains("error sending request for url") {
-                            error_type = Some(EventErrorType::PubkyClientError); 
-                        } 
+                            error_type = Some(EventErrorType::PubkyClientError);
+                        }
                         if let Some(error) = error_type {
-                            let fail_event = RetryEvent::new(&event.uri, &event.event_type, None, error);
+                            let fail_event =
+                                RetryEvent::new(&event.uri, &event.event_type, None, error);
                             let sender = self.sender.lock().await;
-                            sender.send(SenderMessage::Add(self.homeserver.id.clone(), fail_event)).await?;
+                            sender
+                                .send(SenderMessage::Add(self.homeserver.id.clone(), fail_event))
+                                .await?;
                         }
                         break Ok(());
                     } else {

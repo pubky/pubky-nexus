@@ -5,8 +5,8 @@ use uri::ParsedUri;
 
 pub mod handlers;
 pub mod processor;
-pub mod uri;
 pub mod retry;
+pub mod uri;
 
 #[derive(Debug, Clone)]
 enum ResourceType {

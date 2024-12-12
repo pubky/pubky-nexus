@@ -7,7 +7,10 @@ use pubky_app_specs::{
 };
 use pubky_common::crypto::Keypair;
 use pubky_homeserver::Homeserver;
-use pubky_nexus::{events::retry::{RetryManager, CHANNEL_BUFFER}, setup, Config, EventProcessor};
+use pubky_nexus::{
+    events::retry::{RetryManager, CHANNEL_BUFFER},
+    setup, Config, EventProcessor,
+};
 use serde_json::to_vec;
 use tokio::sync::mpsc;
 
@@ -31,7 +34,6 @@ impl WatcherTest {
         let homeserver_url = format!("http://localhost:{}", homeserver.port());
 
         let retry_manager = RetryManager::initialise(mpsc::channel(CHANNEL_BUFFER));
-
 
         let sender_clone = retry_manager.sender.clone();
 

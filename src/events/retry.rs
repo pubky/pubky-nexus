@@ -1,5 +1,5 @@
 use dashmap::DashMap;
-use log::{debug, info};
+use log::debug;
 use std::{collections::LinkedList, sync::Arc};
 use tokio::sync::{
     mpsc::{Receiver, Sender},
@@ -14,11 +14,11 @@ pub const CHANNEL_BUFFER: usize = 1024;
 
 #[derive(Debug, Clone)]
 pub struct RetryEvent {
-    pub uri: String,                   // URI of the resource
-    pub event_type: EventType,         // Type of event (e.g., PUT, DEL)
-    pub timestamp: u64,                // Unix timestamp when the event was received
-    pub dependency: Option<String>,    // Optional parent URI for dependency tracking
-    pub retry_count: u32,              // Number of retries attempted
+    pub uri: String,                // URI of the resource
+    pub event_type: EventType,      // Type of event (e.g., PUT, DEL)
+    pub timestamp: u64,             // Unix timestamp when the event was received
+    pub dependency: Option<String>, // Optional parent URI for dependency tracking
+    pub retry_count: u32,           // Number of retries attempted
     pub error_type: EventErrorType, // Optional field to track failure reasons
 }
 
@@ -27,7 +27,7 @@ impl RetryEvent {
         uri: &String,
         event_type: &EventType,
         dependency: Option<String>,
-        error_type: EventErrorType
+        error_type: EventErrorType,
     ) -> Self {
         Self {
             uri: uri.to_string(),
@@ -43,7 +43,7 @@ impl RetryEvent {
 
 #[derive(Debug, Clone)]
 pub enum SenderMessage {
-    Retry(String),           // Retry events associated with this key
+    Retry(String),            // Retry events associated with this key
     Add(PubkyId, RetryEvent), // Add a new RetryEvent to the fail_events
 }
 
@@ -90,27 +90,31 @@ impl RetryManager {
 
     async fn retry_events_for_homeserver(&self, homeserver_pubky: &str) {
         if let Some(retry_events) = self.fail_events.get(homeserver_pubky) {
-            info!(
-                "** RETRY_MANAGER ===> Trying to fetch the failing events from {:?}",
+            debug!(
+                "Trying to fetch again the failing events from {:?}...",
                 homeserver_pubky
             );
             for event in retry_events.iter() {
-                info!("-> {:?}:{}:{:?}", event.event_type, event.uri, event.error_type);
+                debug!(
+                    "-> {:?}:{}:{:?}",
+                    event.event_type, event.uri, event.error_type
+                );
             }
         } else {
-            info!("No retry events found for key: {}", homeserver_pubky);
+            debug!("No retry events found for key: {}", homeserver_pubky);
         }
     }
 
     fn add_fail_event(&self, homeserver_pubky: PubkyId, retry_event: RetryEvent) {
+        debug!(
+            "Added fail event in the HashMap: {:?}: {}",
+            retry_event.event_type, retry_event.uri
+        );
+        // Write the event in the HashMap
         let mut list = self
             .fail_events
             .entry(homeserver_pubky.to_string())
-            .or_insert_with(LinkedList::new);
+            .or_default();
         list.push_back(retry_event);
-        debug!(
-            "** RETRY_MANAGER:  Added fail event for homeserver_pubky: {}",
-            homeserver_pubky
-        );
     }
 }
