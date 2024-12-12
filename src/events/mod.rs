@@ -1,12 +1,11 @@
-use crate::types::PubkyId;
+use crate::{db::connectors::pubky::PubkyConnector, types::PubkyId};
 use log::{debug, error};
-use resolver::EventResolver;
 use uri::ParsedUri;
 
 pub mod handlers;
 pub mod processor;
 pub mod uri;
-pub mod resolver;
+//pub mod resolver;
 
 #[derive(Debug, Clone)]
 enum ResourceType {
@@ -136,7 +135,7 @@ impl Event {
         // User PUT event's into the homeserver write new data. We fetch the data
         // for every Resource Type
         let url = reqwest::Url::parse(&self.uri)?;
-        let blob = match EventResolver::get_pubky_client()?.get(url).await {
+        let blob = match PubkyConnector::get_pubky_client()?.get(url).await {
             Ok(Some(blob)) => blob,
             Ok(None) => {
                 error!("No content found at {}", self.uri);

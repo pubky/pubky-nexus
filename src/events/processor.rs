@@ -5,11 +5,9 @@ use crate::types::DynError;
 use crate::types::PubkyId;
 use crate::{models::homeserver::Homeserver, Config};
 use log::{debug, error, info};
-use pkarr::mainline::dht::Testnet;
 use reqwest::Client;
 
 pub struct EventProcessor {
-    //pubky_client: PubkyClient,
     http_client: Client,
     homeserver: Homeserver,
     limit: u32,
@@ -18,7 +16,6 @@ pub struct EventProcessor {
 
 impl EventProcessor {
     pub async fn from_config(config: &Config) -> Result<Self, DynError> {
-        //let pubky_client = Self::init_pubky_client(config);
         let homeserver = Homeserver::from_config(config).await?;
         let limit = config.events_limit;
         let max_retries = config.max_retries;
@@ -29,7 +26,6 @@ impl EventProcessor {
         );
 
         Ok(Self {
-            //pubky_client,
             http_client: Client::new(),
             homeserver,
             limit,
@@ -37,23 +33,10 @@ impl EventProcessor {
         })
     }
 
-    // fn init_pubky_client(config: &Config) -> PubkyClient {
-    //     if config.testnet {
-    //         let testnet = Testnet {
-    //             bootstrap: vec![config.bootstrap.clone()],
-    //             nodes: vec![],
-    //         };
-    //         PubkyClient::test(&testnet)
-    //     } else {
-    //         PubkyClient::default()
-    //     }
-    // }
-
-    pub async fn test(testnet: &Testnet, homeserver_url: String) -> Self {
+    pub async fn test(homeserver_url: String) -> Self {
         let id = PubkyId("test".to_string());
         let homeserver = Homeserver::new(id, homeserver_url).await.unwrap();
         Self {
-            //pubky_client: PubkyClient::builder().testnet(testnet).build(),
             http_client: Client::new(),
             homeserver,
             limit: 1000,

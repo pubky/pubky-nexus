@@ -8,7 +8,10 @@ use pubky_app_specs::{
     PubkyAppFile, PubkyAppPost, PubkyAppPostKind, PubkyAppUser, PubkyAppUserLink,
 };
 use pubky_common::{crypto::Keypair, timestamp::Timestamp};
-use pubky_nexus::models::user::{UserCounts, UserView};
+use pubky_nexus::{
+    models::user::{UserCounts, UserView},
+    PubkyConnector,
+};
 use serde_json::to_vec;
 #[tokio_shared_rt::test(shared)]
 async fn test_delete_user_with_relationships() -> Result<()> {
@@ -121,7 +124,8 @@ async fn test_delete_user_with_relationships() -> Result<()> {
     let blob_id = Timestamp::now().to_string();
     let blob_url = format!("pubky://{}/pub/pubky.app/blobs/{}", user_with_id, blob_id);
     let json_data = to_vec(blob)?;
-    test.client.put(blob_url.as_str(), &json_data).await?;
+    let pubky_client = PubkyConnector::get_pubky_client()?;
+    pubky_client.put(blob_url.as_str(), &json_data).await?;
 
     // Act
     let file = PubkyAppFile {

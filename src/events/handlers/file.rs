@@ -1,4 +1,4 @@
-use crate::events::resolver::EventResolver;
+use crate::db::connectors::pubky::PubkyConnector;
 use crate::types::DynError;
 use crate::types::PubkyId;
 use crate::{
@@ -62,7 +62,10 @@ async fn ingest(
     pubkyapp_file: &PubkyAppFile,
     //client: &PubkyClient,
 ) -> Result<FileMeta, DynError> {
-    let response = EventResolver::get_pubky_client()?.get(pubkyapp_file.src.as_str()).await?.unwrap();
+    let response = PubkyConnector::get_pubky_client()?
+        .get(pubkyapp_file.src.as_str())
+        .await?
+        .unwrap();
 
     debug!("response {:?}", response);
     store_blob(file_id.to_string(), user_id.to_string(), &response).await?;

@@ -5,6 +5,7 @@ use chrono::Utc;
 use pubky_app_specs::{PubkyAppFile, PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 use pubky_common::timestamp::Timestamp;
+use pubky_nexus::PubkyConnector;
 use serde_json::to_vec;
 
 #[tokio_shared_rt::test(shared)]
@@ -26,7 +27,8 @@ async fn test_homeserver_post_attachments() -> Result<()> {
     let blob_id = Timestamp::now().to_string();
     let blob_url = format!("pubky://{}/pub/pubky.app/blobs/{}", user_id, blob_id);
     let json_data = to_vec(blob)?;
-    test.client.put(blob_url.as_str(), &json_data).await?;
+    let pubky_client = PubkyConnector::get_pubky_client()?;
+    pubky_client.put(blob_url.as_str(), &json_data).await?;
 
     test.ensure_event_processing_complete().await?;
 

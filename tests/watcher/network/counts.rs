@@ -10,7 +10,7 @@ use pubky_app_specs::{
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{
     models::{post::PostCounts, user::UserCounts},
-    RedisOps,
+    PubkyConnector, RedisOps,
 };
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use std::collections::{HashMap, HashSet};
@@ -135,7 +135,8 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                     };
                     let mute_url =
                         format!("pubky://{}/pub/pubky.app/mutes/{}", user_id, target_user_id);
-                    test.client
+                    let pubky_client = PubkyConnector::get_pubky_client()?;
+                    pubky_client
                         .put(mute_url.as_str(), &serde_json::to_vec(&mute)?)
                         .await?;
                     _total_mutes += 1;
@@ -261,7 +262,8 @@ async fn test_large_network_scenario_counts() -> Result<()> {
             if unmuted.insert(target_user_id.clone()) {
                 let mute_uri =
                     format!("pubky://{}/pub/pubky.app/mutes/{}", user_id, target_user_id);
-                test.client.delete(mute_uri.as_str()).await?;
+                let pubky_client = PubkyConnector::get_pubky_client()?;
+                pubky_client.delete(mute_uri.as_str()).await?;
                 mute_set.remove(target_user_id);
                 _total_unmutes += 1;
             }
