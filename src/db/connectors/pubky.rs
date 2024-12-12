@@ -23,11 +23,11 @@ impl std::fmt::Display for PubkyConnectorError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             PubkyConnectorError::AlreadyInitialized => {
-                write!(f, "Event Resolver has already been initialized")
+                write!(f, "PubkyConnector has already been initialized")
             }
             PubkyConnectorError::NotInitialized => write!(
                 f,
-                "Event Resolver must be called before accessing PubkyClient connector"
+                "PubkyConnector must be called before accessing PubkyClient connector"
             ),
         }
     }
@@ -41,8 +41,9 @@ impl PubkyConnector {
         config: &Config,
         testnet: Option<&Testnet>,
     ) -> Result<(), PubkyConnectorError> {
+        // There is not need to initialise
         if PUBKY_CONNECTOR_SINGLETON.get().is_some() {
-            return Err(PubkyConnectorError::AlreadyInitialized);
+            return Ok(());
         }
         let pubky_client = match testnet {
             Some(testnet) => PubkyClient::builder()
