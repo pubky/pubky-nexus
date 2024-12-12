@@ -1,11 +1,12 @@
 use crate::types::PubkyId;
 use log::{debug, error};
-use pubky::PubkyClient;
+use resolver::EventResolver;
 use uri::ParsedUri;
 
 pub mod handlers;
 pub mod processor;
 pub mod uri;
+pub mod resolver;
 
 #[derive(Debug, Clone)]
 enum ResourceType {
@@ -50,13 +51,13 @@ pub struct Event {
     uri: String,
     event_type: EventType,
     resource_type: ResourceType,
-    pubky_client: PubkyClient,
+    //pubky_client: PubkyClient,
 }
 
 impl Event {
     fn from_str(
         line: &str,
-        pubky_client: PubkyClient,
+        //pubky_client: PubkyClient,
     ) -> Result<Option<Self>, Box<dyn std::error::Error + Sync + Send>> {
         debug!("New event: {}", line);
         let parts: Vec<&str> = line.split(' ').collect();
@@ -118,7 +119,7 @@ impl Event {
             uri,
             event_type,
             resource_type,
-            pubky_client,
+            //pubky_client,
         }))
     }
 
@@ -135,7 +136,7 @@ impl Event {
         // User PUT event's into the homeserver write new data. We fetch the data
         // for every Resource Type
         let url = reqwest::Url::parse(&self.uri)?;
-        let blob = match self.pubky_client.get(url).await {
+        let blob = match EventResolver::get_pubky_client()?.get(url).await {
             Ok(Some(blob)) => blob,
             Ok(None) => {
                 error!("No content found at {}", self.uri);
@@ -167,7 +168,7 @@ impl Event {
                 handlers::tag::put(user_id, tag_id, blob).await?
             }
             ResourceType::File { user_id, file_id } => {
-                handlers::file::put(self.uri, user_id, file_id, blob, &self.pubky_client).await?
+                handlers::file::put(self.uri, user_id, file_id, blob).await?
             }
         }
 
