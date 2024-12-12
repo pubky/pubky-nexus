@@ -9,7 +9,7 @@ use serde_json::json;
 
 const HOST_URL: &str = "http://localhost:8080";
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_static_serving() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
     let test_file_path = "static";
@@ -48,7 +48,7 @@ async fn test_static_serving() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_file_details() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
     let test_file_id = "2ZK2H8P2T5NG0";
@@ -74,7 +74,7 @@ async fn test_file_details() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_files_by_ids() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
     let test_file_id = "2ZK2H8P2T5NG0";
@@ -105,7 +105,7 @@ async fn test_files_by_ids() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_get_post() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 

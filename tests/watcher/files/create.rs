@@ -10,7 +10,7 @@ use serde_json::to_vec;
 #[tokio_shared_rt::test(shared)]
 async fn test_put_pubkyapp_file() -> Result<()> {
     // Arrange
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(true).await?;
 
     let keypair = Keypair::random();
     let user = PubkyAppUser {

@@ -11,7 +11,7 @@ const FREE_LABEL: &str = "free";
 
 // TODO: Create deterministic integration tests
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_post_tag() -> Result<()> {
     let path = format!("/v0/post/{}/{}/tags", PEER_PUBKY, POST_ID);
     let body = make_request(&path).await?;
@@ -32,7 +32,7 @@ async fn test_post_tag() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_user_tags_limit_tag_filter_active() -> Result<()> {
     let path = format!("/v0/post/{}/{}/tags?limit_tags=2", PEER_PUBKY, POST_ID);
     let body = make_request(&path).await?;
@@ -52,7 +52,7 @@ async fn test_user_tags_limit_tag_filter_active() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_user_tags_limit_taggers_filter_active() -> Result<()> {
     let path = format!("/v0/post/{}/{}/tags?limit_taggers=1", PEER_PUBKY, POST_ID);
     let body = make_request(&path).await?;
@@ -72,7 +72,7 @@ async fn test_user_tags_limit_taggers_filter_active() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_user_tags_full_filter_active() -> Result<()> {
     let path = format!(
         "/v0/post/{}/{}/tags?limit_tags=1&limit_taggers=1",
@@ -95,7 +95,7 @@ async fn test_user_tags_full_filter_active() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_post_does_not_exist() -> Result<()> {
     let endpoint = format!("/v0/post/{}/{}/tags", PEER_PUBKY, "JTDX9ZSWPQF8");
     // TODO: Control post not found error control
@@ -103,7 +103,7 @@ async fn test_post_does_not_exist() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_user_does_not_exist() -> Result<()> {
     let endpoint = format!(
         "/v0/post/{}/{}/tags",
@@ -114,7 +114,7 @@ async fn test_user_does_not_exist() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_post_specific_tag() -> Result<()> {
     let path = format!("/v0/post/{}/{}/taggers/{}", PEER_PUBKY, POST_ID, FREE_LABEL);
     let body = make_request(&path).await?;
@@ -132,7 +132,7 @@ async fn test_post_specific_tag() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_post_specific_tag_with_limit() -> Result<()> {
     let path = format!(
         "/v0/post/{}/{}/taggers/{}?limit=1",
@@ -153,7 +153,7 @@ async fn test_post_specific_tag_with_limit() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_post_specific_tag_with_skip() -> Result<()> {
     let path = format!(
         "/v0/post/{}/{}/taggers/{}?skip=1",
@@ -174,7 +174,7 @@ async fn test_post_specific_tag_with_skip() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_post_specific_tag_with_full_filters() -> Result<()> {
     let path = format!(
         "/v0/post/{}/{}/taggers/{}?skip=2&limit=1",
@@ -195,7 +195,7 @@ async fn test_post_specific_tag_with_full_filters() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_post_specific_tag_with_no_result() -> Result<()> {
     let path = format!(
         "/v0/post/{}/{}/taggers/{}?skip=3&limit=1",

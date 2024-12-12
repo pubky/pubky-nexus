@@ -7,7 +7,7 @@ use pubky_nexus::{models::post::PostRelationships, RedisOps};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_mentions() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(false).await?;
 
     // Create first user (author)
     let author_user_keypair = Keypair::random();

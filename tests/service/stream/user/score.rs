@@ -3,7 +3,7 @@ use anyhow::Result;
 
 // ##### MOST FOLLOWED USERS ######
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_most_followed() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 
@@ -77,7 +77,7 @@ async fn test_stream_most_followed() -> Result<()> {
 
 // ##### PIONEERS USERS ######
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_pioneers() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 
@@ -147,7 +147,7 @@ async fn test_stream_pioneers() -> Result<()> {
 
 // ##### RECOMMENDED USERS ######
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_recommended() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 
@@ -218,7 +218,7 @@ async fn test_stream_recommended() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_recommended_missing_user_id() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 

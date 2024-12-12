@@ -2,7 +2,7 @@ use anyhow::Result;
 
 const HOST_URL: &str = "http://localhost:8080";
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_swagger_ui() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 
@@ -14,7 +14,7 @@ async fn test_swagger_ui() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_openapi_schema() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 
@@ -30,7 +30,7 @@ async fn test_openapi_schema() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_info_endpoint() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 

@@ -1,7 +1,7 @@
 use crate::service::utils::HOST_URL;
 use anyhow::Result;
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_get_followers() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 
@@ -56,7 +56,7 @@ async fn test_get_followers() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_get_following() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 
@@ -115,7 +115,7 @@ async fn test_get_following() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_get_friends() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 

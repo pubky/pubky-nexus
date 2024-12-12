@@ -2,7 +2,7 @@ use super::{ROOT_PATH, USER_ID};
 use crate::service::utils::make_request;
 use anyhow::Result;
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_user_posts() -> Result<()> {
     let path = format!(
         "{ROOT_PATH}?author_id={}&source=author&sorting=timeline",

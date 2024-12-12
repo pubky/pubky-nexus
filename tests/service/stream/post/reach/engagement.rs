@@ -15,7 +15,7 @@ pub const POST_ED_ING: &str = "C3L7W0F9Q4K8";
 
 const START_SCORE: &str = "5";
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_engagement_reach_following_with_tag() -> Result<()> {
     test_reach_filter_with_posts(
         AMSTERDAM,
@@ -31,7 +31,7 @@ async fn test_stream_posts_by_engagement_reach_following_with_tag() -> Result<()
     .await
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_engagement_reach_following_with_tag_and_start() -> Result<()> {
     test_reach_filter_with_posts(
         AMSTERDAM,
@@ -47,7 +47,7 @@ async fn test_stream_posts_by_engagement_reach_following_with_tag_and_start() ->
     .await
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_engagement_reach_following_with_tag_start_and_skip() -> Result<()> {
     test_reach_filter_with_posts(
         AMSTERDAM,
@@ -63,7 +63,7 @@ async fn test_stream_posts_by_engagement_reach_following_with_tag_start_and_skip
     .await
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_engagement_reach_following_with_tag_start_skip_and_limit(
 ) -> Result<()> {
     test_reach_filter_with_posts(
@@ -82,7 +82,7 @@ async fn test_stream_posts_by_engagement_reach_following_with_tag_start_skip_and
     .await
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_engagement_reach_following_with_tag_and_end() -> Result<()> {
     test_reach_filter_with_posts(
         AMSTERDAM,
@@ -98,7 +98,7 @@ async fn test_stream_posts_by_engagement_reach_following_with_tag_and_end() -> R
     .await
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_engagement_reach_following_with_tag_start_and_end() -> Result<()> {
     test_reach_filter_with_posts(
         AMSTERDAM,
@@ -122,7 +122,7 @@ pub const POST_EB_ER: &str = "3NFG9K0L5QH4";
 pub const POST_EC_ER: &str = "M4X1P9L2J6K8";
 pub const POST_ED_ER: &str = "L3W5N0F8Q2J7";
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_engagement_reach_followers_with_tag() -> Result<()> {
     test_reach_filter_with_posts(
         BOGOTA,
@@ -138,7 +138,7 @@ async fn test_stream_posts_by_engagement_reach_followers_with_tag() -> Result<()
     .await
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_engagement_reach_followers_with_tag_and_start() -> Result<()> {
     test_reach_filter_with_posts(
         BOGOTA,
@@ -154,7 +154,7 @@ async fn test_stream_posts_by_engagement_reach_followers_with_tag_and_start() ->
     .await
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_engagement_reach_followers_with_tag_start_and_skip() -> Result<()> {
     test_reach_filter_with_posts(
         BOGOTA,
@@ -170,7 +170,7 @@ async fn test_stream_posts_by_engagement_reach_followers_with_tag_start_and_skip
     .await
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_engagement_reach_followers_with_tag_start_skip_and_limit(
 ) -> Result<()> {
     test_reach_filter_with_posts(
@@ -189,7 +189,7 @@ async fn test_stream_posts_by_engagement_reach_followers_with_tag_start_skip_and
     .await
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_engagement_reach_followers_with_tag_and_end() -> Result<()> {
     test_reach_filter_with_posts(
         BOGOTA,
@@ -205,7 +205,7 @@ async fn test_stream_posts_by_engagement_reach_followers_with_tag_and_end() -> R
     .await
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_engagement_reach_followers_with_tag_start_and_end() -> Result<()> {
     test_reach_filter_with_posts(
         BOGOTA,
@@ -229,7 +229,7 @@ const EIXAMPLE: &str = "8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy";
 pub const POST_EA_FR: &str = "M4X1P9L2J6K8";
 pub const POST_EB_FR: &str = "L3W5N0F8Q2J7";
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_engagement_reach_friends_with_tag() -> Result<()> {
     test_reach_filter_with_posts(
         EIXAMPLE,
@@ -245,7 +245,7 @@ async fn test_stream_posts_by_engagement_reach_friends_with_tag() -> Result<()> 
     .await
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_not_found_posts_by_engagement_reach_friends_with_tag() -> Result<()> {
     let path = format!("{ROOT_PATH}?sorting=total_engagement&tags=opensource&source=friends&observer_id={EIXAMPLE}&skip=2");
     make_wrong_request(&path, Some(404)).await?;

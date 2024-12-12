@@ -15,7 +15,7 @@ const CHILD_4_POST_ID: &str = "5F8YQJ1L2D3E";
 const CHILD_5_POST_ID: &str = "6G3ZB9X0H7M4";
 const CHILD_6_POST_ID: &str = "7N8K0Y1C3T2Q";
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_replies() -> Result<()> {
     let path = format!(
         "{ROOT_PATH}?source=post_replies&author_id={}&post_id={}",
@@ -49,7 +49,7 @@ async fn test_stream_posts_replies() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_replies_with_limit() -> Result<()> {
     let path = format!(
         "{ROOT_PATH}?source=post_replies&author_id={}&post_id={}&limit=3",
@@ -76,7 +76,7 @@ async fn test_stream_posts_replies_with_limit() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_replies_with_start_query() -> Result<()> {
     let path = format!(
         "{ROOT_PATH}?source=post_replies&author_id={}&post_id={}&start=1719477230025",
@@ -103,7 +103,7 @@ async fn test_stream_posts_replies_with_start_query() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_replies_with_end_query() -> Result<()> {
     let path = format!(
         "{ROOT_PATH}?source=post_replies&author_id={}&post_id={}&end=1719477230060",
@@ -130,7 +130,7 @@ async fn test_stream_posts_replies_with_end_query() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_replies_with_start_and_end_query() -> Result<()> {
     let path = format!(
         "{ROOT_PATH}?source=post_replies&author_id={}&post_id={}&start=1719477230150&end=1719477230017",
@@ -162,7 +162,7 @@ async fn test_stream_posts_replies_with_start_and_end_query() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_replies_with_start_and_end_also_limit_query() -> Result<()> {
     let path = format!(
         "{ROOT_PATH}?source=post_replies&author_id={}&post_id={}&start=1719477230150&end=1719477230017&limit=3",

@@ -1,7 +1,7 @@
 use crate::service::utils::HOST_URL;
 use anyhow::Result;
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_user_endpoint() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 
@@ -66,7 +66,7 @@ async fn test_user_endpoint() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_get_relationship() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 
@@ -92,7 +92,7 @@ async fn test_get_relationship() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_get_counts() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 
@@ -119,7 +119,7 @@ async fn test_get_counts() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_get_details() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 
@@ -148,7 +148,7 @@ async fn test_get_details() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_get_muted() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 

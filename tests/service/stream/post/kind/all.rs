@@ -25,7 +25,7 @@ pub const END_TIMELINE: &str = "1980477299303";
 pub const PUBKY_TAG: &str = "pubky";
 pub const FK_TAG: &str = "4k";
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_post_kind() -> Result<()> {
     let path = format!("{ROOT_PATH}?author_id={BOGOTA}&source=author");
 
@@ -38,7 +38,7 @@ async fn test_stream_post_kind() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_post_kind_with_start_and_end() -> Result<()> {
     let path = format!(
         "{ROOT_PATH}?author_id={BOGOTA}&source=author&start={START_TIMELINE}&end={END_TIMELINE}"
@@ -51,7 +51,7 @@ async fn test_stream_post_kind_with_start_and_end() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_post_kind_with_tag() -> Result<()> {
     let path = format!("{ROOT_PATH}?author_id={BOGOTA}&source=author&tags={PUBKY_TAG}");
 

@@ -17,7 +17,7 @@ const USER_A: &str = "cjoodgkwaf1bwepoe8m6zsp8guobh5wdwmqqnk496jcd175jjwey";
 const USER_B: &str = "fs8qf51odhpf9ecoms8i9tbjtyshhjdejpsf3nxcbup3ugs7q4xo";
 const USER_C: &str = "cuimec4ngawamq8wa6fjzki6boxmwqcm11x6g7ontufrjwgdaxqo";
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_wot_user_tags_endpoints() -> Result<()> {
     // Make sure, we still not index the WoT tags
     let path = format!(

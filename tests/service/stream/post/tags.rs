@@ -7,7 +7,7 @@ use super::{POST_A, POST_B, POST_C, POST_D, POST_E, POST_F, POST_G, POST_H};
 use super::{ROOT_PATH, VIEWER_ID};
 use super::{TAG_LABEL_1, TAG_LABEL_2, TAG_LABEL_3, TAG_LABEL_4};
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_post_tag_search() -> Result<()> {
     let post_order = vec![POST_C, POST_B, POST_A, POST_D, POST_E, POST_F];
     let path = format!("{}?tags={}&limit=6", ROOT_PATH, TAG_LABEL_2);
@@ -26,7 +26,7 @@ async fn test_post_tag_search() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_post_tag_search_with_limit() -> Result<()> {
     let post_order = vec![POST_C, POST_B];
     let path = format!("{}?tags={}&limit=2", ROOT_PATH, TAG_LABEL_2);
@@ -45,7 +45,7 @@ async fn test_post_tag_search_with_limit() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_post_tag_search_with_skip() -> Result<()> {
     let post_order = vec![POST_G, POST_H];
     let path = format!("{}?tags={}&skip=6", ROOT_PATH, TAG_LABEL_2);
@@ -64,7 +64,7 @@ async fn test_post_tag_search_with_skip() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_post_tag_search_with_skip_and_limit() -> Result<()> {
     let post_order = vec![POST_B];
     let path = format!("{}?tags={}&skip=1&limit=1", ROOT_PATH, TAG_LABEL_2);
@@ -83,7 +83,7 @@ async fn test_post_tag_search_with_skip_and_limit() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_post_tag_search_with_viewer_id() -> Result<()> {
     const BOOKMARK_ID: &str = "A9G7F2L4Q1W3";
 
@@ -102,7 +102,7 @@ async fn test_post_tag_search_with_viewer_id() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_tag() -> Result<()> {
     let path = format!("{ROOT_PATH}?tags={}&sorting=timeline", TAG_LABEL_1);
     let body = make_request(&path).await?;
@@ -146,7 +146,7 @@ pub const POST_TM: &str = "2ZDYA7MH312G0";
 pub const START_TIMELINE: &str = "1719244802772";
 pub const END_TIMELINE: &str = "1719231303114";
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_tag_timeline_with_start() -> Result<()> {
     let path = format!("{ROOT_PATH}?tags={TAG_LABEL_1}&sorting=timeline&start={START_TIMELINE}");
 
@@ -160,7 +160,7 @@ async fn test_stream_posts_by_tag_timeline_with_start() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_tag_timeline_with_start_and_end() -> Result<()> {
     let path = format!(
         "{ROOT_PATH}?tags={TAG_LABEL_1}&sorting=timeline&start={START_TIMELINE}&end={END_TIMELINE}"
@@ -174,7 +174,7 @@ async fn test_stream_posts_by_tag_timeline_with_start_and_end() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_tag_timeline_with_end() -> Result<()> {
     let path = format!("{ROOT_PATH}?tags={TAG_LABEL_1}&sorting=timeline&end={START_TIMELINE}");
 
@@ -186,7 +186,7 @@ async fn test_stream_posts_by_tag_timeline_with_end() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_tag_timeline_with_end_and_skip() -> Result<()> {
     let path =
         format!("{ROOT_PATH}?tags={TAG_LABEL_1}&sorting=timeline&end={START_TIMELINE}&skip=2");
@@ -199,7 +199,7 @@ async fn test_stream_posts_by_tag_timeline_with_end_and_skip() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_tag_timeline_with_start_skip_and_limit() -> Result<()> {
     let path = format!(
         "{ROOT_PATH}?tags={TAG_LABEL_1}&sorting=timeline&start={START_TIMELINE}&skip=2&limit=5"
@@ -213,7 +213,7 @@ async fn test_stream_posts_by_tag_timeline_with_start_skip_and_limit() -> Result
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_multiple_tags() -> Result<()> {
     let path = format!(
         "{ROOT_PATH}?tags={},{},{}&sorting=timeline&limit=30",
@@ -267,7 +267,7 @@ pub const POST_EL: &str = "2ZDYGS5S86D00";
 pub const ENGAGEMENT_SCORE_START: &str = "6";
 pub const ENGAGEMENT_SCORE_END: &str = "4";
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_tag_posts_by_engagment_tag() -> Result<()> {
     let path = format!("{ROOT_PATH}?tags={}&sorting=total_engagement", TAG_LABEL_1);
 
@@ -292,7 +292,7 @@ async fn test_stream_tag_posts_by_engagment_tag() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_tag_posts_by_engagement_with_start() -> Result<()> {
     let path = format!(
         "{}?tags={}&sorting=total_engagement&start={}",
@@ -309,7 +309,7 @@ async fn test_stream_tag_posts_by_engagement_with_start() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_tag_posts_by_engagement_with_start_and_end() -> Result<()> {
     let path = format!(
         "{}?tags={}&sorting=total_engagement&start={}&end={}",
@@ -324,7 +324,7 @@ async fn test_stream_tag_posts_by_engagement_with_start_and_end() -> Result<()> 
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_tag_posts_by_engagement_with_start_and_limit() -> Result<()> {
     let path = format!(
         "{}?tags={}&sorting=total_engagement&start={}&limit=6",
@@ -339,7 +339,7 @@ async fn test_stream_tag_posts_by_engagement_with_start_and_limit() -> Result<()
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_tag_posts_by_engagement_with_end_skip_and_limit() -> Result<()> {
     let path = format!(
         "{}?tags={}&sorting=total_engagement&end={}&skip=3&limit=6",
@@ -354,7 +354,7 @@ async fn test_stream_tag_posts_by_engagement_with_end_skip_and_limit() -> Result
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_post_specific_tag_with_no_result() -> Result<()> {
     let path = format!("{}?tags={}", ROOT_PATH, "randommm");
     make_wrong_request(&path, None).await?;

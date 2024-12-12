@@ -8,7 +8,7 @@ use pubky_nexus::types::Pagination;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_post_repost_notification() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(false).await?;
 
     let alice_keypair = Keypair::random();
 

@@ -21,7 +21,7 @@ pub const POST_TJ: &str = "2ZHT82S7G2M00";
 
 pub const START_TIMELINE: &str = "1722261385301";
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_global_timeline() -> Result<()> {
     let path = format!("{ROOT_PATH}?sorting=timeline");
     let body = make_request(&path).await?;
@@ -42,7 +42,7 @@ async fn test_stream_posts_global_timeline() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_global_timeline_with_start() -> Result<()> {
     let path = format!("{ROOT_PATH}?sorting=timeline&start={START_TIMELINE}");
 
@@ -56,7 +56,7 @@ async fn test_stream_posts_global_timeline_with_start() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_global_timeline_with_start_and_limit() -> Result<()> {
     let path = format!("{ROOT_PATH}?sorting=timeline&start={START_TIMELINE}&limit=5");
 
@@ -68,7 +68,7 @@ async fn test_stream_posts_global_timeline_with_start_and_limit() -> Result<()> 
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_global_timeline_with_start_and_limit_and_skip() -> Result<()> {
     let path = format!("{ROOT_PATH}?sorting=timeline&start={START_TIMELINE}&skip=3&limit=5");
 
@@ -80,7 +80,7 @@ async fn test_stream_posts_global_timeline_with_start_and_limit_and_skip() -> Re
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_global_total_engagement() -> Result<()> {
     let path = format!("{ROOT_PATH}?sorting=total_engagement");
     let body = make_request(&path).await?;
@@ -131,7 +131,7 @@ pub const POST_00: &str = "2Z1P68V42JJ00";
 
 pub const ENGAGEMENT_SCORE: &str = "10";
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_global_total_engagement_with_start_score() -> Result<()> {
     let path = format!(
         "{}?sorting=total_engagement&start={}",
@@ -148,7 +148,7 @@ async fn test_stream_posts_global_total_engagement_with_start_score() -> Result<
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_global_total_engagement_with_start_end_score() -> Result<()> {
     let path = format!(
         "{}?sorting=total_engagement&start={}&end={}",
@@ -163,7 +163,7 @@ async fn test_stream_posts_global_total_engagement_with_start_end_score() -> Res
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_global_total_engagement_with_end_score() -> Result<()> {
     let path = format!(
         "{}?sorting=total_engagement&end={}",
@@ -178,7 +178,7 @@ async fn test_stream_posts_global_total_engagement_with_end_score() -> Result<()
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_post_tag_search_by_engagement() -> Result<()> {
     let post_order = vec![POST_A, POST_H, POST_C, POST_B];
     let path = format!(
@@ -198,7 +198,7 @@ async fn test_post_tag_search_by_engagement() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_post_tag_search_by_engagement_with_skip() -> Result<()> {
     let post_order = vec![POST_G, POST_F];
     let path = format!(
@@ -220,7 +220,7 @@ async fn test_post_tag_search_by_engagement_with_skip() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_post_tag_search_by_engagement_with_skip_and_limit() -> Result<()> {
     let post_order = vec![POST_H];
     let path = format!(
@@ -242,7 +242,7 @@ async fn test_post_tag_search_by_engagement_with_skip_and_limit() -> Result<()> 
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_combined_parameters() -> Result<()> {
     // This one should hit the graph
     let observer_id = USER_ID;
@@ -274,7 +274,7 @@ async fn test_stream_combined_parameters() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_invalid_sorting() -> Result<()> {
     // Invalid sorting option should fail
     let endpoint = "/v0/stream/posts?sorting=invalid";

@@ -2,7 +2,7 @@ use super::ROOT_PATH;
 use crate::service::utils::make_request;
 use anyhow::Result;
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_user_replies() -> Result<()> {
     let author_id = "pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy";
     let path = format!(

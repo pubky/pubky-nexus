@@ -8,7 +8,7 @@ use super::utils::{analyse_tag_details_structure, compare_tag_details, TagMockup
 const PUBKY_PEER: &str = "5f4e8eoogmkhqeyo5ijdix3ma6rw9byj8m36yrjp78pnxxc379to";
 const PUBKY_LABEL: &str = "pubky";
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_full_user_tags_endpoint() -> Result<()> {
     let path = format!("/v0/user/{}/tags", PUBKY_PEER);
     let body = make_request(&path).await?;
@@ -28,7 +28,7 @@ async fn test_full_user_tags_endpoint() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_user_tags_limit_tag_filter_active() -> Result<()> {
     let path = format!("/v0/user/{}/tags?limit_tags=2", PUBKY_PEER);
     let body = make_request(&path).await?;
@@ -48,7 +48,7 @@ async fn test_user_tags_limit_tag_filter_active() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_user_tags_limit_taggers_filter_active() -> Result<()> {
     let path = format!("/v0/user/{}/tags?limit_taggers=1", PUBKY_PEER);
     let body = make_request(&path).await?;
@@ -68,7 +68,7 @@ async fn test_user_tags_limit_taggers_filter_active() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_user_tags_full_filter_active() -> Result<()> {
     let path = format!("/v0/user/{}/tags?limit_tags=1&limit_taggers=1", PUBKY_PEER);
     let body = make_request(&path).await?;
@@ -88,7 +88,7 @@ async fn test_user_tags_full_filter_active() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_user_does_not_exist() -> Result<()> {
     let endpoint = format!(
         "/v0/user/{}/tags",
@@ -101,7 +101,7 @@ async fn test_user_does_not_exist() -> Result<()> {
 
 // #### USER TAGGERS ######
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_user_specific_tag() -> Result<()> {
     let path = format!("/v0/user/{}/taggers/{}", PUBKY_PEER, PUBKY_LABEL);
     let body = make_request(&path).await?;
@@ -119,7 +119,7 @@ async fn test_user_specific_tag() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_user_specific_tag_with_limit() -> Result<()> {
     let path = format!("/v0/user/{}/taggers/{}?limit=1", PUBKY_PEER, PUBKY_LABEL);
     let body = make_request(&path).await?;
@@ -137,7 +137,7 @@ async fn test_user_specific_tag_with_limit() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_user_specific_tag_with_skip() -> Result<()> {
     let path = format!("/v0/user/{}/taggers/{}?skip=1", PUBKY_PEER, PUBKY_LABEL);
     let body = make_request(&path).await?;
@@ -155,7 +155,7 @@ async fn test_user_specific_tag_with_skip() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_user_specific_tag_with_full_filters() -> Result<()> {
     let path = format!(
         "/v0/user/{}/taggers/{}?skip=2&limit=1",
@@ -176,7 +176,7 @@ async fn test_user_specific_tag_with_full_filters() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_user_specific_tag_with_no_result() -> Result<()> {
     let path = format!(
         "/v0/user/{}/taggers/{}?skip=3&limit=1",

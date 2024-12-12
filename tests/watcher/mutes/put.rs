@@ -7,7 +7,7 @@ use pubky_nexus::models::user::{Muted, Relationship};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_put_mute() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(false).await?;
 
     // Create first user (muter)
     let muter_keypair = Keypair::random();

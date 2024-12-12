@@ -10,6 +10,8 @@ use pubky_homeserver::Homeserver;
 use pubky_nexus::{setup, Config, EventProcessor};
 use serde_json::to_vec;
 
+use crate::utils::TestServiceServer;
+
 /// Struct to hold the setup environment for tests
 pub struct WatcherTest {
     pub homeserver: Homeserver,
@@ -17,10 +19,11 @@ pub struct WatcherTest {
     pub event_processor: EventProcessor,
     pub config: Config,
     pub ensure_event_processing: bool,
+    pub service_server: Option<TestServiceServer>,
 }
 
 impl WatcherTest {
-    pub async fn setup() -> Result<Self> {
+    pub async fn setup(with_service_server: bool) -> Result<Self> {
         let config = Config::from_env();
         setup(&config).await;
 
@@ -29,6 +32,10 @@ impl WatcherTest {
         let client = PubkyClient::test(&testnet);
         let homeserver_url = format!("http://localhost:{}", homeserver.port());
         let event_processor = EventProcessor::test(&testnet, homeserver_url).await;
+        let service_server = match with_service_server {
+            true => Some(TestServiceServer::get_test_server().await),
+            false => None,
+        };
 
         Ok(Self {
             config,
@@ -36,6 +43,7 @@ impl WatcherTest {
             client,
             event_processor,
             ensure_event_processing: true,
+            service_server,
         })
     }
 

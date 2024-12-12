@@ -23,7 +23,7 @@ const POST_PK: &str = "2ZFWAA83B97G0";
 pub const START_TIMELINE: &str = "1980477299350";
 pub const END_TIMELINE: &str = "1980477299312";
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_link_post_kind() -> Result<()> {
     let path = format!("{ROOT_PATH}?kind={KIND}");
 
@@ -37,7 +37,7 @@ async fn test_stream_link_post_kind() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_link_post_kind_with_start() -> Result<()> {
     let path = format!("{ROOT_PATH}?kind={KIND}&start={START_TIMELINE}");
 
@@ -51,7 +51,7 @@ async fn test_stream_link_post_kind_with_start() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_link_post_kind_with_end() -> Result<()> {
     let path = format!("{ROOT_PATH}?kind={KIND}&end={START_TIMELINE}");
 
@@ -62,7 +62,7 @@ async fn test_stream_link_post_kind_with_end() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_link_post_kind_with_start_and_end() -> Result<()> {
     let path = format!("{ROOT_PATH}?kind={KIND}&start={START_TIMELINE}&end={END_TIMELINE}");
 
@@ -73,7 +73,7 @@ async fn test_stream_link_post_kind_with_start_and_end() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_link_post_kind_with_author() -> Result<()> {
     let path = format!("{ROOT_PATH}?kind={KIND}&author_id={BOGOTA}&source=author");
 
@@ -84,7 +84,7 @@ async fn test_stream_link_post_kind_with_author() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_link_post_kind_with_author_skip_and_limit() -> Result<()> {
     let path = format!("{ROOT_PATH}?kind={KIND}&author_id={BOGOTA}&source=author&skip=1&limit=1");
 
@@ -97,7 +97,7 @@ async fn test_stream_link_post_kind_with_author_skip_and_limit() -> Result<()> {
 
 // ##### REACH: FOLLOWERS ####
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_post_kind_followers() -> Result<()> {
     let path = format!("{ROOT_PATH}?source=followers&observer_id={DETROIT}&kind={KIND}");
 
@@ -110,7 +110,7 @@ async fn test_stream_post_kind_followers() -> Result<()> {
 
 const REACH_START_TIMELINE: &str = "1980477299360";
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_post_kind_followers_with_start() -> Result<()> {
     let path = format!("{ROOT_PATH}?source=followers&observer_id={DETROIT}&kind={KIND}&start={REACH_START_TIMELINE}");
 
@@ -123,7 +123,7 @@ async fn test_stream_post_kind_followers_with_start() -> Result<()> {
 
 // ##### REACH: FOLLOWING ####
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_post_kind_following() -> Result<()> {
     let path = format!("{ROOT_PATH}?source=following&observer_id={AMSTERDAM}&kind={KIND}");
 
@@ -134,7 +134,7 @@ async fn test_stream_post_kind_following() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_post_kind_following_with_start() -> Result<()> {
     let path = format!(
         "{ROOT_PATH}?source=following&observer_id={AMSTERDAM}&kind={KIND}&start=1980477299330"
@@ -149,7 +149,7 @@ async fn test_stream_post_kind_following_with_start() -> Result<()> {
 
 // ##### REACH: FRIENDS ####
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_post_kind_friends() -> Result<()> {
     let path = format!("{ROOT_PATH}?source=friends&observer_id={DETROIT}&kind={KIND}");
 
@@ -160,7 +160,7 @@ async fn test_stream_post_kind_friends() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_post_kind_friends_with_start() -> Result<()> {
     let path = format!(
         "{ROOT_PATH}?source=friends&observer_id={DETROIT}&kind={KIND}&start={REACH_START_TIMELINE}"

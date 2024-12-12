@@ -4,7 +4,7 @@ use serde_json::json;
 
 // ##### LIST OF USERS BY ID ######
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_users_by_ids_valid_request() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 
@@ -57,7 +57,7 @@ async fn test_stream_users_by_ids_valid_request() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_users_by_ids_limit_exceeded() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 
@@ -83,7 +83,7 @@ async fn test_stream_users_by_ids_limit_exceeded() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_users_by_ids_with_invalid_ids() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 
@@ -133,7 +133,7 @@ async fn test_stream_users_by_ids_with_invalid_ids() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_users_by_ids_empty_list() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 
@@ -161,7 +161,7 @@ async fn test_stream_users_by_ids_empty_list() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_users_by_ids_with_viewer_id() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 

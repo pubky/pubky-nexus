@@ -9,7 +9,7 @@ use pubky_nexus::{
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_mentions_notifications() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(false).await?;
 
     // Create first user (author)
     let author_keypair = Keypair::random();

@@ -1,7 +1,7 @@
 use crate::service::utils::HOST_URL;
 use anyhow::Result;
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_search_users_by_username() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 
@@ -41,7 +41,7 @@ async fn test_search_users_by_username() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_search_non_existing_user() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 
@@ -75,7 +75,7 @@ async fn test_search_non_existing_user() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_search_empty_username() -> Result<()> {
     let client = httpc_test::new_client(HOST_URL)?;
 

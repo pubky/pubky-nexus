@@ -6,7 +6,7 @@ use anyhow::Result;
 // User with most bookmarks
 const BOOKMARKER_ID: &str = "o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo";
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_bookmarked_posts() -> Result<()> {
     let observer_id = BOOKMARKER_ID;
     let path = format!("{ROOT_PATH}?observer_id={}&source=bookmarks", observer_id);
@@ -40,7 +40,7 @@ pub const POST_TK: &str = "2ZAX1DBDD5YG0";
 pub const START_TIMELINE: &str = "1724134149050";
 pub const END_TIMELINE: &str = "1724134141150";
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_user_bookmarks_by_timeline_with_start() -> Result<()> {
     let path =
         format!("{ROOT_PATH}?observer_id={BOOKMARKER_ID}&source=bookmarks&start={START_TIMELINE}");
@@ -54,7 +54,7 @@ async fn test_stream_user_bookmarks_by_timeline_with_start() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_user_bookmarks_by_timeline_with_start_and_end() -> Result<()> {
     let path = format!(
         "{ROOT_PATH}?observer_id={BOOKMARKER_ID}&source=bookmarks&start={START_TIMELINE}&end={END_TIMELINE}"
@@ -69,7 +69,7 @@ async fn test_stream_user_bookmarks_by_timeline_with_start_and_end() -> Result<(
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_user_bookmarks_by_timeline_with_skip_end() -> Result<()> {
     let path = format!(
         "{ROOT_PATH}?observer_id={BOOKMARKER_ID}&source=bookmarks&limit=5&end={END_TIMELINE}"

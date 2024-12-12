@@ -54,7 +54,7 @@ fn compare_unit_hot_tag(tag: &Value, hot_tag: StreamTagMockup) {
     assert_eq!(tagger_ids.len(), hot_tag.tagger_ids);
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_global_hot_tags() -> Result<()> {
     let body = make_request("/v0/tags/hot").await?;
 
@@ -72,7 +72,7 @@ async fn test_global_hot_tags() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_global_hot_tags_with_today_timeframe() -> Result<()> {
     let body = make_request("/v0/tags/hot?timeframe=today").await?;
 
@@ -90,7 +90,7 @@ async fn test_global_hot_tags_with_today_timeframe() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_global_hot_tags_with_this_month_timeframe() -> Result<()> {
     let body = make_request("/v0/tags/hot?timeframe=this_month").await?;
 
@@ -108,7 +108,7 @@ async fn test_global_hot_tags_with_this_month_timeframe() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_global_hot_tags_skip_limit() -> Result<()> {
     let body = make_request("/v0/tags/hot?skip=3&limit=5").await?;
 
@@ -129,7 +129,7 @@ async fn test_global_hot_tags_skip_limit() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_hot_tags_by_following_reach() -> Result<()> {
     let endpoint = &format!("/v0/tags/hot?user_id={}&reach=following", PEER_PUBKY,);
 
@@ -148,7 +148,7 @@ async fn test_hot_tags_by_following_reach() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_hot_tags_by_reach_no_user_id() -> Result<()> {
     let endpoint = "/v0/tags/hot?reach=following";
 
@@ -157,7 +157,7 @@ async fn test_hot_tags_by_reach_no_user_id() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_hot_tags_by_reach_no_reach() -> Result<()> {
     let endpoint = &format!("/v0/tags/hot?user_id={}", PEER_PUBKY);
 
@@ -166,7 +166,7 @@ async fn test_hot_tags_by_reach_no_reach() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_hot_tags_by_following_using_taggers_limit() -> Result<()> {
     let endpoint = &format!(
         "/v0/tags/hot?user_id={}&reach=following&taggers_limit=3",
@@ -188,7 +188,7 @@ async fn test_hot_tags_by_following_using_taggers_limit() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_hot_tags_by_followers_reach() -> Result<()> {
     let endpoint = &format!("/v0/tags/hot?user_id={}&reach=followers", PEER_PUBKY);
 
@@ -207,7 +207,7 @@ async fn test_hot_tags_by_followers_reach() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_hot_tags_by_friends_reach() -> Result<()> {
     let endpoint = &format!("/v0/tags/hot?user_id={}&reach=friends", PEER_PUBKY);
 
