@@ -1,4 +1,4 @@
-use crate::watcher::utils::WatcherTest;
+use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
 use pubky_app_specs::{traits::HashId, PubkyAppTag, PubkyAppUser};
@@ -52,7 +52,7 @@ async fn test_homeserver_put_tag_user_notification() -> Result<()> {
     );
 
     // Put tag
-    test.create_tag(tag_url.as_str(), tag_blob).await?;
+    test.put(tag_url.as_str(), tag_blob).await?;
 
     // Check if the tagged user received a notification
     let notifications = Notification::get_by_id(&tagged_user_id, Pagination::default())

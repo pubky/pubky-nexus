@@ -8,12 +8,9 @@ use crate::types::DynError;
 use crate::types::PubkyId;
 use crate::{models::homeserver::Homeserver, Config};
 use log::{debug, error, info};
-use pkarr::mainline::dht::Testnet;
-use pubky::PubkyClient;
 use reqwest::Client;
 
 pub struct EventProcessor {
-    pubky_client: PubkyClient,
     http_client: Client,
     pub homeserver: Homeserver,
     limit: u32,
@@ -29,7 +26,6 @@ pub enum EventErrorType {
 
 impl EventProcessor {
     pub async fn from_config(config: &Config, tx: SenderChannel) -> Result<Self, DynError> {
-        let pubky_client = Self::init_pubky_client(config);
         let homeserver = Homeserver::from_config(config).await?;
         let limit = config.events_limit;
         let max_retries = config.max_retries;
@@ -40,7 +36,6 @@ impl EventProcessor {
         );
 
         Ok(Self {
-            pubky_client,
             http_client: Client::new(),
             homeserver,
             limit,
@@ -49,23 +44,17 @@ impl EventProcessor {
         })
     }
 
-    fn init_pubky_client(config: &Config) -> PubkyClient {
-        if config.testnet {
-            let testnet = Testnet {
-                bootstrap: vec![config.bootstrap.clone()],
-                nodes: vec![],
-            };
-            PubkyClient::test(&testnet)
-        } else {
-            PubkyClient::default()
-        }
-    }
-
-    pub async fn test(testnet: &Testnet, homeserver_url: String, tx: SenderChannel) -> Self {
+    /// Creates a new `EventProcessor` instance for testing purposes.
+    ///
+    /// Initializes an `EventProcessor` with a mock homeserver and a default configuration,
+    /// making it suitable for use in integration tests and benchmarking scenarios.
+    ///
+    /// # Parameters
+    /// - `homeserver_url`: The URL of the homeserver to be used in the test environment.
+    pub async fn test(homeserver_url: String, tx: SenderChannel) -> Self {
         let id = PubkyId("test".to_string());
         let homeserver = Homeserver::new(id, homeserver_url).await.unwrap();
         Self {
-            pubky_client: PubkyClient::builder().testnet(testnet).build(),
             http_client: Client::new(),
             homeserver,
             limit: 1000,
@@ -82,7 +71,13 @@ impl EventProcessor {
         Ok(())
     }
 
-    async fn poll_events(&mut self) -> Result<Option<Vec<String>>, Box<dyn std::error::Error>> {
+    /// Polls new events from the homeserver.
+    ///
+    /// It sends a GET request to the homeserver's events endpoint
+    /// using the current cursor and a specified limit. It retrieves new event
+    /// URIs in a newline-separated format, processes it into a vector of strings,
+    /// and returns the result.
+    async fn poll_events(&mut self) -> Result<Option<Vec<String>>, DynError> {
         debug!("Polling new events from homeserver");
         let res = self
             .http_client
@@ -106,6 +101,14 @@ impl EventProcessor {
         }
     }
 
+    /// Processes a batch of event lines retrieved from the homeserver.
+    ///
+    /// This function iterates over a vector of event URIs, handling each line based on its content:
+    /// - Lines starting with `cursor:` update the cursor for the homeserver and save it to the index.
+    /// - Other lines are parsed into events and processed accordingly. If parsing fails, an error is logged.
+    ///
+    /// # Parameters
+    /// - `lines`: A vector of strings representing event lines retrieved from the homeserver.
     pub async fn process_event_lines(&mut self, lines: Vec<String>) -> Result<(), DynError> {
         for line in &lines {
             if line.starts_with("cursor:") {
@@ -115,7 +118,7 @@ impl EventProcessor {
                     info!("Cursor for the next request: {}", cursor);
                 }
             } else {
-                let event = match Event::from_str(line, self.pubky_client.clone()) {
+                let event = match Event::from_line(line) {
                     Ok(event) => event,
                     Err(e) => {
                         error!("Error while creating event line from line: {}", e);

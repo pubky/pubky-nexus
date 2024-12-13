@@ -4,10 +4,13 @@ use pubky::PubkyClient;
 use pubky_app_specs::{PubkyAppUser, PubkyAppUserLink};
 use pubky_common::crypto::Keypair;
 use pubky_homeserver::Homeserver;
-use pubky_nexus::EventProcessor;
+use pubky_nexus::{
+    events::retry::{RetryManager, SenderChannel},
+    EventProcessor,
+};
 use setup::run_setup;
 use std::time::Duration;
-use tokio::runtime::Runtime;
+use tokio::{runtime::Runtime, sync::mpsc};
 
 mod setup;
 
@@ -16,7 +19,7 @@ mod setup;
 /// 2. Sign up the user
 /// 3. Upload a profile.json
 /// 4. Delete the profile.json
-async fn create_homeserver_with_events() -> (Testnet, String) {
+async fn create_homeserver_with_events() -> (Testnet, String, SenderChannel) {
     // Create the test environment
     let testnet = Testnet::new(3);
     let homeserver = Homeserver::start_test(&testnet).await.unwrap();
@@ -26,6 +29,14 @@ async fn create_homeserver_with_events() -> (Testnet, String) {
     // Generate user data
     let keypair = Keypair::random();
     let user_id = keypair.public_key().to_z32();
+
+    let retry_manager = RetryManager::initialise(mpsc::channel(1024));
+    // Prepare the sender channel to send the messages to the retry manager
+    let sender_clone = retry_manager.sender.clone();
+    // Create new asynchronous task to control the failed events
+    tokio::spawn(async move {
+        retry_manager.exec().await;
+    });
 
     // Create and delete a user profile (as per your requirement)
     client
@@ -53,7 +64,7 @@ async fn create_homeserver_with_events() -> (Testnet, String) {
     // Delete the user profile
     client.delete(url.as_str()).await.unwrap();
 
-    (testnet, homeserver_url)
+    (testnet, homeserver_url, sender_clone)
 }
 
 fn bench_create_delete_user(c: &mut Criterion) {
@@ -65,13 +76,18 @@ fn bench_create_delete_user(c: &mut Criterion) {
 
     // Set up the environment only once
     let rt = Runtime::new().unwrap();
-    let (testnet, homeserver_url) = rt.block_on(create_homeserver_with_events());
+    let (_, homeserver_url, sender) = rt.block_on(create_homeserver_with_events());
 
     c.bench_function("create_delete_homeserver_user", |b| {
-        b.to_async(&rt).iter(|| async {
-            // Benchmark the event processor initialization and run
-            let mut event_processor = EventProcessor::test(&testnet, homeserver_url.clone()).await;
-            event_processor.run().await.unwrap();
+        b.to_async(&rt).iter(|| {
+            let sender_clone = sender.clone(); // Clone the sender for each iteration
+            let homeserver_url_clone = homeserver_url.clone();
+            async move {
+                // Benchmark the event processor initialization and run
+                let mut event_processor =
+                    EventProcessor::test(homeserver_url_clone, sender_clone).await;
+                event_processor.run().await.unwrap();
+            }
         });
     });
 }
