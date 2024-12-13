@@ -4,9 +4,9 @@ use crate::watcher::{
         check_member_post_tag_global_timeline, check_member_total_engagement_post_tag,
         find_post_tag,
     },
-    users::utils::find_user_counts,
-    utils::WatcherTest,
+    users::utils::find_user_counts
 };
+use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
 use pubky_app_specs::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser};
@@ -93,7 +93,7 @@ async fn test_homeserver_multi_user() -> Result<()> {
             tag.create_id()
         );
         // Put tag
-        test.create_tag(&tag_url, tag_blob).await?;
+        test.put(&tag_url, tag_blob).await?;
         tag_urls.push(tag_url)
     }
 
@@ -112,7 +112,7 @@ async fn test_homeserver_multi_user() -> Result<()> {
             tag.create_id()
         );
         // Put tag
-        test.create_tag(&tag_url, tag_blob).await?;
+        test.put(&tag_url, tag_blob).await?;
         tag_urls.push(tag_url)
     }
 
@@ -230,7 +230,7 @@ async fn test_homeserver_multi_user() -> Result<()> {
 
     // Step 4: DEL tag from homeserver
     for tag_url in tag_urls {
-        test.delete_tag(&tag_url).await?;
+        test.del(&tag_url).await?;
     }
 
     // Step 5: Assert all the DEL operations

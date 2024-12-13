@@ -1,9 +1,10 @@
 use super::utils::find_post_bookmark;
-use crate::watcher::{users::utils::find_user_counts, utils::WatcherTest};
+use crate::watcher::users::utils::find_user_counts;
 use anyhow::Result;
 use pubky_app_specs::{traits::HashId, PubkyAppBookmark, PubkyAppPost, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::post::{Bookmark, PostStream};
+use crate::watcher::utils::watcher::WatcherTest;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_unbookmark() -> Result<()> {
@@ -53,12 +54,12 @@ async fn test_homeserver_unbookmark() -> Result<()> {
     );
 
     // Put bookmark
-    test.create_bookmark(&bookmark_url, bookmark_blob)
+    test.put(&bookmark_url, bookmark_blob)
         .await
         .unwrap();
 
     // Step 4: Delete bookmark
-    test.delete_bookmark(&bookmark_url).await?;
+    test.del(&bookmark_url).await?;
 
     // GRAPH_OP: Assert if the event writes the graph
     let result = find_post_bookmark(&author_id, &post_id, &bookmarker_id).await;

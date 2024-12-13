@@ -1,6 +1,6 @@
 use crate::watcher::{
     users::utils::{find_user_counts, find_user_details},
-    utils::WatcherTest,
+    utils::watcher::WatcherTest,
 };
 use anyhow::Result;
 use chrono::Utc;

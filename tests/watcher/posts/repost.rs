@@ -4,7 +4,7 @@ use super::utils::{
     find_repost_relationship_parent_uri,
 };
 use crate::watcher::users::utils::find_user_counts;
-use crate::watcher::utils::WatcherTest;
+use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser};
 use pubky_common::crypto::Keypair;

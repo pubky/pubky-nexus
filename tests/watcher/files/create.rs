@@ -1,4 +1,4 @@
-use crate::watcher::utils::WatcherTest;
+use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
 use pubky_app_specs::{PubkyAppFile, PubkyAppUser};

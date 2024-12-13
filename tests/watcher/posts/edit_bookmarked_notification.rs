@@ -1,4 +1,4 @@
-use crate::watcher::utils::WatcherTest;
+use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use pubky_app_specs::{
     traits::HashId, PubkyAppBookmark, PubkyAppPost, PubkyAppPostKind, PubkyAppUser,
@@ -57,7 +57,7 @@ async fn test_edit_bookmarked_post_notification() -> Result<()> {
         user_b_id,
         bookmark.create_id()
     );
-    test.create_bookmark(&bookmark_url, bookmark_blob).await?;
+    test.put(&bookmark_url, bookmark_blob).await?;
 
     // User A edits their post
     post.content = "Edited post by User A".to_string();

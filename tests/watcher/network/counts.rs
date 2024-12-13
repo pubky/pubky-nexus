@@ -1,6 +1,6 @@
 // File: ./tests/watcher/network/large_network_test.rs
 
-use crate::watcher::utils::WatcherTest;
+use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use log::info;
 use pubky_app_specs::{
@@ -169,7 +169,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                     bookmark.create_id()
                 );
 
-                test.create_bookmark(&bookmark_url, serde_json::to_vec(&bookmark)?)
+                test.put(&bookmark_url, serde_json::to_vec(&bookmark)?)
                     .await?;
                 total_bookmarks += 1;
             }
@@ -198,7 +198,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
 
                 let tag_url = format!("pubky://{}/pub/pubky.app/tags/{}", user_id, tag.create_id());
 
-                test.create_tag(&tag_url, serde_json::to_vec(&tag)?).await?;
+                test.put(&tag_url, serde_json::to_vec(&tag)?).await?;
                 total_tags += 1;
 
                 // FAILS: possibly deletes a tag twice and decrements twice in index.
@@ -208,7 +208,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                 // Randomly decide to delete the tag
                 if rng.gen_bool(0.1) {
                     // 10% chance to delete the tag
-                    test.delete_tag(&tag_url).await?;
+                    test.del(&tag_url).await?;
                     total_tag_deletions += 1;
                 }
             }
@@ -236,7 +236,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                     "pubky://{}/pub/pubky.app/follows/{}",
                     user_id, target_user_id
                 );
-                test.delete_follow(&follow_uri).await?;
+                test.del(&follow_uri).await?;
                 following_set.remove(target_user_id);
                 total_unfollows += 1;
             }

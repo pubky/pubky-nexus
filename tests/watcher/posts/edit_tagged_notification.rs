@@ -1,4 +1,4 @@
-use crate::watcher::utils::WatcherTest;
+use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
 use pubky_app_specs::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser};
@@ -57,7 +57,7 @@ async fn test_edit_tagged_post_notification() -> Result<()> {
     let tag_url = format!("pubky://{}/pub/pubky.app/tags/{}", user_b_id, tag_id);
 
     // Put tag
-    test.create_tag(&tag_url, tag_blob).await?;
+    test.put(&tag_url, tag_blob).await?;
 
     // User A edits their post
     post.content = "Edited post by User A".to_string();
