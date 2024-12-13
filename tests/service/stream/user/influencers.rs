@@ -175,9 +175,9 @@ async fn test_global_influencers_with_this_month_timeframe() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_influencers_by_source_reach_no_user_id() -> Result<()> {
+async fn test_influencers_by_reach_no_user_id() -> Result<()> {
     let endpoint =
-        "/v0/stream/users?source=influencers&timeframe=this_month&limit=3&source_reach=following";
+        "/v0/stream/users?source=influencers&timeframe=this_month&limit=3&reach=following";
 
     make_wrong_request(endpoint, Some(StatusCode::BAD_REQUEST.as_u16())).await?;
 
@@ -185,7 +185,7 @@ async fn test_influencers_by_source_reach_no_user_id() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_influencers_by_source_reach_no_reach() -> Result<()> {
+async fn test_influencers_by_reach_no_reach() -> Result<()> {
     let endpoint = &format!(
         "/v0/stream/users?source=influencers&timeframe=this_month&limit=3&user_id={}",
         PEER_PUBKY
@@ -198,7 +198,7 @@ async fn test_influencers_by_source_reach_no_reach() -> Result<()> {
 
 #[tokio::test]
 async fn test_influencers_by_following_reach() -> Result<()> {
-    let endpoint = &format!("/v0/stream/users?source=influencers&timeframe=this_month&limit=3&user_id={}&source_reach=following", PEER_PUBKY);
+    let endpoint = &format!("/v0/stream/users?source=influencers&timeframe=this_month&limit=3&user_id={}&reach=following", PEER_PUBKY);
 
     let body = make_request(endpoint).await?;
     assert!(body.is_array());
@@ -225,7 +225,7 @@ async fn test_influencers_by_following_reach() -> Result<()> {
 
 #[tokio::test]
 async fn test_influencers_by_followers_reach() -> Result<()> {
-    let endpoint = &format!("/v0/stream/users?source=influencers&timeframe=this_month&limit=3&user_id={}&source_reach=followers", PEER_PUBKY);
+    let endpoint = &format!("/v0/stream/users?source=influencers&timeframe=this_month&limit=3&user_id={}&reach=followers", PEER_PUBKY);
 
     let body = make_request(endpoint).await?;
     assert!(body.is_array());
@@ -250,7 +250,10 @@ async fn test_influencers_by_followers_reach() -> Result<()> {
 
 #[tokio::test]
 async fn test_influencers_by_friends_reach() -> Result<()> {
-    let endpoint = &format!("/v0/stream/users?source=influencers&timeframe=this_month&limit=3&user_id={}&source_reach=friends", PEER_PUBKY);
+    let endpoint = &format!(
+        "/v0/stream/users?source=influencers&timeframe=this_month&limit=3&user_id={}&reach=friends",
+        PEER_PUBKY
+    );
 
     let body = make_request(endpoint).await?;
     assert!(body.is_array());

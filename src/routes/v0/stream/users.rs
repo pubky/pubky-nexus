@@ -17,7 +17,7 @@ pub struct UserStreamQuery {
     skip: Option<usize>,
     limit: Option<usize>,
     source: Option<UserStreamSource>,
-    source_reach: Option<StreamReach>,
+    reach: Option<StreamReach>,
     depth: Option<u8>,
     timeframe: Option<Timeframe>,
     preview: Option<bool>,
@@ -34,7 +34,7 @@ pub struct UserStreamQuery {
         ("skip" = Option<usize>, Query, description = "Skip N followers"),
         ("limit" = Option<usize>, Query, description = "Retrieve N followers"),
         ("source" = Option<UserStreamSource>, Query, description = "Source of users for the stream."),
-        ("source_reach" = Option<StreamReach>, Query, description = "The target reach of the source. Supported in 'influencers' source."),
+        ("reach" = Option<StreamReach>, Query, description = "The target reach of the source. Supported in 'influencers' source."),
         ("depth" = Option<usize>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 4, will be ignored"),
         ("timeframe" = Option<Timeframe>, Query, description = "Timeframe for sources supporting a range"),
         ("preview" = Option<bool>, Query, description = "Provide a random selection of size 3 for sources supporting preview. Passing preview ignores skip and limit parameters.")
@@ -89,22 +89,20 @@ pub async fn stream_users_handler(
                         .to_string(),
                 })
             }
-            UserStreamSource::Influencers => match query.source_reach {
+            UserStreamSource::Influencers => match query.reach {
                 None => (),
-                Some(_) => {
-                    return Err(Error::InvalidInput {
-                        message:
-                            "source_reach query param must be provided for source 'influencers' with a user_id"
-                                .to_string(),
-                    })
-                }
+                Some(_) => return Err(Error::InvalidInput {
+                    message:
+                        "reach query param must be provided for source 'influencers' with a user_id"
+                            .to_string(),
+                }),
             },
             _ => (),
         }
-    } else if source == UserStreamSource::Influencers && query.source_reach.is_none() {
+    } else if source == UserStreamSource::Influencers && query.reach.is_none() {
         return Err(Error::InvalidInput {
                 message:
-                    "source_reach query param must be provided for source 'influencers' when you pass a user_id"
+                    "reach query param must be provided for source 'influencers' when you pass a user_id"
                         .to_string(),
             });
     }
@@ -115,7 +113,7 @@ pub async fn stream_users_handler(
         skip: Some(skip),
         limit: Some(limit),
         source: source.clone(),
-        source_reach: query.source_reach,
+        reach: query.reach,
         depth: query.depth,
         timeframe: Some(timeframe),
         preview: query.preview,

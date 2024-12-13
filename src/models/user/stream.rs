@@ -31,7 +31,7 @@ pub struct UserStreamInput {
     pub skip: Option<usize>,
     pub limit: Option<usize>,
     pub source: UserStreamSource,
-    pub source_reach: Option<StreamReach>,
+    pub reach: Option<StreamReach>,
     pub depth: Option<u8>,
     pub timeframe: Option<Timeframe>,
     pub preview: Option<bool>,
@@ -47,7 +47,7 @@ impl UserStream {
         let user_ids = Self::get_user_list_from_source(
             input.user_id.as_deref(),
             input.source.clone(),
-            input.source_reach.clone(),
+            input.reach.clone(),
             input.skip,
             input.limit,
             input.timeframe.clone(),
@@ -208,7 +208,7 @@ impl UserStream {
     pub async fn get_user_list_from_source(
         user_id: Option<&str>,
         source: UserStreamSource,
-        source_reach: Option<StreamReach>,
+        reach: Option<StreamReach>,
         skip: Option<usize>,
         limit: Option<usize>,
         timeframe: Option<Timeframe>,
@@ -259,7 +259,7 @@ impl UserStream {
             .map(|set| set.into_iter().map(|(user_id, _score)| user_id).collect()),
             UserStreamSource::Influencers => Influencers::get_influencers(
                 user_id,
-                Some(source_reach.unwrap_or(StreamReach::Wot(3))),
+                Some(reach.unwrap_or(StreamReach::Wot(3))),
                 skip.unwrap_or(0),
                 limit.unwrap_or(10).min(100),
                 &timeframe.unwrap_or(Timeframe::AllTime),
