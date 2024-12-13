@@ -125,7 +125,7 @@ impl Influencers {
             Some(user_id) => {
                 Influencers::get_influencers_by_reach(
                     user_id,
-                    reach.unwrap(),
+                    reach.unwrap_or(StreamReach::Friends),
                     skip,
                     limit,
                     timeframe,
@@ -160,7 +160,10 @@ impl Influencers {
         let query = queries::get::get_global_influencers(0, 100, timeframe);
         let result = retrieve_from_graph::<Influencers>(query, "influencers").await?;
 
-        let influencers = result.unwrap();
+        let influencers = match result {
+            Some(influencers) => influencers,
+            None => return Ok(None),
+        };
         if influencers.len() > 0 {
             Influencers::put_to_global_cache(influencers.clone(), timeframe).await?;
         }
