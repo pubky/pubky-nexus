@@ -1,23 +1,19 @@
 use crate::db::connectors::pubky::PubkyConnector;
+use crate::static_processor::get_file_urls_by_content_type;
+use crate::static_processor::store::get_storage_path;
 use crate::types::DynError;
 use crate::types::PubkyId;
 use crate::{
     models::{
-        file::{
-            details::{FileMeta, FileUrls},
-            FileDetails,
-        },
+        file::{details::FileMeta, FileDetails},
         traits::Collection,
     },
-    Config,
+    static_processor::store::store_blob,
 };
 use axum::body::Bytes;
 use log::debug;
 use pubky_app_specs::{traits::Validatable, PubkyAppFile};
-use tokio::{
-    fs::{self, remove_file, File},
-    io::AsyncWriteExt,
-};
+use tokio::fs::remove_dir_all;
 
 pub async fn put(
     uri: String,
@@ -64,48 +60,16 @@ async fn ingest(
     let pubky_client = PubkyConnector::get_pubky_client()?;
     let blob = match pubky_client.get(pubkyapp_file.src.as_str()).await? {
         Some(metadata) => metadata,
-        None => return Err("EVENT ERROR: no metadata in the file blob".into()),
+        None => return Err("Error while fetching file blob".into()),
     };
 
-    debug!("File Metadata: {:?}\n{:?}", file_id, blob);
-    store_blob(file_id.to_string(), user_id.to_string(), &blob).await?;
-
-    let static_path = format!("{}/{}", user_id, file_id);
-    Ok(FileMeta {
-        urls: FileUrls { main: static_path },
-    })
-}
-
-async fn store_blob(name: String, path: String, blob: &Bytes) -> Result<(), DynError> {
-    let storage_path = Config::from_env().file_path;
+    let path: String = format!("{}/{}", user_id, file_id);
+    let storage_path = get_storage_path();
     let full_path = format!("{}/{}", storage_path, path);
+    store_blob(String::from("main"), full_path.to_string(), &blob).await?;
 
-    debug!("store blob in full_path: {}", full_path);
-
-    let path_exists = match fs::metadata(full_path.as_str()).await {
-        Err(_) => false,
-        Ok(metadata) => metadata.is_dir(),
-    };
-
-    debug!("path exists: {}", path_exists);
-
-    if !path_exists {
-        fs::create_dir_all(full_path.as_str()).await?;
-    }
-
-    let file_path = format!("{}/{}", full_path, name);
-    let mut static_file = File::create_new(file_path).await?;
-    static_file.write_all(blob).await?;
-
-    Ok(())
-}
-
-async fn remove_blob(name: String, path: String) -> Result<(), DynError> {
-    let storage_path = Config::from_env().file_path;
-    let file_path = format!("{}/{}/{}", storage_path, path, name);
-
-    remove_file(file_path).await?;
-    Ok(())
+    let urls = get_file_urls_by_content_type(pubkyapp_file.content_type.as_str(), &path);
+    Ok(FileMeta { urls })
 }
 
 pub async fn del(user_id: &PubkyId, file_id: String) -> Result<(), DynError> {
@@ -121,7 +85,10 @@ pub async fn del(user_id: &PubkyId, file_id: String) -> Result<(), DynError> {
         value.delete().await?;
     }
 
-    remove_blob(file_id, user_id.to_string()).await?;
+    let folder_path = format!("{}/{}", user_id, file_id);
+    let storage_path = get_storage_path();
+    let full_path = format!("{}/{}", storage_path, folder_path);
 
+    remove_dir_all(full_path).await?;
     Ok(())
 }
