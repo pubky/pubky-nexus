@@ -1,12 +1,8 @@
+use crate::db::connectors::pubky::PubkyConnector;
 use crate::static_processor::get_file_urls_by_content_type;
 use crate::static_processor::store::get_storage_path;
 use crate::types::DynError;
 use crate::types::PubkyId;
-use axum::body::Bytes;
-use log::debug;
-use pubky::PubkyClient;
-use tokio::fs::remove_dir_all;
-
 use crate::{
     models::{
         file::{details::FileMeta, FileDetails},
@@ -14,14 +10,16 @@ use crate::{
     },
     static_processor::store::store_blob,
 };
+use axum::body::Bytes;
+use log::debug;
 use pubky_app_specs::{traits::Validatable, PubkyAppFile};
+use tokio::fs::remove_dir_all;
 
 pub async fn put(
     uri: String,
     user_id: PubkyId,
     file_id: String,
     blob: Bytes,
-    client: &PubkyClient,
 ) -> Result<(), DynError> {
     debug!("Indexing new file resource at {}/{}", user_id, file_id);
 
@@ -30,7 +28,7 @@ pub async fn put(
 
     debug!("file input {:?}", file_input);
 
-    let file_meta = ingest(&user_id, file_id.as_str(), &file_input, client).await?;
+    let file_meta = ingest(&user_id, file_id.as_str(), &file_input).await?;
 
     // Create FileDetails object
     let file_details =
@@ -57,14 +55,18 @@ async fn ingest(
     user_id: &PubkyId,
     file_id: &str,
     pubkyapp_file: &PubkyAppFile,
-    client: &PubkyClient,
+    //client: &PubkyClient,
 ) -> Result<FileMeta, DynError> {
-    let response = client.get(pubkyapp_file.src.as_str()).await?.unwrap();
+    let pubky_client = PubkyConnector::get_pubky_client()?;
+    let blob = match pubky_client.get(pubkyapp_file.src.as_str()).await? {
+        Some(metadata) => metadata,
+        None => return Err("Error while fetching file blob".into()),
+    };
 
     let path: String = format!("{}/{}", user_id, file_id);
     let storage_path = get_storage_path();
     let full_path = format!("{}/{}", storage_path, path);
-    store_blob(String::from("main"), full_path.to_string(), &response).await?;
+    store_blob(String::from("main"), full_path.to_string(), &blob).await?;
 
     let urls = get_file_urls_by_content_type(pubkyapp_file.content_type.as_str(), &path);
     Ok(FileMeta { urls })

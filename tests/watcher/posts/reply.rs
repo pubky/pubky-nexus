@@ -3,7 +3,8 @@ use super::utils::{
     check_member_user_post_timeline, check_member_user_replies_timeline, find_post_counts,
     find_post_details, find_reply_relationship_parent_uri,
 };
-use crate::watcher::{users::utils::find_user_counts, utils::WatcherTest};
+use crate::watcher::users::utils::find_user_counts;
+use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 use pubky_common::crypto::Keypair;

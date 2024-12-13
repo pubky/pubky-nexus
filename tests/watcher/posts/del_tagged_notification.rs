@@ -1,4 +1,4 @@
-use crate::watcher::utils::WatcherTest;
+use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
 use pubky_app_specs::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser};
@@ -9,7 +9,7 @@ use pubky_nexus::{
 };
 
 #[tokio_shared_rt::test(shared)]
-async fn test_delete_tagged_post_notification() -> Result<()> {
+async fn test_delged_post_notification() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Create User A who makes the original post
@@ -56,7 +56,7 @@ async fn test_delete_tagged_post_notification() -> Result<()> {
     let tag_url = format!("pubky://{}/pub/pubky.app/tags/{}", user_b_id, tag_id);
 
     // Put tag
-    test.create_tag(&tag_url, tag_blob).await?;
+    test.put(&tag_url, tag_blob).await?;
 
     // User A deletes their post
     test.cleanup_post(&user_a_id, &post_id).await?;

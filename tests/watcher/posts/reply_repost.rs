@@ -1,6 +1,6 @@
 use super::utils::{check_member_total_engagement_user_posts, find_post_counts};
 use crate::watcher::users::utils::find_user_counts;
-use crate::watcher::utils::WatcherTest;
+use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser};
 use pubky_common::crypto::Keypair;
