@@ -1,5 +1,6 @@
 use crate::types::DynError;
 use axum::async_trait;
+use log::error;
 use neo4rs::Query;
 
 use crate::{
@@ -57,7 +58,7 @@ where
             match Self::get_from_index(user_id, viewer_id, limit_tags, limit_taggers, true).await? {
                 Some(tag_details) => return Ok(Some(tag_details)),
                 None => {
-                    let depth = depth.unwrap();
+                    let depth = depth.unwrap_or(1);
                     let graph_response =
                         Self::get_from_graph(user_id, viewer_id, Some(depth)).await?;
                     if let Some(tag_details) = graph_response {
@@ -334,11 +335,12 @@ where
     async fn reindex(author_id: &str, extra_param: Option<&str>) -> Result<(), DynError> {
         match Self::get_from_graph(author_id, extra_param, None).await? {
             Some(tag_user) => Self::put_to_index(author_id, extra_param, &tag_user, false).await?,
-            None => log::error!(
-                "{}:{} Could not found tags in the graph",
-                author_id,
-                extra_param.unwrap()
-            ),
+            None => {
+                match extra_param {
+                    Some(post_id) => error!("Could not found post tag(s): {}:{}", author_id, post_id),
+                    None => error!("Could not found user tag(s): {}", author_id)
+                };
+            }
         }
         Ok(())
     }
