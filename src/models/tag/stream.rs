@@ -13,7 +13,7 @@ use crate::{RedisOps, ScoreAction};
 
 pub const TAG_GLOBAL_HOT: [&str; 3] = ["Tags", "Global", "Hot"];
 
-const GLOBAL_HOT_TAGS_PREFIX: &str = "Cached:Hot:Tags";
+const GLOBAL_HOT_TAGS_PREFIX: &str = "Cache:Hot:Tags";
 
 #[derive(Serialize, Deserialize, Debug, ToSchema, Clone)]
 pub struct Taggers(pub Vec<String>);

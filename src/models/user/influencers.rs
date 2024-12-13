@@ -11,7 +11,7 @@ use utoipa::ToSchema;
 use crate::queries;
 use crate::RedisOps;
 
-const GLOBAL_INFLUENCERS_PREFIX: &str = "Cached:Influencers";
+const GLOBAL_INFLUENCERS_PREFIX: &str = "Cache:Influencers";
 
 #[derive(Deserialize, Serialize, ToSchema, Debug, Clone)]
 pub struct Influencer {
