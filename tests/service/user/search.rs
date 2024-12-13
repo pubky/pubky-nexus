@@ -1,21 +1,16 @@
-use crate::service::utils::HOST_URL;
+use crate::service::utils::{get_request, invalid_get_request};
 use anyhow::Result;
+use reqwest::StatusCode;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_search_users_by_username() -> Result<()> {
-    let client = httpc_test::new_client(HOST_URL)?;
-
     let username = "Jo";
 
-    let res = client
-        .do_get(&format!("/v0/search/users?username={}", username))
-        .await?;
-    assert_eq!(res.status(), 200);
+    let res = get_request(&format!("/v0/search/users?username={}", username)).await?;
 
-    let body = res.json_body()?;
-    assert!(body.is_array());
+    assert!(res.is_array());
 
-    let users = body
+    let users = res
         .as_array()
         .expect("User search results should be an array");
 
@@ -43,29 +38,20 @@ async fn test_search_users_by_username() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_search_non_existing_user() -> Result<()> {
-    let client = httpc_test::new_client(HOST_URL)?;
-
     let non_existing_username = "idfjwfs8u9jfkoi"; // Username that doesn't exist
 
-    let res = client
-        .do_get(&format!(
-            "/v0/search/users?username={}",
-            non_existing_username
-        ))
-        .await?;
+    let res = invalid_get_request(
+        &format!("/v0/search/users?username={}", non_existing_username),
+        StatusCode::NOT_FOUND,
+    )
+    .await?;
 
     // Assert that the status code is 404 Not Found
-    assert_eq!(res.status(), 404);
-
-    let body = res.json_body()?;
-    assert!(
-        body["error"].is_string(),
-        "Error message should be a string"
-    );
+    assert!(res["error"].is_string(), "Error message should be a string");
 
     // Optional: Check that the error message contains the correct details
     assert!(
-        body["error"]
+        res["error"]
             .as_str()
             .unwrap_or("")
             .contains(non_existing_username),
@@ -77,26 +63,19 @@ async fn test_search_non_existing_user() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_search_empty_username() -> Result<()> {
-    let client = httpc_test::new_client(HOST_URL)?;
-
     let empty_username = ""; // Empty username
 
-    let res = client
-        .do_get(&format!("/v0/search/users?username={}", empty_username))
-        .await?;
+    let res = invalid_get_request(
+        &format!("/v0/search/users?username={}", empty_username),
+        StatusCode::BAD_REQUEST,
+    )
+    .await?;
 
-    // Assert that the status code is 400 Bad Request
-    assert_eq!(res.status(), 400);
-
-    let body = res.json_body()?;
-    assert!(
-        body["error"].is_string(),
-        "Error message should be a string"
-    );
+    assert!(res["error"].is_string(), "Error message should be a string");
 
     // Optional: Check that the error message contains the correct details
     assert!(
-        body["error"]
+        res["error"]
             .as_str()
             .unwrap_or("")
             .contains("Username cannot be empty"),

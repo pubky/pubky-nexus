@@ -1,5 +1,5 @@
 mod config;
-mod db;
+pub mod db;
 mod error;
 pub mod events;
 pub mod models;

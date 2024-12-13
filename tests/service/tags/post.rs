@@ -1,6 +1,7 @@
 use anyhow::Result;
+use reqwest::StatusCode;
 
-use crate::service::utils::{make_request, make_wrong_request};
+use crate::service::utils::{get_request, invalid_get_request};
 
 use super::utils::{analyse_tag_details_structure, compare_tag_details, TagMockup};
 
@@ -14,7 +15,7 @@ const FREE_LABEL: &str = "free";
 #[tokio_shared_rt::test(shared)]
 async fn test_post_tag() -> Result<()> {
     let path = format!("/v0/post/{}/{}/tags", PEER_PUBKY, POST_ID);
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -35,7 +36,7 @@ async fn test_post_tag() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_user_tags_limit_tag_filter_active() -> Result<()> {
     let path = format!("/v0/post/{}/{}/tags?limit_tags=2", PEER_PUBKY, POST_ID);
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -55,7 +56,7 @@ async fn test_user_tags_limit_tag_filter_active() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_user_tags_limit_taggers_filter_active() -> Result<()> {
     let path = format!("/v0/post/{}/{}/tags?limit_taggers=1", PEER_PUBKY, POST_ID);
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -78,7 +79,7 @@ async fn test_user_tags_full_filter_active() -> Result<()> {
         "/v0/post/{}/{}/tags?limit_tags=1&limit_taggers=1",
         PEER_PUBKY, POST_ID
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -99,7 +100,7 @@ async fn test_user_tags_full_filter_active() -> Result<()> {
 async fn test_post_does_not_exist() -> Result<()> {
     let endpoint = format!("/v0/post/{}/{}/tags", PEER_PUBKY, "JTDX9ZSWPQF8");
     // TODO: Control post not found error control
-    make_wrong_request(&endpoint, None).await?;
+    invalid_get_request(&endpoint, StatusCode::NOT_FOUND).await?;
     Ok(())
 }
 
@@ -110,14 +111,14 @@ async fn test_user_does_not_exist() -> Result<()> {
         "db6w58pd5h63fbhtd88y8zz7pai9rkjwqt9omg6i7dz31dynrgc4", POST_ID
     );
     // TODO: Control post not found error control
-    make_wrong_request(&endpoint, None).await?;
+    invalid_get_request(&endpoint, StatusCode::NOT_FOUND).await?;
     Ok(())
 }
 
 #[tokio_shared_rt::test(shared)]
 async fn test_post_specific_tag() -> Result<()> {
     let path = format!("/v0/post/{}/{}/taggers/{}", PEER_PUBKY, POST_ID, FREE_LABEL);
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -138,7 +139,7 @@ async fn test_post_specific_tag_with_limit() -> Result<()> {
         "/v0/post/{}/{}/taggers/{}?limit=1",
         PEER_PUBKY, POST_ID, FREE_LABEL
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -159,7 +160,7 @@ async fn test_post_specific_tag_with_skip() -> Result<()> {
         "/v0/post/{}/{}/taggers/{}?skip=1",
         PEER_PUBKY, POST_ID, FREE_LABEL
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -180,7 +181,7 @@ async fn test_post_specific_tag_with_full_filters() -> Result<()> {
         "/v0/post/{}/{}/taggers/{}?skip=2&limit=1",
         PEER_PUBKY, POST_ID, FREE_LABEL
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -201,7 +202,7 @@ async fn test_post_specific_tag_with_no_result() -> Result<()> {
         "/v0/post/{}/{}/taggers/{}?skip=3&limit=1",
         PEER_PUBKY, POST_ID, FREE_LABEL
     );
-    make_wrong_request(&path, None).await?;
+    invalid_get_request(&path, StatusCode::NOT_FOUND).await?;
 
     Ok(())
 }

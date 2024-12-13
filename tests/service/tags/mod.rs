@@ -1,7 +1,6 @@
 use pubky_nexus::types::DynError;
 
-use crate::service::utils::HOST_URL;
-
+use crate::service::utils::get_request;
 pub mod hot;
 pub mod post;
 pub mod search;
@@ -17,14 +16,7 @@ const PEER_PUBKY: &str = "db6w58pd5h63fbhtd88y8zz7pai9rkjwqt9omg6i7dz31dynrgcy";
 async fn check_mockups_loaded() -> Result<(), DynError> {
     let endpoint = format!("/v0/user/{}/tags", PEER_PUBKY);
 
-    let client = httpc_test::new_client(HOST_URL)?;
-    let res = client.do_get(&endpoint).await?;
-
-    assert_eq!(
-        res.status(),
-        200,
-        "Check if the tags.cypher graph is imported before run that tests"
-    );
+    get_request(&endpoint).await?;
 
     Ok(())
 }

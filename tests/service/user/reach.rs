@@ -1,20 +1,14 @@
-use crate::service::utils::HOST_URL;
+use crate::service::utils::{get_request, invalid_get_request};
 use anyhow::Result;
+use reqwest::StatusCode;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_get_followers() -> Result<()> {
-    let client = httpc_test::new_client(HOST_URL)?;
-
     let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
-    let res = client
-        .do_get(&format!("/v0/user/{}/followers", user_id))
-        .await?;
-    assert_eq!(res.status(), 200);
+    let res = get_request(&format!("/v0/user/{}/followers", user_id)).await?;
 
-    let body = res.json_body()?;
-
-    assert!(body.is_array());
-    let followers: Vec<String> = body
+    assert!(res.is_array());
+    let followers: Vec<String> = res
         .as_array()
         .unwrap()
         .iter()
@@ -48,27 +42,22 @@ async fn test_get_followers() -> Result<()> {
     }
 
     // Test non-existing user
-    let res = client
-        .do_get(&format!("/v0/user/{}/followers", "bad_user_id"))
-        .await?;
-    assert_eq!(res.status(), 404);
+    invalid_get_request(
+        &format!("/v0/user/{}/followers", "bad_user_id"),
+        StatusCode::NOT_FOUND,
+    )
+    .await?;
 
     Ok(())
 }
 
 #[tokio_shared_rt::test(shared)]
 async fn test_get_following() -> Result<()> {
-    let client = httpc_test::new_client(HOST_URL)?;
-
     let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
-    let res = client
-        .do_get(&format!("/v0/user/{}/following", user_id))
-        .await?;
-    assert_eq!(res.status(), 200);
+    let res = get_request(&format!("/v0/user/{}/following", user_id)).await?;
 
-    let body = res.json_body()?;
-    assert!(body.is_array());
-    let following: Vec<String> = body
+    assert!(res.is_array());
+    let following: Vec<String> = res
         .as_array()
         .unwrap()
         .iter()
@@ -107,27 +96,22 @@ async fn test_get_following() -> Result<()> {
     }
 
     // Test non-existing user
-    let res = client
-        .do_get(&format!("/v0/user/{}/following", "bad_user_id"))
-        .await?;
-    assert_eq!(res.status(), 404);
+    invalid_get_request(
+        &format!("/v0/user/{}/following", "bad_user_id"),
+        StatusCode::NOT_FOUND,
+    )
+    .await?;
 
     Ok(())
 }
 
 #[tokio_shared_rt::test(shared)]
 async fn test_get_friends() -> Result<()> {
-    let client = httpc_test::new_client(HOST_URL)?;
-
     let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
-    let res = client
-        .do_get(&format!("/v0/user/{}/friends", user_id))
-        .await?;
-    assert_eq!(res.status(), 200);
+    let res = get_request(&format!("/v0/user/{}/friends", user_id)).await?;
 
-    let body = res.json_body()?;
-    assert!(body.is_array());
-    let following: Vec<String> = body
+    assert!(res.is_array());
+    let following: Vec<String> = res
         .as_array()
         .unwrap()
         .iter()
@@ -159,10 +143,11 @@ async fn test_get_friends() -> Result<()> {
     }
 
     // Test non-existing user
-    let res = client
-        .do_get(&format!("/v0/user/{}/friends", "bad_user_id"))
-        .await?;
-    assert_eq!(res.status(), 404);
+    invalid_get_request(
+        &format!("/v0/user/{}/friends", "bad_user_id"),
+        StatusCode::NOT_FOUND,
+    )
+    .await?;
 
     Ok(())
 }

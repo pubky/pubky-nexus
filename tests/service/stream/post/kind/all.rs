@@ -1,6 +1,6 @@
 use crate::service::stream::post::utils::verify_post_list;
 use crate::service::stream::post::ROOT_PATH;
-use crate::service::utils::make_request;
+use crate::service::utils::get_request;
 use anyhow::Result;
 
 const POST_A1: &str = "SIJW1TGL5BKG6";
@@ -29,7 +29,7 @@ pub const FK_TAG: &str = "4k";
 async fn test_stream_post_kind() -> Result<()> {
     let path = format!("{ROOT_PATH}?author_id={BOGOTA}&source=author");
 
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
     let post_list = vec![
         POST_A1, POST_A2, POST_A3, POST_A4, POST_A5, POST_A6, POST_A7, POST_A8, POST_A9, POST_A10,
     ];
@@ -44,7 +44,7 @@ async fn test_stream_post_kind_with_start_and_end() -> Result<()> {
         "{ROOT_PATH}?author_id={BOGOTA}&source=author&start={START_TIMELINE}&end={END_TIMELINE}"
     );
 
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
     let post_list = vec![POST_A3, POST_A4, POST_A5, POST_A6, POST_A7];
     verify_post_list(post_list, body);
 
@@ -55,7 +55,7 @@ async fn test_stream_post_kind_with_start_and_end() -> Result<()> {
 async fn test_stream_post_kind_with_tag() -> Result<()> {
     let path = format!("{ROOT_PATH}?author_id={BOGOTA}&source=author&tags={PUBKY_TAG}");
 
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
     let post_list = vec![POST_A4, POST_A9, POST_W_PUBKY_TAG_1, POST_W_PUBKY_TAG_2];
     verify_post_list(post_list, body);
 

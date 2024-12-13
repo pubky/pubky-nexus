@@ -1,5 +1,5 @@
 use super::{ROOT_PATH, USER_ID};
-use crate::service::utils::make_request;
+use crate::service::utils::get_request;
 use anyhow::Result;
 
 #[tokio_shared_rt::test(shared)]
@@ -8,7 +8,7 @@ async fn test_stream_user_posts() -> Result<()> {
         "{ROOT_PATH}?author_id={}&source=author&sorting=timeline",
         USER_ID
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 

@@ -1,6 +1,6 @@
 use super::utils::verify_post_list;
 use super::ROOT_PATH;
-use crate::service::utils::make_request;
+use crate::service::utils::get_request;
 use anyhow::Result;
 
 // User with most bookmarks
@@ -10,7 +10,7 @@ const BOOKMARKER_ID: &str = "o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ng
 async fn test_stream_bookmarked_posts() -> Result<()> {
     let observer_id = BOOKMARKER_ID;
     let path = format!("{ROOT_PATH}?observer_id={}&source=bookmarks", observer_id);
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -45,7 +45,7 @@ async fn test_stream_user_bookmarks_by_timeline_with_start() -> Result<()> {
     let path =
         format!("{ROOT_PATH}?observer_id={BOOKMARKER_ID}&source=bookmarks&start={START_TIMELINE}");
 
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
     let post_list = vec![
         POST_TC, POST_TD, POST_TE, POST_TF, POST_TG, POST_TH, POST_TI, POST_TJ, POST_TK,
     ];
@@ -60,7 +60,7 @@ async fn test_stream_user_bookmarks_by_timeline_with_start_and_end() -> Result<(
         "{ROOT_PATH}?observer_id={BOOKMARKER_ID}&source=bookmarks&start={START_TIMELINE}&end={END_TIMELINE}"
     );
 
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
     let post_list = vec![
         POST_TC, POST_TD, POST_TE, POST_TF, POST_TG, POST_TH, POST_TI,
     ];
@@ -75,7 +75,7 @@ async fn test_stream_user_bookmarks_by_timeline_with_skip_end() -> Result<()> {
         "{ROOT_PATH}?observer_id={BOOKMARKER_ID}&source=bookmarks&limit=5&end={END_TIMELINE}"
     );
 
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
     let post_list = vec![POST_TA, POST_TB, POST_TC, POST_TD, POST_TE];
     verify_post_list(post_list, body);
 

@@ -1,6 +1,7 @@
-use crate::service::utils::{make_request, make_wrong_request};
+use crate::service::utils::{get_request, invalid_get_request};
 use anyhow::Result;
 use pubky_nexus::models::post::PostStream;
+use reqwest::StatusCode;
 
 use super::utils::{search_tag_in_post, verify_post_list, verify_timeline_post_list};
 use super::{POST_A, POST_B, POST_C, POST_F, POST_G, POST_H};
@@ -24,7 +25,7 @@ pub const START_TIMELINE: &str = "1722261385301";
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_global_timeline() -> Result<()> {
     let path = format!("{ROOT_PATH}?sorting=timeline");
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -46,7 +47,7 @@ async fn test_stream_posts_global_timeline() -> Result<()> {
 async fn test_stream_posts_global_timeline_with_start() -> Result<()> {
     let path = format!("{ROOT_PATH}?sorting=timeline&start={START_TIMELINE}");
 
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
     let post_list = vec![
         POST_TA, POST_TB, POST_TC, POST_TD, POST_TE, POST_TF, POST_TG, POST_TH, POST_TI, POST_TJ,
     ];
@@ -60,7 +61,7 @@ async fn test_stream_posts_global_timeline_with_start() -> Result<()> {
 async fn test_stream_posts_global_timeline_with_start_and_limit() -> Result<()> {
     let path = format!("{ROOT_PATH}?sorting=timeline&start={START_TIMELINE}&limit=5");
 
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
     let post_list = vec![POST_TA, POST_TB, POST_TC, POST_TD, POST_TE];
 
     verify_timeline_post_list(post_list, body);
@@ -72,7 +73,7 @@ async fn test_stream_posts_global_timeline_with_start_and_limit() -> Result<()> 
 async fn test_stream_posts_global_timeline_with_start_and_limit_and_skip() -> Result<()> {
     let path = format!("{ROOT_PATH}?sorting=timeline&start={START_TIMELINE}&skip=3&limit=5");
 
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
     let post_list = vec![POST_TD, POST_TE, POST_TF, POST_TG, POST_TH];
 
     verify_timeline_post_list(post_list, body);
@@ -83,7 +84,7 @@ async fn test_stream_posts_global_timeline_with_start_and_limit_and_skip() -> Re
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_global_total_engagement() -> Result<()> {
     let path = format!("{ROOT_PATH}?sorting=total_engagement");
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -138,7 +139,7 @@ async fn test_stream_posts_global_total_engagement_with_start_score() -> Result<
         ROOT_PATH, ENGAGEMENT_SCORE
     );
 
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
     let post_list = vec![
         POST_EA, POST_EB, POST_EC, POST_ED, POST_EF, POST_EG, POST_EH, POST_EI, POST_EJ, POST_EK,
     ];
@@ -155,7 +156,7 @@ async fn test_stream_posts_global_total_engagement_with_start_end_score() -> Res
         ROOT_PATH, ENGAGEMENT_SCORE, ENGAGEMENT_SCORE
     );
 
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
     let post_list = vec![POST_EA, POST_EB, POST_EC];
 
     verify_post_list(post_list, body);
@@ -170,7 +171,7 @@ async fn test_stream_posts_global_total_engagement_with_end_score() -> Result<()
         ROOT_PATH, ENGAGEMENT_SCORE
     );
 
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
     let post_list = vec![POST_00, POST_E0, POST_E1, POST_EA, POST_EB, POST_EC];
 
     verify_post_list(post_list, body);
@@ -186,7 +187,7 @@ async fn test_post_tag_search_by_engagement() -> Result<()> {
         ROOT_PATH, TAG_LABEL_2
     );
 
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
     assert!(body.is_array());
     let tags = body.as_array().expect("Stream tags should be an array");
 
@@ -205,7 +206,7 @@ async fn test_post_tag_search_by_engagement_with_skip() -> Result<()> {
         "{}?tags={}&sorting=total_engagement&skip=6",
         ROOT_PATH, TAG_LABEL_2
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -227,7 +228,7 @@ async fn test_post_tag_search_by_engagement_with_skip_and_limit() -> Result<()> 
         "{}?tags={}&sorting=total_engagement&skip=1&limit=1",
         ROOT_PATH, TAG_LABEL_2
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -252,7 +253,7 @@ async fn test_stream_combined_parameters() -> Result<()> {
         observer_id, tag
     );
 
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     // Deserialize the response body into a PostStream object
     let post_stream: PostStream = serde_json::from_value(body)?;
@@ -278,7 +279,7 @@ async fn test_stream_combined_parameters() -> Result<()> {
 async fn test_stream_invalid_sorting() -> Result<()> {
     // Invalid sorting option should fail
     let endpoint = "/v0/stream/posts?sorting=invalid";
-    make_wrong_request(endpoint, Some(400)).await?;
+    invalid_get_request(endpoint, StatusCode::BAD_REQUEST).await?;
 
     Ok(())
 }

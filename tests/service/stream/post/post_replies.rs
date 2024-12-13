@@ -1,4 +1,4 @@
-use crate::service::utils::make_request;
+use crate::service::utils::get_request;
 use anyhow::Result;
 use pubky_nexus::models::post::{PostStream, PostView};
 
@@ -21,7 +21,7 @@ async fn test_stream_posts_replies() -> Result<()> {
         "{ROOT_PATH}?source=post_replies&author_id={}&post_id={}",
         AUTHOR_ID, PARENT_POST_ID
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
     // Deserialize the response body into a PostStream object
@@ -55,7 +55,7 @@ async fn test_stream_posts_replies_with_limit() -> Result<()> {
         "{ROOT_PATH}?source=post_replies&author_id={}&post_id={}&limit=3",
         AUTHOR_ID, PARENT_POST_ID
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
     // Deserialize the response body into a PostStream object
@@ -82,7 +82,7 @@ async fn test_stream_posts_replies_with_start_query() -> Result<()> {
         "{ROOT_PATH}?source=post_replies&author_id={}&post_id={}&start=1719477230025",
         AUTHOR_ID, PARENT_POST_ID
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
     // Deserialize the response body into a PostStream object
@@ -109,7 +109,7 @@ async fn test_stream_posts_replies_with_end_query() -> Result<()> {
         "{ROOT_PATH}?source=post_replies&author_id={}&post_id={}&end=1719477230060",
         AUTHOR_ID, PARENT_POST_ID
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
     // Deserialize the response body into a PostStream object
@@ -136,7 +136,7 @@ async fn test_stream_posts_replies_with_start_and_end_query() -> Result<()> {
         "{ROOT_PATH}?source=post_replies&author_id={}&post_id={}&start=1719477230150&end=1719477230017",
         AUTHOR_ID, PARENT_POST_ID
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
     // Deserialize the response body into a PostStream object
@@ -168,7 +168,7 @@ async fn test_stream_posts_replies_with_start_and_end_also_limit_query() -> Resu
         "{ROOT_PATH}?source=post_replies&author_id={}&post_id={}&start=1719477230150&end=1719477230017&limit=3",
         AUTHOR_ID, PARENT_POST_ID
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
     // Deserialize the response body into a PostStream object

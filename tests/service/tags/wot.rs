@@ -1,7 +1,8 @@
 use super::utils::{analyse_tag_details_structure, compare_tag_details, TagMockup};
-use crate::service::utils::{make_request, make_wrong_request};
+use crate::service::utils::{get_request, invalid_get_request};
 use anyhow::Result;
 use pubky_nexus::models::tag::TagDetails;
+use reqwest::StatusCode;
 use serde_json::Value;
 
 // ##### WoT user tags ####
@@ -25,14 +26,14 @@ async fn test_wot_user_tags_endpoints() -> Result<()> {
         AURELIO_USER, ATHENS_TAG, EPICTTO_VIEWER
     );
     // If we get error here, delete the Cache:... indexes
-    make_wrong_request(&path, None).await?;
+    invalid_get_request(&path, StatusCode::NOT_FOUND).await?;
 
     // => Start indexing the WoT tags
     let path = format!(
         "/v0/user/{}/tags?viewer_id={}&depth=2",
         AURELIO_USER, EPICTTO_VIEWER
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -53,7 +54,7 @@ async fn test_wot_user_tags_endpoints() -> Result<()> {
         "/v0/user/{}/tags?viewer_id={}&depth=2&limit_tags=1",
         AURELIO_USER, EPICTTO_VIEWER
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -72,7 +73,7 @@ async fn test_wot_user_tags_endpoints() -> Result<()> {
         "/v0/user/{}/tags?viewer_id={}&depth=2&limit_taggers=1",
         AURELIO_USER, EPICTTO_VIEWER
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -93,7 +94,7 @@ async fn test_wot_user_tags_endpoints() -> Result<()> {
         "/v0/user/{}/tags?viewer_id={}&depth=2&limit_tags=1&limit_taggers=1",
         AURELIO_USER, EPICTTO_VIEWER
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -112,7 +113,7 @@ async fn test_wot_user_tags_endpoints() -> Result<()> {
         "/v0/user/{}/taggers/{}?viewer_id={}&depth=2",
         AURELIO_USER, ATHENS_TAG, EPICTTO_VIEWER
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     let mut mock_taggers = vec![USER_A, USER_B, USER_C];
     verify_taggers_list(mock_taggers, body);
@@ -122,7 +123,7 @@ async fn test_wot_user_tags_endpoints() -> Result<()> {
         "/v0/user/{}/taggers/{}?viewer_id={}&depth=2&limit=2",
         AURELIO_USER, ATHENS_TAG, EPICTTO_VIEWER
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     mock_taggers = vec![USER_A, USER_B];
     verify_taggers_list(mock_taggers, body);
@@ -132,7 +133,7 @@ async fn test_wot_user_tags_endpoints() -> Result<()> {
         "/v0/user/{}/taggers/{}?viewer_id={}&depth=2&limit=1&skip=1",
         AURELIO_USER, ATHENS_TAG, EPICTTO_VIEWER
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     mock_taggers = vec![USER_B];
     verify_taggers_list(mock_taggers, body);
@@ -142,7 +143,7 @@ async fn test_wot_user_tags_endpoints() -> Result<()> {
         "/v0/user/{}?viewer_id={}&depth=2",
         AURELIO_USER, EPICTTO_VIEWER
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
     let tags = body["tags"].clone();
 
     mock_taggers = vec![USER_A, USER_B, USER_C];

@@ -2,7 +2,7 @@ use anyhow::Result;
 use reqwest::StatusCode;
 use serde_json::Value;
 
-use crate::service::utils::{make_request, make_wrong_request};
+use crate::service::utils::{get_request, invalid_get_request};
 
 // TODO: Create deterministic integration tests
 
@@ -56,7 +56,7 @@ fn compare_unit_hot_tag(tag: &Value, hot_tag: StreamTagMockup) {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_global_hot_tags() -> Result<()> {
-    let body = make_request("/v0/tags/hot").await?;
+    let body = get_request("/v0/tags/hot").await?;
 
     assert!(body.is_array());
 
@@ -74,7 +74,7 @@ async fn test_global_hot_tags() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_global_hot_tags_with_today_timeframe() -> Result<()> {
-    let body = make_request("/v0/tags/hot?timeframe=today").await?;
+    let body = get_request("/v0/tags/hot?timeframe=today").await?;
 
     assert!(body.is_array());
 
@@ -92,7 +92,7 @@ async fn test_global_hot_tags_with_today_timeframe() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_global_hot_tags_with_this_month_timeframe() -> Result<()> {
-    let body = make_request("/v0/tags/hot?timeframe=this_month").await?;
+    let body = get_request("/v0/tags/hot?timeframe=this_month").await?;
 
     assert!(body.is_array());
 
@@ -110,7 +110,7 @@ async fn test_global_hot_tags_with_this_month_timeframe() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_global_hot_tags_skip_limit() -> Result<()> {
-    let body = make_request("/v0/tags/hot?skip=3&limit=5").await?;
+    let body = get_request("/v0/tags/hot?skip=3&limit=5").await?;
 
     assert!(body.is_array());
 
@@ -133,7 +133,7 @@ async fn test_global_hot_tags_skip_limit() -> Result<()> {
 async fn test_hot_tags_by_following_reach() -> Result<()> {
     let endpoint = &format!("/v0/tags/hot?user_id={}&reach=following", PEER_PUBKY,);
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Stream tags should be an array");
@@ -152,7 +152,7 @@ async fn test_hot_tags_by_following_reach() -> Result<()> {
 async fn test_hot_tags_by_reach_no_user_id() -> Result<()> {
     let endpoint = "/v0/tags/hot?reach=following";
 
-    make_wrong_request(endpoint, Some(StatusCode::BAD_REQUEST.as_u16())).await?;
+    invalid_get_request(endpoint, StatusCode::BAD_REQUEST).await?;
 
     Ok(())
 }
@@ -161,7 +161,7 @@ async fn test_hot_tags_by_reach_no_user_id() -> Result<()> {
 async fn test_hot_tags_by_reach_no_reach() -> Result<()> {
     let endpoint = &format!("/v0/tags/hot?user_id={}", PEER_PUBKY);
 
-    make_wrong_request(endpoint, Some(StatusCode::BAD_REQUEST.as_u16())).await?;
+    invalid_get_request(endpoint, StatusCode::BAD_REQUEST).await?;
 
     Ok(())
 }
@@ -173,7 +173,7 @@ async fn test_hot_tags_by_following_using_taggers_limit() -> Result<()> {
         PEER_PUBKY,
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Stream tags should be an array");
@@ -192,7 +192,7 @@ async fn test_hot_tags_by_following_using_taggers_limit() -> Result<()> {
 async fn test_hot_tags_by_followers_reach() -> Result<()> {
     let endpoint = &format!("/v0/tags/hot?user_id={}&reach=followers", PEER_PUBKY);
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Post stream should be an array");
@@ -211,7 +211,7 @@ async fn test_hot_tags_by_followers_reach() -> Result<()> {
 async fn test_hot_tags_by_friends_reach() -> Result<()> {
     let endpoint = &format!("/v0/tags/hot?user_id={}&reach=friends", PEER_PUBKY);
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Post stream should be an array");

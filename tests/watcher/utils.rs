@@ -19,7 +19,6 @@ pub struct WatcherTest {
     pub event_processor: EventProcessor,
     pub config: Config,
     pub ensure_event_processing: bool,
-    pub service_server: Option<TestServiceServer>,
 }
 
 impl WatcherTest {
@@ -32,10 +31,9 @@ impl WatcherTest {
         let client = PubkyClient::test(&testnet);
         let homeserver_url = format!("http://localhost:{}", homeserver.port());
         let event_processor = EventProcessor::test(&testnet, homeserver_url).await;
-        let service_server = match with_service_server {
-            true => Some(TestServiceServer::get_test_server().await),
-            false => None,
-        };
+        if with_service_server {
+            TestServiceServer::get_test_server().await;
+        }
 
         Ok(Self {
             config,
@@ -43,7 +41,6 @@ impl WatcherTest {
             client,
             event_processor,
             ensure_event_processing: true,
-            service_server,
         })
     }
 
