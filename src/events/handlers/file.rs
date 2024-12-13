@@ -1,5 +1,3 @@
-use std::error::Error;
-
 use crate::db::connectors::pubky::PubkyConnector;
 use crate::types::DynError;
 use crate::types::PubkyId;
