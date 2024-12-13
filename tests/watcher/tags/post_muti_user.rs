@@ -1,12 +1,12 @@
+use crate::watcher::utils::watcher::WatcherTest;
 use crate::watcher::{
     posts::utils::{check_member_total_engagement_user_posts, find_post_counts},
     tags::utils::{
         check_member_post_tag_global_timeline, check_member_total_engagement_post_tag,
         find_post_tag,
     },
-    users::utils::find_user_counts
+    users::utils::find_user_counts,
 };
-use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
 use pubky_app_specs::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser};

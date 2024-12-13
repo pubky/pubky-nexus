@@ -54,9 +54,7 @@ async fn test_homeserver_viewer_bookmark() -> Result<()> {
     );
 
     // Put bookmark
-    test.put(&bookmark_url, bookmark_blob)
-        .await
-        .unwrap();
+    test.put(&bookmark_url, bookmark_blob).await.unwrap();
 
     // Step 4: Verify the bookmark exists in Nexus
     // GRAPH_OP: Assert if the event writes the graph

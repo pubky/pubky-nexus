@@ -65,12 +65,12 @@ fn bench_create_delete_user(c: &mut Criterion) {
 
     // Set up the environment only once
     let rt = Runtime::new().unwrap();
-    let (testnet, homeserver_url) = rt.block_on(create_homeserver_with_events());
+    let (_, homeserver_url) = rt.block_on(create_homeserver_with_events());
 
     c.bench_function("create_delete_homeserver_user", |b| {
         b.to_async(&rt).iter(|| async {
             // Benchmark the event processor initialization and run
-            let mut event_processor = EventProcessor::test(&testnet, homeserver_url.clone()).await;
+            let mut event_processor = EventProcessor::test(homeserver_url.clone()).await;
             event_processor.run().await.unwrap();
         });
     });

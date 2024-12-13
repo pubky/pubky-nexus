@@ -1,4 +1,5 @@
-use anyhow::{Result, anyhow};
+use super::dht::TestnetDHTNetwork;
+use anyhow::{anyhow, Result};
 use chrono::Utc;
 use log::debug;
 use pubky_app_specs::{
@@ -8,8 +9,6 @@ use pubky_common::crypto::Keypair;
 use pubky_homeserver::Homeserver;
 use pubky_nexus::{setup, Config, EventProcessor, PubkyConnector};
 use serde_json::to_vec;
-use super::dht::TestnetDHTNetwork;
-
 
 /// Struct to hold the setup environment for tests
 pub struct WatcherTest {
@@ -31,23 +30,23 @@ impl WatcherTest {
     /// 6. Creates and configures the event processor with the homeserver URL.
     ///
     /// # Returns
-    /// Returns an instance of `Self` containing the configuration, homeserver, 
+    /// Returns an instance of `Self` containing the configuration, homeserver,
     /// event processor, and other test setup details.
     pub async fn setup() -> Result<Self> {
         let config = Config::from_env();
         setup(&config).await;
 
-        TestnetDHTNetwork::initialise()?;
+        TestnetDHTNetwork::initialise(10)?;
         let testnet = TestnetDHTNetwork::get_testnet_dht_nodes()?;
 
         let homeserver = Homeserver::start_test(&testnet).await?;
         let homeserver_url = format!("http://localhost:{}", homeserver.port());
-        
+
         match PubkyConnector::initialise(&config, Some(&testnet)) {
             Ok(_) => debug!("WatcherTest: PubkyConnector initialised"),
-            Err(_) => debug!("WatcherTest: PubkyConnector already initialised")
+            Err(_) => debug!("WatcherTest: PubkyConnector already initialised"),
         }
-        
+
         let event_processor = EventProcessor::test(homeserver_url).await;
 
         Ok(Self {
@@ -65,10 +64,7 @@ impl WatcherTest {
 
     pub async fn ensure_event_processing_complete(&mut self) -> Result<()> {
         if self.ensure_event_processing {
-            self.event_processor
-                .run()
-                .await
-                .map_err(|e| anyhow!(e))?;
+            self.event_processor.run().await.map_err(|e| anyhow!(e))?;
             // tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         }
         Ok(())
@@ -84,13 +80,10 @@ impl WatcherTest {
     /// # Parameters
     /// - `homeserver_uri`: The URI of the homeserver to write the data to.
     /// - `blob`: A vector of bytes representing the data to be sent.
-    pub async fn put(
-        &mut self,
-        homeserver_uri: &str,
-        blob: Vec<u8>,
-    ) -> Result<()> {
+    pub async fn put(&mut self, homeserver_uri: &str, blob: Vec<u8>) -> Result<()> {
         PubkyConnector::get_pubky_client()?
-            .put(homeserver_uri, &blob).await?;
+            .put(homeserver_uri, &blob)
+            .await?;
         self.ensure_event_processing_complete().await?;
         Ok(())
     }
@@ -107,7 +100,8 @@ impl WatcherTest {
     ///
     pub async fn del(&mut self, homeserver_uri: &str) -> Result<()> {
         PubkyConnector::get_pubky_client()?
-            .delete(homeserver_uri).await?;
+            .delete(homeserver_uri)
+            .await?;
         self.ensure_event_processing_complete().await?;
         Ok(())
     }
@@ -123,7 +117,8 @@ impl WatcherTest {
         let url = format!("pubky://{}/pub/pubky.app/profile.json", user_id);
         // Write the user profile in the pubky.app repository
         PubkyConnector::get_pubky_client()?
-            .put(url.as_str(), &profile_json).await?;
+            .put(url.as_str(), &profile_json)
+            .await?;
 
         // Index to Nexus from Homeserver using the events processor
         self.ensure_event_processing_complete().await?;
@@ -136,7 +131,8 @@ impl WatcherTest {
         let url = format!("pubky://{}/pub/pubky.app/posts/{}", user_id, post_id);
         // Write the post in the pubky.app repository
         PubkyConnector::get_pubky_client()?
-            .put(url.as_str(), &post_json).await?;
+            .put(url.as_str(), &post_json)
+            .await?;
 
         // Index to Nexus from Homeserver using the events processor
         self.ensure_event_processing_complete().await?;
@@ -146,7 +142,8 @@ impl WatcherTest {
     pub async fn cleanup_user(&mut self, user_id: &str) -> Result<()> {
         let url = format!("pubky://{}/pub/pubky.app/profile.json", user_id);
         PubkyConnector::get_pubky_client()?
-            .delete(url.as_str()).await?;
+            .delete(url.as_str())
+            .await?;
         self.ensure_event_processing_complete().await?;
         Ok(())
     }
@@ -154,7 +151,8 @@ impl WatcherTest {
     pub async fn cleanup_post(&mut self, user_id: &str, post_id: &str) -> Result<()> {
         let url = format!("pubky://{}/pub/pubky.app/posts/{}", user_id, post_id);
         PubkyConnector::get_pubky_client()?
-            .delete(url.as_str()).await?;
+            .delete(url.as_str())
+            .await?;
         self.ensure_event_processing_complete().await?;
         Ok(())
     }
@@ -168,7 +166,8 @@ impl WatcherTest {
         let file_json = to_vec(file)?;
         let url = format!("pubky://{}/pub/pubky.app/files/{}", user_id, file_id);
         PubkyConnector::get_pubky_client()?
-            .put(url.as_str(), &file_json).await?;
+            .put(url.as_str(), &file_json)
+            .await?;
 
         self.ensure_event_processing_complete().await?;
         Ok((file_id, url))
@@ -177,7 +176,8 @@ impl WatcherTest {
     pub async fn cleanup_file(&mut self, user_id: &str, file_id: &str) -> Result<()> {
         let url = format!("pubky://{}/pub/pubky.app/files/{}", user_id, file_id);
         PubkyConnector::get_pubky_client()?
-            .delete(url.as_str()).await?;
+            .delete(url.as_str())
+            .await?;
         self.ensure_event_processing_complete().await?;
         Ok(())
     }
@@ -192,7 +192,8 @@ impl WatcherTest {
             follower_id, followee_id
         );
         PubkyConnector::get_pubky_client()?
-            .put(follow_url.as_str(), &blob).await?;
+            .put(follow_url.as_str(), &blob)
+            .await?;
         // Process the event
         self.ensure_event_processing_complete().await?;
         Ok(follow_url)
@@ -205,12 +206,12 @@ impl WatcherTest {
         let blob = serde_json::to_vec(&mute_relationship)?;
         let mute_url = format!("pubky://{}/pub/pubky.app/mutes/{}", muter_id, mutee_id);
         PubkyConnector::get_pubky_client()?
-            .put(mute_url.as_str(), &blob).await?;
+            .put(mute_url.as_str(), &blob)
+            .await?;
         // Process the event
         self.ensure_event_processing_complete().await?;
         Ok(mute_url)
     }
 }
-
 
 // TODO: TIdy up that one

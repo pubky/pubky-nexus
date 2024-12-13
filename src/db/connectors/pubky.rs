@@ -1,6 +1,6 @@
+use crate::Config;
 use pkarr::mainline::Testnet;
 use pubky::PubkyClient;
-use crate::Config;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::OnceCell;

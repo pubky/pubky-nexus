@@ -33,6 +33,13 @@ impl EventProcessor {
         })
     }
 
+    /// Creates a new `EventProcessor` instance for testing purposes.
+    ///
+    /// Initializes an `EventProcessor` with a mock homeserver and a default configuration,
+    /// making it suitable for use in integration tests and benchmarking scenarios.
+    ///
+    /// # Parameters
+    /// - `homeserver_url`: The URL of the homeserver to be used in the test environment.
     pub async fn test(homeserver_url: String) -> Self {
         let id = PubkyId("test".to_string());
         let homeserver = Homeserver::new(id, homeserver_url).await.unwrap();

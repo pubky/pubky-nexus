@@ -1,7 +1,5 @@
-use crate::watcher::{
-    posts::utils::check_member_post_replies, users::utils::find_user_counts,
-};
 use crate::watcher::utils::watcher::WatcherTest;
+use crate::watcher::{posts::utils::check_member_post_replies, users::utils::find_user_counts};
 use anyhow::Result;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser};
 use pubky_common::crypto::Keypair;

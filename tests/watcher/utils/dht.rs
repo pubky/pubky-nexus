@@ -1,28 +1,30 @@
-use tokio::sync::OnceCell;
+use anyhow::{anyhow, Error};
 use pkarr::mainline::Testnet;
 use std::sync::Arc;
-use anyhow::{anyhow, Error};
-
+use tokio::sync::OnceCell;
 
 static DHT_TESTNET_NETWORK_SINGLETON: OnceCell<TestnetDHTNetwork> = OnceCell::const_new();
 
 /// Represents a test network for the Distributed Hash Table (DHT).
 pub struct TestnetDHTNetwork {
-    nodes: Arc<Testnet>
+    nodes: Arc<Testnet>,
 }
 
 impl TestnetDHTNetwork {
     /// Initializes the DHT test network singleton.
     ///
     /// Sets up the global `DHT_TESTNET_NETWORK_SINGLETON` with a new
-    /// `TestnetDHTNetwork` instance if it has not already been initialized. 
+    /// `TestnetDHTNetwork` instance if it has not already been initialized.
     /// The initialization creates a testnet with a specified capacity.
-    pub fn initialise() -> Result<(), Error>{
+    /// # Parameters
+    /// - `nodes`: The number of DHT nodes to create in the testnet network.
+    pub fn initialise(nodes: usize) -> Result<(), Error> {
         if DHT_TESTNET_NETWORK_SINGLETON.get().is_some() {
             return Ok(());
         }
         let testnet = Self {
-            nodes: Arc::new(Testnet::new(10)),
+            // TODO: maybe add the node number in environment variable
+            nodes: Arc::new(Testnet::new(nodes)),
         };
         DHT_TESTNET_NETWORK_SINGLETON
             .set(testnet)

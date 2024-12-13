@@ -1,6 +1,5 @@
 use super::utils::find_user_tag;
-use crate::watcher::
-    users::utils::{check_member_user_pioneer, find_user_counts};
+use crate::watcher::users::utils::{check_member_user_pioneer, find_user_counts};
 use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
