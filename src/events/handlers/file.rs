@@ -1,3 +1,5 @@
+use std::error::Error;
+
 use crate::db::connectors::pubky::PubkyConnector;
 use crate::types::DynError;
 use crate::types::PubkyId;
@@ -24,7 +26,6 @@ pub async fn put(
     user_id: PubkyId,
     file_id: String,
     blob: Bytes,
-    //client: &PubkyClient,
 ) -> Result<(), DynError> {
     debug!("Indexing new file resource at {}/{}", user_id, file_id);
 
@@ -62,13 +63,14 @@ async fn ingest(
     pubkyapp_file: &PubkyAppFile,
     //client: &PubkyClient,
 ) -> Result<FileMeta, DynError> {
-    let response = PubkyConnector::get_pubky_client()?
-        .get(pubkyapp_file.src.as_str())
-        .await?
-        .unwrap();
+    let pubky_client = PubkyConnector::get_pubky_client()?;
+    let blob = match pubky_client.get(pubkyapp_file.src.as_str()).await? {
+        Some(metadata) => metadata,
+        None => return Err("EVENT ERROR: no metadata in the file blob".into()),
+    };
 
-    debug!("response {:?}", response);
-    store_blob(file_id.to_string(), user_id.to_string(), &response).await?;
+    debug!("File Metadata: {:?}\n{:?}", file_id, blob);
+    store_blob(file_id.to_string(), user_id.to_string(), &blob).await?;
 
     let static_path = format!("{}/{}", user_id, file_id);
     Ok(FileMeta {

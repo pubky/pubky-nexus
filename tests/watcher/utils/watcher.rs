@@ -44,7 +44,7 @@ impl WatcherTest {
 
         match PubkyConnector::initialise(&config, Some(&testnet)) {
             Ok(_) => debug!("WatcherTest: PubkyConnector initialised"),
-            Err(_) => debug!("WatcherTest: PubkyConnector already initialised"),
+            Err(e) => debug!("WatcherTest: {}", e),
         }
 
         let event_processor = EventProcessor::test(homeserver_url).await;
@@ -81,9 +81,8 @@ impl WatcherTest {
     /// - `homeserver_uri`: The URI of the homeserver to write the data to.
     /// - `blob`: A vector of bytes representing the data to be sent.
     pub async fn put(&mut self, homeserver_uri: &str, blob: Vec<u8>) -> Result<()> {
-        PubkyConnector::get_pubky_client()?
-            .put(homeserver_uri, &blob)
-            .await?;
+        let pubky_client = PubkyConnector::get_pubky_client()?;
+        pubky_client.put(homeserver_uri, &blob).await?;
         self.ensure_event_processing_complete().await?;
         Ok(())
     }
@@ -99,26 +98,25 @@ impl WatcherTest {
     /// - `homeserver_uri`: The URI of the homeserver from which content should be deleted.
     ///
     pub async fn del(&mut self, homeserver_uri: &str) -> Result<()> {
-        PubkyConnector::get_pubky_client()?
-            .delete(homeserver_uri)
-            .await?;
+        let pubky_client = PubkyConnector::get_pubky_client()?;
+        pubky_client.delete(homeserver_uri).await?;
         self.ensure_event_processing_complete().await?;
         Ok(())
     }
 
     pub async fn create_user(&mut self, keypair: &Keypair, user: &PubkyAppUser) -> Result<String> {
         let user_id = keypair.public_key().to_z32();
+        let pubky_client = PubkyConnector::get_pubky_client()?;
         // Register the key in the homeserver
-        PubkyConnector::get_pubky_client()?
+        pubky_client
             .signup(keypair, &self.homeserver.public_key())
             .await?;
 
         let profile_json = to_vec(user)?;
         let url = format!("pubky://{}/pub/pubky.app/profile.json", user_id);
+
         // Write the user profile in the pubky.app repository
-        PubkyConnector::get_pubky_client()?
-            .put(url.as_str(), &profile_json)
-            .await?;
+        pubky_client.put(url.as_str(), &profile_json).await?;
 
         // Index to Nexus from Homeserver using the events processor
         self.ensure_event_processing_complete().await?;
@@ -213,5 +211,3 @@ impl WatcherTest {
         Ok(mute_url)
     }
 }
-
-// TODO: TIdy up that one
