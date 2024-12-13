@@ -1,6 +1,6 @@
 use crate::watcher::{
     users::utils::{check_member_most_followed, check_member_user_pioneer, find_user_details},
-    utils::WatcherTest,
+    utils::watcher::WatcherTest,
 };
 use anyhow::Result;
 use pubky_app_specs::{PubkyAppUser, PubkyAppUserLink};

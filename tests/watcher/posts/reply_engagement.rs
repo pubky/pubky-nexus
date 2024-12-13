@@ -1,7 +1,7 @@
 use super::utils::{
     check_member_global_timeline_user_post, check_member_total_engagement_user_posts,
 };
-use crate::watcher::utils::WatcherTest;
+use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
 use pubky_app_specs::{
@@ -147,7 +147,7 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
         tag.create_id()
     );
 
-    test.create_tag(&tag_url, tag_blob).await?;
+    test.put(&tag_url, tag_blob).await?;
 
     // Check if reply post is not in total engagement index: Sorted:Posts:Global:TotalEngagement:user_id:post_id
     let total_engagement = check_member_total_engagement_user_posts(&[&author_id, &reply_id])
@@ -190,7 +190,7 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
         "Repost cannot be in global timeline after deletion"
     );
 
-    test.delete_tag(&tag_url).await?;
+    test.del(&tag_url).await?;
 
     // Check if reply post is not in total engagement index: Sorted:Posts:Global:TotalEngagement:user_id:post_id
     let total_engagement = check_member_total_engagement_user_posts(&[&author_id, &reply_id])

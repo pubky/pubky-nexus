@@ -2,7 +2,7 @@ use super::utils::{check_member_total_engagement_post_tag, find_post_tag};
 use crate::watcher::posts::utils::{check_member_total_engagement_user_posts, find_post_counts};
 use crate::watcher::tags::utils::check_member_post_tag_global_timeline;
 use crate::watcher::users::utils::find_user_counts;
-use crate::watcher::utils::WatcherTest;
+use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
 use pubky_app_specs::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser};
@@ -63,7 +63,7 @@ async fn test_homeserver_put_tag_post() -> Result<()> {
         .unwrap_or_default();
 
     // Put tag
-    test.create_tag(&tag_url, tag_blob).await?;
+    test.put(&tag_url, tag_blob).await?;
 
     // Step 4: Verify tag existence and data consistency
 
