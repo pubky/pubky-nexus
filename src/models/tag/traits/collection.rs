@@ -335,14 +335,11 @@ where
     async fn reindex(author_id: &str, extra_param: Option<&str>) -> Result<(), DynError> {
         match Self::get_from_graph(author_id, extra_param, None).await? {
             Some(tag_user) => Self::put_to_index(author_id, extra_param, &tag_user, false).await?,
-            None => {
-                match extra_param {
-                    Some(post_id) => {
-                        error!("Could not found post tag(s): {}:{}", author_id, post_id)
-                    }
-                    None => error!("Could not found user tag(s): {}", author_id),
-                };
-            }
+            None => error!(
+                "{}:{} Could not found tags in the graph",
+                author_id,
+                extra_param.unwrap_or_default()
+            ),
         }
         Ok(())
     }
