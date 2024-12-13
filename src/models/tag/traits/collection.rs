@@ -337,8 +337,10 @@ where
             Some(tag_user) => Self::put_to_index(author_id, extra_param, &tag_user, false).await?,
             None => {
                 match extra_param {
-                    Some(post_id) => error!("Could not found post tag(s): {}:{}", author_id, post_id),
-                    None => error!("Could not found user tag(s): {}", author_id)
+                    Some(post_id) => {
+                        error!("Could not found post tag(s): {}:{}", author_id, post_id)
+                    }
+                    None => error!("Could not found user tag(s): {}", author_id),
                 };
             }
         }
