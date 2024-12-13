@@ -1,7 +1,7 @@
 use super::utils::find_user_tag;
 use crate::watcher::{
     users::utils::{check_member_user_influencer, find_user_counts},
-    utils::WatcherTest,
+    utils::watcher::WatcherTest,
 };
 use anyhow::Result;
 use chrono::Utc;
@@ -53,10 +53,10 @@ async fn test_homeserver_del_tag_to_another_user() -> Result<()> {
     );
 
     // Put tag
-    test.create_tag(tag_url.as_str(), tag_blob).await?;
+    test.put(tag_url.as_str(), tag_blob).await?;
 
     // Step 3: Delete the tag
-    test.delete_tag(&tag_url).await?;
+    test.del(&tag_url).await?;
 
     // Step 4: Assert tag deletion
     // GRAPH_OP: Check if the tag node was deleted

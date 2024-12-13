@@ -1,3 +1,4 @@
+use crate::db::connectors::pubky::PubkyConnector;
 use crate::types::DynError;
 use crate::types::PubkyId;
 use crate::{
@@ -12,7 +13,6 @@ use crate::{
 };
 use axum::body::Bytes;
 use log::debug;
-use pubky::PubkyClient;
 use pubky_app_specs::{traits::Validatable, PubkyAppFile};
 use tokio::{
     fs::{self, remove_file, File},
@@ -24,7 +24,6 @@ pub async fn put(
     user_id: PubkyId,
     file_id: String,
     blob: Bytes,
-    client: &PubkyClient,
 ) -> Result<(), DynError> {
     debug!("Indexing new file resource at {}/{}", user_id, file_id);
 
@@ -33,7 +32,7 @@ pub async fn put(
 
     debug!("file input {:?}", file_input);
 
-    let file_meta = ingest(&user_id, file_id.as_str(), &file_input, client).await?;
+    let file_meta = ingest(&user_id, file_id.as_str(), &file_input).await?;
 
     // Create FileDetails object
     let file_details =
@@ -60,12 +59,16 @@ async fn ingest(
     user_id: &PubkyId,
     file_id: &str,
     pubkyapp_file: &PubkyAppFile,
-    client: &PubkyClient,
+    //client: &PubkyClient,
 ) -> Result<FileMeta, DynError> {
-    let response = client.get(pubkyapp_file.src.as_str()).await?.unwrap();
+    let pubky_client = PubkyConnector::get_pubky_client()?;
+    let blob = match pubky_client.get(pubkyapp_file.src.as_str()).await? {
+        Some(metadata) => metadata,
+        None => return Err("EVENT ERROR: no metadata in the file blob".into()),
+    };
 
-    debug!("response {:?}", response);
-    store_blob(file_id.to_string(), user_id.to_string(), &response).await?;
+    debug!("File Metadata: {:?}\n{:?}", file_id, blob);
+    store_blob(file_id.to_string(), user_id.to_string(), &blob).await?;
 
     let static_path = format!("{}/{}", user_id, file_id);
     Ok(FileMeta {

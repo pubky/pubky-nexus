@@ -1,7 +1,7 @@
 use super::utils::find_user_tag;
 use crate::watcher::{
     users::utils::{check_member_user_influencer, find_user_counts},
-    utils::WatcherTest,
+    utils::watcher::WatcherTest,
 };
 use anyhow::Result;
 use chrono::Utc;
@@ -38,7 +38,7 @@ async fn test_homeserver_put_tag_user_self() -> Result<()> {
     let tag_url = format!("pubky://{}/pub/pubky.app/tags/{}", user_id, tag.create_id());
 
     // Put tag
-    test.create_tag(tag_url.as_str(), tag_blob).await?;
+    test.put(tag_url.as_str(), tag_blob).await?;
 
     // Step 3: Verify tag existence and data consistency
 

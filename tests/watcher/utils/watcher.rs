@@ -1,39 +1,57 @@
-use anyhow::Result;
+use super::dht::TestnetDHTNetwork;
+use anyhow::{anyhow, Result};
 use chrono::Utc;
-use pkarr::mainline::Testnet;
-use pubky::PubkyClient;
+use log::debug;
 use pubky_app_specs::{
     traits::TimestampId, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser,
 };
 use pubky_common::crypto::Keypair;
 use pubky_homeserver::Homeserver;
-use pubky_nexus::{setup, Config, EventProcessor};
+use pubky_nexus::{setup, Config, EventProcessor, PubkyConnector};
 use serde_json::to_vec;
 
 /// Struct to hold the setup environment for tests
 pub struct WatcherTest {
     pub homeserver: Homeserver,
-    pub client: PubkyClient,
     pub event_processor: EventProcessor,
     pub config: Config,
     pub ensure_event_processing: bool,
 }
 
 impl WatcherTest {
+    /// Sets up the test environment for the watcher.
+    ///
+    /// This function performs the following steps:
+    /// 1. Reads configuration from environment variables.
+    /// 2. Initializes database connectors for Neo4j and Redis.
+    /// 3. Sets up the global DHT test network for the watcher.
+    /// 4. Creates and starts a test homeserver instance.
+    /// 5. Initializes the PubkyConnector with the configuration and global test DHT nodes.
+    /// 6. Creates and configures the event processor with the homeserver URL.
+    ///
+    /// # Returns
+    /// Returns an instance of `Self` containing the configuration, homeserver,
+    /// event processor, and other test setup details.
     pub async fn setup() -> Result<Self> {
         let config = Config::from_env();
         setup(&config).await;
 
-        let testnet = Testnet::new(10);
+        TestnetDHTNetwork::initialise(10)?;
+        let testnet = TestnetDHTNetwork::get_testnet_dht_nodes()?;
+
         let homeserver = Homeserver::start_test(&testnet).await?;
-        let client = PubkyClient::test(&testnet);
         let homeserver_url = format!("http://localhost:{}", homeserver.port());
-        let event_processor = EventProcessor::test(&testnet, homeserver_url).await;
+
+        match PubkyConnector::initialise(&config, Some(&testnet)) {
+            Ok(_) => debug!("WatcherTest: PubkyConnector initialised"),
+            Err(e) => debug!("WatcherTest: {}", e),
+        }
+
+        let event_processor = EventProcessor::test(homeserver_url).await;
 
         Ok(Self {
             config,
             homeserver,
-            client,
             event_processor,
             ensure_event_processing: true,
         })
@@ -46,24 +64,59 @@ impl WatcherTest {
 
     pub async fn ensure_event_processing_complete(&mut self) -> Result<()> {
         if self.ensure_event_processing {
-            self.event_processor
-                .run()
-                .await
-                .map_err(|e| anyhow::anyhow!(e))?;
+            self.event_processor.run().await.map_err(|e| anyhow!(e))?;
             // tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         }
         Ok(())
     }
 
+    /// Sends a PUT request to the homeserver with the provided blob of data.
+    ///
+    /// This function performs the following steps:
+    /// 1. Retrieves the Pubky client from the PubkyConnector.
+    /// 2. Sends the blob data to the specified homeserver URI using a PUT request.
+    /// 3. Ensures that all event processing is complete after the PUT operation.
+    ///
+    /// # Parameters
+    /// - `homeserver_uri`: The URI of the homeserver to write the data to.
+    /// - `blob`: A vector of bytes representing the data to be sent.
+    pub async fn put(&mut self, homeserver_uri: &str, blob: Vec<u8>) -> Result<()> {
+        let pubky_client = PubkyConnector::get_pubky_client()?;
+        pubky_client.put(homeserver_uri, &blob).await?;
+        self.ensure_event_processing_complete().await?;
+        Ok(())
+    }
+
+    /// Sends a DELETE request to the homeserver to remove content.
+    ///
+    /// This function performs the following steps:
+    /// 1. Retrieves the Pubky client from the PubkyConnector.
+    /// 2. Sends a DELETE request to the specified homeserver URI.
+    /// 3. Ensures that all event processing is complete after the DELETE operation.
+    ///
+    /// # Parameters
+    /// - `homeserver_uri`: The URI of the homeserver from which content should be deleted.
+    ///
+    pub async fn del(&mut self, homeserver_uri: &str) -> Result<()> {
+        let pubky_client = PubkyConnector::get_pubky_client()?;
+        pubky_client.delete(homeserver_uri).await?;
+        self.ensure_event_processing_complete().await?;
+        Ok(())
+    }
+
     pub async fn create_user(&mut self, keypair: &Keypair, user: &PubkyAppUser) -> Result<String> {
         let user_id = keypair.public_key().to_z32();
-        self.client
+        let pubky_client = PubkyConnector::get_pubky_client()?;
+        // Register the key in the homeserver
+        pubky_client
             .signup(keypair, &self.homeserver.public_key())
             .await?;
 
         let profile_json = to_vec(user)?;
         let url = format!("pubky://{}/pub/pubky.app/profile.json", user_id);
-        self.client.put(url.as_str(), &profile_json).await?;
+
+        // Write the user profile in the pubky.app repository
+        pubky_client.put(url.as_str(), &profile_json).await?;
 
         // Index to Nexus from Homeserver using the events processor
         self.ensure_event_processing_complete().await?;
@@ -74,50 +127,30 @@ impl WatcherTest {
         let post_id = post.create_id();
         let post_json = to_vec(post)?;
         let url = format!("pubky://{}/pub/pubky.app/posts/{}", user_id, post_id);
-        self.client.put(url.as_str(), &post_json).await?;
+        // Write the post in the pubky.app repository
+        PubkyConnector::get_pubky_client()?
+            .put(url.as_str(), &post_json)
+            .await?;
 
         // Index to Nexus from Homeserver using the events processor
         self.ensure_event_processing_complete().await?;
         Ok(post_id)
     }
 
-    pub async fn create_tag(&mut self, tag_url: &str, tag_blob: Vec<u8>) -> Result<()> {
-        self.client.put(tag_url, &tag_blob).await?;
-        self.ensure_event_processing_complete().await?;
-        Ok(())
-    }
-
-    pub async fn delete_tag(&mut self, tag_url: &str) -> Result<()> {
-        self.client.delete(tag_url).await?;
-        self.ensure_event_processing_complete().await?;
-        Ok(())
-    }
-
-    pub async fn create_bookmark(
-        &mut self,
-        bookmark_url: &str,
-        bookmark_blob: Vec<u8>,
-    ) -> Result<()> {
-        self.client.put(bookmark_url, &bookmark_blob).await?;
-        self.ensure_event_processing_complete().await?;
-        Ok(())
-    }
-
-    pub async fn delete_bookmark(&mut self, bookmark_url: &str) -> Result<()> {
-        self.client.delete(bookmark_url).await?;
-        self.ensure_event_processing_complete().await
-    }
-
     pub async fn cleanup_user(&mut self, user_id: &str) -> Result<()> {
         let url = format!("pubky://{}/pub/pubky.app/profile.json", user_id);
-        self.client.delete(url.as_str()).await?;
+        PubkyConnector::get_pubky_client()?
+            .delete(url.as_str())
+            .await?;
         self.ensure_event_processing_complete().await?;
         Ok(())
     }
 
     pub async fn cleanup_post(&mut self, user_id: &str, post_id: &str) -> Result<()> {
         let url = format!("pubky://{}/pub/pubky.app/posts/{}", user_id, post_id);
-        self.client.delete(url.as_str()).await?;
+        PubkyConnector::get_pubky_client()?
+            .delete(url.as_str())
+            .await?;
         self.ensure_event_processing_complete().await?;
         Ok(())
     }
@@ -130,7 +163,9 @@ impl WatcherTest {
         let file_id = file.create_id();
         let file_json = to_vec(file)?;
         let url = format!("pubky://{}/pub/pubky.app/files/{}", user_id, file_id);
-        self.client.put(url.as_str(), &file_json).await?;
+        PubkyConnector::get_pubky_client()?
+            .put(url.as_str(), &file_json)
+            .await?;
 
         self.ensure_event_processing_complete().await?;
         Ok((file_id, url))
@@ -138,7 +173,9 @@ impl WatcherTest {
 
     pub async fn cleanup_file(&mut self, user_id: &str, file_id: &str) -> Result<()> {
         let url = format!("pubky://{}/pub/pubky.app/files/{}", user_id, file_id);
-        self.client.delete(url.as_str()).await?;
+        PubkyConnector::get_pubky_client()?
+            .delete(url.as_str())
+            .await?;
         self.ensure_event_processing_complete().await?;
         Ok(())
     }
@@ -152,17 +189,12 @@ impl WatcherTest {
             "pubky://{}/pub/pubky.app/follows/{}",
             follower_id, followee_id
         );
-        self.client.put(follow_url.as_str(), &blob).await?;
+        PubkyConnector::get_pubky_client()?
+            .put(follow_url.as_str(), &blob)
+            .await?;
         // Process the event
         self.ensure_event_processing_complete().await?;
         Ok(follow_url)
-    }
-
-    pub async fn delete_follow(&mut self, follow_url: &str) -> Result<()> {
-        self.client.delete(follow_url).await?;
-        // Process the event
-        self.ensure_event_processing_complete().await?;
-        Ok(())
     }
 
     pub async fn create_mute(&mut self, muter_id: &str, mutee_id: &str) -> Result<String> {
@@ -171,16 +203,11 @@ impl WatcherTest {
         };
         let blob = serde_json::to_vec(&mute_relationship)?;
         let mute_url = format!("pubky://{}/pub/pubky.app/mutes/{}", muter_id, mutee_id);
-        self.client.put(mute_url.as_str(), &blob).await?;
+        PubkyConnector::get_pubky_client()?
+            .put(mute_url.as_str(), &blob)
+            .await?;
         // Process the event
         self.ensure_event_processing_complete().await?;
         Ok(mute_url)
-    }
-
-    pub async fn delete_mute(&mut self, mute_url: &str) -> Result<()> {
-        self.client.delete(mute_url).await?;
-        // Process the event
-        self.ensure_event_processing_complete().await?;
-        Ok(())
     }
 }

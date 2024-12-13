@@ -3,7 +3,7 @@ use super::utils::{
 };
 use crate::watcher::posts::utils::find_post_details;
 use crate::watcher::users::utils::{check_member_user_influencer, find_user_counts};
-use crate::watcher::utils::WatcherTest;
+use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 use pubky_common::crypto::Keypair;
