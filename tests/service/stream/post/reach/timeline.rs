@@ -1,12 +1,15 @@
 use super::utils::test_reach_filter_with_posts;
-use crate::service::stream::post::{AMSTERDAM, BOGOTA, ROOT_PATH, TAG_LABEL_2, USER_ID};
-use crate::service::utils::{make_request, make_wrong_request};
+use crate::service::{
+    stream::post::{AMSTERDAM, BOGOTA, ROOT_PATH, TAG_LABEL_2, USER_ID},
+    utils::{get_request, invalid_get_request},
+};
 use anyhow::Result;
+use reqwest::StatusCode;
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_following() -> Result<()> {
     let path = format!("{ROOT_PATH}?observer_id={}&source=following", USER_ID);
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -20,10 +23,10 @@ async fn test_stream_posts_following() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_followers() -> Result<()> {
     let path = format!("{ROOT_PATH}?observer_id={}&source=followers", USER_ID);
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -50,7 +53,7 @@ pub const POST_TD_ING: &str = "N7Q2F5W8J0L3";
 const START_TIMELINE: &str = "1729308318220";
 const END_TIMELINE: &str = "1693824190130";
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_timeline_reach_following_with_tag() -> Result<()> {
     test_reach_filter_with_posts(
         AMSTERDAM,
@@ -66,7 +69,7 @@ async fn test_stream_posts_by_timeline_reach_following_with_tag() -> Result<()> 
     .await
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_timeline_reach_following_with_tag_and_start() -> Result<()> {
     test_reach_filter_with_posts(
         AMSTERDAM,
@@ -82,7 +85,7 @@ async fn test_stream_posts_by_timeline_reach_following_with_tag_and_start() -> R
     .await
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_timeline_reach_following_with_tag_start_and_skip() -> Result<()> {
     test_reach_filter_with_posts(
         AMSTERDAM,
@@ -98,7 +101,7 @@ async fn test_stream_posts_by_timeline_reach_following_with_tag_start_and_skip()
     .await
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_timeline_reach_following_with_tag_start_skip_and_limit() -> Result<()>
 {
     test_reach_filter_with_posts(
@@ -115,7 +118,7 @@ async fn test_stream_posts_by_timeline_reach_following_with_tag_start_skip_and_l
     .await
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_timeline_reach_following_with_tag_and_end() -> Result<()> {
     test_reach_filter_with_posts(
         AMSTERDAM,
@@ -131,7 +134,7 @@ async fn test_stream_posts_by_timeline_reach_following_with_tag_and_end() -> Res
     .await
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_timeline_reach_following_with_tag_start_and_end() -> Result<()> {
     test_reach_filter_with_posts(
         AMSTERDAM,
@@ -158,7 +161,7 @@ pub const POST_TD_ER: &str = "M4X1P9L2J6K8";
 const START_TIMELINE_ER: &str = "1709308315950";
 const END_TIMELINE_ER: &str = "1693823567900";
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_timeline_reach_followers_with_tag() -> Result<()> {
     test_reach_filter_with_posts(
         BOGOTA,
@@ -174,7 +177,7 @@ async fn test_stream_posts_by_timeline_reach_followers_with_tag() -> Result<()> 
     .await
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_timeline_reach_followers_with_tag_and_start() -> Result<()> {
     test_reach_filter_with_posts(
         BOGOTA,
@@ -190,7 +193,7 @@ async fn test_stream_posts_by_timeline_reach_followers_with_tag_and_start() -> R
     .await
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_timeline_reach_followers_with_tag_start_and_skip() -> Result<()> {
     test_reach_filter_with_posts(
         BOGOTA,
@@ -206,7 +209,7 @@ async fn test_stream_posts_by_timeline_reach_followers_with_tag_start_and_skip()
     .await
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_timeline_reach_followers_with_tag_start_skip_and_limit() -> Result<()>
 {
     test_reach_filter_with_posts(
@@ -223,7 +226,7 @@ async fn test_stream_posts_by_timeline_reach_followers_with_tag_start_skip_and_l
     .await
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_timeline_reach_followers_with_tag_and_end() -> Result<()> {
     test_reach_filter_with_posts(
         BOGOTA,
@@ -239,7 +242,7 @@ async fn test_stream_posts_by_timeline_reach_followers_with_tag_and_end() -> Res
     .await
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_timeline_reach_followers_with_tag_start_and_end() -> Result<()> {
     test_reach_filter_with_posts(
         BOGOTA,
@@ -263,7 +266,7 @@ const EIXAMPLE: &str = "8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy";
 pub const POST_TA_FR: &str = "L3W5N0F8Q2J7";
 pub const POST_TB_FR: &str = "M4X1P9L2J6K8";
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_timeline_reach_friends_with_tag() -> Result<()> {
     test_reach_filter_with_posts(
         EIXAMPLE,
@@ -279,12 +282,12 @@ async fn test_stream_posts_by_timeline_reach_friends_with_tag() -> Result<()> {
     .await
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_not_found_posts_by_timeline_reach_friends_with_tag() -> Result<()> {
     let path = format!(
         "{ROOT_PATH}?sorting=timeline&tags=opensource&source=friends&observer_id={EIXAMPLE}&skip=2"
     );
-    make_wrong_request(&path, Some(404)).await?;
+    invalid_get_request(&path, StatusCode::NOT_FOUND).await?;
 
     Ok(())
 }

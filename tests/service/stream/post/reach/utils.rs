@@ -1,6 +1,6 @@
 use crate::service::stream::post::utils::{verify_post_list, verify_timeline_post_list};
 use crate::service::stream::post::ROOT_PATH;
-use crate::service::utils::make_request;
+use crate::service::utils::get_request;
 use anyhow::Result;
 
 // Test all the reach endpoints that hits the graph
@@ -41,7 +41,7 @@ pub async fn test_reach_filter_with_posts(
 
     println!("PATH: {:?}", path);
 
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     if verify_timeline {
         verify_timeline_post_list(expected_posts.to_vec(), body);

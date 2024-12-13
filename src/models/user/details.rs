@@ -126,7 +126,7 @@ mod tests {
         "not_existing_user_id_either", // Does not exist
     ];
 
-    #[tokio::test]
+    #[tokio_shared_rt::test(shared)]
     async fn test_get_by_ids_from_redis() {
         let config = Config::from_env();
         setup(&config).await;

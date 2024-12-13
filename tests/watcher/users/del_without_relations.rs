@@ -6,7 +6,7 @@ use pubky_nexus::models::user::{UserCounts, UserView};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_delete_user_without_relationships() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(false).await?;
 
     // Create a new user without any relationships
     let keypair = Keypair::random();

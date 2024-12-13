@@ -1,21 +1,14 @@
-use crate::service::utils::HOST_URL;
+use crate::service::utils::get_request;
 use anyhow::Result;
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_users_by_username_search() -> Result<()> {
-    let client = httpc_test::new_client(HOST_URL)?;
-
     let username = "Jo";
 
-    let res = client
-        .do_get(&format!("/v0/stream/users/username?username={}", username))
-        .await?;
-    assert_eq!(res.status(), 200);
+    let res = get_request(&format!("/v0/stream/users/username?username={}", username)).await?;
+    assert!(res.is_array());
 
-    let body = res.json_body()?;
-    assert!(body.is_array());
-
-    let users = body
+    let users = res
         .as_array()
         .expect("User search results should be an array");
 

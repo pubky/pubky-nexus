@@ -186,7 +186,7 @@ mod tests {
     const REPLY_ID: &str = "2ZECXVXHZBE00";
     const POST_ID: &str = "2ZECRNM66G900";
 
-    #[tokio::test]
+    #[tokio_shared_rt::test(shared)]
     async fn test_post_details_get_from_graph() {
         // Open connections against ddbb
         let config = Config::from_env();

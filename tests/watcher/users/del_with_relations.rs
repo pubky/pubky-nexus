@@ -12,7 +12,7 @@ use pubky_nexus::models::user::{UserCounts, UserView};
 use serde_json::to_vec;
 #[tokio_shared_rt::test(shared)]
 async fn test_delete_user_with_relationships() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(false).await?;
 
     // Create a new user
     let keypair = Keypair::random();

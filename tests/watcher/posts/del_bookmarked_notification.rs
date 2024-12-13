@@ -11,7 +11,7 @@ use pubky_nexus::{
 
 #[tokio_shared_rt::test(shared)]
 async fn test_delete_bookmarked_post_notification() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
+    let mut test = WatcherTest::setup(false).await?;
 
     // Create User A who makes the original post
     let keypair_a = Keypair::random();
