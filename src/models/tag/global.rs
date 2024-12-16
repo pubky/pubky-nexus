@@ -15,7 +15,16 @@ impl TagGlobal {
     ) -> Result<Option<Vec<String>>, DynError> {
         match user_id {
             None => read_from_set(&label, Some(skip), Some(limit)).await,
-            Some(id) => get_tag_taggers_by_reach(&label, &id, reach.unwrap(), skip, limit).await,
+            Some(id) => {
+                get_tag_taggers_by_reach(
+                    &label,
+                    &id,
+                    reach.unwrap_or(TagStreamReach::Friends),
+                    skip,
+                    limit,
+                )
+                .await
+            }
         }
     }
 }
