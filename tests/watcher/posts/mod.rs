@@ -21,4 +21,5 @@ mod reply_notification;
 mod reply_repost;
 mod repost;
 mod repost_notification;
+mod user_not_found;
 pub mod utils;

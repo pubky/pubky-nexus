@@ -27,6 +27,25 @@ pub async fn exec_boolean_row(query: Query) -> Result<bool, DynError> {
     Ok(boolean)
 }
 
+// Exec a graph query that has a single "boolean" return
+pub async fn temp_exec_boolean_row(query: Query) -> Result<Option<bool>, DynError> {
+    let mut result;
+    {
+        let graph = get_neo4j_graph()?;
+        let graph = graph.lock().await;
+        result = graph.execute(query).await?;
+    }
+    let mut exist = None;
+    println!("QUERY: Check if the graph retur a ROW");
+    while let Some(row) = result.next().await? {
+        println!("Graph return a row");
+        let result: bool = row.get("boolean")?;
+        exist = Some(result);
+
+    }
+    Ok(exist)
+}
+
 // Generic function to retrieve data from Neo4J
 pub async fn retrieve_from_graph<T>(query: Query, key: &str) -> Result<Option<T>, DynError>
 where

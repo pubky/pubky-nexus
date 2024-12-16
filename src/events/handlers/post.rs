@@ -38,8 +38,12 @@ pub async fn sync_put(
     // We avoid indexing replies into global feed sorted sets
     let is_reply = post.parent.is_some();
 
-    // SAVE TO GRAPH
-    let existed = post_details.put_to_graph().await?;
+    // SAVE TO GRAPH. First the user has to exist
+    let existed = match post_details.put_to_graph().await? {
+        Some(exist) => exist,
+        // Should return an error that could not be inserted in the RetryManager
+        None => return Err("The user is not registered in the source of truth".into())
+    };
 
     if existed {
         // If the post existed, let's confirm this is an edit. Is the content different?
