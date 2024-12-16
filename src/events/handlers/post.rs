@@ -42,7 +42,7 @@ pub async fn sync_put(
     let existed = match post_details.put_to_graph().await? {
         Some(exist) => exist,
         // Should return an error that could not be inserted in the RetryManager
-        None => return Err("The user is not registered in the source of truth".into())
+        None => return Err("WATCHER: User not synchronized".into())
     };
 
     if existed {

@@ -67,7 +67,7 @@ async fn put_sync_post(
     indexed_at: i64,
 ) -> Result<(), DynError> {
     // SAVE TO GRAPH
-    let existed = TagPost::put_to_graph(
+    let existed = match TagPost::put_to_graph(
         &tagger_user_id,
         &author_id,
         Some(&post_id),
@@ -75,7 +75,11 @@ async fn put_sync_post(
         &tag_label,
         indexed_at,
     )
-    .await?;
+    .await? {
+        Some(exists) => exists,
+        // Should return an error that could not be inserted in the RetryManager
+        None => return Err("WATCHER: User not synchronized".into())
+    };
 
     if existed {
         return Ok(());
@@ -135,7 +139,7 @@ async fn put_sync_user(
     indexed_at: i64,
 ) -> Result<(), DynError> {
     // SAVE TO GRAPH
-    let existed = TagUser::put_to_graph(
+    let existed = match TagUser::put_to_graph(
         &tagger_user_id,
         &tagged_user_id,
         None,
@@ -143,7 +147,11 @@ async fn put_sync_user(
         &tag_label,
         indexed_at,
     )
-    .await?;
+    .await? {
+        Some(exists) => exists,
+        // Should return an error that could not be inserted in the RetryManager
+        None => return Err("WATCHER: User not synchronized".into())
+    };
 
     if existed {
         return Ok(());

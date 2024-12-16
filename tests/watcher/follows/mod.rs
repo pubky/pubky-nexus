@@ -6,4 +6,5 @@ mod put;
 mod put_friends;
 mod put_notification;
 mod put_sequential;
+mod user_not_found_put;
 mod utils;

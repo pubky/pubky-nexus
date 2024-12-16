@@ -104,6 +104,18 @@ impl WatcherTest {
         Ok(())
     }
 
+    /// Registers a user in the homeserver with the keypair.
+    /// # Arguments
+    /// * `keypair` - A reference to the `Keypair` used for signing up the user.
+    pub async fn register_user(&self, keypair: &Keypair) -> Result<()> {
+        let pubky_client = PubkyConnector::get_pubky_client()?;
+        
+        pubky_client
+            .signup(&keypair, &self.homeserver.public_key())
+            .await?;
+        Ok(())
+    }
+
     pub async fn create_user(&mut self, keypair: &Keypair, user: &PubkyAppUser) -> Result<String> {
         let user_id = keypair.public_key().to_z32();
         let pubky_client = PubkyConnector::get_pubky_client()?;
