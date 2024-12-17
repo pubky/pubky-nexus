@@ -25,11 +25,14 @@ async fn test_homeserver_follow_cannot_complete() -> Result<()> {
     // It will not have a profile.json
     test.register_user(&keypair).await?;
     
+    // NOTE: All that events are going to throw an error because the shadow followee does not exist
     // Follow the followee
-    test.create_follow(&follower_id, &shadow_followee_id).await?;
+    let follow_url = test.create_follow(&follower_id, &shadow_followee_id).await?;
+    test.del(&follow_url).await?;
 
     // Create a follow in opposite direction
-    test.create_follow(&shadow_followee_id, &follower_id).await?;
+    let opposite_follow = test.create_follow(&shadow_followee_id, &follower_id).await?;
+    test.del(&opposite_follow).await?;
 
     Ok(())
 }

@@ -1,4 +1,4 @@
 mod del;
 mod put;
-mod not_user_found_put;
+mod user_not_found;
 mod utils;

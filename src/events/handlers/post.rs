@@ -1,4 +1,4 @@
-use crate::db::graph::exec::{exec_boolean_row, exec_single_row};
+use crate::db::graph::exec::{ exec_single_row, exec_boolean_row};
 use crate::db::kv::index::json::JsonAction;
 use crate::events::uri::ParsedUri;
 use crate::models::notification::{Notification, PostChangedSource, PostChangedType};
@@ -286,12 +286,17 @@ pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), DynError> {
     debug!("Deleting post: {}/{}", author_id, post_id);
 
     // Graph query to check if there is any edge at all to this post other than AUTHORED, is a reply or is a repost.
-    // If there is none other relationship, we delete from graph and redis.
-    // But if there is any, then we simply update the post with keyword content [DELETED].
-    // A deleted post is a post whose content is EXACTLY `"[DELETED]"`
     let query = post_is_safe_to_delete(&author_id, &post_id);
-    let delete_safe = exec_boolean_row(query).await?;
 
+    let delete_safe = match exec_boolean_row(query).await? {
+        Some(delete_safe) => delete_safe,
+        // Should return an error that could not be inserted in the RetryManager
+        None => return Err("WATCHER: User not synchronized".into())
+    };
+
+    // If there is none other relationship (FALSE), we delete from graph and redis.
+    // But if there is any (TRUE), then we simply update the post with keyword content [DELETED].
+    // A deleted post is a post whose content is EXACTLY `"[DELETED]"`
     match delete_safe {
         true => sync_del(author_id, post_id).await?,
         false => {

@@ -64,8 +64,12 @@ pub async fn del(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), DynEr
 
 pub async fn sync_del(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), DynError> {
     // DELETE FROM GRAPH
-    let existed = Followers::del_from_graph(&follower_id, &followee_id).await?;
+    let existed = match Followers::del_from_graph(&follower_id, &followee_id).await? {
+        Some(exists) => exists,
+        None => return Err("WATCHER: User not synchronized".into())
+    };
 
+    // Both users exists but they do not have that relationship
     if !existed {
         return Ok(());
     }

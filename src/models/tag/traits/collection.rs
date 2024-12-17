@@ -5,7 +5,7 @@ use neo4rs::Query;
 
 use crate::{
     db::{
-        connectors::neo4j::get_neo4j_graph, graph::exec::temp_exec_boolean_row,
+        connectors::neo4j::get_neo4j_graph, graph::exec::exec_boolean_row,
         kv::index::sorted_sets::SortOrder,
     },
     models::tag::{post::POST_TAGS_KEY_PARTS, user::USER_TAGS_KEY_PARTS},
@@ -320,7 +320,7 @@ where
                 indexed_at,
             ),
         };
-        temp_exec_boolean_row(query).await
+        exec_boolean_row(query).await
     }
 
     /// Reindexes tags for a given author by retrieving data from the graph database and updating the index.

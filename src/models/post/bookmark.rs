@@ -1,5 +1,5 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
-use crate::db::graph::exec::temp_exec_boolean_row;
+use crate::db::graph::exec::exec_boolean_row;
 use crate::types::DynError;
 use crate::{queries, RedisOps};
 use neo4rs::Relation;
@@ -32,7 +32,7 @@ impl Bookmark {
             indexed_at,
         );
 
-        temp_exec_boolean_row(query).await
+        exec_boolean_row(query).await
     }
 
     /// Retrieves counts by user ID, first trying to get from Redis, then from Neo4j if not found.

@@ -1,5 +1,5 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
-use crate::db::graph::exec::{ exec_single_row, temp_exec_boolean_row };
+use crate::db::graph::exec::exec_boolean_row;
 use crate::types::DynError;
 use crate::{queries, RedisOps};
 use axum::async_trait;
@@ -93,7 +93,7 @@ impl Muted {
     pub async fn put_to_graph(user_id: &str, muted_id: &str) -> Result<Option<bool>, DynError> {
         let indexed_at = Utc::now().timestamp_millis();
         let query = queries::put::create_mute(user_id, muted_id, indexed_at);
-        temp_exec_boolean_row(query).await
+        exec_boolean_row(query).await
     }
 
     pub async fn reindex(user_id: &str) -> Result<(), DynError> {
@@ -107,9 +107,9 @@ impl Muted {
         Ok(())
     }
 
-    pub async fn del_from_graph(user_id: &str, muted_id: &str) -> Result<(), DynError> {
+    pub async fn del_from_graph(user_id: &str, muted_id: &str) -> Result<Option<bool>, DynError> {
         let query = queries::del::delete_mute(user_id, muted_id);
-        exec_single_row(query).await
+        exec_boolean_row(query).await
     }
 
     pub async fn del_from_index(&self, user_id: &str) -> Result<(), DynError> {

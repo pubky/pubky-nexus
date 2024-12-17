@@ -24,12 +24,13 @@ pub fn delete_post(author_id: &str, post_id: &str) -> Query {
 // Delete a follows relationship between two users
 pub fn delete_follow(follower_id: &str, followee_id: &str) -> Query {
     query(
-        "MATCH (follower:User {id: $follower_id})-[r:FOLLOWS]->(followee:User {id: $followee_id})
-        
-         DELETE r
-         
-         // returns whether the relationship existed as 'boolean'
-         RETURN r IS NOT NULL AS boolean;",
+        "// Important that MATCH to check if both users are in the graph
+        MATCH (follower:User {id: $follower_id}), (followee:User {id: $followee_id})
+        // Check if follow already exist.
+        OPTIONAL MATCH (follower)-[existing:FOLLOWS]->(followee) 
+        DELETE existing
+        // returns whether the relationship existed as 'boolean'    
+        RETURN existing IS NOT NULL AS boolean;",
     )
     .param("follower_id", follower_id.to_string())
     .param("followee_id", followee_id.to_string())
@@ -38,8 +39,12 @@ pub fn delete_follow(follower_id: &str, followee_id: &str) -> Query {
 // Delete a muted relationship between two users
 pub fn delete_mute(user_id: &str, muted_id: &str) -> Query {
     query(
-        "MATCH (user:User {id: $user_id})-[r:MUTED]->(muted:User {id: $muted_id})
-         DELETE r;",
+        "// Important that MATCH to check if both users are in the graph
+        MATCH (user:User {id: $user_id}), (muted:User {id: $muted_id})
+        OPTIONAL MATCH (user)-[existing:MUTED]->(muted)
+        DELETE existing
+        // returns whether the relationship existed as 'boolean'    
+        RETURN existing IS NOT NULL AS boolean;",
     )
     .param("user_id", user_id.to_string())
     .param("muted_id", muted_id.to_string())
@@ -58,14 +63,14 @@ pub fn delete_bookmark(user_id: &str, bookmark_id: &str) -> Query {
 }
 
 // Delete a tagged relationship
-pub fn delete_tag(user_id: &str, tag_id: &str) -> Query {
-    query(
-        "MATCH (user:User {id: $user_id})-[t:TAGGED {id: $tag_id}]->(target)
-         DELETE t",
-    )
-    .param("user_id", user_id)
-    .param("tag_id", tag_id)
-}
+// pub fn delete_tag(user_id: &str, tag_id: &str) -> Query {
+//     query(
+//         "MATCH (user:User {id: $user_id})-[t:TAGGED {id: $tag_id}]->(target)
+//          DELETE t",
+//     )
+//     .param("user_id", user_id)
+//     .param("tag_id", tag_id)
+// }
 
 // Delete a file node
 pub fn delete_file(owner_id: &str, file_id: &str) -> Query {

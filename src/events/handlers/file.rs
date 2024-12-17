@@ -30,7 +30,7 @@ pub async fn put(
     // Serialize and validate
     let file_input = <PubkyAppFile as Validatable>::try_from(&blob, &file_id)?;
 
-    debug!("file input {:?}", file_input);
+    //debug!("file input {:?}", file_input);
 
     let file_meta = ingest(&user_id, file_id.as_str(), &file_input).await?;
 
@@ -67,7 +67,7 @@ async fn ingest(
         None => return Err("EVENT ERROR: no metadata in the file blob".into()),
     };
 
-    debug!("File Metadata: {:?}\n{:?}", file_id, blob);
+    //debug!("File Metadata: {:?}\n{:?}", file_id, blob);
     store_blob(file_id.to_string(), user_id.to_string(), &blob).await?;
 
     let static_path = format!("{}/{}", user_id, file_id);

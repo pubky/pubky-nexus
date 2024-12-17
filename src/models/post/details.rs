@@ -1,6 +1,6 @@
 use super::PostStream;
 use crate::db::connectors::neo4j::get_neo4j_graph;
-use crate::db::graph::exec::{temp_exec_boolean_row, exec_single_row};
+use crate::db::graph::exec::{exec_boolean_row, exec_single_row};
 use crate::types::DynError;
 use crate::types::PubkyId;
 use crate::{queries, RedisOps};
@@ -144,7 +144,7 @@ impl PostDetails {
     // Save new graph node
     pub async fn put_to_graph(&self) -> Result<Option<bool>, DynError> {
         // Save new graph node;
-        temp_exec_boolean_row(queries::put::create_post(self)?).await
+        exec_boolean_row(queries::put::create_post(self)?).await
     }
 
     pub async fn delete(

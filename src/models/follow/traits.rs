@@ -1,5 +1,5 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
-use crate::db::graph::exec::{temp_exec_boolean_row, exec_boolean_row };
+use crate::db::graph::exec::exec_boolean_row;
 use crate::types::DynError;
 use crate::{queries, RedisOps};
 use axum::async_trait;
@@ -13,7 +13,7 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
     async fn put_to_graph(follower_id: &str, followee_id: &str) -> Result<Option<bool>, DynError> {
         let indexed_at = Utc::now().timestamp_millis();
         let query = queries::put::create_follow(follower_id, followee_id, indexed_at);
-        temp_exec_boolean_row(query).await
+        exec_boolean_row(query).await
     }
 
     async fn get_by_id(
@@ -93,7 +93,7 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
         Ok(())
     }
 
-    async fn del_from_graph(follower_id: &str, followee_id: &str) -> Result<bool, DynError> {
+    async fn del_from_graph(follower_id: &str, followee_id: &str) -> Result<Option<bool>, DynError> {
         let query = queries::del::delete_follow(follower_id, followee_id);
         exec_boolean_row(query).await
     }

@@ -203,7 +203,8 @@ pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), DynError> {
             }
         }
     } else {
-        debug!("DEL-Tag: Could not find the tag");
+         // Should return an error that could not be inserted in the RetryManager
+         return Err("WATCHER: User not synchronized".into())
     }
     Ok(())
 }

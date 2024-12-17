@@ -39,12 +39,18 @@ pub async fn del(user_id: PubkyId, muted_id: PubkyId) -> Result<(), DynError> {
 
 pub async fn sync_del(user_id: PubkyId, muted_id: PubkyId) -> Result<(), DynError> {
     // DELETE FROM GRAPH
-    Muted::del_from_graph(&user_id, &muted_id).await?;
-
+    let existed = match Muted::del_from_graph(&user_id, &muted_id).await? {
+        Some(exist) => exist,
+        // Should return an error that could not be inserted in the RetryManager
+        None => return Err("WATCHER: User not synchronized".into())
+    };
+    
     // REMOVE FROM INDEX
-    Muted(vec![muted_id.to_string()])
-        .del_from_index(&user_id)
-        .await?;
+    if existed {
+        Muted(vec![muted_id.to_string()])
+            .del_from_index(&user_id)
+            .await?;
+    }
 
     Ok(())
 }

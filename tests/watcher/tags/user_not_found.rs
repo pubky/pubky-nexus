@@ -40,6 +40,7 @@ async fn test_homeserver_tag_user_not_found() -> Result<()> {
 
     // PUT user tag
     test.put(tag_url.as_str(), tag_blob).await?;
+    test.del(&tag_url).await?;
 
     // => Now create the tag in the opposite direction
     let label = "friendly_opposite";
@@ -55,6 +56,7 @@ async fn test_homeserver_tag_user_not_found() -> Result<()> {
 
     // PUT user tag
     test.put(tag_url.as_str(), tag_blob).await?;
+    test.del(&tag_url).await?;
 
     // => Create post tag
     let post = PubkyAppPost {
@@ -82,6 +84,7 @@ async fn test_homeserver_tag_user_not_found() -> Result<()> {
 
     // PUT post tag
     test.put(&tag_url, tag_blob).await?;
+    test.del(&tag_url).await?;
 
     Ok(())
 }
