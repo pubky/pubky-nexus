@@ -1,3 +1,4 @@
+use log::error;
 use crate::db::graph::exec::exec_single_row;
 use crate::models::traits::Collection;
 use crate::types::DynError;
@@ -115,12 +116,17 @@ impl FileDetails {
     }
 
     pub async fn delete(&self) -> Result<(), DynError> {
-        // Delete on Redis
-        Self::remove_from_index_multiple_json(&[&[&self.owner_id, &self.id]]).await?;
-
         // Delete graph node;
-        exec_single_row(queries::del::delete_file(&self.owner_id, &self.id)).await?;
-
+        match exec_single_row(queries::del::delete_file(&self.owner_id, &self.id)).await {
+            Ok(_) => {
+                // Delete on Redis
+                Self::remove_from_index_multiple_json(&[&[&self.owner_id, &self.id]]).await?;
+            },
+            Err(e) => {
+                error!("File deletion: {:?}", e);
+                return Err("File: We could not delete the file".into())
+            }
+        };
         Ok(())
     }
 

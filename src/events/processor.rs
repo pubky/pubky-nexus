@@ -133,7 +133,7 @@ impl EventProcessor {
                             tokio::time::sleep(Duration::from_millis(100)).await;
                         }
                     } else {
-                        error!("PROCESSOR: Event is going to be ignored. User does not have profile.json");
+                        error!("PROCESSOR: Event is going to be ignored. Missing node(s) and/or relationship(s) to execute PUT or DEL operations");
                         return Ok(())
                     }
                 }
