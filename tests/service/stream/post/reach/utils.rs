@@ -39,8 +39,6 @@ pub async fn test_reach_filter_with_posts(
         path.push_str(&format!("&limit={}", limit));
     }
 
-    println!("PATH: {:?}", path);
-
     let body = make_request(&path).await?;
 
     if verify_timeline {

@@ -1,9 +1,13 @@
-use crate::{db::connectors::pubky::PubkyConnector, types::PubkyId};
+use crate::{
+    db::connectors::pubky::PubkyConnector,
+    types::{DynError, PubkyId},
+};
 use log::{debug, error};
 use uri::ParsedUri;
 
 pub mod handlers;
 pub mod processor;
+pub mod retry;
 pub mod uri;
 
 #[derive(Debug, Clone)]
@@ -39,7 +43,7 @@ enum ResourceType {
 
 // Look for the end pattern after the start index, or use the end of the string if not found
 #[derive(Debug, Clone)]
-enum EventType {
+pub enum EventType {
     Put,
     Del,
 }
@@ -52,7 +56,7 @@ pub struct Event {
 }
 
 impl Event {
-    fn from_str(line: &str) -> Result<Option<Self>, Box<dyn std::error::Error + Sync + Send>> {
+    pub fn from_line(line: &str) -> Result<Option<Self>, DynError> {
         debug!("New event: {}", line);
         let parts: Vec<&str> = line.split(' ').collect();
         if parts.len() != 2 {
@@ -116,14 +120,14 @@ impl Event {
         }))
     }
 
-    async fn handle(self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
+    pub async fn handle(self) -> Result<(), DynError> {
         match self.event_type {
             EventType::Put => self.handle_put_event().await,
             EventType::Del => self.handle_del_event().await,
         }
     }
 
-    async fn handle_put_event(self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
+    async fn handle_put_event(self) -> Result<(), DynError> {
         debug!("Handling PUT event for {:?}", self.resource_type);
 
         // User PUT event's into the homeserver write new data. We fetch the data
@@ -169,7 +173,7 @@ impl Event {
         Ok(())
     }
 
-    async fn handle_del_event(self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
+    async fn handle_del_event(self) -> Result<(), DynError> {
         debug!("Handling DEL event for {:?}", self.resource_type);
 
         match self.resource_type {

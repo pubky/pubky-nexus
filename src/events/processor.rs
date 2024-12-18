@@ -1,6 +1,9 @@
 use std::time::Duration;
 
+use super::retry::SenderChannel;
+use super::retry::SenderMessage;
 use super::Event;
+use crate::events::retry::RetryEvent;
 use crate::types::DynError;
 use crate::types::PubkyId;
 use crate::{models::homeserver::Homeserver, Config};
@@ -9,13 +12,20 @@ use reqwest::Client;
 
 pub struct EventProcessor {
     http_client: Client,
-    homeserver: Homeserver,
+    pub homeserver: Homeserver,
     limit: u32,
     max_retries: u64,
+    pub sender: SenderChannel,
+}
+
+#[derive(Debug, Clone)]
+pub enum EventErrorType {
+    NotResolveHomeserver,
+    PubkyClientError,
 }
 
 impl EventProcessor {
-    pub async fn from_config(config: &Config) -> Result<Self, DynError> {
+    pub async fn from_config(config: &Config, tx: SenderChannel) -> Result<Self, DynError> {
         let homeserver = Homeserver::from_config(config).await?;
         let limit = config.events_limit;
         let max_retries = config.max_retries;
@@ -30,6 +40,7 @@ impl EventProcessor {
             homeserver,
             limit,
             max_retries,
+            sender: tx,
         })
     }
 
@@ -40,7 +51,7 @@ impl EventProcessor {
     ///
     /// # Parameters
     /// - `homeserver_url`: The URL of the homeserver to be used in the test environment.
-    pub async fn test(homeserver_url: String) -> Self {
+    pub async fn test(homeserver_url: String, tx: SenderChannel) -> Self {
         let id = PubkyId("test".to_string());
         let homeserver = Homeserver::new(id, homeserver_url).await.unwrap();
         Self {
@@ -48,6 +59,7 @@ impl EventProcessor {
             homeserver,
             limit: 1000,
             max_retries: 3,
+            sender: tx,
         }
     }
 
@@ -59,7 +71,13 @@ impl EventProcessor {
         Ok(())
     }
 
-    async fn poll_events(&mut self) -> Result<Option<Vec<String>>, Box<dyn std::error::Error>> {
+    /// Polls new events from the homeserver.
+    ///
+    /// It sends a GET request to the homeserver's events endpoint
+    /// using the current cursor and a specified limit. It retrieves new event
+    /// URIs in a newline-separated format, processes it into a vector of strings,
+    /// and returns the result.
+    async fn poll_events(&mut self) -> Result<Option<Vec<String>>, DynError> {
         debug!("Polling new events from homeserver");
         let res = self
             .http_client
@@ -83,6 +101,14 @@ impl EventProcessor {
         }
     }
 
+    /// Processes a batch of event lines retrieved from the homeserver.
+    ///
+    /// This function iterates over a vector of event URIs, handling each line based on its content:
+    /// - Lines starting with `cursor:` update the cursor for the homeserver and save it to the index.
+    /// - Other lines are parsed into events and processed accordingly. If parsing fails, an error is logged.
+    ///
+    /// # Parameters
+    /// - `lines`: A vector of strings representing event lines retrieved from the homeserver.
     pub async fn process_event_lines(&mut self, lines: Vec<String>) -> Result<(), DynError> {
         for line in &lines {
             if line.starts_with("cursor:") {
@@ -92,7 +118,7 @@ impl EventProcessor {
                     info!("Cursor for the next request: {}", cursor);
                 }
             } else {
-                let event = match Event::from_str(line) {
+                let event = match Event::from_line(line) {
                     Ok(event) => event,
                     Err(e) => {
                         error!("Error while creating event line from line: {}", e);
@@ -122,6 +148,24 @@ impl EventProcessor {
                             "Error while handling event after {} attempts: {}",
                             attempts, e
                         );
+
+                        // Send the failed event to the retry manager to retry indexing
+                        let mut error_type = None;
+
+                        if e.to_string() == "Generic error: Could not resolve homeserver" {
+                            error_type = Some(EventErrorType::NotResolveHomeserver);
+                        } else if e.to_string().contains("error sending request for url") {
+                            error_type = Some(EventErrorType::PubkyClientError);
+                        }
+                        // TODO: Another else if to catch the error of the graph
+                        if let Some(error) = error_type {
+                            let fail_event =
+                                RetryEvent::new(&event.uri, &event.event_type, None, error);
+                            let sender = self.sender.lock().await;
+                            sender
+                                .send(SenderMessage::Add(self.homeserver.id.clone(), fail_event))
+                                .await?;
+                        }
                         break Ok(());
                     } else {
                         error!(
