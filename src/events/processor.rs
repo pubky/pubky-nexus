@@ -157,6 +157,7 @@ impl EventProcessor {
                         } else if e.to_string().contains("error sending request for url") {
                             error_type = Some(EventErrorType::PubkyClientError);
                         }
+                        // TODO: Another else if to catch the error of the graph
                         if let Some(error) = error_type {
                             let fail_event =
                                 RetryEvent::new(&event.uri, &event.event_type, None, error);
