@@ -6,6 +6,7 @@ pub mod bookmarks;
 pub mod kind;
 pub mod post_replies;
 pub mod posts;
+pub mod reach;
 pub mod tags;
 pub mod utils;
 

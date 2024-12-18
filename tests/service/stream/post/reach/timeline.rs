@@ -3,6 +3,9 @@ use crate::service::stream::post::{AMSTERDAM, BOGOTA, ROOT_PATH, TAG_LABEL_2, US
 use crate::service::utils::{make_request, make_wrong_request};
 use anyhow::Result;
 
+// User from posts.cypher mock
+const EIXAMPLE: &str = "8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy";
+
 #[tokio::test]
 async fn test_stream_posts_following() -> Result<()> {
     let path = format!("{ROOT_PATH}?observer_id={}&source=following", USER_ID);
@@ -32,6 +35,210 @@ async fn test_stream_posts_followers() -> Result<()> {
             post["details"]["author"].is_string(),
             "author should be a string"
         );
+    }
+
+    Ok(())
+}
+
+const START_TIME: usize = 1980477299321;
+const END_TIME: usize = 1980477299312;
+
+#[tokio::test]
+async fn test_stream_posts_following_with_start() -> Result<()> {
+    let path = format!(
+        "{ROOT_PATH}?observer_id={}&source=following&viewer_id={}&start={}&limit=5",
+        AMSTERDAM, AMSTERDAM, START_TIME
+    );
+    let body = make_request(&path).await?;
+
+    assert!(body.is_array());
+
+    let post_array = [
+        "MLOW1TGL5BKH4",
+        "SIJW1TGL5BKG3",
+        "GJMW1TGL5BKG3",
+        "MLOW1TGL5BKH3",
+        "SIJW1TGL5BKG2",
+    ];
+
+    for (index, post) in body
+        .as_array()
+        .expect("Post stream should be an array")
+        .iter()
+        .enumerate()
+    {
+        assert!(
+            post["details"]["author"].is_string(),
+            "author should be a string"
+        );
+
+        assert_eq!(
+            post_array[index], post["details"]["id"],
+            "The post index does not match"
+        )
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stream_posts_following_with_start_and_end() -> Result<()> {
+    let path = format!(
+        "{ROOT_PATH}?observer_id={}&source=following&viewer_id={}&start={}&end={}",
+        AMSTERDAM, AMSTERDAM, START_TIME, END_TIME
+    );
+    let body = make_request(&path).await?;
+
+    assert!(body.is_array());
+
+    let post_array = ["MLOW1TGL5BKH4", "SIJW1TGL5BKG3", "GJMW1TGL5BKG3"];
+
+    for (index, post) in body
+        .as_array()
+        .expect("Post stream should be an array")
+        .iter()
+        .enumerate()
+    {
+        assert!(
+            post["details"]["author"].is_string(),
+            "author should be a string"
+        );
+
+        assert_eq!(
+            post_array[index], post["details"]["id"],
+            "The post index does not match"
+        )
+    }
+
+    Ok(())
+}
+
+const START_TIME_ERS: usize = 1719308316919;
+const END_TIME_ERS: usize = 1693823567880;
+
+#[tokio::test]
+async fn test_stream_posts_followers_with_start() -> Result<()> {
+    let path = format!(
+        "{ROOT_PATH}?observer_id={}&source=followers&viewer_id={}&start={}&limit=5",
+        BOGOTA, BOGOTA, START_TIME_ERS
+    );
+    let body = make_request(&path).await?;
+
+    assert!(body.is_array());
+
+    let post_array = ["V8N1P3L9J4X0", "L3W5N0F8Q2J7", "M4X1P9L2J6K8"];
+
+    for (index, post) in body
+        .as_array()
+        .expect("Post stream should be an array")
+        .iter()
+        .enumerate()
+    {
+        assert!(
+            post["details"]["author"].is_string(),
+            "author should be a string"
+        );
+
+        assert_eq!(
+            post_array[index], post["details"]["id"],
+            "The post index does not match"
+        )
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stream_posts_followers_with_start_and_end() -> Result<()> {
+    let path = format!(
+        "{ROOT_PATH}?observer_id={}&source=followers&viewer_id={}&start={}&end={}",
+        BOGOTA, BOGOTA, START_TIME_ERS, END_TIME_ERS
+    );
+    let body = make_request(&path).await?;
+
+    assert!(body.is_array());
+
+    let post_array = ["V8N1P3L9J4X0", "L3W5N0F8Q2J7"];
+
+    for (index, post) in body
+        .as_array()
+        .expect("Post stream should be an array")
+        .iter()
+        .enumerate()
+    {
+        assert!(
+            post["details"]["author"].is_string(),
+            "author should be a string"
+        );
+
+        assert_eq!(
+            post_array[index], post["details"]["id"],
+            "The post index does not match"
+        )
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stream_posts_friend_with_start() -> Result<()> {
+    let path = format!(
+        "{ROOT_PATH}?observer_id={}&source=friends&viewer_id={}&start={}&limit=5",
+        EIXAMPLE, EIXAMPLE, "1693823567885"
+    );
+    let body = make_request(&path).await?;
+
+    assert!(body.is_array());
+
+    let post_array = ["M4X1P9L2J6K8"];
+
+    for (index, post) in body
+        .as_array()
+        .expect("Post stream should be an array")
+        .iter()
+        .enumerate()
+    {
+        assert!(
+            post["details"]["author"].is_string(),
+            "author should be a string"
+        );
+
+        assert_eq!(
+            post_array[index], post["details"]["id"],
+            "The post index does not match"
+        )
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stream_posts_friend_with_start_and_end() -> Result<()> {
+    let path = format!(
+        "{ROOT_PATH}?observer_id={}&source=friends&viewer_id={}&start={}&end={}",
+        EIXAMPLE, EIXAMPLE, "1693823567895", "1693822934570"
+    );
+    let body = make_request(&path).await?;
+
+    assert!(body.is_array());
+
+    let post_array = ["L3W5N0F8Q2J7"];
+
+    for (index, post) in body
+        .as_array()
+        .expect("Post stream should be an array")
+        .iter()
+        .enumerate()
+    {
+        assert!(
+            post["details"]["author"].is_string(),
+            "author should be a string"
+        );
+
+        assert_eq!(
+            post_array[index], post["details"]["id"],
+            "The post index does not match"
+        )
     }
 
     Ok(())
@@ -256,8 +463,6 @@ async fn test_stream_posts_by_timeline_reach_followers_with_tag_start_and_end() 
 }
 
 // ##### REACH: FRIENDS ####
-// User from posts.cypher mock
-const EIXAMPLE: &str = "8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy";
 
 // Post order by timeline
 pub const POST_TA_FR: &str = "L3W5N0F8Q2J7";
