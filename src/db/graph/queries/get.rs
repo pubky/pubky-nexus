@@ -764,8 +764,11 @@ fn build_query_with_params(
 pub fn user_is_safe_to_delete(user_id: &str) -> Query {
     query(
         "
-        MATCH (u:User {id: $user_id})-[r]-()
-        RETURN COUNT(r) = 0 AS boolean
+        MATCH (u:User {id: $user_id})
+        OPTIONAL MATCH (u)-[r]-()
+        WITH u, COUNT(r) = 0 AS boolean
+        // Returning a user_id, ensures to return no rows if the user does not exist
+        RETURN u.id, boolean
         ",
     )
     .param("user_id", user_id)
@@ -777,7 +780,8 @@ pub fn post_is_safe_to_delete(author_id: &str, post_id: &str) -> Query {
     query(
         "
         MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
-        MATCH (p)-[r]-()
+        // Ensures missing relationships are handled 
+        OPTIONAL MATCH (p)-[r]-()
         WHERE NOT (
             // Allowed relationships:
             // 1. Incoming AUTHORED relationship from the specified user
@@ -789,7 +793,9 @@ pub fn post_is_safe_to_delete(author_id: &str, post_id: &str) -> Query {
             // 3. Outgoing REPLIED relationship to another post
             (type(r) = 'REPLIED' AND startNode(r) = p)
         )
-        RETURN COUNT(r) = 0 AS boolean
+        WITH p, COUNT(r) = 0 AS boolean
+        // Returning a post_id, ensures to return no rows if the user or post does not exist
+        RETURN p.id, boolean
         ",
     )
     .param("author_id", author_id)

@@ -23,7 +23,7 @@ impl Bookmark {
         user_id: &str,
         bookmark_id: &str,
         indexed_at: i64,
-    ) -> Result<bool, DynError> {
+    ) -> Result<Option<bool>, DynError> {
         let query = queries::put::create_post_bookmark(
             user_id,
             author_id,

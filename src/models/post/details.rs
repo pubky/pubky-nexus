@@ -142,7 +142,7 @@ impl PostDetails {
     }
 
     // Save new graph node
-    pub async fn put_to_graph(&self) -> Result<bool, DynError> {
+    pub async fn put_to_graph(&self) -> Result<Option<bool>, DynError> {
         // Save new graph node;
         exec_boolean_row(queries::put::create_post(self)?).await
     }
