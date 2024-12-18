@@ -102,8 +102,6 @@ impl PostStream {
         // Decide whether to use index or fallback to graph query
         let use_index = Self::can_use_index(&sorting, &source, &tags, &kind);
 
-        println!("Can I Use index: {:?}", use_index);
-
         let post_keys = match use_index {
             true => Self::get_from_index(source, sorting, &tags, pagination).await?,
             false => Self::get_from_graph(source, sorting, &tags, pagination, kind).await?,
