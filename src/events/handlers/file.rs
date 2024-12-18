@@ -77,6 +77,7 @@ async fn ingest(
 
 async fn store_blob(name: String, path: String, blob: &Bytes) -> Result<(), DynError> {
     let storage_path = Config::from_env().file_path;
+    // TODO: Is it well formatting. The file path already has / at the end
     let full_path = format!("{}/{}", storage_path, path);
 
     debug!("store blob in full_path: {}", full_path);
