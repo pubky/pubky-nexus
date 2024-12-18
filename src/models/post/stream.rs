@@ -102,6 +102,8 @@ impl PostStream {
         // Decide whether to use index or fallback to graph query
         let use_index = Self::can_use_index(&sorting, &source, &tags, &kind);
 
+        println!("Can I Use index: {:?}", use_index);
+
         let post_keys = match use_index {
             true => Self::get_from_index(source, sorting, &tags, pagination).await?,
             false => Self::get_from_graph(source, sorting, &tags, pagination, kind).await?,
@@ -184,7 +186,7 @@ impl PostStream {
                 Self::get_author_posts(&author_id, start, end, skip, limit, true).await
             }
             // Streams by simple source/reach: Following, Followers, Friends
-            (source, None) => Self::get_posts_by_source(source, skip, limit).await,
+            (source, None) => Self::get_posts_by_source(source, start, end, skip, limit).await,
             _ => Ok(vec![]),
         }
     }
@@ -331,6 +333,8 @@ impl PostStream {
 
     pub async fn get_posts_by_source(
         source: StreamSource,
+        start: Option<f64>,
+        end: Option<f64>,
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Vec<String>, DynError> {
@@ -359,6 +363,8 @@ impl PostStream {
         if !user_ids.is_empty() {
             let post_keys = Self::get_posts_for_user_ids(
                 &user_ids.iter().map(AsRef::as_ref).collect::<Vec<_>>(),
+                start,
+                end,
                 skip,
                 limit,
             )
@@ -424,6 +430,8 @@ impl PostStream {
     // TODO rethink, we could also fallback to graph
     async fn get_posts_for_user_ids(
         user_ids: &[&str],
+        start: Option<f64>,
+        end: Option<f64>,
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Vec<String>, DynError> {
@@ -438,8 +446,8 @@ impl PostStream {
             let key_parts = [&POST_PER_USER_KEY_PARTS[..], &[user_id]].concat();
             if let Some(post_ids) = Self::try_from_index_sorted_set(
                 &key_parts,
-                None,
-                None,
+                start,
+                end,
                 None, // We do not apply skip and limit here, as we need the full sorted set
                 None,
                 SortOrder::Descending,
