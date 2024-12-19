@@ -4,8 +4,7 @@ use anyhow::Result;
 use log::info;
 use neo4rs::query;
 use pubky_nexus::{
-    db::connectors::redis::get_redis_conn, get_neo4j_graph, redis_is_empty, reindex, routes, setup,
-    Config,
+    db::connectors::redis::get_redis_conn, get_neo4j_graph, reindex, routes, setup, Config,
 };
 use tokio::{
     net::TcpListener,
