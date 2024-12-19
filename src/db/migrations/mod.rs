@@ -9,7 +9,7 @@ pub mod manager;
 mod migrations_list;
 
 pub fn get_migration_manager(graph: Arc<Mutex<Graph>>) -> MigrationManager {
-    let migration_manager = MigrationManager::new(graph);
+    // let migration_manager = MigrationManager::new(graph);
     // migration_manager.register(Box::new(MigrationX));
-    migration_manager
+    MigrationManager::new(graph)
 }
