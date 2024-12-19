@@ -132,7 +132,14 @@ pub fn create_follow(follower_id: &str, followee_id: &str, indexed_at: i64) -> Q
 pub fn create_mute(user_id: &str, muted_id: &str, indexed_at: i64) -> Query {
     query(
         "MATCH (user:User {id: $user_id}), (muted:User {id: $muted_id})
-         MERGE (user)-[:MUTED {indexed_at: $indexed_at}]->(muted);",
+        // Check if follow already existed
+        OPTIONAL MATCH (user)-[existing:MUTED]->(muted) 
+
+        MERGE (user)-[r:MUTED]->(muted)
+        SET r.indexed_at = $indexed_at
+
+        // boolean == existed
+        RETURN existing IS NOT NULL AS boolean;",
     )
     .param("user_id", user_id.to_string())
     .param("muted_id", muted_id.to_string())
@@ -148,6 +155,7 @@ pub fn create_post_bookmark(
 ) -> Query {
     query(
         "MATCH (u:User {id: $user_id})
+        // We assume these nodes are already created. If not we would not be able to add a bookmark
          MATCH (author:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
 
          // Check if bookmark already existed
@@ -177,8 +185,9 @@ pub fn create_post_tag(
     indexed_at: i64,
 ) -> Query {
     query(
-        "MATCH (author:User {id: $author_id})-[:AUTHORED]->(post:Post {id: $post_id})
-         MATCH (user:User {id: $user_id})
+        "MATCH (user:User {id: $user_id})
+        // We assume these nodes are already created. If not we would not be able to add a tag
+        MATCH (author:User {id: $author_id})-[:AUTHORED]->(post:Post {id: $post_id})
 
          // Check if tag already existed
          OPTIONAL MATCH (user)-[existing:TAGGED {label: $label}]->(post) 

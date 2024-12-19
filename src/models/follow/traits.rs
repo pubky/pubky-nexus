@@ -10,7 +10,7 @@ use neo4rs::Query;
 pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
     fn from_vec(vec: Vec<String>) -> Self;
 
-    async fn put_to_graph(follower_id: &str, followee_id: &str) -> Result<bool, DynError> {
+    async fn put_to_graph(follower_id: &str, followee_id: &str) -> Result<Option<bool>, DynError> {
         let indexed_at = Utc::now().timestamp_millis();
         let query = queries::put::create_follow(follower_id, followee_id, indexed_at);
         exec_boolean_row(query).await
@@ -93,7 +93,7 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
         Ok(())
     }
 
-    async fn del_from_graph(follower_id: &str, followee_id: &str) -> Result<bool, DynError> {
+    async fn del_from_graph(follower_id: &str, followee_id: &str) -> Result<Option<bool>, DynError> {
         let query = queries::del::delete_follow(follower_id, followee_id);
         exec_boolean_row(query).await
     }

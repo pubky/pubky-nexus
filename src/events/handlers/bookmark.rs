@@ -32,9 +32,13 @@ pub async fn sync_put(
         parsed_uri.post_id.ok_or("Bookmarked URI missing post_id")?,
     );
 
-    // Save new bookmark relationship to the graph
+    // Save new bookmark relationship to the graph, only if the bookmarked user exists
     let indexed_at = Utc::now().timestamp_millis();
-    let existed = Bookmark::put_to_graph(&author_id, &post_id, &user_id, &id, indexed_at).await?;
+    let existed = match Bookmark::put_to_graph(&author_id, &post_id, &user_id, &id, indexed_at).await? {
+        Some(exist) => exist,
+        // Should return an error that could not be inserted in the RetryManager
+        None => return Err("WATCHER: User not synchronized".into())
+    };
 
     // SAVE TO INDEX
     let bookmark_details = Bookmark { id, indexed_at };
