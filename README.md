@@ -54,17 +54,17 @@ To get started with Nexus, first set up the required databases: Neo4j and Redis.
 1. Clone the repository and navigate to the project directory.
 2. Copy the environment template and set up the Docker environment:
 
-    ```bash
-    cd docker
-    cp .env-sample .env
-    docker-compose up -d
-    ```
+   ```bash
+   cd docker
+   cp .env-sample .env
+   docker-compose up -d
+   ```
 
 3. Populate the Neo4j database with initial data:
 
-    ```bash
-    docker exec neo4j bash /db-graph/run-queries.sh
-    ```
+   ```bash
+   docker exec neo4j bash /db-graph/run-queries.sh
+   ```
 
 Once the `Neo4j` graph database is seeded with data, the next step is to populate the `Redis` database by running the _nexus-service_
 
@@ -72,9 +72,10 @@ Once the `Neo4j` graph database is seeded with data, the next step is to populat
 
 4. Run the Nexus service:
 
-    ```bash
-    cargo run
-    ```
+   ```bash
+   cargo run
+   ```
+
 5. **Access Redis and Neo4j UIs**:
    - Redis UI: [http://localhost:8001/redis-stack/browser](http://localhost:8001/redis-stack/browser)
    - Neo4J UI: [http://localhost:7474/browser/](http://localhost:7474/browser/)
@@ -95,6 +96,13 @@ To run all tests:
 cargo test
 ```
 
+You can optionally pass the `SYNC_DB` env var to control setting up the testing data in mocks folder.
+You can pass:
+
+- `true`: To set up the data in graph and reindex.
+- `false`: To skip setting up database for test. (when you've already done so)
+- `graph`: Only run the graph database mocks.
+
 To test specific modules or features:
 
 ```bash
@@ -114,16 +122,16 @@ If tests or the development environment seem out of sync, follow these steps to 
 
 1. **Reset Neo4j**:
 
-    ```bash
-    docker exec neo4j bash -c "cypher-shell -u neo4j -p 12345678 'MATCH (n) DETACH DELETE n;'"
-    docker exec neo4j bash /db-graph/run-queries.sh
-    ```
+   ```bash
+   docker exec neo4j bash -c "cypher-shell -u neo4j -p 12345678 'MATCH (n) DETACH DELETE n;'"
+   docker exec neo4j bash /db-graph/run-queries.sh
+   ```
 
 2. **Re-index Redis Cache**:
 
-    ```bash
-    REINDEX=true cargo run
-    ```
+   ```bash
+   REINDEX=true cargo run
+   ```
 
 ## 🌐 Useful Links
 

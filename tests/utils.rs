@@ -68,11 +68,8 @@ impl TestServiceServer {
             .expect("Failed to flush Redis");
 
         // Reindex
-        let should_reindex = redis_is_empty().await.unwrap_or(false);
-        if should_reindex {
-            info!("Starting reindexing process.");
-            reindex().await;
-        }
+        info!("Starting reindexing process.");
+        reindex().await;
     }
 
     async fn start_server() -> Result<()> {
@@ -81,9 +78,18 @@ impl TestServiceServer {
 
         // make sure DBs are in sync with mock data
         let sync_db_env = std::env::var("SYNC_DB").unwrap_or("false".to_string());
-        if sync_db_env == "true" {
-            Self::sync_graph().await;
-            Self::sync_redis().await;
+        match sync_db_env.as_str() {
+            "true" => {
+                Self::sync_graph().await;
+                Self::sync_redis().await;
+            }
+            "graph" => {
+                Self::sync_graph().await;
+            }
+            "false" => {}
+            _ => {
+                panic!("Invalid value for SYNC_DB");
+            }
         }
 
         // App router
