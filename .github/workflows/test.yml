@@ -54,23 +54,11 @@ jobs:
             sleep 1
           done
 
-      - name: Create example graph
-        run: docker exec neo4j bash /db-graph/run-queries.sh
-
       # - name: Install dependencies
       #   run: cargo build --release
 
-      - name: Run the service
-        run: |
-          cargo run > service.log 2>&1 &
-          sleep 10  # Give the service a moment to start
-        
       - name: Run integration tests
-        run: cargo test
-
-      - name: Show service logs if tests fail
-        if: failure()
-        run: cat service.log
+        run: SYNC_DB=true cargo test
 
       - name: Tear down Docker Compose
         if: always()
