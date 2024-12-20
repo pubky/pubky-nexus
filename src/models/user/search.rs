@@ -88,15 +88,17 @@ impl UserSearch {
             items.push((score, member));
         }
 
-        // put the items in hashmap for unique index
-        Self::put_index_hashmap(
-            &USER_NAME_HASHMAP_KEY_PARTS,
-            &hashmap_items
-                .iter()
-                .map(|(user_id, username)| (user_id.as_str(), username.as_str()))
-                .collect::<Vec<(&str, &str)>>(),
-        )
-        .await?;
+        if !hashmap_items.is_empty() {
+            // put the items in hashmap for unique index
+            Self::put_index_hashmap(
+                &USER_NAME_HASHMAP_KEY_PARTS,
+                &hashmap_items
+                    .iter()
+                    .map(|(user_id, username)| (user_id.as_str(), username.as_str()))
+                    .collect::<Vec<(&str, &str)>>(),
+            )
+            .await?;
+        }
         // Perform a single Redis ZADD operation with all the items
         Self::put_index_sorted_set(
             &USER_NAME_KEY_PARTS,
@@ -111,12 +113,16 @@ impl UserSearch {
     }
 
     async fn delete_existing_records(user_ids: &[&str]) -> Result<(), DynError> {
+        if user_ids.is_empty() {
+            return Ok(());
+        }
         let mut records_to_delete: Vec<String> = Vec::with_capacity(user_ids.len());
         for user_id in user_ids {
             let existing_record =
                 Self::try_from_index_hashmap(&USER_NAME_HASHMAP_KEY_PARTS, user_id).await?;
             if let Some(existing_record) = existing_record {
                 let search_key = format!("{}:{}", existing_record, user_id);
+                Self::remove_from_index_hashmap(&USER_NAME_HASHMAP_KEY_PARTS, user_id).await?;
                 records_to_delete.push(search_key);
             }
         }
@@ -172,7 +178,7 @@ mod tests {
         let search_result = UserSearch::get_by_name(&user_name, None, None).await?;
         assert_eq!(search_result.unwrap().0, vec![user_id.to_string()]);
 
-        let new_user_name = "Test User Duplicate 2";
+        let new_user_name = "Some Other User Name";
         let new_user_details = UserDetails {
             id: PubkyId(user_id.to_string()),
             name: new_user_name.to_string(),
@@ -189,8 +195,7 @@ mod tests {
         // Check the previous record is deleted
         // Check that the index contains only one record for the user
         let search_result = UserSearch::get_by_name(&user_name, None, None).await?;
-        let empty_result: Vec<String> = vec![];
-        assert_eq!(search_result.unwrap().0, empty_result);
+        assert_eq!(search_result.is_none(), true);
 
         Ok(())
     }
