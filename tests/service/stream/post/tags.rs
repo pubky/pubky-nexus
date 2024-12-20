@@ -357,7 +357,7 @@ async fn test_stream_tag_posts_by_engagement_with_end_skip_and_limit() -> Result
 #[tokio::test]
 async fn test_post_specific_tag_with_no_result() -> Result<()> {
     let path = format!("{}?tags={}", ROOT_PATH, "randommm");
-    make_wrong_request(&path, None).await?;
+    make_wrong_request(&path, Some(204)).await?;
 
     Ok(())
 }
