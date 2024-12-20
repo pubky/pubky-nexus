@@ -32,7 +32,7 @@ impl IntoResponse for Error {
         let status_code = match self {
             Error::UserNotFound { .. } => StatusCode::NOT_FOUND,
             Error::PostNotFound { .. } => StatusCode::NOT_FOUND,
-            Error::EmptyStream { .. } => StatusCode::NOT_FOUND,
+            Error::EmptyStream { .. } => StatusCode::NO_CONTENT,
             Error::FileNotFound { .. } => StatusCode::NOT_FOUND,
             Error::BookmarksNotFound { .. } => StatusCode::NOT_FOUND,
             Error::TagsNotFound { .. } => StatusCode::NOT_FOUND,
