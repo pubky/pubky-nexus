@@ -114,7 +114,7 @@ impl UserSearch {
         let mut records_to_delete: Vec<String> = Vec::with_capacity(user_ids.len());
         for user_id in user_ids {
             let existing_record =
-                Self::try_from_index_hashmap(&USER_NAME_HASHMAP_KEY_PARTS, &user_id).await?;
+                Self::try_from_index_hashmap(&USER_NAME_HASHMAP_KEY_PARTS, user_id).await?;
             if let Some(existing_record) = existing_record {
                 let search_key = format!("{}:{}", existing_record, user_id);
                 records_to_delete.push(search_key);
