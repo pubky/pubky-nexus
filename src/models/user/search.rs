@@ -140,11 +140,15 @@ mod tests {
 
     use crate::{
         models::user::{UserDetails, UserSearch},
+        setup,
         types::{DynError, PubkyId},
+        Config,
     };
 
     #[tokio_shared_rt::test(shared)]
     async fn test_put_to_index_no_duplicates() -> Result<(), DynError> {
+        let config = Config::from_env();
+        setup(&config).await;
         // Test that the `put_to_index` method does not add duplicate records to the index
         // when called with the same `UserDetails` multiple times.
 
