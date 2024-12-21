@@ -63,6 +63,11 @@ impl IntoResponse for Error {
             Error::InternalServerError { source } => error!("Internal server error: {:?}", source),
         };
 
+        // Handle NO_CONTENT status code with an empty body
+        if status_code == StatusCode::NO_CONTENT {
+            return (status_code, ()).into_response();
+        }
+
         let body = serde_json::json!({
             "error": self.to_string()
         });
