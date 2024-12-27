@@ -110,7 +110,7 @@ impl UserCounts {
     pub async fn reindex(author_id: &str) -> Result<(), DynError> {
         match Self::get_from_graph(author_id).await? {
             Some(counts) => counts.put_to_index(author_id).await?,
-            None => log::error!("{}: Could not found user counts in the graph", author_id),
+            None => tracing::error!("{}: Could not found user counts in the graph", author_id),
         }
         Ok(())
     }

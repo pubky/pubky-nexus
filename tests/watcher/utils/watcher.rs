@@ -1,7 +1,7 @@
 use super::dht::TestnetDHTNetwork;
 use anyhow::{anyhow, Result};
 use chrono::Utc;
-use log::debug;
+use tracing::debug;
 use pubky_app_specs::{
     traits::TimestampId, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser,
 };

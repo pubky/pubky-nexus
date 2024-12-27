@@ -3,7 +3,7 @@ use crate::routes::v0::endpoints::POST_DETAILS_ROUTE;
 use crate::{Error, Result};
 use axum::extract::Path;
 use axum::Json;
-use log::info;
+use tracing::info;
 use pubky_app_specs::PubkyAppPostKind;
 use utoipa::OpenApi;
 

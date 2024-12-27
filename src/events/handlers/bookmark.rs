@@ -6,9 +6,9 @@ use crate::types::DynError;
 use crate::types::PubkyId;
 use axum::body::Bytes;
 use chrono::Utc;
-use log::debug;
 use pubky_app_specs::traits::Validatable;
 use pubky_app_specs::PubkyAppBookmark;
+use tracing::debug;
 
 //TODO: only /posts/ are bookmarkable as of now.
 pub async fn put(user_id: PubkyId, bookmark_id: String, blob: Bytes) -> Result<(), DynError> {

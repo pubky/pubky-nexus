@@ -2,7 +2,7 @@ use crate::models::user::Muted;
 use crate::types::DynError;
 use crate::types::PubkyId;
 use axum::body::Bytes;
-use log::debug;
+use tracing::debug;
 
 pub async fn put(user_id: PubkyId, muted_id: PubkyId, _blob: Bytes) -> Result<(), DynError> {
     debug!("Indexing new mute: {} -> {}", user_id, muted_id);

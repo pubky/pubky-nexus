@@ -1,5 +1,5 @@
 use anyhow::Result;
-use log::info;
+use tracing::info;
 use pkarr::mainline::Testnet;
 use pubky::PubkyClient;
 use pubky_app_specs::{traits::HasPath, PubkyAppUser, PubkyAppUserLink, PROTOCOL};

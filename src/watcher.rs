@@ -1,5 +1,5 @@
-use log::error;
-use log::info;
+use tracing::error;
+use tracing::info;
 use pubky_nexus::PubkyConnector;
 use pubky_nexus::{setup, Config, EventProcessor};
 use tokio::time::{sleep, Duration};

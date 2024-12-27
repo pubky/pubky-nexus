@@ -3,7 +3,7 @@ use crate::routes::v0::endpoints::POST_BOOKMARK_ROUTE;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
-use log::info;
+use tracing::info;
 use serde::Deserialize;
 use utoipa::OpenApi;
 

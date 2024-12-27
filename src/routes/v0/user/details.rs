@@ -4,7 +4,7 @@ use crate::types::PubkyId;
 use crate::{Error, Result};
 use axum::extract::Path;
 use axum::Json;
-use log::info;
+use tracing::info;
 use pubky_app_specs::PubkyAppUserLink;
 use utoipa::OpenApi;
 

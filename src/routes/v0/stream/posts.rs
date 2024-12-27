@@ -6,7 +6,7 @@ use crate::{
 };
 use crate::{Error, Result as AppResult};
 use axum::{extract::Query, Json};
-use log::info;
+use tracing::info;
 use pubky_app_specs::PubkyAppPostKind;
 use serde::{Deserialize, Deserializer};
 use utoipa::{OpenApi, ToSchema};

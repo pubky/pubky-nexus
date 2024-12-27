@@ -12,7 +12,7 @@ use crate::{
     Config,
 };
 use axum::body::Bytes;
-use log::debug;
+use tracing::debug;
 use pubky_app_specs::{traits::Validatable, PubkyAppFile};
 use tokio::{
     fs::{self, remove_file, File},

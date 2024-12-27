@@ -3,7 +3,7 @@ use crate::models::tag::stream::HotTagsInput;
 use crate::models::tag::stream::TagStreamReach;
 use crate::types::Pagination;
 use crate::types::StreamSorting;
-use log::debug;
+use tracing::debug;
 use neo4rs::{query, Query};
 use pubky_app_specs::PubkyAppPostKind;
 

@@ -4,7 +4,7 @@ use super::Event;
 use crate::types::DynError;
 use crate::types::PubkyId;
 use crate::{models::homeserver::Homeserver, Config};
-use log::{debug, error, info};
+use tracing::{debug, error, info};
 use reqwest::Client;
 
 pub struct EventProcessor {

@@ -1,6 +1,6 @@
 use crate::types::DynError;
 use axum::async_trait;
-use log::error;
+use tracing::error;
 use neo4rs::Query;
 
 use crate::{

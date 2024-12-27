@@ -1,5 +1,5 @@
 use crate::{db::connectors::pubky::PubkyConnector, types::PubkyId};
-use log::{debug, error};
+use tracing::{debug, error};
 use uri::ParsedUri;
 
 pub mod handlers;

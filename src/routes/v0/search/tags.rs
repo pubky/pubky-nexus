@@ -5,7 +5,7 @@ use crate::types::StreamSorting;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
-use log::info;
+use tracing::info;
 use serde::Deserialize;
 use utoipa::OpenApi;
 
