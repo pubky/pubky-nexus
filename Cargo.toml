@@ -26,8 +26,14 @@ utoipa = "5.2.0"
 utoipa-swagger-ui = { version = "8.0.3", features = ["axum"] }
 tower-http = { version = "0.6.2", features = ["fs", "cors"] }
 dotenv = "0.15"
-log = "0.4.22"
-env_logger = "0.11.5"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-opentelemetry = "0.28"
+opentelemetry = { version = "0.27" }
+opentelemetry-otlp = "0.27"
+opentelemetry-stdout = { version = "0.27" }
+opentelemetry_sdk = { version = "0.27", features = ["rt-tokio"] }
+opentelemetry-appender-tracing = "0.27"
 const_format = "0.2.34"
 thiserror = "2.0.7"
 chrono = "0.4.39"
