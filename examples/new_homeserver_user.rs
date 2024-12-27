@@ -1,10 +1,10 @@
 use anyhow::Result;
-use tracing::info;
 use pkarr::mainline::Testnet;
 use pubky::PubkyClient;
 use pubky_app_specs::{traits::HasPath, PubkyAppUser, PubkyAppUserLink, PROTOCOL};
 use pubky_common::crypto::{Keypair, PublicKey};
 use pubky_nexus::{setup, Config};
+use tracing::info;
 
 #[tokio::main]
 async fn main() -> Result<()> {

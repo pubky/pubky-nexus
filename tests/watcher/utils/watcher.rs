@@ -1,7 +1,6 @@
 use super::dht::TestnetDHTNetwork;
 use anyhow::{anyhow, Result};
 use chrono::Utc;
-use tracing::debug;
 use pubky_app_specs::{
     traits::TimestampId, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser,
 };
@@ -9,6 +8,7 @@ use pubky_common::crypto::Keypair;
 use pubky_homeserver::Homeserver;
 use pubky_nexus::{setup, Config, EventProcessor, PubkyConnector};
 use serde_json::to_vec;
+use tracing::debug;
 
 /// Struct to hold the setup environment for tests
 pub struct WatcherTest {

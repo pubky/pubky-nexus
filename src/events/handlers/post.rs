@@ -12,8 +12,8 @@ use crate::types::DynError;
 use crate::types::PubkyId;
 use crate::{queries, RedisOps, ScoreAction};
 use axum::body::Bytes;
-use tracing::debug;
 use pubky_app_specs::{traits::Validatable, PubkyAppPost, PubkyAppPostKind};
+use tracing::debug;
 
 use super::utils::post_relationships_is_reply;
 

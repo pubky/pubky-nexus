@@ -2,7 +2,6 @@
 
 use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
-use tracing::info;
 use pubky_app_specs::{
     traits::HashId, PubkyAppBookmark, PubkyAppMute, PubkyAppPost, PubkyAppPostKind, PubkyAppTag,
     PubkyAppUser,
@@ -14,6 +13,7 @@ use pubky_nexus::{
 };
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use std::collections::{HashMap, HashSet};
+use tracing::info;
 
 // We can test two modalities:
 // 1. Processing the events one by one. This is akin to a watcher that is always fully synced.

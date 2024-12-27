@@ -3,8 +3,8 @@ use crate::models::traits::Collection;
 use crate::routes::v0::endpoints::FILE_LIST_ROUTE;
 use crate::{Error, Result};
 use axum::Json;
-use tracing::info;
 use serde::Deserialize;
+use tracing::info;
 use utoipa::{OpenApi, ToSchema};
 
 #[derive(Deserialize, ToSchema)]

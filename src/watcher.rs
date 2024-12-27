@@ -1,8 +1,8 @@
-use tracing::error;
-use tracing::info;
 use pubky_nexus::PubkyConnector;
 use pubky_nexus::{setup, Config, EventProcessor};
 use tokio::time::{sleep, Duration};
+use tracing::error;
+use tracing::info;
 
 /// Watches over a homeserver `/events` and writes into the Nexus databases
 #[tokio::main]

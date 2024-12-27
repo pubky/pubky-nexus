@@ -4,8 +4,8 @@ use crate::routes::v0::endpoints::USER_ROUTE;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
-use tracing::info;
 use serde::Deserialize;
+use tracing::info;
 use utoipa::OpenApi;
 
 #[derive(Deserialize)]

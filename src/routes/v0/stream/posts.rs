@@ -6,9 +6,9 @@ use crate::{
 };
 use crate::{Error, Result as AppResult};
 use axum::{extract::Query, Json};
-use tracing::info;
 use pubky_app_specs::PubkyAppPostKind;
 use serde::{Deserialize, Deserializer};
+use tracing::info;
 use utoipa::{OpenApi, ToSchema};
 
 const MAX_TAGS: usize = 5;

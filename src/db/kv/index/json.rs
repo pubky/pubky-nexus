@@ -1,9 +1,9 @@
 use crate::db::connectors::redis::get_redis_conn;
 use crate::types::DynError;
-use tracing::debug;
 use redis::Script;
 use redis::{AsyncCommands, JsonAsyncCommands};
 use serde::{de::DeserializeOwned, Serialize};
+use tracing::debug;
 
 #[derive(Clone)]
 pub enum JsonAction {

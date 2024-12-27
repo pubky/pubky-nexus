@@ -7,8 +7,8 @@ use crate::types::{Pagination, Timeframe};
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
-use tracing::{error, info};
 use serde::Deserialize;
+use tracing::{error, info};
 use utoipa::OpenApi;
 
 #[derive(Deserialize, Debug)]

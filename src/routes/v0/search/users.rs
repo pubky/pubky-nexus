@@ -4,8 +4,8 @@ use crate::types::Pagination;
 use crate::{Error, Result};
 use axum::extract::Query;
 use axum::Json;
-use tracing::info;
 use serde::Deserialize;
+use tracing::info;
 use utoipa::OpenApi;
 
 #[derive(Deserialize)]

@@ -4,8 +4,8 @@ use super::Event;
 use crate::types::DynError;
 use crate::types::PubkyId;
 use crate::{models::homeserver::Homeserver, Config};
-use tracing::{debug, error, info};
 use reqwest::Client;
+use tracing::{debug, error, info};
 
 pub struct EventProcessor {
     http_client: Client,
