@@ -1,10 +1,11 @@
-use std::time::Duration;
-
 use super::Event;
 use crate::types::DynError;
 use crate::types::PubkyId;
 use crate::{models::homeserver::Homeserver, Config};
+use opentelemetry::trace::{FutureExt, TraceContextExt, Tracer};
+use opentelemetry::{global, Context};
 use reqwest::Client;
+use std::time::Duration;
 use tracing::{debug, error, info};
 
 pub struct EventProcessor {
@@ -52,7 +53,15 @@ impl EventProcessor {
     }
 
     pub async fn run(&mut self) -> Result<(), DynError> {
-        let lines = { self.poll_events().await.unwrap_or_default() };
+        let lines = {
+            let tracer = global::tracer("nexus.watcher");
+            let span = tracer.start("Polling Events");
+            let cx = Context::new().with_span(span);
+            self.poll_events()
+                .with_context(cx)
+                .await
+                .unwrap_or_default()
+        };
         if let Some(lines) = lines {
             self.process_event_lines(lines).await?;
         };
@@ -100,8 +109,11 @@ impl EventProcessor {
                     }
                 };
                 if let Some(event) = event {
+                    let tracer = global::tracer("nexus.watcher");
+                    let span = tracer.start("Event Line");
+                    let cx = Context::new().with_span(span);
                     debug!("Processing event: {:?}", event);
-                    self.handle_event_with_retry(event).await?;
+                    self.handle_event_with_retry(event).with_context(cx).await?;
                 }
             }
         }
