@@ -47,7 +47,10 @@ async fn setup_neo4j(config: &Config) {
 
 async fn setup_logging(config: &Config) {
     if config.otlp_endpoint.is_empty() {
-        tracing_subscriber::fmt().pretty().init();
+        match tracing_subscriber::fmt().pretty().try_init() {
+            Ok(()) => info!("Logging initialized"),
+            Err(e) => debug!("Logging already initialized: {:?}", e),
+        };
         return;
     }
 
@@ -96,6 +99,7 @@ async fn setup_logging(config: &Config) {
         .with(otlp_layer);
 
     tracing::subscriber::set_global_default(subscriber).expect("Failed to set subscriber");
+    info!("Logging initialized");
 }
 
 async fn setup_metrics(config: &Config) {
@@ -122,6 +126,7 @@ async fn setup_metrics(config: &Config) {
         .with_resource(Resource::new(vec![KeyValue::new("service.name", "nexus")]))
         .build();
     global::set_meter_provider(provider);
+    info!("Metrics initialized");
 }
 
 pub async fn setup(config: &Config) {
