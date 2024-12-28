@@ -39,6 +39,10 @@ jobs:
       - name: Copy environment variables
         run: cp .env-sample .env
 
+      - name: Edit env for pipeline
+        # Remove OTLP_ENDPOINT from .env file
+        run: sed -i '/OTLP_ENDPOINT/d' .env
+
       - name: Set up Docker Compose
         working-directory: docker
         run: docker compose --env-file .env-sample up -d
@@ -64,7 +68,7 @@ jobs:
         run: |
           cargo run > service.log 2>&1 &
           sleep 10  # Give the service a moment to start
-        
+
       - name: Run integration tests
         run: cargo test
 
