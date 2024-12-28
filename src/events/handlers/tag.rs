@@ -13,8 +13,8 @@ use crate::types::PubkyId;
 use crate::ScoreAction;
 use axum::body::Bytes;
 use chrono::Utc;
-use log::debug;
 use pubky_app_specs::{traits::Validatable, PubkyAppTag};
+use tracing::debug;
 
 use super::utils::post_relationships_is_reply;
 

@@ -8,8 +8,8 @@ use crate::queries::get::user_is_safe_to_delete;
 use crate::types::DynError;
 use crate::types::PubkyId;
 use axum::body::Bytes;
-use log::debug;
 use pubky_app_specs::{traits::Validatable, PubkyAppUser};
+use tracing::debug;
 
 pub async fn put(user_id: PubkyId, blob: Bytes) -> Result<(), DynError> {
     // Process profile.json and update the databases

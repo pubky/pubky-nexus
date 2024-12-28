@@ -5,7 +5,7 @@ use crate::models::user::UserCounts;
 use crate::types::DynError;
 use crate::types::PubkyId;
 use axum::body::Bytes;
-use log::debug;
+use tracing::debug;
 
 pub async fn put(follower_id: PubkyId, followee_id: PubkyId, _blob: Bytes) -> Result<(), DynError> {
     debug!("Indexing new follow: {} -> {}", follower_id, followee_id);
