@@ -38,7 +38,7 @@ blake3 = "1.5.5"
 url = "2.5.4"
 
 [dev-dependencies]
-anyhow = "1.0.94"
+anyhow = "1.0.95"
 httpc-test = "0.1.10"
 criterion = { version = "0.5.1", features = ["async_tokio"] }
 pubky_homeserver = { git = "https://github.com/pubky/pubky-core.git", tag = "pubky-v0.3.0" }
