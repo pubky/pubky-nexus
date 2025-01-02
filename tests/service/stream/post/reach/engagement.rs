@@ -248,7 +248,7 @@ async fn test_stream_posts_by_engagement_reach_friends_with_tag() -> Result<()> 
 #[tokio::test]
 async fn test_stream_not_found_posts_by_engagement_reach_friends_with_tag() -> Result<()> {
     let path = format!("{ROOT_PATH}?sorting=total_engagement&tags=opensource&source=friends&observer_id={EIXAMPLE}&skip=2");
-    make_wrong_request(&path, Some(404)).await?;
+    make_wrong_request(&path, Some(204)).await?;
 
     Ok(())
 }
