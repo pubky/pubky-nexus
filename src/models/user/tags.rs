@@ -17,7 +17,6 @@ pub struct UserTags {
 }
 
 impl UserTags {
-
     /// TODO: Retrieves tags by user ID, currently returns an empty instance.
     pub async fn get_by_id(_user_id: &str) -> Result<Option<Self>, Box<dyn std::error::Error>> {
         Ok(Some(Self::default()))

@@ -81,7 +81,6 @@ pub struct PostStream(pub Vec<PostView>);
 impl RedisOps for PostStream {}
 
 impl PostStream {
-
     pub async fn get_posts(
         source: StreamSource,
         pagination: Pagination,
