@@ -75,21 +75,12 @@ impl StreamSource {
     }
 }
 
-#[derive(Serialize, Deserialize, ToSchema, Debug)]
+#[derive(Serialize, Deserialize, ToSchema, Debug, Default)]
 pub struct PostStream(pub Vec<PostView>);
 
 impl RedisOps for PostStream {}
 
-impl Default for PostStream {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl PostStream {
-    pub fn new() -> Self {
-        Self(Vec::new())
-    }
 
     pub async fn get_posts(
         source: StreamSource,
