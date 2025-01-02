@@ -58,6 +58,10 @@ path = "src/service.rs"
 name = "watcher"
 path = "src/watcher.rs"
 
+[[bin]]
+name = "migrations"
+path = "src/migrations.rs"
+
 [[bench]]
 name = "user"
 harness = false
