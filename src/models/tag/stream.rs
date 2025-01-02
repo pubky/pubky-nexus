@@ -1,6 +1,6 @@
 use crate::db::graph::exec::retrieve_from_graph;
 use crate::db::kv::index::sorted_sets::SortOrder;
-use crate::types::{DynError, Timeframe};
+use crate::types::{DynError, StreamReach, Timeframe};
 use axum::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -13,18 +13,10 @@ use crate::{RedisOps, ScoreAction};
 
 pub const TAG_GLOBAL_HOT: [&str; 3] = ["Tags", "Global", "Hot"];
 
-const GLOBAL_HOT_TAGS_PREFIX: &str = "Cached:Hot:Tags";
+const GLOBAL_HOT_TAGS_PREFIX: &str = "Cache:Hot:Tags";
 
 #[derive(Serialize, Deserialize, Debug, ToSchema, Clone)]
 pub struct Taggers(pub Vec<String>);
-
-#[derive(Deserialize, Debug, ToSchema, Clone)]
-#[serde(rename_all = "snake_case")]
-pub enum TagStreamReach {
-    Followers,
-    Following,
-    Friends,
-}
 
 #[derive(Deserialize, Debug, ToSchema, Clone)]
 pub enum TaggedType {
@@ -231,7 +223,7 @@ impl HotTags {
 
     pub async fn get_hot_tags(
         user_id: Option<String>,
-        reach: Option<TagStreamReach>,
+        reach: Option<StreamReach>,
         tags_query: &HotTagsInput,
     ) -> Result<Option<HotTags>, DynError> {
         match user_id {
@@ -249,7 +241,7 @@ impl HotTags {
 
     async fn get_hot_tags_by_reach(
         user_id: String,
-        reach: TagStreamReach,
+        reach: StreamReach,
         tags_query: &HotTagsInput,
     ) -> Result<Option<HotTags>, DynError> {
         let query = queries::get::get_hot_tags_by_reach(user_id.as_str(), reach, tags_query);
