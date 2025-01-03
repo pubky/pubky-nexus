@@ -41,12 +41,18 @@ pub async fn del(user_id: PubkyId) -> Result<(), DynError> {
     debug!("Deleting user profile:  {}", user_id);
 
     let query = user_is_safe_to_delete(&user_id);
-    let delete_safe = exec_boolean_row(query).await?; // No existing relationships for this user
-
     // 1. Graph query to check if there is any edge at all to this user.
-    // 2. If there is no relationships, delete from graph and redis.
-    // 3. But if there is any relationship, then we simply update the user with empty profile
-    // and keyword username [DELETED]. A deleted user is a user whose profile is empty and has username `"[DELETED]"`
+    let delete_safe = match exec_boolean_row(query).await? {
+        Some(delete_safe) => delete_safe,
+        // Should return an error that could not be inserted in the RetryManager
+        None => return Err("WATCHER: User not synchronized".into())
+    };
+
+    
+    // 2. If there is no relationships (TRUE), delete from graph and redis.
+    // 3. But if there is any relationship (FALSE), then we simply update the user with empty profile
+    // and keyword username [DELETED].
+    // A deleted user is a user whose profile is empty and has username `"[DELETED]"`
     match delete_safe {
         true => {
             UserDetails::delete(&user_id).await?;

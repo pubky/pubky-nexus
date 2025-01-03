@@ -13,18 +13,19 @@ pub async fn exec_single_row(query: Query) -> Result<(), DynError> {
 }
 
 // Exec a graph query that has a single "boolean" return
-pub async fn exec_boolean_row(query: Query) -> Result<bool, DynError> {
+pub async fn exec_boolean_row(query: Query) -> Result<Option<bool>, DynError> {
     let mut result;
     {
         let graph = get_neo4j_graph()?;
         let graph = graph.lock().await;
         result = graph.execute(query).await?;
     }
-    let mut boolean = false;
+    let mut exist = None;
     while let Some(row) = result.next().await? {
-        boolean = row.get("boolean")?;
+        let result: bool = row.get("boolean")?;
+        exist = Some(result);
     }
-    Ok(boolean)
+    Ok(exist)
 }
 
 // Generic function to retrieve data from Neo4J
