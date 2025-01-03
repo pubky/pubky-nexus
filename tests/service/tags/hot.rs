@@ -1,4 +1,5 @@
 use anyhow::Result;
+use chrono::{Datelike, Utc};
 use reqwest::StatusCode;
 use serde_json::Value;
 
@@ -83,8 +84,12 @@ async fn test_global_hot_tags_with_today_timeframe() -> Result<()> {
     // Validate that the posts belong to the specified user's bookmarks
     analyse_hot_tags_structure(tags);
 
-    // Analyse the tag that is in the 4th index
-    let hot_tag = StreamTagMockup::new(String::from("tag2"), 2, 1, 2);
+    // Analyse the first tag
+    // if the test is run at the first day of the month the tags from thisMonth timeframe overlap with today
+    let hot_tag = match Utc::now().day() {
+        1 => StreamTagMockup::new(String::from("tag2"), 3, 2, 3),
+        _ => StreamTagMockup::new(String::from("tag2"), 2, 1, 2),
+    };
     compare_unit_hot_tag(&tags[0], hot_tag);
 
     Ok(())
@@ -101,7 +106,7 @@ async fn test_global_hot_tags_with_this_month_timeframe() -> Result<()> {
     // Validate that the posts belong to the specified user's bookmarks
     analyse_hot_tags_structure(tags);
 
-    // Analyse the tag that is in the 4th index
+    // Analyse the first tag
     let hot_tag = StreamTagMockup::new(String::from("tag2"), 3, 2, 3);
     compare_unit_hot_tag(&tags[0], hot_tag);
 
@@ -122,7 +127,7 @@ async fn test_global_hot_tags_skip_limit() -> Result<()> {
     // assert limit
     assert_eq!(tags.len(), 5);
 
-    // Analyse the tag that is in the 4th index
+    // Analyse the first tag
     let hot_tag = StreamTagMockup::new(String::from("ha"), 9, 16, 9);
     compare_unit_hot_tag(&tags[0], hot_tag);
 

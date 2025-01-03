@@ -57,39 +57,39 @@ MATCH (u:User { id: $user5 }), (p:Post {id: $post1})
 MERGE (u)-[:TAGGED { label: $tag2, id: "0032GZS4DWEGM", indexed_at: today_millis }]->(p);
 
 // This month
-WITH datetime().epochMillis - (2 * $day) AS this_month_millis
+WITH datetime({ year: datetime().year, month: datetime().month, day: 1 }).epochMillis AS this_month_millis
 MATCH (u:User { id: $user1 }), (p:Post {id: $post2})
 MERGE (u)-[:TAGGED { label:$tag1, id: "0032GZR6TQTSG", indexed_at: this_month_millis }]->(p);
 
-WITH datetime().epochMillis - (2 * $day) AS this_month_millis
+WITH datetime({ year: datetime().year, month: datetime().month, day: 1 }).epochMillis AS this_month_millis
 MATCH (u:User { id: $user1 }), (p:Post {id: $post2})
 MERGE (u)-[:TAGGED { label:$tag2, id: "0032GZRVBRC3M", indexed_at: this_month_millis }]->(p);
 
-WITH datetime().epochMillis - (2 * $day) AS this_month_millis
+WITH datetime({ year: datetime().year, month: datetime().month, day: 1 }).epochMillis AS this_month_millis
 MATCH (u:User { id: $user3 }), (p:Post {id: $post2})
 MERGE (u)-[:TAGGED { label: $tag3, id: "0032GZR6TQTT6", indexed_at: this_month_millis }]->(p);
 
-WITH datetime().epochMillis - (2 * $day) AS this_month_millis
+WITH datetime({ year: datetime().year, month: datetime().month, day: 1 }).epochMillis AS this_month_millis
 MATCH (u:User { id: $user4 }), (p:Post {id: $post2})
 MERGE (u)-[:TAGGED { label: $tag3, id: "0032GZR6TQV4P", indexed_at: this_month_millis }]->(p);
 
-WITH datetime().epochMillis - (2 * $day) AS this_month_millis
+WITH datetime({ year: datetime().year, month: datetime().month, day: 1 }).epochMillis AS this_month_millis
 MATCH (u:User { id: $user5 }), (p:Post {id: $post2})
 MERGE (u)-[:TAGGED { label: $tag3, id: "0032GZS4DWF62", indexed_at: this_month_millis }]->(p);
 
 // All time (outside this month period)
-WITH datetime().epochMillis - (7 * $day + $month) AS all_time_millis
+WITH (datetime({ year: datetime().year, month: datetime().month, day: 1 }) - Duration({days: 1})).epochMillis AS all_time_millis
 MATCH (u:User { id: $user1 }), (p:Post {id: $post2})
 MERGE (u)-[:TAGGED { label:$tag3, id: "0032GZRG46YPY", indexed_at: all_time_millis }]->(p);
 
-WITH datetime().epochMillis - (7 * $day + $month) AS all_time_millis
+WITH (datetime({ year: datetime().year, month: datetime().month, day: 1 }) - Duration({days: 1})).epochMillis AS all_time_millis
 MATCH (u:User { id: $user3 }), (p:Post {id: $post2})
 MERGE (u)-[:TAGGED { label: $tag2, id: "0032GZRG46ZH0", indexed_at: all_time_millis }]->(p);
 
-WITH datetime().epochMillis - (7 * $day + $month) AS all_time_millis
+WITH (datetime({ year: datetime().year, month: datetime().month, day: 1 }) - Duration({days: 1})).epochMillis AS all_time_millis
 MATCH (u:User { id: $user4 }), (p:Post {id: $post2})
 MERGE (u)-[:TAGGED { label: $tag1, id: "0032GZRG46ZH6", indexed_at: all_time_millis }]->(p);
 
-WITH datetime().epochMillis - (7 * $day + $month) AS all_time_millis
+WITH (datetime({ year: datetime().year, month: datetime().month, day: 1 }) - Duration({days: 1})).epochMillis AS all_time_millis
 MATCH (u:User { id: $user5 }), (p:Post {id: $post2})
 MERGE (u)-[:TAGGED { label: $tag1, id: "0032GZRG46ZH6", indexed_at: all_time_millis }]->(p);
