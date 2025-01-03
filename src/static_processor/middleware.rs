@@ -25,6 +25,7 @@ struct FilePath {
     variant: FileVariant,
 }
 
+/// Extracts the user_id, file_id and variant from the path
 fn extract_params(path: &str) -> Result<FilePath, StatusCode> {
     let path_parts: Vec<&str> = path.split("/").collect();
     let user_id = path_parts[3];
@@ -47,6 +48,12 @@ fn extract_params(path: &str) -> Result<FilePath, StatusCode> {
     })
 }
 
+/// Middleware to serve static files
+/// The path should be in the format /static/{user_id}/{file_id}/{variant}
+/// If the variant has not been created, it will be created on the fly
+/// If the variant is not valid for the content type, a 400 Bad Request will be returned
+/// If the file does not exist, a 404 Not Found will be returned
+/// If the processing of the new variant fails, a 500 Internal Server Error will be returned
 pub async fn static_files_middleware(
     params: Query<FileParams>,
     request: Request,
@@ -70,6 +77,10 @@ pub async fn static_files_middleware(
     {
         Ok(files) => files,
         Err(_) => {
+            error!(
+                "Error while fetching file details for user: {} and file: {}",
+                user_id, file_id
+            );
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
     };
@@ -142,6 +153,8 @@ pub async fn static_files_middleware(
     Ok(response)
 }
 
+/// Middleware to serve legacy static files
+/// The path should be in the format /static/{user_id}/{file_id}
 pub async fn legacy_static_files_middleware(
     request: Request,
     _next: Next,

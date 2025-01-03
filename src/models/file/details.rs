@@ -115,26 +115,6 @@ impl Collection<&[&str]> for FileDetails {
 }
 
 impl FileDetails {
-    pub fn new() -> Self {
-        Self {
-            id: String::new(),
-            uri: String::new(),
-            owner_id: String::new(),
-            urls: FileUrls {
-                main: String::new(),
-                feed: None,
-                small: None,
-            },
-            src: String::new(),
-            name: String::new(),
-            size: 0,
-            created_at: Utc::now().timestamp(),
-            indexed_at: Utc::now().timestamp(),
-            content_type: String::new(),
-            metadata: None,
-        }
-    }
-
     pub fn from_homeserver(
         pubkyapp_file: &PubkyAppFile,
         uri: String,

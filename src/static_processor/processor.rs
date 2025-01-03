@@ -42,13 +42,17 @@ impl StaticProcessor {
         let variants = Self::get_valid_variants_for_content_type(content_type);
 
         FileUrls {
-            main: format!("{}/main", path),
-            feed: variants
-                .contains(&FileVariant::Feed)
-                .then_some(format!("{}/feed", path)),
-            small: variants
-                .contains(&FileVariant::Small)
-                .then_some(format!("{}/small", path)),
+            main: format!("{}/{}", path, FileVariant::Main),
+            feed: variants.contains(&FileVariant::Feed).then_some(format!(
+                "{}/{}",
+                path,
+                FileVariant::Feed
+            )),
+            small: variants.contains(&FileVariant::Small).then_some(format!(
+                "{}/{}",
+                path,
+                FileVariant::Small
+            )),
         }
     }
 

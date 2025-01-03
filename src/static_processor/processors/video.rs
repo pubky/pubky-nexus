@@ -20,6 +20,8 @@ impl BaseProcessingOptions for VideoOptions {
     }
 }
 
+/// VideoProcessor is just a prototype and not a real implementation
+/// when we decide to actual start video processing we will need to implement this.
 pub struct VideoProcessor;
 
 #[async_trait]

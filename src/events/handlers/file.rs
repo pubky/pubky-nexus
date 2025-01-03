@@ -1,4 +1,5 @@
 use crate::db::connectors::pubky::PubkyConnector;
+use crate::models::file::details::FileVariant;
 use crate::models::{
     file::{details::FileMeta, FileDetails},
     traits::Collection,
@@ -62,7 +63,7 @@ async fn ingest(
     let path: String = format!("{}/{}", user_id, file_id);
     let storage_path = StaticStorage::get_storage_path();
     let full_path = format!("{}/{}", storage_path, path);
-    StaticStorage::store_blob(String::from("main"), full_path.to_string(), &blob).await?;
+    StaticStorage::store_blob(FileVariant::Main.to_string(), full_path.to_string(), &blob).await?;
 
     let urls =
         StaticProcessor::get_file_urls_by_content_type(pubkyapp_file.content_type.as_str(), &path);
