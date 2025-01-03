@@ -38,11 +38,46 @@ pub async fn sync_put(
     // We avoid indexing replies into global feed sorted sets
     let is_reply = post.parent.is_some();
 
-    // SAVE TO GRAPH. First the user has to exist
-    let existed = match post_details.put_to_graph().await? {
-        Some(exist) => exist,
-        // Should return an error that could not be inserted in the RetryManager
-        None => return Err("WATCHER: User not synchronized".into())
+    // PRE-INDEX operation, identify the post relationship. Possibilities are:
+    // Post parent, post reply, post repost
+    let interactions = resolve_post_type_interaction(&post).await?;
+
+    let existed = if interactions.is_empty() {
+        // SAVE TO GRAPH
+        match post_details.put_to_graph().await? {
+            Some(exist) => exist,
+            // Should return an error that could not be inserted in the RetryManager
+            None => return Err("WATCHER: User not synchronized".into())
+        } 
+    // The post has some dependency in other post
+    } else {
+        // TODO: refactor in a smaller function
+        let mut post_exists = None;
+        for (action, parent_uri) in interactions.clone() {
+            let parsed_uri = ParsedUri::try_from(parent_uri)?;
+            let parent_author_id = parsed_uri.user_id;
+            let parent_post_id = parsed_uri.post_id.ok_or("Missing post ID")?;
+            let kind = serde_json::to_string(&post.kind)?;
+            
+            // SAVE TO GRAPH
+            let response = match exec_boolean_row(queries::put::create_post_dependency(
+                &parent_author_id,
+                &parent_post_id,
+                &post_details,
+                kind,
+                action
+            ))
+            .await? {
+                Some(exists_post) => exists_post,
+                None => return Err("WATCHER: Something not synchronized. We will specify that".into())
+            };
+            // Ensure that the first successful query response determines post existence
+            if post_exists.is_none() {
+                post_exists = Some(response);
+            }
+        }
+        // TODO: Not sure if that one is good approach
+        post_exists.unwrap_or(false)
     };
 
     if existed {
@@ -56,8 +91,7 @@ pub async fn sync_put(
         return Ok(());
     }
 
-    // PRE-INDEX operations
-    let interactions = resolve_post_type_interaction(&post, &author_id, &post_id).await?;
+    
     // IMPORTANT: Handle the mentions before traverse the graph (reindex_post) for that post
     // Handle "MENTIONED" relationships
     let mentioned_users =
@@ -189,22 +223,20 @@ async fn sync_edit(
 }
 
 async fn resolve_post_type_interaction<'a>(
-    post: &'a PubkyAppPost,
-    author_id: &str,
-    post_id: &str,
+    post: &'a PubkyAppPost
 ) -> Result<Vec<(&'a str, &'a str)>, DynError> {
     let mut interaction: Vec<(&str, &str)> = Vec::new();
 
     // Handle "REPLIED" relationship and counts if `parent` is Some
     if let Some(parent_uri) = &post.parent {
-        put_reply_relationship(author_id, post_id, parent_uri).await?;
+        //put_reply_relationship(author_id, post_id, parent_uri).await?;
         interaction.push(("replies", parent_uri.as_str()));
     }
 
     // Handle "REPOSTED" relationship and counts if `embed.uri` is Some and `kind` is "short"
     if let Some(embed) = &post.embed {
         if let PubkyAppPostKind::Short = embed.kind {
-            put_repost_relationship(author_id, post_id, &embed.uri).await?;
+            //put_repost_relationship(author_id, post_id, &embed.uri).await?;
             interaction.push(("reposts", embed.uri.as_str()));
         }
     }
@@ -212,43 +244,43 @@ async fn resolve_post_type_interaction<'a>(
     Ok(interaction)
 }
 
-// Helper function to handle "REPLIED" relationship
-async fn put_reply_relationship(
-    author_id: &str,
-    post_id: &str,
-    parent_uri: &str,
-) -> Result<(), DynError> {
-    let parsed_uri = ParsedUri::try_from(parent_uri)?;
-    if let (parent_author_id, Some(parent_post_id)) = (parsed_uri.user_id, parsed_uri.post_id) {
-        exec_single_row(queries::put::create_reply_relationship(
-            author_id,
-            post_id,
-            &parent_author_id,
-            &parent_post_id,
-        ))
-        .await?;
-    }
-    Ok(())
-}
+// // Helper function to handle "REPLIED" relationship
+// async fn put_reply_relationship(
+//     author_id: &str,
+//     post_id: &str,
+//     parent_uri: &str,
+// ) -> Result<(), DynError> {
+//     let parsed_uri = ParsedUri::try_from(parent_uri)?;
+//     if let (parent_author_id, Some(parent_post_id)) = (parsed_uri.user_id, parsed_uri.post_id) {
+//         exec_single_row(queries::put::create_reply_relationship(
+//             author_id,
+//             post_id,
+//             &parent_author_id,
+//             &parent_post_id,
+//         ))
+//         .await?;
+//     }
+//     Ok(())
+// }
 
-// Helper function to handle "REPOSTED" relationship
-async fn put_repost_relationship(
-    author_id: &str,
-    post_id: &str,
-    embed_uri: &str,
-) -> Result<(), DynError> {
-    let parsed_uri = ParsedUri::try_from(embed_uri)?;
-    if let (reposted_author_id, Some(reposted_post_id)) = (parsed_uri.user_id, parsed_uri.post_id) {
-        exec_single_row(queries::put::create_repost_relationship(
-            author_id,
-            post_id,
-            &reposted_author_id,
-            &reposted_post_id,
-        ))
-        .await?;
-    }
-    Ok(())
-}
+// // Helper function to handle "REPOSTED" relationship
+// async fn put_repost_relationship(
+//     author_id: &str,
+//     post_id: &str,
+//     embed_uri: &str,
+// ) -> Result<(), DynError> {
+//     let parsed_uri = ParsedUri::try_from(embed_uri)?;
+//     if let (reposted_author_id, Some(reposted_post_id)) = (parsed_uri.user_id, parsed_uri.post_id) {
+//         exec_single_row(queries::put::create_repost_relationship(
+//             author_id,
+//             post_id,
+//             &reposted_author_id,
+//             &reposted_post_id,
+//         ))
+//         .await?;
+//     }
+//     Ok(())
+// }
 
 // Helper function to handle "MENTIONED" relationships on the post content
 pub async fn put_mentioned_relationships(
