@@ -1,15 +1,11 @@
 use crate::db::connectors::pubky::PubkyConnector;
-use crate::static_processor::get_file_urls_by_content_type;
-use crate::static_processor::store::get_storage_path;
+use crate::models::{
+    file::{details::FileMeta, FileDetails},
+    traits::Collection,
+};
+use crate::static_processor::{StaticProcessor, StaticStorage};
 use crate::types::DynError;
 use crate::types::PubkyId;
-use crate::{
-    models::{
-        file::{details::FileMeta, FileDetails},
-        traits::Collection,
-    },
-    static_processor::store::store_blob,
-};
 use axum::body::Bytes;
 use log::debug;
 use pubky_app_specs::{traits::Validatable, PubkyAppFile};
@@ -64,11 +60,12 @@ async fn ingest(
     };
 
     let path: String = format!("{}/{}", user_id, file_id);
-    let storage_path = get_storage_path();
+    let storage_path = StaticStorage::get_storage_path();
     let full_path = format!("{}/{}", storage_path, path);
-    store_blob(String::from("main"), full_path.to_string(), &blob).await?;
+    StaticStorage::store_blob(String::from("main"), full_path.to_string(), &blob).await?;
 
-    let urls = get_file_urls_by_content_type(pubkyapp_file.content_type.as_str(), &path);
+    let urls =
+        StaticProcessor::get_file_urls_by_content_type(pubkyapp_file.content_type.as_str(), &path);
     Ok(FileMeta { urls })
 }
 
@@ -86,7 +83,7 @@ pub async fn del(user_id: &PubkyId, file_id: String) -> Result<(), DynError> {
     }
 
     let folder_path = format!("{}/{}", user_id, file_id);
-    let storage_path = get_storage_path();
+    let storage_path = StaticStorage::get_storage_path();
     let full_path = format!("{}/{}", storage_path, folder_path);
 
     remove_dir_all(full_path).await?;

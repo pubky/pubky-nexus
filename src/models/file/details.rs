@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fmt::Display;
+use std::str::FromStr;
 
 use crate::db::graph::exec::exec_single_row;
 use crate::models::traits::Collection;
@@ -14,29 +15,31 @@ use utoipa::ToSchema;
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, ToSchema, Clone)]
 #[serde(rename_all = "lowercase")]
-pub enum FileVersions {
-    MAIN,
-    FEED,
-    SMALL,
+pub enum FileVariant {
+    Main,
+    Feed,
+    Small,
 }
 
-impl FileVersions {
-    pub fn parse_from_str(version: &str) -> Option<Self> {
-        match version {
-            "main" => Some(FileVersions::MAIN),
-            "feed" => Some(FileVersions::FEED),
-            "small" => Some(FileVersions::SMALL),
-            _ => None,
+impl FromStr for FileVariant {
+    type Err = DynError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "main" => Ok(FileVariant::Main),
+            "feed" => Ok(FileVariant::Feed),
+            "small" => Ok(FileVariant::Small),
+            _ => Err("Invalid file version".into()),
         }
     }
 }
 
-impl Display for FileVersions {
+impl Display for FileVariant {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let version_string = match self {
-            FileVersions::MAIN => "main",
-            FileVersions::FEED => "feed",
-            FileVersions::SMALL => "small",
+            FileVariant::Main => "main",
+            FileVariant::Feed => "feed",
+            FileVariant::Small => "small",
         };
         write!(f, "{}", version_string)
     }

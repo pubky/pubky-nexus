@@ -6,23 +6,27 @@ use tokio::{
 
 use crate::{types::DynError, Config};
 
-pub async fn store_blob(name: String, path: String, blob: &Bytes) -> Result<(), DynError> {
-    let path_exists = match fs::metadata(path.as_str()).await {
-        Err(_) => false,
-        Ok(metadata) => metadata.is_dir(),
-    };
+pub struct StaticStorage;
 
-    if !path_exists {
-        fs::create_dir_all(path.as_str()).await?;
+impl StaticStorage {
+    pub async fn store_blob(name: String, path: String, blob: &Bytes) -> Result<(), DynError> {
+        let path_exists = match fs::metadata(path.as_str()).await {
+            Err(_) => false,
+            Ok(metadata) => metadata.is_dir(),
+        };
+
+        if !path_exists {
+            fs::create_dir_all(path.as_str()).await?;
+        }
+
+        let file_path = format!("{}/{}", path, name);
+        let mut static_file = File::create_new(file_path).await?;
+        static_file.write_all(blob).await?;
+
+        Ok(())
     }
 
-    let file_path = format!("{}/{}", path, name);
-    let mut static_file = File::create_new(file_path).await?;
-    static_file.write_all(blob).await?;
-
-    Ok(())
-}
-
-pub fn get_storage_path() -> String {
-    Config::from_env().file_path
+    pub fn get_storage_path() -> String {
+        Config::from_env().file_path
+    }
 }
