@@ -2,9 +2,8 @@ use crate::db::graph::exec::{ exec_single_row, exec_boolean_row};
 use crate::db::kv::index::json::JsonAction;
 use crate::events::uri::ParsedUri;
 use crate::models::notification::{Notification, PostChangedSource, PostChangedType};
-use crate::models::post::PostDetails;
 use crate::models::post::{
-    PostCounts, PostRelationships, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS,
+    PostCounts, PostRelationships, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS, PostDetails, PostInteraction
 };
 use crate::models::user::UserCounts;
 use crate::queries::get::post_is_safe_to_delete;
@@ -34,50 +33,16 @@ pub async fn sync_put(
 ) -> Result<(), DynError> {
     // Create PostDetails object
     let post_details = PostDetails::from_homeserver(post.clone(), &author_id, &post_id).await?;
-
     // We avoid indexing replies into global feed sorted sets
     let is_reply = post.parent.is_some();
-
     // PRE-INDEX operation, identify the post relationship. Possibilities are:
     // Post parent, post reply, post repost
     let interactions = resolve_post_type_interaction(&post).await?;
 
-    let existed = if interactions.is_empty() {
-        // SAVE TO GRAPH
-        match post_details.put_to_graph().await? {
-            Some(exist) => exist,
-            // Should return an error that could not be inserted in the RetryManager
-            None => return Err("WATCHER: User not synchronized".into())
-        } 
-    // The post has some dependency in other post
-    } else {
-        // TODO: refactor in a smaller function
-        let mut post_exists = None;
-        for (action, parent_uri) in interactions.clone() {
-            let parsed_uri = ParsedUri::try_from(parent_uri)?;
-            let parent_author_id = parsed_uri.user_id;
-            let parent_post_id = parsed_uri.post_id.ok_or("Missing post ID")?;
-            let kind = serde_json::to_string(&post.kind)?;
-            
-            // SAVE TO GRAPH
-            let response = match exec_boolean_row(queries::put::create_post_dependency(
-                &parent_author_id,
-                &parent_post_id,
-                &post_details,
-                kind,
-                action
-            ))
-            .await? {
-                Some(exists_post) => exists_post,
-                None => return Err("WATCHER: Something not synchronized. We will specify that".into())
-            };
-            // Ensure that the first successful query response determines post existence
-            if post_exists.is_none() {
-                post_exists = Some(response);
-            }
-        }
-        // TODO: Not sure if that one is good approach
-        post_exists.unwrap_or(false)
+    let existed = match post_details.put_to_graph(&interactions).await? {
+        Some(exist) => exist,
+        // Should return an error that could not be inserted in the RetryManager
+        None => return Err("WATCHER: User not synchronized".into())
     };
 
     if existed {
@@ -119,15 +84,15 @@ pub async fn sync_put(
     let mut reply_parent_post_key_wrapper: Option<(String, String)> = None;
 
     // Post creation from an interaction: REPLY or REPOST
-    for (action, parent_uri) in interactions {
-        let parsed_uri = ParsedUri::try_from(parent_uri)?;
+    for post_interaction in interactions {
+        let parsed_uri = ParsedUri::try_from(post_interaction.get_uri())?;
 
         let parent_author_id = parsed_uri.user_id;
         let parent_post_id = parsed_uri.post_id.ok_or("Missing post ID")?;
 
         let parent_post_key_parts: &[&str; 2] = &[&parent_author_id, &parent_post_id];
 
-        PostCounts::update_index_field(parent_post_key_parts, action, JsonAction::Increment(1))
+        PostCounts::update_index_field(parent_post_key_parts, post_interaction.as_str(), JsonAction::Increment(1))
             .await?;
 
         // Post replies cannot be included in the total engagement index after they receive a reply
@@ -140,30 +105,33 @@ pub async fn sync_put(
             .await?;
         }
 
-        if action == "replies" {
-            // Populate the reply parent keys to after index the reply
-            reply_parent_post_key_wrapper =
+        match post_interaction {
+            PostInteraction::Replies(parent_uri) => {
+                // Populate the reply parent keys to after index the reply
+                reply_parent_post_key_wrapper =
                 Some((parent_author_id.to_string(), parent_post_id.clone()));
 
-            PostStream::add_to_post_reply_sorted_set(
-                parent_post_key_parts,
-                &author_id,
-                &post_id,
-                post_details.indexed_at,
-            )
-            .await?;
-            Notification::new_post_reply(
-                &author_id,
-                parent_uri,
-                &post_details.uri,
-                &parent_author_id,
-            )
-            .await?;
-            interaction_url.0 = Some(String::from(parent_uri));
-        } else {
-            Notification::new_repost(&author_id, parent_uri, &post_details.uri, &parent_author_id)
+                PostStream::add_to_post_reply_sorted_set(
+                    parent_post_key_parts,
+                    &author_id,
+                    &post_id,
+                    post_details.indexed_at,
+                )
                 .await?;
-            interaction_url.1 = Some(String::from(parent_uri));
+                Notification::new_post_reply(
+                    &author_id,
+                    &parent_uri,
+                    &post_details.uri,
+                    &parent_author_id,
+                )
+                .await?;
+                interaction_url.0 = Some(String::from(parent_uri));
+            },
+            PostInteraction::Reposts(parent_uri) => {
+                Notification::new_repost(&author_id, &parent_uri, &post_details.uri, &parent_author_id)
+                .await?;
+                interaction_url.1 = Some(String::from(&parent_uri));
+            }
         }
     }
 
@@ -224,63 +192,27 @@ async fn sync_edit(
 
 async fn resolve_post_type_interaction<'a>(
     post: &'a PubkyAppPost
-) -> Result<Vec<(&'a str, &'a str)>, DynError> {
-    let mut interaction: Vec<(&str, &str)> = Vec::new();
+) -> Result<Vec<PostInteraction>, DynError> {
+    let mut interaction: Vec<PostInteraction> = Vec::new();
 
     // Handle "REPLIED" relationship and counts if `parent` is Some
     if let Some(parent_uri) = &post.parent {
         //put_reply_relationship(author_id, post_id, parent_uri).await?;
-        interaction.push(("replies", parent_uri.as_str()));
+        //interaction.push(("replies", parent_uri.as_str()));
+        interaction.push(PostInteraction::Replies(parent_uri.to_string()));
     }
 
     // Handle "REPOSTED" relationship and counts if `embed.uri` is Some and `kind` is "short"
     if let Some(embed) = &post.embed {
         if let PubkyAppPostKind::Short = embed.kind {
             //put_repost_relationship(author_id, post_id, &embed.uri).await?;
-            interaction.push(("reposts", embed.uri.as_str()));
+            //interaction.push(("reposts", embed.uri.as_str()));
+            interaction.push(PostInteraction::Reposts(embed.uri.clone()));
         }
     }
 
     Ok(interaction)
 }
-
-// // Helper function to handle "REPLIED" relationship
-// async fn put_reply_relationship(
-//     author_id: &str,
-//     post_id: &str,
-//     parent_uri: &str,
-// ) -> Result<(), DynError> {
-//     let parsed_uri = ParsedUri::try_from(parent_uri)?;
-//     if let (parent_author_id, Some(parent_post_id)) = (parsed_uri.user_id, parsed_uri.post_id) {
-//         exec_single_row(queries::put::create_reply_relationship(
-//             author_id,
-//             post_id,
-//             &parent_author_id,
-//             &parent_post_id,
-//         ))
-//         .await?;
-//     }
-//     Ok(())
-// }
-
-// // Helper function to handle "REPOSTED" relationship
-// async fn put_repost_relationship(
-//     author_id: &str,
-//     post_id: &str,
-//     embed_uri: &str,
-// ) -> Result<(), DynError> {
-//     let parsed_uri = ParsedUri::try_from(embed_uri)?;
-//     if let (reposted_author_id, Some(reposted_post_id)) = (parsed_uri.user_id, parsed_uri.post_id) {
-//         exec_single_row(queries::put::create_repost_relationship(
-//             author_id,
-//             post_id,
-//             &reposted_author_id,
-//             &reposted_post_id,
-//         ))
-//         .await?;
-//     }
-//     Ok(())
-// }
 
 // Helper function to handle "MENTIONED" relationships on the post content
 pub async fn put_mentioned_relationships(

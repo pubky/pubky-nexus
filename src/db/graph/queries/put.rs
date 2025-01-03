@@ -1,3 +1,5 @@
+use crate::events::uri::ParsedUri;
+use crate::models::post::PostInteraction;
 use crate::models::{file::FileDetails, post::PostDetails, user::UserDetails};
 use crate::types::DynError;
 use neo4rs::{query, Query};
@@ -21,83 +23,63 @@ pub fn create_user(user: &UserDetails) -> Result<Query, DynError> {
     Ok(query)
 }
 
-// Create a post node
-// TODO: DIscuss if it is necessary here or create a URI when we get the post_id, get_posts_details_by_id
-pub fn create_post(post: &PostDetails) -> Result<Query, DynError> {
-    let kind = serde_json::to_string(&post.kind)?;
-
-    let query = query(
-        "MATCH (u:User {id: $author_id})
-         // Check if post already existed
-         OPTIONAL MATCH (u)-[:AUTHORED]->(existing:Post {id: $post_id})
-         // Write data
-         MERGE (u)-[:AUTHORED]->(p:Post {id: $post_id})
-         SET p.content = $content,
-             p.indexed_at = $indexed_at,
-             p.kind = $kind,
-             p.attachments = $attachments
-        
-         // boolean == existed
-         RETURN existing IS NOT NULL AS boolean;",
-    )
-    .param("author_id", post.author.to_string())
-    .param("post_id", post.id.to_string())
-    .param("content", post.content.to_string())
-    .param("indexed_at", post.indexed_at)
-    .param("kind", kind.trim_matches('"'))
-    .param(
-        "attachments",
-        post.attachments.clone().unwrap_or(vec![] as Vec<String>),
-    );
-
-    Ok(query)
-}
-
-/// Generates a Cypher query to create or update a post in the graph database
-/// while establishing dependencies such as `REPLIED` or `REPOSTED` relationships
-/// to a parent post.
-/// # Parameters
-/// - `parent_author_id`: The ID of the author of the parent post.
-/// - `parent_post_id`: The ID of the parent post to which the new post is related.
-/// - `post`: A reference to a `PostDetails` struct containing details of the post being created or updated.
-/// - `kind`: A string indicating the type of the post (e.g., "text", "image").
-/// - `action`: A string indicating the type of relationship to establish with the parent post (e.g. reposts, replies) 
-pub fn create_post_dependency(
-    parent_author_id: &str,
-    parent_post_id: &str,
-    post: &PostDetails,
-    kind: String,
-    action: &str
-) -> Query {
+/// Creates a Cypher query to add or edit a post to the graph database and handles its relationships.
+/// # Arguments
+/// * `post` - A reference to a `PostDetails` struct containing information about the post to be created or edited
+/// * `interactions` - A reference to a vector of `PostInteraction` enums that define relationships
+///   for the post (e.g., replies or reposts).
+pub fn create_post(post: &PostDetails, interactions: &Vec<PostInteraction>) -> Result<Query, DynError> {
     let mut cypher = String::new();
+    let mut new_relationships = Vec::new();
 
-    // Match required nodes to ensure they exist before creating relationships
+    // Check if all the dependencies are consistent in the graph
+    for interaction in interactions {
+        match interaction {
+            PostInteraction::Replies(_) => {
+                cypher.push_str("
+                    MATCH (reply_parent_author:User {id: $reply_parent_author_id})-[:AUTHORED]->(reply_parent_post:Post {id: $reply_parent_post_id})
+                ");
+                new_relationships.push("MERGE (new_post)-[:REPLIED]->(reply_parent_post)");
+            },
+            PostInteraction::Reposts(_) => {
+                cypher.push_str("
+                    MATCH (repost_parent_author:User {id: $repost_parent_author_id})-[:AUTHORED]->(repost_parent_post:Post {id: $repost_parent_post_id})
+                ");
+                new_relationships.push("MERGE (new_post)-[:REPOSTED]->(repost_parent_post)");
+            }
+        }
+    }
+    // Create the new post
     cypher.push_str("
-        // Check if all the dependencies are consistent in the graph
-        MATCH (parent_author:User {id: $parent_author_id})-[:AUTHORED]->(parent_post:Post {id: $parent_post_id})
         MATCH (author:User {id: $author_id})
-        // Check if the post already exists
-        OPTIONAL MATCH (existing_post:Post {id: $post_id}) 
+        OPTIONAL MATCH (u)-[:AUTHORED]->(existing_post:Post {id: $post_id})
+        MERGE (author)-[:AUTHORED]->(new_post:Post {id: $post_id})
     ");
 
-    // Create the generic part of the query depending the post type
-    if action == "replies" {
-        cypher.push_str("MERGE (author)-[:AUTHORED]->(p:Post {id: $post_id})-[:REPLIED]->(parent_post)");
-    } else {
-        cypher.push_str("MERGE (author)-[:AUTHORED]->(p:Post {id: $post_id})-[:REPOSTED]->(parent_post)");
-    }
+    // Create the interaction relationships
+    cypher.push_str(&new_relationships.join("\n"));
 
     cypher.push_str("
-        SET p.content = $content,
-            p.indexed_at = $indexed_at,
-            p.kind = $kind,
-            p.attachments = $attachments
+        SET new_post.content = $content,
+            new_post.indexed_at = $indexed_at,
+            new_post.kind = $kind,
+            new_post.attachments = $attachments
         RETURN existing_post IS NOT NULL AS boolean"
     );
+    
+    create_new_post_query(post, interactions, cypher)
+}
 
-    query(&cypher)
-        .param("parent_author_id", parent_author_id)
-        .param("parent_post_id", parent_post_id)
+/// Creates a parameterized Cypher query for inserting or editing a post into the graph database.
+/// # Arguments
+/// * `post` - A reference to a `PostDetails` struct 
+/// * `interactions` - A reference to a vector of `PostInteraction` enums representing the relationships
+///   (e.g., replies or reposts) of the post.
+/// * `cypher` - A pre-constructed Cypher query string that defines the structure of the query.
+fn create_new_post_query(post: &PostDetails, interactions: &Vec<PostInteraction>, cypher: String) -> Result<Query, DynError> {
+    let kind = serde_json::to_string(&post.kind)?;
+    
+    let mut cypher_query = query(&cypher)
         .param("author_id", post.author.to_string())
         .param("post_id", post.id.to_string())
         .param("content", post.content.to_string())
@@ -106,44 +88,26 @@ pub fn create_post_dependency(
         .param(
             "attachments",
             post.attachments.clone().unwrap_or(vec![] as Vec<String>),
-    )
+    );
+
+    // Fill up interaction parameters
+    for interaction in interactions {
+        let parsed_uri = ParsedUri::try_from(interaction.get_uri())?;
+        let parent_author_id = parsed_uri.user_id;
+        let parent_post_id = parsed_uri.post_id.ok_or("Missing post ID")?;
+
+        // Define the param names to after add the value
+        let (author_param, post_param) = match interaction {
+            PostInteraction::Replies(_) => ("reply_parent_author_id", "reply_parent_post_id"),
+            PostInteraction::Reposts(_) => ("repost_parent_author_id", "repost_parent_post_id"),
+        };
+
+        cypher_query = cypher_query
+            .param(author_param, parent_author_id.as_str())
+            .param(post_param, parent_post_id.as_str());
+    }
+    Ok(cypher_query)
 }
-
-// /// Create a reply relationship between two posts
-// pub fn create_reply_relationship(
-//     author_id: &str,
-//     post_id: &str,
-//     parent_author_id: &str,
-//     parent_post_id: &str,
-// ) -> Query {
-//     query(
-//         "MATCH (parent_author:User {id: $parent_author_id})-[:AUTHORED]->(parent_post:Post {id: $parent_post_id}),
-//               (author:User {id: $author_id})-[:AUTHORED]->(post:Post {id: $post_id})
-//          MERGE (post)-[:REPLIED]->(parent_post)",
-//     )
-//     .param("author_id", author_id)
-//     .param("post_id", post_id)
-//     .param("parent_author_id", parent_author_id)
-//     .param("parent_post_id", parent_post_id)
-// }
-
-// /// Create a repost relationship between two posts
-// pub fn create_repost_relationship(
-//     author_id: &str,
-//     post_id: &str,
-//     reposted_author_id: &str,
-//     reposted_post_id: &str,
-// ) -> Query {
-//     query(
-//         "MATCH (reposted_author:User {id: $reposted_author_id})-[:AUTHORED]->(reposted_post:Post {id: $reposted_post_id}),
-//               (author:User {id: $author_id})-[:AUTHORED]->(post:Post {id: $post_id})
-//          MERGE (post)-[:REPOSTED]->(reposted_post)",
-//     )
-//     .param("author_id", author_id)
-//     .param("post_id", post_id)
-//     .param("reposted_author_id", reposted_author_id)
-//     .param("reposted_post_id", reposted_post_id)
-// }
 
 // Create a mentioned relationship between a post and a user
 pub fn create_mention_relationship(
