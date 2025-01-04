@@ -1,6 +1,5 @@
 use std::env;
 
-use log::log;
 use pubky_nexus::types::DynError;
 use pubky_nexus::{get_migration_manager, get_neo4j_graph, setup, Config, MigrationManager};
 
