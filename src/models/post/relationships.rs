@@ -1,6 +1,7 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
 use crate::types::DynError;
 use crate::{queries, RedisOps};
+use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -86,6 +87,23 @@ impl PostRelationships {
         } else {
             Ok(None)
         }
+    }
+
+    /// Constructs a `Self` instance by extracting relationships from a `PubkyAppPost` object
+    pub fn get_from_homeserver(post: &PubkyAppPost) -> Self {
+
+        let mut relationship = Self::default();
+
+        if let Some(parent_uri) = &post.parent {
+            relationship.replied = Some(parent_uri.to_string());
+        }
+
+        if let Some(embed) = &post.embed {
+            if let PubkyAppPostKind::Short = embed.kind {
+                relationship.reposted = Some(embed.uri.clone());
+            }
+        }
+        relationship
     }
 
     pub async fn put_to_index(&self, author_id: &str, post_id: &str) -> Result<(), DynError> {

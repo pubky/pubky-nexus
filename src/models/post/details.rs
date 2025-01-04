@@ -1,4 +1,4 @@
-use super::{PostInteraction, PostStream};
+use super::{PostRelationships, PostStream};
 use crate::db::connectors::neo4j::get_neo4j_graph;
 use crate::db::graph::exec::{exec_boolean_row, exec_single_row};
 use crate::types::DynError;
@@ -142,8 +142,8 @@ impl PostDetails {
     }
 
     // Save new graph node
-    pub async fn put_to_graph(&self, interactions: &Vec<PostInteraction>) -> Result<Option<bool>, DynError> {
-        match queries::put::create_post(self, interactions) {
+    pub async fn put_to_graph(&self, post_relationships: &PostRelationships) -> Result<Option<bool>, DynError> {
+        match queries::put::create_post(self, post_relationships) {
             Ok(query) => exec_boolean_row(query).await,
             Err(_) => return Err("QUERY: Error while creating the query".into())  
         }
