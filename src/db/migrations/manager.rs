@@ -99,14 +99,23 @@ impl MigrationManager {
     }
 
     pub async fn new_migration(name: &str) -> Result<(), DynError> {
-        let migration_name = format!("{}{}", name, Utc::now().timestamp());
-        let migration_file_name = format!("{}_{}", to_snake_case(name), Utc::now().timestamp());
+        let now = Utc::now().timestamp();
+        let migration_name = format!("{}{}", name, now);
+        let migration_file_name = format!("{}_{}", to_snake_case(name), now);
         let migration_template = get_migration_template(migration_name.as_str());
         let file_path = format!(
             "src/db/migrations/migrations_list/{}.rs",
             migration_file_name.as_str()
         );
-        tokio::fs::write(file_path.clone(), migration_template).await?;
+        tokio::fs::write(file_path.clone(), migration_template)
+            .await
+            .map_err(|err| {
+                format!(
+                    "Failed to create migration file at {}: error: {}",
+                    file_path.as_str(),
+                    err
+                )
+            })?;
 
         // append to migrations_list/mod.rs
         let mod_file_path = "src/db/migrations/migrations_list/mod.rs";
@@ -149,27 +158,28 @@ impl MigrationManager {
                 .find(|m| m.id == migration_id)
                 .cloned();
             if stored_migration.is_none() {
-                println!("Storing new migration {}...", migration_id);
+                log::info!("Storing new migration {}...", migration_id);
                 self.store_new_migration(migration_id, is_migration_multi_staged)
                     .await?;
                 if is_migration_multi_staged {
                     continue;
                 } else {
+                    let now = Utc::now().timestamp_millis();
                     let new_migration_node = MigrationNode {
                         id: migration_id.to_string(),
                         phase: MigrationPhase::Backfill,
-                        created_at: Utc::now().timestamp_millis(),
-                        updated_at: Utc::now().timestamp_millis(),
+                        created_at: now,
+                        updated_at: now,
                     };
                     stored_migration = Some(new_migration_node.clone());
                 }
             }
             let stored_migration = stored_migration.unwrap();
             if stored_migration.phase == MigrationPhase::Done {
-                println!("Migration {} is already done", migration_id);
+                log::info!("Migration {} is already done", migration_id);
                 continue;
             }
-            println!(
+            log::info!(
                 "Migration {} is at phase {}",
                 migration_id,
                 stored_migration.phase.to_string()
@@ -183,7 +193,7 @@ impl MigrationManager {
                 MigrationPhase::Cleanup => migration.cleanup().await?,
                 _ => continue,
             }
-            println!(
+            log::info!(
                 "Migration {} completed phase {} successfully!",
                 migration_id,
                 stored_migration.phase.to_string()

@@ -10,6 +10,7 @@ mod migrations_list;
 
 pub fn get_migration_manager(graph: Arc<Mutex<Graph>>) -> MigrationManager {
     // let migration_manager = MigrationManager::new(graph);
+    // Add your migrations here to be picked up by the manager. Example:
     // migration_manager.register(Box::new(MigrationX));
     MigrationManager::new(graph)
 }
