@@ -1,7 +1,9 @@
-use super::dht::TestnetDHTNetwork;
+use std::time::Duration;
+
 use anyhow::{anyhow, Result};
 use chrono::Utc;
 use log::debug;
+use mainline::Testnet;
 use pubky_app_specs::{
     traits::TimestampId, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser,
 };
@@ -36,8 +38,10 @@ impl WatcherTest {
         let config = Config::from_env();
         setup(&config).await;
 
-        TestnetDHTNetwork::initialise(10)?;
-        let testnet = TestnetDHTNetwork::get_testnet_dht_nodes()?;
+        let testnet = Testnet::new(5)?;
+
+        std::thread::sleep(Duration::from_secs(5));
+        panic!("nothing");
 
         let homeserver = Homeserver::start_test(&testnet).await?;
         let homeserver_url = homeserver.url().to_string();

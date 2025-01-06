@@ -1,5 +1,5 @@
+use ::mainline::Testnet;
 use anyhow::{anyhow, Error};
-use mainline::Testnet;
 use std::sync::Arc;
 use tokio::sync::OnceCell;
 
