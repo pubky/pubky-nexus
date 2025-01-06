@@ -3,12 +3,11 @@ use std::time::Duration;
 use super::Event;
 use crate::types::DynError;
 use crate::types::PubkyId;
+use crate::PubkyConnector;
 use crate::{models::homeserver::Homeserver, Config};
 use log::{debug, error, info};
-use reqwest::Client;
 
 pub struct EventProcessor {
-    http_client: Client,
     homeserver: Homeserver,
     limit: u32,
     max_retries: u64,
@@ -26,7 +25,6 @@ impl EventProcessor {
         );
 
         Ok(Self {
-            http_client: Client::new(),
             homeserver,
             limit,
             max_retries,
@@ -44,7 +42,6 @@ impl EventProcessor {
         let id = PubkyId("test".to_string());
         let homeserver = Homeserver::new(id, homeserver_url).await.unwrap();
         Self {
-            http_client: Client::new(),
             homeserver,
             limit: 1000,
             max_retries: 3,
@@ -61,16 +58,20 @@ impl EventProcessor {
 
     async fn poll_events(&mut self) -> Result<Option<Vec<String>>, Box<dyn std::error::Error>> {
         debug!("Polling new events from homeserver");
-        let res = self
-            .http_client
-            .get(format!(
-                "{}/events/?cursor={}&limit={}",
-                self.homeserver.url, self.homeserver.cursor, self.limit
-            ))
-            .send()
-            .await?
-            .text()
-            .await?;
+
+        let res: String;
+        {
+            let pubky_client = PubkyConnector::get_pubky_client()?;
+            res = pubky_client
+                .get(format!(
+                    "{}events/?cursor={}&limit={}",
+                    self.homeserver.url, self.homeserver.cursor, self.limit
+                ))
+                .send()
+                .await?
+                .text()
+                .await?;
+        }
 
         let lines: Vec<String> = res.trim().split('\n').map(|s| s.to_string()).collect();
         debug!("Homeserver response lines {:?}", lines);

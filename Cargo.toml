@@ -36,11 +36,11 @@ const_format = "0.2.34"
 thiserror = "2.0.9"
 chrono = { version = "0.4.39", default-features = false, features = ["clock"] }
 pubky-common = { git = "https://github.com/pubky/pubky", branch = "v0.4.0-rc1" }
-reqwest = "0.12.9"
 base32 = "0.5.1"
 blake3 = "1.5.5"
 url = "2.5.4"
 async-trait = "0.1.84"
+reqwest = { version = "0.12.9", features = ["json"] }
 
 [dev-dependencies]
 anyhow = "1.0.95"

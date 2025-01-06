@@ -23,12 +23,12 @@ pub async fn put(
     uri: String,
     user_id: PubkyId,
     file_id: String,
-    blob: Bytes,
+    blob: &[u8],
 ) -> Result<(), DynError> {
     debug!("Indexing new file resource at {}/{}", user_id, file_id);
 
     // Serialize and validate
-    let file_input = <PubkyAppFile as Validatable>::try_from(&blob, &file_id)?;
+    let file_input = <PubkyAppFile as Validatable>::try_from(blob, &file_id)?;
 
     debug!("file input {:?}", file_input);
 
@@ -80,7 +80,7 @@ async fn ingest(
     })
 }
 
-async fn store_blob(name: String, path: String, blob: &Bytes) -> Result<(), DynError> {
+async fn store_blob(name: String, path: String, blob: &[u8]) -> Result<(), DynError> {
     let storage_path = Config::from_env().file_path;
     // TODO: Is it well formatting. The file path already has / at the end
     let full_path = format!("{}/{}", storage_path, path);
