@@ -1,21 +1,27 @@
 use crate::Config;
-use pkarr::mainline::Testnet;
-use pubky::PubkyClient;
+use mainline::Testnet;
+use pubky::Client;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::OnceCell;
 
 static PUBKY_CONNECTOR_SINGLETON: OnceCell<PubkyConnector> = OnceCell::const_new();
 
 #[derive(Debug, Clone)]
 pub struct PubkyConnector {
-    pubky_client: Arc<PubkyClient>,
+    pubky_client: Arc<Client>,
 }
 
 #[derive(Debug)]
 pub enum PubkyConnectorError {
     AlreadyInitialized,
     NotInitialized,
+    IoError(std::io::Error),
+}
+
+impl From<std::io::Error> for PubkyConnectorError {
+    fn from(e: std::io::Error) -> Self {
+        PubkyConnectorError::IoError(e)
+    }
 }
 
 impl std::fmt::Display for PubkyConnectorError {
@@ -24,10 +30,8 @@ impl std::fmt::Display for PubkyConnectorError {
             PubkyConnectorError::AlreadyInitialized => {
                 write!(f, "PubkyConnector has already been initialized")
             }
-            PubkyConnectorError::NotInitialized => write!(
-                f,
-                "PubkyConnector must be called before accessing PubkyClient connector"
-            ),
+            PubkyConnectorError::NotInitialized => write!(f, "PubkyConnector not initialized"),
+            PubkyConnectorError::IoError(e) => write!(f, "I/O error: {}", e),
         }
     }
 }
@@ -45,19 +49,16 @@ impl PubkyConnector {
             return Ok(());
         }
         let pubky_client = match testnet {
-            Some(testnet) => PubkyClient::builder()
-                .testnet(testnet)
-                .dht_request_timeout(Duration::from_millis(2000))
-                .build(),
+            Some(testnet) => Client::builder().testnet(testnet).build()?,
             None => match config.testnet {
                 true => {
                     let testnet = Testnet {
                         bootstrap: vec![config.bootstrap.clone()],
                         nodes: vec![],
                     };
-                    PubkyClient::test(&testnet)
+                    Client::builder().testnet(&testnet).build()?
                 }
-                false => PubkyClient::default(),
+                false => Client::new()?,
             },
         };
         let manager = Self {
@@ -69,8 +70,8 @@ impl PubkyConnector {
         Ok(())
     }
 
-    /// Retrieves the shared PubkyClient connection.
-    pub fn get_pubky_client() -> Result<Arc<PubkyClient>, PubkyConnectorError> {
+    /// Retrieves the shared Client connection.
+    pub fn get_pubky_client() -> Result<Arc<Client>, PubkyConnectorError> {
         if let Some(resolver) = PUBKY_CONNECTOR_SINGLETON.get() {
             Ok(resolver.pubky_client.clone())
         } else {

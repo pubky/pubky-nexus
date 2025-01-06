@@ -132,17 +132,15 @@ impl Event {
         // for every Resource Type
         let url = reqwest::Url::parse(&self.uri)?;
         let pubky_client = PubkyConnector::get_pubky_client()?;
-        let blob = match pubky_client.get(url).await {
-            Ok(Some(blob)) => blob,
-            Ok(None) => {
-                error!("WATCHER: No content found at {}", self.uri);
-                return Ok(());
-            }
+
+        let response = match pubky_client.get(url).send().await {
+            Ok(response) => response,
             Err(e) => {
                 error!("WATCHER: Failed to fetch content at {}: {}", self.uri, e);
                 return Err(e.into());
             }
         };
+        let blob = response.bytes().await?;
 
         match self.resource_type {
             ResourceType::User { user_id } => handlers::user::put(user_id, blob).await?,

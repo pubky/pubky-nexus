@@ -67,7 +67,9 @@ async fn test_edit_bookmarked_post_notification() -> Result<()> {
     // Overwrite existing post in the homeserver for the edited one
     let pubky_client = PubkyConnector::get_pubky_client()?;
     pubky_client
-        .put(edited_url.as_str(), &edited_post_blob)
+        .put(edited_url.as_str())
+        .json(&edited_post_blob)
+        .send()
         .await?;
     test.ensure_event_processing_complete().await?;
 

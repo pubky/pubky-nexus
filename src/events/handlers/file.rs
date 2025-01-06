@@ -12,7 +12,7 @@ use crate::{
     Config,
 };
 use axum::body::Bytes;
-use log::debug;
+use log::{debug, error};
 use pubky_app_specs::{traits::Validatable, PubkyAppFile};
 use tokio::{
     fs::{self, remove_file, File},
@@ -62,10 +62,13 @@ async fn ingest(
 ) -> Result<FileMeta, DynError> {
     let pubky_client = PubkyConnector::get_pubky_client()?;
 
-    let blob = match pubky_client.get(pubkyapp_file.src.as_str()).await? {
-        Some(metadata) => metadata,
+    let response = match pubky_client.get(&pubkyapp_file.src).send().await {
+        Ok(response) => response,
         // TODO: Shape the error to avoid the retyManager
-        None => return Err("EVENT ERROR: no metadata in the file blob".into()),
+        Err(e) => {
+            error!("EVENT ERROR: could not retrieve file src blob");
+            return Err(e.into());
+        }
     };
 
     store_blob(file_id.to_string(), user_id.to_string(), &blob).await?;
