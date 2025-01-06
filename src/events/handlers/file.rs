@@ -62,10 +62,8 @@ async fn ingest(
     //client: &PubkyClient,
 ) -> Result<FileMeta, DynError> {
     let pubky_client = PubkyConnector::get_pubky_client()?;
-    let blob = match pubky_client.get(pubkyapp_file.src.as_str()).await? {
-        Some(metadata) => metadata,
-        None => return Err("EVENT ERROR: no metadata in the file blob".into()),
-    };
+    let response = pubky_client.get(&pubkyapp_file.src).send().await?;
+    let blob = response.bytes().await?;
 
     debug!("File Metadata: {:?}\n{:?}", file_id, blob);
     store_blob(file_id.to_string(), user_id.to_string(), &blob).await?;

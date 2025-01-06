@@ -28,7 +28,11 @@ async fn test_homeserver_post_attachments() -> Result<()> {
     let blob_url = format!("pubky://{}/pub/pubky.app/blobs/{}", user_id, blob_id);
     let json_data = to_vec(blob)?;
     let pubky_client = PubkyConnector::get_pubky_client()?;
-    pubky_client.put(blob_url.as_str(), &json_data).await?;
+    pubky_client
+        .put(blob_url.as_str())
+        .json(&json_data)
+        .send()
+        .await?;
 
     test.ensure_event_processing_complete().await?;
 

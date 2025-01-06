@@ -1,7 +1,7 @@
 use anyhow::Result;
 use log::info;
-use pkarr::mainline::Testnet;
-use pubky::PubkyClient;
+use mainline::Testnet;
+use pubky::Client;
 use pubky_app_specs::{traits::HasPath, PubkyAppUser, PubkyAppUserLink, PROTOCOL};
 use pubky_common::crypto::{Keypair, PublicKey};
 use pubky_nexus::{setup, Config};
@@ -11,16 +11,16 @@ async fn main() -> Result<()> {
     let config = Config::from_env();
     setup(&config).await;
 
-    // Initialize the PubkyClient based on configuration
+    // Initialize the Client based on configuration
     let client = match config.testnet {
         true => {
             let testnet = Testnet {
                 bootstrap: vec![config.bootstrap.clone()],
                 nodes: vec![],
             };
-            PubkyClient::builder().testnet(&testnet).build()
+            Client::builder().testnet(&testnet).build()?
         }
-        false => PubkyClient::default(),
+        false => Client::new()?,
     };
 
     // Generate a random keypair
@@ -56,7 +56,7 @@ async fn main() -> Result<()> {
         pk = pk,
         path = user.create_path()
     );
-    client.put(url.as_str(), &profile_json).await?;
+    client.put(url.as_str()).json(&profile_json).send().await?;
 
     Ok(())
 }
