@@ -1,6 +1,6 @@
 use anyhow::Result;
 use mainline::Testnet;
-use std::time::Duration;
+use pubky_homeserver::Homeserver;
 
 #[tokio::test]
 async fn test_mainline() -> Result<()> {
@@ -9,7 +9,21 @@ async fn test_mainline() -> Result<()> {
 
     let testnet = Testnet::new(10)?;
 
-    std::thread::sleep(Duration::from_secs(5));
+    let homeserver = Homeserver::start_test(&testnet).await.unwrap();
+    let url = homeserver.url();
+
+    let client = pubky::Client::builder().testnet(&testnet).build().unwrap();
+
+    let response = client
+        .get(format!("{url}events/"))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+
+    assert_eq!(response, "");
 
     Ok(())
 }
