@@ -33,13 +33,13 @@ pub fn create_post(post: &PostDetails, post_relationships: &PostRelationships) -
     let mut new_relationships = Vec::new();
 
     // Check if all the dependencies are consistent in the graph
-    if let Some(_) = &post_relationships.replied {
+    if post_relationships.replied.is_some() {
         cypher.push_str("
             MATCH (reply_parent_author:User {id: $reply_parent_author_id})-[:AUTHORED]->(reply_parent_post:Post {id: $reply_parent_post_id})
         ");
         new_relationships.push("MERGE (new_post)-[:REPLIED]->(reply_parent_post)");
     };
-    if let Some(_) = &post_relationships.reposted {
+    if post_relationships.reposted.is_some() {
         cypher.push_str("
             MATCH (repost_parent_author:User {id: $repost_parent_author_id})-[:AUTHORED]->(repost_parent_post:Post {id: $repost_parent_post_id})
         ");

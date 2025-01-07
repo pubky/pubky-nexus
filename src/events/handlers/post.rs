@@ -40,8 +40,9 @@ pub async fn sync_put(
 
     let existed = match post_details.put_to_graph(&post_relationships).await? {
         Some(exist) => exist,
-        // Should return an error that could not be inserted in the RetryManager
-        None => return Err("WATCHER: User not synchronized".into())
+        // TODO: Should return an error that should be processed by RetryManager
+        // WIP: Create a custom error type to pass enough info to the RetryManager
+        None => return Err("WATCHER: Missing some dependency to index the model".into())
     };
 
     if existed {
@@ -99,7 +100,7 @@ pub async fn sync_put(
             )
             .await?;
         }
-         // Populate the reply parent keys to after index the reply
+        // Define the reply parent key to index the reply later
         reply_parent_post_key_wrapper = Some((parent_author_id.to_string(), parent_post_id.clone()));
 
         PostStream::add_to_post_reply_sorted_set(
@@ -237,8 +238,9 @@ pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), DynError> {
 
     let delete_safe = match exec_boolean_row(query).await? {
         Some(delete_safe) => delete_safe,
-        // Should return an error that could not be inserted in the RetryManager
-        None => return Err("WATCHER: User not synchronized".into())
+        // TODO: Should return an error that should be processed by RetryManager
+        // WIP: Create a custom error type to pass enough info to the RetryManager
+        None => return Err("WATCHER: Missing some dependency to index the model".into())
     };
 
     // If there is none other relationship (FALSE), we delete from graph and redis.

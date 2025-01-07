@@ -21,7 +21,9 @@ pub async fn sync_put(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), 
     // (follower_id)-[:FOLLOWS]->(followee_id)
     let existed = match Followers::put_to_graph(&follower_id, &followee_id).await? {
         Some(bool) => bool,
-        None => return Err("WATCHER: User not synchronized".into())
+        // TODO: Should return an error that should be processed by RetryManager
+        // WIP: Create a custom error type to pass enough info to the RetryManager
+        None => return Err("WATCHER: Missing some dependency to index the model".into())
     };
 
     // Do not duplicate the follow relationship

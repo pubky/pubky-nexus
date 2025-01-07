@@ -116,7 +116,9 @@ impl EventProcessor {
             match event.clone().handle().await {
                 Ok(_) => break Ok(()),
                 Err(e) => {
-                    if e.to_string() != "WATCHER: User not synchronized" {
+                    // TODO: Failing to index the profile.json, the error message might be different
+                    // WIP: It will be fixed in the comming PRs the error messages
+                    if e.to_string() != "WATCHER: Missing some dependency to index the model" {
                         attempts += 1;
                         if attempts >= self.max_retries {
                             error!(
@@ -133,7 +135,7 @@ impl EventProcessor {
                             tokio::time::sleep(Duration::from_millis(100)).await;
                         }
                     } else {
-                        error!("PROCESSOR: Event is going to be ignored. Missing node(s) and/or relationship(s) to execute PUT or DEL operations");
+                        error!("PROCESSOR: Sending the event to RetryManager... Missing node(s) and/or relationship(s) to execute PUT or DEL operation(s)");
                         return Ok(())
                     }
                 }

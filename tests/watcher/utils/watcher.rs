@@ -7,7 +7,7 @@ use pubky_app_specs::{
 };
 use pubky_common::crypto::Keypair;
 use pubky_homeserver::Homeserver;
-use pubky_nexus::{setup, Config, EventProcessor, PubkyConnector};
+use pubky_nexus::{events::Event, setup, types::DynError, Config, EventProcessor, PubkyConnector};
 use serde_json::to_vec;
 
 /// Struct to hold the setup environment for tests
@@ -222,4 +222,21 @@ impl WatcherTest {
         self.ensure_event_processing_complete().await?;
         Ok(mute_url)
     }
+}
+
+pub async fn create_event_from_uri(homeserver_uri: &str) -> Result<(), DynError> {
+    println!("HOMESERVER URI: {:?}", homeserver_uri);
+    let event = match Event::from_str(homeserver_uri) {
+        Ok(event) => event,
+        Err(e) => {
+            println!("ERROR: {:?}", e);
+            None
+        }
+    };
+    println!("Event: {:?}", event);
+    if let Some(event) = event {
+        event.clone().handle().await?
+    }
+    
+    Ok(())
 }
