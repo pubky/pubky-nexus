@@ -16,7 +16,7 @@ pkarr = { git = "https://github.com/Pubky/pkarr", branch = "v3", package = "pkar
 pubky = "0.3.0"
 pubky-app-specs = { version = "0.2.1", features = ["openapi"] }
 tokio = { version = "1.42.0", features = ["full"] }
-axum = "0.7.9"
+axum = "0.8.1"
 redis = { version = "0.27.6", features = ["tokio-comp", "json"] }
 neo4rs = "0.8.0"
 serde = { version = "1.0.217", features = ["derive"] }
