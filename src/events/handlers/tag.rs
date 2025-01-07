@@ -75,11 +75,12 @@ async fn put_sync_post(
         &tag_label,
         indexed_at,
     )
-    .await? {
+    .await?
+    {
         Some(exists) => exists,
         // TODO: Should return an error that should be processed by RetryManager
         // WIP: Create a custom error type to pass enough info to the RetryManager
-        None => return Err("WATCHER: Missing some dependency to index the model".into())
+        None => return Err("WATCHER: Missing some dependency to index the model".into()),
     };
 
     if existed {
@@ -148,11 +149,12 @@ async fn put_sync_user(
         &tag_label,
         indexed_at,
     )
-    .await? {
+    .await?
+    {
         Some(exists) => exists,
         // TODO: Should return an error that should be processed by RetryManager
         // WIP: Create a custom error type to pass enough info to the RetryManager
-        None => return Err("WATCHER: Missing some dependency to index the model".into())
+        None => return Err("WATCHER: Missing some dependency to index the model".into()),
     };
 
     if existed {
@@ -207,7 +209,7 @@ pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), DynError> {
     } else {
         // TODO: Should return an error that should be processed by RetryManager
         // WIP: Create a custom error type to pass enough info to the RetryManager
-        return Err("WATCHER: Missing some dependency to index the model".into())
+        return Err("WATCHER: Missing some dependency to index the model".into());
     }
     Ok(())
 }

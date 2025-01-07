@@ -1,10 +1,10 @@
-use log::error;
 use crate::db::graph::exec::exec_single_row;
 use crate::models::traits::Collection;
 use crate::types::DynError;
 use crate::{queries, RedisOps};
 use axum::async_trait;
 use chrono::Utc;
+use log::error;
 use neo4rs::Query;
 use pubky_app_specs::PubkyAppFile;
 use serde::{Deserialize, Serialize};
@@ -121,10 +121,10 @@ impl FileDetails {
             Ok(_) => {
                 // Delete on Redis
                 Self::remove_from_index_multiple_json(&[&[&self.owner_id, &self.id]]).await?;
-            },
+            }
             Err(e) => {
                 error!("File deletion: {:?}", e);
-                return Err("File: We could not delete the file".into())
+                return Err("File: We could not delete the file".into());
             }
         };
         Ok(())

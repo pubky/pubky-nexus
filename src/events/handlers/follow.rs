@@ -23,7 +23,7 @@ pub async fn sync_put(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), 
         Some(bool) => bool,
         // TODO: Should return an error that should be processed by RetryManager
         // WIP: Create a custom error type to pass enough info to the RetryManager
-        None => return Err("WATCHER: Missing some dependency to index the model".into())
+        None => return Err("WATCHER: Missing some dependency to index the model".into()),
     };
 
     // Do not duplicate the follow relationship
@@ -68,7 +68,7 @@ pub async fn sync_del(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), 
     // DELETE FROM GRAPH
     let existed = match Followers::del_from_graph(&follower_id, &followee_id).await? {
         Some(exists) => exists,
-        None => return Err("WATCHER: User not synchronized".into())
+        None => return Err("WATCHER: User not synchronized".into()),
     };
 
     // Both users exists but they do not have that relationship

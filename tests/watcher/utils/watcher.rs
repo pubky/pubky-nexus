@@ -109,7 +109,7 @@ impl WatcherTest {
     /// * `keypair` - A reference to the `Keypair` used for signing up the user.
     pub async fn register_user(&self, keypair: &Keypair) -> Result<()> {
         let pubky_client = PubkyConnector::get_pubky_client()?;
-        
+
         pubky_client
             .signup(&keypair, &self.homeserver.public_key())
             .await?;
@@ -224,19 +224,19 @@ impl WatcherTest {
     }
 }
 
-pub async fn create_event_from_uri(homeserver_uri: &str) -> Result<(), DynError> {
-    println!("HOMESERVER URI: {:?}", homeserver_uri);
-    let event = match Event::from_str(homeserver_uri) {
+/// Retrieves an event from the homeserver and handles it asynchronously.
+/// # Arguments
+/// * `event_line` - A string slice that represents the URI of the event to be retrieved
+///   from the homeserver. It contains the event type and the homeserver uri
+pub async fn retrieve_event_from_homeserver(event_line: &str) -> Result<(), DynError> {
+    let event = match Event::from_str(event_line) {
         Ok(event) => event,
-        Err(e) => {
-            println!("ERROR: {:?}", e);
-            None
-        }
+        Err(_) => None,
     };
-    println!("Event: {:?}", event);
+
     if let Some(event) = event {
         event.clone().handle().await?
     }
-    
+
     Ok(())
 }

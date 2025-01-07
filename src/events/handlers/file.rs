@@ -58,7 +58,7 @@ pub async fn put(
 async fn ingest(
     user_id: &PubkyId,
     file_id: &str,
-    pubkyapp_file: &PubkyAppFile
+    pubkyapp_file: &PubkyAppFile,
 ) -> Result<FileMeta, DynError> {
     let pubky_client = PubkyConnector::get_pubky_client()?;
 
@@ -67,11 +67,13 @@ async fn ingest(
         // TODO: Shape the error to avoid the retyManager
         None => return Err("EVENT ERROR: no metadata in the file blob".into()),
     };
-    
+
     store_blob(file_id.to_string(), user_id.to_string(), &blob).await?;
 
     Ok(FileMeta {
-        urls: FileUrls { main: format!("{}/{}", user_id, file_id) },
+        urls: FileUrls {
+            main: format!("{}/{}", user_id, file_id),
+        },
     })
 }
 

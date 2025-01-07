@@ -25,7 +25,7 @@ async fn test_homeserver_tag_user_not_found() -> Result<()> {
     // In that case, that user will act as a NotSyncUser or user not registered in pubky.app
     // It will not have a profile.json
     test.register_user(&shadow_keypair).await?;
-    
+
     // => Create user tag
     let label = "friendly";
 
@@ -36,7 +36,11 @@ async fn test_homeserver_tag_user_not_found() -> Result<()> {
     };
 
     let tag_blob = serde_json::to_vec(&tag)?;
-    let tag_url = format!("pubky://{}/pub/pubky.app/tags/{}", shadow_tagger_id, tag.create_id());
+    let tag_url = format!(
+        "pubky://{}/pub/pubky.app/tags/{}",
+        shadow_tagger_id,
+        tag.create_id()
+    );
 
     // PUT user tag
     test.put(tag_url.as_str(), tag_blob).await?;
@@ -52,7 +56,11 @@ async fn test_homeserver_tag_user_not_found() -> Result<()> {
     };
 
     let tag_blob = serde_json::to_vec(&tag)?;
-    let tag_url = format!("pubky://{}/pub/pubky.app/tags/{}", tagged_id, tag.create_id());
+    let tag_url = format!(
+        "pubky://{}/pub/pubky.app/tags/{}",
+        tagged_id,
+        tag.create_id()
+    );
 
     // PUT user tag
     test.put(tag_url.as_str(), tag_blob).await?;
@@ -67,7 +75,7 @@ async fn test_homeserver_tag_user_not_found() -> Result<()> {
         attachments: None,
     };
     let post_id = test.create_post(&tagged_id, &post).await?;
-    
+
     let label = "merkle_tree";
 
     let tag = PubkyAppTag {

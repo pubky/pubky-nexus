@@ -136,7 +136,7 @@ impl EventProcessor {
                         }
                     } else {
                         error!("PROCESSOR: Sending the event to RetryManager... Missing node(s) and/or relationship(s) to execute PUT or DEL operation(s)");
-                        return Ok(())
+                        return Ok(());
                     }
                 }
             }

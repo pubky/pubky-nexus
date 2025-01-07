@@ -24,12 +24,12 @@ async fn test_homeserver_mute_cannot_complete() -> Result<()> {
     // In that case, that user will act as a NotSyncUser or user not registered in pubky.app
     // It will not have a profile.json
     test.register_user(&shadow_keypair).await?;
-    
+
     // Mute the user
     let muted_uri = test.create_mute(&user_id, &shadow_user_id).await?;
     // Unmute the user
     test.del(&muted_uri).await?;
-    
+
     // Create a mute in opposite direction
     let opossite_muted_uri = test.create_mute(&shadow_user_id, &user_id).await?;
     // Unmute the user

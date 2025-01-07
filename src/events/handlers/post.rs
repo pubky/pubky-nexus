@@ -1,9 +1,9 @@
-use crate::db::graph::exec::{ exec_single_row, exec_boolean_row};
+use crate::db::graph::exec::{exec_boolean_row, exec_single_row};
 use crate::db::kv::index::json::JsonAction;
 use crate::events::uri::ParsedUri;
 use crate::models::notification::{Notification, PostChangedSource, PostChangedType};
 use crate::models::post::{
-    PostCounts, PostRelationships, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS, PostDetails
+    PostCounts, PostDetails, PostRelationships, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS,
 };
 use crate::models::user::UserCounts;
 use crate::queries::get::post_is_safe_to_delete;
@@ -42,7 +42,7 @@ pub async fn sync_put(
         Some(exist) => exist,
         // TODO: Should return an error that should be processed by RetryManager
         // WIP: Create a custom error type to pass enough info to the RetryManager
-        None => return Err("WATCHER: Missing some dependency to index the model".into())
+        None => return Err("WATCHER: Missing some dependency to index the model".into()),
     };
 
     if existed {
@@ -55,10 +55,16 @@ pub async fn sync_put(
         }
         return Ok(());
     }
-    
+
     // IMPORTANT: Handle the mentions before traverse the graph (reindex_post) for that post
     // Handle "MENTIONED" relationships
-    put_mentioned_relationships(&author_id, &post_id, &post_details.content, &mut post_relationships).await?;
+    put_mentioned_relationships(
+        &author_id,
+        &post_id,
+        &post_details.content,
+        &mut post_relationships,
+    )
+    .await?;
 
     // SAVE TO INDEX
     // Create post counts index
@@ -76,7 +82,7 @@ pub async fn sync_put(
     if is_reply {
         UserCounts::update(&author_id, "replies", JsonAction::Increment(1)).await?;
     };
-    
+
     // Use that index wrapper to add a post reply
     let mut reply_parent_post_key_wrapper: Option<(String, String)> = None;
 
@@ -101,7 +107,8 @@ pub async fn sync_put(
             .await?;
         }
         // Define the reply parent key to index the reply later
-        reply_parent_post_key_wrapper = Some((parent_author_id.to_string(), parent_post_id.clone()));
+        reply_parent_post_key_wrapper =
+            Some((parent_author_id.to_string(), parent_post_id.clone()));
 
         PostStream::add_to_post_reply_sorted_set(
             parent_post_key_parts,
@@ -142,8 +149,13 @@ pub async fn sync_put(
             .await?;
         }
 
-        Notification::new_repost(&author_id, reposted_uri, &post_details.uri, &parent_author_id)
-                .await?;
+        Notification::new_repost(
+            &author_id,
+            reposted_uri,
+            &post_details.uri,
+            &parent_author_id,
+        )
+        .await?;
     }
 
     post_relationships
@@ -202,7 +214,7 @@ pub async fn put_mentioned_relationships(
     author_id: &PubkyId,
     post_id: &str,
     content: &str,
-    relationships: &mut PostRelationships
+    relationships: &mut PostRelationships,
 ) -> Result<(), DynError> {
     let prefix = "pk:";
     let user_id_len = 52;
@@ -240,7 +252,7 @@ pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), DynError> {
         Some(delete_safe) => delete_safe,
         // TODO: Should return an error that should be processed by RetryManager
         // WIP: Create a custom error type to pass enough info to the RetryManager
-        None => return Err("WATCHER: Missing some dependency to index the model".into())
+        None => return Err("WATCHER: Missing some dependency to index the model".into()),
     };
 
     // If there is none other relationship (FALSE), we delete from graph and redis.

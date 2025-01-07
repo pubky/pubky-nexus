@@ -3,7 +3,7 @@ use anyhow::Result;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind};
 use pubky_common::crypto::Keypair;
 
-/// The user profile is stored in the homeserver, but for some reason, the indexer failed to ingest it
+/// The user profile is stored in the homeserver. Missing the author to connect the post
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_post_without_user() -> Result<()> {
     let mut test = WatcherTest::setup().await?;

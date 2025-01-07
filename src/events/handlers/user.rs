@@ -41,15 +41,15 @@ pub async fn del(user_id: PubkyId) -> Result<(), DynError> {
     debug!("Deleting user profile:  {}", user_id);
 
     let query = user_is_safe_to_delete(&user_id);
-    
+
     // 1. Graph query to check if there is any edge at all to this user.
     let delete_safe = match exec_boolean_row(query).await? {
         Some(delete_safe) => delete_safe,
         // Should return an error that could not be inserted in the RetryManager
         // TODO: WIP, it will be fixed in the comming PRs the error messages
-        None => return Err("WATCHER: Missing some dependency to index the model".into())
+        None => return Err("WATCHER: Missing some dependency to index the model".into()),
     };
-    
+
     // 2. If there is no relationships (TRUE), delete from graph and redis.
     // 3. But if there is any relationship (FALSE), then we simply update the user with empty profile
     // and keyword username [DELETED].

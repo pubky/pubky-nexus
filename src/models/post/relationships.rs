@@ -91,7 +91,6 @@ impl PostRelationships {
 
     /// Constructs a `Self` instance by extracting relationships from a `PubkyAppPost` object
     pub fn get_from_homeserver(post: &PubkyAppPost) -> Self {
-
         let mut relationship = Self::default();
 
         if let Some(parent_uri) = &post.parent {

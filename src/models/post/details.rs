@@ -142,10 +142,13 @@ impl PostDetails {
     }
 
     // Save new graph node
-    pub async fn put_to_graph(&self, post_relationships: &PostRelationships) -> Result<Option<bool>, DynError> {
+    pub async fn put_to_graph(
+        &self,
+        post_relationships: &PostRelationships,
+    ) -> Result<Option<bool>, DynError> {
         match queries::put::create_post(self, post_relationships) {
             Ok(query) => exec_boolean_row(query).await,
-            Err(_) => return Err("QUERY: Error while creating the query".into())  
+            Err(_) => Err("QUERY: Error while creating the query".into()),
         }
     }
 

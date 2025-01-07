@@ -28,7 +28,10 @@ pub fn create_user(user: &UserDetails) -> Result<Query, DynError> {
 /// * `post` - A reference to a `PostDetails` struct containing information about the post to be created or edited
 /// * `post_relationships` - A reference to a PostRelationships struct that define relationships
 ///   for the post (e.g., replies or reposts).
-pub fn create_post(post: &PostDetails, post_relationships: &PostRelationships) -> Result<Query, DynError> {
+pub fn create_post(
+    post: &PostDetails,
+    post_relationships: &PostRelationships,
+) -> Result<Query, DynError> {
     let mut cypher = String::new();
     let mut new_relationships = Vec::new();
 
@@ -46,25 +49,28 @@ pub fn create_post(post: &PostDetails, post_relationships: &PostRelationships) -
         new_relationships.push("MERGE (new_post)-[:REPOSTED]->(repost_parent_post)");
     }
     // Create the new post
-    cypher.push_str("
+    cypher.push_str(
+        "
         MATCH (author:User {id: $author_id})
         OPTIONAL MATCH (u)-[:AUTHORED]->(existing_post:Post {id: $post_id})
         MERGE (author)-[:AUTHORED]->(new_post:Post {id: $post_id})
-    ");
+    ",
+    );
 
     // Add relationships to the query
     cypher.push_str(&new_relationships.join("\n"));
 
-    cypher.push_str("
+    cypher.push_str(
+        "
         SET new_post.content = $content,
             new_post.indexed_at = $indexed_at,
             new_post.kind = $kind,
             new_post.attachments = $attachments
-        RETURN existing_post IS NOT NULL AS boolean"
+        RETURN existing_post IS NOT NULL AS boolean",
     );
-    
+
     let kind = serde_json::to_string(&post.kind)?;
-    
+
     let mut cypher_query = query(&cypher)
         .param("author_id", post.author.to_string())
         .param("post_id", post.id.to_string())
@@ -74,7 +80,7 @@ pub fn create_post(post: &PostDetails, post_relationships: &PostRelationships) -
         .param(
             "attachments",
             post.attachments.clone().unwrap_or(vec![] as Vec<String>),
-    );
+        );
 
     // Fill up relationships parameters
     cypher_query = add_relationship_params(

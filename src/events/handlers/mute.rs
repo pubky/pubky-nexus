@@ -19,7 +19,7 @@ pub async fn sync_put(user_id: PubkyId, muted_id: PubkyId) -> Result<(), DynErro
     let existed = match Muted::put_to_graph(&user_id, &muted_id).await? {
         Some(exist) => exist,
         // Should return an error that could not be inserted in the RetryManager
-        None => return Err("WATCHER: User not synchronized".into())
+        None => return Err("WATCHER: User not synchronized".into()),
     };
 
     if !existed {
@@ -42,9 +42,9 @@ pub async fn sync_del(user_id: PubkyId, muted_id: PubkyId) -> Result<(), DynErro
     let existed = match Muted::del_from_graph(&user_id, &muted_id).await? {
         Some(exist) => exist,
         // Should return an error that could not be inserted in the RetryManager
-        None => return Err("WATCHER: User not synchronized".into())
+        None => return Err("WATCHER: User not synchronized".into()),
     };
-    
+
     // REMOVE FROM INDEX
     if existed {
         Muted(vec![muted_id.to_string()])
