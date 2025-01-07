@@ -62,6 +62,7 @@ impl EventProcessor {
         let res: String;
         {
             let pubky_client = PubkyConnector::get_pubky_client()?;
+            debug!("BEFORE PUBKY CLIENT");
             res = pubky_client
                 .get(format!(
                     "https://{}/events/?cursor={}&limit={}",
@@ -71,6 +72,7 @@ impl EventProcessor {
                 .await?
                 .text()
                 .await?;
+            debug!("AFTER PUBKY CLIENT");
         }
 
         let lines: Vec<String> = res.trim().split('\n').map(|s| s.to_string()).collect();

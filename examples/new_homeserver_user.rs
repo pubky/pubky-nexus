@@ -1,6 +1,5 @@
 use anyhow::Result;
 use log::info;
-use mainline::Testnet;
 use pubky::Client;
 use pubky_app_specs::{traits::HasPath, PubkyAppUser, PubkyAppUserLink, PROTOCOL};
 use pubky_common::crypto::{Keypair, PublicKey};
@@ -13,13 +12,7 @@ async fn main() -> Result<()> {
 
     // Initialize the Client based on configuration
     let client = match config.testnet {
-        true => {
-            let testnet = Testnet {
-                bootstrap: vec![config.bootstrap.clone()],
-                nodes: vec![],
-            };
-            Client::builder().testnet(&testnet).build()?
-        }
+        true => Client::testnet()?,
         false => Client::new()?,
     };
 

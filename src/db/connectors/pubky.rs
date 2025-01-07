@@ -51,19 +51,16 @@ impl PubkyConnector {
         let pubky_client = match testnet {
             Some(testnet) => Client::builder().testnet(testnet).build()?,
             None => match config.testnet {
-                true => {
-                    let testnet = Testnet {
-                        bootstrap: vec![config.bootstrap.clone()],
-                        nodes: vec![],
-                    };
-                    Client::builder().testnet(&testnet).build()?
-                }
+                true => Client::testnet()?,
                 false => Client::new()?,
             },
         };
+
+        println!("CLIEEENNNNNNNNNNNNT, {:?}", pubky_client);
         let manager = Self {
             pubky_client: Arc::new(pubky_client),
         };
+
         PUBKY_CONNECTOR_SINGLETON
             .set(manager)
             .map_err(|_| PubkyConnectorError::AlreadyInitialized)?;

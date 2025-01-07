@@ -1,6 +1,5 @@
 use anyhow::Result;
 use chrono::Utc;
-use mainline::Testnet;
 use pubky::Client;
 use pubky_app_specs::{
     traits::{HashId, TimestampId},
@@ -43,13 +42,7 @@ async fn main() -> Result<()> {
 
     // Initialize the Client based on configuration
     let client = match config.testnet {
-        true => {
-            let testnet = Testnet {
-                bootstrap: vec![config.bootstrap.clone()],
-                nodes: vec![],
-            };
-            Client::builder().testnet(&testnet).build()?
-        }
+        true => Client::testnet()?,
         false => Client::new()?,
     };
 

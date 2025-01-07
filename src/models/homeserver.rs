@@ -39,7 +39,7 @@ impl Homeserver {
 
     pub async fn from_config(config: &Config) -> Result<Homeserver, DynError> {
         let homeserver_id = config.homeserver.clone();
-
+        println!("HOMESERVERRRRRRRRRRRRRRRRRRRRRRRR {}", homeserver_id);
         // Create a PubkyId from the homeserver public key
         let id = PubkyId::try_from(&homeserver_id)?;
 
