@@ -1,7 +1,7 @@
 use crate::db::graph::exec::retrieve_from_graph;
 use crate::db::kv::index::sorted_sets::SortOrder;
 use crate::types::{DynError, Timeframe};
-use axum::async_trait;
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Display;
