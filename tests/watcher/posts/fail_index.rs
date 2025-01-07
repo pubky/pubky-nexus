@@ -48,9 +48,9 @@ async fn test_homeserver_post_reply_without_post_parent() -> Result<(), DynError
 
     // Create raw event line to retrieve the content from the homeserver. Event processor is deactivated
     // Like this, we can trigger the error in that test
-    let post_homeserver_uri = format!("PUT pubky://{}/pub/pubky.app/posts/{}", author_id, reply_id);
+    let post_event = format!("PUT pubky://{}/pub/pubky.app/posts/{}", author_id, reply_id);
 
-    let sync_fail = retrieve_event_from_homeserver(&post_homeserver_uri)
+    let sync_fail = retrieve_event_from_homeserver(&post_event)
         .await
         .map_err(|e| {
             error!("SYNC ERROR: {:?}", e);

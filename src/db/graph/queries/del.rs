@@ -26,7 +26,7 @@ pub fn delete_follow(follower_id: &str, followee_id: &str) -> Query {
     query(
         "// Important that MATCH to check if both users are in the graph
         MATCH (follower:User {id: $follower_id}), (followee:User {id: $followee_id})
-        // Check if follow already exist.
+        // Check if follow already exist
         OPTIONAL MATCH (follower)-[existing:FOLLOWS]->(followee) 
         DELETE existing
         // returns whether the relationship existed as 'boolean'    
@@ -62,15 +62,21 @@ pub fn delete_bookmark(user_id: &str, bookmark_id: &str) -> Query {
     .param("bookmark_id", bookmark_id)
 }
 
-// Delete a tagged relationship
-// pub fn delete_tag(user_id: &str, tag_id: &str) -> Query {
-//     query(
-//         "MATCH (user:User {id: $user_id})-[t:TAGGED {id: $tag_id}]->(target)
-//          DELETE t",
-//     )
-//     .param("user_id", user_id)
-//     .param("tag_id", tag_id)
-// }
+pub fn delete_tag(user_id: &str, tag_id: &str) -> Query {
+    query(
+        "MATCH (user:User {id: $user_id})-[tag:TAGGED {id: $tag_id}]->(target)
+         OPTIONAL MATCH (target)<-[:AUTHORED]-(author:User)
+         WITH CASE WHEN target:User THEN target.id ELSE null END AS user_id,
+              CASE WHEN target:Post THEN target.id ELSE null END AS post_id,
+              CASE WHEN target:Post THEN author.id ELSE null END AS author_id,
+              tag.label AS label,
+              tag
+         DELETE tag
+         RETURN user_id, post_id, author_id, label",
+    )
+    .param("user_id", user_id)
+    .param("tag_id", tag_id)
+}
 
 // Delete a file node
 pub fn delete_file(owner_id: &str, file_id: &str) -> Query {

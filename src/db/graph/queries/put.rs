@@ -82,7 +82,7 @@ pub fn create_post(
             post.attachments.clone().unwrap_or(vec![] as Vec<String>),
         );
 
-    // Fill up relationships parameters
+    // Handle "replied" relationship
     cypher_query = add_relationship_params(
         cypher_query,
         &post_relationships.replied,
@@ -262,22 +262,6 @@ pub fn create_user_tag(
     .param("tag_id", tag_id)
     .param("label", label)
     .param("indexed_at", indexed_at)
-}
-
-pub fn delete_tag(user_id: &str, tag_id: &str) -> Query {
-    query(
-        "MATCH (user:User {id: $user_id})-[tag:TAGGED {id: $tag_id}]->(target)
-         OPTIONAL MATCH (target)<-[:AUTHORED]-(author:User)
-         WITH CASE WHEN target:User THEN target.id ELSE null END AS user_id,
-              CASE WHEN target:Post THEN target.id ELSE null END AS post_id,
-              CASE WHEN target:Post THEN author.id ELSE null END AS author_id,
-              tag.label AS label,
-              tag
-         DELETE tag
-         RETURN user_id, post_id, author_id, label",
-    )
-    .param("user_id", user_id)
-    .param("tag_id", tag_id)
 }
 
 // Create a file node

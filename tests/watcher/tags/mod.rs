@@ -1,8 +1,8 @@
+mod fail_index;
 mod post_del;
 mod post_muti_user;
 mod post_notification;
 mod post_put;
-mod user_not_found;
 mod user_notification;
 mod user_to_self_put;
 mod user_to_user_del;

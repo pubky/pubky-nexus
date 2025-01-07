@@ -369,7 +369,7 @@ where
         let mut result;
         {
             let graph = get_neo4j_graph()?;
-            let query = queries::put::delete_tag(user_id, tag_id);
+            let query = queries::del::delete_tag(user_id, tag_id);
 
             let graph = graph.lock().await;
             result = graph.execute(query).await?;

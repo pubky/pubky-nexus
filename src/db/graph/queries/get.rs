@@ -759,16 +759,16 @@ fn build_query_with_params(
     query
 }
 
-// User has any existing relationship. Used to determine
-// the delete behaviour of a User.
+// User has any existing relationship
+// It determines the delete behaviour of a User.
 pub fn user_is_safe_to_delete(user_id: &str) -> Query {
     query(
         "
         MATCH (u:User {id: $user_id})
+        // Ensures all relationships to the user (u) are checked, counting as 0 if none exist
         OPTIONAL MATCH (u)-[r]-()
         WITH u, COUNT(r) = 0 AS boolean
-        // Returning a user_id, ensures to return no rows if the user does not exist
-        RETURN u.id, boolean
+        RETURN boolean
         ",
     )
     .param("user_id", user_id)
@@ -780,7 +780,7 @@ pub fn post_is_safe_to_delete(author_id: &str, post_id: &str) -> Query {
     query(
         "
         MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
-        // Ensures missing relationships are handled 
+        // Ensures all relationships to the post (p) are checked, counting as 0 if none exist
         OPTIONAL MATCH (p)-[r]-()
         WHERE NOT (
             // Allowed relationships:
@@ -795,7 +795,7 @@ pub fn post_is_safe_to_delete(author_id: &str, post_id: &str) -> Query {
         )
         WITH p, COUNT(r) = 0 AS boolean
         // Returning a post_id, ensures to return no rows if the user or post does not exist
-        RETURN p.id, boolean
+        RETURN boolean
         ",
     )
     .param("author_id", author_id)

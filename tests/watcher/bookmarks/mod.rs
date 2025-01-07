@@ -1,5 +1,5 @@
 mod del;
+mod fail_index;
 mod raw;
-mod user_not_found_put;
 mod utils;
 mod viewer;
