@@ -36,7 +36,7 @@ pub async fn sync_put(
     // We avoid indexing replies into global feed sorted sets
     let is_reply = post.parent.is_some();
     // PRE-INDEX operation, identify the post relationship
-    let mut post_relationships = PostRelationships::get_from_homeserver(&post);
+    let mut post_relationships = PostRelationships::from_homeserver(&post);
 
     let existed = match post_details.put_to_graph(&post_relationships).await? {
         Some(exist) => exist,

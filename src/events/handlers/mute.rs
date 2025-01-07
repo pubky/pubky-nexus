@@ -18,8 +18,8 @@ pub async fn sync_put(user_id: PubkyId, muted_id: PubkyId) -> Result<(), DynErro
     // (user_id)-[:MUTED]->(muted_id)
     let existed = match Muted::put_to_graph(&user_id, &muted_id).await? {
         Some(exist) => exist,
-        // Should return an error that could not be inserted in the RetryManager
-        None => return Err("WATCHER: User not synchronized".into()),
+        // TODO: Should return an error that should be processed by RetryManager
+        None => return Err("WATCHER: Missing some dependency to index the model".into()),
     };
 
     if !existed {
@@ -41,8 +41,8 @@ pub async fn sync_del(user_id: PubkyId, muted_id: PubkyId) -> Result<(), DynErro
     // DELETE FROM GRAPH
     let existed = match Muted::del_from_graph(&user_id, &muted_id).await? {
         Some(exist) => exist,
-        // Should return an error that could not be inserted in the RetryManager
-        None => return Err("WATCHER: User not synchronized".into()),
+        // TODO: Should return an error that should be processed by RetryManager
+        None => return Err("WATCHER: Missing some dependency to index the model".into()),
     };
 
     // REMOVE FROM INDEX

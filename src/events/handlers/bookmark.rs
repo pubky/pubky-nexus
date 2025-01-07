@@ -37,7 +37,7 @@ pub async fn sync_put(
     let existed =
         match Bookmark::put_to_graph(&author_id, &post_id, &user_id, &id, indexed_at).await? {
             Some(exist) => exist,
-            // Should return an error that could not be inserted in the RetryManager
+            // TODO: Should return an error that should be processed by RetryManager
             None => return Err("WATCHER: Missing some dependency to index the model".into()),
         };
 
