@@ -38,9 +38,9 @@ impl EventProcessor {
     ///
     /// # Parameters
     /// - `homeserver_url`: The URL of the homeserver to be used in the test environment.
-    pub async fn test(homeserver_url: String) -> Self {
-        let id = PubkyId("test".to_string());
-        let homeserver = Homeserver::new(id, homeserver_url).await.unwrap();
+    pub async fn test(homeserver_id: String) -> Self {
+        let id = PubkyId(homeserver_id.to_string());
+        let homeserver = Homeserver::new(id).await.unwrap();
         Self {
             homeserver,
             limit: 1000,
@@ -64,8 +64,8 @@ impl EventProcessor {
             let pubky_client = PubkyConnector::get_pubky_client()?;
             res = pubky_client
                 .get(format!(
-                    "{}events/?cursor={}&limit={}",
-                    self.homeserver.url, self.homeserver.cursor, self.limit
+                    "https://{}/events/?cursor={}&limit={}",
+                    self.homeserver.id, self.homeserver.cursor, self.limit
                 ))
                 .send()
                 .await?

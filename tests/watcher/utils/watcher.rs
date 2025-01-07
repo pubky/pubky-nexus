@@ -40,14 +40,14 @@ impl WatcherTest {
         let testnet = TestnetDHTNetwork::get_testnet_dht_nodes()?;
 
         let homeserver = Homeserver::start_test(&testnet).await?;
-        let homeserver_url = homeserver.url().to_string();
+        let homeserver_id = homeserver.public_key().to_string();
 
         match PubkyConnector::initialise(&config, Some(&testnet)) {
             Ok(_) => debug!("WatcherTest: PubkyConnector initialised"),
             Err(e) => debug!("WatcherTest: {}", e),
         }
 
-        let event_processor = EventProcessor::test(homeserver_url).await;
+        let event_processor = EventProcessor::test(homeserver_id).await;
 
         Ok(Self {
             config,

@@ -18,7 +18,6 @@ pub struct Config {
     pub testnet: bool,
     pub bootstrap: String,
     pub homeserver: String,
-    pub homeserver_url: String,
     pub events_limit: u32,
     pub watcher_sleep: u64,
     pub max_retries: u64,
@@ -48,8 +47,7 @@ impl Config {
                 .parse()
                 .unwrap_or(true),
             bootstrap: env::var("BOOTSTRAP").unwrap_or_else(|_| "127.0.0.1:6881".to_string()),
-            homeserver: env::var("HOMESERVER").expect("HOMESERVER pubky not set"),
-            homeserver_url: env::var("HOMESERVER_URL").expect("HOMESERVER_URL not set"),
+            homeserver: env::var("HOMESERVER").expect("HOMESERVER pubky id not set"),
             events_limit: env::var("EVENTS_LIMIT")
                 .unwrap_or("1000".to_string())
                 .parse()
