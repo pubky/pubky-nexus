@@ -8,7 +8,6 @@ use pubky_nexus::{
     models::{file::FileDetails, traits::Collection},
     PubkyConnector,
 };
-use serde_json::to_vec;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_delete_pubkyapp_file() -> Result<()> {
@@ -29,11 +28,10 @@ async fn test_delete_pubkyapp_file() -> Result<()> {
     let blob = "Hello World!";
     let blob_id = Timestamp::now().to_string();
     let blob_url = format!("pubky://{}/pub/pubky.app/blobs/{}", user_id, blob_id);
-    let json_data = to_vec(blob)?;
     let pubky_client = PubkyConnector::get_pubky_client()?;
     pubky_client
         .put(blob_url.as_str())
-        .json(&json_data)
+        .json(&blob)
         .send()
         .await?;
 

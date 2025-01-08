@@ -8,7 +8,6 @@ use pubky_app_specs::{
 use pubky_common::crypto::Keypair;
 use pubky_homeserver::Homeserver;
 use pubky_nexus::{events::Event, setup, types::DynError, Config, EventProcessor, PubkyConnector};
-use serde_json::to_vec;
 
 /// Struct to hold the setup environment for tests
 pub struct WatcherTest {
@@ -70,19 +69,26 @@ impl WatcherTest {
         Ok(())
     }
 
-    /// Sends a PUT request to the homeserver with the provided blob of data.
+    /// Sends a PUT request to the homeserver with the provided object of data.
     ///
     /// This function performs the following steps:
     /// 1. Retrieves the Pubky client from the PubkyConnector.
-    /// 2. Sends the blob data to the specified homeserver URI using a PUT request.
+    /// 2. Sends the object data to the specified homeserver URI using a PUT request.
     /// 3. Ensures that all event processing is complete after the PUT operation.
     ///
     /// # Parameters
     /// - `homeserver_uri`: The URI of the homeserver to write the data to.
-    /// - `blob`: A vector of bytes representing the data to be sent.
-    pub async fn put(&mut self, homeserver_uri: &str, blob: Vec<u8>) -> Result<()> {
+    /// - `object`: A generic type representing the data to be sent, which must implement `serde::Serialize`.
+    pub async fn put<T>(&mut self, homeserver_uri: &str, object: T) -> Result<()>
+    where
+        T: serde::Serialize,
+    {
         let pubky_client = PubkyConnector::get_pubky_client()?;
-        pubky_client.put(homeserver_uri).json(&blob).send().await?;
+        pubky_client
+            .put(homeserver_uri)
+            .json(&object)
+            .send()
+            .await?;
         self.ensure_event_processing_complete().await?;
         Ok(())
     }
@@ -123,16 +129,10 @@ impl WatcherTest {
         pubky_client
             .signup(keypair, &self.homeserver.public_key())
             .await?;
-
-        let profile_json = to_vec(user)?;
         let url = format!("pubky://{}/pub/pubky.app/profile.json", user_id);
 
         // Write the user profile in the pubky.app repository
-        pubky_client
-            .put(url.as_str())
-            .json(&profile_json)
-            .send()
-            .await?;
+        pubky_client.put(url.as_str()).json(&user).send().await?;
 
         // Index to Nexus from Homeserver using the events processor
         self.ensure_event_processing_complete().await?;
@@ -141,12 +141,11 @@ impl WatcherTest {
 
     pub async fn create_post(&mut self, user_id: &str, post: &PubkyAppPost) -> Result<String> {
         let post_id = post.create_id();
-        let post_json = to_vec(post)?;
         let url = format!("pubky://{}/pub/pubky.app/posts/{}", user_id, post_id);
         // Write the post in the pubky.app repository
         PubkyConnector::get_pubky_client()?
             .put(url.as_str())
-            .json(&post_json)
+            .json(&post)
             .send()
             .await?;
 
@@ -181,11 +180,10 @@ impl WatcherTest {
         file: &PubkyAppFile,
     ) -> Result<(String, String)> {
         let file_id = file.create_id();
-        let file_json = to_vec(file)?;
         let url = format!("pubky://{}/pub/pubky.app/files/{}", user_id, file_id);
         PubkyConnector::get_pubky_client()?
             .put(url.as_str())
-            .json(&file_json)
+            .json(&file)
             .send()
             .await?;
 
@@ -207,14 +205,13 @@ impl WatcherTest {
         let follow_relationship = PubkyAppFollow {
             created_at: Utc::now().timestamp_millis(),
         };
-        let blob = serde_json::to_vec(&follow_relationship)?;
         let follow_url = format!(
             "pubky://{}/pub/pubky.app/follows/{}",
             follower_id, followee_id
         );
         PubkyConnector::get_pubky_client()?
             .put(follow_url.as_str())
-            .json(&blob)
+            .json(&follow_relationship)
             .send()
             .await?;
         // Process the event
@@ -226,11 +223,10 @@ impl WatcherTest {
         let mute_relationship = PubkyAppFollow {
             created_at: Utc::now().timestamp_millis(),
         };
-        let blob = serde_json::to_vec(&mute_relationship)?;
         let mute_url = format!("pubky://{}/pub/pubky.app/mutes/{}", muter_id, mutee_id);
         PubkyConnector::get_pubky_client()?
             .put(mute_url.as_str())
-            .json(&blob)
+            .json(&mute_relationship)
             .send()
             .await?;
         // Process the event

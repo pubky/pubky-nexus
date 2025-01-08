@@ -11,7 +11,6 @@ use crate::{
     },
     Config,
 };
-use axum::body::Bytes;
 use log::{debug, error};
 use pubky_app_specs::{traits::Validatable, PubkyAppFile};
 use tokio::{
@@ -70,6 +69,8 @@ async fn ingest(
             return Err(e.into());
         }
     };
+
+    let blob = response.bytes().await?;
 
     store_blob(file_id.to_string(), user_id.to_string(), &blob).await?;
 

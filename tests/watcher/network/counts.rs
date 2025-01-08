@@ -138,7 +138,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                     let pubky_client = PubkyConnector::get_pubky_client()?;
                     pubky_client
                         .put(mute_url.as_str())
-                        .json(&serde_json::to_vec(&mute)?)
+                        .json(&mute)
                         .send()
                         .await?;
                     _total_mutes += 1;
@@ -171,8 +171,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                     bookmark.create_id()
                 );
 
-                test.put(&bookmark_url, serde_json::to_vec(&bookmark)?)
-                    .await?;
+                test.put(&bookmark_url, &bookmark).await?;
                 total_bookmarks += 1;
             }
         }
@@ -200,7 +199,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
 
                 let tag_url = format!("pubky://{}/pub/pubky.app/tags/{}", user_id, tag.create_id());
 
-                test.put(&tag_url, serde_json::to_vec(&tag)?).await?;
+                test.put(&tag_url, &tag).await?;
                 total_tags += 1;
 
                 // FAILS: possibly deletes a tag twice and decrements twice in index.

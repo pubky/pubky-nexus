@@ -30,7 +30,7 @@ async fn test_homeserver_post_attachments() -> Result<()> {
     let pubky_client = PubkyConnector::get_pubky_client()?;
     pubky_client
         .put(blob_url.as_str())
-        .json(&json_data)
+        .json(&blob)
         .send()
         .await?;
 

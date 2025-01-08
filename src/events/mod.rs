@@ -1,13 +1,11 @@
 use crate::{db::connectors::pubky::PubkyConnector, types::PubkyId};
 use log::{debug, error};
+use reqwest;
 use uri::ParsedUri;
 
 pub mod handlers;
 pub mod processor;
 pub mod uri;
-
-use axum::body::Bytes;
-use reqwest;
 
 #[derive(Debug, Clone)]
 enum ResourceType {

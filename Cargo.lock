@@ -1608,7 +1608,7 @@ checksum = "9171a2ea8a68358193d15dd5d70c1c10a2afc3e7e4c5bc92bc9f025cebd7359c"
 [[package]]
 name = "http-relay"
 version = "0.1.0"
-source = "git+https://github.com/pubky/pubky?branch=v0.4.0-rc1#9b7c7c6352036001059d8e7bc3d11a94771e1cf0"
+source = "git+https://github.com/pubky/pubky?branch=v0.4.0-rc1#30237c43cbd07d472cd5e5b77b64a343d832647e"
 dependencies = [
  "anyhow",
  "axum 0.7.9",
@@ -2699,7 +2699,7 @@ checksum = "33cb294fe86a74cbcf50d4445b37da762029549ebeea341421c7c70370f86cac"
 [[package]]
 name = "pubky"
 version = "0.3.0"
-source = "git+https://github.com/pubky/pubky?branch=v0.4.0-rc1#9b7c7c6352036001059d8e7bc3d11a94771e1cf0"
+source = "git+https://github.com/pubky/pubky?branch=v0.4.0-rc1#30237c43cbd07d472cd5e5b77b64a343d832647e"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -2739,7 +2739,7 @@ dependencies = [
 [[package]]
 name = "pubky-common"
 version = "0.1.0"
-source = "git+https://github.com/pubky/pubky?branch=v0.4.0-rc1#9b7c7c6352036001059d8e7bc3d11a94771e1cf0"
+source = "git+https://github.com/pubky/pubky?branch=v0.4.0-rc1#30237c43cbd07d472cd5e5b77b64a343d832647e"
 dependencies = [
  "argon2",
  "base32",
@@ -2759,7 +2759,7 @@ dependencies = [
 [[package]]
 name = "pubky-homeserver"
 version = "0.1.0"
-source = "git+https://github.com/pubky/pubky?branch=v0.4.0-rc1#9b7c7c6352036001059d8e7bc3d11a94771e1cf0"
+source = "git+https://github.com/pubky/pubky?branch=v0.4.0-rc1#30237c43cbd07d472cd5e5b77b64a343d832647e"
 dependencies = [
  "anyhow",
  "axum 0.7.9",

@@ -56,7 +56,6 @@ impl PubkyConnector {
             },
         };
 
-        println!("CLIEEENNNNNNNNNNNNT, {:?}", pubky_client);
         let manager = Self {
             pubky_client: Arc::new(pubky_client),
         };

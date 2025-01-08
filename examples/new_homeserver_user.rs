@@ -39,9 +39,6 @@ async fn main() -> Result<()> {
         Some("Running Bitcoin".to_string()),
     );
 
-    // Serialize the profile to JSON
-    let profile_json = serde_json::to_vec(&user)?;
-
     // Put some content into the Pubky homeserver
     let url = format!(
         "{protocol}{pk}{path}",
@@ -49,7 +46,7 @@ async fn main() -> Result<()> {
         pk = pk,
         path = user.create_path()
     );
-    client.put(url.as_str()).json(&profile_json).send().await?;
+    client.put(url.as_str()).json(&user).send().await?;
 
     Ok(())
 }

@@ -59,11 +59,10 @@ impl EventProcessor {
     async fn poll_events(&mut self) -> Result<Option<Vec<String>>, Box<dyn std::error::Error>> {
         debug!("Polling new events from homeserver");
 
-        let res: String;
+        let response: String;
         {
             let pubky_client = PubkyConnector::get_pubky_client()?;
-            debug!("BEFORE PUBKY CLIENT");
-            res = pubky_client
+            response = pubky_client
                 .get(format!(
                     "https://{}/events/?cursor={}&limit={}",
                     self.homeserver.id, self.homeserver.cursor, self.limit
@@ -72,10 +71,9 @@ impl EventProcessor {
                 .await?
                 .text()
                 .await?;
-            debug!("AFTER PUBKY CLIENT");
         }
 
-        let lines: Vec<String> = res.trim().split('\n').map(|s| s.to_string()).collect();
+        let lines: Vec<String> = response.trim().split('\n').map(|s| s.to_string()).collect();
         debug!("Homeserver response lines {:?}", lines);
 
         if lines.len() == 1 && lines[0].is_empty() {
