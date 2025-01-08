@@ -1,5 +1,5 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
-use crate::db::graph::exec::exec_boolean_row;
+use crate::db::graph::exec::{execute_graph_operation, OperationOutcome};
 use crate::types::DynError;
 use crate::{queries, RedisOps};
 use axum::async_trait;
@@ -90,10 +90,10 @@ impl Muted {
         Self::put_index_set(&[user_id], &user_list_ref, None, None).await
     }
 
-    pub async fn put_to_graph(user_id: &str, muted_id: &str) -> Result<Option<bool>, DynError> {
+    pub async fn put_to_graph(user_id: &str, muted_id: &str) -> Result<OperationOutcome, DynError> {
         let indexed_at = Utc::now().timestamp_millis();
         let query = queries::put::create_mute(user_id, muted_id, indexed_at);
-        exec_boolean_row(query).await
+        execute_graph_operation(query).await
     }
 
     pub async fn reindex(user_id: &str) -> Result<(), DynError> {
@@ -107,9 +107,12 @@ impl Muted {
         Ok(())
     }
 
-    pub async fn del_from_graph(user_id: &str, muted_id: &str) -> Result<Option<bool>, DynError> {
+    pub async fn del_from_graph(
+        user_id: &str,
+        muted_id: &str,
+    ) -> Result<OperationOutcome, DynError> {
         let query = queries::del::delete_mute(user_id, muted_id);
-        exec_boolean_row(query).await
+        execute_graph_operation(query).await
     }
 
     pub async fn del_from_index(&self, user_id: &str) -> Result<(), DynError> {

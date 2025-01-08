@@ -1,4 +1,4 @@
-use crate::db::graph::exec::exec_boolean_row;
+use crate::db::graph::exec::{execute_graph_operation, OperationOutcome};
 use crate::models::user::UserSearch;
 use crate::models::{
     traits::Collection,
@@ -40,26 +40,19 @@ pub async fn sync_put(user: PubkyAppUser, user_id: PubkyId) -> Result<(), DynErr
 pub async fn del(user_id: PubkyId) -> Result<(), DynError> {
     debug!("Deleting user profile:  {}", user_id);
 
+    // 1. Graph query to check if there is any edge at all to this user.
     let query = user_is_safe_to_delete(&user_id);
 
-    // 1. Graph query to check if there is any edge at all to this user.
-    let delete_safe = match exec_boolean_row(query).await? {
-        Some(delete_safe) => delete_safe,
-        // Should return an error that could not be inserted in the RetryManager
-        // TODO: WIP, it will be fixed in the comming PRs the error messages
-        None => return Err("WATCHER: Missing some dependency to index the model".into()),
-    };
-
-    // 2. If there is no relationships (TRUE), delete from graph and redis.
-    // 3. But if there is any relationship (FALSE), then we simply update the user with empty profile
+    // 2. If there is no relationships (OperationOutcome::Updated), delete from graph and redis.
+    // 3. But if there is any relationship (OperationOutcome::Created), then we simply update the user with empty profile
     // and keyword username [DELETED].
     // A deleted user is a user whose profile is empty and has username `"[DELETED]"`
-    match delete_safe {
-        true => {
+    match execute_graph_operation(query).await? {
+        OperationOutcome::Updated => {
             UserDetails::delete(&user_id).await?;
             UserCounts::delete(&user_id).await?;
         }
-        false => {
+        OperationOutcome::Created => {
             let deleted_user = PubkyAppUser {
                 name: "[DELETED]".to_string(),
                 bio: None,
@@ -69,6 +62,11 @@ pub async fn del(user_id: PubkyId) -> Result<(), DynError> {
             };
 
             sync_put(deleted_user, user_id).await?;
+        }
+        // Should return an error that could not be inserted in the RetryManager
+        // TODO: WIP, it will be fixed in the comming PRs the error messages
+        OperationOutcome::Pending => {
+            return Err("WATCHER: Missing some dependency to index the model".into())
         }
     }
 

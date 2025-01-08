@@ -1,4 +1,4 @@
-use crate::db::graph::exec::{exec_boolean_row, exec_single_row};
+use crate::db::graph::exec::{exec_single_row, execute_graph_operation, OperationOutcome};
 use crate::db::kv::index::json::JsonAction;
 use crate::events::uri::ParsedUri;
 use crate::models::notification::{Notification, PostChangedSource, PostChangedType};
@@ -39,10 +39,13 @@ pub async fn sync_put(
     let mut post_relationships = PostRelationships::from_homeserver(&post);
 
     let existed = match post_details.put_to_graph(&post_relationships).await? {
-        Some(exist) => exist,
+        OperationOutcome::Created => false,
+        OperationOutcome::Updated => true,
         // TODO: Should return an error that should be processed by RetryManager
         // WIP: Create a custom error type to pass enough info to the RetryManager
-        None => return Err("WATCHER: Missing some dependency to index the model".into()),
+        OperationOutcome::Pending => {
+            return Err("WATCHER: Missing some dependency to index the model".into())
+        }
     };
 
     if existed {
@@ -248,19 +251,12 @@ pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), DynError> {
     // Graph query to check if there is any edge at all to this post other than AUTHORED, is a reply or is a repost.
     let query = post_is_safe_to_delete(&author_id, &post_id);
 
-    let delete_safe = match exec_boolean_row(query).await? {
-        Some(delete_safe) => delete_safe,
-        // TODO: Should return an error that should be processed by RetryManager
-        // WIP: Create a custom error type to pass enough info to the RetryManager
-        None => return Err("WATCHER: Missing some dependency to index the model".into()),
-    };
-
-    // If there is none other relationship (FALSE), we delete from graph and redis.
-    // But if there is any (TRUE), then we simply update the post with keyword content [DELETED].
+    // If there is none other relationship (OperationOutcome::Updated), we delete from graph and redis.
+    // But if there is any (OperationOutcome::Created), then we simply update the post with keyword content [DELETED].
     // A deleted post is a post whose content is EXACTLY `"[DELETED]"`
-    match delete_safe {
-        true => sync_del(author_id, post_id).await?,
-        false => {
+    match execute_graph_operation(query).await? {
+        OperationOutcome::Updated => sync_del(author_id, post_id).await?,
+        OperationOutcome::Created => {
             let existing_relationships = PostRelationships::get_by_id(&author_id, &post_id).await?;
             let parent = match existing_relationships {
                 Some(relationships) => relationships.replied,
@@ -277,6 +273,11 @@ pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), DynError> {
             };
 
             sync_put(dummy_deleted_post, author_id, post_id).await?;
+        }
+        // TODO: Should return an error that should be processed by RetryManager
+        // WIP: Create a custom error type to pass enough info to the RetryManager
+        OperationOutcome::Pending => {
+            return Err("WATCHER: Missing some dependency to index the model".into())
         }
     };
 

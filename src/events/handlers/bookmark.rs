@@ -1,3 +1,4 @@
+use crate::db::graph::exec::OperationOutcome;
 use crate::db::kv::index::json::JsonAction;
 use crate::events::uri::ParsedUri;
 use crate::models::post::Bookmark;
@@ -36,9 +37,12 @@ pub async fn sync_put(
     let indexed_at = Utc::now().timestamp_millis();
     let existed =
         match Bookmark::put_to_graph(&author_id, &post_id, &user_id, &id, indexed_at).await? {
-            Some(exist) => exist,
+            OperationOutcome::Created => false,
+            OperationOutcome::Updated => true,
             // TODO: Should return an error that should be processed by RetryManager
-            None => return Err("WATCHER: Missing some dependency to index the model".into()),
+            OperationOutcome::Pending => {
+                return Err("WATCHER: Missing some dependency to index the model".into())
+            }
         };
 
     // SAVE TO INDEX

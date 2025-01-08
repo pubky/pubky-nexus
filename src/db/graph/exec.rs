@@ -12,20 +12,43 @@ pub async fn exec_single_row(query: Query) -> Result<(), DynError> {
     Ok(())
 }
 
-// Exec a graph query that has a single "boolean" return
-pub async fn exec_boolean_row(query: Query) -> Result<Option<bool>, DynError> {
+/// Represents the outcome of a mutation-like query in the graph database
+#[derive(Debug)]
+pub enum OperationOutcome {
+    /// The query found and updated an existing node/relationship
+    Updated,
+    /// The query created a new node/relationship
+    Created,
+    /// A required node/relationship was not found, indicating a missing dependency
+    /// (often due to the node/relationship not yet being indexed or otherwise unavailable)
+    Pending,
+}
+
+/// Executes a graph query expected to return exactly one row containing a boolean column named
+/// "flag". Interprets the boolean as follows:
+///
+/// - `true` => Returns [`OperationOutcome::Updated`]
+/// - `false` => Returns [`OperationOutcome::Created`]
+///
+/// If no rows are returned, this function returns [`OperationOutcome::Pending`], typically
+/// indicating a missing dependency or an unmatched query condition.
+pub async fn execute_graph_operation(query: Query) -> Result<OperationOutcome, DynError> {
     let mut result;
     {
         let graph = get_neo4j_graph()?;
         let graph = graph.lock().await;
         result = graph.execute(query).await?;
     }
-    let mut exist = None;
-    while let Some(row) = result.next().await? {
-        let result: bool = row.get("boolean")?;
-        exist = Some(result);
+
+    if let Some(row) = result.next().await? {
+        // The "flag" field indicates a specific condition in the query
+        match row.get("flag")? {
+            true => Ok(OperationOutcome::Updated),
+            false => Ok(OperationOutcome::Created),
+        }
+    } else {
+        Ok(OperationOutcome::Pending)
     }
-    Ok(exist)
 }
 
 // Generic function to retrieve data from Neo4J

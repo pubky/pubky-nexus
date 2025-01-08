@@ -767,8 +767,8 @@ pub fn user_is_safe_to_delete(user_id: &str) -> Query {
         MATCH (u:User {id: $user_id})
         // Ensures all relationships to the user (u) are checked, counting as 0 if none exist
         OPTIONAL MATCH (u)-[r]-()
-        WITH u, COUNT(r) = 0 AS boolean
-        RETURN boolean
+        WITH u, COUNT(r) = 0 AS flag
+        RETURN flag
         ",
     )
     .param("user_id", user_id)
@@ -793,9 +793,9 @@ pub fn post_is_safe_to_delete(author_id: &str, post_id: &str) -> Query {
             // 3. Outgoing REPLIED relationship to another post
             (type(r) = 'REPLIED' AND startNode(r) = p)
         )
-        WITH p, COUNT(r) = 0 AS boolean
+        WITH p, COUNT(r) = 0 AS flag
         // Returning a post_id, ensures to return no rows if the user or post does not exist
-        RETURN boolean
+        RETURN flag
         ",
     )
     .param("author_id", author_id)

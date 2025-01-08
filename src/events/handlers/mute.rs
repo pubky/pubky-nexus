@@ -1,3 +1,4 @@
+use crate::db::graph::exec::OperationOutcome;
 use crate::models::user::Muted;
 use crate::types::DynError;
 use crate::types::PubkyId;
@@ -16,20 +17,19 @@ pub async fn put(user_id: PubkyId, muted_id: PubkyId, _blob: Bytes) -> Result<()
 pub async fn sync_put(user_id: PubkyId, muted_id: PubkyId) -> Result<(), DynError> {
     // SAVE TO GRAPH
     // (user_id)-[:MUTED]->(muted_id)
-    let existed = match Muted::put_to_graph(&user_id, &muted_id).await? {
-        Some(exist) => exist,
+    match Muted::put_to_graph(&user_id, &muted_id).await? {
+        OperationOutcome::Updated => Ok(()),
         // TODO: Should return an error that should be processed by RetryManager
-        None => return Err("WATCHER: Missing some dependency to index the model".into()),
-    };
-
-    if !existed {
-        // SAVE TO INDEX
-        Muted(vec![muted_id.to_string()])
-            .put_to_index(&user_id)
-            .await?;
+        OperationOutcome::Pending => {
+            Err("WATCHER: Missing some dependency to index the model".into())
+        }
+        OperationOutcome::Created => {
+            // SAVE TO INDEX
+            Muted(vec![muted_id.to_string()])
+                .put_to_index(&user_id)
+                .await
+        }
     }
-
-    Ok(())
 }
 
 pub async fn del(user_id: PubkyId, muted_id: PubkyId) -> Result<(), DynError> {
@@ -39,18 +39,17 @@ pub async fn del(user_id: PubkyId, muted_id: PubkyId) -> Result<(), DynError> {
 
 pub async fn sync_del(user_id: PubkyId, muted_id: PubkyId) -> Result<(), DynError> {
     // DELETE FROM GRAPH
-    let existed = match Muted::del_from_graph(&user_id, &muted_id).await? {
-        Some(exist) => exist,
+    match Muted::del_from_graph(&user_id, &muted_id).await? {
+        OperationOutcome::Created => Ok(()),
         // TODO: Should return an error that should be processed by RetryManager
-        None => return Err("WATCHER: Missing some dependency to index the model".into()),
-    };
-
-    // REMOVE FROM INDEX
-    if existed {
-        Muted(vec![muted_id.to_string()])
-            .del_from_index(&user_id)
-            .await?;
+        OperationOutcome::Pending => {
+            Err("WATCHER: Missing some dependency to index the model".into())
+        }
+        OperationOutcome::Updated => {
+            // REMOVE FROM INDEX
+            Muted(vec![muted_id.to_string()])
+                .del_from_index(&user_id)
+                .await
+        }
     }
-
-    Ok(())
 }

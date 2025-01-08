@@ -29,8 +29,8 @@ pub fn delete_follow(follower_id: &str, followee_id: &str) -> Query {
         // Check if follow already exist
         OPTIONAL MATCH (follower)-[existing:FOLLOWS]->(followee) 
         DELETE existing
-        // returns whether the relationship existed as 'boolean'    
-        RETURN existing IS NOT NULL AS boolean;",
+        // returns whether the relationship existed as 'flag'    
+        RETURN existing IS NOT NULL AS flag;",
     )
     .param("follower_id", follower_id.to_string())
     .param("followee_id", followee_id.to_string())
@@ -43,8 +43,8 @@ pub fn delete_mute(user_id: &str, muted_id: &str) -> Query {
         MATCH (user:User {id: $user_id}), (muted:User {id: $muted_id})
         OPTIONAL MATCH (user)-[existing:MUTED]->(muted)
         DELETE existing
-        // returns whether the relationship existed as 'boolean'    
-        RETURN existing IS NOT NULL AS boolean;",
+        // returns whether the relationship existed as 'flag'    
+        RETURN existing IS NOT NULL AS flag;",
     )
     .param("user_id", user_id.to_string())
     .param("muted_id", muted_id.to_string())

@@ -149,7 +149,7 @@ pub fn create_follow(follower_id: &str, followee_id: &str, indexed_at: i64) -> Q
          SET r.indexed_at = $indexed_at
 
          // boolean == existed
-         RETURN existing IS NOT NULL AS boolean;",
+         RETURN existing IS NOT NULL AS flag;",
     )
     .param("follower_id", follower_id.to_string())
     .param("followee_id", followee_id.to_string())
@@ -167,7 +167,7 @@ pub fn create_mute(user_id: &str, muted_id: &str, indexed_at: i64) -> Query {
         SET r.indexed_at = $indexed_at
 
         // boolean == existed
-        RETURN existing IS NOT NULL AS boolean;",
+        RETURN existing IS NOT NULL AS flag;",
     )
     .param("user_id", user_id.to_string())
     .param("muted_id", muted_id.to_string())
@@ -194,8 +194,8 @@ pub fn create_post_bookmark(
          SET b.indexed_at = $indexed_at,
              b.id = $bookmark_id
          
-         // boolean == existed
-         RETURN existing IS NOT NULL AS boolean;",
+         // flag == existed
+         RETURN existing IS NOT NULL AS flag;",
     )
     .param("user_id", user_id)
     .param("author_id", author_id)
@@ -225,7 +225,7 @@ pub fn create_post_tag(
          SET t.indexed_at = $indexed_at,
              t.id = $tag_id
 
-         RETURN existing IS NOT NULL AS boolean;",
+         RETURN existing IS NOT NULL AS flag;",
     )
     .param("user_id", user_id)
     .param("author_id", author_id)

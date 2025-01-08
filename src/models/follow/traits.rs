@@ -1,5 +1,5 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
-use crate::db::graph::exec::exec_boolean_row;
+use crate::db::graph::exec::{execute_graph_operation, OperationOutcome};
 use crate::types::DynError;
 use crate::{queries, RedisOps};
 use axum::async_trait;
@@ -10,10 +10,13 @@ use neo4rs::Query;
 pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
     fn from_vec(vec: Vec<String>) -> Self;
 
-    async fn put_to_graph(follower_id: &str, followee_id: &str) -> Result<Option<bool>, DynError> {
+    async fn put_to_graph(
+        follower_id: &str,
+        followee_id: &str,
+    ) -> Result<OperationOutcome, DynError> {
         let indexed_at = Utc::now().timestamp_millis();
         let query = queries::put::create_follow(follower_id, followee_id, indexed_at);
-        exec_boolean_row(query).await
+        execute_graph_operation(query).await
     }
 
     async fn get_by_id(
@@ -96,9 +99,9 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
     async fn del_from_graph(
         follower_id: &str,
         followee_id: &str,
-    ) -> Result<Option<bool>, DynError> {
+    ) -> Result<OperationOutcome, DynError> {
         let query = queries::del::delete_follow(follower_id, followee_id);
-        exec_boolean_row(query).await
+        execute_graph_operation(query).await
     }
 
     async fn del_from_index(&self, user_id: &str) -> Result<(), DynError> {

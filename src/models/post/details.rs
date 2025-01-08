@@ -1,6 +1,6 @@
 use super::{PostRelationships, PostStream};
 use crate::db::connectors::neo4j::get_neo4j_graph;
-use crate::db::graph::exec::{exec_boolean_row, exec_single_row};
+use crate::db::graph::exec::{exec_single_row, execute_graph_operation, OperationOutcome};
 use crate::types::DynError;
 use crate::types::PubkyId;
 use crate::{queries, RedisOps};
@@ -145,9 +145,9 @@ impl PostDetails {
     pub async fn put_to_graph(
         &self,
         post_relationships: &PostRelationships,
-    ) -> Result<Option<bool>, DynError> {
+    ) -> Result<OperationOutcome, DynError> {
         match queries::put::create_post(self, post_relationships) {
-            Ok(query) => exec_boolean_row(query).await,
+            Ok(query) => execute_graph_operation(query).await,
             Err(_) => Err("QUERY: Error while creating the query".into()),
         }
     }
