@@ -39,7 +39,7 @@ pub async fn sync_put(
     let mut post_relationships = PostRelationships::from_homeserver(&post);
 
     let existed = match post_details.put_to_graph(&post_relationships).await? {
-        OperationOutcome::ExistenceChanged => false,
+        OperationOutcome::CreatedOrDeleted => false,
         OperationOutcome::Updated => true,
         // TODO: Should return an error that should be processed by RetryManager
         // WIP: Create a custom error type to pass enough info to the RetryManager
@@ -251,11 +251,11 @@ pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), DynError> {
     // Graph query to check if there is any edge at all to this post other than AUTHORED, is a reply or is a repost.
     let query = post_is_safe_to_delete(&author_id, &post_id);
 
-    // If there is none other relationship (OperationOutcome::ExistenceChanged), we delete from graph and redis.
+    // If there is none other relationship (OperationOutcome::CreatedOrDeleted), we delete from graph and redis.
     // But if there is any (OperationOutcome::Updated), then we simply update the post with keyword content [DELETED].
     // A deleted post is a post whose content is EXACTLY `"[DELETED]"`
     match execute_graph_operation(query).await? {
-        OperationOutcome::ExistenceChanged => sync_del(author_id, post_id).await?,
+        OperationOutcome::CreatedOrDeleted => sync_del(author_id, post_id).await?,
         OperationOutcome::Updated => {
             let existing_relationships = PostRelationships::get_by_id(&author_id, &post_id).await?;
             let parent = match existing_relationships {

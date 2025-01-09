@@ -29,7 +29,7 @@ pub async fn sync_put(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), 
             return Err("WATCHER: Missing some dependency to index the model".into())
         }
         // The relationship did not exist, create all related indexes
-        OperationOutcome::ExistenceChanged => {
+        OperationOutcome::CreatedOrDeleted => {
             // Checks whether the followee was following the follower (Is this a new friendship?)
             let will_be_friends =
                 is_followee_following_follower(&follower_id, &followee_id).await?;
@@ -74,7 +74,7 @@ pub async fn sync_del(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), 
         OperationOutcome::Pending => {
             Err("WATCHER: Missing some dependency to index the model".into())
         }
-        OperationOutcome::ExistenceChanged => {
+        OperationOutcome::CreatedOrDeleted => {
             // Check if the users are friends. Is this a break? :(
             let were_friends = Friends::check(&follower_id, &followee_id).await?;
 

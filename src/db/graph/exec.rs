@@ -8,9 +8,9 @@ use serde::de::DeserializeOwned;
 pub enum OperationOutcome {
     /// The query found and updated an existing node/relationship.
     Updated,
-    /// The query changed the existence state of a node/relationship
-    /// (i.e., it was created or deleted).
-    ExistenceChanged,
+    /// This variant represents a structural mutation where the node/relationship
+    /// did not exist before the operation (creation) or no longer exists after the operation (deletion)
+    CreatedOrDeleted,
     /// A required node/relationship was not found, indicating a missing dependency
     /// (often due to the node/relationship not yet being indexed or otherwise unavailable).
     Pending,
@@ -20,7 +20,7 @@ pub enum OperationOutcome {
 /// "flag". Interprets the boolean as follows:
 ///
 /// - `true` => Returns [`OperationOutcome::Updated`]
-/// - `false` => Returns [`OperationOutcome::ExistenceChanged`]
+/// - `false` => Returns [`OperationOutcome::CreatedOrDeleted`]
 ///
 /// If no rows are returned, this function returns [`OperationOutcome::Pending`], typically
 /// indicating a missing dependency or an unmatched query condition.
@@ -36,7 +36,7 @@ pub async fn execute_graph_operation(query: Query) -> Result<OperationOutcome, D
         // The "flag" field indicates a specific condition in the query
         Some(row) => match row.get("flag")? {
             true => Ok(OperationOutcome::Updated),
-            false => Ok(OperationOutcome::ExistenceChanged),
+            false => Ok(OperationOutcome::CreatedOrDeleted),
         },
         None => Ok(OperationOutcome::Pending),
     }

@@ -23,7 +23,7 @@ pub async fn sync_put(user_id: PubkyId, muted_id: PubkyId) -> Result<(), DynErro
         OperationOutcome::Pending => {
             Err("WATCHER: Missing some dependency to index the model".into())
         }
-        OperationOutcome::ExistenceChanged => {
+        OperationOutcome::CreatedOrDeleted => {
             // SAVE TO INDEX
             Muted(vec![muted_id.to_string()])
                 .put_to_index(&user_id)
@@ -45,7 +45,7 @@ pub async fn sync_del(user_id: PubkyId, muted_id: PubkyId) -> Result<(), DynErro
         OperationOutcome::Pending => {
             Err("WATCHER: Missing some dependency to index the model".into())
         }
-        OperationOutcome::ExistenceChanged => {
+        OperationOutcome::CreatedOrDeleted => {
             // REMOVE FROM INDEX
             Muted(vec![muted_id.to_string()])
                 .del_from_index(&user_id)

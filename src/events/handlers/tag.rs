@@ -84,7 +84,7 @@ async fn put_sync_post(
         OperationOutcome::Pending => {
             Err("WATCHER: Missing some dependency to index the model".into())
         }
-        OperationOutcome::ExistenceChanged => {
+        OperationOutcome::CreatedOrDeleted => {
             // SAVE TO INDEXES
             let post_key_slice: &[&str] = &[&author_id, &post_id];
 
@@ -163,7 +163,7 @@ async fn put_sync_user(
         OperationOutcome::Pending => {
             Err("WATCHER: Missing some dependency to index the model".into())
         }
-        OperationOutcome::ExistenceChanged => {
+        OperationOutcome::CreatedOrDeleted => {
             // SAVE TO INDEX
             // Update user counts for the tagged user
             UserCounts::update(&tagged_user_id, "tagged", JsonAction::Increment(1)).await?;

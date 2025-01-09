@@ -37,7 +37,7 @@ pub async fn sync_put(
     let indexed_at = Utc::now().timestamp_millis();
     let existed =
         match Bookmark::put_to_graph(&author_id, &post_id, &user_id, &id, indexed_at).await? {
-            OperationOutcome::ExistenceChanged => false,
+            OperationOutcome::CreatedOrDeleted => false,
             OperationOutcome::Updated => true,
             // TODO: Should return an error that should be processed by RetryManager
             OperationOutcome::Pending => {
