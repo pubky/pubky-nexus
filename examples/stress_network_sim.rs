@@ -1,7 +1,6 @@
 use anyhow::Result;
 use chrono::Utc;
-use pkarr::mainline::Testnet;
-use pubky::PubkyClient;
+use pubky::Client;
 use pubky_app_specs::{
     traits::{HashId, TimestampId},
     PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
@@ -41,16 +40,10 @@ async fn main() -> Result<()> {
 
     let config = Config::from_env();
 
-    // Initialize the PubkyClient based on configuration
+    // Initialize the Client based on configuration
     let client = match config.testnet {
-        true => {
-            let testnet = Testnet {
-                bootstrap: vec![config.bootstrap.clone()],
-                nodes: vec![],
-            };
-            PubkyClient::builder().testnet(&testnet).build()
-        }
-        false => PubkyClient::default(),
+        true => Client::testnet()?,
+        false => Client::new()?,
     };
 
     // Convert the homeserver from the config into a PublicKey
@@ -217,7 +210,7 @@ async fn main() -> Result<()> {
 
 // Function to create a user
 async fn create_user(
-    client: &PubkyClient,
+    client: &Client,
     keypair: &Keypair,
     homeserver: &PublicKey,
     pk: &String,
@@ -247,7 +240,12 @@ async fn create_user(
     };
     let profile_url = format!("pubky://{}/pub/pubky.app/profile.json", pk);
     println!("PUT PROFILE: {}", pk);
-    if let Err(e) = client.put(profile_url.as_str(), &user_profile_json).await {
+    if let Err(e) = client
+        .put(profile_url.as_str())
+        .json(&user_profile_json)
+        .send()
+        .await
+    {
         println!("ERROR: Failed to PUT profile for user {}: {}", pk, e);
         return false;
     }
@@ -256,7 +254,7 @@ async fn create_user(
 
 // Function to create posts
 async fn create_posts(
-    client: &PubkyClient,
+    client: &Client,
     pk: &String,
     rng: &mut StdRng,
     posts_dist: &LogNormal<f64>,
@@ -288,7 +286,7 @@ async fn create_posts(
             }
         };
         println!("PUT POST: {}", post_id);
-        if let Err(e) = client.put(post_url.as_str(), &post_json).await {
+        if let Err(e) = client.put(post_url.as_str()).json(&post_json).send().await {
             println!(
                 "ERROR: Failed to PUT post {} for user {}: {}",
                 post_id, pk, e
@@ -307,7 +305,7 @@ async fn create_posts(
 
 // Function to create follows
 async fn create_follows(
-    client: &PubkyClient,
+    client: &Client,
     pk: &String,
     current_index: usize,
     user_ids: &[String],
@@ -350,7 +348,12 @@ async fn create_follows(
                     }
                 };
                 println!("PUT FOLLOW: {}", random_user);
-                if let Err(e) = client.put(follow_url.as_str(), &follow_json).await {
+                if let Err(e) = client
+                    .put(follow_url.as_str())
+                    .json(&follow_json)
+                    .send()
+                    .await
+                {
                     println!(
                         "ERROR: Failed to PUT follow from user {} to {}: {}",
                         pk, random_user, e
@@ -369,7 +372,7 @@ async fn create_follows(
 
 // Function to create files
 async fn create_files(
-    client: &PubkyClient,
+    client: &Client,
     pk: &String,
     rng: &mut StdRng,
     files_dist: &LogNormal<f64>,
@@ -395,7 +398,7 @@ async fn create_files(
             }
         };
         println!("PUT BLOB: {}", blob_id);
-        if let Err(e) = client.put(blob_url.as_str(), &blob_json).await {
+        if let Err(e) = client.put(blob_url.as_str()).json(&blob_json).send().await {
             println!(
                 "ERROR: Failed to PUT blob {} for user {}: {}",
                 blob_id, pk, e
@@ -425,7 +428,7 @@ async fn create_files(
         };
 
         println!("PUT FILE: {}", file_id);
-        if let Err(e) = client.put(file_url.as_str(), &file_json).await {
+        if let Err(e) = client.put(file_url.as_str()).json(&file_json).send().await {
             println!(
                 "ERROR: Failed to PUT file {} for user {}: {}",
                 file_id, pk, e
@@ -442,7 +445,7 @@ async fn create_files(
 
 // Function to create tags
 async fn create_tags(
-    client: &PubkyClient,
+    client: &Client,
     pk: &String,
     current_index: usize,
     user_ids: &[String],
@@ -486,7 +489,7 @@ async fn create_tags(
                 }
             };
             println!("PUT USER TAG: {}", tag.create_id());
-            if let Err(e) = client.put(tag_url.as_str(), &tag_json).await {
+            if let Err(e) = client.put(tag_url.as_str()).json(&tag_json).send().await {
                 println!(
                     "ERROR: Failed to PUT tag on user {} by user {}: {}",
                     random_user, pk, e
@@ -532,7 +535,7 @@ async fn create_tags(
                     }
                 };
                 println!("PUT POST TAG: {}", tag.create_id());
-                if let Err(e) = client.put(tag_url.as_str(), &tag_json).await {
+                if let Err(e) = client.put(tag_url.as_str()).json(&tag_json).send().await {
                     println!(
                         "ERROR: Failed to PUT tag on post {} of user {} by user {}: {}",
                         random_post_id, random_user, pk, e

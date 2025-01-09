@@ -59,13 +59,14 @@ async fn test_edit_reposted_post_notification() -> Result<()> {
 
     // User A edits their post
     post.content = "Edited post by User A".to_string();
-    let edited_post_blob = serde_json::to_vec(&post)?;
     let edited_url = format!("pubky://{}/pub/pubky.app/posts/{}", user_a_id, post_id);
 
     // Overwrite existing post in the homeserver for the edited one
     let pubky_client = PubkyConnector::get_pubky_client()?;
     pubky_client
-        .put(edited_url.as_str(), &edited_post_blob)
+        .put(edited_url.as_str())
+        .json(&post)
+        .send()
         .await?;
     test.ensure_event_processing_complete().await?;
 

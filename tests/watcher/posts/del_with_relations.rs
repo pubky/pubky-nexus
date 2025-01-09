@@ -36,11 +36,10 @@ async fn test_delete_post_with_relationships() -> Result<()> {
         label: "funny".to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
-    let tag_blob = serde_json::to_vec(&tag)?;
     let tag_url = format!("pubky://{}/pub/pubky.app/tags/{}", user_id, tag.create_id());
 
     // Put tag
-    test.put(&tag_url, tag_blob).await?;
+    test.put(&tag_url, tag).await?;
 
     // Delete the post using the event handler
     test.cleanup_post(&user_id, &post_id).await?;
