@@ -56,7 +56,7 @@ pub struct Event {
 }
 
 impl Event {
-    pub fn from_line(line: &str) -> Result<Option<Self>, DynError> {
+    pub fn parse_event(line: &str) -> Result<Option<Self>, DynError> {
         debug!("New event: {}", line);
         let parts: Vec<&str> = line.split(' ').collect();
         if parts.len() != 2 {
@@ -137,11 +137,11 @@ impl Event {
         let blob = match pubky_client.get(url).await {
             Ok(Some(blob)) => blob,
             Ok(None) => {
-                error!("No content found at {}", self.uri);
+                error!("WATCHER: No content found at {}", self.uri);
                 return Ok(());
             }
             Err(e) => {
-                error!("Failed to fetch content at {}: {}", self.uri, e);
+                error!("WATCHER: Failed to fetch content at {}: {}", self.uri, e);
                 return Err(e.into());
             }
         };

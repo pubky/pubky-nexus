@@ -118,7 +118,7 @@ impl EventProcessor {
                     info!("Cursor for the next request: {}", cursor);
                 }
             } else {
-                let event = match Event::from_line(line) {
+                let event = match Event::parse_event(line) {
                     Ok(event) => event,
                     Err(e) => {
                         error!("Error while creating event line from line: {}", e);
@@ -137,45 +137,30 @@ impl EventProcessor {
 
     // Generic retry on event handler
     async fn handle_event_with_retry(&self, event: Event) -> Result<(), DynError> {
-        let mut attempts = 0;
-        loop {
-            match event.clone().handle().await {
-                Ok(_) => break Ok(()),
-                Err(e) => {
-                    attempts += 1;
-                    if attempts >= self.max_retries {
-                        error!(
-                            "Error while handling event after {} attempts: {}",
-                            attempts, e
-                        );
+        match event.clone().handle().await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                error!("Error while handling event: {}", e);
+                error!("PROCESSOR: Sending the event to RetryManager... Missing node(s) and/or relationship(s) to execute PUT or DEL operation(s)");
 
-                        // Send the failed event to the retry manager to retry indexing
-                        let mut error_type = None;
+                // Send the failed event to the retry manager to retry indexing
+                let mut error_type = None;
 
-                        if e.to_string() == "Generic error: Could not resolve homeserver" {
-                            error_type = Some(EventErrorType::NotResolveHomeserver);
-                        } else if e.to_string().contains("error sending request for url") {
-                            error_type = Some(EventErrorType::PubkyClientError);
-                        }
-                        // TODO: Another else if to catch the error of the graph
-                        if let Some(error) = error_type {
-                            let fail_event =
-                                RetryEvent::new(&event.uri, &event.event_type, None, error);
-                            let sender = self.sender.lock().await;
-                            sender
-                                .send(SenderMessage::Add(self.homeserver.id.clone(), fail_event))
-                                .await?;
-                        }
-                        break Ok(());
-                    } else {
-                        error!(
-                            "Error while handling event: {}. Retrying attempt {}/{}",
-                            e, attempts, self.max_retries
-                        );
-                        // Optionally, add a delay between retries
-                        tokio::time::sleep(Duration::from_millis(100)).await;
-                    }
+                if e.to_string() == "Generic error: Could not resolve homeserver" {
+                    error_type = Some(EventErrorType::NotResolveHomeserver);
+                } else if e.to_string().contains("error sending request for url") {
+                    error_type = Some(EventErrorType::PubkyClientError);
                 }
+                // TODO: Another else if to catch the error of the graph
+                if let Some(error) = error_type {
+                    let fail_event =
+                        RetryEvent::new(&event.uri, &event.event_type, None, error);
+                    let sender = self.sender.lock().await;
+                    sender
+                        .send(SenderMessage::Add(self.homeserver.id.clone(), fail_event))
+                        .await?;
+                }
+                Ok(())
             }
         }
     }

@@ -7,10 +7,9 @@ use pubky_app_specs::{
 };
 use pubky_common::crypto::Keypair;
 use pubky_homeserver::Homeserver;
-use pubky_nexus::{
-    events::retry::{RetryManager, CHANNEL_BUFFER},
-    setup, Config, EventProcessor, PubkyConnector,
-};
+use pubky_nexus::{setup, Config, EventProcessor, PubkyConnector};
+use pubky_nexus::events::{Event, retry::{RetryManager, CHANNEL_BUFFER}};
+use pubky_nexus::types::DynError;
 use serde_json::to_vec;
 use tokio::sync::mpsc;
 
@@ -116,6 +115,18 @@ impl WatcherTest {
         let pubky_client = PubkyConnector::get_pubky_client()?;
         pubky_client.delete(homeserver_uri).await?;
         self.ensure_event_processing_complete().await?;
+        Ok(())
+    }
+
+    /// Registers a user in the homeserver with the keypair.
+    /// # Arguments
+    /// * `keypair` - A reference to the `Keypair` used for signing up the user.
+    pub async fn register_user(&self, keypair: &Keypair) -> Result<()> {
+        let pubky_client = PubkyConnector::get_pubky_client()?;
+
+        pubky_client
+            .signup(&keypair, &self.homeserver.public_key())
+            .await?;
         Ok(())
     }
 
@@ -225,4 +236,21 @@ impl WatcherTest {
         self.ensure_event_processing_complete().await?;
         Ok(mute_url)
     }
+}
+
+/// Retrieves an event from the homeserver and handles it asynchronously.
+/// # Arguments
+/// * `event_line` - A string slice that represents the URI of the event to be retrieved
+///   from the homeserver. It contains the event type and the homeserver uri
+pub async fn retrieve_and_handle_event_line(event_line: &str) -> Result<(), DynError> {
+    let event = match Event::parse_event(event_line) {
+        Ok(event) => event,
+        Err(_) => None,
+    };
+
+    if let Some(event) = event {
+        event.clone().handle().await?
+    }
+
+    Ok(())
 }
