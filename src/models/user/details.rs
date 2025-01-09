@@ -4,7 +4,7 @@ use crate::models::traits::Collection;
 use crate::types::DynError;
 use crate::types::PubkyId;
 use crate::{queries, RedisOps};
-use axum::async_trait;
+use async_trait::async_trait;
 use chrono::Utc;
 use neo4rs::Query;
 use pubky_app_specs::{PubkyAppUser, PubkyAppUserLink};
@@ -101,7 +101,6 @@ impl UserDetails {
     pub async fn delete(user_id: &str) -> Result<(), DynError> {
         // Delete user_details on Redis
         Self::remove_from_index_multiple_json(&[&[user_id]]).await?;
-
         // Delete user graph node;
         exec_single_row(queries::del::delete_user(user_id)).await?;
 
