@@ -214,7 +214,7 @@ pub fn create_post_bookmark(
     .param("indexed_at", indexed_at)
 }
 
-/// Creates a `TAGGED` relationship between a user and a post authored by another user. The tag is uniquely 
+/// Creates a `TAGGED` relationship between a user and a post authored by another user. The tag is uniquely
 /// identified by a `label` and is associated with the post
 /// # Arguments
 /// * `user_id` - The unique identifier of the user tagging the post.
@@ -275,7 +275,7 @@ pub fn create_user_tag(
         SET t.indexed_at = $indexed_at,
             t.id = $tag_id
         // Returns true if the user tag relationship already existed
-        RETURN existing IS NOT NULL AS boolean;",
+        RETURN existing IS NOT NULL AS flag;",
     )
     .param("tagger_user_id", tagger_user_id)
     .param("tagged_user_id", tagged_user_id)

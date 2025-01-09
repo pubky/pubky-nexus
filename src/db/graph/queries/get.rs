@@ -776,8 +776,8 @@ pub fn user_is_safe_to_delete(user_id: &str) -> Query {
     .param("user_id", user_id)
 }
 
-/// Checks if a post has any relationships that aren't in the set of allowed 
-/// relationships for post deletion. If the post has such relationships, 
+/// Checks if a post has any relationships that aren't in the set of allowed
+/// relationships for post deletion. If the post has such relationships,
 /// the query returns `true`; otherwise, `false`
 /// If the user or post does not exist, the query returns no rows.
 /// # Arguments

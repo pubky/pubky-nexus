@@ -8,7 +8,7 @@ use serde::de::DeserializeOwned;
 pub enum OperationOutcome {
     /// The query found and updated an existing node/relationship.
     Updated,
-    /// The query changed the existence state of a node/relationship 
+    /// The query changed the existence state of a node/relationship
     /// (i.e., it was created or deleted).
     ExistenceChanged,
     /// A required node/relationship was not found, indicating a missing dependency
