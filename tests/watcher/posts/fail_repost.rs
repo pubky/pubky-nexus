@@ -1,4 +1,4 @@
-use crate::watcher::utils::watcher::{retrieve_event_from_homeserver, WatcherTest};
+use crate::watcher::utils::watcher::{retrieve_and_handle_event_line, WatcherTest};
 use anyhow::Result;
 use log::error;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser};
@@ -60,14 +60,16 @@ async fn test_homeserver_post_repost_without_post_parent() -> Result<(), DynErro
     };
     let repost_id = test.create_post(&repost_author_id, &repost).await?;
 
-    // Create raw event line to retrieve the content from the homeserver. Event processor is deactivated
-    // Like this, we can trigger the error in that test
+    // Create raw event line to retrieve the content from the homeserver
     let post_homeserver_uri = format!(
         "PUT pubky://{}/pub/pubky.app/posts/{}",
         repost_author_id, repost_id
     );
 
-    let sync_fail = retrieve_event_from_homeserver(&post_homeserver_uri)
+    // Simulate the event processor to handle the event.
+    // If the event processor were activated, the test would not catch the missing dependency
+    // error, and it would pass successfully
+    let sync_fail = retrieve_and_handle_event_line(&post_homeserver_uri)
         .await
         .map_err(|e| {
             error!("SYNC ERROR: {:?}", e);
@@ -76,7 +78,7 @@ async fn test_homeserver_post_repost_without_post_parent() -> Result<(), DynErro
 
     assert!(
         sync_fail,
-        "Cannot exist the parent post because it is not in sync the graph with events"
+        "It seems that post repost relationships exists, which should not be possible. Event processor should be disconnected"
     );
 
     Ok(())

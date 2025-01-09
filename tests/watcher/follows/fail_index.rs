@@ -1,4 +1,4 @@
-use crate::watcher::utils::watcher::{retrieve_event_from_homeserver, WatcherTest};
+use crate::watcher::utils::watcher::{retrieve_and_handle_event_line, WatcherTest};
 use anyhow::Result;
 use log::error;
 use pubky_app_specs::PubkyAppUser;
@@ -37,8 +37,13 @@ async fn test_homeserver_follow_cannot_complete() -> Result<()> {
         .create_follow(&follower_id, &shadow_followee_id)
         .await?;
 
+    // Create raw event line to retrieve the content from the homeserver
     let follow_event = format!("PUT {}", follow_url);
-    let sync_fail = retrieve_event_from_homeserver(&follow_event)
+
+    // Simulate the event processor to handle the event.
+    // If the event processor were activated, the test would not catch the missing dependency
+    // error, and it would pass successfully
+    let sync_fail = retrieve_and_handle_event_line(&follow_event)
         .await
         .map_err(|e| {
             error!("SYNC ERROR: {:?}", e);
@@ -47,7 +52,7 @@ async fn test_homeserver_follow_cannot_complete() -> Result<()> {
 
     assert!(
         sync_fail,
-        "Cannot exist the follow relation because it is not in sync some users"
+        "It seems that relationship exists, which should not be possible. Event processor should be disconnected"
     );
 
     // Create a follow in opposite direction
@@ -55,8 +60,13 @@ async fn test_homeserver_follow_cannot_complete() -> Result<()> {
         .create_follow(&shadow_followee_id, &follower_id)
         .await?;
 
+    // Create raw event line to retrieve the content from the homeserver
     let opposite_follow_event = format!("PUT {}", opposite_follow);
-    let sync_fail = retrieve_event_from_homeserver(&opposite_follow_event)
+
+    // Simulate the event processor to handle the event.
+    // If the event processor were activated, the test would not catch the missing dependency
+    // error, and it would pass successfully
+    let sync_fail = retrieve_and_handle_event_line(&opposite_follow_event)
         .await
         .map_err(|e| {
             error!("SYNC ERROR: {:?}", e);
@@ -65,7 +75,7 @@ async fn test_homeserver_follow_cannot_complete() -> Result<()> {
 
     assert!(
         sync_fail,
-        "Cannot exist the follow relation because it is not in sync some users"
+        "It seems that relationship exists, which should not be possible. Event processor should be disconnected"
     );
 
     Ok(())

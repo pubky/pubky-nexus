@@ -228,8 +228,8 @@ impl WatcherTest {
 /// # Arguments
 /// * `event_line` - A string slice that represents the URI of the event to be retrieved
 ///   from the homeserver. It contains the event type and the homeserver uri
-pub async fn retrieve_event_from_homeserver(event_line: &str) -> Result<(), DynError> {
-    let event = match Event::from_str(event_line) {
+pub async fn retrieve_and_handle_event_line(event_line: &str) -> Result<(), DynError> {
+    let event = match Event::parse_event(event_line) {
         Ok(event) => event,
         Err(_) => None,
     };

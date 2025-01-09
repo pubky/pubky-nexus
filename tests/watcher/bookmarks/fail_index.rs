@@ -1,4 +1,4 @@
-use crate::watcher::utils::watcher::{retrieve_event_from_homeserver, WatcherTest};
+use crate::watcher::utils::watcher::{retrieve_and_handle_event_line, WatcherTest};
 use anyhow::Result;
 use log::error;
 use pubky_app_specs::{traits::HashId, PubkyAppBookmark, PubkyAppPost, PubkyAppUser};
@@ -54,8 +54,13 @@ async fn test_homeserver_bookmark_without_user() -> Result<()> {
     // Put bookmark
     test.put(&bookmark_url, bookmark_blob).await?;
 
+    // Create raw event line to retrieve the content from the homeserver
     let bookmark_event = format!("PUT {}", bookmark_url);
-    let sync_fail = retrieve_event_from_homeserver(&bookmark_event)
+
+    // Simulate the event processor to handle the event.
+    // If the event processor were activated, the test would not catch the missing dependency
+    // error, and it would pass successfully
+    let sync_fail = retrieve_and_handle_event_line(&bookmark_event)
         .await
         .map_err(|e| {
             error!("SYNC ERROR: {:?}", e);
@@ -64,7 +69,7 @@ async fn test_homeserver_bookmark_without_user() -> Result<()> {
 
     assert!(
         sync_fail,
-        "Cannot exist the bookmark because it is not in sync the graph with events"
+        "It seems that post node exists, which should not be possible. Event processor should be disconnected"
     );
 
     Ok(())

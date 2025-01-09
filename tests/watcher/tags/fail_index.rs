@@ -1,4 +1,4 @@
-use crate::watcher::utils::watcher::{retrieve_event_from_homeserver, WatcherTest};
+use crate::watcher::utils::watcher::{retrieve_and_handle_event_line, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
 use log::error;
@@ -53,11 +53,13 @@ async fn test_homeserver_tag_user_not_found() -> Result<()> {
     // PUT user tag
     test.put(tag_url.as_str(), tag_blob).await?;
 
-    // Create raw event line to retrieve the content from the homeserver. Event processor is deactivated
-    // Like this, we can trigger the error in that test
+    // Create raw event line to retrieve the content from the homeserver
     let tag_event = format!("PUT {}", tag_url);
 
-    let sync_fail = retrieve_event_from_homeserver(&tag_event)
+    // Simulate the event processor to handle the event.
+    // If the event processor were activated, the test would not catch the missing dependency
+    // error, and it would pass successfully
+    let sync_fail = retrieve_and_handle_event_line(&tag_event)
         .await
         .map_err(|e| {
             error!("SYNC ERROR: {:?}", e);
@@ -66,7 +68,7 @@ async fn test_homeserver_tag_user_not_found() -> Result<()> {
 
     assert!(
         sync_fail,
-        "Cannot exist the tag because it is not in sync the graph with events"
+        "It seems that tagged node exists, which should not be possible. Event processor should be disconnected"
     );
 
     // Sync all the previous events
@@ -98,9 +100,13 @@ async fn test_homeserver_tag_user_not_found() -> Result<()> {
     // PUT post tag
     test.put(&tag_url, tag_blob).await?;
 
+    // Create raw event line to retrieve the content from the homeserver
     let tag_event = format!("PUT {}", tag_url);
 
-    let sync_fail = retrieve_event_from_homeserver(&tag_event)
+    // Simulate the event processor to handle the event.
+    // If the event processor were activated, the test would not catch the missing dependency
+    // error, and it would pass successfully
+    let sync_fail = retrieve_and_handle_event_line(&tag_event)
         .await
         .map_err(|e| {
             error!("SYNC ERROR: {:?}", e);
@@ -109,7 +115,7 @@ async fn test_homeserver_tag_user_not_found() -> Result<()> {
 
     assert!(
         sync_fail,
-        "Cannot exist the tag because it is not in sync the graph with events"
+        "It seems that tagged node exists, which should not be possible. Event processor should be disconnected"
     );
 
     Ok(())
