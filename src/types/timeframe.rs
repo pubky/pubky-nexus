@@ -28,15 +28,15 @@ impl Timeframe {
             Timeframe::Today => now
                 .date_naive()
                 .and_hms_opt(0, 0, 0)
-                .unwrap()
+                .unwrap_or_default()
                 .and_utc()
                 .timestamp_millis(),
             Timeframe::ThisMonth => now
                 .date_naive()
                 .with_day(1)
-                .unwrap()
+                .unwrap_or_default()
                 .and_hms_opt(0, 0, 0)
-                .unwrap()
+                .unwrap_or_default()
                 .and_utc()
                 .timestamp_millis(),
             Timeframe::AllTime => 0,

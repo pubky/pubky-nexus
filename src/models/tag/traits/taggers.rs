@@ -1,6 +1,6 @@
 use crate::types::{DynError, Pagination};
 use crate::RedisOps;
-use axum::async_trait;
+use async_trait::async_trait;
 
 use super::collection::CACHE_SET_PREFIX;
 

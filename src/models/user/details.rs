@@ -4,7 +4,7 @@ use crate::models::traits::Collection;
 use crate::types::DynError;
 use crate::types::PubkyId;
 use crate::{queries, RedisOps};
-use axum::async_trait;
+use async_trait::async_trait;
 use chrono::Utc;
 use neo4rs::Query;
 use pubky_app_specs::{PubkyAppUser, PubkyAppUserLink};

@@ -1,5 +1,5 @@
 use crate::{db::graph::exec::OperationOutcome, types::DynError};
-use axum::async_trait;
+use async_trait::async_trait;
 use log::error;
 use neo4rs::Query;
 
