@@ -66,7 +66,7 @@ pub fn create_post(
             new_post.indexed_at = $indexed_at,
             new_post.kind = $kind,
             new_post.attachments = $attachments
-        RETURN existing_post IS NOT NULL AS boolean",
+        RETURN existing_post IS NOT NULL AS flag",
     );
 
     let kind = serde_json::to_string(&post.kind)?;
@@ -119,7 +119,11 @@ fn add_relationship_params(
     Ok(cypher_query)
 }
 
-// Create a mentioned relationship between a post and a user
+/// Creates a `MENTIONED` relationship between a post and a user
+/// # Arguments
+/// * `author_id` - The unique identifier of the user who authored the post
+/// * `post_id` - The unique identifier of the post where the mention occurs
+/// * `mentioned_user_id` - The unique identifier of the user being mentioned in the post
 pub fn create_mention_relationship(
     author_id: &str,
     post_id: &str,
@@ -135,20 +139,21 @@ pub fn create_mention_relationship(
     .param("mentioned_user_id", mentioned_user_id)
 }
 
-/// Create a follows relationship between two users
+/// Create a follows relationship between two users. Before creating the relationship,
+/// it validates that both users exist in the database
 /// Validates that both users exist before creating the relationship
+/// # Arguments
+/// * `follower_id` - The unique identifier of the user who will follow another user.
+/// * `followee_id` - The unique identifier of the user to be followed.
+/// * `indexed_at` - A timestamp representing when the relationship was indexed or updated.
 pub fn create_follow(follower_id: &str, followee_id: &str, indexed_at: i64) -> Query {
     query(
         "MATCH (follower:User {id: $follower_id}), (followee:User {id: $followee_id})
-
          // Check if follow already existed
-         OPTIONAL MATCH (follower)-[existing:FOLLOWS]->(followee) 
-
-         // Write data
+         OPTIONAL MATCH (follower)-[existing:FOLLOWS]->(followee)
          MERGE (follower)-[r:FOLLOWS]->(followee)
          SET r.indexed_at = $indexed_at
-
-         // boolean == existed
+         // Returns true if the follow relationship already existed
          RETURN existing IS NOT NULL AS flag;",
     )
     .param("follower_id", follower_id.to_string())
@@ -156,17 +161,19 @@ pub fn create_follow(follower_id: &str, followee_id: &str, indexed_at: i64) -> Q
     .param("indexed_at", indexed_at)
 }
 
-/// Create a muted relationship between two users
+/// Creates  a `MUTED` relationship between a user and another user they wish to mute
+/// # Arguments
+/// * `user_id` - The unique identifier of the user initiating the mute action.
+/// * `muted_id` - The unique identifier of the user to be muted.
+/// * `indexed_at` - A timestamp indicating when the relationship was created or last updated.
 pub fn create_mute(user_id: &str, muted_id: &str, indexed_at: i64) -> Query {
     query(
         "MATCH (user:User {id: $user_id}), (muted:User {id: $muted_id})
         // Check if follow already existed
         OPTIONAL MATCH (user)-[existing:MUTED]->(muted) 
-
         MERGE (user)-[r:MUTED]->(muted)
         SET r.indexed_at = $indexed_at
-
-        // boolean == existed
+         // Returns true if the mute relationship already existed
         RETURN existing IS NOT NULL AS flag;",
     )
     .param("user_id", user_id.to_string())
@@ -174,6 +181,13 @@ pub fn create_mute(user_id: &str, muted_id: &str, indexed_at: i64) -> Query {
     .param("indexed_at", indexed_at)
 }
 
+/// Creates a "BOOKMARKED" relationship between a user and a post authored by another user
+/// # Arguments
+/// * `user_id` - The unique identifier of the user bookmarking the post.
+/// * `author_id` - The unique identifier of the user who authored the post.
+/// * `post_id` - The unique identifier of the post being bookmarked.
+/// * `bookmark_id` - A unique identifier for the bookmark relationship.
+/// * `indexed_at` - A timestamp representing when the bookmark relationship was created or last updated.
 pub fn create_post_bookmark(
     user_id: &str,
     author_id: &str,
@@ -184,18 +198,14 @@ pub fn create_post_bookmark(
     query(
         "MATCH (u:User {id: $user_id})
         // We assume these nodes are already created. If not we would not be able to add a bookmark
-         MATCH (author:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
-
-         // Check if bookmark already existed
-         OPTIONAL MATCH (u)-[existing:BOOKMARKED]->(p) 
-
-         // Write data
-         MERGE (u)-[b:BOOKMARKED]->(p)
-         SET b.indexed_at = $indexed_at,
-             b.id = $bookmark_id
-         
-         // flag == existed
-         RETURN existing IS NOT NULL AS flag;",
+        MATCH (author:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+        // Check if bookmark already existed
+        OPTIONAL MATCH (u)-[existing:BOOKMARKED]->(p) 
+        MERGE (u)-[b:BOOKMARKED]->(p)
+        SET b.indexed_at = $indexed_at,
+            b.id = $bookmark_id
+        // Returns true if the bookmark relationship already existed
+        RETURN existing IS NOT NULL AS flag;",
     )
     .param("user_id", user_id)
     .param("author_id", author_id)
@@ -204,6 +214,16 @@ pub fn create_post_bookmark(
     .param("indexed_at", indexed_at)
 }
 
+/// Creates a `TAGGED` relationship between a user and a post authored by another user. The tag is uniquely 
+/// identified by a `label` and is associated with the post
+/// # Arguments
+/// * `user_id` - The unique identifier of the user tagging the post.
+/// * `author_id` - The unique identifier of the user who authored the post.
+/// * `post_id` - The unique identifier of the post being tagged.
+/// * `tag_id` - A unique identifier for the tagging relationship.
+/// * `label` - A string representing the label of the tag.
+/// * `indexed_at` - A timestamp representing when the tagging relationship was created or last updated.
+///
 pub fn create_post_tag(
     user_id: &str,
     author_id: &str,
@@ -216,16 +236,13 @@ pub fn create_post_tag(
         "MATCH (user:User {id: $user_id})
         // We assume these nodes are already created. If not we would not be able to add a tag
         MATCH (author:User {id: $author_id})-[:AUTHORED]->(post:Post {id: $post_id})
-
-         // Check if tag already existed
-         OPTIONAL MATCH (user)-[existing:TAGGED {label: $label}]->(post) 
-
-         // Write data
-         MERGE (user)-[t:TAGGED {label: $label}]->(post)
-         SET t.indexed_at = $indexed_at,
-             t.id = $tag_id
-
-         RETURN existing IS NOT NULL AS flag;",
+        // Check if tag already existed
+        OPTIONAL MATCH (user)-[existing:TAGGED {label: $label}]->(post) 
+        MERGE (user)-[t:TAGGED {label: $label}]->(post)
+        SET t.indexed_at = $indexed_at,
+            t.id = $tag_id
+        // Returns true if the post tag relationship already existed
+        RETURN existing IS NOT NULL AS flag;",
     )
     .param("user_id", user_id)
     .param("author_id", author_id)
@@ -235,6 +252,13 @@ pub fn create_post_tag(
     .param("indexed_at", indexed_at)
 }
 
+/// Creates a `TAGGED` relationship between two users. The relationship is uniquely identified by a `label`
+/// # Arguments
+/// * `tagger_user_id` - The unique identifier of the user creating the tag.
+/// * `tagged_user_id` - The unique identifier of the user being tagged.
+/// * `tag_id` - A unique identifier for the tagging relationship.
+/// * `label` - A string representing the label of the tag.
+/// * `indexed_at` - A timestamp indicating when the tagging relationship was created or last updated.
 pub fn create_user_tag(
     tagger_user_id: &str,
     tagged_user_id: &str,
@@ -244,18 +268,14 @@ pub fn create_user_tag(
 ) -> Query {
     query(
         "MATCH (tagged_used:User {id: $tagged_user_id})
-         MATCH (tagger:User {id: $tagger_user_id})
-
-         // Check if tag already existed
-         OPTIONAL MATCH (tagger)-[existing:TAGGED {label: $label}]->(tagged_used) 
-
-         // Write data
-         MERGE (tagger)-[t:TAGGED {label: $label}]->(tagged_used)
-         SET t.indexed_at = $indexed_at,
-             t.id = $tag_id
-
-         // boolean == existed
-         RETURN existing IS NOT NULL AS boolean;",
+        MATCH (tagger:User {id: $tagger_user_id})
+        // Check if tag already existed
+        OPTIONAL MATCH (tagger)-[existing:TAGGED {label: $label}]->(tagged_used) 
+        MERGE (tagger)-[t:TAGGED {label: $label}]->(tagged_used)
+        SET t.indexed_at = $indexed_at,
+            t.id = $tag_id
+        // Returns true if the user tag relationship already existed
+        RETURN existing IS NOT NULL AS boolean;",
     )
     .param("tagger_user_id", tagger_user_id)
     .param("tagged_user_id", tagged_user_id)

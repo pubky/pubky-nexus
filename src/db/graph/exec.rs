@@ -3,24 +3,16 @@ use crate::types::DynError;
 use neo4rs::Query;
 use serde::de::DeserializeOwned;
 
-// Exec a graph query without a return
-pub async fn exec_single_row(query: Query) -> Result<(), DynError> {
-    let graph = get_neo4j_graph()?;
-    let graph = graph.lock().await;
-    let mut result = graph.execute(query).await?;
-    result.next().await?;
-    Ok(())
-}
-
-/// Represents the outcome of a mutation-like query in the graph database
+/// Represents the outcome of a mutation-like query in the graph database.
 #[derive(Debug)]
 pub enum OperationOutcome {
-    /// The query found and updated an existing node/relationship
+    /// The query found and updated an existing node/relationship.
     Updated,
-    /// The query created a new node/relationship
-    Created,
+    /// The query changed the existence state of a node/relationship 
+    /// (i.e., it was created or deleted).
+    ExistenceChanged,
     /// A required node/relationship was not found, indicating a missing dependency
-    /// (often due to the node/relationship not yet being indexed or otherwise unavailable)
+    /// (often due to the node/relationship not yet being indexed or otherwise unavailable).
     Pending,
 }
 
@@ -28,7 +20,7 @@ pub enum OperationOutcome {
 /// "flag". Interprets the boolean as follows:
 ///
 /// - `true` => Returns [`OperationOutcome::Updated`]
-/// - `false` => Returns [`OperationOutcome::Created`]
+/// - `false` => Returns [`OperationOutcome::ExistenceChanged`]
 ///
 /// If no rows are returned, this function returns [`OperationOutcome::Pending`], typically
 /// indicating a missing dependency or an unmatched query condition.
@@ -40,15 +32,23 @@ pub async fn execute_graph_operation(query: Query) -> Result<OperationOutcome, D
         result = graph.execute(query).await?;
     }
 
-    if let Some(row) = result.next().await? {
+    match result.next().await? {
         // The "flag" field indicates a specific condition in the query
-        match row.get("flag")? {
+        Some(row) => match row.get("flag")? {
             true => Ok(OperationOutcome::Updated),
-            false => Ok(OperationOutcome::Created),
-        }
-    } else {
-        Ok(OperationOutcome::Pending)
+            false => Ok(OperationOutcome::ExistenceChanged),
+        },
+        None => Ok(OperationOutcome::Pending),
     }
+}
+
+// Exec a graph query without a return
+pub async fn exec_single_row(query: Query) -> Result<(), DynError> {
+    let graph = get_neo4j_graph()?;
+    let graph = graph.lock().await;
+    let mut result = graph.execute(query).await?;
+    result.next().await?;
+    Ok(())
 }
 
 // Generic function to retrieve data from Neo4J

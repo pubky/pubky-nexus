@@ -1,7 +1,8 @@
 use neo4rs::{query, Query};
 
-// Delete a user node
-// Will delete all relationships of this user as well!
+/// Deletes a user node and all its relationships
+/// # Arguments
+/// * `user_id` - The unique identifier of the user to be deleted
 pub fn delete_user(user_id: &str) -> Query {
     query(
         "MATCH (u:User {id: $id})
@@ -10,8 +11,10 @@ pub fn delete_user(user_id: &str) -> Query {
     .param("id", user_id.to_string())
 }
 
-// Delete a post node
-// Will delete all relationships of this user as well!
+/// Deletes a post node authored by a specific user, along with all its relationships
+/// # Arguments
+/// * `author_id` - The unique identifier of the user who authored the post.
+/// * `post_id` - The unique identifier of the post to be deleted.
 pub fn delete_post(author_id: &str, post_id: &str) -> Query {
     query(
         "MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
@@ -21,7 +24,10 @@ pub fn delete_post(author_id: &str, post_id: &str) -> Query {
     .param("post_id", post_id.to_string())
 }
 
-// Delete a follows relationship between two users
+/// Deletes a "follows" relationship between two users
+/// # Arguments
+/// * `follower_id` - The unique identifier of the user who is following another user.
+/// * `followee_id` - The unique identifier of the user being followed
 pub fn delete_follow(follower_id: &str, followee_id: &str) -> Query {
     query(
         "// Important that MATCH to check if both users are in the graph
@@ -29,28 +35,34 @@ pub fn delete_follow(follower_id: &str, followee_id: &str) -> Query {
         // Check if follow already exist
         OPTIONAL MATCH (follower)-[existing:FOLLOWS]->(followee) 
         DELETE existing
-        // returns whether the relationship existed as 'flag'    
-        RETURN existing IS NOT NULL AS flag;",
+        // Returns true if the relationship does not exist as 'flag'
+        RETURN existing IS NULL AS flag;",
     )
     .param("follower_id", follower_id.to_string())
     .param("followee_id", followee_id.to_string())
 }
 
-// Delete a muted relationship between two users
+/// Deletes a "muted" relationship between two users
+/// # Arguments
+/// * `user_id` - The unique identifier of the user who muted another user
+/// * `muted_id` - The unique identifier of the user who was muted
 pub fn delete_mute(user_id: &str, muted_id: &str) -> Query {
     query(
         "// Important that MATCH to check if both users are in the graph
         MATCH (user:User {id: $user_id}), (muted:User {id: $muted_id})
         OPTIONAL MATCH (user)-[existing:MUTED]->(muted)
         DELETE existing
-        // returns whether the relationship existed as 'flag'    
-        RETURN existing IS NOT NULL AS flag;",
+        // Returns true if the relationship does not exist as 'flag'
+        RETURN existing IS NULL AS flag;",
     )
     .param("user_id", user_id.to_string())
     .param("muted_id", muted_id.to_string())
 }
 
-// Delete bookmarked relationship
+/// Deletes a bookmark relationship between a user and a post
+/// # Arguments
+/// * `user_id` - The unique identifier of the user who created the bookmark.
+/// * `bookmark_id` - The unique identifier of the bookmark relationship to be deleted.
 pub fn delete_bookmark(user_id: &str, bookmark_id: &str) -> Query {
     query(
         "MATCH (u:User {id: $user_id})-[b:BOOKMARKED {id: $bookmark_id}]->(post:Post)<-[:AUTHORED]-(author:User)
@@ -62,6 +74,10 @@ pub fn delete_bookmark(user_id: &str, bookmark_id: &str) -> Query {
     .param("bookmark_id", bookmark_id)
 }
 
+/// Deletes a tag relationship created by a user and retrieves relevant details about the tag's target
+/// # Arguments
+/// * `user_id` - The unique identifier of the user who created the tag.
+/// * `tag_id` - The unique identifier of the `TAGGED` relationship to be deleted.
 pub fn delete_tag(user_id: &str, tag_id: &str) -> Query {
     query(
         "MATCH (user:User {id: $user_id})-[tag:TAGGED {id: $tag_id}]->(target)
@@ -78,7 +94,10 @@ pub fn delete_tag(user_id: &str, tag_id: &str) -> Query {
     .param("tag_id", tag_id)
 }
 
-// Delete a file node
+/// Deletes a file node and all its relationships
+/// # Arguments
+/// * `owner_id` - The unique identifier of the user who owns the file
+/// * `file_id` - The unique identifier of the file to be deleted
 pub fn delete_file(owner_id: &str, file_id: &str) -> Query {
     query(
         "MATCH (f:File {id: $id, owner_id: $owner_id})
