@@ -1,7 +1,7 @@
 use crate::db::graph::exec::retrieve_from_graph;
 use crate::db::kv::index::sorted_sets::SortOrder;
 use crate::types::{DynError, StreamReach, Timeframe};
-use axum::async_trait;
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Display;
@@ -140,7 +140,7 @@ impl HotTags {
         let key_parts_vector: Vec<&str> =
             key_parts.iter().map(|s| s.as_str()).collect::<Vec<&str>>();
         let data = HotTagsData::try_from_index_json(key_parts_vector.clone().as_slice()).await?;
-        let ranking = HotTags::try_from_index_sorted_set(
+        let cached_ranking = HotTags::try_from_index_sorted_set(
             key_parts_vector.as_slice(),
             None,
             None,
@@ -151,14 +151,18 @@ impl HotTags {
         )
         .await?;
 
-        if data.is_none() || ranking.is_none() {
-            return Ok(None);
-        }
+        let ranking = match cached_ranking {
+            Some(ranking) => ranking,
+            None => return Ok(None),
+        };
 
-        let mapping = data.unwrap();
+        let mapping = match data {
+            Some(data) => data,
+            None => return Ok(None),
+        };
         // for each value in ranking, look up the value in data
         let mut hot_tags = Vec::new();
-        for (label, _) in ranking.unwrap() {
+        for (label, _) in ranking {
             if let Some(tag) = mapping.0.get(&label) {
                 hot_tags.push(HotTag {
                     label,
@@ -224,7 +228,12 @@ impl HotTags {
     ) -> Result<Option<HotTags>, DynError> {
         match user_id {
             Some(user_id) => {
-                HotTags::get_hot_tags_by_reach(user_id, reach.unwrap(), tags_query).await
+                HotTags::get_hot_tags_by_reach(
+                    user_id,
+                    reach.unwrap_or(TagStreamReach::Friends),
+                    tags_query,
+                )
+                .await
             }
             None => HotTags::get_global_hot_tags(tags_query).await,
         }
@@ -254,7 +263,10 @@ impl HotTags {
         });
         let result = retrieve_from_graph::<HotTags>(query, "hot_tags").await?;
 
-        let hot_tags = result.unwrap();
+        let hot_tags = match result {
+            Some(hot_tags) => hot_tags,
+            None => return Ok(None),
+        };
         if hot_tags.len() > 0 {
             HotTags::set_to_global_cache(hot_tags.clone(), tags_query).await?;
         }

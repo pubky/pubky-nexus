@@ -4,6 +4,7 @@ use crate::{
 };
 use axum::{
     extract::Request,
+    http::HeaderValue,
     middleware::{self, Next},
     response::Response,
     routing::get_service,
@@ -34,13 +35,14 @@ async fn static_files_middleware(request: Request, next: Next) -> Result<Respons
             let file = &value[0];
             match file {
                 Some(value) => {
-                    response.headers_mut().insert(
-                        "content-length",
-                        value.size.to_string().as_str().parse().unwrap(),
-                    );
+                    let content_type = match HeaderValue::try_from(value.content_type.clone()) {
+                        Ok(value) => value,
+                        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+                    };
                     response
                         .headers_mut()
-                        .insert("content-type", value.content_type.parse().unwrap());
+                        .insert("content-length", HeaderValue::from(value.size));
+                    response.headers_mut().insert("content-type", content_type);
                     Ok(response)
                 }
                 None => Err(StatusCode::NOT_FOUND),
