@@ -1,5 +1,6 @@
 use crate::db::graph::exec::{exec_single_row, execute_graph_operation, OperationOutcome};
 use crate::db::kv::index::json::JsonAction;
+use crate::events::error::EventProcessorError;
 use crate::events::uri::ParsedUri;
 use crate::models::notification::{Notification, PostChangedSource, PostChangedType};
 use crate::models::post::{
@@ -41,10 +42,18 @@ pub async fn sync_put(
     let existed = match post_details.put_to_graph(&post_relationships).await? {
         OperationOutcome::CreatedOrDeleted => false,
         OperationOutcome::Updated => true,
-        // TODO: Should return an error that should be processed by RetryManager
-        // WIP: Create a custom error type to pass enough info to the RetryManager
         OperationOutcome::Pending => {
-            return Err("WATCHER: Missing some dependency to index the model".into())
+            let mut dependency = Vec::new();
+            if let Some(replied_uri) = &post_relationships.replied {
+                dependency.push(replied_uri.clone());
+            }
+            if let Some(reposted_uri) = &post_relationships.reposted {
+                dependency.push(reposted_uri.clone());
+            }
+            if dependency.is_empty() {
+                dependency.push(format!("pubky://{author_id}/pub/pubky.app/profile.json"))
+            }
+            return Err(EventProcessorError::MissingDependency { dependency }.into());
         }
     };
 

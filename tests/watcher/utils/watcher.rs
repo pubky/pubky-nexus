@@ -7,9 +7,12 @@ use pubky_app_specs::{
 };
 use pubky_common::crypto::Keypair;
 use pubky_homeserver::Homeserver;
+use pubky_nexus::events::{
+    retry::{RetryManager, CHANNEL_BUFFER},
+    Event,
+};
+use pubky_nexus::types::{DynError, PubkyId};
 use pubky_nexus::{setup, Config, EventProcessor, PubkyConnector};
-use pubky_nexus::events::{Event, retry::{RetryManager, CHANNEL_BUFFER}};
-use pubky_nexus::types::DynError;
 use serde_json::to_vec;
 use tokio::sync::mpsc;
 
@@ -51,7 +54,7 @@ impl WatcherTest {
         let sender_clone = retry_manager.sender.clone();
 
         tokio::spawn(async move {
-            retry_manager.exec().await;
+            let _ = retry_manager.exec().await;
         });
 
         match PubkyConnector::initialise(&config, Some(&testnet)) {
@@ -59,7 +62,15 @@ impl WatcherTest {
             Err(e) => debug!("WatcherTest: {}", e),
         }
 
-        let event_processor = EventProcessor::test(homeserver_url, sender_clone).await;
+        let homeserver_pubky = homeserver.public_key().to_uri_string();
+        // Slice after the 3rd character
+        let pubky_part = &homeserver_pubky["pk:".len()..];
+        // Not save,
+        let homeserver_pubky =
+            PubkyId::try_from(&pubky_part).expect("PubkyId: Cannot get the homeserver public key");
+
+        let event_processor =
+            EventProcessor::test(homeserver_url, homeserver_pubky, sender_clone).await;
 
         Ok(Self {
             config,
@@ -82,6 +93,14 @@ impl WatcherTest {
             // tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         }
         Ok(())
+    }
+
+    pub fn get_homeserver_pubky(&self) -> PubkyId {
+        let homeserver_pubky = self.homeserver.public_key().to_uri_string();
+        // Slice after the 3rd character
+        let pubky_part = &homeserver_pubky["pk:".len()..];
+        // Not save,
+        PubkyId::try_from(&pubky_part).expect("PubkyId: Cannot get the homeserver public key")
     }
 
     /// Sends a PUT request to the homeserver with the provided blob of data.

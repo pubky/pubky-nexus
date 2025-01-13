@@ -1,5 +1,4 @@
-use std::time::Duration;
-
+use super::error::EventProcessorError;
 use super::retry::SenderChannel;
 use super::retry::SenderMessage;
 use super::Event;
@@ -9,26 +8,28 @@ use crate::types::PubkyId;
 use crate::{models::homeserver::Homeserver, Config};
 use log::{debug, error, info};
 use reqwest::Client;
+use serde::Deserialize;
+use serde::Serialize;
 
 pub struct EventProcessor {
     http_client: Client,
     pub homeserver: Homeserver,
     limit: u32,
-    max_retries: u64,
     pub sender: SenderChannel,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum EventErrorType {
     NotResolveHomeserver,
     PubkyClientError,
+    MissingDependency,
+    GraphError,
 }
 
 impl EventProcessor {
     pub async fn from_config(config: &Config, tx: SenderChannel) -> Result<Self, DynError> {
         let homeserver = Homeserver::from_config(config).await?;
         let limit = config.events_limit;
-        let max_retries = config.max_retries;
 
         info!(
             "Initialized Event Processor for homeserver: {:?}",
@@ -39,26 +40,35 @@ impl EventProcessor {
             http_client: Client::new(),
             homeserver,
             limit,
-            max_retries,
             sender: tx,
         })
     }
 
     /// Creates a new `EventProcessor` instance for testing purposes.
     ///
-    /// Initializes an `EventProcessor` with a mock homeserver and a default configuration,
-    /// making it suitable for use in integration tests and benchmarking scenarios.
+    /// This function initializes an `EventProcessor` configured with:
+    /// - A mock homeserver constructed using the provided `homeserver_url` and `homeserver_pubky`.
+    /// - A default configuration, including an HTTP client, a limit of 1000 events, and a sender channel.
+    ///
+    /// It is designed for use in integration tests, benchmarking scenarios, or other test environments
+    /// where a controlled and predictable `EventProcessor` instance is required.
     ///
     /// # Parameters
-    /// - `homeserver_url`: The URL of the homeserver to be used in the test environment.
-    pub async fn test(homeserver_url: String, tx: SenderChannel) -> Self {
-        let id = PubkyId("test".to_string());
-        let homeserver = Homeserver::new(id, homeserver_url).await.unwrap();
+    /// - `homeserver_url`: A `String` representing the URL of the homeserver to be used in the test environment.
+    /// - `homeserver_pubky`: A `PubkyId` instance representing the unique identifier for the homeserver's public key.
+    /// - `tx`: A `SenderChannel` used to handle outgoing messages or events.
+    pub async fn test(
+        homeserver_url: String,
+        homeserver_pubky: PubkyId,
+        tx: SenderChannel,
+    ) -> Self {
+        let homeserver = Homeserver::new(homeserver_pubky, homeserver_url)
+            .await
+            .unwrap();
         Self {
             http_client: Client::new(),
             homeserver,
             limit: 1000,
-            max_retries: 3,
             sender: tx,
         }
     }
@@ -127,7 +137,7 @@ impl EventProcessor {
                 };
                 if let Some(event) = event {
                     debug!("Processing event: {:?}", event);
-                    self.handle_event_with_retry(event).await?;
+                    self.handle_event(event).await?;
                 }
             }
         }
@@ -136,29 +146,49 @@ impl EventProcessor {
     }
 
     // Generic retry on event handler
-    async fn handle_event_with_retry(&self, event: Event) -> Result<(), DynError> {
+    async fn handle_event(&self, event: Event) -> Result<(), DynError> {
         match event.clone().handle().await {
             Ok(_) => Ok(()),
             Err(e) => {
                 error!("Error while handling event: {}", e);
-                error!("PROCESSOR: Sending the event to RetryManager... Missing node(s) and/or relationship(s) to execute PUT or DEL operation(s)");
 
-                // Send the failed event to the retry manager to retry indexing
-                let mut error_type = None;
+                let retry_event = match e.downcast_ref::<EventProcessorError>() {
+                    Some(EventProcessorError::UserNotSync) => RetryEvent::new(
+                        &event.uri,
+                        &event.event_type,
+                        None,
+                        EventErrorType::GraphError,
+                    ),
+                    Some(EventProcessorError::MissingDependency { dependency }) => RetryEvent::new(
+                        &event.uri,
+                        &event.event_type,
+                        Some(dependency.clone()),
+                        EventErrorType::MissingDependency,
+                    ),
+                    // Other retry errors must be ignored
+                    _ => return Ok(()),
+                };
 
-                if e.to_string() == "Generic error: Could not resolve homeserver" {
-                    error_type = Some(EventErrorType::NotResolveHomeserver);
-                } else if e.to_string().contains("error sending request for url") {
-                    error_type = Some(EventErrorType::PubkyClientError);
-                }
-                // TODO: Another else if to catch the error of the graph
-                if let Some(error) = error_type {
-                    let fail_event =
-                        RetryEvent::new(&event.uri, &event.event_type, None, error);
-                    let sender = self.sender.lock().await;
-                    sender
-                        .send(SenderMessage::Add(self.homeserver.id.clone(), fail_event))
-                        .await?;
+                let sender = self.sender.lock().await;
+                match sender
+                    .send(SenderMessage::Add(self.homeserver.id.clone(), retry_event))
+                    .await
+                {
+                    Ok(_) => {
+                        info!("Message send succesfully from the channel");
+                        // TODO: Investigate non-blocking alternatives
+                        // The current use of `tokio::time::sleep` is intended to handle a situation where tasks in other threads
+                        // are not being tracked. This could potentially lead to issues with writing `RetryEvents` in certain cases.
+                        // Considerations:
+                        // - Determine if this delay is genuinely necessary. Testing may reveal that the `RetryManager` thread
+                        //   handles retries adequately while the watcher remains active, making this timer redundant.
+                        // - If the delay is required, explore a more efficient solution that does not block the thread
+                        //   and ensures proper handling of tasks in other threads.
+                        //
+                        // For now, the sleep is deactivated
+                        //tokio::time::sleep(Duration::from_millis(500)).await;
+                    }
+                    Err(e) => error!("Err, {:?}", e),
                 }
                 Ok(())
             }

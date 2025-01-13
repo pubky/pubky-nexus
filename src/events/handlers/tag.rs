@@ -1,5 +1,6 @@
 use crate::db::graph::exec::OperationOutcome;
 use crate::db::kv::index::json::JsonAction;
+use crate::events::error::EventProcessorError;
 use crate::events::uri::ParsedUri;
 use crate::models::notification::Notification;
 use crate::models::post::{PostCounts, PostStream};
@@ -79,10 +80,9 @@ async fn put_sync_post(
     .await?
     {
         OperationOutcome::Updated => Ok(()),
-        // TODO: Should return an error that should be processed by RetryManager
-        // WIP: Create a custom error type to pass enough info to the RetryManager
         OperationOutcome::Pending => {
-            Err("WATCHER: Missing some dependency to index the model".into())
+            let dependency = vec![format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}")];
+            Err(EventProcessorError::MissingDependency { dependency }.into())
         }
         OperationOutcome::CreatedOrDeleted => {
             // SAVE TO INDEXES
@@ -158,10 +158,11 @@ async fn put_sync_user(
     .await?
     {
         OperationOutcome::Updated => Ok(()),
-        // TODO: Should return an error that should be processed by RetryManager
-        // WIP: Create a custom error type to pass enough info to the RetryManager
         OperationOutcome::Pending => {
-            Err("WATCHER: Missing some dependency to index the model".into())
+            let dependency = vec![format!(
+                "pubky://{tagged_user_id}/pub/pubky.app/profile.json"
+            )];
+            Err(EventProcessorError::MissingDependency { dependency }.into())
         }
         OperationOutcome::CreatedOrDeleted => {
             // SAVE TO INDEX
@@ -189,6 +190,17 @@ async fn put_sync_user(
             Ok(())
         }
     }
+    // TagUser::put_to_graph(
+    //     &tagger_user_id,
+    //     &tagged_user_id,
+    //     None,
+    //     &tag_id,
+    //     &tag_label,
+    //     indexed_at,
+    // )
+    // .await?;
+    // let dependency = format!("pubky://{tagged_user_id}/pub/pubky.app/profile.json");
+    // Err(EventProcessorError::MissingDependency { dependency }.into())
 }
 
 pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), DynError> {

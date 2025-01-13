@@ -6,6 +6,7 @@ use pubky_common::crypto::Keypair;
 use pubky_homeserver::Homeserver;
 use pubky_nexus::{
     events::retry::{RetryManager, SenderChannel},
+    types::PubkyId,
     EventProcessor,
 };
 use setup::run_setup;
@@ -35,7 +36,7 @@ async fn create_homeserver_with_events() -> (Testnet, String, SenderChannel) {
     let sender_clone = retry_manager.sender.clone();
     // Create new asynchronous task to control the failed events
     tokio::spawn(async move {
-        retry_manager.exec().await;
+        let _ = retry_manager.exec().await;
     });
 
     // Create and delete a user profile (as per your requirement)
@@ -83,9 +84,13 @@ fn bench_create_delete_user(c: &mut Criterion) {
             let sender_clone = sender.clone(); // Clone the sender for each iteration
             let homeserver_url_clone = homeserver_url.clone();
             async move {
+                // Create hardcoded homeserver pubkyId
+                let id = PubkyId::try_from("66h9hkdaud4ekkuummh3b4zhk68iggzirqbomyktfhq5s84jirno")
+                    .unwrap();
+
                 // Benchmark the event processor initialization and run
                 let mut event_processor =
-                    EventProcessor::test(homeserver_url_clone, sender_clone).await;
+                    EventProcessor::test(homeserver_url_clone, id, sender_clone).await;
                 event_processor.run().await.unwrap();
             }
         });

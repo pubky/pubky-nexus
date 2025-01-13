@@ -1,3 +1,4 @@
+pub mod hash_map;
 /// Module for redis Indexing operations split into modules by Redis types
 pub mod json;
 pub mod lists;

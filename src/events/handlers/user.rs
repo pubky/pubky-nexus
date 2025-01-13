@@ -1,4 +1,5 @@
 use crate::db::graph::exec::{execute_graph_operation, OperationOutcome};
+use crate::events::error::EventProcessorError;
 use crate::models::user::UserSearch;
 use crate::models::{
     traits::Collection,
@@ -25,7 +26,10 @@ pub async fn sync_put(user: PubkyAppUser, user_id: PubkyId) -> Result<(), DynErr
     // Create UserDetails object
     let user_details = UserDetails::from_homeserver(user, &user_id).await?;
     // SAVE TO GRAPH
-    user_details.put_to_graph().await?;
+    match user_details.put_to_graph().await {
+        Ok(_) => (),
+        Err(_) => return Err(EventProcessorError::UserNotSync.into()),
+    }
     // SAVE TO INDEX
     let user_id = user_details.id.clone();
     UserSearch::put_to_index(&[&user_details]).await?;

@@ -3,8 +3,10 @@ use crate::{
     types::{DynError, PubkyId},
 };
 use log::{debug, error};
+use serde::{Deserialize, Serialize};
 use uri::ParsedUri;
 
+pub mod error;
 pub mod handlers;
 pub mod processor;
 pub mod retry;
@@ -42,7 +44,7 @@ enum ResourceType {
 }
 
 // Look for the end pattern after the start index, or use the end of the string if not found
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum EventType {
     Put,
     Del,

@@ -1,5 +1,6 @@
 use crate::db::graph::exec::OperationOutcome;
 use crate::db::kv::index::json::JsonAction;
+use crate::events::error::EventProcessorError;
 use crate::events::uri::ParsedUri;
 use crate::models::post::Bookmark;
 use crate::models::user::UserCounts;
@@ -41,7 +42,8 @@ pub async fn sync_put(
             OperationOutcome::Updated => true,
             // TODO: Should return an error that should be processed by RetryManager
             OperationOutcome::Pending => {
-                return Err("WATCHER: Missing some dependency to index the model".into())
+                let dependency = vec![format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}")];
+                return Err(EventProcessorError::MissingDependency { dependency }.into());
             }
         };
 
