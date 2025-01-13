@@ -2,6 +2,7 @@ mod del;
 mod del_friends;
 mod del_notification;
 mod del_sequential;
+mod fail_index;
 mod put;
 mod put_friends;
 mod put_notification;

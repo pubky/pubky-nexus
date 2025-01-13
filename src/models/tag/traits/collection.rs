@@ -1,10 +1,11 @@
-use crate::types::DynError;
-use axum::async_trait;
+use crate::{db::graph::exec::OperationOutcome, types::DynError};
+use async_trait::async_trait;
+use log::error;
 use neo4rs::Query;
 
 use crate::{
     db::{
-        connectors::neo4j::get_neo4j_graph, graph::exec::exec_boolean_row,
+        connectors::neo4j::get_neo4j_graph, graph::exec::execute_graph_operation,
         kv::index::sorted_sets::SortOrder,
     },
     models::tag::{post::POST_TAGS_KEY_PARTS, user::USER_TAGS_KEY_PARTS},
@@ -57,7 +58,7 @@ where
             match Self::get_from_index(user_id, viewer_id, limit_tags, limit_taggers, true).await? {
                 Some(tag_details) => return Ok(Some(tag_details)),
                 None => {
-                    let depth = depth.unwrap();
+                    let depth = depth.unwrap_or(1);
                     let graph_response =
                         Self::get_from_graph(user_id, viewer_id, Some(depth)).await?;
                     if let Some(tag_details) = graph_response {
@@ -301,7 +302,7 @@ where
         tag_id: &str,
         label: &str,
         indexed_at: i64,
-    ) -> Result<bool, DynError> {
+    ) -> Result<OperationOutcome, DynError> {
         let query = match extra_param {
             Some(post_id) => queries::put::create_post_tag(
                 tagger_user_id,
@@ -319,7 +320,7 @@ where
                 indexed_at,
             ),
         };
-        exec_boolean_row(query).await
+        execute_graph_operation(query).await
     }
 
     /// Reindexes tags for a given author by retrieving data from the graph database and updating the index.
@@ -334,10 +335,10 @@ where
     async fn reindex(author_id: &str, extra_param: Option<&str>) -> Result<(), DynError> {
         match Self::get_from_graph(author_id, extra_param, None).await? {
             Some(tag_user) => Self::put_to_index(author_id, extra_param, &tag_user, false).await?,
-            None => log::error!(
+            None => error!(
                 "{}:{} Could not found tags in the graph",
                 author_id,
-                extra_param.unwrap()
+                extra_param.unwrap_or_default()
             ),
         }
         Ok(())
@@ -368,7 +369,7 @@ where
         let mut result;
         {
             let graph = get_neo4j_graph()?;
-            let query = queries::put::delete_tag(user_id, tag_id);
+            let query = queries::del::delete_tag(user_id, tag_id);
 
             let graph = graph.lock().await;
             result = graph.execute(query).await?;

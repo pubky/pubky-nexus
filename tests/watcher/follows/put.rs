@@ -1,5 +1,6 @@
 use super::utils::find_follow_relationship;
-use crate::watcher::{users::utils::find_user_counts, utils::WatcherTest};
+use crate::watcher::users::utils::find_user_counts;
+use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use pubky_app_specs::PubkyAppUser;
 use pubky_common::crypto::Keypair;
@@ -11,7 +12,7 @@ use pubky_nexus::{
     RedisOps,
 };
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_homeserver_put_follow() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 

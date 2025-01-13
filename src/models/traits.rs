@@ -1,4 +1,4 @@
-use axum::async_trait;
+use async_trait::async_trait;
 use neo4rs::Query;
 
 use crate::db::connectors::neo4j::get_neo4j_graph;

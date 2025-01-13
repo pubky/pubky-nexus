@@ -1,11 +1,12 @@
 use super::utils::find_post_bookmark;
-use crate::watcher::{users::utils::find_user_counts, utils::WatcherTest};
+use crate::watcher::users::utils::find_user_counts;
+use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use pubky_app_specs::{traits::HashId, PubkyAppBookmark, PubkyAppPost, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::post::{Bookmark, PostStream};
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_homeserver_bookmark() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
@@ -43,9 +44,7 @@ async fn test_homeserver_bookmark() -> Result<()> {
     );
 
     // Put bookmark
-    test.create_bookmark(&bookmark_url, bookmark_blob)
-        .await
-        .unwrap();
+    test.put(&bookmark_url, bookmark_blob).await.unwrap();
 
     // Step 4: Verify the bookmark exists in Nexus
     // GRAPH_OP: Assert if the event writes the graph

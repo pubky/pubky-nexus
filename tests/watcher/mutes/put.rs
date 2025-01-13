@@ -1,11 +1,11 @@
 use super::utils::find_mute_relationship;
-use crate::watcher::utils::WatcherTest;
+use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use pubky_app_specs::PubkyAppUser;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::user::{Muted, Relationship};
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_homeserver_put_mute() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 

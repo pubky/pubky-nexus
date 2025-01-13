@@ -1,4 +1,5 @@
-use crate::watcher::{follows::utils::find_follow_relationship, utils::WatcherTest};
+use crate::watcher::follows::utils::find_follow_relationship;
+use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use pubky_app_specs::PubkyAppUser;
 use pubky_common::crypto::Keypair;
@@ -7,7 +8,7 @@ use pubky_nexus::{
     RedisOps,
 };
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_homeserver_unfollow_friend() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
@@ -41,7 +42,7 @@ async fn test_homeserver_unfollow_friend() -> Result<()> {
     let follow_back_uri = test.create_follow(&followee_id, &follower_id).await?;
 
     // Step 5: Follower unfollows the followee
-    test.delete_follow(&follow_uri).await?;
+    test.del(&follow_uri).await?;
 
     // CACHE_OP: Assert if cache has been updated
     let follower_count = UserCounts::try_from_index_json(&[&follower_id])
@@ -75,7 +76,7 @@ async fn test_homeserver_unfollow_friend() -> Result<()> {
         "Follower should not be following Followee"
     );
 
-    test.delete_follow(&follow_back_uri).await?;
+    test.del(&follow_back_uri).await?;
 
     // GRAPH_OP: Check if relationship was deleted
     let exist = find_follow_relationship(&followee_id, &follower_id)

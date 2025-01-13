@@ -1,6 +1,5 @@
-use crate::watcher::{
-    posts::utils::check_member_post_replies, users::utils::find_user_counts, utils::WatcherTest,
-};
+use crate::watcher::utils::watcher::WatcherTest;
+use crate::watcher::{posts::utils::check_member_post_replies, users::utils::find_user_counts};
 use anyhow::Result;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser};
 use pubky_common::crypto::Keypair;
@@ -17,7 +16,7 @@ use super::utils::{
     check_member_user_post_timeline,
 };
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_delete_post_without_relationships() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
@@ -122,7 +121,7 @@ async fn test_delete_post_without_relationships() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_delete_post_that_reposted() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
@@ -253,7 +252,7 @@ async fn test_delete_post_that_reposted() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_delete_post_that_replied() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 

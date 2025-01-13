@@ -1,12 +1,12 @@
 use super::utils::find_post_details;
-use crate::watcher::utils::WatcherTest;
+use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::notification::{Notification, NotificationBody};
 use pubky_nexus::types::Pagination;
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_homeserver_post_repost_notification() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 

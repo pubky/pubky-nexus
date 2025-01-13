@@ -1,11 +1,11 @@
-use crate::watcher::utils::WatcherTest;
+use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
 use pubky_app_specs::{traits::HashId, PubkyAppPost, PubkyAppPostKind, PubkyAppTag, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::post::{PostCounts, PostDetails, PostView};
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_delete_post_with_relationships() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
@@ -40,7 +40,7 @@ async fn test_delete_post_with_relationships() -> Result<()> {
     let tag_url = format!("pubky://{}/pub/pubky.app/tags/{}", user_id, tag.create_id());
 
     // Put tag
-    test.create_tag(&tag_url, tag_blob).await?;
+    test.put(&tag_url, tag_blob).await?;
 
     // Delete the post using the event handler
     test.cleanup_post(&user_id, &post_id).await?;

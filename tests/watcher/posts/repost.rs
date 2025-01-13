@@ -4,7 +4,7 @@ use super::utils::{
     find_repost_relationship_parent_uri,
 };
 use crate::watcher::users::utils::find_user_counts;
-use crate::watcher::utils::WatcherTest;
+use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser};
 use pubky_common::crypto::Keypair;
@@ -13,7 +13,7 @@ use pubky_nexus::{
     RedisOps,
 };
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_homeserver_post_repost() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 

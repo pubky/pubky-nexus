@@ -3,13 +3,13 @@ use super::utils::{
 };
 use crate::watcher::posts::utils::find_post_details;
 use crate::watcher::users::utils::{check_member_user_pioneer, find_user_counts};
-use crate::watcher::utils::WatcherTest;
+use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::post::{PostCounts, PostDetails};
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_homeserver_put_post_event() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 

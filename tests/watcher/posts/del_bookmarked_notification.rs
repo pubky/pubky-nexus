@@ -1,4 +1,4 @@
-use crate::watcher::utils::WatcherTest;
+use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use pubky_app_specs::{
     traits::HashId, PubkyAppBookmark, PubkyAppPost, PubkyAppPostKind, PubkyAppUser,
@@ -9,7 +9,7 @@ use pubky_nexus::{
     types::Pagination,
 };
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_delete_bookmarked_post_notification() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
@@ -56,7 +56,7 @@ async fn test_delete_bookmarked_post_notification() -> Result<()> {
         user_b_id,
         bookmark.create_id()
     );
-    test.create_bookmark(&bookmark_url, bookmark_blob).await?;
+    test.put(&bookmark_url, bookmark_blob).await?;
 
     // User A deletes their post
     test.cleanup_post(&user_a_id, &post_id).await?;

@@ -1,6 +1,6 @@
-use super::PostStream;
+use super::{PostRelationships, PostStream};
 use crate::db::connectors::neo4j::get_neo4j_graph;
-use crate::db::graph::exec::{exec_boolean_row, exec_single_row};
+use crate::db::graph::exec::{exec_single_row, execute_graph_operation, OperationOutcome};
 use crate::types::DynError;
 use crate::types::PubkyId;
 use crate::{queries, RedisOps};
@@ -88,7 +88,7 @@ impl PostDetails {
         parent_key_wrapper: Option<(String, String)>,
         is_edit: bool,
     ) -> Result<(), DynError> {
-        self.put_index_json(&[author_id, &self.id]).await?;
+        self.put_index_json(&[author_id, &self.id], None).await?;
         // When we delete a post that has ancestor, ignore other index updates
         if is_edit {
             return Ok(());
@@ -142,9 +142,14 @@ impl PostDetails {
     }
 
     // Save new graph node
-    pub async fn put_to_graph(&self) -> Result<bool, DynError> {
-        // Save new graph node;
-        exec_boolean_row(queries::put::create_post(self)?).await
+    pub async fn put_to_graph(
+        &self,
+        post_relationships: &PostRelationships,
+    ) -> Result<OperationOutcome, DynError> {
+        match queries::put::create_post(self, post_relationships) {
+            Ok(query) => execute_graph_operation(query).await,
+            Err(_) => Err("QUERY: Error while creating the query".into()),
+        }
     }
 
     pub async fn delete(

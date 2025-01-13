@@ -1,13 +1,14 @@
-use crate::watcher::utils::WatcherTest;
+use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{
     models::notification::{Notification, NotificationBody, PostChangedSource},
     types::Pagination,
+    PubkyConnector,
 };
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_edit_parent_post_notification() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
@@ -62,7 +63,8 @@ async fn test_edit_parent_post_notification() -> Result<()> {
     let edited_url = format!("pubky://{}/pub/pubky.app/posts/{}", user_a_id, post_id);
 
     // Overwrite existing post in the homeserver with the edited one
-    test.client
+    let pubky_client = PubkyConnector::get_pubky_client()?;
+    pubky_client
         .put(edited_url.as_str(), &edited_post_blob)
         .await?;
     test.ensure_event_processing_complete().await?;
