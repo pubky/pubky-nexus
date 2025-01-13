@@ -19,7 +19,7 @@ impl TagGlobal {
                 get_tag_taggers_by_reach(
                     &label,
                     &id,
-                    reach.unwrap_or(TagStreamReach::Friends),
+                    reach.unwrap_or(StreamReach::Friends),
                     skip,
                     limit,
                 )

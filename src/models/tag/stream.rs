@@ -230,7 +230,7 @@ impl HotTags {
             Some(user_id) => {
                 HotTags::get_hot_tags_by_reach(
                     user_id,
-                    reach.unwrap_or(TagStreamReach::Friends),
+                    reach.unwrap_or(StreamReach::Friends),
                     tags_query,
                 )
                 .await
