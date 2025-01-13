@@ -1,4 +1,4 @@
-use crate::models::user::{UserStream, UserStreamSource};
+use crate::models::user::{UserStream, UserStreamInput, UserStreamSource};
 use crate::routes::v0::endpoints::{
     STREAM_USERS_BY_IDS_ROUTE, STREAM_USERS_ROUTE, STREAM_USERS_USERNAME_SEARCH_ROUTE,
 };
@@ -90,16 +90,16 @@ pub async fn stream_users_handler(
         }
     }
 
-    match UserStream::get_by_id(
-        query.user_id.as_deref(),
-        query.viewer_id.as_deref(),
-        Some(skip),
-        Some(limit),
-        source.clone(),
-        query.author_id,
-        query.post_id,
-        query.depth,
-    )
+    match UserStream::get_by_id(UserStreamInput {
+        user_id: query.user_id.clone(),
+        viewer_id: query.viewer_id,
+        skip: Some(skip),
+        limit: Some(limit),
+        source: source.clone(),
+        author_id: query.author_id,
+        post_id: query.post_id,
+        depth: query.depth,
+    })
     .await
     {
         Ok(Some(stream)) => Ok(Json(stream)),
