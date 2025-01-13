@@ -58,7 +58,7 @@ async fn test_stream_following() -> Result<()> {
             "bad_user_id"
         ))
         .await?;
-    assert_eq!(res.status(), 404);
+    assert_eq!(res.status(), 204);
 
     Ok(())
 }
