@@ -19,10 +19,6 @@
 
 :param tag3 => 'tag3';
 
-:param day => 24 * 60 * 60 * 1000;
-
-:param month => 30 * 24 * 60 * 60 * 1000;
-
 // Create the posts
 MERGE (p:Post { id: $post1 }) SET p.content = "This is a test post", p.kind = "short", p.indexed_at = 1733380839000;
 
