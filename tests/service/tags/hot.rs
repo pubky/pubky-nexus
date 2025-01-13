@@ -1,5 +1,5 @@
 use anyhow::Result;
-use reqwest::StatusCode;
+use axum::http::StatusCode;
 use serde_json::Value;
 
 use crate::service::utils::{make_request, make_wrong_request};

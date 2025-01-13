@@ -1,10 +1,10 @@
 use axum::{
     extract::{Path, Query, Request},
+    http::StatusCode,
     middleware::Next,
     response::Response,
 };
 use log::error;
-use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
 use crate::models::{
