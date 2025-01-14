@@ -2,60 +2,49 @@ use std::time::Duration;
 
 use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
-use chrono::Utc;
-use pubky_app_specs::{traits::HashId, PubkyAppTag, PubkyAppUser};
+use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 use pubky_nexus::events::{error::EventProcessorError, retry::event::RetryEvent, EventType};
 
+/// The user profile is stored in the homeserver. Missing the post to connect the new one
 // These types of tests (e.g., retry_xxxx) can be used to verify whether the `RetryManager`
 // cache correctly adds the events as expected.
 #[tokio_shared_rt::test(shared)]
-async fn test_homeserver_user_tag_event_to_queue() -> Result<()> {
+async fn test_homeserver_post_reply_cannot_index() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
+    
+    let keypair = Keypair::random();
 
-    let tagger_keypair = Keypair::random();
-    let tagger_user = PubkyAppUser {
-        bio: Some("test_homeserver_user_tag_event_to_queue".to_string()),
+    let user = PubkyAppUser {
+        bio: Some("test_homeserver_post_reply".to_string()),
         image: None,
         links: None,
-        name: "Watcher:Retry:User:CannotTag:Tagger:Sync".to_string(),
+        name: "Watcher:IndexFail:PostReply:User".to_string(),
         status: None,
     };
-    let tagger_user_id = test.create_user(&tagger_keypair, &tagger_user).await?;
 
-    // Create a user key but it would not be synchronised in nexus
-    let shadow_keypair = Keypair::random();
-    test.register_user(&shadow_keypair).await?;
-    let shadow_user_id = shadow_keypair.public_key().to_z32();
+    let user_id = test.create_user(&keypair, &user).await?;
 
-    // => Create user tag
-    let label = "friendly";
+    // Use a placeholder parent post ID to intentionally avoid resolving it in the graph database
+    let parent_fake_post_id = "0032QB10HCRHG";
+    // Create parent post uri
+    let dependency_uri = format!("pubky://{user_id}/pub/pubky.app/posts/{parent_fake_post_id}");
 
-    let dependency_uri = format!("pubky://{shadow_user_id}/pub/pubky.app/profile.json");
-
-    let tag = PubkyAppTag {
-        uri: dependency_uri.clone(),
-        label: label.to_string(),
-        created_at: Utc::now().timestamp_millis(),
+    let reply_post = PubkyAppPost {
+        content: "Watcher:IndexFail:PostReply:User:Reply".to_string(),
+        kind: PubkyAppPostKind::Short,
+        parent: Some(dependency_uri.clone()),
+        embed: None,
+        attachments: None,
     };
 
-    let tag_blob = serde_json::to_vec(&tag)?;
-    let tag_url = format!(
-        "pubky://{}/pub/pubky.app/tags/{}",
-        tagger_user_id,
-        tag.create_id()
-    );
-
-    // PUT user tag
-    // That operation is going to write the event in the pending events queue, so block a bit the thread
-    // to let write the indexes
-    test.put(tag_url.as_str(), tag_blob.clone()).await?;
+    let reply_id = test.create_post(&user_id, &reply_post).await?;
     tokio::time::sleep(Duration::from_millis(500)).await;
-
+    
     let index_key = format!(
         "{}:{}",
         EventType::Put,
-        RetryEvent::generate_index_key(&tag_url).unwrap()
+        RetryEvent::generate_index_key(&format!("pubky://{user_id}/pub/pubky.app/posts/{reply_id}")).unwrap()
     );
 
     // Assert if the event is in the timeline
@@ -77,6 +66,7 @@ async fn test_homeserver_user_tag_event_to_queue() -> Result<()> {
         }
         _ => assert!(false, "The error type has to be MissingDependency type"),
     };
+
 
     Ok(())
 }

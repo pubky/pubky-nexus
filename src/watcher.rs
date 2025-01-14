@@ -24,6 +24,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
     // Prepare the sender channel to send the messages to the retry manager
     let sender_clone = retry_manager.sender.clone();
     // Create new asynchronous task to control the failed events
+    // TODO: Assure the thread safety
     tokio::spawn(async move {
         let _ = retry_manager.exec().await;
     });

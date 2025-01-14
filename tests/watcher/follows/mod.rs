@@ -8,3 +8,4 @@ mod put_friends;
 mod put_notification;
 mod put_sequential;
 mod utils;
+mod retry_follow;
