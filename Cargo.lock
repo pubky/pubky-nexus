@@ -2504,10 +2504,11 @@ dependencies = [
 [[package]]
 name = "pubky-app-specs"
 version = "0.2.1"
-source = "git+https://github.com/pubky/pubky-app-specs#b885faa516058137615b58b959d69160a26d4bde"
+source = "git+https://github.com/pubky/pubky-app-specs#270fcb2727d5c135e790d1776ccfb704e860fdd0"
 dependencies = [
  "base32",
  "blake3",
+ "mime",
  "serde",
  "serde_json",
  "url",
