@@ -1,8 +1,7 @@
 use super::error::EventProcessorError;
-use super::retry::SenderChannel;
-use super::retry::SenderMessage;
+use super::retry::manager::{SenderChannel, SenderMessage};
 use super::Event;
-use crate::events::retry::RetryEvent;
+use crate::events::retry::event::RetryEvent;
 use crate::types::DynError;
 use crate::types::PubkyId;
 use crate::{models::homeserver::Homeserver, Config};
@@ -153,25 +152,22 @@ impl EventProcessor {
                 error!("Error while handling event: {}", e);
 
                 let retry_event = match e.downcast_ref::<EventProcessorError>() {
-                    Some(EventProcessorError::UserNotSync) => RetryEvent::new(
-                        &event.uri,
-                        &event.event_type,
-                        None,
-                        EventErrorType::GraphError,
-                    ),
-                    Some(EventProcessorError::MissingDependency { dependency }) => RetryEvent::new(
-                        &event.uri,
-                        &event.event_type,
-                        Some(dependency.clone()),
-                        EventErrorType::MissingDependency,
-                    ),
+                    Some(event_processor_error) => RetryEvent::new(event_processor_error.clone()),
                     // Other retry errors must be ignored
                     _ => return Ok(()),
                 };
 
+                // Generate a compress index to save in the cache
+                let index = if let Some(retry_index) = RetryEvent::generate_index_key(&event.uri) {
+                    retry_index
+                } else {
+                    // This block is unlikely to be reached, as it would typically fail during the validation process.
+                    return Ok(());
+                };
+                let index_key = format!("{} {}", event.event_type, index);
                 let sender = self.sender.lock().await;
                 match sender
-                    .send(SenderMessage::Add(self.homeserver.id.clone(), retry_event))
+                    .send(SenderMessage::Add(index_key, retry_event))
                     .await
                 {
                     Ok(_) => {

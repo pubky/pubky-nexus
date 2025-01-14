@@ -1,5 +1,5 @@
 use anyhow::Result;
-use pubky_nexus::events::retry::RetryManager;
+use pubky_nexus::events::retry::manager::RetryManager;
 use pubky_nexus::{setup, types::DynError, Config, EventProcessor};
 use std::fs::File;
 use std::io::{self, BufRead};

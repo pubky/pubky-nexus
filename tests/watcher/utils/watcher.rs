@@ -7,10 +7,8 @@ use pubky_app_specs::{
 };
 use pubky_common::crypto::Keypair;
 use pubky_homeserver::Homeserver;
-use pubky_nexus::events::{
-    retry::{RetryManager, CHANNEL_BUFFER},
-    Event,
-};
+use pubky_nexus::events::retry::manager::{RetryManager, CHANNEL_BUFFER};
+use pubky_nexus::events::Event;
 use pubky_nexus::types::{DynError, PubkyId};
 use pubky_nexus::{setup, Config, EventProcessor, PubkyConnector};
 use serde_json::to_vec;
@@ -95,7 +93,7 @@ impl WatcherTest {
         Ok(())
     }
 
-    pub fn get_homeserver_pubky(&self) -> PubkyId {
+    pub fn _get_homeserver_pubky(&self) -> PubkyId {
         let homeserver_pubky = self.homeserver.public_key().to_uri_string();
         // Slice after the 3rd character
         let pubky_part = &homeserver_pubky["pk:".len()..];

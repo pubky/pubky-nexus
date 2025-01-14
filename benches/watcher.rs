@@ -5,7 +5,7 @@ use pubky_app_specs::{PubkyAppUser, PubkyAppUserLink};
 use pubky_common::crypto::Keypair;
 use pubky_homeserver::Homeserver;
 use pubky_nexus::{
-    events::retry::{RetryManager, SenderChannel},
+    events::manager::{RetryManager, SenderChannel},
     types::PubkyId,
     EventProcessor,
 };

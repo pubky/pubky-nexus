@@ -1,3 +1,5 @@
+use std::fmt;
+
 use crate::{
     db::connectors::pubky::PubkyConnector,
     types::{DynError, PubkyId},
@@ -48,6 +50,16 @@ enum ResourceType {
 pub enum EventType {
     Put,
     Del,
+}
+
+impl fmt::Display for EventType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let upper_case_str = match self {
+            EventType::Put => "PUT",
+            EventType::Del => "DEL",
+        };
+        write!(f, "{}", upper_case_str)
+    }
 }
 
 #[derive(Debug, Clone)]

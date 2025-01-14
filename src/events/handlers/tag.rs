@@ -190,17 +190,6 @@ async fn put_sync_user(
             Ok(())
         }
     }
-    // TagUser::put_to_graph(
-    //     &tagger_user_id,
-    //     &tagged_user_id,
-    //     None,
-    //     &tag_id,
-    //     &tag_label,
-    //     indexed_at,
-    // )
-    // .await?;
-    // let dependency = format!("pubky://{tagged_user_id}/pub/pubky.app/profile.json");
-    // Err(EventProcessorError::MissingDependency { dependency }.into())
 }
 
 pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), DynError> {

@@ -1,8 +1,7 @@
 use log::error;
 use log::info;
-use pubky_nexus::events::retry::RetryManager;
-use pubky_nexus::events::retry::SenderMessage;
-use pubky_nexus::events::retry::CHANNEL_BUFFER;
+use pubky_nexus::events::retry::manager::SenderMessage;
+use pubky_nexus::events::retry::manager::{RetryManager, CHANNEL_BUFFER};
 use pubky_nexus::PubkyConnector;
 use pubky_nexus::{setup, Config, EventProcessor};
 use tokio::sync::mpsc;
