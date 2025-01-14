@@ -17,7 +17,7 @@ pubky = "0.3.0"
 pubky-app-specs = { git = "https://github.com/pubky/pubky-app-specs", features = [
     "openapi",
 ] }
-tokio = { version = "1.42.0", features = ["full"] }
+tokio = { version = "1.43.0", features = ["full"] }
 axum = "0.8.1"
 redis = { version = "0.27.6", features = ["tokio-comp", "json"] }
 neo4rs = "0.8.0"
