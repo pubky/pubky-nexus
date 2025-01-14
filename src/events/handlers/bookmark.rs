@@ -42,7 +42,7 @@ pub async fn sync_put(
             OperationOutcome::Updated => true,
             // TODO: Should return an error that should be processed by RetryManager
             OperationOutcome::Pending => {
-                let dependency = vec![format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}")];
+                let dependency = vec![format!("{author_id}:posts:{post_id}")];
                 return Err(EventProcessorError::MissingDependency { dependency }.into());
             }
         };

@@ -81,7 +81,8 @@ async fn put_sync_post(
     {
         OperationOutcome::Updated => Ok(()),
         OperationOutcome::Pending => {
-            let dependency = vec![format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}")];
+            // Ensure that dependencies follow the same format as the RetryManager keys
+            let dependency = vec![format!("{author_id}:posts:{post_id}")];
             Err(EventProcessorError::MissingDependency { dependency }.into())
         }
         OperationOutcome::CreatedOrDeleted => {
@@ -159,9 +160,8 @@ async fn put_sync_user(
     {
         OperationOutcome::Updated => Ok(()),
         OperationOutcome::Pending => {
-            let dependency = vec![format!(
-                "pubky://{tagged_user_id}/pub/pubky.app/profile.json"
-            )];
+            // Ensure that dependencies follow the same format as the RetryManager keys
+            let dependency = vec![format!("{tagged_user_id}:user:profile.json")];
             Err(EventProcessorError::MissingDependency { dependency }.into())
         }
         OperationOutcome::CreatedOrDeleted => {

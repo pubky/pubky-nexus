@@ -40,14 +40,24 @@ impl RetryEvent {
     /// - `event_uri`: A string slice representing the event URI to be processed
     pub fn generate_index_key(event_uri: &str) -> Option<String> {
         let parts: Vec<&str> = event_uri.split('/').collect();
-        if parts.len() >= 7
-            && parts[0] == HOMESERVER_PROTOCOL
-            && parts[3] == HOMESERVER_PUBLIC_REPOSITORY
-            && parts[4] == HOMESERVER_APP_REPOSITORY
+        // Ensure the URI structure matches the expected format
+        if parts.first() != Some(&HOMESERVER_PROTOCOL)
+            || parts.get(3) != Some(&HOMESERVER_PUBLIC_REPOSITORY)
+            || parts.get(4) != Some(&HOMESERVER_APP_REPOSITORY)
         {
-            Some(format!("{}:{}:{}", parts[2], parts[5], parts[6]))
-        } else {
-            None
+            return None;
+        }
+
+        match parts.as_slice() {
+            // Regular PubkyApp URIs
+            [_, _, pubky_id, _, _, domain, event_id] => {
+                Some(format!("{}:{}:{}", pubky_id, domain, event_id))
+            }
+            // PubkyApp user profile URI (profile.json)
+            [_, _, pubky_id, _, _, "profile.json"] => {
+                Some(format!("{}:user:profile.json", pubky_id))
+            }
+            _ => None,
         }
     }
 

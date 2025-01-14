@@ -161,7 +161,7 @@ impl EventProcessor {
                 let index = if let Some(retry_index) = RetryEvent::generate_index_key(&event.uri) {
                     retry_index
                 } else {
-                    // This block is unlikely to be reached, as it would typically fail during the validation process.
+                    // This block is unlikely to be reached, as it would typically fail during the validation process
                     return Ok(());
                 };
                 let index_key = format!("{}:{}", event.event_type, index);

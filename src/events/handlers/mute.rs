@@ -21,7 +21,7 @@ pub async fn sync_put(user_id: PubkyId, muted_id: PubkyId) -> Result<(), DynErro
     match Muted::put_to_graph(&user_id, &muted_id).await? {
         OperationOutcome::Updated => Ok(()),
         OperationOutcome::Pending => {
-            let dependency = vec![format!("pubky://{muted_id}/pub/pubky.app/profile.json")];
+            let dependency = vec![format!("{muted_id}:user:profile.json")];
             Err(EventProcessorError::MissingDependency { dependency }.into())
         }
         OperationOutcome::CreatedOrDeleted => {

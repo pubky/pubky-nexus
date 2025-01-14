@@ -1,6 +1,7 @@
 use crate::db::graph::exec::{exec_single_row, execute_graph_operation, OperationOutcome};
 use crate::db::kv::index::json::JsonAction;
 use crate::events::error::EventProcessorError;
+use crate::events::retry::event::RetryEvent;
 use crate::events::uri::ParsedUri;
 use crate::models::notification::{Notification, PostChangedSource, PostChangedType};
 use crate::models::post::{
@@ -45,13 +46,19 @@ pub async fn sync_put(
         OperationOutcome::Pending => {
             let mut dependency = Vec::new();
             if let Some(replied_uri) = &post_relationships.replied {
-                dependency.push(replied_uri.clone());
+                let reply_dependency = RetryEvent::generate_index_key(replied_uri)
+                    // This block is unlikely to be reached, as it would typically fail during the validation process
+                    .unwrap_or_else(|| replied_uri.clone());
+                dependency.push(reply_dependency);
             }
             if let Some(reposted_uri) = &post_relationships.reposted {
-                dependency.push(reposted_uri.clone());
+                let reply_dependency = RetryEvent::generate_index_key(reposted_uri)
+                    // This block is unlikely to be reached, as it would typically fail during the validation process
+                    .unwrap_or_else(|| reposted_uri.clone());
+                dependency.push(reply_dependency);
             }
             if dependency.is_empty() {
-                dependency.push(format!("pubky://{author_id}/pub/pubky.app/profile.json"))
+                dependency.push(format!("{author_id}:user:profile.json"))
             }
             return Err(EventProcessorError::MissingDependency { dependency }.into());
         }

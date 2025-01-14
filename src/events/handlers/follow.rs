@@ -25,7 +25,7 @@ pub async fn sync_put(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), 
         // Do not duplicate the follow relationship
         OperationOutcome::Updated => return Ok(()),
         OperationOutcome::Pending => {
-            let dependency = vec![format!("pubky://{followee_id}/pub/pubky.app/profile.json")];
+            let dependency = vec![format!("{followee_id}:user:profile.json")];
             return Err(EventProcessorError::MissingDependency { dependency }.into());
         }
         // The relationship did not exist, create all related indexes
