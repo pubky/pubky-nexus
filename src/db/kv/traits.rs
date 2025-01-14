@@ -681,42 +681,4 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         let key = key_parts.join(":");
         sorted_sets::get_lex_range("Sorted", &key, min, max, skip, limit).await
     }
-
-    // ############################################################
-    // ############ HASH MAP related functions ####################
-    // ############################################################
-
-    /// Inserts a value into a Redis hash map at the specified key and field.
-    /// # Arguments
-    /// * `prefix` - An optional string slice representing the prefix for the key
-    /// * `key_parts` - A slice of string slices representing parts of the key
-    /// * `field` - A string slice representing the field in the hash map where the value will be stored.
-    /// * `value` - A `String` containing the value to be stored in the hash map
-    async fn put_index_hash_map(
-        prefix: Option<&str>,
-        key_parts: &[&str],
-        field: &str,
-        value: String,
-    ) -> Result<(), DynError> {
-        let prefix = prefix.unwrap_or(SORTED_PREFIX);
-        let key = key_parts.join(":");
-        // Store the elements in the Redis sorted set
-        hash_map::put(prefix, &key, field, value).await
-    }
-
-    /// Retrieves a value from a Redis hash map at the specified key and field.
-    /// # Arguments
-    /// * `prefix` - An optional string slice representing the prefix for the key
-    /// * `key_parts` - A slice of string slices representing parts of the key
-    /// * `field` - A string slice representing the field in the hash map from which the value will be retrieved
-    async fn get_index_hash_map(
-        prefix: Option<&str>,
-        key_parts: &[&str],
-        field: &str,
-    ) -> Result<Option<String>, DynError> {
-        let prefix = prefix.unwrap_or(SORTED_PREFIX);
-        let key = key_parts.join(":");
-        // Store the elements in the Redis sorted set
-        hash_map::get(prefix, &key, field).await
-    }
 }

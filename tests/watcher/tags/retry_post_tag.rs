@@ -62,7 +62,7 @@ async fn test_homeserver_post_tag_event_to_queue() -> Result<()> {
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     let index_key = format!(
-        "{} {}",
+        "{}:{}",
         EventType::Put,
         RetryEvent::generate_index_key(&tag_url).unwrap()
     );

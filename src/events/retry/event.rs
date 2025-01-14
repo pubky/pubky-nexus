@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
@@ -6,6 +7,7 @@ use crate::{events::error::EventProcessorError, types::DynError, RedisOps};
 pub const RETRY_MAMAGER_PREFIX: &str = "RetryManager";
 pub const RETRY_MANAGER_EVENTS_INDEX: [&str; 1] = ["events"];
 pub const RETRY_MANAGER_STATE_INDEX: [&str; 1] = ["state"];
+pub const HOMESERVER_PROTOCOL: &str = "pubky:";
 pub const HOMESERVER_PUBLIC_REPOSITORY: &str = "pub";
 pub const HOMESERVER_APP_REPOSITORY: &str = "pubky.app";
 
@@ -17,7 +19,12 @@ pub struct RetryEvent {
     pub error_type: EventProcessorError,
 }
 
-impl RedisOps for RetryEvent {}
+#[async_trait]
+impl RedisOps for RetryEvent {
+    async fn prefix() -> String {
+        String::from(RETRY_MAMAGER_PREFIX)
+    }
+}
 
 impl RetryEvent {
     pub fn new(error_type: EventProcessorError) -> Self {
@@ -28,22 +35,27 @@ impl RetryEvent {
     }
 
     /// It processes a homeserver URI and extracts specific components to form a index key
-    /// in the format `"{pubkyId}:{repository_model}/{event_id}"`
+    /// in the format `"{pubkyId}:{repository_model}:{event_id}"`
     /// # Parameters
     /// - `event_uri`: A string slice representing the event URI to be processed
     pub fn generate_index_key(event_uri: &str) -> Option<String> {
         let parts: Vec<&str> = event_uri.split('/').collect();
         if parts.len() >= 7
-            && parts[0] == "pubky:"
+            && parts[0] == HOMESERVER_PROTOCOL
             && parts[3] == HOMESERVER_PUBLIC_REPOSITORY
             && parts[4] == HOMESERVER_APP_REPOSITORY
         {
-            Some(format!("{}:{}/{}", parts[2], parts[5], parts[6]))
+            Some(format!("{}:{}:{}", parts[2], parts[5], parts[6]))
         } else {
             None
         }
     }
 
+    /// Stores an event in both a sorted set and a JSON index in Redis.
+    /// It adds an event line to a Redis sorted set with a timestamp-based score
+    /// and also stores the event details in a separate JSON index for retrieval.
+    /// # Arguments
+    /// * `event_line` - A `String` representing the event line to be indexed.
     pub async fn put_to_index(&self, event_line: String) -> Result<(), DynError> {
         Self::put_index_sorted_set(
             &RETRY_MANAGER_EVENTS_INDEX,
@@ -54,23 +66,20 @@ impl RetryEvent {
         )
         .await?;
 
-        let event_serialized = serde_json::to_string(self)?;
+        let index = &[RETRY_MANAGER_STATE_INDEX, [&event_line]].concat();
+        self.put_index_json(index, None).await?;
 
-        Self::put_index_hash_map(
-            Some(RETRY_MAMAGER_PREFIX),
-            &RETRY_MANAGER_STATE_INDEX,
-            &event_line,
-            event_serialized,
-        )
-        .await?;
         Ok(())
     }
 
-    pub async fn check_uri(event_line: &str) -> Result<Option<isize>, DynError> {
+    /// Checks if a specific event exists in the Redis sorted set
+    /// # Arguments
+    /// * `event_index` - A `&str` representing the event index to check
+    pub async fn check_uri(event_index: &str) -> Result<Option<isize>, DynError> {
         if let Some(post_details) = Self::check_sorted_set_member(
             Some(RETRY_MAMAGER_PREFIX),
             &RETRY_MANAGER_EVENTS_INDEX,
-            &[event_line],
+            &[event_index],
         )
         .await?
         {
@@ -79,17 +88,14 @@ impl RetryEvent {
         Ok(None)
     }
 
-    pub async fn get_from_index(pubky_uri: &str) -> Result<Option<Self>, DynError> {
+    /// Retrieves an event from the JSON index in Redis based on its index
+    /// # Arguments
+    /// * `event_index` - A `&str` representing the event index to retrieve
+    pub async fn get_from_index(event_index: &str) -> Result<Option<Self>, DynError> {
         let mut found_event = None;
-        if let Some(event_state) = Self::get_index_hash_map(
-            Some(RETRY_MAMAGER_PREFIX),
-            &RETRY_MANAGER_STATE_INDEX,
-            pubky_uri,
-        )
-        .await?
-        {
-            let event = serde_json::from_str::<Self>(&event_state)?;
-            found_event = Some(event);
+        let index = &[RETRY_MANAGER_STATE_INDEX, [event_index]].concat();
+        if let Some(fail_event) = Self::try_from_index_json(index).await? {
+            found_event = Some(fail_event);
         }
         Ok(found_event)
     }

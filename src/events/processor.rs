@@ -164,7 +164,7 @@ impl EventProcessor {
                     // This block is unlikely to be reached, as it would typically fail during the validation process.
                     return Ok(());
                 };
-                let index_key = format!("{} {}", event.event_type, index);
+                let index_key = format!("{}:{}", event.event_type, index);
                 let sender = self.sender.lock().await;
                 match sender
                     .send(SenderMessage::Add(index_key, retry_event))
