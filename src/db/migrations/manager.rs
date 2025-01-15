@@ -1,5 +1,5 @@
 use crate::{db::migrations::utils, types::DynError, Config};
-use axum::async_trait;
+use async_trait::async_trait;
 use chrono::Utc;
 use neo4rs::{Graph, Query};
 use serde::{Deserialize, Serialize};
