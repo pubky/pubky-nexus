@@ -13,7 +13,7 @@ pub enum OperationOutcome {
     CreatedOrDeleted,
     /// A required node/relationship was not found, indicating a missing dependency
     /// (often due to the node/relationship not yet being indexed or otherwise unavailable).
-    Pending,
+    MissingDependency,
 }
 
 /// Executes a graph query expected to return exactly one row containing a boolean column named
@@ -22,7 +22,7 @@ pub enum OperationOutcome {
 /// - `true` => Returns [`OperationOutcome::Updated`]
 /// - `false` => Returns [`OperationOutcome::CreatedOrDeleted`]
 ///
-/// If no rows are returned, this function returns [`OperationOutcome::Pending`], typically
+/// If no rows are returned, this function returns [`OperationOutcome::MissingDependency`], typically
 /// indicating a missing dependency or an unmatched query condition.
 pub async fn execute_graph_operation(query: Query) -> Result<OperationOutcome, DynError> {
     let mut result;
@@ -38,7 +38,7 @@ pub async fn execute_graph_operation(query: Query) -> Result<OperationOutcome, D
             true => Ok(OperationOutcome::Updated),
             false => Ok(OperationOutcome::CreatedOrDeleted),
         },
-        None => Ok(OperationOutcome::Pending),
+        None => Ok(OperationOutcome::MissingDependency),
     }
 }
 

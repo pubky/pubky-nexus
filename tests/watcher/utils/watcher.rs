@@ -7,8 +7,12 @@ use pubky_app_specs::{
 };
 use pubky_common::crypto::Keypair;
 use pubky_homeserver::Homeserver;
-use pubky_nexus::{events::Event, setup, types::DynError, Config, EventProcessor, PubkyConnector};
+use pubky_nexus::events::retry::manager::{RetryManager, CHANNEL_BUFFER};
+use pubky_nexus::events::Event;
+use pubky_nexus::types::{DynError, PubkyId};
+use pubky_nexus::{setup, Config, EventProcessor, PubkyConnector};
 use serde_json::to_vec;
+use tokio::sync::mpsc;
 
 /// Struct to hold the setup environment for tests
 pub struct WatcherTest {
@@ -26,8 +30,9 @@ impl WatcherTest {
     /// 2. Initializes database connectors for Neo4j and Redis.
     /// 3. Sets up the global DHT test network for the watcher.
     /// 4. Creates and starts a test homeserver instance.
-    /// 5. Initializes the PubkyConnector with the configuration and global test DHT nodes.
-    /// 6. Creates and configures the event processor with the homeserver URL.
+    /// 5. Initializes a retry manager and ensures robustness by managing retries asynchronously.
+    /// 6. Initializes the PubkyConnector with the configuration and global test DHT nodes.
+    /// 7. Creates and configures the event processor with the homeserver URL.
     ///
     /// # Returns
     /// Returns an instance of `Self` containing the configuration, homeserver,
@@ -42,12 +47,28 @@ impl WatcherTest {
         let homeserver = Homeserver::start_test(&testnet).await?;
         let homeserver_url = format!("http://localhost:{}", homeserver.port());
 
+        let retry_manager = RetryManager::initialise(mpsc::channel(CHANNEL_BUFFER));
+
+        let sender_clone = retry_manager.sender.clone();
+
+        tokio::spawn(async move {
+            let _ = retry_manager.exec().await;
+        });
+
         match PubkyConnector::initialise(&config, Some(&testnet)) {
             Ok(_) => debug!("WatcherTest: PubkyConnector initialised"),
             Err(e) => debug!("WatcherTest: {}", e),
         }
 
-        let event_processor = EventProcessor::test(homeserver_url).await;
+        let homeserver_pubky = homeserver.public_key().to_uri_string();
+        // Slice after the 3rd character
+        let pubky_part = &homeserver_pubky["pk:".len()..];
+        // Not save,
+        let homeserver_pubky =
+            PubkyId::try_from(&pubky_part).expect("PubkyId: Cannot get the homeserver public key");
+
+        let event_processor =
+            EventProcessor::test(homeserver_url, homeserver_pubky, sender_clone).await;
 
         Ok(Self {
             config,
@@ -57,17 +78,27 @@ impl WatcherTest {
         })
     }
 
+    /// Disables event processing and returns the modified instance.
     pub async fn remove_event_processing(mut self) -> Self {
         self.ensure_event_processing = false;
         self
     }
 
+    /// Ensures that event processing is completed if it is enabled.
     pub async fn ensure_event_processing_complete(&mut self) -> Result<()> {
         if self.ensure_event_processing {
             self.event_processor.run().await.map_err(|e| anyhow!(e))?;
             // tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         }
         Ok(())
+    }
+
+    pub fn _get_homeserver_pubky(&self) -> PubkyId {
+        let homeserver_pubky = self.homeserver.public_key().to_uri_string();
+        // Slice after the 3rd character
+        let pubky_part = &homeserver_pubky["pk:".len()..];
+        // Not save,
+        PubkyId::try_from(&pubky_part).expect("PubkyId: Cannot get the homeserver public key")
     }
 
     /// Sends a PUT request to the homeserver with the provided blob of data.

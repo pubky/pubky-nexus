@@ -1,9 +1,17 @@
-use crate::{db::connectors::pubky::PubkyConnector, types::PubkyId};
+use std::fmt;
+
+use crate::{
+    db::connectors::pubky::PubkyConnector,
+    types::{DynError, PubkyId},
+};
 use log::{debug, error};
+use serde::{Deserialize, Serialize};
 use uri::ParsedUri;
 
+pub mod error;
 pub mod handlers;
 pub mod processor;
+pub mod retry;
 pub mod uri;
 
 #[derive(Debug, Clone)]
@@ -38,10 +46,20 @@ enum ResourceType {
 }
 
 // Look for the end pattern after the start index, or use the end of the string if not found
-#[derive(Debug, Clone)]
-enum EventType {
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum EventType {
     Put,
     Del,
+}
+
+impl fmt::Display for EventType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let upper_case_str = match self {
+            EventType::Put => "PUT",
+            EventType::Del => "DEL",
+        };
+        write!(f, "{}", upper_case_str)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -52,9 +70,7 @@ pub struct Event {
 }
 
 impl Event {
-    pub fn parse_event(
-        line: &str,
-    ) -> Result<Option<Self>, Box<dyn std::error::Error + Sync + Send>> {
+    pub fn parse_event(line: &str) -> Result<Option<Self>, DynError> {
         debug!("New event: {}", line);
         let parts: Vec<&str> = line.split(' ').collect();
         if parts.len() != 2 {
@@ -118,14 +134,14 @@ impl Event {
         }))
     }
 
-    pub async fn handle(self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
+    pub async fn handle(self) -> Result<(), DynError> {
         match self.event_type {
             EventType::Put => self.handle_put_event().await,
             EventType::Del => self.handle_del_event().await,
         }
     }
 
-    async fn handle_put_event(self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
+    async fn handle_put_event(self) -> Result<(), DynError> {
         debug!("Handling PUT event for {:?}", self.resource_type);
 
         // User PUT event's into the homeserver write new data. We fetch the data
@@ -171,7 +187,7 @@ impl Event {
         Ok(())
     }
 
-    async fn handle_del_event(self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
+    async fn handle_del_event(self) -> Result<(), DynError> {
         debug!("Handling DEL event for {:?}", self.resource_type);
 
         match self.resource_type {

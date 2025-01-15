@@ -1,4 +1,5 @@
 use crate::db::graph::exec::OperationOutcome;
+use crate::events::error::EventProcessorError;
 use crate::models::user::Muted;
 use crate::types::DynError;
 use crate::types::PubkyId;
@@ -19,9 +20,9 @@ pub async fn sync_put(user_id: PubkyId, muted_id: PubkyId) -> Result<(), DynErro
     // (user_id)-[:MUTED]->(muted_id)
     match Muted::put_to_graph(&user_id, &muted_id).await? {
         OperationOutcome::Updated => Ok(()),
-        // TODO: Should return an error that should be processed by RetryManager
-        OperationOutcome::Pending => {
-            Err("WATCHER: Missing some dependency to index the model".into())
+        OperationOutcome::MissingDependency => {
+            let dependency = vec![format!("{muted_id}:user:profile.json")];
+            Err(EventProcessorError::MissingDependency { dependency }.into())
         }
         OperationOutcome::CreatedOrDeleted => {
             // SAVE TO INDEX
@@ -42,7 +43,7 @@ pub async fn sync_del(user_id: PubkyId, muted_id: PubkyId) -> Result<(), DynErro
     match Muted::del_from_graph(&user_id, &muted_id).await? {
         OperationOutcome::Updated => Ok(()),
         // TODO: Should return an error that should be processed by RetryManager
-        OperationOutcome::Pending => {
+        OperationOutcome::MissingDependency => {
             Err("WATCHER: Missing some dependency to index the model".into())
         }
         OperationOutcome::CreatedOrDeleted => {

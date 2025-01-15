@@ -1,5 +1,6 @@
 use crate::db::graph::exec::OperationOutcome;
 use crate::db::kv::index::json::JsonAction;
+use crate::events::error::EventProcessorError;
 use crate::events::uri::ParsedUri;
 use crate::models::notification::Notification;
 use crate::models::post::{PostCounts, PostStream};
@@ -79,10 +80,10 @@ async fn put_sync_post(
     .await?
     {
         OperationOutcome::Updated => Ok(()),
-        // TODO: Should return an error that should be processed by RetryManager
-        // WIP: Create a custom error type to pass enough info to the RetryManager
-        OperationOutcome::Pending => {
-            Err("WATCHER: Missing some dependency to index the model".into())
+        OperationOutcome::MissingDependency => {
+            // Ensure that dependencies follow the same format as the RetryManager keys
+            let dependency = vec![format!("{author_id}:posts:{post_id}")];
+            Err(EventProcessorError::MissingDependency { dependency }.into())
         }
         OperationOutcome::CreatedOrDeleted => {
             // SAVE TO INDEXES
@@ -158,10 +159,10 @@ async fn put_sync_user(
     .await?
     {
         OperationOutcome::Updated => Ok(()),
-        // TODO: Should return an error that should be processed by RetryManager
-        // WIP: Create a custom error type to pass enough info to the RetryManager
-        OperationOutcome::Pending => {
-            Err("WATCHER: Missing some dependency to index the model".into())
+        OperationOutcome::MissingDependency => {
+            // Ensure that dependencies follow the same format as the RetryManager keys
+            let dependency = vec![format!("{tagged_user_id}:user:profile.json")];
+            Err(EventProcessorError::MissingDependency { dependency }.into())
         }
         OperationOutcome::CreatedOrDeleted => {
             // SAVE TO INDEX

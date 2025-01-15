@@ -65,6 +65,7 @@ async fn test_homeserver_user_put_event() -> Result<()> {
 
     // Sorted:Users:Name
     let is_member = UserSearch::check_sorted_set_member(
+        None,
         &USER_NAME_KEY_PARTS,
         &[&user.name.to_lowercase(), &user_id],
     )

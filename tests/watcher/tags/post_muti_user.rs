@@ -66,12 +66,12 @@ async fn test_homeserver_multi_user() -> Result<()> {
 
     // Avoid errors, if the score does not exist. Using that variable in the last assert of the test
     let actual_water_tag_hot_score =
-        Taggers::check_sorted_set_member(&TAG_GLOBAL_HOT, &[label_water])
+        Taggers::check_sorted_set_member(None, &TAG_GLOBAL_HOT, &[label_water])
             .await
             .unwrap()
             .unwrap_or_default();
     let actual_fire_tag_hot_score =
-        Taggers::check_sorted_set_member(&TAG_GLOBAL_HOT, &[label_fire])
+        Taggers::check_sorted_set_member(None, &TAG_GLOBAL_HOT, &[label_fire])
             .await
             .unwrap()
             .unwrap_or_default();
@@ -217,15 +217,17 @@ async fn test_homeserver_multi_user() -> Result<()> {
     assert_eq!(total_engagement.unwrap(), 5);
 
     // Assert hot tag score: Sorted:Post:Global:Hot:label
-    let water_total_engagement = Taggers::check_sorted_set_member(&TAG_GLOBAL_HOT, &[label_water])
-        .await
-        .unwrap()
-        .unwrap();
+    let water_total_engagement =
+        Taggers::check_sorted_set_member(None, &TAG_GLOBAL_HOT, &[label_water])
+            .await
+            .unwrap()
+            .unwrap();
     assert_eq!(water_total_engagement, actual_water_tag_hot_score + 3);
-    let fire_total_engagement = Taggers::check_sorted_set_member(&TAG_GLOBAL_HOT, &[label_fire])
-        .await
-        .unwrap()
-        .unwrap();
+    let fire_total_engagement =
+        Taggers::check_sorted_set_member(None, &TAG_GLOBAL_HOT, &[label_fire])
+            .await
+            .unwrap()
+            .unwrap();
     assert_eq!(fire_total_engagement, actual_fire_tag_hot_score + 2);
 
     // Step 4: DEL tag from homeserver
@@ -318,15 +320,17 @@ async fn test_homeserver_multi_user() -> Result<()> {
     }
 
     // Assert hot tag score: Sorted:Post:Global:Hot:label
-    let water_total_engagement = Taggers::check_sorted_set_member(&TAG_GLOBAL_HOT, &[label_water])
-        .await
-        .unwrap()
-        .unwrap();
+    let water_total_engagement =
+        Taggers::check_sorted_set_member(None, &TAG_GLOBAL_HOT, &[label_water])
+            .await
+            .unwrap()
+            .unwrap();
     assert_eq!(water_total_engagement, actual_water_tag_hot_score);
-    let fire_total_engagement = Taggers::check_sorted_set_member(&TAG_GLOBAL_HOT, &[label_fire])
-        .await
-        .unwrap()
-        .unwrap();
+    let fire_total_engagement =
+        Taggers::check_sorted_set_member(None, &TAG_GLOBAL_HOT, &[label_fire])
+            .await
+            .unwrap()
+            .unwrap();
     assert_eq!(fire_total_engagement, actual_fire_tag_hot_score);
 
     let notifications = Notification::get_by_id(author_id, Pagination::default())

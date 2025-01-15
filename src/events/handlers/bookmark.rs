@@ -1,5 +1,6 @@
 use crate::db::graph::exec::OperationOutcome;
 use crate::db::kv::index::json::JsonAction;
+use crate::events::error::EventProcessorError;
 use crate::events::uri::ParsedUri;
 use crate::models::post::Bookmark;
 use crate::models::user::UserCounts;
@@ -40,8 +41,9 @@ pub async fn sync_put(
             OperationOutcome::CreatedOrDeleted => false,
             OperationOutcome::Updated => true,
             // TODO: Should return an error that should be processed by RetryManager
-            OperationOutcome::Pending => {
-                return Err("WATCHER: Missing some dependency to index the model".into())
+            OperationOutcome::MissingDependency => {
+                let dependency = vec![format!("{author_id}:posts:{post_id}")];
+                return Err(EventProcessorError::MissingDependency { dependency }.into());
             }
         };
 
@@ -67,15 +69,16 @@ pub async fn del(user_id: PubkyId, bookmark_id: String) -> Result<(), DynError> 
 pub async fn sync_del(user_id: PubkyId, bookmark_id: String) -> Result<(), DynError> {
     // DELETE FROM GRAPH
     let deleted_bookmark_info = Bookmark::del_from_graph(&user_id, &bookmark_id).await?;
+    // Ensure the bookmark exists in the graph before proceeding
+    let (post_id, author_id) = match deleted_bookmark_info {
+        Some(info) => info,
+        None => return Err(EventProcessorError::SkipIndexing.into()),
+    };
 
-    if let Some((post_id, author_id)) = deleted_bookmark_info {
-        // DELETE FROM INDEXes
-        Bookmark::del_from_index(&user_id, &post_id, &author_id).await?;
-
-        // Update user counts with the new bookmark
-        // Skip updating counts if bookmark was not found in graph
-        UserCounts::update(&user_id, "bookmarks", JsonAction::Decrement(1)).await?;
-    }
+    // DELETE FROM INDEXes
+    Bookmark::del_from_index(&user_id, &post_id, &author_id).await?;
+    // Update user counts
+    UserCounts::update(&user_id, "bookmarks", JsonAction::Decrement(1)).await?;
 
     Ok(())
 }

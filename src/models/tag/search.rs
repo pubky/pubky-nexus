@@ -129,7 +129,7 @@ impl TagSearch {
     ) -> Result<(), DynError> {
         let post_key_slice: &[&str] = &[author_id, post_id];
         let key_parts = [&TAG_GLOBAL_POST_TIMELINE[..], &[tag_label]].concat();
-        let tag_search = Self::check_sorted_set_member(&key_parts, post_key_slice).await?;
+        let tag_search = Self::check_sorted_set_member(None, &key_parts, post_key_slice).await?;
         if tag_search.is_none() {
             let option = PostDetails::try_from_index_json(post_key_slice).await?;
             if let Some(post_details) = option {
@@ -157,7 +157,7 @@ impl TagSearch {
         if label_taggers.is_none() {
             let key_parts = [&TAG_GLOBAL_POST_TIMELINE[..], &[tag_label]].concat();
             let post_key = format!("{}:{}", author_id, post_id);
-            Self::remove_from_index_sorted_set(&key_parts, &[&post_key]).await?;
+            Self::remove_from_index_sorted_set(None, &key_parts, &[&post_key]).await?;
         }
         Ok(())
     }
