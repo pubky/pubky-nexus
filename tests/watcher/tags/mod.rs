@@ -1,3 +1,4 @@
+mod fail_index;
 mod post_del;
 mod post_muti_user;
 mod post_notification;

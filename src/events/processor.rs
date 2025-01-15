@@ -92,7 +92,7 @@ impl EventProcessor {
                     info!("Cursor for the next request: {}", cursor);
                 }
             } else {
-                let event = match Event::from_str(line) {
+                let event = match Event::parse_event(line) {
                     Ok(event) => event,
                     Err(e) => {
                         error!("Error while creating event line from line: {}", e);
@@ -116,20 +116,27 @@ impl EventProcessor {
             match event.clone().handle().await {
                 Ok(_) => break Ok(()),
                 Err(e) => {
-                    attempts += 1;
-                    if attempts >= self.max_retries {
-                        error!(
-                            "Error while handling event after {} attempts: {}",
-                            attempts, e
-                        );
-                        break Ok(());
+                    // TODO: Failing to index the profile.json, the error message might be different
+                    // WIP: It will be fixed in the comming PRs the error messages
+                    if e.to_string() != "WATCHER: Missing some dependency to index the model" {
+                        attempts += 1;
+                        if attempts >= self.max_retries {
+                            error!(
+                                "Error while handling event after {} attempts: {}",
+                                attempts, e
+                            );
+                            break Ok(());
+                        } else {
+                            error!(
+                                "Error while handling event: {}. Retrying attempt {}/{}",
+                                e, attempts, self.max_retries
+                            );
+                            // Optionally, add a delay between retries
+                            tokio::time::sleep(Duration::from_millis(100)).await;
+                        }
                     } else {
-                        error!(
-                            "Error while handling event: {}. Retrying attempt {}/{}",
-                            e, attempts, self.max_retries
-                        );
-                        // Optionally, add a delay between retries
-                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        error!("PROCESSOR: Sending the event to RetryManager... Missing node(s) and/or relationship(s) to execute PUT or DEL operation(s)");
+                        return Ok(());
                     }
                 }
             }

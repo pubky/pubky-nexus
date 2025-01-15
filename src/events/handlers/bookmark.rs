@@ -1,3 +1,4 @@
+use crate::db::graph::exec::OperationOutcome;
 use crate::db::kv::index::json::JsonAction;
 use crate::events::uri::ParsedUri;
 use crate::models::post::Bookmark;
@@ -32,9 +33,17 @@ pub async fn sync_put(
         parsed_uri.post_id.ok_or("Bookmarked URI missing post_id")?,
     );
 
-    // Save new bookmark relationship to the graph
+    // Save new bookmark relationship to the graph, only if the bookmarked user exists
     let indexed_at = Utc::now().timestamp_millis();
-    let existed = Bookmark::put_to_graph(&author_id, &post_id, &user_id, &id, indexed_at).await?;
+    let existed =
+        match Bookmark::put_to_graph(&author_id, &post_id, &user_id, &id, indexed_at).await? {
+            OperationOutcome::CreatedOrDeleted => false,
+            OperationOutcome::Updated => true,
+            // TODO: Should return an error that should be processed by RetryManager
+            OperationOutcome::Pending => {
+                return Err("WATCHER: Missing some dependency to index the model".into())
+            }
+        };
 
     // SAVE TO INDEX
     let bookmark_details = Bookmark { id, indexed_at };
