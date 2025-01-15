@@ -1,8 +1,8 @@
 use std::any::Any;
 
 use anyhow::Result;
-use axum::async_trait;
 
+use async_trait::async_trait;
 use neo4rs::query;
 use pubky_nexus::{get_neo4j_graph, get_redis_conn, types::DynError, Migration, MigrationManager};
 
