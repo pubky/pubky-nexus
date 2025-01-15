@@ -59,25 +59,27 @@ async fn ingest(
     user_id: &PubkyId,
     file_id: &str,
     pubkyapp_file: &PubkyAppFile,
-    //client: &PubkyClient,
 ) -> Result<FileMeta, DynError> {
     let pubky_client = PubkyConnector::get_pubky_client()?;
+
     let blob = match pubky_client.get(pubkyapp_file.src.as_str()).await? {
         Some(metadata) => metadata,
+        // TODO: Shape the error to avoid the retyManager
         None => return Err("EVENT ERROR: no metadata in the file blob".into()),
     };
 
-    debug!("File Metadata: {:?}\n{:?}", file_id, blob);
     store_blob(file_id.to_string(), user_id.to_string(), &blob).await?;
 
-    let static_path = format!("{}/{}", user_id, file_id);
     Ok(FileMeta {
-        urls: FileUrls { main: static_path },
+        urls: FileUrls {
+            main: format!("{}/{}", user_id, file_id),
+        },
     })
 }
 
 async fn store_blob(name: String, path: String, blob: &Bytes) -> Result<(), DynError> {
     let storage_path = Config::from_env().file_path;
+    // TODO: Is it well formatting. The file path already has / at the end
     let full_path = format!("{}/{}", storage_path, path);
 
     debug!("store blob in full_path: {}", full_path);
@@ -115,13 +117,14 @@ pub async fn del(user_id: &PubkyId, file_id: String) -> Result<(), DynError> {
     )
     .await?;
 
-    let file = &result[0];
+    if !result.is_empty() {
+        let file = &result[0];
 
-    if let Some(value) = file {
-        value.delete().await?;
+        if let Some(value) = file {
+            value.delete().await?;
+        }
+        remove_blob(file_id, user_id.to_string()).await?;
     }
-
-    remove_blob(file_id, user_id.to_string()).await?;
 
     Ok(())
 }

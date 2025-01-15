@@ -759,25 +759,36 @@ fn build_query_with_params(
     query
 }
 
-// User has any existing relationship. Used to determine
-// the delete behaviour of a User.
+/// Determines whether a user has any relationships
+/// # Arguments
+/// * `user_id` - The unique identifier of the user
 pub fn user_is_safe_to_delete(user_id: &str) -> Query {
     query(
         "
-        MATCH (u:User {id: $user_id})-[r]-()
-        RETURN COUNT(r) = 0 AS boolean
+        MATCH (u:User {id: $user_id})
+        // Ensures all relationships to the user (u) are checked, counting as 0 if none exist
+        OPTIONAL MATCH (u)-[r]-()
+        // Checks if the user has any relationships
+        WITH u, NOT (COUNT(r) = 0) AS flag
+        RETURN flag
         ",
     )
     .param("user_id", user_id)
 }
 
-// Post has any existing relationship. Used to determine
-// the delete behaviour of a Post.
+/// Checks if a post has any relationships that aren't in the set of allowed
+/// relationships for post deletion. If the post has such relationships,
+/// the query returns `true`; otherwise, `false`
+/// If the user or post does not exist, the query returns no rows.
+/// # Arguments
+/// * `author_id` - The unique identifier of the user who authored the post
+/// * `post_id` - The unique identifier of the post
 pub fn post_is_safe_to_delete(author_id: &str, post_id: &str) -> Query {
     query(
         "
         MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
-        MATCH (p)-[r]-()
+        // Ensures all relationships to the post (p) are checked, counting as 0 if none exist
+        OPTIONAL MATCH (p)-[r]-()
         WHERE NOT (
             // Allowed relationships:
             // 1. Incoming AUTHORED relationship from the specified user
@@ -789,7 +800,9 @@ pub fn post_is_safe_to_delete(author_id: &str, post_id: &str) -> Query {
             // 3. Outgoing REPLIED relationship to another post
             (type(r) = 'REPLIED' AND startNode(r) = p)
         )
-        RETURN COUNT(r) = 0 AS boolean
+        // Checks if any disallowed relationships exist for the post
+        WITH p, NOT (COUNT(r) = 0) AS flag
+        RETURN flag
         ",
     )
     .param("author_id", author_id)

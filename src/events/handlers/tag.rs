@@ -1,3 +1,4 @@
+use crate::db::graph::exec::OperationOutcome;
 use crate::db::kv::index::json::JsonAction;
 use crate::events::uri::ParsedUri;
 use crate::models::notification::Notification;
@@ -67,7 +68,7 @@ async fn put_sync_post(
     indexed_at: i64,
 ) -> Result<(), DynError> {
     // SAVE TO GRAPH
-    let existed = TagPost::put_to_graph(
+    match TagPost::put_to_graph(
         &tagger_user_id,
         &author_id,
         Some(&post_id),
@@ -75,56 +76,67 @@ async fn put_sync_post(
         &tag_label,
         indexed_at,
     )
-    .await?;
+    .await?
+    {
+        OperationOutcome::Updated => Ok(()),
+        // TODO: Should return an error that should be processed by RetryManager
+        // WIP: Create a custom error type to pass enough info to the RetryManager
+        OperationOutcome::Pending => {
+            Err("WATCHER: Missing some dependency to index the model".into())
+        }
+        OperationOutcome::CreatedOrDeleted => {
+            // SAVE TO INDEXES
+            let post_key_slice: &[&str] = &[&author_id, &post_id];
 
-    if existed {
-        return Ok(());
+            // TODO: Handle the errors
+            let _ = tokio::join!(
+                // Update user counts for tagger
+                UserCounts::update(&tagger_user_id, "tags", JsonAction::Increment(1)),
+                // Increment in one the post tags
+                PostCounts::update_index_field(post_key_slice, "tags", JsonAction::Increment(1)),
+                // Add label to post
+                TagPost::update_index_score(
+                    &author_id,
+                    Some(&post_id),
+                    &tag_label,
+                    ScoreAction::Increment(1.0)
+                ),
+                // Add user tag in post
+                TagPost::add_tagger_to_index(
+                    &author_id,
+                    Some(&post_id),
+                    &tagger_user_id,
+                    &tag_label
+                ),
+                // Add post to label total engagement
+                TagSearch::update_index_score(
+                    &author_id,
+                    &post_id,
+                    &tag_label,
+                    ScoreAction::Increment(1.0)
+                ),
+                // Add label to hot tags
+                Taggers::update_index_score(&tag_label, ScoreAction::Increment(1.0)),
+                // Add tagger to post taggers
+                Taggers::put_to_index(&tag_label, &tagger_user_id)
+            );
+
+            // Post replies cannot be included in the total engagement index once they have been tagged
+            if !post_relationships_is_reply(&author_id, &post_id).await? {
+                // Increment in one post global engagement
+                PostStream::update_index_score(&author_id, &post_id, ScoreAction::Increment(1.0))
+                    .await?;
+            }
+
+            // Add post to global label timeline
+            TagSearch::put_to_index(&author_id, &post_id, &tag_label).await?;
+
+            // Save new notification
+            Notification::new_post_tag(&tagger_user_id, &author_id, &tag_label, &post_uri).await?;
+
+            Ok(())
+        }
     }
-
-    // SAVE TO INDEXES
-    let post_key_slice: &[&str] = &[&author_id, &post_id];
-
-    // TODO: Handle the errors
-    let _ = tokio::join!(
-        // Update user counts for tagger
-        UserCounts::update(&tagger_user_id, "tags", JsonAction::Increment(1)),
-        // Increment in one the post tags
-        PostCounts::update_index_field(post_key_slice, "tags", JsonAction::Increment(1)),
-        // Add label to post
-        TagPost::update_index_score(
-            &author_id,
-            Some(&post_id),
-            &tag_label,
-            ScoreAction::Increment(1.0)
-        ),
-        // Add user tag in post
-        TagPost::add_tagger_to_index(&author_id, Some(&post_id), &tagger_user_id, &tag_label),
-        // Add post to label total engagement
-        TagSearch::update_index_score(
-            &author_id,
-            &post_id,
-            &tag_label,
-            ScoreAction::Increment(1.0)
-        ),
-        // Add label to hot tags
-        Taggers::update_index_score(&tag_label, ScoreAction::Increment(1.0)),
-        // Add tagger to post taggers
-        Taggers::put_to_index(&tag_label, &tagger_user_id)
-    );
-
-    // Post replies cannot be included in the total engagement index once they have been tagged
-    if !post_relationships_is_reply(&author_id, &post_id).await? {
-        // Increment in one post global engagement
-        PostStream::update_index_score(&author_id, &post_id, ScoreAction::Increment(1.0)).await?;
-    }
-
-    // Add post to global label timeline
-    TagSearch::put_to_index(&author_id, &post_id, &tag_label).await?;
-
-    // Save new notification
-    Notification::new_post_tag(&tagger_user_id, &author_id, &tag_label, &post_uri).await?;
-
-    Ok(())
 }
 
 async fn put_sync_user(
@@ -135,7 +147,7 @@ async fn put_sync_user(
     indexed_at: i64,
 ) -> Result<(), DynError> {
     // SAVE TO GRAPH
-    let existed = TagUser::put_to_graph(
+    match TagUser::put_to_graph(
         &tagger_user_id,
         &tagged_user_id,
         None,
@@ -143,34 +155,40 @@ async fn put_sync_user(
         &tag_label,
         indexed_at,
     )
-    .await?;
+    .await?
+    {
+        OperationOutcome::Updated => Ok(()),
+        // TODO: Should return an error that should be processed by RetryManager
+        // WIP: Create a custom error type to pass enough info to the RetryManager
+        OperationOutcome::Pending => {
+            Err("WATCHER: Missing some dependency to index the model".into())
+        }
+        OperationOutcome::CreatedOrDeleted => {
+            // SAVE TO INDEX
+            // Update user counts for the tagged user
+            UserCounts::update(&tagged_user_id, "tagged", JsonAction::Increment(1)).await?;
 
-    if existed {
-        return Ok(());
+            // Update user counts for the tagger user
+            UserCounts::update(&tagger_user_id, "tags", JsonAction::Increment(1)).await?;
+
+            // Add tagger to the user taggers list
+            TagUser::add_tagger_to_index(&tagged_user_id, None, &tagger_user_id, &tag_label)
+                .await?;
+
+            // Add label count to the user profile tag
+            TagUser::update_index_score(
+                &tagged_user_id,
+                None,
+                &tag_label,
+                ScoreAction::Increment(1.0),
+            )
+            .await?;
+
+            // Save new notification
+            Notification::new_user_tag(&tagger_user_id, &tagged_user_id, &tag_label).await?;
+            Ok(())
+        }
     }
-
-    // SAVE TO INDEX
-    // Update user counts for the tagged user
-    UserCounts::update(&tagged_user_id, "tagged", JsonAction::Increment(1)).await?;
-
-    // Update user counts for the tagger user
-    UserCounts::update(&tagger_user_id, "tags", JsonAction::Increment(1)).await?;
-
-    // Add tagger to the user taggers list
-    TagUser::add_tagger_to_index(&tagged_user_id, None, &tagger_user_id, &tag_label).await?;
-
-    // Add label count to the user profile tag
-    TagUser::update_index_score(
-        &tagged_user_id,
-        None,
-        &tag_label,
-        ScoreAction::Increment(1.0),
-    )
-    .await?;
-
-    // Save new notification
-    Notification::new_user_tag(&tagger_user_id, &tagged_user_id, &tag_label).await?;
-    Ok(())
 }
 
 pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), DynError> {
@@ -195,7 +213,9 @@ pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), DynError> {
             }
         }
     } else {
-        debug!("DEL-Tag: Could not find the tag");
+        // TODO: Should return an error that should be processed by RetryManager
+        // WIP: Create a custom error type to pass enough info to the RetryManager
+        return Err("WATCHER: Missing some dependency to index the model".into());
     }
     Ok(())
 }

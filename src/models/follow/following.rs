@@ -1,5 +1,5 @@
 use crate::{queries, RedisOps};
-use axum::async_trait;
+use async_trait::async_trait;
 use neo4rs::Query;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;

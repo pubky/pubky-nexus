@@ -23,5 +23,4 @@ pub use events::processor::EventProcessor;
 pub use reindex::reindex;
 pub use setup::setup;
 
-#[macro_use]
 extern crate const_format;
