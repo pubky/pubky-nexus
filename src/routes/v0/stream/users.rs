@@ -86,6 +86,20 @@ pub async fn stream_users_handler(
                         .to_string(),
                 })
             }
+            UserStreamSource::PostReplies => {
+                if query.author_id.is_none() {
+                    return Err(Error::InvalidInput {
+                        message: "author_id query param must be provided for source 'post_replies'"
+                            .to_string(),
+                    });
+                }
+                if query.post_id.is_none() {
+                    return Err(Error::InvalidInput {
+                        message: "post_id query param must be provided for source 'post_replies'"
+                            .to_string(),
+                    });
+                }
+            }
             _ => (),
         }
     }
