@@ -1,11 +1,10 @@
 use super::UserDetails;
-use crate::types::DynError;
 use crate::RedisOps;
+use crate::{models::traits::Collection, types::DynError};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 pub const USER_NAME_KEY_PARTS: [&str; 2] = ["Users", "Name"];
-pub const USER_NAME_HASHMAP_KEY_PARTS: [&str; 3] = ["Hashmap", "Users", "Name"];
 
 #[derive(Serialize, Deserialize, ToSchema, Default)]
 pub struct UserSearch(pub Vec<String>);
@@ -70,7 +69,6 @@ impl UserSearch {
 
         // Collect all the `username:user_id` pairs and their corresponding scores
         let mut items: Vec<(f64, String)> = Vec::with_capacity(details_list.len());
-        let mut hashmap_items: Vec<(String, String)> = Vec::with_capacity(details_list.len());
 
         for details in details_list {
             // Convert the username to lowercase before storing
@@ -84,21 +82,9 @@ impl UserSearch {
             // The value in the sorted set will be `username:user_id`
             let member = format!("{}:{}", username, user_id.0);
 
-            hashmap_items.push((user_id.0.clone(), username.clone()));
             items.push((score, member));
         }
 
-        if !hashmap_items.is_empty() {
-            // put the items in hashmap for unique index
-            Self::put_index_hashmap(
-                &USER_NAME_HASHMAP_KEY_PARTS,
-                &hashmap_items
-                    .iter()
-                    .map(|(user_id, username)| (user_id.as_str(), username.as_str()))
-                    .collect::<Vec<(&str, &str)>>(),
-            )
-            .await?;
-        }
         // Perform a single Redis ZADD operation with all the items
         Self::put_index_sorted_set(
             &USER_NAME_KEY_PARTS,
@@ -117,12 +103,18 @@ impl UserSearch {
             return Ok(());
         }
         let mut records_to_delete: Vec<String> = Vec::with_capacity(user_ids.len());
+        let users = UserDetails::get_by_ids(user_ids)
+            .await?
+            .into_iter()
+            .flatten()
+            .collect::<Vec<UserDetails>>();
         for user_id in user_ids {
-            let existing_record =
-                Self::try_from_index_hashmap(&USER_NAME_HASHMAP_KEY_PARTS, user_id).await?;
-            if let Some(existing_record) = existing_record {
+            let existing_username = users
+                .iter()
+                .find(|user| user.id.0 == *user_id)
+                .map(|user| user.name.to_lowercase());
+            if let Some(existing_record) = existing_username {
                 let search_key = format!("{}:{}", existing_record, user_id);
-                Self::remove_from_index_hashmap(&USER_NAME_HASHMAP_KEY_PARTS, user_id).await?;
                 records_to_delete.push(search_key);
             }
         }
