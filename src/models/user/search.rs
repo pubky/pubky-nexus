@@ -137,10 +137,13 @@ mod tests {
     use chrono::Utc;
 
     use crate::{
-        models::user::{UserDetails, UserSearch},
+        models::{
+            traits::Collection,
+            user::{UserDetails, UserSearch},
+        },
         setup,
         types::{DynError, PubkyId},
-        Config,
+        Config, RedisOps,
     };
 
     #[tokio_shared_rt::test(shared)]
@@ -162,6 +165,11 @@ mod tests {
             image: None,
             indexed_at: Utc::now().timestamp_millis(),
         };
+
+        user_details.put_to_graph().await?;
+        user_details
+            .put_index_json(vec![user_id].as_slice(), None)
+            .await?;
 
         // Call `put_to_index` with the same `UserDetails` object multiple times
         UserSearch::put_to_index(&[&user_details]).await?;
