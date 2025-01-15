@@ -7,22 +7,12 @@ use crate::types::PubkyId;
 use crate::{models::homeserver::Homeserver, Config};
 use log::{debug, error, info};
 use reqwest::Client;
-use serde::Deserialize;
-use serde::Serialize;
 
 pub struct EventProcessor {
     http_client: Client,
     pub homeserver: Homeserver,
     limit: u32,
     pub sender: SenderChannel,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum EventErrorType {
-    NotResolveHomeserver,
-    PubkyClientError,
-    MissingDependency,
-    GraphError,
 }
 
 impl EventProcessor {

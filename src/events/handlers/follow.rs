@@ -24,7 +24,7 @@ pub async fn sync_put(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), 
     match Followers::put_to_graph(&follower_id, &followee_id).await? {
         // Do not duplicate the follow relationship
         OperationOutcome::Updated => return Ok(()),
-        OperationOutcome::Pending => {
+        OperationOutcome::MissingDependency => {
             let dependency = vec![format!("{followee_id}:user:profile.json")];
             return Err(EventProcessorError::MissingDependency { dependency }.into());
         }
@@ -71,7 +71,7 @@ pub async fn sync_del(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), 
     match Followers::del_from_graph(&follower_id, &followee_id).await? {
         // Both users exists but they do not have that relationship
         OperationOutcome::Updated => Ok(()),
-        OperationOutcome::Pending => {
+        OperationOutcome::MissingDependency => {
             Err("WATCHER: Missing some dependency to index the model".into())
         }
         OperationOutcome::CreatedOrDeleted => {

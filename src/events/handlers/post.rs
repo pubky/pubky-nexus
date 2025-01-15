@@ -43,7 +43,7 @@ pub async fn sync_put(
     let existed = match post_details.put_to_graph(&post_relationships).await? {
         OperationOutcome::CreatedOrDeleted => false,
         OperationOutcome::Updated => true,
-        OperationOutcome::Pending => {
+        OperationOutcome::MissingDependency => {
             let mut dependency = Vec::new();
             if let Some(replied_uri) = &post_relationships.replied {
                 let reply_dependency = RetryEvent::generate_index_key(replied_uri)
@@ -292,7 +292,7 @@ pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), DynError> {
         }
         // TODO: Should return an error that should be processed by RetryManager
         // WIP: Create a custom error type to pass enough info to the RetryManager
-        OperationOutcome::Pending => {
+        OperationOutcome::MissingDependency => {
             return Err("WATCHER: Missing some dependency to index the model".into())
         }
     };

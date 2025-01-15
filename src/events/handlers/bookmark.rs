@@ -41,7 +41,7 @@ pub async fn sync_put(
             OperationOutcome::CreatedOrDeleted => false,
             OperationOutcome::Updated => true,
             // TODO: Should return an error that should be processed by RetryManager
-            OperationOutcome::Pending => {
+            OperationOutcome::MissingDependency => {
                 let dependency = vec![format!("{author_id}:posts:{post_id}")];
                 return Err(EventProcessorError::MissingDependency { dependency }.into());
             }

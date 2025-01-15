@@ -80,7 +80,7 @@ async fn put_sync_post(
     .await?
     {
         OperationOutcome::Updated => Ok(()),
-        OperationOutcome::Pending => {
+        OperationOutcome::MissingDependency => {
             // Ensure that dependencies follow the same format as the RetryManager keys
             let dependency = vec![format!("{author_id}:posts:{post_id}")];
             Err(EventProcessorError::MissingDependency { dependency }.into())
@@ -159,7 +159,7 @@ async fn put_sync_user(
     .await?
     {
         OperationOutcome::Updated => Ok(()),
-        OperationOutcome::Pending => {
+        OperationOutcome::MissingDependency => {
             // Ensure that dependencies follow the same format as the RetryManager keys
             let dependency = vec![format!("{tagged_user_id}:user:profile.json")];
             Err(EventProcessorError::MissingDependency { dependency }.into())
