@@ -1,4 +1,4 @@
-use crate::models::user::{UserStream, UserStreamSource};
+use crate::models::user::{UserStream, UserStreamInput, UserStreamSource};
 use crate::routes::v0::endpoints::{
     STREAM_USERS_BY_IDS_ROUTE, STREAM_USERS_ROUTE, STREAM_USERS_USERNAME_SEARCH_ROUTE,
 };
@@ -17,6 +17,8 @@ pub struct UserStreamQuery {
     skip: Option<usize>,
     limit: Option<usize>,
     source: Option<UserStreamSource>,
+    author_id: Option<String>,
+    post_id: Option<String>,
     depth: Option<u8>,
 }
 
@@ -31,6 +33,8 @@ pub struct UserStreamQuery {
         ("skip" = Option<usize>, Query, description = "Skip N followers"),
         ("limit" = Option<usize>, Query, description = "Retrieve N followers"),
         ("source" = Option<UserStreamSource>, Query, description = "Source of users for the stream."),
+        ("author_id" = Option<String>, Query, description = "Author id when source is 'post_replies'"),
+        ("post_id" = Option<String>, Query, description = "Post id when source is 'post_replies'"),
         ("depth" = Option<usize>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 4, will be ignored")
     ),
     responses(
@@ -82,18 +86,34 @@ pub async fn stream_users_handler(
                         .to_string(),
                 })
             }
+            UserStreamSource::PostReplies => {
+                if query.author_id.is_none() {
+                    return Err(Error::InvalidInput {
+                        message: "author_id query param must be provided for source 'post_replies'"
+                            .to_string(),
+                    });
+                }
+                if query.post_id.is_none() {
+                    return Err(Error::InvalidInput {
+                        message: "post_id query param must be provided for source 'post_replies'"
+                            .to_string(),
+                    });
+                }
+            }
             _ => (),
         }
     }
 
-    match UserStream::get_by_id(
-        query.user_id.as_deref(),
-        query.viewer_id.as_deref(),
-        Some(skip),
-        Some(limit),
-        source.clone(),
-        query.depth,
-    )
+    match UserStream::get_by_id(UserStreamInput {
+        user_id: query.user_id.clone(),
+        viewer_id: query.viewer_id,
+        skip: Some(skip),
+        limit: Some(limit),
+        source: source.clone(),
+        author_id: query.author_id,
+        post_id: query.post_id,
+        depth: query.depth,
+    })
     .await
     {
         Ok(Some(stream)) => Ok(Json(stream)),

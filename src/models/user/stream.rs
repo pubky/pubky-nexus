@@ -1,5 +1,8 @@
+use std::collections::HashSet;
+
 use super::{Muted, UserCounts, UserSearch, UserView};
 use crate::models::follow::{Followers, Following, Friends, UserFollows};
+use crate::models::post::{PostStream, POST_REPLIES_PER_POST_KEY_PARTS};
 use crate::types::DynError;
 use crate::{db::kv::index::sorted_sets::SortOrder, RedisOps};
 use crate::{get_neo4j_graph, queries};
@@ -23,6 +26,18 @@ pub enum UserStreamSource {
     MostFollowed,
     Pioneers,
     Recommended,
+    PostReplies,
+}
+
+pub struct UserStreamInput {
+    pub user_id: Option<String>,
+    pub viewer_id: Option<String>,
+    pub source: UserStreamSource,
+    pub author_id: Option<String>,
+    pub post_id: Option<String>,
+    pub depth: Option<u8>,
+    pub skip: Option<usize>,
+    pub limit: Option<usize>,
 }
 
 #[derive(Serialize, Deserialize, ToSchema, Default)]
@@ -31,17 +46,28 @@ pub struct UserStream(Vec<UserView>);
 impl RedisOps for UserStream {}
 
 impl UserStream {
-    pub async fn get_by_id(
-        user_id: Option<&str>,
-        viewer_id: Option<&str>,
-        skip: Option<usize>,
-        limit: Option<usize>,
-        source: UserStreamSource,
-        depth: Option<u8>,
-    ) -> Result<Option<Self>, DynError> {
-        let user_ids = Self::get_user_list_from_source(user_id, source, skip, limit).await?;
+    pub async fn get_by_id(input: UserStreamInput) -> Result<Option<Self>, DynError> {
+        let UserStreamInput {
+            user_id,
+            viewer_id,
+            source,
+            author_id,
+            post_id,
+            depth,
+            skip,
+            limit,
+        } = input;
+        let user_ids = Self::get_user_list_from_source(
+            user_id.as_deref(),
+            source,
+            author_id,
+            post_id,
+            skip,
+            limit,
+        )
+        .await?;
         match user_ids {
-            Some(users) => Self::from_listed_user_ids(&users, viewer_id, depth).await,
+            Some(users) => Self::from_listed_user_ids(&users, viewer_id.as_deref(), depth).await,
             None => Ok(None),
         }
     }
@@ -187,10 +213,55 @@ impl UserStream {
         .await
     }
 
+    async fn get_post_replies_ids(
+        post_id: Option<String>,
+        author_id: Option<String>,
+    ) -> Result<Option<Vec<String>>, DynError> {
+        let post_id = post_id
+            .ok_or("Post ID should be provided for user streams with source 'post_replies'")?;
+        let author_id = author_id
+            .ok_or("Author ID should be provided for user streams with source 'post_replies'")?;
+        let key_parts = [
+            &POST_REPLIES_PER_POST_KEY_PARTS[..],
+            &[author_id.as_str(), post_id.as_str()],
+        ]
+        .concat();
+        let replies = PostStream::try_from_index_sorted_set(
+            &key_parts,
+            None,
+            None,
+            None,
+            None,
+            SortOrder::Descending,
+            None,
+        )
+        .await?;
+        let unique_user_ids: HashSet<String> = replies
+            .map(|replies| {
+                replies
+                    .into_iter()
+                    .map(|reply| {
+                        reply
+                            .0
+                            .split(":")
+                            .map(ToString::to_string)
+                            .collect::<Vec<String>>()[0]
+                            .clone()
+                    })
+                    .collect::<Vec<String>>()
+            })
+            .into_iter()
+            .flatten()
+            .collect();
+        Ok(Some(unique_user_ids.into_iter().collect()))
+    }
+
     // Get list of users based on the specified reach type
     pub async fn get_user_list_from_source(
         user_id: Option<&str>,
         source: UserStreamSource,
+        author_id: Option<String>,
+        post_id: Option<String>,
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Option<Vec<String>>, DynError> {
@@ -256,6 +327,9 @@ impl UserStream {
                     limit,
                 )
                 .await?
+            }
+            UserStreamSource::PostReplies => {
+                UserStream::get_post_replies_ids(post_id, author_id).await?
             }
         };
         Ok(user_ids)
