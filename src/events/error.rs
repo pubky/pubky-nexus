@@ -5,8 +5,10 @@ use thiserror::Error;
 pub enum EventProcessorError {
     #[error("The user could not be indexed in nexus")]
     UserNotSync,
-    #[error("The event could not be indexed because some graph dependency is missing")]
+    #[error("The event could not be indexed due to missing graph dependenciesz")]
     MissingDependency { dependency: Vec<String> },
+    #[error("The event appear to be unindexed. Verify the event in the retry queue")]
+    SkipIndexing,
     #[error("The event does not exist anymore in the homeserver")]
     ContentNotFound { dependency: String },
     #[error("PubkyClient could not reach/resolve the homeserver")]

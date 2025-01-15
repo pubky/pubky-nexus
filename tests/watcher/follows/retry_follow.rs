@@ -32,11 +32,14 @@ async fn test_homeserver_follow_cannot_index() -> Result<()> {
     // Mute the user
     test.create_follow(&follower_id, &followee_id).await?;
     tokio::time::sleep(Duration::from_millis(500)).await;
-    
+
     let index_key = format!(
         "{}:{}",
         EventType::Put,
-        RetryEvent::generate_index_key(&format!("pubky://{follower_id}/pub/pubky.app/follows/{followee_id}")).unwrap()
+        RetryEvent::generate_index_key(&format!(
+            "pubky://{follower_id}/pub/pubky.app/follows/{followee_id}"
+        ))
+        .unwrap()
     );
 
     // Assert if the event is in the timeline
@@ -60,7 +63,6 @@ async fn test_homeserver_follow_cannot_index() -> Result<()> {
         }
         _ => assert!(false, "The error type has to be MissingDependency type"),
     };
-
 
     Ok(())
 }

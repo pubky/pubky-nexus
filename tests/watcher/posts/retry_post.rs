@@ -30,11 +30,12 @@ async fn test_homeserver_post_cannot_index() -> Result<()> {
 
     let post_id = test.create_post(&user_id, &post).await?;
     tokio::time::sleep(Duration::from_millis(500)).await;
-    
+
     let index_key = format!(
         "{}:{}",
         EventType::Put,
-        RetryEvent::generate_index_key(&format!("pubky://{user_id}/pub/pubky.app/posts/{post_id}")).unwrap()
+        RetryEvent::generate_index_key(&format!("pubky://{user_id}/pub/pubky.app/posts/{post_id}"))
+            .unwrap()
     );
 
     // Assert if the event is in the timeline
@@ -54,11 +55,13 @@ async fn test_homeserver_post_cannot_index() -> Result<()> {
     match event_state.error_type {
         EventProcessorError::MissingDependency { dependency } => {
             assert_eq!(dependency.len(), 1);
-            assert_eq!(dependency[0], RetryEvent::generate_index_key(&dependency_uri).unwrap());
+            assert_eq!(
+                dependency[0],
+                RetryEvent::generate_index_key(&dependency_uri).unwrap()
+            );
         }
         _ => assert!(false, "The error type has to be MissingDependency type"),
     };
-
 
     Ok(())
 }

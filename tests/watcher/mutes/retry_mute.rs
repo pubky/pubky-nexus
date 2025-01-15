@@ -32,11 +32,14 @@ async fn test_homeserver_mute_cannot_index() -> Result<()> {
     // Mute the user
     test.create_mute(&muter_id, &mutee_id).await?;
     tokio::time::sleep(Duration::from_millis(500)).await;
-    
+
     let index_key = format!(
         "{}:{}",
         EventType::Put,
-        RetryEvent::generate_index_key(&format!("pubky://{muter_id}/pub/pubky.app/mutes/{mutee_id}")).unwrap()
+        RetryEvent::generate_index_key(&format!(
+            "pubky://{muter_id}/pub/pubky.app/mutes/{mutee_id}"
+        ))
+        .unwrap()
     );
 
     // Assert if the event is in the timeline
@@ -60,7 +63,6 @@ async fn test_homeserver_mute_cannot_index() -> Result<()> {
         }
         _ => assert!(false, "The error type has to be MissingDependency type"),
     };
-
 
     Ok(())
 }

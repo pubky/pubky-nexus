@@ -48,7 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
         if RETRY_THRESHOLD == retry_failed_events {
             let sender = event_processor.sender.lock().await;
             let _ = sender
-                .send(SenderMessage::Retry(
+                .send(SenderMessage::RetryEvent(
                     event_processor.homeserver.id.to_string(),
                 ))
                 .await;

@@ -2,7 +2,11 @@ use async_trait::async_trait;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
-use crate::{events::error::EventProcessorError, types::DynError, RedisOps};
+use crate::{
+    events::{error::EventProcessorError, EventType},
+    types::DynError,
+    RedisOps,
+};
 
 pub const RETRY_MAMAGER_PREFIX: &str = "RetryManager";
 pub const RETRY_MANAGER_EVENTS_INDEX: [&str; 1] = ["events"];
@@ -11,11 +15,14 @@ pub const HOMESERVER_PROTOCOL: &str = "pubky:";
 pub const HOMESERVER_PUBLIC_REPOSITORY: &str = "pub";
 pub const HOMESERVER_APP_REPOSITORY: &str = "pubky.app";
 
+/// Represents an event in the retry queue and it is used to manage events that have failed
+/// to process and need to be retried
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RetryEvent {
-    // Number of retries attempted
+    /// Retry attempts made for this event
     pub retry_count: u32,
-    // This determines how the event should be processed during the retry process
+    /// The type of error that caused the event to fail
+    /// This determines how the event should be processed during the retry process
     pub error_type: EventProcessorError,
 }
 
@@ -59,6 +66,10 @@ impl RetryEvent {
             }
             _ => None,
         }
+    }
+
+    pub fn generate_opposite_event_line(event_line: &str) -> String {
+        event_line.replace(&EventType::Del.to_string(), &EventType::Put.to_string())
     }
 
     /// Stores an event in both a sorted set and a JSON index in Redis.
@@ -108,5 +119,22 @@ impl RetryEvent {
             found_event = Some(fail_event);
         }
         Ok(found_event)
+    }
+
+    /// Deletes event-related indices from the retry queue in Redis
+    /// # Arguments
+    /// - `event_line` - A `String` representing the event line that needs to be unindexed from the retry queue
+    pub async fn delete(&self, event_line: String) -> Result<(), DynError> {
+        let put_event_line = Self::generate_opposite_event_line(&event_line);
+        Self::remove_from_index_sorted_set(
+            Some(RETRY_MAMAGER_PREFIX),
+            &RETRY_MANAGER_EVENTS_INDEX,
+            &[&put_event_line],
+        )
+        .await?;
+
+        let index = &[RETRY_MANAGER_STATE_INDEX, [&put_event_line]].concat();
+        Self::remove_from_index_multiple_json(&[index]).await?;
+        Ok(())
     }
 }

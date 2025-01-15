@@ -5,18 +5,22 @@ use tokio::sync::{
     Mutex,
 };
 
-use crate::types::DynError;
+use crate::{events::error::EventProcessorError, types::DynError};
 
 use super::event::RetryEvent;
 
 pub const CHANNEL_BUFFER: usize = 1024;
 
+/// Represents commands sent to the retry manager for handling events in the retry queue
 #[derive(Debug, Clone)]
 pub enum SenderMessage {
     // Command to retry all pending events that are waiting to be indexed
-    Retry(String),
-    // Command to add a failed event to the RetryManager cache for future processing
-    Add(String, RetryEvent),
+    RetryEvent(String),
+    /// Command to process a specific event in the retry queue
+    /// This action can either add an event to the queue or use the event as context to remove it from the queue
+    /// - `String`: The index or identifier of the event being processed
+    /// - `RetryEvent`: The event to be added to or processed for removal from the retry queue
+    ProcessEvent(String, RetryEvent),
 }
 
 pub type SenderChannel = Arc<Mutex<Sender<SenderMessage>>>;
@@ -57,10 +61,10 @@ impl RetryManager {
         // Listen all the messages in the channel
         while let Some(message) = rx.recv().await {
             match message {
-                SenderMessage::Retry(homeserver_pubky) => {
+                SenderMessage::RetryEvent(homeserver_pubky) => {
                     self.retry_events_for_homeserver(&homeserver_pubky);
                 }
-                SenderMessage::Add(index_key, retry_event) => {
+                SenderMessage::ProcessEvent(index_key, retry_event) => {
                     self.queue_failed_event(index_key, retry_event).await?;
                 }
             }
@@ -83,9 +87,18 @@ impl RetryManager {
         index_key: String,
         retry_event: RetryEvent,
     ) -> Result<(), DynError> {
-        info!("Add fail event to Redis: {}", index_key);
-        // Write in the index
-        retry_event.put_to_index(index_key).await?;
+        match &retry_event.error_type {
+            EventProcessorError::MissingDependency { .. } => {
+                info!("Add fail event to Redis: {}", index_key);
+                // Write in the index
+                retry_event.put_to_index(index_key).await?;
+            }
+            EventProcessorError::SkipIndexing => {
+                retry_event.delete(index_key).await?;
+            }
+            _ => (),
+        };
+
         Ok(())
     }
 }

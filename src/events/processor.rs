@@ -157,7 +157,7 @@ impl EventProcessor {
                 let index_key = format!("{}:{}", event.event_type, index);
                 let sender = self.sender.lock().await;
                 match sender
-                    .send(SenderMessage::Add(index_key, retry_event))
+                    .send(SenderMessage::ProcessEvent(index_key, retry_event))
                     .await
                 {
                     Ok(_) => {

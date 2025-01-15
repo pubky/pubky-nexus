@@ -594,6 +594,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     ///
     /// # Arguments
     ///
+    /// * `prefix` - An optional string representing the prefix for the Redis keys. If `Some(String)`, the prefix will be used
     /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the sorted set is stored.
     /// * `items` - A slice of string slices representing the elements to be removed from the sorted set.
     ///
@@ -601,6 +602,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     ///
     /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
     async fn remove_from_index_sorted_set(
+        prefix: Option<&str>,
         key_parts: &[&str],
         items: &[&str],
     ) -> Result<(), DynError> {
@@ -608,11 +610,11 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
             return Ok(());
         }
 
+        let prefix = prefix.unwrap_or(SORTED_PREFIX);
         // Create the key by joining the key parts
         let key = key_parts.join(":");
-
         // Call the sorted_sets::del function to remove the items from the sorted set
-        sorted_sets::del("Sorted", &key, items).await
+        sorted_sets::del(prefix, &key, items).await
     }
 
     /// Retrieves a range of elements from a Redis sorted set using the provided key parts.

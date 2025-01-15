@@ -12,7 +12,7 @@ use pubky_nexus::events::{error::EventProcessorError, retry::event::RetryEvent, 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_bookmark_cannot_index() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
-    
+
     let keypair = Keypair::random();
     let user = PubkyAppUser {
         bio: Some("test_homeserver_bookmark_cannot_index".to_string()),
@@ -41,10 +41,10 @@ async fn test_homeserver_bookmark_cannot_index() -> Result<()> {
         "pubky://{}/pub/pubky.app/bookmarks/{}",
         user_id, bookmark_id
     );
-    // Put bookmark
+    // PUT bookmark
     test.put(&bookmark_url, bookmark_blob).await?;
     tokio::time::sleep(Duration::from_millis(500)).await;
-    
+
     let index_key = format!(
         "{}:{}",
         EventType::Put,
@@ -72,6 +72,17 @@ async fn test_homeserver_bookmark_cannot_index() -> Result<()> {
         _ => assert!(false, "The error type has to be MissingDependency type"),
     };
 
+    // DEL bookmark
+    test.del(&bookmark_url).await?;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Assert that the event does not exist in the sorted set. In that case PUT event
+    let timestamp = RetryEvent::check_uri(&index_key).await.unwrap();
+    assert!(timestamp.is_none());
+
+    // Assert that the event does not exist in the JSON index. In that case PUT event
+    let event_retry = RetryEvent::get_from_index(&index_key).await.unwrap();
+    assert!(event_retry.is_none());
 
     Ok(())
 }

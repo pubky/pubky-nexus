@@ -83,7 +83,10 @@ async fn test_homeserver_post_tag_event_to_queue() -> Result<()> {
     match event_state.error_type {
         EventProcessorError::MissingDependency { dependency } => {
             assert_eq!(dependency.len(), 1);
-            assert_eq!(dependency[0], RetryEvent::generate_index_key(&dependency_uri).unwrap());
+            assert_eq!(
+                dependency[0],
+                RetryEvent::generate_index_key(&dependency_uri).unwrap()
+            );
         }
         _ => assert!(false, "The error type has to be MissingDependency type"),
     };
