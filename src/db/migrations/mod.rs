@@ -7,6 +7,7 @@ use crate::MigrationManager;
 
 pub mod manager;
 mod migrations_list;
+mod utils;
 
 pub fn get_migration_manager(graph: Arc<Mutex<Graph>>) -> MigrationManager {
     // let migration_manager = MigrationManager::new(graph);
