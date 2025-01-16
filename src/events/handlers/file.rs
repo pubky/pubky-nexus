@@ -52,12 +52,13 @@ async fn ingest(
     user_id: &PubkyId,
     file_id: &str,
     pubkyapp_file: &PubkyAppFile,
-    //client: &PubkyClient,
 ) -> Result<FileMeta, DynError> {
     let pubky_client = PubkyConnector::get_pubky_client()?;
+
     let blob = match pubky_client.get(pubkyapp_file.src.as_str()).await? {
         Some(metadata) => metadata,
-        None => return Err("Error while fetching file blob".into()),
+        // TODO: Shape the error to avoid the retyManager
+        None => return Err("EVENT ERROR: no metadata in the file blob".into()),
     };
 
     let path: String = format!("{}/{}", user_id, file_id);
@@ -77,16 +78,19 @@ pub async fn del(user_id: &PubkyId, file_id: String) -> Result<(), DynError> {
     )
     .await?;
 
-    let file = &result[0];
+    if !result.is_empty() {
+        let file = &result[0];
 
-    if let Some(value) = file {
-        value.delete().await?;
+        if let Some(value) = file {
+            value.delete().await?;
+        }
+
+        let folder_path = format!("{}/{}", user_id, file_id);
+        let storage_path = StaticStorage::get_storage_path();
+        let full_path = format!("{}/{}", storage_path, folder_path);
+
+        remove_dir_all(full_path).await?;
     }
 
-    let folder_path = format!("{}/{}", user_id, file_id);
-    let storage_path = StaticStorage::get_storage_path();
-    let full_path = format!("{}/{}", storage_path, folder_path);
-
-    remove_dir_all(full_path).await?;
     Ok(())
 }

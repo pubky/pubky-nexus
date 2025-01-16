@@ -1,6 +1,5 @@
 use crate::{
-    models::file::details::FileVariant, static_processor::static_files_middleware, to_axum, Config,
-    Result,
+    models::file::details::FileVariant, static_processor::static_files_middleware, Config, Result,
 };
 use axum::{
     extract::Request,
@@ -20,13 +19,13 @@ pub fn routes() -> Router {
 
     let files = Router::new()
         .route_service(
-            to_axum!(STATIC_FILES_ROUTE),
+            STATIC_FILES_ROUTE,
             get_service(ServeDir::new(config.file_path.clone())),
         )
         .route_layer(middleware::from_fn(static_files_middleware));
 
     let legacy_files = files.route_service(
-        to_axum!(LEGACY_STATIC_FILES_ROUTE),
+        LEGACY_STATIC_FILES_ROUTE,
         routing::get(legacy_files_handler),
     );
 
