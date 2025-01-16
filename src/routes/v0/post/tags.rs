@@ -23,8 +23,8 @@ use utoipa::OpenApi;
         ("limit_taggers" = Option<usize>, Query, description = "Upper limit on the number of taggers per tag"),
     ),
     responses(
-        (status = 200, description = "Post tags", body = TagPost),
         (status = 404, description = "Post not found"),
+        (status = 200, description = "Post tags", body = Vec<TagDetails>),
         (status = 500, description = "Internal server error")
     )
 )]
@@ -65,7 +65,7 @@ pub async fn post_tags_handler(
         ("limit" = Option<usize>, Query, description = "Number of taggers to return for pagination")
     ),
     responses(
-        (status = 200, description = "Post tags", body = TagPost),
+        (status = 200, description = "Post tags", body = Taggers),
         (status = 404, description = "Post not found"),
         (status = 500, description = "Internal server error")
     )
