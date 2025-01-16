@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use axum::async_trait;
+use async_trait::async_trait;
 
 use crate::{
     models::file::{details::FileVariant, FileDetails},

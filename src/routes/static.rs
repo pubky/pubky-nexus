@@ -29,10 +29,7 @@ pub fn routes() -> Router {
         routing::get(legacy_files_handler),
     );
 
-    let general =
-        legacy_files.nest_service(STATIC_ROUTE, get_service(ServeDir::new(config.static_path)));
-
-    general
+    legacy_files.nest_service(STATIC_ROUTE, get_service(ServeDir::new(config.static_path)))
 }
 
 /// Handler to redirect legacy static files
