@@ -1,3 +1,7 @@
+use std::collections::HashMap;
+use std::fmt::Display;
+use std::str::FromStr;
+
 use crate::db::graph::exec::exec_single_row;
 use crate::models::traits::Collection;
 use crate::types::DynError;
@@ -10,9 +14,43 @@ use pubky_app_specs::PubkyAppFile;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+#[derive(Debug, PartialEq, Serialize, Deserialize, ToSchema, Clone)]
+#[serde(rename_all = "lowercase")]
+pub enum FileVariant {
+    Main,
+    Feed,
+    Small,
+}
+
+impl FromStr for FileVariant {
+    type Err = DynError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "main" => Ok(FileVariant::Main),
+            "feed" => Ok(FileVariant::Feed),
+            "small" => Ok(FileVariant::Small),
+            _ => Err("Invalid file version".into()),
+        }
+    }
+}
+
+impl Display for FileVariant {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let version_string = match self {
+            FileVariant::Main => "main",
+            FileVariant::Feed => "feed",
+            FileVariant::Small => "small",
+        };
+        write!(f, "{}", version_string)
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema, Default)]
 pub struct FileUrls {
     pub main: String,
+    pub feed: Option<String>,
+    pub small: Option<String>,
 }
 
 mod json_string {
@@ -53,6 +91,7 @@ pub struct FileDetails {
     pub content_type: String,
     #[serde(with = "json_string")]
     pub urls: FileUrls,
+    pub metadata: Option<HashMap<String, String>>,
 }
 
 pub struct FileMeta {
@@ -77,23 +116,6 @@ impl Collection<&[&str]> for FileDetails {
 }
 
 impl FileDetails {
-    pub fn new() -> Self {
-        Self {
-            id: String::new(),
-            uri: String::new(),
-            owner_id: String::new(),
-            urls: FileUrls {
-                main: String::new(),
-            },
-            src: String::new(),
-            name: String::new(),
-            size: 0,
-            created_at: Utc::now().timestamp(),
-            indexed_at: Utc::now().timestamp(),
-            content_type: String::new(),
-        }
-    }
-
     pub fn from_homeserver(
         pubkyapp_file: &PubkyAppFile,
         uri: String,
@@ -112,6 +134,7 @@ impl FileDetails {
             owner_id: user_id.to_string(),
             size: pubkyapp_file.size,
             urls: meta.urls,
+            metadata: None,
         }
     }
 
