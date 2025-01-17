@@ -17,7 +17,7 @@ pubky = { git = "https://github.com/pubky/pubky", branch = "v0.4.0-rc1" }
 pubky-app-specs = { git = "https://github.com/pubky/pubky-app-specs", features = [
     "openapi",
 ] }
-tokio = { version = "1.42.0", features = ["full"] }
+tokio = { version = "1.43.0", features = ["full"] }
 axum = "0.8.1"
 redis = { version = "0.27.6", features = ["tokio-comp", "json"] }
 neo4rs = "0.8.0"
@@ -33,13 +33,13 @@ dotenv = "0.15"
 log = "0.4.22"
 env_logger = "0.11.6"
 const_format = "0.2.34"
-thiserror = "2.0.9"
+thiserror = "2.0.11"
 chrono = { version = "0.4.39", default-features = false, features = ["clock"] }
 pubky-common = { git = "https://github.com/pubky/pubky", branch = "v0.4.0-rc1" }
 base32 = "0.5.1"
 blake3 = "1.5.5"
 url = "2.5.4"
-async-trait = "0.1.84"
+async-trait = "0.1.85"
 reqwest = "0.12.9"
 
 [dev-dependencies]
