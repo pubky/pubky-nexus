@@ -30,7 +30,7 @@ impl Homeserver {
 
     /// Retrieves the homeserver from Redis.
     pub async fn get_from_index(id: &str) -> Result<Option<Self>, DynError> {
-        if let Some(homeserver) = Self::try_from_index_json(&[id]).await? {
+        if let Some(homeserver) = Self::try_from_index_json(None, &[id]).await? {
             return Ok(Some(homeserver));
         }
         Ok(None)
@@ -38,7 +38,7 @@ impl Homeserver {
 
     /// Stores the homeserver in Redis.
     pub async fn put_to_index(&self) -> Result<(), DynError> {
-        self.put_index_json(&[&self.id], None).await?;
+        self.put_index_json(None, &[&self.id], None).await?;
         Ok(())
     }
 

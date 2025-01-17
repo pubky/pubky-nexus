@@ -13,7 +13,9 @@ use crate::RedisOps;
 use super::taggers::Taggers;
 use super::TaggedType;
 
-const GLOBAL_HOT_TAGS_PREFIX: &str = "Cached:Hot:Tags";
+const HOT_TAGS_CACHE_PREFIX: &str = "Cache";
+const POST_HOT_TAGS: [&str; 3] = ["Tags", "Post", "Hot"];
+const TAGGERS: &str = "Taggers";
 
 #[derive(Deserialize, Debug, ToSchema, Clone)]
 #[serde(rename_all = "snake_case")]
@@ -69,51 +71,46 @@ impl FromIterator<HotTag> for HotTags {
 }
 
 impl HotTags {
-    fn get_cache_key_parts(tags_query: &HotTagsInput) -> Vec<String> {
-        match &tags_query.tagged_type {
-            Some(tagged) => vec![tags_query.timeframe.to_string(), tagged.to_string()],
-            None => vec![tags_query.timeframe.to_string(), String::from("All")],
-        }
-    }
-
     pub async fn get_hot_tags(
         user_id: Option<String>,
         reach: Option<TagStreamReach>,
-        tags_query: &HotTagsInput,
+        hot_tags_input: &HotTagsInput,
     ) -> Result<Option<HotTags>, DynError> {
         match user_id {
             Some(user_id) => {
                 HotTags::get_hot_tags_by_reach(
                     user_id,
                     reach.unwrap_or(TagStreamReach::Friends),
-                    tags_query,
+                    hot_tags_input,
                 )
                 .await
             }
-            None => HotTags::get_global_hot_tags(tags_query).await,
+            None => HotTags::get_global_hot_tags(hot_tags_input).await,
         }
     }
 
     async fn get_hot_tags_by_reach(
         user_id: String,
         reach: TagStreamReach,
-        tags_query: &HotTagsInput,
+        hot_tags_input: &HotTagsInput,
     ) -> Result<Option<HotTags>, DynError> {
-        let query = queries::get::get_hot_tags_by_reach(user_id.as_str(), reach, tags_query);
+        let query = queries::get::get_hot_tags_by_reach(user_id.as_str(), reach, hot_tags_input);
         retrieve_from_graph::<HotTags>(query, "hot_tags").await
     }
 
-    async fn get_global_hot_tags(tags_query: &HotTagsInput) -> Result<Option<HotTags>, DynError> {
-        let cached_hot_tags = HotTags::get_from_global_cache(tags_query).await?;
+    async fn get_global_hot_tags(
+        hot_tags_input: &HotTagsInput,
+    ) -> Result<Option<HotTags>, DynError> {
+        let cached_hot_tags = HotTags::get_from_global_cache(hot_tags_input).await?;
         if cached_hot_tags.is_some() {
             return Ok(cached_hot_tags);
         }
         let hot_tag_input = HotTagsInput::new(
-            tags_query.timeframe.clone(),
+            hot_tags_input.timeframe.clone(),
             100,
             0,
             20,
-            tags_query.tagged_type.clone(),
+            hot_tags_input.tagged_type.clone(),
         );
         let query = queries::get::get_global_hot_tags(&hot_tag_input);
         let result = retrieve_from_graph::<HotTags>(query, "hot_tags").await?;
@@ -123,28 +120,32 @@ impl HotTags {
             None => return Ok(None),
         };
         if hot_tags.len() > 0 {
-            HotTags::set_to_global_cache(hot_tags.clone(), tags_query).await?;
+            HotTags::set_to_global_cache(hot_tags.clone(), hot_tags_input).await?;
         }
 
-        HotTags::get_from_global_cache(tags_query).await
+        HotTags::get_from_global_cache(hot_tags_input).await
     }
 
-    async fn get_from_global_cache(tags_query: &HotTagsInput) -> Result<Option<HotTags>, DynError> {
-        let key_parts = HotTags::get_cache_key_parts(tags_query);
-        let key_parts_vector: Vec<&str> =
-            key_parts.iter().map(|s| s.as_str()).collect::<Vec<&str>>();
+    async fn get_from_global_cache(
+        hot_tag_input: &HotTagsInput,
+    ) -> Result<Option<HotTags>, DynError> {
+        let timeframe = hot_tag_input.timeframe.to_string();
+        let (hot_tag_key_parts, taggers_key_parts) = Self::build_hot_tags_key_parts(&timeframe);
 
-        let hot_tag_taggers =
-            HotTagsTaggers::try_from_index_json(key_parts_vector.clone().as_slice()).await?;
+        let hot_tag_taggers = HotTagsTaggers::try_from_index_json(
+            Some(HOT_TAGS_CACHE_PREFIX.to_string()),
+            &taggers_key_parts,
+        )
+        .await?;
 
         let hot_tags_score = HotTags::try_from_index_sorted_set(
-            key_parts_vector.as_slice(),
+            &hot_tag_key_parts,
             None,
             None,
-            Some(tags_query.skip),
-            Some(tags_query.limit),
+            Some(hot_tag_input.skip),
+            Some(hot_tag_input.limit),
             SortOrder::Descending,
-            Some(GLOBAL_HOT_TAGS_PREFIX),
+            Some(HOT_TAGS_CACHE_PREFIX),
         )
         .await?;
 
@@ -158,8 +159,11 @@ impl HotTags {
         for (label, score) in hot_tags_score {
             if let Some(tag) = hot_tag_taggers.get(&label) {
                 // Reduce taggers list
-                let taggers_id: Vec<String> =
-                    tag.iter().take(tags_query.taggers_limit).cloned().collect();
+                let taggers_id: Vec<String> = tag
+                    .iter()
+                    .take(hot_tag_input.taggers_limit)
+                    .cloned()
+                    .collect();
                 hot_tags.push(HotTag {
                     label,
                     taggers_id: Taggers(taggers_id),
@@ -173,14 +177,14 @@ impl HotTags {
 
     async fn set_to_global_cache(
         result: HotTags,
-        tags_query: &HotTagsInput,
+        hot_tags_input: &HotTagsInput,
     ) -> Result<(), DynError> {
-        let key_parts = HotTags::get_cache_key_parts(tags_query);
-        let key_parts_vector: Vec<&str> =
-            key_parts.iter().map(|s| s.as_str()).collect::<Vec<&str>>();
+        let timeframe = hot_tags_input.timeframe.to_string();
+        let (hot_tag_key_parts, taggers_key_parts) = Self::build_hot_tags_key_parts(&timeframe);
 
         // Turn result which is a vector of HotTag, into a mapping from label to HotTag
         let mut hot_tags_score = Vec::with_capacity(result.len());
+
         let hot_tags_data: HashMap<String, Taggers> = result
             .iter()
             .map(|tag| {
@@ -192,20 +196,28 @@ impl HotTags {
         // store the taggers as json in cache
         HotTagsTaggers(hot_tags_data)
             .put_index_json(
-                key_parts_vector.as_slice(),
-                Some(tags_query.timeframe.to_cache_period()),
+                Some(HOT_TAGS_CACHE_PREFIX.to_string()),
+                taggers_key_parts.as_slice(),
+                Some(hot_tags_input.timeframe.to_cache_period()),
             )
             .await?;
 
         // store the ranking as sorted set in cache
         HotTags::put_index_sorted_set(
-            key_parts_vector.as_slice(),
+            &hot_tag_key_parts,
             &hot_tags_score,
-            Some(GLOBAL_HOT_TAGS_PREFIX),
-            Some(tags_query.timeframe.to_cache_period()),
+            Some(HOT_TAGS_CACHE_PREFIX),
+            Some(hot_tags_input.timeframe.to_cache_period()),
         )
         .await?;
         Ok(())
+    }
+
+    fn build_hot_tags_key_parts(timeframe: &str) -> (Vec<&str>, Vec<&str>) {
+        let hot_tag_key_parts = [&POST_HOT_TAGS[..], &[timeframe]].concat();
+        let taggers_key_parts = [&POST_HOT_TAGS[..], &[TAGGERS], &[timeframe]].concat();
+
+        (hot_tag_key_parts, taggers_key_parts)
     }
 
     /// Reindexes global hot tags

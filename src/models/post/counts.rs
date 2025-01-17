@@ -47,7 +47,7 @@ impl PostCounts {
         author_id: &str,
         post_id: &str,
     ) -> Result<Option<PostCounts>, DynError> {
-        if let Some(post_counts) = Self::try_from_index_json(&[author_id, post_id]).await? {
+        if let Some(post_counts) = Self::try_from_index_json(None, &[author_id, post_id]).await? {
             return Ok(Some(post_counts));
         }
         Ok(None)
@@ -85,7 +85,8 @@ impl PostCounts {
         post_id: &str,
         is_reply: bool,
     ) -> Result<(), DynError> {
-        self.put_index_json(&[author_id, post_id], None).await?;
+        self.put_index_json(None, &[author_id, post_id], None)
+            .await?;
 
         // avoid indexing replies into global feeds
         if !is_reply {
