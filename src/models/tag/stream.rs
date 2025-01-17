@@ -71,6 +71,14 @@ impl FromIterator<HotTag> for HotTags {
 }
 
 impl HotTags {
+    
+    /// It dynamically determines whether to fetch **global hot tags** or **user-specific hot tags** 
+    /// based on the provided `user_id` and `reach` parameters
+    ///
+    /// # Arguments
+    /// * `user_id` - An optional user ID
+    /// * `reach` - An optional `TagStreamReach` value specifying the scope of tag retrieval
+    /// * `hot_tags_input` - The input parameters received from the API endpoint
     pub async fn get_hot_tags(
         user_id: Option<String>,
         reach: Option<TagStreamReach>,
@@ -89,6 +97,14 @@ impl HotTags {
         }
     }
 
+    /// Retrieves hot tags based on the user's reach criteria
+    /// Queries the graph database to fetch hot tags relevant to a given user,
+    /// filtered by their reach and additional criteria defined in `hot_tags_input`.
+    ///
+    /// # Arguments
+    /// * `user_id` - The ID of the user whose reach is used for filtering hot tags.
+    /// * `reach` - The `TagStreamReach` parameter that defines the scope of tag retrieval
+    /// * `hot_tags_input` - The input parameters received from the API endpoint
     async fn get_hot_tags_by_reach(
         user_id: String,
         reach: TagStreamReach,
@@ -98,10 +114,19 @@ impl HotTags {
         retrieve_from_graph::<HotTags>(query, "hot_tags").await
     }
 
+    /// Retrieves global hot tags, checking the cache first before querying the database.
+    /// This function first attempts to fetch global hot tags from the cache. If the cached
+    /// data is unavailable, it queries the graph database to retrieve the latest hot tags.
+    /// If new data is found, it updates the cache before returning the results.
+    ///
+    /// # Arguments
+    ///
+    /// * `hot_tags_input` - The input parameters received from the API endpoint
     async fn get_global_hot_tags(
         hot_tags_input: &HotTagsInput,
     ) -> Result<Option<HotTags>, DynError> {
         let cached_hot_tags = HotTags::get_from_global_cache(hot_tags_input).await?;
+        // If it is cache miss, retry all the info related from the graph
         if cached_hot_tags.is_some() {
             return Ok(cached_hot_tags);
         }
@@ -126,10 +151,19 @@ impl HotTags {
         HotTags::get_from_global_cache(hot_tags_input).await
     }
 
+    /// Retrieves hot tags from the global cache
+    ///
+    /// Fetches hot tags and their associated taggers from the cache, reconstructing
+    /// a list of hot tags from a stored JSON mapping and a hot tags SORTED SET. It applies filters
+    /// based on `hot_tags_input`, ensuring that only relevant tags and taggers are returned
+    ///
+    /// # Arguments
+    ///
+    /// * `hot_tags_input` - The input parameters received from the API endpoint
     async fn get_from_global_cache(
-        hot_tag_input: &HotTagsInput,
+        hot_tags_input: &HotTagsInput,
     ) -> Result<Option<HotTags>, DynError> {
-        let timeframe = hot_tag_input.timeframe.to_string();
+        let timeframe = hot_tags_input.timeframe.to_string();
         let (hot_tag_key_parts, taggers_key_parts) = Self::build_hot_tags_key_parts(&timeframe);
 
         let hot_tag_taggers = HotTagsTaggers::try_from_index_json(
@@ -142,8 +176,8 @@ impl HotTags {
             &hot_tag_key_parts,
             None,
             None,
-            Some(hot_tag_input.skip),
-            Some(hot_tag_input.limit),
+            Some(hot_tags_input.skip),
+            Some(hot_tags_input.limit),
             SortOrder::Descending,
             Some(HOT_TAGS_CACHE_PREFIX),
         )
@@ -161,7 +195,7 @@ impl HotTags {
                 // Reduce taggers list
                 let taggers_id: Vec<String> = tag
                     .iter()
-                    .take(hot_tag_input.taggers_limit)
+                    .take(hot_tags_input.taggers_limit)
                     .cloned()
                     .collect();
                 hot_tags.push(HotTag {
@@ -175,17 +209,25 @@ impl HotTags {
         Ok(Some(HotTags(hot_tags)))
     }
 
+    /// Caches the global hot tags taggers and their scores
+    /// Gets hot tags and stores it in a global cache, both as a JSON
+    /// mapping of taggers and as a sorted set for score. It constructs cache keys dynamically
+    /// based on the provided timeframe
+    ///
+    /// # Arguments
+    ///
+    /// * `hot_tags_list` - A vector of `HotTag` elements
+    /// * `hot_tags_input` - The input parameters received from the API endpoint
     async fn set_to_global_cache(
-        result: HotTags,
+        hot_tags_list: HotTags,
         hot_tags_input: &HotTagsInput,
     ) -> Result<(), DynError> {
         let timeframe = hot_tags_input.timeframe.to_string();
         let (hot_tag_key_parts, taggers_key_parts) = Self::build_hot_tags_key_parts(&timeframe);
 
-        // Turn result which is a vector of HotTag, into a mapping from label to HotTag
-        let mut hot_tags_score = Vec::with_capacity(result.len());
+        let mut hot_tags_score = Vec::with_capacity(hot_tags_list.len());
 
-        let hot_tags_data: HashMap<String, Taggers> = result
+        let taggers: HashMap<String, Taggers> = hot_tags_list
             .iter()
             .map(|tag| {
                 hot_tags_score.push((tag.tagged_count as f64, tag.label.as_str()));
@@ -193,8 +235,8 @@ impl HotTags {
             })
             .collect();
 
-        // store the taggers as json in cache
-        HotTagsTaggers(hot_tags_data)
+        // Store the taggers as JSON in cache
+        HotTagsTaggers(taggers)
             .put_index_json(
                 Some(HOT_TAGS_CACHE_PREFIX.to_string()),
                 taggers_key_parts.as_slice(),
@@ -202,7 +244,7 @@ impl HotTags {
             )
             .await?;
 
-        // store the ranking as sorted set in cache
+        // Store the score as sorted set in cache
         HotTags::put_index_sorted_set(
             &hot_tag_key_parts,
             &hot_tags_score,
@@ -213,6 +255,10 @@ impl HotTags {
         Ok(())
     }
 
+    /// Builds key parts for hot tags and hot tag taggers based on the given timeframe
+    ///
+    /// # Arguments
+    /// * `timeframe` - A string slice representing the timeframe (e.g., "today", "this_month", "all_time").
     fn build_hot_tags_key_parts(timeframe: &str) -> (Vec<&str>, Vec<&str>) {
         let hot_tag_key_parts = [&POST_HOT_TAGS[..], &[timeframe]].concat();
         let taggers_key_parts = [&POST_HOT_TAGS[..], &[TAGGERS], &[timeframe]].concat();
