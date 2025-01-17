@@ -41,9 +41,80 @@ async fn test_user_tags_limit_tag_filter_active() -> Result<()> {
     // Validate that the posts belong to the specified user's bookmarks
     analyse_tag_details_structure(tags);
 
-    // // Analyse the tag that is in the 4th index
+    // // Analyse the tag that is in the 1st index
     let hot_tag = TagMockup::new(String::from("pubky"), 3, 3);
     compare_tag_details(&tags[0], hot_tag);
+
+    Ok(())
+}
+
+const MEDHURST_USER: &str = "zdbg13k5gh4tfz9qz11quohrxetgqxs7awandu8h57147xddcuhy";
+const RECKLESSLY_TAG: &str = "recklessly";
+const EVEN_TAG: &str = "even";
+const WEBBED_TAG: &str = "webbed";
+
+#[tokio::test]
+async fn test_user_tags_skip_tag_filter_active() -> Result<()> {
+    let path = format!("/v0/user/{}/tags?skip_tags=1", MEDHURST_USER);
+    let body = make_request(&path).await?;
+
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Tag list should be an array");
+    assert_eq!(tags.len(), 5);
+
+    // Validate that the posts belong to the specified user's bookmarks
+    analyse_tag_details_structure(tags);
+
+    // // Analyse the tag that is in the 4th index
+    let tag = TagMockup::new(String::from(EVEN_TAG), 2, 2);
+    compare_tag_details(&tags[1], tag);
+
+    let tag = TagMockup::new(String::from(RECKLESSLY_TAG), 1, 1);
+    compare_tag_details(&tags[4], tag);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_user_tags_skip_and_limit_tag_filter_active() -> Result<()> {
+    let path = format!("/v0/user/{}/tags?skip_tags=5&limit_tags=1", MEDHURST_USER);
+    let body = make_request(&path).await?;
+
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Tag list should be an array");
+    assert_eq!(tags.len(), 1);
+
+    // Validate that the posts belong to the specified user's bookmarks
+    analyse_tag_details_structure(tags);
+
+    // // Analyse the tag that is in the 4th index
+    let tag = TagMockup::new(String::from(RECKLESSLY_TAG), 1, 1);
+    compare_tag_details(&tags[0], tag);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_user_tags_skip_limit_and_taggers_limit_filter_active() -> Result<()> {
+    let path = format!("/v0/user/{}/tags?skip_tags=2&limit_tags=2&limit_taggers=1", MEDHURST_USER);
+    let body = make_request(&path).await?;
+
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Tag list should be an array");
+    assert_eq!(tags.len(), 2);
+
+    // Validate that the posts belong to the specified user's bookmarks
+    analyse_tag_details_structure(tags);
+
+    // // Analyse the tag that is in the 4th index
+    let tag = TagMockup::new(String::from(EVEN_TAG), 1, 2);
+    compare_tag_details(&tags[0], tag);
+
+    let tag = TagMockup::new(String::from(WEBBED_TAG), 1, 1);
+    compare_tag_details(&tags[1], tag);
 
     Ok(())
 }

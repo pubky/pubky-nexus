@@ -19,8 +19,9 @@ use utoipa::OpenApi;
     params(
         ("author_id" = String, Path, description = "Author Pubky ID"),
         ("post_id" = String, Path, description = "Post ID"),
-        ("limit_tags" = Option<usize>, Query, description = "Upper limit on the number of tags for the posts"),
-        ("limit_taggers" = Option<usize>, Query, description = "Upper limit on the number of taggers per tag"),
+        ("skip_tags" = Option<usize>, Query, description = "Skip N tags. **Default** value 0"),
+        ("limit_tags" = Option<usize>, Query, description = "Upper limit on the number of tags for the posts. **Default** value 5"),
+        ("limit_taggers" = Option<usize>, Query, description = "Upper limit on the number of taggers per tag. **Default** value 5"),
     ),
     responses(
         (status = 404, description = "Post not found"),
@@ -33,15 +34,16 @@ pub async fn post_tags_handler(
     Query(query): Query<TagsQuery>,
 ) -> Result<Json<Vec<TagDetails>>> {
     info!(
-        "GET {POST_TAGS_ROUTE} author_id:{}, post_id: {}, limit_tags:{:?}, limit_taggers:{:?}",
-        author_id, post_id, query.limit_tags, query.limit_taggers
+        "GET {POST_TAGS_ROUTE} author_id:{}, post_id: {}, skip_tags:{:?}, limit_tags:{:?}, limit_taggers:{:?}",
+        author_id, post_id, query.limit_tags, query.skip_tags, query.limit_taggers
     );
     match TagPost::get_by_id(
         &author_id,
         Some(&post_id),
+        query.skip_tags,
         query.limit_tags,
         query.limit_taggers,
-        None,
+        None, // Avoid by default WoT tags in a Post
         None, // Avoid by default WoT tags in a Post
     )
     .await

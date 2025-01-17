@@ -86,6 +86,7 @@ async fn test_homeserver_del_tag_post() -> Result<()> {
         Some(&post_id),
         None,
         None,
+        None,
         false,
     )
     .await
