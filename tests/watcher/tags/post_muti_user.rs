@@ -86,14 +86,13 @@ async fn test_homeserver_multi_user() -> Result<()> {
             label: label_water.to_string(),
             created_at: Utc::now().timestamp_millis(),
         };
-        let tag_blob = serde_json::to_vec(&tag)?;
         let tag_url = format!(
             "pubky://{}/pub/pubky.app/tags/{}",
             tagger_id,
             tag.create_id()
         );
         // Put tag
-        test.put(&tag_url, tag_blob).await?;
+        test.put(&tag_url, tag).await?;
         tag_urls.push(tag_url)
     }
 
@@ -105,14 +104,13 @@ async fn test_homeserver_multi_user() -> Result<()> {
             label: label_fire.to_string(),
             created_at: Utc::now().timestamp_millis(),
         };
-        let tag_blob = serde_json::to_vec(&tag)?;
         let tag_url = format!(
             "pubky://{}/pub/pubky.app/tags/{}",
             tagger_id,
             tag.create_id()
         );
         // Put tag
-        test.put(&tag_url, tag_blob).await?;
+        test.put(&tag_url, tag).await?;
         tag_urls.push(tag_url)
     }
 

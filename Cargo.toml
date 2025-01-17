@@ -10,10 +10,10 @@ default-run = "service"
 build = "build.rs"
 
 [dependencies]
-pkarr = { git = "https://github.com/Pubky/pkarr", branch = "v3", package = "pkarr", features = [
-    "async",
-] }
-pubky = "0.3.0"
+bytes = "1.9.0" # Enforce this version as Pubky and Axum conflict v1.7.1 vs v1.9.0
+pkarr = { git = "https://github.com/pubky/pkarr", branch = "v3-rc1", package = "pkarr" }
+mainline = { git = "https://github.com/pubky/mainline", branch = "v5-rc1", default-features = false }
+pubky = { git = "https://github.com/pubky/pubky", branch = "v0.4.0-rc1" }
 pubky-app-specs = { git = "https://github.com/pubky/pubky-app-specs", features = [
     "openapi",
 ] }
@@ -34,25 +34,22 @@ log = "0.4.22"
 env_logger = "0.11.6"
 const_format = "0.2.34"
 thiserror = "2.0.11"
-chrono = "0.4.39"
-pubky-common = "0.1.0"
-reqwest = "0.12.12"
+chrono = { version = "0.4.39", default-features = false, features = ["clock"] }
+pubky-common = { git = "https://github.com/pubky/pubky", branch = "v0.4.0-rc1" }
 base32 = "0.5.1"
 blake3 = "1.5.5"
 url = "2.5.4"
 async-trait = "0.1.85"
+reqwest = "0.12.9"
 
 [dev-dependencies]
 anyhow = "1.0.95"
 httpc-test = "0.1.10"
 criterion = { version = "0.5.1", features = ["async_tokio"] }
-pubky_homeserver = { git = "https://github.com/pubky/pubky-core.git", tag = "pubky-v0.3.0" }
+pubky-homeserver = { git = "https://github.com/pubky/pubky", branch = "v0.4.0-rc1" }
 rand = "0.8.5"
 rand_distr = "0.4.3"
 tokio-shared-rt = "0.1"
-
-[patch.crates-io]
-utoipa-swagger-ui = { git = "https://github.com/juhaku/utoipa", rev = "d522f744259dc4fde5f45d187983fb68c8167029" }
 
 [lib]
 name = "pubky_nexus"
