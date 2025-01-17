@@ -18,8 +18,8 @@ use utoipa::OpenApi;
         ("author_id" = String, Path, description = "Author Pubky ID"),
         ("post_id" = String, Path, description = "Post Crockford32 ID"),
         ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
-        ("max_tags" = Option<usize>, Query, description = "Upper limit on the number of tags for the post"),
-        ("max_taggers" = Option<usize>, Query, description = "Upper limit on the number of taggers per tag")
+        ("limit_tags" = Option<usize>, Query, description = "Upper limit on the number of tags for the post"),
+        ("limit_taggers" = Option<usize>, Query, description = "Upper limit on the number of taggers per tag")
     ),
     responses(
         (status = 200, description = "Post", body = PostView),

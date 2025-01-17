@@ -35,6 +35,7 @@ impl PostView {
             TagPost::get_by_id(
                 author_id,
                 Some(post_id),
+                None,
                 limit_tags,
                 limit_taggers,
                 viewer_id,

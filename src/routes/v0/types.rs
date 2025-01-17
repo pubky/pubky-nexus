@@ -5,6 +5,7 @@ use utoipa::ToSchema;
 #[derive(Default, Deserialize, Debug, ToSchema)]
 pub struct TagsQuery {
     pub limit_tags: Option<usize>,
+    pub skip_tags: Option<usize>,
     pub limit_taggers: Option<usize>,
     pub viewer_id: Option<String>,
     #[serde(default, deserialize_with = "parse_string_to_u8")]

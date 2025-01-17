@@ -20,8 +20,9 @@ use utoipa::OpenApi;
     tag = "User",
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
-        ("limit_tags" = Option<usize>, Query, description = "Upper limit on the number of tags for the user"),
-        ("limit_taggers" = Option<usize>, Query, description = "Upper limit on the number of taggers per tag"),
+        ("skip_tags" = Option<usize>, Query, description = "Skip N tags. **Default** value 0"),
+        ("limit_tags" = Option<usize>, Query, description = "Upper limit on the number of tags for the user. **Default** value 5"),
+        ("limit_taggers" = Option<usize>, Query, description = "Upper limit on the number of taggers per tag. **Default** value 5"),
         ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
         ("depth" = Option<usize>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 4, will be ignored")
     ),
@@ -36,13 +37,14 @@ pub async fn user_tags_handler(
     Query(query): Query<TagsQuery>,
 ) -> Result<Json<Vec<TagDetails>>> {
     info!(
-        "GET {USER_TAGS_ROUTE} user_id:{}, limit_tags:{:?}, limit_taggers:{:?}, viewer_id:{:?}, depth:{:?}",
-        user_id, query.limit_tags, query.limit_taggers, query.viewer_id, query.depth
+        "GET {USER_TAGS_ROUTE} user_id:{}, skip_tags:{:?}, limit_tags:{:?}, limit_taggers:{:?}, viewer_id:{:?}, depth:{:?}",
+        user_id, query.skip_tags, query.limit_tags, query.limit_taggers, query.viewer_id, query.depth
     );
 
     match TagUser::get_by_id(
         &user_id,
         None,
+        query.skip_tags,
         query.limit_tags,
         query.limit_taggers,
         query.viewer_id.as_deref(),

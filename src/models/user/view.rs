@@ -28,7 +28,7 @@ impl UserView {
             UserDetails::get_by_id(user_id),
             UserCounts::get_by_id(user_id),
             Relationship::get_by_id(user_id, viewer_id),
-            TagUser::get_by_id(user_id, None, None, None, viewer_id, depth)
+            TagUser::get_by_id(user_id, None, None, None, None, viewer_id, depth)
         )?;
 
         let details = match details {
