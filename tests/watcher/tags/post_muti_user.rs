@@ -16,7 +16,7 @@ use pubky_nexus::{
         notification::Notification,
         tag::{
             post::TagPost,
-            stream::{Taggers, TAG_GLOBAL_HOT},
+            taggers::{Taggers, TAG_GLOBAL_HOT},
             traits::{TagCollection, TaggersCollection},
         },
     },

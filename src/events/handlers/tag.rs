@@ -5,7 +5,7 @@ use crate::models::notification::Notification;
 use crate::models::post::{PostCounts, PostStream};
 use crate::models::tag::post::TagPost;
 use crate::models::tag::search::TagSearch;
-use crate::models::tag::stream::Taggers;
+use crate::models::tag::taggers::Taggers;
 use crate::models::tag::traits::{TagCollection, TaggersCollection};
 use crate::models::tag::user::TagUser;
 use crate::models::user::UserCounts;

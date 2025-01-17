@@ -8,7 +8,7 @@ use chrono::Utc;
 use pubky_app_specs::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::tag::post::TagPost;
-use pubky_nexus::models::tag::stream::{Taggers, TAG_GLOBAL_HOT};
+use pubky_nexus::models::tag::taggers::{Taggers, TAG_GLOBAL_HOT};
 use pubky_nexus::models::tag::traits::{TagCollection, TaggersCollection};
 use pubky_nexus::RedisOps;
 
