@@ -8,6 +8,7 @@ use crate::{RedisOps, ScoreAction};
 
 use super::{stream::TagStreamReach, traits::taggers::Taggers as TaggersType};
 
+// DELETE: LEGACY
 pub const TAG_GLOBAL_HOT: [&str; 3] = ["Tags", "Global", "Hot"];
 
 #[derive(Serialize, Deserialize, Debug, ToSchema, Clone)]
@@ -23,6 +24,7 @@ impl Deref for Taggers {
 
 #[async_trait]
 impl RedisOps for Taggers {
+    // DELETE: LEGACY
     async fn prefix() -> String {
         String::from("Tags:Taggers")
     }
@@ -35,17 +37,18 @@ impl AsRef<[String]> for Taggers {
 }
 
 impl Taggers {
+    // DELETE: LEGACY
     pub async fn update_index_score(
         label: &str,
         score_action: ScoreAction,
     ) -> Result<(), DynError> {
         Self::put_score_index_sorted_set(&TAG_GLOBAL_HOT, &[label], score_action).await
     }
-
+    // DELETE: LEGACY
     pub async fn put_to_index(label: &str, user_id: &str) -> Result<(), DynError> {
         Self::put_index_set(&[label], &[user_id], None, None).await
     }
-
+    // DELETE: LEGACY
     pub async fn del_from_index(&self, label: &str) -> Result<(), DynError> {
         self.remove_from_index_set(&[label]).await
     }

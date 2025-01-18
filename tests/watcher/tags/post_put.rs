@@ -10,10 +10,8 @@ use pubky_common::crypto::Keypair;
 use pubky_nexus::models::notification::Notification;
 use pubky_nexus::models::post::PostDetails;
 use pubky_nexus::models::tag::post::TagPost;
-use pubky_nexus::models::tag::taggers::{Taggers, TAG_GLOBAL_HOT};
 use pubky_nexus::models::tag::traits::TagCollection;
 use pubky_nexus::types::Pagination;
-use pubky_nexus::RedisOps;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_put_tag_post() -> Result<()> {
@@ -55,12 +53,6 @@ async fn test_homeserver_put_tag_post() -> Result<()> {
         tagger_user_id,
         tag.create_id()
     );
-
-    // Avoid errors, if the score does not exist. Using that variable in the last assert of the test
-    let actual_tag_hot_score = Taggers::check_sorted_set_member(&TAG_GLOBAL_HOT, &[label])
-        .await
-        .unwrap()
-        .unwrap_or_default();
 
     // Put tag
     test.put(&tag_url, tag_blob).await?;
@@ -126,12 +118,6 @@ async fn test_homeserver_put_tag_post() -> Result<()> {
     let user_counts = find_user_counts(&tagger_user_id).await;
     assert_eq!(user_counts.tags, 1);
 
-    // Check if the user is related with tag: Tag:Taggers:tag_name
-    let (_exist, member) = Taggers::check_set_member(&[label], &tagger_user_id)
-        .await
-        .expect("Failed to check tagger in Taggers set");
-    assert!(member);
-
     // Assert if the new tag increments the engagement
     // global post engagement: Sorted:Posts:Global:TotalEngagement:user_id:post_id
     let total_engagement = check_member_total_engagement_user_posts(&post_key)
@@ -154,13 +140,6 @@ async fn test_homeserver_put_tag_post() -> Result<()> {
         0,
         "Post author should have 0 notification. Self tagging."
     );
-
-    // Assert hot tag score: Sorted:Post:Global:Hot:label
-    let total_engagement = Taggers::check_sorted_set_member(&TAG_GLOBAL_HOT, &[label])
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(total_engagement, actual_tag_hot_score + 1);
 
     // Cleanup user and post
     test.cleanup_post(&tagger_user_id, &post_id).await?;
