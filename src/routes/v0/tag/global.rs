@@ -1,7 +1,7 @@
-use crate::models::tag::global::TagGlobal;
-use crate::models::tag::stream::{
-    HotTag, HotTags, HotTagsInput, TagStreamReach, TaggedType, Taggers,
-};
+use crate::models::tag::stream::{HotTag, HotTags, TagStreamReach};
+use crate::models::tag::taggers::Taggers;
+use crate::models::tag::traits::taggers::Taggers as TaggersType;
+use crate::models::tag::TaggedType;
 use crate::routes::v0::endpoints::{TAGS_HOT_ROUTE, TAG_TAGGERS_ROUTE};
 use crate::types::{Pagination, Timeframe};
 use crate::{Error, Result};
@@ -17,7 +17,6 @@ pub struct HotTagsQuery {
     reach: Option<TagStreamReach>,
     taggers_limit: Option<usize>,
     timeframe: Option<Timeframe>,
-
     #[serde(flatten)]
     pagination: Pagination,
 }
@@ -29,6 +28,32 @@ pub struct TagTaggersQuery {
     reach: Option<TagStreamReach>,
 }
 
+pub struct HotTagsInput {
+    pub timeframe: Timeframe,
+    pub skip: usize,
+    pub limit: usize,
+    pub taggers_limit: usize,
+    pub tagged_type: Option<TaggedType>,
+}
+
+impl HotTagsInput {
+    pub fn new(
+        timeframe: Timeframe,
+        limit: usize,
+        skip: usize,
+        taggers_limit: usize,
+        tagged_type: Option<TaggedType>,
+    ) -> Self {
+        Self {
+            timeframe,
+            limit,
+            skip,
+            taggers_limit,
+            tagged_type,
+        }
+    }
+}
+
 #[utoipa::path(
     get,
     path = TAG_TAGGERS_ROUTE,
@@ -38,9 +63,11 @@ pub struct TagTaggersQuery {
         ("label" = String, Path, description = "Tag name"),
         ("reach" = TagStreamReach, Path, description = "Reach type: Follower | Following | Friends"),
         ("user_id" = Option<String>, Query, description = "User ID to base reach on"),
+        ("skip" = Option<usize>, Query, description = "Skip N taggers. Defaults to `0`"),
+        ("limit" = Option<usize>, Query, description = "Retrieve N tagggers. Defaults to `40`"),
     ),
     responses(
-        (status = 200, description = "Taggers", body = Vec<String>),
+        (status = 200, description = "Taggers", body = TaggersType),
         (status = 404, description = "Tag not found"),
         (status = 500, description = "Internal server error")
     )
@@ -48,7 +75,7 @@ pub struct TagTaggersQuery {
 pub async fn tag_taggers_handler(
     Path(label): Path<String>,
     Query(query): Query<TagTaggersQuery>,
-) -> Result<Json<Vec<String>>> {
+) -> Result<Json<TaggersType>> {
     info!(
         "GET {TAG_TAGGERS_ROUTE} label:{}, query: {:?}",
         label, query
@@ -57,7 +84,8 @@ pub async fn tag_taggers_handler(
     let skip = query.pagination.skip.unwrap_or(0);
     let limit = query.pagination.limit.unwrap_or(20).min(20);
 
-    match TagGlobal::get_tag_taggers(label.clone(), query.user_id, query.reach, skip, limit).await {
+    match Taggers::get_global_taggers(label.clone(), query.user_id, query.reach, skip, limit).await
+    {
         Ok(Some(post)) => Ok(Json(post)),
         Ok(None) => Err(Error::TagsNotFound { reach: label }),
         Err(source) => Err(Error::InternalServerError { source }),
@@ -72,10 +100,10 @@ pub async fn tag_taggers_handler(
     params(
         ("user_id" = Option<String>, Query, description = "User Pubky ID"),
         ("reach" = Option<TagStreamReach>, Query, description = "Reach type: follower | following | friends"),
-        ("taggers_limit" = Option<usize>, Query, description = "Retrieve N user_id for each tag"),
-        ("skip" = Option<usize>, Query, description = "Skip N tags"),
-        ("limit" = Option<usize>, Query, description = "Retrieve N tag"),
-        ("timeframe" = Option<Timeframe>, Query, description = "Retrieve hot tags for this specific timeframe. Defaults to all_time"),
+        ("taggers_limit" = Option<usize>, Query, description = "Retrieve N user_id for each tag. Defaults to `20`"),
+        ("skip" = Option<usize>, Query, description = "Skip N tags. Defaults to `0`"),
+        ("limit" = Option<usize>, Query, description = "Retrieve N tag. Defaults to `40`"),
+        ("timeframe" = Option<Timeframe>, Query, description = "Retrieve hot tags for this specific timeframe. Defaults to `all_time`"),
     ),
     responses(
         (status = 200, description = "Retrieve tags by reach cluster", body = Vec<HotTag>),

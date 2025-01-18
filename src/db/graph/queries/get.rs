@@ -1,6 +1,6 @@
 use crate::models::post::StreamSource;
-use crate::models::tag::stream::HotTagsInput;
 use crate::models::tag::stream::TagStreamReach;
+use crate::routes::v0::tag::HotTagsInput;
 use crate::types::Pagination;
 use crate::types::StreamSorting;
 use log::debug;
