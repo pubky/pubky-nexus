@@ -300,15 +300,15 @@ async fn test_hot_tags_by_friends_reach_with_skip_limit() -> Result<()> {
 const PUBKY_TAG: &str = "pubky";
 
 const TAGGERS: [&str; 9] = [
-    "emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy",
-    "7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o",
-    "ze86rtgp6x1qdyno4uzp8gexbb887dtemmonoh4j3iisbzitcppo",
-    "end1obs8cy3ssqzhm73hiojwpakb4ac1fiubbmk5zfuruaaumwso",
-    "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro",
-    "omynbjw4ksjc4at5gretyoatw1g5h53tkee5z55fh69sng1d3jpy",
-    "pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy",
-    "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy",
-    "s1empmp4x6owkewyijcbnn1faejhhu536w8i7n9oqh57om9qjfho",
+	"ze86rtgp6x1qdyno4uzp8gexbb887dtemmonoh4j3iisbzitcppo",
+	"end1obs8cy3ssqzhm73hiojwpakb4ac1fiubbmk5zfuruaaumwso",
+	"4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro",
+	"omynbjw4ksjc4at5gretyoatw1g5h53tkee5z55fh69sng1d3jpy",
+	"pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy",
+	"y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy",
+	"s1empmp4x6owkewyijcbnn1faejhhu536w8i7n9oqh57om9qjfho",
+	"emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy",
+	"7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o"
 ];
 
 #[tokio::test]
