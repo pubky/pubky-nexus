@@ -17,7 +17,7 @@ const USER_A: &str = "cjoodgkwaf1bwepoe8m6zsp8guobh5wdwmqqnk496jcd175jjwey";
 const USER_B: &str = "fs8qf51odhpf9ecoms8i9tbjtyshhjdejpsf3nxcbup3ugs7q4xo";
 const USER_C: &str = "cuimec4ngawamq8wa6fjzki6boxmwqcm11x6g7ontufrjwgdaxqo";
 
-// WARNING: To test that integration test, the Cache:... indexes 
+// WARNING: To test that integration test, the Cache:... indexes
 // related with WoT has to be deleted
 #[tokio::test]
 async fn test_wot_user_tags_endpoints() -> Result<()> {

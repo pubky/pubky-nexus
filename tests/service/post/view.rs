@@ -1,4 +1,8 @@
-use crate::service::{post::{CAIRO_USER, ENCRYPTION_TAG, ROOT_PATH}, stream::post::{POST_H, TAG_LABEL_2}, utils::{make_request, HOST_URL}};
+use crate::service::{
+    post::{CAIRO_USER, ENCRYPTION_TAG, ROOT_PATH},
+    stream::post::{POST_H, TAG_LABEL_2},
+    utils::{make_request, HOST_URL},
+};
 use anyhow::Result;
 use pubky_nexus::models::tag::TagDetails;
 
@@ -52,26 +56,27 @@ async fn test_get_post_view() -> Result<()> {
     Ok(())
 }
 
-
-
 #[tokio::test]
 async fn test_get_post_view_with_limit_tags() -> Result<()> {
-
-    let path = format!("{}/{}/{}?limit_tags=1", ROOT_PATH,CAIRO_USER, POST_H);
+    let path = format!("{}/{}/{}?limit_tags=1", ROOT_PATH, CAIRO_USER, POST_H);
 
     let body = make_request(&path).await?;
     //let post_tag: PostView = serde_json::from_value(body.clone())?;
     assert!(body.is_object());
 
     // Check the tag list
-    let tags = body["tags"].as_array().expect("Post tags should be an array");
+    let tags = body["tags"]
+        .as_array()
+        .expect("Post tags should be an array");
     // Check the total posts using that tag
     assert_eq!(tags.len(), 1);
 
     // opersource tag
     assert_eq!(tags[0]["label"], TAG_LABEL_2);
     assert_eq!(tags[0]["taggers_count"], 4);
-    let taggers = tags[0]["taggers"].as_array().expect("Tag taggers should be an array");
+    let taggers = tags[0]["taggers"]
+        .as_array()
+        .expect("Tag taggers should be an array");
     assert_eq!(taggers.len(), 4);
 
     Ok(())
@@ -79,27 +84,31 @@ async fn test_get_post_view_with_limit_tags() -> Result<()> {
 
 #[tokio::test]
 async fn test_get_post_view_with_limit_taggers() -> Result<()> {
-
-    let path = format!("{}/{}/{}?limit_taggers=2", ROOT_PATH,CAIRO_USER, POST_H);
+    let path = format!("{}/{}/{}?limit_taggers=2", ROOT_PATH, CAIRO_USER, POST_H);
 
     let body = make_request(&path).await?;
 
     assert!(body.is_object());
     // Check the tag list
-    let tags = body["tags"].as_array().expect("Post tags should be an array");
+    let tags = body["tags"]
+        .as_array()
+        .expect("Post tags should be an array");
     // Check the total posts using that tag
     assert_eq!(tags.len(), 2);
 
     // opersource tag
     assert_eq!(tags[0]["label"], TAG_LABEL_2);
     assert_eq!(tags[0]["taggers_count"], 4);
-    let opensource_taggers = tags[0]["taggers"].as_array().expect("Tag taggers should be an array");
+    let opensource_taggers = tags[0]["taggers"]
+        .as_array()
+        .expect("Tag taggers should be an array");
     assert_eq!(opensource_taggers.len(), 2);
-
 
     assert_eq!(tags[1]["label"], ENCRYPTION_TAG);
     assert_eq!(tags[1]["taggers_count"], 2);
-    let encryption_taggers = tags[1]["taggers"].as_array().expect("Tag taggers should be an array");
+    let encryption_taggers = tags[1]["taggers"]
+        .as_array()
+        .expect("Tag taggers should be an array");
     assert_eq!(encryption_taggers.len(), 2);
 
     Ok(())
@@ -107,24 +116,29 @@ async fn test_get_post_view_with_limit_taggers() -> Result<()> {
 
 #[tokio::test]
 async fn test_get_post_view_with_limit_tags_and_taggers() -> Result<()> {
-
-    let path = format!("{}/{}/{}?limit_tags=1&limit_taggers=2", ROOT_PATH,CAIRO_USER, POST_H);
+    let path = format!(
+        "{}/{}/{}?limit_tags=1&limit_taggers=2",
+        ROOT_PATH, CAIRO_USER, POST_H
+    );
 
     let body = make_request(&path).await?;
 
     assert!(body.is_object());
 
     // Check the tag list
-    let tags = body["tags"].as_array().expect("Post tags should be an array");
+    let tags = body["tags"]
+        .as_array()
+        .expect("Post tags should be an array");
     // Check the total posts using that tag
     assert_eq!(tags.len(), 1);
 
     // opersource tag
     assert_eq!(tags[0]["label"], TAG_LABEL_2);
     assert_eq!(tags[0]["taggers_count"], 4);
-    let taggers = tags[0]["taggers"].as_array().expect("Tag taggers should be an array");
+    let taggers = tags[0]["taggers"]
+        .as_array()
+        .expect("Tag taggers should be an array");
     assert_eq!(taggers.len(), 2);
 
     Ok(())
 }
-

@@ -98,7 +98,10 @@ async fn test_user_tags_skip_and_limit_tag_filter_active() -> Result<()> {
 
 #[tokio::test]
 async fn test_user_tags_skip_limit_and_taggers_limit_filter_active() -> Result<()> {
-    let path = format!("/v0/user/{}/tags?skip_tags=2&limit_tags=2&limit_taggers=1", MEDHURST_USER);
+    let path = format!(
+        "/v0/user/{}/tags?skip_tags=2&limit_tags=2&limit_taggers=1",
+        MEDHURST_USER
+    );
     let body = make_request(&path).await?;
 
     assert!(body.is_array());

@@ -57,7 +57,16 @@ where
         // Query for the tags that are in its WoT
         // Actually we just apply that search to User node
         if viewer_id.is_some() && matches!(depth, Some(1..=3)) {
-            match Self::get_from_index(user_id, viewer_id, skip_tags, limit_tags, limit_taggers, true).await? {
+            match Self::get_from_index(
+                user_id,
+                viewer_id,
+                skip_tags,
+                limit_tags,
+                limit_taggers,
+                true,
+            )
+            .await?
+            {
                 Some(tag_details) => return Ok(Some(tag_details)),
                 None => {
                     let depth = depth.unwrap_or(1);
@@ -72,7 +81,16 @@ where
             }
         }
         // Get global tags for that user/post
-        match Self::get_from_index(user_id, extra_param, skip_tags, limit_tags, limit_taggers, false).await? {
+        match Self::get_from_index(
+            user_id,
+            extra_param,
+            skip_tags,
+            limit_tags,
+            limit_taggers,
+            false,
+        )
+        .await?
+        {
             Some(tag_details) => Ok(Some(tag_details)),
             None => {
                 let graph_response = Self::get_from_graph(user_id, extra_param, None).await?;
