@@ -290,11 +290,7 @@ pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), DynError> {
 
             sync_put(dummy_deleted_post, author_id, post_id).await?;
         }
-        // TODO: Should return an error that should be processed by RetryManager
-        // WIP: Create a custom error type to pass enough info to the RetryManager
-        OperationOutcome::MissingDependency => {
-            return Err("WATCHER: Missing some dependency to index the model".into())
-        }
+        OperationOutcome::MissingDependency => return Err(EventProcessorError::SkipIndexing.into()),
     };
 
     Ok(())

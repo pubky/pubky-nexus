@@ -68,6 +68,11 @@ impl RetryEvent {
         }
     }
 
+    /// Generates the opposite event line by replacing the event type, effectively 
+    /// converting delete operations into put operations
+    ///
+    /// # Arguments
+    /// * `event_line` - A string slice representing the event line.
     pub fn generate_opposite_event_line(event_line: &str) -> String {
         event_line.replace(&EventType::Del.to_string(), &EventType::Put.to_string())
     }

@@ -45,18 +45,18 @@ async fn test_homeserver_bookmark_cannot_index() -> Result<()> {
     test.put(&bookmark_url, bookmark_blob).await?;
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    let index_key = format!(
+    let put_index_key = format!(
         "{}:{}",
         EventType::Put,
         RetryEvent::generate_index_key(&bookmark_url).unwrap()
     );
 
     // Assert if the event is in the timeline
-    let timestamp = RetryEvent::check_uri(&index_key).await.unwrap();
+    let timestamp = RetryEvent::check_uri(&put_index_key).await.unwrap();
     assert!(timestamp.is_some());
 
-    // Assert if the event is in the state hash map
-    let event_retry = RetryEvent::get_from_index(&index_key).await.unwrap();
+    // Assert if the event is in the state. JSON
+    let event_retry = RetryEvent::get_from_index(&put_index_key).await.unwrap();
     assert!(event_retry.is_some());
 
     let event_state = event_retry.unwrap();
@@ -76,13 +76,28 @@ async fn test_homeserver_bookmark_cannot_index() -> Result<()> {
     test.del(&bookmark_url).await?;
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    // Assert that the event does not exist in the sorted set. In that case PUT event
-    let timestamp = RetryEvent::check_uri(&index_key).await.unwrap();
-    assert!(timestamp.is_none());
+    let del_index_key = format!(
+        "{}:{}",
+        EventType::Del,
+        RetryEvent::generate_index_key(&bookmark_url).unwrap()
+    );
 
-    // Assert that the event does not exist in the JSON index. In that case PUT event
-    let event_retry = RetryEvent::get_from_index(&index_key).await.unwrap();
-    assert!(event_retry.is_none());
+    // Assert that the event does not exist in the sorted set. In that case PUT event
+    let timestamp = RetryEvent::check_uri(&del_index_key).await.unwrap();
+    assert!(timestamp.is_some());
+
+    // Assert if the event is in the state. JSON
+    let event_retry = RetryEvent::get_from_index(&del_index_key).await.unwrap();
+    assert!(event_retry.is_some());
+
+    let event_state = event_retry.unwrap();
+
+    assert_eq!(event_state.retry_count, 0);
+
+    match event_state.error_type {
+        EventProcessorError::SkipIndexing => (),
+        _ => assert!(false, "The error type has to be SkipIndexing type"),
+    };
 
     Ok(())
 }

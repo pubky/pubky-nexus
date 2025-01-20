@@ -41,13 +41,12 @@ async fn test_homeserver_post_reply_cannot_index() -> Result<()> {
     let reply_id = test.create_post(&user_id, &reply_post).await?;
     tokio::time::sleep(Duration::from_millis(500)).await;
 
+    let reply_url = format!("pubky://{user_id}/pub/pubky.app/posts/{reply_id}");
+
     let index_key = format!(
         "{}:{}",
         EventType::Put,
-        RetryEvent::generate_index_key(&format!(
-            "pubky://{user_id}/pub/pubky.app/posts/{reply_id}"
-        ))
-        .unwrap()
+        RetryEvent::generate_index_key(&reply_url).unwrap()
     );
 
     // Assert if the event is in the timeline
@@ -71,6 +70,32 @@ async fn test_homeserver_post_reply_cannot_index() -> Result<()> {
             );
         }
         _ => assert!(false, "The error type has to be MissingDependency type"),
+    };
+
+    test.del(&reply_url).await?;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    let del_index_key = format!(
+        "{}:{}",
+        EventType::Del,
+        RetryEvent::generate_index_key(&reply_url).unwrap()
+    );
+
+    // Assert that the event does not exist in the sorted set. In that case PUT event
+    let timestamp = RetryEvent::check_uri(&del_index_key).await.unwrap();
+    assert!(timestamp.is_some());
+
+    // Assert if the event is in the state. JSON
+    let event_retry = RetryEvent::get_from_index(&del_index_key).await.unwrap();
+    assert!(event_retry.is_some());
+
+    let event_state = event_retry.unwrap();
+
+    assert_eq!(event_state.retry_count, 0);
+
+    match event_state.error_type {
+        EventProcessorError::SkipIndexing => (),
+        _ => assert!(false, "The error type has to be SkipIndexing type"),
     };
 
     Ok(())

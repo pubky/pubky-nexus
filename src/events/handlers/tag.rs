@@ -216,7 +216,7 @@ pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), DynError> {
     } else {
         // TODO: Should return an error that should be processed by RetryManager
         // WIP: Create a custom error type to pass enough info to the RetryManager
-        return Err("WATCHER: Missing some dependency to index the model".into());
+        return Err(EventProcessorError::SkipIndexing.into());
     }
     Ok(())
 }

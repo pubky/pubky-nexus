@@ -161,7 +161,7 @@ impl EventProcessor {
                     .await
                 {
                     Ok(_) => {
-                        info!("Message send succesfully from the channel");
+                        info!("Message send to the RetryManager succesfully from the channel");
                         // TODO: Investigate non-blocking alternatives
                         // The current use of `tokio::time::sleep` is intended to handle a situation where tasks in other threads
                         // are not being tracked. This could potentially lead to issues with writing `RetryEvents` in certain cases.

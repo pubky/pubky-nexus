@@ -42,10 +42,7 @@ pub async fn sync_del(user_id: PubkyId, muted_id: PubkyId) -> Result<(), DynErro
     // DELETE FROM GRAPH
     match Muted::del_from_graph(&user_id, &muted_id).await? {
         OperationOutcome::Updated => Ok(()),
-        // TODO: Should return an error that should be processed by RetryManager
-        OperationOutcome::MissingDependency => {
-            Err("WATCHER: Missing some dependency to index the model".into())
-        }
+        OperationOutcome::MissingDependency => Err(EventProcessorError::SkipIndexing.into()),
         OperationOutcome::CreatedOrDeleted => {
             // REMOVE FROM INDEX
             Muted(vec![muted_id.to_string()])

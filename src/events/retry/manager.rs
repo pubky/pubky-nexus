@@ -89,12 +89,20 @@ impl RetryManager {
     ) -> Result<(), DynError> {
         match &retry_event.error_type {
             EventProcessorError::MissingDependency { .. } => {
-                info!("Add fail event to Redis: {}", index_key);
+                info!(
+                    "Add PUT event to RetryManager, missing dependency for event: {}",
+                    index_key
+                );
                 // Write in the index
                 retry_event.put_to_index(index_key).await?;
             }
             EventProcessorError::SkipIndexing => {
-                retry_event.delete(index_key).await?;
+                info!(
+                    "Add DEL event to RetryManager, it could not find the delete node: {}",
+                    index_key
+                );
+                // Write in the index
+                retry_event.put_to_index(index_key).await?;
             }
             _ => (),
         };

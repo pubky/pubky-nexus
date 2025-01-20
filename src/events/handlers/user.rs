@@ -67,11 +67,7 @@ pub async fn del(user_id: PubkyId) -> Result<(), DynError> {
 
             sync_put(deleted_user, user_id).await?;
         }
-        // Should return an error that could not be inserted in the RetryManager
-        // TODO: WIP, it will be fixed in the comming PRs the error messages
-        OperationOutcome::MissingDependency => {
-            return Err("WATCHER: Missing some dependency to index the model".into())
-        }
+        OperationOutcome::MissingDependency => return Err(EventProcessorError::SkipIndexing.into()),
     }
 
     // TODO notifications for deleted user
