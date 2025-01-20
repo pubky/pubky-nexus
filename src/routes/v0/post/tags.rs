@@ -19,9 +19,9 @@ use utoipa::OpenApi;
     params(
         ("author_id" = String, Path, description = "Author Pubky ID"),
         ("post_id" = String, Path, description = "Post ID"),
-        ("skip_tags" = Option<usize>, Query, description = "Skip N tags. **Default** value 0"),
-        ("limit_tags" = Option<usize>, Query, description = "Upper limit on the number of tags for the posts. **Default** value 5"),
-        ("limit_taggers" = Option<usize>, Query, description = "Upper limit on the number of taggers per tag. **Default** value 5"),
+        ("skip_tags" = Option<usize>, Query, description = "Skip N tags. Defaults to `0`"),
+        ("limit_tags" = Option<usize>, Query, description = "Upper limit on the number of tags for the posts. Defaults to `5`"),
+        ("limit_taggers" = Option<usize>, Query, description = "Upper limit on the number of taggers per tag. Defaults to `5`"),
     ),
     responses(
         (status = 404, description = "Post not found"),
@@ -63,8 +63,8 @@ pub async fn post_tags_handler(
         ("author_id" = String, Path, description = "Author Pubky ID"),
         ("label" = String, Path, description = "Tag name"),
         ("post_id" = String, Path, description = "Post ID"),
-        ("skip" = Option<usize>, Query, description = "Number of taggers to skip for pagination"),
-        ("limit" = Option<usize>, Query, description = "Number of taggers to return for pagination")
+        ("skip" = Option<usize>, Query, description = "Number of taggers to skip for pagination. Defaults to `0`"),
+        ("limit" = Option<usize>, Query, description = "Number of taggers to return for pagination. Defaults to `40`")
     ),
     responses(
         (status = 200, description = "Post tags", body = Taggers),
