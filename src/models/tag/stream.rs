@@ -10,12 +10,11 @@ use utoipa::ToSchema;
 use crate::queries;
 use crate::RedisOps;
 
-use super::taggers::Taggers;
+use super::global::{HotTagsTaggers, Taggers};
 use super::TaggedType;
 
-const HOT_TAGS_CACHE_PREFIX: &str = "Cache";
-const POST_HOT_TAGS: [&str; 3] = ["Tags", "Post", "Hot"];
-const TAGGERS: &str = "Taggers";
+pub const HOT_TAGS_CACHE_PREFIX: &str = "Cache";
+pub const POST_HOT_TAGS: [&str; 3] = ["Tags", "Post", "Hot"];
 
 #[derive(Deserialize, Debug, ToSchema, Clone)]
 #[serde(rename_all = "snake_case")]
@@ -25,26 +24,12 @@ pub enum TagStreamReach {
     Friends,
 }
 
-#[derive(Serialize, Deserialize, Debug, ToSchema, Default)]
-pub struct HotTagsTaggers(pub HashMap<String, Taggers>);
-
-impl RedisOps for HotTagsTaggers {}
-
-// Implement Deref so TagList can be used like Vec<String>
-impl Deref for HotTagsTaggers {
-    type Target = HashMap<String, Taggers>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
 #[derive(Deserialize, Serialize, ToSchema, Debug, Clone)]
 pub struct HotTag {
-    label: String,
-    taggers_id: Taggers,
-    tagged_count: u64,
-    taggers_count: usize,
+    pub label: String,
+    pub taggers_id: Taggers,
+    pub tagged_count: u64,
+    pub taggers_count: usize,
 }
 
 // Define a newtype wrapper
@@ -71,8 +56,7 @@ impl FromIterator<HotTag> for HotTags {
 }
 
 impl HotTags {
-    
-    /// It dynamically determines whether to fetch **global hot tags** or **user-specific hot tags** 
+    /// It dynamically determines whether to fetch **global hot tags** or **user-specific hot tags**
     /// based on the provided `user_id` and `reach` parameters
     ///
     /// # Arguments
@@ -88,7 +72,7 @@ impl HotTags {
             Some(user_id) => {
                 HotTags::get_hot_tags_by_reach(
                     user_id,
-                    reach.unwrap_or(TagStreamReach::Friends),
+                    reach.unwrap_or(TagStreamReach::Following),
                     hot_tags_input,
                 )
                 .await
@@ -99,10 +83,10 @@ impl HotTags {
 
     /// Retrieves hot tags based on the user's reach criteria
     /// Queries the graph database to fetch hot tags relevant to a given user,
-    /// filtered by their reach and additional criteria defined in `hot_tags_input`.
+    /// filtered by their reach and additional criteria defined in `hot_tags_input`
     ///
     /// # Arguments
-    /// * `user_id` - The ID of the user whose reach is used for filtering hot tags.
+    /// * `user_id` - The ID of the user whose reach is used for filtering hot tags
     /// * `reach` - The `TagStreamReach` parameter that defines the scope of tag retrieval
     /// * `hot_tags_input` - The input parameters received from the API endpoint
     async fn get_hot_tags_by_reach(
@@ -164,13 +148,9 @@ impl HotTags {
         hot_tags_input: &HotTagsInput,
     ) -> Result<Option<HotTags>, DynError> {
         let timeframe = hot_tags_input.timeframe.to_string();
-        let (hot_tag_key_parts, taggers_key_parts) = Self::build_hot_tags_key_parts(&timeframe);
+        let hot_tag_key_parts = Self::build_hot_tags_key_parts(&timeframe);
 
-        let hot_tag_taggers = HotTagsTaggers::try_from_index_json(
-            Some(HOT_TAGS_CACHE_PREFIX.to_string()),
-            &taggers_key_parts,
-        )
-        .await?;
+        let hot_tag_taggers = Taggers::get_from_index(&timeframe).await?;
 
         let hot_tags_score = HotTags::try_from_index_sorted_set(
             &hot_tag_key_parts,
@@ -191,18 +171,15 @@ impl HotTags {
         let mut hot_tags = Vec::with_capacity(hot_tags_score.len());
 
         for (label, score) in hot_tags_score {
-            if let Some(tag) = hot_tag_taggers.get(&label) {
+            if let Some(taggers) = hot_tag_taggers.get(&label) {
                 // Reduce taggers list
-                let taggers_id: Vec<String> = tag
-                    .iter()
-                    .take(hot_tags_input.taggers_limit)
-                    .cloned()
-                    .collect();
+                let taggers_id: Vec<String> =
+                    Taggers::get_taggers_by_pagination(taggers, 0, hot_tags_input.taggers_limit);
                 hot_tags.push(HotTag {
                     label,
                     taggers_id: Taggers(taggers_id),
                     tagged_count: score as u64,
-                    taggers_count: tag.len(),
+                    taggers_count: taggers.len(),
                 });
             }
         }
@@ -223,7 +200,7 @@ impl HotTags {
         hot_tags_input: &HotTagsInput,
     ) -> Result<(), DynError> {
         let timeframe = hot_tags_input.timeframe.to_string();
-        let (hot_tag_key_parts, taggers_key_parts) = Self::build_hot_tags_key_parts(&timeframe);
+        let hot_tag_key_parts = Self::build_hot_tags_key_parts(&timeframe);
 
         let mut hot_tags_score = Vec::with_capacity(hot_tags_list.len());
 
@@ -235,14 +212,7 @@ impl HotTags {
             })
             .collect();
 
-        // Store the taggers as JSON in cache
-        HotTagsTaggers(taggers)
-            .put_index_json(
-                Some(HOT_TAGS_CACHE_PREFIX.to_string()),
-                taggers_key_parts.as_slice(),
-                Some(hot_tags_input.timeframe.to_cache_period()),
-            )
-            .await?;
+        Taggers::put_to_index(HotTagsTaggers(taggers), &hot_tags_input.timeframe).await?;
 
         // Store the score as sorted set in cache
         HotTags::put_index_sorted_set(
@@ -255,15 +225,12 @@ impl HotTags {
         Ok(())
     }
 
-    /// Builds key parts for hot tags and hot tag taggers based on the given timeframe
+    /// Builds key parts for hot tags based on the given timeframe
     ///
     /// # Arguments
-    /// * `timeframe` - A string slice representing the timeframe (e.g., "today", "this_month", "all_time").
-    fn build_hot_tags_key_parts(timeframe: &str) -> (Vec<&str>, Vec<&str>) {
-        let hot_tag_key_parts = [&POST_HOT_TAGS[..], &[timeframe]].concat();
-        let taggers_key_parts = [&POST_HOT_TAGS[..], &[TAGGERS], &[timeframe]].concat();
-
-        (hot_tag_key_parts, taggers_key_parts)
+    /// * `timeframe` - A string slice representing the timeframe (e.g., "today", "this_month", "all_time")
+    fn build_hot_tags_key_parts(timeframe: &str) -> Vec<&str> {
+        [&POST_HOT_TAGS[..], &[timeframe]].concat()
     }
 
     /// Reindexes global hot tags

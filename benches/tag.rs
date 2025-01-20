@@ -1,8 +1,8 @@
 use criterion::{criterion_group, criterion_main};
 use criterion::{BenchmarkId, Criterion};
+use pubky_nexus::models::tag::global::Taggers;
 use pubky_nexus::models::tag::post::TagPost;
 use pubky_nexus::models::tag::stream::{HotTags, TagStreamReach};
-use pubky_nexus::models::tag::taggers::Taggers;
 use pubky_nexus::models::tag::traits::{TagCollection, TaggersCollection};
 use pubky_nexus::models::tag::user::TagUser;
 use pubky_nexus::routes::v0::tag::HotTagsInput;
@@ -220,10 +220,16 @@ fn bench_get_global_tag_taggers(c: &mut Criterion) {
         &[label],
         |b, &params| {
             b.to_async(&rt).iter(|| async {
-                let tag_taggers =
-                    Taggers::get_global_taggers(String::from(params[0]), None, None, 0, 20)
-                        .await
-                        .unwrap();
+                let tag_taggers = Taggers::get_global_taggers(
+                    String::from(params[0]),
+                    None,
+                    None,
+                    0,
+                    20,
+                    Timeframe::AllTime,
+                )
+                .await
+                .unwrap();
                 criterion::black_box(tag_taggers);
             });
         },

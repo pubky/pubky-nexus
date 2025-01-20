@@ -230,3 +230,122 @@ async fn test_hot_tags_by_friends_reach() -> Result<()> {
 
     Ok(())
 }
+
+const PUBKY_TAG: &str = "pubky";
+
+const TAGGERS: [&str; 9] = [
+    "emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy",
+    "7w4hmktqa7gia5thmk7zki8px7ttwpwjtgaaaou4tbqx64re8d1o",
+    "ze86rtgp6x1qdyno4uzp8gexbb887dtemmonoh4j3iisbzitcppo",
+    "end1obs8cy3ssqzhm73hiojwpakb4ac1fiubbmk5zfuruaaumwso",
+    "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro",
+    "omynbjw4ksjc4at5gretyoatw1g5h53tkee5z55fh69sng1d3jpy",
+    "pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy",
+    "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy",
+    "s1empmp4x6owkewyijcbnn1faejhhu536w8i7n9oqh57om9qjfho",
+];
+
+#[tokio::test]
+async fn test_hot_tags_label_taggers() -> Result<()> {
+    let endpoint = &format!("/v0/tags/taggers/{PUBKY_TAG}");
+
+    let body = make_request(endpoint).await?;
+    assert!(body.is_array());
+
+    let taggers = body.as_array().expect("Taggers ids should be an array");
+    assert_eq!(taggers.len(), 9);
+
+    for (index, tagger) in TAGGERS.into_iter().enumerate() {
+        assert_eq!(TAGGERS[index], tagger);
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_hot_tags_label_taggers_with_limit() -> Result<()> {
+    let endpoint = &format!("/v0/tags/taggers/{PUBKY_TAG}?limit=4");
+
+    let body = make_request(endpoint).await?;
+    assert!(body.is_array());
+
+    let taggers = body.as_array().expect("Taggers ids should be an array");
+    assert_eq!(taggers.len(), 4);
+
+    let limit_taggers: Vec<String> = TAGGERS[..4].iter().map(|&s| s.to_string()).collect();
+
+    for (index, tagger) in taggers.iter().enumerate() {
+        assert_eq!(&limit_taggers[index], tagger);
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_hot_tags_label_taggers_with_skip() -> Result<()> {
+    let endpoint = &format!("/v0/tags/taggers/{PUBKY_TAG}?skip=4");
+
+    let body = make_request(endpoint).await?;
+    assert!(body.is_array());
+
+    let taggers = body.as_array().expect("Taggers ids should be an array");
+    assert_eq!(taggers.len(), 5);
+
+    let skip_taggers: Vec<String> = TAGGERS[4..].iter().map(|&s| s.to_string()).collect();
+
+    for (index, tagger) in taggers.iter().enumerate() {
+        assert_eq!(&skip_taggers[index], tagger);
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_hot_tags_label_taggers_with_skip_and_limit() -> Result<()> {
+    let endpoint = &format!("/v0/tags/taggers/{PUBKY_TAG}?skip=4&limit=2");
+
+    let body = make_request(endpoint).await?;
+    assert!(body.is_array());
+
+    let taggers = body.as_array().expect("Taggers ids should be an array");
+    assert_eq!(taggers.len(), 2);
+
+    let skip_and_limit_taggers: Vec<String> =
+        TAGGERS[4..6].iter().map(|&s| s.to_string()).collect();
+    println!("{:?}", skip_and_limit_taggers);
+
+    for (index, tagger) in taggers.iter().enumerate() {
+        assert_eq!(&skip_and_limit_taggers[index], tagger);
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_hot_tags_label_taggers_with_skip_limit_and_timeframe() -> Result<()> {
+    let endpoint = &format!(
+        "/v0/tags/taggers/{}?skip=1&limit=2&timeframe=this_month",
+        "tag1"
+    );
+
+    let body = make_request(endpoint).await?;
+    assert!(body.is_array());
+
+    let taggers = body.as_array().expect("Taggers ids should be an array");
+    assert_eq!(taggers.len(), 2);
+
+    assert_eq!(
+        &taggers[0],
+        "r4irb481b8qspaixq1brwre8o87cxybsbk9iwe1f6f9ukrxxs7bo"
+    );
+    assert_eq!(
+        &taggers[1],
+        "qumq6fady4bmw4w5tpsrj1tg36g3qo4tcfedga9p4bg4so4ikyzy"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_hot_tags_label_taggers_with_reach() -> Result<()> {
+    let endpoint = &format!("/v0/tags/taggers/{PUBKY_TAG}?reach=following&user_id={PEER_PUBKY}");
+
+    let body = make_request(endpoint).await?;
+    assert!(body.is_array());
+    Ok(())
+}

@@ -1,5 +1,5 @@
+use crate::models::tag::global::Taggers;
 use crate::models::tag::stream::{HotTag, HotTags, TagStreamReach};
-use crate::models::tag::taggers::Taggers;
 use crate::models::tag::traits::taggers::Taggers as TaggersType;
 use crate::models::tag::TaggedType;
 use crate::routes::v0::endpoints::{TAGS_HOT_ROUTE, TAG_TAGGERS_ROUTE};
@@ -23,9 +23,11 @@ pub struct HotTagsQuery {
 
 #[derive(Deserialize, Debug)]
 pub struct TagTaggersQuery {
+    #[serde(flatten)]
     pagination: Pagination,
     user_id: Option<String>,
     reach: Option<TagStreamReach>,
+    timeframe: Option<Timeframe>,
 }
 
 pub struct HotTagsInput {
@@ -64,7 +66,8 @@ impl HotTagsInput {
         ("reach" = TagStreamReach, Path, description = "Reach type: Follower | Following | Friends"),
         ("user_id" = Option<String>, Query, description = "User ID to base reach on"),
         ("skip" = Option<usize>, Query, description = "Skip N taggers. Defaults to `0`"),
-        ("limit" = Option<usize>, Query, description = "Retrieve N tagggers. Defaults to `40`"),
+        ("limit" = Option<usize>, Query, description = "Retrieve N tagggers. Defaults to `20`"),
+        ("timeframe" = Option<Timeframe>, Query, description = "Retrieve taggers for this specific timeframe (not applied for reach). Defaults to `all_time`"),
     ),
     responses(
         (status = 200, description = "Taggers", body = TaggersType),
@@ -81,10 +84,26 @@ pub async fn tag_taggers_handler(
         label, query
     );
 
+    // Check if user_id and reach are provided together
+    if query.user_id.is_some() ^ query.reach.is_some() {
+        return Err(Error::InvalidInput {
+            message: String::from("user_id and reach should be both provided together"),
+        });
+    }
+
     let skip = query.pagination.skip.unwrap_or(0);
     let limit = query.pagination.limit.unwrap_or(20).min(20);
+    let timeframe = query.timeframe.unwrap_or(Timeframe::AllTime);
 
-    match Taggers::get_global_taggers(label.clone(), query.user_id, query.reach, skip, limit).await
+    match Taggers::get_global_taggers(
+        label.clone(),
+        query.user_id,
+        query.reach,
+        skip,
+        limit,
+        timeframe,
+    )
+    .await
     {
         Ok(Some(post)) => Ok(Json(post)),
         Ok(None) => Err(Error::TagsNotFound { reach: label }),
@@ -103,7 +122,7 @@ pub async fn tag_taggers_handler(
         ("taggers_limit" = Option<usize>, Query, description = "Retrieve N user_id for each tag. Defaults to `20`"),
         ("skip" = Option<usize>, Query, description = "Skip N tags. Defaults to `0`"),
         ("limit" = Option<usize>, Query, description = "Retrieve N tag. Defaults to `40`"),
-        ("timeframe" = Option<Timeframe>, Query, description = "Retrieve hot tags for this specific timeframe. Defaults to `all_time`"),
+        ("timeframe" = Option<Timeframe>, Query, description = "Retrieve hot tags for this specific timeframe (not applied for reach). Defaults to `all_time`"),
     ),
     responses(
         (status = 200, description = "Retrieve tags by reach cluster", body = Vec<HotTag>),

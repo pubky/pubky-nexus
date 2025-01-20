@@ -19,7 +19,7 @@ use pubky_nexus::{
             traits::{TagCollection, TaggersCollection},
         },
     },
-    types::Pagination
+    types::Pagination,
 };
 
 #[tokio_shared_rt::test(shared)]

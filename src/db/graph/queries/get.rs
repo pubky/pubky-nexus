@@ -389,31 +389,6 @@ pub fn get_user_muted(user_id: &str, skip: Option<usize>, limit: Option<usize>) 
     query(&query_string).param("user_id", user_id)
 }
 
-// Retrieves posts popular tags and its taggers across the entire network
-pub fn get_global_hot_tags_scores() -> Query {
-    query(
-        "
-        MATCH (u:User)-[tag:TAGGED]->(p:Post)
-        WITH tag.label AS label, COUNT(DISTINCT p) AS uniquePosts, COLLECT(DISTINCT u.id) AS user_ids
-        RETURN COLLECT([toFloat(uniquePosts), label]) AS hot_tags_score, COLLECT([label, user_ids]) AS hot_tags_users
-    ",
-    )
-}
-
-// Retrieves popular hot tags taggers across the entire network
-pub fn get_global_hot_tags_taggers(tag_list: &[&str]) -> Query {
-    query(
-        "
-        UNWIND $labels AS tag_name
-        MATCH (u:User)-[tag:TAGGED]->(p:Post)
-        WHERE tag.label = tag_name
-        WITH tag.label AS label, COLLECT(DISTINCT u.id) AS userIds
-        RETURN COLLECT(userIds) AS tag_user_ids
-    ",
-    )
-    .param("labels", tag_list)
-}
-
 fn tag_stream_reach_to_graph_subquery(reach: &TagStreamReach) -> String {
     let query = match reach {
         TagStreamReach::Followers => "MATCH (user:User)<-[:FOLLOWS]-(reach:User)",
