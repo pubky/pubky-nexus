@@ -45,7 +45,6 @@ async fn test_homeserver_del_tag_to_another_user() -> Result<()> {
         created_at: Utc::now().timestamp_millis(),
     };
 
-    let tag_blob = serde_json::to_vec(&tag)?;
     let tag_url = format!(
         "pubky://{}/pub/pubky.app/tags/{}",
         tagger_user_id,
@@ -53,7 +52,7 @@ async fn test_homeserver_del_tag_to_another_user() -> Result<()> {
     );
 
     // Put tag
-    test.put(tag_url.as_str(), tag_blob).await?;
+    test.put(tag_url.as_str(), tag).await?;
 
     // Step 3: Delete the tag
     test.del(&tag_url).await?;
@@ -64,7 +63,7 @@ async fn test_homeserver_del_tag_to_another_user() -> Result<()> {
     assert!(user_tag.is_none());
 
     // CACHE_OP: Check if the tag is correctly updated in the cache
-    let cache_user_tag = TagUser::get_from_index(&tagged_user_id, None, None, None, false)
+    let cache_user_tag = TagUser::get_from_index(&tagged_user_id, None, None, None, None, false)
         .await
         .expect("Failed to get tag from cache");
 

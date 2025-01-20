@@ -34,7 +34,7 @@ async fn test_homeserver_bookmark_cannot_index() -> Result<()> {
         uri: post_uri,
         created_at: chrono::Utc::now().timestamp_millis(),
     };
-    let bookmark_blob = serde_json::to_vec(&bookmark)?;
+
     // Create the bookmark of the shadow user
     let bookmark_id = bookmark.create_id();
     let bookmark_url = format!(
@@ -42,7 +42,7 @@ async fn test_homeserver_bookmark_cannot_index() -> Result<()> {
         user_id, bookmark_id
     );
     // PUT bookmark
-    test.put(&bookmark_url, bookmark_blob).await?;
+    test.put(&bookmark_url, bookmark).await?;
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     let put_index_key = format!(

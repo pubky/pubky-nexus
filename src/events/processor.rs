@@ -4,12 +4,11 @@ use super::Event;
 use crate::events::retry::event::RetryEvent;
 use crate::types::DynError;
 use crate::types::PubkyId;
+use crate::PubkyConnector;
 use crate::{models::homeserver::Homeserver, Config};
 use log::{debug, error, info};
-use reqwest::Client;
 
 pub struct EventProcessor {
-    http_client: Client,
     pub homeserver: Homeserver,
     limit: u32,
     pub sender: SenderChannel,
@@ -26,7 +25,6 @@ impl EventProcessor {
         );
 
         Ok(Self {
-            http_client: Client::new(),
             homeserver,
             limit,
             sender: tx,
@@ -43,19 +41,12 @@ impl EventProcessor {
     /// where a controlled and predictable `EventProcessor` instance is required.
     ///
     /// # Parameters
-    /// - `homeserver_url`: A `String` representing the URL of the homeserver to be used in the test environment.
-    /// - `homeserver_pubky`: A `PubkyId` instance representing the unique identifier for the homeserver's public key.
+    /// - `homeserver_id`: A `String` representing the URL of the homeserver to be used in the test environment.
     /// - `tx`: A `SenderChannel` used to handle outgoing messages or events.
-    pub async fn test(
-        homeserver_url: String,
-        homeserver_pubky: PubkyId,
-        tx: SenderChannel,
-    ) -> Self {
-        let homeserver = Homeserver::new(homeserver_pubky, homeserver_url)
-            .await
-            .unwrap();
+    pub async fn test(homeserver_id: String, tx: SenderChannel) -> Self {
+        let id = PubkyId(homeserver_id.to_string());
+        let homeserver = Homeserver::new(id).await.unwrap();
         Self {
-            http_client: Client::new(),
             homeserver,
             limit: 1000,
             sender: tx,
@@ -78,18 +69,22 @@ impl EventProcessor {
     /// and returns the result.
     async fn poll_events(&mut self) -> Result<Option<Vec<String>>, DynError> {
         debug!("Polling new events from homeserver");
-        let res = self
-            .http_client
-            .get(format!(
-                "{}/events/?cursor={}&limit={}",
-                self.homeserver.url, self.homeserver.cursor, self.limit
-            ))
-            .send()
-            .await?
-            .text()
-            .await?;
 
-        let lines: Vec<String> = res.trim().split('\n').map(|s| s.to_string()).collect();
+        let response: String;
+        {
+            let pubky_client = PubkyConnector::get_pubky_client()?;
+            response = pubky_client
+                .get(format!(
+                    "https://{}/events/?cursor={}&limit={}",
+                    self.homeserver.id, self.homeserver.cursor, self.limit
+                ))
+                .send()
+                .await?
+                .text()
+                .await?;
+        }
+
+        let lines: Vec<String> = response.trim().split('\n').map(|s| s.to_string()).collect();
         debug!("Homeserver response lines {:?}", lines);
 
         if lines.len() == 1 && lines[0].is_empty() {

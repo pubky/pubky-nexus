@@ -48,8 +48,6 @@ async fn test_homeserver_post_tag_event_to_queue() -> Result<()> {
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
-
-    let tag_blob = serde_json::to_vec(&tag)?;
     let tag_url = format!(
         "pubky://{tagger_user_id}/pub/pubky.app/tags/{}",
         tag.create_id()
@@ -58,7 +56,7 @@ async fn test_homeserver_post_tag_event_to_queue() -> Result<()> {
     // PUT user tag
     // That operation is going to write the event in the pending events queue, so block a bit the thread
     // to let write the indexes
-    test.put(tag_url.as_str(), tag_blob.clone()).await?;
+    test.put(tag_url.as_str(), tag).await?;
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     let index_key = format!(

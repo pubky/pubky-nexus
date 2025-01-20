@@ -13,18 +13,17 @@ use crate::models::user::UserCounts;
 use crate::types::DynError;
 use crate::types::PubkyId;
 use crate::ScoreAction;
-use axum::body::Bytes;
 use chrono::Utc;
 use log::debug;
 use pubky_app_specs::{traits::Validatable, PubkyAppTag};
 
 use super::utils::post_relationships_is_reply;
 
-pub async fn put(tagger_id: PubkyId, tag_id: String, blob: Bytes) -> Result<(), DynError> {
+pub async fn put(tagger_id: PubkyId, tag_id: String, blob: &[u8]) -> Result<(), DynError> {
     debug!("Indexing new tag: {} -> {}", tagger_id, tag_id);
 
     // Deserialize and validate tag
-    let tag = <PubkyAppTag as Validatable>::try_from(&blob, &tag_id)?;
+    let tag = <PubkyAppTag as Validatable>::try_from(blob, &tag_id)?;
 
     // Parse the embeded URI to extract author_id and post_id using parse_tagged_post_uri
     let parsed_uri = ParsedUri::try_from(tag.uri.as_str())?;

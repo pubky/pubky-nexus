@@ -5,6 +5,7 @@ use crate::{
     types::{DynError, PubkyId},
 };
 use log::{debug, error};
+use reqwest;
 use serde::{Deserialize, Serialize};
 use uri::ParsedUri;
 
@@ -148,39 +149,38 @@ impl Event {
         // for every Resource Type
         let url = reqwest::Url::parse(&self.uri)?;
         let pubky_client = PubkyConnector::get_pubky_client()?;
-        let blob = match pubky_client.get(url).await {
-            Ok(Some(blob)) => blob,
-            Ok(None) => {
-                error!("WATCHER: No content found at {}", self.uri);
-                return Ok(());
-            }
+
+        let response = match pubky_client.get(url).send().await {
+            Ok(response) => response,
             Err(e) => {
                 error!("WATCHER: Failed to fetch content at {}: {}", self.uri, e);
                 return Err(e.into());
             }
         };
 
+        let blob = response.bytes().await?;
+
         match self.resource_type {
-            ResourceType::User { user_id } => handlers::user::put(user_id, blob).await?,
+            ResourceType::User { user_id } => handlers::user::put(user_id, &blob).await?,
             ResourceType::Post { author_id, post_id } => {
-                handlers::post::put(author_id, post_id, blob).await?
+                handlers::post::put(author_id, post_id, &blob).await?
             }
             ResourceType::Follow {
                 follower_id,
                 followee_id,
-            } => handlers::follow::put(follower_id, followee_id, blob).await?,
+            } => handlers::follow::put(follower_id, followee_id, &blob).await?,
             ResourceType::Mute { user_id, muted_id } => {
-                handlers::mute::put(user_id, muted_id, blob).await?
+                handlers::mute::put(user_id, muted_id, &blob).await?
             }
             ResourceType::Bookmark {
                 user_id,
                 bookmark_id,
-            } => handlers::bookmark::put(user_id, bookmark_id, blob).await?,
+            } => handlers::bookmark::put(user_id, bookmark_id, &blob).await?,
             ResourceType::Tag { user_id, tag_id } => {
-                handlers::tag::put(user_id, tag_id, blob).await?
+                handlers::tag::put(user_id, tag_id, &blob).await?
             }
             ResourceType::File { user_id, file_id } => {
-                handlers::file::put(self.uri, user_id, file_id, blob).await?
+                handlers::file::put(self.uri, user_id, file_id, &blob).await?
             }
         }
 

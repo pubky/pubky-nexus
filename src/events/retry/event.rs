@@ -68,7 +68,7 @@ impl RetryEvent {
         }
     }
 
-    /// Generates the opposite event line by replacing the event type, effectively 
+    /// Generates the opposite event line by replacing the event type, effectively
     /// converting delete operations into put operations
     ///
     /// # Arguments

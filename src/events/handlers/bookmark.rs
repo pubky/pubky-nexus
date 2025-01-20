@@ -6,18 +6,17 @@ use crate::models::post::Bookmark;
 use crate::models::user::UserCounts;
 use crate::types::DynError;
 use crate::types::PubkyId;
-use axum::body::Bytes;
 use chrono::Utc;
 use log::debug;
 use pubky_app_specs::traits::Validatable;
 use pubky_app_specs::PubkyAppBookmark;
 
 //TODO: only /posts/ are bookmarkable as of now.
-pub async fn put(user_id: PubkyId, bookmark_id: String, blob: Bytes) -> Result<(), DynError> {
+pub async fn put(user_id: PubkyId, bookmark_id: String, blob: &[u8]) -> Result<(), DynError> {
     debug!("Indexing new bookmark: {} -> {}", user_id, bookmark_id);
 
     // Deserialize and validate bookmark
-    let bookmark = <PubkyAppBookmark as Validatable>::try_from(&blob, &bookmark_id)?;
+    let bookmark = <PubkyAppBookmark as Validatable>::try_from(blob, &bookmark_id)?;
 
     sync_put(user_id, bookmark, bookmark_id).await
 }
@@ -33,7 +32,6 @@ pub async fn sync_put(
         parsed_uri.user_id,
         parsed_uri.post_id.ok_or("Bookmarked URI missing post_id")?,
     );
-
     // Save new bookmark relationship to the graph, only if the bookmarked user exists
     let indexed_at = Utc::now().timestamp_millis();
     let existed =

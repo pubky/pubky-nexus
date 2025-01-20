@@ -11,8 +11,7 @@ use crate::{
     },
     Config,
 };
-use axum::body::Bytes;
-use log::debug;
+use log::{debug, error};
 use pubky_app_specs::{traits::Validatable, PubkyAppFile};
 use tokio::{
     fs::{self, remove_file, File},
@@ -23,12 +22,12 @@ pub async fn put(
     uri: String,
     user_id: PubkyId,
     file_id: String,
-    blob: Bytes,
+    blob: &[u8],
 ) -> Result<(), DynError> {
     debug!("Indexing new file resource at {}/{}", user_id, file_id);
 
     // Serialize and validate
-    let file_input = <PubkyAppFile as Validatable>::try_from(&blob, &file_id)?;
+    let file_input = <PubkyAppFile as Validatable>::try_from(blob, &file_id)?;
 
     debug!("file input {:?}", file_input);
 
@@ -62,11 +61,16 @@ async fn ingest(
 ) -> Result<FileMeta, DynError> {
     let pubky_client = PubkyConnector::get_pubky_client()?;
 
-    let blob = match pubky_client.get(pubkyapp_file.src.as_str()).await? {
-        Some(metadata) => metadata,
+    let response = match pubky_client.get(&pubkyapp_file.src).send().await {
+        Ok(response) => response,
         // TODO: Shape the error to avoid the retyManager
-        None => return Err("EVENT ERROR: no metadata in the file blob".into()),
+        Err(e) => {
+            error!("EVENT ERROR: could not retrieve file src blob");
+            return Err(e.into());
+        }
     };
+
+    let blob = response.bytes().await?;
 
     store_blob(file_id.to_string(), user_id.to_string(), &blob).await?;
 
@@ -77,7 +81,7 @@ async fn ingest(
     })
 }
 
-async fn store_blob(name: String, path: String, blob: &Bytes) -> Result<(), DynError> {
+async fn store_blob(name: String, path: String, blob: &[u8]) -> Result<(), DynError> {
     let storage_path = Config::from_env().file_path;
     // TODO: Is it well formatting. The file path already has / at the end
     let full_path = format!("{}/{}", storage_path, path);

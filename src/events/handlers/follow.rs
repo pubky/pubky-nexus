@@ -6,10 +6,9 @@ use crate::models::notification::Notification;
 use crate::models::user::UserCounts;
 use crate::types::DynError;
 use crate::types::PubkyId;
-use axum::body::Bytes;
 use log::debug;
 
-pub async fn put(follower_id: PubkyId, followee_id: PubkyId, _blob: Bytes) -> Result<(), DynError> {
+pub async fn put(follower_id: PubkyId, followee_id: PubkyId, _blob: &[u8]) -> Result<(), DynError> {
     debug!("Indexing new follow: {} -> {}", follower_id, followee_id);
 
     // TODO: in case we want to validate the content of this homeserver object or its `created_at` timestamp
