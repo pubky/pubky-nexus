@@ -154,6 +154,28 @@ async fn test_hot_tags_by_following_reach() -> Result<()> {
 }
 
 #[tokio::test]
+async fn test_hot_tags_by_following_reach_with_skip_limit() -> Result<()> {
+    let endpoint = &format!(
+        "/v0/tags/hot?user_id={}&reach=following&skip=3&limit=1",
+        PEER_PUBKY,
+    );
+
+    let body = make_request(endpoint).await?;
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Stream tags should be an array");
+
+    // Validate that the posts belong to the specified user's bookmarks
+    analyse_hot_tags_structure(tags);
+
+    // Analyse the tag that is in the 0 index
+    let hot_tag = StreamTagMockup::new(String::from("💯"), 1, 3, 1);
+    compare_unit_hot_tag(&tags[0], hot_tag);
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_hot_tags_by_reach_no_user_id() -> Result<()> {
     let endpoint = "/v0/tags/hot?reach=following";
 
@@ -213,6 +235,28 @@ async fn test_hot_tags_by_followers_reach() -> Result<()> {
 }
 
 #[tokio::test]
+async fn test_hot_tags_by_followers_reach_with_skip_limit() -> Result<()> {
+    let endpoint = &format!(
+        "/v0/tags/hot?user_id={}&reach=followers&skip=3&limit=1",
+        PEER_PUBKY,
+    );
+
+    let body = make_request(endpoint).await?;
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Stream tags should be an array");
+
+    // Validate that the posts belong to the specified user's bookmarks
+    analyse_hot_tags_structure(tags);
+
+    // Analyse the tag that is in the 0 index
+    let hot_tag = StreamTagMockup::new(String::from("✅"), 1, 2, 1);
+    compare_unit_hot_tag(&tags[0], hot_tag);
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_hot_tags_by_friends_reach() -> Result<()> {
     let endpoint = &format!("/v0/tags/hot?user_id={}&reach=friends", PEER_PUBKY);
 
@@ -226,6 +270,28 @@ async fn test_hot_tags_by_friends_reach() -> Result<()> {
 
     // Analyse the tag that is in the 1st index
     let hot_tag = StreamTagMockup::new(String::from("pubky"), 2, 3, 2);
+    compare_unit_hot_tag(&tags[0], hot_tag);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_hot_tags_by_friends_reach_with_skip_limit() -> Result<()> {
+    let endpoint = &format!(
+        "/v0/tags/hot?user_id={}&reach=followers&skip=2&limit=1",
+        PEER_PUBKY,
+    );
+
+    let body = make_request(endpoint).await?;
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Stream tags should be an array");
+
+    // Validate that the posts belong to the specified user's bookmarks
+    analyse_hot_tags_structure(tags);
+
+    // Analyse the tag that is in the 0 index
+    let hot_tag = StreamTagMockup::new(String::from("bitkit"), 2, 2, 2);
     compare_unit_hot_tag(&tags[0], hot_tag);
 
     Ok(())
@@ -342,10 +408,134 @@ async fn test_hot_tags_label_taggers_with_skip_limit_and_timeframe() -> Result<(
 }
 
 #[tokio::test]
-async fn test_hot_tags_label_taggers_with_reach() -> Result<()> {
+async fn test_hot_tags_label_taggers_with_reach_following() -> Result<()> {
     let endpoint = &format!("/v0/tags/taggers/{PUBKY_TAG}?reach=following&user_id={PEER_PUBKY}");
 
     let body = make_request(endpoint).await?;
     assert!(body.is_array());
+
+    let taggers = body.as_array().expect("Taggers ids should be an array");
+    assert_eq!(taggers.len(), 4);
+
+    assert_eq!(
+        &taggers[0],
+        "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro"
+    );
+
+    assert_eq!(
+        &taggers[2],
+        "pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_hot_tags_label_taggers_with_reach_following_skip_and_limit() -> Result<()> {
+    let endpoint = &format!(
+        "/v0/tags/taggers/{PUBKY_TAG}?reach=following&user_id={PEER_PUBKY}&skip=1&limit=2"
+    );
+
+    let body = make_request(endpoint).await?;
+    assert!(body.is_array());
+
+    let taggers = body.as_array().expect("Taggers ids should be an array");
+    assert_eq!(taggers.len(), 2);
+
+    assert_eq!(
+        &taggers[0],
+        "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy"
+    );
+
+    assert_eq!(
+        &taggers[1],
+        "pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_hot_tags_label_taggers_with_reach_followers() -> Result<()> {
+    let endpoint = &format!("/v0/tags/taggers/{PUBKY_TAG}?reach=followers&user_id={PEER_PUBKY}");
+
+    let body = make_request(endpoint).await?;
+    assert!(body.is_array());
+
+    let taggers = body.as_array().expect("Taggers ids should be an array");
+    assert_eq!(taggers.len(), 2);
+
+    assert_eq!(
+        &taggers[0],
+        "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy"
+    );
+
+    assert_eq!(
+        &taggers[1],
+        "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_hot_tags_label_taggers_with_reach_followers_skip_and_limit() -> Result<()> {
+    let endpoint = &format!(
+        "/v0/tags/taggers/{PUBKY_TAG}?reach=followers&user_id={PEER_PUBKY}&skip=1&limit=1"
+    );
+
+    let body = make_request(endpoint).await?;
+    assert!(body.is_array());
+
+    let taggers = body.as_array().expect("Taggers ids should be an array");
+    assert_eq!(taggers.len(), 1);
+
+    assert_eq!(
+        &taggers[0],
+        "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_hot_tags_label_taggers_with_reach_friends() -> Result<()> {
+    let endpoint = &format!("/v0/tags/taggers/{PUBKY_TAG}?reach=friends&user_id={PEER_PUBKY}");
+
+    let body = make_request(endpoint).await?;
+    assert!(body.is_array());
+
+    let taggers = body.as_array().expect("Taggers ids should be an array");
+    assert_eq!(taggers.len(), 2);
+
+    assert_eq!(
+        &taggers[0],
+        "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy"
+    );
+
+    assert_eq!(
+        &taggers[1],
+        "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_hot_tags_label_taggers_with_reach_friends_skip_and_limit() -> Result<()> {
+    let endpoint =
+        &format!("/v0/tags/taggers/{PUBKY_TAG}?reach=friends&user_id={PEER_PUBKY}&skip=1&limit=1");
+
+    let body = make_request(endpoint).await?;
+    assert!(body.is_array());
+
+    let taggers = body.as_array().expect("Taggers ids should be an array");
+    assert_eq!(taggers.len(), 1);
+
+    assert_eq!(
+        &taggers[0],
+        "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro"
+    );
+
     Ok(())
 }

@@ -407,16 +407,25 @@ pub fn get_tag_taggers_by_reach(
     skip: usize,
     limit: usize,
 ) -> Query {
+    println!("SKIP: {:?} - LIMIT: {:?}", skip, limit);
     query(
         format!(
             "
             {}
-            MATCH (reach)-[tag:TAGGED]->()
+            // The tagged node can be generic, representing either a Post, a User, or both.
+            // For now, it will be a Post to align with UX requirements.
+            MATCH (reach)-[tag:TAGGED]->(tagged:Post)
             WHERE user.id = $user_id AND tag.label = $label
-            WITH reach, MAX(tag.indexed_at) AS tag_time
-            ORDER BY tag_time DESC
-            SKIP $skip LIMIT $limit
-            RETURN COLLECT(reach.id) as tagger_ids
+
+            // Get the latest tagged timestamp per `reach` user
+            WITH DISTINCT reach, MAX(tag.indexed_at) AS latest_tag_time
+            ORDER BY latest_tag_time DESC
+
+            // Use slice notation instead of SKIP and LIMIT
+            WITH COLLECT({{ reach_id: reach.id }})[$skip..$skip + $limit] AS paginated
+            UNWIND paginated AS row
+
+            RETURN COLLECT(row.reach_id) AS tagger_ids
             ",
             tag_stream_reach_to_graph_subquery(&reach)
         )
