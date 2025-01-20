@@ -138,10 +138,16 @@ async fn test_homeserver_multi_user() -> Result<()> {
     assert!(post_fire_tag.taggers.contains(tagger_c_id));
 
     // CACHE_OP: Check if the tag is correctly cached
-    let cache_post_tag =
-        <TagPost as TagCollection>::get_from_index(author_id, Some(&post_id), None, None, false)
-            .await
-            .unwrap();
+    let cache_post_tag = <TagPost as TagCollection>::get_from_index(
+        author_id,
+        Some(&post_id),
+        None,
+        None,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
 
     assert!(cache_post_tag.is_some());
     let cache_tag_details = cache_post_tag.unwrap();
@@ -246,10 +252,16 @@ async fn test_homeserver_multi_user() -> Result<()> {
     // CACHE_OP: Check if the tag is correctly cached.
     // - Post:Taggers:author_id:post_id:label
     // - Sorted:Posts:Tag:author_id:post_id
-    let cache_post_tag =
-        <TagPost as TagCollection>::get_from_index(author_id, Some(&post_id), None, None, false)
-            .await
-            .expect("Failed to get tag from cache");
+    let cache_post_tag = <TagPost as TagCollection>::get_from_index(
+        author_id,
+        Some(&post_id),
+        None,
+        None,
+        None,
+        false,
+    )
+    .await
+    .expect("Failed to get tag from cache");
     assert!(
         cache_post_tag.is_none(),
         "The SORTED SET index cannot exist for the tag"
