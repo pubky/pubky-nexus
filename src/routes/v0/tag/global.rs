@@ -122,7 +122,7 @@ pub async fn tag_taggers_handler(
         ("taggers_limit" = Option<usize>, Query, description = "Retrieve N user_id for each tag. Defaults to `20`"),
         ("skip" = Option<usize>, Query, description = "Skip N tags. Defaults to `0`"),
         ("limit" = Option<usize>, Query, description = "Retrieve N tag. Defaults to `40`"),
-        ("timeframe" = Option<Timeframe>, Query, description = "Retrieve hot tags for this specific timeframe (not applied for reach). Defaults to `all_time`"),
+        ("timeframe" = Option<Timeframe>, Query, description = "Retrieve hot tags for this specific timeframe. Defaults to `all_time`"),
     ),
     responses(
         (status = 200, description = "Retrieve tags by reach cluster", body = Vec<HotTag>),

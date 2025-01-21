@@ -5,9 +5,11 @@ use serde_json::Value;
 
 use crate::service::utils::{make_request, make_wrong_request};
 
-// TODO: Create deterministic integration tests
-
 const PEER_PUBKY: &str = "o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo";
+// mocks/hot-tags.cypher users
+const USER_1: &str = "pyc598poqkdgtx1wc4aeptx67mqg71mmywyh7uzkffzittjmbiuo";
+const USER_4: &str = "r91hi8kc3x6761gwfiigr7yn6nca1z47wm6jadhw1jbx1co93r9y";
+const USER_5: &str = "tkpeqpx3ywoawiw6q8e6kuo9o3egr7fnhx83rudznbrrmqgdmomo";
 
 struct StreamTagMockup {
     label: String,
@@ -87,8 +89,8 @@ async fn test_global_hot_tags_with_today_timeframe() -> Result<()> {
     // Analyse the first tag
     // if the test is run at the first day of the month the tags from thisMonth timeframe overlap with today
     let hot_tag = match Utc::now().day() {
-        1 => StreamTagMockup::new(String::from("tag2"), 3, 2, 3),
-        _ => StreamTagMockup::new(String::from("tag2"), 2, 1, 2),
+        1 => return Ok(()),
+        _ => StreamTagMockup::new(String::from("today"), 3, 3, 3),
     };
     compare_unit_hot_tag(&tags[0], hot_tag);
 
@@ -107,7 +109,7 @@ async fn test_global_hot_tags_with_this_month_timeframe() -> Result<()> {
     analyse_hot_tags_structure(tags);
 
     // Analyse the first tag
-    let hot_tag = StreamTagMockup::new(String::from("tag2"), 3, 2, 3);
+    let hot_tag = StreamTagMockup::new(String::from("today"), 3, 3, 3);
     compare_unit_hot_tag(&tags[0], hot_tag);
 
     Ok(())
@@ -148,6 +150,93 @@ async fn test_hot_tags_by_following_reach() -> Result<()> {
 
     // Analyse the tag that is in the 0 index
     let hot_tag = StreamTagMockup::new(String::from("pubky"), 4, 5, 4);
+    compare_unit_hot_tag(&tags[0], hot_tag);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_hot_tags_by_following_reach_and_today_timeframe() -> Result<()> {
+    let endpoint = &format!("/v0/tags/hot?user_id={}&reach=following&timeframe=today", USER_1);
+
+    let body = make_request(endpoint).await?;
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Stream tags should be an array");
+
+    // Validate that the posts belong to the specified user's bookmarks
+    analyse_hot_tags_structure(tags);
+
+    assert_eq!(tags.len(), 3);
+
+    // Analyse the tag that is in the 0 index
+    let hot_tag = StreamTagMockup::new(String::from("today"), 2, 2, 2);
+    compare_unit_hot_tag(&tags[0], hot_tag);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_hot_tags_by_following_reach_and_month_timeframe() -> Result<()> {
+    let endpoint = &format!("/v0/tags/hot?user_id={}&reach=following&timeframe=this_month", USER_1);
+
+    let body = make_request(endpoint).await?;
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Stream tags should be an array");
+
+    // Validate that the posts belong to the specified user's bookmarks
+    analyse_hot_tags_structure(tags);
+
+    assert_eq!(tags.len(), 5);
+
+    // Analyse the tag that is in the 0 index
+    let hot_tag = StreamTagMockup::new(String::from("month"), 3, 2, 3);
+    compare_unit_hot_tag(&tags[0], hot_tag);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_hot_tags_by_following_reach_and_month_timeframe_skip_and_limit() -> Result<()> {
+    let endpoint = &format!("/v0/tags/hot?user_id={}&reach=following&timeframe=this_month&skip=1&limit=2", USER_1);
+
+    let body = make_request(endpoint).await?;
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Stream tags should be an array");
+
+    // Validate that the posts belong to the specified user's bookmarks
+    analyse_hot_tags_structure(tags);
+
+    assert_eq!(tags.len(), 2);
+
+    // Analyse the tag that is in the 0 index
+    let hot_tag = StreamTagMockup::new(String::from("today"), 2, 2, 2);
+    compare_unit_hot_tag(&tags[0], hot_tag);
+
+    let hot_tag = StreamTagMockup::new(String::from("tag1"), 3, 1, 3);
+    compare_unit_hot_tag(&tags[1], hot_tag);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_hot_tags_by_following_reach_and_all_timeframe() -> Result<()> {
+    let endpoint = &format!("/v0/tags/hot?user_id={}&reach=following&timeframe=all_time", USER_1);
+
+    let body = make_request(endpoint).await?;
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Stream tags should be an array");
+
+    // Validate that the posts belong to the specified user's bookmarks
+    analyse_hot_tags_structure(tags);
+
+    assert_eq!(tags.len(), 6);
+
+    // Analyse the tag that is in the 0 index
+    let hot_tag = StreamTagMockup::new(String::from("all"), 4, 2, 4);
     compare_unit_hot_tag(&tags[0], hot_tag);
 
     Ok(())
@@ -257,6 +346,93 @@ async fn test_hot_tags_by_followers_reach_with_skip_limit() -> Result<()> {
 }
 
 #[tokio::test]
+async fn test_hot_tags_by_followers_reach_and_today_timeframe() -> Result<()> {
+    let endpoint = &format!("/v0/tags/hot?user_id={}&reach=followers&timeframe=today", USER_4);
+
+    let body = make_request(endpoint).await?;
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Stream tags should be an array");
+
+    // Validate that the posts belong to the specified user's bookmarks
+    analyse_hot_tags_structure(tags);
+
+    assert_eq!(tags.len(), 3);
+
+    // Analyse the tag that is in the 0 index
+    let hot_tag = StreamTagMockup::new(String::from("today"), 3, 3, 3);
+    compare_unit_hot_tag(&tags[0], hot_tag);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_hot_tags_by_followers_reach_and_month_timeframe() -> Result<()> {
+    let endpoint = &format!("/v0/tags/hot?user_id={}&reach=followers&timeframe=this_month", USER_4);
+
+    let body = make_request(endpoint).await?;
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Stream tags should be an array");
+
+    // Validate that the posts belong to the specified user's bookmarks
+    analyse_hot_tags_structure(tags);
+
+    assert_eq!(tags.len(), 5);
+
+    // Analyse the tag that is in the 0 index
+    let hot_tag = StreamTagMockup::new(String::from("month"), 3, 3, 3);
+    compare_unit_hot_tag(&tags[0], hot_tag);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_hot_tags_by_followers_reach_and_month_timeframe_skip_and_limit() -> Result<()> {
+    let endpoint = &format!("/v0/tags/hot?user_id={}&reach=followers&timeframe=this_month&skip=1&limit=2", USER_4);
+
+    let body = make_request(endpoint).await?;
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Stream tags should be an array");
+
+    // Validate that the posts belong to the specified user's bookmarks
+    analyse_hot_tags_structure(tags);
+
+    assert_eq!(tags.len(), 2);
+
+    // Analyse the tag that is in the 0 index
+    let hot_tag = StreamTagMockup::new(String::from("today"), 3, 3, 3);
+    compare_unit_hot_tag(&tags[0], hot_tag);
+
+    let hot_tag = StreamTagMockup::new(String::from("tag1"), 3, 2, 3);
+    compare_unit_hot_tag(&tags[1], hot_tag);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_hot_tags_by_followers_reach_and_all_timeframe() -> Result<()> {
+    let endpoint = &format!("/v0/tags/hot?user_id={}&reach=followers&timeframe=all_time", USER_4);
+
+    let body = make_request(endpoint).await?;
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Stream tags should be an array");
+
+    // Validate that the posts belong to the specified user's bookmarks
+    analyse_hot_tags_structure(tags);
+
+    assert_eq!(tags.len(), 6);
+
+    // Analyse the tag that is in the 0 index
+    let hot_tag = StreamTagMockup::new(String::from("all"), 4, 3, 4);
+    compare_unit_hot_tag(&tags[0], hot_tag);
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_hot_tags_by_friends_reach() -> Result<()> {
     let endpoint = &format!("/v0/tags/hot?user_id={}&reach=friends", PEER_PUBKY);
 
@@ -278,7 +454,7 @@ async fn test_hot_tags_by_friends_reach() -> Result<()> {
 #[tokio::test]
 async fn test_hot_tags_by_friends_reach_with_skip_limit() -> Result<()> {
     let endpoint = &format!(
-        "/v0/tags/hot?user_id={}&reach=followers&skip=2&limit=1",
+        "/v0/tags/hot?user_id={}&reach=friends&skip=2&limit=1",
         PEER_PUBKY,
     );
 
@@ -292,6 +468,93 @@ async fn test_hot_tags_by_friends_reach_with_skip_limit() -> Result<()> {
 
     // Analyse the tag that is in the 0 index
     let hot_tag = StreamTagMockup::new(String::from("bitkit"), 2, 2, 2);
+    compare_unit_hot_tag(&tags[0], hot_tag);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_hot_tags_by_friends_reach_and_today_timeframe() -> Result<()> {
+    let endpoint = &format!("/v0/tags/hot?user_id={}&reach=friends&timeframe=today", USER_5);
+
+    let body = make_request(endpoint).await?;
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Stream tags should be an array");
+
+    // Validate that the posts belong to the specified user's bookmarks
+    analyse_hot_tags_structure(tags);
+
+    assert_eq!(tags.len(), 1);
+
+    // Analyse the tag that is in the 0 index
+    let hot_tag = StreamTagMockup::new(String::from("today"), 1, 1, 1);
+    compare_unit_hot_tag(&tags[0], hot_tag);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_hot_tags_by_friends_reach_and_month_timeframe() -> Result<()> {
+    let endpoint = &format!("/v0/tags/hot?user_id={}&reach=friends&timeframe=this_month", USER_5);
+
+    let body = make_request(endpoint).await?;
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Stream tags should be an array");
+
+    // Validate that the posts belong to the specified user's bookmarks
+    analyse_hot_tags_structure(tags);
+
+    assert_eq!(tags.len(), 4);
+
+    // Analyse the tag that is in the 0 index
+    let hot_tag = StreamTagMockup::new(String::from("month"), 1, 1, 1);
+    compare_unit_hot_tag(&tags[0], hot_tag);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_hot_tags_by_friends_reach_and_month_timeframe_skip_and_limit() -> Result<()> {
+    let endpoint = &format!("/v0/tags/hot?user_id={}&reach=friends&timeframe=this_month&skip=1&limit=2", USER_5);
+
+    let body = make_request(endpoint).await?;
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Stream tags should be an array");
+
+    // Validate that the posts belong to the specified user's bookmarks
+    analyse_hot_tags_structure(tags);
+
+    assert_eq!(tags.len(), 2);
+
+    // Analyse the tag that is in the 0 index
+    let hot_tag = StreamTagMockup::new(String::from("tag1"), 1, 1, 1);
+    compare_unit_hot_tag(&tags[0], hot_tag);
+
+    let hot_tag = StreamTagMockup::new(String::from("tag2"), 1, 1, 1);
+    compare_unit_hot_tag(&tags[1], hot_tag);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_hot_tags_by_friends_reach_and_all_timeframe() -> Result<()> {
+    let endpoint = &format!("/v0/tags/hot?user_id={}&reach=friends&timeframe=all_time", USER_5);
+
+    let body = make_request(endpoint).await?;
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Stream tags should be an array");
+
+    // Validate that the posts belong to the specified user's bookmarks
+    analyse_hot_tags_structure(tags);
+
+    assert_eq!(tags.len(), 6);
+
+    // Analyse the tag that is in the 0 index
+    let hot_tag = StreamTagMockup::new(String::from("all"), 1, 1, 1);
     compare_unit_hot_tag(&tags[0], hot_tag);
 
     Ok(())
