@@ -82,7 +82,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
     async fn try_from_index_json(
         key_parts: &[&str],
-        prefix: Option<String>
+        prefix: Option<String>,
     ) -> Result<Option<Self>, DynError> {
         let prefix = prefix.unwrap_or(Self::prefix().await);
         json::get(&prefix, &key_parts.join(":"), None).await

@@ -141,7 +141,16 @@ async fn test_stream_posts_global_total_engagement_with_start_score() -> Result<
 
     let body = make_request(&path).await?;
     let post_list = vec![
-        POST_EA, POST_EB, POST_EC, POST_ED, POST_EF, POST_EG, POST_EH, POST_EI, POST_TAG_ME, POST_EJ
+        POST_EA,
+        POST_EB,
+        POST_EC,
+        POST_ED,
+        POST_EF,
+        POST_EG,
+        POST_EH,
+        POST_EI,
+        POST_TAG_ME,
+        POST_EJ,
     ];
 
     verify_post_list(post_list, body);

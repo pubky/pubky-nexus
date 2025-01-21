@@ -157,7 +157,10 @@ async fn test_hot_tags_by_following_reach() -> Result<()> {
 
 #[tokio::test]
 async fn test_hot_tags_by_following_reach_and_today_timeframe() -> Result<()> {
-    let endpoint = &format!("/v0/tags/hot?user_id={}&reach=following&timeframe=today", USER_1);
+    let endpoint = &format!(
+        "/v0/tags/hot?user_id={}&reach=following&timeframe=today",
+        USER_1
+    );
 
     let body = make_request(endpoint).await?;
     assert!(body.is_array());
@@ -178,7 +181,10 @@ async fn test_hot_tags_by_following_reach_and_today_timeframe() -> Result<()> {
 
 #[tokio::test]
 async fn test_hot_tags_by_following_reach_and_month_timeframe() -> Result<()> {
-    let endpoint = &format!("/v0/tags/hot?user_id={}&reach=following&timeframe=this_month", USER_1);
+    let endpoint = &format!(
+        "/v0/tags/hot?user_id={}&reach=following&timeframe=this_month",
+        USER_1
+    );
 
     let body = make_request(endpoint).await?;
     assert!(body.is_array());
@@ -199,7 +205,10 @@ async fn test_hot_tags_by_following_reach_and_month_timeframe() -> Result<()> {
 
 #[tokio::test]
 async fn test_hot_tags_by_following_reach_and_month_timeframe_skip_and_limit() -> Result<()> {
-    let endpoint = &format!("/v0/tags/hot?user_id={}&reach=following&timeframe=this_month&skip=1&limit=2", USER_1);
+    let endpoint = &format!(
+        "/v0/tags/hot?user_id={}&reach=following&timeframe=this_month&skip=1&limit=2",
+        USER_1
+    );
 
     let body = make_request(endpoint).await?;
     assert!(body.is_array());
@@ -223,7 +232,10 @@ async fn test_hot_tags_by_following_reach_and_month_timeframe_skip_and_limit() -
 
 #[tokio::test]
 async fn test_hot_tags_by_following_reach_and_all_timeframe() -> Result<()> {
-    let endpoint = &format!("/v0/tags/hot?user_id={}&reach=following&timeframe=all_time", USER_1);
+    let endpoint = &format!(
+        "/v0/tags/hot?user_id={}&reach=following&timeframe=all_time",
+        USER_1
+    );
 
     let body = make_request(endpoint).await?;
     assert!(body.is_array());
@@ -347,7 +359,10 @@ async fn test_hot_tags_by_followers_reach_with_skip_limit() -> Result<()> {
 
 #[tokio::test]
 async fn test_hot_tags_by_followers_reach_and_today_timeframe() -> Result<()> {
-    let endpoint = &format!("/v0/tags/hot?user_id={}&reach=followers&timeframe=today", USER_4);
+    let endpoint = &format!(
+        "/v0/tags/hot?user_id={}&reach=followers&timeframe=today",
+        USER_4
+    );
 
     let body = make_request(endpoint).await?;
     assert!(body.is_array());
@@ -368,7 +383,10 @@ async fn test_hot_tags_by_followers_reach_and_today_timeframe() -> Result<()> {
 
 #[tokio::test]
 async fn test_hot_tags_by_followers_reach_and_month_timeframe() -> Result<()> {
-    let endpoint = &format!("/v0/tags/hot?user_id={}&reach=followers&timeframe=this_month", USER_4);
+    let endpoint = &format!(
+        "/v0/tags/hot?user_id={}&reach=followers&timeframe=this_month",
+        USER_4
+    );
 
     let body = make_request(endpoint).await?;
     assert!(body.is_array());
@@ -389,7 +407,10 @@ async fn test_hot_tags_by_followers_reach_and_month_timeframe() -> Result<()> {
 
 #[tokio::test]
 async fn test_hot_tags_by_followers_reach_and_month_timeframe_skip_and_limit() -> Result<()> {
-    let endpoint = &format!("/v0/tags/hot?user_id={}&reach=followers&timeframe=this_month&skip=1&limit=2", USER_4);
+    let endpoint = &format!(
+        "/v0/tags/hot?user_id={}&reach=followers&timeframe=this_month&skip=1&limit=2",
+        USER_4
+    );
 
     let body = make_request(endpoint).await?;
     assert!(body.is_array());
@@ -413,7 +434,10 @@ async fn test_hot_tags_by_followers_reach_and_month_timeframe_skip_and_limit() -
 
 #[tokio::test]
 async fn test_hot_tags_by_followers_reach_and_all_timeframe() -> Result<()> {
-    let endpoint = &format!("/v0/tags/hot?user_id={}&reach=followers&timeframe=all_time", USER_4);
+    let endpoint = &format!(
+        "/v0/tags/hot?user_id={}&reach=followers&timeframe=all_time",
+        USER_4
+    );
 
     let body = make_request(endpoint).await?;
     assert!(body.is_array());
@@ -475,7 +499,10 @@ async fn test_hot_tags_by_friends_reach_with_skip_limit() -> Result<()> {
 
 #[tokio::test]
 async fn test_hot_tags_by_friends_reach_and_today_timeframe() -> Result<()> {
-    let endpoint = &format!("/v0/tags/hot?user_id={}&reach=friends&timeframe=today", USER_5);
+    let endpoint = &format!(
+        "/v0/tags/hot?user_id={}&reach=friends&timeframe=today",
+        USER_5
+    );
 
     let body = make_request(endpoint).await?;
     assert!(body.is_array());
@@ -496,7 +523,10 @@ async fn test_hot_tags_by_friends_reach_and_today_timeframe() -> Result<()> {
 
 #[tokio::test]
 async fn test_hot_tags_by_friends_reach_and_month_timeframe() -> Result<()> {
-    let endpoint = &format!("/v0/tags/hot?user_id={}&reach=friends&timeframe=this_month", USER_5);
+    let endpoint = &format!(
+        "/v0/tags/hot?user_id={}&reach=friends&timeframe=this_month",
+        USER_5
+    );
 
     let body = make_request(endpoint).await?;
     assert!(body.is_array());
@@ -517,7 +547,10 @@ async fn test_hot_tags_by_friends_reach_and_month_timeframe() -> Result<()> {
 
 #[tokio::test]
 async fn test_hot_tags_by_friends_reach_and_month_timeframe_skip_and_limit() -> Result<()> {
-    let endpoint = &format!("/v0/tags/hot?user_id={}&reach=friends&timeframe=this_month&skip=1&limit=2", USER_5);
+    let endpoint = &format!(
+        "/v0/tags/hot?user_id={}&reach=friends&timeframe=this_month&skip=1&limit=2",
+        USER_5
+    );
 
     let body = make_request(endpoint).await?;
     assert!(body.is_array());
@@ -541,7 +574,10 @@ async fn test_hot_tags_by_friends_reach_and_month_timeframe_skip_and_limit() -> 
 
 #[tokio::test]
 async fn test_hot_tags_by_friends_reach_and_all_timeframe() -> Result<()> {
-    let endpoint = &format!("/v0/tags/hot?user_id={}&reach=friends&timeframe=all_time", USER_5);
+    let endpoint = &format!(
+        "/v0/tags/hot?user_id={}&reach=friends&timeframe=all_time",
+        USER_5
+    );
 
     let body = make_request(endpoint).await?;
     assert!(body.is_array());
