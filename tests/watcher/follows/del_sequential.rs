@@ -101,7 +101,7 @@ async fn test_homeserver_sequential_unfollow() -> Result<()> {
     test.del(&bob_follow_uri).await?;
 
     // Assert folowee counts
-    let follower_count = UserCounts::try_from_index_json(None, &[&followee_id])
+    let follower_count = UserCounts::try_from_index_json(&[&followee_id], None)
         .await
         .unwrap()
         .expect("User count not found");
@@ -159,7 +159,7 @@ async fn test_homeserver_sequential_unfollow() -> Result<()> {
     test.del(&followee_follow_enzo_uri).await?;
 
     // Assert folowee last counts
-    let follower_count = UserCounts::try_from_index_json(None, &[&followee_id])
+    let follower_count = UserCounts::try_from_index_json(&[&followee_id], None)
         .await
         .unwrap()
         .expect("User count not found");

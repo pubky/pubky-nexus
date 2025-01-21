@@ -144,7 +144,7 @@ where
 
                 let tags_ref: Vec<&str> = tags.iter().map(|label| label.as_str()).collect();
                 let taggers =
-                    Self::try_from_multiple_sets(cache_prefix.1, &tags_ref, Some(limit_taggers))
+                    Self::try_from_multiple_sets(&tags_ref, cache_prefix.1, Some(limit_taggers))
                         .await?;
                 let tag_details_list = TagDetails::from_index(tag_scores, taggers);
                 Ok(Some(tag_details_list))

@@ -108,7 +108,7 @@ async fn test_homeserver_post_repost() -> Result<()> {
     assert_eq!(repost_post_details.indexed_at, post_detail_cache.indexed_at);
 
     // Post:Relationships:user_id:post_id
-    let post_relationships = PostRelationships::try_from_index_json(None, &[&user_id, &repost_id])
+    let post_relationships = PostRelationships::try_from_index_json(&[&user_id, &repost_id], None)
         .await
         .unwrap();
     assert!(

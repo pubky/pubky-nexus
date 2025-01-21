@@ -56,7 +56,7 @@ impl Taggers {
     /// * `timeframe` - A string representing the timeframe for which to retrieve taggers
     pub async fn get_from_index(timeframe: &str) -> Result<Option<HotTagsTaggers>, DynError> {
         let key_parts = Self::build_key_parts(timeframe);
-        HotTagsTaggers::try_from_index_json(Some(HOT_TAGS_CACHE_PREFIX.to_string()), &key_parts)
+        HotTagsTaggers::try_from_index_json(&key_parts, Some(HOT_TAGS_CACHE_PREFIX.to_string()))
             .await
     }
 
@@ -75,8 +75,8 @@ impl Taggers {
         // Store the taggers as JSON in cache
         taggers
             .put_index_json(
-                Some(HOT_TAGS_CACHE_PREFIX.to_string()),
                 key_parts.as_slice(),
+                Some(HOT_TAGS_CACHE_PREFIX.to_string()),
                 Some(timeframe.to_cache_period()),
             )
             .await

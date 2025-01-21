@@ -76,7 +76,7 @@ async fn test_homeserver_mentions() -> Result<()> {
     assert!(post_mention_users.contains(&mentioned_user_2_id));
 
     let post_relationships =
-        PostRelationships::try_from_index_json(None, &[&author_user_id, &post_id])
+        PostRelationships::try_from_index_json(&[&author_user_id, &post_id], None)
             .await
             .unwrap();
 

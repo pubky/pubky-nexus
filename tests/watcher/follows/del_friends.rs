@@ -45,7 +45,7 @@ async fn test_homeserver_unfollow_friend() -> Result<()> {
     test.del(&follow_uri).await?;
 
     // CACHE_OP: Assert if cache has been updated
-    let follower_count = UserCounts::try_from_index_json(None, &[&follower_id])
+    let follower_count = UserCounts::try_from_index_json(&[&follower_id], None)
         .await
         .unwrap()
         .expect("User count not found");
@@ -54,7 +54,7 @@ async fn test_homeserver_unfollow_friend() -> Result<()> {
     assert_eq!(follower_count.following, 0);
     assert_eq!(follower_count.friends, 0);
 
-    let following_count = UserCounts::try_from_index_json(None, &[&followee_id])
+    let following_count = UserCounts::try_from_index_json(&[&followee_id], None)
         .await
         .unwrap()
         .expect("User count not found");
@@ -85,7 +85,7 @@ async fn test_homeserver_unfollow_friend() -> Result<()> {
     assert!(!exist, "The follow edge not removed");
 
     // CACHE_OP: Assert if cache has been updated
-    let follower_count = UserCounts::try_from_index_json(None, &[&follower_id])
+    let follower_count = UserCounts::try_from_index_json(&[&follower_id], None)
         .await
         .unwrap()
         .expect("User count not found");
@@ -94,7 +94,7 @@ async fn test_homeserver_unfollow_friend() -> Result<()> {
     assert_eq!(follower_count.following, 0);
     assert_eq!(follower_count.friends, 0);
 
-    let following_count = UserCounts::try_from_index_json(None, &[&followee_id])
+    let following_count = UserCounts::try_from_index_json(&[&followee_id], None)
         .await
         .unwrap()
         .expect("User count not found");

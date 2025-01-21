@@ -279,7 +279,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
     // Now, make assertions
     // For each user, compare counts from cache and graph
     for user_id in user_ids.iter() {
-        let counts_cache = UserCounts::try_from_index_json(None, &[user_id])
+        let counts_cache = UserCounts::try_from_index_json(&[user_id], None)
             .await
             .unwrap()
             .expect("Counts not found in index");
@@ -334,7 +334,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
     // Compare PostCounts for each post
     for (user_id, posts) in user_posts.iter() {
         for post_id in posts.iter() {
-            let counts_cache = PostCounts::try_from_index_json(None, &[user_id, post_id])
+            let counts_cache = PostCounts::try_from_index_json(&[user_id, post_id], None)
                 .await
                 .unwrap()
                 .expect("PostCounts not found in index");
@@ -369,7 +369,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
     let mut total_followers_cache = 0;
 
     for user_id in user_ids.iter() {
-        let counts_cache = UserCounts::try_from_index_json(None, &[user_id])
+        let counts_cache = UserCounts::try_from_index_json(&[user_id], None)
             .await
             .unwrap()
             .expect("Counts not found in cache");

@@ -116,7 +116,7 @@ async fn test_homeserver_post_reply() -> Result<()> {
     assert_eq!(reply_post_counts.replies, 0);
 
     // Post:Relationships:user_id:post_id
-    let post_relationships = PostRelationships::try_from_index_json(None, &[&user_id, &reply_id])
+    let post_relationships = PostRelationships::try_from_index_json(&[&user_id, &reply_id], None)
         .await
         .unwrap();
     assert!(

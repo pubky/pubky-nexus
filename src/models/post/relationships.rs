@@ -41,7 +41,7 @@ impl PostRelationships {
         post_id: &str,
     ) -> Result<Option<PostRelationships>, DynError> {
         if let Some(post_relationships) =
-            Self::try_from_index_json(None, &[author_id, post_id]).await?
+            Self::try_from_index_json(&[author_id, post_id], None).await?
         {
             return Ok(Some(post_relationships));
         }
@@ -108,7 +108,7 @@ impl PostRelationships {
     }
 
     pub async fn put_to_index(&self, author_id: &str, post_id: &str) -> Result<(), DynError> {
-        self.put_index_json(None, &[author_id, post_id], None)
+        self.put_index_json(&[author_id, post_id], None, None)
             .await?;
         Ok(())
     }

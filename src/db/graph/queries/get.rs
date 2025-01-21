@@ -407,7 +407,6 @@ pub fn get_tag_taggers_by_reach(
     skip: usize,
     limit: usize,
 ) -> Query {
-    println!("SKIP: {:?} - LIMIT: {:?}", skip, limit);
     query(
         format!(
             "

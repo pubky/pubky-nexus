@@ -80,7 +80,7 @@ async fn test_delete_post_without_relationships() -> Result<()> {
     let post_key = [user_id.as_str(), post_id.as_str()];
 
     // Post:Relationships:user_id:post_id
-    let post_relationships = PostRelationships::try_from_index_json(None, &post_key)
+    let post_relationships = PostRelationships::try_from_index_json(&post_key, None)
         .await
         .unwrap();
     assert!(
@@ -222,7 +222,7 @@ async fn test_delete_post_that_reposted() -> Result<()> {
 
     // ########### REPLY RELATED INDEXES ################
     // Post:Relationships:user_id:post_id
-    let post_relationships = PostRelationships::try_from_index_json(None, &[&user_id, &repost_id])
+    let post_relationships = PostRelationships::try_from_index_json(&[&user_id, &repost_id], None)
         .await
         .unwrap();
     assert!(
@@ -357,7 +357,7 @@ async fn test_delete_post_that_replied() -> Result<()> {
 
     // ########### REPLY RELATED INDEXES ################
     // Post:Relationships:user_id:post_id
-    let post_relationships = PostRelationships::try_from_index_json(None, &[&user_id, &reply_id])
+    let post_relationships = PostRelationships::try_from_index_json(&[&user_id, &reply_id], None)
         .await
         .unwrap();
     assert!(
