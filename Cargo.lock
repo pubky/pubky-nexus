@@ -2521,7 +2521,7 @@ checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
 [[package]]
 name = "pkarr"
 version = "3.0.0"
-source = "git+https://github.com/pubky/pkarr?branch=v3-rc1#0514b1edc9d4f049adbb407389d79cecd90aa86a"
+source = "git+https://github.com/pubky/pkarr?branch=v3-rc1#116bd22eb2916cff0cb84cd49d840e83094af65b"
 dependencies = [
  "base32",
  "byteorder",
@@ -2558,7 +2558,7 @@ dependencies = [
 [[package]]
 name = "pkarr-relay"
 version = "0.1.0"
-source = "git+https://github.com/pubky/pkarr?branch=v3-rc1#0514b1edc9d4f049adbb407389d79cecd90aa86a"
+source = "git+https://github.com/pubky/pkarr?branch=v3-rc1#116bd22eb2916cff0cb84cd49d840e83094af65b"
 dependencies = [
  "anyhow",
  "axum 0.7.9",
