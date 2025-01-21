@@ -4,7 +4,8 @@ use crate::{
     db::connectors::pubky::PubkyConnector,
     types::{DynError, PubkyId},
 };
-use log::{debug, error};
+use error::EventProcessorError;
+use log::debug;
 use reqwest;
 use serde::{Deserialize, Serialize};
 use uri::ParsedUri;
@@ -75,14 +76,20 @@ impl Event {
         debug!("New event: {}", line);
         let parts: Vec<&str> = line.split(' ').collect();
         if parts.len() != 2 {
-            return Err(format!("Malformed event line: {}", line).into());
+            return Err(EventProcessorError::InvalidEvent {
+                message: format!("Malformed event line: {}", line),
+            }
+            .into());
         }
 
         let event_type = match parts[0] {
             "PUT" => EventType::Put,
             "DEL" => EventType::Del,
             _ => {
-                return Err(format!("Unknown event type: {}", parts[0]).into());
+                return Err(EventProcessorError::InvalidEvent {
+                    message: format!("Unknown event type: {}", parts[0]),
+                }
+                .into())
             }
         };
 
@@ -123,8 +130,10 @@ impl Event {
             _ if uri.contains("/last_read") => return Ok(None),
             _ if uri.contains("/settings") => return Ok(None),
             _ => {
-                error!("Unrecognized resource in URI: {}", uri);
-                return Err("Unrecognized resource in URI".into());
+                return Err(EventProcessorError::InvalidEvent {
+                    message: format!("Unrecognized resource in URI: {}", uri),
+                }
+                .into())
             }
         };
 
@@ -153,8 +162,10 @@ impl Event {
         let response = match pubky_client.get(url).send().await {
             Ok(response) => response,
             Err(e) => {
-                error!("WATCHER: Failed to fetch content at {}: {}", self.uri, e);
-                return Err(e.into());
+                return Err(EventProcessorError::PubkyClientError {
+                    message: format!("{}", e),
+                }
+                .into())
             }
         };
 

@@ -115,7 +115,7 @@ impl EventProcessor {
                 let event = match Event::parse_event(line) {
                     Ok(event) => event,
                     Err(e) => {
-                        error!("Error while creating event line from line: {}", e);
+                        error!("{}", e);
                         None
                     }
                 };
@@ -134,22 +134,26 @@ impl EventProcessor {
         match event.clone().handle().await {
             Ok(_) => Ok(()),
             Err(e) => {
-                error!("Error while handling event: {}", e);
-
                 let retry_event = match e.downcast_ref::<EventProcessorError>() {
                     Some(event_processor_error) => RetryEvent::new(event_processor_error.clone()),
-                    // Other retry errors must be ignored
-                    _ => return Ok(()),
+                    // Others errors must be logged at least for now
+                    None => {
+                        error!("Unhandled error type for URI: {}. {:?}", event.uri, e);
+                        return Ok(());
+                    }
                 };
 
                 // Generate a compress index to save in the cache
-                let index = if let Some(retry_index) = RetryEvent::generate_index_key(&event.uri) {
-                    retry_index
-                } else {
-                    // This block is unlikely to be reached, as it would typically fail during the validation process
-                    return Ok(());
+                let index = match RetryEvent::generate_index_key(&event.uri) {
+                    Some(retry_index) => retry_index,
+                    None => {
+                        // Unlikely to be reached, as it would typically fail during the validation process
+                        return Ok(());
+                    }
                 };
                 let index_key = format!("{}:{}", event.event_type, index);
+
+                // Send event to the retry manager
                 let sender = self.sender.lock().await;
                 match sender
                     .send(SenderMessage::ProcessEvent(index_key, retry_event))
@@ -158,7 +162,7 @@ impl EventProcessor {
                     Ok(_) => {
                         info!("Message send to the RetryManager succesfully from the channel");
                         // TODO: Investigate non-blocking alternatives
-                        // The current use of `tokio::time::sleep` is intended to handle a situation where tasks in other threads
+                        // The current use of `tokio::time::sleep` (in the watcher tests) is intended to handle a situation where tasks in other threads
                         // are not being tracked. This could potentially lead to issues with writing `RetryEvents` in certain cases.
                         // Considerations:
                         // - Determine if this delay is genuinely necessary. Testing may reveal that the `RetryManager` thread
@@ -169,7 +173,7 @@ impl EventProcessor {
                         // For now, the sleep is deactivated
                         //tokio::time::sleep(Duration::from_millis(500)).await;
                     }
-                    Err(e) => error!("Err, {:?}", e),
+                    Err(e) => error!("Failed to send message to RetryManager: {:?}", e),
                 }
                 Ok(())
             }

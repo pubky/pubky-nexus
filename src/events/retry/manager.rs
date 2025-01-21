@@ -1,11 +1,11 @@
-use log::info;
+use log::error;
 use std::sync::Arc;
 use tokio::sync::{
     mpsc::{Receiver, Sender},
     Mutex,
 };
 
-use crate::{events::error::EventProcessorError, types::DynError};
+use crate::types::DynError;
 
 use super::event::RetryEvent;
 
@@ -87,26 +87,8 @@ impl RetryManager {
         index_key: String,
         retry_event: RetryEvent,
     ) -> Result<(), DynError> {
-        match &retry_event.error_type {
-            EventProcessorError::MissingDependency { .. } => {
-                info!(
-                    "Add PUT event to RetryManager, missing dependency for event: {}",
-                    index_key
-                );
-                // Write in the index
-                retry_event.put_to_index(index_key).await?;
-            }
-            EventProcessorError::SkipIndexing => {
-                info!(
-                    "Add DEL event to RetryManager, it could not find the delete node: {}",
-                    index_key
-                );
-                // Write in the index
-                retry_event.put_to_index(index_key).await?;
-            }
-            _ => (),
-        };
-
+        error!("{}: {}", retry_event.error_type, index_key);
+        retry_event.put_to_index(index_key).await?;
         Ok(())
     }
 }

@@ -27,7 +27,12 @@ pub async fn sync_put(user: PubkyAppUser, user_id: PubkyId) -> Result<(), DynErr
     // SAVE TO GRAPH
     match user_details.put_to_graph().await {
         Ok(_) => (),
-        Err(_) => return Err(EventProcessorError::UserNotSync.into()),
+        Err(e) => {
+            return Err(EventProcessorError::GraphQueryFailed {
+                message: format!("{:?}", e),
+            }
+            .into())
+        }
     }
     // SAVE TO INDEX
     let user_id = user_details.id.clone();
