@@ -30,7 +30,7 @@ utoipa-swagger-ui = { git = "https://github.com/juhaku/utoipa", rev = "d522f7442
 ] }
 tower-http = { version = "0.6.2", features = ["fs", "cors"] }
 dotenv = "0.15"
-log = "0.4.22"
+log = "0.4.25"
 env_logger = "0.11.6"
 const_format = "0.2.34"
 thiserror = "2.0.11"
