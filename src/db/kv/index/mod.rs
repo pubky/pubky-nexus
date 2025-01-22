@@ -1,5 +1,4 @@
 /// Module for redis Indexing operations split into modules by Redis types
-pub mod hashmap;
 pub mod json;
 pub mod lists;
 pub mod sets;
