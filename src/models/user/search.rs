@@ -103,7 +103,11 @@ impl UserSearch {
             return Ok(());
         }
         let mut records_to_delete: Vec<String> = Vec::with_capacity(user_ids.len());
-        let users = UserDetails::get_by_ids(user_ids)
+        let keys = user_ids
+            .iter()
+            .map(|&id| vec![id])
+            .collect::<Vec<Vec<&str>>>();
+        let users = UserDetails::get_from_index(keys.iter().map(|item| item.as_slice()).collect())
             .await?
             .into_iter()
             .flatten()
@@ -171,7 +175,7 @@ mod tests {
             .put_index_json(vec![user_id].as_slice(), None)
             .await?;
 
-        // Call `put_to_index` with the same `UserDetails` object multiple times
+        // Call `put_to_index` with the same `UserDetails` object
         UserSearch::put_to_index(&[&user_details]).await?;
 
         // Check that the index contains only one record for the user
