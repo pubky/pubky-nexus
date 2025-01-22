@@ -95,7 +95,6 @@ impl Event {
 
         let uri = parts[1].to_string();
         let parsed_uri = ParsedUri::try_from(uri.as_str())?;
-        println!("ParsedURI: {:?}", parsed_uri);
 
         //TODO: This conversion to a match statement that only uses IF conditions is silly.
         // We could be patter matching the split test for "posts", "follows", etc maybe?
@@ -108,7 +107,7 @@ impl Event {
                 post_id: parsed_uri
                     .post_id
                     .ok_or(EventProcessorError::InvalidEventLine {
-                        message: format!("Missing post_id, {} {}", parts[0], uri),
+                        message: format!("Missing post_id, {}", line),
                     })?,
             },
             _ if uri.contains("/follows/") => ResourceType::Follow {
@@ -116,7 +115,7 @@ impl Event {
                 followee_id: parsed_uri
                     .follow_id
                     .ok_or(EventProcessorError::InvalidEventLine {
-                        message: format!("Missing followee_id, {} {}", parts[0], uri),
+                        message: format!("Missing followee_id, {}", line),
                     })?,
             },
             _ if uri.contains("/mutes/") => ResourceType::Mute {
@@ -124,14 +123,14 @@ impl Event {
                 muted_id: parsed_uri
                     .muted_id
                     .ok_or(EventProcessorError::InvalidEventLine {
-                        message: format!("Missing muted_id, {} {}", parts[0], uri),
+                        message: format!("Missing muted_id, {}", line),
                     })?,
             },
             _ if uri.contains("/bookmarks/") => ResourceType::Bookmark {
                 user_id: parsed_uri.user_id,
                 bookmark_id: parsed_uri.bookmark_id.ok_or(
                     EventProcessorError::InvalidEventLine {
-                        message: format!("Missing bookmark_id, {} {}", parts[0], uri),
+                        message: format!("Missing bookmark_id, {}", line),
                     },
                 )?,
             },
@@ -140,7 +139,7 @@ impl Event {
                 tag_id: parsed_uri
                     .tag_id
                     .ok_or(EventProcessorError::InvalidEventLine {
-                        message: format!("Missing tag_id, {} {}", parts[0], uri),
+                        message: format!("Missing tag_id, {}", line),
                     })?,
             },
             _ if uri.contains("/files/") => ResourceType::File {
@@ -148,15 +147,16 @@ impl Event {
                 file_id: parsed_uri
                     .file_id
                     .ok_or(EventProcessorError::InvalidEventLine {
-                        message: format!("Missing file_id, {} {}", parts[0], uri),
+                        message: format!("Missing file_id, {}", line),
                     })?,
             },
             _ if uri.contains("/blobs") => return Ok(None),
             _ if uri.contains("/last_read") => return Ok(None),
             _ if uri.contains("/settings") => return Ok(None),
+            _ if uri.contains("/feeds") => return Ok(None),
             _ => {
                 return Err(EventProcessorError::InvalidEventLine {
-                    message: format!("Unrecognized resource in URI, {} {}", parts[0], uri),
+                    message: format!("Unrecognized resource in URI, {}", line),
                 }
                 .into())
             }
