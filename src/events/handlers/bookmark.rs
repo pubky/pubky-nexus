@@ -1,21 +1,21 @@
+use crate::db::graph::exec::OperationOutcome;
 use crate::db::kv::index::json::JsonAction;
 use crate::events::uri::ParsedUri;
 use crate::models::post::Bookmark;
 use crate::models::user::UserCounts;
 use crate::types::DynError;
 use crate::types::PubkyId;
-use axum::body::Bytes;
 use chrono::Utc;
 use log::debug;
 use pubky_app_specs::traits::Validatable;
 use pubky_app_specs::PubkyAppBookmark;
 
 //TODO: only /posts/ are bookmarkable as of now.
-pub async fn put(user_id: PubkyId, bookmark_id: String, blob: Bytes) -> Result<(), DynError> {
+pub async fn put(user_id: PubkyId, bookmark_id: String, blob: &[u8]) -> Result<(), DynError> {
     debug!("Indexing new bookmark: {} -> {}", user_id, bookmark_id);
 
     // Deserialize and validate bookmark
-    let bookmark = <PubkyAppBookmark as Validatable>::try_from(&blob, &bookmark_id)?;
+    let bookmark = <PubkyAppBookmark as Validatable>::try_from(blob, &bookmark_id)?;
 
     sync_put(user_id, bookmark, bookmark_id).await
 }
@@ -32,9 +32,17 @@ pub async fn sync_put(
         parsed_uri.post_id.ok_or("Bookmarked URI missing post_id")?,
     );
 
-    // Save new bookmark relationship to the graph
+    // Save new bookmark relationship to the graph, only if the bookmarked user exists
     let indexed_at = Utc::now().timestamp_millis();
-    let existed = Bookmark::put_to_graph(&author_id, &post_id, &user_id, &id, indexed_at).await?;
+    let existed =
+        match Bookmark::put_to_graph(&author_id, &post_id, &user_id, &id, indexed_at).await? {
+            OperationOutcome::CreatedOrDeleted => false,
+            OperationOutcome::Updated => true,
+            // TODO: Should return an error that should be processed by RetryManager
+            OperationOutcome::Pending => {
+                return Err("WATCHER: Missing some dependency to index the model".into())
+            }
+        };
 
     // SAVE TO INDEX
     let bookmark_details = Bookmark { id, indexed_at };

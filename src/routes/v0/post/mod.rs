@@ -1,5 +1,5 @@
+use crate::register_routes;
 use crate::routes::v0::endpoints;
-use crate::{register_routes, to_axum};
 use axum::Router;
 use utoipa::OpenApi;
 
@@ -11,12 +11,12 @@ mod view;
 
 pub fn routes() -> Router {
     register_routes!(Router::new(),
-        to_axum!(endpoints::POST_ROUTE) => view::post_view_handler,
-        to_axum!(endpoints::POST_DETAILS_ROUTE) => details::post_details_handler,
-        to_axum!(endpoints::POST_COUNTS_ROUTE) => counts::post_counts_handler,
-        to_axum!(endpoints::POST_BOOKMARK_ROUTE) => bookmark::post_bookmark_handler,
-        to_axum!(endpoints::POST_TAGS_ROUTE) => tags::post_tags_handler,
-        to_axum!(endpoints::POST_TAGGERS_ROUTE) => tags::post_taggers_handler,
+        endpoints::POST_ROUTE => view::post_view_handler,
+        endpoints::POST_DETAILS_ROUTE => details::post_details_handler,
+        endpoints::POST_COUNTS_ROUTE => counts::post_counts_handler,
+        endpoints::POST_BOOKMARK_ROUTE => bookmark::post_bookmark_handler,
+        endpoints::POST_TAGS_ROUTE => tags::post_tags_handler,
+        endpoints::POST_TAGGERS_ROUTE => tags::post_taggers_handler,
     )
 }
 

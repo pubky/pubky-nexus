@@ -1,10 +1,11 @@
-use crate::types::DynError;
-use axum::async_trait;
+use crate::{db::graph::exec::OperationOutcome, types::DynError};
+use async_trait::async_trait;
+use log::error;
 use neo4rs::Query;
 
 use crate::{
     db::{
-        connectors::neo4j::get_neo4j_graph, graph::exec::exec_boolean_row,
+        connectors::neo4j::get_neo4j_graph, graph::exec::execute_graph_operation,
         kv::index::sorted_sets::SortOrder,
     },
     models::tag::{post::POST_TAGS_KEY_PARTS, user::USER_TAGS_KEY_PARTS},
@@ -32,6 +33,7 @@ where
     /// # Parameters
     /// - `user_id` - A string slice representing the ID of the user for whom the tags are being retrieved
     /// - `extra_param` - An optional string slice used as an additional filter or context in tag retrieval. If it is Some(), the value is post_id
+    /// -  skip_tags - The number of tags to skip before retrieving results
     /// - `limit_tags` - An optional limit on the number of tags to retrieve.
     /// - `limit_taggers` - An optional limit on the number of taggers (users who have tagged) to retrieve.
     /// - `viewer_id` - An optional string slice representing the ID of the viewer or requester.
@@ -46,6 +48,7 @@ where
     async fn get_by_id(
         user_id: &str,
         extra_param: Option<&str>,
+        skip_tags: Option<usize>,
         limit_tags: Option<usize>,
         limit_taggers: Option<usize>,
         viewer_id: Option<&str>,
@@ -54,10 +57,19 @@ where
         // Query for the tags that are in its WoT
         // Actually we just apply that search to User node
         if viewer_id.is_some() && matches!(depth, Some(1..=3)) {
-            match Self::get_from_index(user_id, viewer_id, limit_tags, limit_taggers, true).await? {
+            match Self::get_from_index(
+                user_id,
+                viewer_id,
+                skip_tags,
+                limit_tags,
+                limit_taggers,
+                true,
+            )
+            .await?
+            {
                 Some(tag_details) => return Ok(Some(tag_details)),
                 None => {
-                    let depth = depth.unwrap();
+                    let depth = depth.unwrap_or(1);
                     let graph_response =
                         Self::get_from_graph(user_id, viewer_id, Some(depth)).await?;
                     if let Some(tag_details) = graph_response {
@@ -68,8 +80,17 @@ where
                 }
             }
         }
-        // Get global tags for that user
-        match Self::get_from_index(user_id, extra_param, limit_tags, limit_taggers, false).await? {
+        // Get global tags for that user/post
+        match Self::get_from_index(
+            user_id,
+            extra_param,
+            skip_tags,
+            limit_tags,
+            limit_taggers,
+            false,
+        )
+        .await?
+        {
             Some(tag_details) => Ok(Some(tag_details)),
             None => {
                 let graph_response = Self::get_from_graph(user_id, extra_param, None).await?;
@@ -86,6 +107,7 @@ where
     /// # Arguments
     /// * user_id - The key of the user for whom to retrieve tags.
     /// * extra_param - An optional parameter for specifying additional constraints: post_id, viewer_id (for WoT search)
+    /// * skip_tags - The number of tags to skip before retrieving results
     /// * limit_tags - A limit on the number of tags to retrieve.
     /// * limit_taggers - A limit on the number of taggers to retrieve.
     /// * is_cache - A boolean indicating whether to retrieve tags from the cache or the primary index.
@@ -96,11 +118,13 @@ where
     async fn get_from_index(
         user_id: &str,
         extra_param: Option<&str>,
+        skip_tags: Option<usize>,
         limit_tags: Option<usize>,
         limit_taggers: Option<usize>,
         is_cache: bool,
     ) -> Result<Option<Vec<TagDetails>>, DynError> {
         let limit_tags = limit_tags.unwrap_or(5);
+        let skip_tags = skip_tags.unwrap_or(0);
         let limit_taggers = limit_taggers.unwrap_or(5);
         let key_parts = Self::create_sorted_set_key_parts(user_id, extra_param, is_cache);
         // Prepare the extra prefix for cache search
@@ -116,7 +140,7 @@ where
             &key_parts,
             None,
             None,
-            None,
+            Some(skip_tags),
             Some(limit_tags),
             SortOrder::Descending,
             cache_prefix.0,
@@ -301,7 +325,7 @@ where
         tag_id: &str,
         label: &str,
         indexed_at: i64,
-    ) -> Result<bool, DynError> {
+    ) -> Result<OperationOutcome, DynError> {
         let query = match extra_param {
             Some(post_id) => queries::put::create_post_tag(
                 tagger_user_id,
@@ -319,7 +343,7 @@ where
                 indexed_at,
             ),
         };
-        exec_boolean_row(query).await
+        execute_graph_operation(query).await
     }
 
     /// Reindexes tags for a given author by retrieving data from the graph database and updating the index.
@@ -334,10 +358,10 @@ where
     async fn reindex(author_id: &str, extra_param: Option<&str>) -> Result<(), DynError> {
         match Self::get_from_graph(author_id, extra_param, None).await? {
             Some(tag_user) => Self::put_to_index(author_id, extra_param, &tag_user, false).await?,
-            None => log::error!(
+            None => error!(
                 "{}:{} Could not found tags in the graph",
                 author_id,
-                extra_param.unwrap()
+                extra_param.unwrap_or_default()
             ),
         }
         Ok(())
@@ -368,7 +392,7 @@ where
         let mut result;
         {
             let graph = get_neo4j_graph()?;
-            let query = queries::put::delete_tag(user_id, tag_id);
+            let query = queries::del::delete_tag(user_id, tag_id);
 
             let graph = graph.lock().await;
             result = graph.execute(query).await?;

@@ -1,6 +1,6 @@
 use crate::service::utils::{get_request, invalid_get_request};
 use anyhow::Result;
-use reqwest::StatusCode;
+use axum::http::StatusCode;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_following() -> Result<()> {
@@ -52,7 +52,7 @@ async fn test_stream_following() -> Result<()> {
             "/v0/stream/users?user_id={}&source=following",
             "bad_user_id"
         ),
-        StatusCode::NOT_FOUND,
+        StatusCode::NO_CONTENT,
     )
     .await?;
 

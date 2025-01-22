@@ -1,6 +1,6 @@
-use crate::types::PubkyId;
+use crate::{db::connectors::pubky::PubkyConnector, types::PubkyId};
 use log::{debug, error};
-use pubky::PubkyClient;
+use reqwest;
 use uri::ParsedUri;
 
 pub mod handlers;
@@ -50,13 +50,11 @@ pub struct Event {
     uri: String,
     event_type: EventType,
     resource_type: ResourceType,
-    pubky_client: PubkyClient,
 }
 
 impl Event {
-    fn from_str(
+    pub fn parse_event(
         line: &str,
-        pubky_client: PubkyClient,
     ) -> Result<Option<Self>, Box<dyn std::error::Error + Sync + Send>> {
         debug!("New event: {}", line);
         let parts: Vec<&str> = line.split(' ').collect();
@@ -118,11 +116,10 @@ impl Event {
             uri,
             event_type,
             resource_type,
-            pubky_client,
         }))
     }
 
-    async fn handle(self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
+    pub async fn handle(self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
         match self.event_type {
             EventType::Put => self.handle_put_event().await,
             EventType::Del => self.handle_del_event().await,
@@ -135,39 +132,38 @@ impl Event {
         // User PUT event's into the homeserver write new data. We fetch the data
         // for every Resource Type
         let url = reqwest::Url::parse(&self.uri)?;
-        let blob = match self.pubky_client.get(url).await {
-            Ok(Some(blob)) => blob,
-            Ok(None) => {
-                error!("No content found at {}", self.uri);
-                return Ok(());
-            }
+        let pubky_client = PubkyConnector::get_pubky_client()?;
+
+        let response = match pubky_client.get(url).send().await {
+            Ok(response) => response,
             Err(e) => {
-                error!("Failed to fetch content at {}: {}", self.uri, e);
+                error!("WATCHER: Failed to fetch content at {}: {}", self.uri, e);
                 return Err(e.into());
             }
         };
+        let blob = response.bytes().await?;
 
         match self.resource_type {
-            ResourceType::User { user_id } => handlers::user::put(user_id, blob).await?,
+            ResourceType::User { user_id } => handlers::user::put(user_id, &blob).await?,
             ResourceType::Post { author_id, post_id } => {
-                handlers::post::put(author_id, post_id, blob).await?
+                handlers::post::put(author_id, post_id, &blob).await?
             }
             ResourceType::Follow {
                 follower_id,
                 followee_id,
-            } => handlers::follow::put(follower_id, followee_id, blob).await?,
+            } => handlers::follow::put(follower_id, followee_id, &blob).await?,
             ResourceType::Mute { user_id, muted_id } => {
-                handlers::mute::put(user_id, muted_id, blob).await?
+                handlers::mute::put(user_id, muted_id, &blob).await?
             }
             ResourceType::Bookmark {
                 user_id,
                 bookmark_id,
-            } => handlers::bookmark::put(user_id, bookmark_id, blob).await?,
+            } => handlers::bookmark::put(user_id, bookmark_id, &blob).await?,
             ResourceType::Tag { user_id, tag_id } => {
-                handlers::tag::put(user_id, tag_id, blob).await?
+                handlers::tag::put(user_id, tag_id, &blob).await?
             }
             ResourceType::File { user_id, file_id } => {
-                handlers::file::put(self.uri, user_id, file_id, blob, &self.pubky_client).await?
+                handlers::file::put(self.uri, user_id, file_id, &blob).await?
             }
         }
 

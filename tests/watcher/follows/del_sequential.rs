@@ -1,4 +1,4 @@
-use crate::watcher::utils::WatcherTest;
+use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use pubky_app_specs::PubkyAppUser;
 use pubky_common::crypto::Keypair;
@@ -97,8 +97,8 @@ async fn test_homeserver_sequential_unfollow() -> Result<()> {
     let followee_follow_enzo_uri = test.create_follow(&followee_id, &enzo_id).await?;
 
     // Start unfollowing users
-    test.delete_follow(&alice_follow_uri).await?;
-    test.delete_follow(&bob_follow_uri).await?;
+    test.del(&alice_follow_uri).await?;
+    test.del(&bob_follow_uri).await?;
 
     // Assert folowee counts
     let follower_count = UserCounts::try_from_index_json(&[&followee_id])
@@ -110,7 +110,7 @@ async fn test_homeserver_sequential_unfollow() -> Result<()> {
     assert_eq!(follower_count.following, 2);
     assert_eq!(follower_count.friends, 1);
 
-    test.delete_follow(&followee_follow_danonino_uri).await?;
+    test.del(&followee_follow_danonino_uri).await?;
 
     // Assert folowee relationships and notifications
     let relationship = Relationship::get_by_id(&danonino_id, Some(&followee_id))
@@ -154,9 +154,9 @@ async fn test_homeserver_sequential_unfollow() -> Result<()> {
         panic!("Expected a new friend notification, found something else");
     }
 
-    test.delete_follow(&carla_follow_uri).await?;
-    test.delete_follow(&danonino_follow_uri).await?;
-    test.delete_follow(&followee_follow_enzo_uri).await?;
+    test.del(&carla_follow_uri).await?;
+    test.del(&danonino_follow_uri).await?;
+    test.del(&followee_follow_enzo_uri).await?;
 
     // Assert folowee last counts
     let follower_count = UserCounts::try_from_index_json(&[&followee_id])

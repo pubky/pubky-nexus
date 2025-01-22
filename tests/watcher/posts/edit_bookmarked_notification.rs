@@ -1,4 +1,4 @@
-use crate::watcher::utils::WatcherTest;
+use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use pubky_app_specs::{
     traits::HashId, PubkyAppBookmark, PubkyAppPost, PubkyAppPostKind, PubkyAppUser,
@@ -7,6 +7,7 @@ use pubky_common::crypto::Keypair;
 use pubky_nexus::{
     models::notification::{Notification, NotificationBody, PostChangedSource},
     types::Pagination,
+    PubkyConnector,
 };
 
 #[tokio_shared_rt::test(shared)]
@@ -50,22 +51,23 @@ async fn test_edit_bookmarked_post_notification() -> Result<()> {
         uri: format!("pubky://{}/pub/pubky.app/posts/{}", user_a_id, post_id),
         created_at: 0,
     };
-    let bookmark_blob = serde_json::to_vec(&bookmark)?;
     let bookmark_url = format!(
         "pubky://{}/pub/pubky.app/bookmarks/{}",
         user_b_id,
         bookmark.create_id()
     );
-    test.create_bookmark(&bookmark_url, bookmark_blob).await?;
+    test.put(&bookmark_url, bookmark).await?;
 
     // User A edits their post
     post.content = "Edited post by User A".to_string();
-    let edited_post_blob = serde_json::to_vec(&post)?;
     let edited_url = format!("pubky://{}/pub/pubky.app/posts/{}", user_a_id, post_id);
 
     // Overwrite existing post in the homeserver for the edited one
-    test.client
-        .put(edited_url.as_str(), &edited_post_blob)
+    let pubky_client = PubkyConnector::get_pubky_client()?;
+    pubky_client
+        .put(edited_url.as_str())
+        .json(&post)
+        .send()
         .await?;
     test.ensure_event_processing_complete().await?;
 

@@ -10,7 +10,8 @@ const PEER_PUBKY: &str = "db6w58pd5h63fbhtd88y8zz7pai9rkjwqt9omg6i7dz31dynrgcy";
 const POST_ID: &str = "HC3T5CEPBPHQ";
 const FREE_LABEL: &str = "free";
 
-// TODO: Create deterministic integration tests
+const BAHRINGER_USER: &str = "7kbjzgcx3xygokesys6jso13tt9u5n995p9q54a1co7cai9ujcso";
+const BAHRINGER_POST: &str = "2Z1N9M56X4EG0";
 
 #[tokio_shared_rt::test(shared)]
 async fn test_post_tag() -> Result<()> {
@@ -49,6 +50,61 @@ async fn test_user_tags_limit_tag_filter_active() -> Result<()> {
     // // Analyse the tag that is in the 4th index
     let hot_tag = TagMockup::new(String::from("free"), 3, 3);
     compare_tag_details(&tags[1], hot_tag);
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_user_tags_skip_tag_filter_active() -> Result<()> {
+    let path = format!(
+        "/v0/post/{}/{}/tags?skip_tags=7",
+        BAHRINGER_USER, BAHRINGER_POST
+    );
+    let body = get_request(&path).await?;
+
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Tag list should be an array");
+    assert_eq!(tags.len(), 3);
+
+    // Validate that the posts belong to the specified user's bookmarks
+    analyse_tag_details_structure(tags);
+
+    // Analyse the tag that is in the 1st index
+    let hot_tag = TagMockup::new(String::from("emergent"), 1, 1);
+    compare_tag_details(&tags[0], hot_tag);
+    // Analyse the tag that is in the 3rd index
+    let hot_tag = TagMockup::new(String::from("cheap"), 1, 1);
+    compare_tag_details(&tags[2], hot_tag);
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_user_tags_skip_and_limit_tag_filter_active() -> Result<()> {
+    let path = format!(
+        "/v0/post/{}/{}/tags?skip_tags=4&limit_tags=3",
+        BAHRINGER_USER, BAHRINGER_POST
+    );
+    let body = get_request(&path).await?;
+
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Tag list should be an array");
+    assert_eq!(tags.len(), 3);
+
+    // Validate that the posts belong to the specified user's bookmarks
+    analyse_tag_details_structure(tags);
+
+    // Analyse the tag that is in the 1st index
+    let hot_tag = TagMockup::new(String::from("mutation"), 1, 1);
+    compare_tag_details(&tags[0], hot_tag);
+    // Analyse the tag that is in the 2nd index
+    let hot_tag = TagMockup::new(String::from("irritably"), 1, 1);
+    compare_tag_details(&tags[1], hot_tag);
+    // Analyse the tag that is in the 3rd index
+    let hot_tag = TagMockup::new(String::from("frantically"), 1, 1);
+    compare_tag_details(&tags[2], hot_tag);
 
     Ok(())
 }

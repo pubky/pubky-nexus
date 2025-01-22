@@ -3,15 +3,11 @@ use std::time::Duration;
 use super::Event;
 use crate::types::DynError;
 use crate::types::PubkyId;
+use crate::PubkyConnector;
 use crate::{models::homeserver::Homeserver, Config};
 use log::{debug, error, info};
-use pkarr::mainline::dht::Testnet;
-use pubky::PubkyClient;
-use reqwest::Client;
 
 pub struct EventProcessor {
-    pubky_client: PubkyClient,
-    http_client: Client,
     homeserver: Homeserver,
     limit: u32,
     max_retries: u64,
@@ -19,7 +15,6 @@ pub struct EventProcessor {
 
 impl EventProcessor {
     pub async fn from_config(config: &Config) -> Result<Self, DynError> {
-        let pubky_client = Self::init_pubky_client(config);
         let homeserver = Homeserver::from_config(config).await?;
         let limit = config.events_limit;
         let max_retries = config.max_retries;
@@ -30,32 +25,23 @@ impl EventProcessor {
         );
 
         Ok(Self {
-            pubky_client,
-            http_client: Client::new(),
             homeserver,
             limit,
             max_retries,
         })
     }
 
-    fn init_pubky_client(config: &Config) -> PubkyClient {
-        if config.testnet {
-            let testnet = Testnet {
-                bootstrap: vec![config.bootstrap.clone()],
-                nodes: vec![],
-            };
-            PubkyClient::test(&testnet)
-        } else {
-            PubkyClient::default()
-        }
-    }
-
-    pub async fn test(testnet: &Testnet, homeserver_url: String) -> Self {
-        let id = PubkyId("test".to_string());
-        let homeserver = Homeserver::new(id, homeserver_url).await.unwrap();
+    /// Creates a new `EventProcessor` instance for testing purposes.
+    ///
+    /// Initializes an `EventProcessor` with a mock homeserver and a default configuration,
+    /// making it suitable for use in integration tests and benchmarking scenarios.
+    ///
+    /// # Parameters
+    /// - `homeserver_url`: The URL of the homeserver to be used in the test environment.
+    pub async fn test(homeserver_id: String) -> Self {
+        let id = PubkyId(homeserver_id.to_string());
+        let homeserver = Homeserver::new(id).await.unwrap();
         Self {
-            pubky_client: PubkyClient::builder().testnet(testnet).build(),
-            http_client: Client::new(),
             homeserver,
             limit: 1000,
             max_retries: 3,
@@ -72,18 +58,22 @@ impl EventProcessor {
 
     async fn poll_events(&mut self) -> Result<Option<Vec<String>>, Box<dyn std::error::Error>> {
         debug!("Polling new events from homeserver");
-        let res = self
-            .http_client
-            .get(format!(
-                "{}/events/?cursor={}&limit={}",
-                self.homeserver.url, self.homeserver.cursor, self.limit
-            ))
-            .send()
-            .await?
-            .text()
-            .await?;
 
-        let lines: Vec<String> = res.trim().split('\n').map(|s| s.to_string()).collect();
+        let response: String;
+        {
+            let pubky_client = PubkyConnector::get_pubky_client()?;
+            response = pubky_client
+                .get(format!(
+                    "https://{}/events/?cursor={}&limit={}",
+                    self.homeserver.id, self.homeserver.cursor, self.limit
+                ))
+                .send()
+                .await?
+                .text()
+                .await?;
+        }
+
+        let lines: Vec<String> = response.trim().split('\n').map(|s| s.to_string()).collect();
         debug!("Homeserver response lines {:?}", lines);
 
         if lines.len() == 1 && lines[0].is_empty() {
@@ -103,7 +93,7 @@ impl EventProcessor {
                     info!("Cursor for the next request: {}", cursor);
                 }
             } else {
-                let event = match Event::from_str(line, self.pubky_client.clone()) {
+                let event = match Event::parse_event(line) {
                     Ok(event) => event,
                     Err(e) => {
                         error!("Error while creating event line from line: {}", e);
@@ -127,20 +117,27 @@ impl EventProcessor {
             match event.clone().handle().await {
                 Ok(_) => break Ok(()),
                 Err(e) => {
-                    attempts += 1;
-                    if attempts >= self.max_retries {
-                        error!(
-                            "Error while handling event after {} attempts: {}",
-                            attempts, e
-                        );
-                        break Ok(());
+                    // TODO: Failing to index the profile.json, the error message might be different
+                    // WIP: It will be fixed in the comming PRs the error messages
+                    if e.to_string() != "WATCHER: Missing some dependency to index the model" {
+                        attempts += 1;
+                        if attempts >= self.max_retries {
+                            error!(
+                                "Error while handling event after {} attempts: {}",
+                                attempts, e
+                            );
+                            break Ok(());
+                        } else {
+                            error!(
+                                "Error while handling event: {}. Retrying attempt {}/{}",
+                                e, attempts, self.max_retries
+                            );
+                            // Optionally, add a delay between retries
+                            tokio::time::sleep(Duration::from_millis(100)).await;
+                        }
                     } else {
-                        error!(
-                            "Error while handling event: {}. Retrying attempt {}/{}",
-                            e, attempts, self.max_retries
-                        );
-                        // Optionally, add a delay between retries
-                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        error!("PROCESSOR: Sending the event to RetryManager... Missing node(s) and/or relationship(s) to execute PUT or DEL operation(s)");
+                        return Ok(());
                     }
                 }
             }

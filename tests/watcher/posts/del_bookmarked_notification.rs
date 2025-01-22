@@ -1,4 +1,4 @@
-use crate::watcher::utils::WatcherTest;
+use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use pubky_app_specs::{
     traits::HashId, PubkyAppBookmark, PubkyAppPost, PubkyAppPostKind, PubkyAppUser,
@@ -50,13 +50,12 @@ async fn test_delete_bookmarked_post_notification() -> Result<()> {
         uri: format!("pubky://{}/pub/pubky.app/posts/{}", user_a_id, post_id),
         created_at: 0,
     };
-    let bookmark_blob = serde_json::to_vec(&bookmark)?;
     let bookmark_url = format!(
         "pubky://{}/pub/pubky.app/bookmarks/{}",
         user_b_id,
         bookmark.create_id()
     );
-    test.create_bookmark(&bookmark_url, bookmark_blob).await?;
+    test.put(&bookmark_url, bookmark).await?;
 
     // User A deletes their post
     test.cleanup_post(&user_a_id, &post_id).await?;

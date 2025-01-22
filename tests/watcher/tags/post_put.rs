@@ -2,7 +2,7 @@ use super::utils::{check_member_total_engagement_post_tag, find_post_tag};
 use crate::watcher::posts::utils::{check_member_total_engagement_user_posts, find_post_counts};
 use crate::watcher::tags::utils::check_member_post_tag_global_timeline;
 use crate::watcher::users::utils::find_user_counts;
-use crate::watcher::utils::WatcherTest;
+use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
 use pubky_app_specs::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser};
@@ -49,7 +49,6 @@ async fn test_homeserver_put_tag_post() -> Result<()> {
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
-    let tag_blob = serde_json::to_vec(&tag)?;
     let tag_url = format!(
         "pubky://{}/pub/pubky.app/tags/{}",
         tagger_user_id,
@@ -63,7 +62,7 @@ async fn test_homeserver_put_tag_post() -> Result<()> {
         .unwrap_or_default();
 
     // Put tag
-    test.create_tag(&tag_url, tag_blob).await?;
+    test.put(&tag_url, tag).await?;
 
     // Step 4: Verify tag existence and data consistency
 
@@ -79,7 +78,7 @@ async fn test_homeserver_put_tag_post() -> Result<()> {
 
     // CACHE_OP: Check if the tag is correctly cached
     let cache_post_tag =
-        TagPost::get_from_index(&tagger_user_id, Some(&post_id), None, None, false)
+        TagPost::get_from_index(&tagger_user_id, Some(&post_id), None, None, None, false)
             .await
             .unwrap();
 

@@ -1,5 +1,5 @@
 use super::utils::find_mute_relationship;
-use crate::watcher::utils::WatcherTest;
+use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use pubky_app_specs::PubkyAppUser;
 use pubky_common::crypto::Keypair;
@@ -35,7 +35,7 @@ async fn test_homeserver_del_mute() -> Result<()> {
     let mute_uri = test.create_mute(&muter_id, &mutee_id).await?;
 
     // Unmute the user
-    test.delete_mute(&mute_uri).await?;
+    test.del(&mute_uri).await?;
 
     // Assert if the mute relationship was deleted from graph
     let exist = find_mute_relationship(&muter_id, &mutee_id).await?;

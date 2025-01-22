@@ -18,9 +18,11 @@ const USER_A: &str = "cjoodgkwaf1bwepoe8m6zsp8guobh5wdwmqqnk496jcd175jjwey";
 const USER_B: &str = "fs8qf51odhpf9ecoms8i9tbjtyshhjdejpsf3nxcbup3ugs7q4xo";
 const USER_C: &str = "cuimec4ngawamq8wa6fjzki6boxmwqcm11x6g7ontufrjwgdaxqo";
 
+// WARNING: To test that integration test, the Cache:... indexes
+// related with WoT has to be deleted
 #[tokio_shared_rt::test(shared)]
 async fn test_wot_user_tags_endpoints() -> Result<()> {
-    // Make sure, we still not index the WoT tags
+    // Make sure, we still not index the WoT tags requesting the taggers
     let path = format!(
         "/v0/user/{}/taggers/{}?viewer_id={}&depth=2",
         AURELIO_USER, ATHENS_TAG, EPICTTO_VIEWER
@@ -40,7 +42,7 @@ async fn test_wot_user_tags_endpoints() -> Result<()> {
     let tags = body.as_array().expect("Tag list should be an array");
     assert_eq!(tags.len(), 2);
 
-    // Validate that the posts belong to the specified user's bookmarks
+    // Validate that the posts tag structure
     analyse_tag_details_structure(tags);
 
     // Analyse the tag that is in the 4th index
@@ -61,12 +63,50 @@ async fn test_wot_user_tags_endpoints() -> Result<()> {
     let tags = body.as_array().expect("Tag list should be an array");
     assert_eq!(tags.len(), 1);
 
-    // Validate that the posts belong to the specified user's bookmarks
+    // Validate that the posts tag structure
     analyse_tag_details_structure(tags);
 
     // // Analyse the tag that is in the 4th index
     let athens_hot_tag = TagMockup::new(String::from(ATHENS_TAG), 3, 3);
     compare_tag_details(&tags[0], athens_hot_tag);
+
+    // => test_wot_user_tags_endpoint_with_tag_skip
+    let path = format!(
+        "/v0/user/{}/tags?viewer_id={}&depth=2&skip_tags=1",
+        AURELIO_USER, EPICTTO_VIEWER
+    );
+    let body = get_request(&path).await?;
+
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Tag list should be an array");
+    assert_eq!(tags.len(), 1);
+
+    // Validate that the posts tag structure
+    analyse_tag_details_structure(tags);
+
+    // Analyse the tag that is in the 1st index
+    let now_hot_tag = TagMockup::new(String::from(NOW_TAG), 2, 2);
+    compare_tag_details(&tags[0], now_hot_tag);
+
+    // => test_wot_user_tags_endpoint_with_tag_skip_and_taggers_limit
+    let path = format!(
+        "/v0/user/{}/tags?viewer_id={}&depth=2&skip_tags=1&limit_taggers=1",
+        AURELIO_USER, EPICTTO_VIEWER
+    );
+    let body = get_request(&path).await?;
+
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Tag list should be an array");
+    assert_eq!(tags.len(), 1);
+
+    // Validate that the posts tag structure
+    analyse_tag_details_structure(tags);
+
+    // Analyse the tag that is in the 1st index
+    let now_hot_tag = TagMockup::new(String::from(NOW_TAG), 1, 2);
+    compare_tag_details(&tags[0], now_hot_tag);
 
     // => test_wot_user_tags_endpoint_with_tagger_limit
     let path = format!(
@@ -80,7 +120,7 @@ async fn test_wot_user_tags_endpoints() -> Result<()> {
     let tags = body.as_array().expect("Tag list should be an array");
     assert_eq!(tags.len(), 2);
 
-    // Validate that the posts belong to the specified user's bookmarks
+    // Validate that the posts tag structure
     analyse_tag_details_structure(tags);
 
     // // Analyse the tag that is in the 4th index
@@ -101,7 +141,7 @@ async fn test_wot_user_tags_endpoints() -> Result<()> {
     let tags = body.as_array().expect("Tag list should be an array");
     assert_eq!(tags.len(), 1);
 
-    // Validate that the posts belong to the specified user's bookmarks
+    // Validate that the posts tag structure
     analyse_tag_details_structure(tags);
 
     // // Analyse the tag that is in the 4th index

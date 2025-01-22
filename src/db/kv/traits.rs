@@ -1,6 +1,6 @@
 use super::index::*;
 use crate::types::DynError;
-use axum::async_trait;
+use async_trait::async_trait;
 use json::JsonAction;
 use serde::{de::DeserializeOwned, Serialize};
 use sorted_sets::{ScoreAction, SortOrder, SORTED_PREFIX};

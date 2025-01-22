@@ -2,10 +2,10 @@ use crate::service::utils::get_request;
 use anyhow::Result;
 use pubky_nexus::models::post::{PostStream, PostView};
 
-use super::ROOT_PATH;
+use super::{AMSTERDAM, ROOT_PATH};
 
 // Amsterdam user from test/posts.cypher
-const AUTHOR_ID: &str = "emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy";
+const AUTHOR_ID: &str = AMSTERDAM;
 const PARENT_POST_ID: &str = "1A1P4D8C9K0F";
 
 const CHILD_1_POST_ID: &str = "2B9XKZG3T4L6";

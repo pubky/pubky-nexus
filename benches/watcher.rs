@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use pkarr::mainline::Testnet;
-use pubky::PubkyClient;
+use mainline::Testnet;
+use pubky::Client;
 use pubky_app_specs::{PubkyAppUser, PubkyAppUserLink};
 use pubky_common::crypto::Keypair;
 use pubky_homeserver::Homeserver;
@@ -11,17 +11,17 @@ use tokio::runtime::Runtime;
 
 mod setup;
 
-/// Creates a homeserver and:
-/// 1. Created a user
+/// Create a homeserver and:
+/// 1. Create a user
 /// 2. Sign up the user
 /// 3. Upload a profile.json
 /// 4. Delete the profile.json
 async fn create_homeserver_with_events() -> (Testnet, String) {
     // Create the test environment
-    let testnet = Testnet::new(3);
+    let testnet = Testnet::new(3).unwrap();
     let homeserver = Homeserver::start_test(&testnet).await.unwrap();
-    let client = PubkyClient::test(&testnet);
-    let homeserver_url = format!("http://localhost:{}", homeserver.port());
+    let client = Client::builder().testnet(&testnet).build().unwrap();
+    let homeserver_url = homeserver.url().to_string();
 
     // Generate user data
     let keypair = Keypair::random();
@@ -48,10 +48,15 @@ async fn create_homeserver_with_events() -> (Testnet, String) {
     let url = format!("pubky://{}/pub/pubky.app/profile.json", user_id);
 
     // Create user profile
-    client.put(url.as_str(), &profile_json).await.unwrap();
+    client
+        .put(url.as_str())
+        .json(&profile_json)
+        .send()
+        .await
+        .unwrap();
 
     // Delete the user profile
-    client.delete(url.as_str()).await.unwrap();
+    client.delete(url.as_str()).send().await.unwrap();
 
     (testnet, homeserver_url)
 }
@@ -65,12 +70,12 @@ fn bench_create_delete_user(c: &mut Criterion) {
 
     // Set up the environment only once
     let rt = Runtime::new().unwrap();
-    let (testnet, homeserver_url) = rt.block_on(create_homeserver_with_events());
+    let (_, homeserver_url) = rt.block_on(create_homeserver_with_events());
 
     c.bench_function("create_delete_homeserver_user", |b| {
         b.to_async(&rt).iter(|| async {
             // Benchmark the event processor initialization and run
-            let mut event_processor = EventProcessor::test(&testnet, homeserver_url.clone()).await;
+            let mut event_processor = EventProcessor::test(homeserver_url.clone()).await;
             event_processor.run().await.unwrap();
         });
     });

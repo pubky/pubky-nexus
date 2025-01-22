@@ -1,6 +1,6 @@
 // File: ./tests/watcher/network/large_network_test.rs
 
-use crate::watcher::utils::WatcherTest;
+use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use log::info;
 use pubky_app_specs::{
@@ -10,7 +10,7 @@ use pubky_app_specs::{
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{
     models::{post::PostCounts, user::UserCounts},
-    RedisOps,
+    PubkyConnector, RedisOps,
 };
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use std::collections::{HashMap, HashSet};
@@ -135,8 +135,11 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                     };
                     let mute_url =
                         format!("pubky://{}/pub/pubky.app/mutes/{}", user_id, target_user_id);
-                    test.client
-                        .put(mute_url.as_str(), &serde_json::to_vec(&mute)?)
+                    let pubky_client = PubkyConnector::get_pubky_client()?;
+                    pubky_client
+                        .put(mute_url.as_str())
+                        .json(&mute)
+                        .send()
                         .await?;
                     _total_mutes += 1;
                 }
@@ -168,8 +171,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                     bookmark.create_id()
                 );
 
-                test.create_bookmark(&bookmark_url, serde_json::to_vec(&bookmark)?)
-                    .await?;
+                test.put(&bookmark_url, &bookmark).await?;
                 total_bookmarks += 1;
             }
         }
@@ -197,7 +199,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
 
                 let tag_url = format!("pubky://{}/pub/pubky.app/tags/{}", user_id, tag.create_id());
 
-                test.create_tag(&tag_url, serde_json::to_vec(&tag)?).await?;
+                test.put(&tag_url, &tag).await?;
                 total_tags += 1;
 
                 // FAILS: possibly deletes a tag twice and decrements twice in index.
@@ -207,7 +209,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                 // Randomly decide to delete the tag
                 if rng.gen_bool(0.1) {
                     // 10% chance to delete the tag
-                    test.delete_tag(&tag_url).await?;
+                    test.del(&tag_url).await?;
                     total_tag_deletions += 1;
                 }
             }
@@ -235,7 +237,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                     "pubky://{}/pub/pubky.app/follows/{}",
                     user_id, target_user_id
                 );
-                test.delete_follow(&follow_uri).await?;
+                test.del(&follow_uri).await?;
                 following_set.remove(target_user_id);
                 total_unfollows += 1;
             }
@@ -261,7 +263,8 @@ async fn test_large_network_scenario_counts() -> Result<()> {
             if unmuted.insert(target_user_id.clone()) {
                 let mute_uri =
                     format!("pubky://{}/pub/pubky.app/mutes/{}", user_id, target_user_id);
-                test.client.delete(mute_uri.as_str()).await?;
+                let pubky_client = PubkyConnector::get_pubky_client()?;
+                pubky_client.delete(mute_uri.as_str()).send().await?;
                 mute_set.remove(target_user_id);
                 _total_unmutes += 1;
             }

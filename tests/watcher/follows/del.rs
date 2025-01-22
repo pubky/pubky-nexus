@@ -1,5 +1,6 @@
 use super::utils::find_follow_relationship;
-use crate::watcher::{users::utils::find_user_counts, utils::WatcherTest};
+use crate::watcher::users::utils::find_user_counts;
+use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use pubky_app_specs::PubkyAppUser;
 use pubky_common::crypto::Keypair;
@@ -48,7 +49,7 @@ async fn test_homeserver_unfollow() -> Result<()> {
     let follow_url = test.create_follow(&follower_id, &followee_id).await?;
 
     // Unfollow the followee
-    test.delete_follow(&follow_url).await?;
+    test.del(&follow_url).await?;
 
     // GRAPH_OP: Check if relationship was deleted
     let exist = find_follow_relationship(&follower_id, &followee_id)

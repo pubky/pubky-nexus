@@ -1,4 +1,5 @@
-use crate::watcher::{users::utils::check_member_user_pioneer, utils::WatcherTest};
+use crate::watcher::users::utils::check_member_user_pioneer;
+use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser};
 use pubky_common::crypto::Keypair;

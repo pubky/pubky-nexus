@@ -1,4 +1,4 @@
-use crate::watcher::{users::utils::find_user_details, utils::WatcherTest};
+use crate::watcher::{users::utils::find_user_details, utils::watcher::WatcherTest};
 use anyhow::Result;
 use pubky_app_specs::PubkyAppUser;
 use pubky_common::crypto::Keypair;

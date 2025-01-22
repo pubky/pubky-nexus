@@ -1,4 +1,4 @@
-use crate::watcher::utils::WatcherTest;
+use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{
@@ -42,7 +42,7 @@ async fn test_homeserver_unfollow_notification() -> Result<()> {
     let follow_back_uri = test.create_follow(&followee_id, &follower_id).await?;
 
     // Step 5: Follower unfollows the followee
-    test.delete_follow(&follow_uri).await?;
+    test.del(&follow_uri).await?;
 
     // Verify the followee gets a "Lost Friend" notification
     let notifications = Notification::get_by_id(&followee_id, Pagination::default())
@@ -64,7 +64,7 @@ async fn test_homeserver_unfollow_notification() -> Result<()> {
     }
 
     // Step 6: Followee unfollows the follower (no new notification should be generated)
-    test.delete_follow(&follow_back_uri).await?;
+    test.del(&follow_back_uri).await?;
 
     // Verify the follower gets no new notification after unfollow
     let notifications_follower = Notification::get_by_id(&follower_id, Pagination::default())

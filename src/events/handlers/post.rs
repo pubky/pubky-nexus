@@ -1,28 +1,26 @@
-use crate::db::graph::exec::{exec_boolean_row, exec_single_row};
+use crate::db::graph::exec::{exec_single_row, execute_graph_operation, OperationOutcome};
 use crate::db::kv::index::json::JsonAction;
 use crate::events::uri::ParsedUri;
 use crate::models::notification::{Notification, PostChangedSource, PostChangedType};
-use crate::models::post::PostDetails;
 use crate::models::post::{
-    PostCounts, PostRelationships, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS,
+    PostCounts, PostDetails, PostRelationships, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS,
 };
 use crate::models::user::UserCounts;
 use crate::queries::get::post_is_safe_to_delete;
 use crate::types::DynError;
 use crate::types::PubkyId;
 use crate::{queries, RedisOps, ScoreAction};
-use axum::body::Bytes;
 use log::debug;
 use pubky_app_specs::{traits::Validatable, PubkyAppPost, PubkyAppPostKind};
 
 use super::utils::post_relationships_is_reply;
 
-pub async fn put(author_id: PubkyId, post_id: String, blob: Bytes) -> Result<(), DynError> {
+pub async fn put(author_id: PubkyId, post_id: String, blob: &[u8]) -> Result<(), DynError> {
     // Process Post resource and update the databases
     debug!("Indexing new post: {}/{}", author_id, post_id);
 
     // Serialize and validate
-    let post = <PubkyAppPost as Validatable>::try_from(&blob, &post_id)?;
+    let post = <PubkyAppPost as Validatable>::try_from(blob, &post_id)?;
 
     sync_put(post, author_id, post_id).await
 }
@@ -34,12 +32,20 @@ pub async fn sync_put(
 ) -> Result<(), DynError> {
     // Create PostDetails object
     let post_details = PostDetails::from_homeserver(post.clone(), &author_id, &post_id).await?;
-
     // We avoid indexing replies into global feed sorted sets
     let is_reply = post.parent.is_some();
+    // PRE-INDEX operation, identify the post relationship
+    let mut post_relationships = PostRelationships::from_homeserver(&post);
 
-    // SAVE TO GRAPH
-    let existed = post_details.put_to_graph().await?;
+    let existed = match post_details.put_to_graph(&post_relationships).await? {
+        OperationOutcome::CreatedOrDeleted => false,
+        OperationOutcome::Updated => true,
+        // TODO: Should return an error that should be processed by RetryManager
+        // WIP: Create a custom error type to pass enough info to the RetryManager
+        OperationOutcome::Pending => {
+            return Err("WATCHER: Missing some dependency to index the model".into())
+        }
+    };
 
     if existed {
         // If the post existed, let's confirm this is an edit. Is the content different?
@@ -52,12 +58,15 @@ pub async fn sync_put(
         return Ok(());
     }
 
-    // PRE-INDEX operations
-    let interactions = resolve_post_type_interaction(&post, &author_id, &post_id).await?;
     // IMPORTANT: Handle the mentions before traverse the graph (reindex_post) for that post
     // Handle "MENTIONED" relationships
-    let mentioned_users =
-        put_mentioned_relationships(&author_id, &post_id, &post_details.content).await?;
+    put_mentioned_relationships(
+        &author_id,
+        &post_id,
+        &post_details.content,
+        &mut post_relationships,
+    )
+    .await?;
 
     // SAVE TO INDEX
     // Create post counts index
@@ -76,20 +85,60 @@ pub async fn sync_put(
         UserCounts::update(&author_id, "replies", JsonAction::Increment(1)).await?;
     };
 
-    let mut interaction_url: (Option<String>, Option<String>) = (None, None);
     // Use that index wrapper to add a post reply
     let mut reply_parent_post_key_wrapper: Option<(String, String)> = None;
 
-    // Post creation from an interaction: REPLY or REPOST
-    for (action, parent_uri) in interactions {
-        let parsed_uri = ParsedUri::try_from(parent_uri)?;
+    // Process POST REPLIES indexes
+    if let Some(replied_uri) = &post_relationships.replied {
+        let parsed_uri = ParsedUri::try_from(replied_uri.as_str())?;
 
         let parent_author_id = parsed_uri.user_id;
         let parent_post_id = parsed_uri.post_id.ok_or("Missing post ID")?;
 
         let parent_post_key_parts: &[&str; 2] = &[&parent_author_id, &parent_post_id];
 
-        PostCounts::update_index_field(parent_post_key_parts, action, JsonAction::Increment(1))
+        PostCounts::update_index_field(parent_post_key_parts, "replies", JsonAction::Increment(1))
+            .await?;
+
+        if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await? {
+            PostStream::put_score_index_sorted_set(
+                &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
+                parent_post_key_parts,
+                ScoreAction::Increment(1.0),
+            )
+            .await?;
+        }
+        // Define the reply parent key to index the reply later
+        reply_parent_post_key_wrapper =
+            Some((parent_author_id.to_string(), parent_post_id.clone()));
+
+        PostStream::add_to_post_reply_sorted_set(
+            parent_post_key_parts,
+            &author_id,
+            &post_id,
+            post_details.indexed_at,
+        )
+        .await?;
+
+        Notification::new_post_reply(
+            &author_id,
+            replied_uri,
+            &post_details.uri,
+            &parent_author_id,
+        )
+        .await?;
+    }
+
+    // Process POST REPOSTS indexes
+    if let Some(reposted_uri) = &post_relationships.reposted {
+        let parsed_uri = ParsedUri::try_from(reposted_uri.as_str())?;
+
+        let parent_author_id = parsed_uri.user_id;
+        let parent_post_id = parsed_uri.post_id.ok_or("Missing post ID")?;
+
+        let parent_post_key_parts: &[&str; 2] = &[&parent_author_id, &parent_post_id];
+
+        PostCounts::update_index_field(parent_post_key_parts, "reposts", JsonAction::Increment(1))
             .await?;
 
         // Post replies cannot be included in the total engagement index after they receive a reply
@@ -102,40 +151,18 @@ pub async fn sync_put(
             .await?;
         }
 
-        if action == "replies" {
-            // Populate the reply parent keys to after index the reply
-            reply_parent_post_key_wrapper =
-                Some((parent_author_id.to_string(), parent_post_id.clone()));
-
-            PostStream::add_to_post_reply_sorted_set(
-                parent_post_key_parts,
-                &author_id,
-                &post_id,
-                post_details.indexed_at,
-            )
-            .await?;
-            Notification::new_post_reply(
-                &author_id,
-                parent_uri,
-                &post_details.uri,
-                &parent_author_id,
-            )
-            .await?;
-            interaction_url.0 = Some(String::from(parent_uri));
-        } else {
-            Notification::new_repost(&author_id, parent_uri, &post_details.uri, &parent_author_id)
-                .await?;
-            interaction_url.1 = Some(String::from(parent_uri));
-        }
+        Notification::new_repost(
+            &author_id,
+            reposted_uri,
+            &post_details.uri,
+            &parent_author_id,
+        )
+        .await?;
     }
 
-    PostRelationships {
-        replied: interaction_url.0,
-        reposted: interaction_url.1,
-        mentioned: mentioned_users,
-    }
-    .put_to_index(&author_id, &post_id)
-    .await?;
+    post_relationships
+        .put_to_index(&author_id, &post_id)
+        .await?;
 
     post_details
         .put_to_index(&author_id, reply_parent_post_key_wrapper, false)
@@ -184,77 +211,15 @@ async fn sync_edit(
     Ok(())
 }
 
-async fn resolve_post_type_interaction<'a>(
-    post: &'a PubkyAppPost,
-    author_id: &str,
-    post_id: &str,
-) -> Result<Vec<(&'a str, &'a str)>, DynError> {
-    let mut interaction: Vec<(&str, &str)> = Vec::new();
-
-    // Handle "REPLIED" relationship and counts if `parent` is Some
-    if let Some(parent_uri) = &post.parent {
-        put_reply_relationship(author_id, post_id, parent_uri).await?;
-        interaction.push(("replies", parent_uri.as_str()));
-    }
-
-    // Handle "REPOSTED" relationship and counts if `embed.uri` is Some and `kind` is "short"
-    if let Some(embed) = &post.embed {
-        if let PubkyAppPostKind::Short = embed.kind {
-            put_repost_relationship(author_id, post_id, &embed.uri).await?;
-            interaction.push(("reposts", embed.uri.as_str()));
-        }
-    }
-
-    Ok(interaction)
-}
-
-// Helper function to handle "REPLIED" relationship
-async fn put_reply_relationship(
-    author_id: &str,
-    post_id: &str,
-    parent_uri: &str,
-) -> Result<(), DynError> {
-    let parsed_uri = ParsedUri::try_from(parent_uri)?;
-    if let (parent_author_id, Some(parent_post_id)) = (parsed_uri.user_id, parsed_uri.post_id) {
-        exec_single_row(queries::put::create_reply_relationship(
-            author_id,
-            post_id,
-            &parent_author_id,
-            &parent_post_id,
-        ))
-        .await?;
-    }
-    Ok(())
-}
-
-// Helper function to handle "REPOSTED" relationship
-async fn put_repost_relationship(
-    author_id: &str,
-    post_id: &str,
-    embed_uri: &str,
-) -> Result<(), DynError> {
-    let parsed_uri = ParsedUri::try_from(embed_uri)?;
-    if let (reposted_author_id, Some(reposted_post_id)) = (parsed_uri.user_id, parsed_uri.post_id) {
-        exec_single_row(queries::put::create_repost_relationship(
-            author_id,
-            post_id,
-            &reposted_author_id,
-            &reposted_post_id,
-        ))
-        .await?;
-    }
-    Ok(())
-}
-
 // Helper function to handle "MENTIONED" relationships on the post content
 pub async fn put_mentioned_relationships(
     author_id: &PubkyId,
     post_id: &str,
     content: &str,
-) -> Result<Vec<String>, DynError> {
+    relationships: &mut PostRelationships,
+) -> Result<(), DynError> {
     let prefix = "pk:";
     let user_id_len = 52;
-    let mut mention_users = Vec::new();
 
     for (start_idx, _) in content.match_indices(prefix) {
         let user_id_start = start_idx + prefix.len();
@@ -269,28 +234,28 @@ pub async fn put_mentioned_relationships(
                 if let Some(mentioned_user_id) =
                     Notification::new_mention(author_id, &pubky_id, post_id).await?
                 {
-                    mention_users.push(mentioned_user_id);
+                    //mention_users.push(mentioned_user_id);
+                    relationships.mentioned.push(mentioned_user_id);
                 }
             }
         }
     }
 
-    Ok(mention_users)
+    Ok(())
 }
 
 pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), DynError> {
     debug!("Deleting post: {}/{}", author_id, post_id);
 
     // Graph query to check if there is any edge at all to this post other than AUTHORED, is a reply or is a repost.
-    // If there is none other relationship, we delete from graph and redis.
-    // But if there is any, then we simply update the post with keyword content [DELETED].
-    // A deleted post is a post whose content is EXACTLY `"[DELETED]"`
     let query = post_is_safe_to_delete(&author_id, &post_id);
-    let delete_safe = exec_boolean_row(query).await?;
 
-    match delete_safe {
-        true => sync_del(author_id, post_id).await?,
-        false => {
+    // If there is none other relationship (OperationOutcome::CreatedOrDeleted), we delete from graph and redis.
+    // But if there is any (OperationOutcome::Updated), then we simply update the post with keyword content [DELETED].
+    // A deleted post is a post whose content is EXACTLY `"[DELETED]"`
+    match execute_graph_operation(query).await? {
+        OperationOutcome::CreatedOrDeleted => sync_del(author_id, post_id).await?,
+        OperationOutcome::Updated => {
             let existing_relationships = PostRelationships::get_by_id(&author_id, &post_id).await?;
             let parent = match existing_relationships {
                 Some(relationships) => relationships.replied,
@@ -307,6 +272,11 @@ pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), DynError> {
             };
 
             sync_put(dummy_deleted_post, author_id, post_id).await?;
+        }
+        // TODO: Should return an error that should be processed by RetryManager
+        // WIP: Create a custom error type to pass enough info to the RetryManager
+        OperationOutcome::Pending => {
+            return Err("WATCHER: Missing some dependency to index the model".into())
         }
     };
 

@@ -1,7 +1,7 @@
 use super::utils::find_user_tag;
 use crate::watcher::{
     users::utils::{check_member_user_pioneer, find_user_counts},
-    utils::WatcherTest,
+    utils::watcher::WatcherTest,
 };
 use anyhow::Result;
 use chrono::Utc;
@@ -45,7 +45,6 @@ async fn test_homeserver_put_tag_user_another() -> Result<()> {
         created_at: Utc::now().timestamp_millis(),
     };
 
-    let tag_blob = serde_json::to_vec(&tag)?;
     let tag_url = format!(
         "pubky://{}/pub/pubky.app/tags/{}",
         tagger_user_id,
@@ -53,7 +52,7 @@ async fn test_homeserver_put_tag_user_another() -> Result<()> {
     );
 
     // PUT post tag
-    test.create_tag(tag_url.as_str(), tag_blob).await?;
+    test.put(tag_url.as_str(), tag).await?;
 
     // Step 3: Verify tag existence and data consistency
 
@@ -67,7 +66,7 @@ async fn test_homeserver_put_tag_user_another() -> Result<()> {
     assert_eq!(user_tag.taggers[0], tagger_user_id);
 
     // CACHE_OP: Check if the tag is correctly cached
-    let cache_user_tag = TagUser::get_from_index(&tagged_user_id, None, None, None, false)
+    let cache_user_tag = TagUser::get_from_index(&tagged_user_id, None, None, None, None, false)
         .await
         .expect("Failed to get tag from cache");
 

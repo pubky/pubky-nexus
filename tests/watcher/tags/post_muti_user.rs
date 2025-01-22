@@ -1,3 +1,4 @@
+use crate::watcher::utils::watcher::WatcherTest;
 use crate::watcher::{
     posts::utils::{check_member_total_engagement_user_posts, find_post_counts},
     tags::utils::{
@@ -5,7 +6,6 @@ use crate::watcher::{
         find_post_tag,
     },
     users::utils::find_user_counts,
-    utils::WatcherTest,
 };
 use anyhow::Result;
 use chrono::Utc;
@@ -86,14 +86,13 @@ async fn test_homeserver_multi_user() -> Result<()> {
             label: label_water.to_string(),
             created_at: Utc::now().timestamp_millis(),
         };
-        let tag_blob = serde_json::to_vec(&tag)?;
         let tag_url = format!(
             "pubky://{}/pub/pubky.app/tags/{}",
             tagger_id,
             tag.create_id()
         );
         // Put tag
-        test.create_tag(&tag_url, tag_blob).await?;
+        test.put(&tag_url, tag).await?;
         tag_urls.push(tag_url)
     }
 
@@ -105,14 +104,13 @@ async fn test_homeserver_multi_user() -> Result<()> {
             label: label_fire.to_string(),
             created_at: Utc::now().timestamp_millis(),
         };
-        let tag_blob = serde_json::to_vec(&tag)?;
         let tag_url = format!(
             "pubky://{}/pub/pubky.app/tags/{}",
             tagger_id,
             tag.create_id()
         );
         // Put tag
-        test.create_tag(&tag_url, tag_blob).await?;
+        test.put(&tag_url, tag).await?;
         tag_urls.push(tag_url)
     }
 
@@ -140,10 +138,16 @@ async fn test_homeserver_multi_user() -> Result<()> {
     assert!(post_fire_tag.taggers.contains(tagger_c_id));
 
     // CACHE_OP: Check if the tag is correctly cached
-    let cache_post_tag =
-        <TagPost as TagCollection>::get_from_index(author_id, Some(&post_id), None, None, false)
-            .await
-            .unwrap();
+    let cache_post_tag = <TagPost as TagCollection>::get_from_index(
+        author_id,
+        Some(&post_id),
+        None,
+        None,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
 
     assert!(cache_post_tag.is_some());
     let cache_tag_details = cache_post_tag.unwrap();
@@ -230,7 +234,7 @@ async fn test_homeserver_multi_user() -> Result<()> {
 
     // Step 4: DEL tag from homeserver
     for tag_url in tag_urls {
-        test.delete_tag(&tag_url).await?;
+        test.del(&tag_url).await?;
     }
 
     // Step 5: Assert all the DEL operations
@@ -248,10 +252,16 @@ async fn test_homeserver_multi_user() -> Result<()> {
     // CACHE_OP: Check if the tag is correctly cached.
     // - Post:Taggers:author_id:post_id:label
     // - Sorted:Posts:Tag:author_id:post_id
-    let cache_post_tag =
-        <TagPost as TagCollection>::get_from_index(author_id, Some(&post_id), None, None, false)
-            .await
-            .expect("Failed to get tag from cache");
+    let cache_post_tag = <TagPost as TagCollection>::get_from_index(
+        author_id,
+        Some(&post_id),
+        None,
+        None,
+        None,
+        false,
+    )
+    .await
+    .expect("Failed to get tag from cache");
     assert!(
         cache_post_tag.is_none(),
         "The SORTED SET index cannot exist for the tag"

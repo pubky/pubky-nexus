@@ -1,7 +1,7 @@
 use crate::service::utils::{get_request, invalid_get_request};
 use anyhow::Result;
+use axum::http::StatusCode;
 use pubky_nexus::models::post::PostStream;
-use reqwest::StatusCode;
 
 use super::utils::{search_tag_in_post, verify_post_list, verify_timeline_post_list};
 use super::{POST_A, POST_B, POST_C, POST_D, POST_E, POST_F, POST_G, POST_H};
@@ -358,7 +358,7 @@ async fn test_stream_tag_posts_by_engagement_with_end_skip_and_limit() -> Result
 #[tokio_shared_rt::test(shared)]
 async fn test_post_specific_tag_with_no_result() -> Result<()> {
     let path = format!("{}?tags={}", ROOT_PATH, "randommm");
-    invalid_get_request(&path, StatusCode::NOT_FOUND).await?;
+    invalid_get_request(&path, StatusCode::NO_CONTENT).await?;
 
     Ok(())
 }

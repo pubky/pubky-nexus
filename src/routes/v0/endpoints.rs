@@ -20,7 +20,7 @@ pub const USER_FRIENDS_ROUTE: &str = concatcp!(USER_ROUTE, "/friends");
 pub const USER_MUTED_ROUTE: &str = concatcp!(USER_ROUTE, "/muted");
 
 // -- POST endpoints --
-const POST_PREFIX: &str = concatcp!(VERSION_ROUTE, "/post");
+pub const POST_PREFIX: &str = concatcp!(VERSION_ROUTE, "/post");
 pub const POST_ROUTE: &str = concatcp!(POST_PREFIX, "/{author_id}/{post_id}");
 pub const POST_RELATIONSHIPS_ROUTE: &str = concatcp!(POST_ROUTE, "/relationships");
 pub const POST_BOOKMARK_ROUTE: &str = concatcp!(POST_ROUTE, "/bookmark");

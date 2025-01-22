@@ -1,5 +1,5 @@
 use super::utils::find_post_bookmark;
-use crate::watcher::utils::WatcherTest;
+use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use pubky_app_specs::{traits::HashId, PubkyAppBookmark, PubkyAppPost, PubkyAppUser};
 use pubky_common::crypto::Keypair;
@@ -46,7 +46,6 @@ async fn test_homeserver_viewer_bookmark() -> Result<()> {
         uri: format!("pubky://{}/pub/pubky.app/posts/{}", user_id, post_id),
         created_at: chrono::Utc::now().timestamp_millis(),
     };
-    let bookmark_blob = serde_json::to_vec(&bookmark)?;
     let bookmark_id = bookmark.create_id();
     let bookmark_url = format!(
         "pubky://{}/pub/pubky.app/bookmarks/{}",
@@ -54,9 +53,7 @@ async fn test_homeserver_viewer_bookmark() -> Result<()> {
     );
 
     // Put bookmark
-    test.create_bookmark(&bookmark_url, bookmark_blob)
-        .await
-        .unwrap();
+    test.put(&bookmark_url, bookmark).await.unwrap();
 
     // Step 4: Verify the bookmark exists in Nexus
     // GRAPH_OP: Assert if the event writes the graph
