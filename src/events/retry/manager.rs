@@ -87,7 +87,7 @@ impl RetryManager {
         index_key: String,
         retry_event: RetryEvent,
     ) -> Result<(), DynError> {
-        error!("{}: {}", retry_event.error_type, index_key);
+        error!("{}, {}", retry_event.error_type, index_key);
         retry_event.put_to_index(index_key).await?;
         Ok(())
     }

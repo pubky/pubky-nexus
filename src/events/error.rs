@@ -13,8 +13,8 @@ pub enum EventProcessorError {
     #[error("SkipIndexing: The PUT event appears to be unindexed")]
     SkipIndexing,
     // The event could not be parsed from a line
-    #[error("InvalidEvent: {message}")]
-    InvalidEvent { message: String },
+    #[error("InvalidEventLine: {message}")]
+    InvalidEventLine { message: String },
     // The Pubky client could not resolve the pubky
     #[error("PubkyClientError: {message}")]
     PubkyClientError { message: String },

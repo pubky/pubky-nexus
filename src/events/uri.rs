@@ -2,6 +2,8 @@ use crate::types::DynError;
 use crate::types::PubkyId;
 use std::convert::TryFrom;
 
+use super::error::EventProcessorError;
+
 #[derive(Default, Debug)]
 pub struct ParsedUri {
     pub user_id: PubkyId,
@@ -21,54 +23,72 @@ impl TryFrom<&str> for ParsedUri {
 
         // Ensure the URI starts with the correct prefix
         if !uri.starts_with("pubky://") {
-            return Err("Invalid URI, must start with pubky://".into());
+            return Err(EventProcessorError::InvalidEventLine {
+                message: format!("Invalid URI, must start with pubky://,  {}", uri),
+            }
+            .into());
         }
 
         // Extract the user_id from the initial part of the URI
         if let Some(user_id) = extract_segment(uri, "pubky://", "/pub/") {
             parsed_uri.user_id = PubkyId::try_from(user_id)?;
         } else {
-            return Err("Uri Pubky ID is invalid".into());
+            return Err(EventProcessorError::InvalidEventLine {
+                message: format!("Uri Pubky ID is invalid,  {}", uri),
+            }
+            .into());
         }
 
         // Ensure that the URI belongs to pubky.app
         if let Some(app_segment) = extract_segment(uri, "/pub/", "/") {
             if app_segment != "pubky.app" {
-                return Err("The Event URI does not belong to pubky.app".into());
+                return Err(EventProcessorError::InvalidEventLine {
+                    message: format!("The Event URI does not belong to pubky.app,  {}", uri),
+                }
+                .into());
             }
         } else {
-            return Err("The Event URI is malformed".into());
+            return Err(EventProcessorError::InvalidEventLine {
+                message: format!("The Event URI is malformed,  {}", uri),
+            }
+            .into());
         }
 
         // Extract post_id if present
-        if let Some(post_id) = extract_segment(uri, "/posts/", "/") {
-            parsed_uri.post_id = Some(post_id.to_string());
-        }
+        parsed_uri.post_id = extract_segment(uri, "/posts/", "/")
+            .filter(|id| !id.is_empty())
+            .map(String::from);
 
         // Extract follow_id if present
-        if let Some(follow_id) = extract_segment(uri, "/follows/", "/") {
-            parsed_uri.follow_id = Some(PubkyId::try_from(follow_id)?);
-        }
+        parsed_uri.follow_id = extract_segment(uri, "/follows/", "/")
+            .map(PubkyId::try_from)
+            .transpose()
+            .map_err(|e| EventProcessorError::InvalidEventLine {
+                message: format!("{}, {}", e, uri),
+            })?;
 
         // Extract muted_id if present
-        if let Some(muted_id) = extract_segment(uri, "/mutes/", "/") {
-            parsed_uri.muted_id = Some(PubkyId::try_from(muted_id)?);
-        }
+        parsed_uri.muted_id = extract_segment(uri, "/mutes/", "/")
+            .map(PubkyId::try_from)
+            .transpose()
+            .map_err(|e| EventProcessorError::InvalidEventLine {
+                message: format!("{}, {}", e, uri),
+            })?;
 
         // Extract bookmark_id if present
-        if let Some(bookmark_id) = extract_segment(uri, "/bookmarks/", "/") {
-            parsed_uri.bookmark_id = Some(bookmark_id.to_string());
-        }
+        parsed_uri.bookmark_id = extract_segment(uri, "/bookmarks/", "/")
+            .filter(|id| !id.is_empty())
+            .map(String::from);
 
         // Extract tag_id if present
-        if let Some(tag_id) = extract_segment(uri, "/tags/", "/") {
-            parsed_uri.tag_id = Some(tag_id.to_string());
-        }
+        parsed_uri.tag_id = extract_segment(uri, "/tags/", "/")
+            .filter(|id| !id.is_empty())
+            .map(String::from);
 
         // Extract file_id if present
-        if let Some(file_id) = extract_segment(uri, "/files/", "/") {
-            parsed_uri.file_id = Some(file_id.to_string());
-        }
+        parsed_uri.file_id = extract_segment(uri, "/files/", "/")
+            .filter(|id| !id.is_empty())
+            .map(String::from);
 
         Ok(parsed_uri)
     }
@@ -82,4 +102,18 @@ fn extract_segment<'a>(uri: &'a str, start_pattern: &str, end_pattern: &str) -> 
         .unwrap_or_else(|| uri.len());
 
     Some(&uri[start_idx..end_idx])
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn test_bookmark_uri() {
+        let uri =
+            "pubky://phbhg3qgcttn95guepmbud1nzcxhg3xc5j5k4h7i8a4b6wb3nw1o/pub/pubky.app/bookmarks/";
+        let parsed_uri = ParsedUri::try_from(uri).unwrap_or_default();
+        println!("ParsedUri: {:?}", parsed_uri);
+    }
 }

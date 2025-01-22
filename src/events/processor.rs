@@ -135,10 +135,14 @@ impl EventProcessor {
             Ok(_) => Ok(()),
             Err(e) => {
                 let retry_event = match e.downcast_ref::<EventProcessorError>() {
+                    Some(EventProcessorError::InvalidEventLine { message }) => {
+                        error!("{}", message);
+                        return Ok(());
+                    }
                     Some(event_processor_error) => RetryEvent::new(event_processor_error.clone()),
                     // Others errors must be logged at least for now
                     None => {
-                        error!("Unhandled error type for URI: {}. {:?}", event.uri, e);
+                        error!("Unhandled error type for URI: {}, {:?}", event.uri, e);
                         return Ok(());
                     }
                 };
@@ -160,7 +164,6 @@ impl EventProcessor {
                     .await
                 {
                     Ok(_) => {
-                        info!("Message send to the RetryManager succesfully from the channel");
                         // TODO: Investigate non-blocking alternatives
                         // The current use of `tokio::time::sleep` (in the watcher tests) is intended to handle a situation where tasks in other threads
                         // are not being tracked. This could potentially lead to issues with writing `RetryEvents` in certain cases.
