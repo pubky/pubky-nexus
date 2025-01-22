@@ -44,7 +44,6 @@ async fn test_homeserver_put_tag_user_notification() -> Result<()> {
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
-    let tag_blob = serde_json::to_vec(&tag)?;
     let tag_url = format!(
         "pubky://{}/pub/pubky.app/tags/{}",
         tagger_user_id,
@@ -52,7 +51,7 @@ async fn test_homeserver_put_tag_user_notification() -> Result<()> {
     );
 
     // Put tag
-    test.put(tag_url.as_str(), tag_blob).await?;
+    test.put(tag_url.as_str(), tag).await?;
 
     // Check if the tagged user received a notification
     let notifications = Notification::get_by_id(&tagged_user_id, Pagination::default())
