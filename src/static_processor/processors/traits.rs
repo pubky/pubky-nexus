@@ -20,6 +20,9 @@ pub trait FileProcessor {
     /// If there are no valid variants for the content type, return an empty list
     fn get_valid_variants_for_content_type(content_type: &str) -> Vec<FileVariant>;
 
+    /// Returns the content type for a given variant
+    fn get_content_type_for_variant(file: &FileDetails, variant: &FileVariant) -> String;
+
     /// Returns the processing options for a given variant
     /// If there are no options for this variant, return an error
     fn get_options_for_variant(

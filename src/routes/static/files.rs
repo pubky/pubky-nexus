@@ -82,11 +82,10 @@ pub async fn static_files_handler(
         });
     }
 
-    let file_variant_exists =
-        StaticProcessor::check_variant_existence(&file, variant.clone()).await;
+    let file_variant_exists = StaticProcessor::check_variant_exists(&file, variant.clone()).await;
 
     let file_variant_content_type = if file_variant_exists {
-        file.content_type.clone()
+        StaticProcessor::get_content_type_for_variant(&file, &variant)
     } else {
         match StaticProcessor::create_file_variant(&file, variant).await {
             Ok(content_type) => content_type,

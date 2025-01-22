@@ -30,6 +30,18 @@ impl StaticProcessor {
         }
     }
 
+    pub fn get_content_type_for_variant(file: &FileDetails, variant: &FileVariant) -> String {
+        match &file.content_type {
+            content_type if content_type.starts_with("image/") => {
+                ImageProcessor::get_content_type_for_variant(file, variant)
+            }
+            content_type if content_type.starts_with("video/") => {
+                VideoProcessor::get_content_type_for_variant(file, variant)
+            }
+            _ => file.content_type.clone(),
+        }
+    }
+
     pub fn validate_variant_for_content_type(content_type: &str, variant: FileVariant) -> bool {
         if variant == FileVariant::Main {
             return true;
@@ -71,7 +83,7 @@ impl StaticProcessor {
         }
     }
 
-    pub async fn check_variant_existence(file: &FileDetails, variant: FileVariant) -> bool {
+    pub async fn check_variant_exists(file: &FileDetails, variant: FileVariant) -> bool {
         // main variant always exists
         if variant == FileVariant::Main {
             return true;

@@ -32,6 +32,10 @@ impl FileProcessor for VideoProcessor {
         vec![FileVariant::Main]
     }
 
+    fn get_content_type_for_variant(_file: &FileDetails, _variant: &FileVariant) -> String {
+        String::from("video/mp4")
+    }
+
     fn get_options_for_variant(
         _file: &FileDetails,
         _variant: &FileVariant,

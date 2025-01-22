@@ -36,6 +36,13 @@ impl FileProcessor for ImageProcessor {
         }
     }
 
+    fn get_content_type_for_variant(file: &FileDetails, variant: &FileVariant) -> String {
+        if variant.eq(&FileVariant::Main) || file.content_type == "image/gif" {
+            return file.content_type.clone();
+        }
+        String::from("image/jpeg")
+    }
+
     fn get_options_for_variant(
         file: &FileDetails,
         variant: &FileVariant,
@@ -49,10 +56,7 @@ impl FileProcessor for ImageProcessor {
             FileVariant::Feed => String::from(FEED_IMAGE_WIDTH),
             _ => return Err("Unsupported image variant".into()),
         };
-        let content_type = match file.content_type.as_str() {
-            "image/gif" => file.content_type.clone(),
-            _ => String::from("image/jpeg"),
-        };
+        let content_type = Self::get_content_type_for_variant(file, variant);
         Ok(ImageOptions {
             format,
             width,
