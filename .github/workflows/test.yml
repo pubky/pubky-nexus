@@ -59,6 +59,9 @@ jobs:
       
       - name: Load Mock Data
         run: cargo run --bin mockdb
+      
+      - name: Cargo clean
+        run: cargo clean
 
       - name: Run integration tests
         run: cargo test
