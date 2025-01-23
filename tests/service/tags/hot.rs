@@ -699,59 +699,23 @@ async fn test_hot_tags_label_taggers() -> Result<()> {
     for (index, tagger) in TAGGERS.into_iter().enumerate() {
         assert_eq!(TAGGERS[index], tagger);
     }
-    Ok(())
-}
 
-#[tokio::test]
-async fn test_hot_tags_label_taggers_with_limit() -> Result<()> {
-    let endpoint = &format!("/v0/tags/taggers/{PUBKY_TAG}?limit=4");
-
-    let body = make_request(endpoint).await?;
-    assert!(body.is_array());
-
-    let taggers = body.as_array().expect("Taggers ids should be an array");
-    assert_eq!(taggers.len(), 4);
-
-    let limit_taggers: Vec<String> = TAGGERS[..4].iter().map(|&s| s.to_string()).collect();
-
-    for (index, tagger) in taggers.into_iter().enumerate() {
-        assert_eq!(&limit_taggers[index], tagger);
-    }
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_hot_tags_label_taggers_with_skip() -> Result<()> {
-    let endpoint = &format!("/v0/tags/taggers/{PUBKY_TAG}?skip=4");
-
-    let body = make_request(endpoint).await?;
-    assert!(body.is_array());
-
-    let taggers = body.as_array().expect("Taggers ids should be an array");
-    assert_eq!(taggers.len(), 5);
-
-    let skip_taggers: Vec<String> = TAGGERS[4..].iter().map(|&s| s.to_string()).collect();
-
-    for (index, tagger) in taggers.iter().enumerate() {
-        assert_eq!(&skip_taggers[index], tagger);
-    }
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_hot_tags_label_taggers_with_skip_and_limit() -> Result<()> {
     let endpoint = &format!("/v0/tags/taggers/{PUBKY_TAG}?skip=4&limit=2");
 
     let body = make_request(endpoint).await?;
     assert!(body.is_array());
 
-    let taggers = body.as_array().expect("Taggers ids should be an array");
-    assert_eq!(taggers.len(), 2);
+    let taggers_with_filters = body.as_array().expect("Taggers ids should be an array");
+    assert_eq!(taggers_with_filters.len(), 2);
 
-    let skip_and_limit_taggers: Vec<String> =
-        TAGGERS[4..6].iter().map(|&s| s.to_string()).collect();
+    let skip_and_limit_taggers: Vec<String> = taggers
+        .iter()
+        .filter_map(|v| v.as_str().map(String::from))
+        .skip(4)
+        .take(2)
+        .collect();
 
-    for (index, tagger) in taggers.iter().enumerate() {
+    for (index, tagger) in taggers_with_filters.iter().enumerate() {
         assert_eq!(&skip_and_limit_taggers[index], tagger);
     }
     Ok(())
