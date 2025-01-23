@@ -93,7 +93,10 @@ cargo run --bin mockdb [database]
 
 > If the Redis cache is empty, the nexus-service will handle it automatically. If not follow the steps of warning section
 
-You can optionally pass the `GRAPH_CONTAINER_NAME` env var if your neo4j container in docker has a different name. Defaults to `neo4j`.
+You can optionally pass the `GRAPH_CONTAINER_NAME` env var if your neo4j container in docker has a different name. Defaults to `neo4j`. For example:
+```bash
+GRAPH_CONTAINER_NAME=nexus-neo4j cargo run --bin mockdb
+```
 
 Then to run all tests:
 
