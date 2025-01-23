@@ -49,7 +49,7 @@ impl MockDB {
         let graph_env = std::env::var("GRAPH_CONTAINER_NAME").unwrap_or("neo4j".to_string());
         // Run the run-queries.sh script on the Docker host using docker exec
         tokio::process::Command::new("docker")
-            .args(&[
+            .args([
                 "exec",
                 graph_env.as_str(),
                 "bash",
