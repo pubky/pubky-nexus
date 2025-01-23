@@ -28,7 +28,7 @@ fn bench_get_user_tags(c: &mut Criterion) {
         &user_id,
         |b, &id| {
             b.to_async(&rt).iter(|| async {
-                let tag_details_list = TagUser::get_by_id(id, None, None, None, None, None)
+                let tag_details_list = TagUser::get_by_id(id, None, None, None, None, None, None)
                     .await
                     .unwrap();
                 criterion::black_box(tag_details_list);
@@ -54,6 +54,7 @@ fn bench_get_wot_user_tags(c: &mut Criterion) {
             b.to_async(&rt).iter(|| async {
                 let tag_details_list = TagUser::get_by_id(
                     id,
+                    None,
                     None,
                     None,
                     None,
@@ -144,7 +145,7 @@ fn bench_get_post_tags(c: &mut Criterion) {
         |b, &params| {
             b.to_async(&rt).iter(|| async {
                 let tag_details_list =
-                    TagPost::get_by_id(params[0], Some(params[1]), None, None, None, None)
+                    TagPost::get_by_id(params[0], Some(params[1]), None, None, None, None, None)
                         .await
                         .unwrap();
                 criterion::black_box(tag_details_list);

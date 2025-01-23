@@ -125,7 +125,11 @@ async fn test_delete_user_with_relationships() -> Result<()> {
     let blob_url = format!("pubky://{}/pub/pubky.app/blobs/{}", user_with_id, blob_id);
     let json_data = to_vec(blob)?;
     let pubky_client = PubkyConnector::get_pubky_client()?;
-    pubky_client.put(blob_url.as_str(), &json_data).await?;
+    pubky_client
+        .put(blob_url.as_str())
+        .json(&blob)
+        .send()
+        .await?;
 
     // Act
     let file = PubkyAppFile {

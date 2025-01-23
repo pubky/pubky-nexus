@@ -71,7 +71,10 @@ where
                 .map_err(serde::de::Error::custom)?;
             Ok(Some(urls))
         }
-        _ => Err(serde::de::Error::custom("Expected a string or an array")),
+        serde_json::Value::Null => Ok(None),
+        _ => Err(serde::de::Error::custom(
+            "Expected either a string, an array or null",
+        )),
     }
 }
 
