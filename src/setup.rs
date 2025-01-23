@@ -6,7 +6,7 @@ use crate::db::connectors::{
 use crate::db::graph::setup::setup_graph;
 use log::{debug, info};
 
-async fn setup_redis(config: &Config) {
+pub async fn setup_redis(config: &Config) {
     let redis_connector = RedisConnector::new_connection(&config.redis_uri())
         .await
         .expect("Failed to connect to Redis");
