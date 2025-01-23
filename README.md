@@ -60,15 +60,7 @@ To get started with Nexus, first set up the required databases: Neo4j and Redis.
    docker-compose up -d
    ```
 
-3. Populate the Neo4j database with initial data:
-
-   ```bash
-   docker exec neo4j bash /db-graph/run-queries.sh
-   ```
-
-Once the `Neo4j` graph database is seeded with data, the next step is to populate the `Redis` database by running the _nexus-service_
-
-> If the Redis cache is empty, the nexus-service will handle it automatically. If not follow the steps of warning section
+3. Optionally populate the Neo4j database with initial mock data. For that refer to [Running Tests](#running-tests).
 
 4. Run the Nexus service:
 
@@ -98,6 +90,8 @@ cargo run --bin mockdb [database]
 ```
 
 `database` is optional and can be either `graph` or `redis`. Not providing any value will sync all the databases.
+
+> If the Redis cache is empty, the nexus-service will handle it automatically. If not follow the steps of warning section
 
 You can optionally pass the `GRAPH_CONTAINER_NAME` env var if your neo4j container in docker has a different name. Defaults to `neo4j`.
 
