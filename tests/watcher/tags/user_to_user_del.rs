@@ -11,7 +11,7 @@ use pubky_nexus::models::tag::{traits::TagCollection, user::TagUser};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_del_tag_to_another_user() -> Result<()> {
-    let mut test = WatcherTest::setup(false).await?;
+    let mut test = WatcherTest::setup().await?;
 
     // Step 1: Create the users
     let tagged_keypair = Keypair::random();

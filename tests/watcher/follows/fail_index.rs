@@ -7,7 +7,7 @@ use pubky_common::crypto::Keypair;
 /// The follower user is stored in the homeserver but it is not in sync with the graph
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_follow_cannot_complete() -> Result<()> {
-    let mut test = WatcherTest::setup(false).await?;
+    let mut test = WatcherTest::setup().await?;
 
     let follower_keypair = Keypair::random();
     let follower = PubkyAppUser {

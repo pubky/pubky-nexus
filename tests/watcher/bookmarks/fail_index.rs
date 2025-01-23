@@ -7,7 +7,7 @@ use pubky_common::crypto::Keypair;
 /// The user profile is stored in the homeserver. Missing the author that creates the bookmark
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_bookmark_without_user() -> Result<()> {
-    let mut test = WatcherTest::setup(false).await?;
+    let mut test = WatcherTest::setup().await?;
 
     let author_keypair = Keypair::random();
     let author = PubkyAppUser {

@@ -8,7 +8,7 @@ use pubky_nexus::RedisOps;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_sequential_follow() -> Result<()> {
-    let mut test = WatcherTest::setup(false).await?;
+    let mut test = WatcherTest::setup().await?;
 
     // Create followee
     let followee_keypair = Keypair::random();

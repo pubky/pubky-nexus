@@ -7,7 +7,7 @@ use pubky_nexus::models::post::{PostCounts, PostDetails, PostView};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_delete_post_with_relationships() -> Result<()> {
-    let mut test = WatcherTest::setup(false).await?;
+    let mut test = WatcherTest::setup().await?;
 
     // Create a new user
     let keypair = Keypair::random();

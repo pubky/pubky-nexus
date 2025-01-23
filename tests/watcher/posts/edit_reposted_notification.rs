@@ -10,7 +10,7 @@ use pubky_nexus::{
 
 #[tokio_shared_rt::test(shared)]
 async fn test_edit_reposted_post_notification() -> Result<()> {
-    let mut test = WatcherTest::setup(false).await?;
+    let mut test = WatcherTest::setup().await?;
 
     // Create User A who makes the original post
     let keypair_a = Keypair::random();

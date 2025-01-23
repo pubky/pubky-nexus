@@ -14,7 +14,7 @@ use pubky_nexus::{
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_put_follow() -> Result<()> {
-    let mut test = WatcherTest::setup(false).await?;
+    let mut test = WatcherTest::setup().await?;
 
     // Create first user (follower)
     let follower_keypair = Keypair::random();

@@ -8,7 +8,7 @@ use pubky_nexus::types::DynError;
 /// The user profile is stored in the homeserver and synched in the graph, but the posts just exist in the homeserver
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_post_reply_without_post_parent() -> Result<(), DynError> {
-    let mut test = WatcherTest::setup(false).await?;
+    let mut test = WatcherTest::setup().await?;
 
     let author_user_keypair = Keypair::random();
     let author = PubkyAppUser {

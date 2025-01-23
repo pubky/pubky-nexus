@@ -10,7 +10,7 @@ use serde_json::to_vec;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_post_attachments() -> Result<()> {
-    let mut test = WatcherTest::setup(false).await?;
+    let mut test = WatcherTest::setup().await?;
 
     let keypair = Keypair::random();
     let user = PubkyAppUser {

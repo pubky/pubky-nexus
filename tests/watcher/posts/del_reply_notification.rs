@@ -9,7 +9,7 @@ use pubky_nexus::{
 
 #[tokio_shared_rt::test(shared)]
 async fn test_delete_post_that_replied_notification() -> Result<()> {
-    let mut test = WatcherTest::setup(false).await?;
+    let mut test = WatcherTest::setup().await?;
 
     // Create a user who posts
     let keypair = Keypair::random();

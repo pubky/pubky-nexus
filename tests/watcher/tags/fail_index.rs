@@ -7,7 +7,7 @@ use pubky_common::crypto::Keypair;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_tag_user_not_found() -> Result<()> {
-    let mut test = WatcherTest::setup(false).await?;
+    let mut test = WatcherTest::setup().await?;
 
     let tagged_keypair = Keypair::random();
     let tagged_user = PubkyAppUser {

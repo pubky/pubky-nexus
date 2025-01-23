@@ -25,7 +25,7 @@ const NUM_USERS: usize = 10;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_large_network_scenario_counts() -> Result<()> {
-    let mut test = WatcherTest::setup(false).await?;
+    let mut test = WatcherTest::setup().await?;
     if !PROCESS_EVENTS_ONE_BY_ONE {
         test = test.remove_event_processing().await;
     }

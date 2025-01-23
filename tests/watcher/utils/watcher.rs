@@ -1,5 +1,3 @@
-use crate::utils::TestServiceServer;
-
 use super::dht::TestnetDHTNetwork;
 use anyhow::{anyhow, Result};
 use chrono::Utc;
@@ -33,7 +31,7 @@ impl WatcherTest {
     /// # Returns
     /// Returns an instance of `Self` containing the configuration, homeserver,
     /// event processor, and other test setup details.
-    pub async fn setup(with_service_server: bool) -> Result<Self> {
+    pub async fn setup() -> Result<Self> {
         let config = Config::from_env();
         setup(&config).await;
 
@@ -49,9 +47,6 @@ impl WatcherTest {
         }
 
         let event_processor = EventProcessor::test(homeserver_id).await;
-        if with_service_server {
-            TestServiceServer::get_test_server().await;
-        }
 
         Ok(Self {
             config,

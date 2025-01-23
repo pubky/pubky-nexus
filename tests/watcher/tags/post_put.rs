@@ -17,7 +17,7 @@ use pubky_nexus::RedisOps;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_put_tag_post() -> Result<()> {
-    let mut test = WatcherTest::setup(false).await?;
+    let mut test = WatcherTest::setup().await?;
 
     // Step 1: Create a user
     let keypair = Keypair::random();

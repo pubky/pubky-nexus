@@ -15,7 +15,7 @@ use pubky_nexus::{
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_post_reply() -> Result<()> {
-    let mut test = WatcherTest::setup(false).await?;
+    let mut test = WatcherTest::setup().await?;
 
     let keypair = Keypair::random();
 

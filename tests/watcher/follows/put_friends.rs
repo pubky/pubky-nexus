@@ -8,7 +8,7 @@ use pubky_nexus::RedisOps;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_follow_friend() -> Result<()> {
-    let mut test = WatcherTest::setup(false).await?;
+    let mut test = WatcherTest::setup().await?;
 
     // Create Alice user
     let alice_keypair = Keypair::random();

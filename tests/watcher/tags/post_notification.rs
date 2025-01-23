@@ -11,7 +11,7 @@ use pubky_nexus::{
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_tag_post_notification() -> Result<()> {
-    let mut test = WatcherTest::setup(false).await?;
+    let mut test = WatcherTest::setup().await?;
 
     // Create first user (post author)
     let author_keypair = Keypair::random();

@@ -10,7 +10,7 @@ use pubky_nexus::{
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_put_tag_user_notification() -> Result<()> {
-    let mut test = WatcherTest::setup(false).await?;
+    let mut test = WatcherTest::setup().await?;
 
     // Create the first user (tagged user)
     let tagged_keypair = Keypair::random();

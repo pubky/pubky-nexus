@@ -1,4 +1,4 @@
-use crate::watcher::utils::watcher::WatcherTest;
+use crate::{utils::TestServiceServer, watcher::utils::watcher::WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
 use pubky_app_specs::{PubkyAppFile, PubkyAppUser};
@@ -12,7 +12,8 @@ use pubky_nexus::{
 #[tokio_shared_rt::test(shared)]
 async fn test_delete_pubkyapp_file() -> Result<()> {
     // Arrange
-    let mut test = WatcherTest::setup(true).await?;
+    let mut test = WatcherTest::setup().await?;
+    TestServiceServer::get_test_server().await;
 
     let keypair = Keypair::random();
     let user = PubkyAppUser {

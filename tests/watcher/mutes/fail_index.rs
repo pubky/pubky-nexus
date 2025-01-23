@@ -5,7 +5,7 @@ use pubky_common::crypto::Keypair;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_mute_cannot_complete() -> Result<()> {
-    let mut test = WatcherTest::setup(false).await?;
+    let mut test = WatcherTest::setup().await?;
 
     let keypair = Keypair::random();
     let user = PubkyAppUser {
