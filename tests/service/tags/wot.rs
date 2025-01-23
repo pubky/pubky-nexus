@@ -22,7 +22,7 @@ const USER_C: &str = "cuimec4ngawamq8wa6fjzki6boxmwqcm11x6g7ontufrjwgdaxqo";
 #[tokio::test]
 async fn test_wot_user_tags_endpoints() -> Result<(), DynError> {
     let _ = clear_wot_tags_cache().await;
-  
+
     // Make sure, we still not index the WoT tags requesting the taggers
     let path = format!(
         "/v0/user/{}/taggers/{}?viewer_id={}&depth=2",
