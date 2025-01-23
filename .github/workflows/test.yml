@@ -56,9 +56,12 @@ jobs:
 
       # - name: Install dependencies
       #   run: cargo build --release
+      
+      - name: Load Mock Data
+        run: cargo run --bin mockdb
 
       - name: Run integration tests
-        run: SYNC_DB=true cargo test
+        run: cargo test
 
       - name: Tear down Docker Compose
         if: always()

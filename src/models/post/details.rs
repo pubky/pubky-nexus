@@ -183,7 +183,7 @@ impl PostDetails {
 
 #[cfg(test)]
 mod tests {
-    use crate::{setup, Config};
+    use crate::{Config, StackManager};
 
     use super::*;
 
@@ -193,9 +193,9 @@ mod tests {
 
     #[tokio_shared_rt::test(shared)]
     async fn test_post_details_get_from_graph() {
-        // Open connections against ddbb
         let config = Config::from_env();
-        setup(&config).await;
+        StackManager::setup(&config).await;
+
         let _res = PostDetails::get_by_id(AUTHOR_A_ID, REPLY_ID).await.unwrap();
         let replies = PostStream::get_post_replies(AUTHOR_A_ID, POST_ID, None, None, None)
             .await

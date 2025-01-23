@@ -7,7 +7,9 @@ use pubky_app_specs::{
 };
 use pubky_common::crypto::Keypair;
 use pubky_homeserver::Homeserver;
-use pubky_nexus::{events::Event, setup, types::DynError, Config, EventProcessor, PubkyConnector};
+use pubky_nexus::{
+    events::Event, types::DynError, Config, EventProcessor, PubkyConnector, StackManager,
+};
 
 /// Struct to hold the setup environment for tests
 pub struct WatcherTest {
@@ -33,7 +35,7 @@ impl WatcherTest {
     /// event processor, and other test setup details.
     pub async fn setup() -> Result<Self> {
         let config = Config::from_env();
-        setup(&config).await;
+        StackManager::setup(&config).await;
 
         TestnetDHTNetwork::initialise(10)?;
         let testnet = TestnetDHTNetwork::get_testnet_dht_nodes()?;

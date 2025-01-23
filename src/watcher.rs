@@ -1,14 +1,15 @@
 use log::error;
 use log::info;
 use pubky_nexus::PubkyConnector;
-use pubky_nexus::{setup, Config, EventProcessor};
+use pubky_nexus::{Config, EventProcessor, StackManager};
 use tokio::time::{sleep, Duration};
 
 /// Watches over a homeserver `/events` and writes into the Nexus databases
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
     let config = Config::from_env();
-    setup(&config).await;
+    StackManager::setup(&config).await;
+
     PubkyConnector::initialise(&config, None)?;
     let mut event_processor = EventProcessor::from_config(&config).await?;
 

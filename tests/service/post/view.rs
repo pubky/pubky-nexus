@@ -1,27 +1,22 @@
 use crate::service::{
     post::{CAIRO_USER, ENCRYPTION_TAG, ROOT_PATH},
     stream::post::{POST_H, TAG_LABEL_2},
-    utils::{get_request, HOST_URL},
+    utils::{get_request, invalid_get_request},
 };
 use anyhow::Result;
+use axum::http::StatusCode;
 use pubky_nexus::models::tag::TagDetails;
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_get_post_view() -> Result<()> {
-    let client = httpc_test::new_client(HOST_URL)?;
-
     let author_id = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
     let post_id = "2ZCW1TGR5BKG0";
 
-    let res = client
-        .do_get(&format!(
-            "/v0/post/{}/{}?viewer_id={}",
-            author_id, post_id, author_id
-        ))
-        .await?;
-    assert_eq!(res.status(), 200);
-
-    let body = res.json_body()?;
+    let body = get_request(&format!(
+        "/v0/post/{}/{}?viewer_id={}",
+        author_id, post_id, author_id
+    ))
+    .await?;
 
     assert_eq!(body["details"]["content"], "I am told we can reply now!");
     assert_eq!(body["details"]["indexed_at"].as_u64(), Some(1718616844478));
@@ -48,15 +43,16 @@ async fn test_get_post_view() -> Result<()> {
     assert_eq!(post_tag.label, "pubky");
 
     // Test non-existing post
-    let res = client
-        .do_get(&format!("/v0/post/{}/{}", author_id, "no_post"))
-        .await?;
-    assert_eq!(res.status(), 404);
+    invalid_get_request(
+        &format!("/v0/post/{}/{}", author_id, "no_post"),
+        StatusCode::NOT_FOUND,
+    )
+    .await?;
 
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_get_post_view_with_limit_tags() -> Result<()> {
     let path = format!("{}/{}/{}?limit_tags=1", ROOT_PATH, CAIRO_USER, POST_H);
 
@@ -82,7 +78,7 @@ async fn test_get_post_view_with_limit_tags() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_get_post_view_with_limit_taggers() -> Result<()> {
     let path = format!("{}/{}/{}?limit_taggers=2", ROOT_PATH, CAIRO_USER, POST_H);
 
@@ -114,7 +110,7 @@ async fn test_get_post_view_with_limit_taggers() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_get_post_view_with_limit_tags_and_taggers() -> Result<()> {
     let path = format!(
         "{}/{}/{}?limit_tags=1&limit_taggers=2",

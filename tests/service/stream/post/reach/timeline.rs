@@ -46,7 +46,7 @@ async fn test_stream_posts_followers() -> Result<()> {
 const START_TIME: usize = 1980477299321;
 const END_TIME: usize = 1980477299312;
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_following_with_start() -> Result<()> {
     let path = format!(
         "{ROOT_PATH}?observer_id={}&source=following&viewer_id={}&start={}&limit=5",
@@ -84,7 +84,7 @@ async fn test_stream_posts_following_with_start() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_following_with_start_and_end() -> Result<()> {
     let path = format!(
         "{ROOT_PATH}?observer_id={}&source=following&viewer_id={}&start={}&end={}",
@@ -119,7 +119,7 @@ async fn test_stream_posts_following_with_start_and_end() -> Result<()> {
 const START_TIME_ERS: usize = 1719308316919;
 const END_TIME_ERS: usize = 1693823567880;
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_followers_with_start() -> Result<()> {
     let path = format!(
         "{ROOT_PATH}?observer_id={}&source=followers&viewer_id={}&start={}&limit=5",
@@ -151,7 +151,7 @@ async fn test_stream_posts_followers_with_start() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_followers_with_start_and_end() -> Result<()> {
     let path = format!(
         "{ROOT_PATH}?observer_id={}&source=followers&viewer_id={}&start={}&end={}",
@@ -183,7 +183,7 @@ async fn test_stream_posts_followers_with_start_and_end() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_friend_with_start() -> Result<()> {
     let path = format!(
         "{ROOT_PATH}?observer_id={}&source=friends&viewer_id={}&start={}&limit=5",
@@ -215,7 +215,7 @@ async fn test_stream_posts_friend_with_start() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_friend_with_start_and_end() -> Result<()> {
     let path = format!(
         "{ROOT_PATH}?observer_id={}&source=friends&viewer_id={}&start={}&end={}",

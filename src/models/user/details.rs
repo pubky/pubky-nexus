@@ -110,7 +110,7 @@ impl UserDetails {
 
 #[cfg(test)]
 mod tests {
-    use crate::{setup, Config};
+    use crate::{Config, StackManager};
 
     use super::*;
 
@@ -128,7 +128,7 @@ mod tests {
     #[tokio_shared_rt::test(shared)]
     async fn test_get_by_ids_from_redis() {
         let config = Config::from_env();
-        setup(&config).await;
+        StackManager::setup(&config).await;
 
         let user_details = UserDetails::get_by_ids(&USER_IDS).await.unwrap();
         assert_eq!(user_details.len(), USER_IDS.len());
