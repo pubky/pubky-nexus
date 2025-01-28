@@ -4,6 +4,7 @@ use axum::{
     response::Response,
 };
 use log::{debug, error};
+use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use tower_http::services::{fs::ServeFileSystemResponseBody, ServeDir};
 
@@ -18,6 +19,7 @@ use crate::{
 
 #[derive(Deserialize, Serialize)]
 pub struct FileParams {
+    // dl is download parameter to set the content-disposition header to attachment
     dl: Option<String>,
 }
 
@@ -46,34 +48,28 @@ pub async fn static_files_handler(
         "Serving file for user: {} and file: {} with variant: {:?}",
         owner_id, file_id, variant
     );
-    let files = match FileDetails::get_by_ids(
+    let files = FileDetails::get_by_ids(
         vec![vec![owner_id.as_str(), file_id.as_str()].as_slice()].as_slice(),
     )
     .await
-    {
-        Ok(files) => files,
-        Err(err) => {
-            error!(
-                "Error while fetching file details for user: {} and file: {}",
-                owner_id, file_id
-            );
-            return Err(Error::InternalServerError { source: err });
-        }
-    };
+    .map_err(|err| {
+        error!(
+            "Error while fetching file details for user: {} and file: {}",
+            owner_id, file_id
+        );
+        Error::InternalServerError { source: err }
+    })?;
 
     if files.is_empty() {
         return Err(Error::FileNotFound {});
     }
 
-    let file = match files[0].clone() {
-        Some(file) => file,
-        None => return Err(Error::FileNotFound {}),
-    };
+    let file = files
+        .first()
+        .and_then(Clone::clone)
+        .ok_or(Error::FileNotFound {})?;
 
-    if !StaticProcessor::validate_variant_for_content_type(
-        file.content_type.as_str(),
-        variant.clone(),
-    ) {
+    if !StaticProcessor::validate_variant_for_content_type(file.content_type.as_str(), &variant) {
         return Err(Error::InvalidInput {
             message: format!(
                 "variant {} is not valid for content type {}",
@@ -111,9 +107,7 @@ pub async fn static_files_handler(
         .map_err(|err| Error::InternalServerError {
             source: Box::new(err),
         })?;
-    let response_result = ServeDir::new(Config::from_env().file_path)
-        .try_call(req)
-        .await;
+    let response_result = get_serve_dir().try_call(req).await;
 
     let mut response = match response_result {
         Ok(response) => {
@@ -130,35 +124,41 @@ pub async fn static_files_handler(
     };
 
     // set the content type header
-    let content_type_header = match file_variant_content_type.parse() {
-        Ok(content_type) => content_type,
-        Err(err) => {
-            error!("Invalid content type header: {}", file_variant_content_type);
-            return Err(Error::InternalServerError {
-                source: Box::new(err),
-            });
+    let content_type_header = file_variant_content_type.parse().map_err(|err| {
+        error!("Invalid content type header: {}", file_variant_content_type);
+        Error::InternalServerError {
+            source: Box::new(err),
         }
-    };
+    })?;
     response
         .headers_mut()
         .insert("content-type", content_type_header);
 
     // if dl parameter is passed, set content-disposition header to attachment to force download
     if params.dl.is_some() {
-        let content_disposition_header =
-            match format!("attachment; filename=\"{}\"", file.name).parse() {
-                Ok(content_disposition) => content_disposition,
-                Err(err) => {
-                    error!("Invalid content disposition header: {}", file.name);
-                    return Err(Error::InternalServerError {
-                        source: Box::new(err),
-                    });
+        let content_disposition_header = format!("attachment; filename=\"{}\"", file.name)
+            .parse()
+            .map_err(|err| {
+                error!("Invalid content disposition header: {}", file.name);
+                Error::InternalServerError {
+                    source: Box::new(err),
                 }
-            };
+            })?;
         response
             .headers_mut()
             .insert("content-disposition", content_disposition_header);
     }
 
     Ok(response)
+}
+
+static SERVE_DIR_INSTANCE: OnceCell<ServeDir> = OnceCell::new();
+
+fn get_serve_dir() -> ServeDir {
+    SERVE_DIR_INSTANCE
+        .get_or_init(|| {
+            let config = Config::from_env();
+            ServeDir::new(config.file_path)
+        })
+        .to_owned()
 }

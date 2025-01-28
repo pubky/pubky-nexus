@@ -42,12 +42,12 @@ impl StaticProcessor {
         }
     }
 
-    pub fn validate_variant_for_content_type(content_type: &str, variant: FileVariant) -> bool {
-        if variant == FileVariant::Main {
+    pub fn validate_variant_for_content_type(content_type: &str, variant: &FileVariant) -> bool {
+        if variant == &FileVariant::Main {
             return true;
         }
         let valid_variants = Self::get_valid_variants_for_content_type(content_type);
-        valid_variants.contains(&variant)
+        valid_variants.contains(variant)
     }
 
     pub fn get_file_urls_by_content_type(content_type: &str, path: &str) -> FileUrls {

@@ -10,14 +10,12 @@ pub struct StaticStorage;
 
 impl StaticStorage {
     pub async fn store_blob(name: String, path: String, blob: &Bytes) -> Result<(), DynError> {
-        let path_exists = match fs::metadata(path.as_str()).await {
-            Err(_) => false,
-            Ok(metadata) => metadata.is_dir(),
-        };
-
-        if !path_exists {
+        if !fs::metadata(path.as_str())
+            .await
+            .is_ok_and(|metadata| metadata.is_dir())
+        {
             fs::create_dir_all(path.as_str()).await?;
-        }
+        };
 
         let file_path = format!("{}/{}", path, name);
         let mut static_file = File::create_new(file_path).await?;
