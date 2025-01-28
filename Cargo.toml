@@ -19,7 +19,7 @@ pubky-app-specs = { git = "https://github.com/pubky/pubky-app-specs", features =
 ] }
 tokio = { version = "1.43.0", features = ["full"] }
 axum = "0.8.1"
-redis = { version = "0.28.1", features = ["tokio-comp", "json"] }
+redis = { version = "0.28.2", features = ["tokio-comp", "json"] }
 neo4rs = "0.8.0"
 serde = { version = "1.0.217", features = ["derive"] }
 serde_json = "1.0.137"
