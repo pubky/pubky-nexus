@@ -29,7 +29,7 @@ pub struct UserStreamQuery {
     description = "Stream users",
     tag = "Stream",
     params(
-        ("user_id" = Option<String>, Query, description = "User ID to use for streams with source 'following', 'followers', 'friends', 'muted' and 'recommended'"),
+        ("user_id" = Option<String>, Query, description = "User ID to use for streams with source 'following', 'followers', 'friends', 'muted', 'most_followed', 'influencers' and 'recommended'"),
         ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
         ("skip" = Option<usize>, Query, description = "Skip N followers"),
         ("limit" = Option<usize>, Query, description = "Retrieve N followers"),
@@ -89,14 +89,15 @@ pub async fn stream_users_handler(
                         .to_string(),
                 })
             }
-            UserStreamSource::Influencers => match query.reach {
-                None => (),
-                Some(_) => return Err(Error::InvalidInput {
-                    message:
-                        "reach query param must be provided for source 'influencers' with a user_id"
-                            .to_string(),
-                }),
-            },
+            UserStreamSource::Influencers => {
+                if query.reach.is_some() {
+                    return Err(Error::InvalidInput {
+                        message:
+                            "reach query param must be provided for source 'influencers' with a user_id"
+                                .to_string(),
+                    });
+                }
+            }
             _ => (),
         }
     } else if source == UserStreamSource::Influencers && query.reach.is_none() {
