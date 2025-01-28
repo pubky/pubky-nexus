@@ -672,8 +672,6 @@ async fn test_hot_tags_by_friends_reach_and_all_timeframe() -> Result<()> {
 
 const PUBKY_TAG: &str = "pubky";
 
-// KEEP ON EYE in the list. Sometimes it changes the order. No reason
-// It we keep failing the test, we need to find other way to do it
 const TAGGERS: [&str; 9] = [
     "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy",
     "s1empmp4x6owkewyijcbnn1faejhhu536w8i7n9oqh57om9qjfho",
