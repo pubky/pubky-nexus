@@ -67,7 +67,6 @@ async fn put_sync_post(
     post_uri: String,
     indexed_at: i64,
 ) -> Result<(), DynError> {
-    // SAVE TO GRAPH
     match TagPost::put_to_graph(
         &tagger_user_id,
         &author_id,
@@ -146,7 +145,6 @@ async fn put_sync_user(
     tag_label: String,
     indexed_at: i64,
 ) -> Result<(), DynError> {
-    // SAVE TO GRAPH
     match TagUser::put_to_graph(
         &tagger_user_id,
         &tagged_user_id,
@@ -193,8 +191,6 @@ async fn put_sync_user(
 
 pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), DynError> {
     debug!("Deleting tag: {} -> {}", user_id, tag_id);
-    // DELETE FROM GRAPH
-    // Maybe better if we add as a local function instead of part of the trait?
     let tag_details = TagUser::del_from_graph(&user_id, &tag_id).await?;
     // CHOOSE THE EVENT TYPE
     if let Some((tagged_user_id, post_id, author_id, label)) = tag_details {
@@ -213,8 +209,6 @@ pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), DynError> {
             }
         }
     } else {
-        // TODO: Should return an error that should be processed by RetryManager
-        // WIP: Create a custom error type to pass enough info to the RetryManager
         return Err(EventProcessorError::SkipIndexing.into());
     }
     Ok(())

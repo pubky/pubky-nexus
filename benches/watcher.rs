@@ -9,8 +9,8 @@ use pubky_nexus::{
     EventProcessor,
 };
 use setup::run_setup;
-use std::time::Duration;
-use tokio::{runtime::Runtime, sync::mpsc};
+use std::{sync::Arc, time::Duration};
+use tokio::runtime::Runtime;
 
 mod setup;
 
@@ -30,13 +30,14 @@ async fn create_homeserver_with_events() -> (Testnet, String, SenderChannel) {
     let keypair = Keypair::random();
     let user_id = keypair.public_key().to_z32();
 
-    let retry_manager = RetryManager::initialise(mpsc::channel(1024));
-    // Prepare the sender channel to send the messages to the retry manager
-    let sender_clone = retry_manager.sender.clone();
+    // Initializes a retry manager and ensures robustness by managing retries asynchronously
+    let (receiver_channel, sender_channel) = RetryManager::init_channels();
+
     // Create new asynchronous task to control the failed events
-    tokio::spawn(async move {
-        let _ = retry_manager.exec().await;
-    });
+    RetryManager::process_messages(&receiver_channel).await;
+
+    // Prepare the sender channel to send the messages to the retry manager
+    let sender_clone = Arc::clone(&sender_channel);
 
     // Create and delete a user profile (as per your requirement)
     client

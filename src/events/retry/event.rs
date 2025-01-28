@@ -2,11 +2,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    events::{error::EventProcessorError, EventType},
-    types::DynError,
-    RedisOps,
-};
+use crate::{events::error::EventProcessorError, types::DynError, RedisOps};
 
 pub const RETRY_MAMAGER_PREFIX: &str = "RetryManager";
 pub const RETRY_MANAGER_EVENTS_INDEX: [&str; 1] = ["events"];
@@ -68,15 +64,6 @@ impl RetryEvent {
         }
     }
 
-    /// Generates the opposite event line by replacing the event type, effectively
-    /// converting delete operations into put operations
-    ///
-    /// # Arguments
-    /// * `event_line` - A string slice representing the event line.
-    pub fn generate_opposite_event_line(event_line: &str) -> String {
-        event_line.replace(&EventType::Del.to_string(), &EventType::Put.to_string())
-    }
-
     /// Stores an event in both a sorted set and a JSON index in Redis.
     /// It adds an event line to a Redis sorted set with a timestamp-based score
     /// and also stores the event details in a separate JSON index for retrieval.
@@ -102,44 +89,19 @@ impl RetryEvent {
     /// # Arguments
     /// * `event_index` - A `&str` representing the event index to check
     pub async fn check_uri(event_index: &str) -> Result<Option<isize>, DynError> {
-        if let Some(post_details) = Self::check_sorted_set_member(
+        Self::check_sorted_set_member(
             Some(RETRY_MAMAGER_PREFIX),
             &RETRY_MANAGER_EVENTS_INDEX,
             &[event_index],
         )
-        .await?
-        {
-            return Ok(Some(post_details));
-        }
-        Ok(None)
+        .await
     }
 
     /// Retrieves an event from the JSON index in Redis based on its index
     /// # Arguments
     /// * `event_index` - A `&str` representing the event index to retrieve
     pub async fn get_from_index(event_index: &str) -> Result<Option<Self>, DynError> {
-        let mut found_event = None;
         let index = &[RETRY_MANAGER_STATE_INDEX, [event_index]].concat();
-        if let Some(fail_event) = Self::try_from_index_json(index).await? {
-            found_event = Some(fail_event);
-        }
-        Ok(found_event)
-    }
-
-    /// Deletes event-related indices from the retry queue in Redis
-    /// # Arguments
-    /// - `event_line` - A `String` representing the event line that needs to be unindexed from the retry queue
-    pub async fn delete(&self, event_line: String) -> Result<(), DynError> {
-        let put_event_line = Self::generate_opposite_event_line(&event_line);
-        Self::remove_from_index_sorted_set(
-            Some(RETRY_MAMAGER_PREFIX),
-            &RETRY_MANAGER_EVENTS_INDEX,
-            &[&put_event_line],
-        )
-        .await?;
-
-        let index = &[RETRY_MANAGER_STATE_INDEX, [&put_event_line]].concat();
-        Self::remove_from_index_multiple_json(&[index]).await?;
-        Ok(())
+        Self::try_from_index_json(index).await
     }
 }

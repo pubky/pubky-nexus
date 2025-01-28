@@ -38,7 +38,6 @@ pub async fn sync_put(
         match Bookmark::put_to_graph(&author_id, &post_id, &user_id, &id, indexed_at).await? {
             OperationOutcome::CreatedOrDeleted => false,
             OperationOutcome::Updated => true,
-            // TODO: Should return an error that should be processed by RetryManager
             OperationOutcome::MissingDependency => {
                 let dependency = vec![format!("{author_id}:posts:{post_id}")];
                 return Err(EventProcessorError::MissingDependency { dependency }.into());
@@ -65,7 +64,6 @@ pub async fn del(user_id: PubkyId, bookmark_id: String) -> Result<(), DynError> 
 }
 
 pub async fn sync_del(user_id: PubkyId, bookmark_id: String) -> Result<(), DynError> {
-    // DELETE FROM GRAPH
     let deleted_bookmark_info = Bookmark::del_from_graph(&user_id, &bookmark_id).await?;
     // Ensure the bookmark exists in the graph before proceeding
     let (post_id, author_id) = match deleted_bookmark_info {
@@ -73,7 +71,6 @@ pub async fn sync_del(user_id: PubkyId, bookmark_id: String) -> Result<(), DynEr
         None => return Err(EventProcessorError::SkipIndexing.into()),
     };
 
-    // DELETE FROM INDEXes
     Bookmark::del_from_index(&user_id, &post_id, &author_id).await?;
     // Update user counts
     UserCounts::update(&user_id, "bookmarks", JsonAction::Decrement(1)).await?;

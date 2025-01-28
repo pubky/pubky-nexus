@@ -159,7 +159,6 @@ impl Bookmark {
                 return Ok(Some((post_id, author_id)));
             }
         }
-        // No rows matched the query. The pattern did not yield any results
         Ok(None)
     }
 

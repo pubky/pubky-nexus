@@ -6,8 +6,6 @@ use pubky_common::crypto::Keypair;
 use pubky_nexus::types::DynError;
 
 /// The user profile is stored in the homeserver and synched in the graph, but the posts just exist in the homeserver
-// These types of tests (e.g., fail_xxxx) can be used to test the graph queries (PUT/DEL),
-// as they do not rely on the `WatcherTest` event processor
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_post_reply_without_post_parent() -> Result<(), DynError> {
     let mut test = WatcherTest::setup().await?;

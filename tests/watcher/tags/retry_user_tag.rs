@@ -7,8 +7,6 @@ use pubky_app_specs::{traits::HashId, PubkyAppTag, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 use pubky_nexus::events::{error::EventProcessorError, retry::event::RetryEvent, EventType};
 
-// These types of tests (e.g., retry_xxxx) can be used to verify whether the `RetryManager`
-// cache correctly adds the events as expected.
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_user_tag_event_to_queue() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
@@ -56,11 +54,9 @@ async fn test_homeserver_user_tag_event_to_queue() -> Result<()> {
         RetryEvent::generate_index_key(&tag_url).unwrap()
     );
 
-    // Assert if the event is in the timeline
     let timestamp = RetryEvent::check_uri(&index_key).await.unwrap();
     assert!(timestamp.is_some());
 
-    // Assert if the event is in the state hash map
     let event_retry = RetryEvent::get_from_index(&index_key).await.unwrap();
     assert!(event_retry.is_some());
 
@@ -88,11 +84,9 @@ async fn test_homeserver_user_tag_event_to_queue() -> Result<()> {
         RetryEvent::generate_index_key(&tag_url).unwrap()
     );
 
-    // Assert that the event does not exist in the sorted set. In that case PUT event
     let timestamp = RetryEvent::check_uri(&del_index_key).await.unwrap();
     assert!(timestamp.is_some());
 
-    // Assert if the event is in the state. JSON
     let event_retry = RetryEvent::get_from_index(&del_index_key).await.unwrap();
     assert!(event_retry.is_some());
 

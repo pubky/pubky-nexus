@@ -5,8 +5,6 @@ use log::error;
 use pubky_app_specs::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 
-// These types of tests (e.g., fail_xxxx) can be used to test the graph queries (PUT/DEL),
-// as they do not rely on the `WatcherTest` event processor
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_tag_cannot_add_while_index() -> Result<()> {
     let mut test = WatcherTest::setup().await?;

@@ -66,7 +66,6 @@ pub async fn del(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), DynEr
 }
 
 pub async fn sync_del(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), DynError> {
-    // DELETE FROM GRAPH
     match Followers::del_from_graph(&follower_id, &followee_id).await? {
         // Both users exists but they do not have that relationship
         OperationOutcome::Updated => Ok(()),

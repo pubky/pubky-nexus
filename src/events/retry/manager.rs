@@ -1,11 +1,10 @@
-use log::error;
+use log::{debug, error};
 use std::sync::Arc;
+use tokio::sync::mpsc;
 use tokio::sync::{
     mpsc::{Receiver, Sender},
     Mutex,
 };
-
-use crate::types::DynError;
 
 use super::event::RetryEvent;
 
@@ -13,7 +12,7 @@ pub const CHANNEL_BUFFER: usize = 1024;
 
 /// Represents commands sent to the retry manager for handling events in the retry queue
 #[derive(Debug, Clone)]
-pub enum SenderMessage {
+pub enum RetryQueueMessage {
     // Command to retry all pending events that are waiting to be indexed
     RetryEvent(String),
     /// Command to process a specific event in the retry queue
@@ -23,72 +22,52 @@ pub enum SenderMessage {
     ProcessEvent(String, RetryEvent),
 }
 
-pub type SenderChannel = Arc<Mutex<Sender<SenderMessage>>>;
-type ReceiverChannel = Arc<Mutex<Receiver<SenderMessage>>>;
+pub type SenderChannel = Arc<Mutex<Sender<RetryQueueMessage>>>;
+type ReceiverChannel = Arc<Mutex<Receiver<RetryQueueMessage>>>;
 
-pub struct RetryManager {
-    pub sender: SenderChannel,
-    receiver: ReceiverChannel,
-}
+/// Manages the retry queue for processing failed events.
+///
+/// The `RetryManager` is responsible for handling messages that involve retrying or
+/// processing failed events in an asynchronous event system. It listens for incoming
+/// retry-related messages and processes them accordingly
+///
+/// ## Responsibilities:
+/// - Receives and processes messages related to event retries
+/// - Maintains a queue of events that need to be retried
+/// - Ensures failed events are reprocessed in an orderly manner
+pub struct RetryManager {}
 
-/// Initializes a new `RetryManager` with a message-passing channel.
-///
-/// This function sets up the `RetryManager` by taking a tuple containing
-/// a `Sender` and `Receiver` from a multi-producer, single-consumer (mpsc) channel.
-///
-/// # Parameters
-/// - `(tx, rx)`: A tuple containing:
-///   - `tx` (`Sender<String>`): The sending half of the mpsc channel, used to dispatch messages to the manager.
-///   - `rx` (`Receiver<String>`): The receiving half of the mpsc channel, used to listen for incoming messages.
+/// Initializes a new `RetryManager` with a message-passing channel
 impl RetryManager {
-    pub fn initialise((tx, rx): (Sender<SenderMessage>, Receiver<SenderMessage>)) -> Self {
-        Self {
-            receiver: Arc::new(Mutex::new(rx)),
-            sender: Arc::new(Mutex::new(tx)),
-        }
+    pub fn init_channels() -> (ReceiverChannel, SenderChannel) {
+        let (tx, rx) = mpsc::channel(CHANNEL_BUFFER);
+        (
+            Arc::new(Mutex::new(rx)), // Receiver channel
+            Arc::new(Mutex::new(tx)), // Sender channel
+        )
     }
 
     /// Executes the main event loop to process messages from the channel
     /// This function listens for incoming messages on the receiver channel and handles them
-    /// based on their type:
-    /// - **`SenderMessage::Retry`**: Triggers the retry process
-    /// - **`SenderMessage::Add`**: Queues a failed event in the retry cache for future processing
-    ///
+    /// based on their type
     /// The loop runs continuously until the channel is closed, ensuring that all messages
-    /// are processed appropriately.
-    pub async fn exec(&self) -> Result<(), DynError> {
-        let mut rx = self.receiver.lock().await;
-        // Listen all the messages in the channel
-        while let Some(message) = rx.recv().await {
-            match message {
-                SenderMessage::RetryEvent(homeserver_pubky) => {
-                    self.retry_events_for_homeserver(&homeserver_pubky);
-                }
-                SenderMessage::ProcessEvent(index_key, retry_event) => {
-                    self.queue_failed_event(index_key, retry_event).await?;
+    /// are processed appropriately
+    pub async fn process_messages(receiver_channel: &ReceiverChannel) {
+        let receiver_channel = Arc::clone(receiver_channel);
+        tokio::spawn(async move {
+            let mut rx = receiver_channel.lock().await;
+            // Listen all the messages in the channel
+            while let Some(message) = rx.recv().await {
+                match message {
+                    RetryQueueMessage::ProcessEvent(index_key, retry_event) => {
+                        error!("{}, {}", retry_event.error_type, index_key);
+                        if let Err(err) = retry_event.put_to_index(index_key).await {
+                            error!("Failed to put event to index: {}", err);
+                        }
+                    }
+                    _ => debug!("New message received, not handled: {:?}", message),
                 }
             }
-        }
-        Ok(())
-    }
-
-    fn retry_events_for_homeserver(&self, _homeserver_pubky: &str) {
-        // WIP: Retrieve the homeserver events from the SORTED SET
-        // RetryManager:events
-    }
-
-    /// Stores the event line in the Redis cache, adding it to the retry queue for
-    /// future processing
-    /// # Arguments
-    /// - `index_key`: A `String` representing the compacted key for the event to be stored in Redis
-    /// - `retry_event`: A `RetryEvent` instance containing the details of the failed event
-    async fn queue_failed_event(
-        &self,
-        index_key: String,
-        retry_event: RetryEvent,
-    ) -> Result<(), DynError> {
-        error!("{}, {}", retry_event.error_type, index_key);
-        retry_event.put_to_index(index_key).await?;
-        Ok(())
+        });
     }
 }

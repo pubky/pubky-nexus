@@ -1,5 +1,5 @@
 use super::error::EventProcessorError;
-use super::retry::manager::{SenderChannel, SenderMessage};
+use super::retry::manager::{RetryQueueMessage, SenderChannel};
 use super::Event;
 use crate::events::retry::event::RetryEvent;
 use crate::types::DynError;
@@ -11,11 +11,14 @@ use log::{debug, error, info};
 pub struct EventProcessor {
     pub homeserver: Homeserver,
     limit: u32,
-    pub sender: SenderChannel,
+    pub retry_manager_sender_channel: SenderChannel,
 }
 
 impl EventProcessor {
-    pub async fn from_config(config: &Config, tx: SenderChannel) -> Result<Self, DynError> {
+    pub async fn from_config(
+        config: &Config,
+        retry_manager_sender_channel: SenderChannel,
+    ) -> Result<Self, DynError> {
         let homeserver = Homeserver::from_config(config).await?;
         let limit = config.events_limit;
 
@@ -27,7 +30,7 @@ impl EventProcessor {
         Ok(Self {
             homeserver,
             limit,
-            sender: tx,
+            retry_manager_sender_channel,
         })
     }
 
@@ -43,13 +46,13 @@ impl EventProcessor {
     /// # Parameters
     /// - `homeserver_id`: A `String` representing the URL of the homeserver to be used in the test environment.
     /// - `tx`: A `SenderChannel` used to handle outgoing messages or events.
-    pub async fn test(homeserver_id: String, tx: SenderChannel) -> Self {
+    pub async fn test(homeserver_id: String, retry_manager_sender_channel: SenderChannel) -> Self {
         let id = PubkyId(homeserver_id.to_string());
         let homeserver = Homeserver::new(id).await.unwrap();
         Self {
             homeserver,
             limit: 1000,
-            sender: tx,
+            retry_manager_sender_channel,
         }
     }
 
@@ -158,9 +161,9 @@ impl EventProcessor {
                 let index_key = format!("{}:{}", event.event_type, index);
 
                 // Send event to the retry manager
-                let sender = self.sender.lock().await;
-                match sender
-                    .send(SenderMessage::ProcessEvent(index_key, retry_event))
+                let sender_channel = self.retry_manager_sender_channel.lock().await;
+                match sender_channel
+                    .send(RetryQueueMessage::ProcessEvent(index_key, retry_event))
                     .await
                 {
                     Ok(_) => {

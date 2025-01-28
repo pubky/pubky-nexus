@@ -4,8 +4,6 @@ use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind};
 use pubky_common::crypto::Keypair;
 
 /// The user profile is stored in the homeserver. Missing the author to connect the post
-// These types of tests (e.g., fail_xxxx) can be used to test the graph queries (PUT/DEL),
-// as they do not rely on the `WatcherTest` event processor
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_post_without_user() -> Result<()> {
     let mut test = WatcherTest::setup().await?;

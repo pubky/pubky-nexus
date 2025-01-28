@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use super::dht::TestnetDHTNetwork;
 use anyhow::{anyhow, Result};
 use chrono::Utc;
@@ -7,11 +9,10 @@ use pubky_app_specs::{
 };
 use pubky_common::crypto::Keypair;
 use pubky_homeserver::Homeserver;
-use pubky_nexus::events::retry::manager::{RetryManager, CHANNEL_BUFFER};
+use pubky_nexus::events::retry::manager::RetryManager;
 use pubky_nexus::events::Event;
 use pubky_nexus::types::DynError;
 use pubky_nexus::{setup, Config, EventProcessor, PubkyConnector};
-use tokio::sync::mpsc;
 
 /// Struct to hold the setup environment for tests
 pub struct WatcherTest {
@@ -46,12 +47,14 @@ impl WatcherTest {
         let homeserver = Homeserver::start_test(&testnet).await?;
         let homeserver_id = homeserver.public_key().to_string();
 
-        let retry_manager = RetryManager::initialise(mpsc::channel(CHANNEL_BUFFER));
-        let sender_clone = retry_manager.sender.clone();
+        // Initializes a retry manager and ensures robustness by managing retries asynchronously
+        let (receiver_channel, sender_channel) = RetryManager::init_channels();
 
-        tokio::spawn(async move {
-            let _ = retry_manager.exec().await;
-        });
+        // Create new asynchronous task to control the failed events
+        RetryManager::process_messages(&receiver_channel).await;
+
+        // Prepare the sender channel to send the messages to the retry manager
+        let sender_clone = Arc::clone(&sender_channel);
 
         match PubkyConnector::initialise(&config, Some(&testnet)) {
             Ok(_) => debug!("WatcherTest: PubkyConnector initialised"),

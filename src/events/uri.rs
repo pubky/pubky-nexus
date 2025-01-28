@@ -114,6 +114,9 @@ mod tests {
         let uri =
             "pubky://phbhg3qgcttn95guepmbud1nzcxhg3xc5j5k4h7i8a4b6wb3nw1o/pub/pubky.app/bookmarks/";
         let parsed_uri = ParsedUri::try_from(uri).unwrap_or_default();
-        println!("ParsedUri: {:?}", parsed_uri);
+        assert_eq!(
+            parsed_uri.bookmark_id, None,
+            "The provided URI has bookmark_id"
+        );
     }
 }

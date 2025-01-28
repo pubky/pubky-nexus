@@ -24,16 +24,12 @@ pub async fn put(user_id: PubkyId, blob: &[u8]) -> Result<(), DynError> {
 pub async fn sync_put(user: PubkyAppUser, user_id: PubkyId) -> Result<(), DynError> {
     // Create UserDetails object
     let user_details = UserDetails::from_homeserver(user, &user_id).await?;
-    // SAVE TO GRAPH
-    match user_details.put_to_graph().await {
-        Ok(_) => (),
-        Err(e) => {
-            return Err(EventProcessorError::GraphQueryFailed {
-                message: format!("{:?}", e),
-            }
-            .into())
-        }
-    }
+    user_details
+        .put_to_graph()
+        .await
+        .map_err(|e| EventProcessorError::GraphQueryFailed {
+            message: format!("{:?}", e),
+        })?;
     // SAVE TO INDEX
     let user_id = user_details.id.clone();
     UserSearch::put_to_index(&[&user_details]).await?;
