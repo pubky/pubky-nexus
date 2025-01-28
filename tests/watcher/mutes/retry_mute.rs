@@ -56,7 +56,7 @@ async fn test_homeserver_mute_cannot_index() -> Result<()> {
             assert_eq!(dependency.len(), 1);
             assert_eq!(dependency[0], dependency_uri)
         }
-        _ => assert!(false, "The error type has to be MissingDependency type"),
+        _ => panic!("The error type has to be MissingDependency type"),
     };
 
     test.del(&mute_url).await?;
@@ -80,7 +80,7 @@ async fn test_homeserver_mute_cannot_index() -> Result<()> {
 
     match event_state.error_type {
         EventProcessorError::SkipIndexing => (),
-        _ => assert!(false, "The error type has to be SkipIndexing type"),
+        _ => panic!("The error type has to be SkipIndexing type"),
     };
 
     Ok(())

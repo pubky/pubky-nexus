@@ -68,7 +68,7 @@ async fn test_homeserver_post_repost_cannot_index() -> Result<()> {
                 RetryEvent::generate_index_key(&dependency_uri).unwrap()
             );
         }
-        _ => assert!(false, "The error type has to be MissingDependency type"),
+        _ => panic!("The error type has to be MissingDependency type"),
     };
 
     test.del(&repost_url).await?;
@@ -92,7 +92,7 @@ async fn test_homeserver_post_repost_cannot_index() -> Result<()> {
 
     match event_state.error_type {
         EventProcessorError::SkipIndexing => (),
-        _ => assert!(false, "The error type has to be SkipIndexing type"),
+        _ => panic!("The error type has to be SkipIndexing type"),
     };
 
     Ok(())
