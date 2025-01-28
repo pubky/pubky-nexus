@@ -124,6 +124,7 @@ impl UserSearch {
         }
 
         Self::remove_from_index_sorted_set(
+            None,
             &USER_NAME_KEY_PARTS,
             records_to_delete
                 .iter()
