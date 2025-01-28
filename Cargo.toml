@@ -19,10 +19,10 @@ pubky-app-specs = { git = "https://github.com/pubky/pubky-app-specs", features =
 ] }
 tokio = { version = "1.43.0", features = ["full"] }
 axum = "0.8.1"
-redis = { version = "0.27.6", features = ["tokio-comp", "json"] }
+redis = { version = "0.28.1", features = ["tokio-comp", "json"] }
 neo4rs = "0.8.0"
 serde = { version = "1.0.217", features = ["derive"] }
-serde_json = "1.0.135"
+serde_json = "1.0.137"
 once_cell = "1.20.2"
 utoipa = { git = "https://github.com/juhaku/utoipa", rev = "d522f744259dc4fde5f45d187983fb68c8167029" }
 utoipa-swagger-ui = { git = "https://github.com/juhaku/utoipa", rev = "d522f744259dc4fde5f45d187983fb68c8167029", features = [
