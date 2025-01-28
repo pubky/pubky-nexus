@@ -14,7 +14,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
     setup(&config).await;
 
     // Initializes the PubkyConnector with the configuration
-    PubkyConnector::initialise(&config, None)?;
+    PubkyConnector::initialise(&config, None).await?;
 
     // Initializes a retry manager and ensures robustness by managing retries asynchronously
     let (receiver_channel, sender_channel) = RetryManager::init_channels();

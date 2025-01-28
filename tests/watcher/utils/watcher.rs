@@ -56,7 +56,7 @@ impl WatcherTest {
         // Prepare the sender channel to send the messages to the retry manager
         let sender_clone = Arc::clone(&sender_channel);
 
-        match PubkyConnector::initialise(&config, Some(&testnet)) {
+        match PubkyConnector::initialise(&config, Some(&testnet)).await {
             Ok(_) => debug!("WatcherTest: PubkyConnector initialised"),
             Err(e) => debug!("WatcherTest: {}", e),
         }
