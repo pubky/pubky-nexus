@@ -1,4 +1,4 @@
-use crate::watcher::utils::watcher::{try_until_write, WatcherTest};
+use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use pubky_app_specs::{traits::HashId, PubkyAppBookmark, PubkyAppUser};
 use pubky_common::crypto::Keypair;
@@ -46,8 +46,6 @@ async fn test_homeserver_bookmark_cannot_index() -> Result<()> {
         RetryEvent::generate_index_key(&bookmark_url).unwrap()
     );
 
-    try_until_write(&put_index_key).await;
-
     let timestamp = RetryEvent::check_uri(&put_index_key).await.unwrap();
     assert!(timestamp.is_some());
 
@@ -69,7 +67,6 @@ async fn test_homeserver_bookmark_cannot_index() -> Result<()> {
 
     // DEL bookmark
     test.del(&bookmark_url).await?;
-    //tokio::time::sleep(Duration::from_millis(500)).await;
 
     let del_index_key = format!(
         "{}:{}",

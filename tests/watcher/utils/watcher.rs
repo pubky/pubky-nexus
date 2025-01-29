@@ -4,7 +4,7 @@ use std::time::Duration;
 use super::dht::TestnetDHTNetwork;
 use anyhow::{anyhow, Result};
 use chrono::Utc;
-use log::{debug, info};
+use log::debug;
 use pubky_app_specs::{
     traits::TimestampId, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser,
 };
@@ -274,12 +274,12 @@ pub async fn retrieve_and_handle_event_line(event_line: &str) -> Result<(), DynE
 /// Attempts to read an event index with retries before timing out
 /// # Arguments
 /// * `event_index` - A string slice representing the index to check
-pub async fn try_until_write(event_index: &str) {
-    const SLEEP_MS: u64 = 20;
+pub async fn _assert_eventually_exists(event_index: &str) {
+    const SLEEP_MS: u64 = 3;
     const MAX_RETRIES: usize = 50;
 
     for attempt in 0..MAX_RETRIES {
-        info!(
+        debug!(
             "RetryEvent: Trying to read index {:?}, attempt {}/{} ({}ms)",
             event_index,
             attempt + 1,
