@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use pubky_app_specs::PubkyAppUser;
@@ -29,7 +27,6 @@ async fn test_homeserver_mute_cannot_index() -> Result<()> {
 
     // Mute the user
     test.create_mute(&muter_id, &mutee_id).await?;
-    //tokio::time::sleep(Duration::from_millis(500)).await;
 
     let mute_url = format!("pubky://{muter_id}/pub/pubky.app/mutes/{mutee_id}");
 
@@ -60,7 +57,6 @@ async fn test_homeserver_mute_cannot_index() -> Result<()> {
     };
 
     test.del(&mute_url).await?;
-    //tokio::time::sleep(Duration::from_millis(500)).await;
 
     let del_index_key = format!(
         "{}:{}",

@@ -1,6 +1,4 @@
-use std::time::Duration;
-
-use crate::watcher::utils::watcher::WatcherTest;
+use crate::watcher::utils::watcher::{try_until_write, WatcherTest};
 use anyhow::Result;
 use pubky_app_specs::{traits::HashId, PubkyAppBookmark, PubkyAppUser};
 use pubky_common::crypto::Keypair;
@@ -41,13 +39,14 @@ async fn test_homeserver_bookmark_cannot_index() -> Result<()> {
     );
     // PUT bookmark
     test.put(&bookmark_url, bookmark).await?;
-    //tokio::time::sleep(Duration::from_millis(500)).await;
 
     let put_index_key = format!(
         "{}:{}",
         EventType::Put,
         RetryEvent::generate_index_key(&bookmark_url).unwrap()
     );
+
+    try_until_write(&put_index_key).await;
 
     let timestamp = RetryEvent::check_uri(&put_index_key).await.unwrap();
     assert!(timestamp.is_some());

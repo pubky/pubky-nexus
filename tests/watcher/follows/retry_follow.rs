@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use pubky_app_specs::PubkyAppUser;
@@ -28,7 +26,6 @@ async fn test_homeserver_follow_cannot_index() -> Result<()> {
     let follower_id = test.create_user(&follower_keypair, &follower_user).await?;
 
     test.create_follow(&follower_id, &followee_id).await?;
-    //tokio::time::sleep(Duration::from_millis(500)).await;
 
     let follow_url = format!("pubky://{follower_id}/pub/pubky.app/follows/{followee_id}");
 
@@ -59,7 +56,6 @@ async fn test_homeserver_follow_cannot_index() -> Result<()> {
     };
 
     test.del(&follow_url).await?;
-    //tokio::time::sleep(Duration::from_millis(500)).await;
 
     let del_index_key = format!(
         "{}:{}",

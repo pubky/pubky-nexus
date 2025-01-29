@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
@@ -37,7 +35,6 @@ async fn test_homeserver_post_reply_cannot_index() -> Result<()> {
     };
 
     let reply_id = test.create_post(&user_id, &reply_post).await?;
-    //tokio::time::sleep(Duration::from_millis(500)).await;
 
     let reply_url = format!("pubky://{user_id}/pub/pubky.app/posts/{reply_id}");
 
@@ -69,7 +66,6 @@ async fn test_homeserver_post_reply_cannot_index() -> Result<()> {
     };
 
     test.del(&reply_url).await?;
-    //tokio::time::sleep(Duration::from_millis(500)).await;
 
     let del_index_key = format!(
         "{}:{}",

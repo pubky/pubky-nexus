@@ -1,14 +1,16 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use super::dht::TestnetDHTNetwork;
 use anyhow::{anyhow, Result};
 use chrono::Utc;
-use log::debug;
+use log::{debug, info};
 use pubky_app_specs::{
     traits::TimestampId, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser,
 };
 use pubky_common::crypto::Keypair;
 use pubky_homeserver::Homeserver;
+use pubky_nexus::events::retry::event::RetryEvent;
 use pubky_nexus::events::retry::manager::RetryManager;
 use pubky_nexus::events::Event;
 use pubky_nexus::types::DynError;
@@ -267,4 +269,33 @@ pub async fn retrieve_and_handle_event_line(event_line: &str) -> Result<(), DynE
     }
 
     Ok(())
+}
+
+/// Attempts to read an event index with retries before timing out
+/// # Arguments
+/// * `event_index` - A string slice representing the index to check
+pub async fn try_until_write(event_index: &str) {
+    const SLEEP_MS: u64 = 20;
+    const MAX_RETRIES: usize = 50;
+
+    for attempt in 0..MAX_RETRIES {
+        info!(
+            "RetryEvent: Trying to read index {:?}, attempt {}/{} ({}ms)",
+            event_index,
+            attempt + 1,
+            MAX_RETRIES,
+            SLEEP_MS * attempt as u64
+        );
+        match RetryEvent::check_uri(event_index).await {
+            Ok(timeframe) => {
+                if timeframe.is_some() {
+                    return ();
+                }
+            }
+            Err(e) => panic!("Error while getting index: {:?}", e),
+        };
+        // Nap time
+        tokio::time::sleep(Duration::from_millis(SLEEP_MS)).await;
+    }
+    panic!("TIMEOUT: It takes to much time to read the RetryManager new index")
 }
