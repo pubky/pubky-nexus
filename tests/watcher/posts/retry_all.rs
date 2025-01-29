@@ -42,7 +42,7 @@ async fn test_homeserver_post_with_reply_repost_cannot_index() -> Result<()> {
     };
 
     let repost_reply_post_id = test.create_post(&user_id, &repost_reply_post).await?;
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    //tokio::time::sleep(Duration::from_millis(500)).await;
 
     let repost_reply_url = format!("pubky://{user_id}/pub/pubky.app/posts/{repost_reply_post_id}");
 
@@ -78,7 +78,7 @@ async fn test_homeserver_post_with_reply_repost_cannot_index() -> Result<()> {
     };
 
     test.del(&repost_reply_url).await?;
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    //tokio::time::sleep(Duration::from_millis(500)).await;
 
     let del_index_key = format!(
         "{}:{}",

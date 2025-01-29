@@ -27,7 +27,7 @@ async fn test_homeserver_post_cannot_index() -> Result<()> {
     };
 
     let post_id = test.create_post(&user_id, &post).await?;
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    //tokio::time::sleep(Duration::from_millis(500)).await;
 
     let post_url = format!("pubky://{user_id}/pub/pubky.app/posts/{post_id}");
 
@@ -61,7 +61,7 @@ async fn test_homeserver_post_cannot_index() -> Result<()> {
     };
 
     test.del(&post_url).await?;
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    //tokio::time::sleep(Duration::from_millis(500)).await;
 
     let del_index_key = format!(
         "{}:{}",

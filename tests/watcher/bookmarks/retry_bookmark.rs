@@ -41,7 +41,7 @@ async fn test_homeserver_bookmark_cannot_index() -> Result<()> {
     );
     // PUT bookmark
     test.put(&bookmark_url, bookmark).await?;
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    //tokio::time::sleep(Duration::from_millis(500)).await;
 
     let put_index_key = format!(
         "{}:{}",
@@ -70,7 +70,7 @@ async fn test_homeserver_bookmark_cannot_index() -> Result<()> {
 
     // DEL bookmark
     test.del(&bookmark_url).await?;
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    //tokio::time::sleep(Duration::from_millis(500)).await;
 
     let del_index_key = format!(
         "{}:{}",

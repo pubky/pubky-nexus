@@ -46,7 +46,7 @@ async fn test_homeserver_user_tag_event_to_queue() -> Result<()> {
     // That operation is going to write the event in the pending events queue, so block a bit the thread
     // to let write the indexes
     test.put(tag_url.as_str(), tag).await?;
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    //tokio::time::sleep(Duration::from_millis(500)).await;
 
     let index_key = format!(
         "{}:{}",
@@ -76,7 +76,7 @@ async fn test_homeserver_user_tag_event_to_queue() -> Result<()> {
     };
 
     test.del(&tag_url).await?;
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    //tokio::time::sleep(Duration::from_millis(500)).await;
 
     let del_index_key = format!(
         "{}:{}",
