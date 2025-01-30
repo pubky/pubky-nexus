@@ -22,8 +22,8 @@ pub enum RetryQueueMessage {
     ProcessEvent(String, RetryEvent),
 }
 
-pub type SenderChannel = Arc<Mutex<Sender<RetryQueueMessage>>>;
-type ReceiverChannel = Arc<Mutex<Receiver<RetryQueueMessage>>>;
+pub type RetryManagerSenderChannel = Arc<Mutex<Sender<RetryQueueMessage>>>;
+//type RetryManagerReceiverChannel = Receiver<RetryQueueMessage>;
 
 /// Manages the retry queue for processing failed events.
 ///
@@ -39,10 +39,10 @@ pub struct RetryManager {}
 
 /// Initializes a new `RetryManager` with a message-passing channel
 impl RetryManager {
-    pub fn init_channels() -> (ReceiverChannel, SenderChannel) {
+    pub fn init_channels() -> (Receiver<RetryQueueMessage>, RetryManagerSenderChannel) {
         let (tx, rx) = mpsc::channel(CHANNEL_BUFFER);
         (
-            Arc::new(Mutex::new(rx)), // Receiver channel
+            rx,                       // Receiver channel
             Arc::new(Mutex::new(tx)), // Sender channel
         )
     }
@@ -52,10 +52,11 @@ impl RetryManager {
     /// based on their type
     /// The loop runs continuously until the channel is closed, ensuring that all messages
     /// are processed appropriately
-    pub async fn process_messages(receiver_channel: &ReceiverChannel) {
-        let receiver_channel = Arc::clone(receiver_channel);
+    ///
+    ///  # Arguments
+    /// * `rx` - The receiver channel for retry messages
+    pub async fn process_messages(mut rx: Receiver<RetryQueueMessage>) {
         tokio::spawn(async move {
-            let mut rx = receiver_channel.lock().await;
             // Listen all the messages in the channel
             while let Some(message) = rx.recv().await {
                 match message {

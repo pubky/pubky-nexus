@@ -1,4 +1,4 @@
-use crate::watcher::utils::watcher::WatcherTest;
+use crate::watcher::utils::watcher::{assert_eventually_exists, WatcherTest};
 use anyhow::Result;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 use pubky_common::crypto::Keypair;
@@ -44,6 +44,8 @@ async fn test_homeserver_post_reply_cannot_index() -> Result<()> {
         RetryEvent::generate_index_key(&reply_url).unwrap()
     );
 
+    assert_eventually_exists(&index_key).await;
+
     let timestamp = RetryEvent::check_uri(&index_key).await.unwrap();
     assert!(timestamp.is_some());
 
@@ -72,6 +74,8 @@ async fn test_homeserver_post_reply_cannot_index() -> Result<()> {
         EventType::Del,
         RetryEvent::generate_index_key(&reply_url).unwrap()
     );
+
+    assert_eventually_exists(&del_index_key).await;
 
     let timestamp = RetryEvent::check_uri(&del_index_key).await.unwrap();
     assert!(timestamp.is_some());

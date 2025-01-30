@@ -5,7 +5,7 @@ use pubky_app_specs::{PubkyAppUser, PubkyAppUserLink};
 use pubky_common::crypto::Keypair;
 use pubky_homeserver::Homeserver;
 use pubky_nexus::{
-    events::retry::manager::{RetryManager, SenderChannel},
+    events::retry::manager::{RetryManager, RetryManagerSenderChannel},
     EventProcessor,
 };
 use setup::run_setup;
@@ -19,7 +19,7 @@ mod setup;
 /// 2. Sign up the user
 /// 3. Upload a profile.json
 /// 4. Delete the profile.json
-async fn create_homeserver_with_events() -> (Testnet, String, SenderChannel) {
+async fn create_homeserver_with_events() -> (Testnet, String, RetryManagerSenderChannel) {
     // Create the test environment
     let testnet = Testnet::new(3).unwrap();
     let homeserver = Homeserver::start_test(&testnet).await.unwrap();
@@ -34,7 +34,7 @@ async fn create_homeserver_with_events() -> (Testnet, String, SenderChannel) {
     let (receiver_channel, sender_channel) = RetryManager::init_channels();
 
     // Create new asynchronous task to control the failed events
-    RetryManager::process_messages(&receiver_channel).await;
+    RetryManager::process_messages(receiver_channel).await;
 
     // Prepare the sender channel to send the messages to the retry manager
     let sender_clone = Arc::clone(&sender_channel);

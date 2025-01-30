@@ -20,7 +20,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
     let (receiver_channel, sender_channel) = RetryManager::init_channels();
 
     // Create new asynchronous task to control the failed events
-    RetryManager::process_messages(&receiver_channel).await;
+    RetryManager::process_messages(receiver_channel).await;
 
     // Prepare the sender channel to send the messages to the retry manager
     let sender_clone = Arc::clone(&sender_channel);

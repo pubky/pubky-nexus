@@ -53,7 +53,7 @@ impl WatcherTest {
         let (receiver_channel, sender_channel) = RetryManager::init_channels();
 
         // Create new asynchronous task to control the failed events
-        RetryManager::process_messages(&receiver_channel).await;
+        RetryManager::process_messages(receiver_channel).await;
 
         // Prepare the sender channel to send the messages to the retry manager
         let sender_clone = Arc::clone(&sender_channel);
@@ -274,7 +274,7 @@ pub async fn retrieve_and_handle_event_line(event_line: &str) -> Result<(), DynE
 /// Attempts to read an event index with retries before timing out
 /// # Arguments
 /// * `event_index` - A string slice representing the index to check
-pub async fn _assert_eventually_exists(event_index: &str) {
+pub async fn assert_eventually_exists(event_index: &str) {
     const SLEEP_MS: u64 = 3;
     const MAX_RETRIES: usize = 50;
 
