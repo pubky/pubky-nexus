@@ -4,8 +4,8 @@ use crate::models::follow::{Followers, Following, Friends, UserFollows};
 use crate::models::notification::Notification;
 use crate::models::user::UserCounts;
 use crate::types::DynError;
-use crate::types::PubkyId;
 use log::debug;
+use pubky_app_specs::PubkyId;
 
 pub async fn put(follower_id: PubkyId, followee_id: PubkyId, _blob: &[u8]) -> Result<(), DynError> {
     debug!("Indexing new follow: {} -> {}", follower_id, followee_id);
