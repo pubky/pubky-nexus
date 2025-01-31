@@ -2730,7 +2730,7 @@ dependencies = [
 [[package]]
 name = "pubky-app-specs"
 version = "0.3.0"
-source = "git+https://github.com/pubky/pubky-app-specs?branch=feat%2Fpubky-id#66be083adbc6341f547b1cb8296fe4df99d1c4ae"
+source = "git+https://github.com/pubky/pubky-app-specs#9278a996d0804cd5b15d58dae9fc606ea0f4977c"
 dependencies = [
  "base32",
  "blake3",
