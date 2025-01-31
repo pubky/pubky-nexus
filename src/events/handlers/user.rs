@@ -7,9 +7,8 @@ use crate::models::{
 };
 use crate::queries::get::user_is_safe_to_delete;
 use crate::types::DynError;
-use crate::types::PubkyId;
 use log::debug;
-use pubky_app_specs::{traits::Validatable, PubkyAppUser};
+use pubky_app_specs::{traits::Validatable, PubkyAppUser, PubkyId};
 
 pub async fn put(user_id: PubkyId, blob: &[u8]) -> Result<(), DynError> {
     // Process profile.json and update the databases

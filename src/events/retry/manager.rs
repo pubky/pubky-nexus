@@ -49,7 +49,7 @@ impl RetryManager {
             let (tx, rx) = mpsc::channel(CHANNEL_BUFFER);
 
             tokio::spawn(Self::process_messages(rx));
-    
+
             RetryManager {
                 sender_channel: Arc::new(Mutex::new(Some(tx))),
             }
@@ -76,23 +76,17 @@ impl RetryManager {
     /// Replaces the existing sender channel with a new one and restarts the communication channel
     pub async fn restart() {
         let (new_sender_channel, new_receiver_channel) = mpsc::channel(CHANNEL_BUFFER);
-    
+
         {
-            let mut sender_lock = Self::initialise()
-                .sender_channel
-                .lock()
-                .await;
+            let mut sender_lock = Self::initialise().sender_channel.lock().await;
             *sender_lock = None; // Remove old sender
         }
-    
+
         tokio::spawn(RetryManager::process_messages(new_receiver_channel));
-    
-        let mut sender_lock = Self::initialise()
-            .sender_channel
-            .lock()
-            .await;
+
+        let mut sender_lock = Self::initialise().sender_channel.lock().await;
         *sender_lock = Some(new_sender_channel.clone());
-    
+
         info!("RetryManager restarted the channel communication");
     }
 

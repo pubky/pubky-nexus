@@ -1,13 +1,10 @@
-use std::fmt;
-
-use crate::{
-    db::connectors::pubky::PubkyConnector,
-    types::{DynError, PubkyId},
-};
+use crate::{db::connectors::pubky::PubkyConnector, types::DynError};
 use error::EventProcessorError;
 use log::debug;
+use pubky_app_specs::PubkyId;
 use reqwest;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use uri::ParsedUri;
 
 pub mod error;

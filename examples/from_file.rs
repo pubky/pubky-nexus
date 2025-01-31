@@ -14,7 +14,7 @@ const FILE_PATH: &str = "examples/events.txt";
 async fn main() -> Result<(), DynError> {
     let config = Config::from_env();
     setup(&config).await;
-    
+
     // Initialise the retry manager and prepare the sender channel to send the messages to the retry manager
     let sender_channel = RetryManager::clone_sender_channel();
 

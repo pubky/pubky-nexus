@@ -5,11 +5,10 @@ use crate::events::uri::ParsedUri;
 use crate::models::post::Bookmark;
 use crate::models::user::UserCounts;
 use crate::types::DynError;
-use crate::types::PubkyId;
 use chrono::Utc;
 use log::debug;
 use pubky_app_specs::traits::Validatable;
-use pubky_app_specs::PubkyAppBookmark;
+use pubky_app_specs::{PubkyAppBookmark, PubkyId};
 
 //TODO: only /posts/ are bookmarkable as of now.
 pub async fn put(user_id: PubkyId, bookmark_id: String, blob: &[u8]) -> Result<(), DynError> {

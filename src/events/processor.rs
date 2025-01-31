@@ -7,10 +7,10 @@ use super::Event;
 use crate::events::retry::event::RetryEvent;
 use crate::events::retry::manager::RetryManager;
 use crate::types::DynError;
-use crate::types::PubkyId;
 use crate::PubkyConnector;
 use crate::{models::homeserver::Homeserver, Config};
 use log::{debug, error, info, warn};
+use pubky_app_specs::PubkyId;
 use tokio::{sync::mpsc, time::Duration};
 
 // REVIEW: This could be env variables and can be part of EventProcessor
@@ -45,7 +45,7 @@ impl EventProcessor {
         homeserver_id: String,
         retry_manager_sender_channel: WeakRetryManagerSenderChannel,
     ) -> Self {
-        let id = PubkyId(homeserver_id.to_string());
+        let id = PubkyId::try_from(&homeserver_id).expect("Homeserver ID should be valid");
         let homeserver = Homeserver::new(id).await.unwrap();
         Self {
             homeserver,
@@ -194,12 +194,12 @@ impl EventProcessor {
                     } else {
                         warn!("Sender is invalid/dropped. Retrying event in next iteration...");
                     }
-                        
+
                     if restart {
                         self.update_sender_channel().await;
                         break;
                     }
-                    
+
                     tokio::time::sleep(delay).await;
                     // Apply exponential backoff before the next retry attempt
                     delay *= 2;
