@@ -75,7 +75,12 @@ Once the `Neo4j` graph database is seeded with data, the next step is to populat
     ```bash
     cargo run
     ```
-5. **Access Redis and Neo4j UIs**:
+5. Run the Watcher service:
+
+    ```bash
+    cargo run --bin watcher
+    ```
+6. **Access Redis and Neo4j UIs**:
    - Redis UI: [http://localhost:8001/redis-stack/browser](http://localhost:8001/redis-stack/browser)
    - Neo4J UI: [http://localhost:7474/browser/](http://localhost:7474/browser/)
 
