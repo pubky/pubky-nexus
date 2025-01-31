@@ -4,7 +4,6 @@ use pubky_nexus::{setup, types::DynError, Config, EventProcessor};
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::Path;
-use std::sync::Arc;
 
 // Create that file and add the file with that format
 // PUT homeserver_uri
@@ -15,17 +14,11 @@ const FILE_PATH: &str = "examples/events.txt";
 async fn main() -> Result<(), DynError> {
     let config = Config::from_env();
     setup(&config).await;
+    
+    // Initialise the retry manager and prepare the sender channel to send the messages to the retry manager
+    let sender_channel = RetryManager::clone_sender_channel();
 
-    // Initializes a retry manager and ensures robustness by managing retries asynchronously
-    let (receiver_channel, sender_channel) = RetryManager::init_channels();
-
-    // Create new asynchronous task to control the failed events
-    RetryManager::process_messages(receiver_channel).await;
-
-    // Prepare the sender channel to send the messages to the retry manager
-    let sender_clone = Arc::clone(&sender_channel);
-
-    let mut event_processor = EventProcessor::from_config(&config, sender_clone).await?;
+    let mut event_processor = EventProcessor::from_config(&config, sender_channel).await?;
 
     let events = read_events_from_file().unwrap();
     event_processor.process_event_lines(events).await?;

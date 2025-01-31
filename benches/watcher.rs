@@ -5,11 +5,11 @@ use pubky_app_specs::{PubkyAppUser, PubkyAppUserLink};
 use pubky_common::crypto::Keypair;
 use pubky_homeserver::Homeserver;
 use pubky_nexus::{
-    events::retry::manager::{RetryManager, RetryManagerSenderChannel},
+    events::retry::manager::{RetryManager, WeakRetryManagerSenderChannel},
     EventProcessor,
 };
 use setup::run_setup;
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 use tokio::runtime::Runtime;
 
 mod setup;
@@ -19,7 +19,7 @@ mod setup;
 /// 2. Sign up the user
 /// 3. Upload a profile.json
 /// 4. Delete the profile.json
-async fn create_homeserver_with_events() -> (Testnet, String, RetryManagerSenderChannel) {
+async fn create_homeserver_with_events() -> (Testnet, String, WeakRetryManagerSenderChannel) {
     // Create the test environment
     let testnet = Testnet::new(3).unwrap();
     let homeserver = Homeserver::start_test(&testnet).await.unwrap();
@@ -30,14 +30,8 @@ async fn create_homeserver_with_events() -> (Testnet, String, RetryManagerSender
     let keypair = Keypair::random();
     let user_id = keypair.public_key().to_z32();
 
-    // Initializes a retry manager and ensures robustness by managing retries asynchronously
-    let (receiver_channel, sender_channel) = RetryManager::init_channels();
-
-    // Create new asynchronous task to control the failed events
-    RetryManager::process_messages(receiver_channel).await;
-
-    // Prepare the sender channel to send the messages to the retry manager
-    let sender_clone = Arc::clone(&sender_channel);
+    // Initialise the retry manager and prepare the sender channel to send the messages to the retry manager
+    let sender_channel = RetryManager::clone_sender_channel();
 
     // Create and delete a user profile (as per your requirement)
     client
@@ -70,7 +64,7 @@ async fn create_homeserver_with_events() -> (Testnet, String, RetryManagerSender
     // Delete the user profile
     client.delete(url.as_str()).send().await.unwrap();
 
-    (testnet, homeserver_url, sender_clone)
+    (testnet, homeserver_url, sender_channel)
 }
 
 fn bench_create_delete_user(c: &mut Criterion) {

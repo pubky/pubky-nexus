@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use std::time::Duration;
 
 use super::dht::TestnetDHTNetwork;
@@ -49,21 +48,15 @@ impl WatcherTest {
         let homeserver = Homeserver::start_test(&testnet).await?;
         let homeserver_id = homeserver.public_key().to_string();
 
-        // Initializes a retry manager and ensures robustness by managing retries asynchronously
-        let (receiver_channel, sender_channel) = RetryManager::init_channels();
-
-        // Create new asynchronous task to control the failed events
-        RetryManager::process_messages(receiver_channel).await;
-
-        // Prepare the sender channel to send the messages to the retry manager
-        let sender_clone = Arc::clone(&sender_channel);
+        // Initialise the retry manager and prepare the sender channel to send the messages to the retry manager
+        let sender_channel = RetryManager::clone_sender_channel();
 
         match PubkyConnector::initialise(&config, Some(&testnet)).await {
             Ok(_) => debug!("WatcherTest: PubkyConnector initialised"),
             Err(e) => debug!("WatcherTest: {}", e),
         }
 
-        let event_processor = EventProcessor::test(homeserver_id, sender_clone).await;
+        let event_processor = EventProcessor::test(homeserver_id, sender_channel).await;
 
         Ok(Self {
             config,
