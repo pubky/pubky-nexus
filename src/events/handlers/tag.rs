@@ -10,11 +10,10 @@ use crate::models::tag::traits::{TagCollection, TaggersCollection};
 use crate::models::tag::user::TagUser;
 use crate::models::user::UserCounts;
 use crate::types::DynError;
-use crate::types::PubkyId;
 use crate::ScoreAction;
 use chrono::Utc;
 use log::debug;
-use pubky_app_specs::{traits::Validatable, PubkyAppTag};
+use pubky_app_specs::{traits::Validatable, PubkyAppTag, PubkyId};
 
 use super::utils::post_relationships_is_reply;
 

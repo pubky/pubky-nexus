@@ -2,10 +2,9 @@ use super::{PostRelationships, PostStream};
 use crate::db::connectors::neo4j::get_neo4j_graph;
 use crate::db::graph::exec::{exec_single_row, execute_graph_operation, OperationOutcome};
 use crate::types::DynError;
-use crate::types::PubkyId;
 use crate::{queries, RedisOps};
 use chrono::Utc;
-use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind};
+use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyId};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -123,7 +122,7 @@ impl PostDetails {
             content: homeserver_post.content,
             id: post_id.clone(),
             indexed_at: Utc::now().timestamp_millis(),
-            author: author_id.0.clone(),
+            author: author_id.to_string(),
             kind: homeserver_post.kind,
             attachments: homeserver_post.attachments,
         })

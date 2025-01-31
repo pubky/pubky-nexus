@@ -1,6 +1,6 @@
 use crate::types::DynError;
-use crate::types::PubkyId;
 use crate::{Config, RedisOps};
+use pubky_app_specs::PubkyId;
 use serde::{Deserialize, Serialize};
 
 /// Represents a homeserver with its public key, URL, and cursor.

@@ -2,10 +2,10 @@ use std::time::Duration;
 
 use super::Event;
 use crate::types::DynError;
-use crate::types::PubkyId;
 use crate::PubkyConnector;
 use crate::{models::homeserver::Homeserver, Config};
 use log::{debug, error, info};
+use pubky_app_specs::PubkyId;
 
 pub struct EventProcessor {
     homeserver: Homeserver,
@@ -39,7 +39,7 @@ impl EventProcessor {
     /// # Parameters
     /// - `homeserver_url`: The URL of the homeserver to be used in the test environment.
     pub async fn test(homeserver_id: String) -> Self {
-        let id = PubkyId(homeserver_id.to_string());
+        let id = PubkyId::try_from(&homeserver_id).expect("Homeserver ID should be valid");
         let homeserver = Homeserver::new(id).await.unwrap();
         Self {
             homeserver,

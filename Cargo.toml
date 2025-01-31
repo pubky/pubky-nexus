@@ -14,7 +14,7 @@ bytes = "1.9.0" # Enforce this version as Pubky and Axum conflict v1.7.1 vs v1.9
 pkarr = { git = "https://github.com/pubky/pkarr", branch = "v3-rc1", package = "pkarr" }
 mainline = { git = "https://github.com/pubky/mainline", branch = "v5-rc1", default-features = false }
 pubky = { git = "https://github.com/pubky/pubky", branch = "v0.4.0-rc1" }
-pubky-app-specs = { git = "https://github.com/pubky/pubky-app-specs", features = [
+pubky-app-specs = { git = "https://github.com/pubky/pubky-app-specs", branch = "feat/pubky-id", features = [
     "openapi",
 ] }
 tokio = { version = "1.43.0", features = ["full"] }

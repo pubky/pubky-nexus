@@ -1,8 +1,8 @@
 use crate::db::graph::exec::OperationOutcome;
 use crate::models::user::Muted;
 use crate::types::DynError;
-use crate::types::PubkyId;
 use log::debug;
+use pubky_app_specs::PubkyId;
 
 pub async fn put(user_id: PubkyId, muted_id: PubkyId, _blob: &[u8]) -> Result<(), DynError> {
     debug!("Indexing new mute: {} -> {}", user_id, muted_id);

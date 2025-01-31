@@ -8,10 +8,9 @@ use crate::models::post::{
 use crate::models::user::UserCounts;
 use crate::queries::get::post_is_safe_to_delete;
 use crate::types::DynError;
-use crate::types::PubkyId;
 use crate::{queries, RedisOps, ScoreAction};
 use log::debug;
-use pubky_app_specs::{traits::Validatable, PubkyAppPost, PubkyAppPostKind};
+use pubky_app_specs::{traits::Validatable, PubkyAppPost, PubkyAppPostKind, PubkyId};
 
 use super::utils::post_relationships_is_reply;
 
