@@ -198,18 +198,8 @@ async fn test_hot_tags_by_following_reach_and_month_timeframe() -> Result<()> {
     // Validate that the posts belong to the specified user's bookmarks
     analyse_hot_tags_structure(tags);
 
-    // If the test is run at the first day of the month the tags from thisMonth timeframe overlap with today
-    let today_day = Utc::now().day();
-
-    match today_day {
-        1 => assert_eq!(tags.len(), 6),
-        _ => assert_eq!(tags.len(), 5),
-    };
-
-    let hot_tag = match today_day {
-        1 => StreamTagMockup::new(String::from("all"), 4, 2, 4),
-        _ => StreamTagMockup::new(String::from("month"), 3, 2, 3),
-    };
+    assert_eq!(tags.len(), 5);
+    let hot_tag = StreamTagMockup::new(String::from("month"), 3, 2, 3);
 
     compare_unit_hot_tag(&tags[0], hot_tag);
 
@@ -233,21 +223,11 @@ async fn test_hot_tags_by_following_reach_and_month_timeframe_skip_and_limit() -
 
     assert_eq!(tags.len(), 2);
 
-    match Utc::now().day() {
-        1 => {
-            let hot_tag = StreamTagMockup::new(String::from("month"), 3, 2, 3);
-            compare_unit_hot_tag(&tags[0], hot_tag);
-            let hot_tag = StreamTagMockup::new(String::from("tag1"), 4, 2, 4);
-            compare_unit_hot_tag(&tags[1], hot_tag);
-        }
-        _ => {
-            // Analyse the tag that is in the 0 index
-            let hot_tag = StreamTagMockup::new(String::from("today"), 2, 2, 2);
-            compare_unit_hot_tag(&tags[0], hot_tag);
-            let hot_tag = StreamTagMockup::new(String::from("tag1"), 3, 1, 3);
-            compare_unit_hot_tag(&tags[1], hot_tag);
-        }
-    }
+    // Analyse the tag that is in the 0 index
+    let hot_tag = StreamTagMockup::new(String::from("today"), 2, 2, 2);
+    compare_unit_hot_tag(&tags[0], hot_tag);
+    let hot_tag = StreamTagMockup::new(String::from("tag1"), 3, 1, 3);
+    compare_unit_hot_tag(&tags[1], hot_tag);
 
     Ok(())
 }
@@ -427,18 +407,9 @@ async fn test_hot_tags_by_followers_reach_and_month_timeframe() -> Result<()> {
     // Validate that the posts belong to the specified user's bookmarks
     analyse_hot_tags_structure(tags);
 
-    // If the test is run at the first day of the month the tags from thisMonth timeframe overlap with today
-    let today_day = Utc::now().day();
+    assert_eq!(tags.len(), 5);
 
-    match today_day {
-        1 => assert_eq!(tags.len(), 6),
-        _ => assert_eq!(tags.len(), 5),
-    };
-
-    let hot_tag = match today_day {
-        1 => StreamTagMockup::new(String::from("all"), 4, 3, 4),
-        _ => StreamTagMockup::new(String::from("month"), 3, 3, 3),
-    };
+    let hot_tag = StreamTagMockup::new(String::from("month"), 3, 3, 3);
 
     // Analyse the tag that is in the 0 index
     compare_unit_hot_tag(&tags[0], hot_tag);
@@ -463,20 +434,10 @@ async fn test_hot_tags_by_followers_reach_and_month_timeframe_skip_and_limit() -
 
     assert_eq!(tags.len(), 2);
 
-    match Utc::now().day() {
-        1 => {
-            let hot_tag = StreamTagMockup::new(String::from("month"), 3, 3, 3);
-            compare_unit_hot_tag(&tags[0], hot_tag);
-            let hot_tag = StreamTagMockup::new(String::from("today"), 3, 3, 3);
-            compare_unit_hot_tag(&tags[1], hot_tag);
-        }
-        _ => {
-            let hot_tag = StreamTagMockup::new(String::from("today"), 3, 3, 3);
-            compare_unit_hot_tag(&tags[0], hot_tag);
-            let hot_tag = StreamTagMockup::new(String::from("tag1"), 3, 2, 3);
-            compare_unit_hot_tag(&tags[1], hot_tag);
-        }
-    }
+    let hot_tag = StreamTagMockup::new(String::from("today"), 3, 3, 3);
+    compare_unit_hot_tag(&tags[0], hot_tag);
+    let hot_tag = StreamTagMockup::new(String::from("tag1"), 3, 2, 3);
+    compare_unit_hot_tag(&tags[1], hot_tag);
 
     Ok(())
 }
@@ -594,18 +555,9 @@ async fn test_hot_tags_by_friends_reach_and_month_timeframe() -> Result<()> {
     // Validate that the posts belong to the specified user's bookmarks
     analyse_hot_tags_structure(tags);
 
-    // If the test is run at the first day of the month the tags from thisMonth timeframe overlap with today
-    let today_day = Utc::now().day();
+    assert_eq!(tags.len(), 4);
+    let hot_tag = StreamTagMockup::new(String::from("month"), 1, 1, 1);
 
-    match today_day {
-        1 => assert_eq!(tags.len(), 6),
-        _ => assert_eq!(tags.len(), 4),
-    };
-
-    let hot_tag = match today_day {
-        1 => StreamTagMockup::new(String::from("all"), 1, 1, 1),
-        _ => StreamTagMockup::new(String::from("month"), 1, 1, 1),
-    };
     compare_unit_hot_tag(&tags[0], hot_tag);
 
     Ok(())
@@ -628,20 +580,10 @@ async fn test_hot_tags_by_friends_reach_and_month_timeframe_skip_and_limit() -> 
 
     assert_eq!(tags.len(), 2);
 
-    match Utc::now().day() {
-        1 => {
-            let hot_tag = StreamTagMockup::new(String::from("month"), 1, 1, 1);
-            compare_unit_hot_tag(&tags[0], hot_tag);
-            let hot_tag = StreamTagMockup::new(String::from("tag1"), 1, 1, 1);
-            compare_unit_hot_tag(&tags[1], hot_tag);
-        }
-        _ => {
-            let hot_tag = StreamTagMockup::new(String::from("tag1"), 1, 1, 1);
-            compare_unit_hot_tag(&tags[0], hot_tag);
-            let hot_tag = StreamTagMockup::new(String::from("tag2"), 1, 1, 1);
-            compare_unit_hot_tag(&tags[1], hot_tag);
-        }
-    }
+    let hot_tag = StreamTagMockup::new(String::from("tag1"), 1, 1, 1);
+    compare_unit_hot_tag(&tags[0], hot_tag);
+    let hot_tag = StreamTagMockup::new(String::from("tag2"), 1, 1, 1);
+    compare_unit_hot_tag(&tags[1], hot_tag);
 
     Ok(())
 }
