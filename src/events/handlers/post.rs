@@ -20,6 +20,7 @@ pub async fn sync_put(
     author_id: PubkyId,
     post_id: String,
 ) -> Result<(), DynError> {
+    debug!("Indexing new post: {}/{}", author_id, post_id);
     // Create PostDetails object
     let post_details = PostDetails::from_homeserver(post.clone(), &author_id, &post_id).await?;
     // We avoid indexing replies into global feed sorted sets

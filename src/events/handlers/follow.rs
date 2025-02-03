@@ -9,6 +9,7 @@ use log::debug;
 use pubky_app_specs::PubkyId;
 
 pub async fn sync_put(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), DynError> {
+    debug!("Indexing new follow: {} -> {}", follower_id, followee_id);
     // SAVE TO GRAPH
     // (follower_id)-[:FOLLOWS]->(followee_id)
     match Followers::put_to_graph(&follower_id, &followee_id).await? {

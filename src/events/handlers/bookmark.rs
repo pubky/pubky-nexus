@@ -13,6 +13,7 @@ pub async fn sync_put(
     bookmark: PubkyAppBookmark,
     id: String,
 ) -> Result<(), DynError> {
+    debug!("Indexing new bookmark: {} -> {}", user_id, id);
     // Parse the URI to extract author_id and post_id using the updated parse_post_uri
     let parsed_uri = ParsedUri::try_from(bookmark.uri.as_str())?;
     let author_id = parsed_uri.user_id;

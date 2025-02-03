@@ -6,6 +6,7 @@ use log::debug;
 use pubky_app_specs::PubkyId;
 
 pub async fn sync_put(user_id: PubkyId, muted_id: PubkyId) -> Result<(), DynError> {
+    debug!("Indexing new mute: {} -> {}", user_id, muted_id);
     // (user_id)-[:MUTED]->(muted_id)
     match Muted::put_to_graph(&user_id, &muted_id).await? {
         OperationOutcome::Updated => Ok(()),
