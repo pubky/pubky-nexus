@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use chrono::Utc;
-use pubky_app_specs::{ParsedUri, Resource};
+use pubky_app_specs::ParsedUri;
 use serde::{Deserialize, Serialize};
 
 use crate::{events::error::EventProcessorError, types::DynError, RedisOps};
@@ -46,15 +46,9 @@ impl RetryEvent {
         };
 
         let user_id = parsed_uri.user_id;
-        let key = match parsed_uri.resource {
-            Resource::User => [&user_id, "user"].join(":"),
-            Resource::Post(id) => [&user_id, "post", &id].join(":"),
-            Resource::Bookmark(id) => [&user_id, "bookmark", &id].join(":"),
-            Resource::Tag(id) => [&user_id, "tag", &id].join(":"),
-            Resource::File(id) => [&user_id, "file", &id].join(":"),
-            Resource::Follow(id) => [&user_id, "follow", &id].join(":"),
-            Resource::Mute(id) => [&user_id, "mute", &id].join(":"),
-            _ => return None,
+        let key = match parsed_uri.resource.id() {
+            Some(id) => format!("{}:{}:{}", user_id, parsed_uri.resource, id),
+            None => format!("{}:{}", user_id, parsed_uri.resource),
         };
 
         Some(key)
