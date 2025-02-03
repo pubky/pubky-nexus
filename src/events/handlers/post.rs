@@ -11,7 +11,9 @@ use crate::queries::get::post_is_safe_to_delete;
 use crate::types::DynError;
 use crate::{queries, RedisOps, ScoreAction};
 use log::debug;
-use pubky_app_specs::{ParsedUri, PubkyAppPost, PubkyAppPostKind, PubkyId, Resource};
+use pubky_app_specs::{
+    user_uri_builder, ParsedUri, PubkyAppPost, PubkyAppPostKind, PubkyId, Resource,
+};
 
 use super::utils::post_relationships_is_reply;
 
@@ -46,7 +48,11 @@ pub async fn sync_put(
                 dependency.push(reply_dependency);
             }
             if dependency.is_empty() {
-                dependency.push(format!("{author_id}:user:profile.json"))
+                if let Some(key) =
+                    RetryEvent::generate_index_key(&user_uri_builder(author_id.to_string()))
+                {
+                    dependency.push(key);
+                }
             }
             return Err(EventProcessorError::MissingDependency { dependency }.into());
         }

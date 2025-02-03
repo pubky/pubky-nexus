@@ -1,6 +1,7 @@
 use crate::db::graph::exec::OperationOutcome;
 use crate::db::kv::index::json::JsonAction;
 use crate::events::error::EventProcessorError;
+use crate::events::retry::event::RetryEvent;
 use crate::models::notification::Notification;
 use crate::models::post::{PostCounts, PostStream};
 use crate::models::tag::post::TagPost;
@@ -13,7 +14,7 @@ use crate::types::DynError;
 use crate::ScoreAction;
 use chrono::Utc;
 use log::debug;
-use pubky_app_specs::Resource;
+use pubky_app_specs::{user_uri_builder, Resource};
 use pubky_app_specs::{ParsedUri, PubkyAppTag, PubkyId};
 
 use super::utils::post_relationships_is_reply;
@@ -164,9 +165,13 @@ async fn put_sync_user(
     {
         OperationOutcome::Updated => Ok(()),
         OperationOutcome::MissingDependency => {
-            // Ensure that dependencies follow the same format as the RetryManager keys
-            let dependency = vec![format!("{tagged_user_id}:user:profile.json")];
-            Err(EventProcessorError::MissingDependency { dependency }.into())
+            match RetryEvent::generate_index_key(&user_uri_builder(tagged_user_id.to_string())) {
+                Some(key) => {
+                    let dependency = vec![key];
+                    Err(EventProcessorError::MissingDependency { dependency }.into())
+                }
+                None => Err("Could not generate missing dependency key".into()),
+            }
         }
         OperationOutcome::CreatedOrDeleted => {
             // SAVE TO INDEX

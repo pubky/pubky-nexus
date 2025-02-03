@@ -1,12 +1,13 @@
 use crate::db::graph::exec::OperationOutcome;
 use crate::db::kv::index::json::JsonAction;
 use crate::events::error::EventProcessorError;
+use crate::events::retry::event::RetryEvent;
 use crate::models::follow::{Followers, Following, Friends, UserFollows};
 use crate::models::notification::Notification;
 use crate::models::user::UserCounts;
 use crate::types::DynError;
 use log::debug;
-use pubky_app_specs::PubkyId;
+use pubky_app_specs::{user_uri_builder, PubkyId};
 
 pub async fn sync_put(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), DynError> {
     debug!("Indexing new follow: {} -> {}", follower_id, followee_id);
@@ -16,8 +17,12 @@ pub async fn sync_put(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), 
         // Do not duplicate the follow relationship
         OperationOutcome::Updated => return Ok(()),
         OperationOutcome::MissingDependency => {
-            let dependency = vec![format!("{followee_id}:user:profile.json")];
-            return Err(EventProcessorError::MissingDependency { dependency }.into());
+            if let Some(key) =
+                RetryEvent::generate_index_key(&user_uri_builder(followee_id.to_string()))
+            {
+                let dependency = vec![key];
+                return Err(EventProcessorError::MissingDependency { dependency }.into());
+            }
         }
         // The relationship did not exist, create all related indexes
         OperationOutcome::CreatedOrDeleted => {

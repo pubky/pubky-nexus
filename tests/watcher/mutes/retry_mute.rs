@@ -1,6 +1,6 @@
 use crate::watcher::utils::watcher::{assert_eventually_exists, WatcherTest};
 use anyhow::Result;
-use pubky_app_specs::PubkyAppUser;
+use pubky_app_specs::{user_uri_builder, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 use pubky_nexus::events::{error::EventProcessorError, retry::event::RetryEvent, EventType};
 
@@ -48,12 +48,12 @@ async fn test_homeserver_mute_cannot_index() -> Result<()> {
 
     assert_eq!(event_state.retry_count, 0);
 
-    let dependency_uri = format!("{mutee_id}:user:profile.json");
+    let dependency_key = RetryEvent::generate_index_key(&user_uri_builder(mutee_id.to_string()));
 
     match event_state.error_type {
         EventProcessorError::MissingDependency { dependency } => {
             assert_eq!(dependency.len(), 1);
-            assert_eq!(dependency[0], dependency_uri)
+            assert_eq!(dependency[0], dependency_key.unwrap())
         }
         _ => panic!("The error type has to be MissingDependency type"),
     };
