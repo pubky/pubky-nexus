@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use chrono::Utc;
+use pubky_app_specs::{ParsedUri, Resource};
 use serde::{Deserialize, Serialize};
 
 use crate::{events::error::EventProcessorError, types::DynError, RedisOps};
@@ -7,9 +8,6 @@ use crate::{events::error::EventProcessorError, types::DynError, RedisOps};
 pub const RETRY_MAMAGER_PREFIX: &str = "RetryManager";
 pub const RETRY_MANAGER_EVENTS_INDEX: [&str; 1] = ["events"];
 pub const RETRY_MANAGER_STATE_INDEX: [&str; 1] = ["state"];
-pub const HOMESERVER_PROTOCOL: &str = "pubky:";
-pub const HOMESERVER_PUBLIC_REPOSITORY: &str = "pub";
-pub const HOMESERVER_APP_REPOSITORY: &str = "pubky.app";
 
 /// Represents an event in the retry queue and it is used to manage events that have failed
 /// to process and need to be retried
@@ -42,26 +40,24 @@ impl RetryEvent {
     /// # Parameters
     /// - `event_uri`: A string slice representing the event URI to be processed
     pub fn generate_index_key(event_uri: &str) -> Option<String> {
-        let parts: Vec<&str> = event_uri.split('/').collect();
-        // Ensure the URI structure matches the expected format
-        if parts.first() != Some(&HOMESERVER_PROTOCOL)
-            || parts.get(3) != Some(&HOMESERVER_PUBLIC_REPOSITORY)
-            || parts.get(4) != Some(&HOMESERVER_APP_REPOSITORY)
-        {
-            return None;
-        }
+        let parsed_uri = match ParsedUri::try_from(event_uri) {
+            Ok(parsed_uri) => parsed_uri,
+            Err(_) => return None,
+        };
 
-        match parts.as_slice() {
-            // Regular PubkyApp URIs
-            [_, _, pubky_id, _, _, domain, event_id] => {
-                Some(format!("{}:{}:{}", pubky_id, domain, event_id))
-            }
-            // PubkyApp user profile URI (profile.json)
-            [_, _, pubky_id, _, _, "profile.json"] => {
-                Some(format!("{}:user:profile.json", pubky_id))
-            }
-            _ => None,
-        }
+        let user_id = parsed_uri.user_id;
+        let key = match parsed_uri.resource {
+            Resource::User => [&user_id, "user"].join(":"),
+            Resource::Post(id) => [&user_id, "post", &id].join(":"),
+            Resource::Bookmark(id) => [&user_id, "bookmark", &id].join(":"),
+            Resource::Tag(id) => [&user_id, "tag", &id].join(":"),
+            Resource::File(id) => [&user_id, "file", &id].join(":"),
+            Resource::Follow(id) => [&user_id, "follow", &id].join(":"),
+            Resource::Mute(id) => [&user_id, "mute", &id].join(":"),
+            _ => return None,
+        };
+
+        Some(key)
     }
 
     /// Stores an event in both a sorted set and a JSON index in Redis.
