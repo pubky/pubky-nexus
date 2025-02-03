@@ -66,6 +66,13 @@ impl Event {
             }
         })?;
 
+        if parsed_uri.resource == Resource::Unknown {
+            return Err(EventProcessorError::InvalidEventLine {
+                message: format!("Unknown resource in URI: {}", uri),
+            }
+            .into());
+        }
+
         Ok(Some(Event {
             uri,
             event_type,
