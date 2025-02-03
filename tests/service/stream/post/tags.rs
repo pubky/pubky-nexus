@@ -27,6 +27,13 @@ async fn test_post_tag_search() -> Result<()> {
 }
 
 #[tokio::test]
+async fn test_post_stwrong_tag_param() -> Result<()> {
+    let path = format!("{}?tags=", ROOT_PATH);
+    make_wrong_request(&path, Some(400)).await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_post_tag_search_with_limit() -> Result<()> {
     let post_order = vec![POST_C, POST_B];
     let path = format!("{}?tags={}&limit=2", ROOT_PATH, TAG_LABEL_2);
