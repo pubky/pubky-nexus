@@ -8,7 +8,7 @@ use crate::{Error, Result as AppResult};
 use axum::{extract::Query, Json};
 use log::info;
 use pubky_app_specs::PubkyAppPostKind;
-use serde::{Deserialize, Deserializer};
+use serde::{de, Deserialize, Deserializer};
 use utoipa::{OpenApi, ToSchema};
 
 const MAX_TAGS: usize = 5;
@@ -41,6 +41,9 @@ where
 {
     let s: Option<String> = Option::deserialize(deserializer)?;
     if let Some(s) = s {
+        if s.is_empty() {
+            return Err(de::Error::custom("Tags cannot be empty"));
+        }
         // Split by comma and trim any excess whitespace
         let tags: Vec<String> = s.split(',').map(|tag| tag.trim().to_string()).collect();
         return Ok(Some(tags));
