@@ -1,7 +1,7 @@
 use crate::{db::connectors::pubky::PubkyConnector, types::DynError};
 use error::EventProcessorError;
 use log::debug;
-use pubky_app_specs::{ParsedUri, Resource};
+use pubky_app_specs::{ParsedUri, PubkyAppObject, Resource};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -100,21 +100,40 @@ impl Event {
         } // drop the pubky_client lock
 
         let blob = response.bytes().await?;
+        let resource = self.parsed_uri.resource;
+
+        // Use the new importer from pubky-app-specs
+        let pubky_object = PubkyAppObject::from_resource(&resource, &blob).map_err(|e| {
+            EventProcessorError::PubkyClientError {
+                message: format!(
+                    "The importer could not create PubkyAppObject from Uri and Blob: {}",
+                    e
+                ),
+            }
+        })?;
 
         let user_id = self.parsed_uri.user_id;
-        match self.parsed_uri.resource {
-            Resource::User => handlers::user::put(user_id, &blob).await?,
-            Resource::Post(post_id) => handlers::post::put(user_id, post_id, &blob).await?,
-            Resource::Follow(followee_id) => {
-                handlers::follow::put(user_id, followee_id, &blob).await?
+        match (pubky_object, resource) {
+            (PubkyAppObject::User(user), Resource::User) => {
+                handlers::user::sync_put(user, user_id).await?
             }
-            Resource::Mute(muted_id) => handlers::mute::put(user_id, muted_id, &blob).await?,
-            Resource::Bookmark(bookmark_id) => {
-                handlers::bookmark::put(user_id, bookmark_id, &blob).await?
+            (PubkyAppObject::Post(post), Resource::Post(post_id)) => {
+                handlers::post::sync_put(post, user_id, post_id).await?
             }
-            Resource::Tag(tag_id) => handlers::tag::put(user_id, tag_id, &blob).await?,
-            Resource::File(file_id) => {
-                handlers::file::put(self.uri, user_id, file_id, &blob).await?
+            (PubkyAppObject::Follow(_follow), Resource::Follow(followee_id)) => {
+                handlers::follow::sync_put(user_id, followee_id).await?
+            }
+            (PubkyAppObject::Mute(_mute), Resource::Mute(muted_id)) => {
+                handlers::mute::sync_put(user_id, muted_id).await?
+            }
+            (PubkyAppObject::Bookmark(bookmark), Resource::Bookmark(bookmark_id)) => {
+                handlers::bookmark::sync_put(user_id, bookmark, bookmark_id).await?
+            }
+            (PubkyAppObject::Tag(tag), Resource::Tag(tag_id)) => {
+                handlers::tag::sync_put(tag, user_id, tag_id).await?
+            }
+            (PubkyAppObject::File(file), Resource::File(file_id)) => {
+                handlers::file::sync_put(file, self.uri, user_id, file_id).await?
             }
             other => {
                 log::debug!("Event type not handled, Resource: {:?}", other);

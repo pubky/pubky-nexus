@@ -11,21 +11,9 @@ use crate::queries::get::post_is_safe_to_delete;
 use crate::types::DynError;
 use crate::{queries, RedisOps, ScoreAction};
 use log::debug;
-use pubky_app_specs::{
-    traits::Validatable, ParsedUri, PubkyAppPost, PubkyAppPostKind, PubkyId, Resource,
-};
+use pubky_app_specs::{ParsedUri, PubkyAppPost, PubkyAppPostKind, PubkyId, Resource};
 
 use super::utils::post_relationships_is_reply;
-
-pub async fn put(author_id: PubkyId, post_id: String, blob: &[u8]) -> Result<(), DynError> {
-    // Process Post resource and update the databases
-    debug!("Indexing new post: {}/{}", author_id, post_id);
-
-    // Serialize and validate
-    let post = <PubkyAppPost as Validatable>::try_from(blob, &post_id)?;
-
-    sync_put(post, author_id, post_id).await
-}
 
 pub async fn sync_put(
     post: PubkyAppPost,

@@ -6,18 +6,7 @@ use crate::models::user::UserCounts;
 use crate::types::DynError;
 use chrono::Utc;
 use log::debug;
-use pubky_app_specs::traits::Validatable;
 use pubky_app_specs::{ParsedUri, PubkyAppBookmark, PubkyId, Resource};
-
-//TODO: only /posts/ are bookmarkable as of now.
-pub async fn put(user_id: PubkyId, bookmark_id: String, blob: &[u8]) -> Result<(), DynError> {
-    debug!("Indexing new bookmark: {} -> {}", user_id, bookmark_id);
-
-    // Deserialize and validate bookmark
-    let bookmark = <PubkyAppBookmark as Validatable>::try_from(blob, &bookmark_id)?;
-
-    sync_put(user_id, bookmark, bookmark_id).await
-}
 
 pub async fn sync_put(
     user_id: PubkyId,

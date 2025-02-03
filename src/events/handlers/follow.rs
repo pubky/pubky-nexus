@@ -8,15 +8,6 @@ use crate::types::DynError;
 use log::debug;
 use pubky_app_specs::PubkyId;
 
-pub async fn put(follower_id: PubkyId, followee_id: PubkyId, _blob: &[u8]) -> Result<(), DynError> {
-    debug!("Indexing new follow: {} -> {}", follower_id, followee_id);
-
-    // TODO: in case we want to validate the content of this homeserver object or its `created_at` timestamp
-    // let _follow = <PubkyAppFollow as Validatable>::try_from(&blob, &followee_id).await?;
-
-    sync_put(follower_id, followee_id).await
-}
-
 pub async fn sync_put(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), DynError> {
     // SAVE TO GRAPH
     // (follower_id)-[:FOLLOWS]->(followee_id)
