@@ -1,7 +1,6 @@
 use crate::db::graph::exec::OperationOutcome;
 use crate::db::kv::index::json::JsonAction;
 use crate::events::error::EventProcessorError;
-use crate::events::uri::ParsedUri;
 use crate::models::notification::Notification;
 use crate::models::post::{PostCounts, PostStream};
 use crate::models::tag::post::TagPost;
@@ -14,23 +13,25 @@ use crate::types::DynError;
 use crate::ScoreAction;
 use chrono::Utc;
 use log::debug;
-use pubky_app_specs::{traits::Validatable, PubkyAppTag, PubkyId};
+use pubky_app_specs::Resource;
+use pubky_app_specs::{ParsedUri, PubkyAppTag, PubkyId};
 
 use super::utils::post_relationships_is_reply;
 
-pub async fn put(tagger_id: PubkyId, tag_id: String, blob: &[u8]) -> Result<(), DynError> {
+pub async fn sync_put(
+    tag: PubkyAppTag,
+    tagger_id: PubkyId,
+    tag_id: String,
+) -> Result<(), DynError> {
     debug!("Indexing new tag: {} -> {}", tagger_id, tag_id);
-
-    // Deserialize and validate tag
-    let tag = <PubkyAppTag as Validatable>::try_from(blob, &tag_id)?;
 
     // Parse the embeded URI to extract author_id and post_id using parse_tagged_post_uri
     let parsed_uri = ParsedUri::try_from(tag.uri.as_str())?;
     let indexed_at = Utc::now().timestamp_millis();
 
-    match parsed_uri.post_id {
+    match parsed_uri.resource {
         // If post_id is in the tagged URI, we place tag to a post.
-        Some(post_id) => {
+        Resource::Post(post_id) => {
             put_sync_post(
                 tagger_id,
                 parsed_uri.user_id,
@@ -43,7 +44,14 @@ pub async fn put(tagger_id: PubkyId, tag_id: String, blob: &[u8]) -> Result<(), 
             .await
         }
         // If no post_id in the tagged URI, we place tag to a user.
-        None => put_sync_user(tagger_id, parsed_uri.user_id, tag_id, tag.label, indexed_at).await,
+        Resource::User => {
+            put_sync_user(tagger_id, parsed_uri.user_id, tag_id, tag.label, indexed_at).await
+        }
+        other => Err(format!(
+            "The tagged resource is not Post or User resource. Tagged resource: {:?}",
+            other
+        )
+        .into()),
     }
 }
 
