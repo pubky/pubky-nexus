@@ -1,4 +1,4 @@
-use crate::service::utils::{get_request, invalid_get_request, post_request};
+use crate::service::utils::{get_request, host_url, invalid_get_request, post_request};
 use anyhow::Result;
 use pubky_nexus::models::tag::TagDetails;
 use reqwest::StatusCode;
@@ -10,12 +10,10 @@ use std::{
 
 use crate::utils::TestServiceServer;
 
-const HOST_URL: &str = "http://localhost:8080";
-
 #[tokio_shared_rt::test(shared)]
 async fn test_static_serving() -> Result<()> {
     TestServiceServer::get_test_server().await;
-    let client = httpc_test::new_client(HOST_URL)?;
+    let client = httpc_test::new_client(host_url().await)?;
     let test_file_path = "static";
     let test_file_name = "foobar";
 

@@ -30,7 +30,7 @@ async fn test_post_tag_search() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_post_stwrong_tag_param() -> Result<()> {
     let path = format!("{}?tags=", ROOT_PATH);
-    make_wrong_request(&path, Some(400)).await?;
+    invalid_get_request(&path, StatusCode::BAD_REQUEST).await?;
     Ok(())
 }
 

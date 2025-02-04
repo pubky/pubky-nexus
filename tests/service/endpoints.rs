@@ -1,13 +1,11 @@
 use anyhow::Result;
 
-use crate::utils::TestServiceServer;
-
-const HOST_URL: &str = "http://localhost:8080";
+use crate::{service::utils::host_url, utils::TestServiceServer};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_swagger_ui() -> Result<()> {
     TestServiceServer::get_test_server().await;
-    let client = httpc_test::new_client(HOST_URL)?;
+    let client = httpc_test::new_client(host_url().await)?;
 
     let res = client.do_get("/swagger-ui").await?;
     assert_eq!(res.status(), 200);
@@ -20,7 +18,7 @@ async fn test_swagger_ui() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_openapi_schema() -> Result<()> {
     TestServiceServer::get_test_server().await;
-    let client = httpc_test::new_client(HOST_URL)?;
+    let client = httpc_test::new_client(host_url().await)?;
 
     let res = client.do_get("/api-docs/openapi.json").await?;
     assert_eq!(res.status(), 200);
@@ -37,7 +35,7 @@ async fn test_openapi_schema() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_info_endpoint() -> Result<()> {
     TestServiceServer::get_test_server().await;
-    let client = httpc_test::new_client(HOST_URL)?;
+    let client = httpc_test::new_client(host_url().await)?;
 
     let res = client.do_get("/v0/info").await?;
     assert_eq!(res.status(), 200);

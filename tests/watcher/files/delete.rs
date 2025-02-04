@@ -1,4 +1,6 @@
-use crate::{utils::TestServiceServer, watcher::utils::watcher::WatcherTest};
+use crate::{
+    service::utils::host_url, utils::TestServiceServer, watcher::utils::watcher::WatcherTest,
+};
 use anyhow::Result;
 use chrono::Utc;
 use pubky_app_specs::{PubkyAppFile, PubkyAppUser};
@@ -62,11 +64,7 @@ async fn test_delete_pubkyapp_file() -> Result<()> {
     assert!(result_file.is_none());
 
     // Assert: Ensure it's not served anymore
-    let nexus_url = format!(
-        "http://{}:{}",
-        test.config.server_host, test.config.server_port
-    );
-    let client = httpc_test::new_client(nexus_url)?;
+    let client = httpc_test::new_client(host_url().await)?;
 
     let blob_path = format!("/static/files/{}/{}", user_id, file_id);
     let response = client.do_get(&blob_path).await?;

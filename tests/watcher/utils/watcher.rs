@@ -15,7 +15,6 @@ use pubky_nexus::{
 pub struct WatcherTest {
     pub homeserver: Homeserver,
     pub event_processor: EventProcessor,
-    pub config: Config,
     pub ensure_event_processing: bool,
 }
 
@@ -51,7 +50,6 @@ impl WatcherTest {
         let event_processor = EventProcessor::test(homeserver_id).await;
 
         Ok(Self {
-            config,
             homeserver,
             event_processor,
             ensure_event_processing: true,

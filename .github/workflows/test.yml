@@ -35,6 +35,7 @@ jobs:
       #     key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
       #     restore-keys: |
       #       ${{ runner.os }}-cargo-build-
+
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
@@ -57,9 +58,6 @@ jobs:
             sleep 1
           done
 
-      # - name: Install dependencies
-      #   run: cargo build --release
-      
       - name: Load Mock Data
         run: cargo run --bin mockdb
 
