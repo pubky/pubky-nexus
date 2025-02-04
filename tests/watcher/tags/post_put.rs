@@ -139,7 +139,7 @@ async fn test_homeserver_put_tag_post() -> Result<()> {
         0,
         "Post author should have 0 notification. Self tagging."
     );
-    
+
     // Cleanup user and post
     test.cleanup_post(&tagger_user_id, &post_id).await?;
     test.cleanup_user(&tagger_user_id).await?;

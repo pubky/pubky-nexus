@@ -134,7 +134,7 @@ async fn test_homeserver_del_tag_post() -> Result<()> {
         .await
         .unwrap();
     assert!(tag_timeline.is_none());
-    
+
     // Cleanup user and post
     test.cleanup_post(&author_user_id, &post_id).await?;
     test.cleanup_user(&author_user_id).await?;

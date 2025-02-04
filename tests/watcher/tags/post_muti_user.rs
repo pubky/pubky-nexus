@@ -61,7 +61,7 @@ async fn test_homeserver_multi_user() -> Result<()> {
 
     let label_water = "water";
     let label_fire = "fire";
-    
+
     // Step 2: Create tags
     let mut tag_urls = Vec::with_capacity(5);
     let water_taggers = [tagger_a_id, tagger_b_id, tagger_c_id];
@@ -190,7 +190,7 @@ async fn test_homeserver_multi_user() -> Result<()> {
         "Total engagement should be present"
     );
     assert_eq!(total_engagement.unwrap(), 5);
-    
+
     // Step 4: DEL tag from homeserver
     for tag_url in tag_urls {
         test.del(&tag_url).await?;
