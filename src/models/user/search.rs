@@ -61,7 +61,7 @@ impl UserSearch {
         Self::delete_existing_records(
             details_list
                 .iter()
-                .map(|details| details.id.0.as_str())
+                .map(|details| details.id.as_str())
                 .collect::<Vec<&str>>()
                 .as_slice(),
         )
@@ -80,7 +80,7 @@ impl UserSearch {
             let score = 0.0;
 
             // The value in the sorted set will be `username:user_id`
-            let member = format!("{}:{}", username, user_id.0);
+            let member = format!("{}:{}", username, user_id);
 
             items.push((score, member));
         }
@@ -115,7 +115,7 @@ impl UserSearch {
         for user_id in user_ids {
             let existing_username = users
                 .iter()
-                .find(|user| user.id.0 == *user_id)
+                .find(|user| user.id.to_string() == *user_id)
                 .map(|user| user.name.to_lowercase());
             if let Some(existing_record) = existing_username {
                 let search_key = format!("{}:{}", existing_record, user_id);
@@ -138,16 +138,16 @@ impl UserSearch {
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
-
     use crate::{
         models::{
             traits::Collection,
             user::{UserDetails, UserSearch},
         },
-        types::{DynError, PubkyId},
+        types::DynError,
         Config, RedisOps, StackManager,
     };
+    use chrono::Utc;
+    use pubky_app_specs::PubkyId;
 
     #[tokio_shared_rt::test(shared)]
     async fn test_put_to_index_no_duplicates() -> Result<(), DynError> {
@@ -157,10 +157,10 @@ mod tests {
         // when called with the same `UserDetails` multiple times.
 
         // Create a `UserDetails` object
-        let user_id = "user_id";
+        let user_id = "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo";
         let user_name = "Test User Duplicate";
         let user_details = UserDetails {
-            id: PubkyId(user_id.to_string()),
+            id: PubkyId::try_from(user_id).expect("valid pubky id"),
             name: user_name.to_string(),
             bio: None,
             status: None,
@@ -183,7 +183,7 @@ mod tests {
 
         let new_user_name = "Some Other User Name";
         let new_user_details = UserDetails {
-            id: PubkyId(user_id.to_string()),
+            id: PubkyId::try_from(user_id).expect("valid pubky id"),
             name: new_user_name.to_string(),
             bio: None,
             status: None,

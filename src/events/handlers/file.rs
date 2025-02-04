@@ -1,6 +1,5 @@
 use crate::db::connectors::pubky::PubkyConnector;
 use crate::types::DynError;
-use crate::types::PubkyId;
 use crate::{
     models::{
         file::{
@@ -12,7 +11,7 @@ use crate::{
     Config,
 };
 use log::{debug, error};
-use pubky_app_specs::{traits::Validatable, PubkyAppFile};
+use pubky_app_specs::{traits::Validatable, PubkyAppFile, PubkyId};
 use tokio::{
     fs::{self, remove_file, File},
     io::AsyncWriteExt,

@@ -60,7 +60,15 @@ To get started with Nexus, first set up the required databases: Neo4j and Redis.
    docker-compose up -d
    ```
 
-3. Optionally populate the Neo4j database with initial mock data. For that refer to [Running Tests](#running-tests).
+3. Populate the Neo4j database with initial data:
+
+   ```bash
+   docker exec neo4j bash /db-graph/run-queries.sh
+   ```
+
+Once the `Neo4j` graph database is seeded with data, the next step is to populate the `Redis` database by running the _nexus-service_
+
+> If the Redis cache is empty, the nexus-service will handle it automatically. If not follow the steps of warning section
 
 4. Run the Nexus service:
 
@@ -68,7 +76,13 @@ To get started with Nexus, first set up the required databases: Neo4j and Redis.
    cargo run
    ```
 
-5. **Access Redis and Neo4j UIs**:
+5. Run the Watcher service:
+
+   ```bash
+   cargo run --bin watcher
+   ```
+
+6. **Access Redis and Neo4j UIs**:
    - Redis UI: [http://localhost:8001/redis-stack/browser](http://localhost:8001/redis-stack/browser)
    - Neo4J UI: [http://localhost:7474/browser/](http://localhost:7474/browser/)
 
@@ -82,9 +96,10 @@ To contribute to Nexus, follow these steps:
 
 ### Running Tests
 
-Running tests requires setting up mock data into Neo4j and Redis.  
+Running tests requires setting up mock data into Neo4j and Redis.
 
 Use the `mockdb` binary to load the mock data.
+
 ```bash
 cargo run --bin mockdb [database]
 ```
@@ -94,6 +109,7 @@ cargo run --bin mockdb [database]
 > If the Redis cache is empty, the nexus-service will handle it automatically. If not follow the steps of warning section
 
 You can optionally pass the `GRAPH_CONTAINER_NAME` env var if your neo4j container in docker has a different name. Defaults to `neo4j`. For example:
+
 ```bash
 GRAPH_CONTAINER_NAME=nexus-neo4j cargo run --bin mockdb
 ```
@@ -101,7 +117,7 @@ GRAPH_CONTAINER_NAME=nexus-neo4j cargo run --bin mockdb
 Then to run all tests:
 
 ```bash
-cargo test
+cargo test // cargo nextest run
 ```
 
 To test specific modules or features:
@@ -119,7 +135,25 @@ cargo bench --bench user get_user_view_by_id
 
 ## ⚠️ Troubleshooting
 
+<<<<<<< HEAD
 If tests or the development environment seem out of sync, follow the [Running Tests](#running-tests) steps to reload the mock data.
+=======
+If tests or the development environment seem out of sync, follow these steps to reset:
+
+1. **Reset Neo4j**:
+
+   ```bash
+   docker exec neo4j bash -c "cypher-shell -u neo4j -p 12345678 'MATCH (n) DETACH DELETE n;'"
+   docker exec neo4j bash /db-graph/run-queries.sh
+   ```
+
+2. **Re-index Redis Cache**:
+
+   ```bash
+   REINDEX=true cargo run
+   ```
+
+   > > > > > > > main
 
 ## 🌐 Useful Links
 

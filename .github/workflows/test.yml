@@ -35,6 +35,9 @@ jobs:
       #     key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
       #     restore-keys: |
       #       ${{ runner.os }}-cargo-build-
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
 
       - name: Copy environment variables
         run: cp .env-sample .env
@@ -61,7 +64,7 @@ jobs:
         run: cargo run --bin mockdb
 
       - name: Run integration tests
-        run: cargo test
+        run: cargo nextest run -no-fail-fast
 
       - name: Tear down Docker Compose
         if: always()

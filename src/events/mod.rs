@@ -1,5 +1,6 @@
-use crate::{db::connectors::pubky::PubkyConnector, types::PubkyId};
+use crate::db::connectors::pubky::PubkyConnector;
 use log::{debug, error};
+use pubky_app_specs::PubkyId;
 use reqwest;
 use uri::ParsedUri;
 

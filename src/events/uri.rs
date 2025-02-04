@@ -1,5 +1,5 @@
 use crate::types::DynError;
-use crate::types::PubkyId;
+use pubky_app_specs::PubkyId;
 use std::convert::TryFrom;
 
 #[derive(Default, Debug)]
