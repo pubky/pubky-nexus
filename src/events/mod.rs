@@ -106,7 +106,7 @@ impl Event {
         let blob = response.bytes().await?;
         let resource = self.parsed_uri.resource;
 
-        // Use the new importer from pubky-app-specs
+        // Use the importer from pubky-app-specs
         let pubky_object = PubkyAppObject::from_resource(&resource, &blob).map_err(|e| {
             EventProcessorError::PubkyClientError {
                 message: format!(
