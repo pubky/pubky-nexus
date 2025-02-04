@@ -10,7 +10,6 @@ use pubky_app_specs::{
 use pubky_common::crypto::Keypair;
 use pubky_homeserver::Homeserver;
 use pubky_nexus::events::retry::event::RetryEvent;
-use pubky_nexus::events::retry::manager::RetryManager;
 use pubky_nexus::events::Event;
 use pubky_nexus::types::DynError;
 use pubky_nexus::{setup, Config, EventProcessor, PubkyConnector};
@@ -48,15 +47,12 @@ impl WatcherTest {
         let homeserver = Homeserver::start_test(&testnet).await?;
         let homeserver_id = homeserver.public_key().to_string();
 
-        // Initialise the retry manager and prepare the sender channel to send the messages to the retry manager
-        let sender_channel = RetryManager::clone_sender_channel();
-
         match PubkyConnector::initialise(&config, Some(&testnet)).await {
             Ok(_) => debug!("WatcherTest: PubkyConnector initialised"),
             Err(e) => debug!("WatcherTest: {}", e),
         }
 
-        let event_processor = EventProcessor::test(homeserver_id, sender_channel).await;
+        let event_processor = EventProcessor::test(homeserver_id).await;
 
         Ok(Self {
             config,

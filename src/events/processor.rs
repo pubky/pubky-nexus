@@ -1,34 +1,18 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
-
 use super::error::EventProcessorError;
-use super::retry::manager::{RetryQueueMessage, WeakRetryManagerSenderChannel};
 use super::Event;
 use crate::events::retry::event::RetryEvent;
-use crate::events::retry::manager::RetryManager;
 use crate::types::DynError;
 use crate::PubkyConnector;
 use crate::{models::homeserver::Homeserver, Config};
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use pubky_app_specs::PubkyId;
-use tokio::{sync::mpsc, time::Duration};
-
-// TODO: This could be env variables and can be part of EventProcessor
-const MAX_ATTEMPTS: i32 = 5;
-const SEND_RETRY_MESSAGE_DELAY: u64 = 10;
-const RETRY_THRESHOLD: usize = 20;
 
 pub struct EventProcessor {
     pub homeserver: Homeserver,
     limit: u32,
-    pub retry_manager_sender_channel: WeakRetryManagerSenderChannel,
-    consecutive_message_send_failures: Arc<AtomicUsize>,
 }
 
 impl EventProcessor {
-    pub fn set_sender_channel(&mut self, channel: WeakRetryManagerSenderChannel) {
-        self.retry_manager_sender_channel = channel;
-    }
     /// Creates a new `EventProcessor` instance for testing purposes.
     ///
     /// This function initializes an `EventProcessor` configured with:
@@ -41,24 +25,16 @@ impl EventProcessor {
     /// # Parameters
     /// - `homeserver_id`: A `String` representing the URL of the homeserver to be used in the test environment.
     /// - `tx`: A `RetryManagerSenderChannel` used to handle outgoing messages or events.
-    pub async fn test(
-        homeserver_id: String,
-        retry_manager_sender_channel: WeakRetryManagerSenderChannel,
-    ) -> Self {
+    pub async fn test(homeserver_id: String) -> Self {
         let id = PubkyId::try_from(&homeserver_id).expect("Homeserver ID should be valid");
         let homeserver = Homeserver::new(id).await.unwrap();
         Self {
             homeserver,
             limit: 1000,
-            retry_manager_sender_channel,
-            consecutive_message_send_failures: Arc::new(AtomicUsize::new(0)),
         }
     }
 
-    pub async fn from_config(
-        config: &Config,
-        retry_manager_sender_channel: WeakRetryManagerSenderChannel,
-    ) -> Result<Self, DynError> {
+    pub async fn from_config(config: &Config) -> Result<Self, DynError> {
         let homeserver = Homeserver::from_config(config).await?;
         let limit = config.events_limit;
 
@@ -67,12 +43,7 @@ impl EventProcessor {
             homeserver
         );
 
-        Ok(Self {
-            homeserver,
-            limit,
-            retry_manager_sender_channel,
-            consecutive_message_send_failures: Arc::new(AtomicUsize::new(0)),
-        })
+        Ok(Self { homeserver, limit })
     }
 
     pub async fn run(&mut self) -> Result<(), DynError> {
@@ -155,100 +126,15 @@ impl EventProcessor {
     /// # Parameters:
     /// - `event`: The event to be processed
     async fn handle_event(&mut self, event: Event) -> Result<(), DynError> {
-        let mut attempts = 0;
-        let mut delay = Duration::from_millis(SEND_RETRY_MESSAGE_DELAY);
-
         if let Err(e) = event.clone().handle().await {
             if let Some((index_key, retry_event)) = extract_retry_event_info(&event, e) {
-                let queue_message = RetryQueueMessage::ProcessEvent(index_key.clone(), retry_event);
-
-                while attempts < MAX_ATTEMPTS {
-                    let mut restart = false;
-                    if let Some(sender_arc) = self.retry_manager_sender_channel.upgrade() {
-                        let mut sender_guard = sender_arc.lock().await;
-
-                        if let Some(sender) = sender_guard.as_mut() {
-                            match sender.try_send(queue_message.clone()) {
-                                Err(mpsc::error::TrySendError::Full(_)) => {
-                                    warn!(
-                                        "Retry channel is full. Retrying in {:?}... (attempt {}/{})",
-                                        delay, attempts + 1, MAX_ATTEMPTS
-                                    );
-                                }
-                                Err(mpsc::error::TrySendError::Closed(_)) => {
-                                    warn!("Retry channel receiver is unavailable! Restarting RetryManager...");
-                                    restart = true;
-                                }
-                                _ => {
-                                    // Message sent successfully, reset failure counter
-                                    self.consecutive_message_send_failures
-                                        .store(0, Ordering::Relaxed);
-                                    return Ok(());
-                                }
-                            }
-                        } else {
-                            warn!("Retry sender channel has been dropped. Retrying in {:?}... (attempt {}/{})",
-                                delay, attempts + 1, MAX_ATTEMPTS
-                            );
-                        }
-                    } else {
-                        warn!("Sender is invalid/dropped. Retrying event in next iteration...");
-                    }
-
-                    if restart {
-                        self.update_sender_channel().await;
-                        break;
-                    }
-
-                    tokio::time::sleep(delay).await;
-                    // Apply exponential backoff before the next retry attempt
-                    delay *= 2;
-                    attempts += 1;
+                error!("{}, {}", retry_event.error_type, index_key);
+                if let Err(err) = retry_event.put_to_index(index_key).await {
+                    error!("Failed to put event to retry index: {}", err);
                 }
-
-                error!(
-                    "Message passing failed: Unable to send event {:?} after {} attempts. Dropping event...",
-                    index_key, MAX_ATTEMPTS
-                );
-
-                // Increase failure counter to track consecutive failures
-                self.consecutive_message_send_failures
-                    .fetch_add(1, Ordering::Relaxed);
-                self.evaluate_message_send_failures().await;
             }
         }
         Ok(())
-    }
-
-    /// Checks if the consecutive message send failure count has reached RETRY_THRESHOLD
-    /// and triggers a RetryManager restart if necessary
-    /// This prevents RetryManager from restarting too frequently
-    async fn evaluate_message_send_failures(&mut self) {
-        // Before reset the retry manager, reset the consecutive message send fail counter
-        let reset_needed = self
-            .consecutive_message_send_failures
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
-                if count >= RETRY_THRESHOLD {
-                    Some(0) // Reset counter
-                } else {
-                    None
-                }
-            })
-            .is_ok();
-
-        if reset_needed {
-            warn!(
-                "Message send failure threshold reached ({} consecutive failures). Restarting RetryManager...",
-                RETRY_THRESHOLD
-            );
-            self.update_sender_channel().await;
-        }
-    }
-
-    /// Restarts the RetryManager and updates the sender channel reference
-    async fn update_sender_channel(&mut self) {
-        RetryManager::restart().await;
-        self.set_sender_channel(RetryManager::clone_sender_channel());
     }
 }
 
