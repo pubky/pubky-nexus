@@ -66,18 +66,20 @@ impl EventProcessor {
         let processor_semaphore = Arc::new(Semaphore::new(self.max_processors));
 
         loop {
-            info!("Fetching events...");
+            info!("Fetching homeservers...");
             let homeservers = Homeserver::get_next_homeservers(
                 processor_semaphore.available_permits() as i8,
                 self.sleep,
             )
             .await?;
             for mut homeserver in homeservers {
+                info!("Starting task for processing homeserver: {:?}", homeserver);
                 let permit = processor_semaphore.clone().acquire_owned().await?;
                 homeserver.last_polled_at = chrono::Utc::now().timestamp_millis();
                 homeserver.save().await?;
                 let mut processor = self.clone();
                 tokio::spawn(async move {
+                    info!("Processing events for homeserver: {:?}", homeserver);
                     if let Err(e) = processor.run(homeserver).await {
                         error!("Uncaught error occurred while processing events: {:?}", e);
                     }
@@ -90,11 +92,7 @@ impl EventProcessor {
     }
 
     pub async fn run(&mut self, homeserver: Homeserver) -> Result<(), DynError> {
-        let lines = {
-            self.poll_events(homeserver.clone())
-                .await
-                .unwrap_or_default()
-        };
+        let lines = self.poll_events(homeserver.clone()).await?;
         if let Some(lines) = lines {
             self.process_event_lines(homeserver, lines).await?;
         };

@@ -836,6 +836,6 @@ pub fn get_next_homeservers(limit: i8, interval: u64) -> Query {
             RETURN COLLECT(hs) as homeservers
         ",
     )
-    .param("interval", (interval as i64) * 1000)
+    .param("interval", interval as i64)
     .param("limit", limit)
 }
