@@ -69,7 +69,7 @@ jobs:
           sleep 10  # Give the service a moment to start
         
       - name: Run integration tests
-        run: cargo nextest run -no-fail-fast
+        run: cargo nextest run --no-fail-fast
 
       - name: Show service logs if tests fail
         if: failure()

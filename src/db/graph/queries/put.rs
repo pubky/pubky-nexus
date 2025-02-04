@@ -1,8 +1,8 @@
-use crate::events::uri::ParsedUri;
 use crate::models::post::PostRelationships;
 use crate::models::{file::FileDetails, post::PostDetails, user::UserDetails};
 use crate::types::DynError;
 use neo4rs::{query, Query};
+use pubky_app_specs::{ParsedUri, Resource};
 
 // Create a user node
 pub fn create_user(user: &UserDetails) -> Result<Query, DynError> {
@@ -110,7 +110,10 @@ fn add_relationship_params(
     if let Some(uri) = uri {
         let parsed_uri = ParsedUri::try_from(uri.as_str())?;
         let parent_author_id = parsed_uri.user_id;
-        let parent_post_id = parsed_uri.post_id.ok_or("Missing post ID")?;
+        let parent_post_id = match parsed_uri.resource {
+            Resource::Post(id) => id,
+            _ => return Err("Reposted uri is not a Post resource".into()),
+        };
 
         return Ok(cypher_query
             .param(author_param, parent_author_id.as_str())

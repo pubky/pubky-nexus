@@ -8,8 +8,13 @@ use tokio::time::{sleep, Duration};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
     let config = Config::from_env();
+    // Initializes database connectors for Neo4j and Redis
     setup(&config).await;
-    PubkyConnector::initialise(&config, None)?;
+
+    // Initializes the PubkyConnector with the configuration
+    PubkyConnector::initialise(&config, None).await?;
+
+    // Create and configure the event processor
     let mut event_processor = EventProcessor::from_config(&config).await?;
 
     loop {

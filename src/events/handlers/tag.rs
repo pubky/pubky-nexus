@@ -1,6 +1,7 @@
 use crate::db::graph::exec::OperationOutcome;
 use crate::db::kv::index::json::JsonAction;
-use crate::events::uri::ParsedUri;
+use crate::events::error::EventProcessorError;
+use crate::events::retry::event::RetryEvent;
 use crate::models::notification::Notification;
 use crate::models::post::{PostCounts, PostStream};
 use crate::models::tag::post::TagPost;
@@ -12,23 +13,25 @@ use crate::types::DynError;
 use crate::ScoreAction;
 use chrono::Utc;
 use log::debug;
-use pubky_app_specs::{traits::Validatable, PubkyAppTag, PubkyId};
+use pubky_app_specs::{user_uri_builder, Resource};
+use pubky_app_specs::{ParsedUri, PubkyAppTag, PubkyId};
 
 use super::utils::post_relationships_is_reply;
 
-pub async fn put(tagger_id: PubkyId, tag_id: String, blob: &[u8]) -> Result<(), DynError> {
+pub async fn sync_put(
+    tag: PubkyAppTag,
+    tagger_id: PubkyId,
+    tag_id: String,
+) -> Result<(), DynError> {
     debug!("Indexing new tag: {} -> {}", tagger_id, tag_id);
-
-    // Deserialize and validate tag
-    let tag = <PubkyAppTag as Validatable>::try_from(blob, &tag_id)?;
 
     // Parse the embeded URI to extract author_id and post_id using parse_tagged_post_uri
     let parsed_uri = ParsedUri::try_from(tag.uri.as_str())?;
     let indexed_at = Utc::now().timestamp_millis();
 
-    match parsed_uri.post_id {
+    match parsed_uri.resource {
         // If post_id is in the tagged URI, we place tag to a post.
-        Some(post_id) => {
+        Resource::Post(post_id) => {
             put_sync_post(
                 tagger_id,
                 parsed_uri.user_id,
@@ -41,7 +44,14 @@ pub async fn put(tagger_id: PubkyId, tag_id: String, blob: &[u8]) -> Result<(), 
             .await
         }
         // If no post_id in the tagged URI, we place tag to a user.
-        None => put_sync_user(tagger_id, parsed_uri.user_id, tag_id, tag.label, indexed_at).await,
+        Resource::User => {
+            put_sync_user(tagger_id, parsed_uri.user_id, tag_id, tag.label, indexed_at).await
+        }
+        other => Err(format!(
+            "The tagged resource is not Post or User resource. Tagged resource: {:?}",
+            other
+        )
+        .into()),
     }
 }
 
@@ -64,7 +74,6 @@ async fn put_sync_post(
     post_uri: String,
     indexed_at: i64,
 ) -> Result<(), DynError> {
-    // SAVE TO GRAPH
     match TagPost::put_to_graph(
         &tagger_user_id,
         &author_id,
@@ -76,10 +85,10 @@ async fn put_sync_post(
     .await?
     {
         OperationOutcome::Updated => Ok(()),
-        // TODO: Should return an error that should be processed by RetryManager
-        // WIP: Create a custom error type to pass enough info to the RetryManager
-        OperationOutcome::Pending => {
-            Err("WATCHER: Missing some dependency to index the model".into())
+        OperationOutcome::MissingDependency => {
+            // Ensure that dependencies follow the same format as the RetryManager keys
+            let dependency = vec![format!("{author_id}:posts:{post_id}")];
+            Err(EventProcessorError::MissingDependency { dependency }.into())
         }
         OperationOutcome::CreatedOrDeleted => {
             // SAVE TO INDEXES
@@ -139,7 +148,6 @@ async fn put_sync_user(
     tag_label: String,
     indexed_at: i64,
 ) -> Result<(), DynError> {
-    // SAVE TO GRAPH
     match TagUser::put_to_graph(
         &tagger_user_id,
         &tagged_user_id,
@@ -151,10 +159,14 @@ async fn put_sync_user(
     .await?
     {
         OperationOutcome::Updated => Ok(()),
-        // TODO: Should return an error that should be processed by RetryManager
-        // WIP: Create a custom error type to pass enough info to the RetryManager
-        OperationOutcome::Pending => {
-            Err("WATCHER: Missing some dependency to index the model".into())
+        OperationOutcome::MissingDependency => {
+            match RetryEvent::generate_index_key(&user_uri_builder(tagged_user_id.to_string())) {
+                Some(key) => {
+                    let dependency = vec![key];
+                    Err(EventProcessorError::MissingDependency { dependency }.into())
+                }
+                None => Err("Could not generate missing dependency key".into()),
+            }
         }
         OperationOutcome::CreatedOrDeleted => {
             // SAVE TO INDEX
@@ -186,8 +198,6 @@ async fn put_sync_user(
 
 pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), DynError> {
     debug!("Deleting tag: {} -> {}", user_id, tag_id);
-    // DELETE FROM GRAPH
-    // Maybe better if we add as a local function instead of part of the trait?
     let tag_details = TagUser::del_from_graph(&user_id, &tag_id).await?;
     // CHOOSE THE EVENT TYPE
     if let Some((tagged_user_id, post_id, author_id, label)) = tag_details {
@@ -206,9 +216,7 @@ pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), DynError> {
             }
         }
     } else {
-        // TODO: Should return an error that should be processed by RetryManager
-        // WIP: Create a custom error type to pass enough info to the RetryManager
-        return Err("WATCHER: Missing some dependency to index the model".into());
+        return Err(EventProcessorError::SkipIndexing.into());
     }
     Ok(())
 }
