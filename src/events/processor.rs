@@ -13,9 +13,9 @@ use log::{debug, error, info, warn};
 use pubky_app_specs::PubkyId;
 use tokio::{sync::mpsc, time::Duration};
 
-// REVIEW: This could be env variables and can be part of EventProcessor
+// TODO: This could be env variables and can be part of EventProcessor
 const MAX_ATTEMPTS: i32 = 5;
-const MESSAGE_SEND_RETRY: u64 = 10;
+const SEND_RETRY_MESSAGE_DELAY: u64 = 10;
 const RETRY_THRESHOLD: usize = 20;
 
 pub struct EventProcessor {
@@ -156,7 +156,7 @@ impl EventProcessor {
     /// - `event`: The event to be processed
     async fn handle_event(&mut self, event: Event) -> Result<(), DynError> {
         let mut attempts = 0;
-        let mut delay = Duration::from_millis(MESSAGE_SEND_RETRY);
+        let mut delay = Duration::from_millis(SEND_RETRY_MESSAGE_DELAY);
 
         if let Err(e) = event.clone().handle().await {
             if let Some((index_key, retry_event)) = extract_retry_event_info(&event, e) {
