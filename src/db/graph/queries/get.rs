@@ -1,6 +1,6 @@
 use crate::models::post::StreamSource;
-use crate::models::tag::stream::HotTagsInput;
 use crate::models::tag::stream::TagStreamReach;
+use crate::routes::v0::tag::HotTagsInput;
 use crate::types::Pagination;
 use crate::types::StreamSorting;
 use log::debug;
@@ -389,31 +389,6 @@ pub fn get_user_muted(user_id: &str, skip: Option<usize>, limit: Option<usize>) 
     query(&query_string).param("user_id", user_id)
 }
 
-// Retrieves posts popular tags and its taggers across the entire network
-pub fn get_global_hot_tags_scores() -> Query {
-    query(
-        "
-        MATCH (u:User)-[tag:TAGGED]->(p:Post)
-        WITH tag.label AS label, COUNT(DISTINCT p) AS uniquePosts, COLLECT(DISTINCT u.id) AS user_ids
-        RETURN COLLECT([toFloat(uniquePosts), label]) AS hot_tags_score, COLLECT([label, user_ids]) AS hot_tags_users
-    ",
-    )
-}
-
-// Retrieves popular hot tags taggers across the entire network
-pub fn get_global_hot_tags_taggers(tag_list: &[&str]) -> Query {
-    query(
-        "
-        UNWIND $labels AS tag_name
-        MATCH (u:User)-[tag:TAGGED]->(p:Post)
-        WHERE tag.label = tag_name
-        WITH tag.label AS label, COLLECT(DISTINCT u.id) AS userIds
-        RETURN COLLECT(userIds) AS tag_user_ids
-    ",
-    )
-    .param("labels", tag_list)
-}
-
 fn tag_stream_reach_to_graph_subquery(reach: &TagStreamReach) -> String {
     let query = match reach {
         TagStreamReach::Followers => "MATCH (user:User)<-[:FOLLOWS]-(reach:User)",
@@ -436,12 +411,20 @@ pub fn get_tag_taggers_by_reach(
         format!(
             "
             {}
-            MATCH (reach)-[tag:TAGGED]->()
+            // The tagged node can be generic, representing either a Post, a User, or both.
+            // For now, it will be a Post to align with UX requirements.
+            MATCH (reach)-[tag:TAGGED]->(tagged:Post)
             WHERE user.id = $user_id AND tag.label = $label
-            WITH reach, MAX(tag.indexed_at) AS tag_time
-            ORDER BY tag_time DESC
-            SKIP $skip LIMIT $limit
-            RETURN COLLECT(reach.id) as tagger_ids
+
+            // Get the latest tagged timestamp per `reach` user
+            WITH DISTINCT reach, MAX(tag.indexed_at) AS latest_tag_time
+            ORDER BY latest_tag_time DESC
+
+            // Use slice notation instead of SKIP and LIMIT
+            WITH COLLECT({{ reach_id: reach.id }})[$skip..$skip + $limit] AS paginated
+            UNWIND paginated AS row
+
+            RETURN COLLECT(row.reach_id) AS tagger_ids
             ",
             tag_stream_reach_to_graph_subquery(&reach)
         )

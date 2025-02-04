@@ -1,11 +1,11 @@
 mod config;
-mod db;
+pub mod db;
 mod error;
 pub mod events;
 pub mod models;
 mod reindex;
 pub mod routes;
-mod setup;
+pub mod setup;
 pub mod types;
 
 pub use config::Config;

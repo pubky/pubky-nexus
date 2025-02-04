@@ -131,7 +131,7 @@ impl TagSearch {
         let key_parts = [&TAG_GLOBAL_POST_TIMELINE[..], &[tag_label]].concat();
         let tag_search = Self::check_sorted_set_member(&key_parts, post_key_slice).await?;
         if tag_search.is_none() {
-            let option = PostDetails::try_from_index_json(post_key_slice).await?;
+            let option = PostDetails::try_from_index_json(post_key_slice, None).await?;
             if let Some(post_details) = option {
                 let member_key = post_key_slice.join(":");
                 Self::put_index_sorted_set(

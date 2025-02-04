@@ -124,6 +124,7 @@ pub const POST_EI: &str = "0032GZQ338BMP";
 pub const POST_EJ: &str = "2Z1N8QBETDS00";
 pub const POST_EK: &str = "2Z1N8QBERHB00";
 pub const POST_EL: &str = "2Z1N8QBETHK00";
+pub const POST_TAG_ME: &str = "0032BZ0T19R70";
 
 pub const POST_E0: &str = "2Z1PBYS0F90G0";
 pub const POST_E1: &str = "2ZECRNM66G900";
@@ -140,7 +141,16 @@ async fn test_stream_posts_global_total_engagement_with_start_score() -> Result<
 
     let body = make_request(&path).await?;
     let post_list = vec![
-        POST_EA, POST_EB, POST_EC, POST_ED, POST_EF, POST_EG, POST_EH, POST_EI, POST_EJ, POST_EK,
+        POST_EA,
+        POST_EB,
+        POST_EC,
+        POST_ED,
+        POST_EF,
+        POST_EG,
+        POST_EH,
+        POST_EI,
+        POST_TAG_ME,
+        POST_EJ,
     ];
 
     verify_post_list(post_list, body);

@@ -46,7 +46,9 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     ///
     /// # Arguments
     ///
-    /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the value is stored.
+    /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the value is stored
+    /// * `prefix` - An optional string representing the prefix for the Redis keys. If `Some(String)`, the prefix will be used
+    /// * `expiration` - An optional `i64` specifying the TTL (in seconds) for the set. If `None`, no TTL will be set.
     ///
     /// # Errors
     ///
@@ -54,16 +56,11 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     async fn put_index_json(
         &self,
         key_parts: &[&str],
+        prefix: Option<String>,
         expiration: Option<i64>,
     ) -> Result<(), DynError> {
-        json::put(
-            &Self::prefix().await,
-            &key_parts.join(":"),
-            self,
-            None,
-            expiration,
-        )
-        .await
+        let prefix = prefix.unwrap_or(Self::prefix().await);
+        json::put(&prefix, &key_parts.join(":"), self, None, expiration).await
     }
 
     /// Retrieves data from Redis using the provided key parts.
@@ -74,6 +71,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// # Arguments
     ///
     /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the value is stored.
+    /// * `prefix` - An optional string representing the prefix for the Redis keys. If `Some(String)`, the prefix will be used
     ///
     /// # Returns
     ///
@@ -82,8 +80,12 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// # Errors
     ///
     /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
-    async fn try_from_index_json(key_parts: &[&str]) -> Result<Option<Self>, DynError> {
-        json::get(&Self::prefix().await, &key_parts.join(":"), None).await
+    async fn try_from_index_json(
+        key_parts: &[&str],
+        prefix: Option<String>,
+    ) -> Result<Option<Self>, DynError> {
+        let prefix = prefix.unwrap_or(Self::prefix().await);
+        json::get(&prefix, &key_parts.join(":"), None).await
     }
 
     /// Retrieves multiple JSON objects from Redis using the provided key parts.
@@ -411,8 +413,8 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     ///
     /// # Arguments
     ///
-    /// * `prefix` - An optional string representing the prefix for the Redis keys. If `Some(String)`, the prefix will be used
     /// * `key_parts_list` - A slice of string slices, where each inner slice represents the components
+    /// * `prefix` - An optional string representing the prefix for the Redis keys. If `Some(String)`, the prefix will be used
     ///   used to construct the Redis key for the corresponding set.
     /// * `limit` - An optional parameter specifying the maximum number of elements to fetch from each set.
     ///   If `None`, all elements will be retrieved.
@@ -427,8 +429,8 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     ///
     /// This function will return an error if the operation fails, such as in cases of a Redis connection issue.
     async fn try_from_multiple_sets(
-        prefix: Option<String>,
         key_parts_list: &[&str],
+        prefix: Option<String>,
         limit: Option<usize>,
     ) -> Result<Vec<Option<(Vec<String>, usize)>>, DynError> {
         let combined_prefix = match prefix {
