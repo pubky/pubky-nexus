@@ -35,6 +35,9 @@ jobs:
       #     key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
       #     restore-keys: |
       #       ${{ runner.os }}-cargo-build-
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
 
       - name: Copy environment variables
         run: cp .env-sample .env
@@ -66,7 +69,7 @@ jobs:
           sleep 10  # Give the service a moment to start
         
       - name: Run integration tests
-        run: cargo test
+        run: cargo nextest run -no-fail-fast
 
       - name: Show service logs if tests fail
         if: failure()
