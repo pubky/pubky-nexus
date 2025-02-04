@@ -1,4 +1,4 @@
-use crate::{db::connectors::pubky::PubkyConnector, types::DynError};
+use crate::{db::connectors::pubky::PubkyConnector, types::DynError, RedisOps};
 use error::EventProcessorError;
 use log::debug;
 use pubky_app_specs::{ParsedUri, PubkyAppObject, Resource};
@@ -27,12 +27,14 @@ impl fmt::Display for EventType {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Event {
     pub uri: String,
     pub event_type: EventType,
     pub parsed_uri: ParsedUri,
 }
+
+impl RedisOps for Event {}
 
 impl Event {
     pub fn parse_event(line: &str) -> Result<Option<Self>, DynError> {

@@ -4,19 +4,22 @@ use super::dht::TestnetDHTNetwork;
 use anyhow::{anyhow, Result};
 use chrono::Utc;
 use log::debug;
+use pubky_app_specs::PubkyId;
 use pubky_app_specs::{
     traits::TimestampId, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser,
 };
 use pubky_common::crypto::Keypair;
-use pubky_homeserver::Homeserver;
+use pubky_homeserver::Homeserver as PubkyCoreHomeserver;
 use pubky_nexus::events::retry::event::RetryEvent;
 use pubky_nexus::events::Event;
+use pubky_nexus::models::homeserver::Homeserver;
 use pubky_nexus::types::DynError;
 use pubky_nexus::{Config, EventProcessor, PubkyConnector, StackManager};
 
 /// Struct to hold the setup environment for tests
 pub struct WatcherTest {
-    pub homeserver: Homeserver,
+    pub homeserver: PubkyCoreHomeserver,
+    pub homeserver_id: PubkyId,
     pub event_processor: EventProcessor,
     pub ensure_event_processing: bool,
 }
@@ -43,18 +46,20 @@ impl WatcherTest {
         TestnetDHTNetwork::initialise(10)?;
         let testnet = TestnetDHTNetwork::get_testnet_dht_nodes()?;
 
-        let homeserver = Homeserver::start_test(&testnet).await?;
-        let homeserver_id = homeserver.public_key().to_string();
+        let homeserver = PubkyCoreHomeserver::start_test(&testnet).await?;
+        let homeserver_id =
+            PubkyId::try_from(homeserver.public_key().to_string().as_str()).unwrap();
 
         match PubkyConnector::initialise(&config, Some(&testnet)).await {
             Ok(_) => debug!("WatcherTest: PubkyConnector initialised"),
             Err(e) => debug!("WatcherTest: {}", e),
         }
 
-        let event_processor = EventProcessor::test(homeserver_id).await;
+        let event_processor = EventProcessor::test(homeserver_id.to_string()).await;
 
         Ok(Self {
             homeserver,
+            homeserver_id,
             event_processor,
             ensure_event_processing: true,
         })
@@ -69,7 +74,10 @@ impl WatcherTest {
     /// Ensures that event processing is completed if it is enabled.
     pub async fn ensure_event_processing_complete(&mut self) -> Result<()> {
         if self.ensure_event_processing {
-            self.event_processor.run().await.map_err(|e| anyhow!(e))?;
+            self.event_processor
+                .run(Homeserver::new(self.homeserver_id.clone()))
+                .await
+                .map_err(|e| anyhow!(e))?;
             // tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         }
         Ok(())

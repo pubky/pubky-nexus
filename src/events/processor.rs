@@ -1,3 +1,6 @@
+use std::sync::Arc;
+use std::time::Duration;
+
 use super::error::EventProcessorError;
 use super::Event;
 use crate::events::retry::event::RetryEvent;
@@ -6,10 +9,14 @@ use crate::PubkyConnector;
 use crate::{models::homeserver::Homeserver, Config};
 use log::{debug, error, info};
 use pubky_app_specs::PubkyId;
+use tokio::sync::Semaphore;
+use tokio::time::sleep;
 
+#[derive(Clone)]
 pub struct EventProcessor {
-    pub homeserver: Homeserver,
     limit: u32,
+    sleep: u64,
+    max_processors: usize,
 }
 
 impl EventProcessor {
@@ -27,29 +34,69 @@ impl EventProcessor {
     /// - `tx`: A `RetryManagerSenderChannel` used to handle outgoing messages or events.
     pub async fn test(homeserver_id: String) -> Self {
         let id = PubkyId::try_from(&homeserver_id).expect("Homeserver ID should be valid");
-        let homeserver = Homeserver::new(id).await.unwrap();
+        let homeserver = Homeserver::new(id);
+        homeserver.save().await.unwrap();
         Self {
-            homeserver,
             limit: 1000,
+            sleep: 100,
+            max_processors: 1,
         }
     }
 
     pub async fn from_config(config: &Config) -> Result<Self, DynError> {
-        let homeserver = Homeserver::from_config(config).await?;
+        Homeserver::from_config(config).await?;
         let limit = config.events_limit;
+        let sleep = config.watcher_sleep;
+        let max_processors = config.max_processors;
 
         info!(
-            "Initialized Event Processor for homeserver: {:?}",
-            homeserver
+            "Initialized Event Processor for with limit: {}, sleep: {}, max_processors: {}",
+            limit, sleep, max_processors
         );
 
-        Ok(Self { homeserver, limit })
+        Ok(Self {
+            limit,
+            sleep,
+            max_processors,
+        })
     }
 
-    pub async fn run(&mut self) -> Result<(), DynError> {
-        let lines = { self.poll_events().await.unwrap_or_default() };
+    pub async fn start(&mut self) -> Result<(), DynError> {
+        // Create a semaphore to limit the number of concurrent processors
+        let processor_semaphore = Arc::new(Semaphore::new(self.max_processors));
+
+        loop {
+            info!("Fetching events...");
+            let homeservers = Homeserver::get_next_homeservers(
+                processor_semaphore.available_permits() as i8,
+                self.sleep,
+            )
+            .await?;
+            for mut homeserver in homeservers {
+                let permit = processor_semaphore.clone().acquire_owned().await?;
+                homeserver.last_polled_at = chrono::Utc::now().timestamp_millis();
+                homeserver.save().await?;
+                let mut processor = self.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = processor.run(homeserver).await {
+                        error!("Uncaught error occurred while processing events: {:?}", e);
+                    }
+                    drop(permit);
+                });
+            }
+            // Wait for X milliseconds before fetching events again
+            sleep(Duration::from_millis(self.sleep)).await;
+        }
+    }
+
+    pub async fn run(&mut self, homeserver: Homeserver) -> Result<(), DynError> {
+        let lines = {
+            self.poll_events(homeserver.clone())
+                .await
+                .unwrap_or_default()
+        };
         if let Some(lines) = lines {
-            self.process_event_lines(lines).await?;
+            self.process_event_lines(homeserver, lines).await?;
         };
         Ok(())
     }
@@ -60,7 +107,10 @@ impl EventProcessor {
     /// using the current cursor and a specified limit. It retrieves new event
     /// URIs in a newline-separated format, processes it into a vector of strings,
     /// and returns the result.
-    async fn poll_events(&mut self) -> Result<Option<Vec<String>>, DynError> {
+    async fn poll_events(
+        &mut self,
+        homeserver: Homeserver,
+    ) -> Result<Option<Vec<String>>, DynError> {
         debug!("Polling new events from homeserver");
 
         let response: String;
@@ -69,7 +119,7 @@ impl EventProcessor {
             response = pubky_client
                 .get(format!(
                     "https://{}/events/?cursor={}&limit={}",
-                    self.homeserver.id, self.homeserver.cursor, self.limit
+                    homeserver.id, homeserver.cursor, self.limit
                 ))
                 .send()
                 .await?
@@ -96,12 +146,16 @@ impl EventProcessor {
     ///
     /// # Parameters
     /// - `lines`: A vector of strings representing event lines retrieved from the homeserver.
-    pub async fn process_event_lines(&mut self, lines: Vec<String>) -> Result<(), DynError> {
+    pub async fn process_event_lines(
+        &mut self,
+        mut homeserver: Homeserver,
+        lines: Vec<String>,
+    ) -> Result<(), DynError> {
         for line in &lines {
             if line.starts_with("cursor:") {
                 if let Some(cursor) = line.strip_prefix("cursor: ") {
-                    self.homeserver.cursor = cursor.to_string();
-                    self.homeserver.put_to_index().await?;
+                    homeserver.cursor = cursor.to_string();
+                    homeserver.save().await?;
                     info!("Cursor for the next request: {}", cursor);
                 }
             } else {
