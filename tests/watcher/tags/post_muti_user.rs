@@ -16,12 +16,10 @@ use pubky_nexus::{
         notification::Notification,
         tag::{
             post::TagPost,
-            stream::{Taggers, TAG_GLOBAL_HOT},
             traits::{TagCollection, TaggersCollection},
         },
     },
     types::Pagination,
-    RedisOps,
 };
 
 #[tokio_shared_rt::test(shared)]
@@ -63,19 +61,7 @@ async fn test_homeserver_multi_user() -> Result<()> {
 
     let label_water = "water";
     let label_fire = "fire";
-
-    // Avoid errors, if the score does not exist. Using that variable in the last assert of the test
-    let actual_water_tag_hot_score =
-        Taggers::check_sorted_set_member(None, &TAG_GLOBAL_HOT, &[label_water])
-            .await
-            .unwrap()
-            .unwrap_or_default();
-    let actual_fire_tag_hot_score =
-        Taggers::check_sorted_set_member(None, &TAG_GLOBAL_HOT, &[label_fire])
-            .await
-            .unwrap()
-            .unwrap_or_default();
-
+    
     // Step 2: Create tags
     let mut tag_urls = Vec::with_capacity(5);
     let water_taggers = [tagger_a_id, tagger_b_id, tagger_c_id];
@@ -194,21 +180,6 @@ async fn test_homeserver_multi_user() -> Result<()> {
     let tagger_c_user_counts = find_user_counts(tagger_c_id).await;
     assert_eq!(tagger_c_user_counts.tags, 2);
 
-    // Check if the user is related with tag: Tag:Taggers:tag_name
-    for tagger_id in water_taggers {
-        let (_exist, member) = Taggers::check_set_member(&[label_water], tagger_id)
-            .await
-            .expect("Failed to check tagger in Taggers set");
-        assert!(member);
-    }
-
-    for tagger_id in fire_taggers {
-        let (_exist, member) = Taggers::check_set_member(&[label_fire], tagger_id)
-            .await
-            .expect("Failed to check tagger in Taggers set");
-        assert!(member);
-    }
-
     // Assert if the new tag increments the engagement
     // global post engagement: Sorted:Posts:Global:TotalEngagement:user_id:post_id
     let total_engagement = check_member_total_engagement_user_posts(&post_key)
@@ -219,21 +190,7 @@ async fn test_homeserver_multi_user() -> Result<()> {
         "Total engagement should be present"
     );
     assert_eq!(total_engagement.unwrap(), 5);
-
-    // Assert hot tag score: Sorted:Post:Global:Hot:label
-    let water_total_engagement =
-        Taggers::check_sorted_set_member(None, &TAG_GLOBAL_HOT, &[label_water])
-            .await
-            .unwrap()
-            .unwrap();
-    assert_eq!(water_total_engagement, actual_water_tag_hot_score + 3);
-    let fire_total_engagement =
-        Taggers::check_sorted_set_member(None, &TAG_GLOBAL_HOT, &[label_fire])
-            .await
-            .unwrap()
-            .unwrap();
-    assert_eq!(fire_total_engagement, actual_fire_tag_hot_score + 2);
-
+    
     // Step 4: DEL tag from homeserver
     for tag_url in tag_urls {
         test.del(&tag_url).await?;
@@ -294,21 +251,6 @@ async fn test_homeserver_multi_user() -> Result<()> {
         assert_eq!(user_counts.tags, 0);
     }
 
-    // Check if the user is related with tag: Tag:Taggers:tag_name
-    for tagger_id in water_taggers {
-        let (_exist, member) = Taggers::check_set_member(&[label_water], tagger_id)
-            .await
-            .expect("Failed to check tagger in Taggers set");
-        assert!(!member);
-    }
-
-    for tagger_id in fire_taggers {
-        let (_exist, member) = Taggers::check_set_member(&[label_fire], tagger_id)
-            .await
-            .expect("Failed to check tagger in Taggers set");
-        assert!(!member);
-    }
-
     let tags = [label_water, label_fire];
 
     // Assert tag global engagement: Sorted:Tags:Global:Post:TotalEngagement
@@ -328,20 +270,6 @@ async fn test_homeserver_multi_user() -> Result<()> {
             .unwrap();
         assert!(tag_timeline.is_none());
     }
-
-    // Assert hot tag score: Sorted:Post:Global:Hot:label
-    let water_total_engagement =
-        Taggers::check_sorted_set_member(None, &TAG_GLOBAL_HOT, &[label_water])
-            .await
-            .unwrap()
-            .unwrap();
-    assert_eq!(water_total_engagement, actual_water_tag_hot_score);
-    let fire_total_engagement =
-        Taggers::check_sorted_set_member(None, &TAG_GLOBAL_HOT, &[label_fire])
-            .await
-            .unwrap()
-            .unwrap();
-    assert_eq!(fire_total_engagement, actual_fire_tag_hot_score);
 
     let notifications = Notification::get_by_id(author_id, Pagination::default())
         .await

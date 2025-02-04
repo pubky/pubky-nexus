@@ -47,7 +47,7 @@ impl PostDetails {
         author_id: &str,
         post_id: &str,
     ) -> Result<Option<PostDetails>, DynError> {
-        if let Some(post_details) = Self::try_from_index_json(&[author_id, post_id]).await? {
+        if let Some(post_details) = Self::try_from_index_json(&[author_id, post_id], None).await? {
             return Ok(Some(post_details));
         }
         Ok(None)
@@ -87,7 +87,8 @@ impl PostDetails {
         parent_key_wrapper: Option<(String, String)>,
         is_edit: bool,
     ) -> Result<(), DynError> {
-        self.put_index_json(&[author_id, &self.id], None).await?;
+        self.put_index_json(&[author_id, &self.id], None, None)
+            .await?;
         // When we delete a post that has ancestor, ignore other index updates
         if is_edit {
             return Ok(());

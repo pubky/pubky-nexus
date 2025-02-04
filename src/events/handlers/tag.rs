@@ -6,7 +6,6 @@ use crate::models::notification::Notification;
 use crate::models::post::{PostCounts, PostStream};
 use crate::models::tag::post::TagPost;
 use crate::models::tag::search::TagSearch;
-use crate::models::tag::stream::Taggers;
 use crate::models::tag::traits::{TagCollection, TaggersCollection};
 use crate::models::tag::user::TagUser;
 use crate::models::user::UserCounts;
@@ -122,10 +121,6 @@ async fn put_sync_post(
                     &tag_label,
                     ScoreAction::Increment(1.0)
                 ),
-                // Add label to hot tags
-                Taggers::update_index_score(&tag_label, ScoreAction::Increment(1.0)),
-                // Add tagger to post taggers
-                Taggers::put_to_index(&tag_label, &tagger_user_id)
             );
 
             // Post replies cannot be included in the total engagement index once they have been tagged
@@ -256,7 +251,6 @@ async fn del_sync_post(
     // SAVE TO INDEXES
     let post_key_slice: &[&str] = &[author_id, post_id];
     let tag_post = TagPost(vec![tagger_id.to_string()]);
-    let tagger = Taggers(vec![tagger_id.to_string()]);
 
     // TODO: Handle the errors
     let _ = tokio::join!(
@@ -274,10 +268,6 @@ async fn del_sync_post(
         tag_post.del_from_index(author_id, Some(post_id), tag_label),
         // Decrease post from label total engagement
         TagSearch::update_index_score(author_id, post_id, tag_label, ScoreAction::Decrement(1.0)),
-        // Decrease the score of hot tags
-        Taggers::update_index_score(tag_label, ScoreAction::Decrement(1.0)),
-        // Delete tagger from global post tags
-        tagger.del_from_index(tag_label)
     );
 
     // Post replies cannot be included in the total engagement index once the tag have been deleted

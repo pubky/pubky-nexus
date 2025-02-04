@@ -70,7 +70,7 @@ impl RetryEvent {
         .await?;
 
         let index = &[RETRY_MANAGER_STATE_INDEX, [&event_line]].concat();
-        self.put_index_json(index, None).await?;
+        self.put_index_json(index, None, None).await?;
 
         Ok(())
     }
@@ -92,6 +92,6 @@ impl RetryEvent {
     /// * `event_index` - A `&str` representing the event index to retrieve
     pub async fn get_from_index(event_index: &str) -> Result<Option<Self>, DynError> {
         let index: &Vec<&str> = &[RETRY_MANAGER_STATE_INDEX, [event_index]].concat();
-        Self::try_from_index_json(index).await
+        Self::try_from_index_json(index, None).await
     }
 }
