@@ -92,19 +92,16 @@ impl Event {
     pub async fn handle_put_event(self) -> Result<(), DynError> {
         log::debug!("Handling PUT event for URI: {}", self.uri);
 
-        let response;
-        {
-            let pubky_client = PubkyConnector::get_pubky_client()?;
-            response = match pubky_client.get(&self.uri).send().await {
-                Ok(response) => response,
-                Err(e) => {
-                    return Err(EventProcessorError::PubkyClientError {
-                        message: format!("{}", e),
-                    }
-                    .into())
+        let pubky_client = PubkyConnector::get_pubky_client()?;
+        let response = match pubky_client.get(&self.uri).send().await {
+            Ok(response) => response,
+            Err(e) => {
+                return Err(EventProcessorError::PubkyClientError {
+                    message: format!("{}", e),
                 }
-            };
-        } // drop the pubky_client lock
+                .into())
+            }
+        };
 
         let blob = response.bytes().await?;
         let resource = self.parsed_uri.resource;
