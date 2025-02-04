@@ -7,6 +7,7 @@ pub async fn setup_graph() -> Result<(), Box<dyn std::error::Error>> {
         "CREATE CONSTRAINT uniqueUserId IF NOT EXISTS FOR (u:User) REQUIRE u.id IS UNIQUE",
         "CREATE CONSTRAINT uniquePostId IF NOT EXISTS FOR (p:Post) REQUIRE p.id IS UNIQUE",
         "CREATE CONSTRAINT uniqueFileId IF NOT EXISTS FOR (f:File) REQUIRE (f.owner_id, f.id) IS UNIQUE",
+        "CREATE CONSTRAINT uniqueHomeserverId IF NOT EXISTS FOR (hs:Homeserver) REQUIRE hs.id IS UNIQUE",
     ];
 
     let indexes = [
@@ -16,6 +17,7 @@ pub async fn setup_graph() -> Result<(), Box<dyn std::error::Error>> {
         "CREATE INDEX postKindIndex IF NOT EXISTS FOR (p:Post) ON (p.kind)",
         "CREATE INDEX taggedLabelIndex IF NOT EXISTS FOR ()-[r:TAGGED]-() ON (r.label)",
         "CREATE INDEX fileIdIndex IF NOT EXISTS FOR (f:File) ON (f.owner_id, f.id)",
+        "CREATE INDEX homeserverLastPolledAt IF NOT EXISTS FOR (hs:Homeserver) ON (hs.last_polled_at)",
     ];
 
     let queries = constraints.iter().chain(indexes.iter());

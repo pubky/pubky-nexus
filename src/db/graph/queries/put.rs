@@ -1,3 +1,4 @@
+use crate::models::homeserver::Homeserver;
 use crate::models::post::PostRelationships;
 use crate::models::{file::FileDetails, post::PostDetails, user::UserDetails};
 use crate::types::DynError;
@@ -306,6 +307,23 @@ pub fn create_file(file: &FileDetails) -> Result<Query, DynError> {
     .param("name", file.name.to_string())
     .param("content_type", file.content_type.to_string())
     .param("urls", urls);
+
+    Ok(query)
+}
+
+// Create a Homeserver node
+pub fn create_homeserver(homeserver: &Homeserver) -> Result<Query, DynError> {
+    let query = query(
+        "MERGE (record:Homeserver {id: $id})
+         SET record.cursor = $cursor, record.last_polled_at = $last_polled_at,
+            record.active = $active, record.priority = $priority
+         ;",
+    )
+    .param("id", homeserver.id.to_string())
+    .param("cursor", homeserver.cursor.clone())
+    .param("last_polled_at", homeserver.last_polled_at)
+    .param("active", homeserver.active)
+    .param("priority", homeserver.priority as i16);
 
     Ok(query)
 }

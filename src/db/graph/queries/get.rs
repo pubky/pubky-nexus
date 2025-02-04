@@ -808,3 +808,34 @@ pub fn recommend_users(user_id: &str, limit: usize) -> neo4rs::Query {
     .param("user_id", user_id.to_string())
     .param("limit", limit as i64)
 }
+
+pub fn get_homeservers_details_by_ids(ids: &[&str]) -> Query {
+    query(
+        "
+        UNWIND $ids AS id
+        OPTIONAL MATCH (record:Homeserver {id: id})
+        RETURN 
+            id,
+            CASE 
+                WHEN record IS NOT NULL 
+                    THEN record
+                    ELSE null
+                END AS record
+        ",
+    )
+    .param("ids", ids)
+}
+
+pub fn get_next_homeservers(limit: i8, interval: u64) -> Query {
+    query(
+        "
+            MATCH (hs:Homeserver)
+            WHERE hs.last_polled_at < timestamp() - $interval
+            ORDER BY hs.priority ASC
+            LIMIT $limit
+            RETURN COLLECT(hs) as homeservers
+        ",
+    )
+    .param("interval", (interval as i64) * 1000)
+    .param("limit", limit)
+}
