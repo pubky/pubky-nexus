@@ -144,9 +144,8 @@ mod tests {
             traits::Collection,
             user::{UserDetails, UserSearch},
         },
-        setup,
         types::DynError,
-        Config, RedisOps,
+        Config, RedisOps, StackManager,
     };
     use chrono::Utc;
     use pubky_app_specs::PubkyId;
@@ -154,7 +153,7 @@ mod tests {
     #[tokio_shared_rt::test(shared)]
     async fn test_put_to_index_no_duplicates() -> Result<(), DynError> {
         let config = Config::from_env();
-        setup(&config).await;
+        StackManager::setup(&config).await;
         // Test that the `put_to_index` method does not add duplicate records to the index
         // when called with the same `UserDetails` multiple times.
 

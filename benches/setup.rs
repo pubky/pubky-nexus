@@ -1,4 +1,4 @@
-use pubky_nexus::{setup, Config};
+use pubky_nexus::{Config, StackManager};
 use std::{env, sync::Once};
 use tokio::runtime::Runtime;
 
@@ -10,7 +10,7 @@ pub fn run_setup() {
         env::set_var("RUST_LOG", "error");
         rt.block_on(async {
             let config = Config::from_env();
-            setup(&config).await;
+            StackManager::setup(&config).await;
         });
     });
 }

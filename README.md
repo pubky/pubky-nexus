@@ -72,14 +72,16 @@ Once the `Neo4j` graph database is seeded with data, the next step is to populat
 
 4. Run the Nexus service:
 
-    ```bash
-    cargo run
-    ```
+   ```bash
+   cargo run
+   ```
+
 5. Run the Watcher service:
 
-    ```bash
-    cargo run --bin watcher
-    ```
+   ```bash
+   cargo run --bin watcher
+   ```
+
 6. **Access Redis and Neo4j UIs**:
    - Redis UI: [http://localhost:8001/redis-stack/browser](http://localhost:8001/redis-stack/browser)
    - Neo4J UI: [http://localhost:7474/browser/](http://localhost:7474/browser/)
@@ -94,7 +96,25 @@ To contribute to Nexus, follow these steps:
 
 ### Running Tests
 
-To run all tests:
+Running tests requires setting up mock data into Neo4j and Redis.
+
+Use the `mockdb` binary to load the mock data.
+
+```bash
+cargo run --bin mockdb [database]
+```
+
+`database` is optional and can be either `graph` or `redis`. Not providing any value will sync all the databases.
+
+> If the Redis cache is empty, the nexus-service will handle it automatically. If not follow the steps of warning section
+
+You can optionally pass the `GRAPH_CONTAINER_NAME` env var if your neo4j container in docker has a different name. Defaults to `neo4j`. For example:
+
+```bash
+GRAPH_CONTAINER_NAME=nexus-neo4j cargo run --bin mockdb
+```
+
+Then to run all tests:
 
 ```bash
 cargo test // cargo nextest run
@@ -115,6 +135,9 @@ cargo bench --bench user get_user_view_by_id
 
 ## ⚠️ Troubleshooting
 
+<<<<<<< HEAD
+If tests or the development environment seem out of sync, follow the [Running Tests](#running-tests) steps to reload the mock data.
+=======
 If tests or the development environment seem out of sync, follow these steps to reset:
 
 1. **Reset Neo4j**:
@@ -129,6 +152,8 @@ If tests or the development environment seem out of sync, follow these steps to 
    ```bash
    REINDEX=true cargo run
    ```
+
+   > > > > > > > main
 
 ## 🌐 Useful Links
 

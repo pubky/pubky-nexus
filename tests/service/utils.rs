@@ -1,34 +1,98 @@
+use crate::utils::{TestServiceServer, SERVER_URL};
 use log::info;
-use pubky_nexus::{setup::setup_redis, Config};
+use pubky_nexus::{Config, StackManager};
+use reqwest::{Method, StatusCode};
 use serde_json::Value;
 
-pub const HOST_URL: &str = "http://localhost:8080";
+/// Instead of hardcoding the host, we have a function that returns it.
+pub async fn host_url() -> String {
+    // Ensure the server is running.
+    TestServiceServer::get_test_server().await;
+    // Get the URL that was stored when the server started.
+    SERVER_URL.get().expect("SERVER_URL should be set").clone()
+}
 
 // #######################################
 // ##### Endpoint requests related #######
 // #######################################
 
-// Small unit test to test the endpoint
-pub async fn make_request(endpoint: &str) -> Result<Value, httpc_test::Error> {
-    let client = httpc_test::new_client(HOST_URL)?;
-
-    let res = client.do_get(endpoint).await?;
-
-    assert_eq!(res.status(), 200);
-    let body = res.json_body()?;
+pub async fn get_request(endpoint: &str) -> Result<Value, httpc_test::Error> {
+    let url = host_url().await;
+    let full_endpoint = format!("{}{}", url, endpoint);
+    let body = inner_make_request(&full_endpoint, None, None, None).await?;
     Ok(body)
 }
 
-pub async fn make_wrong_request(
+pub async fn invalid_get_request(
     endpoint: &str,
-    error_code: Option<u16>,
-) -> Result<(), httpc_test::Error> {
-    let client = httpc_test::new_client(HOST_URL)?;
+    error_code: StatusCode,
+) -> Result<Value, httpc_test::Error> {
+    let url = host_url().await;
+    let full_endpoint = format!("{}{}", url, endpoint);
+    let body = inner_make_request(&full_endpoint, None, None, Some(error_code)).await?;
+    Ok(body)
+}
 
-    let res = client.do_get(endpoint).await?;
+pub async fn post_request(endpoint: &str, data: Value) -> Result<Value, httpc_test::Error> {
+    let url = host_url().await;
+    let full_endpoint = format!("{}{}", url, endpoint);
+    let body = inner_make_request(&full_endpoint, Some(Method::POST), Some(data), None).await?;
+    Ok(body)
+}
 
-    assert_eq!(res.status(), error_code.unwrap_or(404));
-    Ok(())
+pub async fn invalid_post_request(
+    endpoint: &str,
+    data: Value,
+    error_code: StatusCode,
+) -> Result<Value, httpc_test::Error> {
+    let url = host_url().await;
+    let full_endpoint = format!("{}{}", url, endpoint);
+    let body = inner_make_request(
+        &full_endpoint,
+        Some(Method::POST),
+        Some(data),
+        Some(error_code),
+    )
+    .await?;
+    Ok(body)
+}
+
+// Small helper function to send requests.
+async fn inner_make_request(
+    endpoint: &str,
+    method: Option<Method>,
+    data: Option<Value>,
+    error_code: Option<StatusCode>,
+) -> Result<Value, httpc_test::Error> {
+    let client = httpc_test::new_client("")?; // now client doesn't need a hardcoded host
+
+    let request_method = method.unwrap_or(Method::GET);
+    let res = match request_method {
+        Method::GET => client.do_get(endpoint).await?,
+        Method::POST => {
+            client
+                .do_post(endpoint, data.unwrap_or(Value::Null))
+                .await?
+        }
+        Method::PUT => client.do_put(endpoint, data.unwrap_or(Value::Null)).await?,
+        Method::DELETE => client.do_delete(endpoint).await?,
+        _ => panic!("Unsupported method"),
+    };
+
+    if let Some(code) = error_code {
+        assert_eq!(res.status(), code, "Expected HTTP status {}", code);
+    } else {
+        assert_eq!(res.status(), 200, "Expected HTTP status 200 OK");
+    }
+
+    let body = match res.json_body() {
+        Ok(body) => body,
+        Err(e) => {
+            eprintln!("Error parsing response body: {:?}", e);
+            Value::Null
+        }
+    };
+    Ok(body)
 }
 
 pub async fn connect_to_redis() {
@@ -38,5 +102,5 @@ pub async fn connect_to_redis() {
         Ok(_) => info!("Env logger initiated"),
         Err(err) => assert!(false, "{}", format!("Env logger was already set: {}", err)),
     }
-    setup_redis(&config).await;
+    StackManager::setup_redis(&config).await;
 }

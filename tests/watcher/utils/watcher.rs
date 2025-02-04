@@ -12,13 +12,12 @@ use pubky_homeserver::Homeserver;
 use pubky_nexus::events::retry::event::RetryEvent;
 use pubky_nexus::events::Event;
 use pubky_nexus::types::DynError;
-use pubky_nexus::{setup, Config, EventProcessor, PubkyConnector};
+use pubky_nexus::{Config, EventProcessor, PubkyConnector, StackManager};
 
 /// Struct to hold the setup environment for tests
 pub struct WatcherTest {
     pub homeserver: Homeserver,
     pub event_processor: EventProcessor,
-    pub config: Config,
     pub ensure_event_processing: bool,
 }
 
@@ -39,7 +38,7 @@ impl WatcherTest {
     /// event processor, and other test setup details.
     pub async fn setup() -> Result<Self> {
         let config = Config::from_env();
-        setup(&config).await;
+        StackManager::setup(&config).await;
 
         TestnetDHTNetwork::initialise(10)?;
         let testnet = TestnetDHTNetwork::get_testnet_dht_nodes()?;
@@ -55,7 +54,6 @@ impl WatcherTest {
         let event_processor = EventProcessor::test(homeserver_id).await;
 
         Ok(Self {
-            config,
             homeserver,
             event_processor,
             ensure_event_processing: true,

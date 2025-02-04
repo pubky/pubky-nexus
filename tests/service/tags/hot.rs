@@ -3,7 +3,7 @@ use chrono::{Datelike, Utc};
 use reqwest::StatusCode;
 use serde_json::Value;
 
-use crate::service::utils::{make_request, make_wrong_request};
+use crate::service::utils::{get_request, invalid_get_request};
 
 const PEER_PUBKY: &str = "o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo";
 // mocks/hot-tags.cypher users
@@ -57,9 +57,9 @@ fn compare_unit_hot_tag(tag: &Value, hot_tag: StreamTagMockup) {
     assert_eq!(tagger_ids.len(), hot_tag.tagger_ids);
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_global_hot_tags() -> Result<()> {
-    let body = make_request("/v0/tags/hot").await?;
+    let body = get_request("/v0/tags/hot").await?;
 
     assert!(body.is_array());
 
@@ -75,9 +75,9 @@ async fn test_global_hot_tags() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_global_hot_tags_with_today_timeframe() -> Result<()> {
-    let body = make_request("/v0/tags/hot?timeframe=today").await?;
+    let body = get_request("/v0/tags/hot?timeframe=today").await?;
 
     assert!(body.is_array());
 
@@ -92,9 +92,9 @@ async fn test_global_hot_tags_with_today_timeframe() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_global_hot_tags_with_this_month_timeframe() -> Result<()> {
-    let body = make_request("/v0/tags/hot?timeframe=this_month").await?;
+    let body = get_request("/v0/tags/hot?timeframe=this_month").await?;
 
     assert!(body.is_array());
 
@@ -110,9 +110,9 @@ async fn test_global_hot_tags_with_this_month_timeframe() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_global_hot_tags_skip_limit() -> Result<()> {
-    let body = make_request("/v0/tags/hot?skip=3&limit=5").await?;
+    let body = get_request("/v0/tags/hot?skip=3&limit=5").await?;
 
     assert!(body.is_array());
 
@@ -131,11 +131,11 @@ async fn test_global_hot_tags_skip_limit() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_hot_tags_by_following_reach() -> Result<()> {
     let endpoint = &format!("/v0/tags/hot?user_id={}&reach=following", PEER_PUBKY,);
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Stream tags should be an array");
@@ -150,14 +150,14 @@ async fn test_hot_tags_by_following_reach() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_hot_tags_by_following_reach_and_today_timeframe() -> Result<()> {
     let endpoint = &format!(
         "/v0/tags/hot?user_id={}&reach=following&timeframe=today",
         USER_1
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Stream tags should be an array");
@@ -183,14 +183,14 @@ async fn test_hot_tags_by_following_reach_and_today_timeframe() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_hot_tags_by_following_reach_and_month_timeframe() -> Result<()> {
     let endpoint = &format!(
         "/v0/tags/hot?user_id={}&reach=following&timeframe=this_month",
         USER_1
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Stream tags should be an array");
@@ -206,14 +206,14 @@ async fn test_hot_tags_by_following_reach_and_month_timeframe() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_hot_tags_by_following_reach_and_month_timeframe_skip_and_limit() -> Result<()> {
     let endpoint = &format!(
         "/v0/tags/hot?user_id={}&reach=following&timeframe=this_month&skip=1&limit=2",
         USER_1
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Stream tags should be an array");
@@ -232,14 +232,14 @@ async fn test_hot_tags_by_following_reach_and_month_timeframe_skip_and_limit() -
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_hot_tags_by_following_reach_and_all_timeframe() -> Result<()> {
     let endpoint = &format!(
         "/v0/tags/hot?user_id={}&reach=following&timeframe=all_time",
         USER_1
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Stream tags should be an array");
@@ -256,14 +256,14 @@ async fn test_hot_tags_by_following_reach_and_all_timeframe() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_hot_tags_by_following_reach_with_skip_limit() -> Result<()> {
     let endpoint = &format!(
         "/v0/tags/hot?user_id={}&reach=following&skip=3&limit=1",
         PEER_PUBKY,
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Stream tags should be an array");
@@ -278,32 +278,32 @@ async fn test_hot_tags_by_following_reach_with_skip_limit() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_hot_tags_by_reach_no_user_id() -> Result<()> {
     let endpoint = "/v0/tags/hot?reach=following";
 
-    make_wrong_request(endpoint, Some(StatusCode::BAD_REQUEST.as_u16())).await?;
+    invalid_get_request(endpoint, StatusCode::BAD_REQUEST).await?;
 
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_hot_tags_by_reach_no_reach() -> Result<()> {
     let endpoint = &format!("/v0/tags/hot?user_id={}", PEER_PUBKY);
 
-    make_wrong_request(endpoint, Some(StatusCode::BAD_REQUEST.as_u16())).await?;
+    invalid_get_request(endpoint, StatusCode::BAD_REQUEST).await?;
 
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_hot_tags_by_following_using_taggers_limit() -> Result<()> {
     let endpoint = &format!(
         "/v0/tags/hot?user_id={}&reach=following&taggers_limit=3",
         PEER_PUBKY,
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Stream tags should be an array");
@@ -318,11 +318,11 @@ async fn test_hot_tags_by_following_using_taggers_limit() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_hot_tags_by_followers_reach() -> Result<()> {
     let endpoint = &format!("/v0/tags/hot?user_id={}&reach=followers", PEER_PUBKY);
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Post stream should be an array");
@@ -337,14 +337,14 @@ async fn test_hot_tags_by_followers_reach() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_hot_tags_by_followers_reach_with_skip_limit() -> Result<()> {
     let endpoint = &format!(
         "/v0/tags/hot?user_id={}&reach=followers&skip=3&limit=1",
         PEER_PUBKY,
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Stream tags should be an array");
@@ -359,14 +359,14 @@ async fn test_hot_tags_by_followers_reach_with_skip_limit() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_hot_tags_by_followers_reach_and_today_timeframe() -> Result<()> {
     let endpoint = &format!(
         "/v0/tags/hot?user_id={}&reach=followers&timeframe=today",
         USER_4
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Stream tags should be an array");
@@ -392,14 +392,14 @@ async fn test_hot_tags_by_followers_reach_and_today_timeframe() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_hot_tags_by_followers_reach_and_month_timeframe() -> Result<()> {
     let endpoint = &format!(
         "/v0/tags/hot?user_id={}&reach=followers&timeframe=this_month",
         USER_4
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Stream tags should be an array");
@@ -417,14 +417,14 @@ async fn test_hot_tags_by_followers_reach_and_month_timeframe() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_hot_tags_by_followers_reach_and_month_timeframe_skip_and_limit() -> Result<()> {
     let endpoint = &format!(
         "/v0/tags/hot?user_id={}&reach=followers&timeframe=this_month&skip=1&limit=2",
         USER_4
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Stream tags should be an array");
@@ -442,14 +442,14 @@ async fn test_hot_tags_by_followers_reach_and_month_timeframe_skip_and_limit() -
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_hot_tags_by_followers_reach_and_all_timeframe() -> Result<()> {
     let endpoint = &format!(
         "/v0/tags/hot?user_id={}&reach=followers&timeframe=all_time",
         USER_4
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Stream tags should be an array");
@@ -466,11 +466,11 @@ async fn test_hot_tags_by_followers_reach_and_all_timeframe() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_hot_tags_by_friends_reach() -> Result<()> {
     let endpoint = &format!("/v0/tags/hot?user_id={}&reach=friends", PEER_PUBKY);
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Post stream should be an array");
@@ -485,14 +485,14 @@ async fn test_hot_tags_by_friends_reach() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_hot_tags_by_friends_reach_with_skip_limit() -> Result<()> {
     let endpoint = &format!(
         "/v0/tags/hot?user_id={}&reach=friends&skip=2&limit=1",
         PEER_PUBKY,
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Stream tags should be an array");
@@ -507,14 +507,14 @@ async fn test_hot_tags_by_friends_reach_with_skip_limit() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_hot_tags_by_friends_reach_and_today_timeframe() -> Result<()> {
     let endpoint = &format!(
         "/v0/tags/hot?user_id={}&reach=friends&timeframe=today",
         USER_5
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Stream tags should be an array");
@@ -540,14 +540,14 @@ async fn test_hot_tags_by_friends_reach_and_today_timeframe() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_hot_tags_by_friends_reach_and_month_timeframe() -> Result<()> {
     let endpoint = &format!(
         "/v0/tags/hot?user_id={}&reach=friends&timeframe=this_month",
         USER_5
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Stream tags should be an array");
@@ -563,14 +563,14 @@ async fn test_hot_tags_by_friends_reach_and_month_timeframe() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_hot_tags_by_friends_reach_and_month_timeframe_skip_and_limit() -> Result<()> {
     let endpoint = &format!(
         "/v0/tags/hot?user_id={}&reach=friends&timeframe=this_month&skip=1&limit=2",
         USER_5
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Stream tags should be an array");
@@ -588,14 +588,14 @@ async fn test_hot_tags_by_friends_reach_and_month_timeframe_skip_and_limit() -> 
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_hot_tags_by_friends_reach_and_all_timeframe() -> Result<()> {
     let endpoint = &format!(
         "/v0/tags/hot?user_id={}&reach=friends&timeframe=all_time",
         USER_5
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Stream tags should be an array");
@@ -626,11 +626,11 @@ const TAGGERS: [&str; 9] = [
     "pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy",
 ];
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_hot_tags_label_taggers() -> Result<()> {
     let endpoint = &format!("/v0/tags/taggers/{PUBKY_TAG}");
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let taggers = body.as_array().expect("Taggers ids should be an array");
@@ -642,7 +642,7 @@ async fn test_hot_tags_label_taggers() -> Result<()> {
 
     let endpoint = &format!("/v0/tags/taggers/{PUBKY_TAG}?skip=4&limit=2");
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let taggers_with_filters = body.as_array().expect("Taggers ids should be an array");
@@ -661,14 +661,14 @@ async fn test_hot_tags_label_taggers() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_hot_tags_label_taggers_with_skip_limit_and_timeframe() -> Result<()> {
     let endpoint = &format!(
         "/v0/tags/taggers/{}?skip=1&limit=2&timeframe=this_month",
         "tag1"
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let taggers = body.as_array().expect("Taggers ids should be an array");
@@ -685,11 +685,11 @@ async fn test_hot_tags_label_taggers_with_skip_limit_and_timeframe() -> Result<(
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_hot_tags_label_taggers_with_reach_following() -> Result<()> {
     let endpoint = &format!("/v0/tags/taggers/{PUBKY_TAG}?reach=following&user_id={PEER_PUBKY}");
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let taggers = body.as_array().expect("Taggers ids should be an array");
@@ -708,13 +708,13 @@ async fn test_hot_tags_label_taggers_with_reach_following() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_hot_tags_label_taggers_with_reach_following_skip_and_limit() -> Result<()> {
     let endpoint = &format!(
         "/v0/tags/taggers/{PUBKY_TAG}?reach=following&user_id={PEER_PUBKY}&skip=1&limit=2"
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let taggers = body.as_array().expect("Taggers ids should be an array");
@@ -733,11 +733,11 @@ async fn test_hot_tags_label_taggers_with_reach_following_skip_and_limit() -> Re
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_hot_tags_label_taggers_with_reach_followers() -> Result<()> {
     let endpoint = &format!("/v0/tags/taggers/{PUBKY_TAG}?reach=followers&user_id={PEER_PUBKY}");
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let taggers = body.as_array().expect("Taggers ids should be an array");
@@ -756,13 +756,13 @@ async fn test_hot_tags_label_taggers_with_reach_followers() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_hot_tags_label_taggers_with_reach_followers_skip_and_limit() -> Result<()> {
     let endpoint = &format!(
         "/v0/tags/taggers/{PUBKY_TAG}?reach=followers&user_id={PEER_PUBKY}&skip=1&limit=1"
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let taggers = body.as_array().expect("Taggers ids should be an array");
@@ -776,11 +776,11 @@ async fn test_hot_tags_label_taggers_with_reach_followers_skip_and_limit() -> Re
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_hot_tags_label_taggers_with_reach_friends() -> Result<()> {
     let endpoint = &format!("/v0/tags/taggers/{PUBKY_TAG}?reach=friends&user_id={PEER_PUBKY}");
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let taggers = body.as_array().expect("Taggers ids should be an array");
@@ -799,12 +799,12 @@ async fn test_hot_tags_label_taggers_with_reach_friends() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_hot_tags_label_taggers_with_reach_friends_skip_and_limit() -> Result<()> {
     let endpoint =
         &format!("/v0/tags/taggers/{PUBKY_TAG}?reach=friends&user_id={PEER_PUBKY}&skip=1&limit=1");
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let taggers = body.as_array().expect("Taggers ids should be an array");

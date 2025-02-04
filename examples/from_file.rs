@@ -1,5 +1,5 @@
 use anyhow::Result;
-use pubky_nexus::{setup, types::DynError, Config, EventProcessor};
+use pubky_nexus::{types::DynError, Config, EventProcessor, StackManager};
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::Path;
@@ -12,7 +12,7 @@ const FILE_PATH: &str = "examples/events.txt";
 #[tokio::main]
 async fn main() -> Result<(), DynError> {
     let config = Config::from_env();
-    setup(&config).await;
+    StackManager::setup(&config).await;
 
     let mut event_processor = EventProcessor::from_config(&config).await?;
 

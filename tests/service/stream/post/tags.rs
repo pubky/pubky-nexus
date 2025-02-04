@@ -1,5 +1,6 @@
-use crate::service::utils::{make_request, make_wrong_request};
+use crate::service::utils::{get_request, invalid_get_request};
 use anyhow::Result;
+use axum::http::StatusCode;
 use pubky_nexus::models::post::PostStream;
 
 use super::utils::{search_tag_in_post, verify_post_list, verify_timeline_post_list};
@@ -7,11 +8,11 @@ use super::{POST_A, POST_B, POST_C, POST_D, POST_E, POST_F, POST_G, POST_H};
 use super::{ROOT_PATH, VIEWER_ID};
 use super::{TAG_LABEL_1, TAG_LABEL_2, TAG_LABEL_3, TAG_LABEL_4};
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_post_tag_search() -> Result<()> {
     let post_order = vec![POST_C, POST_B, POST_A, POST_D, POST_E, POST_F];
     let path = format!("{}?tags={}&limit=6", ROOT_PATH, TAG_LABEL_2);
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -26,18 +27,18 @@ async fn test_post_tag_search() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_post_stwrong_tag_param() -> Result<()> {
     let path = format!("{}?tags=", ROOT_PATH);
-    make_wrong_request(&path, Some(400)).await?;
+    invalid_get_request(&path, StatusCode::BAD_REQUEST).await?;
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_post_tag_search_with_limit() -> Result<()> {
     let post_order = vec![POST_C, POST_B];
     let path = format!("{}?tags={}&limit=2", ROOT_PATH, TAG_LABEL_2);
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -52,11 +53,11 @@ async fn test_post_tag_search_with_limit() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_post_tag_search_with_skip() -> Result<()> {
     let post_order = vec![POST_G, POST_H];
     let path = format!("{}?tags={}&skip=6", ROOT_PATH, TAG_LABEL_2);
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -71,11 +72,11 @@ async fn test_post_tag_search_with_skip() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_post_tag_search_with_skip_and_limit() -> Result<()> {
     let post_order = vec![POST_B];
     let path = format!("{}?tags={}&skip=1&limit=1", ROOT_PATH, TAG_LABEL_2);
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -90,12 +91,12 @@ async fn test_post_tag_search_with_skip_and_limit() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_post_tag_search_with_viewer_id() -> Result<()> {
     const BOOKMARK_ID: &str = "A9G7F2L4Q1W3";
 
     let path = format!("{}?tags={}&viewer_id={}", ROOT_PATH, TAG_LABEL_2, VIEWER_ID);
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -109,10 +110,10 @@ async fn test_post_tag_search_with_viewer_id() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_tag() -> Result<()> {
     let path = format!("{ROOT_PATH}?tags={}&sorting=timeline", TAG_LABEL_1);
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -153,11 +154,11 @@ pub const POST_TM: &str = "2ZDYA7MH312G0";
 pub const START_TIMELINE: &str = "1719244802772";
 pub const END_TIMELINE: &str = "1719231303114";
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_tag_timeline_with_start() -> Result<()> {
     let path = format!("{ROOT_PATH}?tags={TAG_LABEL_1}&sorting=timeline&start={START_TIMELINE}");
 
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
     let post_list = vec![
         POST_TD, POST_TE, POST_TF, POST_TG, POST_TH, POST_TI, POST_TJ, POST_TK, POST_TL, POST_TM,
     ];
@@ -167,13 +168,13 @@ async fn test_stream_posts_by_tag_timeline_with_start() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_tag_timeline_with_start_and_end() -> Result<()> {
     let path = format!(
         "{ROOT_PATH}?tags={TAG_LABEL_1}&sorting=timeline&start={START_TIMELINE}&end={END_TIMELINE}"
     );
 
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
     let post_list = vec![POST_TD, POST_TE, POST_TF, POST_TG, POST_TH, POST_TI];
 
     verify_timeline_post_list(post_list, body);
@@ -181,11 +182,11 @@ async fn test_stream_posts_by_tag_timeline_with_start_and_end() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_tag_timeline_with_end() -> Result<()> {
     let path = format!("{ROOT_PATH}?tags={TAG_LABEL_1}&sorting=timeline&end={START_TIMELINE}");
 
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
     let post_list = vec![POST_TA, POST_TB, POST_TC];
 
     verify_timeline_post_list(post_list, body);
@@ -193,12 +194,12 @@ async fn test_stream_posts_by_tag_timeline_with_end() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_tag_timeline_with_end_and_skip() -> Result<()> {
     let path =
         format!("{ROOT_PATH}?tags={TAG_LABEL_1}&sorting=timeline&end={START_TIMELINE}&skip=2");
 
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
     let post_list = vec![POST_TC];
 
     verify_timeline_post_list(post_list, body);
@@ -206,13 +207,13 @@ async fn test_stream_posts_by_tag_timeline_with_end_and_skip() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_tag_timeline_with_start_skip_and_limit() -> Result<()> {
     let path = format!(
         "{ROOT_PATH}?tags={TAG_LABEL_1}&sorting=timeline&start={START_TIMELINE}&skip=2&limit=5"
     );
 
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
     let post_list = vec![POST_TF, POST_TG, POST_TH, POST_TI, POST_TJ];
 
     verify_timeline_post_list(post_list, body);
@@ -220,13 +221,13 @@ async fn test_stream_posts_by_tag_timeline_with_start_skip_and_limit() -> Result
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_multiple_tags() -> Result<()> {
     let path = format!(
         "{ROOT_PATH}?tags={},{},{}&sorting=timeline&limit=30",
         TAG_LABEL_2, TAG_LABEL_3, TAG_LABEL_4
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -274,11 +275,11 @@ pub const POST_EL: &str = "2ZDYGS5S86D00";
 pub const ENGAGEMENT_SCORE_START: &str = "6";
 pub const ENGAGEMENT_SCORE_END: &str = "4";
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_tag_posts_by_engagment_tag() -> Result<()> {
     let path = format!("{ROOT_PATH}?tags={}&sorting=total_engagement", TAG_LABEL_1);
 
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     // Deserialize the response body into a PostStream object
     let post_stream: PostStream = serde_json::from_value(body)?;
@@ -299,14 +300,14 @@ async fn test_stream_tag_posts_by_engagment_tag() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_tag_posts_by_engagement_with_start() -> Result<()> {
     let path = format!(
         "{}?tags={}&sorting=total_engagement&start={}",
         ROOT_PATH, TAG_LABEL_1, ENGAGEMENT_SCORE_START
     );
 
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
     let post_list = vec![
         POST_EB, POST_EC, POST_ED, POST_EE, POST_EF, POST_EG, POST_EH, POST_EI, POST_EJ, POST_EK,
     ];
@@ -316,14 +317,14 @@ async fn test_stream_tag_posts_by_engagement_with_start() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_tag_posts_by_engagement_with_start_and_end() -> Result<()> {
     let path = format!(
         "{}?tags={}&sorting=total_engagement&start={}&end={}",
         ROOT_PATH, TAG_LABEL_1, ENGAGEMENT_SCORE_START, ENGAGEMENT_SCORE_END
     );
 
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
     let post_list = vec![POST_EB, POST_EC, POST_ED, POST_EE, POST_EF, POST_EG];
 
     verify_post_list(post_list, body);
@@ -331,14 +332,14 @@ async fn test_stream_tag_posts_by_engagement_with_start_and_end() -> Result<()> 
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_tag_posts_by_engagement_with_start_and_limit() -> Result<()> {
     let path = format!(
         "{}?tags={}&sorting=total_engagement&start={}&limit=6",
         ROOT_PATH, TAG_LABEL_1, ENGAGEMENT_SCORE_END
     );
 
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
     let post_list = vec![POST_ED, POST_EE, POST_EF, POST_EG, POST_EH, POST_EI];
 
     verify_post_list(post_list, body);
@@ -346,14 +347,14 @@ async fn test_stream_tag_posts_by_engagement_with_start_and_limit() -> Result<()
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_tag_posts_by_engagement_with_end_skip_and_limit() -> Result<()> {
     let path = format!(
         "{}?tags={}&sorting=total_engagement&end={}&skip=3&limit=6",
         ROOT_PATH, TAG_LABEL_1, ENGAGEMENT_SCORE_END
     );
 
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
     let post_list = vec![POST_ED, POST_EE, POST_EF, POST_EG];
 
     verify_post_list(post_list, body);
@@ -361,10 +362,10 @@ async fn test_stream_tag_posts_by_engagement_with_end_skip_and_limit() -> Result
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_post_specific_tag_with_no_result() -> Result<()> {
     let path = format!("{}?tags={}", ROOT_PATH, "randommm");
-    make_wrong_request(&path, Some(204)).await?;
+    invalid_get_request(&path, StatusCode::NO_CONTENT).await?;
 
     Ok(())
 }
