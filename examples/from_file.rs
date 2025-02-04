@@ -17,7 +17,6 @@ async fn main() -> Result<(), DynError> {
     let mut event_processor = EventProcessor::from_config(&config).await?;
 
     let events = read_events_from_file().unwrap();
-
     event_processor.process_event_lines(events).await?;
 
     Ok(())

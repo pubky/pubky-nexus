@@ -1,6 +1,7 @@
 use crate::db::graph::exec::{exec_single_row, execute_graph_operation, OperationOutcome};
 use crate::db::kv::index::json::JsonAction;
-use crate::events::uri::ParsedUri;
+use crate::events::error::EventProcessorError;
+use crate::events::retry::event::RetryEvent;
 use crate::models::notification::{Notification, PostChangedSource, PostChangedType};
 use crate::models::post::{
     PostCounts, PostDetails, PostRelationships, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS,
@@ -10,25 +11,18 @@ use crate::queries::get::post_is_safe_to_delete;
 use crate::types::DynError;
 use crate::{queries, RedisOps, ScoreAction};
 use log::debug;
-use pubky_app_specs::{traits::Validatable, PubkyAppPost, PubkyAppPostKind, PubkyId};
+use pubky_app_specs::{
+    user_uri_builder, ParsedUri, PubkyAppPost, PubkyAppPostKind, PubkyId, Resource,
+};
 
 use super::utils::post_relationships_is_reply;
-
-pub async fn put(author_id: PubkyId, post_id: String, blob: &[u8]) -> Result<(), DynError> {
-    // Process Post resource and update the databases
-    debug!("Indexing new post: {}/{}", author_id, post_id);
-
-    // Serialize and validate
-    let post = <PubkyAppPost as Validatable>::try_from(blob, &post_id)?;
-
-    sync_put(post, author_id, post_id).await
-}
 
 pub async fn sync_put(
     post: PubkyAppPost,
     author_id: PubkyId,
     post_id: String,
 ) -> Result<(), DynError> {
+    debug!("Indexing new post: {}/{}", author_id, post_id);
     // Create PostDetails object
     let post_details = PostDetails::from_homeserver(post.clone(), &author_id, &post_id).await?;
     // We avoid indexing replies into global feed sorted sets
@@ -39,10 +33,28 @@ pub async fn sync_put(
     let existed = match post_details.put_to_graph(&post_relationships).await? {
         OperationOutcome::CreatedOrDeleted => false,
         OperationOutcome::Updated => true,
-        // TODO: Should return an error that should be processed by RetryManager
-        // WIP: Create a custom error type to pass enough info to the RetryManager
-        OperationOutcome::Pending => {
-            return Err("WATCHER: Missing some dependency to index the model".into())
+        OperationOutcome::MissingDependency => {
+            let mut dependency = Vec::new();
+            if let Some(replied_uri) = &post_relationships.replied {
+                let reply_dependency = RetryEvent::generate_index_key(replied_uri)
+                    // This block is unlikely to be reached, as it would typically fail during the validation process
+                    .unwrap_or_else(|| replied_uri.clone());
+                dependency.push(reply_dependency);
+            }
+            if let Some(reposted_uri) = &post_relationships.reposted {
+                let reply_dependency = RetryEvent::generate_index_key(reposted_uri)
+                    // This block is unlikely to be reached, as it would typically fail during the validation process
+                    .unwrap_or_else(|| reposted_uri.clone());
+                dependency.push(reply_dependency);
+            }
+            if dependency.is_empty() {
+                if let Some(key) =
+                    RetryEvent::generate_index_key(&user_uri_builder(author_id.to_string()))
+                {
+                    dependency.push(key);
+                }
+            }
+            return Err(EventProcessorError::MissingDependency { dependency }.into());
         }
     };
 
@@ -92,7 +104,10 @@ pub async fn sync_put(
         let parsed_uri = ParsedUri::try_from(replied_uri.as_str())?;
 
         let parent_author_id = parsed_uri.user_id;
-        let parent_post_id = parsed_uri.post_id.ok_or("Missing post ID")?;
+        let parent_post_id = match parsed_uri.resource {
+            Resource::Post(id) => id,
+            _ => return Err("Reposted uri is not a Post resource".into()),
+        };
 
         let parent_post_key_parts: &[&str; 2] = &[&parent_author_id, &parent_post_id];
 
@@ -133,7 +148,10 @@ pub async fn sync_put(
         let parsed_uri = ParsedUri::try_from(reposted_uri.as_str())?;
 
         let parent_author_id = parsed_uri.user_id;
-        let parent_post_id = parsed_uri.post_id.ok_or("Missing post ID")?;
+        let parent_post_id = match parsed_uri.resource {
+            Resource::Post(id) => id,
+            _ => return Err("Reposted uri is not a Post resource".into()),
+        };
 
         let parent_post_key_parts: &[&str; 2] = &[&parent_author_id, &parent_post_id];
 
@@ -272,11 +290,7 @@ pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), DynError> {
 
             sync_put(dummy_deleted_post, author_id, post_id).await?;
         }
-        // TODO: Should return an error that should be processed by RetryManager
-        // WIP: Create a custom error type to pass enough info to the RetryManager
-        OperationOutcome::Pending => {
-            return Err("WATCHER: Missing some dependency to index the model".into())
-        }
+        OperationOutcome::MissingDependency => return Err(EventProcessorError::SkipIndexing.into()),
     };
 
     Ok(())
@@ -305,7 +319,10 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
         // Decrement counts for resposted post if existed
         if let Some(reposted) = relationships.reposted {
             let parsed_uri = ParsedUri::try_from(reposted.as_str())?;
-            let parent_post_id = parsed_uri.post_id.ok_or("Missing post ID")?;
+            let parent_post_id = match parsed_uri.resource {
+                Resource::Post(id) => id,
+                _ => return Err("Reposted uri is not a Post resource".into()),
+            };
 
             let parent_post_key_parts: &[&str] = &[&parsed_uri.user_id, &parent_post_id];
 
@@ -341,7 +358,10 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
         if let Some(replied) = relationships.replied {
             let parsed_uri = ParsedUri::try_from(replied.as_str())?;
             let parent_user_id = parsed_uri.user_id;
-            let parent_post_id = parsed_uri.post_id.ok_or("Missing post ID")?;
+            let parent_post_id = match parsed_uri.resource {
+                Resource::Post(id) => id,
+                _ => return Err("Replied uri is not a Post resource".into()),
+            };
 
             let parent_post_key_parts: [&str; 2] = [&parent_user_id, &parent_post_id];
             reply_parent_post_key_wrapper =

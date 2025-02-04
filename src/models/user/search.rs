@@ -124,6 +124,7 @@ impl UserSearch {
         }
 
         Self::remove_from_index_sorted_set(
+            None,
             &USER_NAME_KEY_PARTS,
             records_to_delete
                 .iter()
@@ -171,7 +172,7 @@ mod tests {
 
         user_details.put_to_graph().await?;
         user_details
-            .put_index_json(vec![user_id].as_slice(), None)
+            .put_index_json(vec![user_id].as_slice(), None, None)
             .await?;
 
         // Call `put_to_index` with the same `UserDetails` object

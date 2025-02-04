@@ -93,8 +93,6 @@ pub async fn stream_posts_handler(
 
     query.initialize_defaults();
 
-    println!("QUERY: {:?}", query);
-
     // Enforce maximum number of tags
     if let Some(ref tags) = query.tags {
         if tags.len() > MAX_TAGS {

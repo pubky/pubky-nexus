@@ -1,5 +1,7 @@
 use crate::utils::{TestServiceServer, SERVER_URL};
 use reqwest::{Method, StatusCode};
+use log::info;
+use pubky_nexus::{setup::setup_redis, Config};
 use serde_json::Value;
 
 /// Instead of hardcoding the host, we have a function that returns it.
@@ -91,4 +93,14 @@ async fn inner_make_request(
         }
     };
     Ok(body)
+}
+
+pub async fn connect_to_redis() {
+    let config = Config::from_env();
+
+    match env_logger::try_init() {
+        Ok(_) => info!("Env logger initiated"),
+        Err(err) => assert!(false, "{}", format!("Env logger was already set: {}", err)),
+    }
+    setup_redis(&config).await;
 }

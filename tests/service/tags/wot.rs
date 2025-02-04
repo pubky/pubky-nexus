@@ -1,8 +1,9 @@
 use super::utils::{analyse_tag_details_structure, compare_tag_details, TagMockup};
-use crate::service::utils::{get_request, invalid_get_request};
+use crate::service::utils::{get_request, invalid_get_request, connect_to_redis};
 use anyhow::Result;
 use pubky_nexus::models::tag::TagDetails;
-use reqwest::StatusCode;
+use pubky_nexus::{db::connectors::redis::get_redis_conn, types::DynError};
+use redis::AsyncCommands;
 use serde_json::Value;
 
 // ##### WoT user tags ####
@@ -21,7 +22,9 @@ const USER_C: &str = "cuimec4ngawamq8wa6fjzki6boxmwqcm11x6g7ontufrjwgdaxqo";
 // WARNING: To test that integration test, the Cache:... indexes
 // related with WoT has to be deleted
 #[tokio_shared_rt::test(shared)]
-async fn test_wot_user_tags_endpoints() -> Result<()> {
+async fn test_wot_user_tags_endpoints() -> Result<(), DynError> {
+    let _ = clear_wot_tags_cache().await;
+
     // Make sure, we still not index the WoT tags requesting the taggers
     let path = format!(
         "/v0/user/{}/taggers/{}?viewer_id={}&depth=2",
@@ -236,4 +239,25 @@ fn verify_user_taggers(mock_taggers: Vec<&str>, tag_details: Value, tag: String)
             "The post ids should be the same"
         );
     }
+}
+
+async fn clear_wot_tags_cache() -> Result<(), DynError> {
+    // Open redis connections
+    connect_to_redis().await;
+    let mut redis_conn = get_redis_conn().await?;
+    let athens_key = format!(
+        "Cache:User:Taggers:{}:{}:{}",
+        EPICTTO_VIEWER, AURELIO_USER, ATHENS_TAG
+    );
+    let now_key = format!(
+        "Cache:User:Taggers:{}:{}:{}",
+        EPICTTO_VIEWER, AURELIO_USER, NOW_TAG
+    );
+    // Remove the SETs
+    let _: () = redis_conn.del(athens_key).await?;
+    let _: () = redis_conn.del(now_key).await?;
+    // Remove the SORTED SET
+    let sorted_set_key = format!("Cache:Sorted:Users:Tag:{}:{}", EPICTTO_VIEWER, AURELIO_USER);
+    let _: () = redis_conn.del(sorted_set_key).await?;
+    Ok(())
 }

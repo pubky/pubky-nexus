@@ -7,4 +7,5 @@ mod put;
 mod put_friends;
 mod put_notification;
 mod put_sequential;
+mod retry_follow;
 mod utils;

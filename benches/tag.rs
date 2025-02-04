@@ -1,10 +1,11 @@
 use criterion::{criterion_group, criterion_main};
 use criterion::{BenchmarkId, Criterion};
-use pubky_nexus::models::tag::global::TagGlobal;
+use pubky_nexus::models::tag::global::Taggers;
 use pubky_nexus::models::tag::post::TagPost;
-use pubky_nexus::models::tag::stream::{HotTags, HotTagsInput, TagStreamReach};
+use pubky_nexus::models::tag::stream::{HotTags, TagStreamReach};
 use pubky_nexus::models::tag::traits::{TagCollection, TaggersCollection};
 use pubky_nexus::models::tag::user::TagUser;
+use pubky_nexus::routes::v0::tag::HotTagsInput;
 use pubky_nexus::types::{Pagination, Timeframe};
 use setup::run_setup;
 use std::time::Duration;
@@ -198,13 +199,7 @@ fn bench_get_global_hot_tags(c: &mut Criterion) {
 
     c.bench_function("bench_get_global_hot_tags", |b| {
         b.to_async(&rt).iter(|| async {
-            let input = HotTagsInput {
-                timeframe: Timeframe::AllTime,
-                skip: 0,
-                limit: 40,
-                taggers_limit: 10,
-                tagged_type: None,
-            };
+            let input = HotTagsInput::new(Timeframe::AllTime, 0, 40, 10, None);
             let stream_tag = HotTags::get_hot_tags(None, None, &input).await.unwrap();
             criterion::black_box(stream_tag);
         });
@@ -226,10 +221,16 @@ fn bench_get_global_tag_taggers(c: &mut Criterion) {
         &[label],
         |b, &params| {
             b.to_async(&rt).iter(|| async {
-                let tag_taggers =
-                    TagGlobal::get_tag_taggers(String::from(params[0]), None, None, 0, 20)
-                        .await
-                        .unwrap();
+                let tag_taggers = Taggers::get_global_taggers(
+                    String::from(params[0]),
+                    None,
+                    None,
+                    0,
+                    20,
+                    Timeframe::AllTime,
+                )
+                .await
+                .unwrap();
                 criterion::black_box(tag_taggers);
             });
         },
