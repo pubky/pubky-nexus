@@ -12,7 +12,7 @@ use pubky_homeserver::Homeserver;
 use pubky_nexus::events::retry::event::RetryEvent;
 use pubky_nexus::events::Event;
 use pubky_nexus::types::DynError;
-use pubky_nexus::{setup, Config, EventProcessor, PubkyConnector, StackManager};
+use pubky_nexus::{Config, EventProcessor, PubkyConnector, StackManager};
 
 /// Struct to hold the setup environment for tests
 pub struct WatcherTest {

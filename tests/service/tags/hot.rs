@@ -157,7 +157,7 @@ async fn test_hot_tags_by_following_reach_and_today_timeframe() -> Result<()> {
         USER_1
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Stream tags should be an array");
@@ -190,7 +190,7 @@ async fn test_hot_tags_by_following_reach_and_month_timeframe() -> Result<()> {
         USER_1
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Stream tags should be an array");
@@ -213,7 +213,7 @@ async fn test_hot_tags_by_following_reach_and_month_timeframe_skip_and_limit() -
         USER_1
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Stream tags should be an array");
@@ -239,7 +239,7 @@ async fn test_hot_tags_by_following_reach_and_all_timeframe() -> Result<()> {
         USER_1
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Stream tags should be an array");
@@ -263,7 +263,7 @@ async fn test_hot_tags_by_following_reach_with_skip_limit() -> Result<()> {
         PEER_PUBKY,
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Stream tags should be an array");
@@ -344,7 +344,7 @@ async fn test_hot_tags_by_followers_reach_with_skip_limit() -> Result<()> {
         PEER_PUBKY,
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Stream tags should be an array");
@@ -366,7 +366,7 @@ async fn test_hot_tags_by_followers_reach_and_today_timeframe() -> Result<()> {
         USER_4
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Stream tags should be an array");
@@ -399,7 +399,7 @@ async fn test_hot_tags_by_followers_reach_and_month_timeframe() -> Result<()> {
         USER_4
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Stream tags should be an array");
@@ -424,7 +424,7 @@ async fn test_hot_tags_by_followers_reach_and_month_timeframe_skip_and_limit() -
         USER_4
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Stream tags should be an array");
@@ -449,7 +449,7 @@ async fn test_hot_tags_by_followers_reach_and_all_timeframe() -> Result<()> {
         USER_4
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Stream tags should be an array");
@@ -492,7 +492,7 @@ async fn test_hot_tags_by_friends_reach_with_skip_limit() -> Result<()> {
         PEER_PUBKY,
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Stream tags should be an array");
@@ -514,7 +514,7 @@ async fn test_hot_tags_by_friends_reach_and_today_timeframe() -> Result<()> {
         USER_5
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Stream tags should be an array");
@@ -547,7 +547,7 @@ async fn test_hot_tags_by_friends_reach_and_month_timeframe() -> Result<()> {
         USER_5
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Stream tags should be an array");
@@ -570,7 +570,7 @@ async fn test_hot_tags_by_friends_reach_and_month_timeframe_skip_and_limit() -> 
         USER_5
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Stream tags should be an array");
@@ -595,7 +595,7 @@ async fn test_hot_tags_by_friends_reach_and_all_timeframe() -> Result<()> {
         USER_5
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Stream tags should be an array");
@@ -630,7 +630,7 @@ const TAGGERS: [&str; 9] = [
 async fn test_hot_tags_label_taggers() -> Result<()> {
     let endpoint = &format!("/v0/tags/taggers/{PUBKY_TAG}");
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let taggers = body.as_array().expect("Taggers ids should be an array");
@@ -642,7 +642,7 @@ async fn test_hot_tags_label_taggers() -> Result<()> {
 
     let endpoint = &format!("/v0/tags/taggers/{PUBKY_TAG}?skip=4&limit=2");
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let taggers_with_filters = body.as_array().expect("Taggers ids should be an array");
@@ -668,7 +668,7 @@ async fn test_hot_tags_label_taggers_with_skip_limit_and_timeframe() -> Result<(
         "tag1"
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let taggers = body.as_array().expect("Taggers ids should be an array");
@@ -689,7 +689,7 @@ async fn test_hot_tags_label_taggers_with_skip_limit_and_timeframe() -> Result<(
 async fn test_hot_tags_label_taggers_with_reach_following() -> Result<()> {
     let endpoint = &format!("/v0/tags/taggers/{PUBKY_TAG}?reach=following&user_id={PEER_PUBKY}");
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let taggers = body.as_array().expect("Taggers ids should be an array");
@@ -714,7 +714,7 @@ async fn test_hot_tags_label_taggers_with_reach_following_skip_and_limit() -> Re
         "/v0/tags/taggers/{PUBKY_TAG}?reach=following&user_id={PEER_PUBKY}&skip=1&limit=2"
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let taggers = body.as_array().expect("Taggers ids should be an array");
@@ -737,7 +737,7 @@ async fn test_hot_tags_label_taggers_with_reach_following_skip_and_limit() -> Re
 async fn test_hot_tags_label_taggers_with_reach_followers() -> Result<()> {
     let endpoint = &format!("/v0/tags/taggers/{PUBKY_TAG}?reach=followers&user_id={PEER_PUBKY}");
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let taggers = body.as_array().expect("Taggers ids should be an array");
@@ -762,7 +762,7 @@ async fn test_hot_tags_label_taggers_with_reach_followers_skip_and_limit() -> Re
         "/v0/tags/taggers/{PUBKY_TAG}?reach=followers&user_id={PEER_PUBKY}&skip=1&limit=1"
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let taggers = body.as_array().expect("Taggers ids should be an array");
@@ -780,7 +780,7 @@ async fn test_hot_tags_label_taggers_with_reach_followers_skip_and_limit() -> Re
 async fn test_hot_tags_label_taggers_with_reach_friends() -> Result<()> {
     let endpoint = &format!("/v0/tags/taggers/{PUBKY_TAG}?reach=friends&user_id={PEER_PUBKY}");
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let taggers = body.as_array().expect("Taggers ids should be an array");
@@ -804,7 +804,7 @@ async fn test_hot_tags_label_taggers_with_reach_friends_skip_and_limit() -> Resu
     let endpoint =
         &format!("/v0/tags/taggers/{PUBKY_TAG}?reach=friends&user_id={PEER_PUBKY}&skip=1&limit=1");
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let taggers = body.as_array().expect("Taggers ids should be an array");

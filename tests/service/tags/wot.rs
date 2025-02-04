@@ -1,9 +1,10 @@
 use super::utils::{analyse_tag_details_structure, compare_tag_details, TagMockup};
-use crate::service::utils::{get_request, invalid_get_request, connect_to_redis};
+use crate::service::utils::{connect_to_redis, get_request, invalid_get_request};
 use anyhow::Result;
 use pubky_nexus::models::tag::TagDetails;
 use pubky_nexus::{db::connectors::redis::get_redis_conn, types::DynError};
 use redis::AsyncCommands;
+use reqwest::StatusCode;
 use serde_json::Value;
 
 // ##### WoT user tags ####

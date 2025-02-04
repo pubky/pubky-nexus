@@ -11,7 +11,7 @@ use log::{debug, info};
 pub struct StackManager {}
 
 impl StackManager {
-    async fn setup_redis(config: &Config) {
+    pub async fn setup_redis(config: &Config) {
         let redis_connector = RedisConnector::new_connection(&config.redis_uri())
             .await
             .expect("Failed to connect to Redis");
@@ -22,7 +22,7 @@ impl StackManager {
         }
     }
 
-    async fn setup_neo4j(config: &Config) {
+    pub async fn setup_neo4j(config: &Config) {
         let neo4j_connector = Neo4jConnector::new_connection(
             &config.neo4j_uri(),
             &config.neo4j_username,
