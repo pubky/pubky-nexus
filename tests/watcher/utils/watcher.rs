@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use super::dht::TestnetDHTNetwork;
 use anyhow::{anyhow, Result};
 use chrono::Utc;
@@ -7,7 +9,11 @@ use pubky_app_specs::{
 };
 use pubky_common::crypto::Keypair;
 use pubky_homeserver::Homeserver;
-use pubky_nexus::{events::Event, setup, types::DynError, Config, EventProcessor, PubkyConnector};
+use pubky_nexus::events::retry::event::RetryEvent;
+use pubky_nexus::events::retry::manager::RetryManager;
+use pubky_nexus::events::Event;
+use pubky_nexus::types::DynError;
+use pubky_nexus::{setup, Config, EventProcessor, PubkyConnector};
 
 /// Struct to hold the setup environment for tests
 pub struct WatcherTest {
@@ -25,8 +31,9 @@ impl WatcherTest {
     /// 2. Initializes database connectors for Neo4j and Redis.
     /// 3. Sets up the global DHT test network for the watcher.
     /// 4. Creates and starts a test homeserver instance.
-    /// 5. Initializes the PubkyConnector with the configuration and global test DHT nodes.
-    /// 6. Creates and configures the event processor with the homeserver URL.
+    /// 5. Initializes a retry manager and ensures robustness by managing retries asynchronously.
+    /// 6. Initializes the PubkyConnector with the configuration and global test DHT nodes.
+    /// 7. Creates and configures the event processor with the homeserver URL.
     ///
     /// # Returns
     /// Returns an instance of `Self` containing the configuration, homeserver,
@@ -41,12 +48,15 @@ impl WatcherTest {
         let homeserver = Homeserver::start_test(&testnet).await?;
         let homeserver_id = homeserver.public_key().to_string();
 
-        match PubkyConnector::initialise(&config, Some(&testnet)) {
+        // Initialise the retry manager and prepare the sender channel to send the messages to the retry manager
+        let sender_channel = RetryManager::clone_sender_channel();
+
+        match PubkyConnector::initialise(&config, Some(&testnet)).await {
             Ok(_) => debug!("WatcherTest: PubkyConnector initialised"),
             Err(e) => debug!("WatcherTest: {}", e),
         }
 
-        let event_processor = EventProcessor::test(homeserver_id).await;
+        let event_processor = EventProcessor::test(homeserver_id, sender_channel).await;
 
         Ok(Self {
             config,
@@ -56,11 +66,13 @@ impl WatcherTest {
         })
     }
 
+    /// Disables event processing and returns the modified instance.
     pub async fn remove_event_processing(mut self) -> Self {
         self.ensure_event_processing = false;
         self
     }
 
+    /// Ensures that event processing is completed if it is enabled.
     pub async fn ensure_event_processing_complete(&mut self) -> Result<()> {
         if self.ensure_event_processing {
             self.event_processor.run().await.map_err(|e| anyhow!(e))?;
@@ -250,4 +262,33 @@ pub async fn retrieve_and_handle_event_line(event_line: &str) -> Result<(), DynE
     }
 
     Ok(())
+}
+
+/// Attempts to read an event index with retries before timing out
+/// # Arguments
+/// * `event_index` - A string slice representing the index to check
+pub async fn assert_eventually_exists(event_index: &str) {
+    const SLEEP_MS: u64 = 3;
+    const MAX_RETRIES: usize = 50;
+
+    for attempt in 0..MAX_RETRIES {
+        debug!(
+            "RetryEvent: Trying to read index {:?}, attempt {}/{} ({}ms)",
+            event_index,
+            attempt + 1,
+            MAX_RETRIES,
+            SLEEP_MS * attempt as u64
+        );
+        match RetryEvent::check_uri(event_index).await {
+            Ok(timeframe) => {
+                if timeframe.is_some() {
+                    return ();
+                }
+            }
+            Err(e) => panic!("Error while getting index: {:?}", e),
+        };
+        // Nap time
+        tokio::time::sleep(Duration::from_millis(SLEEP_MS)).await;
+    }
+    panic!("TIMEOUT: It takes to much time to read the RetryManager new index")
 }

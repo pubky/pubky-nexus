@@ -144,7 +144,7 @@ async fn test_homeserver_del_tag_post() -> Result<()> {
     assert!(tag_timeline.is_none());
 
     // Assert hot tag score: Sorted:Post:Global:Hot:label
-    let total_engagement = Taggers::check_sorted_set_member(&TAG_GLOBAL_HOT, &[label])
+    let total_engagement = Taggers::check_sorted_set_member(None, &TAG_GLOBAL_HOT, &[label])
         .await
         .unwrap()
         .unwrap();

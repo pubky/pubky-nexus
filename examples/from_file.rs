@@ -1,4 +1,5 @@
 use anyhow::Result;
+use pubky_nexus::events::retry::manager::RetryManager;
 use pubky_nexus::{setup, types::DynError, Config, EventProcessor};
 use std::fs::File;
 use std::io::{self, BufRead};
@@ -14,10 +15,12 @@ async fn main() -> Result<(), DynError> {
     let config = Config::from_env();
     setup(&config).await;
 
-    let mut event_processor = EventProcessor::from_config(&config).await?;
+    // Initialise the retry manager and prepare the sender channel to send the messages to the retry manager
+    let sender_channel = RetryManager::clone_sender_channel();
+
+    let mut event_processor = EventProcessor::from_config(&config, sender_channel).await?;
 
     let events = read_events_from_file().unwrap();
-
     event_processor.process_event_lines(events).await?;
 
     Ok(())
