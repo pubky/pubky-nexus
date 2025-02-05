@@ -4,6 +4,7 @@ use chrono::Utc;
 use log::error;
 use pubky_app_specs::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser};
 use pubky_common::crypto::Keypair;
+use pubky_nexus::models::homeserver::Homeserver;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_tag_cannot_add_while_index() -> Result<()> {
@@ -72,7 +73,10 @@ async fn test_homeserver_tag_cannot_add_while_index() -> Result<()> {
     );
 
     // Sync all the previous events
-    test.event_processor.run().await.unwrap();
+    test.event_processor
+        .run(Homeserver::new(test.homeserver_id.clone()))
+        .await
+        .unwrap();
 
     // => Create post tag
     let post = PubkyAppPost {

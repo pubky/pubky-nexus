@@ -1,10 +1,10 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use mainline::Testnet;
 use pubky::Client;
-use pubky_app_specs::{PubkyAppUser, PubkyAppUserLink};
+use pubky_app_specs::{PubkyAppUser, PubkyAppUserLink, PubkyId};
 use pubky_common::crypto::Keypair;
-use pubky_homeserver::Homeserver;
-use pubky_nexus::EventProcessor;
+use pubky_homeserver::Homeserver as PubkyCoreHomeserver;
+use pubky_nexus::{models::homeserver::Homeserver, EventProcessor};
 use setup::run_setup;
 use std::time::Duration;
 use tokio::runtime::Runtime;
@@ -19,9 +19,9 @@ mod setup;
 async fn create_homeserver_with_events() -> (Testnet, String) {
     // Create the test environment
     let testnet = Testnet::new(3).unwrap();
-    let homeserver = Homeserver::start_test(&testnet).await.unwrap();
+    let homeserver = PubkyCoreHomeserver::start_test(&testnet).await.unwrap();
     let client = Client::builder().testnet(&testnet).build().unwrap();
-    let homeserver_url = homeserver.url().to_string();
+    let homeserver_id = PubkyId::try_from(homeserver.public_key().to_string().as_str()).unwrap();
 
     // Generate user data
     let keypair = Keypair::random();
@@ -70,16 +70,18 @@ fn bench_create_delete_user(c: &mut Criterion) {
 
     // Set up the environment only once
     let rt = Runtime::new().unwrap();
-    let (_, homeserver_url) = rt.block_on(create_homeserver_with_events());
+    let (_, homeserver_id) = rt.block_on(create_homeserver_with_events());
 
     c.bench_function("create_delete_homeserver_user", |b| {
         b.to_async(&rt).iter(|| {
-            // Clone the sender for each iteration
-            let homeserver_url_clone = homeserver_url.clone();
+            let homeserver_id_clone = homeserver_id.clone(); // Clone the sender for each iteration
             async move {
                 // Benchmark the event processor initialization and run
-                let mut event_processor = EventProcessor::test(homeserver_url_clone).await;
-                event_processor.run().await.unwrap();
+                let mut event_processor =
+                    EventProcessor::test(homeserver_id_clone.to_string()).await;
+
+                let homeserver = Homeserver::new(homeserver_id_clone);
+                event_processor.run(homeserver).await.unwrap();
             }
         });
     });

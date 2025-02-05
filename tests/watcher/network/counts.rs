@@ -9,7 +9,7 @@ use pubky_app_specs::{
 };
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{
-    models::{post::PostCounts, user::UserCounts},
+    models::{homeserver::Homeserver, post::PostCounts, user::UserCounts},
     PubkyConnector, RedisOps,
 };
 use rand::{rngs::StdRng, Rng, SeedableRng};
@@ -271,9 +271,10 @@ async fn test_large_network_scenario_counts() -> Result<()> {
         }
     }
 
+    let homeserver = Homeserver::new(test.homeserver_id.clone());
     if !PROCESS_EVENTS_ONE_BY_ONE {
         for _ in 1..=100 {
-            test.event_processor.run().await.unwrap();
+            test.event_processor.run(homeserver.clone()).await.unwrap();
         }
     }
 

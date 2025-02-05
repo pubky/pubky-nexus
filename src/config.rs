@@ -20,6 +20,7 @@ pub struct Config {
     pub events_limit: u32,
     pub watcher_sleep: u64,
     pub max_retries: u64,
+    pub max_processors: usize,
 }
 
 impl Config {
@@ -54,6 +55,10 @@ impl Config {
                 .unwrap_or("5000".to_string())
                 .parse()
                 .unwrap_or(5000),
+            max_processors: env::var("MAX_PROCESSORS")
+                .unwrap_or("2".to_string())
+                .parse()
+                .unwrap_or(2),
             max_retries: env::var("MAX_RETRIES")
                 .unwrap_or("1".to_string())
                 .parse()

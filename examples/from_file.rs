@@ -1,4 +1,5 @@
 use anyhow::Result;
+use pubky_nexus::models::homeserver::Homeserver;
 use pubky_nexus::{types::DynError, Config, EventProcessor, StackManager};
 use std::fs::File;
 use std::io::{self, BufRead};
@@ -16,8 +17,11 @@ async fn main() -> Result<(), DynError> {
 
     let mut event_processor = EventProcessor::from_config(&config).await?;
 
+    let homeserver = Homeserver::from_config(&config).await?;
     let events = read_events_from_file().unwrap();
-    event_processor.process_event_lines(events).await?;
+    event_processor
+        .process_event_lines(homeserver, events)
+        .await?;
 
     Ok(())
 }
