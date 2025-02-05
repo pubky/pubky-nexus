@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use log::error;
 use neo4rs::Query;
-use pubky_app_specs::PubkyAppFile;
+use pubky_app_specs::{ParsedUri, PubkyAppFile, Resource};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -129,9 +129,11 @@ impl FileDetails {
     }
 
     pub fn file_key_from_uri(uri: &str) -> Vec<String> {
-        let path = uri.replace("pubky://", "");
-        let parts: Vec<&str> = path.split("/").collect();
-
-        vec![String::from(parts[0]), String::from(parts[parts.len() - 1])]
+        let parsed_uri = ParsedUri::try_from(uri).unwrap_or_default();
+        if let Resource::File(file_id) = parsed_uri.resource {
+            vec![parsed_uri.user_id.to_string(), file_id]
+        } else {
+            vec![parsed_uri.user_id.to_string(), String::default()]
+        }
     }
 }
