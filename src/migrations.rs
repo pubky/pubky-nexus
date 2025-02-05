@@ -1,7 +1,7 @@
 use std::env;
 
 use pubky_nexus::types::DynError;
-use pubky_nexus::{get_migration_manager, get_neo4j_graph, setup, Config, MigrationManager};
+use pubky_nexus::{get_migration_manager, get_neo4j_graph, Config, MigrationManager, StackManager};
 
 /// Migration manager entry point
 #[tokio::main]
@@ -22,7 +22,7 @@ async fn main() -> Result<(), DynError> {
         }
         Some("run") => {
             let config = Config::from_env();
-            setup(&config).await;
+            StackManager::setup(&config).await;
             log::info!("Running all pending migrations...");
             let graph = get_neo4j_graph()?;
             let migration_manager = get_migration_manager(graph);
