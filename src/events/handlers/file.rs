@@ -1,6 +1,5 @@
 use crate::db::connectors::pubky::PubkyConnector;
 use crate::types::DynError;
-use crate::types::PubkyId;
 use crate::{
     models::{
         file::{
@@ -11,32 +10,28 @@ use crate::{
     },
     Config,
 };
-use axum::body::Bytes;
-use log::debug;
-use pubky_app_specs::{traits::Validatable, PubkyAppFile};
+use log::{debug, error};
+use pubky_app_specs::{PubkyAppFile, PubkyId};
 use tokio::{
     fs::{self, remove_file, File},
     io::AsyncWriteExt,
 };
 
-pub async fn put(
+pub async fn sync_put(
+    file: PubkyAppFile,
     uri: String,
     user_id: PubkyId,
     file_id: String,
-    blob: Bytes,
 ) -> Result<(), DynError> {
     debug!("Indexing new file resource at {}/{}", user_id, file_id);
 
-    // Serialize and validate
-    let file_input = <PubkyAppFile as Validatable>::try_from(&blob, &file_id)?;
+    debug!("file input {:?}", file);
 
-    debug!("file input {:?}", file_input);
-
-    let file_meta = ingest(&user_id, file_id.as_str(), &file_input).await?;
+    let file_meta = ingest(&user_id, file_id.as_str(), &file).await?;
 
     // Create FileDetails object
     let file_details =
-        FileDetails::from_homeserver(&file_input, uri, user_id.to_string(), file_id, file_meta);
+        FileDetails::from_homeserver(&file, uri, user_id.to_string(), file_id, file_meta);
 
     // save new file into the Graph
     file_details.put_to_graph().await?;
@@ -62,11 +57,16 @@ async fn ingest(
 ) -> Result<FileMeta, DynError> {
     let pubky_client = PubkyConnector::get_pubky_client()?;
 
-    let blob = match pubky_client.get(pubkyapp_file.src.as_str()).await? {
-        Some(metadata) => metadata,
+    let response = match pubky_client.get(&pubkyapp_file.src).send().await {
+        Ok(response) => response,
         // TODO: Shape the error to avoid the retyManager
-        None => return Err("EVENT ERROR: no metadata in the file blob".into()),
+        Err(e) => {
+            error!("EVENT ERROR: could not retrieve file src blob");
+            return Err(e.into());
+        }
     };
+
+    let blob = response.bytes().await?;
 
     store_blob(file_id.to_string(), user_id.to_string(), &blob).await?;
 
@@ -77,7 +77,7 @@ async fn ingest(
     })
 }
 
-async fn store_blob(name: String, path: String, blob: &Bytes) -> Result<(), DynError> {
+async fn store_blob(name: String, path: String, blob: &[u8]) -> Result<(), DynError> {
     let storage_path = Config::from_env().file_path;
     // TODO: Is it well formatting. The file path already has / at the end
     let full_path = format!("{}/{}", storage_path, path);

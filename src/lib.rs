@@ -1,11 +1,11 @@
 mod config;
-mod db;
+pub mod db;
 mod error;
 pub mod events;
 pub mod models;
 mod reindex;
 pub mod routes;
-mod setup;
+pub mod setup;
 pub mod types;
 
 pub use config::Config;
@@ -21,6 +21,6 @@ pub use db::migrations::manager::{Migration, MigrationManager, MigrationPhase};
 pub use error::{Error, Result};
 pub use events::processor::EventProcessor;
 pub use reindex::reindex;
-pub use setup::setup;
+pub use setup::StackManager;
 
 extern crate const_format;

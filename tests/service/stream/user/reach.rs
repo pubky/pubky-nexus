@@ -1,23 +1,18 @@
-use crate::service::utils::HOST_URL;
+use crate::service::utils::{get_request, invalid_get_request};
 use anyhow::Result;
+use axum::http::StatusCode;
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_following() -> Result<()> {
-    let client = httpc_test::new_client(HOST_URL)?;
-
     let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
-    let res = client
-        .do_get(&format!(
-            "/v0/stream/users?user_id={}&source=following&limit=20",
-            user_id
-        ))
-        .await?;
-    assert_eq!(res.status(), 200);
+    let res = get_request(&format!(
+        "/v0/stream/users?user_id={}&source=following&limit=20",
+        user_id
+    ))
+    .await?;
+    assert!(res.is_array());
 
-    let body = res.json_body()?;
-    assert!(body.is_array());
-
-    let following = body.as_array().expect("User stream should be an array");
+    let following = res.as_array().expect("User stream should be an array");
 
     // Check if the user is following the expected number of users
     assert_eq!(following.len(), 15, "Unexpected number of users followed");
@@ -52,13 +47,14 @@ async fn test_stream_following() -> Result<()> {
     }
 
     // Test non-existing user
-    let res = client
-        .do_get(&format!(
+    invalid_get_request(
+        &format!(
             "/v0/stream/users?user_id={}&source=following",
             "bad_user_id"
-        ))
-        .await?;
-    assert_eq!(res.status(), 404);
+        ),
+        StatusCode::NO_CONTENT,
+    )
+    .await?;
 
     Ok(())
 }

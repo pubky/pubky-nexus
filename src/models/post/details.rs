@@ -2,10 +2,9 @@ use super::{PostRelationships, PostStream};
 use crate::db::connectors::neo4j::get_neo4j_graph;
 use crate::db::graph::exec::{exec_single_row, execute_graph_operation, OperationOutcome};
 use crate::types::DynError;
-use crate::types::PubkyId;
 use crate::{queries, RedisOps};
 use chrono::Utc;
-use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind};
+use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyId};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -48,7 +47,7 @@ impl PostDetails {
         author_id: &str,
         post_id: &str,
     ) -> Result<Option<PostDetails>, DynError> {
-        if let Some(post_details) = Self::try_from_index_json(&[author_id, post_id]).await? {
+        if let Some(post_details) = Self::try_from_index_json(&[author_id, post_id], None).await? {
             return Ok(Some(post_details));
         }
         Ok(None)
@@ -88,7 +87,8 @@ impl PostDetails {
         parent_key_wrapper: Option<(String, String)>,
         is_edit: bool,
     ) -> Result<(), DynError> {
-        self.put_index_json(&[author_id, &self.id], None).await?;
+        self.put_index_json(&[author_id, &self.id], None, None)
+            .await?;
         // When we delete a post that has ancestor, ignore other index updates
         if is_edit {
             return Ok(());
@@ -123,7 +123,7 @@ impl PostDetails {
             content: homeserver_post.content,
             id: post_id.clone(),
             indexed_at: Utc::now().timestamp_millis(),
-            author: author_id.0.clone(),
+            author: author_id.to_string(),
             kind: homeserver_post.kind,
             attachments: homeserver_post.attachments,
         })
@@ -183,7 +183,7 @@ impl PostDetails {
 
 #[cfg(test)]
 mod tests {
-    use crate::{setup, Config};
+    use crate::{Config, StackManager};
 
     use super::*;
 
@@ -191,11 +191,11 @@ mod tests {
     const REPLY_ID: &str = "2ZECXVXHZBE00";
     const POST_ID: &str = "2ZECRNM66G900";
 
-    #[tokio::test]
+    #[tokio_shared_rt::test(shared)]
     async fn test_post_details_get_from_graph() {
-        // Open connections against ddbb
         let config = Config::from_env();
-        setup(&config).await;
+        StackManager::setup(&config).await;
+
         let _res = PostDetails::get_by_id(AUTHOR_A_ID, REPLY_ID).await.unwrap();
         let replies = PostStream::get_post_replies(AUTHOR_A_ID, POST_ID, None, None, None)
             .await

@@ -1,6 +1,7 @@
 use anyhow::Result;
+use reqwest::StatusCode;
 
-use crate::service::utils::{make_request, make_wrong_request};
+use crate::service::utils::{get_request, invalid_get_request};
 
 use super::utils::{analyse_tag_details_structure, compare_tag_details, TagMockup};
 
@@ -9,12 +10,13 @@ const PEER_PUBKY: &str = "db6w58pd5h63fbhtd88y8zz7pai9rkjwqt9omg6i7dz31dynrgcy";
 const POST_ID: &str = "HC3T5CEPBPHQ";
 const FREE_LABEL: &str = "free";
 
-// TODO: Create deterministic integration tests
+const BAHRINGER_USER: &str = "7kbjzgcx3xygokesys6jso13tt9u5n995p9q54a1co7cai9ujcso";
+const BAHRINGER_POST: &str = "2Z1N9M56X4EG0";
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_post_tag() -> Result<()> {
     let path = format!("/v0/post/{}/{}/tags", PEER_PUBKY, POST_ID);
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -32,10 +34,10 @@ async fn test_post_tag() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_user_tags_limit_tag_filter_active() -> Result<()> {
     let path = format!("/v0/post/{}/{}/tags?limit_tags=2", PEER_PUBKY, POST_ID);
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -52,10 +54,65 @@ async fn test_user_tags_limit_tag_filter_active() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
+async fn test_user_tags_skip_tag_filter_active() -> Result<()> {
+    let path = format!(
+        "/v0/post/{}/{}/tags?skip_tags=7",
+        BAHRINGER_USER, BAHRINGER_POST
+    );
+    let body = get_request(&path).await?;
+
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Tag list should be an array");
+    assert_eq!(tags.len(), 3);
+
+    // Validate that the posts belong to the specified user's bookmarks
+    analyse_tag_details_structure(tags);
+
+    // Analyse the tag that is in the 1st index
+    let hot_tag = TagMockup::new(String::from("emergent"), 1, 1);
+    compare_tag_details(&tags[0], hot_tag);
+    // Analyse the tag that is in the 3rd index
+    let hot_tag = TagMockup::new(String::from("cheap"), 1, 1);
+    compare_tag_details(&tags[2], hot_tag);
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_user_tags_skip_and_limit_tag_filter_active() -> Result<()> {
+    let path = format!(
+        "/v0/post/{}/{}/tags?skip_tags=4&limit_tags=3",
+        BAHRINGER_USER, BAHRINGER_POST
+    );
+    let body = get_request(&path).await?;
+
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Tag list should be an array");
+    assert_eq!(tags.len(), 3);
+
+    // Validate that the posts belong to the specified user's bookmarks
+    analyse_tag_details_structure(tags);
+
+    // Analyse the tag that is in the 1st index
+    let hot_tag = TagMockup::new(String::from("mutation"), 1, 1);
+    compare_tag_details(&tags[0], hot_tag);
+    // Analyse the tag that is in the 2nd index
+    let hot_tag = TagMockup::new(String::from("irritably"), 1, 1);
+    compare_tag_details(&tags[1], hot_tag);
+    // Analyse the tag that is in the 3rd index
+    let hot_tag = TagMockup::new(String::from("frantically"), 1, 1);
+    compare_tag_details(&tags[2], hot_tag);
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
 async fn test_user_tags_limit_taggers_filter_active() -> Result<()> {
     let path = format!("/v0/post/{}/{}/tags?limit_taggers=1", PEER_PUBKY, POST_ID);
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -72,13 +129,13 @@ async fn test_user_tags_limit_taggers_filter_active() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_user_tags_full_filter_active() -> Result<()> {
     let path = format!(
         "/v0/post/{}/{}/tags?limit_tags=1&limit_taggers=1",
         PEER_PUBKY, POST_ID
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -95,29 +152,29 @@ async fn test_user_tags_full_filter_active() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_post_does_not_exist() -> Result<()> {
     let endpoint = format!("/v0/post/{}/{}/tags", PEER_PUBKY, "JTDX9ZSWPQF8");
     // TODO: Control post not found error control
-    make_wrong_request(&endpoint, None).await?;
+    invalid_get_request(&endpoint, StatusCode::NOT_FOUND).await?;
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_user_does_not_exist() -> Result<()> {
     let endpoint = format!(
         "/v0/post/{}/{}/tags",
         "db6w58pd5h63fbhtd88y8zz7pai9rkjwqt9omg6i7dz31dynrgc4", POST_ID
     );
     // TODO: Control post not found error control
-    make_wrong_request(&endpoint, None).await?;
+    invalid_get_request(&endpoint, StatusCode::NOT_FOUND).await?;
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_post_specific_tag() -> Result<()> {
     let path = format!("/v0/post/{}/{}/taggers/{}", PEER_PUBKY, POST_ID, FREE_LABEL);
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -132,13 +189,13 @@ async fn test_post_specific_tag() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_post_specific_tag_with_limit() -> Result<()> {
     let path = format!(
         "/v0/post/{}/{}/taggers/{}?limit=1",
         PEER_PUBKY, POST_ID, FREE_LABEL
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -153,13 +210,13 @@ async fn test_post_specific_tag_with_limit() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_post_specific_tag_with_skip() -> Result<()> {
     let path = format!(
         "/v0/post/{}/{}/taggers/{}?skip=1",
         PEER_PUBKY, POST_ID, FREE_LABEL
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -174,13 +231,13 @@ async fn test_post_specific_tag_with_skip() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_post_specific_tag_with_full_filters() -> Result<()> {
     let path = format!(
         "/v0/post/{}/{}/taggers/{}?skip=2&limit=1",
         PEER_PUBKY, POST_ID, FREE_LABEL
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -195,13 +252,13 @@ async fn test_post_specific_tag_with_full_filters() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_post_specific_tag_with_no_result() -> Result<()> {
     let path = format!(
         "/v0/post/{}/{}/taggers/{}?skip=3&limit=1",
         PEER_PUBKY, POST_ID, FREE_LABEL
     );
-    make_wrong_request(&path, None).await?;
+    invalid_get_request(&path, StatusCode::NOT_FOUND).await?;
 
     Ok(())
 }

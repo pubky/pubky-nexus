@@ -137,7 +137,9 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                         format!("pubky://{}/pub/pubky.app/mutes/{}", user_id, target_user_id);
                     let pubky_client = PubkyConnector::get_pubky_client()?;
                     pubky_client
-                        .put(mute_url.as_str(), &serde_json::to_vec(&mute)?)
+                        .put(mute_url.as_str())
+                        .json(&mute)
+                        .send()
                         .await?;
                     _total_mutes += 1;
                 }
@@ -169,8 +171,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                     bookmark.create_id()
                 );
 
-                test.put(&bookmark_url, serde_json::to_vec(&bookmark)?)
-                    .await?;
+                test.put(&bookmark_url, &bookmark).await?;
                 total_bookmarks += 1;
             }
         }
@@ -198,7 +199,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
 
                 let tag_url = format!("pubky://{}/pub/pubky.app/tags/{}", user_id, tag.create_id());
 
-                test.put(&tag_url, serde_json::to_vec(&tag)?).await?;
+                test.put(&tag_url, &tag).await?;
                 total_tags += 1;
 
                 // FAILS: possibly deletes a tag twice and decrements twice in index.
@@ -263,7 +264,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                 let mute_uri =
                     format!("pubky://{}/pub/pubky.app/mutes/{}", user_id, target_user_id);
                 let pubky_client = PubkyConnector::get_pubky_client()?;
-                pubky_client.delete(mute_uri.as_str()).await?;
+                pubky_client.delete(mute_uri.as_str()).send().await?;
                 mute_set.remove(target_user_id);
                 _total_unmutes += 1;
             }
@@ -279,7 +280,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
     // Now, make assertions
     // For each user, compare counts from cache and graph
     for user_id in user_ids.iter() {
-        let counts_cache = UserCounts::try_from_index_json(&[user_id])
+        let counts_cache = UserCounts::try_from_index_json(&[user_id], None)
             .await
             .unwrap()
             .expect("Counts not found in index");
@@ -334,7 +335,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
     // Compare PostCounts for each post
     for (user_id, posts) in user_posts.iter() {
         for post_id in posts.iter() {
-            let counts_cache = PostCounts::try_from_index_json(&[user_id, post_id])
+            let counts_cache = PostCounts::try_from_index_json(&[user_id, post_id], None)
                 .await
                 .unwrap()
                 .expect("PostCounts not found in index");
@@ -369,7 +370,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
     let mut total_followers_cache = 0;
 
     for user_id in user_ids.iter() {
-        let counts_cache = UserCounts::try_from_index_json(&[user_id])
+        let counts_cache = UserCounts::try_from_index_json(&[user_id], None)
             .await
             .unwrap()
             .expect("Counts not found in cache");

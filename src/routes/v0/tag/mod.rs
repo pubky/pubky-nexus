@@ -5,6 +5,8 @@ use utoipa::OpenApi;
 
 mod global;
 
+pub use global::HotTagsInput;
+
 pub fn routes() -> Router {
     register_routes!(Router::new(),
         endpoints::TAGS_HOT_ROUTE => global::hot_tags_handler,
