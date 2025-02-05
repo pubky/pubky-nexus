@@ -36,15 +36,21 @@ pub async fn sync_put(
 
     // SAVE TO INDEX
     let bookmark_details = Bookmark { id, indexed_at };
+
     bookmark_details
         .put_to_index(&author_id, &post_id, &user_id)
-        .await?;
+        .await
+        .map_err(|e| EventProcessorError::CacheWriteFailed {
+            message: e.to_string(),
+        })?;
 
-    // Update user counts with the new bookmark. Skip if bookmark existed.
     if !existed {
-        UserCounts::update(&user_id, "bookmarks", JsonAction::Increment(1)).await?;
+        UserCounts::update(&user_id, "bookmarks", JsonAction::Increment(1))
+            .await
+            .map_err(|e| EventProcessorError::CacheWriteFailed {
+                message: e.to_string(),
+            })?;
     }
-
     Ok(())
 }
 
@@ -61,9 +67,17 @@ pub async fn sync_del(user_id: PubkyId, bookmark_id: String) -> Result<(), DynEr
         None => return Err(EventProcessorError::SkipIndexing.into()),
     };
 
-    Bookmark::del_from_index(&user_id, &post_id, &author_id).await?;
+    Bookmark::del_from_index(&user_id, &post_id, &author_id)
+        .await
+        .map_err(|e| EventProcessorError::CacheWriteFailed {
+            message: e.to_string(),
+        })?;
     // Update user counts
-    UserCounts::update(&user_id, "bookmarks", JsonAction::Decrement(1)).await?;
+    UserCounts::update(&user_id, "bookmarks", JsonAction::Decrement(1))
+        .await
+        .map_err(|e| EventProcessorError::CacheWriteFailed {
+            message: e.to_string(),
+        })?;
 
     Ok(())
 }

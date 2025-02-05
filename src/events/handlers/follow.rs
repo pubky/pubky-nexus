@@ -30,26 +30,32 @@ pub async fn sync_put(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), 
             let will_be_friends =
                 is_followee_following_follower(&follower_id, &followee_id).await?;
 
+            let followers = Followers(vec![follower_id.to_string()]);
+            let following = Following(vec![followee_id.to_string()]);
+
             // SAVE TO INDEX
-            // Add new follower to the followee index
-            Followers(vec![follower_id.to_string()])
-                .put_to_index(&followee_id)
-                .await?;
-            // Add in the Following:follower_id index a followee user
-            Following(vec![followee_id.to_string()])
-                .put_to_index(&follower_id)
-                .await?;
-
-            update_follow_counts(
-                &follower_id,
-                &followee_id,
-                JsonAction::Increment(1),
-                will_be_friends,
-            )
-            .await?;
-
-            // Notify the followee
-            Notification::new_follow(&follower_id, &followee_id, will_be_friends).await?;
+            match futures::try_join!(
+                // Add new follower to the followee index
+                followers.put_to_index(&followee_id),
+                // Add in the Following:follower_id index a followee user
+                following.put_to_index(&follower_id),
+                update_follow_counts(
+                    &follower_id,
+                    &followee_id,
+                    JsonAction::Increment(1),
+                    will_be_friends
+                ),
+                // Notify the followee
+                Notification::new_follow(&follower_id, &followee_id, will_be_friends)
+            ) {
+                Ok(_) => (),
+                Err(e) => {
+                    return Err(EventProcessorError::CacheWriteFailed {
+                        message: e.to_string(),
+                    }
+                    .into())
+                }
+            }
         }
     };
 
@@ -72,25 +78,31 @@ pub async fn sync_del(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), 
             let were_friends = Friends::check(&follower_id, &followee_id).await?;
 
             // REMOVE FROM INDEX
-            // Remove a follower to the followee index
-            Followers(vec![follower_id.to_string()])
-                .del_from_index(&followee_id)
-                .await?;
-            // Remove from the Following:follower_id index a followee user
-            Following(vec![followee_id.to_string()])
-                .del_from_index(&follower_id)
-                .await?;
+            let followers = Followers(vec![follower_id.to_string()]);
+            let following = Following(vec![followee_id.to_string()]);
 
-            update_follow_counts(
-                &follower_id,
-                &followee_id,
-                JsonAction::Decrement(1),
-                were_friends,
-            )
-            .await?;
-
-            // Notify the followee
-            Notification::lost_follow(&follower_id, &followee_id, were_friends).await?;
+            match futures::try_join!(
+                // Remove a follower to the followee index
+                followers.del_from_index(&followee_id),
+                // Remove from the Following:follower_id index a followee user
+                following.del_from_index(&follower_id),
+                update_follow_counts(
+                    &follower_id,
+                    &followee_id,
+                    JsonAction::Decrement(1),
+                    were_friends,
+                ),
+                // Notify the followee
+                Notification::lost_follow(&follower_id, &followee_id, were_friends)
+            ) {
+                Ok(_) => (),
+                Err(e) => {
+                    return Err(EventProcessorError::CacheWriteFailed {
+                        message: e.to_string(),
+                    }
+                    .into())
+                }
+            }
 
             Ok(())
         }

@@ -2817,6 +2817,7 @@ dependencies = [
  "criterion",
  "dotenv",
  "env_logger",
+ "futures",
  "httpc-test",
  "log",
  "mainline",
