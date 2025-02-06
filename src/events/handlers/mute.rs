@@ -24,7 +24,7 @@ pub async fn sync_put(user_id: PubkyId, muted_id: PubkyId) -> Result<(), DynErro
             Muted(vec![muted_id.to_string()])
                 .put_to_index(&user_id)
                 .await
-                .map_err(|e| EventProcessorError::CacheWriteFailed {
+                .map_err(|e| EventProcessorError::IndexWriteFailed {
                     message: e.to_string(),
                 })?;
             Ok(())
@@ -45,7 +45,7 @@ pub async fn sync_del(user_id: PubkyId, muted_id: PubkyId) -> Result<(), DynErro
             Muted(vec![muted_id.to_string()])
                 .del_from_index(&user_id)
                 .await
-                .map_err(|e| EventProcessorError::CacheWriteFailed {
+                .map_err(|e| EventProcessorError::IndexWriteFailed {
                     message: e.to_string(),
                 })?;
             Ok(())

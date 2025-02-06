@@ -10,7 +10,7 @@ use crate::models::tag::traits::{TagCollection, TaggersCollection};
 use crate::models::tag::user::TagUser;
 use crate::models::user::UserCounts;
 use crate::types::DynError;
-use crate::ScoreAction;
+use crate::{handle_join_results, ScoreAction};
 use chrono::Utc;
 use log::debug;
 use pubky_app_specs::{user_uri_builder, Resource};
@@ -94,7 +94,7 @@ async fn put_sync_post(
             // SAVE TO INDEXES
             let post_key_slice: &[&str] = &[&author_id, &post_id];
 
-            match futures::try_join!(
+            let indexing_results = tokio::join!(
                 // Update user counts for tagger
                 UserCounts::update(&tagger_user_id, "tags", JsonAction::Increment(1)),
                 // Increment in one the post tags
@@ -137,15 +137,18 @@ async fn put_sync_post(
                 TagSearch::put_to_index(&author_id, &post_id, &tag_label),
                 // Save new notification
                 Notification::new_post_tag(&tagger_user_id, &author_id, &tag_label, &post_uri)
-            ) {
-                Ok(_) => (),
-                Err(e) => {
-                    return Err(EventProcessorError::CacheWriteFailed {
-                        message: e.to_string(),
-                    }
-                    .into())
-                }
-            }
+            );
+
+            handle_join_results!(
+                indexing_results.0,
+                indexing_results.1,
+                indexing_results.2,
+                indexing_results.3,
+                indexing_results.4,
+                indexing_results.5,
+                indexing_results.6,
+                indexing_results.7
+            );
 
             Ok(())
         }
@@ -181,7 +184,7 @@ async fn put_sync_user(
         }
         OperationOutcome::CreatedOrDeleted => {
             // SAVE TO INDEX
-            match futures::try_join!(
+            let indexing_results = tokio::join!(
                 // Update user counts for the tagged user
                 UserCounts::update(&tagged_user_id, "tagged", JsonAction::Increment(1)),
                 // Update user counts for the tagger user
@@ -197,15 +200,15 @@ async fn put_sync_user(
                 ),
                 // Save new notification
                 Notification::new_user_tag(&tagger_user_id, &tagged_user_id, &tag_label)
-            ) {
-                Ok(_) => (),
-                Err(e) => {
-                    return Err(EventProcessorError::CacheWriteFailed {
-                        message: e.to_string(),
-                    }
-                    .into())
-                }
-            }
+            );
+
+            handle_join_results!(
+                indexing_results.0,
+                indexing_results.1,
+                indexing_results.2,
+                indexing_results.3,
+                indexing_results.4
+            );
 
             Ok(())
         }
@@ -242,7 +245,7 @@ async fn del_sync_user(
     tagged_id: &str,
     tag_label: &str,
 ) -> Result<(), DynError> {
-    match futures::try_join!(
+    let indexing_results = tokio::join!(
         // Update user counts in the tagged
         UserCounts::update(tagged_id, "tagged", JsonAction::Decrement(1)),
         // Update user counts in the tagger
@@ -256,15 +259,14 @@ async fn del_sync_user(
         },
         // Decrement label count to the user profile tag
         TagUser::update_index_score(tagged_id, None, tag_label, ScoreAction::Decrement(1.0))
-    ) {
-        Ok(_) => (),
-        Err(e) => {
-            return Err(EventProcessorError::CacheWriteFailed {
-                message: e.to_string(),
-            }
-            .into())
-        }
-    }
+    );
+
+    handle_join_results!(
+        indexing_results.0,
+        indexing_results.1,
+        indexing_results.2,
+        indexing_results.3
+    );
 
     Ok(())
 }
@@ -279,7 +281,7 @@ async fn del_sync_post(
     let post_key_slice: &[&str] = &[author_id, post_id];
     let tag_post = TagPost(vec![tagger_id.to_string()]);
 
-    match futures::try_join!(
+    let indexing_results = tokio::join!(
         // Update user counts for tagger
         UserCounts::update(&tagger_id, "tags", JsonAction::Decrement(1)),
         // Decrement in one the post tags
@@ -305,15 +307,17 @@ async fn del_sync_post(
         },
         // Delete post from global label timeline
         TagSearch::del_from_index(author_id, post_id, tag_label)
-    ) {
-        Ok(_) => (),
-        Err(e) => {
-            return Err(EventProcessorError::CacheWriteFailed {
-                message: e.to_string(),
-            }
-            .into())
-        }
-    }
+    );
+
+    handle_join_results!(
+        indexing_results.0,
+        indexing_results.1,
+        indexing_results.2,
+        indexing_results.3,
+        indexing_results.4,
+        indexing_results.5,
+        indexing_results.6
+    );
 
     Ok(())
 }

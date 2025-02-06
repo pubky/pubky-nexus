@@ -2,6 +2,7 @@ use crate::db::graph::exec::OperationOutcome;
 use crate::db::kv::index::json::JsonAction;
 use crate::events::error::EventProcessorError;
 use crate::events::retry::event::RetryEvent;
+use crate::handle_join_results;
 use crate::models::follow::{Followers, Following, Friends, UserFollows};
 use crate::models::notification::Notification;
 use crate::models::user::UserCounts;
@@ -34,7 +35,7 @@ pub async fn sync_put(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), 
             let following = Following(vec![followee_id.to_string()]);
 
             // SAVE TO INDEX
-            match futures::try_join!(
+            let indexing_results = tokio::join!(
                 // Add new follower to the followee index
                 followers.put_to_index(&followee_id),
                 // Add in the Following:follower_id index a followee user
@@ -47,15 +48,14 @@ pub async fn sync_put(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), 
                 ),
                 // Notify the followee
                 Notification::new_follow(&follower_id, &followee_id, will_be_friends)
-            ) {
-                Ok(_) => (),
-                Err(e) => {
-                    return Err(EventProcessorError::CacheWriteFailed {
-                        message: e.to_string(),
-                    }
-                    .into())
-                }
-            }
+            );
+
+            handle_join_results!(
+                indexing_results.0,
+                indexing_results.1,
+                indexing_results.2,
+                indexing_results.3
+            );
         }
     };
 
@@ -81,7 +81,7 @@ pub async fn sync_del(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), 
             let followers = Followers(vec![follower_id.to_string()]);
             let following = Following(vec![followee_id.to_string()]);
 
-            match futures::try_join!(
+            let indexing_results = tokio::join!(
                 // Remove a follower to the followee index
                 followers.del_from_index(&followee_id),
                 // Remove from the Following:follower_id index a followee user
@@ -94,15 +94,14 @@ pub async fn sync_del(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), 
                 ),
                 // Notify the followee
                 Notification::lost_follow(&follower_id, &followee_id, were_friends)
-            ) {
-                Ok(_) => (),
-                Err(e) => {
-                    return Err(EventProcessorError::CacheWriteFailed {
-                        message: e.to_string(),
-                    }
-                    .into())
-                }
-            }
+            );
+
+            handle_join_results!(
+                indexing_results.0,
+                indexing_results.1,
+                indexing_results.2,
+                indexing_results.3
+            );
 
             Ok(())
         }

@@ -9,7 +9,7 @@ use crate::models::post::{
 use crate::models::user::UserCounts;
 use crate::queries::get::post_is_safe_to_delete;
 use crate::types::DynError;
-use crate::{queries, RedisOps, ScoreAction};
+use crate::{handle_join_results, queries, RedisOps, ScoreAction};
 use log::debug;
 use pubky_app_specs::{
     user_uri_builder, ParsedUri, PubkyAppPost, PubkyAppPostKind, PubkyId, Resource,
@@ -80,7 +80,7 @@ pub async fn sync_put(
     .await?;
 
     // SAVE TO INDEX - PHASE 1, update post counts
-    match futures::try_join!(
+    let indexing_results = tokio::join!(
         async {
             // Create post counts index
             // If new post (no existing counts) save a new PostCounts.
@@ -102,15 +102,9 @@ pub async fn sync_put(
             };
             Ok::<(), DynError>(())
         }
-    ) {
-        Ok(_) => (),
-        Err(e) => {
-            return Err(EventProcessorError::CacheWriteFailed {
-                message: format!("PHASE 1 - {:?}", e.to_string()),
-            }
-            .into())
-        }
-    }
+    );
+
+    handle_join_results!(indexing_results.0, indexing_results.1, indexing_results.2);
 
     // Use that index wrapper to add a post reply
     let mut reply_parent_post_key_wrapper: Option<(String, String)> = None;
@@ -131,7 +125,7 @@ pub async fn sync_put(
 
         let parent_post_key_parts: &[&str; 2] = &[&parent_author_id, &parent_post_id];
 
-        match futures::try_join!(
+        let indexing_results = tokio::join!(
             PostCounts::update_index_field(
                 parent_post_key_parts,
                 "replies",
@@ -160,15 +154,14 @@ pub async fn sync_put(
                 &post_details.uri,
                 &parent_author_id,
             )
-        ) {
-            Ok(_) => (),
-            Err(e) => {
-                return Err(EventProcessorError::CacheWriteFailed {
-                    message: format!("PHASE 2 - {:?}", e.to_string()),
-                }
-                .into())
-            }
-        }
+        );
+
+        handle_join_results!(
+            indexing_results.0,
+            indexing_results.1,
+            indexing_results.2,
+            indexing_results.3
+        );
     }
 
     // PHASE 3: Process POST REPOSTS indexes
@@ -182,7 +175,7 @@ pub async fn sync_put(
         };
 
         let parent_post_key_parts: &[&str; 2] = &[&parent_author_id, &parent_post_id];
-        match futures::try_join!(
+        let indexing_results = tokio::join!(
             PostCounts::update_index_field(
                 parent_post_key_parts,
                 "reposts",
@@ -206,30 +199,18 @@ pub async fn sync_put(
                 &post_details.uri,
                 &parent_author_id,
             )
-        ) {
-            Ok(_) => (),
-            Err(e) => {
-                return Err(EventProcessorError::CacheWriteFailed {
-                    message: format!("PHASE 3 - {:?}", e.to_string()),
-                }
-                .into())
-            }
-        }
+        );
+
+        handle_join_results!(indexing_results.0, indexing_results.1, indexing_results.2);
     }
 
     // PHASE 4: Add post related content
-    match futures::try_join!(
+    let indexing_results = tokio::join!(
         post_relationships.put_to_index(&author_id, &post_id),
         post_details.put_to_index(&author_id, reply_parent_post_key_wrapper, false)
-    ) {
-        Ok(_) => (),
-        Err(e) => {
-            return Err(EventProcessorError::CacheWriteFailed {
-                message: format!("PHASE 4 - {:?}", e.to_string()),
-            }
-            .into())
-        }
-    }
+    );
+
+    handle_join_results!(indexing_results.0, indexing_results.1);
 
     Ok(())
 }
@@ -245,7 +226,7 @@ async fn sync_edit(
 
     // Update content of PostDetails!
     if let Err(e) = post_details.put_to_index(&author_id, None, true).await {
-        return Err(EventProcessorError::CacheWriteFailed {
+        return Err(EventProcessorError::IndexWriteFailed {
             message: format!("post edit failed - {:?}", e.to_string()),
         }
         .into());
@@ -358,7 +339,7 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
         matches!(&post_relationships, Some(relationship) if relationship.replied.is_some());
 
     // DELETE TO INDEX - PHASE 1, decrease post counts
-    match futures::try_join!(
+    let indexing_results = tokio::join!(
         PostCounts::delete(&author_id, &post_id, !is_reply),
         UserCounts::update(&author_id, "posts", JsonAction::Decrement(1)),
         async {
@@ -367,15 +348,9 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
             };
             Ok::<(), DynError>(())
         }
-    ) {
-        Ok(_) => (),
-        Err(e) => {
-            return Err(EventProcessorError::CacheWriteFailed {
-                message: format!("PHASE 1 - {:?}", e.to_string()),
-            }
-            .into())
-        }
-    }
+    );
+
+    handle_join_results!(indexing_results.0, indexing_results.1, indexing_results.2);
 
     // Use that index wrapper to delete a post reply
     let mut reply_parent_post_key_wrapper: Option<[String; 2]> = None;
@@ -395,7 +370,7 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
             reply_parent_post_key_wrapper =
                 Some([parent_user_id.to_string(), parent_post_id.clone()]);
 
-            match futures::try_join!(
+            let indexing_results = tokio::join!(
                 PostCounts::update_index_field(
                     &parent_post_key_parts,
                     "replies",
@@ -422,15 +397,9 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
                     PostChangedSource::Reply,
                     &PostChangedType::Deleted,
                 )
-            ) {
-                Ok(_) => (),
-                Err(e) => {
-                    return Err(EventProcessorError::CacheWriteFailed {
-                        message: format!("PHASE 2 - {:?}", e.to_string()),
-                    }
-                    .into())
-                }
-            }
+            );
+
+            handle_join_results!(indexing_results.0, indexing_results.1, indexing_results.2);
         }
         // PHASE 3: Process POST REPOSTED indexes
         // Decrement counts for resposted post if existed
@@ -443,7 +412,7 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
 
             let parent_post_key_parts: &[&str] = &[&parsed_uri.user_id, &parent_post_id];
 
-            match futures::try_join!(
+            let indexing_results = tokio::join!(
                 PostCounts::update_index_field(
                     parent_post_key_parts,
                     "reposts",
@@ -470,29 +439,17 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
                     PostChangedSource::Repost,
                     &PostChangedType::Deleted,
                 )
-            ) {
-                Ok(_) => (),
-                Err(e) => {
-                    return Err(EventProcessorError::CacheWriteFailed {
-                        message: format!("PHASE 3 - {:?}", e.to_string()),
-                    }
-                    .into())
-                }
-            }
+            );
+
+            handle_join_results!(indexing_results.0, indexing_results.1, indexing_results.2);
         }
     }
-    match futures::try_join!(
+    let indexing_results = tokio::join!(
         PostDetails::delete(&author_id, &post_id, reply_parent_post_key_wrapper),
         PostRelationships::delete(&author_id, &post_id)
-    ) {
-        Ok(_) => (),
-        Err(e) => {
-            return Err(EventProcessorError::CacheWriteFailed {
-                message: format!("PHASE 4 - {:?}", e.to_string()),
-            }
-            .into())
-        }
-    }
+    );
+
+    handle_join_results!(indexing_results.0, indexing_results.1);
 
     Ok(())
 }

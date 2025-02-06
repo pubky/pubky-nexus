@@ -10,8 +10,8 @@ pub enum EventProcessorError {
     #[error("MissingDependency: Could not be indexed")]
     MissingDependency { dependency: Vec<String> },
     /// Failed to complete indexing due to a Redis write error
-    #[error("CacheWriteFailed: Indexing incomplete due to Redis error - {message}")]
-    CacheWriteFailed { message: String },
+    #[error("IndexWriteFailed: Indexing incomplete due to Redis error - {message}")]
+    IndexWriteFailed { message: String },
     /// The event appear to be unindexed. Verify the event in the retry queue
     #[error("SkipIndexing: The PUT event appears to be unindexed")]
     SkipIndexing,
