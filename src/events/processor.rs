@@ -6,7 +6,7 @@ use crate::events::retry::event::RetryEvent;
 use crate::types::DynError;
 use crate::PubkyConnector;
 use crate::{models::homeserver::Homeserver, Config};
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use pubky_app_specs::PubkyId;
 
 pub struct EventProcessor {
