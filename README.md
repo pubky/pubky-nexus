@@ -135,9 +135,6 @@ cargo bench --bench user get_user_view_by_id
 
 ## ⚠️ Troubleshooting
 
-<<<<<<< HEAD
-If tests or the development environment seem out of sync, follow the [Running Tests](#running-tests) steps to reload the mock data.
-=======
 If tests or the development environment seem out of sync, follow these steps to reset:
 
 1. **Reset Neo4j**:
@@ -152,8 +149,6 @@ If tests or the development environment seem out of sync, follow these steps to 
    ```bash
    REINDEX=true cargo run
    ```
-
-   > > > > > > > main
 
 ## 🌐 Useful Links
 
