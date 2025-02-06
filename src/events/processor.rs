@@ -1,10 +1,12 @@
+use std::error::Error;
+
 use super::error::EventProcessorError;
 use super::Event;
 use crate::events::retry::event::RetryEvent;
 use crate::types::DynError;
 use crate::PubkyConnector;
 use crate::{models::homeserver::Homeserver, Config};
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use pubky_app_specs::PubkyId;
 
 pub struct EventProcessor {
@@ -47,10 +49,11 @@ impl EventProcessor {
     }
 
     pub async fn run(&mut self) -> Result<(), DynError> {
-        let lines = { self.poll_events().await.unwrap_or_default() };
-        if let Some(lines) = lines {
-            self.process_event_lines(lines).await?;
+        let Some(lines) = self.poll_events().await? else {
+            return Ok(());
         };
+
+        self.process_event_lines(lines).await?;
         Ok(())
     }
 
@@ -63,29 +66,31 @@ impl EventProcessor {
     async fn poll_events(&mut self) -> Result<Option<Vec<String>>, DynError> {
         debug!("Polling new events from homeserver");
 
-        let response: String;
-        {
+        let response_text = {
             let pubky_client = PubkyConnector::get_pubky_client()?;
-            response = pubky_client
-                .get(format!(
-                    "https://{}/events/?cursor={}&limit={}",
-                    self.homeserver.id, self.homeserver.cursor, self.limit
-                ))
-                .send()
-                .await?
-                .text()
-                .await?;
-        }
+            let url = format!(
+                "https://{}/events/?cursor={}&limit={}",
+                self.homeserver.id, self.homeserver.cursor, self.limit
+            );
 
-        let lines: Vec<String> = response.trim().split('\n').map(|s| s.to_string()).collect();
+            let response = pubky_client.get(url).send().await.map_err(|e| {
+                Box::new(EventProcessorError::PubkyClientError {
+                    message: format!("{:?}", e.source()),
+                })
+            })?;
+
+            response.text().await?
+        };
+
+        let lines: Vec<String> = response_text.trim().lines().map(String::from).collect();
         debug!("Homeserver response lines {:?}", lines);
 
-        if lines.len() == 1 && lines[0].is_empty() {
+        if lines.is_empty() || (lines.len() == 1 && lines[0].is_empty()) {
             info!("No new events");
-            Ok(None)
-        } else {
-            Ok(Some(lines))
+            return Ok(None);
         }
+
+        Ok(Some(lines))
     }
 
     /// Processes a batch of event lines retrieved from the homeserver.
