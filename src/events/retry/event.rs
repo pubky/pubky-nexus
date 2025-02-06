@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{events::error::EventProcessorError, types::DynError, RedisOps};
 
-pub const RETRY_MAMAGER_PREFIX: &str = "RetryManager";
+pub const RETRY_MANAGER_PREFIX: &str = "RetryManager";
 pub const RETRY_MANAGER_EVENTS_INDEX: [&str; 1] = ["events"];
 pub const RETRY_MANAGER_STATE_INDEX: [&str; 1] = ["state"];
 
@@ -23,7 +23,7 @@ pub struct RetryEvent {
 #[async_trait]
 impl RedisOps for RetryEvent {
     async fn prefix() -> String {
-        String::from(RETRY_MAMAGER_PREFIX)
+        String::from(RETRY_MANAGER_PREFIX)
     }
 }
 
@@ -64,7 +64,7 @@ impl RetryEvent {
             &RETRY_MANAGER_EVENTS_INDEX,
             // NOTE: Don't know if we should use now timestamp or the event timestamp
             &[(Utc::now().timestamp_millis() as f64, &event_line)],
-            Some(RETRY_MAMAGER_PREFIX),
+            Some(RETRY_MANAGER_PREFIX),
             None,
         )
         .await?;
@@ -80,7 +80,7 @@ impl RetryEvent {
     /// * `event_index` - A `&str` representing the event index to check
     pub async fn check_uri(event_index: &str) -> Result<Option<isize>, DynError> {
         Self::check_sorted_set_member(
-            Some(RETRY_MAMAGER_PREFIX),
+            Some(RETRY_MANAGER_PREFIX),
             &RETRY_MANAGER_EVENTS_INDEX,
             &[event_index],
         )
