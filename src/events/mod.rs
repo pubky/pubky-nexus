@@ -66,12 +66,18 @@ impl Event {
             }
         })?;
 
-        if parsed_uri.resource == Resource::Unknown {
-            return Err(EventProcessorError::InvalidEventLine {
-                message: format!("Unknown resource in URI: {}", uri),
+        match parsed_uri.resource {
+            // Unknown resource
+            Resource::Unknown => {
+                return Err(EventProcessorError::InvalidEventLine {
+                    message: format!("Unknown resource in URI: {}", uri),
+                }
+                .into())
             }
-            .into());
-        }
+            // Known resources not handled by Nexus
+            Resource::LastRead | Resource::Feed(_) | Resource::Blob(_) => return Ok(None),
+            _ => (),
+        };
 
         Ok(Some(Event {
             uri,

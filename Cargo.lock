@@ -2730,7 +2730,11 @@ dependencies = [
 [[package]]
 name = "pubky-app-specs"
 version = "0.3.0"
+<<<<<<< HEAD
 source = "git+https://github.com/pubky/pubky-app-specs#79e9a1f57ca06174a5fdbc807c288c82c1c178c5"
+=======
+source = "git+https://github.com/pubky/pubky-app-specs?branch=fix%2Fimporter#83d119b39fd962949f8ebf2cd378720dee613940"
+>>>>>>> fc80c03 (Fix add explicitly unhandled on uri parse triage)
 dependencies = [
  "base32",
  "blake3",
