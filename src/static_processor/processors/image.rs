@@ -10,6 +10,7 @@ use super::traits::{BaseProcessingOptions, FileProcessor};
 
 const SMALL_IMAGE_WIDTH: &str = "320";
 const FEED_IMAGE_WIDTH: &str = "720";
+const IMAGE_FORMAT: &str = "webp";
 
 pub struct ImageOptions {
     width: String,
@@ -29,28 +30,21 @@ pub struct ImageProcessor;
 impl FileProcessor for ImageProcessor {
     type ProcessingOptions = ImageOptions;
 
-    fn get_valid_variants_for_content_type(content_type: &str) -> Vec<FileVariant> {
-        match content_type {
-            value if value.ends_with("gif") => vec![FileVariant::Main],
-            _ => vec![FileVariant::Main, FileVariant::Small, FileVariant::Feed],
-        }
+    fn get_valid_variants_for_content_type(_content_type: &str) -> Vec<FileVariant> {
+        vec![FileVariant::Main, FileVariant::Small, FileVariant::Feed]
     }
 
     fn get_content_type_for_variant(file: &FileDetails, variant: &FileVariant) -> String {
-        if variant.eq(&FileVariant::Main) || file.content_type == "image/gif" {
+        if variant.eq(&FileVariant::Main) {
             return file.content_type.clone();
         }
-        String::from("image/jpeg")
+        String::from("image/webp")
     }
 
     fn get_options_for_variant(
         file: &FileDetails,
         variant: &FileVariant,
     ) -> Result<ImageOptions, DynError> {
-        let format = match file.content_type.as_str() {
-            "image/gif" => String::from("gif"),
-            _ => String::from("jpeg"),
-        };
         let width = match variant {
             FileVariant::Small => String::from(SMALL_IMAGE_WIDTH),
             FileVariant::Feed => String::from(FEED_IMAGE_WIDTH),
@@ -58,7 +52,7 @@ impl FileProcessor for ImageProcessor {
         };
         let content_type = Self::get_content_type_for_variant(file, variant);
         Ok(ImageOptions {
-            format,
+            format: IMAGE_FORMAT.to_string(),
             width,
             content_type,
         })
@@ -80,10 +74,6 @@ impl FileProcessor for ImageProcessor {
 
         let child_output = Command::new("convert")
             .arg(origin_file_path)
-            .arg("-background")
-            .arg("white")
-            .arg("-alpha")
-            .arg("remove")
             .arg("-resize")
             .arg(format!("{}x", options.width))
             .arg(output)
