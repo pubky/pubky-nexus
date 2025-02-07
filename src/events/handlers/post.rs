@@ -9,7 +9,7 @@ use crate::models::post::{
 use crate::models::user::UserCounts;
 use crate::queries::get::post_is_safe_to_delete;
 use crate::types::DynError;
-use crate::{queries, RedisOps, ScoreAction};
+use crate::{handle_indexing_results, queries, RedisOps, ScoreAction};
 use log::debug;
 use pubky_app_specs::{
     user_uri_builder, ParsedUri, PubkyAppPost, PubkyAppPostKind, PubkyId, Resource,
@@ -79,27 +79,37 @@ pub async fn sync_put(
     )
     .await?;
 
-    // SAVE TO INDEX
-    // Create post counts index
-    // If new post (no existing counts) save a new PostCounts.
-    if PostCounts::get_from_index(&author_id, &post_id)
-        .await?
-        .is_none()
-    {
-        PostCounts::default()
-            .put_to_index(&author_id, &post_id, is_reply)
-            .await?
-    }
-    // Update user counts with the new post
-    UserCounts::update(&author_id, "posts", JsonAction::Increment(1)).await?;
-    if is_reply {
-        UserCounts::update(&author_id, "replies", JsonAction::Increment(1)).await?;
-    };
+    // SAVE TO INDEX - PHASE 1, update post counts
+    let indexing_results = tokio::join!(
+        async {
+            // Create post counts index
+            // If new post (no existing counts) save a new PostCounts.
+            if PostCounts::get_from_index(&author_id, &post_id)
+                .await?
+                .is_none()
+            {
+                PostCounts::default()
+                    .put_to_index(&author_id, &post_id, is_reply)
+                    .await?
+            }
+            Ok::<(), DynError>(())
+        },
+        // Update user counts with the new post
+        UserCounts::update(&author_id, "posts", JsonAction::Increment(1)),
+        async {
+            if is_reply {
+                UserCounts::update(&author_id, "replies", JsonAction::Increment(1)).await?;
+            };
+            Ok::<(), DynError>(())
+        }
+    );
+
+    handle_indexing_results!(indexing_results.0, indexing_results.1, indexing_results.2);
 
     // Use that index wrapper to add a post reply
     let mut reply_parent_post_key_wrapper: Option<(String, String)> = None;
 
-    // Process POST REPLIES indexes
+    // PHASE 2: Process POST REPLIES indexes
     if let Some(replied_uri) = &post_relationships.replied {
         let parsed_uri = ParsedUri::try_from(replied_uri.as_str())?;
 
@@ -109,41 +119,52 @@ pub async fn sync_put(
             _ => return Err("Reposted uri is not a Post resource".into()),
         };
 
-        let parent_post_key_parts: &[&str; 2] = &[&parent_author_id, &parent_post_id];
-
-        PostCounts::update_index_field(parent_post_key_parts, "replies", JsonAction::Increment(1))
-            .await?;
-
-        if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await? {
-            PostStream::put_score_index_sorted_set(
-                &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
-                parent_post_key_parts,
-                ScoreAction::Increment(1.0),
-            )
-            .await?;
-        }
         // Define the reply parent key to index the reply later
         reply_parent_post_key_wrapper =
             Some((parent_author_id.to_string(), parent_post_id.clone()));
 
-        PostStream::add_to_post_reply_sorted_set(
-            parent_post_key_parts,
-            &author_id,
-            &post_id,
-            post_details.indexed_at,
-        )
-        .await?;
+        let parent_post_key_parts: &[&str; 2] = &[&parent_author_id, &parent_post_id];
 
-        Notification::new_post_reply(
-            &author_id,
-            replied_uri,
-            &post_details.uri,
-            &parent_author_id,
-        )
-        .await?;
+        let indexing_results = tokio::join!(
+            PostCounts::update_index_field(
+                parent_post_key_parts,
+                "replies",
+                JsonAction::Increment(1)
+            ),
+            async {
+                if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await? {
+                    PostStream::put_score_index_sorted_set(
+                        &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
+                        parent_post_key_parts,
+                        ScoreAction::Increment(1.0),
+                    )
+                    .await?;
+                }
+                Ok::<(), DynError>(())
+            },
+            PostStream::add_to_post_reply_sorted_set(
+                parent_post_key_parts,
+                &author_id,
+                &post_id,
+                post_details.indexed_at,
+            ),
+            Notification::new_post_reply(
+                &author_id,
+                replied_uri,
+                &post_details.uri,
+                &parent_author_id,
+            )
+        );
+
+        handle_indexing_results!(
+            indexing_results.0,
+            indexing_results.1,
+            indexing_results.2,
+            indexing_results.3
+        );
     }
 
-    // Process POST REPOSTS indexes
+    // PHASE 3: Process POST REPOSTS indexes
     if let Some(reposted_uri) = &post_relationships.reposted {
         let parsed_uri = ParsedUri::try_from(reposted_uri.as_str())?;
 
@@ -154,36 +175,42 @@ pub async fn sync_put(
         };
 
         let parent_post_key_parts: &[&str; 2] = &[&parent_author_id, &parent_post_id];
-
-        PostCounts::update_index_field(parent_post_key_parts, "reposts", JsonAction::Increment(1))
-            .await?;
-
-        // Post replies cannot be included in the total engagement index after they receive a reply
-        if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await? {
-            PostStream::put_score_index_sorted_set(
-                &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
+        let indexing_results = tokio::join!(
+            PostCounts::update_index_field(
                 parent_post_key_parts,
-                ScoreAction::Increment(1.0),
+                "reposts",
+                JsonAction::Increment(1)
+            ),
+            async {
+                // Post replies cannot be included in the total engagement index after they receive a reply
+                if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await? {
+                    PostStream::put_score_index_sorted_set(
+                        &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
+                        parent_post_key_parts,
+                        ScoreAction::Increment(1.0),
+                    )
+                    .await?;
+                }
+                Ok::<(), DynError>(())
+            },
+            Notification::new_repost(
+                &author_id,
+                reposted_uri,
+                &post_details.uri,
+                &parent_author_id,
             )
-            .await?;
-        }
+        );
 
-        Notification::new_repost(
-            &author_id,
-            reposted_uri,
-            &post_details.uri,
-            &parent_author_id,
-        )
-        .await?;
+        handle_indexing_results!(indexing_results.0, indexing_results.1, indexing_results.2);
     }
 
-    post_relationships
-        .put_to_index(&author_id, &post_id)
-        .await?;
+    // PHASE 4: Add post related content
+    let indexing_results = tokio::join!(
+        post_relationships.put_to_index(&author_id, &post_id),
+        post_details.put_to_index(&author_id, reply_parent_post_key_wrapper, false)
+    );
 
-    post_details
-        .put_to_index(&author_id, reply_parent_post_key_wrapper, false)
-        .await?;
+    handle_indexing_results!(indexing_results.0, indexing_results.1);
 
     Ok(())
 }
@@ -198,7 +225,12 @@ async fn sync_edit(
     let changed_uri = format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}");
 
     // Update content of PostDetails!
-    post_details.put_to_index(&author_id, None, true).await?;
+    if let Err(e) = post_details.put_to_index(&author_id, None, true).await {
+        return Err(EventProcessorError::IndexWriteFailed {
+            message: format!("post edit failed - {:?}", e.to_string()),
+        }
+        .into());
+    };
 
     // Notifications
     // Determine the change type
@@ -306,54 +338,25 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
     let is_reply =
         matches!(&post_relationships, Some(relationship) if relationship.replied.is_some());
 
-    PostCounts::delete(&author_id, &post_id, !is_reply).await?;
-    UserCounts::update(&author_id, "posts", JsonAction::Decrement(1)).await?;
-    if is_reply {
-        UserCounts::update(&author_id, "replies", JsonAction::Decrement(1)).await?;
-    };
+    // DELETE TO INDEX - PHASE 1, decrease post counts
+    let indexing_results = tokio::join!(
+        PostCounts::delete(&author_id, &post_id, !is_reply),
+        UserCounts::update(&author_id, "posts", JsonAction::Decrement(1)),
+        async {
+            if is_reply {
+                UserCounts::update(&author_id, "replies", JsonAction::Decrement(1)).await?;
+            };
+            Ok::<(), DynError>(())
+        }
+    );
+
+    handle_indexing_results!(indexing_results.0, indexing_results.1, indexing_results.2);
 
     // Use that index wrapper to delete a post reply
     let mut reply_parent_post_key_wrapper: Option<[String; 2]> = None;
 
     if let Some(relationships) = post_relationships {
-        // Decrement counts for resposted post if existed
-        if let Some(reposted) = relationships.reposted {
-            let parsed_uri = ParsedUri::try_from(reposted.as_str())?;
-            let parent_post_id = match parsed_uri.resource {
-                Resource::Post(id) => id,
-                _ => return Err("Reposted uri is not a Post resource".into()),
-            };
-
-            let parent_post_key_parts: &[&str] = &[&parsed_uri.user_id, &parent_post_id];
-
-            PostCounts::update_index_field(
-                parent_post_key_parts,
-                "reposts",
-                JsonAction::Decrement(1),
-            )
-            .await?;
-
-            // Post replies cannot be included in the total engagement index after the repost is deleted
-            if !post_relationships_is_reply(&parsed_uri.user_id, &parent_post_id).await? {
-                PostStream::put_score_index_sorted_set(
-                    &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
-                    parent_post_key_parts,
-                    ScoreAction::Decrement(1.0),
-                )
-                .await?;
-            }
-
-            // Notification: "A repost of your post was deleted"
-            Notification::post_children_changed(
-                &author_id,
-                &reposted,
-                &parsed_uri.user_id,
-                &deleted_uri,
-                PostChangedSource::Repost,
-                &PostChangedType::Deleted,
-            )
-            .await?;
-        }
+        // PHASE 2: Process POST REPLIES indexes
         // Decrement counts for parent post if replied
         if let Some(replied) = relationships.replied {
             let parsed_uri = ParsedUri::try_from(replied.as_str())?;
@@ -367,37 +370,86 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
             reply_parent_post_key_wrapper =
                 Some([parent_user_id.to_string(), parent_post_id.clone()]);
 
-            PostCounts::update_index_field(
-                &parent_post_key_parts,
-                "replies",
-                JsonAction::Decrement(1),
-            )
-            .await?;
-
-            // Post replies cannot be included in the total engagement index after the reply is deleted
-            if !post_relationships_is_reply(&parent_user_id, &parent_post_id).await? {
-                PostStream::put_score_index_sorted_set(
-                    &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
+            let indexing_results = tokio::join!(
+                PostCounts::update_index_field(
                     &parent_post_key_parts,
-                    ScoreAction::Decrement(1.0),
+                    "replies",
+                    JsonAction::Decrement(1),
+                ),
+                async {
+                    // Post replies cannot be included in the total engagement index after the reply is deleted
+                    if !post_relationships_is_reply(&parent_user_id, &parent_post_id).await? {
+                        PostStream::put_score_index_sorted_set(
+                            &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
+                            &parent_post_key_parts,
+                            ScoreAction::Decrement(1.0),
+                        )
+                        .await?;
+                    }
+                    Ok::<(), DynError>(())
+                },
+                // Notification: "A reply to your post was deleted"
+                Notification::post_children_changed(
+                    &author_id,
+                    &replied,
+                    &parent_user_id,
+                    &deleted_uri,
+                    PostChangedSource::Reply,
+                    &PostChangedType::Deleted,
                 )
-                .await?;
-            }
+            );
 
-            // Notification: "A reply to your post was deleted"
-            Notification::post_children_changed(
-                &author_id,
-                &replied,
-                &parent_user_id,
-                &deleted_uri,
-                PostChangedSource::Reply,
-                &PostChangedType::Deleted,
-            )
-            .await?;
+            handle_indexing_results!(indexing_results.0, indexing_results.1, indexing_results.2);
+        }
+        // PHASE 3: Process POST REPOSTED indexes
+        // Decrement counts for resposted post if existed
+        if let Some(reposted) = relationships.reposted {
+            let parsed_uri = ParsedUri::try_from(reposted.as_str())?;
+            let parent_post_id = match parsed_uri.resource {
+                Resource::Post(id) => id,
+                _ => return Err("Reposted uri is not a Post resource".into()),
+            };
+
+            let parent_post_key_parts: &[&str] = &[&parsed_uri.user_id, &parent_post_id];
+
+            let indexing_results = tokio::join!(
+                PostCounts::update_index_field(
+                    parent_post_key_parts,
+                    "reposts",
+                    JsonAction::Decrement(1),
+                ),
+                async {
+                    // Post replies cannot be included in the total engagement index after the repost is deleted
+                    if !post_relationships_is_reply(&parsed_uri.user_id, &parent_post_id).await? {
+                        PostStream::put_score_index_sorted_set(
+                            &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
+                            parent_post_key_parts,
+                            ScoreAction::Decrement(1.0),
+                        )
+                        .await?;
+                    }
+                    Ok::<(), DynError>(())
+                },
+                // Notification: "A repost of your post was deleted"
+                Notification::post_children_changed(
+                    &author_id,
+                    &reposted,
+                    &parsed_uri.user_id,
+                    &deleted_uri,
+                    PostChangedSource::Repost,
+                    &PostChangedType::Deleted,
+                )
+            );
+
+            handle_indexing_results!(indexing_results.0, indexing_results.1, indexing_results.2);
         }
     }
-    PostDetails::delete(&author_id, &post_id, reply_parent_post_key_wrapper).await?;
-    PostRelationships::delete(&author_id, &post_id).await?;
+    let indexing_results = tokio::join!(
+        PostDetails::delete(&author_id, &post_id, reply_parent_post_key_wrapper),
+        PostRelationships::delete(&author_id, &post_id)
+    );
+
+    handle_indexing_results!(indexing_results.0, indexing_results.1);
 
     Ok(())
 }

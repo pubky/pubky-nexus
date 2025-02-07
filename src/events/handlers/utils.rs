@@ -12,3 +12,22 @@ pub async fn post_relationships_is_reply(author_id: &str, post_id: &str) -> Resu
         None => Ok(true),
     }
 }
+
+/// A macro to handle the results of `tokio::join!` by checking for errors and propagating them.
+///
+/// This macro takes multiple `Result<T, E>` values (such as those returned from `tokio::join!`)
+/// and iterates over them. If any result is an `Err`, it maps the error into an `EventProcessorError`
+/// and propagates
+#[macro_export]
+macro_rules! handle_indexing_results {
+    ($($res:expr),+) => {
+        {   // Convert tuple to array
+            let results = [$($res),+];
+            for result in results {
+                result.map_err(|e| EventProcessorError::IndexWriteFailed {
+                    message: e.to_string(),
+                })?;
+            }
+        }
+    };
+}
