@@ -1,17 +1,13 @@
 use std::fs::{self};
 
 use anyhow::Result;
-use pubky_nexus::{
-    models::{file::FileDetails, traits::Collection},
-    setup, Config,
-};
+use pubky_nexus::models::{file::FileDetails, traits::Collection};
 use tokio::fs::create_dir_all;
 
-use crate::service::utils::HOST_URL;
+use crate::service::utils::host_url;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_static_image_serving_main() -> Result<()> {
-    setup(&Config::from_env()).await;
     let test_file_id = "2ZKH7K7M9G3G0";
     let test_file_user = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
     let test_image_blob_name = "SynonymLogo.png";
@@ -40,7 +36,7 @@ async fn test_static_image_serving_main() -> Result<()> {
 
     let result_file = files[0].as_ref().expect("Created file was not found.");
 
-    let client = httpc_test::new_client(HOST_URL)?;
+    let client = httpc_test::new_client(host_url().await)?;
     let test_file_version_name = "main";
     let test_file_path =
         format!("static/files/{test_file_user}/{test_file_id}/{test_file_version_name}");
@@ -63,7 +59,6 @@ async fn test_static_image_serving_main() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_static_image_serving_feed() -> Result<()> {
-    setup(&Config::from_env()).await;
     let test_file_id = "2ZKH7K7M9G3G0";
     let test_file_user = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
     let test_image_blob_name = "SynonymLogo.png";
@@ -92,7 +87,7 @@ async fn test_static_image_serving_feed() -> Result<()> {
 
     let result_file = files[0].as_ref().expect("Created file was not found.");
 
-    let client = httpc_test::new_client(HOST_URL)?;
+    let client = httpc_test::new_client(host_url().await)?;
     let test_file_version_name = "feed";
     let test_file_path =
         format!("static/files/{test_file_user}/{test_file_id}/{test_file_version_name}");
@@ -122,7 +117,6 @@ async fn test_static_image_serving_feed() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_static_image_serving_small() -> Result<()> {
-    setup(&Config::from_env()).await;
     let test_file_id = "2ZKH7K7M9G3G0";
     let test_file_user = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
     let test_image_blob_name = "SynonymLogo.png";
@@ -151,7 +145,7 @@ async fn test_static_image_serving_small() -> Result<()> {
 
     let result_file = files[0].as_ref().expect("Created file was not found.");
 
-    let client = httpc_test::new_client(HOST_URL)?;
+    let client = httpc_test::new_client(host_url().await)?;
     let test_file_version_name = "small";
     let test_file_path =
         format!("static/files/{test_file_user}/{test_file_id}/{test_file_version_name}");
