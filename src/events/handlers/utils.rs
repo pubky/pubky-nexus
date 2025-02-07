@@ -19,7 +19,7 @@ pub async fn post_relationships_is_reply(author_id: &str, post_id: &str) -> Resu
 /// and iterates over them. If any result is an `Err`, it maps the error into an `EventProcessorError`
 /// and propagates
 #[macro_export]
-macro_rules! handle_join_results {
+macro_rules! handle_indexing_results {
     ($($res:expr),+) => {
         {   // Convert tuple to array
             let results = [$($res),+];

@@ -9,7 +9,7 @@ use crate::models::post::{
 use crate::models::user::UserCounts;
 use crate::queries::get::post_is_safe_to_delete;
 use crate::types::DynError;
-use crate::{handle_join_results, queries, RedisOps, ScoreAction};
+use crate::{handle_indexing_results, queries, RedisOps, ScoreAction};
 use log::debug;
 use pubky_app_specs::{
     user_uri_builder, ParsedUri, PubkyAppPost, PubkyAppPostKind, PubkyId, Resource,
@@ -104,7 +104,7 @@ pub async fn sync_put(
         }
     );
 
-    handle_join_results!(indexing_results.0, indexing_results.1, indexing_results.2);
+    handle_indexing_results!(indexing_results.0, indexing_results.1, indexing_results.2);
 
     // Use that index wrapper to add a post reply
     let mut reply_parent_post_key_wrapper: Option<(String, String)> = None;
@@ -156,7 +156,7 @@ pub async fn sync_put(
             )
         );
 
-        handle_join_results!(
+        handle_indexing_results!(
             indexing_results.0,
             indexing_results.1,
             indexing_results.2,
@@ -201,7 +201,7 @@ pub async fn sync_put(
             )
         );
 
-        handle_join_results!(indexing_results.0, indexing_results.1, indexing_results.2);
+        handle_indexing_results!(indexing_results.0, indexing_results.1, indexing_results.2);
     }
 
     // PHASE 4: Add post related content
@@ -210,7 +210,7 @@ pub async fn sync_put(
         post_details.put_to_index(&author_id, reply_parent_post_key_wrapper, false)
     );
 
-    handle_join_results!(indexing_results.0, indexing_results.1);
+    handle_indexing_results!(indexing_results.0, indexing_results.1);
 
     Ok(())
 }
@@ -350,7 +350,7 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
         }
     );
 
-    handle_join_results!(indexing_results.0, indexing_results.1, indexing_results.2);
+    handle_indexing_results!(indexing_results.0, indexing_results.1, indexing_results.2);
 
     // Use that index wrapper to delete a post reply
     let mut reply_parent_post_key_wrapper: Option<[String; 2]> = None;
@@ -399,7 +399,7 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
                 )
             );
 
-            handle_join_results!(indexing_results.0, indexing_results.1, indexing_results.2);
+            handle_indexing_results!(indexing_results.0, indexing_results.1, indexing_results.2);
         }
         // PHASE 3: Process POST REPOSTED indexes
         // Decrement counts for resposted post if existed
@@ -441,7 +441,7 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
                 )
             );
 
-            handle_join_results!(indexing_results.0, indexing_results.1, indexing_results.2);
+            handle_indexing_results!(indexing_results.0, indexing_results.1, indexing_results.2);
         }
     }
     let indexing_results = tokio::join!(
@@ -449,7 +449,7 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
         PostRelationships::delete(&author_id, &post_id)
     );
 
-    handle_join_results!(indexing_results.0, indexing_results.1);
+    handle_indexing_results!(indexing_results.0, indexing_results.1);
 
     Ok(())
 }

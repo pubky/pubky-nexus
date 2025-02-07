@@ -2,7 +2,7 @@ use crate::db::graph::exec::OperationOutcome;
 use crate::db::kv::index::json::JsonAction;
 use crate::events::error::EventProcessorError;
 use crate::events::retry::event::RetryEvent;
-use crate::handle_join_results;
+use crate::handle_indexing_results;
 use crate::models::follow::{Followers, Following, Friends, UserFollows};
 use crate::models::notification::Notification;
 use crate::models::user::UserCounts;
@@ -50,7 +50,7 @@ pub async fn sync_put(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), 
                 Notification::new_follow(&follower_id, &followee_id, will_be_friends)
             );
 
-            handle_join_results!(
+            handle_indexing_results!(
                 indexing_results.0,
                 indexing_results.1,
                 indexing_results.2,
@@ -95,8 +95,7 @@ pub async fn sync_del(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), 
                 // Notify the followee
                 Notification::lost_follow(&follower_id, &followee_id, were_friends)
             );
-
-            handle_join_results!(
+            handle_indexing_results!(
                 indexing_results.0,
                 indexing_results.1,
                 indexing_results.2,

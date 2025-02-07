@@ -10,7 +10,7 @@ use crate::models::tag::traits::{TagCollection, TaggersCollection};
 use crate::models::tag::user::TagUser;
 use crate::models::user::UserCounts;
 use crate::types::DynError;
-use crate::{handle_join_results, ScoreAction};
+use crate::{handle_indexing_results, ScoreAction};
 use chrono::Utc;
 use log::debug;
 use pubky_app_specs::{user_uri_builder, Resource};
@@ -139,7 +139,7 @@ async fn put_sync_post(
                 Notification::new_post_tag(&tagger_user_id, &author_id, &tag_label, &post_uri)
             );
 
-            handle_join_results!(
+            handle_indexing_results!(
                 indexing_results.0,
                 indexing_results.1,
                 indexing_results.2,
@@ -202,7 +202,7 @@ async fn put_sync_user(
                 Notification::new_user_tag(&tagger_user_id, &tagged_user_id, &tag_label)
             );
 
-            handle_join_results!(
+            handle_indexing_results!(
                 indexing_results.0,
                 indexing_results.1,
                 indexing_results.2,
@@ -261,7 +261,7 @@ async fn del_sync_user(
         TagUser::update_index_score(tagged_id, None, tag_label, ScoreAction::Decrement(1.0))
     );
 
-    handle_join_results!(
+    handle_indexing_results!(
         indexing_results.0,
         indexing_results.1,
         indexing_results.2,
@@ -309,7 +309,7 @@ async fn del_sync_post(
         TagSearch::del_from_index(author_id, post_id, tag_label)
     );
 
-    handle_join_results!(
+    handle_indexing_results!(
         indexing_results.0,
         indexing_results.1,
         indexing_results.2,

@@ -1,6 +1,6 @@
 use crate::db::graph::exec::{execute_graph_operation, OperationOutcome};
 use crate::events::error::EventProcessorError;
-use crate::handle_join_results;
+use crate::handle_indexing_results;
 use crate::models::user::UserSearch;
 use crate::models::{
     traits::Collection,
@@ -45,7 +45,7 @@ pub async fn sync_put(user: PubkyAppUser, user_id: PubkyId) -> Result<(), DynErr
         }
     );
 
-    handle_join_results!(indexing_results.0, indexing_results.1, indexing_results.2);
+    handle_indexing_results!(indexing_results.0, indexing_results.1, indexing_results.2);
     Ok(())
 }
 
@@ -63,7 +63,7 @@ pub async fn del(user_id: PubkyId) -> Result<(), DynError> {
         OperationOutcome::CreatedOrDeleted => {
             let indexing_results =
                 tokio::join!(UserDetails::delete(&user_id), UserCounts::delete(&user_id));
-            handle_join_results!(indexing_results.0, indexing_results.1)
+            handle_indexing_results!(indexing_results.0, indexing_results.1)
         }
         OperationOutcome::Updated => {
             let deleted_user = PubkyAppUser {
