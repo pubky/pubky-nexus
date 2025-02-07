@@ -1,6 +1,12 @@
-/target
+# Environment variables
 .env
-docker/.database*
 docker/.env
-**/.DS_Store
+# Test and mock data  
+docker/.database*
+examples/events.txt
+# Files
 /static
+# Build artifacts
+/target
+# System-specific files
+**/.DS_Store
