@@ -45,7 +45,7 @@ async fn test_homeserver_follow_friend() -> Result<()> {
     assert!(!relationship.followed_by, "Alice cannot be following Bob");
 
     // CACHE_OP: Assert if cache has been updated
-    let alice_user_count = UserCounts::try_from_index_json(&[&alice_id])
+    let alice_user_count = UserCounts::try_from_index_json(&[&alice_id], None)
         .await
         .unwrap()
         .expect("User count not found");
@@ -54,7 +54,7 @@ async fn test_homeserver_follow_friend() -> Result<()> {
     assert_eq!(alice_user_count.following, 0);
     assert_eq!(alice_user_count.friends, 0);
 
-    let bob_user_count = UserCounts::try_from_index_json(&[&bob_id])
+    let bob_user_count = UserCounts::try_from_index_json(&[&bob_id], None)
         .await
         .unwrap()
         .expect("User count not found");
@@ -78,7 +78,7 @@ async fn test_homeserver_follow_friend() -> Result<()> {
 
     // Now Alice and Bob are friends
     // CACHE_OP: Assert if cache has been updated
-    let alice_user_count = UserCounts::try_from_index_json(&[&bob_id])
+    let alice_user_count = UserCounts::try_from_index_json(&[&bob_id], None)
         .await
         .unwrap()
         .expect("User count not found");
@@ -86,7 +86,7 @@ async fn test_homeserver_follow_friend() -> Result<()> {
     assert_eq!(alice_user_count.following, 1);
     assert_eq!(alice_user_count.friends, 1);
 
-    let bob_user_count = UserCounts::try_from_index_json(&[&bob_id])
+    let bob_user_count = UserCounts::try_from_index_json(&[&bob_id], None)
         .await
         .unwrap()
         .expect("User count not found");

@@ -6,29 +6,25 @@ use crate::models::{
 };
 use crate::static_processor::{StaticProcessor, StaticStorage};
 use crate::types::DynError;
-use crate::types::PubkyId;
 use log::{debug, error};
-use pubky_app_specs::{traits::Validatable, PubkyAppFile};
+use pubky_app_specs::{PubkyAppFile, PubkyId};
 use tokio::fs::remove_dir_all;
 
-pub async fn put(
+pub async fn sync_put(
+    file: PubkyAppFile,
     uri: String,
     user_id: PubkyId,
     file_id: String,
-    blob: &[u8],
 ) -> Result<(), DynError> {
     debug!("Indexing new file resource at {}/{}", user_id, file_id);
 
-    // Serialize and validate
-    let file_input = <PubkyAppFile as Validatable>::try_from(blob, &file_id)?;
+    debug!("file input {:?}", file);
 
-    debug!("file input {:?}", file_input);
-
-    let file_meta = ingest(&user_id, file_id.as_str(), &file_input).await?;
+    let file_meta = ingest(&user_id, file_id.as_str(), &file).await?;
 
     // Create FileDetails object
     let file_details =
-        FileDetails::from_homeserver(&file_input, uri, user_id.to_string(), file_id, file_meta);
+        FileDetails::from_homeserver(&file, uri, user_id.to_string(), file_id, file_meta);
 
     // save new file into the Graph
     file_details.put_to_graph().await?;

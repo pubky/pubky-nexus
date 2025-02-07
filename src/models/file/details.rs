@@ -54,26 +54,24 @@ pub struct FileUrls {
 }
 
 mod json_string {
-    use serde::{self, Deserialize, Deserializer, Serialize, Serializer};
+    use serde::{self, Deserialize, Deserializer, Serializer};
 
-    // Deserialize function: convert the JSON string into a struct
-    pub fn deserialize<'de, D, T>(deserializer: D) -> Result<T, D::Error>
-    where
-        D: Deserializer<'de>,
-        T: Deserialize<'de>,
-    {
-        let json_str: &'de str = <&str>::deserialize(deserializer)?;
-        serde_json::from_str(json_str).map_err(serde::de::Error::custom)
-    }
-
-    // Serialize function: convert the struct back into a JSON string
     pub fn serialize<S, T>(value: &T, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
-        T: Serialize,
+        T: serde::Serialize,
     {
-        let json_str = serde_json::to_string(value).map_err(serde::ser::Error::custom)?;
-        serializer.serialize_str(&json_str)
+        let json_string = serde_json::to_string(value).map_err(serde::ser::Error::custom)?;
+        serializer.serialize_str(&json_string)
+    }
+
+    pub fn deserialize<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: serde::de::DeserializeOwned,
+    {
+        let json_string = String::deserialize(deserializer)?;
+        serde_json::from_str(&json_string).map_err(serde::de::Error::custom)
     }
 }
 

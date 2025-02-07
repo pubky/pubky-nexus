@@ -64,7 +64,9 @@ impl Bookmark {
         post_id: &str,
         viewer_id: &str,
     ) -> Result<Option<Bookmark>, DynError> {
-        if let Some(bookmark) = Self::try_from_index_json(&[author_id, post_id, viewer_id]).await? {
+        if let Some(bookmark) =
+            Self::try_from_index_json(&[author_id, post_id, viewer_id], None).await?
+        {
             return Ok(Some(bookmark));
         }
         Ok(None)
@@ -107,7 +109,7 @@ impl Bookmark {
         post_id: &str,
         viewer_id: &str,
     ) -> Result<(), DynError> {
-        self.put_index_json(&[author_id, post_id, viewer_id], None)
+        self.put_index_json(&[author_id, post_id, viewer_id], None, None)
             .await?;
         PostStream::add_to_bookmarks_sorted_set(self, viewer_id, post_id, author_id).await?;
         Ok(())

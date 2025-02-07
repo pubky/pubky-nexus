@@ -63,6 +63,14 @@ path = "src/service.rs"
 name = "watcher"
 path = "src/watcher.rs"
 
+[[bin]]
+name = "migrations"
+path = "src/migrations.rs"
+
+[[bin]]
+name = "mockdb"
+path = "src/mock_db.rs"
+
 [[bench]]
 name = "user"
 harness = false

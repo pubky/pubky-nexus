@@ -1,36 +1,26 @@
 use crate::db::graph::exec::OperationOutcome;
 use crate::db::kv::index::json::JsonAction;
-use crate::events::uri::ParsedUri;
+use crate::events::error::EventProcessorError;
 use crate::models::post::Bookmark;
 use crate::models::user::UserCounts;
 use crate::types::DynError;
-use crate::types::PubkyId;
 use chrono::Utc;
 use log::debug;
-use pubky_app_specs::traits::Validatable;
-use pubky_app_specs::PubkyAppBookmark;
-
-//TODO: only /posts/ are bookmarkable as of now.
-pub async fn put(user_id: PubkyId, bookmark_id: String, blob: &[u8]) -> Result<(), DynError> {
-    debug!("Indexing new bookmark: {} -> {}", user_id, bookmark_id);
-
-    // Deserialize and validate bookmark
-    let bookmark = <PubkyAppBookmark as Validatable>::try_from(blob, &bookmark_id)?;
-
-    sync_put(user_id, bookmark, bookmark_id).await
-}
+use pubky_app_specs::{ParsedUri, PubkyAppBookmark, PubkyId, Resource};
 
 pub async fn sync_put(
     user_id: PubkyId,
     bookmark: PubkyAppBookmark,
     id: String,
 ) -> Result<(), DynError> {
+    debug!("Indexing new bookmark: {} -> {}", user_id, id);
     // Parse the URI to extract author_id and post_id using the updated parse_post_uri
     let parsed_uri = ParsedUri::try_from(bookmark.uri.as_str())?;
-    let (author_id, post_id) = (
-        parsed_uri.user_id,
-        parsed_uri.post_id.ok_or("Bookmarked URI missing post_id")?,
-    );
+    let author_id = parsed_uri.user_id;
+    let post_id = match parsed_uri.resource {
+        Resource::Post(id) => id,
+        _ => return Err("Bookmarked uri is not a Post resource".into()),
+    };
 
     // Save new bookmark relationship to the graph, only if the bookmarked user exists
     let indexed_at = Utc::now().timestamp_millis();
@@ -38,9 +28,9 @@ pub async fn sync_put(
         match Bookmark::put_to_graph(&author_id, &post_id, &user_id, &id, indexed_at).await? {
             OperationOutcome::CreatedOrDeleted => false,
             OperationOutcome::Updated => true,
-            // TODO: Should return an error that should be processed by RetryManager
-            OperationOutcome::Pending => {
-                return Err("WATCHER: Missing some dependency to index the model".into())
+            OperationOutcome::MissingDependency => {
+                let dependency = vec![format!("{author_id}:posts:{post_id}")];
+                return Err(EventProcessorError::MissingDependency { dependency }.into());
             }
         };
 
@@ -64,17 +54,16 @@ pub async fn del(user_id: PubkyId, bookmark_id: String) -> Result<(), DynError> 
 }
 
 pub async fn sync_del(user_id: PubkyId, bookmark_id: String) -> Result<(), DynError> {
-    // DELETE FROM GRAPH
     let deleted_bookmark_info = Bookmark::del_from_graph(&user_id, &bookmark_id).await?;
+    // Ensure the bookmark exists in the graph before proceeding
+    let (post_id, author_id) = match deleted_bookmark_info {
+        Some(info) => info,
+        None => return Err(EventProcessorError::SkipIndexing.into()),
+    };
 
-    if let Some((post_id, author_id)) = deleted_bookmark_info {
-        // DELETE FROM INDEXes
-        Bookmark::del_from_index(&user_id, &post_id, &author_id).await?;
-
-        // Update user counts with the new bookmark
-        // Skip updating counts if bookmark was not found in graph
-        UserCounts::update(&user_id, "bookmarks", JsonAction::Decrement(1)).await?;
-    }
+    Bookmark::del_from_index(&user_id, &post_id, &author_id).await?;
+    // Update user counts
+    UserCounts::update(&user_id, "bookmarks", JsonAction::Decrement(1)).await?;
 
     Ok(())
 }

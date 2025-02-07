@@ -1,7 +1,10 @@
 use super::utils::{analyse_tag_details_structure, compare_tag_details, TagMockup};
-use crate::service::utils::{make_request, make_wrong_request};
+use crate::service::utils::{connect_to_redis, get_request, invalid_get_request};
 use anyhow::Result;
 use pubky_nexus::models::tag::TagDetails;
+use pubky_nexus::{db::connectors::redis::get_redis_conn, types::DynError};
+use redis::AsyncCommands;
+use reqwest::StatusCode;
 use serde_json::Value;
 
 // ##### WoT user tags ####
@@ -19,22 +22,24 @@ const USER_C: &str = "cuimec4ngawamq8wa6fjzki6boxmwqcm11x6g7ontufrjwgdaxqo";
 
 // WARNING: To test that integration test, the Cache:... indexes
 // related with WoT has to be deleted
-#[tokio::test]
-async fn test_wot_user_tags_endpoints() -> Result<()> {
+#[tokio_shared_rt::test(shared)]
+async fn test_wot_user_tags_endpoints() -> Result<(), DynError> {
+    let _ = clear_wot_tags_cache().await;
+
     // Make sure, we still not index the WoT tags requesting the taggers
     let path = format!(
         "/v0/user/{}/taggers/{}?viewer_id={}&depth=2",
         AURELIO_USER, ATHENS_TAG, EPICTTO_VIEWER
     );
     // If we get error here, delete the Cache:... indexes
-    make_wrong_request(&path, None).await?;
+    invalid_get_request(&path, StatusCode::NOT_FOUND).await?;
 
     // => Start indexing the WoT tags
     let path = format!(
         "/v0/user/{}/tags?viewer_id={}&depth=2",
         AURELIO_USER, EPICTTO_VIEWER
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -55,7 +60,7 @@ async fn test_wot_user_tags_endpoints() -> Result<()> {
         "/v0/user/{}/tags?viewer_id={}&depth=2&limit_tags=1",
         AURELIO_USER, EPICTTO_VIEWER
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -74,7 +79,7 @@ async fn test_wot_user_tags_endpoints() -> Result<()> {
         "/v0/user/{}/tags?viewer_id={}&depth=2&skip_tags=1",
         AURELIO_USER, EPICTTO_VIEWER
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -93,7 +98,7 @@ async fn test_wot_user_tags_endpoints() -> Result<()> {
         "/v0/user/{}/tags?viewer_id={}&depth=2&skip_tags=1&limit_taggers=1",
         AURELIO_USER, EPICTTO_VIEWER
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -112,7 +117,7 @@ async fn test_wot_user_tags_endpoints() -> Result<()> {
         "/v0/user/{}/tags?viewer_id={}&depth=2&limit_taggers=1",
         AURELIO_USER, EPICTTO_VIEWER
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -133,7 +138,7 @@ async fn test_wot_user_tags_endpoints() -> Result<()> {
         "/v0/user/{}/tags?viewer_id={}&depth=2&limit_tags=1&limit_taggers=1",
         AURELIO_USER, EPICTTO_VIEWER
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -152,7 +157,7 @@ async fn test_wot_user_tags_endpoints() -> Result<()> {
         "/v0/user/{}/taggers/{}?viewer_id={}&depth=2",
         AURELIO_USER, ATHENS_TAG, EPICTTO_VIEWER
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     let mut mock_taggers = vec![USER_A, USER_B, USER_C];
     verify_taggers_list(mock_taggers, body);
@@ -162,7 +167,7 @@ async fn test_wot_user_tags_endpoints() -> Result<()> {
         "/v0/user/{}/taggers/{}?viewer_id={}&depth=2&limit=2",
         AURELIO_USER, ATHENS_TAG, EPICTTO_VIEWER
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     mock_taggers = vec![USER_A, USER_B];
     verify_taggers_list(mock_taggers, body);
@@ -172,7 +177,7 @@ async fn test_wot_user_tags_endpoints() -> Result<()> {
         "/v0/user/{}/taggers/{}?viewer_id={}&depth=2&limit=1&skip=1",
         AURELIO_USER, ATHENS_TAG, EPICTTO_VIEWER
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     mock_taggers = vec![USER_B];
     verify_taggers_list(mock_taggers, body);
@@ -182,7 +187,7 @@ async fn test_wot_user_tags_endpoints() -> Result<()> {
         "/v0/user/{}?viewer_id={}&depth=2",
         AURELIO_USER, EPICTTO_VIEWER
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
     let tags = body["tags"].clone();
 
     mock_taggers = vec![USER_A, USER_B, USER_C];
@@ -235,4 +240,25 @@ fn verify_user_taggers(mock_taggers: Vec<&str>, tag_details: Value, tag: String)
             "The post ids should be the same"
         );
     }
+}
+
+async fn clear_wot_tags_cache() -> Result<(), DynError> {
+    // Open redis connections
+    connect_to_redis().await;
+    let mut redis_conn = get_redis_conn().await?;
+    let athens_key = format!(
+        "Cache:User:Taggers:{}:{}:{}",
+        EPICTTO_VIEWER, AURELIO_USER, ATHENS_TAG
+    );
+    let now_key = format!(
+        "Cache:User:Taggers:{}:{}:{}",
+        EPICTTO_VIEWER, AURELIO_USER, NOW_TAG
+    );
+    // Remove the SETs
+    let _: () = redis_conn.del(athens_key).await?;
+    let _: () = redis_conn.del(now_key).await?;
+    // Remove the SORTED SET
+    let sorted_set_key = format!("Cache:Sorted:Users:Tag:{}:{}", EPICTTO_VIEWER, AURELIO_USER);
+    let _: () = redis_conn.del(sorted_set_key).await?;
+    Ok(())
 }

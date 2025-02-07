@@ -73,10 +73,14 @@ fn bench_create_delete_user(c: &mut Criterion) {
     let (_, homeserver_url) = rt.block_on(create_homeserver_with_events());
 
     c.bench_function("create_delete_homeserver_user", |b| {
-        b.to_async(&rt).iter(|| async {
-            // Benchmark the event processor initialization and run
-            let mut event_processor = EventProcessor::test(homeserver_url.clone()).await;
-            event_processor.run().await.unwrap();
+        b.to_async(&rt).iter(|| {
+            // Clone the sender for each iteration
+            let homeserver_url_clone = homeserver_url.clone();
+            async move {
+                // Benchmark the event processor initialization and run
+                let mut event_processor = EventProcessor::test(homeserver_url_clone).await;
+                event_processor.run().await.unwrap();
+            }
         });
     });
 }
