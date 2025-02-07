@@ -1,12 +1,15 @@
 use anyhow::Result;
 use reqwest::StatusCode;
 
-use crate::service::utils::{get_request, invalid_get_request};
+use crate::service::{
+    tags::PEER_PUBKY,
+    utils::{get_request, invalid_get_request},
+};
 
 use super::utils::{analyse_tag_details_structure, compare_tag_details, TagMockup};
 
 // Arst user from test/tags.cypher
-const PUBKY_PEER: &str = "5f4e8eoogmkhqeyo5ijdix3ma6rw9byj8m36yrjp78pnxxc379to";
+pub const PUBKY_PEER: &str = "5f4e8eoogmkhqeyo5ijdix3ma6rw9byj8m36yrjp78pnxxc379to";
 const PUBKY_LABEL: &str = "pubky";
 
 #[tokio_shared_rt::test(shared)]
@@ -25,6 +28,38 @@ async fn test_full_user_tags_endpoint() -> Result<()> {
     // // Analyse the tag that is in the 4th index
     let hot_tag = TagMockup::new(String::from("privacy"), 2, 2);
     compare_tag_details(&tags[1], hot_tag);
+
+    Ok(())
+}
+#[tokio_shared_rt::test(shared)]
+async fn test_user_tags_with_viewer_id() -> Result<()> {
+    let path = format!(
+        "/v0/user/{}/tags?viewer_id=rz6oe4yda9em9b4m7ymttgym3r9g5gfa51su3rgdj9oszyz787ny",
+        PUBKY_PEER
+    );
+    let body = get_request(&path).await?;
+
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Tag list should be an array");
+    assert_eq!(tags.len(), 4);
+
+    assert!(
+        tags[0]["is_tagger"].as_bool().unwrap(),
+        "Expected to be part of the taggers"
+    );
+    assert!(
+        !tags[1]["is_tagger"].as_bool().unwrap(),
+        "Expected not to be part of the taggers"
+    );
+    assert!(
+        !tags[2]["is_tagger"].as_bool().unwrap(),
+        "Expected to be part of the taggers"
+    );
+    assert!(
+        tags[3]["is_tagger"].as_bool().unwrap(),
+        "Expected to be part of the taggers"
+    );
 
     Ok(())
 }
@@ -183,11 +218,34 @@ async fn test_user_specific_tag() -> Result<()> {
 
     assert!(body.is_array());
 
-    let tags = body.as_array().expect("Tag list should be an array");
-    assert_eq!(tags.len(), 3);
+    let taggers = body.as_array().expect("Tag list should be an array");
+    let taggers_list = taggers[0].as_array().expect("Tag list should be an array");
+    assert_eq!(taggers_list.len(), 3);
 
     assert_eq!(
-        &tags[2],
+        &taggers_list[2],
+        "db6w58pd5h63fbhtd88y8zz7pai9rkjwqt9omg6i7dz31dynrgcy"
+    );
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_user_specific_tag_with_viewer_id() -> Result<()> {
+    let path = format!(
+        "/v0/user/{}/taggers/{}?viewer_id={}",
+        PUBKY_PEER, PUBKY_LABEL, PEER_PUBKY
+    );
+    let body = get_request(&path).await?;
+
+    assert!(body.is_array());
+
+    let taggers = body.as_array().expect("Tag list should be an array");
+    let taggers_list = taggers[0].as_array().expect("Tag list should be an array");
+    assert_eq!(taggers_list.len(), 3);
+
+    assert_eq!(
+        &taggers_list[2],
         "db6w58pd5h63fbhtd88y8zz7pai9rkjwqt9omg6i7dz31dynrgcy"
     );
 
@@ -201,11 +259,12 @@ async fn test_user_specific_tag_with_limit() -> Result<()> {
 
     assert!(body.is_array());
 
-    let tags = body.as_array().expect("Tag list should be an array");
-    assert_eq!(tags.len(), 1);
+    let taggers = body.as_array().expect("Tag list should be an array");
+    let taggers_list = taggers[0].as_array().expect("Tag list should be an array");
+    assert_eq!(taggers_list.len(), 1);
 
     assert_eq!(
-        &tags[0],
+        &taggers_list[0],
         "58jc5bujzoj35g55pqjo6ykfdu9t156j8cxkh5ubdwgsnch1qagy"
     );
 
@@ -219,11 +278,12 @@ async fn test_user_specific_tag_with_skip() -> Result<()> {
 
     assert!(body.is_array());
 
-    let tags = body.as_array().expect("Tag list should be an array");
-    assert_eq!(tags.len(), 2);
+    let taggers = body.as_array().expect("Tag list should be an array");
+    let taggers_list = taggers[0].as_array().expect("Tag list should be an array");
+    assert_eq!(taggers_list.len(), 2);
 
     assert_eq!(
-        &tags[0],
+        &taggers_list[0],
         "rz6oe4yda9em9b4m7ymttgym3r9g5gfa51su3rgdj9oszyz787ny"
     );
 
@@ -240,11 +300,12 @@ async fn test_user_specific_tag_with_full_filters() -> Result<()> {
 
     assert!(body.is_array());
 
-    let tags = body.as_array().expect("Tag list should be an array");
-    assert_eq!(tags.len(), 1);
+    let taggers = body.as_array().expect("Tag list should be an array");
+    let taggers_list = taggers[0].as_array().expect("Tag list should be an array");
+    assert_eq!(taggers_list.len(), 1);
 
     assert_eq!(
-        &tags[0],
+        &taggers_list[0],
         "db6w58pd5h63fbhtd88y8zz7pai9rkjwqt9omg6i7dz31dynrgcy"
     );
 

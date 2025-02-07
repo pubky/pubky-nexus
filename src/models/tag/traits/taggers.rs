@@ -29,7 +29,7 @@ where
         pagination: Pagination,
         viewer_id: Option<&str>,
         depth: Option<u8>,
-    ) -> Result<Option<Taggers>, DynError> {
+    ) -> Result<Option<(Taggers, bool)>, DynError> {
         // Set default params for pagination
         let skip = pagination.skip.unwrap_or(0);
         let limit = pagination.limit.unwrap_or(40);
@@ -45,16 +45,26 @@ where
             key_parts = Self::create_label_index(user_id, extra_param, label, false);
         }
 
-        Self::get_from_index(key_parts, Some(skip), Some(limit), prefix).await
+        Self::get_from_index(key_parts, viewer_id, Some(skip), Some(limit), prefix).await
     }
 
     async fn get_from_index(
         key_parts: Vec<&str>,
+        viewer_id: Option<&str>,
         skip: Option<usize>,
         limit: Option<usize>,
         prefix: Option<String>,
-    ) -> Result<Option<Taggers>, DynError> {
-        Ok(Self::try_from_index_set(&key_parts, skip, limit, prefix).await?)
+    ) -> Result<Option<(Taggers, bool)>, DynError> {
+        let taggers = Self::try_from_index_set(&key_parts, skip, limit, prefix).await?;
+        if let Some(taggers) = taggers {
+            let mut is_member = false;
+            if let Some(member) = viewer_id {
+                let (_, member_found) = Self::check_set_member(&key_parts, member).await?;
+                is_member = member_found;
+            }
+            return Ok(Some((taggers, is_member)));
+        }
+        Ok(None)
     }
 
     /// Constructs an index key based on user key, an optional extra parameter and a tag label.

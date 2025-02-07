@@ -407,37 +407,24 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
 
     /// Fetches multiple sets from Redis using the specified key components.
     ///
-    /// This asynchronous function retrieves multiple sets from Redis based on the provided key components.
-    /// It returns a vector where each element is an optional vector containing the elements of the corresponding set.
-    /// If a particular set does not exist, the corresponding position in the returned vector will be `None`.
-    ///
     /// # Arguments
-    ///
     /// * `key_parts_list` - A slice of string slices, where each inner slice represents the components
-    /// * `prefix` - An optional string representing the prefix for the Redis keys. If `Some(String)`, the prefix will be used
-    ///   used to construct the Redis key for the corresponding set.
-    /// * `limit` - An optional parameter specifying the maximum number of elements to fetch from each set.
+    ///   used to construct the Redis keys.
+    /// * `prefix` - An optional string representing the prefix for the Redis keys
+    /// * `member` - An optional string reference representing a specific element to check for member in each SET
+    /// * `limit` - An optional parameter specifying the maximum number of elements to fetch from each SET
     ///   If `None`, all elements will be retrieved.
-    ///
-    /// # Returns
-    ///
-    /// A `Vec<Option<Vec<String>>>` where:
-    /// * Each inner `Vec<String>` contains the elements of a set retrieved from Redis.
-    /// * `None` indicates that the set does not exist for the corresponding key.
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the operation fails, such as in cases of a Redis connection issue.
     async fn try_from_multiple_sets(
         key_parts_list: &[&str],
         prefix: Option<String>,
+        member: Option<&str>,
         limit: Option<usize>,
-    ) -> Result<Vec<Option<(Vec<String>, usize)>>, DynError> {
+    ) -> Result<Vec<Option<(Vec<String>, usize, bool)>>, DynError> {
         let combined_prefix = match prefix {
             Some(p) => format!("{}:{}", p, Self::prefix().await),
             None => Self::prefix().await,
         };
-        sets::get_multiple_sets(&combined_prefix, key_parts_list, limit).await
+        sets::get_multiple_sets(&combined_prefix, key_parts_list, member, limit).await
     }
 
     /// Adds elements to multiple Redis sets using the provided keys and collections.

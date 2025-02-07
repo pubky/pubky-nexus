@@ -84,6 +84,7 @@ async fn test_homeserver_del_tag_post() -> Result<()> {
         None,
         None,
         None,
+        None,
         false,
     )
     .await
@@ -96,7 +97,7 @@ async fn test_homeserver_del_tag_post() -> Result<()> {
 
     // Post:Taggers:author_id:post_id:label
     let post_key = vec![author_user_id.as_str(), post_id.as_str(), label];
-    let taggers = <TagPost as TaggersCollection>::get_from_index(post_key, None, None, None)
+    let taggers = <TagPost as TaggersCollection>::get_from_index(post_key, None, None, None, None)
         .await
         .unwrap();
     assert!(taggers.is_none());

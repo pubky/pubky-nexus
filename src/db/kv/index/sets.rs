@@ -183,35 +183,28 @@ pub async fn get_size(prefix: &str, key: &str) -> Result<Option<usize>, DynError
     Ok(Some(set_size))
 }
 
-/// Retrieves multiple sets from Redis in a single call using a pipeline.
-///
-/// This asynchronous function fetches multiple sets from Redis based on the provided keys using a Redis pipeline.
-/// It returns a vector of optional tuples, where each tuple contains a vector of elements from the corresponding set
-/// and an integer representing the number of elements that were excluded if a limit was specified.
-///
+/// Retrieves multiple sets from Redis in a single call using a pipeline
 /// # Arguments
 ///
-/// * `prefix` - A string slice representing the prefix to be prepended to each Redis key.
-/// * `keys` - A slice of string slices representing the keys under which the sets are stored.
-/// * `limit` - An optional `usize` specifying the maximum number of elements to retrieve from each set.
-///   If `None`, all elements will be retrieved.
+/// * `prefix` - A string slice representing the prefix to be prepended to each Redis key
+/// * `keys` - A slice of string slices representing the keys under which the SETs are stored
+/// * `member` - An optional string reference representing a specific element to check for member in each SET
+/// * `limit` - An optional `usize` specifying the maximum number of elements to retrieve from each SET
+///   If `None`, all elements will be retrieved
 ///
 /// # Returns
-///
-/// Returns a `Result` containing:
-/// * `Ok(Vec<Option<(Vec<String>, usize)>>)` - A vector where each element is an `Option` containing a tuple:
-///     * `Some((Vec<String>, usize))` - The vector of elements from the set and the count of excluded elements.
-///     * `None` - Indicates that the corresponding set does not exist.
-/// * `Err` - An error if the Redis operation fails.
-///
-/// # Errors
-///
-/// Returns an error if the Redis connection fails or the pipeline query encounters an issue.
+/// A `Vec<Option<(Vec<String>, usize, bool)>>` where:
+/// * Each inner tuple contains:
+///   - `Vec<String>`: The retrieved elements of the SET
+///   - `usize`: The length of the SET
+///   - `bool`: `true` if the `member` exists in the SET
+/// * `None` indicates that the set does not exist for the corresponding key.
 pub async fn get_multiple_sets(
     prefix: &str,
     keys: &[&str],
+    member: Option<&str>,
     limit: Option<usize>,
-) -> Result<Vec<Option<(Vec<String>, usize)>>, DynError> {
+) -> Result<Vec<Option<(Vec<String>, usize, bool)>>, DynError> {
     let mut redis_conn = get_redis_conn().await?;
 
     // Create a Redis pipeline
@@ -233,12 +226,15 @@ pub async fn get_multiple_sets(
                 None
             } else {
                 let set_length = set.len();
+                let is_member = member
+                    .map(|member_to_search| set.iter().any(|s| s == member_to_search))
+                    .unwrap_or(false);
                 match limit {
                     Some(set_limit) if set_limit < set_length => {
                         let limited_set = set.into_iter().take(set_limit).collect();
-                        Some((limited_set, set_length))
+                        Some((limited_set, set_length, is_member))
                     }
-                    _ => Some((set, set_length)),
+                    _ => Some((set, set_length, is_member)),
                 }
             }
         })
