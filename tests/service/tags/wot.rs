@@ -1,5 +1,6 @@
 use super::utils::{analyse_tag_details_structure, compare_tag_details, TagMockup};
 use crate::service::utils::{connect_to_redis, get_request, invalid_get_request};
+use crate::utils::TestServiceServer;
 use anyhow::Result;
 use pubky_nexus::models::tag::TagDetails;
 use pubky_nexus::{db::connectors::redis::get_redis_conn, types::DynError};
@@ -244,9 +245,10 @@ fn verify_user_taggers(mock_taggers: Vec<&str>, tag_details: Value, tag: String)
 }
 
 async fn clear_wot_tags_cache() -> Result<(), DynError> {
-    // Open redis connections
-    connect_to_redis().await;
+    // Ensure the server is running, for redis connection
+    TestServiceServer::get_test_server().await;
     let mut redis_conn = get_redis_conn().await?;
+
     let athens_key = format!(
         "Cache:User:Taggers:{}:{}:{}",
         EPICTTO_VIEWER, AURELIO_USER, ATHENS_TAG
