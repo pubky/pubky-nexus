@@ -11,6 +11,8 @@ use crate::service::utils::host_url;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_static_serving() -> Result<()> {
+    let client = httpc_test::new_client(host_url().await)?;
+
     let test_file_id = "2ZK2H8P2T5NG0";
     let test_file_user = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
 
@@ -21,7 +23,6 @@ async fn test_static_serving() -> Result<()> {
 
     let result_file = files[0].as_ref().expect("Created file was not found.");
 
-    let client = httpc_test::new_client(host_url().await)?;
     let test_file_path = format!("static/files/{test_file_user}/{test_file_id}");
     let test_file_name = "main";
 
@@ -57,6 +58,8 @@ async fn test_static_serving() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_static_serving_dl_param() -> Result<()> {
+    let client = httpc_test::new_client(host_url().await)?;
+
     let test_file_id = "2ZKH7K7B2RY00";
     let test_file_user = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
 
@@ -67,7 +70,6 @@ async fn test_static_serving_dl_param() -> Result<()> {
 
     let result_file = files[0].as_ref().expect("Created file was not found.");
 
-    let client = httpc_test::new_client(host_url().await)?;
     let test_file_path = format!("static/files/{test_file_user}/{test_file_id}");
     let test_file_name = "main";
 
