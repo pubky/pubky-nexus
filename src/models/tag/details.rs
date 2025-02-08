@@ -9,7 +9,8 @@ pub struct TagDetails {
     pub taggers: Vec<String>,
     pub taggers_count: usize,
     #[serde(default)]
-    pub is_tagger: bool,
+    // Describes if the viewer is part of the taggers list
+    pub relationship: bool,
 }
 
 impl TagDetails {
@@ -30,11 +31,11 @@ impl TagDetails {
             .zip(taggers_list)
             .filter_map(|((label, _), taggers)| {
                 // TIP: MAP will not process None types and it will be automatically passed through unchanged
-                taggers.map(|(taggers, taggers_count, is_tagger)| TagDetails {
+                taggers.map(|(taggers, taggers_count, relationship)| TagDetails {
                     label,
                     taggers,
                     taggers_count,
-                    is_tagger,
+                    relationship,
                 })
             })
             .collect()

@@ -75,15 +75,15 @@ async fn test_user_tags_viewer_filter_active() -> Result<()> {
     analyse_tag_details_structure(tags);
 
     assert!(
-        tags[0]["is_tagger"].as_bool().unwrap(),
+        tags[0]["relationship"].as_bool().unwrap(),
         "Expected to be part of the taggers"
     );
     assert!(
-        !tags[1]["is_tagger"].as_bool().unwrap(),
+        !tags[1]["relationship"].as_bool().unwrap(),
         "Expected not to be part of the taggers"
     );
     assert!(
-        tags[2]["is_tagger"].as_bool().unwrap(),
+        tags[2]["relationship"].as_bool().unwrap(),
         "Expected to be part of the taggers"
     );
 

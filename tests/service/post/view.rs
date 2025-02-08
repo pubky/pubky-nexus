@@ -157,11 +157,11 @@ async fn test_get_post_view_with_viewer() -> Result<()> {
     assert_eq!(tags.len(), 2);
 
     assert!(
-        tags[0]["is_tagger"].as_bool().unwrap(),
+        tags[0]["relationship"].as_bool().unwrap(),
         "Expected to be part of the taggers"
     );
     assert!(
-        !tags[1]["is_tagger"].as_bool().unwrap(),
+        !tags[1]["relationship"].as_bool().unwrap(),
         "Expected not to be part of the taggers"
     );
 

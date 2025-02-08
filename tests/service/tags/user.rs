@@ -45,19 +45,19 @@ async fn test_user_tags_with_viewer_id() -> Result<()> {
     assert_eq!(tags.len(), 4);
 
     assert!(
-        tags[0]["is_tagger"].as_bool().unwrap(),
+        tags[0]["relationship"].as_bool().unwrap(),
         "Expected to be part of the taggers"
     );
     assert!(
-        !tags[1]["is_tagger"].as_bool().unwrap(),
+        !tags[1]["relationship"].as_bool().unwrap(),
         "Expected not to be part of the taggers"
     );
     assert!(
-        !tags[2]["is_tagger"].as_bool().unwrap(),
+        !tags[2]["relationship"].as_bool().unwrap(),
         "Expected to be part of the taggers"
     );
     assert!(
-        tags[3]["is_tagger"].as_bool().unwrap(),
+        tags[3]["relationship"].as_bool().unwrap(),
         "Expected to be part of the taggers"
     );
 

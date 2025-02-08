@@ -86,10 +86,10 @@ async fn test_user_view_tags() -> Result<()> {
     let viewer_id = "58jc5bujzoj35g55pqjo6ykfdu9t156j8cxkh5ubdwgsnch1qagy";
     let res = get_request(&format!("/v0/user/{}?viewer_id={}", user_id, viewer_id)).await?;
 
-    assert!(res["tags"][0]["is_tagger"].as_bool().unwrap());
-    assert!(res["tags"][1]["is_tagger"].as_bool().unwrap());
-    assert!(!res["tags"][2]["is_tagger"].as_bool().unwrap());
-    assert!(!res["tags"][3]["is_tagger"].as_bool().unwrap());
+    assert!(res["tags"][0]["relationship"].as_bool().unwrap());
+    assert!(res["tags"][1]["relationship"].as_bool().unwrap());
+    assert!(!res["tags"][2]["relationship"].as_bool().unwrap());
+    assert!(!res["tags"][3]["relationship"].as_bool().unwrap());
 
     Ok(())
 }
