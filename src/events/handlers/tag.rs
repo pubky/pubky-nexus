@@ -10,7 +10,7 @@ use crate::models::tag::traits::{TagCollection, TaggersCollection};
 use crate::models::tag::user::TagUser;
 use crate::models::user::UserCounts;
 use crate::types::DynError;
-use crate::ScoreAction;
+use crate::{handle_indexing_results, ScoreAction};
 use chrono::Utc;
 use log::debug;
 use pubky_app_specs::{user_uri_builder, Resource};
@@ -94,8 +94,7 @@ async fn put_sync_post(
             // SAVE TO INDEXES
             let post_key_slice: &[&str] = &[&author_id, &post_id];
 
-            // TODO: Handle the errors
-            let _ = tokio::join!(
+            let indexing_results = tokio::join!(
                 // Update user counts for tagger
                 UserCounts::update(&tagger_user_id, "tags", JsonAction::Increment(1)),
                 // Increment in one the post tags
@@ -121,20 +120,35 @@ async fn put_sync_post(
                     &tag_label,
                     ScoreAction::Increment(1.0)
                 ),
+                async {
+                    // Post replies cannot be included in the total engagement index once they have been tagged
+                    if !post_relationships_is_reply(&author_id, &post_id).await? {
+                        // Increment in one post global engagement
+                        PostStream::update_index_score(
+                            &author_id,
+                            &post_id,
+                            ScoreAction::Increment(1.0),
+                        )
+                        .await?;
+                    }
+                    Ok::<(), DynError>(())
+                },
+                // Add post to global label timeline
+                TagSearch::put_to_index(&author_id, &post_id, &tag_label),
+                // Save new notification
+                Notification::new_post_tag(&tagger_user_id, &author_id, &tag_label, &post_uri)
             );
 
-            // Post replies cannot be included in the total engagement index once they have been tagged
-            if !post_relationships_is_reply(&author_id, &post_id).await? {
-                // Increment in one post global engagement
-                PostStream::update_index_score(&author_id, &post_id, ScoreAction::Increment(1.0))
-                    .await?;
-            }
-
-            // Add post to global label timeline
-            TagSearch::put_to_index(&author_id, &post_id, &tag_label).await?;
-
-            // Save new notification
-            Notification::new_post_tag(&tagger_user_id, &author_id, &tag_label, &post_uri).await?;
+            handle_indexing_results!(
+                indexing_results.0,
+                indexing_results.1,
+                indexing_results.2,
+                indexing_results.3,
+                indexing_results.4,
+                indexing_results.5,
+                indexing_results.6,
+                indexing_results.7
+            );
 
             Ok(())
         }
@@ -170,27 +184,32 @@ async fn put_sync_user(
         }
         OperationOutcome::CreatedOrDeleted => {
             // SAVE TO INDEX
-            // Update user counts for the tagged user
-            UserCounts::update(&tagged_user_id, "tagged", JsonAction::Increment(1)).await?;
+            let indexing_results = tokio::join!(
+                // Update user counts for the tagged user
+                UserCounts::update(&tagged_user_id, "tagged", JsonAction::Increment(1)),
+                // Update user counts for the tagger user
+                UserCounts::update(&tagger_user_id, "tags", JsonAction::Increment(1)),
+                // Add tagger to the user taggers list
+                TagUser::add_tagger_to_index(&tagged_user_id, None, &tagger_user_id, &tag_label),
+                // Add label count to the user profile tag
+                TagUser::update_index_score(
+                    &tagged_user_id,
+                    None,
+                    &tag_label,
+                    ScoreAction::Increment(1.0),
+                ),
+                // Save new notification
+                Notification::new_user_tag(&tagger_user_id, &tagged_user_id, &tag_label)
+            );
 
-            // Update user counts for the tagger user
-            UserCounts::update(&tagger_user_id, "tags", JsonAction::Increment(1)).await?;
+            handle_indexing_results!(
+                indexing_results.0,
+                indexing_results.1,
+                indexing_results.2,
+                indexing_results.3,
+                indexing_results.4
+            );
 
-            // Add tagger to the user taggers list
-            TagUser::add_tagger_to_index(&tagged_user_id, None, &tagger_user_id, &tag_label)
-                .await?;
-
-            // Add label count to the user profile tag
-            TagUser::update_index_score(
-                &tagged_user_id,
-                None,
-                &tag_label,
-                ScoreAction::Increment(1.0),
-            )
-            .await?;
-
-            // Save new notification
-            Notification::new_user_tag(&tagger_user_id, &tagged_user_id, &tag_label).await?;
             Ok(())
         }
     }
@@ -226,19 +245,29 @@ async fn del_sync_user(
     tagged_id: &str,
     tag_label: &str,
 ) -> Result<(), DynError> {
-    // Update user counts in the tagged
-    UserCounts::update(tagged_id, "tagged", JsonAction::Decrement(1)).await?;
+    let indexing_results = tokio::join!(
+        // Update user counts in the tagged
+        UserCounts::update(tagged_id, "tagged", JsonAction::Decrement(1)),
+        // Update user counts in the tagger
+        UserCounts::update(&tagger_id, "tags", JsonAction::Decrement(1)),
+        async {
+            // Remove tagger to the user taggers list
+            TagUser(vec![tagger_id.to_string()])
+                .del_from_index(tagged_id, None, tag_label)
+                .await?;
+            Ok::<(), DynError>(())
+        },
+        // Decrement label count to the user profile tag
+        TagUser::update_index_score(tagged_id, None, tag_label, ScoreAction::Decrement(1.0))
+    );
 
-    // Update user counts in the tagger
-    UserCounts::update(&tagger_id, "tags", JsonAction::Decrement(1)).await?;
+    handle_indexing_results!(
+        indexing_results.0,
+        indexing_results.1,
+        indexing_results.2,
+        indexing_results.3
+    );
 
-    // Remove tagger to the user taggers list
-    TagUser(vec![tagger_id.to_string()])
-        .del_from_index(tagged_id, None, tag_label)
-        .await?;
-
-    // Decrement label count to the user profile tag
-    TagUser::update_index_score(tagged_id, None, tag_label, ScoreAction::Decrement(1.0)).await?;
     Ok(())
 }
 
@@ -252,8 +281,7 @@ async fn del_sync_post(
     let post_key_slice: &[&str] = &[author_id, post_id];
     let tag_post = TagPost(vec![tagger_id.to_string()]);
 
-    // TODO: Handle the errors
-    let _ = tokio::join!(
+    let indexing_results = tokio::join!(
         // Update user counts for tagger
         UserCounts::update(&tagger_id, "tags", JsonAction::Decrement(1)),
         // Decrement in one the post tags
@@ -268,16 +296,28 @@ async fn del_sync_post(
         tag_post.del_from_index(author_id, Some(post_id), tag_label),
         // Decrease post from label total engagement
         TagSearch::update_index_score(author_id, post_id, tag_label, ScoreAction::Decrement(1.0)),
+        async {
+            // Post replies cannot be included in the total engagement index once the tag have been deleted
+            if !post_relationships_is_reply(author_id, post_id).await? {
+                // Decrement in one post global engagement
+                PostStream::update_index_score(author_id, post_id, ScoreAction::Decrement(1.0))
+                    .await?;
+            }
+            Ok::<(), DynError>(())
+        },
+        // Delete post from global label timeline
+        TagSearch::del_from_index(author_id, post_id, tag_label)
     );
 
-    // Post replies cannot be included in the total engagement index once the tag have been deleted
-    if !post_relationships_is_reply(author_id, post_id).await? {
-        // Decrement in one post global engagement
-        PostStream::update_index_score(author_id, post_id, ScoreAction::Decrement(1.0)).await?;
-    }
-
-    // Delete post from global label timeline
-    TagSearch::del_from_index(author_id, post_id, tag_label).await?;
+    handle_indexing_results!(
+        indexing_results.0,
+        indexing_results.1,
+        indexing_results.2,
+        indexing_results.3,
+        indexing_results.4,
+        indexing_results.5,
+        indexing_results.6
+    );
 
     Ok(())
 }

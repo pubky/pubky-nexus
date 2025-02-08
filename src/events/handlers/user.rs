@@ -1,5 +1,6 @@
 use crate::db::graph::exec::{execute_graph_operation, OperationOutcome};
 use crate::events::error::EventProcessorError;
+use crate::handle_indexing_results;
 use crate::models::user::UserSearch;
 use crate::models::{
     traits::Collection,
@@ -12,22 +13,39 @@ use pubky_app_specs::{PubkyAppUser, PubkyId};
 
 pub async fn sync_put(user: PubkyAppUser, user_id: PubkyId) -> Result<(), DynError> {
     debug!("Indexing new user profile: {}", user_id);
-    // Create UserDetails object
+
+    // Step 1: Create `UserDetails` object
     let user_details = UserDetails::from_homeserver(user, &user_id).await?;
+
+    // Step 2: Save to graph
     user_details
         .put_to_graph()
         .await
         .map_err(|e| EventProcessorError::GraphQueryFailed {
             message: format!("{:?}", e),
         })?;
-    // SAVE TO INDEX
-    let user_id = user_details.id.clone();
-    UserSearch::put_to_index(&[&user_details]).await?;
-    // If new user (no existing counts) save a new UserCounts.
-    if UserCounts::get_from_index(&user_id).await?.is_none() {
-        UserCounts::default().put_to_index(&user_id).await?
-    };
-    UserDetails::put_to_index(&[&user_id], vec![Some(user_details)]).await?;
+
+    // Step 3: Run in parallel the cache process: SAVE TO INDEX
+    let indexing_results = tokio::join!(
+        async {
+            UserSearch::put_to_index(&[&user_details]).await?;
+            Ok::<(), DynError>(())
+        },
+        async {
+            // If new user (no existing counts), save a new `UserCounts`
+            if UserCounts::get_from_index(&user_id).await?.is_none() {
+                UserCounts::default().put_to_index(&user_id).await?;
+            }
+            Ok::<(), DynError>(())
+        },
+        async {
+            UserDetails::put_to_index(&[&user_details.id], vec![Some(user_details.clone())])
+                .await?;
+            Ok::<(), DynError>(())
+        }
+    );
+
+    handle_indexing_results!(indexing_results.0, indexing_results.1, indexing_results.2);
     Ok(())
 }
 
@@ -43,8 +61,9 @@ pub async fn del(user_id: PubkyId) -> Result<(), DynError> {
     // A deleted user is a user whose profile is empty and has username `"[DELETED]"`
     match execute_graph_operation(query).await? {
         OperationOutcome::CreatedOrDeleted => {
-            UserDetails::delete(&user_id).await?;
-            UserCounts::delete(&user_id).await?;
+            let indexing_results =
+                tokio::join!(UserDetails::delete(&user_id), UserCounts::delete(&user_id));
+            handle_indexing_results!(indexing_results.0, indexing_results.1)
         }
         OperationOutcome::Updated => {
             let deleted_user = PubkyAppUser {

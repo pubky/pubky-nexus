@@ -58,11 +58,11 @@ jobs:
             sleep 1
           done
 
-      - name: Load Mock Data
-        run: cargo run --bin mockdb
-
       - name: Install dependencies
         run: sudo apt install -y imagemagick
+
+      - name: Load Mock Data
+        run: cargo run --bin mockdb
         
       - name: Run integration tests
         run: cargo nextest run --no-fail-fast
