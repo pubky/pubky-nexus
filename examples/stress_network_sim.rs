@@ -43,7 +43,7 @@ async fn main() -> Result<()> {
     // Initialize the Client based on configuration
     let client = match config.testnet {
         true => Client::testnet()?,
-        false => Client::new()?,
+        false => Client::builder().build()?,
     };
 
     // Convert the homeserver from the config into a PublicKey

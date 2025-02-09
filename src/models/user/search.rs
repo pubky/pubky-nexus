@@ -179,7 +179,7 @@ mod tests {
         UserSearch::put_to_index(&[&user_details]).await?;
 
         // Check that the index contains only one record for the user
-        let search_result = UserSearch::get_by_name(&user_name, None, None).await?;
+        let search_result = UserSearch::get_by_name(user_name, None, None).await?;
         assert_eq!(search_result.unwrap().0, vec![user_id.to_string()]);
 
         let new_user_name = "Some Other User Name";
@@ -198,8 +198,8 @@ mod tests {
 
         // Check the previous record is deleted
         // Check that the index contains only one record for the user
-        let search_result = UserSearch::get_by_name(&user_name, None, None).await?;
-        assert_eq!(search_result.is_none(), true);
+        let search_result = UserSearch::get_by_name(user_name, None, None).await?;
+        assert!(search_result.is_none());
 
         Ok(())
     }

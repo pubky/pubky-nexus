@@ -1,6 +1,3 @@
-use std::time::Duration;
-
-use super::dht::TestnetDHTNetwork;
 use anyhow::{anyhow, Result};
 use chrono::Utc;
 use log::debug;
@@ -13,6 +10,7 @@ use pubky_nexus::events::retry::event::RetryEvent;
 use pubky_nexus::events::Event;
 use pubky_nexus::types::DynError;
 use pubky_nexus::{Config, EventProcessor, PubkyConnector, StackManager};
+use std::time::Duration;
 
 /// Struct to hold the setup environment for tests
 pub struct WatcherTest {
@@ -40,13 +38,13 @@ impl WatcherTest {
         let config = Config::from_env();
         StackManager::setup(&config).await;
 
-        TestnetDHTNetwork::initialise(10)?;
-        let testnet = TestnetDHTNetwork::get_testnet_dht_nodes()?;
-
-        let homeserver = Homeserver::start_test(&testnet).await?;
+        let homeserver;
+        unsafe {
+            homeserver = Homeserver::start_testnet().await?;
+        }
         let homeserver_id = homeserver.public_key().to_string();
 
-        match PubkyConnector::initialise(&config, Some(&testnet)).await {
+        match PubkyConnector::initialise(&config).await {
             Ok(_) => debug!("WatcherTest: PubkyConnector initialised"),
             Err(e) => debug!("WatcherTest: {}", e),
         }
@@ -276,7 +274,7 @@ pub async fn assert_eventually_exists(event_index: &str) {
         match RetryEvent::check_uri(event_index).await {
             Ok(timeframe) => {
                 if timeframe.is_some() {
-                    return ();
+                    return;
                 }
             }
             Err(e) => panic!("Error while getting index: {:?}", e),

@@ -1,5 +1,4 @@
 use crate::Config;
-use mainline::Testnet;
 use pubky::Client;
 use std::sync::Arc;
 use thiserror::Error;
@@ -26,23 +25,15 @@ pub struct PubkyConnector;
 
 impl PubkyConnector {
     /// Initializes the PubkyConnector singleton with the given configuration
-    pub async fn initialise(
-        config: &Config,
-        testnet: Option<&Testnet>,
-    ) -> Result<(), PubkyConnectorError> {
+    pub async fn initialise(config: &Config) -> Result<(), PubkyConnectorError> {
         PUBKY_CONNECTOR_SINGLETON
             .get_or_try_init(|| async {
-                let pubky_client = match testnet {
-                    Some(testnet) => Client::builder()
-                        .testnet(testnet)
+                let pubky_client = match config.testnet {
+                    true => Client::testnet()
+                        .map_err(|e| PubkyConnectorError::ClientError(e.to_string()))?,
+                    false => Client::builder()
                         .build()
                         .map_err(|e| PubkyConnectorError::ClientError(e.to_string()))?,
-                    None => match config.testnet {
-                        true => Client::testnet()
-                            .map_err(|e| PubkyConnectorError::ClientError(e.to_string()))?,
-                        false => Client::new()
-                            .map_err(|e| PubkyConnectorError::ClientError(e.to_string()))?,
-                    },
                 };
 
                 Ok(Arc::new(pubky_client))

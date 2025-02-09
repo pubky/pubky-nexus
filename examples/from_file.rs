@@ -15,7 +15,7 @@ async fn main() -> Result<(), DynError> {
     let config = Config::from_env();
     StackManager::setup(&config).await;
 
-    PubkyConnector::initialise(&config, None).await?;
+    PubkyConnector::initialise(&config).await?;
 
     let mut event_processor = EventProcessor::from_config(&config).await?;
 
@@ -27,12 +27,12 @@ async fn main() -> Result<(), DynError> {
 
 fn read_events_from_file() -> io::Result<Vec<String>> {
     let path = Path::new(FILE_PATH);
-    let file = File::open(&path)?;
+    let file = File::open(path)?;
 
     let reader = io::BufReader::new(file);
     let lines = reader
         .lines()
-        .filter_map(|line| line.ok()) // Filter out lines with errors
+        .map_while(Result::ok) // Filter out lines with errors
         .collect();
 
     Ok(lines)
