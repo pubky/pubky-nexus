@@ -62,7 +62,7 @@ jobs:
         run: cargo run --bin mockdb
 
       - name: Run integration tests
-        run: cargo nextest run --no-fail-fast
+        run: cargo nextest run --no-fail-fast --test-threads=1
 
       - name: Tear down Docker Compose
         if: always()
