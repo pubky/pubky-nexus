@@ -18,6 +18,7 @@ pub const USER_FOLLOWERS_ROUTE: &str = concatcp!(USER_ROUTE, "/followers");
 pub const USER_FOLLOWING_ROUTE: &str = concatcp!(USER_ROUTE, "/following");
 pub const USER_FRIENDS_ROUTE: &str = concatcp!(USER_ROUTE, "/friends");
 pub const USER_MUTED_ROUTE: &str = concatcp!(USER_ROUTE, "/muted");
+pub const USER_AVATAR_ROUTE: &str = concatcp!(USER_ROUTE, "/avatar");
 
 // -- POST endpoints --
 pub const POST_PREFIX: &str = concatcp!(VERSION_ROUTE, "/post");

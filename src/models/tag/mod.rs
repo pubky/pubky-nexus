@@ -27,3 +27,5 @@ impl Display for TaggedType {
         }
     }
 }
+
+pub type Taggers = Vec<String>;

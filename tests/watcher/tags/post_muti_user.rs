@@ -130,6 +130,7 @@ async fn test_homeserver_multi_user() -> Result<()> {
         None,
         None,
         None,
+        None,
         false,
     )
     .await
@@ -217,6 +218,7 @@ async fn test_homeserver_multi_user() -> Result<()> {
         None,
         None,
         None,
+        None,
         false,
     )
     .await
@@ -229,14 +231,14 @@ async fn test_homeserver_multi_user() -> Result<()> {
     // Post:Taggers:author_id:post_id:label
     let water_label_key = vec![author_id.as_str(), post_id.as_str(), label_water];
     let water_tag_collection =
-        <TagPost as TaggersCollection>::get_from_index(water_label_key, None, None, None)
+        <TagPost as TaggersCollection>::get_from_index(water_label_key, None, None, None, None)
             .await
             .unwrap();
     assert!(water_tag_collection.is_none());
 
     let fire_label_key = vec![author_id.as_str(), post_id.as_str(), label_fire];
     let fire_tag_collection =
-        <TagPost as TaggersCollection>::get_from_index(fire_label_key, None, None, None)
+        <TagPost as TaggersCollection>::get_from_index(fire_label_key, None, None, None, None)
             .await
             .unwrap();
     assert!(fire_tag_collection.is_none());

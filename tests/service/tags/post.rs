@@ -1,14 +1,19 @@
 use anyhow::Result;
+use pubky_nexus::routes::v0::types::TaggersInfo;
 use reqwest::StatusCode;
 
-use crate::service::utils::{get_request, invalid_get_request};
+use crate::service::{
+    tags::user::PUBKY_PEER,
+    utils::{get_request, invalid_get_request},
+};
 
 use super::utils::{analyse_tag_details_structure, compare_tag_details, TagMockup};
 
 // Peter user from test/tags.cypher
-const PEER_PUBKY: &str = "db6w58pd5h63fbhtd88y8zz7pai9rkjwqt9omg6i7dz31dynrgcy";
+pub const PEER_PUBKY: &str = "db6w58pd5h63fbhtd88y8zz7pai9rkjwqt9omg6i7dz31dynrgcy";
 const POST_ID: &str = "HC3T5CEPBPHQ";
 const FREE_LABEL: &str = "free";
+const ANONYMOUS_PUBKY: &str = "mwsnc3qzej8hks6motdeyj8ag7gzaf3ft5emcjzk9wn5erxg968y";
 
 const BAHRINGER_USER: &str = "7kbjzgcx3xygokesys6jso13tt9u5n995p9q54a1co7cai9ujcso";
 const BAHRINGER_POST: &str = "2Z1N9M56X4EG0";
@@ -47,9 +52,41 @@ async fn test_user_tags_limit_tag_filter_active() -> Result<()> {
     // Validate that the posts belong to the specified user's bookmarks
     analyse_tag_details_structure(tags);
 
-    // // Analyse the tag that is in the 4th index
+    // // Analyse the tag that is in the 2nd index
     let hot_tag = TagMockup::new(String::from("free"), 3, 3);
     compare_tag_details(&tags[1], hot_tag);
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_user_tags_viewer_filter_active() -> Result<()> {
+    let path = format!(
+        "/v0/post/{}/{}/tags?viewer_id={}",
+        PEER_PUBKY, POST_ID, PUBKY_PEER
+    );
+    let body = get_request(&path).await?;
+
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Tag list should be an array");
+    assert_eq!(tags.len(), 3);
+
+    // Validate that the posts belong to the specified user's bookmarks
+    analyse_tag_details_structure(tags);
+
+    assert!(
+        tags[0]["relationship"].as_bool().unwrap(),
+        "Expected to be part of the taggers"
+    );
+    assert!(
+        !tags[1]["relationship"].as_bool().unwrap(),
+        "Expected not to be part of the taggers"
+    );
+    assert!(
+        tags[2]["relationship"].as_bool().unwrap(),
+        "Expected to be part of the taggers"
+    );
 
     Ok(())
 }
@@ -176,13 +213,12 @@ async fn test_post_specific_tag() -> Result<()> {
     let path = format!("/v0/post/{}/{}/taggers/{}", PEER_PUBKY, POST_ID, FREE_LABEL);
     let body = get_request(&path).await?;
 
-    assert!(body.is_array());
+    let taggers_info: TaggersInfo = serde_json::from_value(body)?;
 
-    let tags = body.as_array().expect("Tag list should be an array");
-    assert_eq!(tags.len(), 3);
+    assert_eq!(taggers_info.users.len(), 3);
 
     assert_eq!(
-        &tags[2],
+        &taggers_info.users[2],
         "58jc5bujzoj35g55pqjo6ykfdu9t156j8cxkh5ubdwgsnch1qagy"
     );
 
@@ -197,15 +233,28 @@ async fn test_post_specific_tag_with_limit() -> Result<()> {
     );
     let body = get_request(&path).await?;
 
-    assert!(body.is_array());
+    let taggers_info: TaggersInfo = serde_json::from_value(body)?;
 
-    let tags = body.as_array().expect("Tag list should be an array");
-    assert_eq!(tags.len(), 1);
+    assert_eq!(taggers_info.users.len(), 1);
 
-    assert_eq!(
-        &tags[0],
-        "mwsnc3qzej8hks6motdeyj8ag7gzaf3ft5emcjzk9wn5erxg968y"
+    assert_eq!(&taggers_info.users[0], ANONYMOUS_PUBKY);
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_post_specific_tag_with_viewer_id() -> Result<()> {
+    let path = format!(
+        "/v0/post/{}/{}/taggers/{}?viewer_id={}",
+        PEER_PUBKY, POST_ID, FREE_LABEL, ANONYMOUS_PUBKY
     );
+    let body = get_request(&path).await?;
+
+    let taggers_info: TaggersInfo = serde_json::from_value(body)?;
+
+    assert_eq!(taggers_info.users.len(), 3);
+
+    assert!(taggers_info.relationship);
 
     Ok(())
 }
@@ -218,13 +267,11 @@ async fn test_post_specific_tag_with_skip() -> Result<()> {
     );
     let body = get_request(&path).await?;
 
-    assert!(body.is_array());
-
-    let tags = body.as_array().expect("Tag list should be an array");
-    assert_eq!(tags.len(), 2);
+    let taggers_info: TaggersInfo = serde_json::from_value(body)?;
+    assert_eq!(taggers_info.users.len(), 2);
 
     assert_eq!(
-        &tags[0],
+        &taggers_info.users[0],
         "rz6oe4yda9em9b4m7ymttgym3r9g5gfa51su3rgdj9oszyz787ny"
     );
 
@@ -239,13 +286,11 @@ async fn test_post_specific_tag_with_full_filters() -> Result<()> {
     );
     let body = get_request(&path).await?;
 
-    assert!(body.is_array());
-
-    let tags = body.as_array().expect("Tag list should be an array");
-    assert_eq!(tags.len(), 1);
+    let taggers_info: TaggersInfo = serde_json::from_value(body)?;
+    assert_eq!(taggers_info.users.len(), 1);
 
     assert_eq!(
-        &tags[0],
+        &taggers_info.users[0],
         "58jc5bujzoj35g55pqjo6ykfdu9t156j8cxkh5ubdwgsnch1qagy"
     );
 

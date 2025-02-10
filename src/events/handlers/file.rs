@@ -1,13 +1,16 @@
 use crate::db::connectors::pubky::PubkyConnector;
-use crate::models::file::details::FileVariant;
+use crate::events::error::EventProcessorError;
 use crate::models::{
-    file::{details::FileMeta, FileDetails},
+    file::{
+        details::{FileMeta, FileVariant},
+        FileDetails,
+    },
     traits::Collection,
 };
 use crate::static_processor::{StaticProcessor, StaticStorage};
 use crate::types::DynError;
 use log::{debug, error};
-use pubky_app_specs::{PubkyAppFile, PubkyId};
+use pubky_app_specs::{PubkyAppFile, PubkyAppObject, PubkyId};
 use tokio::fs::remove_dir_all;
 
 pub async fn sync_put(
@@ -17,58 +20,70 @@ pub async fn sync_put(
     file_id: String,
 ) -> Result<(), DynError> {
     debug!("Indexing new file resource at {}/{}", user_id, file_id);
-
     debug!("file input {:?}", file);
 
+    // Ingest the file and store its blob content
     let file_meta = ingest(&user_id, file_id.as_str(), &file).await?;
 
-    // Create FileDetails object
+    // Build the FileDetails (this may combine info from the homeserver and the meta)
     let file_details =
         FileDetails::from_homeserver(&file, uri, user_id.to_string(), file_id, file_meta);
 
-    // save new file into the Graph
+    // Save into the graph and index
     file_details.put_to_graph().await?;
-
-    // Index
     FileDetails::put_to_index(
-        &[&[
-            file_details.owner_id.clone().as_str(),
-            file_details.id.clone().as_str(),
-        ]],
-        vec![Some(file_details)],
+        &[&[file_details.owner_id.as_str(), file_details.id.as_str()]],
+        vec![Some(file_details.clone())],
     )
     .await?;
 
     Ok(())
 }
 
-// TODO: Move it into its own process, server, etc
 async fn ingest(
     user_id: &PubkyId,
     file_id: &str,
     pubkyapp_file: &PubkyAppFile,
 ) -> Result<FileMeta, DynError> {
+    // Retrieve the file blob via PubkyConnector
     let pubky_client = PubkyConnector::get_pubky_client()?;
-
     let response = match pubky_client.get(&pubkyapp_file.src).send().await {
-        Ok(response) => response,
-        // TODO: Shape the error to avoid the retyManager
+        Ok(resp) => resp,
         Err(e) => {
             error!("EVENT ERROR: could not retrieve file src blob");
             return Err(e.into());
         }
     };
 
-    let path: String = format!("{}/{}", user_id, file_id);
-    let storage_path = StaticStorage::get_storage_path();
-    let full_path = format!("{}/{}", storage_path, path);
+    // Read the response bytes and validate the file using PubkyAppObject importer
+    let blob_bytes = response.bytes().await?;
+    let pubky_app_object = PubkyAppObject::from_uri(&pubkyapp_file.src, &blob_bytes)?;
+    match pubky_app_object {
+        PubkyAppObject::Blob(valid_blob) => {
+            // Build a relative path based on user and file IDs
+            let relative_path = format!("{}/{}", user_id, file_id);
+            let storage_path = StaticStorage::get_storage_path();
+            let full_path = format!("{}/{}", storage_path, relative_path);
 
-    let blob = response.bytes().await?;
-    StaticStorage::store_blob(FileVariant::Main.to_string(), full_path.to_string(), &blob).await?;
+            // Store the blob via the static storage abstraction
+            StaticStorage::store_blob(FileVariant::Main.to_string(), full_path, &valid_blob.0)
+                .await?;
 
-    let urls =
-        StaticProcessor::get_file_urls_by_content_type(pubkyapp_file.content_type.as_str(), &path);
-    Ok(FileMeta { urls })
+            // Process the stored file and get URLs based on its content type
+            let urls = StaticProcessor::get_file_urls_by_content_type(
+                pubkyapp_file.content_type.as_str(),
+                &relative_path,
+            );
+            Ok(FileMeta { urls })
+        }
+        _ => Err(EventProcessorError::InvalidEventLine {
+            message: format!(
+                "The file has a source uri that is not a blob path: {}",
+                pubkyapp_file.src
+            ),
+        }
+        .into()),
+    }
 }
 
 pub async fn del(user_id: &PubkyId, file_id: String) -> Result<(), DynError> {
@@ -79,10 +94,8 @@ pub async fn del(user_id: &PubkyId, file_id: String) -> Result<(), DynError> {
     .await?;
 
     if !result.is_empty() {
-        let file = &result[0];
-
-        if let Some(value) = file {
-            value.delete().await?;
+        if let Some(file) = &result[0] {
+            file.delete().await?;
         }
 
         let folder_path = format!("{}/{}", user_id, file_id);
