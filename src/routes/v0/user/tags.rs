@@ -1,7 +1,6 @@
 use crate::models::tag::traits::{TagCollection, TaggersCollection};
 use crate::models::tag::user::TagUser;
 use crate::models::tag::TagDetails;
-use crate::models::user::UserTags;
 use crate::routes::v0::endpoints::{USER_TAGGERS_ROUTE, USER_TAGS_ROUTE};
 use crate::routes::v0::types::TaggersInfo;
 use crate::routes::v0::TagsQuery;
@@ -27,7 +26,7 @@ use utoipa::OpenApi;
         ("depth" = Option<usize>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 4, will be ignored")
     ),
     responses(
-        (status = 200, description = "User tags", body = UserTags),
+        (status = 200, description = "User tags", body = TagDetails),
         (status = 404, description = "User not found"),
         (status = 500, description = "Internal server error")
     )
@@ -80,7 +79,7 @@ pub struct TaggersQuery {
         ("depth" = Option<usize>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 4, will be ignored")
     ),
     responses(
-        (status = 200, description = "User tags", body = UserTags),
+        (status = 200, description = "User tags", body = TaggersInfo),
         (status = 404, description = "User not found"),
         (status = 500, description = "Internal server error")
     )
