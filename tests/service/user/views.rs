@@ -1,4 +1,7 @@
-use crate::service::utils::{get_request, invalid_get_request};
+use crate::service::{
+    tags::user::PUBKY_PEER,
+    utils::{get_request, invalid_get_request},
+};
 use anyhow::Result;
 use reqwest::StatusCode;
 
@@ -73,6 +76,20 @@ async fn test_get_relationship() -> Result<()> {
         StatusCode::NOT_FOUND,
     )
     .await?;
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_user_view_tags() -> Result<()> {
+    let user_id = PUBKY_PEER;
+    let viewer_id = "58jc5bujzoj35g55pqjo6ykfdu9t156j8cxkh5ubdwgsnch1qagy";
+    let res = get_request(&format!("/v0/user/{}?viewer_id={}", user_id, viewer_id)).await?;
+
+    assert!(res["tags"][0]["relationship"].as_bool().unwrap());
+    assert!(res["tags"][1]["relationship"].as_bool().unwrap());
+    assert!(!res["tags"][2]["relationship"].as_bool().unwrap());
+    assert!(!res["tags"][3]["relationship"].as_bool().unwrap());
 
     Ok(())
 }

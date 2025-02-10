@@ -95,7 +95,6 @@ pub async fn sync_del(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), 
                 // Notify the followee
                 Notification::lost_follow(&follower_id, &followee_id, were_friends)
             );
-
             handle_indexing_results!(
                 indexing_results.0,
                 indexing_results.1,

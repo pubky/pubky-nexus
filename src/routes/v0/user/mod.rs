@@ -8,7 +8,7 @@ mod details;
 mod follows;
 mod muted;
 mod relationship;
-mod tags;
+pub mod tags;
 mod view;
 
 pub fn routes() -> Router {
