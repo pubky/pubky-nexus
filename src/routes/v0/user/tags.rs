@@ -1,9 +1,8 @@
-use crate::models::tag::traits::taggers::Taggers;
 use crate::models::tag::traits::{TagCollection, TaggersCollection};
 use crate::models::tag::user::TagUser;
 use crate::models::tag::TagDetails;
-use crate::models::user::UserTags;
 use crate::routes::v0::endpoints::{USER_TAGGERS_ROUTE, USER_TAGS_ROUTE};
+use crate::routes::v0::types::TaggersInfo;
 use crate::routes::v0::TagsQuery;
 use crate::types::Pagination;
 use crate::{Error, Result};
@@ -27,7 +26,7 @@ use utoipa::OpenApi;
         ("depth" = Option<usize>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 4, will be ignored")
     ),
     responses(
-        (status = 200, description = "User tags", body = UserTags),
+        (status = 200, description = "User tags", body = TagDetails),
         (status = 404, description = "User not found"),
         (status = 500, description = "Internal server error")
     )
@@ -80,7 +79,7 @@ pub struct TaggersQuery {
         ("depth" = Option<usize>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 4, will be ignored")
     ),
     responses(
-        (status = 200, description = "User tags", body = UserTags),
+        (status = 200, description = "User tags", body = TaggersInfo),
         (status = 404, description = "User not found"),
         (status = 500, description = "Internal server error")
     )
@@ -91,7 +90,7 @@ pub async fn user_taggers_handler(
         pagination,
         tags_query,
     }): Query<TaggersQuery>,
-) -> Result<Json<(Taggers, bool)>> {
+) -> Result<Json<TaggersInfo>> {
     info!(
         "GET {USER_TAGGERS_ROUTE} user_id:{}, label: {}, skip:{:?}, limit:{:?}, viewer_id:{:?}, depth:{:?}",
         user_id, label, pagination.skip, pagination.limit, tags_query.viewer_id, tags_query.depth
@@ -114,5 +113,8 @@ pub async fn user_taggers_handler(
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(user_tags_handler, user_taggers_handler))]
+#[openapi(
+    paths(user_tags_handler, user_taggers_handler),
+    components(schemas(TagDetails, TaggersInfo))
+)]
 pub struct UserTagsApiDoc;

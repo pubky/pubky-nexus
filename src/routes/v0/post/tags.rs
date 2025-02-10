@@ -1,8 +1,8 @@
 use crate::models::tag::post::TagPost;
-use crate::models::tag::traits::taggers::Taggers;
 use crate::models::tag::traits::{TagCollection, TaggersCollection};
 use crate::models::tag::TagDetails;
 use crate::routes::v0::endpoints::{POST_TAGGERS_ROUTE, POST_TAGS_ROUTE};
+use crate::routes::v0::types::TaggersInfo;
 use crate::routes::v0::user::tags::TaggersQuery;
 use crate::routes::v0::TagsQuery;
 use crate::{Error, Result};
@@ -69,7 +69,7 @@ pub async fn post_tags_handler(
         ("limit" = Option<usize>, Query, description = "Number of taggers to return for pagination. Defaults to `40`")
     ),
     responses(
-        (status = 200, description = "Post tags", body = Taggers),
+        (status = 200, description = "Post tags", body = TaggersInfo),
         (status = 404, description = "Post not found"),
         (status = 500, description = "Internal server error")
     )
@@ -77,7 +77,7 @@ pub async fn post_tags_handler(
 pub async fn post_taggers_handler(
     Path((author_id, post_id, label)): Path<(String, String, String)>,
     Query(taggers_query): Query<TaggersQuery>,
-) -> Result<Json<(Taggers, bool)>> {
+) -> Result<Json<TaggersInfo>> {
     info!(
         "GET {POST_TAGGERS_ROUTE} author_id:{}, post_id: {}, label: {}, viewer_id:{:?}, skip:{:?}, limit:{:?}",
         author_id, post_id, label, taggers_query.tags_query.viewer_id, taggers_query.pagination.skip, taggers_query.pagination.limit
@@ -101,6 +101,6 @@ pub async fn post_taggers_handler(
 #[derive(OpenApi)]
 #[openapi(
     paths(post_tags_handler, post_taggers_handler),
-    components(schemas(TagDetails))
+    components(schemas(TagDetails, TaggersInfo))
 )]
 pub struct PostTagsApiDoc;

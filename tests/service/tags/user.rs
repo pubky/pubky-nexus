@@ -1,4 +1,5 @@
 use anyhow::Result;
+use pubky_nexus::routes::v0::types::TaggersInfo;
 use reqwest::StatusCode;
 
 use crate::service::{
@@ -216,14 +217,12 @@ async fn test_user_specific_tag() -> Result<()> {
     let path = format!("/v0/user/{}/taggers/{}", PUBKY_PEER, PUBKY_LABEL);
     let body = get_request(&path).await?;
 
-    assert!(body.is_array());
+    let taggers_info: TaggersInfo = serde_json::from_value(body)?;
 
-    let taggers = body.as_array().expect("Tag list should be an array");
-    let taggers_list = taggers[0].as_array().expect("Tag list should be an array");
-    assert_eq!(taggers_list.len(), 3);
+    assert_eq!(taggers_info.users.len(), 3);
 
     assert_eq!(
-        &taggers_list[2],
+        &taggers_info.users[2],
         "db6w58pd5h63fbhtd88y8zz7pai9rkjwqt9omg6i7dz31dynrgcy"
     );
 
@@ -238,14 +237,11 @@ async fn test_user_specific_tag_with_viewer_id() -> Result<()> {
     );
     let body = get_request(&path).await?;
 
-    assert!(body.is_array());
-
-    let taggers = body.as_array().expect("Tag list should be an array");
-    let taggers_list = taggers[0].as_array().expect("Tag list should be an array");
-    assert_eq!(taggers_list.len(), 3);
+    let taggers_info: TaggersInfo = serde_json::from_value(body)?;
+    assert_eq!(taggers_info.users.len(), 3);
 
     assert_eq!(
-        &taggers_list[2],
+        &taggers_info.users[2],
         "db6w58pd5h63fbhtd88y8zz7pai9rkjwqt9omg6i7dz31dynrgcy"
     );
 
@@ -257,14 +253,12 @@ async fn test_user_specific_tag_with_limit() -> Result<()> {
     let path = format!("/v0/user/{}/taggers/{}?limit=1", PUBKY_PEER, PUBKY_LABEL);
     let body = get_request(&path).await?;
 
-    assert!(body.is_array());
+    let taggers_info: TaggersInfo = serde_json::from_value(body)?;
 
-    let taggers = body.as_array().expect("Tag list should be an array");
-    let taggers_list = taggers[0].as_array().expect("Tag list should be an array");
-    assert_eq!(taggers_list.len(), 1);
+    assert_eq!(taggers_info.users.len(), 1);
 
     assert_eq!(
-        &taggers_list[0],
+        &taggers_info.users[0],
         "58jc5bujzoj35g55pqjo6ykfdu9t156j8cxkh5ubdwgsnch1qagy"
     );
 
@@ -276,14 +270,12 @@ async fn test_user_specific_tag_with_skip() -> Result<()> {
     let path = format!("/v0/user/{}/taggers/{}?skip=1", PUBKY_PEER, PUBKY_LABEL);
     let body = get_request(&path).await?;
 
-    assert!(body.is_array());
+    let taggers_info: TaggersInfo = serde_json::from_value(body)?;
 
-    let taggers = body.as_array().expect("Tag list should be an array");
-    let taggers_list = taggers[0].as_array().expect("Tag list should be an array");
-    assert_eq!(taggers_list.len(), 2);
+    assert_eq!(taggers_info.users.len(), 2);
 
     assert_eq!(
-        &taggers_list[0],
+        &taggers_info.users[0],
         "rz6oe4yda9em9b4m7ymttgym3r9g5gfa51su3rgdj9oszyz787ny"
     );
 
@@ -298,14 +290,12 @@ async fn test_user_specific_tag_with_full_filters() -> Result<()> {
     );
     let body = get_request(&path).await?;
 
-    assert!(body.is_array());
+    let taggers_info: TaggersInfo = serde_json::from_value(body)?;
 
-    let taggers = body.as_array().expect("Tag list should be an array");
-    let taggers_list = taggers[0].as_array().expect("Tag list should be an array");
-    assert_eq!(taggers_list.len(), 1);
+    assert_eq!(taggers_info.users.len(), 1);
 
     assert_eq!(
-        &taggers_list[0],
+        &taggers_info.users[0],
         "db6w58pd5h63fbhtd88y8zz7pai9rkjwqt9omg6i7dz31dynrgcy"
     );
 
