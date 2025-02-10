@@ -13,15 +13,27 @@ where
     Self: RedisOps + AsRef<[String]>,
 {
     /// Retrieves taggers associated with a given user ID and label.
+    ///
+    /// This function queries taggers linked to a specified user and label,
+    /// with optional parameters for pagination and viewer context.
+    ///
     /// # Arguments
-    /// * `user_id` - The ID of the user.
-    /// * `extra_param` - An optional parameter for additional context (e.g., post ID or other context).
-    /// * `label` - The tag label to filter the taggers.
-    /// * `skip` - Optional number of taggers to skip for pagination.
-    /// * `limit` - Optional limit for the number of taggers to retrieve, defaults to 40.
+    /// * `user_id` - The ID of the user whose taggers are being retrieved.
+    /// * `extra_param` - An optional parameter for additional context (e.g., post ID).
+    /// * `label` - The tag label used to filter the taggers.
+    /// * `pagination` - A struct containing optional pagination parameters (`skip` and `limit`).
+    /// * `viewer_id` - An optional viewer ID, used for two purposes:
+    ///   1. **Checking if the viewer is in the taggers list**.
+    ///   2. **Retrieving Web of Trust (WoT) tags** when combined with `depth`.
+    /// * `depth` - An optional depth parameter, used to determine the distance in WoT relationships.
     ///
     /// # Returns
-    /// A result containing a vector of taggers or an error.
+    /// A result containing an `Option<(Taggers, bool)>`:
+    /// - `Some((taggers, is_member))` where:
+    ///   - `taggers` is the retrieved list of taggers.
+    ///   - `is_member` is `true` if `viewer_id` is in the taggers list, otherwise `false`.
+    /// - `None` if no taggers are available.
+    /// - An error if the retrieval process fails.
     async fn get_tagger_by_id(
         user_id: &str,
         extra_param: Option<&str>,
@@ -57,11 +69,10 @@ where
     ) -> Result<Option<(Taggers, bool)>, DynError> {
         let taggers = Self::try_from_index_set(&key_parts, skip, limit, prefix).await?;
         if let Some(taggers) = taggers {
-            let mut is_member = false;
-            if let Some(member) = viewer_id {
-                let (_, member_found) = Self::check_set_member(&key_parts, member).await?;
-                is_member = member_found;
-            }
+            let is_member = match viewer_id {
+                Some(member) => Self::check_set_member(&key_parts, member).await?.1,
+                None => false,
+            };
             return Ok(Some((taggers, is_member)));
         }
         Ok(None)
