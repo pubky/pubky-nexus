@@ -1,8 +1,9 @@
 use super::utils::{analyse_tag_details_structure, compare_tag_details, TagMockup};
-use crate::service::utils::{connect_to_redis, get_request, invalid_get_request};
+use crate::service::utils::{get_request, invalid_get_request};
 use crate::utils::TestServiceServer;
 use anyhow::Result;
 use pubky_nexus::models::tag::TagDetails;
+use pubky_nexus::routes::v0::types::TaggersInfo;
 use pubky_nexus::{db::connectors::redis::get_redis_conn, types::DynError};
 use redis::AsyncCommands;
 use reqwest::StatusCode;
@@ -204,20 +205,20 @@ async fn test_wot_user_tags_endpoints() -> Result<(), DynError> {
 }
 
 fn verify_taggers_list(mock_taggers: Vec<&str>, body: Value) {
-    assert!(body.is_array(), "The response has to be an array of posts");
+    let taggers_info: TaggersInfo = serde_json::from_value(body).unwrap();
+    assert_eq!(taggers_info.users.len(), mock_taggers.len());
 
-    let taggers = body.as_array().expect("Tag list should be an array");
-    let taggers_list = taggers[0].as_array().expect("Tag list should be an array");
-    assert_eq!(taggers_list.len(), mock_taggers.len());
-
-    assert!(!taggers_list.is_empty(), "Post stream should not be empty");
+    assert!(
+        !taggers_info.users.is_empty(),
+        "Post stream should not be empty"
+    );
     assert_eq!(
-        taggers_list.len(),
+        taggers_info.users.len(),
         mock_taggers.len(),
         "The endpoint result has to have the same lenght as mock data"
     );
 
-    for (index, user_id) in taggers_list.iter().enumerate() {
+    for (index, user_id) in taggers_info.users.iter().enumerate() {
         assert_eq!(
             mock_taggers[index], user_id,
             "The post ids should be the same"

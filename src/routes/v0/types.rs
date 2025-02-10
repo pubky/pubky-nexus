@@ -1,6 +1,8 @@
 use serde::de::{self, Deserializer};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
+
+use crate::models::tag::Taggers;
 
 #[derive(Default, Deserialize, Debug, ToSchema)]
 pub struct TagsQuery {
@@ -22,4 +24,10 @@ where
         Some(s) => s.parse::<u8>().map(Some).map_err(de::Error::custom),
         None => Ok(None),
     }
+}
+
+#[derive(Serialize, ToSchema, Deserialize)]
+pub struct TaggersInfo {
+    pub users: Taggers,
+    pub relationship: bool,
 }

@@ -1,11 +1,9 @@
+use crate::routes::v0::types::TaggersInfo;
 use crate::types::{DynError, Pagination};
 use crate::RedisOps;
 use async_trait::async_trait;
 
 use super::collection::CACHE_SET_PREFIX;
-
-// TODO: There is another struct with the same name. model/tag/stream
-pub type Taggers = Vec<String>;
 
 #[async_trait]
 pub trait TaggersCollection
@@ -41,7 +39,7 @@ where
         pagination: Pagination,
         viewer_id: Option<&str>,
         depth: Option<u8>,
-    ) -> Result<Option<(Taggers, bool)>, DynError> {
+    ) -> Result<Option<TaggersInfo>, DynError> {
         // Set default params for pagination
         let skip = pagination.skip.unwrap_or(0);
         let limit = pagination.limit.unwrap_or(40);
@@ -66,14 +64,17 @@ where
         skip: Option<usize>,
         limit: Option<usize>,
         prefix: Option<String>,
-    ) -> Result<Option<(Taggers, bool)>, DynError> {
+    ) -> Result<Option<TaggersInfo>, DynError> {
         let taggers = Self::try_from_index_set(&key_parts, skip, limit, prefix).await?;
-        if let Some(taggers) = taggers {
+        if let Some(users) = taggers {
             let is_member = match viewer_id {
                 Some(member) => Self::check_set_member(&key_parts, member).await?.1,
                 None => false,
             };
-            return Ok(Some((taggers, is_member)));
+            return Ok(Some(TaggersInfo {
+                users,
+                relationship: is_member,
+            }));
         }
         Ok(None)
     }

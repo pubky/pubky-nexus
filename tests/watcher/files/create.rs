@@ -3,7 +3,7 @@ use crate::{
 };
 use anyhow::Result;
 use chrono::Utc;
-use pubky_app_specs::traits::{HasPath, HashId};
+use pubky_app_specs::traits::HasPath;
 use pubky_app_specs::{PubkyAppBlob, PubkyAppFile, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 use pubky_nexus::{
