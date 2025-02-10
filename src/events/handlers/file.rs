@@ -1,4 +1,5 @@
 use crate::db::connectors::pubky::PubkyConnector;
+use crate::events::error::EventProcessorError;
 use crate::types::DynError;
 use crate::{
     models::{
@@ -11,7 +12,7 @@ use crate::{
     Config,
 };
 use log::{debug, error};
-use pubky_app_specs::{PubkyAppFile, PubkyId};
+use pubky_app_specs::{PubkyAppFile, PubkyAppObject, PubkyId};
 use tokio::{
     fs::{self, remove_file, File},
     io::AsyncWriteExt,
@@ -55,26 +56,41 @@ async fn ingest(
     file_id: &str,
     pubkyapp_file: &PubkyAppFile,
 ) -> Result<FileMeta, DynError> {
-    let pubky_client = PubkyConnector::get_pubky_client()?;
+    let response;
+    {
+        let pubky_client = PubkyConnector::get_pubky_client()?;
 
-    let response = match pubky_client.get(&pubkyapp_file.src).send().await {
-        Ok(response) => response,
-        // TODO: Shape the error to avoid the retyManager
-        Err(e) => {
-            error!("EVENT ERROR: could not retrieve file src blob");
-            return Err(e.into());
-        }
-    };
+        response = match pubky_client.get(&pubkyapp_file.src).send().await {
+            Ok(response) => response,
+            // TODO: Shape the error to avoid the retyManager
+            Err(e) => {
+                error!("EVENT ERROR: could not retrieve file src blob");
+                return Err(e.into());
+            }
+        };
+    }
 
     let blob = response.bytes().await?;
+    let pubky_app_object = PubkyAppObject::from_uri(&pubkyapp_file.src, &blob)?;
 
-    store_blob(file_id.to_string(), user_id.to_string(), &blob).await?;
+    match pubky_app_object {
+        PubkyAppObject::Blob(blob) => {
+            store_blob(file_id.to_string(), user_id.to_string(), &blob.0).await?;
 
-    Ok(FileMeta {
-        urls: FileUrls {
-            main: format!("{}/{}", user_id, file_id),
-        },
-    })
+            Ok(FileMeta {
+                urls: FileUrls {
+                    main: format!("{}/{}", user_id, file_id),
+                },
+            })
+        }
+        _ => Err(EventProcessorError::InvalidEventLine {
+            message: format!(
+                "The file has a source uri that is not a blob path: {}",
+                pubkyapp_file.src
+            ),
+        }
+        .into()),
+    }
 }
 
 async fn store_blob(name: String, path: String, blob: &[u8]) -> Result<(), DynError> {
