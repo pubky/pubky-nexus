@@ -1,7 +1,7 @@
 use crate::watcher::{users::utils::find_user_details, utils::watcher::WatcherTest};
 use anyhow::Result;
+use pkarr::Keypair;
 use pubky_app_specs::PubkyAppUser;
-use pubky_common::crypto::Keypair;
 use pubky_nexus::models::user::{UserCounts, UserView};
 
 #[tokio_shared_rt::test(shared)]

@@ -1,7 +1,7 @@
 use crate::watcher::utils::watcher::{assert_eventually_exists, WatcherTest};
 use anyhow::Result;
+use pkarr::Keypair;
 use pubky_app_specs::{user_uri_builder, PubkyAppUser};
-use pubky_common::crypto::Keypair;
 use pubky_nexus::events::{error::EventProcessorError, retry::event::RetryEvent, EventType};
 
 /// The user profile is stored in the homeserver. Missing the mutee to connect with muter

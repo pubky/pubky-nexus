@@ -1,8 +1,8 @@
 use super::utils::find_mute_relationship;
 use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
+use pkarr::Keypair;
 use pubky_app_specs::PubkyAppUser;
-use pubky_common::crypto::Keypair;
 use pubky_nexus::models::user::{Muted, Relationship};
 
 #[tokio_shared_rt::test(shared)]

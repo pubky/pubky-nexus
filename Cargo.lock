@@ -2825,7 +2825,6 @@ dependencies = [
  "pkarr",
  "pubky",
  "pubky-app-specs",
- "pubky-common",
  "pubky-homeserver",
  "rand",
  "rand_distr",
