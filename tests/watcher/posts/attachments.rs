@@ -7,7 +7,6 @@ use pubky_app_specs::{
     traits::HasPath, PubkyAppBlob, PubkyAppFile, PubkyAppPost, PubkyAppPostKind, PubkyAppUser,
 };
 use pubky_nexus::PubkyConnector;
-use serde_json::to_vec;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_post_attachments() -> Result<()> {
