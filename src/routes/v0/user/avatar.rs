@@ -1,7 +1,9 @@
+use crate::models::file::details::FileVariant;
 use crate::routes::v0::endpoints::USER_AVATAR_ROUTE;
+use crate::static_processor::StaticStorage;
 use crate::{
     models::{file::FileDetails, traits::Collection, user::UserDetails},
-    Config, Error, Result,
+    Error, Result,
 };
 use axum::{
     extract::Path,
@@ -61,9 +63,14 @@ pub async fn user_avatar_handler(Path(user_id): Path<String>) -> Result<Response
         return Err(Error::FileNotFound {});
     };
 
-    // 5. Build the actual path to the file on disk
-    let config = Config::from_env();
-    let file_path = format!("{}/{}/{}", config.file_path, user_id, file_details.id);
+    // 5. Build the actual path to the file on disk using small variant
+    let file_path = format!(
+        "{}/{}/{}/{}",
+        StaticStorage::get_storage_path(),
+        user_id,
+        file_details.id,
+        FileVariant::Main,
+    );
 
     // 6. Read the file bytes from disk
     let data = match tokio::fs::read(&file_path).await {
