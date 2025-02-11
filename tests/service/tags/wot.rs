@@ -1,7 +1,9 @@
 use super::utils::{analyse_tag_details_structure, compare_tag_details, TagMockup};
-use crate::service::utils::{connect_to_redis, get_request, invalid_get_request};
+use crate::service::utils::{get_request, invalid_get_request};
+use crate::utils::TestServiceServer;
 use anyhow::Result;
 use pubky_nexus::models::tag::TagDetails;
+use pubky_nexus::routes::v0::types::TaggersInfo;
 use pubky_nexus::{db::connectors::redis::get_redis_conn, types::DynError};
 use redis::AsyncCommands;
 use reqwest::StatusCode;
@@ -203,19 +205,20 @@ async fn test_wot_user_tags_endpoints() -> Result<(), DynError> {
 }
 
 fn verify_taggers_list(mock_taggers: Vec<&str>, body: Value) {
-    assert!(body.is_array(), "The response has to be an array of posts");
+    let taggers_info: TaggersInfo = serde_json::from_value(body).unwrap();
+    assert_eq!(taggers_info.users.len(), mock_taggers.len());
 
-    let taggers = body.as_array().expect("Tag list should be an array");
-    assert_eq!(taggers.len(), mock_taggers.len());
-
-    assert!(!taggers.is_empty(), "Post stream should not be empty");
+    assert!(
+        !taggers_info.users.is_empty(),
+        "Post stream should not be empty"
+    );
     assert_eq!(
-        taggers.len(),
+        taggers_info.users.len(),
         mock_taggers.len(),
         "The endpoint result has to have the same lenght as mock data"
     );
 
-    for (index, user_id) in taggers.iter().enumerate() {
+    for (index, user_id) in taggers_info.users.iter().enumerate() {
         assert_eq!(
             mock_taggers[index], user_id,
             "The post ids should be the same"
@@ -243,9 +246,10 @@ fn verify_user_taggers(mock_taggers: Vec<&str>, tag_details: Value, tag: String)
 }
 
 async fn clear_wot_tags_cache() -> Result<(), DynError> {
-    // Open redis connections
-    connect_to_redis().await;
+    // Ensure the server is running, for redis connection
+    TestServiceServer::get_test_server().await;
     let mut redis_conn = get_redis_conn().await?;
+
     let athens_key = format!(
         "Cache:User:Taggers:{}:{}:{}",
         EPICTTO_VIEWER, AURELIO_USER, ATHENS_TAG

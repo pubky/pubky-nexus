@@ -3,12 +3,13 @@ use crate::routes::v0::endpoints;
 use axum::Router;
 use utoipa::OpenApi;
 
+mod avatar;
 mod counts;
 mod details;
 mod follows;
 mod muted;
 mod relationship;
-mod tags;
+pub mod tags;
 mod view;
 
 pub fn routes() -> Router {
@@ -23,6 +24,7 @@ pub fn routes() -> Router {
         endpoints::USER_FOLLOWING_ROUTE => follows::user_following_handler,
         endpoints::USER_FRIENDS_ROUTE => follows::user_friends_handler,
         endpoints::USER_MUTED_ROUTE => muted::user_muted_handler,
+        endpoints::USER_AVATAR_ROUTE => avatar::user_avatar_handler,
     )
 }
 
@@ -39,6 +41,7 @@ impl UserApiDoc {
         combined.merge(tags::UserTagsApiDoc::openapi());
         combined.merge(follows::UserFollowsApiDoc::openapi());
         combined.merge(muted::UserMutedApiDoc::openapi());
+        combined.merge(avatar::UserAvatarApiDoc::openapi());
         combined
     }
 }

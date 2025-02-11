@@ -1,7 +1,7 @@
 use crate::models::tag::global::Taggers;
 use crate::models::tag::stream::{HotTag, HotTags, TagStreamReach};
-use crate::models::tag::traits::taggers::Taggers as TaggersType;
 use crate::models::tag::TaggedType;
+use crate::models::tag::Taggers as TaggersType;
 use crate::routes::v0::endpoints::{TAGS_HOT_ROUTE, TAG_TAGGERS_ROUTE};
 use crate::types::{Pagination, Timeframe};
 use crate::{Error, Result};

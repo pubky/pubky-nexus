@@ -293,7 +293,6 @@ async fn del_sync_post(
             tag_label,
             ScoreAction::Decrement(1.0)
         ),
-        tag_post.del_from_index(author_id, Some(post_id), tag_label),
         // Decrease post from label total engagement
         TagSearch::update_index_score(author_id, post_id, tag_label, ScoreAction::Decrement(1.0)),
         async {
@@ -305,8 +304,16 @@ async fn del_sync_post(
             }
             Ok::<(), DynError>(())
         },
-        // Delete post from global label timeline
-        TagSearch::del_from_index(author_id, post_id, tag_label)
+        async {
+            // Delete the tagger from the tag list
+            tag_post
+                .del_from_index(author_id, Some(post_id), tag_label)
+                .await?;
+            // NOTE: The tag search index, depends on the post taggers collection to delete
+            // Delete post from global label timeline
+            TagSearch::del_from_index(author_id, post_id, tag_label).await?;
+            Ok::<(), DynError>(())
+        }
     );
 
     handle_indexing_results!(
@@ -315,8 +322,7 @@ async fn del_sync_post(
         indexing_results.2,
         indexing_results.3,
         indexing_results.4,
-        indexing_results.5,
-        indexing_results.6
+        indexing_results.5
     );
 
     Ok(())

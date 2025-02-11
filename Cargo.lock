@@ -378,7 +378,7 @@ dependencies = [
  "getrandom 0.2.15",
  "instant",
  "pin-project-lite",
- "rand",
+ "rand 0.8.5",
  "tokio",
 ]
 
@@ -593,9 +593,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.5.28"
+version = "4.5.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e77c3243bd94243c03672cb5154667347c457ca271254724f9f393aee1c05ff"
+checksum = "8acebd8ad879283633b343856142139f2da2317c96b05b4dd6181c61e2480184"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -603,9 +603,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.5.27"
+version = "4.5.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b26884eb4b57140e4d2d93652abfa49498b938b3c9179f9fc487b0acc3edad7"
+checksum = "f6ba32cbda51c7e1dfd49acc1457ba1a7dec5b64fe360e828acb13ca8dc9c2f9"
 dependencies = [
  "anstream",
  "anstyle",
@@ -879,7 +879,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1bfb12502f3fc46cca1bb51ac28df9d618d813cdc3d2f25b9fe775a34af26bb3"
 dependencies = [
  "generic-array",
- "rand_core",
+ "rand_core 0.6.4",
  "typenum",
 ]
 
@@ -1097,7 +1097,7 @@ checksum = "4a3daa8e81a3963a60642bcc1f90a670680bd4a77535faa384e9d1c79d620871"
 dependencies = [
  "curve25519-dalek",
  "ed25519",
- "rand_core",
+ "rand_core 0.6.4",
  "serde",
  "sha2",
  "subtle",
@@ -1451,7 +1451,7 @@ dependencies = [
  "parking_lot",
  "portable-atomic",
  "quanta",
- "rand",
+ "rand 0.8.5",
  "smallvec",
  "spinning_top",
 ]
@@ -2133,6 +2133,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "234cf4f4a04dc1f57e24b96cc0cd600cf2af460d4161ac5ecdd0af8e1f3b2a38"
 
 [[package]]
+name = "lru"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "227748d55f2f0ab4735d87fd623798cb6b664512fe979705f829c9f81c934465"
+
+[[package]]
 name = "mainline"
 version = "4.2.0"
 source = "git+https://github.com/pubky/mainline?branch=v5-rc1#9899b4dd582d53d75f7ada7bde3c345d21fe4f29"
@@ -2140,8 +2146,8 @@ dependencies = [
  "crc",
  "document-features",
  "ed25519-dalek",
- "lru",
- "rand",
+ "lru 0.12.5",
+ "rand 0.8.5",
  "serde",
  "serde_bencode",
  "serde_bytes",
@@ -2152,9 +2158,9 @@ dependencies = [
 
 [[package]]
 name = "mainline"
-version = "5.0.0-rc.1"
+version = "5.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d40903d61c43712efd2d9151eeb3d53e8081e26efb2b69d7bb0693c49dfa195a"
+checksum = "3742fff395bfaf16a92e3bd721e65a056fb5f29adfe0b7d28bc8ac2abc2c83b5"
 dependencies = [
  "crc",
  "document-features",
@@ -2162,8 +2168,8 @@ dependencies = [
  "ed25519-dalek",
  "flume",
  "futures-lite",
- "lru",
- "rand",
+ "lru 0.13.0",
+ "rand 0.9.0",
  "serde",
  "serde_bencode",
  "serde_bytes",
@@ -2217,9 +2223,9 @@ dependencies = [
 
 [[package]]
 name = "miniz_oxide"
-version = "0.8.3"
+version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8402cab7aefae129c6977bb0ff1b8fd9a04eb5b51efc50a70bea51cda0c7924"
+checksum = "b3b1c9bd4fe1f0f8b387f6eb9eb3b4a1aa26185e5750efb9140301703f62cd1b"
 dependencies = [
  "adler2",
 ]
@@ -2521,7 +2527,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "346f04948ba92c43e8469c1ee6736c7563d71012b17d40745260fe106aac2166"
 dependencies = [
  "base64ct",
- "rand_core",
+ "rand_core 0.6.4",
  "subtle",
 ]
 
@@ -2564,7 +2570,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3c80231409c20246a13fddb31776fb942c38553c51e871f8cbd687a4cfb5843d"
 dependencies = [
  "phf_shared",
- "rand",
+ "rand 0.8.5",
 ]
 
 [[package]]
@@ -2623,9 +2629,9 @@ checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
 
 [[package]]
 name = "pkarr"
-version = "3.0.0-rc.1"
+version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41060323086a60c20f28bf52afc915eafc971493bf8b887907c0909004731807"
+checksum = "a1e77ba80d75120dbcdd92a9855dd9aa0f3a17d50679441e28daf1f5493bfa21"
 dependencies = [
  "async-compat",
  "base32",
@@ -2639,11 +2645,11 @@ dependencies = [
  "getrandom 0.2.15",
  "heed 0.21.0",
  "log",
- "lru",
- "mainline 5.0.0-rc.1",
+ "lru 0.12.5",
+ "mainline 5.1.0",
  "page_size",
  "pubky-timestamp 0.3.0",
- "rand",
+ "rand 0.8.5",
  "self_cell",
  "serde",
  "sha1_smol",
@@ -2651,44 +2657,6 @@ dependencies = [
  "thiserror 2.0.11",
  "tokio",
  "tracing",
- "wasm-bindgen-futures",
-]
-
-[[package]]
-name = "pkarr"
-version = "3.0.0-rc.1"
-source = "git+https://github.com/Pubky/pkarr#1fc0814fa68b72eedea181d0f553d78c5fafc8cf"
-dependencies = [
- "async-compat",
- "base32",
- "byteorder",
- "bytes",
- "cfg_aliases",
- "document-features",
- "dyn-clone",
- "ed25519-dalek",
- "futures-buffered",
- "futures-lite",
- "genawaiter",
- "getrandom 0.2.15",
- "heed 0.21.0",
- "log",
- "lru",
- "mainline 5.0.0-rc.1",
- "page_size",
- "pubky-timestamp 0.3.0",
- "rand",
- "reqwest",
- "rustls",
- "rustls-webpki",
- "self_cell",
- "serde",
- "sha1_smol",
- "simple-dns",
- "thiserror 2.0.11",
- "tokio",
- "tracing",
- "url",
  "wasm-bindgen-futures",
 ]
 
@@ -2709,12 +2677,50 @@ dependencies = [
  "getrandom 0.2.15",
  "heed 0.20.5",
  "js-sys",
- "lru",
+ "lru 0.12.5",
  "mainline 4.2.0",
  "once_cell",
  "page_size",
  "pubky-timestamp 0.2.0",
- "rand",
+ "rand 0.8.5",
+ "reqwest",
+ "rustls",
+ "rustls-webpki",
+ "self_cell",
+ "serde",
+ "sha1_smol",
+ "simple-dns",
+ "thiserror 2.0.11",
+ "tokio",
+ "tracing",
+ "url",
+ "wasm-bindgen-futures",
+]
+
+[[package]]
+name = "pkarr"
+version = "3.0.0"
+source = "git+https://github.com/Pubky/pkarr#9440f74504bb72afaec633a90b796ca508486ff2"
+dependencies = [
+ "async-compat",
+ "base32",
+ "byteorder",
+ "bytes",
+ "cfg_aliases",
+ "document-features",
+ "dyn-clone",
+ "ed25519-dalek",
+ "futures-buffered",
+ "futures-lite",
+ "genawaiter",
+ "getrandom 0.2.15",
+ "heed 0.21.0",
+ "log",
+ "lru 0.13.0",
+ "mainline 5.1.0",
+ "page_size",
+ "pubky-timestamp 0.3.0",
+ "rand 0.8.5",
  "reqwest",
  "rustls",
  "rustls-webpki",
@@ -2732,7 +2738,7 @@ dependencies = [
 [[package]]
 name = "pkarr-relay"
 version = "0.1.0"
-source = "git+https://github.com/Pubky/pkarr#1fc0814fa68b72eedea181d0f553d78c5fafc8cf"
+source = "git+https://github.com/Pubky/pkarr#9440f74504bb72afaec633a90b796ca508486ff2"
 dependencies = [
  "anyhow",
  "axum 0.8.1",
@@ -2743,8 +2749,8 @@ dependencies = [
  "governor",
  "http",
  "httpdate",
- "mainline 5.0.0-rc.1",
- "pkarr 3.0.0-rc.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "mainline 5.1.0",
+ "pkarr 3.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "pubky-timestamp 0.3.0",
  "rustls",
  "serde",
@@ -2844,7 +2850,7 @@ version = "0.2.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77957b295656769bb8ad2b6a6b09d897d94f05c41b069aede1fcdaa675eaea04"
 dependencies = [
- "zerocopy",
+ "zerocopy 0.7.35",
 ]
 
 [[package]]
@@ -2876,8 +2882,8 @@ dependencies = [
  "futures-lite",
  "js-sys",
  "log",
- "mainline 5.0.0-rc.1",
- "pkarr 3.0.0-rc.1 (git+https://github.com/Pubky/pkarr)",
+ "mainline 5.1.0",
+ "pkarr 3.0.0 (git+https://github.com/Pubky/pkarr)",
  "pubky-common",
  "reqwest",
  "thiserror 2.0.11",
@@ -2892,13 +2898,13 @@ dependencies = [
 [[package]]
 name = "pubky-app-specs"
 version = "0.3.0"
-source = "git+https://github.com/pubky/pubky-app-specs#114eb08b4b6a8c526e70ffa33024762a5ee78001"
+source = "git+https://github.com/pubky/pubky-app-specs#fb0cd01d616e9089e3513d5600ae99ced276f6ed"
 dependencies = [
  "base32",
  "blake3",
  "js-sys",
  "mime",
- "pkarr 3.0.0",
+ "pkarr 3.0.0 (git+https://github.com/pubky/pkarr?branch=v3-rc1)",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
@@ -2920,10 +2926,10 @@ dependencies = [
  "ed25519-dalek",
  "js-sys",
  "once_cell",
- "pkarr 3.0.0-rc.1 (git+https://github.com/Pubky/pkarr)",
+ "pkarr 3.0.0 (git+https://github.com/Pubky/pkarr)",
  "postcard",
  "pubky-timestamp 0.2.0",
- "rand",
+ "rand 0.8.5",
  "serde",
  "thiserror 2.0.11",
 ]
@@ -2947,9 +2953,9 @@ dependencies = [
  "hex",
  "http-relay",
  "httpdate",
- "mainline 5.0.0-rc.1",
+ "mainline 5.1.0",
  "page_size",
- "pkarr 3.0.0-rc.1 (git+https://github.com/Pubky/pkarr)",
+ "pkarr 3.0.0 (git+https://github.com/Pubky/pkarr)",
  "pkarr-relay",
  "postcard",
  "pubky-common",
@@ -2984,12 +2990,12 @@ dependencies = [
  "mainline 4.2.0",
  "neo4rs",
  "once_cell",
- "pkarr 3.0.0",
+ "pkarr 3.0.0 (git+https://github.com/pubky/pkarr?branch=v3-rc1)",
  "pubky",
  "pubky-app-specs",
  "pubky-common",
  "pubky-homeserver",
- "rand",
+ "rand 0.8.5",
  "rand_distr",
  "redis",
  "reqwest",
@@ -3085,7 +3091,7 @@ checksum = "a2fe5ef3495d7d2e377ff17b1a8ce2ee2ec2a18cde8b6ad6619d65d0701c135d"
 dependencies = [
  "bytes",
  "getrandom 0.2.15",
- "rand",
+ "rand 0.8.5",
  "ring",
  "rustc-hash",
  "rustls",
@@ -3127,8 +3133,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "34af8d1a0e25924bc5b7c43c079c942339d8f0a8b57c39049bef581b46327404"
 dependencies = [
  "libc",
- "rand_chacha",
- "rand_core",
+ "rand_chacha 0.3.1",
+ "rand_core 0.6.4",
+]
+
+[[package]]
+name = "rand"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3779b94aeb87e8bd4e834cee3650289ee9e0d5677f976ecdb6d219e5f4f6cd94"
+dependencies = [
+ "rand_chacha 0.9.0",
+ "rand_core 0.9.0",
+ "zerocopy 0.8.17",
 ]
 
 [[package]]
@@ -3138,7 +3155,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6c10a63a0fa32252be49d21e7709d4d4baf8d231c2dbce1eaa8141b9b127d88"
 dependencies = [
  "ppv-lite86",
- "rand_core",
+ "rand_core 0.6.4",
+]
+
+[[package]]
+name = "rand_chacha"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3022b5f1df60f26e1ffddd6c66e8aa15de382ae63b3a0c1bfc0e4d3e3f325cb"
+dependencies = [
+ "ppv-lite86",
+ "rand_core 0.9.0",
 ]
 
 [[package]]
@@ -3151,13 +3178,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "rand_core"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b08f3c9802962f7e1b25113931d94f43ed9725bebc59db9d0c3e9a23b67e15ff"
+dependencies = [
+ "getrandom 0.3.1",
+ "zerocopy 0.8.17",
+]
+
+[[package]]
 name = "rand_distr"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32cb0b9bc82b0a0876c2dd994a7e7a2683d3e7390ca40e6886785ef0c7e3ee31"
 dependencies = [
  "num-traits",
- "rand",
+ "rand 0.8.5",
 ]
 
 [[package]]
@@ -3431,9 +3468,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.22"
+version = "0.23.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9fb9263ab4eb695e42321db096e3b8fbd715a59b154d5c88d82db2175b681ba7"
+checksum = "47796c98c480fce5406ef69d1c76378375492c3b0a0de587be0c1d9feb12f395"
 dependencies = [
  "once_cell",
  "ring",
@@ -3722,7 +3759,7 @@ version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77549399552de45a898a580c1b41d445bf730df867cc44e6c0233bbc4b8329de"
 dependencies = [
- "rand_core",
+ "rand_core 0.6.4",
 ]
 
 [[package]]
@@ -4126,9 +4163,9 @@ dependencies = [
 
 [[package]]
 name = "toml_edit"
-version = "0.22.23"
+version = "0.22.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02a8b472d1a3d7c18e2d61a489aee3453fd9031c33e4f55bd533f4a7adca1bee"
+checksum = "17b4795ff5edd201c7cd6dca065ae59972ce77d1b80fa0a84d94950ece7d1474"
 dependencies = [
  "indexmap",
  "serde",
@@ -4377,8 +4414,9 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "utoipa"
-version = "5.3.0"
-source = "git+https://github.com/juhaku/utoipa?rev=d522f744259dc4fde5f45d187983fb68c8167029#d522f744259dc4fde5f45d187983fb68c8167029"
+version = "5.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "435c6f69ef38c9017b4b4eea965dfb91e71e53d869e896db40d1cf2441dd75c0"
 dependencies = [
  "indexmap",
  "serde",
@@ -4388,8 +4426,9 @@ dependencies = [
 
 [[package]]
 name = "utoipa-gen"
-version = "5.3.0"
-source = "git+https://github.com/juhaku/utoipa?rev=d522f744259dc4fde5f45d187983fb68c8167029#d522f744259dc4fde5f45d187983fb68c8167029"
+version = "5.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a77d306bc75294fd52f3e99b13ece67c02c1a2789190a6f31d32f736624326f7"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4398,8 +4437,9 @@ dependencies = [
 
 [[package]]
 name = "utoipa-swagger-ui"
-version = "8.1.0"
-source = "git+https://github.com/juhaku/utoipa?rev=d522f744259dc4fde5f45d187983fb68c8167029#d522f744259dc4fde5f45d187983fb68c8167029"
+version = "9.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "161166ec520c50144922a625d8bc4925cc801b2dda958ab69878527c0e5c5d61"
 dependencies = [
  "axum 0.8.1",
  "base64 0.22.1",
@@ -4785,9 +4825,9 @@ checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
 
 [[package]]
 name = "winnow"
-version = "0.7.1"
+version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86e376c75f4f43f44db463cf729e0d3acbf954d13e22c51e26e4c264b4ab545f"
+checksum = "59690dea168f2198d1a3b0cac23b8063efcd11012f10ae4698f284808c8ef603"
 dependencies = [
  "memchr",
 ]
@@ -4844,7 +4884,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b9b4fd18abc82b8136838da5d50bae7bdea537c574d8dc1a34ed098d6c166f0"
 dependencies = [
  "byteorder",
- "zerocopy-derive",
+ "zerocopy-derive 0.7.35",
+]
+
+[[package]]
+name = "zerocopy"
+version = "0.8.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aa91407dacce3a68c56de03abe2760159582b846c6a4acd2f456618087f12713"
+dependencies = [
+ "zerocopy-derive 0.8.17",
 ]
 
 [[package]]
@@ -4852,6 +4901,17 @@ name = "zerocopy-derive"
 version = "0.7.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fa4f8080344d4671fb4e831a13ad1e68092748387dfc4f55e356242fae12ce3e"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.98",
+]
+
+[[package]]
+name = "zerocopy-derive"
+version = "0.8.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "06718a168365cad3d5ff0bb133aad346959a2074bd4a85c121255a11304a8626"
 dependencies = [
  "proc-macro2",
  "quote",
