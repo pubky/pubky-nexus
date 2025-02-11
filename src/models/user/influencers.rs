@@ -11,7 +11,7 @@ use utoipa::ToSchema;
 use crate::queries;
 use crate::RedisOps;
 
-const GLOBAL_INFLUENCERS_PREFIX: &str = "Cache";
+const GLOBAL_INFLUENCERS_PREFIX: &str = "Cache:Influencers";
 
 // Define a newtype wrapper
 #[derive(Serialize, Deserialize, Debug, ToSchema, Default, Clone)]
