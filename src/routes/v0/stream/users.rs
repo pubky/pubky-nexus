@@ -100,12 +100,6 @@ pub async fn stream_users_handler(
             }
             _ => (),
         }
-    } else if source == UserStreamSource::Influencers && query.reach.is_none() {
-        return Err(Error::InvalidInput {
-                message:
-                    "reach query param must be provided for source 'influencers' when you pass a user_id"
-                        .to_string(),
-            });
     }
 
     match UserStream::get_by_id(&UserStreamInput {

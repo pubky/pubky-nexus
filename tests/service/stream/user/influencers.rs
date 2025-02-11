@@ -185,18 +185,6 @@ async fn test_influencers_by_reach_no_user_id() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_influencers_by_reach_no_reach() -> Result<()> {
-    let endpoint = &format!(
-        "/v0/stream/users?source=influencers&timeframe=this_month&limit=3&user_id={}",
-        PEER_PUBKY
-    );
-
-    invalid_get_request(endpoint, StatusCode::BAD_REQUEST).await?;
-
-    Ok(())
-}
-
-#[tokio::test]
 async fn test_influencers_by_following_reach() -> Result<()> {
     let endpoint = &format!("/v0/stream/users?source=influencers&timeframe=this_month&limit=3&user_id={}&reach=following", PEER_PUBKY);
 

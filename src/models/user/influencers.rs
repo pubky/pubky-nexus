@@ -165,7 +165,7 @@ impl Influencers {
             None => return Ok(None),
         };
 
-        if influencers.is_empty() {
+        if !influencers.is_empty() {
             Influencers::put_to_global_cache(influencers.clone(), timeframe).await?;
         }
 

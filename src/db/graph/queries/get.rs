@@ -397,7 +397,7 @@ fn stream_reach_to_graph_subquery(reach: &StreamReach) -> String {
             "MATCH (user:User)-[:FOLLOWS]->(reach:User), (user)<-[:FOLLOWS]-(reach)".to_string()
         }
         StreamReach::Wot(depth) => {
-            format!("MATCH (viewer)-[:FOLLOWS*1..{}]->(tagger:User)", depth)
+            format!("MATCH (user:User)-[:FOLLOWS*1..{}]->(reach:User)", depth)
         }
     }
 }
