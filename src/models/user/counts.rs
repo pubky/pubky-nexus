@@ -68,14 +68,14 @@ impl UserCounts {
     }
 
     pub async fn get_from_index(user_id: &str) -> Result<Option<UserCounts>, DynError> {
-        if let Some(user_counts) = Self::try_from_index_json(&[user_id]).await? {
+        if let Some(user_counts) = Self::try_from_index_json(&[user_id], None).await? {
             return Ok(Some(user_counts));
         }
         Ok(None)
     }
 
     pub async fn put_to_index(&self, user_id: &str) -> Result<(), DynError> {
-        self.put_index_json(&[user_id], None).await?;
+        self.put_index_json(&[user_id], None, None).await?;
         UserStream::add_to_most_followed_sorted_set(user_id, self).await?;
         UserStream::add_to_influencers_sorted_set(user_id, self).await?;
         Ok(())

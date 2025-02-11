@@ -75,9 +75,10 @@ async fn test_homeserver_mentions() -> Result<()> {
     assert!(post_mention_users.contains(&mentioned_user_1_id));
     assert!(post_mention_users.contains(&mentioned_user_2_id));
 
-    let post_relationships = PostRelationships::try_from_index_json(&[&author_user_id, &post_id])
-        .await
-        .unwrap();
+    let post_relationships =
+        PostRelationships::try_from_index_json(&[&author_user_id, &post_id], None)
+            .await
+            .unwrap();
 
     assert!(
         post_relationships.is_some(),

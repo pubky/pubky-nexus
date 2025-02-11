@@ -40,7 +40,7 @@ pub async fn check_member_global_timeline_user_post(
 ) -> Result<Option<isize>> {
     let post_key: &[&str] = &[user_id, post_id];
     let global_timeline_timestamp =
-        PostStream::check_sorted_set_member(&POST_TIMELINE_KEY_PARTS, post_key)
+        PostStream::check_sorted_set_member(None, &POST_TIMELINE_KEY_PARTS, post_key)
             .await
             .unwrap();
     Ok(global_timeline_timestamp)
@@ -52,7 +52,7 @@ pub async fn check_member_user_post_timeline(
 ) -> Result<Option<isize>> {
     let post_stream_key_parts = [&POST_PER_USER_KEY_PARTS[..], &[user_id]].concat();
     let post_timeline_timestamp =
-        PostStream::check_sorted_set_member(&post_stream_key_parts, &[post_id])
+        PostStream::check_sorted_set_member(None, &post_stream_key_parts, &[post_id])
             .await
             .unwrap();
     Ok(post_timeline_timestamp)
@@ -64,7 +64,7 @@ pub async fn check_member_user_replies_timeline(
 ) -> Result<Option<isize>> {
     let post_stream_key_parts = [&POST_REPLIES_PER_USER_KEY_PARTS[..], &[user_id]].concat();
     let post_timeline_timestamp =
-        PostStream::check_sorted_set_member(&post_stream_key_parts, &[post_id])
+        PostStream::check_sorted_set_member(None, &post_stream_key_parts, &[post_id])
             .await
             .unwrap();
     Ok(post_timeline_timestamp)
@@ -72,7 +72,7 @@ pub async fn check_member_user_replies_timeline(
 
 pub async fn check_member_total_engagement_user_posts(post_key: &[&str]) -> Result<Option<isize>> {
     let total_engagement =
-        PostStream::check_sorted_set_member(&POST_TOTAL_ENGAGEMENT_KEY_PARTS, post_key)
+        PostStream::check_sorted_set_member(None, &POST_TOTAL_ENGAGEMENT_KEY_PARTS, post_key)
             .await
             .unwrap();
     Ok(total_engagement)
@@ -85,7 +85,7 @@ pub async fn check_member_post_replies(
 ) -> Result<Option<isize>> {
     let key_parts = [&POST_REPLIES_PER_POST_KEY_PARTS[..], &[author_id, post_id]].concat();
 
-    let post_replies = PostStream::check_sorted_set_member(&key_parts, post_key)
+    let post_replies = PostStream::check_sorted_set_member(None, &key_parts, post_key)
         .await
         .unwrap();
     Ok(post_replies)

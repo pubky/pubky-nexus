@@ -9,7 +9,7 @@ use pubky_nexus::{
 };
 
 #[tokio_shared_rt::test(shared)]
-async fn test_delged_post_notification() -> Result<()> {
+async fn test_delete_tagged_post_notification() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Create User A who makes the original post
@@ -51,12 +51,11 @@ async fn test_delged_post_notification() -> Result<()> {
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
-    let tag_blob = serde_json::to_vec(&tag)?;
     let tag_id = tag.create_id();
     let tag_url = format!("pubky://{}/pub/pubky.app/tags/{}", user_b_id, tag_id);
 
     // Put tag
-    test.put(&tag_url, tag_blob).await?;
+    test.put(&tag_url, tag).await?;
 
     // User A deletes their post
     test.cleanup_post(&user_a_id, &post_id).await?;

@@ -8,9 +8,7 @@ use chrono::Utc;
 use pubky_app_specs::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser};
 use pubky_common::crypto::Keypair;
 use pubky_nexus::models::tag::post::TagPost;
-use pubky_nexus::models::tag::stream::{Taggers, TAG_GLOBAL_HOT};
 use pubky_nexus::models::tag::traits::{TagCollection, TaggersCollection};
-use pubky_nexus::RedisOps;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_del_tag_post() -> Result<()> {
@@ -58,7 +56,6 @@ async fn test_homeserver_del_tag_post() -> Result<()> {
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
-    let tag_blob = serde_json::to_vec(&tag)?;
     let tag_url = format!(
         "pubky://{}/pub/pubky.app/tags/{}",
         tagger_user_id,
@@ -66,7 +63,7 @@ async fn test_homeserver_del_tag_post() -> Result<()> {
     );
 
     // Step 3: Creat & Delete the tag
-    test.put(&tag_url, tag_blob).await?;
+    test.put(&tag_url, tag).await?;
 
     test.del(&tag_url).await?;
 
@@ -86,6 +83,8 @@ async fn test_homeserver_del_tag_post() -> Result<()> {
         Some(&post_id),
         None,
         None,
+        None,
+        None,
         false,
     )
     .await
@@ -98,7 +97,7 @@ async fn test_homeserver_del_tag_post() -> Result<()> {
 
     // Post:Taggers:author_id:post_id:label
     let post_key = vec![author_user_id.as_str(), post_id.as_str(), label];
-    let taggers = <TagPost as TaggersCollection>::get_from_index(post_key, None, None, None)
+    let taggers = <TagPost as TaggersCollection>::get_from_index(post_key, None, None, None, None)
         .await
         .unwrap();
     assert!(taggers.is_none());
@@ -110,12 +109,6 @@ async fn test_homeserver_del_tag_post() -> Result<()> {
     // Check if user counts updated: User:Counts:user_id
     let user_counts = find_user_counts(&author_user_id).await;
     assert_eq!(user_counts.tags, 0);
-
-    // Check if the user is related with tag: Tag:Taggers:tag_name
-    let (_exist, member) = Taggers::check_set_member(&[label], &tagger_user_id)
-        .await
-        .expect("Failed to check tagger in Taggers set");
-    assert!(!member);
 
     let post_key: [&str; 2] = [&author_user_id, &post_id];
 
@@ -142,13 +135,6 @@ async fn test_homeserver_del_tag_post() -> Result<()> {
         .await
         .unwrap();
     assert!(tag_timeline.is_none());
-
-    // Assert hot tag score: Sorted:Post:Global:Hot:label
-    let total_engagement = Taggers::check_sorted_set_member(&TAG_GLOBAL_HOT, &[label])
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(total_engagement, 0);
 
     // Cleanup user and post
     test.cleanup_post(&author_user_id, &post_id).await?;

@@ -18,9 +18,10 @@ pub const USER_FOLLOWERS_ROUTE: &str = concatcp!(USER_ROUTE, "/followers");
 pub const USER_FOLLOWING_ROUTE: &str = concatcp!(USER_ROUTE, "/following");
 pub const USER_FRIENDS_ROUTE: &str = concatcp!(USER_ROUTE, "/friends");
 pub const USER_MUTED_ROUTE: &str = concatcp!(USER_ROUTE, "/muted");
+pub const USER_AVATAR_ROUTE: &str = concatcp!(USER_ROUTE, "/avatar");
 
 // -- POST endpoints --
-const POST_PREFIX: &str = concatcp!(VERSION_ROUTE, "/post");
+pub const POST_PREFIX: &str = concatcp!(VERSION_ROUTE, "/post");
 pub const POST_ROUTE: &str = concatcp!(POST_PREFIX, "/{author_id}/{post_id}");
 pub const POST_RELATIONSHIPS_ROUTE: &str = concatcp!(POST_ROUTE, "/relationships");
 pub const POST_BOOKMARK_ROUTE: &str = concatcp!(POST_ROUTE, "/bookmark");
@@ -56,7 +57,7 @@ pub const SEARCH_TAGS_ROUTE: &str = concatcp!(SEARCH_PREFIX, "/tags/{label}");
 // Axum routes
 const TAG_PREFIX: &str = concatcp!(VERSION_ROUTE, "/tags");
 pub const TAGS_HOT_ROUTE: &str = concatcp!(TAG_PREFIX, "/hot");
-pub const TAG_TAGGERS_ROUTE: &str = concatcp!(TAG_PREFIX, "/tag/{label}/taggers");
+pub const TAG_TAGGERS_ROUTE: &str = concatcp!(TAG_PREFIX, "/taggers/{label}");
 
 // FILE endpoints
 // Axum routes

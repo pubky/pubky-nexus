@@ -1,22 +1,16 @@
-use crate::service::utils::HOST_URL;
+use crate::service::utils::{get_request, invalid_get_request};
 use anyhow::Result;
+use reqwest::StatusCode;
 
 // ##### MOST FOLLOWED USERS ######
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_most_followed() -> Result<()> {
-    let client = httpc_test::new_client(HOST_URL)?;
-
     // Test retrieving the most followed users
-    let res = client
-        .do_get("/v0/stream/users?source=most_followed&limit=20")
-        .await?;
-    assert_eq!(res.status(), 200);
+    let res = get_request("/v0/stream/users?source=most_followed&limit=20").await?;
+    assert!(res.is_array());
 
-    let body = res.json_body()?;
-    assert!(body.is_array());
-
-    let most_followed_users = body.as_array().expect("User stream should be an array");
+    let most_followed_users = res.as_array().expect("User stream should be an array");
 
     // Check if the response has the expected number of users
     assert!(
@@ -55,15 +49,10 @@ async fn test_stream_most_followed() -> Result<()> {
     }
 
     // Test limiting the results to 5 users
-    let res = client
-        .do_get("/v0/stream/users?source=most_followed&limit=5")
-        .await?;
-    assert_eq!(res.status(), 200);
+    let res = get_request("/v0/stream/users?source=most_followed&limit=5").await?;
+    assert!(res.is_array());
 
-    let body = res.json_body()?;
-    assert!(body.is_array());
-
-    let limited_users = body.as_array().expect("User stream should be an array");
+    let limited_users = res.as_array().expect("User stream should be an array");
 
     // Check if the response has the expected number of users
     assert_eq!(
@@ -77,26 +66,21 @@ async fn test_stream_most_followed() -> Result<()> {
 
 // ##### RECOMMENDED USERS ######
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_recommended() -> Result<()> {
-    let client = httpc_test::new_client(HOST_URL)?;
-
     // User ID to use for recommendations
     let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
 
     // Test retrieving recommended users
-    let res = client
-        .do_get(&format!(
-            "/v0/stream/users?source=recommended&user_id={}&limit=5",
-            user_id
-        ))
-        .await?;
-    assert_eq!(res.status(), 200);
+    let res = get_request(&format!(
+        "/v0/stream/users?source=recommended&user_id={}&limit=5",
+        user_id
+    ))
+    .await?;
 
-    let body = res.json_body()?;
-    assert!(body.is_array());
+    assert!(res.is_array());
 
-    let recommended_users = body.as_array().expect("User stream should be an array");
+    let recommended_users = res.as_array().expect("User stream should be an array");
 
     // Check if the response has the expected number of users
     assert!(
@@ -125,18 +109,15 @@ async fn test_stream_recommended() -> Result<()> {
     }
 
     // Test limiting the results to 3 users
-    let res = client
-        .do_get(&format!(
-            "/v0/stream/users?source=recommended&user_id={}&limit=3",
-            user_id
-        ))
-        .await?;
-    assert_eq!(res.status(), 200);
+    let res = get_request(&format!(
+        "/v0/stream/users?source=recommended&user_id={}&limit=3",
+        user_id
+    ))
+    .await?;
 
-    let body = res.json_body()?;
-    assert!(body.is_array());
+    assert!(res.is_array());
 
-    let limited_users = body.as_array().expect("User stream should be an array");
+    let limited_users = res.as_array().expect("User stream should be an array");
 
     // Check if the response has the expected number of users
     assert_eq!(
@@ -148,21 +129,17 @@ async fn test_stream_recommended() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_recommended_missing_user_id() -> Result<()> {
-    let client = httpc_test::new_client(HOST_URL)?;
-
     // Test retrieving recommended users without providing user_id
-    let res = client
-        .do_get("/v0/stream/users?source=recommended&limit=5")
-        .await?;
+    let res = invalid_get_request(
+        "/v0/stream/users?source=recommended&limit=5",
+        StatusCode::BAD_REQUEST,
+    )
+    .await?;
 
-    // Assuming the endpoint returns 400 Bad Request
-    assert_eq!(res.status(), 400, "Expected HTTP status 400 Bad Request");
-
-    let body = res.json_body()?;
     assert!(
-        body["error"]
+        res["error"]
             .as_str()
             .unwrap_or("")
             .contains("user_id query param must be provided"),

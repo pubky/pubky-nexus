@@ -54,28 +54,27 @@ To get started with Nexus, first set up the required databases: Neo4j and Redis.
 1. Clone the repository and navigate to the project directory.
 2. Copy the environment template and set up the Docker environment:
 
-    ```bash
-    cd docker
-    cp .env-sample .env
-    docker-compose up -d
-    ```
+   ```bash
+   cd docker
+   cp .env-sample .env
+   docker-compose up -d
+   ```
 
-3. Populate the Neo4j database with initial data:
-
-    ```bash
-    docker exec neo4j bash /db-graph/run-queries.sh
-    ```
-
-Once the `Neo4j` graph database is seeded with data, the next step is to populate the `Redis` database by running the _nexus-service_
-
-> If the Redis cache is empty, the nexus-service will handle it automatically. If not follow the steps of warning section
+3. Optionally, populate the Neo4j database with initial mock data. Follow [Running Tests](#running-tests) section about setting up mock data.  
 
 4. Run the Nexus service:
 
-    ```bash
-    cargo run
-    ```
-5. **Access Redis and Neo4j UIs**:
+   ```bash
+   cargo run
+   ```
+
+5. Run the Watcher service:
+
+   ```bash
+   cargo run --bin watcher
+   ```
+
+6. **Access Redis and Neo4j UIs**:
    - Redis UI: [http://localhost:8001/redis-stack/browser](http://localhost:8001/redis-stack/browser)
    - Neo4J UI: [http://localhost:7474/browser/](http://localhost:7474/browser/)
 
@@ -87,12 +86,65 @@ To contribute to Nexus, follow these steps:
 2. **Write Tests**: Ensure new features and changes are tested and benchmarked.
 3. **Submit a Pull Request** and provide a description of the changes.
 
+### Data Migrations
+
+The Migration Manager is a purpose-built tool designed to simplify and standardize the process of performing data migrations in our backend system. It ensures a smooth transition during breaking changes to our data sources, such as Neo4j and Redis, by coordinating phased migrations with minimal disruption to the application. The manager tracks the status of each migration in the database, automates phase progression where possible, and provides a clear structure for developers to implement and manage migrations. This approach reduces the risk of data inconsistencies, ensures reliability during deployments, and keeps migration-related code isolated and easy to find.
+
+#### Understanding Migration Phases
+
+The Migration Manager uses a phased approach to handle data migrations safely and systematically. Each phase serves a distinct purpose in transitioning data from the old source to the new source, ensuring consistency and minimal disruption. Here's an overview of the phases:
+
+- **Dual Write**: During this phase, all writes to the old source are mirrored to the new source. This ensures that both sources remain synchronized during normal application operations. Developers invoke MigrationManager::dual_write in the application logic (preferrably in the application data layer) for this purpose. Once dual writes are stable and verified, the migration can progress to the next phase.
+  **Note**: Mark a migration as ready for backfill phase using the `MIGRATIONS_BACKFILL_READY` env var by providing a comma separated list of migration ids.
+
+- **Backfill**: In this phase, any missing or historical data in the new source is backfilled from the old source. This ensures that the new source is fully populated and consistent with the old source. The Migration Manager handles this phase automatically when the migration is progressed.
+
+- **Cutover**: The application begins reading from the new source instead of the old source. For Redis, this often involves renaming keys (e.g., swapping the new key to the old key name). This phase ensures that the application is fully transitioned to the new source.
+
+- **Cleanup**: The old source is no longer needed and can be safely cleaned up. This includes removing old keys in Redis or deleting data in Neo4j that is no longer required.
+  Use the example at /examples/migration.rs as your guide.
+
+#### Adding a new migration
+
+To create a new migration, use the migrations binary by running:
+
+```
+cargo run --bin migrations new MigrationNAME
+```
+
+This will generate a new migration file in the `src/db/migrations/migrations_list` directory.  
+Next, register your migration in the `get_migration_manager` function in `src/db/migrations/mod.rs` file, which ensures it is included in the migration lifecycle. Once registered, implement the required phases (dual_write, backfill, cutover, and cleanup) in the generated file. Each phase serves a specific purpose in safely transitioning data between the old and new sources. After implementing your migration, run the migrations binary to execute pending migrations:
+
+```
+cargo run --bin migrations run
+```
+
+The manager will automatically handle migrations in the appropriate order, progressing through phases as needed.
+
 ### Running Tests
 
-To run all tests:
+Running tests requires setting up mock data into Neo4j and Redis.
+
+Use the `mockdb` binary to load the mock data.
 
 ```bash
-cargo test
+cargo run --bin mockdb [database]
+```
+
+`database` is optional and can be either `graph` or `redis`. Not providing any value will sync all the databases.
+
+> If the Redis cache is empty, the nexus-service will handle it automatically. If not follow the steps of warning section
+
+You can optionally pass the `GRAPH_CONTAINER_NAME` env var if your neo4j container in docker has a different name. Defaults to `neo4j`. For example:
+
+```bash
+GRAPH_CONTAINER_NAME=nexus-neo4j cargo run --bin mockdb
+```
+
+Then to run all tests:
+
+```bash
+cargo test // cargo nextest run
 ```
 
 To test specific modules or features:
@@ -110,20 +162,7 @@ cargo bench --bench user get_user_view_by_id
 
 ## ⚠️ Troubleshooting
 
-If tests or the development environment seem out of sync, follow these steps to reset:
-
-1. **Reset Neo4j**:
-
-    ```bash
-    docker exec neo4j bash -c "cypher-shell -u neo4j -p 12345678 'MATCH (n) DETACH DELETE n;'"
-    docker exec neo4j bash /db-graph/run-queries.sh
-    ```
-
-2. **Re-index Redis Cache**:
-
-    ```bash
-    REINDEX=true cargo run
-    ```
+If tests or the development environment seem out of sync, follow the [Running Tests](#running-tests) steps to reload the mock data.
 
 ## 🌐 Useful Links
 

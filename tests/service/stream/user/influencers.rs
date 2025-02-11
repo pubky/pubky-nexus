@@ -1,7 +1,7 @@
 use anyhow::Result;
 use reqwest::StatusCode;
 
-use crate::service::utils::{make_request, make_wrong_request};
+use crate::service::utils::{get_request, invalid_get_request};
 
 // TODO: Create deterministic integration tests
 
@@ -9,7 +9,7 @@ const PEER_PUBKY: &str = "o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo";
 
 #[tokio::test]
 async fn test_global_influencers() -> Result<()> {
-    let body = make_request("/v0/stream/users?source=influencers").await?;
+    let body = get_request("/v0/stream/users?source=influencers").await?;
     assert!(body.is_array());
 
     let influencers = body
@@ -39,7 +39,7 @@ async fn test_global_influencers() -> Result<()> {
 
 #[tokio::test]
 async fn test_global_influencers_preview() -> Result<()> {
-    let body = make_request("/v0/stream/users?source=influencers&preview=true").await?;
+    let body = get_request("/v0/stream/users?source=influencers&preview=true").await?;
     assert!(body.is_array());
 
     let influencers = body
@@ -57,7 +57,7 @@ async fn test_global_influencers_preview() -> Result<()> {
         .collect::<Vec<&str>>();
 
     // make the request a second time to ensure the preview is generating different results
-    let body = make_request("/v0/stream/users?source=influencers&preview=true").await?;
+    let body = get_request("/v0/stream/users?source=influencers&preview=true").await?;
     assert!(body.is_array());
 
     let influencers = body
@@ -81,7 +81,7 @@ async fn test_global_influencers_preview() -> Result<()> {
 
 #[tokio::test]
 async fn test_global_influencers_skip_limit() -> Result<()> {
-    let body = make_request("/v0/stream/users?source=influencers&skip=3&limit=3").await?;
+    let body = get_request("/v0/stream/users?source=influencers&skip=3&limit=3").await?;
     assert!(body.is_array());
 
     let influencers = body
@@ -110,7 +110,7 @@ async fn test_global_influencers_skip_limit() -> Result<()> {
 
 #[tokio::test]
 async fn test_global_influencers_with_today_timeframe() -> Result<()> {
-    let body = make_request("/v0/stream/users?source=influencers&timeframe=today&limit=4").await?;
+    let body = get_request("/v0/stream/users?source=influencers&timeframe=today&limit=4").await?;
 
     assert!(body.is_array());
 
@@ -143,7 +143,7 @@ async fn test_global_influencers_with_today_timeframe() -> Result<()> {
 #[tokio::test]
 async fn test_global_influencers_with_this_month_timeframe() -> Result<()> {
     let body =
-        make_request("/v0/stream/users?source=influencers&timeframe=this_month&limit=5").await?;
+        get_request("/v0/stream/users?source=influencers&timeframe=this_month&limit=5").await?;
 
     assert!(body.is_array());
 
@@ -179,7 +179,7 @@ async fn test_influencers_by_reach_no_user_id() -> Result<()> {
     let endpoint =
         "/v0/stream/users?source=influencers&timeframe=this_month&limit=3&reach=following";
 
-    make_wrong_request(endpoint, Some(StatusCode::BAD_REQUEST.as_u16())).await?;
+    invalid_get_request(endpoint, StatusCode::BAD_REQUEST).await?;
 
     Ok(())
 }
@@ -191,7 +191,7 @@ async fn test_influencers_by_reach_no_reach() -> Result<()> {
         PEER_PUBKY
     );
 
-    make_wrong_request(endpoint, Some(StatusCode::BAD_REQUEST.as_u16())).await?;
+    invalid_get_request(endpoint, StatusCode::BAD_REQUEST).await?;
 
     Ok(())
 }
@@ -200,7 +200,7 @@ async fn test_influencers_by_reach_no_reach() -> Result<()> {
 async fn test_influencers_by_following_reach() -> Result<()> {
     let endpoint = &format!("/v0/stream/users?source=influencers&timeframe=this_month&limit=3&user_id={}&reach=following", PEER_PUBKY);
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let influencers = body
@@ -227,7 +227,7 @@ async fn test_influencers_by_following_reach() -> Result<()> {
 async fn test_influencers_by_followers_reach() -> Result<()> {
     let endpoint = &format!("/v0/stream/users?source=influencers&timeframe=this_month&limit=3&user_id={}&reach=followers", PEER_PUBKY);
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let influencers = body.as_array().expect("Post stream should be an array");
@@ -255,7 +255,7 @@ async fn test_influencers_by_friends_reach() -> Result<()> {
         PEER_PUBKY
     );
 
-    let body = make_request(endpoint).await?;
+    let body = get_request(endpoint).await?;
     assert!(body.is_array());
 
     let influencers = body.as_array().expect("Post stream should be an array");
