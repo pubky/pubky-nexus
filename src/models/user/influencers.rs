@@ -11,31 +11,25 @@ use utoipa::ToSchema;
 use crate::queries;
 use crate::RedisOps;
 
-const GLOBAL_INFLUENCERS_PREFIX: &str = "Cache:Influencers";
-
-#[derive(Deserialize, Serialize, ToSchema, Debug, Clone)]
-pub struct Influencer {
-    pub id: String,
-    pub score: f64,
-}
+const GLOBAL_INFLUENCERS_PREFIX: &str = "Cache";
 
 // Define a newtype wrapper
 #[derive(Serialize, Deserialize, Debug, ToSchema, Default, Clone)]
-pub struct Influencers(pub Vec<Influencer>);
+pub struct Influencers(pub Vec<(String, f64)>); // (user_id, score)
 
 impl RedisOps for Influencers {}
 
 // Create a Influencers instance directly from an iterator of Influencer items
 // Need it in collect()
-impl FromIterator<Influencer> for Influencers {
-    fn from_iter<I: IntoIterator<Item = Influencer>>(iter: I) -> Self {
+impl FromIterator<(String, f64)> for Influencers {
+    fn from_iter<I: IntoIterator<Item = (String, f64)>>(iter: I) -> Self {
         Influencers(iter.into_iter().collect())
     }
 }
 
 // Implement Deref so Influencers can be used like Vec<String>
 impl Deref for Influencers {
-    type Target = Vec<Influencer>;
+    type Target = Vec<(String, f64)>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -74,13 +68,7 @@ impl Influencers {
 
         match ranking {
             None => Ok(None),
-            Some(ranking) => {
-                let mut influencers = Vec::new();
-                for (id, score) in ranking {
-                    influencers.push(Influencer { id, score });
-                }
-                Ok(Some(Influencers(influencers)))
-            }
+            Some(ranking) => Ok(Some(Influencers(ranking))),
         }
     }
 
@@ -97,7 +85,7 @@ impl Influencers {
             key_parts_vector.as_slice(),
             result
                 .iter()
-                .map(|influencer| (influencer.score, influencer.id.as_str()))
+                .map(|influencer| (influencer.1, influencer.0.as_str()))
                 .collect::<Vec<(f64, &str)>>()
                 .as_slice(),
             Some(GLOBAL_INFLUENCERS_PREFIX),
@@ -116,6 +104,7 @@ impl Influencers {
         preview: bool,
     ) -> Result<Option<Influencers>, DynError> {
         let (skip, limit) = if preview {
+            // get a pseudo-random number between 0 and 97
             let skip = Utc::now().timestamp_subsec_micros() % 98;
             (skip as usize, 3)
         } else {

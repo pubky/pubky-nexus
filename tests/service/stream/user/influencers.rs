@@ -7,7 +7,7 @@ use crate::service::utils::{get_request, invalid_get_request};
 
 const PEER_PUBKY: &str = "o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo";
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_global_influencers() -> Result<()> {
     let body = get_request("/v0/stream/users?source=influencers").await?;
     assert!(body.is_array());
@@ -37,7 +37,7 @@ async fn test_global_influencers() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_global_influencers_preview() -> Result<()> {
     let body = get_request("/v0/stream/users?source=influencers&preview=true").await?;
     assert!(body.is_array());
@@ -79,7 +79,7 @@ async fn test_global_influencers_preview() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_global_influencers_skip_limit() -> Result<()> {
     let body = get_request("/v0/stream/users?source=influencers&skip=3&limit=3").await?;
     assert!(body.is_array());
@@ -108,7 +108,7 @@ async fn test_global_influencers_skip_limit() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_global_influencers_with_today_timeframe() -> Result<()> {
     let body = get_request("/v0/stream/users?source=influencers&timeframe=today&limit=4").await?;
 
@@ -140,7 +140,7 @@ async fn test_global_influencers_with_today_timeframe() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_global_influencers_with_this_month_timeframe() -> Result<()> {
     let body =
         get_request("/v0/stream/users?source=influencers&timeframe=this_month&limit=5").await?;
@@ -174,7 +174,7 @@ async fn test_global_influencers_with_this_month_timeframe() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_influencers_by_reach_no_user_id() -> Result<()> {
     let endpoint =
         "/v0/stream/users?source=influencers&timeframe=this_month&limit=3&reach=following";
@@ -184,7 +184,7 @@ async fn test_influencers_by_reach_no_user_id() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_influencers_by_following_reach() -> Result<()> {
     let endpoint = &format!("/v0/stream/users?source=influencers&timeframe=this_month&limit=3&user_id={}&reach=following", PEER_PUBKY);
 
@@ -211,7 +211,7 @@ async fn test_influencers_by_following_reach() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_influencers_by_followers_reach() -> Result<()> {
     let endpoint = &format!("/v0/stream/users?source=influencers&timeframe=this_month&limit=3&user_id={}&reach=followers", PEER_PUBKY);
 
@@ -236,7 +236,7 @@ async fn test_influencers_by_followers_reach() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_influencers_by_friends_reach() -> Result<()> {
     let endpoint = &format!(
         "/v0/stream/users?source=influencers&timeframe=this_month&limit=3&user_id={}&reach=friends",

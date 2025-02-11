@@ -550,7 +550,7 @@ pub fn get_influencers_by_reach(
         }} AS influencer
         ORDER BY influencer.score DESC, reach.id ASC
         SKIP $skip LIMIT $limit
-        RETURN COLLECT(influencer) as influencers
+        RETURN COLLECT([influencer.id, influencer.score]) as influencers
     ",
             stream_reach_to_graph_subquery(&reach),
         )
@@ -588,7 +588,7 @@ pub fn get_global_influencers(skip: usize, limit: usize, timeframe: &Timeframe) 
         WHERE influencer.id IS NOT NULL
         ORDER BY influencer.score DESC, influencer.id ASC
         SKIP $skip LIMIT $limit
-        RETURN COLLECT(influencer) as influencers
+        RETURN COLLECT([influencer.id, influencer.score]) as influencers
     ",
     )
     .param("skip", skip as i64)

@@ -269,7 +269,7 @@ impl UserStream {
             .map(|result| {
                 result
                     .iter()
-                    .map(|influencer| influencer.id.clone())
+                    .map(|(influencer_id, _)| influencer_id.clone())
                     .collect()
             }),
             UserStreamSource::Recommended => {
