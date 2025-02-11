@@ -1,6 +1,6 @@
 use super::{
     stream::{TagStreamReach, HOT_TAGS_CACHE_PREFIX, POST_HOT_TAGS},
-    traits::taggers::Taggers as TaggersType,
+    Taggers as TaggersType,
 };
 use crate::RedisOps;
 use crate::{

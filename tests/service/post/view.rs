@@ -1,6 +1,6 @@
 use crate::service::{
     post::{CAIRO_USER, ENCRYPTION_TAG, ROOT_PATH},
-    stream::post::{POST_H, TAG_LABEL_2},
+    stream::post::{kind::DETROIT, POST_H, TAG_LABEL_2},
     utils::{get_request, invalid_get_request},
 };
 use anyhow::Result;
@@ -135,6 +135,35 @@ async fn test_get_post_view_with_limit_tags_and_taggers() -> Result<()> {
         .as_array()
         .expect("Tag taggers should be an array");
     assert_eq!(taggers.len(), 2);
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_get_post_view_with_viewer() -> Result<()> {
+    let path = format!(
+        "{}/{}/{}?viewer_id={}",
+        ROOT_PATH, CAIRO_USER, POST_H, DETROIT
+    );
+
+    let body = get_request(&path).await?;
+    assert!(body.is_object());
+
+    // Check the tag list
+    let tags = body["tags"]
+        .as_array()
+        .expect("Post tags should be an array");
+    // Check the total posts using that tag
+    assert_eq!(tags.len(), 2);
+
+    assert!(
+        tags[0]["relationship"].as_bool().unwrap(),
+        "Expected to be part of the taggers"
+    );
+    assert!(
+        !tags[1]["relationship"].as_bool().unwrap(),
+        "Expected not to be part of the taggers"
+    );
 
     Ok(())
 }

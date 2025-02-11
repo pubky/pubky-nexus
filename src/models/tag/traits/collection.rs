@@ -60,6 +60,7 @@ where
             match Self::get_from_index(
                 user_id,
                 viewer_id,
+                viewer_id,
                 skip_tags,
                 limit_tags,
                 limit_taggers,
@@ -84,6 +85,7 @@ where
         match Self::get_from_index(
             user_id,
             extra_param,
+            viewer_id,
             skip_tags,
             limit_tags,
             limit_taggers,
@@ -118,6 +120,7 @@ where
     async fn get_from_index(
         user_id: &str,
         extra_param: Option<&str>,
+        viewer_id: Option<&str>,
         skip_tags: Option<usize>,
         limit_tags: Option<usize>,
         limit_taggers: Option<usize>,
@@ -166,9 +169,13 @@ where
                 }
 
                 let tags_ref: Vec<&str> = tags.iter().map(|label| label.as_str()).collect();
-                let taggers =
-                    Self::try_from_multiple_sets(&tags_ref, cache_prefix.1, Some(limit_taggers))
-                        .await?;
+                let taggers = Self::try_from_multiple_sets(
+                    &tags_ref,
+                    cache_prefix.1,
+                    viewer_id,
+                    Some(limit_taggers),
+                )
+                .await?;
                 let tag_details_list = TagDetails::from_index(tag_scores, taggers);
                 Ok(Some(tag_details_list))
             }
@@ -427,7 +434,7 @@ where
     /// Constructs the index for a sorted set in Redis based on the user key and an optional extra parameter.
     /// # Arguments
     /// * user_id - The key of the user.
-    /// * extra_param - An optional parameter for specifying additional context (e.g., an post_id)
+    /// * extra_param - An optional parameter to complete the sorted_set index (post_id | viewer_id)
     /// * is_cache - A boolean indicating whether to retrieve tags from the cache or the primary index.
     /// # Returns
     /// A vector of strings representing the parts of the key.
@@ -440,6 +447,7 @@ where
         let prefix = Self::get_tag_prefix();
         match extra_param {
             Some(extra_id) => match is_cache {
+                // WOT index, the extra param in that case is viewer_id
                 true => [&prefix[..], &[extra_id, user_id]].concat(),
                 false => [&prefix[..], &[user_id, extra_id]].concat(),
             },

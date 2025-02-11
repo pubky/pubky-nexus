@@ -1,4 +1,4 @@
-use axum::body::Bytes;
+use pubky_app_specs::PubkyAppBlob;
 use tokio::{
     fs::{self, File},
     io::AsyncWriteExt,
@@ -9,7 +9,11 @@ use crate::{types::DynError, Config};
 pub struct StaticStorage;
 
 impl StaticStorage {
-    pub async fn store_blob(name: String, path: String, blob: &Bytes) -> Result<(), DynError> {
+    pub async fn store_blob(
+        name: String,
+        path: String,
+        blob: &PubkyAppBlob,
+    ) -> Result<(), DynError> {
         if !fs::metadata(path.as_str())
             .await
             .is_ok_and(|metadata| metadata.is_dir())
@@ -19,7 +23,7 @@ impl StaticStorage {
 
         let file_path = format!("{}/{}", path, name);
         let mut static_file = File::create_new(file_path).await?;
-        static_file.write_all(blob).await?;
+        static_file.write_all(&blob.0).await?;
 
         Ok(())
     }

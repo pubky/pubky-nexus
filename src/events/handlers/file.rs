@@ -1,4 +1,5 @@
 use crate::db::connectors::pubky::PubkyConnector;
+use crate::events::error::EventProcessorError;
 use crate::models::file::details::FileVariant;
 use crate::models::{
     file::{details::FileMeta, FileDetails},
@@ -7,7 +8,7 @@ use crate::models::{
 use crate::static_processor::{StaticProcessor, StaticStorage};
 use crate::types::DynError;
 use log::{debug, error};
-use pubky_app_specs::{PubkyAppFile, PubkyId};
+use pubky_app_specs::{PubkyAppFile, PubkyAppObject, PubkyId};
 use tokio::fs::remove_dir_all;
 
 pub async fn sync_put(
@@ -48,27 +49,46 @@ async fn ingest(
     file_id: &str,
     pubkyapp_file: &PubkyAppFile,
 ) -> Result<FileMeta, DynError> {
-    let pubky_client = PubkyConnector::get_pubky_client()?;
+    let response;
+    {
+        let pubky_client = PubkyConnector::get_pubky_client()?;
 
-    let response = match pubky_client.get(&pubkyapp_file.src).send().await {
-        Ok(response) => response,
-        // TODO: Shape the error to avoid the retyManager
-        Err(e) => {
-            error!("EVENT ERROR: could not retrieve file src blob");
-            return Err(e.into());
-        }
-    };
+        response = match pubky_client.get(&pubkyapp_file.src).send().await {
+            Ok(response) => response,
+            // TODO: Shape the error to avoid the retyManager
+            Err(e) => {
+                error!("EVENT ERROR: could not retrieve file src blob");
+                return Err(e.into());
+            }
+        };
+    }
 
     let path: String = format!("{}/{}", user_id, file_id);
     let storage_path = StaticStorage::get_storage_path();
     let full_path = format!("{}/{}", storage_path, path);
 
     let blob = response.bytes().await?;
-    StaticStorage::store_blob(FileVariant::Main.to_string(), full_path.to_string(), &blob).await?;
+    let pubky_app_object = PubkyAppObject::from_uri(&pubkyapp_file.src, &blob)?;
 
-    let urls =
-        StaticProcessor::get_file_urls_by_content_type(pubkyapp_file.content_type.as_str(), &path);
-    Ok(FileMeta { urls })
+    match pubky_app_object {
+        PubkyAppObject::Blob(blob) => {
+            StaticStorage::store_blob(FileVariant::Main.to_string(), full_path.to_string(), &blob)
+                .await?;
+
+            let urls = StaticProcessor::get_file_urls_by_content_type(
+                pubkyapp_file.content_type.as_str(),
+                &path,
+            );
+            Ok(FileMeta { urls })
+        }
+        _ => Err(EventProcessorError::InvalidEventLine {
+            message: format!(
+                "The file has a source uri that is not a blob path: {}",
+                pubkyapp_file.src
+            ),
+        }
+        .into()),
+    }
 }
 
 pub async fn del(user_id: &PubkyId, file_id: String) -> Result<(), DynError> {
