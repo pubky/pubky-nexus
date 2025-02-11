@@ -4,17 +4,17 @@ use axum::{
     response::Response,
 };
 use log::{debug, error};
-use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
-use tower_http::services::{fs::ServeFileSystemResponseBody, ServeDir};
+use tower_http::services::fs::ServeFileSystemResponseBody;
 
 use crate::{
     models::{
         file::{details::FileVariant, FileDetails},
         traits::Collection,
     },
+    routes::r#static::get_serve_dir,
     static_processor::StaticProcessor,
-    Config, Error, Result,
+    Error, Result,
 };
 
 #[derive(Deserialize, Serialize)]
@@ -78,22 +78,15 @@ pub async fn static_files_handler(
         });
     }
 
-    let file_variant_exists = StaticProcessor::check_variant_exists(&file, variant.clone()).await;
-
-    let file_variant_content_type = if file_variant_exists {
-        StaticProcessor::get_content_type_for_variant(&file, &variant)
-    } else {
-        match StaticProcessor::create_file_variant(&file, variant).await {
-            Ok(content_type) => content_type,
-            Err(err) => {
-                error!(
-                    "Creating variant failed for file: {:?} with error: {}",
-                    file, err
-                );
-                return Err(Error::InternalServerError { source: err });
-            }
-        }
-    };
+    let file_variant_content_type = StaticProcessor::get_or_create_variant(&file, &variant)
+        .await
+        .map_err(|err| {
+            error!(
+                "Error while processing file variant for variant: {} and file: {}",
+                variant, file_id
+            );
+            Error::InternalServerError { source: err }
+        })?;
 
     // Create a new request with a modified path to serve the file using ServeDir
     let (request_parts, request_body) = request.into_parts();
@@ -150,15 +143,4 @@ pub async fn static_files_handler(
     }
 
     Ok(response)
-}
-
-static SERVE_DIR_INSTANCE: OnceCell<ServeDir> = OnceCell::new();
-
-fn get_serve_dir() -> ServeDir {
-    SERVE_DIR_INSTANCE
-        .get_or_init(|| {
-            let config = Config::from_env();
-            ServeDir::new(config.file_path)
-        })
-        .to_owned()
 }

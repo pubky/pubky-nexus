@@ -40,9 +40,9 @@ pub trait FileProcessor {
 
     /// Creates a variant for the given file
     /// If there are no options for this variant, return with the original content type
-    async fn create_variant(file: &FileDetails, variant: FileVariant) -> Result<String, DynError> {
+    async fn create_variant(file: &FileDetails, variant: &FileVariant) -> Result<String, DynError> {
         // if there are no options for this variant, return with the original content type
-        let options = match Self::get_options_for_variant(file, &variant) {
+        let options = match Self::get_options_for_variant(file, variant) {
             Ok(options) => options,
             Err(_) => return Ok(file.content_type.clone()),
         };

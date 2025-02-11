@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use log::error;
 use tokio::fs;
 
 use crate::{
@@ -30,7 +31,7 @@ impl StaticProcessor {
         }
     }
 
-    pub fn get_content_type_for_variant(file: &FileDetails, variant: &FileVariant) -> String {
+    fn get_content_type_for_variant(file: &FileDetails, variant: &FileVariant) -> String {
         match &file.content_type {
             content_type if content_type.starts_with("image/") => {
                 ImageProcessor::get_content_type_for_variant(file, variant)
@@ -68,9 +69,9 @@ impl StaticProcessor {
         }
     }
 
-    pub async fn create_file_variant(
+    async fn create_file_variant(
         file: &FileDetails,
-        variant: FileVariant,
+        variant: &FileVariant,
     ) -> Result<String, DynError> {
         match &file.content_type {
             content_type if content_type.starts_with("image/") => {
@@ -83,7 +84,7 @@ impl StaticProcessor {
         }
     }
 
-    pub async fn check_variant_exists(file: &FileDetails, variant: FileVariant) -> bool {
+    async fn check_variant_exists(file: &FileDetails, variant: FileVariant) -> bool {
         // main variant always exists
         if variant == FileVariant::Main {
             return true;
@@ -96,5 +97,27 @@ impl StaticProcessor {
             .join(variant.to_string());
 
         fs::metadata(path).await.is_ok()
+    }
+
+    pub async fn get_or_create_variant(
+        file: &FileDetails,
+        variant: &FileVariant,
+    ) -> Result<String, DynError> {
+        let file_variant_exists = Self::check_variant_exists(&file, variant.clone()).await;
+
+        if file_variant_exists {
+            Ok(Self::get_content_type_for_variant(&file, &variant))
+        } else {
+            match Self::create_file_variant(file, variant).await {
+                Ok(content_type) => Ok(content_type),
+                Err(err) => {
+                    error!(
+                        "Creating variant failed for file: {:?} with error: {}",
+                        file, err
+                    );
+                    return Err(err);
+                }
+            }
+        }
     }
 }

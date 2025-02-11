@@ -42,7 +42,7 @@ async fn test_user_avatar_endpoint() -> Result<()> {
     // 5. Create a new file referencing that blob
     let file = PubkyAppFile {
         name: "avatar".to_string(),
-        content_type: "image/webp".to_string(),
+        content_type: "image/png".to_string(),
         src: blob_url.clone(),
         size: image_size as i64,
         created_at: Utc::now().timestamp_millis(),
@@ -79,10 +79,10 @@ async fn test_user_avatar_endpoint() -> Result<()> {
 
     // Compare lengths
     let clength = response.header("content-length").unwrap_or("0".to_string());
-    assert_eq!(
+    assert_ne!(
         clength,
         format!("{}", image_size),
-        "Returned WEBP avatar size differs from what we uploaded"
+        "Returned WEBP avatar size is equal to what we uploaded and not the small version"
     );
 
     // 10. Done!
