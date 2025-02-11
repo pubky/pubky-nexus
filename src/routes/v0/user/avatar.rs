@@ -66,7 +66,7 @@ pub async fn user_avatar_handler(
         return Err(Error::FileNotFound {});
     };
 
-    // ensure small variant is created
+    // 5. ensure small variant is created
     let small_variant_content_type =
         StaticProcessor::get_or_create_variant(&file_details, &FileVariant::Small)
             .await
@@ -80,7 +80,7 @@ pub async fn user_avatar_handler(
 
     // serve the file using ServeDir
     // Create a new request with a modified path to serve the file using ServeDir
-    // 6. Build the actual path to the file on disk using small variant
+    // 6. Build the url using small variant
     let file_uri_path = format!(
         "/{}/{}/{}", // /{owner_id}/{file_id}/{variant}
         user_id,

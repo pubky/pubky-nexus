@@ -103,10 +103,10 @@ impl StaticProcessor {
         file: &FileDetails,
         variant: &FileVariant,
     ) -> Result<String, DynError> {
-        let file_variant_exists = Self::check_variant_exists(&file, variant.clone()).await;
+        let file_variant_exists = Self::check_variant_exists(file, variant.clone()).await;
 
         if file_variant_exists {
-            Ok(Self::get_content_type_for_variant(&file, &variant))
+            Ok(Self::get_content_type_for_variant(file, variant))
         } else {
             match Self::create_file_variant(file, variant).await {
                 Ok(content_type) => Ok(content_type),
@@ -115,7 +115,7 @@ impl StaticProcessor {
                         "Creating variant failed for file: {:?} with error: {}",
                         file, err
                     );
-                    return Err(err);
+                    Err(err)
                 }
             }
         }
