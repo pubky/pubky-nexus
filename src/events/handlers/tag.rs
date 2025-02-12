@@ -285,11 +285,12 @@ async fn del_sync_user(
         UserCounts::update(&tagger_id, "tags", JsonAction::Decrement(1), None),
         async {
             // Decrement label count to the user profile tag
-            TagUser::update_index_score(tagged_id, None, tag_label, ScoreAction::Decrement(1.0)).await?;
+            TagUser::update_index_score(tagged_id, None, tag_label, ScoreAction::Decrement(1.0))
+                .await?;
             // Decrease unique_taggged
             // NOTE: To update that field, we first need to decrement the value in the TagUser SORTED SET associated with that tag
             UserCounts::update(
-                &tagged_id,
+                tagged_id,
                 "unique_tagged",
                 JsonAction::Decrement(1),
                 Some(tag_label),

@@ -32,6 +32,7 @@ async fn test_get_post_view() -> Result<()> {
         "pubky://y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy/pub/pubky.app/posts/2ZCW1TGR5BKG0"
     );
     assert_eq!(body["counts"]["tags"].as_u64(), Some(5));
+    assert_eq!(body["counts"]["unique_tags"].as_u64(), Some(1));
     assert_eq!(body["counts"]["replies"].as_u64(), Some(2));
     assert_eq!(body["counts"]["reposts"].as_u64(), Some(1));
     assert_eq!(body["bookmark"]["indexed_at"].as_u64(), Some(1721764200000));
@@ -48,6 +49,23 @@ async fn test_get_post_view() -> Result<()> {
         StatusCode::NOT_FOUND,
     )
     .await?;
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_get_post_counts() -> Result<()> {
+    let path = format!("{}/{}/{}/counts", ROOT_PATH, CAIRO_USER, POST_H);
+
+    let body = get_request(&path).await?;
+    //let post_tag: PostView = serde_json::from_value(body.clone())?;
+    assert!(body.is_object());
+
+    // Check the post counts
+    assert_eq!(body["tags"], 6);
+    assert_eq!(body["unique_tags"], 2);
+    assert_eq!(body["replies"], 0);
+    assert_eq!(body["reposts"], 0);
 
     Ok(())
 }

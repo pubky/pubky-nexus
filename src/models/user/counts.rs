@@ -95,14 +95,19 @@ impl UserCounts {
         Ok(())
     }
 
-    pub async fn update(user_id: &str, field: &str, action: JsonAction, tag_label: Option<&str>) -> Result<(), DynError> {
+    pub async fn update(
+        user_id: &str,
+        field: &str,
+        action: JsonAction,
+        tag_label: Option<&str>,
+    ) -> Result<(), DynError> {
         if let Some(label) = tag_label {
             let index_parts = [&USER_TAGS_KEY_PARTS[..], &[user_id]].concat();
             let score = Self::check_sorted_set_member(None, &index_parts, &[label]).await?;
             match (score, &action) {
                 (Some(tag_value), JsonAction::Decrement(_)) if tag_value < 1 => (),
                 (None, JsonAction::Increment(_)) => (),
-                _ => return Ok(())
+                _ => return Ok(()),
             }
         }
         // Update user counts index

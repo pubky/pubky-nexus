@@ -96,14 +96,27 @@ async fn test_user_view_tags() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_get_counts() -> Result<()> {
-    let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
+    let user_id = "pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy";
     let res = get_request(&format!("/v0/user/{}/counts", user_id)).await?;
 
     assert!(res["tags"].is_number());
+    assert_eq!(res["tags"], 95);
+    assert!(res["tagged"].is_number());
+    assert_eq!(res["tagged"], 7);
+    assert!(res["unique_tagged"].is_number());
+    assert_eq!(res["unique_tagged"], 3);
+    assert!(res["replies"].is_number());
+    assert_eq!(res["replies"], 23);
     assert!(res["posts"].is_number());
+    assert_eq!(res["posts"], 87);
     assert!(res["followers"].is_number());
+    assert_eq!(res["followers"], 27);
     assert!(res["following"].is_number());
+    assert_eq!(res["following"], 7);
     assert!(res["friends"].is_number());
+    assert_eq!(res["friends"], 6);
+    assert!(res["bookmarks"].is_number());
+    assert_eq!(res["bookmarks"], 14);
 
     // Test non-existing user
     let user_id = "bad_user_id";

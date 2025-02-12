@@ -111,14 +111,13 @@ impl PostCounts {
             match (score, &action) {
                 (Some(tag_value), JsonAction::Decrement(_)) if tag_value < 1 => (),
                 (None, JsonAction::Increment(_)) => (),
-                _ => return Ok(())
+                _ => return Ok(()),
             }
         }
-    
+
         Self::modify_json_field(index_key, field, action).await?;
         Ok(())
     }
-    
 
     pub async fn reindex(author_id: &str, post_id: &str) -> Result<(), DynError> {
         match Self::get_from_graph(author_id, post_id).await? {

@@ -1,6 +1,6 @@
 use crate::watcher::tags::utils::find_user_tag;
-use crate::watcher::utils::watcher::WatcherTest;
 use crate::watcher::users::utils::find_user_counts;
+use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
 use pkarr::Keypair;
@@ -105,17 +105,10 @@ async fn test_homeserver_multi_userr() -> Result<()> {
     assert!(post_fire_tag.taggers.contains(tagger_c_id));
 
     // CACHE_OP: Check if the tag is correctly cached
-    let cache_user_tag = <TagUser as TagCollection>::get_from_index(
-        tagged_id,
-        None,
-        None,
-        None,
-        None,
-        None,
-        false,
-    )
-    .await
-    .unwrap();
+    let cache_user_tag =
+        <TagUser as TagCollection>::get_from_index(tagged_id, None, None, None, None, None, false)
+            .await
+            .unwrap();
 
     assert!(cache_user_tag.is_some());
     let cache_tag_details = cache_user_tag.unwrap();
@@ -152,29 +145,18 @@ async fn test_homeserver_multi_userr() -> Result<()> {
 
     // Step 5: Assert all the DEL operations
     // GRAPH_OP: Check if the tag exists in the graph database
-    let post_tag = find_user_tag(tagged_id, label_wind)
-        .await
-        .unwrap();
+    let post_tag = find_user_tag(tagged_id, label_wind).await.unwrap();
     assert!(post_tag.is_none());
 
-    let post_tag = find_user_tag(tagged_id, label_earth)
-        .await
-        .unwrap();
+    let post_tag = find_user_tag(tagged_id, label_earth).await.unwrap();
     assert!(post_tag.is_none());
 
     // CACHE_OP: Check if the tag is correctly deleted from cache
     // Sorted:Users:Tag:author_id
-    let cache_post_tag = <TagUser as TagCollection>::get_from_index(
-        tagged_id,
-        None,
-        None,
-        None,
-        None,
-        None,
-        false,
-    )
-    .await
-    .expect("Failed to get tag from cache");
+    let cache_post_tag =
+        <TagUser as TagCollection>::get_from_index(tagged_id, None, None, None, None, None, false)
+            .await
+            .expect("Failed to get tag from cache");
     assert!(
         cache_post_tag.is_none(),
         "The SORTED SET index cannot exist for the tag"
