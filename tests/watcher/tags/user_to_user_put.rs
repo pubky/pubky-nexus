@@ -85,6 +85,7 @@ async fn test_homeserver_put_tag_user_another() -> Result<()> {
     // Check if user counts of the tagged updated: User:Counts:user_id
     let user_counts = find_user_counts(&tagged_user_id).await;
     assert_eq!(user_counts.tagged, 1);
+    assert_eq!(user_counts.unique_tagged, 1);
 
     // Check if user counts of the tagger updated: User:Counts:user_id
     let user_counts = find_user_counts(&tagger_user_id).await;

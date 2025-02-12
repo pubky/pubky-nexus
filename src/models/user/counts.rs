@@ -1,5 +1,6 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
 use crate::db::kv::index::json::JsonAction;
+use crate::models::tag::user::USER_TAGS_KEY_PARTS;
 use crate::types::DynError;
 use crate::{queries, RedisOps};
 use serde::{Deserialize, Serialize};
@@ -94,7 +95,16 @@ impl UserCounts {
         Ok(())
     }
 
-    pub async fn update(user_id: &str, field: &str, action: JsonAction) -> Result<(), DynError> {
+    pub async fn update(user_id: &str, field: &str, action: JsonAction, tag_label: Option<&str>) -> Result<(), DynError> {
+        if let Some(label) = tag_label {
+            let index_parts = [&USER_TAGS_KEY_PARTS[..], &[user_id]].concat();
+            let score = Self::check_sorted_set_member(None, &index_parts, &[label]).await?;
+            match (score, &action) {
+                (Some(tag_value), JsonAction::Decrement(_)) if tag_value < 1 => (),
+                (None, JsonAction::Increment(_)) => (),
+                _ => return Ok(())
+            }
+        }
         // Update user counts index
         Self::update_index_field(user_id, field, action).await?;
         // Just update pioneer and most followed indexes, when that fields are updated

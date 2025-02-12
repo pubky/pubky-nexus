@@ -68,6 +68,7 @@ async fn test_homeserver_put_tag_user_self() -> Result<()> {
     let user_counts = find_user_counts(&user_id).await;
     assert_eq!(user_counts.tags, 1);
     assert_eq!(user_counts.tagged, 1);
+    assert_eq!(user_counts.unique_tagged, 1);
 
     // Check user pionner score: Sorted:Users:Pioneers
     let pioneer_score = check_member_user_pioneer(&user_id)

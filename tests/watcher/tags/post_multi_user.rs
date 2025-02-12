@@ -23,7 +23,7 @@ use pubky_nexus::{
 };
 
 #[tokio_shared_rt::test(shared)]
-async fn test_homeserver_multi_user() -> Result<()> {
+async fn test_homeserver_multi_user_posts() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Step 1: Write in the homeserver and index in nexus
@@ -33,10 +33,10 @@ async fn test_homeserver_multi_user() -> Result<()> {
         let keypair = Keypair::random();
 
         let tagger = PubkyAppUser {
-            bio: Some("test_homeserver_put_tag_post".to_string()),
+            bio: Some("test_homeserver_multi_user_post".to_string()),
             image: None,
             links: None,
-            name: format!("Watcher:MultiUser:User{}", index),
+            name: format!("Watcher:MultiUserPost:User{}", index),
             status: None,
         };
         let user_id = test.create_user(&keypair, &tagger).await?;
@@ -46,7 +46,7 @@ async fn test_homeserver_multi_user() -> Result<()> {
     let author_id = &user_ids[0];
 
     let post = PubkyAppPost {
-        content: "Watcher:MultiUser:User:Post".to_string(),
+        content: "Watcher:MultiUserPost:User:Post".to_string(),
         kind: PubkyAppPost::default().kind,
         parent: None,
         embed: None,

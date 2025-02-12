@@ -95,10 +95,10 @@ pub async fn sync_put(
             Ok::<(), DynError>(())
         },
         // Update user counts with the new post
-        UserCounts::update(&author_id, "posts", JsonAction::Increment(1)),
+        UserCounts::update(&author_id, "posts", JsonAction::Increment(1), None),
         async {
             if is_reply {
-                UserCounts::update(&author_id, "replies", JsonAction::Increment(1)).await?;
+                UserCounts::update(&author_id, "replies", JsonAction::Increment(1), None).await?;
             };
             Ok::<(), DynError>(())
         }
@@ -343,10 +343,10 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
     // DELETE TO INDEX - PHASE 1, decrease post counts
     let indexing_results = tokio::join!(
         PostCounts::delete(&author_id, &post_id, !is_reply),
-        UserCounts::update(&author_id, "posts", JsonAction::Decrement(1)),
+        UserCounts::update(&author_id, "posts", JsonAction::Decrement(1), None),
         async {
             if is_reply {
-                UserCounts::update(&author_id, "replies", JsonAction::Decrement(1)).await?;
+                UserCounts::update(&author_id, "replies", JsonAction::Decrement(1), None).await?;
             };
             Ok::<(), DynError>(())
         }
