@@ -10,14 +10,18 @@ use super::UserStream;
 /// Represents total counts of relationships of a user.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Default)]
 pub struct UserCounts {
+    // The number of tags assigned to other entities (e.g. user, posts)
     pub tags: u32,
+    // User received tags counts
+    pub tagged: u32,
+    // Distinct tags where the user was referenced
+    pub unique_tagged: u32,
     pub posts: u32,
     pub replies: u32,
     pub following: u32,
     pub followers: u32,
     pub friends: u32,
     pub bookmarks: u32,
-    pub tagged: u32,
 }
 
 impl RedisOps for UserCounts {}

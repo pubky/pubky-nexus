@@ -10,7 +10,10 @@ use super::PostStream;
 /// Represents total counts of relationships of a user.
 #[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
 pub struct PostCounts {
+    // how many times was pointed the post with a tag
     pub tags: u32,
+    // Distinct tags where the post was referenced
+    pub unique_tags: u32,
     pub replies: u32,
     pub reposts: u32,
 }
