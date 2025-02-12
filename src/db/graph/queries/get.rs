@@ -294,6 +294,7 @@ pub fn user_counts(user_id: &str) -> neo4rs::Query {
     query(
         "
         MATCH (u:User {id: $user_id})
+        
         // tags that reference this user
         OPTIONAL MATCH (u)<-[t:TAGGED]-()
         WITH u, COUNT(DISTINCT t.label) AS unique_tagged,
