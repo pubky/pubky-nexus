@@ -129,7 +129,8 @@ pub async fn sync_put(
             PostCounts::update_index_field(
                 parent_post_key_parts,
                 "replies",
-                JsonAction::Increment(1)
+                JsonAction::Increment(1),
+                None
             ),
             async {
                 if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await? {
@@ -179,7 +180,8 @@ pub async fn sync_put(
             PostCounts::update_index_field(
                 parent_post_key_parts,
                 "reposts",
-                JsonAction::Increment(1)
+                JsonAction::Increment(1),
+                None
             ),
             async {
                 // Post replies cannot be included in the total engagement index after they receive a reply
@@ -375,6 +377,7 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
                     &parent_post_key_parts,
                     "replies",
                     JsonAction::Decrement(1),
+                    None
                 ),
                 async {
                     // Post replies cannot be included in the total engagement index after the reply is deleted
@@ -417,6 +420,7 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
                     parent_post_key_parts,
                     "reposts",
                     JsonAction::Decrement(1),
+                    None
                 ),
                 async {
                     // Post replies cannot be included in the total engagement index after the repost is deleted

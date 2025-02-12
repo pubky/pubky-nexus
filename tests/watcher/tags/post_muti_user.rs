@@ -172,6 +172,7 @@ async fn test_homeserver_multi_user() -> Result<()> {
     // Check if post counts updated: Post:Counts:user_id:post_id
     let post_counts = find_post_counts(author_id, &post_id).await;
     assert_eq!(post_counts.tags, 5);
+    assert_eq!(post_counts.unique_tags, 2);
 
     // Check if user counts updated: User:Counts:user_id
     let tagger_a_user_counts = find_user_counts(tagger_a_id).await;
@@ -246,6 +247,7 @@ async fn test_homeserver_multi_user() -> Result<()> {
     // Check if post counts updated: Post:Counts:user_id:post_id
     let post_counts = find_post_counts(author_id, &post_id).await;
     assert_eq!(post_counts.tags, 0);
+    assert_eq!(post_counts.unique_tags, 0);
 
     // Check if user counts updated: User:Counts:user_id
     for tagger_id in water_taggers {

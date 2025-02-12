@@ -105,6 +105,7 @@ async fn test_homeserver_del_tag_post() -> Result<()> {
     // Check if post counts updated: Post:Counts:user_id:post_id
     let post_counts = find_post_counts(&author_user_id, &post_id).await;
     assert_eq!(post_counts.tags, 0);
+    assert_eq!(post_counts.unique_tags, 0);
 
     // Check if user counts updated: User:Counts:user_id
     let user_counts = find_user_counts(&author_user_id).await;

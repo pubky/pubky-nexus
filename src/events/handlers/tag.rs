@@ -98,14 +98,33 @@ async fn put_sync_post(
                 // Update user counts for tagger
                 UserCounts::update(&tagger_user_id, "tags", JsonAction::Increment(1)),
                 // Increment in one the post tags
-                PostCounts::update_index_field(post_key_slice, "tags", JsonAction::Increment(1)),
-                // Add label to post
-                TagPost::update_index_score(
-                    &author_id,
-                    Some(&post_id),
-                    &tag_label,
-                    ScoreAction::Increment(1.0)
+                PostCounts::update_index_field(
+                    post_key_slice,
+                    "tags",
+                    JsonAction::Increment(1),
+                    None
                 ),
+                async {
+                    // Increase unique_tag if the tag does not exist already
+                    // NOTE: To update that field, it cannot exist in TagPost SORTED SET the tag. Thats why it has to be executed
+                    // before TagPost operation
+                    PostCounts::update_index_field(
+                        post_key_slice,
+                        "unique_tags",
+                        JsonAction::Increment(1),
+                        Some(&tag_label),
+                    )
+                    .await?;
+                    // Increment the label count to post
+                    TagPost::update_index_score(
+                        &author_id,
+                        Some(&post_id),
+                        &tag_label,
+                        ScoreAction::Increment(1.0),
+                    )
+                    .await?;
+                    Ok::<(), DynError>(())
+                },
                 // Add user tag in post
                 TagPost::add_tagger_to_index(
                     &author_id,
@@ -285,14 +304,26 @@ async fn del_sync_post(
         // Update user counts for tagger
         UserCounts::update(&tagger_id, "tags", JsonAction::Decrement(1)),
         // Decrement in one the post tags
-        PostCounts::update_index_field(post_key_slice, "tags", JsonAction::Decrement(1)),
-        // Decrement label score in the post
-        TagPost::update_index_score(
-            author_id,
-            Some(post_id),
-            tag_label,
-            ScoreAction::Decrement(1.0)
-        ),
+        PostCounts::update_index_field(post_key_slice, "tags", JsonAction::Decrement(1), None),
+        async {
+            // Decrement label score in the post
+            TagPost::update_index_score(
+                author_id,
+                Some(post_id),
+                tag_label,
+                ScoreAction::Decrement(1.0),
+            ).await?;
+            // Decrease unique_tag
+            // NOTE: To update that field, we first need to decrement the value in the SORTED SET associated with that tag
+            PostCounts::update_index_field(
+                post_key_slice,
+                "unique_tags",
+                JsonAction::Decrement(1),
+                Some(tag_label),
+            )
+            .await?;
+            Ok::<(), DynError>(())
+        },
         // Decrease post from label total engagement
         TagSearch::update_index_score(author_id, post_id, tag_label, ScoreAction::Decrement(1.0)),
         async {

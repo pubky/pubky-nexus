@@ -1,5 +1,6 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
 use crate::db::kv::index::json::JsonAction;
+use crate::models::tag::post::POST_TAGS_KEY_PARTS;
 use crate::types::DynError;
 use crate::{queries, RedisOps};
 use serde::{Deserialize, Serialize};
@@ -102,10 +103,22 @@ impl PostCounts {
         index_key: &[&str],
         field: &str,
         action: JsonAction,
+        tag_label: Option<&str>,
     ) -> Result<(), DynError> {
+        if let Some(label) = tag_label {
+            let index_parts = [&POST_TAGS_KEY_PARTS[..], index_key].concat();
+            let score = Self::check_sorted_set_member(None, &index_parts, &[label]).await?;
+            match (score, &action) {
+                (Some(tag_value), JsonAction::Decrement(_)) if tag_value < 1 => (),
+                (None, JsonAction::Increment(_)) => (),
+                _ => return Ok(())
+            }
+        }
+    
         Self::modify_json_field(index_key, field, action).await?;
         Ok(())
     }
+    
 
     pub async fn reindex(author_id: &str, post_id: &str) -> Result<(), DynError> {
         match Self::get_from_graph(author_id, post_id).await? {

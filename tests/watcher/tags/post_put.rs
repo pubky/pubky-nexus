@@ -119,6 +119,7 @@ async fn test_homeserver_put_tag_post() -> Result<()> {
     // Check if post counts updated: Post:Counts:user_id:post_id
     let post_counts = find_post_counts(&tagger_user_id, &post_id).await;
     assert_eq!(post_counts.tags, 1);
+    assert_eq!(post_counts.unique_tags, 1);
 
     // Check if user counts updated: User:Counts:user_id
     let user_counts = find_user_counts(&tagger_user_id).await;
