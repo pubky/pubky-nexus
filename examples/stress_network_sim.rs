@@ -1,13 +1,11 @@
 use anyhow::Result;
 use chrono::Utc;
+use pkarr::{Keypair, PublicKey};
 use pubky::Client;
 use pubky_app_specs::{
-    traits::{HashId, TimestampId},
-    PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
-};
-use pubky_common::{
-    crypto::{Keypair, PublicKey},
-    timestamp::Timestamp,
+    traits::{HasPath, HashId, TimestampId},
+    PubkyAppBlob, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppPostKind, PubkyAppTag,
+    PubkyAppUser,
 };
 use pubky_nexus::Config;
 use rand::rngs::StdRng;
@@ -386,19 +384,18 @@ async fn create_files(
 
     for _ in 0..num_files {
         // Step 1: Create a blob with random content
-        let blob_content = random_string(rng, 256); // Random content
-        let blob_id = Timestamp::now().to_string();
-        let blob_url = format!("pubky://{}/pub/pubky.app/blobs/{}", pk, blob_id);
-        let blob_json = match serde_json::to_vec(&blob_content) {
-            Ok(json) => json,
-            Err(e) => {
-                println!("ERROR: Failed to serialize blob {}: {}", blob_id, e);
-                files_failed += 1;
-                continue;
-            }
-        };
+        let blob_data = random_string(rng, 256); // Random content
+        let blob = PubkyAppBlob::new(blob_data.as_bytes().to_vec());
+        let blob_id = blob.create_id();
+        let blob_url = format!("pubky://{}{}", pk, blob.create_path());
+
         println!("PUT BLOB: {}", blob_id);
-        if let Err(e) = client.put(blob_url.as_str()).json(&blob_json).send().await {
+        if let Err(e) = client
+            .put(blob_url.as_str())
+            .body(blob.0.clone())
+            .send()
+            .await
+        {
             println!(
                 "ERROR: Failed to PUT blob {} for user {}: {}",
                 blob_id, pk, e
@@ -412,7 +409,7 @@ async fn create_files(
             name: format!("file_{}", random_string(rng, 5)),
             content_type: "text/plain".to_string(),
             src: blob_url.clone(),
-            size: blob_json.len() as i64,
+            size: blob.0.len() as i64,
             created_at: Utc::now().timestamp_millis(),
         };
 
