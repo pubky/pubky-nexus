@@ -61,7 +61,7 @@ async fn test_user_avatar_endpoint() -> Result<()> {
 
     // 7. Issue a GET to the new `/avatar` route using your test client
     let client = httpc_test::new_client(crate::service::utils::host_url().await)?;
-    let url_path = format!("/v0/user/{user_id}/avatar");
+    let url_path = format!("/static/avatar/{}", user_id);
     let response = client.do_get(&url_path).await?;
 
     // 8. Verify response

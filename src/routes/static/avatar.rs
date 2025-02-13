@@ -1,6 +1,5 @@
+use super::serve_dir::get_serve_dir;
 use crate::models::file::details::FileVariant;
-use crate::routes::r#static::get_serve_dir;
-use crate::routes::v0::endpoints::USER_AVATAR_ROUTE;
 use crate::static_processor::StaticProcessor;
 use crate::{
     models::{file::FileDetails, traits::Collection, user::UserDetails},
@@ -12,6 +11,8 @@ use axum::{extract::Path, http::StatusCode, response::Response};
 use log::{error, info};
 use tower_http::services::fs::ServeFileSystemResponseBody;
 use utoipa::OpenApi;
+
+use super::endpoints::USER_AVATAR_ROUTE;
 
 #[utoipa::path(
     get,
