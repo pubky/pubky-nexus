@@ -6,7 +6,7 @@ use utoipa::OpenApi;
 mod bookmark;
 mod counts;
 mod details;
-mod tags;
+pub mod tags;
 mod view;
 
 pub fn routes() -> Router {

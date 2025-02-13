@@ -6,8 +6,8 @@ use super::utils::{
 use crate::watcher::users::utils::find_user_counts;
 use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
+use pkarr::Keypair;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
-use pubky_common::crypto::Keypair;
 use pubky_nexus::{
     models::post::{PostDetails, PostRelationships, PostStream},
     RedisOps,
@@ -116,7 +116,7 @@ async fn test_homeserver_post_reply() -> Result<()> {
     assert_eq!(reply_post_counts.replies, 0);
 
     // Post:Relationships:user_id:post_id
-    let post_relationships = PostRelationships::try_from_index_json(&[&user_id, &reply_id])
+    let post_relationships = PostRelationships::try_from_index_json(&[&user_id, &reply_id], None)
         .await
         .unwrap();
     assert!(
@@ -174,17 +174,6 @@ async fn test_homeserver_post_reply() -> Result<()> {
     );
 
     test.cleanup_post(&user_id, &reply_id).await?;
-    // let result_post = PostView::get_by_id(&user_id, &post_id, None, None, None)
-    //     .await
-    //     .unwrap();
-
-    // assert!(result_post.is_none(), "The post should have been deleted");
-
-    // After deletion, fetch the post thread again and confirm the reply is gone
-    // let thread_after_deletion = PostThread::get_by_id(&user_id, &parent_id, None, 0, 10)
-    //     .await
-    //     .expect("Failed to fetch post thread after deletion")
-    //     .expect("The post thread should exist after deletion");
 
     // Cleanup
     test.cleanup_user(&user_id).await?;

@@ -1,7 +1,7 @@
 use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
+use pkarr::Keypair;
 use pubky_app_specs::PubkyAppUser;
-use pubky_common::crypto::Keypair;
 use pubky_nexus::models::user::Relationship;
 use pubky_nexus::models::user::UserCounts;
 use pubky_nexus::RedisOps;
@@ -122,7 +122,7 @@ async fn test_homeserver_sequential_follow() -> Result<()> {
         "Followee cannot be following Danonino"
     );
 
-    let followee_user_count = UserCounts::try_from_index_json(&[&followee_id])
+    let followee_user_count = UserCounts::try_from_index_json(&[&followee_id], None)
         .await
         .unwrap()
         .expect("User count not found");
@@ -147,7 +147,7 @@ async fn test_homeserver_sequential_follow() -> Result<()> {
         "Danonino should be following Followee"
     );
 
-    let followee_user_count = UserCounts::try_from_index_json(&[&followee_id])
+    let followee_user_count = UserCounts::try_from_index_json(&[&followee_id], None)
         .await
         .unwrap()
         .expect("User count not found");
@@ -193,7 +193,7 @@ async fn test_homeserver_sequential_follow() -> Result<()> {
         "Followee should be following Enzo"
     );
 
-    let followee_user_count = UserCounts::try_from_index_json(&[&followee_id])
+    let followee_user_count = UserCounts::try_from_index_json(&[&followee_id], None)
         .await
         .unwrap()
         .expect("User count not found");

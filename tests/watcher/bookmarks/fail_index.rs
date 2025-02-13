@@ -1,8 +1,8 @@
 use crate::watcher::utils::watcher::{retrieve_and_handle_event_line, WatcherTest};
 use anyhow::Result;
 use log::error;
+use pkarr::Keypair;
 use pubky_app_specs::{traits::HashId, PubkyAppBookmark, PubkyAppPost, PubkyAppUser};
-use pubky_common::crypto::Keypair;
 
 /// The user profile is stored in the homeserver. Missing the author that creates the bookmark
 #[tokio_shared_rt::test(shared)]
@@ -41,7 +41,7 @@ async fn test_homeserver_bookmark_without_user() -> Result<()> {
         uri: format!("pubky://{}/pub/pubky.app/posts/{}", author_id, post_id),
         created_at: chrono::Utc::now().timestamp_millis(),
     };
-    let bookmark_blob = serde_json::to_vec(&bookmark)?;
+
     // Create the bookmark of the shadow user
     let bookmark_id = bookmark.create_id();
     let bookmark_url = format!(
@@ -52,7 +52,7 @@ async fn test_homeserver_bookmark_without_user() -> Result<()> {
     // Switch OFF the event processor to simulate the pending events to index
     test = test.remove_event_processing().await;
     // Put bookmark
-    test.put(&bookmark_url, bookmark_blob).await?;
+    test.put(&bookmark_url, bookmark).await?;
 
     // Create raw event line to retrieve the content from the homeserver
     let bookmark_event = format!("PUT {}", bookmark_url);

@@ -2,11 +2,11 @@ use crate::watcher::utils::watcher::{retrieve_and_handle_event_line, WatcherTest
 use anyhow::Result;
 use chrono::Utc;
 use log::error;
+use pkarr::Keypair;
 use pubky_app_specs::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser};
-use pubky_common::crypto::Keypair;
 
 #[tokio_shared_rt::test(shared)]
-async fn test_homeserver_tag_user_not_found() -> Result<()> {
+async fn test_homeserver_tag_cannot_add_while_index() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     let tagged_keypair = Keypair::random();

@@ -8,6 +8,9 @@ pub struct TagDetails {
     pub label: String,
     pub taggers: Vec<String>,
     pub taggers_count: usize,
+    #[serde(default)]
+    // Describes if the viewer is part of the taggers list
+    pub relationship: bool,
 }
 
 impl TagDetails {
@@ -21,17 +24,18 @@ impl TagDetails {
     /// A `Vec` of `TagDetails` instances, filtered to include only those where `taggers_list` contains `Some` data.
     pub fn from_index(
         tag_scores: Vec<(String, f64)>,
-        taggers_list: Vec<Option<(Vec<String>, usize)>>,
+        taggers_list: Vec<Option<(Vec<String>, usize, bool)>>,
     ) -> Vec<TagDetails> {
         tag_scores
             .into_iter()
             .zip(taggers_list)
             .filter_map(|((label, _), taggers)| {
                 // TIP: MAP will not process None types and it will be automatically passed through unchanged
-                taggers.map(|(taggers, taggers_count)| TagDetails {
+                taggers.map(|(taggers, taggers_count, relationship)| TagDetails {
                     label,
                     taggers,
                     taggers_count,
+                    relationship,
                 })
             })
             .collect()

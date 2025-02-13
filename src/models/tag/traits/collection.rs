@@ -33,6 +33,7 @@ where
     /// # Parameters
     /// - `user_id` - A string slice representing the ID of the user for whom the tags are being retrieved
     /// - `extra_param` - An optional string slice used as an additional filter or context in tag retrieval. If it is Some(), the value is post_id
+    /// -  skip_tags - The number of tags to skip before retrieving results
     /// - `limit_tags` - An optional limit on the number of tags to retrieve.
     /// - `limit_taggers` - An optional limit on the number of taggers (users who have tagged) to retrieve.
     /// - `viewer_id` - An optional string slice representing the ID of the viewer or requester.
@@ -47,6 +48,7 @@ where
     async fn get_by_id(
         user_id: &str,
         extra_param: Option<&str>,
+        skip_tags: Option<usize>,
         limit_tags: Option<usize>,
         limit_taggers: Option<usize>,
         viewer_id: Option<&str>,
@@ -55,7 +57,17 @@ where
         // Query for the tags that are in its WoT
         // Actually we just apply that search to User node
         if viewer_id.is_some() && matches!(depth, Some(1..=3)) {
-            match Self::get_from_index(user_id, viewer_id, limit_tags, limit_taggers, true).await? {
+            match Self::get_from_index(
+                user_id,
+                viewer_id,
+                viewer_id,
+                skip_tags,
+                limit_tags,
+                limit_taggers,
+                true,
+            )
+            .await?
+            {
                 Some(tag_details) => return Ok(Some(tag_details)),
                 None => {
                     let depth = depth.unwrap_or(1);
@@ -69,8 +81,18 @@ where
                 }
             }
         }
-        // Get global tags for that user
-        match Self::get_from_index(user_id, extra_param, limit_tags, limit_taggers, false).await? {
+        // Get global tags for that user/post
+        match Self::get_from_index(
+            user_id,
+            extra_param,
+            viewer_id,
+            skip_tags,
+            limit_tags,
+            limit_taggers,
+            false,
+        )
+        .await?
+        {
             Some(tag_details) => Ok(Some(tag_details)),
             None => {
                 let graph_response = Self::get_from_graph(user_id, extra_param, None).await?;
@@ -87,6 +109,7 @@ where
     /// # Arguments
     /// * user_id - The key of the user for whom to retrieve tags.
     /// * extra_param - An optional parameter for specifying additional constraints: post_id, viewer_id (for WoT search)
+    /// * skip_tags - The number of tags to skip before retrieving results
     /// * limit_tags - A limit on the number of tags to retrieve.
     /// * limit_taggers - A limit on the number of taggers to retrieve.
     /// * is_cache - A boolean indicating whether to retrieve tags from the cache or the primary index.
@@ -97,11 +120,14 @@ where
     async fn get_from_index(
         user_id: &str,
         extra_param: Option<&str>,
+        viewer_id: Option<&str>,
+        skip_tags: Option<usize>,
         limit_tags: Option<usize>,
         limit_taggers: Option<usize>,
         is_cache: bool,
     ) -> Result<Option<Vec<TagDetails>>, DynError> {
         let limit_tags = limit_tags.unwrap_or(5);
+        let skip_tags = skip_tags.unwrap_or(0);
         let limit_taggers = limit_taggers.unwrap_or(5);
         let key_parts = Self::create_sorted_set_key_parts(user_id, extra_param, is_cache);
         // Prepare the extra prefix for cache search
@@ -117,7 +143,7 @@ where
             &key_parts,
             None,
             None,
-            None,
+            Some(skip_tags),
             Some(limit_tags),
             SortOrder::Descending,
             cache_prefix.0,
@@ -143,9 +169,13 @@ where
                 }
 
                 let tags_ref: Vec<&str> = tags.iter().map(|label| label.as_str()).collect();
-                let taggers =
-                    Self::try_from_multiple_sets(cache_prefix.1, &tags_ref, Some(limit_taggers))
-                        .await?;
+                let taggers = Self::try_from_multiple_sets(
+                    &tags_ref,
+                    cache_prefix.1,
+                    viewer_id,
+                    Some(limit_taggers),
+                )
+                .await?;
                 let tag_details_list = TagDetails::from_index(tag_scores, taggers);
                 Ok(Some(tag_details_list))
             }
@@ -404,7 +434,7 @@ where
     /// Constructs the index for a sorted set in Redis based on the user key and an optional extra parameter.
     /// # Arguments
     /// * user_id - The key of the user.
-    /// * extra_param - An optional parameter for specifying additional context (e.g., an post_id)
+    /// * extra_param - An optional parameter to complete the sorted_set index (post_id | viewer_id)
     /// * is_cache - A boolean indicating whether to retrieve tags from the cache or the primary index.
     /// # Returns
     /// A vector of strings representing the parts of the key.
@@ -417,6 +447,7 @@ where
         let prefix = Self::get_tag_prefix();
         match extra_param {
             Some(extra_id) => match is_cache {
+                // WOT index, the extra param in that case is viewer_id
                 true => [&prefix[..], &[extra_id, user_id]].concat(),
                 false => [&prefix[..], &[user_id, extra_id]].concat(),
             },
