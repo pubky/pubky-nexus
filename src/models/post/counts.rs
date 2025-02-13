@@ -99,18 +99,30 @@ impl PostCounts {
         Ok(())
     }
 
+    /// Updates a specified JSON field in the index
+    ///
+    /// # Arguments
+    ///
+    /// * `index_key` - A slice of string references representing the index key parts.
+    /// * `field` - The name of the JSON field to be updated.
+    /// * `action` - The action to perform on the JSON field (increment or decrement).
+    /// * `tag_label` - An optional tag label used to check membership in a sorted set. Important field to update the unique_tags field
     pub async fn update_index_field(
         index_key: &[&str],
         field: &str,
         action: JsonAction,
         tag_label: Option<&str>,
     ) -> Result<(), DynError> {
+        // This condition applies only when updating `unique_tags`
         if let Some(label) = tag_label {
             let index_parts = [&POST_TAGS_KEY_PARTS[..], index_key].concat();
             let score = Self::check_sorted_set_member(None, &index_parts, &[label]).await?;
             match (score, &action) {
+                // to decrement `unique_tags`, the tag value must be less than or equal to 1
                 (Some(tag_value), JsonAction::Decrement(_)) if tag_value < 1 => (),
+                // to increment `unique_tags`, the tag must not exist in the sorted set
                 (None, JsonAction::Increment(_)) => (),
+                // Do not update the index
                 _ => return Ok(()),
             }
         }

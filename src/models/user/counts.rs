@@ -11,7 +11,7 @@ use super::UserStream;
 /// Represents total counts of relationships of a user.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Default)]
 pub struct UserCounts {
-    // The number of tags assigned to other entities (e.g. user, posts)
+    // The number of tags assigned to other entities by the user (e.g. user, posts)
     pub tagged: u32,
     // User received tags counts
     pub tags: u32,
@@ -95,17 +95,35 @@ impl UserCounts {
         Ok(())
     }
 
+    /// Updates a user's counts index field and conditionally updates ranking sets
+    /// based on follower, tag, or post counts.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The unique identifier of the user whose index field is being updated.
+    /// * `field` - The name of the user-related field to update (e.g., `"followers"`, `"tags"`, `"posts"`).
+    /// * `action` - The action to perform on the field (increment or decrement).
+    /// * `tag_label` - An optional tag label used to check membership in the user's tag-related sorted set. Important if we want to update the unique_tags field
+    ///
+    /// # Behavior
+    ///
+    /// - Conditional Update Based on `tag_label`
+    /// - Update User Counts Index
+    /// - Update Ranking Sets for Specific Fields
     pub async fn update(
         user_id: &str,
         field: &str,
         action: JsonAction,
         tag_label: Option<&str>,
     ) -> Result<(), DynError> {
+        // This condition applies only when updating `unique_tags`
         if let Some(label) = tag_label {
             let index_parts = [&USER_TAGS_KEY_PARTS[..], &[user_id]].concat();
             let score = Self::check_sorted_set_member(None, &index_parts, &[label]).await?;
             match (score, &action) {
+                // to decrement `unique_tags`, the tag value must be less than or equal to 1
                 (Some(tag_value), JsonAction::Decrement(_)) if tag_value < 1 => (),
+                // to increment `unique_tags`, the tag must not exist in the sorted set
                 (None, JsonAction::Increment(_)) => (),
                 _ => return Ok(()),
             }

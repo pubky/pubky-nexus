@@ -105,7 +105,7 @@ async fn put_sync_post(
                     None
                 ),
                 async {
-                    // Increase unique_tag if the tag does not exist already
+                    // Increase unique_tags if the tag does not exist already
                     // NOTE: To update that field, it cannot exist in TagPost SORTED SET the tag. Thats why it has to be executed
                     // before TagPost operation
                     PostCounts::update_index_field(
@@ -209,7 +209,7 @@ async fn put_sync_user(
                 // Update user counts for the tagger user
                 UserCounts::update(&tagger_user_id, "tagged", JsonAction::Increment(1), None),
                 async {
-                    // Increase unique_taggged if the tag does not exist already
+                    // Increase unique_tags if the tag does not exist already
                     // NOTE: To update that field, it cannot exist in TagUser SORTED SET the tag. Thats why it has to be executed
                     // before TagUser operation
                     UserCounts::update(
@@ -287,7 +287,7 @@ async fn del_sync_user(
             // Decrement label count to the user profile tag
             TagUser::update_index_score(tagged_id, None, tag_label, ScoreAction::Decrement(1.0))
                 .await?;
-            // Decrease unique_taggged
+            // Decrease unique_tags
             // NOTE: To update that field, we first need to decrement the value in the TagUser SORTED SET associated with that tag
             UserCounts::update(
                 tagged_id,

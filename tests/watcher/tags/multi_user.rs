@@ -15,7 +15,7 @@ use pubky_nexus::{
 };
 
 #[tokio_shared_rt::test(shared)]
-async fn test_homeserver_multi_userr() -> Result<()> {
+async fn test_homeserver_multi_user_tags() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Step 1: Write in the homeserver and index in nexus

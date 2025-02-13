@@ -15,7 +15,7 @@ async fn test_user_endpoint() -> Result<()> {
     assert_eq!(res["details"]["status"], "working");
     assert_eq!(res["details"]["id"], user_id);
     assert_eq!(res["details"]["image"], "pubky://4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro/pub/pubky.app/files/003286NSMY490");
-    
+
     assert_eq!(res["counts"]["tagged"], 10);
     assert_eq!(res["counts"]["tags"], 4);
     assert_eq!(res["counts"]["unique_tags"], 4);
@@ -25,7 +25,7 @@ async fn test_user_endpoint() -> Result<()> {
     assert_eq!(res["counts"]["followers"], 10);
     assert_eq!(res["counts"]["friends"], 8);
     assert_eq!(res["counts"]["bookmarks"], 0);
-    
+
     // Test tags on Ar's profile
     let ar_id = "pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy";
     let res = get_request(&format!("/v0/user/{}", ar_id)).await?;
