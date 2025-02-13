@@ -236,23 +236,19 @@ impl UserStream {
             None,
         )
         .await?;
-        let unique_user_ids: HashSet<String> = replies
-            .map(|replies| {
-                replies
-                    .into_iter()
-                    .map(|reply| {
-                        reply
-                            .0
-                            .split(":")
-                            .map(ToString::to_string)
-                            .collect::<Vec<String>>()[0]
-                            .clone()
-                    })
-                    .collect::<Vec<String>>()
-            })
-            .into_iter()
-            .flatten()
-            .collect();
+
+        // If there are replies, extract unique user IDs using a HashSet.
+        let unique_user_ids: HashSet<String> = if let Some(replies) = replies {
+            replies
+                .into_iter()
+                .filter_map(|reply| reply.0.split(':').next().map(|s| s.to_string()))
+                .collect()
+        } else {
+            // If no replies are found, return None.
+            return Ok(None);
+        };
+
+        // Convert the HashSet to a Vec. (Note: the ordering will be arbitrary.)
         Ok(Some(unique_user_ids.into_iter().collect()))
     }
 
