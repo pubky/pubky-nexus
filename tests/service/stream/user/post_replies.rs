@@ -1,8 +1,10 @@
 use anyhow::Result;
 
-use crate::service::utils::{make_request, make_wrong_request};
+use axum::http::StatusCode;
 
-#[tokio::test]
+use crate::service::utils::{get_request, invalid_get_request};
+
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_users_for_post_replies() -> Result<()> {
     // List of unique replier IDs
     let replier_ids = vec![
@@ -15,13 +17,11 @@ async fn test_stream_users_for_post_replies() -> Result<()> {
     let author_id = "emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy";
     let post_id = "1A1P4D8C9K0F";
 
-    let body = make_request(&format!(
+    let body = get_request(&format!(
         "/v0/stream/users?source=post_replies&post_id={}&author_id={}",
         post_id, author_id,
     ))
     .await?;
-
-    assert!(body.is_array(), "Response body should be an array");
 
     let users = body.as_array().expect("User stream should be an array");
 
@@ -48,28 +48,28 @@ async fn test_stream_users_for_post_replies() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_users_for_post_replies_no_post_id() -> Result<()> {
     let author_id = "emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy";
 
-    make_wrong_request(
+    invalid_get_request(
         &format!(
             "/v0/stream/users?source=post_replies&author_id={}",
             author_id,
         ),
-        Some(400),
+        StatusCode::BAD_REQUEST,
     )
     .await?;
 
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_users_for_post_replies_no_author_id() -> Result<()> {
     let post_id = "1A1P4D8C9K0F";
-    make_wrong_request(
+    invalid_get_request(
         &format!("/v0/stream/users?source=post_replies&post_id={}", post_id,),
-        Some(400),
+        StatusCode::BAD_REQUEST,
     )
     .await?;
 
