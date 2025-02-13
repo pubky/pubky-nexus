@@ -6,6 +6,7 @@ use axum::{
 use log::{debug, error};
 use serde::{Deserialize, Serialize};
 use tower_http::services::fs::ServeFileSystemResponseBody;
+use utoipa::OpenApi;
 
 use crate::{
     models::{
@@ -16,6 +17,8 @@ use crate::{
     static_processor::StaticProcessor,
     Error, Result,
 };
+
+use super::endpoints::STATIC_FILES_ROUTE;
 
 #[derive(Deserialize, Serialize)]
 pub struct FileParams {
@@ -35,6 +38,23 @@ pub struct FilePath {
 /// If the variant is not valid for the content type, a 400 Bad Request will be returned
 /// If the file does not exist, a 404 Not Found will be returned
 /// If the processing of the new variant fails, a 500 Internal Server Error will be returned
+#[utoipa::path(
+    get,
+    path = STATIC_FILES_ROUTE,
+    description = "Serves a static file by owner_id, file_id and variant",
+    tags = ["Static", "File"],
+    params(
+        ("owner_id" = String, Path, description = "File's owner id"),
+        ("file_id" = String, Path, description = "File's id"),
+        ("variant" = FileVariant, Path, description = "File's variant"),
+        ("dl" = Option<String>, Query, description = "Download the file. Returns with content-disposition header set to attachment")
+    ),
+    responses(
+        (status = 200, description = "File's raw data"),
+        (status = 404, description = "File not found"),
+        (status = 500, description = "Internal server error")
+    )
+)]
 pub async fn static_files_handler(
     Path(FilePath {
         owner_id,
@@ -144,3 +164,7 @@ pub async fn static_files_handler(
 
     Ok(response)
 }
+
+#[derive(OpenApi)]
+#[openapi(paths(static_files_handler))]
+pub struct StaticFileApiDoc;

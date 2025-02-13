@@ -3,12 +3,15 @@ use axum::{routing::get_service, Router};
 use endpoints::{LEGACY_STATIC_FILES_ROUTE, STATIC_FILES_ROUTE, STATIC_ROUTE};
 use files::static_files_handler;
 use legacy_files::legacy_files_handler;
-use once_cell::sync::OnceCell;
 use tower_http::services::ServeDir;
+use utoipa::OpenApi;
 
 mod endpoints;
 mod files;
 mod legacy_files;
+mod serve_dir;
+
+pub use serve_dir::get_serve_dir;
 
 pub fn routes() -> Router {
     let config = Config::from_env();
@@ -22,13 +25,14 @@ pub fn routes() -> Router {
     router.nest_service(STATIC_ROUTE, get_service(ServeDir::new(config.static_path)))
 }
 
-static SERVE_DIR_INSTANCE: OnceCell<ServeDir> = OnceCell::new();
+#[derive(OpenApi)]
+#[openapi()]
+pub struct ApiDoc;
 
-pub fn get_serve_dir() -> ServeDir {
-    SERVE_DIR_INSTANCE
-        .get_or_init(|| {
-            let config = Config::from_env();
-            ServeDir::new(config.file_path)
-        })
-        .to_owned()
+impl ApiDoc {
+    pub fn merge_docs() -> utoipa::openapi::OpenApi {
+        let mut combined = files::StaticFileApiDoc::openapi();
+        combined.merge(legacy_files::LegacyStaticFileApiDoc::openapi());
+        combined
+    }
 }
