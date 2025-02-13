@@ -1,6 +1,5 @@
 use axum::{
     extract::{Path, Query, Request},
-    http::{StatusCode, Uri},
     response::Response,
 };
 use log::{debug, error};
@@ -13,7 +12,7 @@ use crate::{
         file::{details::FileVariant, FileDetails},
         traits::Collection,
     },
-    routes::r#static::get_serve_dir,
+    routes::r#static::PubkyServeDir,
     static_processor::StaticProcessor,
     Error, Result,
 };
@@ -42,7 +41,7 @@ pub struct FilePath {
     get,
     path = STATIC_FILES_ROUTE,
     description = "Serves a static file by owner_id, file_id and variant",
-    tags = ["Static", "File"],
+    tag = "File",
     params(
         ("owner_id" = String, Path, description = "File's owner id"),
         ("file_id" = String, Path, description = "File's id"),
@@ -108,44 +107,14 @@ pub async fn static_files_handler(
             Error::InternalServerError { source: err }
         })?;
 
-    // Create a new request with a modified path to serve the file using ServeDir
-    let (request_parts, request_body) = request.into_parts();
-    let mut req = Request::from_parts(request_parts.clone(), request_body);
-    *req.uri_mut() = request_parts
-        .uri
-        .path()
-        .replace("static/files", "")
-        .as_str()
-        .parse::<Uri>()
-        .map_err(|err| Error::InternalServerError {
-            source: Box::new(err),
-        })?;
-    let response_result = get_serve_dir().try_call(req).await;
+    let request_uri = request.uri().clone();
 
-    let mut response = match response_result {
-        Ok(response) => {
-            if response.status() != StatusCode::OK {
-                return Ok(response);
-            }
-            response
-        }
-        Err(err) => {
-            return Err(Error::InternalServerError {
-                source: Box::new(err),
-            });
-        }
-    };
-
-    // set the content type header
-    let content_type_header = file_variant_content_type.parse().map_err(|err| {
-        error!("Invalid content type header: {}", file_variant_content_type);
-        Error::InternalServerError {
-            source: Box::new(err),
-        }
-    })?;
-    response
-        .headers_mut()
-        .insert("content-type", content_type_header);
+    let mut response = PubkyServeDir::try_call(
+        request,
+        request_uri.path().replace("static/files", ""),
+        file_variant_content_type,
+    )
+    .await?;
 
     // if dl parameter is passed, set content-disposition header to attachment to force download
     if params.dl.is_some() {

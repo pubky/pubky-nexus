@@ -12,8 +12,11 @@ pub fn routes() -> Router {
     let routes_v0 = v0::routes();
 
     let route_openapi = SwaggerUi::new("/swagger-ui")
-        .url("/v0-docs/openapi.json", v0::ApiDoc::merge_docs())
-        .url("/static-docs/openapi.json", r#static::ApiDoc::merge_docs());
+        .url("/api-docs/v0/openapi.json", v0::ApiDoc::merge_docs())
+        .url(
+            "/api-docs/static/openapi.json",
+            r#static::ApiDoc::merge_docs(),
+        );
 
     // Combine routes
     let app = routes_v0.merge(route_static).merge(route_openapi);

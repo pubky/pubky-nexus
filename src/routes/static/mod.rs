@@ -10,7 +10,7 @@ mod files;
 mod legacy_files;
 mod serve_dir;
 
-pub use serve_dir::get_serve_dir;
+pub use serve_dir::PubkyServeDir;
 
 pub fn routes() -> Router {
     let config = Config::from_env();

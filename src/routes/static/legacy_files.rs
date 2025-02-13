@@ -13,7 +13,7 @@ use super::endpoints::LEGACY_STATIC_FILES_ROUTE;
     get,
     path = LEGACY_STATIC_FILES_ROUTE,
     description = "Redirects to the new static file path",
-    tags = ["Static", "File"],
+    tag = "File",
     params(
         ("owner_id" = String, Path, description = "File's owner id"),
         ("file_id" = String, Path, description = "File's id"),

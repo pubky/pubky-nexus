@@ -18,7 +18,7 @@ async fn test_swagger_ui() -> Result<()> {
 async fn test_openapi_schema() -> Result<()> {
     let client = httpc_test::new_client(host_url().await)?;
 
-    let res = client.do_get("/api-docs/openapi.json").await?;
+    let res = client.do_get("/api-docs/v0/openapi.json").await?;
     assert_eq!(res.status(), 200);
 
     let body = res.json_body()?;

@@ -1,13 +1,12 @@
-use super::serve_dir::get_serve_dir;
 use crate::models::file::details::FileVariant;
+use crate::routes::r#static::PubkyServeDir;
 use crate::static_processor::StaticProcessor;
 use crate::{
     models::{file::FileDetails, traits::Collection, user::UserDetails},
     Error, Result,
 };
 use axum::extract::Request;
-use axum::http::Uri;
-use axum::{extract::Path, http::StatusCode, response::Response};
+use axum::{extract::Path, response::Response};
 use log::{error, info};
 use tower_http::services::fs::ServeFileSystemResponseBody;
 use utoipa::OpenApi;
@@ -88,46 +87,8 @@ pub async fn user_avatar_handler(
         file_details.id,
         FileVariant::Small,
     );
-    let (request_parts, request_body) = request.into_parts();
-    let mut req = Request::from_parts(request_parts.clone(), request_body);
-    *req.uri_mut() =
-        file_uri_path
-            .as_str()
-            .parse::<Uri>()
-            .map_err(|err| Error::InternalServerError {
-                source: Box::new(err),
-            })?;
-    let response_result = get_serve_dir().try_call(req).await;
 
-    let mut response = match response_result {
-        Ok(response) => {
-            if response.status() != StatusCode::OK {
-                return Ok(response);
-            }
-            response
-        }
-        Err(err) => {
-            return Err(Error::InternalServerError {
-                source: Box::new(err),
-            });
-        }
-    };
-
-    // set the content type header
-    let content_type_header = small_variant_content_type.parse().map_err(|err| {
-        error!(
-            "Invalid content type header: {}",
-            small_variant_content_type
-        );
-        Error::InternalServerError {
-            source: Box::new(err),
-        }
-    })?;
-    response
-        .headers_mut()
-        .insert("content-type", content_type_header);
-
-    Ok(response)
+    PubkyServeDir::try_call(request, file_uri_path, small_variant_content_type).await
 }
 
 #[derive(OpenApi)]
