@@ -1,7 +1,7 @@
 use crate::watcher::{users::utils::check_member_user_influencer, utils::watcher::WatcherTest};
 use anyhow::Result;
+use pkarr::Keypair;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser};
-use pubky_common::crypto::Keypair;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_post_influencer() -> Result<()> {

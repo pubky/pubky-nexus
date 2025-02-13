@@ -3,11 +3,11 @@
 use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use log::info;
+use pkarr::Keypair;
 use pubky_app_specs::{
     traits::HashId, PubkyAppBookmark, PubkyAppMute, PubkyAppPost, PubkyAppPostKind, PubkyAppTag,
     PubkyAppUser,
 };
-use pubky_common::crypto::Keypair;
 use pubky_nexus::{
     models::{post::PostCounts, user::UserCounts},
     PubkyConnector, RedisOps,

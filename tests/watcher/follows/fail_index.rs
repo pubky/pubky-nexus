@@ -1,8 +1,8 @@
 use crate::watcher::utils::watcher::{retrieve_and_handle_event_line, WatcherTest};
 use anyhow::Result;
 use log::error;
+use pkarr::Keypair;
 use pubky_app_specs::PubkyAppUser;
-use pubky_common::crypto::Keypair;
 
 /// The follower user is stored in the homeserver but it is not in sync with the graph
 #[tokio_shared_rt::test(shared)]

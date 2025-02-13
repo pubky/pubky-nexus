@@ -1,8 +1,8 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use mainline::Testnet;
+use pkarr::Keypair;
 use pubky::Client;
 use pubky_app_specs::{PubkyAppUser, PubkyAppUserLink};
-use pubky_common::crypto::Keypair;
 use pubky_homeserver::Homeserver;
 use pubky_nexus::EventProcessor;
 use setup::run_setup;
@@ -27,7 +27,7 @@ async fn create_homeserver_with_events() -> (Testnet, String) {
     let keypair = Keypair::random();
     let user_id = keypair.public_key().to_z32();
 
-    // Create and delete a user profile (as per your requirement)
+    // Create and delete a user profile
     client
         .signup(&keypair, &homeserver.public_key())
         .await

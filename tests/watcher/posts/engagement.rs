@@ -1,8 +1,8 @@
 use super::utils::check_member_total_engagement_user_posts;
 use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
+use pkarr::Keypair;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser};
-use pubky_common::crypto::Keypair;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_post_engagement() -> Result<()> {
