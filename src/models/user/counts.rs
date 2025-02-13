@@ -12,11 +12,11 @@ use super::UserStream;
 #[derive(Serialize, Deserialize, ToSchema, Debug, Default)]
 pub struct UserCounts {
     // The number of tags assigned to other entities (e.g. user, posts)
-    pub tags: u32,
-    // User received tags counts
     pub tagged: u32,
+    // User received tags counts
+    pub tags: u32,
     // Distinct tags where the user was referenced
-    pub unique_tagged: u32,
+    pub unique_tags: u32,
     pub posts: u32,
     pub replies: u32,
     pub following: u32,

@@ -109,7 +109,7 @@ async fn test_homeserver_del_tag_post() -> Result<()> {
 
     // Check if user counts updated: User:Counts:user_id
     let user_counts = find_user_counts(&author_user_id).await;
-    assert_eq!(user_counts.tags, 0);
+    assert_eq!(user_counts.tagged, 0);
 
     let post_key: [&str; 2] = [&author_user_id, &post_id];
 

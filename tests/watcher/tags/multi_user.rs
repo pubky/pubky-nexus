@@ -129,14 +129,14 @@ async fn test_homeserver_multi_userr() -> Result<()> {
 
     // Check if user counts updated: User:Counts:user_id
     let tagger_a_user_counts = find_user_counts(tagged_id).await;
-    assert_eq!(tagger_a_user_counts.tagged, 5);
-    assert_eq!(tagger_a_user_counts.unique_tagged, 2);
+    assert_eq!(tagger_a_user_counts.tags, 5);
+    assert_eq!(tagger_a_user_counts.unique_tags, 2);
     let tagger_a_user_counts = find_user_counts(tagger_a_id).await;
-    assert_eq!(tagger_a_user_counts.tags, 1);
+    assert_eq!(tagger_a_user_counts.tagged, 1);
     let tagger_b_user_counts = find_user_counts(tagger_b_id).await;
-    assert_eq!(tagger_b_user_counts.tags, 2);
+    assert_eq!(tagger_b_user_counts.tagged, 2);
     let tagger_c_user_counts = find_user_counts(tagger_c_id).await;
-    assert_eq!(tagger_c_user_counts.tags, 2);
+    assert_eq!(tagger_c_user_counts.tagged, 2);
 
     // Step 4: DEL tag from homeserver
     for tag_url in tag_urls {
@@ -179,18 +179,18 @@ async fn test_homeserver_multi_userr() -> Result<()> {
 
     // Check if user counts updated: User:Counts:user_id:post_id
     let user_counts = find_user_counts(tagged_id).await;
-    assert_eq!(user_counts.tagged, 0);
-    assert_eq!(user_counts.unique_tagged, 0);
+    assert_eq!(user_counts.tags, 0);
+    assert_eq!(user_counts.unique_tags, 0);
 
     // Check if user counts updated: User:Counts:user_id
     for tagger_id in wind_taggers {
         let user_counts = find_user_counts(tagger_id).await;
-        assert_eq!(user_counts.tags, 0);
+        assert_eq!(user_counts.tagged, 0);
     }
 
     for tagger_id in earth_taggers {
         let user_counts = find_user_counts(tagger_id).await;
-        assert_eq!(user_counts.tags, 0);
+        assert_eq!(user_counts.tagged, 0);
     }
 
     let notifications = Notification::get_by_id(tagged_id, Pagination::default())

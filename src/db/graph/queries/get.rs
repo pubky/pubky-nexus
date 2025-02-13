@@ -296,8 +296,8 @@ pub fn user_counts(user_id: &str) -> neo4rs::Query {
         MATCH (u:User {id: $user_id})
         
         // tags that reference this user
-        OPTIONAL MATCH (u)<-[t:TAGGED]-()
-        WITH u, COUNT(DISTINCT t.label) AS unique_tagged,
+        OPTIONAL MATCH (u)<-[t:TAGGED]-(:User)
+        WITH u, COUNT(DISTINCT t.label) AS unique_tags,
 
         // Count relationships to users
         size([(u)-[:FOLLOWS]->(:User) | 1]) AS following,
@@ -312,7 +312,7 @@ pub fn user_counts(user_id: &str) -> neo4rs::Query {
         // Count user and post tagging
         size([(u)-[:TAGGED]->(:User) | 1]) AS user_tags,
         size([(u)-[:TAGGED]->(:Post) | 1]) AS post_tags,
-        size([(:User)-[:TAGGED]->(u) | 1]) AS tagged
+        size([(:User)-[:TAGGED]->(u) | 1]) AS tags
 
         RETURN 
             u IS NOT NULL AS exists,
@@ -322,9 +322,9 @@ pub fn user_counts(user_id: &str) -> neo4rs::Query {
                 friends: friends,
                 posts: posts,
                 replies: replies,
-                tags: user_tags + post_tags,
-                tagged: tagged,
-                unique_tagged: unique_tagged,
+                tagged: user_tags + post_tags,
+                tags: tags,
+                unique_tags: unique_tags,
                 bookmarks: bookmarks
             } AS counts;
         ",

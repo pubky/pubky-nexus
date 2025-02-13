@@ -60,7 +60,7 @@ async fn test_homeserver_user_put_event() -> Result<()> {
         .expect("The new post was not served from Nexus");
 
     assert_eq!(user_counts.followers, 0);
-    assert_eq!(user_counts.tags, 0);
+    assert_eq!(user_counts.tagged, 0);
     assert_eq!(user_counts.posts, 0);
 
     // Sorted:Users:Name

@@ -123,7 +123,7 @@ async fn test_homeserver_put_tag_post() -> Result<()> {
 
     // Check if user counts updated: User:Counts:user_id
     let user_counts = find_user_counts(&tagger_user_id).await;
-    assert_eq!(user_counts.tags, 1);
+    assert_eq!(user_counts.tagged, 1);
 
     // Assert if the new tag increments the engagement
     // global post engagement: Sorted:Posts:Global:TotalEngagement:user_id:post_id
