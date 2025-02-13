@@ -1,9 +1,9 @@
 use crate::models::tag::global::Taggers;
-use crate::models::tag::stream::{HotTag, HotTags, TagStreamReach};
+use crate::models::tag::stream::{HotTag, HotTags};
 use crate::models::tag::TaggedType;
 use crate::models::tag::Taggers as TaggersType;
 use crate::routes::v0::endpoints::{TAGS_HOT_ROUTE, TAG_TAGGERS_ROUTE};
-use crate::types::{Pagination, Timeframe};
+use crate::types::{Pagination, StreamReach, Timeframe};
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
@@ -14,7 +14,7 @@ use utoipa::OpenApi;
 #[derive(Deserialize, Debug)]
 pub struct HotTagsQuery {
     user_id: Option<String>,
-    reach: Option<TagStreamReach>,
+    reach: Option<StreamReach>,
     taggers_limit: Option<usize>,
     timeframe: Option<Timeframe>,
     #[serde(flatten)]
@@ -26,7 +26,7 @@ pub struct TagTaggersQuery {
     #[serde(flatten)]
     pagination: Pagination,
     user_id: Option<String>,
-    reach: Option<TagStreamReach>,
+    reach: Option<StreamReach>,
     timeframe: Option<Timeframe>,
 }
 
@@ -63,7 +63,7 @@ impl HotTagsInput {
     tag = "Tags",
     params(
         ("label" = String, Path, description = "Tag name"),
-        ("reach" = TagStreamReach, Path, description = "Reach type: Follower | Following | Friends"),
+        ("reach" = StreamReach, Path, description = "Reach type: Follower | Following | Friends | Wot"),
         ("user_id" = Option<String>, Query, description = "User ID to base reach on"),
         ("skip" = Option<usize>, Query, description = "Skip N taggers. Defaults to `0`"),
         ("limit" = Option<usize>, Query, description = "Retrieve N tagggers. Defaults to `20`"),
@@ -118,7 +118,7 @@ pub async fn tag_taggers_handler(
     tag = "Tags",
     params(
         ("user_id" = Option<String>, Query, description = "User Pubky ID"),
-        ("reach" = Option<TagStreamReach>, Query, description = "Reach type: follower | following | friends"),
+        ("reach" = Option<StreamReach>, Query, description = "Reach type: follower | following | friends | wot"),
         ("taggers_limit" = Option<usize>, Query, description = "Retrieve N user_id for each tag. Defaults to `20`"),
         ("skip" = Option<usize>, Query, description = "Skip N tags. Defaults to `0`"),
         ("limit" = Option<usize>, Query, description = "Retrieve N tag. Defaults to `40`"),

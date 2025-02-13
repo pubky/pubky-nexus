@@ -52,7 +52,7 @@ impl TestServiceServer {
         SERVER_URL.set(url).expect("SERVER_URL already set");
 
         let app = routes::routes();
-        tokio::spawn(async move {
+        tokio::spawn(async {
             // Start the server
             axum::serve(listener, app.into_make_service())
                 .await

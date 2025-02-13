@@ -1,8 +1,8 @@
-use crate::models::user::{UserStream, UserStreamSource};
+use crate::models::user::{UserStream, UserStreamInput, UserStreamSource};
 use crate::routes::v0::endpoints::{
     STREAM_USERS_BY_IDS_ROUTE, STREAM_USERS_ROUTE, STREAM_USERS_USERNAME_SEARCH_ROUTE,
 };
-use crate::types::Pagination;
+use crate::types::{Pagination, StreamReach, Timeframe};
 use crate::{Error, Result};
 use axum::extract::Query;
 use axum::Json;
@@ -17,7 +17,10 @@ pub struct UserStreamQuery {
     skip: Option<usize>,
     limit: Option<usize>,
     source: Option<UserStreamSource>,
+    reach: Option<StreamReach>,
     depth: Option<u8>,
+    timeframe: Option<Timeframe>,
+    preview: Option<bool>,
 }
 
 #[utoipa::path(
@@ -26,12 +29,15 @@ pub struct UserStreamQuery {
     description = "Stream users",
     tag = "Stream",
     params(
-        ("user_id" = Option<String>, Query, description = "User ID to use for streams with source 'following', 'followers', 'friends', 'muted' and 'recommended'"),
+        ("user_id" = Option<String>, Query, description = "User ID to use for streams with source 'following', 'followers', 'friends', 'muted', 'most_followed', 'influencers' and 'recommended'"),
         ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
         ("skip" = Option<usize>, Query, description = "Skip N followers"),
         ("limit" = Option<usize>, Query, description = "Retrieve N followers"),
         ("source" = Option<UserStreamSource>, Query, description = "Source of users for the stream."),
-        ("depth" = Option<usize>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 4, will be ignored")
+        ("reach" = Option<StreamReach>, Query, description = "The target reach of the source. Supported in 'influencers' source."),
+        ("depth" = Option<usize>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 4, will be ignored"),
+        ("timeframe" = Option<Timeframe>, Query, description = "Timeframe for sources supporting a range"),
+        ("preview" = Option<bool>, Query, description = "Provide a random selection of size 3 for sources supporting preview. Passing preview ignores skip and limit parameters.")
     ),
     responses(
         (status = 200, description = "Users stream", body = UserStream),
@@ -48,8 +54,9 @@ pub async fn stream_users_handler(
     );
 
     let skip = query.skip.unwrap_or(0);
-    let limit = query.limit.unwrap_or(6).min(20);
+    let limit = query.limit.unwrap_or(5).min(20);
     let source = query.source.unwrap_or(UserStreamSource::Followers);
+    let timeframe = query.timeframe.unwrap_or(Timeframe::AllTime);
 
     if query.user_id.is_none() {
         match source {
@@ -82,18 +89,30 @@ pub async fn stream_users_handler(
                         .to_string(),
                 })
             }
+            UserStreamSource::Influencers => {
+                if query.reach.is_some() {
+                    return Err(Error::InvalidInput {
+                        message:
+                            "reach query param must be provided for source 'influencers' with a user_id"
+                                .to_string(),
+                    });
+                }
+            }
             _ => (),
         }
     }
 
-    match UserStream::get_by_id(
-        query.user_id.as_deref(),
-        query.viewer_id.as_deref(),
-        Some(skip),
-        Some(limit),
-        source.clone(),
-        query.depth,
-    )
+    match UserStream::get_by_id(&UserStreamInput {
+        user_id: query.user_id.clone(),
+        viewer_id: query.viewer_id,
+        skip: Some(skip),
+        limit: Some(limit),
+        source: source.clone(),
+        reach: query.reach,
+        depth: query.depth,
+        timeframe: Some(timeframe),
+        preview: query.preview,
+    })
     .await
     {
         Ok(Some(stream)) => Ok(Json(stream)),
