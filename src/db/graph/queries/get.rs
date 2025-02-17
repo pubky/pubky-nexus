@@ -36,24 +36,18 @@ pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
 pub fn post_counts(author_id: &str, post_id: &str) -> Query {
     query(
         "
-        MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
-        WITH p
-        OPTIONAL MATCH (p)<-[t:TAGGED]-()
-        WITH p, 
-            size([(p)<-[:TAGGED]-() | 1]) AS tags_count, 
-            COUNT(DISTINCT t.label) AS unique_tags_count, 
-            size([(p)<-[:REPLIED]-() | 1]) AS replies_count, 
-            size([(p)<-[:REPOSTED]-() | 1]) AS reposts_count, 
+        MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})  
+        WITH p  
+        OPTIONAL MATCH (p)<-[t:TAGGED]-()  
+        WITH p, COUNT (t) AS tags_count, COUNT(DISTINCT t.label) AS unique_tags_count  
+        RETURN p IS NOT NULL AS exists,  
+            { 
+                tags: tags_count,  
+                unique_tags: unique_tags_count,  
+                replies: COUNT { (p)<-[:REPLIED]-() },  
+                reposts: COUNT { (p)<-[:REPOSTED]-() }  
+            } AS counts,  
             EXISTS { (p)-[:REPLIED]->(:Post) } AS is_reply
-        RETURN 
-            p IS NOT NULL AS exists,
-            {
-                tags: tags_count,
-                unique_tags: unique_tags_count,
-                replies: replies_count,
-                reposts: reposts_count
-            } AS counts,
-            is_reply
     ",
     )
     .param("author_id", author_id)
@@ -293,26 +287,25 @@ pub fn get_viewer_trusted_network_tags(user_id: &str, viewer_id: &str, depth: u8
 pub fn user_counts(user_id: &str) -> neo4rs::Query {
     query(
         "
-        MATCH (u:User {id: $user_id})
-        
+        MATCH (u:User {id: $user_id})        
         // tags that reference this user
         OPTIONAL MATCH (u)<-[t:TAGGED]-(:User)
         WITH u, COUNT(DISTINCT t.label) AS unique_tags,
 
         // Count relationships to users
-        size([(u)-[:FOLLOWS]->(:User) | 1]) AS following,
-        size([(:User)-[:FOLLOWS]->(u) | 1]) AS followers,
-        size([(u)-[:FOLLOWS]->(friend:User) WHERE (friend)-[:FOLLOWS]->(u) | 1]) AS friends,
+        COUNT { (u)-[:FOLLOWS]->(:User) } AS following,
+        COUNT { (:User)-[:FOLLOWS]->(u) } AS followers,
+        COUNT { (u)-[:FOLLOWS]->(friend:User) WHERE (friend)-[:FOLLOWS]->(u) } AS friends,
 
         // Count relationships to posts
-        size([(u)-[:AUTHORED]->(:Post) | 1]) AS posts,
-        size([(u)-[:AUTHORED]->(:Post)-[:REPLIED]->(:Post) | 1]) AS replies,
-        size([(u)-[:BOOKMARKED]->(:Post) | 1]) AS bookmarks,
+        COUNT { (u)-[:AUTHORED]->(:Post) } AS posts,
+        COUNT { (u)-[:AUTHORED]->(:Post)-[:REPLIED]->(:Post) } AS replies,
+        COUNT { (u)-[:BOOKMARKED]->(:Post) } AS bookmarks,
 
         // Count user and post tagging
-        size([(u)-[:TAGGED]->(:User) | 1]) AS user_tags,
-        size([(u)-[:TAGGED]->(:Post) | 1]) AS post_tags,
-        size([(:User)-[:TAGGED]->(u) | 1]) AS tags
+        COUNT { (u)-[:TAGGED]->(:User) } AS user_tags,
+        COUNT { (u)-[:TAGGED]->(:Post) } AS post_tags,
+        COUNT { (:User)-[:TAGGED]->(u) } AS tags
 
         RETURN 
             u IS NOT NULL AS exists,
