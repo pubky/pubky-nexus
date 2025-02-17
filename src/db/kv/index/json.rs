@@ -358,22 +358,24 @@ pub async fn get_multiple<T: DeserializeOwned + Send + Sync>(
     let results: Vec<Option<T>> = if indexed_values.is_empty() {
         (0..keys.len()).map(|_| None).collect()
     } else {
-        deserialize_values(indexed_values)
+        deserialize_values(indexed_values)?
     };
 
     Ok(results)
 }
 
 // Helper function to deserialize JSON strings to Vec<Option<T>>
-fn deserialize_values<T: DeserializeOwned>(values: Vec<Option<String>>) -> Vec<Option<T>> {
+fn deserialize_values<T: DeserializeOwned>(
+    values: Vec<Option<String>>,
+) -> Result<Vec<Option<T>>, DynError> {
     values
         .into_iter()
-        .map(|opt| {
-            opt.and_then(|value_str| {
-                serde_json::from_str::<Vec<T>>(&value_str)
-                    .ok()
-                    .and_then(|vec| vec.into_iter().next())
-            })
+        .map(|value_str| match value_str {
+            Some(value) => {
+                let value: Vec<T> = serde_json::from_str(&value)?;
+                Ok(value.into_iter().next())
+            }
+            None => Ok(None),
         })
         .collect()
 }

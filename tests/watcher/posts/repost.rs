@@ -6,8 +6,8 @@ use super::utils::{
 use crate::watcher::users::utils::find_user_counts;
 use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
+use pkarr::Keypair;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser};
-use pubky_common::crypto::Keypair;
 use pubky_nexus::{
     models::post::{PostDetails, PostRelationships},
     RedisOps,
@@ -108,7 +108,7 @@ async fn test_homeserver_post_repost() -> Result<()> {
     assert_eq!(repost_post_details.indexed_at, post_detail_cache.indexed_at);
 
     // Post:Relationships:user_id:post_id
-    let post_relationships = PostRelationships::try_from_index_json(&[&user_id, &repost_id])
+    let post_relationships = PostRelationships::try_from_index_json(&[&user_id, &repost_id], None)
         .await
         .unwrap();
     assert!(

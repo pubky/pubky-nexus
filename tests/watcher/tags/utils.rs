@@ -63,6 +63,7 @@ pub async fn check_member_total_engagement_post_tag(
     label: &str,
 ) -> Result<Option<isize>> {
     let total_engagement = TagSearch::check_sorted_set_member(
+        None,
         &[&TAG_GLOBAL_POST_ENGAGEMENT[..], &[label]].concat(),
         post_key,
     )
@@ -76,6 +77,7 @@ pub async fn check_member_post_tag_global_timeline(
     label: &str,
 ) -> Result<Option<isize>> {
     let exist_in_timeline = TagSearch::check_sorted_set_member(
+        None,
         &[&TAG_GLOBAL_POST_TIMELINE[..], &[label]].concat(),
         post_key,
     )

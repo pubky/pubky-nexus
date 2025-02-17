@@ -1,19 +1,20 @@
-use crate::watcher::utils::watcher::WatcherTest;
+use crate::{
+    service::utils::host_url, utils::TestServiceServer, watcher::utils::watcher::WatcherTest,
+};
 use anyhow::Result;
 use chrono::Utc;
-use pubky_app_specs::{PubkyAppFile, PubkyAppUser};
-use pubky_common::crypto::Keypair;
-use pubky_common::timestamp::Timestamp;
+use pkarr::Keypair;
+use pubky_app_specs::{traits::HasPath, PubkyAppBlob, PubkyAppFile, PubkyAppUser};
 use pubky_nexus::{
     models::{file::FileDetails, traits::Collection},
     PubkyConnector,
 };
-use serde_json::to_vec;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_delete_pubkyapp_file() -> Result<()> {
     // Arrange
     let mut test = WatcherTest::setup().await?;
+    TestServiceServer::get_test_server().await;
 
     let keypair = Keypair::random();
     let user = PubkyAppUser {
@@ -26,12 +27,16 @@ async fn test_delete_pubkyapp_file() -> Result<()> {
 
     let user_id = test.create_user(&keypair, &user).await?;
 
-    let blob = "Hello World!";
-    let blob_id = Timestamp::now().to_string();
-    let blob_url = format!("pubky://{}/pub/pubky.app/blobs/{}", user_id, blob_id);
-    let json_data = to_vec(blob)?;
+    let blob_data = "Hello World!".to_string();
+    let blob = PubkyAppBlob::new(blob_data.as_bytes().to_vec());
+    let blob_url = format!("pubky://{}{}", user_id, blob.create_path());
+
     let pubky_client = PubkyConnector::get_pubky_client()?;
-    pubky_client.put(blob_url.as_str(), &json_data).await?;
+    pubky_client
+        .put(blob_url.as_str())
+        .body(blob.0)
+        .send()
+        .await?;
 
     let file = PubkyAppFile {
         name: "myfile".to_string(),
@@ -59,11 +64,7 @@ async fn test_delete_pubkyapp_file() -> Result<()> {
     assert!(result_file.is_none());
 
     // Assert: Ensure it's not served anymore
-    let nexus_url = format!(
-        "http://{}:{}",
-        test.config.server_host, test.config.server_port
-    );
-    let client = httpc_test::new_client(nexus_url)?;
+    let client = httpc_test::new_client(host_url().await)?;
 
     let blob_path = format!("/static/files/{}/{}", user_id, file_id);
     let response = client.do_get(&blob_path).await?;

@@ -1,6 +1,6 @@
 use super::index::*;
 use crate::types::DynError;
-use axum::async_trait;
+use async_trait::async_trait;
 use json::JsonAction;
 use serde::{de::DeserializeOwned, Serialize};
 use sorted_sets::{ScoreAction, SortOrder, SORTED_PREFIX};
@@ -46,7 +46,9 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     ///
     /// # Arguments
     ///
-    /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the value is stored.
+    /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the value is stored
+    /// * `prefix` - An optional string representing the prefix for the Redis keys. If `Some(String)`, the prefix will be used
+    /// * `expiration` - An optional `i64` specifying the TTL (in seconds) for the set. If `None`, no TTL will be set.
     ///
     /// # Errors
     ///
@@ -54,16 +56,11 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     async fn put_index_json(
         &self,
         key_parts: &[&str],
+        prefix: Option<String>,
         expiration: Option<i64>,
     ) -> Result<(), DynError> {
-        json::put(
-            &Self::prefix().await,
-            &key_parts.join(":"),
-            self,
-            None,
-            expiration,
-        )
-        .await
+        let prefix = prefix.unwrap_or(Self::prefix().await);
+        json::put(&prefix, &key_parts.join(":"), self, None, expiration).await
     }
 
     /// Retrieves data from Redis using the provided key parts.
@@ -74,6 +71,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// # Arguments
     ///
     /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the value is stored.
+    /// * `prefix` - An optional string representing the prefix for the Redis keys. If `Some(String)`, the prefix will be used
     ///
     /// # Returns
     ///
@@ -82,8 +80,12 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// # Errors
     ///
     /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
-    async fn try_from_index_json(key_parts: &[&str]) -> Result<Option<Self>, DynError> {
-        json::get(&Self::prefix().await, &key_parts.join(":"), None).await
+    async fn try_from_index_json(
+        key_parts: &[&str],
+        prefix: Option<String>,
+    ) -> Result<Option<Self>, DynError> {
+        let prefix = prefix.unwrap_or(Self::prefix().await);
+        json::get(&prefix, &key_parts.join(":"), None).await
     }
 
     /// Retrieves multiple JSON objects from Redis using the provided key parts.
@@ -405,37 +407,24 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
 
     /// Fetches multiple sets from Redis using the specified key components.
     ///
-    /// This asynchronous function retrieves multiple sets from Redis based on the provided key components.
-    /// It returns a vector where each element is an optional vector containing the elements of the corresponding set.
-    /// If a particular set does not exist, the corresponding position in the returned vector will be `None`.
-    ///
     /// # Arguments
-    ///
-    /// * `prefix` - An optional string representing the prefix for the Redis keys. If `Some(String)`, the prefix will be used
     /// * `key_parts_list` - A slice of string slices, where each inner slice represents the components
-    ///   used to construct the Redis key for the corresponding set.
-    /// * `limit` - An optional parameter specifying the maximum number of elements to fetch from each set.
+    ///   used to construct the Redis keys.
+    /// * `prefix` - An optional string representing the prefix for the Redis keys
+    /// * `member` - An optional string reference representing a specific element to check for member in each SET
+    /// * `limit` - An optional parameter specifying the maximum number of elements to fetch from each SET
     ///   If `None`, all elements will be retrieved.
-    ///
-    /// # Returns
-    ///
-    /// A `Vec<Option<Vec<String>>>` where:
-    /// * Each inner `Vec<String>` contains the elements of a set retrieved from Redis.
-    /// * `None` indicates that the set does not exist for the corresponding key.
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the operation fails, such as in cases of a Redis connection issue.
     async fn try_from_multiple_sets(
-        prefix: Option<String>,
         key_parts_list: &[&str],
+        prefix: Option<String>,
+        member: Option<&str>,
         limit: Option<usize>,
-    ) -> Result<Vec<Option<(Vec<String>, usize)>>, DynError> {
+    ) -> Result<Vec<Option<(Vec<String>, usize, bool)>>, DynError> {
         let combined_prefix = match prefix {
             Some(p) => format!("{}:{}", p, Self::prefix().await),
             None => Self::prefix().await,
         };
-        sets::get_multiple_sets(&combined_prefix, key_parts_list, limit).await
+        sets::get_multiple_sets(&combined_prefix, key_parts_list, member, limit).await
     }
 
     /// Adds elements to multiple Redis sets using the provided keys and collections.
@@ -529,12 +518,14 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the sorted set is stored.
     /// * `member` - A slice of string slices that represent the parts used to form the key identifying the member within the sorted set.
     async fn check_sorted_set_member(
+        prefix: Option<&str>,
         key_parts: &[&str],
         member: &[&str],
     ) -> Result<Option<isize>, DynError> {
+        let prefix = prefix.unwrap_or(SORTED_PREFIX);
         let key = key_parts.join(":");
         let member_key = member.join(":");
-        sorted_sets::check_member(SORTED_PREFIX, &key, &member_key).await
+        sorted_sets::check_member(prefix, &key, &member_key).await
     }
 
     /// Adds elements to a Redis sorted set using the provided key parts.
@@ -592,6 +583,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     ///
     /// # Arguments
     ///
+    /// * `prefix` - An optional string representing the prefix for the Redis keys. If `Some(String)`, the prefix will be used
     /// * `key_parts` - A slice of string slices that represent the parts used to form the key under which the sorted set is stored.
     /// * `items` - A slice of string slices representing the elements to be removed from the sorted set.
     ///
@@ -599,6 +591,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     ///
     /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
     async fn remove_from_index_sorted_set(
+        prefix: Option<&str>,
         key_parts: &[&str],
         items: &[&str],
     ) -> Result<(), DynError> {
@@ -606,11 +599,11 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
             return Ok(());
         }
 
+        let prefix = prefix.unwrap_or(SORTED_PREFIX);
         // Create the key by joining the key parts
         let key = key_parts.join(":");
-
         // Call the sorted_sets::del function to remove the items from the sorted set
-        sorted_sets::del("Sorted", &key, items).await
+        sorted_sets::del(prefix, &key, items).await
     }
 
     /// Retrieves a range of elements from a Redis sorted set using the provided key parts.

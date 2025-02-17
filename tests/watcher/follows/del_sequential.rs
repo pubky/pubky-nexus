@@ -1,7 +1,7 @@
 use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
+use pkarr::Keypair;
 use pubky_app_specs::PubkyAppUser;
-use pubky_common::crypto::Keypair;
 use pubky_nexus::models::notification::{Notification, NotificationBody};
 use pubky_nexus::models::user::Relationship;
 use pubky_nexus::models::user::UserCounts;
@@ -101,7 +101,7 @@ async fn test_homeserver_sequential_unfollow() -> Result<()> {
     test.del(&bob_follow_uri).await?;
 
     // Assert folowee counts
-    let follower_count = UserCounts::try_from_index_json(&[&followee_id])
+    let follower_count = UserCounts::try_from_index_json(&[&followee_id], None)
         .await
         .unwrap()
         .expect("User count not found");
@@ -159,7 +159,7 @@ async fn test_homeserver_sequential_unfollow() -> Result<()> {
     test.del(&followee_follow_enzo_uri).await?;
 
     // Assert folowee last counts
-    let follower_count = UserCounts::try_from_index_json(&[&followee_id])
+    let follower_count = UserCounts::try_from_index_json(&[&followee_id], None)
         .await
         .unwrap()
         .expect("User count not found");

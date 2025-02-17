@@ -2,11 +2,12 @@ use crate::db::graph::exec::exec_single_row;
 use crate::models::traits::Collection;
 use crate::types::DynError;
 use crate::{queries, RedisOps};
-use axum::async_trait;
+use async_trait::async_trait;
 use chrono::Utc;
 use neo4rs::Query;
-use pubky_app_specs::PubkyAppFile;
+use pubky_app_specs::{ParsedUri, PubkyAppFile, Resource};
 use serde::{Deserialize, Serialize};
+use tracing::error;
 use utoipa::ToSchema;
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema, Default)]
@@ -15,26 +16,24 @@ pub struct FileUrls {
 }
 
 mod json_string {
-    use serde::{self, Deserialize, Deserializer, Serialize, Serializer};
+    use serde::{self, Deserialize, Deserializer, Serializer};
 
-    // Deserialize function: convert the JSON string into a struct
-    pub fn deserialize<'de, D, T>(deserializer: D) -> Result<T, D::Error>
-    where
-        D: Deserializer<'de>,
-        T: Deserialize<'de>,
-    {
-        let json_str: &'de str = <&str>::deserialize(deserializer)?;
-        serde_json::from_str(json_str).map_err(serde::de::Error::custom)
-    }
-
-    // Serialize function: convert the struct back into a JSON string
     pub fn serialize<S, T>(value: &T, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
-        T: Serialize,
+        T: serde::Serialize,
     {
-        let json_str = serde_json::to_string(value).map_err(serde::ser::Error::custom)?;
-        serializer.serialize_str(&json_str)
+        let json_string = serde_json::to_string(value).map_err(serde::ser::Error::custom)?;
+        serializer.serialize_str(&json_string)
+    }
+
+    pub fn deserialize<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: serde::de::DeserializeOwned,
+    {
+        let json_string = String::deserialize(deserializer)?;
+        serde_json::from_str(&json_string).map_err(serde::de::Error::custom)
     }
 }
 
@@ -115,19 +114,26 @@ impl FileDetails {
     }
 
     pub async fn delete(&self) -> Result<(), DynError> {
-        // Delete on Redis
-        Self::remove_from_index_multiple_json(&[&[&self.owner_id, &self.id]]).await?;
-
         // Delete graph node;
-        exec_single_row(queries::del::delete_file(&self.owner_id, &self.id)).await?;
-
+        match exec_single_row(queries::del::delete_file(&self.owner_id, &self.id)).await {
+            Ok(_) => {
+                // Delete on Redis
+                Self::remove_from_index_multiple_json(&[&[&self.owner_id, &self.id]]).await?;
+            }
+            Err(e) => {
+                error!("File deletion: {:?}", e);
+                return Err("File: We could not delete the file".into());
+            }
+        };
         Ok(())
     }
 
     pub fn file_key_from_uri(uri: &str) -> Vec<String> {
-        let path = uri.replace("pubky://", "");
-        let parts: Vec<&str> = path.split("/").collect();
-
-        vec![String::from(parts[0]), String::from(parts[parts.len() - 1])]
+        let parsed_uri = ParsedUri::try_from(uri).unwrap_or_default();
+        if let Resource::File(file_id) = parsed_uri.resource {
+            vec![parsed_uri.user_id.to_string(), file_id]
+        } else {
+            vec![parsed_uri.user_id.to_string(), String::default()]
+        }
     }
 }

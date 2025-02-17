@@ -1,19 +1,21 @@
-use crate::watcher::utils::watcher::WatcherTest;
+use crate::{
+    service::utils::host_url, utils::TestServiceServer, watcher::utils::watcher::WatcherTest,
+};
 use anyhow::Result;
 use chrono::Utc;
-use pubky_app_specs::{PubkyAppFile, PubkyAppUser};
-use pubky_common::crypto::Keypair;
-use pubky_common::timestamp::Timestamp;
+use pkarr::Keypair;
+use pubky_app_specs::traits::HasPath;
+use pubky_app_specs::{PubkyAppBlob, PubkyAppFile, PubkyAppUser};
 use pubky_nexus::{
     models::{file::FileDetails, traits::Collection},
     PubkyConnector,
 };
-use serde_json::to_vec;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_put_pubkyapp_file() -> Result<()> {
     // Arrange
     let mut test = WatcherTest::setup().await?;
+    TestServiceServer::get_test_server().await;
 
     let keypair = Keypair::random();
     let user = PubkyAppUser {
@@ -26,19 +28,23 @@ async fn test_put_pubkyapp_file() -> Result<()> {
 
     let user_id = test.create_user(&keypair, &user).await?;
 
-    let blob = "Hello World!";
-    let blob_id = Timestamp::now().to_string();
-    let blob_url = format!("pubky://{}/pub/pubky.app/blobs/{}", user_id, blob_id);
-    let json_data = to_vec(blob)?;
+    let blob_data = "Hello World!".to_string();
+    let blob = PubkyAppBlob::new(blob_data.as_bytes().to_vec());
+    let blob_url = format!("pubky://{}{}", user_id, blob.create_path());
+
     let pubky_client = PubkyConnector::get_pubky_client()?;
-    pubky_client.put(blob_url.as_str(), &json_data).await?;
+    pubky_client
+        .put(blob_url.as_str())
+        .body(blob.0.clone())
+        .send()
+        .await?;
 
     // Act
     let file = PubkyAppFile {
         name: "myfile".to_string(),
         content_type: "text/plain".to_string(),
         src: blob_url.clone(),
-        size: json_data.len() as i64,
+        size: blob.0.len() as i64,
         created_at: Utc::now().timestamp_millis(),
     };
 
@@ -64,11 +70,7 @@ async fn test_put_pubkyapp_file() -> Result<()> {
     assert_eq!(result_file.owner_id, user_id);
 
     // Assert: Ensure it's statically served
-    let nexus_url = format!(
-        "http://{}:{}",
-        test.config.server_host, test.config.server_port
-    );
-    let client = httpc_test::new_client(nexus_url)?;
+    let client = httpc_test::new_client(host_url().await)?;
 
     let blob_path = format!("/static/files/{}/{}", user_id, file_id);
     let response = client.do_get(&blob_path).await?;
@@ -80,7 +82,7 @@ async fn test_put_pubkyapp_file() -> Result<()> {
             .unwrap()
             .parse::<i32>()
             .unwrap(),
-        14
+        12
     );
     assert_eq!(response.header("content-type").unwrap(), file.content_type);
 

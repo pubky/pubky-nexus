@@ -1,7 +1,8 @@
 use anyhow::Result;
+use reqwest::StatusCode;
 use serde_json::Value;
 
-use crate::service::utils::{make_request, make_wrong_request};
+use crate::service::utils::{get_request, invalid_get_request};
 
 const ROOT_PATH: &str = "/v0/search/tags";
 const FREE_LABEL: &str = "free";
@@ -10,11 +11,11 @@ const POST_A: &str = "2VDW8YBDZJ02";
 const POST_B: &str = "1TDV7XBCF4M1";
 const POST_C: &str = "HC3T5CEPBPHQ";
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_tag_search_by_timeline() -> Result<()> {
     let post_order = vec![POST_A, POST_B, POST_C];
     let path = format!("{}/{}", ROOT_PATH, FREE_LABEL);
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -29,11 +30,11 @@ async fn test_tag_search_by_timeline() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_tag_search_with_skip() -> Result<()> {
     let post_order = vec![POST_B, POST_C];
     let path = format!("{}/{}?skip=1", ROOT_PATH, FREE_LABEL);
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -48,11 +49,11 @@ async fn test_tag_search_with_skip() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_tag_search_with_limit() -> Result<()> {
     let post_order = vec![POST_A];
     let path = format!("{}/{}?limit=1", ROOT_PATH, FREE_LABEL);
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -67,11 +68,11 @@ async fn test_tag_search_with_limit() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_tag_search_with_limit_and_skip() -> Result<()> {
     let post_order = vec![POST_C];
     let path = format!("{}/{}?limit=1&skip=2", ROOT_PATH, FREE_LABEL);
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
@@ -86,10 +87,10 @@ async fn test_tag_search_with_limit_and_skip() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio_shared_rt::test(shared)]
 async fn test_post_specific_tag_with_no_result() -> Result<()> {
     let path = format!("{}/{}", ROOT_PATH, "randommm");
-    make_wrong_request(&path, None).await?;
+    invalid_get_request(&path, StatusCode::NOT_FOUND).await?;
 
     Ok(())
 }

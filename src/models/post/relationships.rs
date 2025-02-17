@@ -1,6 +1,7 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
 use crate::types::DynError;
 use crate::{queries, RedisOps};
+use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -39,7 +40,9 @@ impl PostRelationships {
         author_id: &str,
         post_id: &str,
     ) -> Result<Option<PostRelationships>, DynError> {
-        if let Some(post_relationships) = Self::try_from_index_json(&[author_id, post_id]).await? {
+        if let Some(post_relationships) =
+            Self::try_from_index_json(&[author_id, post_id], None).await?
+        {
             return Ok(Some(post_relationships));
         }
         Ok(None)
@@ -88,8 +91,25 @@ impl PostRelationships {
         }
     }
 
+    /// Constructs a `Self` instance by extracting relationships from a `PubkyAppPost` object
+    pub fn from_homeserver(post: &PubkyAppPost) -> Self {
+        let mut relationship = Self::default();
+
+        if let Some(parent_uri) = &post.parent {
+            relationship.replied = Some(parent_uri.to_string());
+        }
+
+        if let Some(embed) = &post.embed {
+            if let PubkyAppPostKind::Short = embed.kind {
+                relationship.reposted = Some(embed.uri.clone());
+            }
+        }
+        relationship
+    }
+
     pub async fn put_to_index(&self, author_id: &str, post_id: &str) -> Result<(), DynError> {
-        self.put_index_json(&[author_id, post_id], None).await?;
+        self.put_index_json(&[author_id, post_id], None, None)
+            .await?;
         Ok(())
     }
 

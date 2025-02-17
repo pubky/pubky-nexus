@@ -2,12 +2,11 @@ use super::UserSearch;
 use crate::db::graph::exec::exec_single_row;
 use crate::models::traits::Collection;
 use crate::types::DynError;
-use crate::types::PubkyId;
 use crate::{queries, RedisOps};
-use axum::async_trait;
+use async_trait::async_trait;
 use chrono::Utc;
 use neo4rs::Query;
-use pubky_app_specs::{PubkyAppUser, PubkyAppUserLink};
+use pubky_app_specs::{PubkyAppUser, PubkyAppUserLink, PubkyId};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json;
 use utoipa::ToSchema;
@@ -71,7 +70,10 @@ where
                 .map_err(serde::de::Error::custom)?;
             Ok(Some(urls))
         }
-        _ => Err(serde::de::Error::custom("Expected a string or an array")),
+        serde_json::Value::Null => Ok(None),
+        _ => Err(serde::de::Error::custom(
+            "Expected either a string, an array or null",
+        )),
     }
 }
 
@@ -101,7 +103,6 @@ impl UserDetails {
     pub async fn delete(user_id: &str) -> Result<(), DynError> {
         // Delete user_details on Redis
         Self::remove_from_index_multiple_json(&[&[user_id]]).await?;
-
         // Delete user graph node;
         exec_single_row(queries::del::delete_user(user_id)).await?;
 
@@ -111,7 +112,7 @@ impl UserDetails {
 
 #[cfg(test)]
 mod tests {
-    use crate::{setup, Config};
+    use crate::{Config, StackManager};
 
     use super::*;
 
@@ -126,10 +127,10 @@ mod tests {
         "not_existing_user_id_either", // Does not exist
     ];
 
-    #[tokio::test]
+    #[tokio_shared_rt::test(shared)]
     async fn test_get_by_ids_from_redis() {
         let config = Config::from_env();
-        setup(&config).await;
+        StackManager::setup(&config).await;
 
         let user_details = UserDetails::get_by_ids(&USER_IDS).await.unwrap();
         assert_eq!(user_details.len(), USER_IDS.len());

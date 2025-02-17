@@ -1,7 +1,12 @@
 use super::utils::{analyse_tag_details_structure, compare_tag_details, TagMockup};
-use crate::service::utils::{make_request, make_wrong_request};
+use crate::service::utils::{get_request, invalid_get_request};
+use crate::utils::TestServiceServer;
 use anyhow::Result;
 use pubky_nexus::models::tag::TagDetails;
+use pubky_nexus::routes::v0::types::TaggersInfo;
+use pubky_nexus::{db::connectors::redis::get_redis_conn, types::DynError};
+use redis::AsyncCommands;
+use reqwest::StatusCode;
 use serde_json::Value;
 
 // ##### WoT user tags ####
@@ -17,29 +22,33 @@ const USER_A: &str = "cjoodgkwaf1bwepoe8m6zsp8guobh5wdwmqqnk496jcd175jjwey";
 const USER_B: &str = "fs8qf51odhpf9ecoms8i9tbjtyshhjdejpsf3nxcbup3ugs7q4xo";
 const USER_C: &str = "cuimec4ngawamq8wa6fjzki6boxmwqcm11x6g7ontufrjwgdaxqo";
 
-#[tokio::test]
-async fn test_wot_user_tags_endpoints() -> Result<()> {
-    // Make sure, we still not index the WoT tags
+// WARNING: To test that integration test, the Cache:... indexes
+// related with WoT has to be deleted
+#[tokio_shared_rt::test(shared)]
+async fn test_wot_user_tags_endpoints() -> Result<(), DynError> {
+    let _ = clear_wot_tags_cache().await;
+
+    // Make sure, we still not index the WoT tags requesting the taggers
     let path = format!(
         "/v0/user/{}/taggers/{}?viewer_id={}&depth=2",
         AURELIO_USER, ATHENS_TAG, EPICTTO_VIEWER
     );
     // If we get error here, delete the Cache:... indexes
-    make_wrong_request(&path, None).await?;
+    invalid_get_request(&path, StatusCode::NOT_FOUND).await?;
 
     // => Start indexing the WoT tags
     let path = format!(
         "/v0/user/{}/tags?viewer_id={}&depth=2",
         AURELIO_USER, EPICTTO_VIEWER
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Tag list should be an array");
     assert_eq!(tags.len(), 2);
 
-    // Validate that the posts belong to the specified user's bookmarks
+    // Validate that the posts tag structure
     analyse_tag_details_structure(tags);
 
     // Analyse the tag that is in the 4th index
@@ -53,33 +62,71 @@ async fn test_wot_user_tags_endpoints() -> Result<()> {
         "/v0/user/{}/tags?viewer_id={}&depth=2&limit_tags=1",
         AURELIO_USER, EPICTTO_VIEWER
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Tag list should be an array");
     assert_eq!(tags.len(), 1);
 
-    // Validate that the posts belong to the specified user's bookmarks
+    // Validate that the posts tag structure
     analyse_tag_details_structure(tags);
 
     // // Analyse the tag that is in the 4th index
     let athens_hot_tag = TagMockup::new(String::from(ATHENS_TAG), 3, 3);
     compare_tag_details(&tags[0], athens_hot_tag);
 
+    // => test_wot_user_tags_endpoint_with_tag_skip
+    let path = format!(
+        "/v0/user/{}/tags?viewer_id={}&depth=2&skip_tags=1",
+        AURELIO_USER, EPICTTO_VIEWER
+    );
+    let body = get_request(&path).await?;
+
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Tag list should be an array");
+    assert_eq!(tags.len(), 1);
+
+    // Validate that the posts tag structure
+    analyse_tag_details_structure(tags);
+
+    // Analyse the tag that is in the 1st index
+    let now_hot_tag = TagMockup::new(String::from(NOW_TAG), 2, 2);
+    compare_tag_details(&tags[0], now_hot_tag);
+
+    // => test_wot_user_tags_endpoint_with_tag_skip_and_taggers_limit
+    let path = format!(
+        "/v0/user/{}/tags?viewer_id={}&depth=2&skip_tags=1&limit_taggers=1",
+        AURELIO_USER, EPICTTO_VIEWER
+    );
+    let body = get_request(&path).await?;
+
+    assert!(body.is_array());
+
+    let tags = body.as_array().expect("Tag list should be an array");
+    assert_eq!(tags.len(), 1);
+
+    // Validate that the posts tag structure
+    analyse_tag_details_structure(tags);
+
+    // Analyse the tag that is in the 1st index
+    let now_hot_tag = TagMockup::new(String::from(NOW_TAG), 1, 2);
+    compare_tag_details(&tags[0], now_hot_tag);
+
     // => test_wot_user_tags_endpoint_with_tagger_limit
     let path = format!(
         "/v0/user/{}/tags?viewer_id={}&depth=2&limit_taggers=1",
         AURELIO_USER, EPICTTO_VIEWER
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Tag list should be an array");
     assert_eq!(tags.len(), 2);
 
-    // Validate that the posts belong to the specified user's bookmarks
+    // Validate that the posts tag structure
     analyse_tag_details_structure(tags);
 
     // // Analyse the tag that is in the 4th index
@@ -93,14 +140,14 @@ async fn test_wot_user_tags_endpoints() -> Result<()> {
         "/v0/user/{}/tags?viewer_id={}&depth=2&limit_tags=1&limit_taggers=1",
         AURELIO_USER, EPICTTO_VIEWER
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
     let tags = body.as_array().expect("Tag list should be an array");
     assert_eq!(tags.len(), 1);
 
-    // Validate that the posts belong to the specified user's bookmarks
+    // Validate that the posts tag structure
     analyse_tag_details_structure(tags);
 
     // // Analyse the tag that is in the 4th index
@@ -112,7 +159,7 @@ async fn test_wot_user_tags_endpoints() -> Result<()> {
         "/v0/user/{}/taggers/{}?viewer_id={}&depth=2",
         AURELIO_USER, ATHENS_TAG, EPICTTO_VIEWER
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     let mut mock_taggers = vec![USER_A, USER_B, USER_C];
     verify_taggers_list(mock_taggers, body);
@@ -122,7 +169,7 @@ async fn test_wot_user_tags_endpoints() -> Result<()> {
         "/v0/user/{}/taggers/{}?viewer_id={}&depth=2&limit=2",
         AURELIO_USER, ATHENS_TAG, EPICTTO_VIEWER
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     mock_taggers = vec![USER_A, USER_B];
     verify_taggers_list(mock_taggers, body);
@@ -132,7 +179,7 @@ async fn test_wot_user_tags_endpoints() -> Result<()> {
         "/v0/user/{}/taggers/{}?viewer_id={}&depth=2&limit=1&skip=1",
         AURELIO_USER, ATHENS_TAG, EPICTTO_VIEWER
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
 
     mock_taggers = vec![USER_B];
     verify_taggers_list(mock_taggers, body);
@@ -142,7 +189,7 @@ async fn test_wot_user_tags_endpoints() -> Result<()> {
         "/v0/user/{}?viewer_id={}&depth=2",
         AURELIO_USER, EPICTTO_VIEWER
     );
-    let body = make_request(&path).await?;
+    let body = get_request(&path).await?;
     let tags = body["tags"].clone();
 
     mock_taggers = vec![USER_A, USER_B, USER_C];
@@ -158,19 +205,20 @@ async fn test_wot_user_tags_endpoints() -> Result<()> {
 }
 
 fn verify_taggers_list(mock_taggers: Vec<&str>, body: Value) {
-    assert!(body.is_array(), "The response has to be an array of posts");
+    let taggers_info: TaggersInfo = serde_json::from_value(body).unwrap();
+    assert_eq!(taggers_info.users.len(), mock_taggers.len());
 
-    let taggers = body.as_array().expect("Tag list should be an array");
-    assert_eq!(taggers.len(), mock_taggers.len());
-
-    assert!(!taggers.is_empty(), "Post stream should not be empty");
+    assert!(
+        !taggers_info.users.is_empty(),
+        "Post stream should not be empty"
+    );
     assert_eq!(
-        taggers.len(),
+        taggers_info.users.len(),
         mock_taggers.len(),
         "The endpoint result has to have the same lenght as mock data"
     );
 
-    for (index, user_id) in taggers.iter().enumerate() {
+    for (index, user_id) in taggers_info.users.iter().enumerate() {
         assert_eq!(
             mock_taggers[index], user_id,
             "The post ids should be the same"
@@ -195,4 +243,26 @@ fn verify_user_taggers(mock_taggers: Vec<&str>, tag_details: Value, tag: String)
             "The post ids should be the same"
         );
     }
+}
+
+async fn clear_wot_tags_cache() -> Result<(), DynError> {
+    // Ensure the server is running, for redis connection
+    TestServiceServer::get_test_server().await;
+    let mut redis_conn = get_redis_conn().await?;
+
+    let athens_key = format!(
+        "Cache:User:Taggers:{}:{}:{}",
+        EPICTTO_VIEWER, AURELIO_USER, ATHENS_TAG
+    );
+    let now_key = format!(
+        "Cache:User:Taggers:{}:{}:{}",
+        EPICTTO_VIEWER, AURELIO_USER, NOW_TAG
+    );
+    // Remove the SETs
+    let _: () = redis_conn.del(athens_key).await?;
+    let _: () = redis_conn.del(now_key).await?;
+    // Remove the SORTED SET
+    let sorted_set_key = format!("Cache:Sorted:Users:Tag:{}:{}", EPICTTO_VIEWER, AURELIO_USER);
+    let _: () = redis_conn.del(sorted_set_key).await?;
+    Ok(())
 }

@@ -16,13 +16,12 @@ pub struct Config {
     pub server_port: String,
     pub reindex: bool,
     pub testnet: bool,
-    pub bootstrap: String,
     pub homeserver: String,
-    pub homeserver_url: String,
     pub events_limit: u32,
     pub watcher_sleep: u64,
     pub max_retries: u64,
     pub otlp_endpoint: String,
+    pub migrations_backfill_ready: Vec<String>,
 }
 
 impl Config {
@@ -48,9 +47,7 @@ impl Config {
                 .unwrap_or_else(|_| "false".to_string())
                 .parse()
                 .unwrap_or(true),
-            bootstrap: env::var("BOOTSTRAP").unwrap_or_else(|_| "127.0.0.1:6881".to_string()),
-            homeserver: env::var("HOMESERVER").expect("HOMESERVER pubky not set"),
-            homeserver_url: env::var("HOMESERVER_URL").expect("HOMESERVER_URL not set"),
+            homeserver: env::var("HOMESERVER").expect("HOMESERVER pubky id not set"),
             events_limit: env::var("EVENTS_LIMIT")
                 .unwrap_or("1000".to_string())
                 .parse()
@@ -66,6 +63,11 @@ impl Config {
             neo4j_username: env::var("NEO4J_DB_USERNAME").expect("NEO4J_DB_USERNAME not set"),
             neo4j_password: env::var("NEO4J_PASSWORD").expect("NEO4J_PASSWORD not set"),
             otlp_endpoint: env::var("OTLP_ENDPOINT").unwrap_or("".to_string()),
+            migrations_backfill_ready: env::var("MIGRATIONS_BACKFILL_READY")
+                .unwrap_or("".to_string())
+                .split(",")
+                .map(|s| s.trim().to_string())
+                .collect::<Vec<String>>(),
         }
     }
 

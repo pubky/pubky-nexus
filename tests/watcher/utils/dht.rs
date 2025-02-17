@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Error};
-use pkarr::mainline::Testnet;
+use log::warn;
+use mainline::Testnet;
 use std::sync::Arc;
 use tokio::sync::OnceCell;
 
@@ -24,11 +25,13 @@ impl TestnetDHTNetwork {
         }
         let testnet = Self {
             // TODO: maybe add the node number in environment variable
-            nodes: Arc::new(Testnet::new(nodes)),
+            nodes: Arc::new(Testnet::new(nodes)?),
         };
-        DHT_TESTNET_NETWORK_SINGLETON
-            .set(testnet)
-            .map_err(|_| anyhow!("Already initiailsed"))?;
+        if let Err(_) = DHT_TESTNET_NETWORK_SINGLETON.set(testnet) {
+            warn!("DHT Testnet network was already initialized.");
+            return Ok(());
+        }
+
         Ok(())
     }
 

@@ -1,5 +1,5 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
-use crate::db::graph::exec::exec_boolean_row;
+use crate::db::graph::exec::{execute_graph_operation, OperationOutcome};
 use crate::types::DynError;
 use crate::{queries, RedisOps};
 use neo4rs::Relation;
@@ -23,7 +23,7 @@ impl Bookmark {
         user_id: &str,
         bookmark_id: &str,
         indexed_at: i64,
-    ) -> Result<bool, DynError> {
+    ) -> Result<OperationOutcome, DynError> {
         let query = queries::put::create_post_bookmark(
             user_id,
             author_id,
@@ -32,7 +32,7 @@ impl Bookmark {
             indexed_at,
         );
 
-        exec_boolean_row(query).await
+        execute_graph_operation(query).await
     }
 
     /// Retrieves counts by user ID, first trying to get from Redis, then from Neo4j if not found.
@@ -64,7 +64,9 @@ impl Bookmark {
         post_id: &str,
         viewer_id: &str,
     ) -> Result<Option<Bookmark>, DynError> {
-        if let Some(bookmark) = Self::try_from_index_json(&[author_id, post_id, viewer_id]).await? {
+        if let Some(bookmark) =
+            Self::try_from_index_json(&[author_id, post_id, viewer_id], None).await?
+        {
             return Ok(Some(bookmark));
         }
         Ok(None)
@@ -107,7 +109,7 @@ impl Bookmark {
         post_id: &str,
         viewer_id: &str,
     ) -> Result<(), DynError> {
-        self.put_index_json(&[author_id, post_id, viewer_id], None)
+        self.put_index_json(&[author_id, post_id, viewer_id], None, None)
             .await?;
         PostStream::add_to_bookmarks_sorted_set(self, viewer_id, post_id, author_id).await?;
         Ok(())

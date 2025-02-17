@@ -1,7 +1,7 @@
 use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
+use pkarr::Keypair;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
-use pubky_common::crypto::Keypair;
 use pubky_nexus::{
     models::notification::{Notification, NotificationBody, PostChangedSource},
     types::Pagination,
@@ -59,13 +59,14 @@ async fn test_edit_parent_post_notification() -> Result<()> {
 
     // User A edits their original post
     post.content = "Edited post by User A".to_string();
-    let edited_post_blob = serde_json::to_vec(&post)?;
     let edited_url = format!("pubky://{}/pub/pubky.app/posts/{}", user_a_id, post_id);
 
     // Overwrite existing post in the homeserver with the edited one
     let pubky_client = PubkyConnector::get_pubky_client()?;
     pubky_client
-        .put(edited_url.as_str(), &edited_post_blob)
+        .put(edited_url.as_str())
+        .json(&post)
+        .send()
         .await?;
     test.ensure_event_processing_complete().await?;
 

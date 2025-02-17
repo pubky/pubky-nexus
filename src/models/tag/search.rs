@@ -129,9 +129,9 @@ impl TagSearch {
     ) -> Result<(), DynError> {
         let post_key_slice: &[&str] = &[author_id, post_id];
         let key_parts = [&TAG_GLOBAL_POST_TIMELINE[..], &[tag_label]].concat();
-        let tag_search = Self::check_sorted_set_member(&key_parts, post_key_slice).await?;
+        let tag_search = Self::check_sorted_set_member(None, &key_parts, post_key_slice).await?;
         if tag_search.is_none() {
-            let option = PostDetails::try_from_index_json(post_key_slice).await?;
+            let option = PostDetails::try_from_index_json(post_key_slice, None).await?;
             if let Some(post_details) = option {
                 let member_key = post_key_slice.join(":");
                 Self::put_index_sorted_set(
@@ -152,12 +152,12 @@ impl TagSearch {
         tag_label: &str,
     ) -> Result<(), DynError> {
         let post_label_key = vec![author_id, post_id, tag_label];
-        let label_taggers = TagPost::get_from_index(post_label_key, None, None, None).await?;
+        let label_taggers = TagPost::get_from_index(post_label_key, None, None, None, None).await?;
         // Make sure that post does not have more taggers with that tag. Post:Taggers:user_id:post_id:label
         if label_taggers.is_none() {
             let key_parts = [&TAG_GLOBAL_POST_TIMELINE[..], &[tag_label]].concat();
             let post_key = format!("{}:{}", author_id, post_id);
-            Self::remove_from_index_sorted_set(&key_parts, &[&post_key]).await?;
+            Self::remove_from_index_sorted_set(None, &key_parts, &[&post_key]).await?;
         }
         Ok(())
     }

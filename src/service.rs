@@ -1,11 +1,11 @@
-use pubky_nexus::{redis_is_empty, reindex, routes, setup, Config};
+use pubky_nexus::{redis_is_empty, reindex, routes, Config, StackManager};
 use tokio::net::TcpListener;
 use tracing::info;
 
 #[tokio::main]
 async fn main() {
     let config = Config::from_env();
-    setup(&config).await;
+    StackManager::setup(&config).await;
 
     // Reindex if REINDEX is set to true or Redis is empty
     let should_reindex = config.reindex || redis_is_empty().await.unwrap_or(false);
