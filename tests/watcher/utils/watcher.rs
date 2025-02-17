@@ -1,6 +1,3 @@
-use std::time::Duration;
-
-use super::dht::TestnetDHTNetwork;
 use anyhow::{anyhow, Result};
 use chrono::Utc;
 use log::debug;
@@ -13,6 +10,8 @@ use pubky_nexus::events::retry::event::RetryEvent;
 use pubky_nexus::events::Event;
 use pubky_nexus::types::DynError;
 use pubky_nexus::{Config, EventProcessor, PubkyConnector, StackManager};
+use pubky_testnet::Testnet;
+use std::time::Duration;
 
 /// Struct to hold the setup environment for tests
 pub struct WatcherTest {
@@ -40,13 +39,14 @@ impl WatcherTest {
         let config = Config::from_env();
         StackManager::setup(&config).await;
 
-        TestnetDHTNetwork::initialise(10)?;
-        let testnet = TestnetDHTNetwork::get_testnet_dht_nodes()?;
+        let testnet = Testnet::run().await.unwrap();
 
-        let homeserver = Homeserver::start_test(&testnet).await?;
+        let homeserver = testnet.run_homeserver().await.unwrap();
         let homeserver_id = homeserver.public_key().to_string();
 
-        match PubkyConnector::initialise(&config, Some(&testnet)).await {
+        let client = testnet.client_builder().build().unwrap();
+
+        match PubkyConnector::init_from_client(client).await {
             Ok(_) => debug!("WatcherTest: PubkyConnector initialised"),
             Err(e) => debug!("WatcherTest: {}", e),
         }

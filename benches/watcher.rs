@@ -1,10 +1,8 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use mainline::Testnet;
 use pkarr::Keypair;
-use pubky::Client;
 use pubky_app_specs::{PubkyAppUser, PubkyAppUserLink};
-use pubky_homeserver::Homeserver;
 use pubky_nexus::EventProcessor;
+use pubky_testnet::Testnet;
 use setup::run_setup;
 use std::time::Duration;
 use tokio::runtime::Runtime;
@@ -18,9 +16,9 @@ mod setup;
 /// 4. Delete the profile.json
 async fn create_homeserver_with_events() -> (Testnet, String) {
     // Create the test environment
-    let testnet = Testnet::new(3).unwrap();
-    let homeserver = Homeserver::start_test(&testnet).await.unwrap();
-    let client = Client::builder().testnet(&testnet).build().unwrap();
+    let testnet = Testnet::run().await.unwrap();
+    let homeserver = testnet.run_homeserver().await.unwrap();
+    let client = testnet.client_builder().build().unwrap();
     let homeserver_url = homeserver.url().to_string();
 
     // Generate user data
