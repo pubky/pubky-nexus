@@ -1,9 +1,9 @@
 use crate::watcher::utils::watcher::{retrieve_and_handle_event_line, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
-use log::error;
 use pkarr::Keypair;
 use pubky_app_specs::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser};
+use tracing::error;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_tag_cannot_add_while_index() -> Result<()> {

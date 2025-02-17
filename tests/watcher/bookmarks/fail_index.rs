@@ -1,8 +1,8 @@
 use crate::watcher::utils::watcher::{retrieve_and_handle_event_line, WatcherTest};
 use anyhow::Result;
-use log::error;
 use pkarr::Keypair;
 use pubky_app_specs::{traits::HashId, PubkyAppBookmark, PubkyAppPost, PubkyAppUser};
+use tracing::error;
 
 /// The user profile is stored in the homeserver. Missing the author that creates the bookmark
 #[tokio_shared_rt::test(shared)]
