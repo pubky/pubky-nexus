@@ -3,6 +3,8 @@ use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::OnceCell;
 
+use crate::Config;
+
 static PUBKY_CONNECTOR_SINGLETON: OnceCell<Arc<Client>> = OnceCell::const_new();
 
 #[derive(Debug, Error)]
@@ -23,24 +25,22 @@ pub enum PubkyConnectorError {
 pub struct PubkyConnector;
 
 impl PubkyConnector {
-    /// Initializes the PubkyConnector singleton with default mainnet configuration
-    pub async fn initialise() -> Result<(), PubkyConnectorError> {
+    /// Initializes the PubkyConnector singleton with the given configuration
+    pub async fn initialise(config: &Config) -> Result<(), PubkyConnectorError> {
         PUBKY_CONNECTOR_SINGLETON
             .get_or_try_init(|| async {
-                let pubky_client = Client::builder()
-                    .build()
-                    .map_err(|e| PubkyConnectorError::ClientError(e.to_string()))?;
+                let client = match config.testnet {
+                    true => Client::builder()
+                        .testnet()
+                        .build()
+                        .map_err(|e| PubkyConnectorError::ClientError(e.to_string()))?,
+                    false => Client::builder()
+                        .build()
+                        .map_err(|e| PubkyConnectorError::ClientError(e.to_string()))?,
+                };
 
-                Ok(Arc::new(pubky_client))
+                Ok(Arc::new(client))
             })
-            .await
-            .map(|_| ())
-    }
-
-    /// Initializes the PubkyConnector singleton with the given client
-    pub async fn init_from_client(client: Client) -> Result<(), PubkyConnectorError> {
-        PUBKY_CONNECTOR_SINGLETON
-            .get_or_try_init(|| async { Ok(Arc::new(client)) })
             .await
             .map(|_| ())
     }

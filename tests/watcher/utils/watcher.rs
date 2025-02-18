@@ -2,12 +2,14 @@ use anyhow::{anyhow, Result};
 use chrono::Utc;
 use log::debug;
 use pkarr::Keypair;
+use pubky::Client;
 use pubky_app_specs::{
     traits::TimestampId, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser,
 };
 use pubky_homeserver::Homeserver;
 use pubky_nexus::events::retry::event::RetryEvent;
 use pubky_nexus::events::Event;
+use pubky_nexus::models::homeserver;
 use pubky_nexus::types::DynError;
 use pubky_nexus::{Config, EventProcessor, PubkyConnector, StackManager};
 use pubky_testnet::Testnet;
@@ -45,9 +47,7 @@ impl WatcherTest {
         let homeserver = testnet.run_homeserver().await.unwrap();
         let homeserver_id = homeserver.public_key().to_string();
 
-        let client = testnet.client_builder().build().unwrap();
-
-        match PubkyConnector::init_from_client(client).await {
+        match PubkyConnector::initialise(&config).await {
             Ok(_) => debug!("WatcherTest: PubkyConnector initialised"),
             Err(e) => debug!("WatcherTest: {}", e),
         }
