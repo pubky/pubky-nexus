@@ -8,12 +8,11 @@ use crate::{
     },
     Config,
 };
-use opentelemetry::{global, KeyValue};
+use opentelemetry::global;
 use opentelemetry_appender_tracing::layer;
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::logs::LoggerProvider;
 use opentelemetry_sdk::trace::TracerProvider;
-use opentelemetry_sdk::Resource;
 use tracing::{debug, info};
 use tracing_subscriber::{layer::SubscriberExt, Registry};
 use tracing_subscriber::{EnvFilter, Layer};
@@ -68,7 +67,6 @@ impl StackManager {
 
         let tracer_provider = TracerProvider::builder()
             .with_batch_exporter(tracing_exporter, opentelemetry_sdk::runtime::Tokio)
-            .with_resource(Resource::new(vec![KeyValue::new("service.name", "nexus")]))
             .build();
 
         global::set_tracer_provider(tracer_provider.clone());
@@ -82,9 +80,9 @@ impl StackManager {
 
         let logging_provider = LoggerProvider::builder()
             .with_batch_exporter(logging_exporter, opentelemetry_sdk::runtime::Tokio)
-            .with_resource(Resource::new(vec![KeyValue::new("service.name", "nexus")]))
             .build();
 
+        // Set default logging level for individual libraries that are too verbose
         let otlp_layer = layer::OpenTelemetryTracingBridge::new(&logging_provider).with_filter(
             EnvFilter::from_default_env()
                 .add_directive("opentelemetry=error".parse().unwrap())
@@ -128,7 +126,6 @@ impl StackManager {
 
         let provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()
             .with_reader(reader)
-            .with_resource(Resource::new(vec![KeyValue::new("service.name", "nexus")]))
             .build();
         global::set_meter_provider(provider);
         info!("Metrics initialized");

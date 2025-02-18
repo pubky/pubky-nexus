@@ -39,17 +39,17 @@ services:
       - .database/redis/data:/data
     restart: always
 
-  jaeger:
-    image: jaegertracing/all-in-one:1.65.0
-    container_name: jaeger
-    environment:
+  # jaeger:
+  #   image: jaegertracing/all-in-one:1.65.0
+  #   container_name: jaeger
+  #   environment:
       # This ensures the Jaeger container also listens for OTLP signals
-      COLLECTOR_OTLP_ENABLED: "true"
+      # COLLECTOR_OTLP_ENABLED: "true"
     # ports:
     #   - "16686:16686"    # Jaeger UI
     #   - "4317:4317"      # OTLP/gRPC
     #   - "4318:4318"      # OTLP/HTTP
     # networks:
     #   - default
-    restart: unless-stopped
-    network_mode: host
+    # restart: unless-stopped
+    # network_mode: host

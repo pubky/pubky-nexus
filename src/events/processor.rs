@@ -6,8 +6,8 @@ use crate::events::retry::event::RetryEvent;
 use crate::types::DynError;
 use crate::PubkyConnector;
 use crate::{models::homeserver::Homeserver, Config};
-use opentelemetry::trace::{FutureExt, TraceContextExt, Tracer};
-use opentelemetry::{global, Context};
+use opentelemetry::trace::{FutureExt, Span, TraceContextExt, Tracer};
+use opentelemetry::{global, Context, KeyValue};
 use pubky_app_specs::PubkyId;
 use tracing::{debug, error, info};
 
@@ -129,7 +129,17 @@ impl EventProcessor {
                 };
                 if let Some(event) = event {
                     let tracer = global::tracer("nexus.watcher");
-                    let span = tracer.start("Event Line");
+                    let mut span = tracer.start(event.parsed_uri.resource.to_string());
+                    span.set_attribute(KeyValue::new("event.uri", event.uri.clone()));
+                    span.set_attribute(KeyValue::new("event.type", event.event_type.to_string()));
+                    span.set_attribute(KeyValue::new(
+                        "event.user_id",
+                        event.parsed_uri.user_id.to_string(),
+                    ));
+                    span.set_attribute(KeyValue::new(
+                        "event.resource_id",
+                        event.parsed_uri.resource.id().unwrap_or("".to_string()),
+                    ));
                     let cx = Context::new().with_span(span);
                     debug!("Processing event: {:?}", event);
                     self.handle_event(event).with_context(cx).await?;
