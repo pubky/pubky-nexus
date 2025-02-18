@@ -10,10 +10,10 @@ default-run = "service"
 build = "build.rs"
 
 [dependencies]
-bytes = "1.9.0"                                                                               # Enforce this version as Pubky and Axum conflict v1.7.1 vs v1.9.0
+bytes = "1.9.0"                                                                 # Enforce this version as Pubky and Axum conflict v1.7.1 vs v1.9.0
 pkarr = "3.3.1"
-pubky = { git = "https://github.com/pubky/pubky", branch = "deps/bump-pkarr-v3.3.1" }
-pubky-testnet = { git = "https://github.com/pubky/pubky", branch = "deps/bump-pkarr-v3.3.1" }
+pubky = { git = "https://github.com/pubky/pubky" }
+pubky-testnet = { git = "https://github.com/pubky/pubky" }
 pubky-app-specs = { version = "0.3.1", features = ["openapi"] }
 tokio = { version = "1.43.0", features = ["full"] }
 axum = "0.8.1"
@@ -41,7 +41,7 @@ reqwest = "0.12.9"
 anyhow = "1.0.95"
 httpc-test = "0.1.10"
 criterion = { version = "0.5.1", features = ["async_tokio"] }
-pubky-homeserver = { git = "https://github.com/pubky/pubky", branch = "deps/bump-pkarr-v3.3.1" }
+pubky-homeserver = { git = "https://github.com/pubky/pubky" }
 rand = "0.8.5"
 rand_distr = "0.4.3"
 tokio-shared-rt = "0.1"

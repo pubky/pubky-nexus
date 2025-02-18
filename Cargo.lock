@@ -2672,7 +2672,7 @@ checksum = "33cb294fe86a74cbcf50d4445b37da762029549ebeea341421c7c70370f86cac"
 [[package]]
 name = "pubky"
 version = "0.4.0"
-source = "git+https://github.com/pubky/pubky?branch=deps%2Fbump-pkarr-v3.3.1#766ff27432644dc86722b5bbdce1a471f6c2a714"
+source = "git+https://github.com/pubky/pubky#7e87e02ae949def6fe83300d384ee16ee3f51df6"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -2744,7 +2744,7 @@ dependencies = [
 [[package]]
 name = "pubky-common"
 version = "0.3.0"
-source = "git+https://github.com/pubky/pubky?branch=deps%2Fbump-pkarr-v3.3.1#766ff27432644dc86722b5bbdce1a471f6c2a714"
+source = "git+https://github.com/pubky/pubky#7e87e02ae949def6fe83300d384ee16ee3f51df6"
 dependencies = [
  "argon2",
  "base32",
@@ -2764,7 +2764,7 @@ dependencies = [
 [[package]]
 name = "pubky-homeserver"
 version = "0.1.0"
-source = "git+https://github.com/pubky/pubky?branch=deps%2Fbump-pkarr-v3.3.1#766ff27432644dc86722b5bbdce1a471f6c2a714"
+source = "git+https://github.com/pubky/pubky#7e87e02ae949def6fe83300d384ee16ee3f51df6"
 dependencies = [
  "anyhow",
  "axum",
@@ -2836,14 +2836,14 @@ dependencies = [
 [[package]]
 name = "pubky-testnet"
 version = "0.1.0"
-source = "git+https://github.com/pubky/pubky?branch=deps%2Fbump-pkarr-v3.3.1#766ff27432644dc86722b5bbdce1a471f6c2a714"
+source = "git+https://github.com/pubky/pubky#7e87e02ae949def6fe83300d384ee16ee3f51df6"
 dependencies = [
  "anyhow",
  "http-relay",
  "mainline",
  "pkarr-relay",
  "pubky",
- "pubky-common 0.3.0 (git+https://github.com/pubky/pubky?branch=deps%2Fbump-pkarr-v3.3.1)",
+ "pubky-common 0.3.0 (git+https://github.com/pubky/pubky)",
  "pubky-homeserver",
  "tokio",
  "tracing-subscriber",
