@@ -40,7 +40,7 @@ impl WatcherTest {
         let config = Config::from_env();
         StackManager::setup(&config).await;
 
-        let testnet = Testnet::run().await.unwrap();
+        let testnet = Testnet::run_with_hardcoded_configurations().await.unwrap();
 
         let homeserver = testnet.run_homeserver().await.unwrap();
         let homeserver_id = homeserver.public_key().to_string();

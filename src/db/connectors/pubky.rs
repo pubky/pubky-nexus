@@ -23,7 +23,7 @@ pub enum PubkyConnectorError {
 pub struct PubkyConnector;
 
 impl PubkyConnector {
-    /// Initializes the PubkyConnector singleton with the given configuration
+    /// Initializes the PubkyConnector singleton with default mainnet configuration
     pub async fn initialise() -> Result<(), PubkyConnectorError> {
         PUBKY_CONNECTOR_SINGLETON
             .get_or_try_init(|| async {
@@ -37,7 +37,7 @@ impl PubkyConnector {
             .map(|_| ())
     }
 
-    /// Initializes the PubkyConnector singleton with the given configuration
+    /// Initializes the PubkyConnector singleton with the given client
     pub async fn init_from_client(client: Client) -> Result<(), PubkyConnectorError> {
         PUBKY_CONNECTOR_SINGLETON
             .get_or_try_init(|| async { Ok(Arc::new(client)) })
