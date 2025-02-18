@@ -1,23 +1,20 @@
+use super::testnet::TestnetNetwork;
 use anyhow::{anyhow, Result};
 use chrono::Utc;
 use log::debug;
 use pkarr::Keypair;
-use pubky::Client;
 use pubky_app_specs::{
     traits::TimestampId, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser,
 };
 use pubky_homeserver::Homeserver;
 use pubky_nexus::events::retry::event::RetryEvent;
 use pubky_nexus::events::Event;
-use pubky_nexus::models::homeserver;
 use pubky_nexus::types::DynError;
 use pubky_nexus::{Config, EventProcessor, PubkyConnector, StackManager};
-use pubky_testnet::Testnet;
 use std::time::Duration;
 
 /// Struct to hold the setup environment for tests
 pub struct WatcherTest {
-    pub testnet: Testnet,
     pub homeserver: Homeserver,
     pub event_processor: EventProcessor,
     pub ensure_event_processing: bool,
@@ -42,7 +39,8 @@ impl WatcherTest {
         let config = Config::from_env();
         StackManager::setup(&config).await;
 
-        let testnet = Testnet::run_with_hardcoded_configurations().await.unwrap();
+        TestnetNetwork::initialise().await?;
+        let testnet = TestnetNetwork::get_testnet()?;
 
         let homeserver = testnet.run_homeserver().await.unwrap();
         let homeserver_id = homeserver.public_key().to_string();
@@ -55,7 +53,6 @@ impl WatcherTest {
         let event_processor = EventProcessor::test(homeserver_id).await;
 
         Ok(Self {
-            testnet,
             homeserver,
             event_processor,
             ensure_event_processing: true,
