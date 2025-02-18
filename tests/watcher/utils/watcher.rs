@@ -15,6 +15,7 @@ use std::time::Duration;
 
 /// Struct to hold the setup environment for tests
 pub struct WatcherTest {
+    pub testnet: Testnet,
     pub homeserver: Homeserver,
     pub event_processor: EventProcessor,
     pub ensure_event_processing: bool,
@@ -54,6 +55,7 @@ impl WatcherTest {
         let event_processor = EventProcessor::test(homeserver_id).await;
 
         Ok(Self {
+            testnet,
             homeserver,
             event_processor,
             ensure_event_processing: true,
