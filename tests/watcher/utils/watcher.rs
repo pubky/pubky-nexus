@@ -39,8 +39,8 @@ impl WatcherTest {
         let config = Config::from_env();
         StackManager::setup(&config).await;
 
-        TestnetNetwork::initialise().await?;
-        let testnet = TestnetNetwork::get_testnet()?;
+        //TestnetNetwork::initialise().await?;
+        let testnet = TestnetNetwork::get().await?;
 
         let homeserver = testnet.run_homeserver().await.unwrap();
         let homeserver_id = homeserver.public_key().to_string();
