@@ -2569,6 +2569,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "pkarr"
+version = "3.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb8be2e97e822e41c6e254706e732e02ca2c49f4da038042c11d5a5e5961a164"
+dependencies = [
+ "base32",
+ "cfg_aliases",
+ "document-features",
+ "ed25519-dalek",
+ "getrandom 0.2.15",
+ "serde",
+ "thiserror 2.0.11",
+]
+
+[[package]]
 name = "pkarr-relay"
 version = "0.1.0"
 source = "git+https://github.com/pubky/pkarr?branch=v3-rc1#2d0f4ba0ac6741974201c85dc5703f094ea948b1"
@@ -2583,7 +2598,7 @@ dependencies = [
  "http",
  "httpdate",
  "mainline",
- "pkarr",
+ "pkarr 3.0.0",
  "pubky-timestamp",
  "rustls",
  "serde",
@@ -2715,7 +2730,7 @@ dependencies = [
  "js-sys",
  "log",
  "mainline",
- "pkarr",
+ "pkarr 3.0.0",
  "pubky-common",
  "reqwest",
  "thiserror 2.0.11",
@@ -2729,14 +2744,14 @@ dependencies = [
 
 [[package]]
 name = "pubky-app-specs"
-version = "0.3.0"
-source = "git+https://github.com/pubky/pubky-app-specs#fb0cd01d616e9089e3513d5600ae99ced276f6ed"
+version = "0.3.1"
+source = "git+https://github.com/pubky/pubky-app-specs#f0ee9bff8d73519acc7e6ad447f4425667a60d17"
 dependencies = [
  "base32",
  "blake3",
  "js-sys",
  "mime",
- "pkarr",
+ "pkarr 3.3.1",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
@@ -2758,7 +2773,7 @@ dependencies = [
  "ed25519-dalek",
  "js-sys",
  "once_cell",
- "pkarr",
+ "pkarr 3.0.0",
  "postcard",
  "pubky-timestamp",
  "rand",
@@ -2787,7 +2802,7 @@ dependencies = [
  "httpdate",
  "mainline",
  "page_size",
- "pkarr",
+ "pkarr 3.0.0",
  "pkarr-relay",
  "postcard",
  "pubky-common",
@@ -2822,7 +2837,7 @@ dependencies = [
  "mainline",
  "neo4rs",
  "once_cell",
- "pkarr",
+ "pkarr 3.0.0",
  "pubky",
  "pubky-app-specs",
  "pubky-homeserver",
