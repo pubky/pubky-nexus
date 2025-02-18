@@ -29,10 +29,6 @@ pub const POST_DETAILS_ROUTE: &str = concatcp!(POST_ROUTE, "/details");
 pub const POST_TAGS_ROUTE: &str = concatcp!(POST_ROUTE, "/tags");
 pub const POST_TAGGERS_ROUTE: &str = concatcp!(POST_ROUTE, "/taggers/{label}");
 
-// -- THREAD endpoints --
-const THREAD_PREFIX: &str = concatcp!(VERSION_ROUTE, "/thread");
-pub const THREAD_ROUTE: &str = concatcp!(THREAD_PREFIX, "/{author_id}/{post_id}");
-
 // -- STREAM endpoints --
 const STREAM_PREFIX: &str = concatcp!(VERSION_ROUTE, "/stream");
 // STREAM of UserView objects

@@ -9,8 +9,8 @@ use crate::watcher::{
 };
 use anyhow::Result;
 use chrono::Utc;
+use pkarr::Keypair;
 use pubky_app_specs::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser};
-use pubky_common::crypto::Keypair;
 use pubky_nexus::{
     models::{
         notification::Notification,

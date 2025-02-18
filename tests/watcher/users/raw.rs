@@ -3,8 +3,8 @@ use crate::watcher::{
     utils::watcher::WatcherTest,
 };
 use anyhow::Result;
+use pkarr::Keypair;
 use pubky_app_specs::{PubkyAppUser, PubkyAppUserLink};
-use pubky_common::crypto::Keypair;
 use pubky_nexus::{
     models::user::{UserCounts, UserSearch, USER_NAME_KEY_PARTS},
     RedisOps,
