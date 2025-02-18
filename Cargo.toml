@@ -34,7 +34,7 @@ const_format = "0.2.34"
 thiserror = "2.0.11"
 chrono = { version = "0.4.39", default-features = false, features = ["clock"] }
 base32 = "0.5.1"
-blake3 = "1.5.5"
+blake3 = "1.6.0"
 url = "2.5.4"
 async-trait = "0.1.85"
 reqwest = "0.12.9"
