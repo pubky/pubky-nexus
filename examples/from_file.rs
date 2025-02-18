@@ -15,7 +15,7 @@ async fn main() -> Result<(), DynError> {
     let config = Config::from_env();
     StackManager::setup(&config).await;
 
-    PubkyConnector::initialise().await?;
+    PubkyConnector::initialise(&config).await?;
 
     let mut event_processor = EventProcessor::from_config(&config).await?;
 
