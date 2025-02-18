@@ -15,7 +15,6 @@ use std::time::Duration;
 
 /// Struct to hold the setup environment for tests
 pub struct WatcherTest {
-    pub homeserver: Homeserver,
     pub event_processor: EventProcessor,
     pub ensure_event_processing: bool,
 }
@@ -40,20 +39,16 @@ impl WatcherTest {
         StackManager::setup(&config).await;
 
         //TestnetNetwork::initialise().await?;
-        let testnet = TestnetNetwork::get().await?;
-
-        let homeserver = testnet.run_homeserver().await.unwrap();
-        let homeserver_id = homeserver.public_key().to_string();
+        let homeserver_pubky = TestnetNetwork::get_homeserver_id().await?;
 
         match PubkyConnector::initialise(&config).await {
             Ok(_) => debug!("WatcherTest: PubkyConnector initialised"),
             Err(e) => debug!("WatcherTest: {}", e),
         }
 
-        let event_processor = EventProcessor::test(homeserver_id).await;
+        let event_processor = EventProcessor::test(homeserver_pubky.to_string()).await;
 
         Ok(Self {
-            homeserver,
             event_processor,
             ensure_event_processing: true,
         })
@@ -120,20 +115,17 @@ impl WatcherTest {
     /// * `keypair` - A reference to the `Keypair` used for signing up the user.
     pub async fn register_user(&self, keypair: &Keypair) -> Result<()> {
         let pubky_client = PubkyConnector::get_pubky_client()?;
-
-        pubky_client
-            .signup(&keypair, &self.homeserver.public_key())
-            .await?;
+        let homeserver_pubky = TestnetNetwork::get_homeserver_id().await?;
+        pubky_client.signup(&keypair, &homeserver_pubky).await?;
         Ok(())
     }
 
     pub async fn create_user(&mut self, keypair: &Keypair, user: &PubkyAppUser) -> Result<String> {
         let user_id = keypair.public_key().to_z32();
         let pubky_client = PubkyConnector::get_pubky_client()?;
+        let homeserver_pubky = TestnetNetwork::get_homeserver_id().await?;
         // Register the key in the homeserver
-        pubky_client
-            .signup(keypair, &self.homeserver.public_key())
-            .await?;
+        pubky_client.signup(keypair, &homeserver_pubky).await?;
         let url = format!("pubky://{}/pub/pubky.app/profile.json", user_id);
 
         // Write the user profile in the pubky.app repository
