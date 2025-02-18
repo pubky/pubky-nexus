@@ -1,6 +1,7 @@
 mod fail_index;
+mod multi_user;
 mod post_del;
-mod post_muti_user;
+mod post_multi_user;
 mod post_notification;
 mod post_put;
 mod retry_post_tag;
