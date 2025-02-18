@@ -39,13 +39,15 @@ impl WatcherTest {
         let config = Config::from_env();
         StackManager::setup(&config).await;
 
-        TestnetNetwork::initialise().await?;
-        let testnet = TestnetNetwork::get_testnet()?;
+        // testnet initialization is time expensive, we only init one per process
+        let testnet = TestnetNetwork::get().await?;
 
         let homeserver = testnet.run_homeserver().await.unwrap();
         let homeserver_id = homeserver.public_key().to_string();
 
-        match PubkyConnector::initialise(&config).await {
+        let client = testnet.client_builder().build().unwrap();
+
+        match PubkyConnector::init_from_client(client).await {
             Ok(_) => debug!("WatcherTest: PubkyConnector initialised"),
             Err(e) => debug!("WatcherTest: {}", e),
         }

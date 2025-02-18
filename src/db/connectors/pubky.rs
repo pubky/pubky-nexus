@@ -52,4 +52,11 @@ impl PubkyConnector {
             .cloned()
             .ok_or(PubkyConnectorError::NotInitialized)
     }
+
+    pub async fn init_from_client(client: Client) -> Result<(), PubkyConnectorError> {
+        PUBKY_CONNECTOR_SINGLETON
+            .get_or_try_init(|| async { Ok(Arc::new(client)) })
+            .await
+            .map(|_| ())
+    }
 }
