@@ -147,6 +147,18 @@ impl WatcherTest {
         Ok(user_id)
     }
 
+    pub async fn create_profile(&mut self, user_id: &str, user: &PubkyAppUser) -> Result<String> {
+        let pubky_client = PubkyConnector::get_pubky_client()?;
+        let url = format!("pubky://{}/pub/pubky.app/profile.json", user_id);
+
+        // Write the user profile in the pubky.app repository
+        pubky_client.put(url.as_str()).json(&user).send().await?;
+
+        // Index to Nexus from Homeserver using the events processor
+        self.ensure_event_processing_complete().await?;
+        Ok(user_id.to_string())
+    }
+
     pub async fn create_post(&mut self, user_id: &str, post: &PubkyAppPost) -> Result<String> {
         let post_id = post.create_id();
         let url = format!("pubky://{}/pub/pubky.app/posts/{}", user_id, post_id);
