@@ -2543,7 +2543,7 @@ dependencies = [
 [[package]]
 name = "pkarr"
 version = "3.3.1"
-source = "git+https://github.com/pubky/pkarr?branch=main#4269e689c1782600a603e214eea621230ff04e7d"
+source = "git+https://github.com/pubky/pkarr?rev=4269e68#4269e689c1782600a603e214eea621230ff04e7d"
 dependencies = [
  "async-compat",
  "base32",
@@ -2580,7 +2580,7 @@ dependencies = [
 [[package]]
 name = "pkarr-relay"
 version = "0.5.6"
-source = "git+https://github.com/pubky/pkarr?branch=main#4269e689c1782600a603e214eea621230ff04e7d"
+source = "git+https://github.com/pubky/pkarr?rev=4269e68#4269e689c1782600a603e214eea621230ff04e7d"
 dependencies = [
  "anyhow",
  "axum",
@@ -2712,7 +2712,7 @@ checksum = "33cb294fe86a74cbcf50d4445b37da762029549ebeea341421c7c70370f86cac"
 [[package]]
 name = "pubky"
 version = "0.4.0"
-source = "git+https://github.com/pubky/pubky?branch=deps%2Fbump-testnet-pkarr-relay#28560eef81d349673031009d5841722bdd1db270"
+source = "git+https://github.com/pubky/pubky?branch=main#3489a88ed5b018f76273ec4f5d1fcdc2752d1d33"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -2728,7 +2728,7 @@ dependencies = [
  "getrandom 0.3.1",
  "js-sys",
  "log",
- "pkarr 3.3.1 (git+https://github.com/pubky/pkarr?branch=main)",
+ "pkarr 3.3.1 (git+https://github.com/pubky/pkarr?rev=4269e68)",
  "pubky-common",
  "reqwest",
  "thiserror 2.0.11",
@@ -2743,13 +2743,13 @@ dependencies = [
 [[package]]
 name = "pubky-app-specs"
 version = "0.3.1"
-source = "git+https://github.com/pubky/pubky-app-specs?branch=bump%2Fpkarr#831c1ab1ab8a541826ea7d04175d423b613ceb0b"
+source = "git+https://github.com/pubky/pubky-app-specs?branch=main#dec1359e2b593f74c1d12b1192c7d21123010719"
 dependencies = [
  "base32",
  "blake3",
  "js-sys",
  "mime",
- "pkarr 3.3.1 (git+https://github.com/pubky/pkarr?branch=main)",
+ "pkarr 3.3.1 (git+https://github.com/pubky/pkarr?rev=4269e68)",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
@@ -2762,7 +2762,7 @@ dependencies = [
 [[package]]
 name = "pubky-common"
 version = "0.3.0"
-source = "git+https://github.com/pubky/pubky?branch=deps%2Fbump-testnet-pkarr-relay#28560eef81d349673031009d5841722bdd1db270"
+source = "git+https://github.com/pubky/pubky?branch=main#3489a88ed5b018f76273ec4f5d1fcdc2752d1d33"
 dependencies = [
  "argon2",
  "base32",
@@ -2771,7 +2771,7 @@ dependencies = [
  "ed25519-dalek",
  "js-sys",
  "once_cell",
- "pkarr 3.3.1 (git+https://github.com/pubky/pkarr?branch=main)",
+ "pkarr 3.3.1 (git+https://github.com/pubky/pkarr?rev=4269e68)",
  "postcard",
  "pubky-timestamp",
  "rand 0.9.0",
@@ -2782,7 +2782,7 @@ dependencies = [
 [[package]]
 name = "pubky-homeserver"
 version = "0.1.0"
-source = "git+https://github.com/pubky/pubky?branch=deps%2Fbump-testnet-pkarr-relay#28560eef81d349673031009d5841722bdd1db270"
+source = "git+https://github.com/pubky/pubky?branch=main#3489a88ed5b018f76273ec4f5d1fcdc2752d1d33"
 dependencies = [
  "anyhow",
  "axum",
@@ -2798,7 +2798,7 @@ dependencies = [
  "hex",
  "httpdate",
  "page_size",
- "pkarr 3.3.1 (git+https://github.com/pubky/pkarr?branch=main)",
+ "pkarr 3.3.1 (git+https://github.com/pubky/pkarr?rev=4269e68)",
  "postcard",
  "pubky-common",
  "serde",
@@ -2831,7 +2831,7 @@ dependencies = [
  "log",
  "neo4rs",
  "once_cell",
- "pkarr 3.3.1 (git+https://github.com/pubky/pkarr?branch=main)",
+ "pkarr 3.3.1 (git+https://github.com/pubky/pkarr?rev=4269e68)",
  "pubky",
  "pubky-app-specs",
  "pubky-homeserver",
@@ -2854,7 +2854,7 @@ dependencies = [
 [[package]]
 name = "pubky-testnet"
 version = "0.1.0"
-source = "git+https://github.com/pubky/pubky?branch=deps%2Fbump-testnet-pkarr-relay#28560eef81d349673031009d5841722bdd1db270"
+source = "git+https://github.com/pubky/pubky?branch=main#3489a88ed5b018f76273ec4f5d1fcdc2752d1d33"
 dependencies = [
  "anyhow",
  "http-relay",
