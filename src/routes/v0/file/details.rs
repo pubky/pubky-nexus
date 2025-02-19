@@ -5,7 +5,7 @@ use crate::routes::v0::endpoints::FILE_ROUTE;
 use crate::{Error, Result};
 use axum::extract::Path;
 use axum::Json;
-use log::info;
+use tracing::info;
 use utoipa::OpenApi;
 
 #[utoipa::path(

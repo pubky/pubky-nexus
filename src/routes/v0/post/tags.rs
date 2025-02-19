@@ -8,7 +8,7 @@ use crate::routes::v0::TagsQuery;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
-use log::info;
+use tracing::info;
 use utoipa::OpenApi;
 
 #[utoipa::path(

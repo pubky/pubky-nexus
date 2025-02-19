@@ -1,9 +1,9 @@
 use crate::{db::connectors::pubky::PubkyConnector, types::DynError};
 use error::EventProcessorError;
-use log::debug;
 use pubky_app_specs::{ParsedUri, PubkyAppObject, Resource};
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use tracing::debug;
 
 pub mod error;
 pub mod handlers;
@@ -36,7 +36,7 @@ pub struct Event {
 
 impl Event {
     pub fn parse_event(line: &str) -> Result<Option<Self>, DynError> {
-        log::debug!("New event: {}", line);
+        debug!("New event: {}", line);
         let parts: Vec<&str> = line.split(' ').collect();
         if parts.len() != 2 {
             return Err(EventProcessorError::InvalidEventLine {
@@ -96,7 +96,7 @@ impl Event {
     /// Handles a PUT event by fetching the blob from the homeserver
     /// and using the importer to convert it to a PubkyAppObject.
     pub async fn handle_put_event(self) -> Result<(), DynError> {
-        log::debug!("Handling PUT event for URI: {}", self.uri);
+        debug!("Handling PUT event for URI: {}", self.uri);
 
         let response;
         {
@@ -149,7 +149,7 @@ impl Event {
                 handlers::file::sync_put(file, self.uri, user_id, file_id).await?
             }
             other => {
-                log::debug!("Event type not handled, Resource: {:?}", other);
+                debug!("Event type not handled, Resource: {:?}", other);
             }
         }
         Ok(())

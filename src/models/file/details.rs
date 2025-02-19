@@ -4,10 +4,10 @@ use crate::types::DynError;
 use crate::{queries, RedisOps};
 use async_trait::async_trait;
 use chrono::Utc;
-use log::error;
 use neo4rs::Query;
 use pubky_app_specs::{ParsedUri, PubkyAppFile, Resource};
 use serde::{Deserialize, Serialize};
+use tracing::error;
 use utoipa::ToSchema;
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema, Default)]

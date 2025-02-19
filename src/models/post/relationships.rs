@@ -121,7 +121,7 @@ impl PostRelationships {
     pub async fn reindex(author_id: &str, post_id: &str) -> Result<(), DynError> {
         match Self::get_from_graph(author_id, post_id).await? {
             Some(relationships) => relationships.put_to_index(author_id, post_id).await?,
-            None => log::error!(
+            None => tracing::error!(
                 "{}:{} Could not found post relationships in the graph",
                 author_id,
                 post_id

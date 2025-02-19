@@ -1,11 +1,11 @@
 use anyhow::Result;
-use log::info;
 use pubky_nexus::{routes, Config, StackManager};
 use std::sync::Arc;
 use tokio::{
     net::TcpListener,
     sync::{Mutex, OnceCell},
 };
+use tracing::info;
 
 /// Util backend server for testing.
 /// Performs the same routine the main service server does.

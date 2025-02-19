@@ -1,4 +1,5 @@
 use std::env;
+use tracing::{error, info};
 
 use pubky_nexus::types::DynError;
 use pubky_nexus::{get_migration_manager, get_neo4j_graph, Config, MigrationManager, StackManager};
@@ -23,14 +24,14 @@ async fn main() -> Result<(), DynError> {
         Some("run") => {
             let config = Config::from_env();
             StackManager::setup(&config).await;
-            log::info!("Running all pending migrations...");
+            info!("Running all pending migrations...");
             let graph = get_neo4j_graph()?;
             let migration_manager = get_migration_manager(graph);
             migration_manager.run(&config).await?;
             Ok(())
         }
         _ => {
-            log::error!("Usage: cargo run --bin migrations [new|run]");
+            error!("Usage: cargo run --bin migrations [new|run]");
             Err("Invalid command".into())
         }
     }

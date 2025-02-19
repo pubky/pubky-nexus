@@ -3,7 +3,7 @@ services:
     image: neo4j:5.24.2-community
     container_name: neo4j
     restart: unless-stopped
-    ports: 
+    ports:
       - 7474:7474
       - 7687:7687
     volumes:
@@ -38,3 +38,18 @@ services:
     volumes:
       - .database/redis/data:/data
     restart: always
+
+  # jaeger:
+  #   image: jaegertracing/all-in-one:1.65.0
+  #   container_name: jaeger
+  #   environment:
+      # This ensures the Jaeger container also listens for OTLP signals
+      # COLLECTOR_OTLP_ENABLED: "true"
+    # ports:
+    #   - "16686:16686"    # Jaeger UI
+    #   - "4317:4317"      # OTLP/gRPC
+    #   - "4318:4318"      # OTLP/HTTP
+    # networks:
+    #   - default
+    # restart: unless-stopped
+    # network_mode: host

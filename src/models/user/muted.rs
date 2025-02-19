@@ -99,7 +99,7 @@ impl Muted {
     pub async fn reindex(user_id: &str) -> Result<(), DynError> {
         match Self::get_from_graph(user_id, None, None).await? {
             Some(muted) => muted.put_to_index(user_id).await?,
-            None => log::error!(
+            None => tracing::error!(
                 "{}: Could not found user muted relationship in the graph",
                 user_id
             ),

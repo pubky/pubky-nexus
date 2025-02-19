@@ -1,8 +1,8 @@
 use anyhow::{anyhow, Error};
-use log::warn;
 use mainline::Testnet;
 use std::sync::Arc;
 use tokio::sync::OnceCell;
+use tracing::warn;
 
 static DHT_TESTNET_NETWORK_SINGLETON: OnceCell<TestnetDHTNetwork> = OnceCell::const_new();
 

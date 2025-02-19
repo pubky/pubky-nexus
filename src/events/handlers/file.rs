@@ -11,12 +11,12 @@ use crate::{
     },
     Config,
 };
-use log::{debug, error};
 use pubky_app_specs::{PubkyAppFile, PubkyAppObject, PubkyId};
 use tokio::{
     fs::{self, remove_file, File},
     io::AsyncWriteExt,
 };
+use tracing::{debug, error};
 
 pub async fn sync_put(
     file: PubkyAppFile,

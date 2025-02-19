@@ -7,8 +7,8 @@ use crate::models::follow::{Followers, Following, Friends, UserFollows};
 use crate::models::notification::Notification;
 use crate::models::user::UserCounts;
 use crate::types::DynError;
-use log::debug;
 use pubky_app_specs::{user_uri_builder, PubkyId};
+use tracing::debug;
 
 pub async fn sync_put(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), DynError> {
     debug!("Indexing new follow: {} -> {}", follower_id, followee_id);

@@ -132,7 +132,7 @@ impl PostDetails {
     pub async fn reindex(author_id: &str, post_id: &str) -> Result<(), DynError> {
         match Self::get_from_graph(author_id, post_id).await? {
             Some((details, reply)) => details.put_to_index(author_id, reply, false).await?,
-            None => log::error!(
+            None => tracing::error!(
                 "{}:{} Could not found post counts in the graph",
                 author_id,
                 post_id

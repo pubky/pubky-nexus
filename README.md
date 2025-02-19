@@ -164,6 +164,13 @@ cargo bench --bench user get_user_view_by_id
 
 If tests or the development environment seem out of sync, follow the [Running Tests](#running-tests) steps to reload the mock data.
 
+## Observability
+Nexus can be connected to an Opentelemetry exporter using `OTLP_ENDPOINT`.  
+You can set the name of the service using `OTEL_SERVICE_NAME`.
+
+If you're interested in using an observability tool locally you can try installing [Signoz](https://signoz.io/docs/install) and pointing to it using the above env vars.
+
+
 ## 🌐 Useful Links
 
 - **Swagger API**:

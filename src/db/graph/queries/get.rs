@@ -3,9 +3,9 @@ use crate::models::tag::stream::TagStreamReach;
 use crate::routes::v0::tag::HotTagsInput;
 use crate::types::Pagination;
 use crate::types::StreamSorting;
-use log::debug;
 use neo4rs::{query, Query};
 use pubky_app_specs::PubkyAppPostKind;
+use tracing::debug;
 
 // Retrieve post node by post id and author id
 pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {

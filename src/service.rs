@@ -1,6 +1,6 @@
-use log::info;
 use pubky_nexus::{redis_is_empty, reindex, routes, Config, StackManager};
 use tokio::net::TcpListener;
+use tracing::info;
 
 #[tokio::main]
 async fn main() {
