@@ -9,13 +9,13 @@ static TESTNET_NETWORK: OnceCell<Arc<Testnet>> = OnceCell::const_new();
 pub struct TestnetNetwork {}
 
 impl TestnetNetwork {
-
     /// Retrieves or initializes the instance of the testnet network
     /// The testnet network is created using hardcoded configurations
     pub async fn get() -> Result<Arc<Testnet>, Error> {
         TESTNET_NETWORK
             .get_or_try_init(|| async {
-                let testnet = Testnet::run_with_hardcoded_configurations().await
+                let testnet = Testnet::run_with_hardcoded_configurations()
+                    .await
                     .map_err(|e| e)?;
                 Ok(Arc::new(testnet))
             })

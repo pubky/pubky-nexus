@@ -38,7 +38,7 @@ impl WatcherTest {
     pub async fn setup() -> Result<Self> {
         let config = Config::from_env();
         StackManager::setup(&config).await;
-        
+
         let testnet = TestnetNetwork::get().await?;
 
         let homeserver = testnet.run_homeserver().await.unwrap();
