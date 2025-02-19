@@ -1,2 +1,2 @@
-mod dht;
+pub mod testnet;
 pub mod watcher;
