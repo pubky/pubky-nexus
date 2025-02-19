@@ -72,8 +72,9 @@ async fn test_put_pubkyapp_file() -> Result<()> {
     // Assert: Ensure it's statically served
     let client = httpc_test::new_client(host_url().await)?;
 
-    let blob_path = format!("/static/files/{}/{}", user_id, file_id);
-    let response = client.do_get(&blob_path).await?;
+    let blob_static_path = format!("/static/files/{}", result_file.urls.main.clone());
+
+    let response = client.do_get(&blob_static_path).await?;
 
     assert_eq!(response.status(), 200);
     assert_eq!(

@@ -1,22 +1,15 @@
 use crate::db::connectors::pubky::PubkyConnector;
 use crate::events::error::EventProcessorError;
-use crate::types::DynError;
-use crate::{
-    models::{
-        file::{
-            details::{FileMeta, FileUrls},
-            FileDetails,
-        },
-        traits::Collection,
-    },
-    Config,
+use crate::models::file::details::FileVariant;
+use crate::models::{
+    file::{details::FileMeta, FileDetails},
+    traits::Collection,
 };
+use crate::static_processor::{StaticProcessor, StaticStorage};
+use crate::types::DynError;
 use log::{debug, error};
 use pubky_app_specs::{PubkyAppFile, PubkyAppObject, PubkyId};
-use tokio::{
-    fs::{self, remove_file, File},
-    io::AsyncWriteExt,
-};
+use tokio::fs::remove_dir_all;
 
 pub async fn sync_put(
     file: PubkyAppFile,
@@ -70,18 +63,23 @@ async fn ingest(
         };
     }
 
+    let path: String = format!("{}/{}", user_id, file_id);
+    let storage_path = StaticStorage::get_storage_path();
+    let full_path = format!("{}/{}", storage_path, path);
+
     let blob = response.bytes().await?;
     let pubky_app_object = PubkyAppObject::from_uri(&pubkyapp_file.src, &blob)?;
 
     match pubky_app_object {
         PubkyAppObject::Blob(blob) => {
-            store_blob(file_id.to_string(), user_id.to_string(), &blob.0).await?;
+            StaticStorage::store_blob(FileVariant::Main.to_string(), full_path.to_string(), &blob)
+                .await?;
 
-            Ok(FileMeta {
-                urls: FileUrls {
-                    main: format!("{}/{}", user_id, file_id),
-                },
-            })
+            let urls = StaticProcessor::get_file_urls_by_content_type(
+                pubkyapp_file.content_type.as_str(),
+                &path,
+            );
+            Ok(FileMeta { urls })
         }
         _ => Err(EventProcessorError::InvalidEventLine {
             message: format!(
@@ -91,39 +89,6 @@ async fn ingest(
         }
         .into()),
     }
-}
-
-async fn store_blob(name: String, path: String, blob: &[u8]) -> Result<(), DynError> {
-    let storage_path = Config::from_env().file_path;
-    // TODO: Is it well formatting. The file path already has / at the end
-    let full_path = format!("{}/{}", storage_path, path);
-
-    debug!("store blob in full_path: {}", full_path);
-
-    let path_exists = match fs::metadata(full_path.as_str()).await {
-        Err(_) => false,
-        Ok(metadata) => metadata.is_dir(),
-    };
-
-    debug!("path exists: {}", path_exists);
-
-    if !path_exists {
-        fs::create_dir_all(full_path.as_str()).await?;
-    }
-
-    let file_path = format!("{}/{}", full_path, name);
-    let mut static_file = File::create_new(file_path).await?;
-    static_file.write_all(blob).await?;
-
-    Ok(())
-}
-
-async fn remove_blob(name: String, path: String) -> Result<(), DynError> {
-    let storage_path = Config::from_env().file_path;
-    let file_path = format!("{}/{}/{}", storage_path, path, name);
-
-    remove_file(file_path).await?;
-    Ok(())
 }
 
 pub async fn del(user_id: &PubkyId, file_id: String) -> Result<(), DynError> {
@@ -139,7 +104,12 @@ pub async fn del(user_id: &PubkyId, file_id: String) -> Result<(), DynError> {
         if let Some(value) = file {
             value.delete().await?;
         }
-        remove_blob(file_id, user_id.to_string()).await?;
+
+        let folder_path = format!("{}/{}", user_id, file_id);
+        let storage_path = StaticStorage::get_storage_path();
+        let full_path = format!("{}/{}", storage_path, folder_path);
+
+        remove_dir_all(full_path).await?;
     }
 
     Ok(())
