@@ -2819,8 +2819,6 @@ dependencies = [
  "anyhow",
  "async-trait",
  "axum",
- "base32",
- "blake3",
  "bytes",
  "chrono",
  "const_format",

@@ -33,11 +33,7 @@ env_logger = "0.11.6"
 const_format = "0.2.34"
 thiserror = "2.0.11"
 chrono = { version = "0.4.39", default-features = false, features = ["clock"] }
-base32 = "0.5.1"
-blake3 = "1.6.0"
-url = "2.5.4"
 async-trait = "0.1.85"
-reqwest = "0.12.9"
 
 [dev-dependencies]
 anyhow = "1.0.95"
@@ -47,6 +43,8 @@ pubky-homeserver = { git = "https://github.com/pubky/pubky", branch = "main" }
 rand = "0.8.5"
 rand_distr = "0.4.3"
 tokio-shared-rt = "0.1"
+url = "2.5.4"
+reqwest = "0.12.12"
 
 [lib]
 name = "pubky_nexus"
