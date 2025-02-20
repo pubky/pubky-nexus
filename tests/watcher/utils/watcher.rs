@@ -146,6 +146,9 @@ impl WatcherTest {
         Ok(user_id)
     }
 
+    /// If we attempt two consecutive sign-ups with the same key, the homeserver returns the following error:
+    /// 412 Precondition Failed - Compare and swap failed; there is a more recent SignedPacket than the one seen before publishing.
+    /// To prevent this error after the first sign-up, we will create/update the existing record instead of creating a new one
     pub async fn create_profile(&mut self, user_id: &str, user: &PubkyAppUser) -> Result<String> {
         let pubky_client = PubkyConnector::get_pubky_client().await.unwrap();
         let url = format!("pubky://{}/pub/pubky.app/profile.json", user_id);
@@ -162,7 +165,9 @@ impl WatcherTest {
         let post_id = post.create_id();
         let url = format!("pubky://{}/pub/pubky.app/posts/{}", user_id, post_id);
         // Write the post in the pubky.app repository
-        PubkyConnector::get_pubky_client().await.unwrap()
+        PubkyConnector::get_pubky_client()
+            .await
+            .unwrap()
             .put(url.as_str())
             .json(&post)
             .send()
@@ -175,7 +180,9 @@ impl WatcherTest {
 
     pub async fn cleanup_user(&mut self, user_id: &str) -> Result<()> {
         let url = format!("pubky://{}/pub/pubky.app/profile.json", user_id);
-        PubkyConnector::get_pubky_client().await.unwrap()
+        PubkyConnector::get_pubky_client()
+            .await
+            .unwrap()
             .delete(url.as_str())
             .send()
             .await?;
@@ -185,7 +192,9 @@ impl WatcherTest {
 
     pub async fn cleanup_post(&mut self, user_id: &str, post_id: &str) -> Result<()> {
         let url = format!("pubky://{}/pub/pubky.app/posts/{}", user_id, post_id);
-        PubkyConnector::get_pubky_client().await.unwrap()
+        PubkyConnector::get_pubky_client()
+            .await
+            .unwrap()
             .delete(url.as_str())
             .send()
             .await?;
@@ -200,7 +209,9 @@ impl WatcherTest {
     ) -> Result<(String, String)> {
         let file_id = file.create_id();
         let url = format!("pubky://{}/pub/pubky.app/files/{}", user_id, file_id);
-        PubkyConnector::get_pubky_client().await.unwrap()
+        PubkyConnector::get_pubky_client()
+            .await
+            .unwrap()
             .put(url.as_str())
             .json(&file)
             .send()
@@ -212,7 +223,9 @@ impl WatcherTest {
 
     pub async fn cleanup_file(&mut self, user_id: &str, file_id: &str) -> Result<()> {
         let url = format!("pubky://{}/pub/pubky.app/files/{}", user_id, file_id);
-        PubkyConnector::get_pubky_client().await.unwrap()
+        PubkyConnector::get_pubky_client()
+            .await
+            .unwrap()
             .delete(url.as_str())
             .send()
             .await?;
@@ -228,7 +241,9 @@ impl WatcherTest {
             "pubky://{}/pub/pubky.app/follows/{}",
             follower_id, followee_id
         );
-        PubkyConnector::get_pubky_client().await.unwrap()
+        PubkyConnector::get_pubky_client()
+            .await
+            .unwrap()
             .put(follow_url.as_str())
             .json(&follow_relationship)
             .send()
@@ -243,7 +258,9 @@ impl WatcherTest {
             created_at: Utc::now().timestamp_millis(),
         };
         let mute_url = format!("pubky://{}/pub/pubky.app/mutes/{}", muter_id, mutee_id);
-        PubkyConnector::get_pubky_client().await.unwrap()
+        PubkyConnector::get_pubky_client()
+            .await
+            .unwrap()
             .put(mute_url.as_str())
             .json(&mute_relationship)
             .send()

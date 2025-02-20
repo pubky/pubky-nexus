@@ -57,7 +57,7 @@ async fn test_user_avatar_endpoint_png() -> Result<()> {
         status: user.status.clone(),
         image: Some(format!("pubky://{user_id}/pub/pubky.app/files/{file_id}")),
     };
-    test.create_user(&keypair, &updated_user).await?;
+    test.create_profile(&user_id, &updated_user).await?;
 
     // 7. Issue a GET to the new `/avatar` route using your test client
     let client = httpc_test::new_client(crate::service::utils::host_url().await)?;
