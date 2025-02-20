@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use pkarr::Keypair;
+use pubky::Keypair;
 use pubky_app_specs::{PubkyAppUser, PubkyAppUserLink};
 use pubky_nexus::EventProcessor;
 use pubky_testnet::Testnet;

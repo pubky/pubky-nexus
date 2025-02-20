@@ -1,7 +1,7 @@
 use super::utils::find_post_mentions;
 use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
-use pkarr::Keypair;
+use pubky::Keypair;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 use pubky_nexus::{models::post::PostRelationships, RedisOps};
 

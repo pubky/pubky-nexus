@@ -2,7 +2,7 @@ use super::testnet::TestnetNetwork;
 use anyhow::{anyhow, Result};
 use chrono::Utc;
 use log::debug;
-use pkarr::Keypair;
+use pubky::Keypair;
 use pubky_app_specs::{
     traits::TimestampId, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser,
 };

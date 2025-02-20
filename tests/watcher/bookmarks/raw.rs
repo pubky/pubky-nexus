@@ -2,7 +2,7 @@ use super::utils::find_post_bookmark;
 use crate::watcher::users::utils::find_user_counts;
 use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
-use pkarr::Keypair;
+use pubky::Keypair;
 use pubky_app_specs::{traits::HashId, PubkyAppBookmark, PubkyAppPost, PubkyAppUser};
 use pubky_nexus::models::post::{Bookmark, PostStream};
 

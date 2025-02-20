@@ -3,7 +3,7 @@
 use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use log::info;
-use pkarr::Keypair;
+use pubky::Keypair;
 use pubky_app_specs::{
     traits::HashId, PubkyAppBookmark, PubkyAppMute, PubkyAppPost, PubkyAppPostKind, PubkyAppTag,
     PubkyAppUser,

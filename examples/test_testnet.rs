@@ -1,4 +1,4 @@
-use pkarr::Keypair;
+use pubky::Keypair;
 use pubky_testnet::Testnet;
 
 #[tokio::main]
