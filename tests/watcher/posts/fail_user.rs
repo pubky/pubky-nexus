@@ -1,6 +1,6 @@
 use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
-use pkarr::Keypair;
+use pubky::Keypair;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind};
 
 /// The user profile is stored in the homeserver. Missing the author to connect the post
