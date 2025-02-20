@@ -1,6 +1,6 @@
 [package]
 name = "pubky-nexus"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "Nexus between homeservers and Pubky-App. Pubky-nexus constructs a social graph out of all of the events on pubky-core homeservers and exposes a social-media-like API capable of powerful Web-of-Trust inference."
 homepage = "https://github.com/pubky"
@@ -10,13 +10,9 @@ default-run = "service"
 build = "build.rs"
 
 [dependencies]
-bytes = "1.9.0" # Enforce this version as Pubky and Axum conflict v1.7.1 vs v1.9.0
-pkarr = { git = "https://github.com/pubky/pkarr", rev = "4269e68" } # a few commits after v3.3.1
-pubky = { git = "https://github.com/pubky/pubky", branch = "main" }
-pubky-testnet = { git = "https://github.com/pubky/pubky", branch = "main" }
-pubky-app-specs = { git = "https://github.com/pubky/pubky-app-specs", branch = "main", features = [
-    "openapi",
-] }
+pubky = "0.4.1"
+pubky-testnet = "0.1.1"
+pubky-app-specs = { version = "0.3.2", features = ["openapi"] }
 tokio = { version = "1.43.0", features = ["full"] }
 axum = "0.8.1"
 redis = { version = "0.29.0", features = ["tokio-comp", "json"] }
@@ -39,7 +35,7 @@ async-trait = "0.1.85"
 anyhow = "1.0.95"
 httpc-test = "0.1.10"
 criterion = { version = "0.5.1", features = ["async_tokio"] }
-pubky-homeserver = { git = "https://github.com/pubky/pubky", branch = "main" }
+pubky-homeserver = "0.1.1"
 rand = "0.8.5"
 rand_distr = "0.4.3"
 tokio-shared-rt = "0.1"

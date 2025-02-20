@@ -1,7 +1,7 @@
 use anyhow::Result;
 use chrono::Utc;
-use pkarr::{Keypair, PublicKey};
 use pubky::Client;
+use pubky::{Keypair, PublicKey};
 use pubky_app_specs::{
     traits::{HasPath, HashId, TimestampId},
     PubkyAppBlob, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppPostKind, PubkyAppTag,

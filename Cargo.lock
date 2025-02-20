@@ -2510,40 +2510,9 @@ checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
 
 [[package]]
 name = "pkarr"
-version = "3.3.1"
+version = "3.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb8be2e97e822e41c6e254706e732e02ca2c49f4da038042c11d5a5e5961a164"
-dependencies = [
- "async-compat",
- "base32",
- "byteorder",
- "bytes",
- "cfg_aliases",
- "document-features",
- "dyn-clone",
- "ed25519-dalek",
- "futures-lite",
- "getrandom 0.2.15",
- "heed",
- "log",
- "lru",
- "mainline",
- "page_size",
- "pubky-timestamp",
- "self_cell",
- "serde",
- "sha1_smol",
- "simple-dns",
- "thiserror 2.0.11",
- "tokio",
- "tracing",
- "wasm-bindgen-futures",
-]
-
-[[package]]
-name = "pkarr"
-version = "3.3.1"
-source = "git+https://github.com/pubky/pkarr?rev=4269e68#4269e689c1782600a603e214eea621230ff04e7d"
+checksum = "453379a59cb020743a64857c42466c2e8848470ebc1f9a26bd6f5155cb312d65"
 dependencies = [
  "async-compat",
  "base32",
@@ -2579,8 +2548,9 @@ dependencies = [
 
 [[package]]
 name = "pkarr-relay"
-version = "0.5.6"
-source = "git+https://github.com/pubky/pkarr?rev=4269e68#4269e689c1782600a603e214eea621230ff04e7d"
+version = "0.5.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "431e2bb798f7dbc155644552ceef790e66b12a7c1c10ccd34d175148af3ba882"
 dependencies = [
  "anyhow",
  "axum",
@@ -2592,7 +2562,7 @@ dependencies = [
  "http",
  "httpdate",
  "mainline",
- "pkarr 3.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "pkarr",
  "rustls",
  "serde",
  "thiserror 2.0.11",
@@ -2711,8 +2681,9 @@ checksum = "33cb294fe86a74cbcf50d4445b37da762029549ebeea341421c7c70370f86cac"
 
 [[package]]
 name = "pubky"
-version = "0.4.0"
-source = "git+https://github.com/pubky/pubky?branch=main#3489a88ed5b018f76273ec4f5d1fcdc2752d1d33"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2617758fa7af985c605b9b5999e09659ba6693cdfe74137a54ff517d4ecd1a7"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -2728,7 +2699,7 @@ dependencies = [
  "getrandom 0.3.1",
  "js-sys",
  "log",
- "pkarr 3.3.1 (git+https://github.com/pubky/pkarr?rev=4269e68)",
+ "pkarr",
  "pubky-common",
  "reqwest",
  "thiserror 2.0.11",
@@ -2742,14 +2713,15 @@ dependencies = [
 
 [[package]]
 name = "pubky-app-specs"
-version = "0.3.1"
-source = "git+https://github.com/pubky/pubky-app-specs?branch=main#dec1359e2b593f74c1d12b1192c7d21123010719"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e72e8a22bc9340fba854afa5c5a19a52fcefe3ed29c6885706c2b1598bc195b8"
 dependencies = [
  "base32",
  "blake3",
  "js-sys",
  "mime",
- "pkarr 3.3.1 (git+https://github.com/pubky/pkarr?rev=4269e68)",
+ "pkarr",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
@@ -2761,8 +2733,9 @@ dependencies = [
 
 [[package]]
 name = "pubky-common"
-version = "0.3.0"
-source = "git+https://github.com/pubky/pubky?branch=main#3489a88ed5b018f76273ec4f5d1fcdc2752d1d33"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3220bb556278535a375d4c155f1dfb4602ac1d54a3f79656291accf38ad864bc"
 dependencies = [
  "argon2",
  "base32",
@@ -2771,7 +2744,7 @@ dependencies = [
  "ed25519-dalek",
  "js-sys",
  "once_cell",
- "pkarr 3.3.1 (git+https://github.com/pubky/pkarr?rev=4269e68)",
+ "pkarr",
  "postcard",
  "pubky-timestamp",
  "rand 0.9.0",
@@ -2781,8 +2754,9 @@ dependencies = [
 
 [[package]]
 name = "pubky-homeserver"
-version = "0.1.0"
-source = "git+https://github.com/pubky/pubky?branch=main#3489a88ed5b018f76273ec4f5d1fcdc2752d1d33"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "656d0adfe0da0cd39abfb738853feedda7e73687ac6db1fd49fcfaa34262986c"
 dependencies = [
  "anyhow",
  "axum",
@@ -2798,7 +2772,7 @@ dependencies = [
  "hex",
  "httpdate",
  "page_size",
- "pkarr 3.3.1 (git+https://github.com/pubky/pkarr?rev=4269e68)",
+ "pkarr",
  "postcard",
  "pubky-common",
  "serde",
@@ -2814,12 +2788,11 @@ dependencies = [
 
 [[package]]
 name = "pubky-nexus"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "async-trait",
  "axum",
- "bytes",
  "chrono",
  "const_format",
  "criterion",
@@ -2829,7 +2802,6 @@ dependencies = [
  "log",
  "neo4rs",
  "once_cell",
- "pkarr 3.3.1 (git+https://github.com/pubky/pkarr?rev=4269e68)",
  "pubky",
  "pubky-app-specs",
  "pubky-homeserver",
@@ -2851,8 +2823,9 @@ dependencies = [
 
 [[package]]
 name = "pubky-testnet"
-version = "0.1.0"
-source = "git+https://github.com/pubky/pubky?branch=main#3489a88ed5b018f76273ec4f5d1fcdc2752d1d33"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e7cf03256e0c43c0430992964fc6c614accc858fb9f7845a7d97f4e7bf955d38"
 dependencies = [
  "anyhow",
  "http-relay",
