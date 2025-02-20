@@ -62,7 +62,7 @@ async fn test_edit_reposted_post_notification() -> Result<()> {
     let edited_url = format!("pubky://{}/pub/pubky.app/posts/{}", user_a_id, post_id);
 
     // Overwrite existing post in the homeserver for the edited one
-    let pubky_client = PubkyConnector::get_pubky_client()?;
+    let pubky_client = PubkyConnector::get_pubky_client().await.unwrap();
     pubky_client
         .put(edited_url.as_str())
         .json(&post)

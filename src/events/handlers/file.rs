@@ -58,7 +58,7 @@ async fn ingest(
 ) -> Result<FileMeta, DynError> {
     let response;
     {
-        let pubky_client = PubkyConnector::get_pubky_client()?;
+        let pubky_client = PubkyConnector::get_pubky_client().await?;
 
         response = match pubky_client.get(&pubkyapp_file.src).send().await {
             Ok(response) => response,

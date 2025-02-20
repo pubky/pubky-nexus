@@ -36,7 +36,7 @@ async fn test_user_avatar_endpoint_png() -> Result<()> {
         user_id,
         blob.create_id()
     );
-    let pubky_client = PubkyConnector::get_pubky_client()?;
+    let pubky_client = PubkyConnector::get_pubky_client().await.unwrap();
     pubky_client.put(&blob_url).body(blob.0).send().await?;
 
     // 5. Create a new file referencing that blob

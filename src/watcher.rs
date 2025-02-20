@@ -1,6 +1,5 @@
 use log::error;
 use log::info;
-use pubky_nexus::PubkyConnector;
 use pubky_nexus::{Config, EventProcessor, StackManager};
 use tokio::time::{sleep, Duration};
 
@@ -10,8 +9,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
     let config = Config::from_env();
 
     StackManager::setup(&config).await;
-
-    PubkyConnector::initialise(&config).await?;
 
     let mut event_processor = EventProcessor::from_config(&config).await?;
 

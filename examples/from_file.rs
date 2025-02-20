@@ -1,5 +1,4 @@
 use anyhow::Result;
-use pubky_nexus::PubkyConnector;
 use pubky_nexus::{types::DynError, Config, EventProcessor, StackManager};
 use std::fs::File;
 use std::io::{self, BufRead};
@@ -14,8 +13,6 @@ const FILE_PATH: &str = "examples/events.txt";
 async fn main() -> Result<(), DynError> {
     let config = Config::from_env();
     StackManager::setup(&config).await;
-
-    PubkyConnector::initialise(&config).await?;
 
     let mut event_processor = EventProcessor::from_config(&config).await?;
 
