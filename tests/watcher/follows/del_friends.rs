@@ -1,7 +1,7 @@
 use crate::watcher::follows::utils::find_follow_relationship;
 use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
-use pkarr::Keypair;
+use pubky::Keypair;
 use pubky_app_specs::PubkyAppUser;
 use pubky_nexus::{
     models::user::{Relationship, UserCounts},

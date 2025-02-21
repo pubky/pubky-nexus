@@ -266,7 +266,7 @@ impl MigrationManager {
 
 fn get_migration_template(name: &str) -> String {
     format!(
-        "use axum::async_trait;
+        "use async_trait::async_trait;
 
 use crate::db::migrations::manager::Migration;
 use crate::types::DynError;
@@ -302,7 +302,6 @@ impl Migration for {name} {{
         // Your cleanup logic here
         Ok(())
     }}
-        
 }}
 ",
         name = name

@@ -3,7 +3,7 @@ use crate::{
 };
 use anyhow::Result;
 use chrono::Utc;
-use pkarr::Keypair;
+use pubky::Keypair;
 use pubky_app_specs::{traits::HasPath, PubkyAppBlob, PubkyAppFile, PubkyAppUser};
 use pubky_nexus::{
     models::{file::FileDetails, traits::Collection},
