@@ -55,14 +55,21 @@ impl EventProcessor {
             let tracer = global::tracer("nexus.watcher");
             let span = tracer.start("Polling Events");
             let cx = Context::new().with_span(span);
-            self.poll_events()
-                .with_context(cx)
-                .await
-                .unwrap_or_default()
+            self.poll_events().with_context(cx).await
         };
-        if let Some(lines) = lines {
-            self.process_event_lines(lines).await?;
-        };
+
+        match lines {
+            Err(e) => {
+                error!("Error polling events: {:?}", e);
+                return Err(e);
+            }
+            Ok(None) => {
+                info!("No new events");
+            }
+            Ok(Some(lines)) => {
+                self.process_event_lines(lines).await?;
+            }
+        }
 
         Ok(())
     }
@@ -96,7 +103,6 @@ impl EventProcessor {
         debug!("Homeserver response lines {:?}", lines);
 
         if lines.is_empty() || (lines.len() == 1 && lines[0].is_empty()) {
-            info!("No new events");
             return Ok(None);
         }
 
