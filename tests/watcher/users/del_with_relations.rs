@@ -4,7 +4,7 @@ use crate::watcher::{
 };
 use anyhow::Result;
 use chrono::Utc;
-use pkarr::Keypair;
+use pubky::Keypair;
 use pubky_app_specs::{
     traits::HasPath, PubkyAppBlob, PubkyAppFile, PubkyAppPost, PubkyAppPostKind, PubkyAppUser,
     PubkyAppUserLink,
@@ -13,6 +13,7 @@ use pubky_nexus::{
     models::user::{UserCounts, UserView},
     PubkyConnector,
 };
+
 #[tokio_shared_rt::test(shared)]
 async fn test_delete_user_with_relationships() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
@@ -83,7 +84,7 @@ async fn test_delete_user_with_relationships() -> Result<()> {
     test.cleanup_post(&user_id, &post_id).await?;
 
     // Write and delete the user again; this time it should be fully removed
-    test.create_user(&keypair, &user).await?;
+    test.create_profile(&user_id, &user).await?;
     test.cleanup_user(&user_id).await?;
 
     // Attempt to find user details; should not exist
@@ -151,7 +152,7 @@ async fn test_delete_user_with_relationships() -> Result<()> {
         name: "Watcher:UserDeleteWith:UserWith".to_string(),
         status: Some("Zombie soon".to_string()),
     };
-    let _ = test.create_user(&keypair, &user_with).await?;
+    let _ = test.create_profile(&user_with_id, &user_with).await?;
 
     // Create a post to establish a relationship
     let post_b = PubkyAppPost {
@@ -210,7 +211,7 @@ async fn test_delete_user_with_relationships() -> Result<()> {
     test.cleanup_post(&user_with_id, &post_b_id).await?;
 
     // Write and delete the user again; this time it should be fully removed
-    test.create_user(&keypair, &user_with).await?;
+    test.create_profile(&user_with_id, &user_with).await?;
     test.cleanup_user(&user_with_id).await?;
     // Delete the file
     test.cleanup_file(&user_with_id, &file_id).await?;

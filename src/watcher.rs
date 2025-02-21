@@ -11,7 +11,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
 
     StackManager::setup(&config).await;
 
-    PubkyConnector::initialise(&config, None).await?;
+    PubkyConnector::initialise(&config).await?;
 
     let mut event_processor = EventProcessor::from_config(&config).await?;
 

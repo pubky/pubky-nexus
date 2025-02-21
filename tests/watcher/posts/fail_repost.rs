@@ -1,6 +1,6 @@
 use crate::watcher::utils::watcher::{retrieve_and_handle_event_line, WatcherTest};
 use anyhow::Result;
-use pkarr::Keypair;
+use pubky::Keypair;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser};
 use pubky_nexus::types::DynError;
 use tracing::error;

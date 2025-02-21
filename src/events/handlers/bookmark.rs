@@ -45,7 +45,7 @@ pub async fn sync_put(
         })?;
 
     if !existed {
-        UserCounts::update(&user_id, "bookmarks", JsonAction::Increment(1))
+        UserCounts::update(&user_id, "bookmarks", JsonAction::Increment(1), None)
             .await
             .map_err(|e| EventProcessorError::IndexWriteFailed {
                 message: e.to_string(),
@@ -73,7 +73,7 @@ pub async fn sync_del(user_id: PubkyId, bookmark_id: String) -> Result<(), DynEr
             message: e.to_string(),
         })?;
     // Update user counts
-    UserCounts::update(&user_id, "bookmarks", JsonAction::Decrement(1))
+    UserCounts::update(&user_id, "bookmarks", JsonAction::Decrement(1), None)
         .await
         .map_err(|e| EventProcessorError::IndexWriteFailed {
             message: e.to_string(),

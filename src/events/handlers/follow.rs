@@ -115,7 +115,7 @@ async fn update_follow_counts(
 ) -> Result<(), DynError> {
     // Update UserCount related indexes
     UserCounts::update_index_field(follower_id, "following", counter.clone()).await?;
-    UserCounts::update(followee_id, "followers", counter.clone()).await?;
+    UserCounts::update(followee_id, "followers", counter.clone(), None).await?;
 
     if update_friend_relationship {
         UserCounts::update_index_field(follower_id, "friends", counter.clone()).await?;

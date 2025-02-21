@@ -5,7 +5,7 @@ use redis::{AsyncCommands, JsonAsyncCommands};
 use serde::{de::DeserializeOwned, Serialize};
 use tracing::debug;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum JsonAction {
     Increment(i64),
     Decrement(i64),
