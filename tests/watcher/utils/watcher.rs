@@ -1,7 +1,6 @@
 use super::testnet::TestnetNetwork;
 use anyhow::{anyhow, Result};
 use chrono::Utc;
-use log::debug;
 use pubky::Keypair;
 use pubky_app_specs::{
     traits::TimestampId, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser,
@@ -12,6 +11,7 @@ use pubky_nexus::events::Event;
 use pubky_nexus::types::DynError;
 use pubky_nexus::{Config, EventProcessor, PubkyConnector, StackManager};
 use std::time::Duration;
+use tracing::debug;
 
 /// Struct to hold the setup environment for tests
 pub struct WatcherTest {
