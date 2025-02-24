@@ -8,7 +8,7 @@ use axum::{
     http::{header::CONTENT_TYPE, HeaderValue},
     response::Response,
 };
-use log::{info, warn};
+use tracing::{info, warn};
 use utoipa::OpenApi;
 
 #[utoipa::path(

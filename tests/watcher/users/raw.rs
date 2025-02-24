@@ -3,7 +3,7 @@ use crate::watcher::{
     utils::watcher::WatcherTest,
 };
 use anyhow::Result;
-use pkarr::Keypair;
+use pubky::Keypair;
 use pubky_app_specs::{PubkyAppUser, PubkyAppUserLink};
 use pubky_nexus::{
     models::user::{UserCounts, UserSearch, USER_NAME_KEY_PARTS},
@@ -60,7 +60,7 @@ async fn test_homeserver_user_put_event() -> Result<()> {
         .expect("The new post was not served from Nexus");
 
     assert_eq!(user_counts.followers, 0);
-    assert_eq!(user_counts.tags, 0);
+    assert_eq!(user_counts.tagged, 0);
     assert_eq!(user_counts.posts, 0);
 
     // Sorted:Users:Name

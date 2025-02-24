@@ -1,6 +1,4 @@
 use crate::utils::{TestServiceServer, SERVER_URL};
-use log::info;
-use pubky_nexus::{Config, StackManager};
 use reqwest::{Method, StatusCode};
 use serde_json::Value;
 
@@ -93,14 +91,4 @@ async fn inner_make_request(
         }
     };
     Ok(body)
-}
-
-pub async fn connect_to_redis() {
-    let config = Config::from_env();
-
-    match env_logger::try_init() {
-        Ok(_) => info!("Env logger initiated"),
-        Err(err) => assert!(false, "{}", format!("Env logger was already set: {}", err)),
-    }
-    StackManager::setup_redis(&config).await;
 }

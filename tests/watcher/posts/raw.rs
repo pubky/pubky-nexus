@@ -5,7 +5,7 @@ use crate::watcher::posts::utils::find_post_details;
 use crate::watcher::users::utils::{check_member_user_pioneer, find_user_counts};
 use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
-use pkarr::Keypair;
+use pubky::Keypair;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 use pubky_nexus::models::post::{PostCounts, PostDetails};
 

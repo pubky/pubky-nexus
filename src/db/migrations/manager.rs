@@ -5,6 +5,7 @@ use neo4rs::{Graph, Query};
 use serde::{Deserialize, Serialize};
 use std::{any::Any, sync::Arc};
 use tokio::sync::Mutex;
+use tracing::info;
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -158,7 +159,7 @@ impl MigrationManager {
                 .find(|m| m.id == migration_id)
                 .cloned();
             if stored_migration.is_none() {
-                log::info!("Storing new migration {}...", migration_id);
+                info!("Storing new migration {}...", migration_id);
                 self.store_new_migration(migration_id, is_migration_multi_staged)
                     .await?;
                 if is_migration_multi_staged {
@@ -176,10 +177,10 @@ impl MigrationManager {
             }
             let stored_migration = stored_migration.unwrap();
             if stored_migration.phase == MigrationPhase::Done {
-                log::info!("Migration {} is already done", migration_id);
+                info!("Migration {} is already done", migration_id);
                 continue;
             }
-            log::info!(
+            info!(
                 "Migration {} is at phase {}",
                 migration_id,
                 stored_migration.phase.to_string()
@@ -193,7 +194,7 @@ impl MigrationManager {
                 MigrationPhase::Cleanup => migration.cleanup().await?,
                 _ => continue,
             }
-            log::info!(
+            info!(
                 "Migration {} completed phase {} successfully!",
                 migration_id,
                 stored_migration.phase.to_string()
@@ -266,7 +267,7 @@ impl MigrationManager {
 
 fn get_migration_template(name: &str) -> String {
     format!(
-        "use axum::async_trait;
+        "use async_trait::async_trait;
 
 use crate::db::migrations::manager::Migration;
 use crate::types::DynError;
@@ -302,7 +303,6 @@ impl Migration for {name} {{
         // Your cleanup logic here
         Ok(())
     }}
-        
 }}
 ",
         name = name

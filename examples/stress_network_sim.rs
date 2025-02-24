@@ -1,7 +1,7 @@
 use anyhow::Result;
 use chrono::Utc;
-use pkarr::{Keypair, PublicKey};
 use pubky::Client;
+use pubky::{Keypair, PublicKey};
 use pubky_app_specs::{
     traits::{HasPath, HashId, TimestampId},
     PubkyAppBlob, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppPostKind, PubkyAppTag,
@@ -39,10 +39,13 @@ async fn main() -> Result<()> {
     let config = Config::from_env();
 
     // Initialize the Client based on configuration
-    let client = match config.testnet {
-        true => Client::testnet()?,
-        false => Client::new()?,
-    };
+    // let client = match config.testnet {
+    //     true => Client::testnet()?,
+    //     false => Client::new()?,
+    // };
+
+    // Only mainnet
+    let client = Client::builder().build()?;
 
     // Convert the homeserver from the config into a PublicKey
     let homeserver = PublicKey::try_from(config.homeserver.as_str())?;

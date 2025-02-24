@@ -1,11 +1,11 @@
 use crate::db::connectors::redis::get_redis_conn;
 use crate::types::DynError;
-use log::debug;
 use redis::Script;
 use redis::{AsyncCommands, JsonAsyncCommands};
 use serde::{de::DeserializeOwned, Serialize};
+use tracing::debug;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum JsonAction {
     Increment(i64),
     Decrement(i64),

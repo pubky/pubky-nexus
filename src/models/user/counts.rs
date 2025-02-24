@@ -1,5 +1,6 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
 use crate::db::kv::index::json::JsonAction;
+use crate::models::tag::user::USER_TAGS_KEY_PARTS;
 use crate::types::DynError;
 use crate::{queries, RedisOps};
 use serde::{Deserialize, Serialize};
@@ -10,14 +11,18 @@ use super::UserStream;
 /// Represents total counts of relationships of a user.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Default)]
 pub struct UserCounts {
+    // The number of tags assigned to other entities by the user (e.g. user, posts)
+    pub tagged: u32,
+    // User received tags counts
     pub tags: u32,
+    // Distinct tags where the user was referenced
+    pub unique_tags: u32,
     pub posts: u32,
     pub replies: u32,
     pub following: u32,
     pub followers: u32,
     pub friends: u32,
     pub bookmarks: u32,
-    pub tagged: u32,
 }
 
 impl RedisOps for UserCounts {}
@@ -90,7 +95,39 @@ impl UserCounts {
         Ok(())
     }
 
-    pub async fn update(user_id: &str, field: &str, action: JsonAction) -> Result<(), DynError> {
+    /// Updates a user's counts index field and conditionally updates ranking sets
+    /// based on follower, tag, or post counts.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The unique identifier of the user whose index field is being updated.
+    /// * `field` - The name of the user-related field to update (e.g., `"followers"`, `"tags"`, `"posts"`).
+    /// * `action` - The action to perform on the field (increment or decrement).
+    /// * `tag_label` - An optional tag label used to check membership in the user's tag-related sorted set. Important if we want to update the unique_tags field
+    ///
+    /// # Behavior
+    ///
+    /// - Conditional Update Based on `tag_label`
+    /// - Update User Counts Index
+    /// - Update Ranking Sets for Specific Fields
+    pub async fn update(
+        user_id: &str,
+        field: &str,
+        action: JsonAction,
+        tag_label: Option<&str>,
+    ) -> Result<(), DynError> {
+        // This condition applies only when updating `unique_tags`
+        if let Some(label) = tag_label {
+            let index_parts = [&USER_TAGS_KEY_PARTS[..], &[user_id]].concat();
+            let score = Self::check_sorted_set_member(None, &index_parts, &[label]).await?;
+            match (score, &action) {
+                // to decrement `unique_tags`, the tag value must be less than or equal to 1
+                (Some(tag_value), JsonAction::Decrement(_)) if tag_value < 1 => (),
+                // to increment `unique_tags`, the tag must not exist in the sorted set
+                (None, JsonAction::Increment(_)) => (),
+                _ => return Ok(()),
+            }
+        }
         // Update user counts index
         Self::update_index_field(user_id, field, action).await?;
         // Just update pioneer and most followed indexes, when that fields are updated
@@ -110,7 +147,7 @@ impl UserCounts {
     pub async fn reindex(author_id: &str) -> Result<(), DynError> {
         match Self::get_from_graph(author_id).await? {
             Some(counts) => counts.put_to_index(author_id).await?,
-            None => log::error!("{}: Could not found user counts in the graph", author_id),
+            None => tracing::error!("{}: Could not found user counts in the graph", author_id),
         }
         Ok(())
     }

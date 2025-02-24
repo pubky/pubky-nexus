@@ -4,13 +4,12 @@ use crate::{
 };
 use axum::{
     extract::Request,
-    http::HeaderValue,
+    http::{HeaderValue, StatusCode},
     middleware::{self, Next},
     response::Response,
     routing::get_service,
     Router,
 };
-use reqwest::StatusCode;
 use tower_http::services::ServeDir;
 
 async fn static_files_middleware(request: Request, next: Next) -> Result<Response, StatusCode> {
