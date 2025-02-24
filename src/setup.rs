@@ -8,14 +8,16 @@ use crate::{
     },
     Config,
 };
-use opentelemetry::global;
-use opentelemetry_appender_tracing::layer;
-use opentelemetry_otlp::WithExportConfig;
+use opentelemetry::{global, KeyValue};
+use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
+use opentelemetry_otlp::{LogExporter, MetricExporter, SpanExporter, WithExportConfig};
 use opentelemetry_sdk::logs::LoggerProvider;
+use opentelemetry_sdk::metrics::{PeriodicReader, SdkMeterProvider};
 use opentelemetry_sdk::trace::TracerProvider;
-use tracing::{debug, info};
+use opentelemetry_sdk::Resource;
+use tracing::{debug, error, info};
+use tracing_subscriber::{fmt, EnvFilter, Layer};
 use tracing_subscriber::{layer::SubscriberExt, Registry};
-use tracing_subscriber::{EnvFilter, Layer};
 
 pub struct StackManager {}
 
@@ -51,84 +53,142 @@ impl StackManager {
 
     async fn setup_logging(config: &Config) {
         if config.otlp_endpoint.is_empty() {
-            match tracing_subscriber::fmt().pretty().try_init() {
-                Ok(()) => info!("Logging initialized"),
-                Err(e) => debug!("Logging already initialized: {:?}", e),
-            };
+            Self::setup_local_logging();
             return;
         }
 
-        let tracing_exporter = opentelemetry_otlp::SpanExporter::builder()
+        match Self::setup_otlp_logging(config).await {
+            Ok(()) => info!("OpenTelemetry Logging initialized"),
+            Err(e) => error!("Failed to initialize OpenTelemetry Logging: {:?}", e),
+        }
+    }
+
+    fn setup_local_logging() {
+        let subscriber = fmt::Subscriber::builder()
+            .compact()
+            .with_env_filter(EnvFilter::from_default_env())
+            .with_line_number(true)
+            .finish();
+
+        match tracing::subscriber::set_global_default(subscriber) {
+            Ok(()) => info!("Local application logging initialized"),
+            Err(e) => debug!("Logging already initialized: {:?}", e),
+        }
+    }
+
+    async fn setup_otlp_logging(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
+        let endpoint = &config.otlp_endpoint;
+
+        // Set up OpenTelemetry Tracer (Spans)
+        let tracing_exporter = SpanExporter::builder()
             .with_tonic()
-            .with_endpoint(config.otlp_endpoint.clone())
+            .with_endpoint(endpoint.clone())
             .with_timeout(Duration::from_secs(3))
             .build()
-            .expect("Failed to create OTLP tracing exporter");
+            .map_err(|e| format!("OTLP Tracing Exporter Error: {}", e))?;
+        
+        // TODO: That service name, has to came from each crate in the future
+        let service_name = Resource::new(vec![KeyValue::new("service.name", "nexus.watcher")]);
 
+        // Collects spans in memory and sends them in batches
         let tracer_provider = TracerProvider::builder()
+            .with_resource(service_name.clone())
             .with_batch_exporter(tracing_exporter, opentelemetry_sdk::runtime::Tokio)
             .build();
 
+        // Registers OpenTelemetry as the global tracing provider
+        // Ensures that all spans created in the app are processed and exported to an OTLP backend (signoz or jaeger)
         global::set_tracer_provider(tracer_provider.clone());
 
-        let logging_exporter = opentelemetry_otlp::LogExporter::builder()
+        // Set up OpenTelemetry Logging
+        let logging_exporter = LogExporter::builder()
             .with_tonic()
-            .with_endpoint(config.otlp_endpoint.clone())
+            .with_endpoint(endpoint.clone())
             .with_timeout(Duration::from_secs(3))
             .build()
-            .expect("Failed to create OTLP logging exporter");
+            .map_err(|e| format!("OTLP Logging Exporter Error: {}", e))?;
 
         let logging_provider = LoggerProvider::builder()
+            .with_resource(service_name)
             .with_batch_exporter(logging_exporter, opentelemetry_sdk::runtime::Tokio)
             .build();
 
-        // Set default logging level for individual libraries that are too verbose
-        let otlp_layer = layer::OpenTelemetryTracingBridge::new(&logging_provider).with_filter(
+        // Apply log filters for verbosity control
+        // This ensures only relevant logs are sent to OpenTelemetry, reducing unnecessary data transmission
+        let otlp_layer = OpenTelemetryTracingBridge::new(&logging_provider).with_filter(
             EnvFilter::from_default_env()
                 .add_directive("opentelemetry=error".parse().unwrap())
                 .add_directive("h2=error".parse().unwrap())
-                .add_directive("tower=info".parse().unwrap()),
+                .add_directive("tower=info".parse().unwrap())
+                .add_directive("mainline=info".parse().unwrap()),
         );
 
+        // Configure the stdout logging layer
+        let stdout_layer = fmt::layer().compact().with_line_number(true).with_filter(
+            EnvFilter::from_default_env()
+                .add_directive("opentelemetry=error".parse().unwrap())
+                .add_directive("h2=error".parse().unwrap())
+                .add_directive("tower=info".parse().unwrap())
+                .add_directive("mainline=info".parse().unwrap())
+        );
+        
+        // Creates a tracing subscriber
         let subscriber = Registry::default()
-            .with(
-                tracing_subscriber::fmt::layer().pretty().with_filter(
-                    EnvFilter::from_default_env()
-                        .add_directive("opentelemetry=error".parse().unwrap())
-                        .add_directive("h2=error".parse().unwrap())
-                        .add_directive("tower=info".parse().unwrap()),
-                ),
-            )
+            .with(stdout_layer)
             .with(otlp_layer);
 
-        tracing::subscriber::set_global_default(subscriber).expect("Failed to set subscriber");
-        info!("Logging initialized");
+        // Registers a global tracing subscriber that captures logs
+        if tracing::subscriber::set_global_default(subscriber).is_ok() {
+            info!(
+                "OpenTelemetry Logging initialized (OTLP_ENDPOINT={})",
+                endpoint
+            );
+        } else {
+            error!("Failed to initialize OpenTelemetry Logging: Already set globally!");
+        }
+
+        Ok(())
     }
 
     async fn setup_metrics(config: &Config) {
         if config.otlp_endpoint.is_empty() {
+            info!("Metrics collection is disabled. No metrics will be exported.");
             return;
         }
-        let metric_exporter = opentelemetry_otlp::MetricExporter::builder()
+
+        // TODO: That service name, has to came from each crate in the future
+        let service_name = Resource::new(vec![KeyValue::new("service.name", "nexus.watcher")]);
+
+        // Configure the exporter to collect and send metrics to an OTLP
+        let metric_exporter = MetricExporter::builder()
             .with_tonic()
             .with_endpoint(config.otlp_endpoint.clone())
             .with_timeout(Duration::from_secs(3))
             .build()
             .expect("Failed to create OTLP metric exporter");
 
-        let reader = opentelemetry_sdk::metrics::PeriodicReader::builder(
+        // Create a periodic metrics reader that collects and exports metrics at a fixed interval
+        let reader = PeriodicReader::builder(
             metric_exporter,
             opentelemetry_sdk::runtime::Tokio,
         )
-        .with_interval(std::time::Duration::from_secs(30))
-        .with_timeout(Duration::from_secs(3))
-        .build();
+            .with_interval(std::time::Duration::from_secs(30))
+            .with_timeout(Duration::from_secs(3))
+            .build();
 
-        let provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()
+        // Createa Meter Provider, which is responsible for managing and exporting metrics
+        let provider = SdkMeterProvider::builder()
+            .with_resource(service_name)
             .with_reader(reader)
             .build();
+
+        // Register globally the metrics
         global::set_meter_provider(provider);
-        info!("Metrics initialized");
+
+        info!(
+            "Metrics initialized (OTLP_ENDPOINT={})",
+            config.otlp_endpoint
+        );
     }
 
     pub async fn setup(config: &Config) {
