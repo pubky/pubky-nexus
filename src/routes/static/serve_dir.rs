@@ -4,9 +4,9 @@ use axum::{
     http::{Request, StatusCode, Uri},
     response::Response,
 };
-use log::error;
 use once_cell::sync::OnceCell;
 use tower_http::services::{fs::ServeFileSystemResponseBody, ServeDir};
+use tracing::error;
 
 static SERVE_DIR_INSTANCE: OnceCell<ServeDir> = OnceCell::new();
 

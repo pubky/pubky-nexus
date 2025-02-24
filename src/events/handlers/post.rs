@@ -10,10 +10,10 @@ use crate::models::user::UserCounts;
 use crate::queries::get::post_is_safe_to_delete;
 use crate::types::DynError;
 use crate::{handle_indexing_results, queries, RedisOps, ScoreAction};
-use log::debug;
 use pubky_app_specs::{
     user_uri_builder, ParsedUri, PubkyAppPost, PubkyAppPostKind, PubkyId, Resource,
 };
+use tracing::debug;
 
 use super::utils::post_relationships_is_reply;
 

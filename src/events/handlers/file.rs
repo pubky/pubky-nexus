@@ -7,9 +7,10 @@ use crate::models::{
 };
 use crate::static_processor::{StaticProcessor, StaticStorage};
 use crate::types::DynError;
-use log::{debug, error};
 use pubky_app_specs::{PubkyAppFile, PubkyAppObject, PubkyId};
 use tokio::fs::remove_dir_all;
+
+use tracing::{debug, error};
 
 pub async fn sync_put(
     file: PubkyAppFile,
