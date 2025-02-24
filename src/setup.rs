@@ -86,7 +86,7 @@ impl StackManager {
             .with_timeout(Duration::from_secs(3))
             .build()
             .map_err(|e| format!("OTLP Tracing Exporter Error: {}", e))?;
-        
+
         // TODO: That service name, has to came from each crate in the future
         let service_name = Resource::new(vec![KeyValue::new("service.name", "nexus.watcher")]);
 
@@ -129,13 +129,11 @@ impl StackManager {
                 .add_directive("opentelemetry=error".parse().unwrap())
                 .add_directive("h2=error".parse().unwrap())
                 .add_directive("tower=info".parse().unwrap())
-                .add_directive("mainline=info".parse().unwrap())
+                .add_directive("mainline=info".parse().unwrap()),
         );
-        
+
         // Creates a tracing subscriber
-        let subscriber = Registry::default()
-            .with(stdout_layer)
-            .with(otlp_layer);
+        let subscriber = Registry::default().with(stdout_layer).with(otlp_layer);
 
         // Registers a global tracing subscriber that captures logs
         if tracing::subscriber::set_global_default(subscriber).is_ok() {
@@ -168,10 +166,7 @@ impl StackManager {
             .expect("Failed to create OTLP metric exporter");
 
         // Create a periodic metrics reader that collects and exports metrics at a fixed interval
-        let reader = PeriodicReader::builder(
-            metric_exporter,
-            opentelemetry_sdk::runtime::Tokio,
-        )
+        let reader = PeriodicReader::builder(metric_exporter, opentelemetry_sdk::runtime::Tokio)
             .with_interval(std::time::Duration::from_secs(30))
             .with_timeout(Duration::from_secs(3))
             .build();
