@@ -1,7 +1,7 @@
 use super::utils::check_member_total_engagement_user_posts;
 use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
-use pkarr::Keypair;
+use pubky::Keypair;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]

@@ -15,8 +15,16 @@ async fn test_user_endpoint() -> Result<()> {
     assert_eq!(res["details"]["status"], "working");
     assert_eq!(res["details"]["id"], user_id);
     assert_eq!(res["details"]["image"], "pubky://4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro/pub/pubky.app/files/003286NSMY490");
-    assert_eq!(res["counts"]["friends"], 8);
+
+    assert_eq!(res["counts"]["tagged"], 10);
+    assert_eq!(res["counts"]["tags"], 4);
+    assert_eq!(res["counts"]["unique_tags"], 4);
     assert_eq!(res["counts"]["posts"], 4);
+    assert_eq!(res["counts"]["replies"], 0);
+    assert_eq!(res["counts"]["following"], 15);
+    assert_eq!(res["counts"]["followers"], 10);
+    assert_eq!(res["counts"]["friends"], 8);
+    assert_eq!(res["counts"]["bookmarks"], 0);
 
     // Test tags on Ar's profile
     let ar_id = "pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy";
@@ -96,14 +104,27 @@ async fn test_user_view_tags() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_get_counts() -> Result<()> {
-    let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
+    let user_id = "pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy";
     let res = get_request(&format!("/v0/user/{}/counts", user_id)).await?;
 
+    assert!(res["tagged"].is_number());
+    assert_eq!(res["tagged"], 95);
     assert!(res["tags"].is_number());
+    assert_eq!(res["tags"], 7);
+    assert!(res["unique_tags"].is_number());
+    assert_eq!(res["unique_tags"], 3);
+    assert!(res["replies"].is_number());
+    assert_eq!(res["replies"], 23);
     assert!(res["posts"].is_number());
+    assert_eq!(res["posts"], 87);
     assert!(res["followers"].is_number());
+    assert_eq!(res["followers"], 27);
     assert!(res["following"].is_number());
+    assert_eq!(res["following"], 7);
     assert!(res["friends"].is_number());
+    assert_eq!(res["friends"], 6);
+    assert!(res["bookmarks"].is_number());
+    assert_eq!(res["bookmarks"], 14);
 
     // Test non-existing user
     let user_id = "bad_user_id";

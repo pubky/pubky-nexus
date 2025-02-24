@@ -1,7 +1,7 @@
 use crate::{db::graph::exec::OperationOutcome, types::DynError};
 use async_trait::async_trait;
-use log::error;
 use neo4rs::Query;
+use tracing::error;
 
 use crate::{
     db::{

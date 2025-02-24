@@ -8,8 +8,8 @@ use crate::types::Pagination;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
-use log::info;
 use serde::Deserialize;
+use tracing::info;
 use utoipa::OpenApi;
 
 #[utoipa::path(

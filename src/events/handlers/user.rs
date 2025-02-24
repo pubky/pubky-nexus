@@ -8,8 +8,8 @@ use crate::models::{
 };
 use crate::queries::get::user_is_safe_to_delete;
 use crate::types::DynError;
-use log::debug;
 use pubky_app_specs::{PubkyAppUser, PubkyId};
+use tracing::debug;
 
 pub async fn sync_put(user: PubkyAppUser, user_id: PubkyId) -> Result<(), DynError> {
     debug!("Indexing new user profile: {}", user_id);
@@ -32,6 +32,7 @@ pub async fn sync_put(user: PubkyAppUser, user_id: PubkyId) -> Result<(), DynErr
             Ok::<(), DynError>(())
         },
         async {
+            // TODO: Use SCARD on a set for unique tag count to avoid race conditions in parallel processing
             // If new user (no existing counts), save a new `UserCounts`
             if UserCounts::get_from_index(&user_id).await?.is_none() {
                 UserCounts::default().put_to_index(&user_id).await?;

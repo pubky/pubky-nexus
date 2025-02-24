@@ -7,8 +7,8 @@ use crate::models::follow::{Followers, Following, Friends, UserFollows};
 use crate::models::notification::Notification;
 use crate::models::user::UserCounts;
 use crate::types::DynError;
-use log::debug;
 use pubky_app_specs::{user_uri_builder, PubkyId};
+use tracing::debug;
 
 pub async fn sync_put(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), DynError> {
     debug!("Indexing new follow: {} -> {}", follower_id, followee_id);
@@ -115,7 +115,7 @@ async fn update_follow_counts(
 ) -> Result<(), DynError> {
     // Update UserCount related indexes
     UserCounts::update_index_field(follower_id, "following", counter.clone()).await?;
-    UserCounts::update(followee_id, "followers", counter.clone()).await?;
+    UserCounts::update(followee_id, "followers", counter.clone(), None).await?;
 
     if update_friend_relationship {
         UserCounts::update_index_field(follower_id, "friends", counter.clone()).await?;

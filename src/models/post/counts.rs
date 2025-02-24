@@ -1,5 +1,6 @@
 use crate::db::connectors::neo4j::get_neo4j_graph;
 use crate::db::kv::index::json::JsonAction;
+use crate::models::tag::post::POST_TAGS_KEY_PARTS;
 use crate::types::DynError;
 use crate::{queries, RedisOps};
 use serde::{Deserialize, Serialize};
@@ -10,7 +11,10 @@ use super::PostStream;
 /// Represents total counts of relationships of a user.
 #[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
 pub struct PostCounts {
+    // how many times was pointed the post with a tag
     pub tags: u32,
+    // Distinct tags where the post was referenced
+    pub unique_tags: u32,
     pub replies: u32,
     pub reposts: u32,
 }
@@ -95,11 +99,34 @@ impl PostCounts {
         Ok(())
     }
 
+    /// Updates a specified JSON field in the index
+    ///
+    /// # Arguments
+    ///
+    /// * `index_key` - A slice of string references representing the index key parts.
+    /// * `field` - The name of the JSON field to be updated.
+    /// * `action` - The action to perform on the JSON field (increment or decrement).
+    /// * `tag_label` - An optional tag label used to check membership in a sorted set. Important field to update the unique_tags field
     pub async fn update_index_field(
         index_key: &[&str],
         field: &str,
         action: JsonAction,
+        tag_label: Option<&str>,
     ) -> Result<(), DynError> {
+        // This condition applies only when updating `unique_tags`
+        if let Some(label) = tag_label {
+            let index_parts = [&POST_TAGS_KEY_PARTS[..], index_key].concat();
+            let score = Self::check_sorted_set_member(None, &index_parts, &[label]).await?;
+            match (score, &action) {
+                // to decrement `unique_tags`, the tag value must be less than or equal to 1
+                (Some(tag_value), JsonAction::Decrement(_)) if tag_value < 1 => (),
+                // to increment `unique_tags`, the tag must not exist in the sorted set
+                (None, JsonAction::Increment(_)) => (),
+                // Do not update the index
+                _ => return Ok(()),
+            }
+        }
+
         Self::modify_json_field(index_key, field, action).await?;
         Ok(())
     }
@@ -107,7 +134,7 @@ impl PostCounts {
     pub async fn reindex(author_id: &str, post_id: &str) -> Result<(), DynError> {
         match Self::get_from_graph(author_id, post_id).await? {
             Some((counts, is_reply)) => counts.put_to_index(author_id, post_id, is_reply).await?,
-            None => log::error!(
+            None => tracing::error!(
                 "{}:{} Could not found post counts in the graph",
                 author_id,
                 post_id
