@@ -3,6 +3,7 @@ use std::fmt::Display;
 use std::str::FromStr;
 
 use crate::db::graph::exec::exec_single_row;
+use crate::events::error::EventProcessorError;
 use crate::models::traits::Collection;
 use crate::types::DynError;
 use crate::{queries, RedisOps};
@@ -137,15 +138,27 @@ impl FileDetails {
     }
 
     pub async fn delete(&self) -> Result<(), DynError> {
-        // Delete graph node;
+        // Delete graph node
         match exec_single_row(queries::del::delete_file(&self.owner_id, &self.id)).await {
             Ok(_) => {
                 // Delete on Redis
-                Self::remove_from_index_multiple_json(&[&[&self.owner_id, &self.id]]).await?;
+                match Self::remove_from_index_multiple_json(&[&[&self.owner_id, &self.id]]).await {
+                    Ok(()) => (),
+                    Err(e) => {
+                        error!("Index file deletion, {}: {:?}", self.id, e);
+                        return Err(EventProcessorError::IndexWriteFailed {
+                            message: format!("Could not delete the index, {:?}", e),
+                        }
+                        .into());
+                    }
+                }
             }
             Err(e) => {
-                error!("File deletion: {:?}", e);
-                return Err("File: We could not delete the file".into());
+                error!("Graph file deletion, {}: {:?}", self.id, e);
+                return Err(EventProcessorError::GraphQueryFailed {
+                    message: format!("Could not delete the file, {:?}", e),
+                }
+                .into());
             }
         };
         Ok(())

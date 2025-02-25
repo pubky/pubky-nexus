@@ -1,5 +1,6 @@
 use crate::db::connectors::pubky::PubkyConnector;
 use crate::events::error::EventProcessorError;
+use crate::handle_indexing_results;
 use crate::models::file::details::FileVariant;
 use crate::models::{
     file::{details::FileMeta, FileDetails},
@@ -9,8 +10,7 @@ use crate::static_processor::{StaticProcessor, StaticStorage};
 use crate::types::DynError;
 use pubky_app_specs::{PubkyAppFile, PubkyAppObject, PubkyId};
 use tokio::fs::remove_dir_all;
-
-use tracing::{debug, error};
+use tracing::debug;
 
 pub async fn sync_put(
     file: PubkyAppFile,
@@ -28,18 +28,25 @@ pub async fn sync_put(
     let file_details =
         FileDetails::from_homeserver(&file, uri, user_id.to_string(), file_id, file_meta);
 
-    // save new file into the Graph
-    file_details.put_to_graph().await?;
+    // SAVE TO GRAPH
+    file_details
+        .put_to_graph()
+        .await
+        .map_err(|e| EventProcessorError::GraphQueryFailed {
+            message: format!("{:?}", e),
+        })?;
 
-    // Index
-    FileDetails::put_to_index(
+    // SAVE TO INDEX
+    let indexing_result = FileDetails::put_to_index(
         &[&[
             file_details.owner_id.clone().as_str(),
             file_details.id.clone().as_str(),
         ]],
         vec![Some(file_details)],
     )
-    .await?;
+    .await;
+
+    handle_indexing_results!(indexing_result);
 
     Ok(())
 }
@@ -56,10 +63,14 @@ async fn ingest(
 
         response = match pubky_client.get(&pubkyapp_file.src).send().await {
             Ok(response) => response,
-            // TODO: Shape the error to avoid the retyManager
             Err(e) => {
-                error!("EVENT ERROR: could not retrieve file src blob");
-                return Err(e.into());
+                return Err(EventProcessorError::PubkyClientError {
+                    message: format!(
+                        "The ingest process could not get the client while processing File event: {}",
+                        e
+                    ),
+                }
+                .into());
             }
         };
     }
