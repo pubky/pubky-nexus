@@ -26,7 +26,7 @@ tower-http = { version = "0.6.2", features = ["fs", "cors"] }
 dotenv = "0.15"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tracing-opentelemetry = "0.28"
+tracing-opentelemetry = "0.29"
 opentelemetry = { version = "0.27" }
 opentelemetry-otlp = "0.27"
 opentelemetry-stdout = { version = "0.27" }
