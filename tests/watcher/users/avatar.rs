@@ -8,7 +8,7 @@ use pubky_nexus::PubkyConnector;
 
 /// We'll reuse your existing macros and test environment
 #[tokio_shared_rt::test(shared)]
-async fn test_user_avatar_endpoint_png() -> Result<()> {
+async fn test_user_avatar_endpoint() -> Result<()> {
     // 1. Boot the watchers, servers, etc.
     let mut test = WatcherTest::setup().await?;
     TestServiceServer::get_test_server().await;
@@ -16,11 +16,11 @@ async fn test_user_avatar_endpoint_png() -> Result<()> {
     // 2. Create a fresh user
     let keypair = Keypair::random();
     let user = PubkyAppUser {
-        bio: Some("I have a custom PNG avatar".to_string()),
+        bio: Some("I have a custom avatar".to_string()),
         image: None,
         links: None,
-        name: "PNGAvatarUser".to_string(),
-        status: Some("PNG Testing".to_string()),
+        name: "AvatarUser".to_string(),
+        status: Some("Avatar Testing".to_string()),
     };
     let user_id = test.create_user(&keypair, &user).await?;
 
@@ -41,7 +41,7 @@ async fn test_user_avatar_endpoint_png() -> Result<()> {
 
     // 5. Create a new file referencing that blob
     let file = PubkyAppFile {
-        name: "avatar.png".to_string(),
+        name: "avatar".to_string(),
         content_type: "image/png".to_string(),
         src: blob_url.clone(),
         size: image_size as i64,
@@ -61,7 +61,7 @@ async fn test_user_avatar_endpoint_png() -> Result<()> {
 
     // 7. Issue a GET to the new `/avatar` route using your test client
     let client = httpc_test::new_client(crate::service::utils::host_url().await)?;
-    let url_path = format!("/v0/user/{user_id}/avatar");
+    let url_path = format!("/static/avatar/{}", user_id);
     let response = client.do_get(&url_path).await?;
 
     // 8. Verify response
@@ -75,14 +75,14 @@ async fn test_user_avatar_endpoint_png() -> Result<()> {
     let ctype = response
         .header("content-type")
         .unwrap_or("none".to_string());
-    assert_eq!(ctype, "image/png", "Expected `content-type: image/png`");
+    assert_eq!(ctype, "image/webp", "Expected `content-type: image/webp`");
 
     // Compare lengths
     let clength = response.header("content-length").unwrap_or("0".to_string());
-    assert_eq!(
+    assert_ne!(
         clength,
         format!("{}", image_size),
-        "Returned PNG avatar size differs from what we uploaded"
+        "Returned WEBP avatar size is equal to what we uploaded and not the small version"
     );
 
     // 10. Done!
