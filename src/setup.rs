@@ -8,13 +8,12 @@ use crate::{
     },
     Config,
 };
-use opentelemetry::{global, KeyValue};
+use opentelemetry::global;
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_otlp::{LogExporter, MetricExporter, SpanExporter, WithExportConfig};
 use opentelemetry_sdk::logs::LoggerProvider;
 use opentelemetry_sdk::metrics::{PeriodicReader, SdkMeterProvider};
 use opentelemetry_sdk::trace::TracerProvider;
-use opentelemetry_sdk::Resource;
 use tracing::{debug, error, info};
 use tracing_subscriber::{fmt, EnvFilter, Layer};
 use tracing_subscriber::{layer::SubscriberExt, Registry};
@@ -87,12 +86,8 @@ impl StackManager {
             .build()
             .map_err(|e| format!("OTLP Tracing Exporter Error: {}", e))?;
 
-        // TODO: That service name, has to came from each crate in the future
-        let service_name = Resource::new(vec![KeyValue::new("service.name", "nexus.watcher")]);
-
         // Collects spans in memory and sends them in batches
         let tracer_provider = TracerProvider::builder()
-            .with_resource(service_name.clone())
             .with_batch_exporter(tracing_exporter, opentelemetry_sdk::runtime::Tokio)
             .build();
 
@@ -109,7 +104,6 @@ impl StackManager {
             .map_err(|e| format!("OTLP Logging Exporter Error: {}", e))?;
 
         let logging_provider = LoggerProvider::builder()
-            .with_resource(service_name)
             .with_batch_exporter(logging_exporter, opentelemetry_sdk::runtime::Tokio)
             .build();
 
@@ -154,9 +148,6 @@ impl StackManager {
             return;
         }
 
-        // TODO: That service name, has to came from each crate in the future
-        let service_name = Resource::new(vec![KeyValue::new("service.name", "nexus.watcher")]);
-
         // Configure the exporter to collect and send metrics to an OTLP
         let metric_exporter = MetricExporter::builder()
             .with_tonic()
@@ -172,10 +163,7 @@ impl StackManager {
             .build();
 
         // Createa Meter Provider, which is responsible for managing and exporting metrics
-        let provider = SdkMeterProvider::builder()
-            .with_resource(service_name)
-            .with_reader(reader)
-            .build();
+        let provider = SdkMeterProvider::builder().with_reader(reader).build();
 
         // Register globally the metrics
         global::set_meter_provider(provider);
