@@ -1,6 +1,6 @@
-use tracing::{error, info };
 use pubky_nexus::{Config, EventProcessor, StackManager};
 use tokio::time::{sleep, Duration};
+use tracing::{error, info};
 
 /// Watches over a homeserver `/events` and writes into the Nexus databases
 #[tokio::main]

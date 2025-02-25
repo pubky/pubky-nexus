@@ -1,6 +1,6 @@
 use dotenv::dotenv;
-use tracing::debug;
 use std::env;
+use tracing::debug;
 
 #[derive(Debug, Clone)]
 pub struct Config {
