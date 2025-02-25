@@ -43,6 +43,10 @@ jobs:
       - name: Copy environment variables
         run: cp .env-sample .env
 
+      - name: Edit env for pipeline
+        # Remove OTLP_ENDPOINT from .env file
+        run: sed -i '/OTLP_ENDPOINT/d' .env
+
       - name: Set up Docker Compose
         working-directory: docker
         run: docker compose --env-file .env-sample up -d

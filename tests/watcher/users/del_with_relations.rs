@@ -4,15 +4,16 @@ use crate::watcher::{
 };
 use anyhow::Result;
 use chrono::Utc;
+use pubky::Keypair;
 use pubky_app_specs::{
-    PubkyAppFile, PubkyAppPost, PubkyAppPostKind, PubkyAppUser, PubkyAppUserLink,
+    traits::HasPath, PubkyAppBlob, PubkyAppFile, PubkyAppPost, PubkyAppPostKind, PubkyAppUser,
+    PubkyAppUserLink,
 };
-use pubky_common::{crypto::Keypair, timestamp::Timestamp};
 use pubky_nexus::{
     models::user::{UserCounts, UserView},
     PubkyConnector,
 };
-use serde_json::to_vec;
+
 #[tokio_shared_rt::test(shared)]
 async fn test_delete_user_with_relationships() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
@@ -83,7 +84,7 @@ async fn test_delete_user_with_relationships() -> Result<()> {
     test.cleanup_post(&user_id, &post_id).await?;
 
     // Write and delete the user again; this time it should be fully removed
-    test.create_user(&keypair, &user).await?;
+    test.create_profile(&user_id, &user).await?;
     test.cleanup_user(&user_id).await?;
 
     // Attempt to find user details; should not exist
@@ -119,15 +120,14 @@ async fn test_delete_user_with_relationships() -> Result<()> {
     let user_with_id = test.create_user(&keypair, &user_with).await?;
 
     // Add image to the user
-    // Create an image to add to the user
-    let blob = "image";
-    let blob_id = Timestamp::now().to_string();
-    let blob_url = format!("pubky://{}/pub/pubky.app/blobs/{}", user_with_id, blob_id);
-    let json_data = to_vec(blob)?;
+    let blob_data = "Image bytes blob".to_string();
+    let blob = PubkyAppBlob::new(blob_data.as_bytes().to_vec());
+    let blob_url = format!("pubky://{}{}", user_with_id, blob.create_path());
+
     let pubky_client = PubkyConnector::get_pubky_client()?;
     pubky_client
         .put(blob_url.as_str())
-        .json(&blob)
+        .body(blob.0.clone())
         .send()
         .await?;
 
@@ -136,7 +136,7 @@ async fn test_delete_user_with_relationships() -> Result<()> {
         name: "Watcher:UserDeleteWith:UserWith:Image".to_string(),
         content_type: "image/png".to_string(),
         src: blob_url.clone(),
-        size: json_data.len() as i64,
+        size: blob.0.len() as i64,
         created_at: Utc::now().timestamp_millis(),
     };
 
@@ -152,7 +152,7 @@ async fn test_delete_user_with_relationships() -> Result<()> {
         name: "Watcher:UserDeleteWith:UserWith".to_string(),
         status: Some("Zombie soon".to_string()),
     };
-    let _ = test.create_user(&keypair, &user_with).await?;
+    let _ = test.create_profile(&user_with_id, &user_with).await?;
 
     // Create a post to establish a relationship
     let post_b = PubkyAppPost {
@@ -211,7 +211,7 @@ async fn test_delete_user_with_relationships() -> Result<()> {
     test.cleanup_post(&user_with_id, &post_b_id).await?;
 
     // Write and delete the user again; this time it should be fully removed
-    test.create_user(&keypair, &user_with).await?;
+    test.create_profile(&user_with_id, &user_with).await?;
     test.cleanup_user(&user_with_id).await?;
     // Delete the file
     test.cleanup_file(&user_with_id, &file_id).await?;

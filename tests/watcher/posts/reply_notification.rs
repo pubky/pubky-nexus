@@ -1,8 +1,8 @@
 use super::utils::find_post_details;
 use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
+use pubky::Keypair;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
-use pubky_common::crypto::Keypair;
 use pubky_nexus::models::notification::{Notification, NotificationBody};
 use pubky_nexus::types::Pagination;
 
@@ -117,20 +117,9 @@ async fn test_homeserver_post_reply_notification() -> Result<()> {
         panic!("Expected a REPLY notification, found something else");
     }
 
-    // // TODO: Impl DEL post. Assert the reply does not exist in Nexus
+    // DEL post.
     test.cleanup_post(&alice_id, &alice_reply_id).await?;
     test.cleanup_post(&bob_id, &bob_reply_id).await?;
-    // let result_post = PostView::get_by_id(&user_id, &post_id, None, None, None)
-    //     .await
-    //     .unwrap();
-
-    // assert!(result_post.is_none(), "The post should have been deleted");
-
-    // After deletion, fetch the post thread again and confirm the reply is gone
-    // let thread_after_deletion = PostThread::get_by_id(&user_id, &parent_id, None, 0, 10)
-    //     .await
-    //     .expect("Failed to fetch post thread after deletion")
-    //     .expect("The post thread should exist after deletion");
 
     // Cleanup
     test.cleanup_user(&alice_id).await?;

@@ -9,8 +9,8 @@ use crate::watcher::{
 };
 use anyhow::Result;
 use chrono::Utc;
+use pubky::Keypair;
 use pubky_app_specs::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser};
-use pubky_common::crypto::Keypair;
 use pubky_nexus::{
     models::{
         notification::Notification,
@@ -23,7 +23,7 @@ use pubky_nexus::{
 };
 
 #[tokio_shared_rt::test(shared)]
-async fn test_homeserver_multi_user() -> Result<()> {
+async fn test_homeserver_multi_user_posts_tags() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Step 1: Write in the homeserver and index in nexus
@@ -33,10 +33,10 @@ async fn test_homeserver_multi_user() -> Result<()> {
         let keypair = Keypair::random();
 
         let tagger = PubkyAppUser {
-            bio: Some("test_homeserver_put_tag_post".to_string()),
+            bio: Some("test_homeserver_multi_user_post".to_string()),
             image: None,
             links: None,
-            name: format!("Watcher:MultiUser:User{}", index),
+            name: format!("Watcher:MultiUserPost:User{}", index),
             status: None,
         };
         let user_id = test.create_user(&keypair, &tagger).await?;
@@ -46,7 +46,7 @@ async fn test_homeserver_multi_user() -> Result<()> {
     let author_id = &user_ids[0];
 
     let post = PubkyAppPost {
-        content: "Watcher:MultiUser:User:Post".to_string(),
+        content: "Watcher:MultiUserPost:User:Post".to_string(),
         kind: PubkyAppPost::default().kind,
         parent: None,
         embed: None,
@@ -172,14 +172,15 @@ async fn test_homeserver_multi_user() -> Result<()> {
     // Check if post counts updated: Post:Counts:user_id:post_id
     let post_counts = find_post_counts(author_id, &post_id).await;
     assert_eq!(post_counts.tags, 5);
+    assert_eq!(post_counts.unique_tags, 2);
 
     // Check if user counts updated: User:Counts:user_id
     let tagger_a_user_counts = find_user_counts(tagger_a_id).await;
-    assert_eq!(tagger_a_user_counts.tags, 1);
+    assert_eq!(tagger_a_user_counts.tagged, 1);
     let tagger_b_user_counts = find_user_counts(tagger_b_id).await;
-    assert_eq!(tagger_b_user_counts.tags, 2);
+    assert_eq!(tagger_b_user_counts.tagged, 2);
     let tagger_c_user_counts = find_user_counts(tagger_c_id).await;
-    assert_eq!(tagger_c_user_counts.tags, 2);
+    assert_eq!(tagger_c_user_counts.tagged, 2);
 
     // Assert if the new tag increments the engagement
     // global post engagement: Sorted:Posts:Global:TotalEngagement:user_id:post_id
@@ -246,11 +247,12 @@ async fn test_homeserver_multi_user() -> Result<()> {
     // Check if post counts updated: Post:Counts:user_id:post_id
     let post_counts = find_post_counts(author_id, &post_id).await;
     assert_eq!(post_counts.tags, 0);
+    assert_eq!(post_counts.unique_tags, 0);
 
     // Check if user counts updated: User:Counts:user_id
     for tagger_id in water_taggers {
         let user_counts = find_user_counts(tagger_id).await;
-        assert_eq!(user_counts.tags, 0);
+        assert_eq!(user_counts.tagged, 0);
     }
 
     let tags = [label_water, label_fire];

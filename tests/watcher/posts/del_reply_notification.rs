@@ -1,7 +1,7 @@
 use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
+use pubky::Keypair;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
-use pubky_common::crypto::Keypair;
 use pubky_nexus::{
     models::notification::{Notification, NotificationBody, PostChangedSource},
     types::Pagination,

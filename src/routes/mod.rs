@@ -6,6 +6,8 @@ pub mod macros;
 pub mod r#static;
 pub mod v0;
 
+mod middlewares;
+
 pub fn routes() -> Router {
     let route_static = r#static::routes();
 
@@ -28,5 +30,8 @@ pub fn routes() -> Router {
         .allow_headers(Any); // Allow all headers
 
     // Layer the CORS middleware on top of the routes
-    app.layer(cors)
+    app.layer(axum::middleware::from_fn(
+        middlewares::tracing::tracing_middleware,
+    ))
+    .layer(cors)
 }

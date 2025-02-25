@@ -1,7 +1,7 @@
 use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
+use pubky::Keypair;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind};
-use pubky_common::crypto::Keypair;
 
 /// The user profile is stored in the homeserver. Missing the author to connect the post
 #[tokio_shared_rt::test(shared)]

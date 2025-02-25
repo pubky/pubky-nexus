@@ -2,9 +2,9 @@ use axum::{
     extract::{Path, Query, Request},
     response::Response,
 };
-use log::{debug, error};
 use serde::{Deserialize, Serialize};
 use tower_http::services::fs::ServeFileSystemResponseBody;
+use tracing::{debug, error};
 use utoipa::OpenApi;
 
 use crate::{

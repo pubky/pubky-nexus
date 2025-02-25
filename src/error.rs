@@ -1,7 +1,7 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use log::{debug, error};
 use thiserror::Error;
+use tracing::error;
 
 pub type Result<T> = core::result::Result<T, Error>;
 
@@ -43,22 +43,22 @@ impl IntoResponse for Error {
 
         // Logging
         match &self {
-            Error::UserNotFound { user_id } => debug!("User not found: {}", user_id),
+            Error::UserNotFound { user_id } => error!("User not found: {}", user_id),
             Error::PostNotFound { author_id, post_id } => {
-                debug!("Post not found: {} {}", author_id, post_id)
+                error!("Post not found: {} {}", author_id, post_id)
             }
-            Error::EmptyStream { message } => debug!("Empty stream: {}", message),
+            Error::EmptyStream { message } => error!("Empty stream: {}", message),
             Error::FileNotFound {} => {
-                debug!("File not found.")
+                error!("File not found.")
             }
             Error::BookmarksNotFound { user_id } => {
-                debug!("Bookmarks not found: {}", user_id)
+                error!("Bookmarks not found: {}", user_id)
             }
             Error::TagsNotFound { reach } => {
-                debug!("Tags not found: {}", reach)
+                error!("Tags not found: {}", reach)
             }
             Error::InvalidInput { message } => {
-                debug!("Invalid input: {}", message)
+                error!("Invalid input: {}", message)
             }
             Error::InternalServerError { source } => error!("Internal server error: {:?}", source),
         };

@@ -5,8 +5,8 @@ use crate::watcher::{
 };
 use anyhow::Result;
 use chrono::Utc;
+use pubky::Keypair;
 use pubky_app_specs::{traits::HashId, PubkyAppTag, PubkyAppUser};
-use pubky_common::crypto::Keypair;
 use pubky_nexus::models::tag::{traits::TagCollection, user::TagUser};
 
 #[tokio_shared_rt::test(shared)]
@@ -75,10 +75,11 @@ async fn test_homeserver_del_tag_to_another_user() -> Result<()> {
 
     // Check if user counts is updated, User:Counts:user_id
     let user_counts = find_user_counts(&tagger_user_id).await;
-    assert_eq!(user_counts.tags, 0);
+    assert_eq!(user_counts.tagged, 0);
 
     let user_counts = find_user_counts(&tagged_user_id).await;
-    assert_eq!(user_counts.tagged, 0);
+    assert_eq!(user_counts.tags, 0);
+    assert_eq!(user_counts.unique_tags, 0);
 
     // Check user pionner score: Sorted:Users:Pioneers
     let pioneer_score = check_member_user_pioneer(&tagger_user_id)

@@ -3,9 +3,8 @@ use crate::{
 };
 use anyhow::Result;
 use chrono::Utc;
-use pubky_app_specs::traits::HasPath;
-use pubky_app_specs::{PubkyAppBlob, PubkyAppFile, PubkyAppUser};
-use pubky_common::crypto::Keypair;
+use pubky::Keypair;
+use pubky_app_specs::{traits::HasPath, PubkyAppBlob, PubkyAppFile, PubkyAppUser};
 use pubky_nexus::{
     models::{file::FileDetails, traits::Collection},
     PubkyConnector,

@@ -1,8 +1,8 @@
 use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
+use pubky::Keypair;
 use pubky_app_specs::{traits::HashId, PubkyAppTag, PubkyAppUser};
-use pubky_common::crypto::Keypair;
 use pubky_nexus::{
     models::notification::{Notification, NotificationBody},
     types::Pagination,

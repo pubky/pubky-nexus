@@ -5,8 +5,8 @@ use crate::watcher::users::utils::find_user_counts;
 use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
+use pubky::Keypair;
 use pubky_app_specs::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser};
-use pubky_common::crypto::Keypair;
 use pubky_nexus::models::notification::Notification;
 use pubky_nexus::models::post::PostDetails;
 use pubky_nexus::models::tag::post::TagPost;
@@ -119,10 +119,11 @@ async fn test_homeserver_put_tag_post() -> Result<()> {
     // Check if post counts updated: Post:Counts:user_id:post_id
     let post_counts = find_post_counts(&tagger_user_id, &post_id).await;
     assert_eq!(post_counts.tags, 1);
+    assert_eq!(post_counts.unique_tags, 1);
 
     // Check if user counts updated: User:Counts:user_id
     let user_counts = find_user_counts(&tagger_user_id).await;
-    assert_eq!(user_counts.tags, 1);
+    assert_eq!(user_counts.tagged, 1);
 
     // Assert if the new tag increments the engagement
     // global post engagement: Sorted:Posts:Global:TotalEngagement:user_id:post_id

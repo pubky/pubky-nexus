@@ -2,18 +2,18 @@
 
 use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
-use log::info;
+use pubky::Keypair;
 use pubky_app_specs::{
     traits::HashId, PubkyAppBookmark, PubkyAppMute, PubkyAppPost, PubkyAppPostKind, PubkyAppTag,
     PubkyAppUser,
 };
-use pubky_common::crypto::Keypair;
 use pubky_nexus::{
     models::{post::PostCounts, user::UserCounts},
     PubkyConnector, RedisOps,
 };
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use std::collections::{HashMap, HashSet};
+use tracing::info;
 
 // We can test two modalities:
 // 1. Processing the events one by one. This is akin to a watcher that is always fully synced.
@@ -309,7 +309,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
         // left: 11
         // right: 10
         assert_eq!(
-            counts_cache.tags, counts_graph.tags,
+            counts_cache.tagged, counts_graph.tagged,
             "Tag counts mismatch for user {} between cache and graph",
             user_id
         );
@@ -323,8 +323,18 @@ async fn test_large_network_scenario_counts() -> Result<()> {
             user_id
         );
         assert_eq!(
-            counts_cache.tagged, counts_graph.tagged,
-            "Tagged counts mismatch for user {} between cache and graph",
+            counts_cache.tags, counts_graph.tags,
+            "Tag counts mismatch for user {} between cache and graph",
+            user_id
+        );
+        assert_eq!(
+            counts_cache.unique_tags, counts_graph.unique_tags,
+            "Tag unique counts mismatch for user {} between cache and graph",
+            user_id
+        );
+        assert_eq!(
+            counts_cache.unique_tags, counts_graph.unique_tags,
+            "Unique tag counts mismatch for user {} between cache and graph",
             user_id
         );
 
@@ -347,6 +357,11 @@ async fn test_large_network_scenario_counts() -> Result<()> {
             assert_eq!(
                 counts_cache.tags, counts_graph.0.tags,
                 "Tag counts mismatch for post {} by user {} between cache and graph",
+                post_id, user_id
+            );
+            assert_eq!(
+                counts_cache.unique_tags, counts_graph.0.unique_tags,
+                "Tag unique counts mismatch for post {} by user {} between cache and graph",
                 post_id, user_id
             );
             assert_eq!(
@@ -376,7 +391,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
             .expect("Counts not found in cache");
 
         total_posts_cache += counts_cache.posts as usize;
-        total_tags_cache += counts_cache.tags as usize;
+        total_tags_cache += counts_cache.tagged as usize;
         total_following_cache += counts_cache.following as usize;
         total_followers_cache += counts_cache.followers as usize;
         total_bookmarks_cache += counts_cache.bookmarks as usize;

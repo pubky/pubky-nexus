@@ -1,18 +1,17 @@
-use std::time::Duration;
-
-use super::dht::TestnetDHTNetwork;
+use super::testnet::TestnetNetwork;
 use anyhow::{anyhow, Result};
 use chrono::Utc;
-use log::debug;
+use pubky::Keypair;
 use pubky_app_specs::{
     traits::TimestampId, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser,
 };
-use pubky_common::crypto::Keypair;
 use pubky_homeserver::Homeserver;
 use pubky_nexus::events::retry::event::RetryEvent;
 use pubky_nexus::events::Event;
 use pubky_nexus::types::DynError;
 use pubky_nexus::{Config, EventProcessor, PubkyConnector, StackManager};
+use std::time::Duration;
+use tracing::debug;
 
 /// Struct to hold the setup environment for tests
 pub struct WatcherTest {
@@ -40,13 +39,15 @@ impl WatcherTest {
         let config = Config::from_env();
         StackManager::setup(&config).await;
 
-        TestnetDHTNetwork::initialise(10)?;
-        let testnet = TestnetDHTNetwork::get_testnet_dht_nodes()?;
+        // testnet initialization is time expensive, we only init one per process
+        let testnet = TestnetNetwork::get().await?;
 
-        let homeserver = Homeserver::start_test(&testnet).await?;
+        let homeserver = testnet.run_homeserver().await.unwrap();
         let homeserver_id = homeserver.public_key().to_string();
 
-        match PubkyConnector::initialise(&config, Some(&testnet)).await {
+        let client = testnet.client_builder().build().unwrap();
+
+        match PubkyConnector::init_from_client(client).await {
             Ok(_) => debug!("WatcherTest: PubkyConnector initialised"),
             Err(e) => debug!("WatcherTest: {}", e),
         }
@@ -143,6 +144,18 @@ impl WatcherTest {
         // Index to Nexus from Homeserver using the events processor
         self.ensure_event_processing_complete().await?;
         Ok(user_id)
+    }
+
+    pub async fn create_profile(&mut self, user_id: &str, user: &PubkyAppUser) -> Result<String> {
+        let pubky_client = PubkyConnector::get_pubky_client()?;
+        let url = format!("pubky://{}/pub/pubky.app/profile.json", user_id);
+
+        // Write the user profile in the pubky.app repository
+        pubky_client.put(url.as_str()).json(&user).send().await?;
+
+        // Index to Nexus from Homeserver using the events processor
+        self.ensure_event_processing_complete().await?;
+        Ok(user_id.to_string())
     }
 
     pub async fn create_post(&mut self, user_id: &str, post: &PubkyAppPost) -> Result<String> {

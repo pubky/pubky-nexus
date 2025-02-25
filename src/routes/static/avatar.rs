@@ -7,8 +7,8 @@ use crate::{
 };
 use axum::extract::Request;
 use axum::{extract::Path, response::Response};
-use log::{error, info};
 use tower_http::services::fs::ServeFileSystemResponseBody;
+use tracing::{error, info};
 use utoipa::OpenApi;
 
 use super::endpoints::USER_AVATAR_ROUTE;

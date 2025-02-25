@@ -1,7 +1,7 @@
 use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
+use pubky::Keypair;
 use pubky_app_specs::PubkyAppUser;
-use pubky_common::crypto::Keypair;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_mute_cannot_complete() -> Result<()> {

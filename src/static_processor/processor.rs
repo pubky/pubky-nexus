@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
-use log::error;
 use tokio::fs;
+use tracing::error;
 
 use crate::{
     models::file::{

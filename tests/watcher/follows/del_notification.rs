@@ -1,6 +1,6 @@
 use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
-use pubky_common::crypto::Keypair;
+use pubky::Keypair;
 use pubky_nexus::{
     models::notification::{Notification, NotificationBody},
     types::Pagination,
