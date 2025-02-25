@@ -1,7 +1,7 @@
 use crate::db::graph::exec::retrieve_from_graph;
 use crate::db::kv::index::sorted_sets::SortOrder;
 use crate::routes::v0::tag::HotTagsInput;
-use crate::types::{DynError, Timeframe};
+use crate::types::{DynError, StreamReach, Timeframe};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ops::Deref;
@@ -15,14 +15,6 @@ use super::TaggedType;
 
 pub const HOT_TAGS_CACHE_PREFIX: &str = "Cache";
 pub const POST_HOT_TAGS: [&str; 3] = ["Tags", "Post", "Hot"];
-
-#[derive(Deserialize, Debug, ToSchema, Clone)]
-#[serde(rename_all = "snake_case")]
-pub enum TagStreamReach {
-    Followers,
-    Following,
-    Friends,
-}
 
 #[derive(Deserialize, Serialize, ToSchema, Debug, Clone)]
 pub struct HotTag {
@@ -65,14 +57,14 @@ impl HotTags {
     /// * `hot_tags_input` - The input parameters received from the API endpoint
     pub async fn get_hot_tags(
         user_id: Option<String>,
-        reach: Option<TagStreamReach>,
+        reach: Option<StreamReach>,
         hot_tags_input: &HotTagsInput,
     ) -> Result<Option<HotTags>, DynError> {
         match user_id {
             Some(user_id) => {
                 HotTags::get_hot_tags_by_reach(
                     user_id,
-                    reach.unwrap_or(TagStreamReach::Following),
+                    reach.unwrap_or(StreamReach::Following),
                     hot_tags_input,
                 )
                 .await
@@ -91,7 +83,7 @@ impl HotTags {
     /// * `hot_tags_input` - The input parameters received from the API endpoint
     async fn get_hot_tags_by_reach(
         user_id: String,
-        reach: TagStreamReach,
+        reach: StreamReach,
         hot_tags_input: &HotTagsInput,
     ) -> Result<Option<HotTags>, DynError> {
         let query = queries::get::get_hot_tags_by_reach(user_id.as_str(), reach, hot_tags_input);

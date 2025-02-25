@@ -17,3 +17,12 @@ pub enum StreamSorting {
     Timeline,
     TotalEngagement,
 }
+
+#[derive(Deserialize, Debug, ToSchema, Clone)]
+#[serde(rename_all = "snake_case")]
+pub enum StreamReach {
+    Followers,
+    Following,
+    Friends,
+    Wot(u8),
+}

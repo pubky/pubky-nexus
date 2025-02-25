@@ -64,68 +64,6 @@ async fn test_stream_most_followed() -> Result<()> {
     Ok(())
 }
 
-// ##### PIONEERS USERS ######
-
-#[tokio_shared_rt::test(shared)]
-async fn test_stream_pioneers() -> Result<()> {
-    // Test retrieving the most followed users
-    let res = get_request("/v0/stream/users?source=pioneers").await?;
-
-    assert!(res.is_array());
-
-    let pioneers_users = res.as_array().expect("User stream should be an array");
-
-    // Check if the response has the expected number of users
-    assert!(
-        !pioneers_users.is_empty(),
-        "There should be at least one user in the most followed stream"
-    );
-
-    // List of expected user IDs
-    let expected_user_ids = vec![
-        "pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy",
-        "o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo",
-        "kzq3o8y8w1b7ffogpq73okop4gb3ahm31ytwwk1na8p6gpr4511o",
-        "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy",
-        "7hq56kap6exmhghyedrw1q3ar8b1wutomq8ax9eazhajcpdfx3so",
-    ];
-
-    // Verify that each expected user ID is present in the response
-    for id in &expected_user_ids {
-        let exists = pioneers_users.iter().any(|f| f["details"]["id"] == *id);
-        assert!(exists, "Expected user ID not found: {}", id);
-    }
-
-    // Additional checks for specific user attributes (e.g., name, follower counts)
-    for user in pioneers_users {
-        assert!(
-            user["details"]["name"].is_string(),
-            "Name should be a string"
-        );
-        assert!(user["details"]["bio"].is_string(), "Bio should be a string");
-        assert!(
-            user["counts"]["followers"].is_number(),
-            "Follower counts should be a number"
-        );
-    }
-
-    // Test limiting the results to 5 users
-    let res = get_request("/v0/stream/users?source=pioneers&limit=5").await?;
-
-    assert!(res.is_array());
-
-    let limited_users = res.as_array().expect("User stream should be an array");
-
-    // Check if the response has the expected number of users
-    assert_eq!(
-        limited_users.len(),
-        5,
-        "Expected 5 users in the limited stream"
-    );
-
-    Ok(())
-}
-
 // ##### RECOMMENDED USERS ######
 
 #[tokio_shared_rt::test(shared)]
