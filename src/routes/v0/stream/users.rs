@@ -18,6 +18,8 @@ pub struct UserStreamQuery {
     limit: Option<usize>,
     source: Option<UserStreamSource>,
     reach: Option<StreamReach>,
+    author_id: Option<String>,
+    post_id: Option<String>,
     depth: Option<u8>,
     timeframe: Option<Timeframe>,
     preview: Option<bool>,
@@ -35,9 +37,11 @@ pub struct UserStreamQuery {
         ("limit" = Option<usize>, Query, description = "Retrieve N followers"),
         ("source" = Option<UserStreamSource>, Query, description = "Source of users for the stream."),
         ("reach" = Option<StreamReach>, Query, description = "The target reach of the source. Supported in 'influencers' source."),
-        ("depth" = Option<usize>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 4, will be ignored"),
         ("timeframe" = Option<Timeframe>, Query, description = "Timeframe for sources supporting a range"),
-        ("preview" = Option<bool>, Query, description = "Provide a random selection of size 3 for sources supporting preview. Passing preview ignores skip and limit parameters.")
+        ("preview" = Option<bool>, Query, description = "Provide a random selection of size 3 for sources supporting preview. Passing preview ignores skip and limit parameters."),
+        ("author_id" = Option<String>, Query, description = "Author id when source is 'post_replies'"),
+        ("post_id" = Option<String>, Query, description = "Post id when source is 'post_replies'"),
+        ("depth" = Option<usize>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 4, will be ignored")
     ),
     responses(
         (status = 200, description = "Users stream", body = UserStream),
@@ -98,21 +102,39 @@ pub async fn stream_users_handler(
                     });
                 }
             }
+            UserStreamSource::PostReplies => {
+                if query.author_id.is_none() {
+                    return Err(Error::InvalidInput {
+                        message: "author_id query param must be provided for source 'post_replies'"
+                            .to_string(),
+                    });
+                }
+                if query.post_id.is_none() {
+                    return Err(Error::InvalidInput {
+                        message: "post_id query param must be provided for source 'post_replies'"
+                            .to_string(),
+                    });
+                }
+            }
             _ => (),
         }
     }
 
-    match UserStream::get_by_id(&UserStreamInput {
-        user_id: query.user_id.clone(),
-        viewer_id: query.viewer_id,
-        skip: Some(skip),
-        limit: Some(limit),
-        source: source.clone(),
-        reach: query.reach,
-        depth: query.depth,
-        timeframe: Some(timeframe),
-        preview: query.preview,
-    })
+    match UserStream::get_by_id(
+        UserStreamInput {
+            user_id: query.user_id.clone(),
+            skip: Some(skip),
+            limit: Some(limit),
+            source: source.clone(),
+            reach: query.reach,
+            timeframe: Some(timeframe),
+            preview: query.preview,
+            author_id: query.author_id,
+            post_id: query.post_id,
+        },
+        query.viewer_id,
+        query.depth,
+    )
     .await
     {
         Ok(Some(stream)) => Ok(Json(stream)),
