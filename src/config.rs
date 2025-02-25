@@ -1,5 +1,6 @@
 use dotenv::dotenv;
 use std::env;
+use tracing::debug;
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -43,10 +44,7 @@ impl Config {
                 .unwrap_or_else(|_| "false".to_string())
                 .parse()
                 .unwrap_or(false),
-            testnet: env::var("TESTNET")
-                .unwrap_or_else(|_| "false".to_string())
-                .parse()
-                .unwrap_or(true),
+            testnet: Self::homeserver_network(),
             homeserver: env::var("HOMESERVER").expect("HOMESERVER pubky id not set"),
             events_limit: env::var("EVENTS_LIMIT")
                 .unwrap_or("1000".to_string())
@@ -81,5 +79,21 @@ impl Config {
 
     pub fn server_binding(&self) -> String {
         format!("{}:{}", self.server_host, self.server_port)
+    }
+
+    /// Retrieves the `TESTNET` environment variable and determines whether the homeserver
+    /// network should operate in testnet mode or mainnet
+    ///
+    /// # Returns:
+    /// - `true` if the network should run in testnet mode
+    /// - `false`, mainnet mode
+    pub fn homeserver_network() -> bool {
+        env::var("TESTNET")
+            .unwrap_or_else(|_| {
+                debug!("TESTNET env it is not set, defaulting to false...");
+                "false".to_string()
+            })
+            .parse()
+            .unwrap_or(false)
     }
 }

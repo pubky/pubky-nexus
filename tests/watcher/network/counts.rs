@@ -135,7 +135,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                     };
                     let mute_url =
                         format!("pubky://{}/pub/pubky.app/mutes/{}", user_id, target_user_id);
-                    let pubky_client = PubkyConnector::get_pubky_client()?;
+                    let pubky_client = PubkyConnector::get_pubky_client().await.unwrap();
                     pubky_client
                         .put(mute_url.as_str())
                         .json(&mute)
@@ -263,7 +263,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
             if unmuted.insert(target_user_id.clone()) {
                 let mute_uri =
                     format!("pubky://{}/pub/pubky.app/mutes/{}", user_id, target_user_id);
-                let pubky_client = PubkyConnector::get_pubky_client()?;
+                let pubky_client = PubkyConnector::get_pubky_client().await.unwrap();
                 pubky_client.delete(mute_uri.as_str()).send().await?;
                 mute_set.remove(target_user_id);
                 _total_unmutes += 1;
