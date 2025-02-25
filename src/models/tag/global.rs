@@ -1,13 +1,13 @@
 use super::{
-    stream::{TagStreamReach, HOT_TAGS_CACHE_PREFIX, POST_HOT_TAGS},
+    stream::{HOT_TAGS_CACHE_PREFIX, POST_HOT_TAGS},
     Taggers as TaggersType,
 };
-use crate::RedisOps;
 use crate::{
     db::graph::exec::retrieve_from_graph,
     queries,
     types::{DynError, Timeframe},
 };
+use crate::{types::StreamReach, RedisOps};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, ops::Deref};
@@ -94,7 +94,7 @@ impl Taggers {
     pub async fn get_global_taggers(
         label: String,
         user_id: Option<String>,
-        reach: Option<TagStreamReach>,
+        reach: Option<StreamReach>,
         skip: usize,
         limit: usize,
         timeframe: Timeframe,
@@ -105,7 +105,7 @@ impl Taggers {
                 Self::get_tag_taggers_by_reach(
                     &label,
                     &id,
-                    reach.unwrap_or(TagStreamReach::Following),
+                    reach.unwrap_or(StreamReach::Following),
                     skip,
                     limit,
                 )
@@ -169,7 +169,7 @@ impl Taggers {
     async fn get_tag_taggers_by_reach(
         label: &str,
         user_id: &str,
-        reach: TagStreamReach,
+        reach: StreamReach,
         skip: usize,
         limit: usize,
     ) -> Result<Option<TaggersType>, DynError> {

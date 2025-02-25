@@ -7,21 +7,21 @@ use crate::models::tag::stream::HotTags;
 use crate::models::tag::traits::TagCollection;
 use crate::models::tag::user::TagUser;
 use crate::models::traits::Collection;
-use crate::models::user::{Muted, UserDetails};
+use crate::models::user::{Influencers, Muted, UserDetails};
 use crate::types::DynError;
 use crate::{
     db::connectors::neo4j::get_neo4j_graph,
     models::post::{PostCounts, PostDetails, PostRelationships},
     models::user::UserCounts,
 };
-use log::info;
 use neo4rs::query;
 use tokio::task::JoinSet;
+use tracing::info;
 
 pub async fn reindex() {
     // Clear Redis database
     if let Err(e) = clear_redis().await {
-        log::error!("Failed to clear Redis: {:?}", e);
+        tracing::error!("Failed to clear Redis: {:?}", e);
         return;
     }
 
@@ -39,7 +39,7 @@ pub async fn reindex() {
     for user_id in user_ids {
         user_tasks.spawn(async move {
             if let Err(e) = reindex_user(&user_id).await {
-                log::error!("Failed to reindex user {}: {:?}", user_id, e);
+                tracing::error!("Failed to reindex user {}: {:?}", user_id, e);
             }
         });
     }
@@ -48,26 +48,30 @@ pub async fn reindex() {
     for (author_id, post_id) in post_ids {
         post_tasks.spawn(async move {
             if let Err(e) = reindex_post(&author_id, &post_id).await {
-                log::error!("Failed to reindex post {}: {:?}", post_id, e);
+                tracing::error!("Failed to reindex post {}: {:?}", post_id, e);
             }
         });
     }
 
     while let Some(res) = user_tasks.join_next().await {
         if let Err(e) = res {
-            log::error!("User reindexing task failed: {:?}", e);
+            tracing::error!("User reindexing task failed: {:?}", e);
         }
     }
 
     while let Some(res) = post_tasks.join_next().await {
         if let Err(e) = res {
-            log::error!("Post reindexing task failed: {:?}", e);
+            tracing::error!("Post reindexing task failed: {:?}", e);
         }
     }
 
     HotTags::reindex()
         .await
         .expect("Failed to store the global hot tags");
+
+    Influencers::reindex()
+        .await
+        .expect("Failed to reindex influencers");
 
     TagSearch::reindex()
         .await

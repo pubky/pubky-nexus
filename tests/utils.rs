@@ -1,11 +1,11 @@
 use anyhow::Result;
-use log::info;
 use pubky_nexus::{routes, Config, StackManager};
 use std::sync::Arc;
 use tokio::{
     net::TcpListener,
     sync::{Mutex, OnceCell},
 };
+use tracing::info;
 
 /// Util backend server for testing.
 /// Performs the same routine the main service server does.
@@ -52,7 +52,7 @@ impl TestServiceServer {
         SERVER_URL.set(url).expect("SERVER_URL already set");
 
         let app = routes::routes();
-        tokio::spawn(async move {
+        tokio::spawn(async {
             // Start the server
             axum::serve(listener, app.into_make_service())
                 .await

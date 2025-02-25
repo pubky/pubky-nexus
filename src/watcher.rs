@@ -1,5 +1,4 @@
-use log::error;
-use log::info;
+use tracing::{error, info };
 use pubky_nexus::{Config, EventProcessor, StackManager};
 use tokio::time::{sleep, Duration};
 

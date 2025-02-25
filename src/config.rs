@@ -1,5 +1,5 @@
 use dotenv::dotenv;
-use log::debug;
+use tracing::debug;
 use std::env;
 
 #[derive(Debug, Clone)]
@@ -21,6 +21,7 @@ pub struct Config {
     pub events_limit: u32,
     pub watcher_sleep: u64,
     pub max_retries: u64,
+    pub otlp_endpoint: String,
     pub migrations_backfill_ready: Vec<String>,
 }
 
@@ -59,6 +60,7 @@ impl Config {
                 .unwrap_or(1),
             neo4j_username: env::var("NEO4J_DB_USERNAME").expect("NEO4J_DB_USERNAME not set"),
             neo4j_password: env::var("NEO4J_PASSWORD").expect("NEO4J_PASSWORD not set"),
+            otlp_endpoint: env::var("OTLP_ENDPOINT").unwrap_or("".to_string()),
             migrations_backfill_ready: env::var("MIGRATIONS_BACKFILL_READY")
                 .unwrap_or("".to_string())
                 .split(",")

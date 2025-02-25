@@ -1,9 +1,11 @@
 use super::utils::find_user_tag;
-use crate::watcher::users::utils::{check_member_user_pioneer, find_user_counts};
-use crate::watcher::utils::watcher::WatcherTest;
+use crate::watcher::{
+    users::utils::{check_member_user_influencer, find_user_counts},
+    utils::watcher::WatcherTest,
+};
 use anyhow::Result;
 use chrono::Utc;
-use pkarr::Keypair;
+use pubky::Keypair;
 use pubky_app_specs::{traits::HashId, PubkyAppTag, PubkyAppUser};
 use pubky_nexus::models::tag::{traits::TagCollection, user::TagUser};
 
@@ -70,12 +72,15 @@ async fn test_homeserver_put_tag_user_self() -> Result<()> {
     assert_eq!(user_counts.tags, 1);
     assert_eq!(user_counts.unique_tags, 1);
 
-    // Check user pionner score: Sorted:Users:Pioneers
-    let pioneer_score = check_member_user_pioneer(&user_id)
+    // Check user pionner score: Sorted:Users:Influencers
+    let influencer_score = check_member_user_influencer(&user_id)
         .await
-        .expect("Failed to check user pioneer score");
-    assert!(pioneer_score.is_some(), "Pioneer score should be present");
-    assert_eq!(pioneer_score.unwrap(), 0);
+        .expect("Failed to check user influencer score");
+    assert!(
+        influencer_score.is_some(),
+        "Influencer score should be present"
+    );
+    assert_eq!(influencer_score.unwrap(), 0);
 
     // Cleanup user
     test.cleanup_user(&user_id).await?;

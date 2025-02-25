@@ -3,8 +3,8 @@ use crate::events::error::EventProcessorError;
 use crate::events::retry::event::RetryEvent;
 use crate::models::user::Muted;
 use crate::types::DynError;
-use log::debug;
 use pubky_app_specs::{user_uri_builder, PubkyId};
+use tracing::debug;
 
 pub async fn sync_put(user_id: PubkyId, muted_id: PubkyId) -> Result<(), DynError> {
     debug!("Indexing new mute: {} -> {}", user_id, muted_id);

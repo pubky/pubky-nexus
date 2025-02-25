@@ -1,7 +1,7 @@
 use crate::{utils::TestServiceServer, watcher::utils::watcher::WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
-use pkarr::Keypair;
+use pubky::Keypair;
 use pubky_app_specs::traits::HashId;
 use pubky_app_specs::{PubkyAppBlob, PubkyAppFile, PubkyAppUser};
 use pubky_nexus::PubkyConnector;

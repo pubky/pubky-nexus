@@ -8,8 +8,8 @@ use crate::models::{
 };
 use crate::queries::get::user_is_safe_to_delete;
 use crate::types::DynError;
-use log::debug;
 use pubky_app_specs::{PubkyAppUser, PubkyId};
+use tracing::debug;
 
 pub async fn sync_put(user: PubkyAppUser, user_id: PubkyId) -> Result<(), DynError> {
     debug!("Indexing new user profile: {}", user_id);

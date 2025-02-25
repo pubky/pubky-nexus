@@ -1,7 +1,7 @@
 use super::utils::find_post_details;
 use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
-use pkarr::Keypair;
+use pubky::Keypair;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 use pubky_nexus::models::notification::{Notification, NotificationBody};
 use pubky_nexus::types::Pagination;

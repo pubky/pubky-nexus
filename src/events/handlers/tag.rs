@@ -12,9 +12,8 @@ use crate::models::user::UserCounts;
 use crate::types::DynError;
 use crate::{handle_indexing_results, ScoreAction};
 use chrono::Utc;
-use log::debug;
-use pubky_app_specs::{user_uri_builder, Resource};
-use pubky_app_specs::{ParsedUri, PubkyAppTag, PubkyId};
+use pubky_app_specs::{user_uri_builder, ParsedUri, PubkyAppTag, PubkyId, Resource};
+use tracing::debug;
 
 use super::utils::post_relationships_is_reply;
 

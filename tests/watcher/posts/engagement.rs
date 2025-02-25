@@ -1,7 +1,7 @@
 use super::utils::check_member_total_engagement_user_posts;
 use crate::watcher::utils::watcher::WatcherTest;
 use anyhow::Result;
-use pkarr::Keypair;
+use pubky::Keypair;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
@@ -56,7 +56,7 @@ async fn test_homeserver_post_engagement() -> Result<()> {
     let parent_uri = format!("pubky://{}/pub/pubky.app/posts/{}", alice_id, alice_post_id);
 
     let reply = PubkyAppPost {
-        content: "Watcher:PostPioneer:Bob:Reply".to_string(),
+        content: "Watcher:PostInfluencer:Bob:Reply".to_string(),
         kind: PubkyAppPostKind::Short,
         parent: Some(parent_uri.clone()),
         embed: None,
@@ -69,7 +69,7 @@ async fn test_homeserver_post_engagement() -> Result<()> {
     let post_uri = format!("pubky://{}/pub/pubky.app/posts/{}", alice_id, alice_post_id);
 
     let repost = PubkyAppPost {
-        content: "Watcher:PostPioneer:Bob:Repost".to_string(),
+        content: "Watcher:PostInfluencer:Bob:Repost".to_string(),
         kind: PubkyAppPostKind::Short,
         parent: None,
         embed: Some(PubkyAppPostEmbed {

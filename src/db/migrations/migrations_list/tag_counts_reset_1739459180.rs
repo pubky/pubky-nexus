@@ -5,7 +5,7 @@ use crate::types::DynError;
 use crate::{get_redis_conn, RedisOps};
 use async_trait::async_trait;
 use chrono::Utc;
-use log::{debug, error, info};
+use tracing::{debug, error, info};
 
 const BATCH_SIZE: u32 = 500;
 

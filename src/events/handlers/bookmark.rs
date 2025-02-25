@@ -5,8 +5,8 @@ use crate::models::post::Bookmark;
 use crate::models::user::UserCounts;
 use crate::types::DynError;
 use chrono::Utc;
-use log::debug;
 use pubky_app_specs::{ParsedUri, PubkyAppBookmark, PubkyId, Resource};
+use tracing::debug;
 
 pub async fn sync_put(
     user_id: PubkyId,

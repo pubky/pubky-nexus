@@ -1,9 +1,9 @@
 use crate::watcher::{
-    users::utils::{check_member_most_followed, check_member_user_pioneer, find_user_details},
+    users::utils::{check_member_most_followed, check_member_user_influencer, find_user_details},
     utils::watcher::WatcherTest,
 };
 use anyhow::Result;
-use pkarr::Keypair;
+use pubky::Keypair;
 use pubky_app_specs::{PubkyAppUser, PubkyAppUserLink};
 use pubky_nexus::{
     models::user::{UserCounts, UserSearch, USER_NAME_KEY_PARTS},
@@ -75,15 +75,15 @@ async fn test_homeserver_user_put_event() -> Result<()> {
     assert!(is_member.is_some());
     assert_eq!(is_member.unwrap(), 0);
 
-    // pioneers score: Sorted:Users:Pioneers
-    let pioneer_score = check_member_user_pioneer(&user_id).await.unwrap();
-    assert!(pioneer_score.is_some());
-    assert_eq!(pioneer_score.unwrap(), 0);
+    // influencers score: Sorted:Users:Influencers
+    let influencer_score = check_member_user_influencer(&user_id).await.unwrap();
+    assert!(influencer_score.is_some());
+    assert_eq!(influencer_score.unwrap(), 0);
 
     // most_followed score: Sorted:Users:MostFollowed
-    let pioneer_score = check_member_most_followed(&user_id).await.unwrap();
-    assert!(pioneer_score.is_some());
-    assert_eq!(pioneer_score.unwrap(), 0);
+    let influencer_score = check_member_most_followed(&user_id).await.unwrap();
+    assert!(influencer_score.is_some());
+    assert_eq!(influencer_score.unwrap(), 0);
 
     // Cleanup
     test.cleanup_user(&user_id).await?;
