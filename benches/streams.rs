@@ -32,7 +32,7 @@ criterion_group! {
               tag::bench_stream_tag_timeline,
               tag::bench_stream_tag_total_engagement,
               user::bench_stream_users_by_username_search,
-              user::bench_stream_pioneers,
+              user::bench_stream_influencers,
               user::bench_stream_following,
               user::bench_stream_most_followed,
               user::bench_stream_post_replies,
