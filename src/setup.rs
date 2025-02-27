@@ -66,8 +66,7 @@ impl StackManager {
         let subscriber = fmt::Subscriber::builder()
             .compact()
             .with_env_filter(
-                EnvFilter::from_default_env()
-                    .add_directive("mainline=info".parse().unwrap())
+                EnvFilter::from_default_env().add_directive("mainline=info".parse().unwrap()),
             )
             .with_line_number(true)
             .finish();
