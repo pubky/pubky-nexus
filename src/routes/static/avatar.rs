@@ -1,15 +1,17 @@
-use crate::routes::v0::endpoints::USER_AVATAR_ROUTE;
+use crate::models::file::details::FileVariant;
+use crate::routes::r#static::PubkyServeDir;
+use crate::static_processor::StaticProcessor;
 use crate::{
     models::{file::FileDetails, traits::Collection, user::UserDetails},
-    Config, Error, Result,
+    Error, Result,
 };
-use axum::{
-    extract::Path,
-    http::{header::CONTENT_TYPE, HeaderValue},
-    response::Response,
-};
-use tracing::{info, warn};
+use axum::extract::Request;
+use axum::{extract::Path, response::Response};
+use tower_http::services::fs::ServeFileSystemResponseBody;
+use tracing::{error, info};
 use utoipa::OpenApi;
+
+use super::endpoints::USER_AVATAR_ROUTE;
 
 #[utoipa::path(
     get,
@@ -25,7 +27,10 @@ use utoipa::OpenApi;
         (status = 500, description = "Internal error retrieving avatar")
     )
 )]
-pub async fn user_avatar_handler(Path(user_id): Path<String>) -> Result<Response> {
+pub async fn user_avatar_handler(
+    Path(user_id): Path<String>,
+    request: Request,
+) -> Result<Response<ServeFileSystemResponseBody>> {
     info!("GET {USER_AVATAR_ROUTE} user_id:{}", user_id);
 
     // 1. Get user details
@@ -61,30 +66,29 @@ pub async fn user_avatar_handler(Path(user_id): Path<String>) -> Result<Response
         return Err(Error::FileNotFound {});
     };
 
-    // 5. Build the actual path to the file on disk
-    let config = Config::from_env();
-    let file_path = format!("{}/{}/{}", config.file_path, user_id, file_details.id);
+    // 5. ensure small variant is created
+    let small_variant_content_type =
+        StaticProcessor::get_or_create_variant(&file_details, &FileVariant::Small)
+            .await
+            .map_err(|err| {
+                error!(
+                    "Error while processing small variant for user: {} avatar with file: {}",
+                    user_id, file_id
+                );
+                Error::InternalServerError { source: err }
+            })?;
 
-    // 6. Read the file bytes from disk
-    let data = match tokio::fs::read(&file_path).await {
-        Ok(buf) => buf,
-        Err(err) => {
-            warn!("Reading avatar file failed: {err}");
-            return Err(Error::FileNotFound {});
-        }
-    };
-
-    let content_type = file_details.content_type.clone();
-
-    // 7. Build Axum `Response` setting the correct Content-Type
-    let mut response = Response::new(data.into());
-    response.headers_mut().insert(
-        CONTENT_TYPE,
-        HeaderValue::from_str(&content_type)
-            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+    // serve the file using ServeDir
+    // Create a new request with a modified path to serve the file using ServeDir
+    // 6. Build the url using small variant
+    let file_uri_path = format!(
+        "/{}/{}/{}", // /{owner_id}/{file_id}/{variant}
+        user_id,
+        file_details.id,
+        FileVariant::Small,
     );
 
-    Ok(response)
+    PubkyServeDir::try_call(request, file_uri_path, small_variant_content_type).await
 }
 
 #[derive(OpenApi)]

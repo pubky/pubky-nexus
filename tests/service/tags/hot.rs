@@ -1,6 +1,6 @@
 use anyhow::Result;
+use axum::http::StatusCode;
 use chrono::{Datelike, Utc};
-use reqwest::StatusCode;
 use serde_json::Value;
 
 use crate::service::utils::{get_request, invalid_get_request};

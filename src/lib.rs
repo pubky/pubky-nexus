@@ -6,6 +6,7 @@ pub mod models;
 mod reindex;
 pub mod routes;
 pub mod setup;
+mod static_processor;
 pub mod types;
 
 pub use config::Config;
