@@ -11,9 +11,9 @@ use crate::{
 use opentelemetry::global;
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_otlp::{LogExporter, MetricExporter, SpanExporter, WithExportConfig};
-use opentelemetry_sdk::logs::LoggerProvider;
+use opentelemetry_sdk::logs::SdkLoggerProvider;
 use opentelemetry_sdk::metrics::{PeriodicReader, SdkMeterProvider};
-use opentelemetry_sdk::trace::TracerProvider;
+use opentelemetry_sdk::trace::SdkTracerProvider;
 use tracing::{debug, error, info};
 use tracing_subscriber::{fmt, EnvFilter, Layer};
 use tracing_subscriber::{layer::SubscriberExt, Registry};
@@ -65,7 +65,9 @@ impl StackManager {
     fn setup_local_logging() {
         let subscriber = fmt::Subscriber::builder()
             .compact()
-            .with_env_filter(EnvFilter::from_default_env())
+            .with_env_filter(
+                EnvFilter::from_default_env().add_directive("mainline=info".parse().unwrap()),
+            )
             .with_line_number(true)
             .finish();
 
@@ -87,8 +89,8 @@ impl StackManager {
             .map_err(|e| format!("OTLP Tracing Exporter Error: {}", e))?;
 
         // Collects spans in memory and sends them in batches
-        let tracer_provider = TracerProvider::builder()
-            .with_batch_exporter(tracing_exporter, opentelemetry_sdk::runtime::Tokio)
+        let tracer_provider = SdkTracerProvider::builder()
+            .with_batch_exporter(tracing_exporter)
             .build();
 
         // Registers OpenTelemetry as the global tracing provider
@@ -103,8 +105,8 @@ impl StackManager {
             .build()
             .map_err(|e| format!("OTLP Logging Exporter Error: {}", e))?;
 
-        let logging_provider = LoggerProvider::builder()
-            .with_batch_exporter(logging_exporter, opentelemetry_sdk::runtime::Tokio)
+        let logging_provider = SdkLoggerProvider::builder()
+            .with_batch_exporter(logging_exporter)
             .build();
 
         // Apply log filters for verbosity control
@@ -157,9 +159,8 @@ impl StackManager {
             .expect("Failed to create OTLP metric exporter");
 
         // Create a periodic metrics reader that collects and exports metrics at a fixed interval
-        let reader = PeriodicReader::builder(metric_exporter, opentelemetry_sdk::runtime::Tokio)
+        let reader = PeriodicReader::builder(metric_exporter)
             .with_interval(std::time::Duration::from_secs(30))
-            .with_timeout(Duration::from_secs(3))
             .build();
 
         // Createa Meter Provider, which is responsible for managing and exporting metrics
