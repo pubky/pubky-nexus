@@ -1,8 +1,9 @@
 use std::env;
+use pubky_nexus::_service::NexusApi;
 use tracing::{error, info};
 
 use pubky_nexus::types::DynError;
-use pubky_nexus::{get_migration_manager, get_neo4j_graph, Config, MigrationManager, StackManager};
+use pubky_nexus::{get_migration_manager, get_neo4j_graph, Config, MigrationManager};
 
 /// Migration manager entry point
 #[tokio::main]
@@ -22,8 +23,10 @@ async fn main() -> Result<(), DynError> {
             Ok(())
         }
         Some("run") => {
+            // TODO: It might have its own config /scripts/migrations/config.toml|.env
+            // /scripts/migrations/main.rs
             let config = Config::from_env();
-            StackManager::setup(&config).await;
+            NexusApi::builder().init_stack().await;
             info!("Running all pending migrations...");
             let graph = get_neo4j_graph()?;
             let migration_manager = get_migration_manager(graph);

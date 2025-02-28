@@ -112,8 +112,8 @@ impl UserDetails {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Config, StackManager};
 
+    use crate::_service::NexusApi;
     use super::*;
 
     const USER_IDS: [&str; 8] = [
@@ -129,8 +129,7 @@ mod tests {
 
     #[tokio_shared_rt::test(shared)]
     async fn test_get_by_ids_from_redis() {
-        let config = Config::from_env();
-        StackManager::setup(&config).await;
+        NexusApi::builder().init_stack().await;
 
         let user_details = UserDetails::get_by_ids(&USER_IDS).await.unwrap();
         assert_eq!(user_details.len(), USER_IDS.len());

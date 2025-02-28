@@ -1,6 +1,7 @@
 use super::endpoints::INFO_ROUTE;
 use crate::models::info::ServerInfo;
 use crate::register_routes;
+use crate::routes::AppState;
 use axum::response::IntoResponse;
 use axum::{Json, Router};
 use utoipa::OpenApi;
@@ -18,7 +19,7 @@ pub async fn info_handler() -> impl IntoResponse {
     Json(info)
 }
 
-pub fn routes() -> Router {
+pub fn routes() -> Router<AppState> {
     register_routes!(Router::new(), super::endpoints::INFO_ROUTE => info_handler)
 }
 

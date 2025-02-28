@@ -1,12 +1,13 @@
 use crate::register_routes;
 use crate::routes::v0::endpoints;
+use crate::routes::AppState;
 use axum::Router;
 use utoipa::OpenApi;
 
 mod posts;
 mod users;
 
-pub fn routes() -> Router {
+pub fn routes() -> Router<AppState> {
     let router = register_routes!(Router::new(),
         // User stream
         endpoints::STREAM_USERS_ROUTE => users::stream_users_handler,

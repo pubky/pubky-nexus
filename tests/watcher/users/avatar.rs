@@ -4,7 +4,7 @@ use chrono::Utc;
 use pubky::Keypair;
 use pubky_app_specs::traits::HashId;
 use pubky_app_specs::{PubkyAppBlob, PubkyAppFile, PubkyAppUser};
-use pubky_nexus::PubkyConnector;
+use pubky_nexus::PubkyClient;
 
 /// We'll reuse your existing macros and test environment
 #[tokio_shared_rt::test(shared)]
@@ -36,7 +36,7 @@ async fn test_user_avatar_endpoint() -> Result<()> {
         user_id,
         blob.create_id()
     );
-    let pubky_client = PubkyConnector::get_pubky_client().await.unwrap();
+    let pubky_client = PubkyClient::get().await.unwrap();
     pubky_client.put(&blob_url).body(blob.0).send().await?;
 
     // 5. Create a new file referencing that blob

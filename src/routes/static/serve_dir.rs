@@ -1,4 +1,6 @@
-use crate::{Config, Error, Result};
+use std::path::PathBuf;
+
+use crate::{Error, Result};
 use axum::{
     body::Body,
     http::{Request, StatusCode, Uri},
@@ -14,11 +16,10 @@ pub struct PubkyServeDir;
 
 /// Wrapper around ServeDir to serve files from the configured directory
 impl PubkyServeDir {
-    fn get_serve_dir() -> ServeDir {
+    fn get_serve_dir(file_path: PathBuf) -> ServeDir {
         SERVE_DIR_INSTANCE
             .get_or_init(|| {
-                let config = Config::from_env();
-                ServeDir::new(config.file_path)
+                ServeDir::new(file_path)
             })
             .to_owned()
     }
@@ -27,6 +28,7 @@ impl PubkyServeDir {
         mut request: Request<Body>,
         path: String,
         content_type: String,
+        file_path: PathBuf
     ) -> Result<Response<ServeFileSystemResponseBody>> {
         *request.uri_mut() =
             path.as_str()
@@ -35,7 +37,7 @@ impl PubkyServeDir {
                     source: Box::new(err),
                 })?;
 
-        let response_result = Self::get_serve_dir().try_call(request).await;
+        let response_result = Self::get_serve_dir(file_path).try_call(request).await;
 
         let mut response = match response_result {
             Ok(response) => {

@@ -1,8 +1,8 @@
-use crate::{db::connectors::pubky::PubkyConnector, types::DynError};
+use crate::{db::connectors::pubky::PubkyClient, types::DynError};
 use error::EventProcessorError;
 use pubky_app_specs::{ParsedUri, PubkyAppObject, Resource};
 use serde::{Deserialize, Serialize};
-use std::fmt;
+use std::{fmt, path::PathBuf};
 use tracing::debug;
 
 pub mod error;
@@ -32,10 +32,11 @@ pub struct Event {
     pub uri: String,
     pub event_type: EventType,
     pub parsed_uri: ParsedUri,
+    pub files_path: PathBuf
 }
 
 impl Event {
-    pub fn parse_event(line: &str) -> Result<Option<Self>, DynError> {
+    pub fn parse_event(line: &str, files_path: PathBuf) -> Result<Option<Self>, DynError> {
         debug!("New event: {}", line);
         let parts: Vec<&str> = line.split(' ').collect();
         if parts.len() != 2 {
@@ -83,6 +84,7 @@ impl Event {
             uri,
             event_type,
             parsed_uri,
+            files_path
         }))
     }
 
@@ -100,7 +102,7 @@ impl Event {
 
         let response;
         {
-            let pubky_client = PubkyConnector::get_pubky_client().await?;
+            let pubky_client = PubkyClient::get().await?;
             response = match pubky_client.get(&self.uri).send().await {
                 Ok(response) => response,
                 Err(e) => {
@@ -146,7 +148,7 @@ impl Event {
                 handlers::tag::sync_put(tag, user_id, tag_id).await?
             }
             (PubkyAppObject::File(file), Resource::File(file_id)) => {
-                handlers::file::sync_put(file, self.uri, user_id, file_id).await?
+                handlers::file::sync_put(file, self.uri, user_id, file_id, self.files_path).await?
             }
             other => {
                 debug!("Event type not handled, Resource: {:?}", other);
@@ -168,7 +170,7 @@ impl Event {
                 handlers::bookmark::del(user_id, bookmark_id).await?
             }
             Resource::Tag(tag_id) => handlers::tag::del(user_id, tag_id).await?,
-            Resource::File(file_id) => handlers::file::del(&user_id, file_id).await?,
+            Resource::File(file_id) => handlers::file::del(&user_id, file_id, self.files_path).await?,
             other => {
                 debug!("DEL event type not handled for resource: {:?}", other);
             }

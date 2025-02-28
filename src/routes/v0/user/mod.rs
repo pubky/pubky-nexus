@@ -1,5 +1,6 @@
 use crate::register_routes;
 use crate::routes::v0::endpoints;
+use crate::routes::AppState;
 use axum::Router;
 use utoipa::OpenApi;
 
@@ -11,7 +12,7 @@ mod relationship;
 pub mod tags;
 mod view;
 
-pub fn routes() -> Router {
+pub fn routes() -> Router<AppState> {
     register_routes!(Router::new(),
         endpoints::USER_ROUTE => view::user_view_handler,
         endpoints::USER_DETAILS_ROUTE => details::user_details_handler,

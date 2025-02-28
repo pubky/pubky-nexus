@@ -1,11 +1,10 @@
 use anyhow::Result;
-use pubky_nexus::{routes, Config, StackManager};
-use std::sync::Arc;
+use pubky_nexus::_service::NexusApi;
+use std::{net::Ipv4Addr, sync::Arc};
 use tokio::{
     net::TcpListener,
     sync::{Mutex, OnceCell},
 };
-use tracing::info;
 
 /// Util backend server for testing.
 /// Performs the same routine the main service server does.
@@ -33,31 +32,28 @@ impl TestServiceServer {
     }
 
     async fn start_server() -> Result<()> {
-        let config = Config::from_env();
-        StackManager::setup(&config).await;
+        let mut nexus_builder = NexusApi::builder();
 
-        // Read IP and port from environment (or default to dynamic port)
-        let ip = "127.0.0.1".to_string();
+        // Define IP and port
+        let ip = [127, 0, 0, 1];
         // Default to port 0 so OS assigns an available port.
         let port = "0".to_string();
-        let binding = format!("{}:{}", ip, port);
+        let binding = format!("{}:{}", Ipv4Addr::from(ip).to_string(), port);
 
         // Bind to the address.
         let listener = TcpListener::bind(&binding).await?;
         let local_addr = listener.local_addr()?;
-        info!("Test server listening on {:?}", local_addr);
+        // Init the stack before create the spawn. if not the app does not have time to initialise the stack and some tests fail
+        nexus_builder.public_addr(local_addr).init_stack().await;
 
-        // Save the actual server URL (e.g., "http://127.0.0.1:12345") in a global variable.
+        // Save the actual server URL (e.g., "http://127.0.0.1:12345") in a global variable
         let url = format!("http://{}", local_addr);
         SERVER_URL.set(url).expect("SERVER_URL already set");
 
-        let app = routes::routes();
         tokio::spawn(async {
-            // Start the server
-            axum::serve(listener, app.into_make_service())
-                .await
-                .unwrap();
+            nexus_builder.run_test(listener).await
         });
+
         Ok(())
     }
 }

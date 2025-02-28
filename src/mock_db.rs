@@ -5,13 +5,12 @@ use std::process::Stdio;
 use neo4rs::query;
 
 use pubky_nexus::{
-    db::connectors::redis::get_redis_conn, get_neo4j_graph, reindex, Config, StackManager,
+    db::connectors::redis::get_redis_conn, get_neo4j_graph, reindex, _service::NexusApi,
 };
 
 #[tokio::main]
 async fn main() {
-    let config = Config::from_env();
-    StackManager::setup(&config).await;
+    NexusApi::builder().init_stack().await;
     info!("Running mock db sync");
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(String::as_str) {

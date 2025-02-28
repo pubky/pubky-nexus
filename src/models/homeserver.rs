@@ -1,5 +1,5 @@
 use crate::types::DynError;
-use crate::{Config, RedisOps};
+use crate::RedisOps;
 use pubky_app_specs::PubkyId;
 use serde::{Deserialize, Serialize};
 
@@ -37,17 +37,14 @@ impl Homeserver {
         Ok(())
     }
 
-    pub async fn from_config(config: &Config) -> Result<Homeserver, DynError> {
-        let homeserver_id = config.homeserver.clone();
-        // Create a PubkyId from the homeserver public key
-        let id = PubkyId::try_from(&homeserver_id)?;
+    pub async fn from_config(homeserver: PubkyId) -> Result<Homeserver, DynError> {
 
         // Attempt to load the homeserver cursor from Redis
-        match Homeserver::get_from_index(&id).await? {
+        match Homeserver::get_from_index(&homeserver).await? {
             Some(hs) => Ok(hs),
             None => {
                 // Create a new Homeserver instance with default cursor
-                Homeserver::new(id).await
+                Homeserver::new(homeserver).await
             }
         }
     }
