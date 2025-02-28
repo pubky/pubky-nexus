@@ -1,3 +1,4 @@
+use std::{path::PathBuf, sync::Arc};
 use axum::Router;
 use tower_http::cors::{Any, CorsLayer};
 use utoipa_swagger_ui::SwaggerUi;
@@ -8,8 +9,17 @@ pub mod v0;
 
 mod middlewares;
 
-pub fn routes() -> Router {
-    let route_static = r#static::routes();
+#[derive(Clone)]
+pub struct AppState {
+    pub files_path: Arc<PathBuf>
+}
+
+pub fn routes(files_path: PathBuf) -> Router {
+    let state = AppState {
+        files_path: Arc::new(files_path),
+    };
+
+    let route_static = r#static::routes(state.clone());
 
     let routes_v0 = v0::routes();
 
@@ -21,7 +31,12 @@ pub fn routes() -> Router {
         );
 
     // Combine routes
-    let app = routes_v0.merge(route_static).merge(route_openapi);
+    let app = routes_v0
+        .merge(route_static)
+        .merge(route_openapi)
+        // IMPORTANT: It also swaps the type from Route<AppState> to Route
+        // don't know the reason of swap but I guess the return signature forcing that swap...
+        .with_state(state);
 
     // Create a CORS layer that allows all origins, methods, and headers
     let cors = CorsLayer::new()

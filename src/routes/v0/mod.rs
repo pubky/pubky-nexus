@@ -14,7 +14,9 @@ pub mod user;
 
 pub use types::TagsQuery;
 
-pub fn routes() -> Router {
+use super::AppState;
+
+pub fn routes() -> Router<AppState> {
     let routes_info = info::routes();
     let routes_post = post::routes();
     let route_user = user::routes();

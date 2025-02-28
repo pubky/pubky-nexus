@@ -8,7 +8,7 @@ use pubky_app_specs::traits::HasPath;
 use pubky_app_specs::{PubkyAppBlob, PubkyAppFile, PubkyAppUser};
 use pubky_nexus::{
     models::{file::FileDetails, traits::Collection},
-    PubkyConnector,
+    PubkyClient,
 };
 
 #[tokio_shared_rt::test(shared)]
@@ -32,7 +32,7 @@ async fn test_put_pubkyapp_file() -> Result<()> {
     let blob = PubkyAppBlob::new(blob_data.as_bytes().to_vec());
     let blob_url = format!("pubky://{}{}", user_id, blob.create_path());
 
-    let pubky_client = PubkyConnector::get_pubky_client().await.unwrap();
+    let pubky_client = PubkyClient::get().await.unwrap();
     pubky_client
         .put(blob_url.as_str())
         .body(blob.0.clone())

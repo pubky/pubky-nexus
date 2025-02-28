@@ -4,7 +4,6 @@ use async_trait::async_trait;
 
 use crate::{
     models::file::{details::FileVariant, FileDetails},
-    static_processor::StaticStorage,
     types::DynError,
 };
 
@@ -40,14 +39,18 @@ pub trait FileProcessor {
 
     /// Creates a variant for the given file
     /// If there are no options for this variant, return with the original content type
-    async fn create_variant(file: &FileDetails, variant: &FileVariant) -> Result<String, DynError> {
+    async fn create_variant(
+        file: &FileDetails,
+        variant: &FileVariant,
+        file_path: PathBuf
+    ) -> Result<String, DynError> {
         // if there are no options for this variant, return with the original content type
         let options = match Self::get_options_for_variant(file, variant) {
             Ok(options) => options,
             Err(_) => return Ok(file.content_type.clone()),
         };
 
-        let origin_path = PathBuf::from(StaticStorage::get_storage_path())
+        let origin_path = file_path
             .join(file.owner_id.as_str())
             .join(file.id.as_str());
 

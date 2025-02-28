@@ -1,11 +1,14 @@
 use std::error::Error;
+use std::path::PathBuf;
 
 use super::error::EventProcessorError;
 use super::Event;
+use crate::common::FILES_DIR;
 use crate::events::retry::event::RetryEvent;
 use crate::types::DynError;
-use crate::PubkyConnector;
-use crate::{models::homeserver::Homeserver, Config};
+use crate::PubkyClient;
+use crate::models::homeserver::Homeserver;
+use crate::_watcher::Config as WatcherConfig;
 use opentelemetry::trace::{FutureExt, Span, TraceContextExt, Tracer};
 use opentelemetry::{global, Context, KeyValue};
 use pubky_app_specs::PubkyId;
@@ -14,6 +17,8 @@ use tracing::{debug, error, info};
 pub struct EventProcessor {
     pub homeserver: Homeserver,
     limit: u32,
+    pub files_path: PathBuf,
+    pub tracer_name: String
 }
 
 impl EventProcessor {
@@ -35,24 +40,28 @@ impl EventProcessor {
         Self {
             homeserver,
             limit: 1000,
+            files_path: PathBuf::from(FILES_DIR),
+            tracer_name: String::from("watcher.test")
         }
     }
 
-    pub async fn from_config(config: &Config) -> Result<Self, DynError> {
-        let homeserver = Homeserver::from_config(config).await?;
+    pub async fn from_config(config: &WatcherConfig) -> Result<Self, DynError> {
+        let homeserver = Homeserver::from_config(config.homeserver.clone()).await?;
         let limit = config.events_limit;
+        let files_path = config.files_path.clone();
+        let tracer_name = config.name.clone();
 
         info!(
             "Initialized Event Processor for homeserver: {:?}",
             homeserver
         );
 
-        Ok(Self { homeserver, limit })
+        Ok(Self { homeserver, limit, files_path, tracer_name })
     }
 
     pub async fn run(&mut self) -> Result<(), DynError> {
         let lines = {
-            let tracer = global::tracer("nexus.watcher");
+            let tracer = global::tracer(self.tracer_name.clone());
             let span = tracer.start("Polling Events");
             let cx = Context::new().with_span(span);
             self.poll_events().with_context(cx).await
@@ -84,7 +93,7 @@ impl EventProcessor {
         debug!("Polling new events from homeserver");
 
         let response_text = {
-            let pubky_client = PubkyConnector::get_pubky_client().await?;
+            let pubky_client = PubkyClient::get().await?;
             let url = format!(
                 "https://{}/events/?cursor={}&limit={}",
                 self.homeserver.id, self.homeserver.cursor, self.limit
@@ -126,7 +135,7 @@ impl EventProcessor {
                     info!("Cursor for the next request: {}", cursor);
                 }
             } else {
-                let event = match Event::parse_event(line) {
+                let event = match Event::parse_event(line, self.files_path.clone()) {
                     Ok(event) => event,
                     Err(e) => {
                         error!("{}", e);
@@ -134,7 +143,7 @@ impl EventProcessor {
                     }
                 };
                 if let Some(event) = event {
-                    let tracer = global::tracer("nexus.watcher");
+                    let tracer = global::tracer(self.tracer_name.clone());
                     let mut span = tracer.start(event.parsed_uri.resource.to_string());
                     span.set_attribute(KeyValue::new("event.uri", event.uri.clone()));
                     span.set_attribute(KeyValue::new("event.type", event.event_type.to_string()));

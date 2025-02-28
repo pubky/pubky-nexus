@@ -6,10 +6,13 @@ use pubky_app_specs::{
     traits::TimestampId, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser,
 };
 use pubky_homeserver::Homeserver;
+use pubky_nexus::_service::NexusApi;
+use pubky_nexus::common::FILES_DIR;
 use pubky_nexus::events::retry::event::RetryEvent;
 use pubky_nexus::events::Event;
 use pubky_nexus::types::DynError;
-use pubky_nexus::{Config, EventProcessor, PubkyConnector, StackManager};
+use pubky_nexus::{EventProcessor, PubkyClient};
+use std::path::PathBuf;
 use std::time::Duration;
 use tracing::debug;
 
@@ -36,8 +39,8 @@ impl WatcherTest {
     /// Returns an instance of `Self` containing the configuration, homeserver,
     /// event processor, and other test setup details.
     pub async fn setup() -> Result<Self> {
-        let config = Config::from_env();
-        StackManager::setup(&config).await;
+        // TODO: Should be WatcherBuilder or some common struct (might make more sense)
+        NexusApi::builder().init_stack().await;
 
         // testnet initialization is time expensive, we only init one per process
         let testnet = TestnetNetwork::get().await?;
@@ -47,7 +50,7 @@ impl WatcherTest {
 
         let client = testnet.client_builder().build().unwrap();
 
-        match PubkyConnector::init_from_client(client).await {
+        match PubkyClient::init_from_client(client).await {
             Ok(_) => debug!("WatcherTest: PubkyConnector initialised"),
             Err(e) => debug!("WatcherTest: {}", e),
         }
@@ -90,7 +93,7 @@ impl WatcherTest {
     where
         T: serde::Serialize,
     {
-        let pubky_client = PubkyConnector::get_pubky_client().await.unwrap();
+        let pubky_client = PubkyClient::get().await.unwrap();
         pubky_client
             .put(homeserver_uri)
             .json(&object)
@@ -111,7 +114,7 @@ impl WatcherTest {
     /// - `homeserver_uri`: The URI of the homeserver from which content should be deleted.
     ///
     pub async fn del(&mut self, homeserver_uri: &str) -> Result<()> {
-        let pubky_client = PubkyConnector::get_pubky_client().await.unwrap();
+        let pubky_client = PubkyClient::get().await.unwrap();
         pubky_client.delete(homeserver_uri).send().await?;
         self.ensure_event_processing_complete().await?;
         Ok(())
@@ -121,7 +124,7 @@ impl WatcherTest {
     /// # Arguments
     /// * `keypair` - A reference to the `Keypair` used for signing up the user.
     pub async fn register_user(&self, keypair: &Keypair) -> Result<()> {
-        let pubky_client = PubkyConnector::get_pubky_client().await.unwrap();
+        let pubky_client = PubkyClient::get().await.unwrap();
 
         pubky_client
             .signup(&keypair, &self.homeserver.public_key())
@@ -131,7 +134,7 @@ impl WatcherTest {
 
     pub async fn create_user(&mut self, keypair: &Keypair, user: &PubkyAppUser) -> Result<String> {
         let user_id = keypair.public_key().to_z32();
-        let pubky_client = PubkyConnector::get_pubky_client().await.unwrap();
+        let pubky_client = PubkyClient::get().await.unwrap();
         // Register the key in the homeserver
         pubky_client
             .signup(keypair, &self.homeserver.public_key())
@@ -150,7 +153,7 @@ impl WatcherTest {
     /// 412 Precondition Failed - Compare and swap failed; there is a more recent SignedPacket than the one seen before publishing.
     /// To prevent this error after the first sign-up, we will create/update the existing record instead of creating a new one
     pub async fn create_profile(&mut self, user_id: &str, user: &PubkyAppUser) -> Result<String> {
-        let pubky_client = PubkyConnector::get_pubky_client().await.unwrap();
+        let pubky_client = PubkyClient::get().await.unwrap();
         let url = format!("pubky://{}/pub/pubky.app/profile.json", user_id);
 
         // Write the user profile in the pubky.app repository
@@ -165,7 +168,7 @@ impl WatcherTest {
         let post_id = post.create_id();
         let url = format!("pubky://{}/pub/pubky.app/posts/{}", user_id, post_id);
         // Write the post in the pubky.app repository
-        PubkyConnector::get_pubky_client()
+        PubkyClient::get()
             .await
             .unwrap()
             .put(url.as_str())
@@ -180,7 +183,7 @@ impl WatcherTest {
 
     pub async fn cleanup_user(&mut self, user_id: &str) -> Result<()> {
         let url = format!("pubky://{}/pub/pubky.app/profile.json", user_id);
-        PubkyConnector::get_pubky_client()
+        PubkyClient::get()
             .await
             .unwrap()
             .delete(url.as_str())
@@ -192,7 +195,7 @@ impl WatcherTest {
 
     pub async fn cleanup_post(&mut self, user_id: &str, post_id: &str) -> Result<()> {
         let url = format!("pubky://{}/pub/pubky.app/posts/{}", user_id, post_id);
-        PubkyConnector::get_pubky_client()
+        PubkyClient::get()
             .await
             .unwrap()
             .delete(url.as_str())
@@ -209,7 +212,7 @@ impl WatcherTest {
     ) -> Result<(String, String)> {
         let file_id = file.create_id();
         let url = format!("pubky://{}/pub/pubky.app/files/{}", user_id, file_id);
-        PubkyConnector::get_pubky_client()
+        PubkyClient::get()
             .await
             .unwrap()
             .put(url.as_str())
@@ -223,7 +226,7 @@ impl WatcherTest {
 
     pub async fn cleanup_file(&mut self, user_id: &str, file_id: &str) -> Result<()> {
         let url = format!("pubky://{}/pub/pubky.app/files/{}", user_id, file_id);
-        PubkyConnector::get_pubky_client()
+        PubkyClient::get()
             .await
             .unwrap()
             .delete(url.as_str())
@@ -241,7 +244,7 @@ impl WatcherTest {
             "pubky://{}/pub/pubky.app/follows/{}",
             follower_id, followee_id
         );
-        PubkyConnector::get_pubky_client()
+        PubkyClient::get()
             .await
             .unwrap()
             .put(follow_url.as_str())
@@ -258,7 +261,7 @@ impl WatcherTest {
             created_at: Utc::now().timestamp_millis(),
         };
         let mute_url = format!("pubky://{}/pub/pubky.app/mutes/{}", muter_id, mutee_id);
-        PubkyConnector::get_pubky_client()
+        PubkyClient::get()
             .await
             .unwrap()
             .put(mute_url.as_str())
@@ -276,7 +279,7 @@ impl WatcherTest {
 /// * `event_line` - A string slice that represents the URI of the event to be retrieved
 ///   from the homeserver. It contains the event type and the homeserver uri
 pub async fn retrieve_and_handle_event_line(event_line: &str) -> Result<(), DynError> {
-    let event = match Event::parse_event(event_line) {
+    let event = match Event::parse_event(event_line, PathBuf::from(FILES_DIR)) {
         Ok(event) => event,
         Err(_) => None,
     };

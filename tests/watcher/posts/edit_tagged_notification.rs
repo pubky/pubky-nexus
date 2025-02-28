@@ -6,7 +6,7 @@ use pubky_app_specs::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser};
 use pubky_nexus::{
     models::notification::{Notification, NotificationBody, PostChangedSource},
     types::Pagination,
-    PubkyConnector,
+    PubkyClient,
 };
 
 #[tokio_shared_rt::test(shared)]
@@ -63,7 +63,7 @@ async fn test_edit_tagged_post_notification() -> Result<()> {
     let edited_url = format!("pubky://{}/pub/pubky.app/posts/{}", user_a_id, post_id);
 
     // Overwrite existing post in the homeserver with the edited one
-    let pubky_client = PubkyConnector::get_pubky_client().await.unwrap();
+    let pubky_client = PubkyClient::get().await.unwrap();
     pubky_client
         .put(edited_url.as_str())
         .json(&post)

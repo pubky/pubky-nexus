@@ -8,10 +8,13 @@ pub mod routes;
 pub mod setup;
 mod static_processor;
 pub mod types;
+pub mod _service;
+pub mod _watcher;
+pub mod common;
 
 pub use config::Config;
 pub use db::connectors::neo4j::get_neo4j_graph;
-pub use db::connectors::pubky::PubkyConnector;
+pub use db::connectors::pubky::PubkyClient;
 pub use db::connectors::redis::get_redis_conn;
 pub use db::graph::queries;
 pub use db::kv::index::sorted_sets::ScoreAction;

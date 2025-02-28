@@ -6,7 +6,7 @@ use pubky::Keypair;
 use pubky_app_specs::{
     traits::HasPath, PubkyAppBlob, PubkyAppFile, PubkyAppPost, PubkyAppPostKind, PubkyAppUser,
 };
-use pubky_nexus::PubkyConnector;
+use pubky_nexus::PubkyClient;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_post_attachments() -> Result<()> {
@@ -27,7 +27,7 @@ async fn test_homeserver_post_attachments() -> Result<()> {
     let blob = PubkyAppBlob::new(blob_data.as_bytes().to_vec());
     let blob_url = format!("pubky://{}{}", user_id, blob.create_path());
 
-    let pubky_client = PubkyConnector::get_pubky_client().await.unwrap();
+    let pubky_client = PubkyClient::get().await.unwrap();
     pubky_client
         .put(blob_url.as_str())
         .body(blob.0.clone())

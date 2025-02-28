@@ -312,7 +312,7 @@ pub async fn get<T: DeserializeOwned + Send + Sync>(
         .json_get::<String, String, String>(index_key.clone(), json_path)
         .await
     {
-        debug!("Restored key: {} with value: {}", index_key, indexed_value);
+        //debug!("Restored key: {} with value: {}", index_key, indexed_value);
         let value: Vec<T> = serde_json::from_str(&indexed_value)?;
         return Ok(value.into_iter().next()); // Extract the first element from the Vec
     }
@@ -399,10 +399,10 @@ pub async fn _get_bool(prefix: &str, key: &str) -> Result<Option<bool>, DynError
     let index_key = format!("{}:{}", prefix, key);
 
     if let Ok(indexed_value) = redis_conn.get::<_, i32>(&index_key).await {
-        debug!(
-            "Restored boolean key: {} with value: {}",
-            index_key, indexed_value
-        );
+        // debug!(
+        //     "Restored boolean key: {} with value: {}",
+        //     index_key, indexed_value
+        // );
         let value = match indexed_value {
             1 => true,
             0 => false,
