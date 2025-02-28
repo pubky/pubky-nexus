@@ -1,22 +1,16 @@
 use crate::db::connectors::pubky::PubkyConnector;
 use crate::events::error::EventProcessorError;
+use crate::handle_indexing_results;
+use crate::models::file::details::FileVariant;
+use crate::models::{
+    file::{details::FileMeta, FileDetails},
+    traits::Collection,
+};
+use crate::static_processor::{StaticProcessor, StaticStorage};
 use crate::types::DynError;
-use crate::{
-    models::{
-        file::{
-            details::{FileMeta, FileUrls},
-            FileDetails,
-        },
-        traits::Collection,
-    },
-    Config,
-};
 use pubky_app_specs::{PubkyAppFile, PubkyAppObject, PubkyId};
-use tokio::{
-    fs::{self, remove_file, File},
-    io::AsyncWriteExt,
-};
-use tracing::{debug, error};
+use tokio::fs::remove_dir_all;
+use tracing::debug;
 
 pub async fn sync_put(
     file: PubkyAppFile,
@@ -34,18 +28,25 @@ pub async fn sync_put(
     let file_details =
         FileDetails::from_homeserver(&file, uri, user_id.to_string(), file_id, file_meta);
 
-    // save new file into the Graph
-    file_details.put_to_graph().await?;
+    // SAVE TO GRAPH
+    file_details
+        .put_to_graph()
+        .await
+        .map_err(|e| EventProcessorError::GraphQueryFailed {
+            message: format!("{:?}", e),
+        })?;
 
-    // Index
-    FileDetails::put_to_index(
+    // SAVE TO INDEX
+    let indexing_result = FileDetails::put_to_index(
         &[&[
             file_details.owner_id.clone().as_str(),
             file_details.id.clone().as_str(),
         ]],
         vec![Some(file_details)],
     )
-    .await?;
+    .await;
+
+    handle_indexing_results!(indexing_result);
 
     Ok(())
 }
@@ -62,26 +63,35 @@ async fn ingest(
 
         response = match pubky_client.get(&pubkyapp_file.src).send().await {
             Ok(response) => response,
-            // TODO: Shape the error to avoid the retyManager
             Err(e) => {
-                error!("EVENT ERROR: could not retrieve file src blob");
-                return Err(e.into());
+                return Err(EventProcessorError::PubkyClientError {
+                    message: format!(
+                        "The ingest process could not get the client while processing File event: {}",
+                        e
+                    ),
+                }
+                .into());
             }
         };
     }
+
+    let path: String = format!("{}/{}", user_id, file_id);
+    let storage_path = StaticStorage::get_storage_path();
+    let full_path = format!("{}/{}", storage_path, path);
 
     let blob = response.bytes().await?;
     let pubky_app_object = PubkyAppObject::from_uri(&pubkyapp_file.src, &blob)?;
 
     match pubky_app_object {
         PubkyAppObject::Blob(blob) => {
-            store_blob(file_id.to_string(), user_id.to_string(), &blob.0).await?;
+            StaticStorage::store_blob(FileVariant::Main.to_string(), full_path.to_string(), &blob)
+                .await?;
 
-            Ok(FileMeta {
-                urls: FileUrls {
-                    main: format!("{}/{}", user_id, file_id),
-                },
-            })
+            let urls = StaticProcessor::get_file_urls_by_content_type(
+                pubkyapp_file.content_type.as_str(),
+                &path,
+            );
+            Ok(FileMeta { urls })
         }
         _ => Err(EventProcessorError::InvalidEventLine {
             message: format!(
@@ -91,39 +101,6 @@ async fn ingest(
         }
         .into()),
     }
-}
-
-async fn store_blob(name: String, path: String, blob: &[u8]) -> Result<(), DynError> {
-    let storage_path = Config::from_env().file_path;
-    // TODO: Is it well formatting. The file path already has / at the end
-    let full_path = format!("{}/{}", storage_path, path);
-
-    debug!("store blob in full_path: {}", full_path);
-
-    let path_exists = match fs::metadata(full_path.as_str()).await {
-        Err(_) => false,
-        Ok(metadata) => metadata.is_dir(),
-    };
-
-    debug!("path exists: {}", path_exists);
-
-    if !path_exists {
-        fs::create_dir_all(full_path.as_str()).await?;
-    }
-
-    let file_path = format!("{}/{}", full_path, name);
-    let mut static_file = File::create_new(file_path).await?;
-    static_file.write_all(blob).await?;
-
-    Ok(())
-}
-
-async fn remove_blob(name: String, path: String) -> Result<(), DynError> {
-    let storage_path = Config::from_env().file_path;
-    let file_path = format!("{}/{}/{}", storage_path, path, name);
-
-    remove_file(file_path).await?;
-    Ok(())
 }
 
 pub async fn del(user_id: &PubkyId, file_id: String) -> Result<(), DynError> {
@@ -139,7 +116,12 @@ pub async fn del(user_id: &PubkyId, file_id: String) -> Result<(), DynError> {
         if let Some(value) = file {
             value.delete().await?;
         }
-        remove_blob(file_id, user_id.to_string()).await?;
+
+        let folder_path = format!("{}/{}", user_id, file_id);
+        let storage_path = StaticStorage::get_storage_path();
+        let full_path = format!("{}/{}", storage_path, folder_path);
+
+        remove_dir_all(full_path).await?;
     }
 
     Ok(())

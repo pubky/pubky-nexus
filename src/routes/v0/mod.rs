@@ -1,6 +1,5 @@
 use axum::Router;
 use utoipa::OpenApi;
-use utoipa_swagger_ui::SwaggerUi;
 
 pub mod endpoints;
 pub mod file;
@@ -24,8 +23,6 @@ pub fn routes() -> Router {
     let route_file = file::routes();
     let route_tag = tag::routes();
     let route_notification = notification::routes();
-    let route_openapi =
-        SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::merge_docs());
 
     routes_post
         .merge(routes_info)
@@ -35,7 +32,6 @@ pub fn routes() -> Router {
         .merge(route_file)
         .merge(route_tag)
         .merge(route_notification)
-        .merge(route_openapi)
 }
 
 #[derive(OpenApi)]
