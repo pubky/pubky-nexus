@@ -48,8 +48,8 @@ impl EventProcessor {
     pub async fn from_config(config: &WatcherConfig) -> Result<Self, DynError> {
         let homeserver = Homeserver::from_config(config.homeserver.clone()).await?;
         let limit = config.events_limit;
-        let files_path = config.files_path.clone();
-        let tracer_name = config.name.clone();
+        let files_path = config.stack.files_path.clone();
+        let tracer_name = config.stack.name.clone();
 
         info!(
             "Initialized Event Processor for homeserver: {:?}",

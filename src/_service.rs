@@ -1,9 +1,9 @@
 use std::{net::SocketAddr, path::PathBuf};
 
 use tokio::net::TcpListener;
-use tracing::{debug, info, Level};
+use tracing::{debug, info};
 
-use crate::{common::{DatabaseConfig, FILES_DIR, LOG_LEVEL}, routes, StackManager};
+use crate::{common::{Config as StackConfig, DatabaseConfig}, routes, StackManager};
 
 pub const NAME: &str = "nexus.api";
 pub const DEFAULT_HOST: [u8; 4] = [127, 0, 0, 1];
@@ -12,23 +12,16 @@ pub const DEFAULT_PORT: u16 = 8080;
 // Nexus API configuration
 #[derive(Debug, Clone)]
 pub struct Config {
-    pub name: String,
+    // TODO: Choose a right name
+    pub stack: StackConfig,
     pub public_addr: SocketAddr,
-    pub log_level: Level,
-    pub files_path: PathBuf,
-    pub otlp_endpoint: Option<String>,
-    pub db: DatabaseConfig,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            name: String::from(NAME),
+            stack: StackConfig::default(String::from(NAME)),
             public_addr: SocketAddr::from((DEFAULT_HOST, DEFAULT_PORT)),
-            log_level: LOG_LEVEL,
-            files_path: PathBuf::from(FILES_DIR),
-            otlp_endpoint: None,
-            db: DatabaseConfig::default(),
         }
     }
 }
@@ -40,7 +33,7 @@ pub struct NexusApiBuilder(pub(crate) Config);
 impl NexusApiBuilder {
     /// Set the Homeserver's keypair
     pub fn name(&mut self, name: String) -> &mut Self {
-        self.0.name = name;
+        self.0.stack.name = name;
 
         self
     }
@@ -52,19 +45,19 @@ impl NexusApiBuilder {
     }
 
     pub fn files_path(&mut self, files_path: PathBuf) -> &mut Self {
-        self.0.files_path = files_path;
+        self.0.stack.files_path = files_path;
 
         self
     }
 
     pub fn otlp_endpoint(&mut self, otlp_endpoint: Option<String>) -> &mut Self {
-        self.0.otlp_endpoint = otlp_endpoint;
+        self.0.stack.otlp_endpoint = otlp_endpoint;
 
         self
     }
 
     pub fn db(&mut self, db: DatabaseConfig) -> &mut Self {
-        self.0.db = db;
+        self.0.stack.db = db;
 
         self
     }
@@ -73,10 +66,7 @@ impl NexusApiBuilder {
     pub async fn init_stack(&self) {
         // Open ddbb connections and init tracing layer
         StackManager::setup(
-            &self.0.name,
-            &self.0.otlp_endpoint,
-            self.0.log_level,
-            &self.0.db,
+            &self.0.stack,
         )
         .await;
     }
@@ -104,7 +94,7 @@ impl NexusApi {
 
     pub async fn run(config: Config) {
         // Create all the routes of the API
-        let app = routes::routes(config.files_path.clone());
+        let app = routes::routes(config.stack.files_path.clone());
         debug!(?config, "Running NexusAPI with ");
 
         // Start server
@@ -119,7 +109,7 @@ impl NexusApi {
     // TODO: From now this is a patch. Find out how to do it better. Mainly for tests
     pub async fn run_test(config: Config, listener: TcpListener) {
         // Create all the routes of the API
-        let app = routes::routes(config.files_path.clone());
+        let app = routes::routes(config.stack.files_path.clone());
         debug!(?config, "Running NexusAPI with ");
 
         // Start server

@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use crate::common::{DatabaseConfig, Neo4JConfig};
+use crate::common::{Config as StackConfig, Neo4JConfig};
 use crate::db::graph::setup::setup_graph;
 use crate::db::connectors::{
     neo4j::{Neo4jConnector, NEO4J_CONNECTOR},
@@ -21,18 +21,15 @@ pub struct StackManager {}
 
 impl StackManager {
     pub async fn setup(
-        service_name: &String,
-        otel_endpoint: &Option<String>,
-        log_level: Level,
-        db: &DatabaseConfig,
+        config: &StackConfig,
     ) {
         // Initialize logging and metrics
-        Self::setup_logging(service_name, otel_endpoint, log_level).await;
-        Self::setup_metrics(service_name, otel_endpoint).await;
+        Self::setup_logging(&config.name, &config.otlp_endpoint, config.log_level).await;
+        Self::setup_metrics(&config.name, &config.otlp_endpoint).await;
 
         // Initialize Redis and Neo4j
-        Self::setup_redis(&db.redis).await;
-        Self::setup_neo4j(&db.neo4j).await;
+        Self::setup_redis(&config.db.redis).await;
+        Self::setup_neo4j(&config.db.neo4j).await;
     }
 
     pub async fn setup_redis(redis_uri: &str) {

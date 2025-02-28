@@ -1,9 +1,9 @@
 use std::path::PathBuf;
-use crate::common::{FILES_DIR, LOG_LEVEL};
 use pubky_app_specs::PubkyId;
 use tokio::time::{sleep, Duration };
 use tracing::{debug, error, info, Level};
-use crate::{common::DatabaseConfig, types::DynError, EventProcessor, StackManager};
+use crate::{types::DynError, EventProcessor, StackManager};
+use crate::common::{DatabaseConfig, Config as StackConfig};
 
 pub const NAME: &str = "nexus.watcher";
 pub const TESTNET: bool = false;
@@ -13,18 +13,15 @@ pub const EVENTS_LIMIT: u32 = 1000;
 // Sleep between checks to homeserver
 pub const WATCHER_SLEEP: u64 = 5000;
 
-// Nexus API configuration
+// Nexus Watcher configuration
 #[derive(Debug, Clone)]
 pub struct Config {
-    pub name: String,
-    pub log_level: Level,
+    // TODO: Choose a right name
+    pub stack: StackConfig,
     pub testnet: bool,
     pub homeserver: PubkyId,
     pub events_limit: u32,
     pub watcher_sleep: u64,
-    pub files_path: PathBuf,
-    pub otlp_endpoint: Option<String>,
-    pub db: DatabaseConfig,
 }
 
 impl Default for Config {
@@ -32,15 +29,11 @@ impl Default for Config {
         // TODO: not secure, could panic but maybe makes sense because it is an initialisation
         let homeserver = PubkyId::try_from(HOMESERVER_PUBKY).unwrap();
         Self {
-            name: String::from(NAME),
-            log_level: LOG_LEVEL,
+            stack: StackConfig::default(String::from(NAME)),
             testnet: TESTNET,
             homeserver,
             events_limit: EVENTS_LIMIT,
             watcher_sleep: WATCHER_SLEEP,
-            files_path: PathBuf::from(FILES_DIR),
-            otlp_endpoint: None,
-            db: DatabaseConfig::default(),
         }
     }
 }
@@ -52,13 +45,13 @@ pub struct NexusWatcherBuilder(pub(crate) Config);
 impl NexusWatcherBuilder {
     /// Set the Homeserver's keypair
     pub fn name(&mut self, name: String) -> &mut Self {
-        self.0.name = name;
+        self.0.stack.name = name;
 
         self
     }
 
     pub fn log_level(&mut self, log_level: Level) -> &mut Self {
-        self.0.log_level = log_level;
+        self.0.stack.log_level = log_level;
 
         self
     }
@@ -76,19 +69,19 @@ impl NexusWatcherBuilder {
     }
 
     pub fn files_path(&mut self, files_path: PathBuf) -> &mut Self {
-        self.0.files_path = files_path;
+        self.0.stack.files_path = files_path;
 
         self
     }
 
     pub fn otlp_endpoint(&mut self, otlp_endpoint: Option<String>) -> &mut Self {
-        self.0.otlp_endpoint = otlp_endpoint;
+        self.0.stack.otlp_endpoint = otlp_endpoint;
 
         self
     }
 
     pub fn db(&mut self, db: DatabaseConfig) -> &mut Self {
-        self.0.db = db;
+        self.0.stack.db = db;
 
         self
     }
@@ -97,10 +90,7 @@ impl NexusWatcherBuilder {
     pub async fn init_stack(&self) {
         // Open ddbb connections and init tracing layer
         StackManager::setup(
-            &self.0.name,
-            &self.0.otlp_endpoint,
-            self.0.log_level,
-            &self.0.db,
+            &self.0.stack
         )
         .await;
     }
