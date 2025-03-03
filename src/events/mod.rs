@@ -102,7 +102,7 @@ impl Event {
 
         let response;
         {
-            let pubky_client = PubkyClient::get().await?;
+            let pubky_client = PubkyClient::get()?;
             response = match pubky_client.get(&self.uri).send().await {
                 Ok(response) => response,
                 Err(e) => {

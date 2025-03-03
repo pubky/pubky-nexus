@@ -1,9 +1,10 @@
 use pubky::Client;
+use tracing::debug;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::OnceCell;
 
-use crate::{events::error::EventProcessorError, types::DynError, Config};
+use crate::events::error::EventProcessorError;
 
 static PUBKY_CLIENT_SINGLETON: OnceCell<Arc<Client>> = OnceCell::const_new();
 
@@ -19,14 +20,12 @@ pub enum PubkyClientError {
 pub struct PubkyClient;
 
 impl PubkyClient {
-    /// Retrieves an instance of the `PubkyClient`
-    ///
-    /// # Behavior:
-    /// - Determines whether to create a **testnet** or **mainnet** client
-    pub async fn get() -> Result<Arc<Client>, DynError> {
+
+    pub async fn initialise(testnet: bool) -> Result<(), PubkyClientError> {
         PUBKY_CLIENT_SINGLETON
             .get_or_try_init(|| async {
-                let client = match Config::homeserver_network() {
+                debug!("Initialising PubkyClient in {} mode", if testnet { "testnet" } else { "mainnet" });
+                let client = match testnet {
                     true => Client::builder()
                         .testnet()
                         .build()
@@ -35,11 +34,17 @@ impl PubkyClient {
                         .build()
                         .map_err(|e| PubkyClientError::ClientError(e.to_string()))?,
                 };
-
                 Ok(Arc::new(client))
             })
             .await
+            .map(|_| ())
+    }
+    /// Retrieves an instance of the `PubkyClient`
+    pub fn get() -> Result<Arc<Client>, EventProcessorError> {
+        PUBKY_CLIENT_SINGLETON
+            .get()
             .cloned()
+            .ok_or(PubkyClientError::NotInitialized)
             .map_err(|e: PubkyClientError| {
                 EventProcessorError::PubkyClientError {
                     message: format!("{}", e),

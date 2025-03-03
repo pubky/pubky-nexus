@@ -93,7 +93,7 @@ impl EventProcessor {
         debug!("Polling new events from homeserver");
 
         let response_text = {
-            let pubky_client = PubkyClient::get().await?;
+            let pubky_client = PubkyClient::get()?;
             let url = format!(
                 "https://{}/events/?cursor={}&limit={}",
                 self.homeserver.id, self.homeserver.cursor, self.limit

@@ -5,6 +5,7 @@ use pubky_app_specs::PubkyId;
 use serde::de::DeserializeOwned;
 use tokio::time::{sleep, Duration };
 use tracing::{debug, error, info};
+use crate::PubkyClient;
 use crate::{types::DynError, EventProcessor, StackManager};
 use crate::common::{Config as StackConfig, ConfigLoader, DatabaseConfig, Level};
 use serde::{Deserialize, Serialize};
@@ -102,6 +103,7 @@ impl NexusWatcherBuilder {
             &self.0.stack
         )
         .await;
+        let _ = PubkyClient::initialise(self.0.testnet).await;
     }
 
     pub async fn run(self) -> Result<(), DynError> {
@@ -119,7 +121,6 @@ impl NexusWatcher {
 
     pub async fn run_with_config_file(config_file: PathBuf) -> Result<(), DynError> {
         let config = Config::load(config_file).await?;
-        println!("{:?}", config);
         NexusWatcherBuilder(config).run().await
     }
 

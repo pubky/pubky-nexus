@@ -93,7 +93,7 @@ impl WatcherTest {
     where
         T: serde::Serialize,
     {
-        let pubky_client = PubkyClient::get().await.unwrap();
+        let pubky_client = PubkyClient::get().unwrap();
         pubky_client
             .put(homeserver_uri)
             .json(&object)
@@ -114,7 +114,7 @@ impl WatcherTest {
     /// - `homeserver_uri`: The URI of the homeserver from which content should be deleted.
     ///
     pub async fn del(&mut self, homeserver_uri: &str) -> Result<()> {
-        let pubky_client = PubkyClient::get().await.unwrap();
+        let pubky_client = PubkyClient::get().unwrap();
         pubky_client.delete(homeserver_uri).send().await?;
         self.ensure_event_processing_complete().await?;
         Ok(())
@@ -124,7 +124,7 @@ impl WatcherTest {
     /// # Arguments
     /// * `keypair` - A reference to the `Keypair` used for signing up the user.
     pub async fn register_user(&self, keypair: &Keypair) -> Result<()> {
-        let pubky_client = PubkyClient::get().await.unwrap();
+        let pubky_client = PubkyClient::get().unwrap();
 
         pubky_client
             .signup(&keypair, &self.homeserver.public_key())
@@ -134,7 +134,7 @@ impl WatcherTest {
 
     pub async fn create_user(&mut self, keypair: &Keypair, user: &PubkyAppUser) -> Result<String> {
         let user_id = keypair.public_key().to_z32();
-        let pubky_client = PubkyClient::get().await.unwrap();
+        let pubky_client = PubkyClient::get().unwrap();
         // Register the key in the homeserver
         pubky_client
             .signup(keypair, &self.homeserver.public_key())
@@ -153,7 +153,7 @@ impl WatcherTest {
     /// 412 Precondition Failed - Compare and swap failed; there is a more recent SignedPacket than the one seen before publishing.
     /// To prevent this error after the first sign-up, we will create/update the existing record instead of creating a new one
     pub async fn create_profile(&mut self, user_id: &str, user: &PubkyAppUser) -> Result<String> {
-        let pubky_client = PubkyClient::get().await.unwrap();
+        let pubky_client = PubkyClient::get().unwrap();
         let url = format!("pubky://{}/pub/pubky.app/profile.json", user_id);
 
         // Write the user profile in the pubky.app repository
@@ -169,7 +169,6 @@ impl WatcherTest {
         let url = format!("pubky://{}/pub/pubky.app/posts/{}", user_id, post_id);
         // Write the post in the pubky.app repository
         PubkyClient::get()
-            .await
             .unwrap()
             .put(url.as_str())
             .json(&post)
@@ -184,7 +183,6 @@ impl WatcherTest {
     pub async fn cleanup_user(&mut self, user_id: &str) -> Result<()> {
         let url = format!("pubky://{}/pub/pubky.app/profile.json", user_id);
         PubkyClient::get()
-            .await
             .unwrap()
             .delete(url.as_str())
             .send()
@@ -196,7 +194,6 @@ impl WatcherTest {
     pub async fn cleanup_post(&mut self, user_id: &str, post_id: &str) -> Result<()> {
         let url = format!("pubky://{}/pub/pubky.app/posts/{}", user_id, post_id);
         PubkyClient::get()
-            .await
             .unwrap()
             .delete(url.as_str())
             .send()
@@ -213,7 +210,6 @@ impl WatcherTest {
         let file_id = file.create_id();
         let url = format!("pubky://{}/pub/pubky.app/files/{}", user_id, file_id);
         PubkyClient::get()
-            .await
             .unwrap()
             .put(url.as_str())
             .json(&file)
@@ -227,7 +223,6 @@ impl WatcherTest {
     pub async fn cleanup_file(&mut self, user_id: &str, file_id: &str) -> Result<()> {
         let url = format!("pubky://{}/pub/pubky.app/files/{}", user_id, file_id);
         PubkyClient::get()
-            .await
             .unwrap()
             .delete(url.as_str())
             .send()
@@ -245,7 +240,6 @@ impl WatcherTest {
             follower_id, followee_id
         );
         PubkyClient::get()
-            .await
             .unwrap()
             .put(follow_url.as_str())
             .json(&follow_relationship)
@@ -262,7 +256,6 @@ impl WatcherTest {
         };
         let mute_url = format!("pubky://{}/pub/pubky.app/mutes/{}", muter_id, mutee_id);
         PubkyClient::get()
-            .await
             .unwrap()
             .put(mute_url.as_str())
             .json(&mute_relationship)
