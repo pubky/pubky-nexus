@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use clap::{Parser, Subcommand, Args, ValueEnum};
 
 #[derive(Parser, Debug)]
@@ -11,10 +13,10 @@ pub struct Cli {
 #[derive(Subcommand, Debug)]
 pub enum NexusCommands {
     /// Run the API service
-    Api,
+    Api(ApiArgs),
 
     /// Run the event watcher
-    Watcher,
+    Watcher(WatcherArgs),
 
     /// Database operations
     #[command(subcommand)]
@@ -23,6 +25,20 @@ pub enum NexusCommands {
     /// Run both the API and the Watcher (default when no arguments are given)
     #[command(hide = true)]
     All,
+}
+
+#[derive(Args, Debug)]
+pub struct ApiArgs {
+    /// Optional configuration file for the watcher
+    #[arg(short, long, num_args = 0..=1, default_missing_value = "./src/aconf_template.toml")]
+    pub config: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+pub struct WatcherArgs {
+    /// Optional configuration file for the watcher
+    #[arg(short, long, num_args = 0..=1, default_missing_value = "./src/wconf_template.toml")]
+    pub config: Option<PathBuf>,
 }
 
 #[derive(Subcommand, Debug)]

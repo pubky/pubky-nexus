@@ -1,0 +1,21 @@
+testnet = true
+homeserver = "8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo"
+events_limit = 500
+watcher_sleep = 5000
+
+[stack]
+name = "nexus.watcher"
+# Logging, options: error, warn, info, debug and trace
+log_level = "debug"
+files_path = "./static/files"
+# OTLP_ENDPOINT is set to empty by default. If you want to enable tracing, set it to the OpenTelemetry Collector endpoint
+#otlp_endpoint=""
+
+# [stack.db]
+# redis = "redis://localhost:6379"
+
+[stack.db.neo4j]
+uri = "bolt://localhost:7687"
+# Not need it. Might be default
+user = "neo4j"
+password = "12345678"

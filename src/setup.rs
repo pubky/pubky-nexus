@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use crate::common::{Config as StackConfig, Neo4JConfig};
+use crate::common::{Config as StackConfig, Level, Neo4JConfig};
 use crate::db::graph::setup::setup_graph;
 use crate::db::connectors::{
     neo4j::{Neo4jConnector, NEO4J_CONNECTOR},
@@ -13,7 +13,7 @@ use opentelemetry_sdk::logs::SdkLoggerProvider;
 use opentelemetry_sdk::metrics::{PeriodicReader, SdkMeterProvider};
 use opentelemetry_sdk::trace::SdkTracerProvider;
 use opentelemetry_sdk::Resource;
-use tracing::{debug, error, info, Level};
+use tracing::{debug, error, info};
 use tracing_subscriber::{fmt, EnvFilter, Layer};
 use tracing_subscriber::{layer::SubscriberExt, Registry};
 

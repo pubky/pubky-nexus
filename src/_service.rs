@@ -1,16 +1,18 @@
-use std::{net::SocketAddr, path::PathBuf};
+use std::{fmt::Debug, net::SocketAddr, path::PathBuf};
 
+use async_trait::async_trait;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::net::TcpListener;
 use tracing::{debug, info};
 
-use crate::{common::{Config as StackConfig, DatabaseConfig}, routes, types::DynError, StackManager};
+use crate::{common::{Config as StackConfig, ConfigLoader, DatabaseConfig}, routes, types::DynError, StackManager};
 
 pub const NAME: &str = "nexus.api";
 pub const DEFAULT_HOST: [u8; 4] = [127, 0, 0, 1];
 pub const DEFAULT_PORT: u16 = 8080;
 
 // Nexus API configuration
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     // TODO: Choose a right name
     pub stack: StackConfig,
@@ -26,8 +28,13 @@ impl Default for Config {
     }
 }
 
+#[async_trait]
+impl<T> ConfigLoader<T> for Config
+where
+    T: DeserializeOwned + Send + Sync + Debug,
+{}
+
 #[derive(Debug, Default)]
-//pub struct NexusApiBuilder(Config);
 pub struct NexusApiBuilder(pub(crate) Config);
 
 impl NexusApiBuilder {
@@ -88,8 +95,9 @@ impl NexusApi {
         NexusApiBuilder::default()
     }
 
-    pub fn run_with_config_file() -> NexusApiBuilder {
-        NexusApiBuilder::default()
+    pub async fn run_with_config_file(config_file: PathBuf) -> Result<(), DynError> {
+        let config = Config::load(config_file).await?;
+        NexusApiBuilder(config).run().await
     }
 
     pub async fn run(config: Config) -> Result<(), DynError> {

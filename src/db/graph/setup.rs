@@ -25,6 +25,6 @@ pub async fn setup_graph() -> Result<(), Box<dyn std::error::Error>> {
     for q in queries {
         graph.run(query(q)).await?;
     }
-
+    
     Ok(())
 }

@@ -10,15 +10,23 @@ async fn main() -> Result<(), DynError> {
     println!("{:?}", cli);
 
     match cli.command.unwrap_or(NexusCommands::All) {
-        NexusCommands::Api => {
-            println!("Starting API...");
-            // Run service logic here
-            NexusApi::builder().run().await?
+        NexusCommands::Api(args) => {
+            if let Some(config_file) = args.config {
+                NexusApi::run_with_config_file(config_file).await?
+            } else {
+                println!("Starting api service...");
+                // Run watcher logic here
+                NexusApi::builder().run().await?
+            }
         }
-        NexusCommands::Watcher => {
-            println!("Starting watcher...");
-            // Run watcher logic here
-            NexusWatcher::builder().run().await?
+        NexusCommands::Watcher(args) => {
+            if let Some(config_file) = args.config {
+                NexusWatcher::run_with_config_file(config_file).await?
+            } else {
+                println!("Starting watcher...");
+                // Run watcher logic here
+                NexusWatcher::builder().run().await?
+            }
         }
         NexusCommands::Db(db_command) => {
             match db_command {

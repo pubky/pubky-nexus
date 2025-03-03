@@ -1,9 +1,13 @@
 use std::path::PathBuf;
+use std::fmt::Debug;
+use async_trait::async_trait;
 use pubky_app_specs::PubkyId;
+use serde::de::DeserializeOwned;
 use tokio::time::{sleep, Duration };
-use tracing::{debug, error, info, Level};
+use tracing::{debug, error, info};
 use crate::{types::DynError, EventProcessor, StackManager};
-use crate::common::{DatabaseConfig, Config as StackConfig};
+use crate::common::{Config as StackConfig, ConfigLoader, DatabaseConfig, Level};
+use serde::{Deserialize, Serialize};
 
 pub const NAME: &str = "nexus.watcher";
 pub const TESTNET: bool = false;
@@ -14,7 +18,7 @@ pub const EVENTS_LIMIT: u32 = 1000;
 pub const WATCHER_SLEEP: u64 = 5000;
 
 // Nexus Watcher configuration
-#[derive(Debug, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct Config {
     // TODO: Choose a right name
     pub stack: StackConfig,
@@ -38,8 +42,13 @@ impl Default for Config {
     }
 }
 
+#[async_trait]
+impl<T> ConfigLoader<T> for Config
+where
+    T: DeserializeOwned + Send + Sync + Debug,
+{}
+
 #[derive(Debug, Default)]
-//pub struct NexusApiBuilder(Config);
 pub struct NexusWatcherBuilder(pub(crate) Config);
 
 impl NexusWatcherBuilder {
@@ -108,9 +117,10 @@ impl NexusWatcher {
         NexusWatcherBuilder::default()
     }
 
-    pub fn run_with_config_file() -> NexusWatcherBuilder {
-        // TODO: next step, still to decide .toml or .env
-        NexusWatcherBuilder::default()
+    pub async fn run_with_config_file(config_file: PathBuf) -> Result<(), DynError> {
+        let config = Config::load(config_file).await?;
+        println!("{:?}", config);
+        NexusWatcherBuilder(config).run().await
     }
 
     pub async fn run(config: Config) -> Result<(), DynError> {

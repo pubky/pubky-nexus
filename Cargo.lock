@@ -3057,6 +3057,7 @@ dependencies = [
  "thiserror 2.0.11",
  "tokio",
  "tokio-shared-rt",
+ "toml",
  "tower-http",
  "tracing",
  "tracing-opentelemetry",
