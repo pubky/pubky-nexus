@@ -3,7 +3,7 @@ use std::{net::SocketAddr, path::PathBuf};
 use tokio::net::TcpListener;
 use tracing::{debug, info};
 
-use crate::{common::{Config as StackConfig, DatabaseConfig}, routes, StackManager};
+use crate::{common::{Config as StackConfig, DatabaseConfig}, routes, types::DynError, StackManager};
 
 pub const NAME: &str = "nexus.api";
 pub const DEFAULT_HOST: [u8; 4] = [127, 0, 0, 1];
@@ -71,7 +71,7 @@ impl NexusApiBuilder {
         .await;
     }
 
-    pub async fn run(self) {
+    pub async fn run(self) -> Result<(), DynError> {
         self.init_stack().await;
         NexusApi::run(self.0).await
     }
@@ -92,7 +92,7 @@ impl NexusApi {
         NexusApiBuilder::default()
     }
 
-    pub async fn run(config: Config) {
+    pub async fn run(config: Config) -> Result<(), DynError> {
         // Create all the routes of the API
         let app = routes::routes(config.stack.files_path.clone());
         debug!(?config, "Running NexusAPI with ");
@@ -102,8 +102,8 @@ impl NexusApi {
         info!("Listening on {:?}\n", listener.local_addr().unwrap());
 
         axum::serve(listener, app.into_make_service())
-            .await
-            .unwrap();
+            .await?;
+        Ok(())
     }
 
     // TODO: From now this is a patch. Find out how to do it better. Mainly for tests

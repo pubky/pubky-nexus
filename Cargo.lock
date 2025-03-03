@@ -3032,6 +3032,7 @@ dependencies = [
  "async-trait",
  "axum 0.8.1",
  "chrono",
+ "clap",
  "const_format",
  "criterion",
  "dotenv",
