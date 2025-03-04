@@ -21,7 +21,7 @@ pub fn routes(files_path: PathBuf) -> Router {
 
     let route_static = r#static::routes(state.clone());
 
-    let routes_v0 = v0::routes();
+    let routes_v0 = v0::routes(state.clone());
 
     let route_openapi = SwaggerUi::new("/swagger-ui")
         .url("/api-docs/v0/openapi.json", v0::ApiDoc::merge_docs())

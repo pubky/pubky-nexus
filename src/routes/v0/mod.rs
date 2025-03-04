@@ -16,8 +16,8 @@ pub use types::TagsQuery;
 
 use super::AppState;
 
-pub fn routes() -> Router<AppState> {
-    let routes_info = info::routes();
+pub fn routes(app_state: AppState) -> Router<AppState> {
+    let routes_info = info::routes(app_state);
     let routes_post = post::routes();
     let route_user = user::routes();
     let route_stream = stream::routes();

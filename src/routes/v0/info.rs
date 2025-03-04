@@ -1,7 +1,10 @@
+use std::path::PathBuf;
+
 use super::endpoints::INFO_ROUTE;
 use crate::models::info::ServerInfo;
-use crate::register_routes;
+use crate::register_routes_with_state;
 use crate::routes::AppState;
+use axum::extract::State;
 use axum::response::IntoResponse;
 use axum::{Json, Router};
 use utoipa::OpenApi;
@@ -14,13 +17,14 @@ use utoipa::OpenApi;
         (status = 200, description = "Server info", body = ServerInfo)
     )
 )]
-pub async fn info_handler() -> impl IntoResponse {
-    let info = ServerInfo::new().await;
+pub async fn info_handler(State(app_state): State<AppState>) -> impl IntoResponse {
+    let file_path: &PathBuf = &app_state.files_path;
+    let info = ServerInfo::new(file_path.clone()).await;
     Json(info)
 }
 
-pub fn routes() -> Router<AppState> {
-    register_routes!(Router::new(), super::endpoints::INFO_ROUTE => info_handler)
+pub fn routes(app_state: AppState) -> Router<AppState> {
+    register_routes_with_state!(Router::new(), app_state, super::endpoints::INFO_ROUTE => info_handler)
 }
 
 #[derive(OpenApi)]
