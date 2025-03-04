@@ -3,7 +3,10 @@ use std::{fmt::Debug, path::PathBuf};
 use async_trait::async_trait;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-use crate::{common::{Config as StackConfig, ConfigLoader}, MigrationManager, StackManager};
+use crate::{
+    common::{Config as StackConfig, ConfigLoader},
+    MigrationManager, StackManager,
+};
 
 // TODO: should be ./mconf_template.toml
 pub const CONFIG_FILE: &str = "./src/db/migrations/mconf_template.toml";
@@ -23,12 +26,11 @@ impl<T> ConfigLoader<T> for Config where T: DeserializeOwned + Send + Sync + Deb
 pub struct MigrationBuilder(pub(crate) Config);
 
 impl MigrationBuilder {
-
     pub async fn default() -> MigrationBuilder {
         let config_file: PathBuf = CONFIG_FILE.into();
         let config: Config = match Config::load(config_file).await {
             Ok(c) => c,
-            Err(e) => panic!("Error with migration config file, {:?}", e)
+            Err(e) => panic!("Error with migration config file, {:?}", e),
         };
         MigrationBuilder(config)
     }
@@ -36,7 +38,7 @@ impl MigrationBuilder {
     pub async fn init_stack(&self) -> MigrationManager {
         // Open ddbb connections and init tracing layer
         StackManager::setup(&self.0.stack).await;
-        MigrationManager::new()
+        MigrationManager::default()
     }
 
     pub fn migrations_backfill_ready(self) -> Vec<String> {

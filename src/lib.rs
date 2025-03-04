@@ -2,12 +2,10 @@ pub mod _service;
 pub mod _watcher;
 pub mod cli;
 pub mod common;
-mod config;
 pub mod db;
 mod error;
 pub mod events;
 pub mod mock_db;
-//pub mod migrations;
 pub mod models;
 mod reindex;
 pub mod routes;
@@ -15,7 +13,6 @@ pub mod setup;
 mod static_processor;
 pub mod types;
 
-pub use config::Config;
 pub use db::connectors::neo4j::get_neo4j_graph;
 pub use db::connectors::pubky::PubkyClient;
 pub use db::connectors::redis::get_redis_conn;
@@ -31,3 +28,7 @@ pub use reindex::reindex;
 pub use setup::StackManager;
 
 extern crate const_format;
+
+//mod config;
+//pub use config::Config;
+//pub mod migrations;

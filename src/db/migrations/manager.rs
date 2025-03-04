@@ -87,19 +87,20 @@ pub struct MigrationManager {
     migrations: Vec<Box<dyn Migration>>,
 }
 
-impl MigrationManager {
-    
-    pub fn new() -> Self {
+impl Default for MigrationManager {
+    fn default() -> Self {
         let graph_connection = match get_neo4j_graph() {
             Ok(connection) => connection,
-            Err(e) => panic!("Could not initialise migration manager: {:?}", e)
+            Err(e) => panic!("Could not initialise migration manager: {:?}", e),
         };
         Self {
             graph: graph_connection,
             migrations: Vec::new(),
         }
     }
+}
 
+impl MigrationManager {
     pub async fn dual_write<T: Migration>(data: Box<dyn Any + Send>) -> Result<(), DynError> {
         T::dual_write(data).await
     }
@@ -139,14 +140,12 @@ impl MigrationManager {
         self.migrations.push(migration);
     }
 
-    pub async fn run(&mut self, migrations_backfill_ready: &Vec<String>) -> Result<(), DynError> {
+    pub async fn run(&mut self, migrations_backfill_ready: &[String]) -> Result<(), DynError> {
         // get all migrations from the database
         let stored_migrations = self.get_migrations().await?;
         // update any migration marked as ready for backfill
         for stored_migration in &stored_migrations {
-            if migrations_backfill_ready
-                .contains(&stored_migration.id)
-            {
+            if migrations_backfill_ready.contains(&stored_migration.id) {
                 self.update_migration_phase(&stored_migration.id, &MigrationPhase::Backfill)
                     .await?;
             }
@@ -243,7 +242,8 @@ impl MigrationManager {
             false => MigrationPhase::Backfill,
         };
         let query = Query::new(
-            "MERGE (m:Migration {id: $id, phase: $phase, created_at: timestamp(), updated_at: 0})".to_string(),
+            "MERGE (m:Migration {id: $id, phase: $phase, created_at: timestamp(), updated_at: 0})"
+                .to_string(),
         )
         .param("id", id)
         .param("phase", initial_phase.to_string());

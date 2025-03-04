@@ -2,8 +2,8 @@ use clap::Parser;
 use pubky_nexus::cli::{Cli, DbCommands, MigrationCommands, NexusCommands};
 use pubky_nexus::db::migrations::builder::MigrationBuilder;
 use pubky_nexus::mock_db::MockDb;
-use pubky_nexus::{import_migrations, MigrationManager};
 use pubky_nexus::{_service::NexusApi, _watcher::NexusWatcher, types::DynError};
+use pubky_nexus::{import_migrations, MigrationManager};
 use tokio::join;
 
 #[tokio::main]
