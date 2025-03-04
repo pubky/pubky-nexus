@@ -12,6 +12,7 @@ pub mod _service;
 pub mod _watcher;
 pub mod common;
 pub mod cli;
+pub mod mock_db;
 
 pub use config::Config;
 pub use db::connectors::neo4j::get_neo4j_graph;

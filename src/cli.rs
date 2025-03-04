@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, Args, ValueEnum};
 
+use crate::mock_db::MockType;
+
 #[derive(Parser, Debug)]
 #[command(name = "pubky-nexus")]
 #[command(about = "Pubky Nexus CLI", long_about = None)]
@@ -59,12 +61,6 @@ pub struct MockArgs {
     /// Specify which part of the database to mock: redis, graph, or both (default: both)
     #[arg(long)]
     pub mock_type: Option<MockType>,
-}
-
-#[derive(ValueEnum, Clone, Debug)]
-pub enum MockType {
-    Redis,
-    Graph,
 }
 
 #[derive(Subcommand, Debug)]

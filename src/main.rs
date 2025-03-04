@@ -1,13 +1,12 @@
 use clap::Parser;
+use pubky_nexus::mock_db::MockDb;
 use pubky_nexus::{_service::NexusApi, _watcher::NexusWatcher, types::DynError};
-use pubky_nexus::cli::{Cli, DbCommands, MigrationCommands, MockType, NexusCommands};
+use pubky_nexus::cli::{Cli, DbCommands, MigrationCommands, NexusCommands};
 use tokio::join;
 
 #[tokio::main]
 async fn main() -> Result<(), DynError> {
     let cli = Cli::parse();
-
-    println!("{:?}", cli);
 
     match cli.command.unwrap_or(NexusCommands::All) {
         NexusCommands::Api(args) => {
@@ -30,16 +29,8 @@ async fn main() -> Result<(), DynError> {
         }
         NexusCommands::Db(db_command) => {
             match db_command {
-                DbCommands::Clear => {
-                    println!("Clearing database...");
-                }
-                DbCommands::Mock(args) => {
-                    match args.mock_type {
-                        Some(MockType::Redis) => println!("Mocking Redis database..."),
-                        Some(MockType::Graph) => println!("Mocking Graph database..."),
-                        None => println!("Mocking both Redis and Graph databases..."),
-                    }
-                }
+                DbCommands::Clear => MockDb::clear_database().await,
+                DbCommands::Mock(args) => MockDb::run(args.mock_type).await,
                 DbCommands::Migration(migration_command) => {
                     match migration_command {
                         MigrationCommands::New(args) => {
