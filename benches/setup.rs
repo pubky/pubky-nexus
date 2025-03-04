@@ -1,5 +1,5 @@
-use std::{env, sync::Once};
 use pubky_nexus::_service::NexusApi;
+use std::{env, sync::Once};
 use tokio::runtime::Runtime;
 
 static INIT: Once = Once::new();

@@ -5,7 +5,12 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::net::TcpListener;
 use tracing::{debug, info};
 
-use crate::{common::{Config as StackConfig, ConfigLoader, DatabaseConfig}, routes, types::DynError, StackManager};
+use crate::{
+    common::{Config as StackConfig, ConfigLoader, DatabaseConfig},
+    routes,
+    types::DynError,
+    StackManager,
+};
 
 pub const NAME: &str = "nexus.api";
 pub const DEFAULT_HOST: [u8; 4] = [127, 0, 0, 1];
@@ -29,10 +34,7 @@ impl Default for Config {
 }
 
 #[async_trait]
-impl<T> ConfigLoader<T> for Config
-where
-    T: DeserializeOwned + Send + Sync + Debug,
-{}
+impl<T> ConfigLoader<T> for Config where T: DeserializeOwned + Send + Sync + Debug {}
 
 #[derive(Debug, Default)]
 pub struct NexusApiBuilder(pub(crate) Config);
@@ -72,10 +74,7 @@ impl NexusApiBuilder {
     // TODO: Maybe create in common the initialisation of the stack
     pub async fn init_stack(&self) {
         // Open ddbb connections and init tracing layer
-        StackManager::setup(
-            &self.0.stack,
-        )
-        .await;
+        StackManager::setup(&self.0.stack).await;
     }
 
     pub async fn run(self) -> Result<(), DynError> {
@@ -109,8 +108,7 @@ impl NexusApi {
         let listener = TcpListener::bind(config.public_addr).await.unwrap();
         info!("Listening on {:?}\n", listener.local_addr().unwrap());
 
-        axum::serve(listener, app.into_make_service())
-            .await?;
+        axum::serve(listener, app.into_make_service()).await?;
         Ok(())
     }
 

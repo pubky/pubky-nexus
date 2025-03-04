@@ -5,9 +5,9 @@ use super::error::EventProcessorError;
 use super::Event;
 use crate::common::FILES_DIR;
 use crate::events::retry::event::RetryEvent;
+use crate::models::homeserver::Homeserver;
 use crate::types::DynError;
 use crate::PubkyClient;
-use crate::models::homeserver::Homeserver;
 use crate::_watcher::Config as WatcherConfig;
 use opentelemetry::trace::{FutureExt, Span, TraceContextExt, Tracer};
 use opentelemetry::{global, Context, KeyValue};
@@ -18,7 +18,7 @@ pub struct EventProcessor {
     pub homeserver: Homeserver,
     limit: u32,
     pub files_path: PathBuf,
-    pub tracer_name: String
+    pub tracer_name: String,
 }
 
 impl EventProcessor {
@@ -41,7 +41,7 @@ impl EventProcessor {
             homeserver,
             limit: 1000,
             files_path: PathBuf::from(FILES_DIR),
-            tracer_name: String::from("watcher.test")
+            tracer_name: String::from("watcher.test"),
         }
     }
 
@@ -56,7 +56,12 @@ impl EventProcessor {
             homeserver
         );
 
-        Ok(Self { homeserver, limit, files_path, tracer_name })
+        Ok(Self {
+            homeserver,
+            limit,
+            files_path,
+            tracer_name,
+        })
     }
 
     pub async fn run(&mut self) -> Result<(), DynError> {

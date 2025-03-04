@@ -1,5 +1,5 @@
-use std::{path::PathBuf, sync::Arc};
 use axum::Router;
+use std::{path::PathBuf, sync::Arc};
 use tower_http::cors::{Any, CorsLayer};
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -11,7 +11,7 @@ mod middlewares;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub files_path: Arc<PathBuf>
+    pub files_path: Arc<PathBuf>,
 }
 
 pub fn routes(files_path: PathBuf) -> Router {

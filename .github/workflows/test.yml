@@ -69,7 +69,7 @@ jobs:
         run: sudo apt install -y imagemagick
 
       - name: Load Mock Data
-        run: cargo run -- db clear
+        run: cargo run -- db mock
         
       - name: Run integration tests
         run: cargo nextest run --no-fail-fast

@@ -42,7 +42,7 @@ pub trait FileProcessor {
     async fn create_variant(
         file: &FileDetails,
         variant: &FileVariant,
-        file_path: PathBuf
+        file_path: PathBuf,
     ) -> Result<String, DynError> {
         // if there are no options for this variant, return with the original content type
         let options = match Self::get_options_for_variant(file, variant) {

@@ -1,18 +1,18 @@
+pub mod _service;
+pub mod _watcher;
+pub mod cli;
+pub mod common;
 mod config;
 pub mod db;
 mod error;
 pub mod events;
+pub mod mock_db;
 pub mod models;
 mod reindex;
 pub mod routes;
 pub mod setup;
 mod static_processor;
 pub mod types;
-pub mod _service;
-pub mod _watcher;
-pub mod common;
-pub mod cli;
-pub mod mock_db;
 
 pub use config::Config;
 pub use db::connectors::neo4j::get_neo4j_graph;

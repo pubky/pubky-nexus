@@ -1,14 +1,14 @@
-use std::path::PathBuf;
-use std::fmt::Debug;
+use crate::common::{Config as StackConfig, ConfigLoader, DatabaseConfig, Level};
+use crate::PubkyClient;
+use crate::{types::DynError, EventProcessor, StackManager};
 use async_trait::async_trait;
 use pubky_app_specs::PubkyId;
 use serde::de::DeserializeOwned;
-use tokio::time::{sleep, Duration };
-use tracing::{debug, error, info};
-use crate::PubkyClient;
-use crate::{types::DynError, EventProcessor, StackManager};
-use crate::common::{Config as StackConfig, ConfigLoader, DatabaseConfig, Level};
 use serde::{Deserialize, Serialize};
+use std::fmt::Debug;
+use std::path::PathBuf;
+use tokio::time::{sleep, Duration};
+use tracing::{debug, error, info};
 
 pub const NAME: &str = "nexus.watcher";
 pub const TESTNET: bool = false;
@@ -44,10 +44,7 @@ impl Default for Config {
 }
 
 #[async_trait]
-impl<T> ConfigLoader<T> for Config
-where
-    T: DeserializeOwned + Send + Sync + Debug,
-{}
+impl<T> ConfigLoader<T> for Config where T: DeserializeOwned + Send + Sync + Debug {}
 
 #[derive(Debug, Default)]
 pub struct NexusWatcherBuilder(pub(crate) Config);
@@ -99,10 +96,7 @@ impl NexusWatcherBuilder {
     // TODO: Maybe create in common the initialisation of the stack
     pub async fn init_stack(&self) {
         // Open ddbb connections and init tracing layer
-        StackManager::setup(
-            &self.0.stack
-        )
-        .await;
+        StackManager::setup(&self.0.stack).await;
         let _ = PubkyClient::initialise(self.0.testnet).await;
     }
 

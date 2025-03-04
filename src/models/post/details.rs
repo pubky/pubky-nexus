@@ -184,8 +184,8 @@ impl PostDetails {
 #[cfg(test)]
 mod tests {
 
-    use crate::_service::NexusApi;
     use super::*;
+    use crate::_service::NexusApi;
 
     const AUTHOR_A_ID: &str = "h3fghnb3x59oh7r53x8y6a5x38oatqyjym9b31ybss17zqdnhcoy";
     const REPLY_ID: &str = "2ZECXVXHZBE00";

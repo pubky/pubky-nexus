@@ -1,8 +1,8 @@
 use pubky::Client;
-use tracing::debug;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::OnceCell;
+use tracing::debug;
 
 use crate::events::error::EventProcessorError;
 
@@ -20,11 +20,13 @@ pub enum PubkyClientError {
 pub struct PubkyClient;
 
 impl PubkyClient {
-
     pub async fn initialise(testnet: bool) -> Result<(), PubkyClientError> {
         PUBKY_CLIENT_SINGLETON
             .get_or_try_init(|| async {
-                debug!("Initialising PubkyClient in {} mode", if testnet { "testnet" } else { "mainnet" });
+                debug!(
+                    "Initialising PubkyClient in {} mode",
+                    if testnet { "testnet" } else { "mainnet" }
+                );
                 let client = match testnet {
                     true => Client::builder()
                         .testnet()
@@ -45,12 +47,11 @@ impl PubkyClient {
             .get()
             .cloned()
             .ok_or(PubkyClientError::NotInitialized)
-            .map_err(|e: PubkyClientError| {
-                EventProcessorError::PubkyClientError {
+            .map_err(
+                |e: PubkyClientError| EventProcessorError::PubkyClientError {
                     message: format!("{}", e),
-                }
-                .into()
-            })
+                },
+            )
     }
 
     /// Initializes the `PUBKY_CONNECTOR_SINGLETON` with a provided `Client` instance.

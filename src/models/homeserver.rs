@@ -38,7 +38,6 @@ impl Homeserver {
     }
 
     pub async fn from_config(homeserver: PubkyId) -> Result<Homeserver, DynError> {
-
         // Attempt to load the homeserver cursor from Redis
         match Homeserver::get_from_index(&homeserver).await? {
             Some(hs) => Ok(hs),

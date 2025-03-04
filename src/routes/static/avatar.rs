@@ -73,16 +73,19 @@ pub async fn user_avatar_handler(
     };
 
     // 5. ensure small variant is created
-    let small_variant_content_type =
-        StaticProcessor::get_or_create_variant(&file_details, &FileVariant::Small, file_path.clone())
-            .await
-            .map_err(|err| {
-                error!(
-                    "Error while processing small variant for user: {} avatar with file: {}",
-                    user_id, file_id
-                );
-                Error::InternalServerError { source: err }
-            })?;
+    let small_variant_content_type = StaticProcessor::get_or_create_variant(
+        &file_details,
+        &FileVariant::Small,
+        file_path.clone(),
+    )
+    .await
+    .map_err(|err| {
+        error!(
+            "Error while processing small variant for user: {} avatar with file: {}",
+            user_id, file_id
+        );
+        Error::InternalServerError { source: err }
+    })?;
 
     // serve the file using ServeDir
     // Create a new request with a modified path to serve the file using ServeDir
@@ -94,7 +97,13 @@ pub async fn user_avatar_handler(
         FileVariant::Small,
     );
 
-    PubkyServeDir::try_call(request, file_uri_path, small_variant_content_type, file_path.clone()).await
+    PubkyServeDir::try_call(
+        request,
+        file_uri_path,
+        small_variant_content_type,
+        file_path.clone(),
+    )
+    .await
 }
 
 #[derive(OpenApi)]

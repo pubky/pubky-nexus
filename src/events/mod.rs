@@ -32,7 +32,7 @@ pub struct Event {
     pub uri: String,
     pub event_type: EventType,
     pub parsed_uri: ParsedUri,
-    pub files_path: PathBuf
+    pub files_path: PathBuf,
 }
 
 impl Event {
@@ -84,7 +84,7 @@ impl Event {
             uri,
             event_type,
             parsed_uri,
-            files_path
+            files_path,
         }))
     }
 
@@ -170,7 +170,9 @@ impl Event {
                 handlers::bookmark::del(user_id, bookmark_id).await?
             }
             Resource::Tag(tag_id) => handlers::tag::del(user_id, tag_id).await?,
-            Resource::File(file_id) => handlers::file::del(&user_id, file_id, self.files_path).await?,
+            Resource::File(file_id) => {
+                handlers::file::del(&user_id, file_id, self.files_path).await?
+            }
             other => {
                 debug!("DEL event type not handled for resource: {:?}", other);
             }

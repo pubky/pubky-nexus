@@ -145,7 +145,8 @@ mod tests {
             user::{UserDetails, UserSearch},
         },
         types::DynError,
-        RedisOps, _service::NexusApi,
+        RedisOps,
+        _service::NexusApi,
     };
     use chrono::Utc;
     use pubky_app_specs::PubkyId;

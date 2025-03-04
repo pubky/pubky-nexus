@@ -18,9 +18,7 @@ pub struct PubkyServeDir;
 impl PubkyServeDir {
     fn get_serve_dir(file_path: PathBuf) -> ServeDir {
         SERVE_DIR_INSTANCE
-            .get_or_init(|| {
-                ServeDir::new(file_path)
-            })
+            .get_or_init(|| ServeDir::new(file_path))
             .to_owned()
     }
 
@@ -28,7 +26,7 @@ impl PubkyServeDir {
         mut request: Request<Body>,
         path: String,
         content_type: String,
-        file_path: PathBuf
+        file_path: PathBuf,
     ) -> Result<Response<ServeFileSystemResponseBody>> {
         *request.uri_mut() =
             path.as_str()

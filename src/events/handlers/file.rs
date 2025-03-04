@@ -19,7 +19,7 @@ pub async fn sync_put(
     uri: String,
     user_id: PubkyId,
     file_id: String,
-    files_path: PathBuf
+    files_path: PathBuf,
 ) -> Result<(), DynError> {
     debug!("Indexing new file resource at {}/{}", user_id, file_id);
 
@@ -59,7 +59,7 @@ async fn ingest(
     user_id: &PubkyId,
     file_id: &str,
     pubkyapp_file: &PubkyAppFile,
-    files_path: PathBuf
+    files_path: PathBuf,
 ) -> Result<FileMeta, DynError> {
     let response;
     {
@@ -87,8 +87,7 @@ async fn ingest(
 
     match pubky_app_object {
         PubkyAppObject::Blob(blob) => {
-            StaticStorage::store_blob(FileVariant::Main.to_string(), full_path, &blob)
-                .await?;
+            StaticStorage::store_blob(FileVariant::Main.to_string(), full_path, &blob).await?;
 
             let urls = StaticProcessor::get_file_urls_by_content_type(
                 pubkyapp_file.content_type.as_str(),

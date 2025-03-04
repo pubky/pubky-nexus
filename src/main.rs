@@ -1,7 +1,7 @@
 use clap::Parser;
+use pubky_nexus::cli::{Cli, DbCommands, MigrationCommands, NexusCommands};
 use pubky_nexus::mock_db::MockDb;
 use pubky_nexus::{_service::NexusApi, _watcher::NexusWatcher, types::DynError};
-use pubky_nexus::cli::{Cli, DbCommands, MigrationCommands, NexusCommands};
 use tokio::join;
 
 #[tokio::main]
@@ -27,33 +27,27 @@ async fn main() -> Result<(), DynError> {
                 NexusWatcher::builder().run().await?
             }
         }
-        NexusCommands::Db(db_command) => {
-            match db_command {
-                DbCommands::Clear => MockDb::clear_database().await,
-                DbCommands::Mock(args) => MockDb::run(args.mock_type).await,
-                DbCommands::Migration(migration_command) => {
-                    match migration_command {
-                        MigrationCommands::New(args) => {
-                            println!("Creating new migration: {}", args.name);
-                        }
-                        MigrationCommands::Run => {
-                            println!("Running pending migrations...");
-                        }
-                    }
+        NexusCommands::Db(db_command) => match db_command {
+            DbCommands::Clear => MockDb::clear_database().await,
+            DbCommands::Mock(args) => MockDb::run(args.mock_type).await,
+            DbCommands::Migration(migration_command) => match migration_command {
+                MigrationCommands::New(args) => {
+                    println!("Creating new migration: {}", args.name);
                 }
-            }
-        }
+                MigrationCommands::Run => {
+                    println!("Running pending migrations...");
+                }
+            },
+        },
         NexusCommands::All => {
-            let (api_result, watcher_result) = join!(
-                NexusApi::builder().run(),
-                NexusWatcher::builder().run()
-            );
-        
+            let (api_result, watcher_result) =
+                join!(NexusApi::builder().run(), NexusWatcher::builder().run());
+
             // Handle possible errors
             let _ = api_result;
             watcher_result?;
         }
-    }    
+    }
 
     Ok(())
 }

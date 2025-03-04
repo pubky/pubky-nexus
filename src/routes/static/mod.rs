@@ -1,8 +1,8 @@
+use super::AppState;
 use crate::register_routes_with_state;
 use axum::Router;
 use endpoints::{LEGACY_STATIC_FILES_ROUTE, STATIC_FILES_ROUTE, USER_AVATAR_ROUTE};
 use utoipa::OpenApi;
-use super::AppState;
 
 mod avatar;
 mod endpoints;

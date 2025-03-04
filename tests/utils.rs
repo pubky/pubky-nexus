@@ -50,9 +50,7 @@ impl TestServiceServer {
         let url = format!("http://{}", local_addr);
         SERVER_URL.set(url).expect("SERVER_URL already set");
 
-        tokio::spawn(async {
-            nexus_builder.run_test(listener).await
-        });
+        tokio::spawn(async { nexus_builder.run_test(listener).await });
 
         Ok(())
     }

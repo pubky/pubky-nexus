@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand, Args, ValueEnum};
+use clap::{Args, Parser, Subcommand};
 
 use crate::mock_db::MockType;
 
@@ -9,7 +9,7 @@ use crate::mock_db::MockType;
 #[command(about = "Pubky Nexus CLI", long_about = None)]
 pub struct Cli {
     #[command(subcommand)]
-    pub command: Option<NexusCommands>
+    pub command: Option<NexusCommands>,
 }
 
 #[derive(Subcommand, Debug)]

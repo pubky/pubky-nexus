@@ -1,11 +1,11 @@
 use std::time::Duration;
 
 use crate::common::{Config as StackConfig, Level, Neo4JConfig};
-use crate::db::graph::setup::setup_graph;
 use crate::db::connectors::{
     neo4j::{Neo4jConnector, NEO4J_CONNECTOR},
     redis::{RedisConnector, REDIS_CONNECTOR},
 };
+use crate::db::graph::setup::setup_graph;
 use opentelemetry::{global, KeyValue};
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_otlp::{LogExporter, MetricExporter, SpanExporter, WithExportConfig};
@@ -20,9 +20,7 @@ use tracing_subscriber::{layer::SubscriberExt, Registry};
 pub struct StackManager {}
 
 impl StackManager {
-    pub async fn setup(
-        config: &StackConfig,
-    ) {
+    pub async fn setup(config: &StackConfig) {
         // Initialize logging and metrics
         Self::setup_logging(&config.name, &config.otlp_endpoint, config.log_level).await;
         Self::setup_metrics(&config.name, &config.otlp_endpoint).await;
@@ -63,10 +61,7 @@ impl StackManager {
 
     async fn setup_logging(service_name: &str, otel_endpoint: &Option<String>, log_level: Level) {
         match otel_endpoint {
-            None => {
-                Self::setup_local_logging(log_level);
-                return;
-            }
+            None => Self::setup_local_logging(log_level),
             Some(endpoint) => {
                 match Self::setup_otlp_logging(service_name, endpoint, log_level).await {
                     Ok(()) => info!("OpenTelemetry Logging initialized"),
@@ -164,10 +159,7 @@ impl StackManager {
 
     async fn setup_metrics(service_name: &str, otel_endpoint: &Option<String>) {
         match otel_endpoint {
-            None => {
-                info!("Metrics collection is disabled. No metrics will be exported.");
-                return;
-            }
+            None => info!("Metrics collection is disabled. No metrics will be exported"),
             Some(endpoint) => {
                 // Configure the exporter to collect and send metrics to an OTLP
                 let metric_exporter = MetricExporter::builder()

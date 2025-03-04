@@ -69,7 +69,7 @@ impl StaticProcessor {
     async fn create_file_variant(
         file: &FileDetails,
         variant: &FileVariant,
-        file_path: PathBuf
+        file_path: PathBuf,
     ) -> Result<String, DynError> {
         match &file.content_type {
             content_type if content_type.starts_with("image/") => {
@@ -82,7 +82,11 @@ impl StaticProcessor {
         }
     }
 
-    async fn check_variant_exists(file: &FileDetails, variant: FileVariant, file_path: PathBuf) -> bool {
+    async fn check_variant_exists(
+        file: &FileDetails,
+        variant: FileVariant,
+        file_path: PathBuf,
+    ) -> bool {
         // main variant always exists
         if variant == FileVariant::Main {
             return true;
@@ -100,9 +104,10 @@ impl StaticProcessor {
     pub async fn get_or_create_variant(
         file: &FileDetails,
         variant: &FileVariant,
-        file_path: PathBuf
+        file_path: PathBuf,
     ) -> Result<String, DynError> {
-        let file_variant_exists = Self::check_variant_exists(file, variant.clone(), file_path.clone()).await;
+        let file_variant_exists =
+            Self::check_variant_exists(file, variant.clone(), file_path.clone()).await;
 
         if file_variant_exists {
             Ok(Self::get_content_type_for_variant(file, variant))

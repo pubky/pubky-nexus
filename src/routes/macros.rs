@@ -1,6 +1,6 @@
-/// Defines multiple GET routes on an Axum `Router` by allowing 
+/// Defines multiple GET routes on an Axum `Router` by allowing
 /// multiple path-handler pairs to be specified inline
-/// 
+///
 /// # Expansion
 ///
 /// ```rust
@@ -19,7 +19,7 @@ macro_rules! register_routes {
 /// This macro allows defining multiple GET routes for an Axum `Router`, while also
 /// associating it with a shared state object. It ensures that each route has access
 /// to the provided state
-/// 
+///
 /// # Expansion
 ///
 /// ```rust

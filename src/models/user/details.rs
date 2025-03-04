@@ -113,8 +113,8 @@ impl UserDetails {
 #[cfg(test)]
 mod tests {
 
-    use crate::_service::NexusApi;
     use super::*;
+    use crate::_service::NexusApi;
 
     const USER_IDS: [&str; 8] = [
         "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro",

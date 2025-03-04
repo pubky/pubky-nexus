@@ -16,7 +16,6 @@ pub enum MockType {
 pub struct MockDb {}
 
 impl MockDb {
-
     pub async fn clear_database() {
         NexusApi::builder().init_stack().await;
         Self::drop_cache().await;
@@ -29,7 +28,7 @@ impl MockDb {
         match mock_type {
             Some(MockType::Redis) => Self::sync_redis().await,
             Some(MockType::Graph) => Self::sync_graph().await,
-            None => Self::sync_all().await
+            None => Self::sync_all().await,
         }
     }
 
@@ -71,12 +70,7 @@ impl MockDb {
         //let graph_env = std::env::var("GRAPH_CONTAINER_NAME").unwrap_or("neo4j".to_string());
         // Run the run-queries.sh script on the Docker host using docker exec
         tokio::process::Command::new("docker")
-            .args([
-                "exec",
-                "neo4j",
-                "bash",
-                "/db-graph/run-queries.sh",
-            ])
+            .args(["exec", "neo4j", "bash", "/db-graph/run-queries.sh"])
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .status()
