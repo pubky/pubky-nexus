@@ -1,6 +1,8 @@
 use clap::Parser;
 use pubky_nexus::cli::{Cli, DbCommands, MigrationCommands, NexusCommands};
+use pubky_nexus::db::migrations::builder::MigrationBuilder;
 use pubky_nexus::mock_db::MockDb;
+use pubky_nexus::{import_migrations, MigrationManager};
 use pubky_nexus::{_service::NexusApi, _watcher::NexusWatcher, types::DynError};
 use tokio::join;
 
@@ -31,11 +33,12 @@ async fn main() -> Result<(), DynError> {
             DbCommands::Clear => MockDb::clear_database().await,
             DbCommands::Mock(args) => MockDb::run(args.mock_type).await,
             DbCommands::Migration(migration_command) => match migration_command {
-                MigrationCommands::New(args) => {
-                    println!("Creating new migration: {}", args.name);
-                }
+                MigrationCommands::New(args) => MigrationManager::new_migration(args.name).await?,
                 MigrationCommands::Run => {
-                    println!("Running pending migrations...");
+                    let builder = MigrationBuilder::default().await;
+                    let mut mm = builder.init_stack().await;
+                    import_migrations(&mut mm);
+                    mm.run(&builder.migrations_backfill_ready()).await?;
                 }
             },
         },
