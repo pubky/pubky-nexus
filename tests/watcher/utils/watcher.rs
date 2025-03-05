@@ -6,7 +6,7 @@ use pubky_app_specs::{
     traits::TimestampId, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser,
 };
 use pubky_homeserver::Homeserver;
-use pubky_nexus::_service::NexusApi;
+use pubky_nexus::_watcher::NexusWatcher;
 use pubky_nexus::common::FILES_DIR;
 use pubky_nexus::events::retry::event::RetryEvent;
 use pubky_nexus::events::Event;
@@ -39,8 +39,7 @@ impl WatcherTest {
     /// Returns an instance of `Self` containing the configuration, homeserver,
     /// event processor, and other test setup details.
     pub async fn setup() -> Result<Self> {
-        // TODO: Should be WatcherBuilder or some common struct (might make more sense)
-        NexusApi::builder().init_stack().await;
+        NexusWatcher::builder().init_test_stack().await;
 
         // testnet initialization is time expensive, we only init one per process
         let testnet = TestnetNetwork::get().await?;
@@ -218,6 +217,20 @@ impl WatcherTest {
 
         self.ensure_event_processing_complete().await?;
         Ok((file_id, url))
+    }
+
+    pub async fn create_file_from_body(
+        &mut self,
+        homeserver_uri: &str, 
+        object: Vec<u8>
+    ) -> Result<()> {
+        PubkyClient::get()
+            .unwrap()
+            .put(homeserver_uri)
+            .body(object)
+            .send()
+            .await?;
+        Ok(())
     }
 
     pub async fn cleanup_file(&mut self, user_id: &str, file_id: &str) -> Result<()> {

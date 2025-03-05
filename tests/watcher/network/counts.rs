@@ -25,10 +25,14 @@ const NUM_USERS: usize = 10;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_large_network_scenario_counts() -> Result<()> {
+
     let mut test = WatcherTest::setup().await?;
+    
     if !PROCESS_EVENTS_ONE_BY_ONE {
         test = test.remove_event_processing().await;
     }
+
+    let pubky_client = PubkyClient::get().unwrap();
 
     // Seed for reproducibility
     let seed = 42;
@@ -135,7 +139,6 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                     };
                     let mute_url =
                         format!("pubky://{}/pub/pubky.app/mutes/{}", user_id, target_user_id);
-                    let pubky_client = PubkyClient::get().unwrap();
                     pubky_client
                         .put(mute_url.as_str())
                         .json(&mute)
@@ -263,7 +266,6 @@ async fn test_large_network_scenario_counts() -> Result<()> {
             if unmuted.insert(target_user_id.clone()) {
                 let mute_uri =
                     format!("pubky://{}/pub/pubky.app/mutes/{}", user_id, target_user_id);
-                let pubky_client = PubkyClient::get().unwrap();
                 pubky_client.delete(mute_uri.as_str()).send().await?;
                 mute_set.remove(target_user_id);
                 _total_unmutes += 1;
