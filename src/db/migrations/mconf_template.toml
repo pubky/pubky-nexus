@@ -16,6 +16,6 @@ redis = "redis://localhost:6379"
 
 [stack.db.neo4j]
 uri = "bolt://localhost:7687"
-# Not need it. Might be default
-user = "neo4j"
+# Not needed in the Community Edition
+#user = "neo4j"
 password = "12345678"

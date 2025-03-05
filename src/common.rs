@@ -69,8 +69,13 @@ impl Config {
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct Neo4JConfig {
     pub uri: String,
+    #[serde(default = "default_neo4j_user")]
     pub user: String,
     pub password: String,
+}
+
+fn default_neo4j_user() -> String {
+    String::from("neo4j")
 }
 
 impl Default for Neo4JConfig {

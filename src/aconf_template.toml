@@ -6,13 +6,13 @@ name = "nexus.api"
 log_level = "debug"
 files_path = "./static/files"
 # OTLP_ENDPOINT is set to empty by default. If you want to enable tracing, set it to the OpenTelemetry Collector endpoint
-#otlp_endpoint=""
+#otlp_endpoint="http://localhost:4317"
 
 [stack.db]
 redis = "redis://localhost:6379"
 
 [stack.db.neo4j]
 uri = "bolt://localhost:7687"
-# Not need it. Might be default
-user = "neo4j"
+# Not needed in the Community Edition
+#user = "neo4j"
 password = "12345678"
