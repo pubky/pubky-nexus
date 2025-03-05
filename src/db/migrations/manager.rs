@@ -1,4 +1,4 @@
-use crate::{db::migrations::utils, types::DynError, Config};
+use crate::{db::migrations::utils, get_neo4j_graph, types::DynError};
 use async_trait::async_trait;
 use chrono::Utc;
 use neo4rs::{Graph, Query};
@@ -74,7 +74,7 @@ pub trait Migration {
     async fn cleanup(&self) -> Result<(), DynError>;
 }
 
-#[derive(Deserialize, Serialize, Clone)]
+#[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct MigrationNode {
     id: String,
     phase: MigrationPhase,
@@ -87,22 +87,28 @@ pub struct MigrationManager {
     migrations: Vec<Box<dyn Migration>>,
 }
 
-impl MigrationManager {
-    pub fn new(graph: Arc<Mutex<Graph>>) -> Self {
+impl Default for MigrationManager {
+    fn default() -> Self {
+        let graph_connection = match get_neo4j_graph() {
+            Ok(connection) => connection,
+            Err(e) => panic!("Could not initialise migration manager: {:?}", e),
+        };
         Self {
-            graph,
+            graph: graph_connection,
             migrations: Vec::new(),
         }
     }
+}
 
+impl MigrationManager {
     pub async fn dual_write<T: Migration>(data: Box<dyn Any + Send>) -> Result<(), DynError> {
         T::dual_write(data).await
     }
 
-    pub async fn new_migration(name: &str) -> Result<(), DynError> {
+    pub async fn new_migration(name: String) -> Result<(), DynError> {
         let now = Utc::now().timestamp();
         let migration_name = format!("{}{}", name, now);
-        let migration_file_name = format!("{}_{}", utils::to_snake_case(name), now);
+        let migration_file_name = format!("{}_{}", utils::to_snake_case(&name), now);
         let migration_template = get_migration_template(migration_name.as_str());
         let file_path = format!(
             "src/db/migrations/migrations_list/{}.rs",
@@ -134,15 +140,12 @@ impl MigrationManager {
         self.migrations.push(migration);
     }
 
-    pub async fn run(&self, config: &Config) -> Result<(), DynError> {
+    pub async fn run(&mut self, migrations_backfill_ready: &[String]) -> Result<(), DynError> {
         // get all migrations from the database
         let stored_migrations = self.get_migrations().await?;
         // update any migration marked as ready for backfill
         for stored_migration in &stored_migrations {
-            if config
-                .migrations_backfill_ready
-                .contains(&stored_migration.id)
-            {
+            if migrations_backfill_ready.contains(&stored_migration.id) {
                 self.update_migration_phase(&stored_migration.id, &MigrationPhase::Backfill)
                     .await?;
             }
@@ -225,11 +228,11 @@ impl MigrationManager {
             Ok(row) => match row {
                 Some(row) => match row.get::<Vec<MigrationNode>>("migrations") {
                     Ok(migrations) => Ok(migrations),
-                    Err(e) => Err(e.into()),
+                    Err(e) => Err(format!("GET ROW ERROR: {:?}, {:?}", e, row).into()),
                 },
                 None => Err("Migration Not found".into()),
             },
-            Err(e) => Err(e.into()),
+            Err(e) => Err(format!("GET MIGRATION ERROR: {:?}", e).into()),
         }
     }
 
@@ -239,7 +242,8 @@ impl MigrationManager {
             false => MigrationPhase::Backfill,
         };
         let query = Query::new(
-            "MERGE (m:Migration {id: $id, phase: $phase, created_at: timestamp()})".to_string(),
+            "MERGE (m:Migration {id: $id, phase: $phase, created_at: timestamp(), updated_at: 0})"
+                .to_string(),
         )
         .param("id", id)
         .param("phase", initial_phase.to_string());

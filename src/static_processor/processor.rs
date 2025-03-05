@@ -11,10 +11,7 @@ use crate::{
     types::DynError,
 };
 
-use super::{
-    processors::{image::ImageProcessor, traits::FileProcessor, video::VideoProcessor},
-    StaticStorage,
-};
+use super::processors::{image::ImageProcessor, traits::FileProcessor, video::VideoProcessor};
 
 pub struct StaticProcessor;
 
@@ -72,26 +69,31 @@ impl StaticProcessor {
     async fn create_file_variant(
         file: &FileDetails,
         variant: &FileVariant,
+        file_path: PathBuf,
     ) -> Result<String, DynError> {
         match &file.content_type {
             content_type if content_type.starts_with("image/") => {
-                ImageProcessor::create_variant(file, variant).await
+                ImageProcessor::create_variant(file, variant, file_path).await
             }
             content_type if content_type.starts_with("video/") => {
-                VideoProcessor::create_variant(file, variant).await
+                VideoProcessor::create_variant(file, variant, file_path).await
             }
             _ => Err(format!("Unsupported content type: {}", file.content_type).into()),
         }
     }
 
-    async fn check_variant_exists(file: &FileDetails, variant: FileVariant) -> bool {
+    async fn check_variant_exists(
+        file: &FileDetails,
+        variant: FileVariant,
+        file_path: PathBuf,
+    ) -> bool {
         // main variant always exists
         if variant == FileVariant::Main {
             return true;
         }
 
         // if file exists, variant has already been created
-        let path = PathBuf::from(StaticStorage::get_storage_path())
+        let path = file_path
             .join(file.owner_id.as_str())
             .join(file.id.as_str())
             .join(variant.to_string());
@@ -102,13 +104,15 @@ impl StaticProcessor {
     pub async fn get_or_create_variant(
         file: &FileDetails,
         variant: &FileVariant,
+        file_path: PathBuf,
     ) -> Result<String, DynError> {
-        let file_variant_exists = Self::check_variant_exists(file, variant.clone()).await;
+        let file_variant_exists =
+            Self::check_variant_exists(file, variant.clone(), file_path.clone()).await;
 
         if file_variant_exists {
             Ok(Self::get_content_type_for_variant(file, variant))
         } else {
-            match Self::create_file_variant(file, variant).await {
+            match Self::create_file_variant(file, variant, file_path).await {
                 Ok(content_type) => Ok(content_type),
                 Err(err) => {
                     error!(

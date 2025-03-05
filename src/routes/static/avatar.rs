@@ -1,11 +1,14 @@
+use std::path::PathBuf;
+
 use crate::models::file::details::FileVariant;
 use crate::routes::r#static::PubkyServeDir;
+use crate::routes::AppState;
 use crate::static_processor::StaticProcessor;
 use crate::{
     models::{file::FileDetails, traits::Collection, user::UserDetails},
     Error, Result,
 };
-use axum::extract::Request;
+use axum::extract::{Request, State};
 use axum::{extract::Path, response::Response};
 use tower_http::services::fs::ServeFileSystemResponseBody;
 use tracing::{error, info};
@@ -29,9 +32,12 @@ use super::endpoints::USER_AVATAR_ROUTE;
 )]
 pub async fn user_avatar_handler(
     Path(user_id): Path<String>,
+    State(app_state): State<AppState>,
     request: Request,
 ) -> Result<Response<ServeFileSystemResponseBody>> {
     info!("GET {USER_AVATAR_ROUTE} user_id:{}", user_id);
+
+    let file_path: &PathBuf = &app_state.files_path;
 
     // 1. Get user details
     let details = match UserDetails::get_by_id(&user_id)
@@ -67,16 +73,19 @@ pub async fn user_avatar_handler(
     };
 
     // 5. ensure small variant is created
-    let small_variant_content_type =
-        StaticProcessor::get_or_create_variant(&file_details, &FileVariant::Small)
-            .await
-            .map_err(|err| {
-                error!(
-                    "Error while processing small variant for user: {} avatar with file: {}",
-                    user_id, file_id
-                );
-                Error::InternalServerError { source: err }
-            })?;
+    let small_variant_content_type = StaticProcessor::get_or_create_variant(
+        &file_details,
+        &FileVariant::Small,
+        file_path.clone(),
+    )
+    .await
+    .map_err(|err| {
+        error!(
+            "Error while processing small variant for user: {} avatar with file: {}",
+            user_id, file_id
+        );
+        Error::InternalServerError { source: err }
+    })?;
 
     // serve the file using ServeDir
     // Create a new request with a modified path to serve the file using ServeDir
@@ -88,7 +97,13 @@ pub async fn user_avatar_handler(
         FileVariant::Small,
     );
 
-    PubkyServeDir::try_call(request, file_uri_path, small_variant_content_type).await
+    PubkyServeDir::try_call(
+        request,
+        file_uri_path,
+        small_variant_content_type,
+        file_path.clone(),
+    )
+    .await
 }
 
 #[derive(OpenApi)]

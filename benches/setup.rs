@@ -1,4 +1,4 @@
-use pubky_nexus::{Config, StackManager};
+use pubky_nexus::_service::NexusApi;
 use std::{env, sync::Once};
 use tokio::runtime::Runtime;
 
@@ -9,8 +9,7 @@ pub fn run_setup() {
         let rt = Runtime::new().unwrap();
         env::set_var("RUST_LOG", "error");
         rt.block_on(async {
-            let config = Config::from_env();
-            StackManager::setup(&config).await;
+            NexusApi::builder().init_stack().await;
         });
     });
 }

@@ -9,10 +9,7 @@ use pubky_app_specs::{
     traits::HasPath, PubkyAppBlob, PubkyAppFile, PubkyAppPost, PubkyAppPostKind, PubkyAppUser,
     PubkyAppUserLink,
 };
-use pubky_nexus::{
-    models::user::{UserCounts, UserView},
-    PubkyConnector,
-};
+use pubky_nexus::models::user::{UserCounts, UserView};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_delete_user_with_relationships() -> Result<()> {
@@ -124,11 +121,7 @@ async fn test_delete_user_with_relationships() -> Result<()> {
     let blob = PubkyAppBlob::new(blob_data.as_bytes().to_vec());
     let blob_url = format!("pubky://{}{}", user_with_id, blob.create_path());
 
-    let pubky_client = PubkyConnector::get_pubky_client().await.unwrap();
-    pubky_client
-        .put(blob_url.as_str())
-        .body(blob.0.clone())
-        .send()
+    test.create_file_from_body(blob_url.as_str(), blob.0.clone())
         .await?;
 
     // Act

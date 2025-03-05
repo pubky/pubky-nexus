@@ -145,15 +145,15 @@ mod tests {
             user::{UserDetails, UserSearch},
         },
         types::DynError,
-        Config, RedisOps, StackManager,
+        RedisOps,
+        _service::NexusApi,
     };
     use chrono::Utc;
     use pubky_app_specs::PubkyId;
 
     #[tokio_shared_rt::test(shared)]
     async fn test_put_to_index_no_duplicates() -> Result<(), DynError> {
-        let config = Config::from_env();
-        StackManager::setup(&config).await;
+        NexusApi::builder().init_stack().await;
         // Test that the `put_to_index` method does not add duplicate records to the index
         // when called with the same `UserDetails` multiple times.
 

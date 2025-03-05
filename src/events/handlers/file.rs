@@ -1,4 +1,6 @@
-use crate::db::connectors::pubky::PubkyConnector;
+use std::path::PathBuf;
+
+use crate::db::connectors::pubky::PubkyClient;
 use crate::events::error::EventProcessorError;
 use crate::handle_indexing_results;
 use crate::models::file::details::FileVariant;
@@ -17,12 +19,13 @@ pub async fn sync_put(
     uri: String,
     user_id: PubkyId,
     file_id: String,
+    files_path: PathBuf,
 ) -> Result<(), DynError> {
     debug!("Indexing new file resource at {}/{}", user_id, file_id);
 
     debug!("file input {:?}", file);
 
-    let file_meta = ingest(&user_id, file_id.as_str(), &file).await?;
+    let file_meta = ingest(&user_id, file_id.as_str(), &file, files_path).await?;
 
     // Create FileDetails object
     let file_details =
@@ -56,10 +59,11 @@ async fn ingest(
     user_id: &PubkyId,
     file_id: &str,
     pubkyapp_file: &PubkyAppFile,
+    files_path: PathBuf,
 ) -> Result<FileMeta, DynError> {
     let response;
     {
-        let pubky_client = PubkyConnector::get_pubky_client().await?;
+        let pubky_client = PubkyClient::get()?;
 
         response = match pubky_client.get(&pubkyapp_file.src).send().await {
             Ok(response) => response,
@@ -75,17 +79,15 @@ async fn ingest(
         };
     }
 
-    let path: String = format!("{}/{}", user_id, file_id);
-    let storage_path = StaticStorage::get_storage_path();
-    let full_path = format!("{}/{}", storage_path, path);
+    let path = format!("{}/{}", user_id, file_id);
+    let full_path = files_path.join(path.clone());
 
     let blob = response.bytes().await?;
     let pubky_app_object = PubkyAppObject::from_uri(&pubkyapp_file.src, &blob)?;
 
     match pubky_app_object {
         PubkyAppObject::Blob(blob) => {
-            StaticStorage::store_blob(FileVariant::Main.to_string(), full_path.to_string(), &blob)
-                .await?;
+            StaticStorage::store_blob(FileVariant::Main.to_string(), full_path, &blob).await?;
 
             let urls = StaticProcessor::get_file_urls_by_content_type(
                 pubkyapp_file.content_type.as_str(),
@@ -103,7 +105,7 @@ async fn ingest(
     }
 }
 
-pub async fn del(user_id: &PubkyId, file_id: String) -> Result<(), DynError> {
+pub async fn del(user_id: &PubkyId, file_id: String, files_path: PathBuf) -> Result<(), DynError> {
     debug!("Deleting File resource at {}/{}", user_id, file_id);
     let result = FileDetails::get_by_ids(
         vec![vec![user_id.as_str(), file_id.as_str()].as_slice()].as_slice(),
@@ -118,8 +120,7 @@ pub async fn del(user_id: &PubkyId, file_id: String) -> Result<(), DynError> {
         }
 
         let folder_path = format!("{}/{}", user_id, file_id);
-        let storage_path = StaticStorage::get_storage_path();
-        let full_path = format!("{}/{}", storage_path, folder_path);
+        let full_path = files_path.join(folder_path);
 
         remove_dir_all(full_path).await?;
     }

@@ -183,9 +183,9 @@ impl PostDetails {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Config, StackManager};
 
     use super::*;
+    use crate::_service::NexusApi;
 
     const AUTHOR_A_ID: &str = "h3fghnb3x59oh7r53x8y6a5x38oatqyjym9b31ybss17zqdnhcoy";
     const REPLY_ID: &str = "2ZECXVXHZBE00";
@@ -193,8 +193,7 @@ mod tests {
 
     #[tokio_shared_rt::test(shared)]
     async fn test_post_details_get_from_graph() {
-        let config = Config::from_env();
-        StackManager::setup(&config).await;
+        NexusApi::builder().init_stack().await;
 
         let _res = PostDetails::get_by_id(AUTHOR_A_ID, REPLY_ID).await.unwrap();
         let replies = PostStream::get_post_replies(AUTHOR_A_ID, POST_ID, None, None, None)

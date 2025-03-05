@@ -1,5 +1,7 @@
+use std::path::PathBuf;
+
 use axum::{
-    extract::{Path, Query, Request},
+    extract::{Path, Query, Request, State},
     response::Response,
 };
 use serde::{Deserialize, Serialize};
@@ -12,7 +14,7 @@ use crate::{
         file::{details::FileVariant, FileDetails},
         traits::Collection,
     },
-    routes::r#static::PubkyServeDir,
+    routes::{r#static::PubkyServeDir, AppState},
     static_processor::StaticProcessor,
     Error, Result,
 };
@@ -60,6 +62,7 @@ pub async fn static_files_handler(
         file_id,
         variant,
     }): Path<FilePath>,
+    State(app_state): State<AppState>,
     params: Query<FileParams>,
     request: Request,
 ) -> Result<Response<ServeFileSystemResponseBody>> {
@@ -67,6 +70,9 @@ pub async fn static_files_handler(
         "Serving file for user: {} and file: {} with variant: {:?}",
         owner_id, file_id, variant
     );
+
+    let file_path: &PathBuf = &app_state.files_path;
+
     let files = FileDetails::get_by_ids(
         vec![vec![owner_id.as_str(), file_id.as_str()].as_slice()].as_slice(),
     )
@@ -97,15 +103,16 @@ pub async fn static_files_handler(
         });
     }
 
-    let file_variant_content_type = StaticProcessor::get_or_create_variant(&file, &variant)
-        .await
-        .map_err(|err| {
-            error!(
-                "Error while processing file variant for variant: {} and file: {}",
-                variant, file_id
-            );
-            Error::InternalServerError { source: err }
-        })?;
+    let file_variant_content_type =
+        StaticProcessor::get_or_create_variant(&file, &variant, file_path.clone())
+            .await
+            .map_err(|err| {
+                error!(
+                    "Error while processing file variant for variant: {} and file: {}",
+                    variant, file_id
+                );
+                Error::InternalServerError { source: err }
+            })?;
 
     let request_uri = request.uri().clone();
 
@@ -113,6 +120,7 @@ pub async fn static_files_handler(
         request,
         request_uri.path().replace("static/files", ""),
         file_variant_content_type,
+        file_path.clone(),
     )
     .await?;
 
