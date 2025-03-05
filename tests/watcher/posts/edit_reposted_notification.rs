@@ -4,7 +4,7 @@ use pubky::Keypair;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser};
 use pubky_nexus::{
     models::notification::{Notification, NotificationBody, PostChangedSource},
-    types::Pagination
+    types::Pagination,
 };
 
 #[tokio_shared_rt::test(shared)]

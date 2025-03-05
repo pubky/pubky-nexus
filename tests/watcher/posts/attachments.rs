@@ -26,7 +26,8 @@ async fn test_homeserver_post_attachments() -> Result<()> {
     let blob = PubkyAppBlob::new(blob_data.as_bytes().to_vec());
     let blob_url = format!("pubky://{}{}", user_id, blob.create_path());
 
-    test.create_file_from_body(blob_url.as_str(), blob.0.clone()).await?;
+    test.create_file_from_body(blob_url.as_str(), blob.0.clone())
+        .await?;
     test.ensure_event_processing_complete().await?;
 
     let file = PubkyAppFile {

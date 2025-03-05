@@ -221,8 +221,8 @@ impl WatcherTest {
 
     pub async fn create_file_from_body(
         &mut self,
-        homeserver_uri: &str, 
-        object: Vec<u8>
+        homeserver_uri: &str,
+        object: Vec<u8>,
     ) -> Result<()> {
         PubkyClient::get()
             .unwrap()

@@ -35,7 +35,8 @@ async fn test_user_avatar_endpoint() -> Result<()> {
         user_id,
         blob.create_id()
     );
-    test.create_file_from_body(blob_url.as_str(), blob.0.clone()).await?;
+    test.create_file_from_body(blob_url.as_str(), blob.0.clone())
+        .await?;
 
     // 5. Create a new file referencing that blob
     let file = PubkyAppFile {
