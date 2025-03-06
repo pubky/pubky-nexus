@@ -2295,6 +2295,93 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-api"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum 0.8.1",
+ "chrono",
+ "clap",
+ "const_format",
+ "criterion",
+ "dotenv",
+ "httpc-test",
+ "neo4rs",
+ "nexus-common",
+ "once_cell",
+ "opentelemetry",
+ "opentelemetry-appender-tracing",
+ "opentelemetry-otlp",
+ "opentelemetry-stdout",
+ "opentelemetry_sdk",
+ "pubky",
+ "pubky-app-specs",
+ "pubky-homeserver",
+ "pubky-testnet",
+ "rand 0.8.5",
+ "rand_distr",
+ "redis",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.11",
+ "tokio",
+ "tokio-shared-rt",
+ "toml",
+ "tower-http",
+ "tracing",
+ "tracing-opentelemetry",
+ "tracing-subscriber",
+ "url",
+ "utoipa",
+ "utoipa-swagger-ui",
+]
+
+[[package]]
+name = "nexus-common"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum 0.8.1",
+ "chrono",
+ "clap",
+ "const_format",
+ "criterion",
+ "dotenv",
+ "httpc-test",
+ "neo4rs",
+ "once_cell",
+ "opentelemetry",
+ "opentelemetry-appender-tracing",
+ "opentelemetry-otlp",
+ "opentelemetry-stdout",
+ "opentelemetry_sdk",
+ "pubky",
+ "pubky-app-specs",
+ "pubky-homeserver",
+ "pubky-testnet",
+ "rand 0.8.5",
+ "rand_distr",
+ "redis",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.11",
+ "tokio",
+ "tokio-shared-rt",
+ "toml",
+ "tower-http",
+ "tracing",
+ "tracing-opentelemetry",
+ "tracing-subscriber",
+ "url",
+ "utoipa",
+ "utoipa-swagger-ui",
+]
+
+[[package]]
 name = "no-std-compat"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3022,49 +3109,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
-]
-
-[[package]]
-name = "pubky-nexus"
-version = "0.3.1"
-dependencies = [
- "anyhow",
- "async-trait",
- "axum 0.8.1",
- "chrono",
- "clap",
- "const_format",
- "criterion",
- "dotenv",
- "httpc-test",
- "neo4rs",
- "once_cell",
- "opentelemetry",
- "opentelemetry-appender-tracing",
- "opentelemetry-otlp",
- "opentelemetry-stdout",
- "opentelemetry_sdk",
- "pubky",
- "pubky-app-specs",
- "pubky-homeserver",
- "pubky-testnet",
- "rand 0.8.5",
- "rand_distr",
- "redis",
- "reqwest",
- "serde",
- "serde_json",
- "thiserror 2.0.11",
- "tokio",
- "tokio-shared-rt",
- "toml",
- "tower-http",
- "tracing",
- "tracing-opentelemetry",
- "tracing-subscriber",
- "url",
- "utoipa",
- "utoipa-swagger-ui",
 ]
 
 [[package]]
