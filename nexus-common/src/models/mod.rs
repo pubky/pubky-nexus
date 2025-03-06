@@ -1,7 +1,6 @@
 pub mod file;
 pub mod follow;
 pub mod homeserver;
-pub mod info;
 pub mod notification;
 pub mod post;
 pub mod tag;

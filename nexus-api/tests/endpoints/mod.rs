@@ -37,6 +37,7 @@ async fn test_info_endpoint() -> Result<()> {
     assert_eq!(res.status(), 200);
 
     let body = res.json_body()?;
+    println!("body: {:?}", body);
     assert_eq!(body["name"], env!("CARGO_PKG_NAME"));
     assert_eq!(body["version"], env!("CARGO_PKG_VERSION"));
 

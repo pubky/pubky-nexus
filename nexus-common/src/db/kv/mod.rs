@@ -8,3 +8,4 @@ pub use traits::RedisOps;
 pub use index::sorted_sets::{ SortOrder, ScoreAction };
 pub use index::json::JsonAction;
 pub use last_save::get_last_rdb_save_time;
+pub use flush::clear_redis;

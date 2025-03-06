@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use super::endpoints::INFO_ROUTE;
-use nexus_common::models::info::ServerInfo;
+use crate::models::info::ServerInfo;
 use crate::register_routes_with_state;
 use crate::routes::AppState;
 use axum::extract::State;

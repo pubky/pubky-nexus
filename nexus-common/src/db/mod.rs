@@ -3,6 +3,7 @@ mod connectors;
 mod graph;
 pub mod kv;
 pub mod migrations;
+pub mod reindex;
 
 pub use config::{Config, ConfigLoader, Neo4JConfig, Level, DatabaseConfig};
 pub use connectors::{

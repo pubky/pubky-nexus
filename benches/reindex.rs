@@ -17,6 +17,7 @@ fn bench_reindex(c: &mut Criterion) {
 
     c.bench_function("reindex", |b| {
         b.to_async(&rt).iter(|| async {
+            // Previously, clear the cache. Shall we add
             reindex().await;
         });
     });

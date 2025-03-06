@@ -1,4 +1,4 @@
-use std::fs::{self};
+use std::{fs::{self}, path::PathBuf};
 
 use anyhow::Result;
 use nexus_common::models::{
@@ -6,18 +6,19 @@ use nexus_common::models::{
     traits::Collection,
 };
 use tokio::fs::create_dir_all;
-
 use crate::utils::host_url;
+
+const IMAGE_BLOB_NAME: &str = "SynonymLogo.png";
+const BLOB_PATH: &str = "tests/files/blobs";
+
+const FILE_ID: &str = "2ZKH7K7M9G3G0";
+const USER_PUBKY: &str = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
 
 #[tokio_shared_rt::test(shared)]
 async fn test_static_image_serving_main() -> Result<()> {
     let client = httpc_test::new_client(host_url().await)?;
 
-    let test_file_id = "2ZKH7K7M9G3G0";
-    let test_file_user = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
-    let test_image_blob_name = "SynonymLogo.png";
-
-    let test_image_dir_path = format!("static/files/{test_file_user}/{test_file_id}");
+    let test_image_dir_path = format!("static/files/{USER_PUBKY}/{FILE_ID}");
     let full_image_path = format!("{}/main", test_image_dir_path.clone());
 
     // make sure directory exists
@@ -30,12 +31,12 @@ async fn test_static_image_serving_main() -> Result<()> {
     }
     // copy the image from mocks folder to static folder
     fs::copy(
-        format!("docker/db-graph/mocks/blobs/{test_image_blob_name}"),
+        PathBuf::from(BLOB_PATH).join(IMAGE_BLOB_NAME),
         &full_image_path,
     )?;
 
     let files =
-        FileDetails::get_by_ids(vec![vec![test_file_user, test_file_id].as_slice()].as_slice())
+        FileDetails::get_by_ids(vec![vec![USER_PUBKY, FILE_ID].as_slice()].as_slice())
             .await
             .expect("Failed to fetch files from Nexus");
 
@@ -43,7 +44,7 @@ async fn test_static_image_serving_main() -> Result<()> {
 
     let test_file_version_name = FileVariant::Main.to_string();
     let test_file_path =
-        format!("static/files/{test_file_user}/{test_file_id}/{test_file_version_name}");
+        format!("static/files/{USER_PUBKY}/{FILE_ID}/{test_file_version_name}");
 
     let res = client
         .do_get(format!("/{}", test_file_path.as_str()).as_str())
@@ -65,11 +66,7 @@ async fn test_static_image_serving_main() -> Result<()> {
 async fn test_static_image_serving_feed() -> Result<()> {
     let client = httpc_test::new_client(host_url().await)?;
 
-    let test_file_id = "2ZKH7K7M9G3G0";
-    let test_file_user = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
-    let test_image_blob_name = "SynonymLogo.png";
-
-    let test_image_dir_path = format!("static/files/{test_file_user}/{test_file_id}");
+    let test_image_dir_path = format!("static/files/{USER_PUBKY}/{FILE_ID}");
     let full_image_path = format!("{}/main", test_image_dir_path.clone());
 
     // make sure directory exists
@@ -82,12 +79,12 @@ async fn test_static_image_serving_feed() -> Result<()> {
     }
     // copy the image from mocks folder to static folder
     fs::copy(
-        format!("docker/db-graph/mocks/blobs/{test_image_blob_name}"),
+        PathBuf::from(BLOB_PATH).join(IMAGE_BLOB_NAME),
         &full_image_path,
     )?;
 
     let files =
-        FileDetails::get_by_ids(vec![vec![test_file_user, test_file_id].as_slice()].as_slice())
+        FileDetails::get_by_ids(vec![vec![USER_PUBKY, FILE_ID].as_slice()].as_slice())
             .await
             .expect("Failed to fetch files from Nexus");
 
@@ -95,7 +92,7 @@ async fn test_static_image_serving_feed() -> Result<()> {
 
     let test_file_version_name = FileVariant::Feed.to_string();
     let test_file_path =
-        format!("static/files/{test_file_user}/{test_file_id}/{test_file_version_name}");
+        format!("static/files/{USER_PUBKY}/{FILE_ID}/{test_file_version_name}");
 
     let res = client
         .do_get(format!("/{}", test_file_path.as_str()).as_str())
@@ -124,11 +121,7 @@ async fn test_static_image_serving_feed() -> Result<()> {
 async fn test_static_image_serving_small() -> Result<()> {
     let client = httpc_test::new_client(host_url().await)?;
 
-    let test_file_id = "2ZKH7K7M9G3G0";
-    let test_file_user = "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy";
-    let test_image_blob_name = "SynonymLogo.png";
-
-    let test_image_dir_path = format!("static/files/{test_file_user}/{test_file_id}");
+    let test_image_dir_path = format!("static/files/{USER_PUBKY}/{FILE_ID}");
     let full_image_path = format!("{}/main", test_image_dir_path.clone());
 
     // make sure directory exists
@@ -141,12 +134,12 @@ async fn test_static_image_serving_small() -> Result<()> {
     }
     // copy the image from mocks folder to static folder
     fs::copy(
-        format!("docker/db-graph/mocks/blobs/{test_image_blob_name}"),
+        PathBuf::from(BLOB_PATH).join(IMAGE_BLOB_NAME),
         &full_image_path,
     )?;
 
     let files =
-        FileDetails::get_by_ids(vec![vec![test_file_user, test_file_id].as_slice()].as_slice())
+        FileDetails::get_by_ids(vec![vec![USER_PUBKY, FILE_ID].as_slice()].as_slice())
             .await
             .expect("Failed to fetch files from Nexus");
 
@@ -154,7 +147,7 @@ async fn test_static_image_serving_small() -> Result<()> {
 
     let test_file_version_name = FileVariant::Small.to_string();
     let test_file_path =
-        format!("static/files/{test_file_user}/{test_file_id}/{test_file_version_name}");
+        format!("static/files/{USER_PUBKY}/{FILE_ID}/{test_file_version_name}");
 
     let res = client
         .do_get(format!("/{}", test_file_path.as_str()).as_str())

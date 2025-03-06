@@ -1,24 +1,24 @@
 #!/bin/bash
 
 # Path to the queries file
-QUERIES_FILE="/db-graph/skunk.cypher"
+MAIN_GRAPH="/test-graph/skunk.cypher"
 # To achieve deterministic tests, each domain will have its own testing graph
-TAGS_TEST_FILE="/db-graph/mocks/tags.cypher"
-HOT_TAGS_TEST_FILE="/db-graph/mocks/hot-tags.cypher"
-POSTS_TEST_FILE="/db-graph/mocks/posts.cypher"
-FILES_TEST_FILE="/db-graph/mocks/files.cypher"
-MUTES_TEST_FILE="/db-graph/mocks/mutes.cypher"
+TAGS_TEST_FILE="/test-graph/mocks/tags.cypher"
+HOT_TAGS_TEST_FILE="/test-graph/mocks/hot-tags.cypher"
+POSTS_TEST_FILE="/test-graph/mocks/posts.cypher"
+FILES_TEST_FILE="/test-graph/mocks/files.cypher"
+MUTES_TEST_FILE="/test-graph/mocks/mutes.cypher"
 
 echo "Starting Cypher query execution..."
 
 # Check if the queries file exists
-if [[ ! -f "$QUERIES_FILE" ]]; then
+if [[ ! -f "$MAIN_GRAPH" ]]; then
     echo "Error: Queries file not found."
     exit 1
 fi
 
 # Execute queries and time the execution
-time cypher-shell -u neo4j -p 12345678 -f "$QUERIES_FILE"
+time cypher-shell -u neo4j -p 12345678 -f "$MAIN_GRAPH"
 echo "Importing TAGs test graph..."
 time cypher-shell -u neo4j -p 12345678 -f "$TAGS_TEST_FILE"
 echo "Importing HOT TAGs test graph..."

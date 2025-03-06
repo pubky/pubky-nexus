@@ -4,7 +4,7 @@ use chrono::{DateTime, TimeZone, Utc};
 use serde::Serialize;
 use utoipa::ToSchema;
 
-use crate::db::kv::get_last_rdb_save_time;
+use nexus_common::db::kv::get_last_rdb_save_time;
 
 #[derive(Serialize, ToSchema)]
 pub struct ServerInfo {

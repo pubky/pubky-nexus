@@ -1,4 +1,3 @@
-use crate::db::kv::flush::clear_redis;
 use crate::models::follow::{Followers, Following, UserFollows};
 use crate::models::post::Bookmark;
 use crate::models::tag::post::TagPost;
@@ -10,7 +9,7 @@ use crate::models::traits::Collection;
 use crate::models::user::{Influencers, Muted, UserDetails};
 use crate::types::DynError;
 use crate::{
-    db::connectors::neo4j::get_neo4j_graph,
+    db::get_neo4j_graph,
     models::post::{PostCounts, PostDetails, PostRelationships},
     models::user::UserCounts,
 };
@@ -18,12 +17,7 @@ use neo4rs::query;
 use tokio::task::JoinSet;
 use tracing::info;
 
-pub async fn reindex() {
-    // Clear Redis database
-    if let Err(e) = clear_redis().await {
-        tracing::error!("Failed to clear Redis: {:?}", e);
-        return;
-    }
+pub async fn sync() {
 
     let mut user_tasks = JoinSet::new();
     let mut post_tasks = JoinSet::new();
