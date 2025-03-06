@@ -2,14 +2,11 @@ use std::{fmt::Debug, path::PathBuf};
 
 use async_trait::async_trait;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-
-use crate::stack::StackManager;
-
 use super::MigrationManager;
-use crate::db::{Config as StackConfig, ConfigLoader};
+use nexus_common::db::{Config as StackConfig, ConfigLoader};
+use nexus_common::stack::StackManager;
 
-// TODO: should be ./mconf_template.toml
-pub const CONFIG_FILE: &str = "./src/db/migrations/mconf_template.toml";
+pub const CONFIG_FILE: &str = "./src/migrations/mconf_template.toml";
 
 // Nexus API configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -2429,12 +2429,16 @@ dependencies = [
 name = "nexusd"
 version = "0.0.1"
 dependencies = [
+ "async-trait",
+ "chrono",
  "clap",
+ "neo4rs",
  "nexus-api",
  "nexus-common",
  "nexus-watcher",
- "serde_json",
+ "serde",
  "tokio",
+ "tokio-shared-rt",
  "tracing",
 ]
 

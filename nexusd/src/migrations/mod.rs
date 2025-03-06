@@ -1,11 +1,13 @@
 #[allow(unused_imports)]
-use manager::{Migration, MigrationManager};
+use manager::Migration;
 
 pub mod builder;
 pub mod manager;
 mod migrations_list;
 mod utils;
 
+pub use builder::MigrationBuilder;
+pub use manager::MigrationManager;
 /// Registers migrations with the `MigrationManager`
 ///
 /// # Description

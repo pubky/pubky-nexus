@@ -1,11 +1,13 @@
-use crate::{db::{get_neo4j_graph, migrations::utils}, types::DynError};
 use async_trait::async_trait;
 use chrono::Utc;
 use neo4rs::{Graph, Query};
+use nexus_common::{db::get_neo4j_graph, types::DynError};
 use serde::{Deserialize, Serialize};
 use std::{any::Any, sync::Arc};
 use tokio::sync::Mutex;
 use tracing::info;
+
+use crate::migrations::utils::{self, generate_template};
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -109,9 +111,9 @@ impl MigrationManager {
         let now = Utc::now().timestamp();
         let migration_name = format!("{}{}", name, now);
         let migration_file_name = format!("{}_{}", utils::to_snake_case(&name), now);
-        let migration_template = get_migration_template(migration_name.as_str());
+        let migration_template = generate_template(migration_name.as_str());
         let file_path = format!(
-            "src/db/migrations/migrations_list/{}.rs",
+            "src/migrations/migrations_list/{}.rs",
             migration_file_name.as_str()
         );
         tokio::fs::write(file_path.clone(), migration_template)
@@ -125,7 +127,7 @@ impl MigrationManager {
             })?;
 
         // append to migrations_list/mod.rs
-        let mod_file_path = "src/db/migrations/migrations_list/mod.rs";
+        let mod_file_path = "src/migrations/migrations_list/mod.rs";
         let mod_file_content = format!("pub mod {};\n", migration_file_name);
         let mut mod_file = tokio::fs::OpenOptions::new()
             .append(true)
@@ -267,48 +269,4 @@ impl MigrationManager {
         self.graph.lock().await.run(query).await?;
         Ok(())
     }
-}
-
-fn get_migration_template(name: &str) -> String {
-    format!(
-        "use async_trait::async_trait;
-
-use crate::db::migrations::manager::Migration;
-use crate::types::DynError;
-
-pub struct {name};
-
-#[async_trait]
-impl Migration for {name} {{
-    fn id(&self) -> &'static str {{
-        \"{name}\"
-    }}  
-        
-    fn is_multi_staged(&self) -> bool {{
-        true
-    }}  
-        
-    async fn dual_write(data: Box<dyn std::any::Any + Send + 'static>) -> Result<(), DynError> {{
-        // Implement your dual write logic here. Downcast data to your struct type.
-        Ok(())
-    }}  
-    
-    async fn backfill(&self) -> Result<(), DynError> {{
-        // Your backfill logic here
-        Ok(())
-    }}  
-                
-    async fn cutover(&self) -> Result<(), DynError> {{
-        // Your cutover logic here
-        Ok(())  
-    }}  
-                    
-    async fn cleanup(&self) -> Result<(), DynError> {{
-        // Your cleanup logic here
-        Ok(())
-    }}
-}}
-",
-        name = name
-    )
 }

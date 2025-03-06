@@ -1,9 +1,8 @@
-use crate::db::migrations::manager::Migration;
-use crate::models::post::PostCounts;
-use crate::models::user::UserCounts;
-use crate::types::DynError;
-use crate::db::RedisOps;
-use crate::db::get_redis_conn;
+use crate::migrations::manager::Migration;
+use nexus_common::models::post::PostCounts;
+use nexus_common::models::user::UserCounts;
+use nexus_common::types::DynError;
+use nexus_common::db::{ RedisOps, get_redis_conn };
 use async_trait::async_trait;
 use chrono::Utc;
 use tracing::{debug, error, info};
