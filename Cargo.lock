@@ -2426,6 +2426,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexusd"
+version = "0.0.1"
+dependencies = [
+ "clap",
+ "nexus-api",
+ "nexus-common",
+ "nexus-watcher",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "no-std-compat"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

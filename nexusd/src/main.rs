@@ -1,9 +1,12 @@
 use clap::Parser;
-use pubky_nexus::cli::{Cli, DbCommands, MigrationCommands, NexusCommands};
-use pubky_nexus::db::migrations::builder::MigrationBuilder;
-use pubky_nexus::mock_db::MockDb;
-use pubky_nexus::{_service::NexusApi, _watcher::NexusWatcher, types::DynError};
-use pubky_nexus::{import_migrations, MigrationManager};
+use nexus_api::builder::NexusApi;
+use nexus_common::types::DynError;
+use nexus_watcher::builder::NexusWatcher;
+use nexusd::cli::{Cli, DbCommands, MigrationCommands, NexusCommands};
+// use pubky_nexus::db::migrations::builder::MigrationBuilder;
+// use pubky_nexus::mock_db::MockDb;
+// use pubky_nexus::{_service::NexusApi, _watcher::NexusWatcher, types::DynError};
+// use pubky_nexus::{import_migrations, MigrationManager};
 use tokio::join;
 
 #[tokio::main]
@@ -30,17 +33,18 @@ async fn main() -> Result<(), DynError> {
             }
         }
         NexusCommands::Db(db_command) => match db_command {
-            DbCommands::Clear => MockDb::clear_database().await,
-            DbCommands::Mock(args) => MockDb::run(args.mock_type).await,
-            DbCommands::Migration(migration_command) => match migration_command {
-                MigrationCommands::New(args) => MigrationManager::new_migration(args.name).await?,
-                MigrationCommands::Run => {
-                    let builder = MigrationBuilder::default().await;
-                    let mut mm = builder.init_stack().await;
-                    import_migrations(&mut mm);
-                    mm.run(&builder.migrations_backfill_ready()).await?;
-                }
-            },
+            // DbCommands::Clear => MockDb::clear_database().await,
+            // DbCommands::Mock(args) => MockDb::run(args.mock_type).await,
+            // DbCommands::Migration(migration_command) => match migration_command {
+            //     MigrationCommands::New(args) => MigrationManager::new_migration(args.name).await?,
+            //     MigrationCommands::Run => {
+            //         let builder = MigrationBuilder::default().await;
+            //         let mut mm = builder.init_stack().await;
+            //         import_migrations(&mut mm);
+            //         mm.run(&builder.migrations_backfill_ready()).await?;
+            //     }
+            // },
+            _ => println!("NotYET")
         },
         NexusCommands::All => {
             let (api_result, watcher_result) =

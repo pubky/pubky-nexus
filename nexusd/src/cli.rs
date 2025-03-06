@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
 
-use crate::mock_db::MockType;
+use nexus_api::mock::MockType;
 
 #[derive(Parser, Debug)]
 #[command(name = "pubky-nexus")]
