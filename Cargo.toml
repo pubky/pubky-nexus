@@ -1,9 +1,6 @@
 [workspace]
 members = [
-  #"nexusd",
-  #"nexus-*"
-  "nexus-api",
-  "nexus-common"
+  "nexus-*"
 ]
 
 # See: https://github.com/rust-lang/rust/issues/90148#issuecomment-949194352

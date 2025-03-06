@@ -5,7 +5,7 @@ pub mod kv;
 pub mod migrations;
 pub mod reindex;
 
-pub use config::{Config, ConfigLoader, Neo4JConfig, Level, DatabaseConfig};
+pub use config::{Config, ConfigLoader, Neo4JConfig, Level, DatabaseConfig, FILES_DIR};
 pub use connectors::{
     get_neo4j_graph, get_redis_conn, Neo4jConnector, PubkyClient, RedisConnector,
     REDIS_CONNECTOR, NEO4J_CONNECTOR
