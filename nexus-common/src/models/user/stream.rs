@@ -3,9 +3,9 @@ use crate::models::follow::{Followers, Following, Friends, UserFollows};
 use crate::types::{DynError, StreamReach, Timeframe};
 use std::collections::HashSet;
 
-use crate::models::post::{PostStream, POST_REPLIES_PER_POST_KEY_PARTS};
 use crate::db::kv::SortOrder;
 use crate::db::{get_neo4j_graph, queries, RedisOps};
+use crate::models::post::{PostStream, POST_REPLIES_PER_POST_KEY_PARTS};
 use serde::{Deserialize, Serialize};
 use tokio::task::spawn;
 use utoipa::ToSchema;

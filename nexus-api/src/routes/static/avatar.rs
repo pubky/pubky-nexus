@@ -1,13 +1,13 @@
 use std::path::PathBuf;
 
-use nexus_common::models::file::details::FileVariant;
 use crate::routes::r#static::PubkyServeDir;
 use crate::routes::AppState;
-use nexus_common::static_processor::StaticProcessor;
-use nexus_common::models::{file::FileDetails, traits::Collection, user::UserDetails};
 use crate::{Error, Result};
 use axum::extract::{Request, State};
 use axum::{extract::Path, response::Response};
+use nexus_common::models::file::details::FileVariant;
+use nexus_common::models::{file::FileDetails, traits::Collection, user::UserDetails};
+use nexus_common::static_processor::StaticProcessor;
 use tower_http::services::fs::ServeFileSystemResponseBody;
 use tracing::{error, info};
 use utoipa::OpenApi;

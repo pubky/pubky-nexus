@@ -1,9 +1,9 @@
+use crate::db::kv::{ScoreAction, SortOrder};
+use crate::db::{execute_graph_operation, get_neo4j_graph, queries, OperationOutcome, RedisOps};
 use crate::types::DynError;
 use async_trait::async_trait;
 use neo4rs::Query;
 use tracing::error;
-use crate::db::{get_neo4j_graph, RedisOps, queries, execute_graph_operation, OperationOutcome};
-use crate::db::kv::{ SortOrder, ScoreAction };
 
 use crate::models::tag::{post::POST_TAGS_KEY_PARTS, user::USER_TAGS_KEY_PARTS};
 

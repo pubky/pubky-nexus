@@ -1,11 +1,11 @@
 use super::{Bookmark, PostCounts, PostDetails, PostView};
-use crate::types::{DynError, Pagination, StreamSorting};
-use crate::db::{get_neo4j_graph, RedisOps, queries};
-use crate::db::kv::{ SortOrder, ScoreAction };
+use crate::db::kv::{ScoreAction, SortOrder};
+use crate::db::{get_neo4j_graph, queries, RedisOps};
 use crate::models::{
     follow::{Followers, Following, Friends, UserFollows},
     tag::search::TagSearch,
 };
+use crate::types::{DynError, Pagination, StreamSorting};
 use pubky_app_specs::PubkyAppPostKind;
 use serde::{Deserialize, Serialize};
 use tokio::task::spawn;

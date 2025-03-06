@@ -1,11 +1,11 @@
-use nexus_common::models::user::{UserStream, UserStreamInput, UserStreamSource};
 use crate::routes::v0::endpoints::{
     STREAM_USERS_BY_IDS_ROUTE, STREAM_USERS_ROUTE, STREAM_USERS_USERNAME_SEARCH_ROUTE,
 };
-use nexus_common::types::{Pagination, StreamReach, Timeframe};
 use crate::{Error, Result};
 use axum::extract::Query;
 use axum::Json;
+use nexus_common::models::user::{UserStream, UserStreamInput, UserStreamSource};
+use nexus_common::types::{Pagination, StreamReach, Timeframe};
 use serde::Deserialize;
 use tracing::info;
 use utoipa::{OpenApi, ToSchema};

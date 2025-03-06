@@ -2,9 +2,9 @@ use super::{
     stream::{HOT_TAGS_CACHE_PREFIX, POST_HOT_TAGS},
     Taggers as TaggersType,
 };
-use crate::db::{retrieve_from_graph, queries, RedisOps};
-use crate::types::{DynError, Timeframe};
+use crate::db::{queries, retrieve_from_graph, RedisOps};
 use crate::types::StreamReach;
+use crate::types::{DynError, Timeframe};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, ops::Deref};

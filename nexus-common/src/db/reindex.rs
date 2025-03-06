@@ -18,7 +18,6 @@ use tokio::task::JoinSet;
 use tracing::info;
 
 pub async fn sync() {
-
     let mut user_tasks = JoinSet::new();
     let mut post_tasks = JoinSet::new();
 

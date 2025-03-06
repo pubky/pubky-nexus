@@ -1,9 +1,9 @@
 use super::utils::find_post_mentions;
 use crate::utils::watcher::WatcherTest;
 use anyhow::Result;
+use nexus_common::{db::RedisOps, models::post::PostRelationships};
 use pubky::Keypair;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
-use nexus_common::{models::post::PostRelationships, db::RedisOps};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_mentions() -> Result<()> {

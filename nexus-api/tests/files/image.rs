@@ -1,12 +1,15 @@
-use std::{fs::{self}, path::PathBuf};
+use std::{
+    fs::{self},
+    path::PathBuf,
+};
 
+use crate::utils::host_url;
 use anyhow::Result;
 use nexus_common::models::{
     file::{details::FileVariant, FileDetails},
     traits::Collection,
 };
 use tokio::fs::create_dir_all;
-use crate::utils::host_url;
 
 const IMAGE_BLOB_NAME: &str = "SynonymLogo.png";
 const BLOB_PATH: &str = "tests/files/blobs";
@@ -35,16 +38,14 @@ async fn test_static_image_serving_main() -> Result<()> {
         &full_image_path,
     )?;
 
-    let files =
-        FileDetails::get_by_ids(vec![vec![USER_PUBKY, FILE_ID].as_slice()].as_slice())
-            .await
-            .expect("Failed to fetch files from Nexus");
+    let files = FileDetails::get_by_ids(vec![vec![USER_PUBKY, FILE_ID].as_slice()].as_slice())
+        .await
+        .expect("Failed to fetch files from Nexus");
 
     let result_file = files[0].as_ref().expect("Created file was not found.");
 
     let test_file_version_name = FileVariant::Main.to_string();
-    let test_file_path =
-        format!("static/files/{USER_PUBKY}/{FILE_ID}/{test_file_version_name}");
+    let test_file_path = format!("static/files/{USER_PUBKY}/{FILE_ID}/{test_file_version_name}");
 
     let res = client
         .do_get(format!("/{}", test_file_path.as_str()).as_str())
@@ -83,16 +84,14 @@ async fn test_static_image_serving_feed() -> Result<()> {
         &full_image_path,
     )?;
 
-    let files =
-        FileDetails::get_by_ids(vec![vec![USER_PUBKY, FILE_ID].as_slice()].as_slice())
-            .await
-            .expect("Failed to fetch files from Nexus");
+    let files = FileDetails::get_by_ids(vec![vec![USER_PUBKY, FILE_ID].as_slice()].as_slice())
+        .await
+        .expect("Failed to fetch files from Nexus");
 
     let result_file = files[0].as_ref().expect("Created file was not found.");
 
     let test_file_version_name = FileVariant::Feed.to_string();
-    let test_file_path =
-        format!("static/files/{USER_PUBKY}/{FILE_ID}/{test_file_version_name}");
+    let test_file_path = format!("static/files/{USER_PUBKY}/{FILE_ID}/{test_file_version_name}");
 
     let res = client
         .do_get(format!("/{}", test_file_path.as_str()).as_str())
@@ -138,16 +137,14 @@ async fn test_static_image_serving_small() -> Result<()> {
         &full_image_path,
     )?;
 
-    let files =
-        FileDetails::get_by_ids(vec![vec![USER_PUBKY, FILE_ID].as_slice()].as_slice())
-            .await
-            .expect("Failed to fetch files from Nexus");
+    let files = FileDetails::get_by_ids(vec![vec![USER_PUBKY, FILE_ID].as_slice()].as_slice())
+        .await
+        .expect("Failed to fetch files from Nexus");
 
     let result_file = files[0].as_ref().expect("Created file was not found.");
 
     let test_file_version_name = FileVariant::Small.to_string();
-    let test_file_path =
-        format!("static/files/{USER_PUBKY}/{FILE_ID}/{test_file_version_name}");
+    let test_file_path = format!("static/files/{USER_PUBKY}/{FILE_ID}/{test_file_version_name}");
 
     let res = client
         .do_get(format!("/{}", test_file_path.as_str()).as_str())

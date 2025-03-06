@@ -1,13 +1,13 @@
-use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
-use nexus_common::models::tag::user::TagUser;
-use nexus_common::models::tag::TagDetails;
 use crate::routes::v0::endpoints::{USER_TAGGERS_ROUTE, USER_TAGS_ROUTE};
-use nexus_common::types::routes::TaggersInfo;
 use crate::routes::v0::TagsQuery;
-use nexus_common::types::Pagination;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
+use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
+use nexus_common::models::tag::user::TagUser;
+use nexus_common::models::tag::TagDetails;
+use nexus_common::types::routes::TaggersInfo;
+use nexus_common::types::Pagination;
 use serde::Deserialize;
 use tracing::info;
 use utoipa::OpenApi;

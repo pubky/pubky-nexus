@@ -1,12 +1,12 @@
 use crate::utils::watcher::WatcherTest;
 use anyhow::Result;
-use pubky::Keypair;
-use pubky_app_specs::{
-    traits::HashId, PubkyAppBookmark, PubkyAppPost, PubkyAppPostKind, PubkyAppUser,
-};
 use nexus_common::{
     models::notification::{Notification, NotificationBody, PostChangedSource},
     types::Pagination,
+};
+use pubky::Keypair;
+use pubky_app_specs::{
+    traits::HashId, PubkyAppBookmark, PubkyAppPost, PubkyAppPostKind, PubkyAppUser,
 };
 
 #[tokio_shared_rt::test(shared)]

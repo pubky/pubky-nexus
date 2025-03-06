@@ -1,9 +1,9 @@
-use nexus_common::models::user::UserSearch;
 use crate::routes::v0::endpoints::SEARCH_USERS_ROUTE;
-use nexus_common::types::Pagination;
 use crate::{Error, Result};
 use axum::extract::Query;
 use axum::Json;
+use nexus_common::models::user::UserSearch;
+use nexus_common::types::Pagination;
 use serde::Deserialize;
 use tracing::info;
 use utoipa::OpenApi;

@@ -5,10 +5,10 @@ use crate::users::utils::find_user_counts;
 use crate::utils::watcher::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
-use pubky::Keypair;
-use pubky_app_specs::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser};
 use nexus_common::models::tag::post::TagPost;
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
+use pubky::Keypair;
+use pubky_app_specs::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_del_tag_post() -> Result<()> {

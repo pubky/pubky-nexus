@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::models::tag::{TaggedType, Taggers};
 use super::Timeframe;
+use crate::models::tag::{TaggedType, Taggers};
 
 pub struct HotTagsInput {
     pub timeframe: Timeframe,
@@ -29,7 +29,6 @@ impl HotTagsInput {
         }
     }
 }
-
 
 #[derive(Serialize, ToSchema, Deserialize)]
 pub struct TaggersInfo {

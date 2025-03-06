@@ -1,15 +1,15 @@
-use nexus_common::db::{exec_single_row, execute_graph_operation, OperationOutcome};
-use nexus_common::db::kv::{ScoreAction, JsonAction};
 use crate::events::retry::event::RetryEvent;
 use crate::handle_indexing_results;
+use nexus_common::db::kv::{JsonAction, ScoreAction};
+use nexus_common::db::queries::get::post_is_safe_to_delete;
+use nexus_common::db::{exec_single_row, execute_graph_operation, OperationOutcome};
+use nexus_common::db::{queries, RedisOps};
 use nexus_common::models::notification::{Notification, PostChangedSource, PostChangedType};
 use nexus_common::models::post::{
     PostCounts, PostDetails, PostRelationships, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS,
 };
 use nexus_common::models::user::UserCounts;
-use nexus_common::db::queries::get::post_is_safe_to_delete;
-use nexus_common::types::{errors::EventProcessorError, DynError };
-use nexus_common::db::{queries, RedisOps};
+use nexus_common::types::{errors::EventProcessorError, DynError};
 use pubky_app_specs::{
     user_uri_builder, ParsedUri, PubkyAppPost, PubkyAppPostKind, PubkyId, Resource,
 };

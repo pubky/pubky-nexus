@@ -1,0 +1,32 @@
+# WiP
+[[bench]]
+name = "user"
+harness = false
+
+[[bench]]
+name = "tag"
+harness = false
+
+[[bench]]
+name = "post"
+harness = false
+
+[[bench]]
+name = "reindex"
+harness = false
+
+[[bench]]
+name = "follows"
+harness = false
+
+[[bench]]
+name = "streams"
+harness = false
+
+[[bench]]
+name = "search"
+harness = false
+
+[[bench]]
+name = "watcher"
+harness = false

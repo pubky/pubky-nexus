@@ -5,9 +5,9 @@ use crate::{
 };
 use anyhow::Result;
 use chrono::Utc;
+use nexus_common::models::tag::{traits::TagCollection, user::TagUser};
 use pubky::Keypair;
 use pubky_app_specs::{traits::HashId, PubkyAppTag, PubkyAppUser};
-use nexus_common::models::tag::{traits::TagCollection, user::TagUser};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_del_tag_to_another_user() -> Result<()> {

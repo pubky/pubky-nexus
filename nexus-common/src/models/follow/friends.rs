@@ -1,5 +1,5 @@
-use crate::types::DynError;
 use crate::db::RedisOps;
+use crate::types::DynError;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 

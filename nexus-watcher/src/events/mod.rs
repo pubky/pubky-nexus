@@ -1,5 +1,5 @@
 use nexus_common::db::PubkyClient;
-use nexus_common::types::{errors::EventProcessorError, DynError };
+use nexus_common::types::{errors::EventProcessorError, DynError};
 use pubky_app_specs::{ParsedUri, PubkyAppObject, Resource};
 use serde::{Deserialize, Serialize};
 use std::{fmt, path::PathBuf};

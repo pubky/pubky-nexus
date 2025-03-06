@@ -2,9 +2,9 @@ use super::utils::find_post_bookmark;
 use crate::users::utils::find_user_counts;
 use crate::utils::watcher::WatcherTest;
 use anyhow::Result;
+use nexus_common::models::post::{Bookmark, PostStream};
 use pubky::Keypair;
 use pubky_app_specs::{traits::HashId, PubkyAppBookmark, PubkyAppPost, PubkyAppUser};
-use nexus_common::models::post::{Bookmark, PostStream};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_bookmark() -> Result<()> {

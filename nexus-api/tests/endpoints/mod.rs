@@ -1,5 +1,5 @@
-use anyhow::Result;
 use crate::utils::host_url;
+use anyhow::Result;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_swagger_ui() -> Result<()> {

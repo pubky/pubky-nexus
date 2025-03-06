@@ -1,10 +1,10 @@
 use crate::follows::utils::find_follow_relationship;
 use crate::utils::watcher::WatcherTest;
 use anyhow::Result;
+use nexus_common::db::RedisOps;
+use nexus_common::models::user::{Relationship, UserCounts};
 use pubky::Keypair;
 use pubky_app_specs::PubkyAppUser;
-use nexus_common::models::user::{Relationship, UserCounts};
-use nexus_common::db::RedisOps;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_unfollow_friend() -> Result<()> {

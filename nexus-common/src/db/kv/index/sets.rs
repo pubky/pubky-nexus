@@ -1,5 +1,5 @@
-use crate::types::DynError;
 use crate::db::get_redis_conn;
+use crate::types::DynError;
 use redis::AsyncCommands;
 
 /// Adds elements to a Redis set.

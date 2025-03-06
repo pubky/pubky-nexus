@@ -1,11 +1,11 @@
 use crate::routes::v0::endpoints::STREAM_POSTS_ROUTE;
+use crate::{Error, Result as AppResult};
+use axum::{extract::Query, Json};
 use nexus_common::types::StreamSorting;
 use nexus_common::{
     models::post::{PostStream, StreamSource},
     types::Pagination,
 };
-use crate::{Error, Result as AppResult};
-use axum::{extract::Query, Json};
 use pubky_app_specs::PubkyAppPostKind;
 use serde::{de, Deserialize, Deserializer};
 use tracing::info;

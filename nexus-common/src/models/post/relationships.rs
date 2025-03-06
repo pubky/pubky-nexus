@@ -1,5 +1,5 @@
+use crate::db::{get_neo4j_graph, queries, RedisOps};
 use crate::types::DynError;
-use crate::db::{queries, RedisOps, get_neo4j_graph};
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;

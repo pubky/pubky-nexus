@@ -1,10 +1,10 @@
 use std::{fmt::Debug, path::PathBuf};
 
-use async_trait::async_trait;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use super::MigrationManager;
+use async_trait::async_trait;
 use nexus_common::db::{Config as StackConfig, ConfigLoader};
 use nexus_common::stack::StackManager;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 pub const CONFIG_FILE: &str = "./src/migrations/mconf_template.toml";
 

@@ -1,8 +1,8 @@
-use nexus_common::models::user::UserCounts;
 use crate::routes::v0::endpoints::USER_COUNTS_ROUTE;
 use crate::{Error, Result};
 use axum::extract::Path;
 use axum::Json;
+use nexus_common::models::user::UserCounts;
 use tracing::info;
 use utoipa::OpenApi;
 

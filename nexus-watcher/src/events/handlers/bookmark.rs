@@ -1,9 +1,9 @@
-use nexus_common::db::OperationOutcome;
+use chrono::Utc;
 use nexus_common::db::kv::JsonAction;
-use nexus_common::types::{errors::EventProcessorError, DynError };
+use nexus_common::db::OperationOutcome;
 use nexus_common::models::post::Bookmark;
 use nexus_common::models::user::UserCounts;
-use chrono::Utc;
+use nexus_common::types::{errors::EventProcessorError, DynError};
 use pubky_app_specs::{ParsedUri, PubkyAppBookmark, PubkyId, Resource};
 use tracing::debug;
 

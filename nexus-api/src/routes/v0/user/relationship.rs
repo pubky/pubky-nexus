@@ -1,8 +1,8 @@
-use nexus_common::models::user::Relationship;
 use crate::routes::v0::endpoints::RELATIONSHIP_ROUTE;
 use crate::{Error, Result};
 use axum::extract::Path;
 use axum::Json;
+use nexus_common::models::user::Relationship;
 use tracing::info;
 use utoipa::OpenApi;
 

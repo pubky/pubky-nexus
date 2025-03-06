@@ -1,10 +1,8 @@
 use std::time::Duration;
 
-use crate::db::{Config as StackConfig, Level, Neo4JConfig};
-use crate::db::{
-    Neo4jConnector, NEO4J_CONNECTOR, RedisConnector, REDIS_CONNECTOR
-};
 use crate::db::setup::setup_graph;
+use crate::db::{Config as StackConfig, Level, Neo4JConfig};
+use crate::db::{Neo4jConnector, RedisConnector, NEO4J_CONNECTOR, REDIS_CONNECTOR};
 use opentelemetry::{global, KeyValue};
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_otlp::{LogExporter, MetricExporter, SpanExporter, WithExportConfig};

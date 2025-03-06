@@ -1,15 +1,15 @@
 use crate::utils::watcher::WatcherTest;
 use crate::{posts::utils::check_member_post_replies, users::utils::find_user_counts};
 use anyhow::Result;
-use pubky::Keypair;
-use pubky_app_specs::{PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser};
 use nexus_common::{
+    db::RedisOps,
     models::{
         post::{PostCounts, PostDetails, PostRelationships, PostView},
         user::UserCounts,
     },
-    db::RedisOps,
 };
+use pubky::Keypair;
+use pubky_app_specs::{PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser};
 
 use super::utils::{
     check_member_global_timeline_user_post, check_member_total_engagement_user_posts,

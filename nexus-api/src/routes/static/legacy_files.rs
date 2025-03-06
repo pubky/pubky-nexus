@@ -1,9 +1,9 @@
 use crate::Result;
-use nexus_common::models::file::details::FileVariant;
 use axum::{
     extract::Request,
     response::{IntoResponse, Redirect, Response},
 };
+use nexus_common::models::file::details::FileVariant;
 use utoipa::OpenApi;
 
 use super::endpoints::LEGACY_STATIC_FILES_ROUTE;

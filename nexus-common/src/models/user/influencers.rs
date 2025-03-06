@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::ops::Deref;
 use utoipa::ToSchema;
 
-use crate::db::{RedisOps, queries, retrieve_from_graph};
+use crate::db::{queries, retrieve_from_graph, RedisOps};
 
 const GLOBAL_INFLUENCERS_PREFIX: &str = "Cache:Influencers";
 

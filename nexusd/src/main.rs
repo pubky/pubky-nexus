@@ -40,7 +40,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                     import_migrations(&mut mm);
                     mm.run(&builder.migrations_backfill_ready()).await?;
                 }
-            }
+            },
         },
         NexusCommands::All => {
             let (api_result, watcher_result) =

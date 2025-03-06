@@ -1,13 +1,13 @@
+use crate::routes::v0::endpoints::{TAGS_HOT_ROUTE, TAG_TAGGERS_ROUTE};
+use crate::{Error, Result};
+use axum::extract::{Path, Query};
+use axum::Json;
 use nexus_common::models::tag::global::Taggers;
 use nexus_common::models::tag::stream::{HotTag, HotTags};
 use nexus_common::models::tag::TaggedType;
 use nexus_common::models::tag::Taggers as TaggersType;
 use nexus_common::types::routes::HotTagsInput;
-use crate::routes::v0::endpoints::{TAGS_HOT_ROUTE, TAG_TAGGERS_ROUTE};
 use nexus_common::types::{Pagination, StreamReach, Timeframe};
-use crate::{Error, Result};
-use axum::extract::{Path, Query};
-use axum::Json;
 use serde::Deserialize;
 use tracing::{error, info};
 use utoipa::OpenApi;

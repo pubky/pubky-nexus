@@ -4,12 +4,12 @@ use crate::{
 };
 use anyhow::Result;
 use chrono::Utc;
+use nexus_common::models::user::{UserCounts, UserView};
 use pubky::Keypair;
 use pubky_app_specs::{
     traits::HasPath, PubkyAppBlob, PubkyAppFile, PubkyAppPost, PubkyAppPostKind, PubkyAppUser,
     PubkyAppUserLink,
 };
-use nexus_common::models::user::{UserCounts, UserView};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_delete_user_with_relationships() -> Result<()> {

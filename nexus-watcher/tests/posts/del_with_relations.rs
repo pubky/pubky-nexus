@@ -1,9 +1,9 @@
 use crate::utils::watcher::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
+use nexus_common::models::post::{PostCounts, PostDetails, PostView};
 use pubky::Keypair;
 use pubky_app_specs::{traits::HashId, PubkyAppPost, PubkyAppPostKind, PubkyAppTag, PubkyAppUser};
-use nexus_common::models::post::{PostCounts, PostDetails, PostView};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_delete_post_with_relationships() -> Result<()> {

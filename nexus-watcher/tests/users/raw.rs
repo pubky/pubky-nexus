@@ -3,12 +3,12 @@ use crate::{
     utils::watcher::WatcherTest,
 };
 use anyhow::Result;
+use nexus_common::{
+    db::RedisOps,
+    models::user::{UserCounts, UserSearch, USER_NAME_KEY_PARTS},
+};
 use pubky::Keypair;
 use pubky_app_specs::{PubkyAppUser, PubkyAppUserLink};
-use nexus_common::{
-    models::user::{UserCounts, UserSearch, USER_NAME_KEY_PARTS},
-    db::RedisOps,
-};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_user_put_event() -> Result<()> {

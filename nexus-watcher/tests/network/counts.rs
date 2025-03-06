@@ -2,14 +2,14 @@
 
 use crate::utils::watcher::WatcherTest;
 use anyhow::Result;
+use nexus_common::{
+    db::{PubkyClient, RedisOps},
+    models::{post::PostCounts, user::UserCounts},
+};
 use pubky::Keypair;
 use pubky_app_specs::{
     traits::HashId, PubkyAppBookmark, PubkyAppMute, PubkyAppPost, PubkyAppPostKind, PubkyAppTag,
     PubkyAppUser,
-};
-use nexus_common::{
-    models::{post::PostCounts, user::UserCounts},
-    db::{PubkyClient, RedisOps},
 };
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use std::collections::{HashMap, HashSet};

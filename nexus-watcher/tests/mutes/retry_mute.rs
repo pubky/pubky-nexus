@@ -1,9 +1,9 @@
 use crate::utils::watcher::{assert_eventually_exists, WatcherTest};
 use anyhow::Result;
+use nexus_common::types::errors::EventProcessorError;
+use nexus_watcher::events::{retry::event::RetryEvent, EventType};
 use pubky::Keypair;
 use pubky_app_specs::{user_uri_builder, PubkyAppUser};
-use nexus_watcher::events::{retry::event::RetryEvent, EventType};
-use nexus_common::types::errors::EventProcessorError;
 /// The user profile is stored in the homeserver. Missing the mutee to connect with muter
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_mute_cannot_index() -> Result<()> {

@@ -1,14 +1,14 @@
 use std::path::PathBuf;
 
-use nexus_common::db::PubkyClient;
 use crate::handle_indexing_results;
+use nexus_common::db::PubkyClient;
 use nexus_common::models::file::details::FileVariant;
 use nexus_common::models::{
     file::{details::FileMeta, FileDetails},
     traits::Collection,
 };
 use nexus_common::static_processor::{StaticProcessor, StaticStorage};
-use nexus_common::types::{DynError, errors::EventProcessorError};
+use nexus_common::types::{errors::EventProcessorError, DynError};
 use pubky_app_specs::{PubkyAppFile, PubkyAppObject, PubkyId};
 use tokio::fs::remove_dir_all;
 use tracing::debug;

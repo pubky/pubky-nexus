@@ -1,13 +1,13 @@
-use nexus_common::models::tag::post::TagPost;
-use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
-use nexus_common::models::tag::TagDetails;
 use crate::routes::v0::endpoints::{POST_TAGGERS_ROUTE, POST_TAGS_ROUTE};
-use nexus_common::types::routes::TaggersInfo;
 use crate::routes::v0::user::tags::TaggersQuery;
 use crate::routes::v0::TagsQuery;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
+use nexus_common::models::tag::post::TagPost;
+use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
+use nexus_common::models::tag::TagDetails;
+use nexus_common::types::routes::TaggersInfo;
 use tracing::info;
 use utoipa::OpenApi;
 

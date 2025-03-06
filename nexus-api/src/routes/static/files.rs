@@ -9,12 +9,12 @@ use tower_http::services::fs::ServeFileSystemResponseBody;
 use tracing::{debug, error};
 use utoipa::OpenApi;
 
+use crate::routes::{r#static::PubkyServeDir, AppState};
 use crate::{Error, Result};
 use nexus_common::models::{
     file::{details::FileVariant, FileDetails},
     traits::Collection,
 };
-use crate::routes::{r#static::PubkyServeDir, AppState};
 use nexus_common::static_processor::StaticProcessor;
 
 use super::endpoints::STATIC_FILES_ROUTE;

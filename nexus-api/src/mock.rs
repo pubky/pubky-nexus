@@ -1,9 +1,9 @@
-use clap::ValueEnum;
-use nexus_common::db::{get_neo4j_graph, get_redis_conn, reindex};
-use tracing::info;
-use std::process::Stdio;
-use neo4rs::query;
 use crate::builder::NexusApi;
+use clap::ValueEnum;
+use neo4rs::query;
+use nexus_common::db::{get_neo4j_graph, get_redis_conn, reindex};
+use std::process::Stdio;
+use tracing::info;
 
 #[derive(ValueEnum, Clone, Debug)]
 pub enum MockType {

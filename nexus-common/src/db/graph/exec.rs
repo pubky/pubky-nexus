@@ -1,5 +1,5 @@
-use crate::types::DynError;
 use crate::db::get_neo4j_graph;
+use crate::types::DynError;
 use neo4rs::Query;
 use serde::de::DeserializeOwned;
 

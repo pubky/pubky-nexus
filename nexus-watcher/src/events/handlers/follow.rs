@@ -1,12 +1,12 @@
-use nexus_common::db::OperationOutcome;
-use nexus_common::db::kv::JsonAction;
 use crate::events::retry::event::RetryEvent;
 use crate::handle_indexing_results;
+use nexus_common::db::kv::JsonAction;
+use nexus_common::db::OperationOutcome;
 use nexus_common::models::follow::{Followers, Following, Friends, UserFollows};
 use nexus_common::models::notification::Notification;
 use nexus_common::models::user::UserCounts;
 
-use nexus_common::types::{DynError, errors::EventProcessorError};
+use nexus_common::types::{errors::EventProcessorError, DynError};
 use pubky_app_specs::{user_uri_builder, PubkyId};
 use tracing::debug;
 

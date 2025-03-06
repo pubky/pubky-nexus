@@ -1,8 +1,8 @@
-use async_trait::async_trait;
-use neo4rs::Query;
+use crate::db::{exec_single_row, get_neo4j_graph, RedisOps};
 use crate::types::DynError;
-use crate::db::{RedisOps, exec_single_row, get_neo4j_graph};
+use async_trait::async_trait;
 use core::fmt;
+use neo4rs::Query;
 use std::fmt::Debug;
 
 pub trait CollectionId {

@@ -1,12 +1,12 @@
 use anyhow::Result;
 use neo4rs::{query, Query};
 use nexus_common::{
+    db::{get_neo4j_graph, RedisOps},
     models::post::{
         PostCounts, PostDetails, PostStream, POST_PER_USER_KEY_PARTS,
         POST_REPLIES_PER_POST_KEY_PARTS, POST_REPLIES_PER_USER_KEY_PARTS, POST_TIMELINE_KEY_PARTS,
         POST_TOTAL_ENGAGEMENT_KEY_PARTS,
     },
-    db::{RedisOps, get_neo4j_graph}
 };
 
 pub async fn find_post_counts(user_id: &str, post_id: &str) -> PostCounts {

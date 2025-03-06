@@ -1,9 +1,9 @@
 use super::utils::find_mute_relationship;
 use crate::utils::watcher::WatcherTest;
 use anyhow::Result;
+use nexus_common::models::user::{Muted, Relationship};
 use pubky::Keypair;
 use pubky_app_specs::PubkyAppUser;
-use nexus_common::models::user::{Muted, Relationship};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_del_mute() -> Result<()> {

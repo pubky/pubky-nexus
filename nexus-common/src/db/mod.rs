@@ -4,12 +4,14 @@ mod graph;
 pub mod kv;
 pub mod reindex;
 
-pub use config::{Config, ConfigLoader, Neo4JConfig, Level, DatabaseConfig, FILES_DIR};
+pub use config::{Config, ConfigLoader, DatabaseConfig, Level, Neo4JConfig, FILES_DIR};
 pub use connectors::{
-    get_neo4j_graph, get_redis_conn, Neo4jConnector, PubkyClient, RedisConnector,
-    REDIS_CONNECTOR, NEO4J_CONNECTOR
+    get_neo4j_graph, get_redis_conn, Neo4jConnector, PubkyClient, RedisConnector, NEO4J_CONNECTOR,
+    REDIS_CONNECTOR,
 };
-pub use kv::RedisOps;
+pub use graph::exec::{
+    exec_single_row, execute_graph_operation, retrieve_from_graph, OperationOutcome,
+};
 pub use graph::queries;
 pub use graph::setup;
-pub use graph::exec::{execute_graph_operation, exec_single_row, retrieve_from_graph,  OperationOutcome};
+pub use kv::RedisOps;

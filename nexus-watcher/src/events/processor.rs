@@ -1,13 +1,13 @@
+use nexus_common::types::{errors::EventProcessorError, DynError};
 use std::error::Error;
 use std::path::PathBuf;
-use nexus_common::types::{errors::EventProcessorError, DynError };
 
 use super::Event;
-use nexus_common::db::FILES_DIR;
-use crate::events::retry::event::RetryEvent;
-use nexus_common::models::homeserver::Homeserver;
-use nexus_common::db::PubkyClient;
 use crate::builder::Config as WatcherConfig;
+use crate::events::retry::event::RetryEvent;
+use nexus_common::db::PubkyClient;
+use nexus_common::db::FILES_DIR;
+use nexus_common::models::homeserver::Homeserver;
 use opentelemetry::trace::{FutureExt, Span, TraceContextExt, Tracer};
 use opentelemetry::{global, Context, KeyValue};
 use pubky_app_specs::PubkyId;

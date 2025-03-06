@@ -1,9 +1,9 @@
-use nexus_common::db::{Config as StackConfig, ConfigLoader, DatabaseConfig, Level};
 use crate::events::processor::EventProcessor;
+use async_trait::async_trait;
 use nexus_common::db::PubkyClient;
+use nexus_common::db::{Config as StackConfig, ConfigLoader, DatabaseConfig, Level};
 use nexus_common::stack::StackManager;
 use nexus_common::types::DynError;
-use async_trait::async_trait;
 use pubky_app_specs::PubkyId;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};

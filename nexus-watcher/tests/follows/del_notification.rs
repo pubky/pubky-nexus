@@ -1,10 +1,10 @@
 use crate::utils::watcher::WatcherTest;
 use anyhow::Result;
-use pubky::Keypair;
 use nexus_common::{
     models::notification::{Notification, NotificationBody},
     types::Pagination,
 };
+use pubky::Keypair;
 
 use pubky_app_specs::PubkyAppUser;
 

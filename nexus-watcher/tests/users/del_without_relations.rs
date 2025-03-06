@@ -1,8 +1,8 @@
 use crate::{users::utils::find_user_details, utils::watcher::WatcherTest};
 use anyhow::Result;
+use nexus_common::models::user::{UserCounts, UserView};
 use pubky::Keypair;
 use pubky_app_specs::PubkyAppUser;
-use nexus_common::models::user::{UserCounts, UserView};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_delete_user_without_relationships() -> Result<()> {

@@ -1,5 +1,5 @@
-use crate::types::DynError;
 use crate::db::RedisOps;
+use crate::types::DynError;
 use pubky_app_specs::PubkyId;
 use serde::{Deserialize, Serialize};
 

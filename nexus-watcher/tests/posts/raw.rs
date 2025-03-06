@@ -5,9 +5,9 @@ use crate::posts::utils::find_post_details;
 use crate::users::utils::{check_member_user_influencer, find_user_counts};
 use crate::utils::watcher::WatcherTest;
 use anyhow::Result;
+use nexus_common::models::post::{PostCounts, PostDetails};
 use pubky::Keypair;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
-use nexus_common::models::post::{PostCounts, PostDetails};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_put_post_event() -> Result<()> {

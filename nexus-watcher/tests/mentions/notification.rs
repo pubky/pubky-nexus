@@ -1,11 +1,11 @@
 use crate::utils::watcher::WatcherTest;
 use anyhow::Result;
-use pubky::Keypair;
-use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 use nexus_common::{
     models::notification::{Notification, NotificationBody},
     types::Pagination,
 };
+use pubky::Keypair;
+use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_mentions_notifications() -> Result<()> {

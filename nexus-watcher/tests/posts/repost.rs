@@ -6,12 +6,12 @@ use super::utils::{
 use crate::users::utils::find_user_counts;
 use crate::utils::watcher::WatcherTest;
 use anyhow::Result;
+use nexus_common::{
+    db::RedisOps,
+    models::post::{PostDetails, PostRelationships},
+};
 use pubky::Keypair;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser};
-use nexus_common::{
-    models::post::{PostDetails, PostRelationships},
-    db::RedisOps,
-};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_post_repost() -> Result<()> {

@@ -1,10 +1,10 @@
-use nexus_common::models::tag::search::TagSearch;
 use crate::routes::v0::endpoints::SEARCH_TAGS_ROUTE;
-use nexus_common::types::Pagination;
-use nexus_common::types::StreamSorting;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
+use nexus_common::models::tag::search::TagSearch;
+use nexus_common::types::Pagination;
+use nexus_common::types::StreamSorting;
 use serde::Deserialize;
 use tracing::info;
 use utoipa::OpenApi;

@@ -1,9 +1,9 @@
 use crate::utils::watcher::{assert_eventually_exists, WatcherTest};
 use anyhow::Result;
+use nexus_common::types::errors::EventProcessorError;
+use nexus_watcher::events::{retry::event::RetryEvent, EventType};
 use pubky::Keypair;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser};
-use nexus_watcher::events::{retry::event::RetryEvent, EventType};
-use nexus_common::types::errors::EventProcessorError;
 
 /// The user profile is stored in the homeserver. Missing the post to connect the new one
 #[tokio_shared_rt::test(shared)]

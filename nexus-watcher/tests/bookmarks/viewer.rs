@@ -1,9 +1,9 @@
 use super::utils::find_post_bookmark;
 use crate::utils::watcher::WatcherTest;
 use anyhow::Result;
+use nexus_common::models::post::PostStream;
 use pubky::Keypair;
 use pubky_app_specs::{traits::HashId, PubkyAppBookmark, PubkyAppPost, PubkyAppUser};
-use nexus_common::models::post::PostStream;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_viewer_bookmark() -> Result<()> {

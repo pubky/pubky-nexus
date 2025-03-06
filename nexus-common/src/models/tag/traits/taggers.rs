@@ -1,6 +1,6 @@
+use crate::db::RedisOps;
 use crate::types::routes::TaggersInfo;
 use crate::types::{DynError, Pagination};
-use crate::db::RedisOps;
 use async_trait::async_trait;
 
 use super::collection::CACHE_SET_PREFIX;

@@ -1,12 +1,12 @@
-use nexus_common::db::{execute_graph_operation, OperationOutcome};
 use crate::handle_indexing_results;
+use nexus_common::db::queries::get::user_is_safe_to_delete;
+use nexus_common::db::{execute_graph_operation, OperationOutcome};
 use nexus_common::models::user::UserSearch;
 use nexus_common::models::{
     traits::Collection,
     user::{UserCounts, UserDetails},
 };
-use nexus_common::db::queries::get::user_is_safe_to_delete;
-use nexus_common::types::{errors::EventProcessorError, DynError };
+use nexus_common::types::{errors::EventProcessorError, DynError};
 use pubky_app_specs::{PubkyAppUser, PubkyId};
 use tracing::debug;
 

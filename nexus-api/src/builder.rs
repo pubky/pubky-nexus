@@ -1,13 +1,13 @@
 use std::{fmt::Debug, net::SocketAddr, path::PathBuf};
 
+use crate::routes;
 use async_trait::async_trait;
+use nexus_common::db::{Config as StackConfig, ConfigLoader, DatabaseConfig};
+use nexus_common::stack::StackManager;
+use nexus_common::types::DynError;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::net::TcpListener;
 use tracing::{debug, info};
-use crate::routes;
-use nexus_common::db::{Config as StackConfig, ConfigLoader, DatabaseConfig};
-use nexus_common::types::DynError;
-use nexus_common::stack::StackManager;
 
 pub const NAME: &str = "nexus.api";
 pub const DEFAULT_HOST: [u8; 4] = [127, 0, 0, 1];

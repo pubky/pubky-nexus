@@ -1,8 +1,8 @@
+use crate::db::kv::{ScoreAction, SortOrder};
+use crate::db::queries::get::{global_tags_by_post, global_tags_by_post_engagement};
 use crate::db::{get_neo4j_graph, RedisOps};
-use crate::db::kv::{SortOrder, ScoreAction};
 use crate::models::post::PostDetails;
 use crate::models::tag::traits::TaggersCollection;
-use crate::db::queries::get::{global_tags_by_post, global_tags_by_post_engagement};
 use crate::types::DynError;
 use crate::types::{Pagination, StreamSorting};
 use neo4rs::Query;

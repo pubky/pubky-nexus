@@ -1,11 +1,11 @@
 use crate::db::kv::SortOrder;
+use crate::db::{queries, retrieve_from_graph, RedisOps};
 use crate::types::routes::HotTagsInput;
 use crate::types::{DynError, StreamReach, Timeframe};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ops::Deref;
 use utoipa::ToSchema;
-use crate::db::{RedisOps, queries, retrieve_from_graph};
 
 use super::global::{HotTagsTaggers, Taggers};
 use super::TaggedType;

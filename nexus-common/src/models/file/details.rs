@@ -2,10 +2,10 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::str::FromStr;
 
-use crate::types::errors::EventProcessorError;
+use crate::db::{exec_single_row, queries, RedisOps};
 use crate::models::traits::Collection;
+use crate::types::errors::EventProcessorError;
 use crate::types::DynError;
-use crate::db::{queries, RedisOps, exec_single_row};
 use async_trait::async_trait;
 use chrono::Utc;
 use neo4rs::Query;

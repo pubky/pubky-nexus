@@ -1,11 +1,11 @@
-use nexus_common::models::post::{PostRelationships, PostView};
-use nexus_common::models::tag::post::TagPost;
-use nexus_common::models::tag::TagDetails;
 use crate::routes::v0::endpoints::POST_ROUTE;
 use crate::routes::v0::TagsQuery;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
+use nexus_common::models::post::{PostRelationships, PostView};
+use nexus_common::models::tag::post::TagPost;
+use nexus_common::models::tag::TagDetails;
 use tracing::info;
 use utoipa::OpenApi;
 

@@ -4,7 +4,7 @@ use nexus_common::{
     models::user::{
         UserCounts, UserDetails, UserStream, USER_INFLUENCERS_KEY_PARTS,
         USER_MOSTFOLLOWED_KEY_PARTS,
-    }
+    },
 };
 
 pub async fn check_member_most_followed(user_id: &str) -> Result<Option<isize>> {

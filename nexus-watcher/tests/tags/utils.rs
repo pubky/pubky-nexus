@@ -1,11 +1,11 @@
 use anyhow::Result;
 use neo4rs::{query, Query};
 use nexus_common::{
+    db::{get_neo4j_graph, RedisOps},
     models::tag::{
         search::{TagSearch, TAG_GLOBAL_POST_ENGAGEMENT, TAG_GLOBAL_POST_TIMELINE},
         TagDetails,
     },
-    db::{RedisOps,get_neo4j_graph}
 };
 
 pub async fn find_post_tag(

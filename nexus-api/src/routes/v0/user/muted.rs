@@ -1,9 +1,9 @@
-use nexus_common::models::user::Muted;
 use crate::routes::v0::endpoints::USER_MUTED_ROUTE;
-use nexus_common::types::Pagination;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
+use nexus_common::models::user::Muted;
+use nexus_common::types::Pagination;
 use tracing::info;
 use utoipa::OpenApi;
 

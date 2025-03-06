@@ -1,8 +1,8 @@
 use crate::utils::watcher::{retrieve_and_handle_event_line, WatcherTest};
 use anyhow::Result;
+use nexus_common::types::DynError;
 use pubky::Keypair;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
-use nexus_common::types::DynError;
 use tracing::error;
 
 /// The user profile is stored in the homeserver and synched in the graph, but the posts just exist in the homeserver
