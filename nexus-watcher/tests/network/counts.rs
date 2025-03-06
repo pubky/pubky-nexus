@@ -80,7 +80,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
 
     // Users create posts
     for (i, user_id) in user_ids.iter().enumerate() {
-        let num_posts = rng.gen_range(1..=max_posts_per_user);
+        let num_posts = rng.random_range(1..=max_posts_per_user);
         for _ in 0..num_posts {
             let post = PubkyAppPost {
                 content: format!("{}'s post content", user_names[i]),
@@ -103,10 +103,10 @@ async fn test_large_network_scenario_counts() -> Result<()> {
     }
 
     for (i, user_id) in user_ids.iter().enumerate() {
-        let num_follows = rng.gen_range(1..=max_follows_per_user.min(NUM_USERS - 1));
+        let num_follows = rng.random_range(1..=max_follows_per_user.min(NUM_USERS - 1));
         let follow_set = &mut user_followings.get_mut(user_id).unwrap();
         while follow_set.len() < num_follows {
-            let target_index = rng.gen_range(0..NUM_USERS);
+            let target_index = rng.random_range(0..NUM_USERS);
             if target_index != i {
                 let target_user_id = &user_ids[target_index];
                 if follow_set.insert(target_user_id.clone()) {
@@ -125,10 +125,10 @@ async fn test_large_network_scenario_counts() -> Result<()> {
     }
 
     for (i, user_id) in user_ids.iter().enumerate() {
-        let num_mutes = rng.gen_range(0..=max_mutes_per_user.min(NUM_USERS - 1));
+        let num_mutes = rng.random_range(0..=max_mutes_per_user.min(NUM_USERS - 1));
         let mute_set = &mut user_mutes.get_mut(user_id).unwrap();
         while mute_set.len() < num_mutes {
-            let target_index = rng.gen_range(0..NUM_USERS);
+            let target_index = rng.random_range(0..NUM_USERS);
             if target_index != i {
                 let target_user_id = &user_ids[target_index];
                 if mute_set.insert(target_user_id.clone()) {
@@ -151,12 +151,12 @@ async fn test_large_network_scenario_counts() -> Result<()> {
 
     // Users bookmark posts
     for user_id in user_ids.iter() {
-        let num_bookmarks = rng.gen_range(1..=max_bookmarks_per_user);
+        let num_bookmarks = rng.random_range(1..=max_bookmarks_per_user);
         for _ in 0..num_bookmarks {
-            let target_user_index = rng.gen_range(0..NUM_USERS);
+            let target_user_index = rng.random_range(0..NUM_USERS);
             let target_user_id = &user_ids[target_user_index];
             if !user_posts[&target_user_id.clone()].is_empty() {
-                let post_index = rng.gen_range(0..user_posts[&target_user_id.clone()].len());
+                let post_index = rng.random_range(0..user_posts[&target_user_id.clone()].len());
                 let target_post_id = &user_posts[&target_user_id.clone()][post_index];
 
                 let bookmark = PubkyAppBookmark {
@@ -181,15 +181,15 @@ async fn test_large_network_scenario_counts() -> Result<()> {
 
     // Users tag posts of other users
     for user_id in user_ids.iter() {
-        let num_tags = rng.gen_range(1..=max_tags_per_user);
+        let num_tags = rng.random_range(1..=max_tags_per_user);
         for _ in 0..num_tags {
-            let target_user_index = rng.gen_range(0..NUM_USERS);
+            let target_user_index = rng.random_range(0..NUM_USERS);
             let target_user_id = &user_ids[target_user_index];
             if !user_posts[&target_user_id.clone()].is_empty() {
-                let post_index = rng.gen_range(0..user_posts[&target_user_id.clone()].len());
+                let post_index = rng.random_range(0..user_posts[&target_user_id.clone()].len());
                 let target_post_id = &user_posts[&target_user_id.clone()][post_index];
 
-                let tag_label = format!("tag{}", rng.gen_range(0..100)); // FAILs tag labels are repeated, the same, the counts do not match graph vs index. Graph does not duplicate tag, but index counts do increase.
+                let tag_label = format!("tag{}", rng.random_range(0..100)); // FAILs tag labels are repeated, the same, the counts do not match graph vs index. Graph does not duplicate tag, but index counts do increase.
                 let tag = PubkyAppTag {
                     uri: format!(
                         "pubky://{}/pub/pubky.app/posts/{}",
@@ -209,7 +209,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                 // left: 12
                 // right: 11
                 // Randomly decide to delete the tag
-                if rng.gen_bool(0.1) {
+                if rng.random_bool(0.1) {
                     // 10% chance to delete the tag
                     test.del(&tag_url).await?;
                     total_tag_deletions += 1;
@@ -224,7 +224,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
         let following_set = &mut user_followings.get_mut(user_id).unwrap();
         let following: Vec<String> = following_set.iter().cloned().collect();
 
-        let num_unfollows = rng.gen_range(0..=following.len());
+        let num_unfollows = rng.random_range(0..=following.len());
         let mut unfollowed = HashSet::new();
 
         for _ in 0..num_unfollows {
@@ -232,7 +232,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                 break;
             }
 
-            let target_index = rng.gen_range(0..following.len());
+            let target_index = rng.random_range(0..following.len());
             let target_user_id = &following[target_index];
             if unfollowed.insert(target_user_id.clone()) {
                 let follow_uri = format!(
@@ -252,7 +252,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
         let mute_set = &mut user_mutes.get_mut(user_id).unwrap();
         let muted: Vec<String> = mute_set.iter().cloned().collect();
 
-        let num_unmutes = rng.gen_range(0..=muted.len());
+        let num_unmutes = rng.random_range(0..=muted.len());
         let mut unmuted = HashSet::new();
 
         for _ in 0..num_unmutes {
@@ -260,7 +260,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                 break;
             }
 
-            let target_index = rng.gen_range(0..muted.len());
+            let target_index = rng.random_range(0..muted.len());
             let target_user_id = &muted[target_index];
             if unmuted.insert(target_user_id.clone()) {
                 let mute_uri =

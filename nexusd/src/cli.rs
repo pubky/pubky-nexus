@@ -37,7 +37,7 @@ pub struct ApiArgs {
 #[derive(Args, Debug)]
 pub struct WatcherArgs {
     /// Optional configuration file for the watcher
-    #[arg(short, long, num_args = 0..=1, default_missing_value = "./src/wconf_template.toml")]
+    #[arg(short, long, num_args = 0..=1, default_missing_value = "./src/conf_template.toml")]
     pub config: Option<PathBuf>,
 }
 
