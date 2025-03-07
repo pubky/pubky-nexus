@@ -140,7 +140,11 @@ impl TestServiceServer {
         let listener = TcpListener::bind(&binding).await?;
         let local_addr = listener.local_addr()?;
         // Init the stack before create the spawn. if not the app does not have time to initialise the stack and some tests fail
-        nexus_builder.public_addr(local_addr).init_stack().await;
+        nexus_builder
+            .public_addr(local_addr)
+            .init_stack()
+            .await
+            .unwrap();
 
         // Save the actual server URL (e.g., "http://127.0.0.1:12345") in a global variable
         let url = format!("http://{}", local_addr);

@@ -15,14 +15,14 @@ pub struct MockDb {}
 
 impl MockDb {
     pub async fn clear_database() {
-        NexusApi::builder().init_stack().await;
+        let _ = NexusApi::builder().init_stack().await;
         Self::drop_cache().await;
         Self::drop_graph().await;
         info!("Both ddbb cleared successfully");
     }
 
     pub async fn run(mock_type: Option<MockType>) {
-        NexusApi::builder().init_stack().await;
+        let _ = NexusApi::builder().init_stack().await;
         match mock_type {
             Some(MockType::Redis) => Self::sync_redis().await,
             Some(MockType::Graph) => Self::sync_graph().await,

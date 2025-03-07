@@ -1,125 +1,122 @@
 use std::{fmt::Debug, net::SocketAddr, path::PathBuf};
 
-use crate::routes;
-use async_trait::async_trait;
-use nexus_common::db::{Config as StackConfig, ConfigLoader, DatabaseConfig};
+use crate::{routes, Config};
+use nexus_common::db::{ConfigLoader, DatabaseConfig, Level};
 use nexus_common::stack::StackManager;
 use nexus_common::types::DynError;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::net::TcpListener;
-use tracing::{debug, info};
-
-pub const NAME: &str = "nexus.api";
-pub const DEFAULT_HOST: [u8; 4] = [127, 0, 0, 1];
-pub const DEFAULT_PORT: u16 = 8080;
-
-// Nexus API configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Config {
-    // TODO: Choose a right name
-    pub stack: StackConfig,
-    pub public_addr: SocketAddr,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            stack: StackConfig::default(String::from(NAME)),
-            public_addr: SocketAddr::from((DEFAULT_HOST, DEFAULT_PORT)),
-        }
-    }
-}
-
-#[async_trait]
-impl<T> ConfigLoader<T> for Config where T: DeserializeOwned + Send + Sync + Debug {}
+use tracing::{debug, error, info};
 
 #[derive(Debug, Default)]
 pub struct NexusApiBuilder(pub(crate) Config);
 
 impl NexusApiBuilder {
-    /// Set the Homeserver's keypair
+    /// Sets the service name for observability (tracing, logging, monitoring)
     pub fn name(&mut self, name: String) -> &mut Self {
         self.0.stack.name = name;
 
         self
     }
 
+    /// Configures the logging level for the service, determining verbosity and log output
+    pub fn log_level(&mut self, log_level: Level) -> &mut Self {
+        self.0.stack.log_level = log_level;
+
+        self
+    }
+
+    /// Sets the server's listening address for incoming connections
     pub fn public_addr(&mut self, addr: SocketAddr) -> &mut Self {
         self.0.public_addr = addr;
 
         self
     }
 
+    /// Sets the directory for storing static files on the server
     pub fn files_path(&mut self, files_path: PathBuf) -> &mut Self {
         self.0.stack.files_path = files_path;
 
         self
     }
 
+    /// Sets the OpenTelemetry endpoint for tracing and monitoring
     pub fn otlp_endpoint(&mut self, otlp_endpoint: Option<String>) -> &mut Self {
         self.0.stack.otlp_endpoint = otlp_endpoint;
 
         self
     }
 
+    /// Sets the database configuration, including graph database and Redis settings
     pub fn db(&mut self, db: DatabaseConfig) -> &mut Self {
         self.0.stack.db = db;
 
         self
     }
 
-    // TODO: Maybe create in common the initialisation of the stack
-    pub async fn init_stack(&self) {
-        // Open ddbb connections and init tracing layer
+    /// Opens ddbb connections and initialises tracing layer (if provided in config)
+    pub async fn init_stack(&self) -> Result<(), DynError> {
         StackManager::setup(&self.0.stack).await;
+        Ok(())
     }
 
     pub async fn run(self) -> Result<(), DynError> {
-        self.init_stack().await;
-        NexusApi::run(self.0).await
+        if let Err(e) = self.init_stack().await {
+            tracing::error!("Failed to initialize stack: {}", e);
+            return Err(e);
+        }
+
+        if let Err(e) = NexusApi::run(self.0, None).await {
+            tracing::error!("Failed to start Nexus API: {}", e);
+            return Err(e);
+        }
+
+        Ok(())
     }
 
-    pub async fn run_test(self, listener: TcpListener) {
-        NexusApi::run_test(self.0, listener).await
+    /// Nexus API server for integration tests
+    pub async fn run_test(self, listener: TcpListener) -> Result<(), DynError> {
+        NexusApi::run(self.0, Some(listener)).await
     }
 }
 
 pub struct NexusApi {}
 
 impl NexusApi {
+    /// Creates a new instance with default configuration
     pub fn builder() -> NexusApiBuilder {
         NexusApiBuilder::default()
     }
 
+    /// Loads the configuration from a file and starts the Nexus API
     pub async fn run_with_config_file(config_file: PathBuf) -> Result<(), DynError> {
-        let config = Config::load(config_file).await?;
+        let config = Config::load(&config_file).await.map_err(|e| {
+            error!("Failed to load config file {:?}: {}", config_file, e);
+            e
+        })?;
         NexusApiBuilder(config).run().await
     }
 
-    pub async fn run(config: Config) -> Result<(), DynError> {
+    /// It sets up the necessary routes, binds to the specified address (if no
+    /// listener is provided), and starts the Axum server
+    pub async fn run(config: Config, listener: Option<TcpListener>) -> Result<(), DynError> {
         // Create all the routes of the API
         let app = routes::routes(config.stack.files_path.clone());
-        debug!(?config, "Running NexusAPI with ");
+        debug!(?config, "Running NexusAPI with");
+
+        let listener = match listener {
+            Some(l) => l,
+            None => TcpListener::bind(config.public_addr).await.map_err(|e| {
+                error!("Failed to bind to {:?}: {}", config.public_addr, e);
+                e
+            })?,
+        };
+        let addr = listener.local_addr().unwrap_or_else(|e| {
+            panic!("Failed to get local address after binding: {}", e);
+        });
+        info!("Listening on {:?}", addr);
 
         // Start server
-        let listener = TcpListener::bind(config.public_addr).await.unwrap();
-        info!("Listening on {:?}\n", listener.local_addr().unwrap());
-
         axum::serve(listener, app.into_make_service()).await?;
         Ok(())
-    }
-
-    // TODO: From now this is a patch. Find out how to do it better. Mainly for tests
-    pub async fn run_test(config: Config, listener: TcpListener) {
-        // Create all the routes of the API
-        let app = routes::routes(config.stack.files_path.clone());
-        debug!(?config, "Running NexusAPI with ");
-
-        // Start server
-        info!("Listening on {:?}\n", listener.local_addr().unwrap());
-
-        axum::serve(listener, app.into_make_service())
-            .await
-            .unwrap();
     }
 }

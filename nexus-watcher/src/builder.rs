@@ -1,64 +1,26 @@
 use crate::events::processor::EventProcessor;
-use async_trait::async_trait;
-use nexus_common::db::PubkyClient;
-use nexus_common::db::{Config as StackConfig, ConfigLoader, DatabaseConfig, Level};
+use crate::Config;
+use nexus_common::db::{ConfigLoader, PubkyClient};
+use nexus_common::db::{DatabaseConfig, Level};
 use nexus_common::stack::StackManager;
 use nexus_common::types::DynError;
 use pubky_app_specs::PubkyId;
-use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
-use std::fmt::Debug;
 use std::path::PathBuf;
 use tokio::time::{sleep, Duration};
 use tracing::{debug, error, info};
-
-pub const NAME: &str = "nexus.watcher";
-pub const TESTNET: bool = false;
-pub const HOMESERVER_PUBKY: &str = "8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo";
-// Maximum number of events to fetch at once from a homeserver
-pub const EVENTS_LIMIT: u32 = 1000;
-// Sleep between checks to homeserver
-pub const WATCHER_SLEEP: u64 = 5000;
-
-// Nexus Watcher configuration
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-pub struct Config {
-    // TODO: Choose a right name
-    pub stack: StackConfig,
-    pub testnet: bool,
-    pub homeserver: PubkyId,
-    pub events_limit: u32,
-    pub watcher_sleep: u64,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        // TODO: not secure, could panic but maybe makes sense because it is an initialisation
-        let homeserver = PubkyId::try_from(HOMESERVER_PUBKY).unwrap();
-        Self {
-            stack: StackConfig::default(String::from(NAME)),
-            testnet: TESTNET,
-            homeserver,
-            events_limit: EVENTS_LIMIT,
-            watcher_sleep: WATCHER_SLEEP,
-        }
-    }
-}
-
-#[async_trait]
-impl<T> ConfigLoader<T> for Config where T: DeserializeOwned + Send + Sync + Debug {}
 
 #[derive(Debug, Default)]
 pub struct NexusWatcherBuilder(pub(crate) Config);
 
 impl NexusWatcherBuilder {
-    /// Set the Homeserver's keypair
+    /// Sets the service name for observability (tracing, logging, monitoring)
     pub fn name(&mut self, name: String) -> &mut Self {
         self.0.stack.name = name;
 
         self
     }
 
+    /// Configures the logging level for the service, determining verbosity and log output
     pub fn log_level(&mut self, log_level: Level) -> &mut Self {
         self.0.stack.log_level = log_level;
 
@@ -77,36 +39,39 @@ impl NexusWatcherBuilder {
         self
     }
 
+    /// Sets the directory for storing static files on the server
     pub fn files_path(&mut self, files_path: PathBuf) -> &mut Self {
         self.0.stack.files_path = files_path;
 
         self
     }
 
+    /// Sets the OpenTelemetry endpoint for tracing and monitoring
     pub fn otlp_endpoint(&mut self, otlp_endpoint: Option<String>) -> &mut Self {
         self.0.stack.otlp_endpoint = otlp_endpoint;
 
         self
     }
 
+    /// Sets the database configuration, including graph database and Redis settings
     pub fn db(&mut self, db: DatabaseConfig) -> &mut Self {
         self.0.stack.db = db;
 
         self
     }
 
-    // TODO: Maybe create in common the initialisation of the stack
+    /// Opens ddbb connections and initialises tracing layer (if provided in config)
     pub async fn init_stack(&self) {
-        // Open ddbb connections and init tracing layer
         StackManager::setup(&self.0.stack).await;
         let _ = PubkyClient::initialise(self.0.testnet).await;
     }
 
+    /// Initializes the watcher integration test stack
     pub async fn init_test_stack(&self) {
-        // Open ddbb connections and init tracing layer
         StackManager::setup(&self.0.stack).await;
     }
 
+    /// Initializes the service stack and starts the NexusWatcher event loop
     pub async fn run(self) -> Result<(), DynError> {
         self.init_stack().await;
         NexusWatcher::run(self.0).await
@@ -121,7 +86,10 @@ impl NexusWatcher {
     }
 
     pub async fn run_with_config_file(config_file: PathBuf) -> Result<(), DynError> {
-        let config = Config::load(config_file).await?;
+        let config = Config::load(&config_file).await.map_err(|e| {
+            error!("Failed to load config file {:?}: {}", config_file, e);
+            e
+        })?;
         NexusWatcherBuilder(config).run().await
     }
 

@@ -1,16 +1,15 @@
-use nexus_common::types::{errors::EventProcessorError, DynError};
-use std::error::Error;
-use std::path::PathBuf;
-
 use super::Event;
-use crate::builder::Config as WatcherConfig;
 use crate::events::retry::event::RetryEvent;
+use crate::Config as WatcherConfig;
 use nexus_common::db::PubkyClient;
 use nexus_common::db::FILES_DIR;
 use nexus_common::models::homeserver::Homeserver;
+use nexus_common::types::{errors::EventProcessorError, DynError};
 use opentelemetry::trace::{FutureExt, Span, TraceContextExt, Tracer};
 use opentelemetry::{global, Context, KeyValue};
 use pubky_app_specs::PubkyId;
+use std::error::Error;
+use std::path::PathBuf;
 use tracing::{debug, error, info};
 
 pub struct EventProcessor {
