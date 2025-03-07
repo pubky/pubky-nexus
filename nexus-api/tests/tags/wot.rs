@@ -1,5 +1,5 @@
 use super::utils::{analyse_tag_details_structure, compare_tag_details, TagMockup};
-use crate::utils::TestServiceServer;
+use crate::utils::server::TestServiceServer;
 use crate::utils::{get_request, invalid_get_request};
 use anyhow::Result;
 use nexus_common::db::get_redis_conn;
