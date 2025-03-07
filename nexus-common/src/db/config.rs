@@ -117,11 +117,12 @@ where
     /// Loads the struct from a TOML file
     async fn load(path: impl AsRef<Path> + Send) -> Result<T, DynError> {
         let config_file_path = path.as_ref();
+        println!("{:?}", config_file_path);
 
         // Read file with error handling
         let s = fs::read_to_string(config_file_path)
             .await
-            .map_err(|e| format!("Failed to read config file {:?}: {}", config_file_path, e))?;
+            .map_err(|e| format!("!Failed to read config file {:?}: {}", config_file_path, e))?;
 
         // Convert TOML to struct with error handling
         let config = Self::try_from_str(&s)

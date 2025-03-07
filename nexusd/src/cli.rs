@@ -30,14 +30,14 @@ pub enum NexusCommands {
 #[derive(Args, Debug)]
 pub struct ApiArgs {
     /// Optional configuration file for the watcher
-    #[arg(short, long, num_args = 0..=1, default_missing_value = "./src/aconf_template.toml")]
+    #[arg(short, long, num_args = 0..=1, default_missing_value = "./nexus-api/src/conf_template.toml")]
     pub config: Option<PathBuf>,
 }
 
 #[derive(Args, Debug)]
 pub struct WatcherArgs {
     /// Optional configuration file for the watcher
-    #[arg(short, long, num_args = 0..=1, default_missing_value = "./src/conf_template.toml")]
+    #[arg(short, long, num_args = 0..=1, default_missing_value = "./nexus-watcher/src/conf_template.toml")]
     pub config: Option<PathBuf>,
 }
 
