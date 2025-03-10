@@ -1,6 +1,6 @@
 use crate::run_setup;
 use criterion::Criterion;
-use pubky_nexus::{
+use nexus_common::{
     models::user::{UserStream, UserStreamInput, UserStreamSource},
     types::StreamReach,
 };

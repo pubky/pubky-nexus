@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use pubky_nexus::models::post::{Bookmark, PostCounts, PostDetails, PostRelationships, PostView};
+use nexus_common::models::post::{Bookmark, PostCounts, PostDetails, PostRelationships, PostView};
 use setup::run_setup;
 use std::time::Duration;
 use tokio::runtime::Runtime;

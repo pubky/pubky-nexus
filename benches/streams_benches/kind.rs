@@ -1,9 +1,9 @@
 use crate::run_setup;
 use crate::streams_benches::LIMIT_20;
 use criterion::Criterion;
+use nexus_common::models::post::{PostStream, StreamSource};
+use nexus_common::types::StreamSorting;
 use pubky_app_specs::PubkyAppPostKind;
-use pubky_nexus::models::post::{PostStream, StreamSource};
-use pubky_nexus::types::StreamSorting;
 use tokio::runtime::Runtime;
 
 /// POST KIND RELATED STREAMS BENCHMARKS

@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use pubky_nexus::reindex;
+use nexus_common::db::reindex;
 use setup::run_setup;
 use std::time::Duration;
 use tokio::runtime::Runtime;
@@ -18,7 +18,7 @@ fn bench_reindex(c: &mut Criterion) {
     c.bench_function("reindex", |b| {
         b.to_async(&rt).iter(|| async {
             // Previously, clear the cache. Shall we add
-            reindex().await;
+            reindex::sync().await;
         });
     });
 }

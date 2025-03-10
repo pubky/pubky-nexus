@@ -34,7 +34,7 @@ impl StackManager {
 
         match REDIS_CONNECTOR.set(redis_connector) {
             Err(e) => debug!("RedisConnector was already set: {:?}", e),
-            Ok(()) => info!("RedisConnector successfully set"),
+            Ok(()) => info!("RedisConnector successfully set: {:?}", redis_uri),
         }
     }
 

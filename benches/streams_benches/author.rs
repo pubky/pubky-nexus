@@ -1,6 +1,6 @@
 use crate::{run_setup, streams_benches::LIMIT_20};
 use criterion::Criterion;
-use pubky_nexus::{
+use nexus_common::{
     models::post::{PostStream, StreamSource},
     types::StreamSorting,
 };

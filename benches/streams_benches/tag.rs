@@ -1,8 +1,8 @@
 use crate::run_setup;
 use crate::streams_benches::LIMIT_20;
 use criterion::Criterion;
-use pubky_nexus::models::post::{PostStream, StreamSource};
-use pubky_nexus::types::StreamSorting;
+use nexus_common::models::post::{PostStream, StreamSource};
+use nexus_common::types::StreamSorting;
 use tokio::runtime::Runtime;
 
 const TAG: &str = "free";

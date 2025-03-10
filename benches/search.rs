@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use pubky_nexus::{
+use nexus_common::{
     models::{tag::search::TagSearch, user::UserSearch},
     types::Pagination,
 };

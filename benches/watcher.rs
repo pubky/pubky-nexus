@@ -1,7 +1,7 @@
 use criterion::{criterion_group, criterion_main, Criterion};
+use nexus_watcher::events::processor::EventProcessor;
 use pubky::Keypair;
 use pubky_app_specs::{PubkyAppUser, PubkyAppUserLink};
-use pubky_nexus::EventProcessor;
 use pubky_testnet::Testnet;
 use setup::run_setup;
 use std::time::Duration;

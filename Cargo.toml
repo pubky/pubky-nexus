@@ -1,11 +1,15 @@
 [workspace]
-members = [
-  "nexus-*",
-  "nexusd"
-]
-
 # See: https://github.com/rust-lang/rust/issues/90148#issuecomment-949194352
 resolver = "2"
+members = [
+  "nexus-api",
+  "nexus-common",
+  "nexus-watcher",
+  "nexusd",
+
+  # Internal
+  "benches"
+]
 
 # Max performance profile
 [profile.release]

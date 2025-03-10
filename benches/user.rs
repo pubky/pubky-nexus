@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use pubky_nexus::models::traits::Collection;
-use pubky_nexus::models::user::{Relationship, UserCounts, UserDetails, UserView};
+use nexus_common::models::traits::Collection;
+use nexus_common::models::user::{Relationship, UserCounts, UserDetails, UserView};
 use setup::run_setup;
 use std::time::Duration;
 use tokio::runtime::Runtime;

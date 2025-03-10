@@ -3,8 +3,6 @@ use reqwest::StatusCode;
 
 use crate::utils::{get_request, invalid_get_request};
 
-// TODO: Create deterministic integration tests
-
 const PEER_PUBKY: &str = "o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo";
 
 #[tokio_shared_rt::test(shared)]

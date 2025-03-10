@@ -1,4 +1,4 @@
-use pubky_nexus::types::Pagination;
+use nexus_common::types::Pagination;
 
 pub const LIMIT_20: Pagination = Pagination {
     skip: None,

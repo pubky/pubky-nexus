@@ -3,7 +3,7 @@ use crate::types::DynError;
 use redis::Script;
 use redis::{AsyncCommands, JsonAsyncCommands};
 use serde::{de::DeserializeOwned, Serialize};
-use tracing::debug;
+use tracing::{debug, trace};
 
 #[derive(Clone, Debug)]
 pub enum JsonAction {
@@ -399,10 +399,11 @@ pub async fn _get_bool(prefix: &str, key: &str) -> Result<Option<bool>, DynError
     let index_key = format!("{}:{}", prefix, key);
 
     if let Ok(indexed_value) = redis_conn.get::<_, i32>(&index_key).await {
-        // debug!(
-        //     "Restored boolean key: {} with value: {}",
-        //     index_key, indexed_value
-        // );
+        trace!(
+            "Restored boolean key: {} with value: {}",
+            index_key,
+            indexed_value
+        );
         let value = match indexed_value {
             1 => true,
             0 => false,
