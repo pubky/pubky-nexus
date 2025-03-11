@@ -1,5 +1,6 @@
 mod config;
 mod connectors;
+pub mod errors;
 mod graph;
 pub mod kv;
 pub mod reindex;

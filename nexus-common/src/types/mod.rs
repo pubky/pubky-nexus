@@ -1,4 +1,3 @@
-pub mod errors;
 mod pagination;
 pub mod routes;
 mod timeframe;

@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::str::FromStr;
 
+use crate::db::errors::DbError;
 use crate::db::{exec_single_row, queries, RedisOps};
 use crate::models::traits::Collection;
-use crate::types::errors::EventProcessorError;
 use crate::types::DynError;
 use async_trait::async_trait;
 use chrono::Utc;
@@ -136,7 +136,7 @@ impl FileDetails {
         }
     }
 
-    pub async fn delete(&self) -> Result<(), DynError> {
+    pub async fn delete(&self) -> Result<(), DbError> {
         // Delete graph node
         match exec_single_row(queries::del::delete_file(&self.owner_id, &self.id)).await {
             Ok(_) => {
@@ -145,19 +145,17 @@ impl FileDetails {
                     Ok(()) => (),
                     Err(e) => {
                         error!("Index file deletion, {}: {:?}", self.id, e);
-                        return Err(EventProcessorError::IndexWriteFailed {
+                        return Err(DbError::IndexOperationFailed {
                             message: format!("Could not delete the index, {:?}", e),
-                        }
-                        .into());
+                        });
                     }
                 }
             }
             Err(e) => {
                 error!("Graph file deletion, {}: {:?}", self.id, e);
-                return Err(EventProcessorError::GraphQueryFailed {
+                return Err(DbError::GraphQueryFailed {
                     message: format!("Could not delete the file, {:?}", e),
-                }
-                .into());
+                });
             }
         };
         Ok(())

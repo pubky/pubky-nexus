@@ -1,7 +1,7 @@
 use crate::utils::watcher::{assert_eventually_exists, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
-use nexus_common::types::errors::EventProcessorError;
+use nexus_watcher::events::errors::EventProcessorError;
 use nexus_watcher::events::{retry::event::RetryEvent, EventType};
 use pubky::Keypair;
 use pubky_app_specs::{traits::HashId, PubkyAppTag, PubkyAppUser};

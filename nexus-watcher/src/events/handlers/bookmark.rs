@@ -3,9 +3,11 @@ use nexus_common::db::kv::JsonAction;
 use nexus_common::db::OperationOutcome;
 use nexus_common::models::post::Bookmark;
 use nexus_common::models::user::UserCounts;
-use nexus_common::types::{errors::EventProcessorError, DynError};
+use nexus_common::types::DynError;
 use pubky_app_specs::{ParsedUri, PubkyAppBookmark, PubkyId, Resource};
 use tracing::debug;
+
+use crate::events::errors::EventProcessorError;
 
 pub async fn sync_put(
     user_id: PubkyId,

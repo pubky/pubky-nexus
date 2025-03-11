@@ -1,11 +1,12 @@
+use errors::EventProcessorError;
 use nexus_common::db::PubkyClient;
-use nexus_common::types::{errors::EventProcessorError, DynError};
+use nexus_common::types::DynError;
 use pubky_app_specs::{ParsedUri, PubkyAppObject, Resource};
 use serde::{Deserialize, Serialize};
 use std::{fmt, path::PathBuf};
 use tracing::debug;
 
-pub mod error;
+pub mod errors;
 pub mod handlers;
 pub mod processor;
 pub mod retry;
@@ -102,7 +103,11 @@ impl Event {
 
         let response;
         {
-            let pubky_client = PubkyClient::get()?;
+            let pubky_client =
+                PubkyClient::get().map_err(|e| EventProcessorError::PubkyClientError {
+                    message: e.to_string(),
+                })?;
+
             response = match pubky_client.get(&self.uri).send().await {
                 Ok(response) => response,
                 Err(e) => {

@@ -4,8 +4,6 @@ use thiserror::Error;
 use tokio::sync::OnceCell;
 use tracing::debug;
 
-use crate::types::errors::EventProcessorError;
-
 static PUBKY_CLIENT_SINGLETON: OnceCell<Arc<Client>> = OnceCell::const_new();
 
 #[derive(Debug, Error)]
@@ -42,16 +40,11 @@ impl PubkyClient {
             .map(|_| ())
     }
     /// Retrieves an instance of the `PubkyClient`
-    pub fn get() -> Result<Arc<Client>, EventProcessorError> {
+    pub fn get() -> Result<Arc<Client>, PubkyClientError> {
         PUBKY_CLIENT_SINGLETON
             .get()
             .cloned()
             .ok_or(PubkyClientError::NotInitialized)
-            .map_err(
-                |e: PubkyClientError| EventProcessorError::PubkyClientError {
-                    message: format!("{}", e),
-                },
-            )
     }
 
     /// Initializes the `PUBKY_CONNECTOR_SINGLETON` with a provided `Client` instance.

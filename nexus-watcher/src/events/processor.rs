@@ -1,10 +1,11 @@
 use super::Event;
+use crate::events::errors::EventProcessorError;
 use crate::events::retry::event::RetryEvent;
 use crate::Config as WatcherConfig;
 use nexus_common::db::PubkyClient;
 use nexus_common::db::FILES_DIR;
 use nexus_common::models::homeserver::Homeserver;
-use nexus_common::types::{errors::EventProcessorError, DynError};
+use nexus_common::types::DynError;
 use opentelemetry::trace::{FutureExt, Span, TraceContextExt, Tracer};
 use opentelemetry::{global, Context, KeyValue};
 use pubky_app_specs::PubkyId;
@@ -96,7 +97,10 @@ impl EventProcessor {
         debug!("Polling new events from homeserver");
 
         let response_text = {
-            let pubky_client = PubkyClient::get()?;
+            let pubky_client =
+                PubkyClient::get().map_err(|e| EventProcessorError::PubkyClientError {
+                    message: e.to_string(),
+                })?;
             let url = format!(
                 "https://{}/events/?cursor={}&limit={}",
                 self.homeserver.id, self.homeserver.cursor, self.limit

@@ -2381,6 +2381,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "thiserror 2.0.11",
  "tokio",
  "tokio-shared-rt",
  "tracing",

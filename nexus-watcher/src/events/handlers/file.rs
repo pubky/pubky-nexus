@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
+use crate::events::errors::EventProcessorError;
 use crate::handle_indexing_results;
+use nexus_common::db::errors::DbError;
 use nexus_common::db::PubkyClient;
 use nexus_common::models::file::details::FileVariant;
 use nexus_common::models::{
@@ -8,7 +10,7 @@ use nexus_common::models::{
     traits::Collection,
 };
 use nexus_common::static_processor::{StaticProcessor, StaticStorage};
-use nexus_common::types::{errors::EventProcessorError, DynError};
+use nexus_common::types::DynError;
 use pubky_app_specs::{PubkyAppFile, PubkyAppObject, PubkyId};
 use tokio::fs::remove_dir_all;
 use tracing::debug;
@@ -62,7 +64,10 @@ async fn ingest(
 ) -> Result<FileMeta, DynError> {
     let response;
     {
-        let pubky_client = PubkyClient::get()?;
+        let pubky_client =
+            PubkyClient::get().map_err(|e| EventProcessorError::PubkyClientError {
+                message: e.to_string(),
+            })?;
 
         response = match pubky_client.get(&pubkyapp_file.src).send().await {
             Ok(response) => response,
@@ -114,8 +119,15 @@ pub async fn del(user_id: &PubkyId, file_id: String, files_path: PathBuf) -> Res
     if !result.is_empty() {
         let file = &result[0];
 
-        if let Some(value) = file {
-            value.delete().await?;
+        if let Some(file_details) = file {
+            file_details.delete().await.map_err(|e| match e {
+                DbError::GraphQueryFailed { message } => {
+                    EventProcessorError::GraphQueryFailed { message }
+                }
+                DbError::IndexOperationFailed { message } => {
+                    EventProcessorError::IndexWriteFailed { message }
+                }
+            })?;
         }
 
         let folder_path = format!("{}/{}", user_id, file_id);

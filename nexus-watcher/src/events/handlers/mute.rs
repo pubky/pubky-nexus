@@ -1,7 +1,7 @@
-use crate::events::retry::event::RetryEvent;
+use crate::events::{errors::EventProcessorError, retry::event::RetryEvent};
 use nexus_common::db::OperationOutcome;
 use nexus_common::models::user::Muted;
-use nexus_common::types::{errors::EventProcessorError, DynError};
+use nexus_common::types::DynError;
 use pubky_app_specs::{user_uri_builder, PubkyId};
 use tracing::debug;
 
