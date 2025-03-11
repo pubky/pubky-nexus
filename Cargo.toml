@@ -35,7 +35,7 @@ opentelemetry-appender-tracing = "0.28.1"
 const_format = "0.2.34"
 thiserror = "2.0.11"
 chrono = { version = "0.4.39", default-features = false, features = ["clock"] }
-async-trait = "0.1.85"
+async-trait = "0.1.87"
 
 [dev-dependencies]
 anyhow = "1.0.95"
