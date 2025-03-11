@@ -15,6 +15,7 @@ pubky-app-specs = { version = "0.3.2"}
 pubky-testnet = "0.1.1"
 serde_json = "1.0.137"
 tokio = { version = "1.43.0", features = ["full"] }
+httpc-test = "0.1.10"
 
 # WiP
 [[bench]]

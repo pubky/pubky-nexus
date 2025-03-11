@@ -6,6 +6,7 @@ description = "Nexus API exposes a social-media-like API capable of powerful Web
 homepage = "https://github.com/pubky/pubky-nexus"
 repository = "https://github.com/pubky/pubky-nexus"
 license = "MIT"
+build = "build.rs"
 
 [dependencies]
 async-trait = "0.1.85"

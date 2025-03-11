@@ -438,6 +438,7 @@ name = "benches"
 version = "0.0.0"
 dependencies = [
  "criterion",
+ "httpc-test",
  "nexus-api",
  "nexus-common",
  "nexus-watcher",
