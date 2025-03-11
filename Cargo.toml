@@ -34,7 +34,7 @@ opentelemetry_sdk = { version = "0.28", features = ["rt-tokio"] }
 opentelemetry-appender-tracing = "0.28.1"
 const_format = "0.2.34"
 thiserror = "2.0.11"
-chrono = { version = "0.4.39", default-features = false, features = ["clock"] }
+chrono = { version = "0.4.40", default-features = false, features = ["clock"] }
 async-trait = "0.1.85"
 
 [dev-dependencies]
