@@ -3,7 +3,11 @@ pub fn to_snake_case(input: &str) -> String {
     let mut prev_was_upper = false;
 
     for (i, c) in input.chars().enumerate() {
-        if c.is_uppercase() {
+        if c == '-' {
+            // Convert hyphens to underscores
+            result.push('_');
+            prev_was_upper = false;
+        } else if c.is_uppercase() {
             if i > 0 && !prev_was_upper {
                 result.push('_');
             }
@@ -18,7 +22,27 @@ pub fn to_snake_case(input: &str) -> String {
     result
 }
 
+pub fn to_pascal_case(input: &str) -> String {
+    let mut result = String::new();
+    let mut capitalize_next = true;
+
+    for c in input.chars() {
+        if c == '_' || c == '-' {
+            // Handle underscores and hyphens
+            capitalize_next = true;
+        } else if capitalize_next {
+            result.push(c.to_ascii_uppercase());
+            capitalize_next = false;
+        } else {
+            result.push(c);
+        }
+    }
+
+    result
+}
+
 pub fn generate_template(name: &str) -> String {
+    let struc_name = to_pascal_case(name);
     format!(
         "use async_trait::async_trait;
 
@@ -58,7 +82,7 @@ impl Migration for {name} {{
     }}
 }}
 ",
-        name = name
+        name = struc_name
     )
 }
 
@@ -69,11 +93,24 @@ mod tests {
         assert_eq!(super::to_snake_case("CamelCase"), "camel_case");
         assert_eq!(super::to_snake_case("PascalCase"), "pascal_case");
         assert_eq!(super::to_snake_case("snake_case"), "snake_case");
-        assert_eq!(super::to_snake_case("kebab-case"), "kebab-case");
+        assert_eq!(super::to_snake_case("kebab-case"), "kebab_case");
         assert_eq!(super::to_snake_case("UPPERCASE"), "uppercase");
         assert_eq!(super::to_snake_case("lowercase"), "lowercase");
         assert_eq!(super::to_snake_case("12345"), "12345");
         assert_eq!(super::to_snake_case("snake_case_123"), "snake_case_123");
         assert_eq!(super::to_snake_case("UserNewField"), "user_new_field");
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn test_to_pascal_case() {
+        assert_eq!(super::to_pascal_case("camel_case"), "CamelCase");
+        assert_eq!(super::to_pascal_case("pascal_case"), "PascalCase");
+        assert_eq!(super::to_pascal_case("snake_case"), "SnakeCase");
+        assert_eq!(super::to_pascal_case("kebab-case"), "KebabCase");
+        assert_eq!(super::to_pascal_case("uppercase"), "Uppercase");
+        assert_eq!(super::to_pascal_case("lowercase"), "Lowercase");
+        assert_eq!(super::to_pascal_case("12345"), "12345");
+        assert_eq!(super::to_pascal_case("snake_case_123"), "SnakeCase123");
+        assert_eq!(super::to_pascal_case("user_new_field"), "UserNewField");
     }
 }

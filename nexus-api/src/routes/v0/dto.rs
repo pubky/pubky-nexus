@@ -1,4 +1,4 @@
-// DTO (Data Transfer Object) is used to transfer structured data between API layers, 
+// DTO (Data Transfer Object) is used to transfer structured data between API layers,
 // ensuring clear separation between internal models and external representations
 
 use nexus_common::models::tag::Taggers;

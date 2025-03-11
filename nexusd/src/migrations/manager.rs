@@ -84,6 +84,8 @@ pub struct MigrationNode {
     updated_at: i64,
 }
 
+const MIGRATION_PATH: &str = "nexusd/src/migrations/migrations_list/";
+
 pub struct MigrationManager {
     graph: Arc<Mutex<Graph>>,
     migrations: Vec<Box<dyn Migration>>,
@@ -109,13 +111,10 @@ impl MigrationManager {
 
     pub async fn new_migration(name: String) -> Result<(), DynError> {
         let now = Utc::now().timestamp();
-        let migration_name = format!("{}{}", name, now);
-        let migration_file_name = format!("{}_{}", utils::to_snake_case(&name), now);
-        let migration_template = generate_template(migration_name.as_str());
-        let file_path = format!(
-            "src/migrations/migrations_list/{}.rs",
-            migration_file_name.as_str()
-        );
+        let snake_case_name = utils::to_snake_case(&name);
+        let migration_file_name = format!("{}_{}", snake_case_name, now);
+        let migration_template = generate_template(&migration_file_name);
+        let file_path = format!("{}{}.rs", MIGRATION_PATH, &migration_file_name);
         tokio::fs::write(file_path.clone(), migration_template)
             .await
             .map_err(|err| {
@@ -127,7 +126,7 @@ impl MigrationManager {
             })?;
 
         // append to migrations_list/mod.rs
-        let mod_file_path = "src/migrations/migrations_list/mod.rs";
+        let mod_file_path = format!("{}mod.rs", MIGRATION_PATH);
         let mod_file_content = format!("pub mod {};\n", migration_file_name);
         let mut mod_file = tokio::fs::OpenOptions::new()
             .append(true)

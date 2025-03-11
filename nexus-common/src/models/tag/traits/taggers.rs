@@ -73,10 +73,7 @@ where
                 Some(member) => Self::check_set_member(&key_parts, member).await?.1,
                 None => false,
             };
-            return Ok(Some((
-                users,
-                is_member
-            )));
+            return Ok(Some((users, is_member)));
         }
         Ok(None)
     }
