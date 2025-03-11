@@ -1,9 +1,11 @@
 use crate::db::RedisOps;
-use crate::types::routes::TaggersInfo;
+use crate::models::tag::Taggers;
 use crate::types::{DynError, Pagination};
 use async_trait::async_trait;
 
 use super::collection::CACHE_SET_PREFIX;
+
+pub type TaggersTuple = (Taggers, bool);
 
 #[async_trait]
 pub trait TaggersCollection
@@ -39,7 +41,7 @@ where
         pagination: Pagination,
         viewer_id: Option<&str>,
         depth: Option<u8>,
-    ) -> Result<Option<TaggersInfo>, DynError> {
+    ) -> Result<Option<TaggersTuple>, DynError> {
         // Set default params for pagination
         let skip = pagination.skip.unwrap_or(0);
         let limit = pagination.limit.unwrap_or(40);
@@ -64,17 +66,17 @@ where
         skip: Option<usize>,
         limit: Option<usize>,
         prefix: Option<String>,
-    ) -> Result<Option<TaggersInfo>, DynError> {
+    ) -> Result<Option<TaggersTuple>, DynError> {
         let taggers = Self::try_from_index_set(&key_parts, skip, limit, prefix).await?;
         if let Some(users) = taggers {
             let is_member = match viewer_id {
                 Some(member) => Self::check_set_member(&key_parts, member).await?.1,
                 None => false,
             };
-            return Ok(Some(TaggersInfo {
+            return Ok(Some((
                 users,
-                relationship: is_member,
-            }));
+                is_member
+            )));
         }
         Ok(None)
     }

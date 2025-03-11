@@ -5,7 +5,7 @@ use nexus_common::models::tag::post::TagPost;
 use nexus_common::models::tag::stream::HotTags;
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::tag::user::TagUser;
-use nexus_common::types::routes::HotTagsInput;
+use nexus_common::types::routes::HotTagsInputDTO;
 use nexus_common::types::{Pagination, StreamReach, Timeframe};
 use setup::run_setup;
 use std::time::Duration;
@@ -199,7 +199,7 @@ fn bench_get_global_hot_tags(c: &mut Criterion) {
 
     c.bench_function("bench_get_global_hot_tags", |b| {
         b.to_async(&rt).iter(|| async {
-            let input = HotTagsInput::new(Timeframe::AllTime, 0, 40, 10, None);
+            let input = HotTagsInputDTO::new(Timeframe::AllTime, 0, 40, 10, None);
             let stream_tag = HotTags::get_hot_tags(None, None, &input).await.unwrap();
             criterion::black_box(stream_tag);
         });
@@ -258,7 +258,7 @@ fn bench_get_following_reach_hot_tags(c: &mut Criterion) {
         &[user_id],
         |b, &params| {
             b.to_async(&rt).iter(|| async {
-                let input = HotTagsInput {
+                let input = HotTagsInputDTO {
                     timeframe: Timeframe::AllTime,
                     skip: 0,
                     limit: 10,
@@ -299,7 +299,7 @@ fn bench_get_followers_reach_hot_tags(c: &mut Criterion) {
         &[user_id],
         |b, &params| {
             b.to_async(&rt).iter(|| async {
-                let input = HotTagsInput {
+                let input = HotTagsInputDTO {
                     timeframe: Timeframe::AllTime,
                     skip: 0,
                     limit: 10,
@@ -340,7 +340,7 @@ fn bench_get_friends_reach_hot_tags(c: &mut Criterion) {
         &[user_id],
         |b, &params| {
             b.to_async(&rt).iter(|| async {
-                let input = HotTagsInput {
+                let input = HotTagsInputDTO {
                     timeframe: Timeframe::AllTime,
                     skip: 0,
                     limit: 10,

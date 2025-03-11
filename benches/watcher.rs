@@ -1,4 +1,5 @@
 use criterion::{criterion_group, criterion_main, Criterion};
+use nexus_common::db::PubkyClient;
 use nexus_watcher::events::processor::EventProcessor;
 use pubky::Keypair;
 use pubky_app_specs::{PubkyAppUser, PubkyAppUserLink};
@@ -20,6 +21,11 @@ async fn create_homeserver_with_events() -> (Testnet, String) {
     let homeserver = testnet.run_homeserver().await.unwrap();
     let client = testnet.client_builder().build().unwrap();
     let homeserver_url = homeserver.url().to_string();
+
+    match PubkyClient::init_from_client(client.clone()).await {
+        Ok(_) => println!("WatcherTest: PubkyConnector initialised"),
+        Err(e) => println!("WatcherTest: {}", e),
+    }
 
     // Generate user data
     let keypair = Keypair::random();

@@ -23,10 +23,3 @@ where
         None => Ok(None),
     }
 }
-
-// TODO: #revisit, moved to common/src/types/routes
-// #[derive(Serialize, ToSchema, Deserialize)]
-// pub struct TaggersInfo {
-//     pub users: Taggers,
-//     pub relationship: bool,
-// }

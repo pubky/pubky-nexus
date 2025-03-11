@@ -1,5 +1,5 @@
 use crate::models::post::StreamSource;
-use crate::types::routes::HotTagsInput;
+use crate::types::routes::HotTagsInputDTO;
 use crate::types::Pagination;
 use crate::types::StreamReach;
 use crate::types::StreamSorting;
@@ -425,7 +425,7 @@ pub fn get_tag_taggers_by_reach(
 pub fn get_hot_tags_by_reach(
     user_id: &str,
     reach: StreamReach,
-    tags_query: &HotTagsInput,
+    tags_query: &HotTagsInputDTO,
 ) -> Query {
     let input_tagged_type = match &tags_query.tagged_type {
         Some(tagged_type) => tagged_type.to_string(),
@@ -467,7 +467,7 @@ pub fn get_hot_tags_by_reach(
     .param("to", to)
 }
 
-pub fn get_global_hot_tags(tags_query: &HotTagsInput) -> Query {
+pub fn get_global_hot_tags(tags_query: &HotTagsInputDTO) -> Query {
     let input_tagged_type = match &tags_query.tagged_type {
         Some(tagged_type) => tagged_type.to_string(),
         None => String::from("Post|User"),

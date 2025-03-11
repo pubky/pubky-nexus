@@ -11,8 +11,10 @@ pub mod stream;
 pub mod tag;
 pub mod types;
 pub mod user;
+mod dto;
 
 pub use types::TagsQuery;
+pub use dto::TaggersInfoDTO;
 
 use super::AppState;
 

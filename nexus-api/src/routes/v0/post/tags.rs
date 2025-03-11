@@ -1,13 +1,12 @@
 use crate::routes::v0::endpoints::{POST_TAGGERS_ROUTE, POST_TAGS_ROUTE};
 use crate::routes::v0::user::tags::TaggersQuery;
-use crate::routes::v0::TagsQuery;
+use crate::routes::v0::{TaggersInfoDTO, TagsQuery};
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
 use nexus_common::models::tag::post::TagPost;
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::tag::TagDetails;
-use nexus_common::types::routes::TaggersInfo;
 use tracing::info;
 use utoipa::OpenApi;
 
@@ -69,7 +68,7 @@ pub async fn post_tags_handler(
         ("limit" = Option<usize>, Query, description = "Number of taggers to return for pagination. Defaults to `40`")
     ),
     responses(
-        (status = 200, description = "Post tags", body = TaggersInfo),
+        (status = 200, description = "Post tags", body = TaggersInfoDTO),
         (status = 404, description = "Post not found"),
         (status = 500, description = "Internal server error")
     )
@@ -77,7 +76,7 @@ pub async fn post_tags_handler(
 pub async fn post_taggers_handler(
     Path((author_id, post_id, label)): Path<(String, String, String)>,
     Query(taggers_query): Query<TaggersQuery>,
-) -> Result<Json<TaggersInfo>> {
+) -> Result<Json<TaggersInfoDTO>> {
     info!(
         "GET {POST_TAGGERS_ROUTE} author_id:{}, post_id: {}, label: {}, viewer_id:{:?}, skip:{:?}, limit:{:?}",
         author_id, post_id, label, taggers_query.tags_query.viewer_id, taggers_query.pagination.skip, taggers_query.pagination.limit
@@ -92,7 +91,7 @@ pub async fn post_taggers_handler(
     )
     .await
     {
-        Ok(Some(tags)) => Ok(Json(tags)),
+        Ok(Some(tags)) => Ok(Json(TaggersInfoDTO::from(tags))),
         Ok(None) => Err(Error::PostNotFound { author_id, post_id }),
         Err(source) => Err(Error::InternalServerError { source }),
     }
@@ -101,6 +100,6 @@ pub async fn post_taggers_handler(
 #[derive(OpenApi)]
 #[openapi(
     paths(post_tags_handler, post_taggers_handler),
-    components(schemas(TagDetails, TaggersInfo))
+    components(schemas(TagDetails, TaggersInfoDTO))
 )]
 pub struct PostTagsApiDoc;

@@ -6,7 +6,7 @@ use nexus_common::models::tag::global::Taggers;
 use nexus_common::models::tag::stream::{HotTag, HotTags};
 use nexus_common::models::tag::TaggedType;
 use nexus_common::models::tag::Taggers as TaggersType;
-use nexus_common::types::routes::HotTagsInput;
+use nexus_common::types::routes::HotTagsInputDTO;
 use nexus_common::types::{Pagination, StreamReach, Timeframe};
 use serde::Deserialize;
 use tracing::{error, info};
@@ -30,33 +30,6 @@ pub struct TagTaggersQuery {
     reach: Option<StreamReach>,
     timeframe: Option<Timeframe>,
 }
-
-// TOOD: revisit in nexus-api refactorization, #revisit
-// pub struct HotTagsInput {
-//     pub timeframe: Timeframe,
-//     pub skip: usize,
-//     pub limit: usize,
-//     pub taggers_limit: usize,
-//     pub tagged_type: Option<TaggedType>,
-// }
-
-// impl HotTagsInput {
-//     pub fn new(
-//         timeframe: Timeframe,
-//         limit: usize,
-//         skip: usize,
-//         taggers_limit: usize,
-//         tagged_type: Option<TaggedType>,
-//     ) -> Self {
-//         Self {
-//             timeframe,
-//             limit,
-//             skip,
-//             taggers_limit,
-//             tagged_type,
-//         }
-//     }
-// }
 
 #[utoipa::path(
     get,
@@ -147,7 +120,7 @@ pub async fn hot_tags_handler(Query(query): Query<HotTagsQuery>) -> Result<Json<
     let taggers_limit = query.taggers_limit.unwrap_or(20).min(20);
     let timeframe = query.timeframe.unwrap_or(Timeframe::AllTime);
 
-    let input = HotTagsInput {
+    let input = HotTagsInputDTO {
         timeframe,
         skip,
         limit,

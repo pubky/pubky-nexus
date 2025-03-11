@@ -2,9 +2,9 @@ use super::utils::{analyse_tag_details_structure, compare_tag_details, TagMockup
 use crate::utils::server::TestServiceServer;
 use crate::utils::{get_request, invalid_get_request};
 use anyhow::Result;
+use nexus_api::routes::v0::TaggersInfoDTO;
 use nexus_common::db::get_redis_conn;
 use nexus_common::models::tag::TagDetails;
-use nexus_common::types::routes::TaggersInfo;
 use nexus_common::types::DynError;
 use redis::AsyncCommands;
 use reqwest::StatusCode;
@@ -206,7 +206,7 @@ async fn test_wot_user_tags_endpoints() -> Result<(), DynError> {
 }
 
 fn verify_taggers_list(mock_taggers: Vec<&str>, body: Value) {
-    let taggers_info: TaggersInfo = serde_json::from_value(body).unwrap();
+    let taggers_info: TaggersInfoDTO = serde_json::from_value(body).unwrap();
     assert_eq!(taggers_info.users.len(), mock_taggers.len());
 
     assert!(

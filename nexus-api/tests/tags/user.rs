@@ -1,5 +1,5 @@
 use anyhow::Result;
-use nexus_common::types::routes::TaggersInfo;
+use nexus_api::routes::v0::TaggersInfoDTO;
 use reqwest::StatusCode;
 
 use crate::{
@@ -217,7 +217,7 @@ async fn test_user_specific_tag() -> Result<()> {
     let path = format!("/v0/user/{}/taggers/{}", PUBKY_PEER, PUBKY_LABEL);
     let body = get_request(&path).await?;
 
-    let taggers_info: TaggersInfo = serde_json::from_value(body)?;
+    let taggers_info: TaggersInfoDTO = serde_json::from_value(body)?;
 
     assert_eq!(taggers_info.users.len(), 3);
 
@@ -237,7 +237,7 @@ async fn test_user_specific_tag_with_viewer_id() -> Result<()> {
     );
     let body = get_request(&path).await?;
 
-    let taggers_info: TaggersInfo = serde_json::from_value(body)?;
+    let taggers_info: TaggersInfoDTO = serde_json::from_value(body)?;
     assert_eq!(taggers_info.users.len(), 3);
 
     assert_eq!(
@@ -253,7 +253,7 @@ async fn test_user_specific_tag_with_limit() -> Result<()> {
     let path = format!("/v0/user/{}/taggers/{}?limit=1", PUBKY_PEER, PUBKY_LABEL);
     let body = get_request(&path).await?;
 
-    let taggers_info: TaggersInfo = serde_json::from_value(body)?;
+    let taggers_info: TaggersInfoDTO = serde_json::from_value(body)?;
 
     assert_eq!(taggers_info.users.len(), 1);
 
@@ -270,7 +270,7 @@ async fn test_user_specific_tag_with_skip() -> Result<()> {
     let path = format!("/v0/user/{}/taggers/{}?skip=1", PUBKY_PEER, PUBKY_LABEL);
     let body = get_request(&path).await?;
 
-    let taggers_info: TaggersInfo = serde_json::from_value(body)?;
+    let taggers_info: TaggersInfoDTO = serde_json::from_value(body)?;
 
     assert_eq!(taggers_info.users.len(), 2);
 
@@ -290,7 +290,7 @@ async fn test_user_specific_tag_with_full_filters() -> Result<()> {
     );
     let body = get_request(&path).await?;
 
-    let taggers_info: TaggersInfo = serde_json::from_value(body)?;
+    let taggers_info: TaggersInfoDTO = serde_json::from_value(body)?;
 
     assert_eq!(taggers_info.users.len(), 1);
 

@@ -1,10 +1,7 @@
-use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
-
 use super::Timeframe;
-use crate::models::tag::{TaggedType, Taggers};
+use crate::models::tag::TaggedType;
 
-pub struct HotTagsInput {
+pub struct HotTagsInputDTO {
     pub timeframe: Timeframe,
     pub skip: usize,
     pub limit: usize,
@@ -12,7 +9,7 @@ pub struct HotTagsInput {
     pub tagged_type: Option<TaggedType>,
 }
 
-impl HotTagsInput {
+impl HotTagsInputDTO {
     pub fn new(
         timeframe: Timeframe,
         limit: usize,
@@ -28,10 +25,4 @@ impl HotTagsInput {
             tagged_type,
         }
     }
-}
-
-#[derive(Serialize, ToSchema, Deserialize)]
-pub struct TaggersInfo {
-    pub users: Taggers,
-    pub relationship: bool,
 }

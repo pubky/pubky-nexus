@@ -1,12 +1,11 @@
 use crate::routes::v0::endpoints::{USER_TAGGERS_ROUTE, USER_TAGS_ROUTE};
-use crate::routes::v0::TagsQuery;
+use crate::routes::v0::{TaggersInfoDTO, TagsQuery};
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::tag::user::TagUser;
 use nexus_common::models::tag::TagDetails;
-use nexus_common::types::routes::TaggersInfo;
 use nexus_common::types::Pagination;
 use serde::Deserialize;
 use tracing::info;
@@ -79,7 +78,7 @@ pub struct TaggersQuery {
         ("depth" = Option<usize>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 4, will be ignored")
     ),
     responses(
-        (status = 200, description = "User tags", body = TaggersInfo),
+        (status = 200, description = "User tags", body = TaggersInfoDTO),
         (status = 404, description = "User not found"),
         (status = 500, description = "Internal server error")
     )
@@ -90,7 +89,7 @@ pub async fn user_taggers_handler(
         pagination,
         tags_query,
     }): Query<TaggersQuery>,
-) -> Result<Json<TaggersInfo>> {
+) -> Result<Json<TaggersInfoDTO>> {
     info!(
         "GET {USER_TAGGERS_ROUTE} user_id:{}, label: {}, skip:{:?}, limit:{:?}, viewer_id:{:?}, depth:{:?}",
         user_id, label, pagination.skip, pagination.limit, tags_query.viewer_id, tags_query.depth
@@ -106,7 +105,7 @@ pub async fn user_taggers_handler(
     )
     .await
     {
-        Ok(Some(tags)) => Ok(Json(tags)),
+        Ok(Some(tags)) => Ok(Json(TaggersInfoDTO::from(tags))),
         Ok(None) => Err(Error::UserNotFound { user_id }),
         Err(source) => Err(Error::InternalServerError { source }),
     }
@@ -115,6 +114,6 @@ pub async fn user_taggers_handler(
 #[derive(OpenApi)]
 #[openapi(
     paths(user_tags_handler, user_taggers_handler),
-    components(schemas(TagDetails, TaggersInfo))
+    components(schemas(TagDetails, TaggersInfoDTO))
 )]
 pub struct UserTagsApiDoc;
