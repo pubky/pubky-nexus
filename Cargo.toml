@@ -13,7 +13,7 @@ build = "build.rs"
 pubky = "0.4.1"
 pubky-testnet = "0.1.1"
 pubky-app-specs = { version = "0.3.2", features = ["openapi"] }
-tokio = { version = "1.43.0", features = ["full"] }
+tokio = { version = "1.44.0", features = ["full"] }
 axum = "0.8.1"
 redis = { version = "0.29.0", features = ["tokio-comp", "json"] }
 neo4rs = "0.8.0"
