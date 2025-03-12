@@ -1,6 +1,6 @@
 use crate::events::processor::EventProcessor;
 use crate::Config;
-use nexus_common::db::{ConfigLoader, PubkyClient};
+use nexus_common::db::{Config as StackConfig, ConfigLoader, PubkyClient};
 use nexus_common::db::{DatabaseConfig, Level};
 use nexus_common::stack::StackManager;
 use nexus_common::types::DynError;
@@ -13,9 +13,15 @@ use tracing::{debug, error, info};
 pub struct NexusWatcherBuilder(pub(crate) Config);
 
 impl NexusWatcherBuilder {
+    /// Creates a `NexusWatcherBuilder` instance with the given configuration and stack settings.
+    pub fn with_stack(mut config: Config, stack: &StackConfig) -> Self {
+        config.stack = stack.clone();
+        Self(config)
+    }
+
     /// Sets the service name for observability (tracing, logging, monitoring)
     pub fn name(&mut self, name: String) -> &mut Self {
-        self.0.stack.name = name;
+        self.0.name = name;
 
         self
     }
@@ -62,13 +68,13 @@ impl NexusWatcherBuilder {
 
     /// Opens ddbb connections and initialises tracing layer (if provided in config)
     pub async fn init_stack(&self) {
-        StackManager::setup(&self.0.stack).await;
+        StackManager::setup(&self.0.name, &self.0.stack).await;
         let _ = PubkyClient::initialise(self.0.testnet).await;
     }
 
     /// Initializes the watcher integration test stack
     pub async fn init_test_stack(&self) {
-        StackManager::setup(&self.0.stack).await;
+        StackManager::setup(&self.0.name, &self.0.stack).await;
     }
 
     /// Initializes the service stack and starts the NexusWatcher event loop

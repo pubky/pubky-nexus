@@ -17,10 +17,10 @@ use tracing_subscriber::{layer::SubscriberExt, Registry};
 pub struct StackManager {}
 
 impl StackManager {
-    pub async fn setup(config: &StackConfig) {
+    pub async fn setup(name: &str, config: &StackConfig) {
         // Initialize logging and metrics
-        Self::setup_logging(&config.name, &config.otlp_endpoint, config.log_level).await;
-        Self::setup_metrics(&config.name, &config.otlp_endpoint).await;
+        Self::setup_logging(name, &config.otlp_endpoint, config.log_level).await;
+        Self::setup_metrics(name, &config.otlp_endpoint).await;
 
         // Initialize Redis and Neo4j
         Self::setup_redis(&config.db.redis).await;
@@ -34,7 +34,7 @@ impl StackManager {
 
         match REDIS_CONNECTOR.set(redis_connector) {
             Err(e) => debug!("RedisConnector was already set: {:?}", e),
-            Ok(()) => info!("RedisConnector successfully set: {:?}", redis_uri),
+            Ok(()) => info!("RedisConnector successfully set up on {}", redis_uri),
         }
     }
 
@@ -49,7 +49,7 @@ impl StackManager {
 
         match NEO4J_CONNECTOR.set(neo4j_connector) {
             Err(e) => debug!("Neo4jConnector was already set: {:?}", e),
-            Ok(()) => info!("Neo4jConnector successfully set"),
+            Ok(()) => info!("Neo4jConnector successfully set up on {}", neo4j_config.uri),
         }
 
         // Set Neo4J graph data constraints

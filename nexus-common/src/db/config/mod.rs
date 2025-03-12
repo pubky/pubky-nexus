@@ -39,17 +39,20 @@ impl Level {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct Config {
-    pub name: String,
     pub log_level: Level,
+    pub files_path: PathBuf,
     pub otlp_endpoint: Option<String>,
     pub db: DatabaseConfig,
-    pub files_path: PathBuf,
 }
 
-impl Config {
-    pub fn default(name: String) -> Self {
+/// Utility function
+pub fn default_stack() -> Config {
+    Config::default()
+}
+
+impl Default for Config {
+    fn default() -> Self {
         Self {
-            name,
             log_level: LOG_LEVEL,
             files_path: PathBuf::from(FILES_DIR),
             otlp_endpoint: None,

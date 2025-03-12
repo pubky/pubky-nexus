@@ -2,15 +2,20 @@ use clap::Parser;
 use nexus_api::{builder::NexusApi, mock::MockDb};
 use nexus_watcher::builder::NexusWatcher;
 use nexusd::cli::{Cli, DbCommands, MigrationCommands, NexusCommands};
+use nexusd::config::NexusdConfig;
 use nexusd::migrations::{import_migrations, MigrationBuilder, MigrationManager};
 use std::error::Error;
+use std::path::PathBuf;
 use tokio::join;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let cli = Cli::parse();
 
-    match cli.command.unwrap_or(NexusCommands::All) {
+    let command = Cli::receive_command(cli);
+    println!("{:?}", command);
+
+    match command {
         NexusCommands::Api(args) => {
             if let Some(config_file) = args.config {
                 NexusApi::run_with_config_file(config_file).await?
@@ -42,12 +47,20 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 }
             },
         },
-        NexusCommands::All => {
-            let (api_result, watcher_result) =
-                join!(NexusApi::builder().run(), NexusWatcher::builder().run());
+        NexusCommands::Run { config } => {
+            let (nexus_api_builder, nexus_watcher_builder) = match config {
+                None => {
+                    println!("HERE");
+                    (NexusApi::builder(), NexusWatcher::builder())
+                }
+                Some(file_path) => {
+                    NexusdConfig::load_builders_from_file(PathBuf::from(file_path)).await?
+                }
+            };
 
-            // Handle possible errors
-            let _ = api_result;
+            let (_, watcher_result) = join!(nexus_api_builder.run(), nexus_watcher_builder.run());
+
+            // TODO: Handle possible errors. Secure shutdown
             watcher_result?;
         }
     }

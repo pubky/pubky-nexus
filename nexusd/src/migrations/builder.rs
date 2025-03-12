@@ -7,13 +7,15 @@ use nexus_common::stack::StackManager;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 pub const CONFIG_FILE: &str = "./src/migrations/mconf_template.toml";
+pub const TRACER_NAME: &str = "nexus.migration";
 
 // Nexus API configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
+    pub name: String,
+    pub backfill_ready: Vec<String>,
     // TODO: Choose a right name
     pub stack: StackConfig,
-    pub backfill_ready: Vec<String>,
 }
 
 #[async_trait]
@@ -34,7 +36,7 @@ impl MigrationBuilder {
 
     pub async fn init_stack(&self) -> MigrationManager {
         // Open ddbb connections and init tracing layer
-        StackManager::setup(&self.0.stack).await;
+        StackManager::setup(&self.0.name, &self.0.stack).await;
         MigrationManager::default()
     }
 

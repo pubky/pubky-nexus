@@ -1,9 +1,16 @@
+[api]
 # Service name used for tracing, logging, and metrics in OpenTelemetry
-name = "nexus.watcher"
+name = "nexusd.api"
+public_addr = "127.0.0.1:8080"
+
+[watcher]
+# Service name used for tracing, logging, and metrics in OpenTelemetry
+name = "nexusd.watcher"
 testnet = false
 homeserver = "8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo"
 events_limit = 50
 watcher_sleep = 5000
+
 
 [stack]
 # Logging, options: error, warn, info, debug and trace
@@ -13,7 +20,7 @@ files_path = "./static/files"
 #otlp_endpoint="http://localhost:4317"
 
 [stack.db]
-redis = "redis://localhost:6379"
+redis = "redis://127.0.0.1:6379"
 
 [stack.db.neo4j]
 uri = "bolt://localhost:7687"

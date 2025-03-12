@@ -1,7 +1,8 @@
+# Service name used for tracing, logging, and metrics in OpenTelemetry
+name = "nexus.api"
 public_addr = "127.0.0.1:8080"
 
 [stack]
-name = "nexus.api"
 # Logging, options: error, warn, info, debug and trace
 log_level = "debug"
 files_path = "./static/files"

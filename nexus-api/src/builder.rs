@@ -1,9 +1,8 @@
-use std::{fmt::Debug, net::SocketAddr, path::PathBuf};
-
 use crate::{routes, Config};
-use nexus_common::db::{ConfigLoader, DatabaseConfig, Level};
+use nexus_common::db::{Config as StackConfig, ConfigLoader, DatabaseConfig, Level};
 use nexus_common::stack::StackManager;
 use nexus_common::types::DynError;
+use std::{fmt::Debug, net::SocketAddr, path::PathBuf};
 use tokio::net::TcpListener;
 use tracing::{debug, error, info};
 
@@ -11,9 +10,15 @@ use tracing::{debug, error, info};
 pub struct NexusApiBuilder(pub(crate) Config);
 
 impl NexusApiBuilder {
+    /// Creates a `NexusWatcherBuilder` instance with the given configuration and stack settings.
+    pub fn with_stack(mut config: Config, stack: &StackConfig) -> Self {
+        config.stack = stack.clone();
+        Self(config)
+    }
+
     /// Sets the service name for observability (tracing, logging, monitoring)
     pub fn name(&mut self, name: String) -> &mut Self {
-        self.0.stack.name = name;
+        self.0.name = name;
 
         self
     }
@@ -55,7 +60,7 @@ impl NexusApiBuilder {
 
     /// Opens ddbb connections and initialises tracing layer (if provided in config)
     pub async fn init_stack(&self) -> Result<(), DynError> {
-        StackManager::setup(&self.0.stack).await;
+        StackManager::setup(&self.0.name, &self.0.stack).await;
         Ok(())
     }
 

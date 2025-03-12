@@ -7,7 +7,7 @@ pub mod reindex;
 
 pub use config::loader::ConfigLoader;
 pub use config::neo4j::Neo4JConfig;
-pub use config::{Config, DatabaseConfig, Level, FILES_DIR};
+pub use config::{default_stack, Config, DatabaseConfig, Level, FILES_DIR};
 pub use connectors::{
     get_neo4j_graph, get_redis_conn, Neo4jConnector, PubkyClient, RedisConnector, NEO4J_CONNECTOR,
     REDIS_CONNECTOR,

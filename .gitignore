@@ -1,9 +1,10 @@
-# Environment variables
-.env
-docker/.env
+# Configuration files
+/nexus-api/src/conf.toml
+/nexus-watcher/src/conf.toml
+/nexusd/src/conf.toml
+/nexusd/src/migrations/conf.toml
 # Test and mock data  
 docker/.database*
-examples/events.txt
 # Files
 /static
 /nexus-watcher/static

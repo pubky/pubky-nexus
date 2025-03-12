@@ -1,10 +1,11 @@
+# Service name used for tracing, logging, and metrics in OpenTelemetry
+name = "nexusd.migration"
 # List migrations that are in the "backfill_ready" state and should be processed.
 # Add migration IDs here when they are ready for backfilling. Example
 #backfill_ready = ["Xakala1741101644"]
 backfill_ready = []
 
 [stack]
-name = "nexus.migration"
 # Logging, options: error, warn, info, debug and trace
 log_level = "debug"
 files_path = "./static/files"
