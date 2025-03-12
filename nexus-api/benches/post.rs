@@ -7,9 +7,9 @@ use tokio::runtime::Runtime;
 mod setup;
 
 fn bench_get_post_by_id(c: &mut Criterion) {
-    println!("***************************************");
+    println!("******************************************************************************");
     println!("Test the performance of getting a post by ID, using index or graph as needed");
-    println!("***************************************");
+    println!("******************************************************************************");
 
     run_setup();
 
@@ -33,11 +33,11 @@ fn bench_get_post_by_id(c: &mut Criterion) {
 }
 
 fn bench_get_post_details_by_id(c: &mut Criterion) {
-    println!("***************************************");
+    println!("******************************************************************************");
     println!(
         "Test the performance of getting a post's details by ID, using index or graph as needed"
     );
-    println!("***************************************");
+    println!("******************************************************************************");
 
     run_setup();
 
@@ -58,9 +58,9 @@ fn bench_get_post_details_by_id(c: &mut Criterion) {
 }
 
 fn bench_get_post_details_from_graph(c: &mut Criterion) {
-    println!("***************************************");
+    println!("******************************************************************************");
     println!("Test the performance of getting a post's details from the graph database.");
-    println!("***************************************");
+    println!("******************************************************************************");
 
     run_setup();
 
@@ -81,11 +81,11 @@ fn bench_get_post_details_from_graph(c: &mut Criterion) {
 }
 
 fn bench_get_post_counts_by_id(c: &mut Criterion) {
-    println!("***************************************");
+    println!("******************************************************************************");
     println!(
         "Test the performance of getting a post's counts by ID, using index or graph as needed"
     );
-    println!("***************************************");
+    println!("******************************************************************************");
 
     run_setup();
 
@@ -106,9 +106,9 @@ fn bench_get_post_counts_by_id(c: &mut Criterion) {
 }
 
 fn bench_get_post_counts_from_graph(c: &mut Criterion) {
-    println!("***************************************");
+    println!("******************************************************************************");
     println!("Test the performance of getting a post's counts from the graph database.");
-    println!("***************************************");
+    println!("******************************************************************************");
 
     run_setup();
 
@@ -129,11 +129,11 @@ fn bench_get_post_counts_from_graph(c: &mut Criterion) {
 }
 
 fn bench_get_post_bookmark_by_id(c: &mut Criterion) {
-    println!("***************************************");
+    println!("******************************************************************************");
     println!(
         "Test the performance of getting a post's bookmark by ID, using index or graph as needed"
     );
-    println!("***************************************");
+    println!("******************************************************************************");
 
     run_setup();
 
@@ -157,9 +157,9 @@ fn bench_get_post_bookmark_by_id(c: &mut Criterion) {
 }
 
 fn bench_get_post_bookmark_from_graph(c: &mut Criterion) {
-    println!("***************************************");
+    println!("******************************************************************************");
     println!("Test the performance of getting a post's bookmark from the graph database.");
-    println!("***************************************");
+    println!("******************************************************************************");
 
     run_setup();
 
@@ -183,11 +183,11 @@ fn bench_get_post_bookmark_from_graph(c: &mut Criterion) {
 }
 
 fn bench_get_post_relationships_by_id(c: &mut Criterion) {
-    println!("***************************************");
+    println!("******************************************************************************");
     println!(
         "Test the performance of getting a post's relationships by ID, using index or graph as needed"
     );
-    println!("***************************************");
+    println!("******************************************************************************");
 
     run_setup();
 
@@ -208,9 +208,9 @@ fn bench_get_post_relationships_by_id(c: &mut Criterion) {
 }
 
 fn bench_get_post_relationships_from_graph(c: &mut Criterion) {
-    println!("***************************************");
+    println!("******************************************************************************");
     println!("Test the performance of getting a post's relationships from the graph database.");
-    println!("***************************************");
+    println!("******************************************************************************");
 
     run_setup();
 

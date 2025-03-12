@@ -9,9 +9,9 @@ const TAG: &str = "free";
 
 /// TAG RELATED POST STREAMS BENCHMARKS
 pub fn bench_stream_tag_timeline(c: &mut Criterion) {
-    println!("***************************************");
+    println!("******************************************************************************");
     println!("Benchmarking the post streams with tag 'free' sorted by 'Timeline'.");
-    println!("***************************************");
+    println!("******************************************************************************");
 
     run_setup();
 
@@ -39,9 +39,9 @@ pub fn bench_stream_tag_timeline(c: &mut Criterion) {
 }
 
 pub fn bench_stream_tag_total_engagement(c: &mut Criterion) {
-    println!("***************************************");
+    println!("******************************************************************************");
     println!("Benchmarking the post streams with tag 'free' sorted by 'TotalEngagement'.");
-    println!("***************************************");
+    println!("******************************************************************************");
 
     run_setup();
 

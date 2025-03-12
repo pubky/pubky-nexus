@@ -5,8 +5,5 @@ members = [
   "nexus-api",
   "nexus-common",
   "nexus-watcher",
-  "nexusd",
-
-  # Internal
-  "benches"
+  "nexusd"
 ]

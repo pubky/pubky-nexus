@@ -10,9 +10,9 @@ use tokio::runtime::Runtime;
 mod setup;
 
 fn bench_user_search(c: &mut Criterion) {
-    println!("***************************************");
+    println!("******************************************************************************");
     println!("Benchmarking the user search.");
-    println!("***************************************");
+    println!("******************************************************************************");
 
     run_setup();
 
@@ -34,9 +34,9 @@ fn bench_user_search(c: &mut Criterion) {
 }
 
 fn bench_tag_search_by_timeline(c: &mut Criterion) {
-    println!("***************************************");
+    println!("******************************************************************************");
     println!("Benchmarking post tag search by timeline");
-    println!("***************************************");
+    println!("******************************************************************************");
 
     run_setup();
 

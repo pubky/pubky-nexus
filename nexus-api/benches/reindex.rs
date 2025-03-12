@@ -7,9 +7,9 @@ use tokio::runtime::Runtime;
 mod setup;
 
 fn bench_reindex(c: &mut Criterion) {
-    println!("***************************************");
+    println!("******************************************************************************");
     println!("Benchmarking the reindex function.");
-    println!("***************************************");
+    println!("******************************************************************************");
 
     run_setup();
 

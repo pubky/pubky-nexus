@@ -8,9 +8,9 @@ use tokio::runtime::Runtime;
 
 /// USER STREAMS BENCHMARKS
 pub fn bench_stream_following(c: &mut Criterion) {
-    println!("***************************************");
+    println!("******************************************************************************");
     println!("Benchmarking the user streams for following users.");
-    println!("***************************************");
+    println!("******************************************************************************");
 
     run_setup();
 
@@ -43,9 +43,9 @@ pub fn bench_stream_following(c: &mut Criterion) {
 }
 
 pub fn bench_stream_most_followed(c: &mut Criterion) {
-    println!("***************************************");
+    println!("******************************************************************************");
     println!("Benchmarking the user streams for most followed users.");
-    println!("***************************************");
+    println!("******************************************************************************");
 
     run_setup();
 
@@ -76,9 +76,9 @@ pub fn bench_stream_most_followed(c: &mut Criterion) {
 }
 
 pub fn bench_stream_users_by_username_search(c: &mut Criterion) {
-    println!("***************************************");
+    println!("******************************************************************************");
     println!("Benchmarking the user streams by username search.");
-    println!("***************************************");
+    println!("******************************************************************************");
 
     run_setup();
 
@@ -101,9 +101,9 @@ pub fn bench_stream_users_by_username_search(c: &mut Criterion) {
 }
 
 pub fn bench_stream_influencers(c: &mut Criterion) {
-    println!("***************************************");
+    println!("******************************************************************************");
     println!("Benchmarking the user streams for influencer users.");
-    println!("***************************************");
+    println!("******************************************************************************");
 
     run_setup();
 
@@ -134,9 +134,9 @@ pub fn bench_stream_influencers(c: &mut Criterion) {
 }
 
 pub fn bench_stream_post_replies(c: &mut Criterion) {
-    println!("***************************************");
+    println!("******************************************************************************");
     println!("Benchmarking the user streams for a post's replying users.");
-    println!("***************************************");
+    println!("******************************************************************************");
 
     run_setup();
 

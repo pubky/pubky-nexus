@@ -36,9 +36,9 @@ const USER_IDS: [&str; 25] = [
 ];
 
 fn bench_get_full_by_id(c: &mut Criterion) {
-    println!("***************************************");
+    println!("******************************************************************************");
     println!("Test the performance of getting a user view by ID, using index or graph as needed");
-    println!("***************************************");
+    println!("******************************************************************************");
 
     run_setup();
 
@@ -61,9 +61,9 @@ fn bench_get_full_by_id(c: &mut Criterion) {
 }
 
 fn bench_get_relationship_by_id(c: &mut Criterion) {
-    println!("***************************************");
+    println!("*********************************************************************************************************");
     println!("Test the performance of getting a following/follower relationship by ID, using index or graph as needed.");
-    println!("***************************************");
+    println!("*********************************************************************************************************");
 
     run_setup();
 
@@ -84,9 +84,9 @@ fn bench_get_relationship_by_id(c: &mut Criterion) {
 }
 
 fn bench_get_counts_from_graph(c: &mut Criterion) {
-    println!("***************************************");
+    println!("*********************************************************************************************************");
     println!("Test the performance of getting user counts from the graph database.");
-    println!("***************************************");
+    println!("*********************************************************************************************************");
 
     run_setup();
 
@@ -106,9 +106,9 @@ fn bench_get_counts_from_graph(c: &mut Criterion) {
 }
 
 fn bench_get_counts_by_id(c: &mut Criterion) {
-    println!("***************************************");
+    println!("*********************************************************************************************************");
     println!("Test the performance of getting user counts by ID, using index or graph as needed.");
-    println!("***************************************");
+    println!("*********************************************************************************************************");
 
     run_setup();
 
@@ -128,9 +128,9 @@ fn bench_get_counts_by_id(c: &mut Criterion) {
 }
 
 fn bench_get_details_from_graph(c: &mut Criterion) {
-    println!("***************************************");
+    println!("*********************************************************************************************************");
     println!("Test the performance of getting user details from the graph database.");
-    println!("***************************************");
+    println!("*********************************************************************************************************");
 
     run_setup();
 
@@ -150,9 +150,9 @@ fn bench_get_details_from_graph(c: &mut Criterion) {
 }
 
 fn bench_get_details_by_id(c: &mut Criterion) {
-    println!("***************************************");
+    println!("*********************************************************************************************************");
     println!("Test the performance of getting user details by ID, checking both index and graph.");
-    println!("***************************************");
+    println!("*********************************************************************************************************");
 
     run_setup();
 
@@ -172,9 +172,9 @@ fn bench_get_details_by_id(c: &mut Criterion) {
 }
 
 fn bench_get_details_by_ids_list(c: &mut Criterion) {
-    println!("***************************************");
+    println!("*********************************************************************************************************");
     println!("Test the performance of getting user details by a list of IDs, checking both index and graph.");
-    println!("***************************************");
+    println!("*********************************************************************************************************");
 
     run_setup();
 
@@ -193,11 +193,11 @@ fn bench_get_details_by_ids_list(c: &mut Criterion) {
 }
 
 fn bench_get_details_by_ids_list_from_graph(c: &mut Criterion) {
-    println!("***************************************");
+    println!("*********************************************************************************************************");
     println!(
         "Test the performance of getting user details by a list of IDs from the graph database."
     );
-    println!("***************************************");
+    println!("*********************************************************************************************************");
 
     run_setup();
 

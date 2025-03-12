@@ -33,7 +33,37 @@ utoipa-swagger-ui = { version = "9.0.0", features = ["axum"] }
 
 [dev-dependencies]
 anyhow = "1.0.95"
+criterion = { version = "0.5.1", features = ["async_tokio"] }
 httpc-test = "0.1.10"
 tokio-shared-rt = "0.1"
 url = "2.5.4"
 reqwest = "0.12.12"
+
+
+[[bench]]
+name = "user"
+harness = false
+
+[[bench]]
+name = "tag"
+harness = false
+
+[[bench]]
+name = "post"
+harness = false
+
+[[bench]]
+name = "reindex"
+harness = false
+
+[[bench]]
+name = "follows"
+harness = false
+
+[[bench]]
+name = "streams"
+harness = false
+
+[[bench]]
+name = "search"
+harness = false

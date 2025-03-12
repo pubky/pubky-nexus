@@ -7,9 +7,9 @@ use tokio::runtime::Runtime;
 mod setup;
 
 fn bench_get_followers_by_id(c: &mut Criterion) {
-    println!("***************************************");
+    println!("******************************************************************************");
     println!("Test the performance of getting followers by ID, using index or graph as needed.");
-    println!("***************************************");
+    println!("******************************************************************************");
 
     run_setup();
 
@@ -29,9 +29,9 @@ fn bench_get_followers_by_id(c: &mut Criterion) {
 }
 
 fn bench_get_followers_from_graph(c: &mut Criterion) {
-    println!("***************************************");
+    println!("******************************************************************************");
     println!("Test the performance of getting followers from the graph database.");
-    println!("***************************************");
+    println!("******************************************************************************");
 
     run_setup();
 
@@ -51,9 +51,9 @@ fn bench_get_followers_from_graph(c: &mut Criterion) {
 }
 
 fn bench_get_following_by_id(c: &mut Criterion) {
-    println!("***************************************");
+    println!("******************************************************************************");
     println!("Test the performance of getting following by ID, using index or graph as needed.");
-    println!("***************************************");
+    println!("******************************************************************************");
 
     run_setup();
 
@@ -73,9 +73,9 @@ fn bench_get_following_by_id(c: &mut Criterion) {
 }
 
 fn bench_get_following_from_graph(c: &mut Criterion) {
-    println!("***************************************");
+    println!("******************************************************************************");
     println!("Test the performance of getting following from the graph database.");
-    println!("***************************************");
+    println!("******************************************************************************");
 
     run_setup();
 
