@@ -67,7 +67,7 @@ async fn test_delete_pubkyapp_file() -> Result<()> {
     assert!(result_file.is_none());
 
     // Assert: Ensure it's deleted
-    let blob_static_path = format!("/static/files/{}/{}/main", &user_id, &file_id);
+    let blob_static_path = format!("./static/files/{}/{}/main", &user_id, &file_id);
     assert!(
         !Path::new(&blob_static_path).exists(),
         "File cannot exist after DEL event"

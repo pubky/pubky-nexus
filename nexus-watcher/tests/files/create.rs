@@ -62,7 +62,7 @@ async fn test_put_pubkyapp_file() -> Result<()> {
     assert_eq!(result_file.owner_id, user_id);
 
     // Assert: Ensure it's created
-    let blob_static_path = format!("/static/files/{}", result_file.urls.main.clone());
+    let blob_static_path = format!("./static/files/{}", result_file.urls.main.clone());
     assert!(
         Path::new(&blob_static_path).exists(),
         "File have to exist after PUT event"

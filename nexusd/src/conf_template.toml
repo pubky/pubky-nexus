@@ -15,7 +15,7 @@ watcher_sleep = 5000
 [stack]
 # Logging, options: error, warn, info, debug and trace
 log_level = "debug"
-files_path = "./static/files"
+files_path = "./nexus-api/static/files"
 # OTLP_ENDPOINT is set to empty by default. If you want to enable tracing, set it to the OpenTelemetry Collector endpoint
 #otlp_endpoint="http://localhost:4317"
 
