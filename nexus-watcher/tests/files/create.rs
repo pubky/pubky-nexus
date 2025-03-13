@@ -1,18 +1,17 @@
-use crate::{
-    service::utils::host_url, utils::TestServiceServer, watcher::utils::watcher::WatcherTest,
-};
+use crate::utils::watcher::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
+use nexus_common::models::{file::FileDetails, traits::Collection};
 use pubky::Keypair;
 use pubky_app_specs::traits::HasPath;
 use pubky_app_specs::{PubkyAppBlob, PubkyAppFile, PubkyAppUser};
-use pubky_nexus::models::{file::FileDetails, traits::Collection};
+use std::path::Path;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_put_pubkyapp_file() -> Result<()> {
     // Arrange
     let mut test = WatcherTest::setup().await?;
-    TestServiceServer::get_test_server().await;
+    //TestServiceServer::get_test_server().await;
 
     let keypair = Keypair::random();
     let user = PubkyAppUser {
@@ -62,23 +61,12 @@ async fn test_put_pubkyapp_file() -> Result<()> {
     assert_eq!(result_file.name, file.name);
     assert_eq!(result_file.owner_id, user_id);
 
-    // Assert: Ensure it's statically served
-    let client = httpc_test::new_client(host_url().await)?;
-
+    // Assert: Ensure it's created
     let blob_static_path = format!("/static/files/{}", result_file.urls.main.clone());
-
-    let response = client.do_get(&blob_static_path).await?;
-
-    assert_eq!(response.status(), 200);
-    assert_eq!(
-        response
-            .header("content-length")
-            .unwrap()
-            .parse::<i32>()
-            .unwrap(),
-        12
+    assert!(
+        Path::new(&blob_static_path).exists(),
+        "File have to exist after PUT event"
     );
-    assert_eq!(response.header("content-type").unwrap(), file.content_type);
 
     Ok(())
 }

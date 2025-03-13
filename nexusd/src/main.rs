@@ -13,7 +13,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let cli = Cli::parse();
 
     let command = Cli::receive_command(cli);
-    println!("{:?}", command);
 
     match command {
         NexusCommands::Api(args) => {

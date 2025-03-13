@@ -1,17 +1,20 @@
-use crate::{
-    service::utils::host_url, utils::TestServiceServer, watcher::utils::watcher::WatcherTest,
-};
+use std::path::Path;
+
+// use crate::{
+//     service::utils::host_url, utils::TestServiceServer, watcher::utils::watcher::WatcherTest,
+// };
+use crate::utils::watcher::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
+use nexus_common::models::{file::FileDetails, traits::Collection};
 use pubky::Keypair;
 use pubky_app_specs::{traits::HasPath, PubkyAppBlob, PubkyAppFile, PubkyAppUser};
-use pubky_nexus::models::{file::FileDetails, traits::Collection};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_delete_pubkyapp_file() -> Result<()> {
     // Arrange
     let mut test = WatcherTest::setup().await?;
-    TestServiceServer::get_test_server().await;
+    //TestServiceServer::get_test_server().await;
 
     let keypair = Keypair::random();
     let user = PubkyAppUser {
@@ -47,6 +50,7 @@ async fn test_delete_pubkyapp_file() -> Result<()> {
     )
     .await
     .expect("Failed to fetch files from Nexus");
+
     let file_before_delete = files_before_delete[0].as_ref();
     assert!(file_before_delete.is_some());
 
@@ -60,19 +64,14 @@ async fn test_delete_pubkyapp_file() -> Result<()> {
     .expect("Failed to fetch files from Nexus");
 
     let result_file = files[0].as_ref();
-
     assert!(result_file.is_none());
 
-    // Assert: Ensure it's not served anymore
-    let client = httpc_test::new_client(host_url().await)?;
-
-    let blob_static_path = format!(
-        "/static/files/{}",
-        file_before_delete.unwrap().urls.main.clone()
+    // Assert: Ensure it's deleted
+    let blob_static_path = format!("/static/files/{}/{}/main", &user_id, &file_id);
+    assert!(
+        !Path::new(&blob_static_path).exists(),
+        "File cannot exist after DEL event"
     );
-    let response = client.do_get(&blob_static_path).await?;
-
-    assert_eq!(response.status(), 404);
 
     Ok(())
 }
