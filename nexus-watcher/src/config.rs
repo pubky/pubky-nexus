@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use nexus_common::db::{default_stack, Config as StackConfig, ConfigLoader};
+use nexus_common::{default_stack, Config as StackConfig, ConfigLoader};
 use pubky_app_specs::PubkyId;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};

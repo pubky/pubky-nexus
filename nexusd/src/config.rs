@@ -1,9 +1,6 @@
 use async_trait::async_trait;
 use nexus_api::{builder::NexusApiBuilder, Config as ApiConfig};
-use nexus_common::{
-    db::{Config as StackConfig, ConfigLoader},
-    types::DynError,
-};
+use nexus_common::{types::DynError, Config as StackConfig, ConfigLoader};
 use nexus_watcher::{builder::NexusWatcherBuilder, Config as WatcherConfig};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};

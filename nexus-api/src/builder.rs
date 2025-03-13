@@ -1,7 +1,8 @@
 use crate::{routes, Config};
-use nexus_common::db::{Config as StackConfig, ConfigLoader, DatabaseConfig, Level};
+use nexus_common::db::DatabaseConfig;
 use nexus_common::stack::StackManager;
 use nexus_common::types::DynError;
+use nexus_common::{Config as StackConfig, ConfigLoader, Level};
 use std::{fmt::Debug, net::SocketAddr, path::PathBuf};
 use tokio::net::TcpListener;
 use tracing::{debug, error, info};

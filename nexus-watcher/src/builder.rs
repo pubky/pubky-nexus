@@ -1,9 +1,9 @@
 use crate::events::processor::EventProcessor;
 use crate::Config;
-use nexus_common::db::{Config as StackConfig, ConfigLoader, PubkyClient};
-use nexus_common::db::{DatabaseConfig, Level};
+use nexus_common::db::{DatabaseConfig, PubkyClient};
 use nexus_common::stack::StackManager;
 use nexus_common::types::DynError;
+use nexus_common::{Config as StackConfig, ConfigLoader, Level};
 use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
 use tokio::time::{sleep, Duration};

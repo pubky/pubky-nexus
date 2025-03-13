@@ -1,7 +1,8 @@
 use std::{fmt::Debug, net::SocketAddr};
 
 use async_trait::async_trait;
-use nexus_common::db::{default_stack, Config as StackConfig, ConfigLoader};
+use nexus_common::ConfigLoader;
+use nexus_common::{default_stack, Config as StackConfig};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 pub const NAME: &str = "nexus.api";
