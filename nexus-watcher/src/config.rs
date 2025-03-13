@@ -23,7 +23,6 @@ pub struct Config {
     pub events_limit: u32,
     pub watcher_sleep: u64,
     #[serde(default = "default_stack")]
-    // TODO: Choose a right name
     pub stack: StackConfig,
 }
 

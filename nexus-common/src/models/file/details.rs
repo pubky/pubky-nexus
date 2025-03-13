@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::str::FromStr;
 
-use crate::db::errors::DbError;
+use crate::db::DbError;
 use crate::db::{exec_single_row, queries, RedisOps};
 use crate::models::traits::Collection;
 use crate::types::DynError;

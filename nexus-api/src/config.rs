@@ -16,7 +16,6 @@ pub struct Config {
     pub name: String,
     pub public_addr: SocketAddr,
     #[serde(default = "default_stack")]
-    // TODO: Choose a right name
     pub stack: StackConfig,
 }
 

@@ -11,6 +11,8 @@ pub enum MockType {
     Graph,
 }
 
+/// Provides utilities to mock and reset the Redis and Neo4j databases
+/// Used for testing and ensuring a clean database state
 pub struct MockDb {}
 
 impl MockDb {
@@ -44,7 +46,7 @@ impl MockDb {
             .expect("Could not drop graph nodes.");
     }
 
-    async fn drop_cache() {
+    pub async fn drop_cache() {
         info!("Dropping Redis database...");
         // Drop all keys in Redis
         let mut redis_conn = get_redis_conn()

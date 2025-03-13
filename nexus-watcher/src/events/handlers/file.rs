@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use crate::events::errors::EventProcessorError;
 use crate::handle_indexing_results;
-use nexus_common::db::errors::DbError;
+use nexus_common::db::DbError;
 use nexus_common::db::PubkyClient;
 use nexus_common::models::file::details::FileVariant;
 use nexus_common::models::{
