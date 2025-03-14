@@ -116,7 +116,7 @@ async fn test_stream_posts_following_with_start_and_end() -> Result<()> {
     Ok(())
 }
 
-const START_TIME_ERS: usize = 1719308316919;
+const START_TIME_ERS: usize = 1693824523456;
 const END_TIME_ERS: usize = 1693823567880;
 
 #[tokio_shared_rt::test(shared)]
@@ -129,7 +129,7 @@ async fn test_stream_posts_followers_with_start() -> Result<()> {
 
     assert!(body.is_array());
 
-    let post_array = ["V8N1P3L9J4X0", "L3W5N0F8Q2J7", "M4X1P9L2J6K8"];
+    let post_array = ["K1P6Q9M2X4J8", "L3W5N0F8Q2J7", "M4X1P9L2J6K8"];
 
     for (index, post) in body
         .as_array()
@@ -161,7 +161,7 @@ async fn test_stream_posts_followers_with_start_and_end() -> Result<()> {
 
     assert!(body.is_array());
 
-    let post_array = ["V8N1P3L9J4X0", "L3W5N0F8Q2J7"];
+    let post_array = ["K1P6Q9M2X4J8", "L3W5N0F8Q2J7"];
 
     for (index, post) in body
         .as_array()
@@ -187,13 +187,13 @@ async fn test_stream_posts_followers_with_start_and_end() -> Result<()> {
 async fn test_stream_posts_friend_with_start() -> Result<()> {
     let path = format!(
         "{ROOT_PATH}?observer_id={}&source=friends&viewer_id={}&start={}&limit=5",
-        EIXAMPLE, EIXAMPLE, "1693823567885"
+        EIXAMPLE, EIXAMPLE, "1819477230355"
     );
     let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
-    let post_array = ["M4X1P9L2J6K8"];
+    let post_array = ["4ZCW1TGL5BKG7", "L3W5N0F8Q2J7", "M4X1P9L2J6K8"];
 
     for (index, post) in body
         .as_array()
@@ -219,13 +219,13 @@ async fn test_stream_posts_friend_with_start() -> Result<()> {
 async fn test_stream_posts_friend_with_start_and_end() -> Result<()> {
     let path = format!(
         "{ROOT_PATH}?observer_id={}&source=friends&viewer_id={}&start={}&end={}",
-        EIXAMPLE, EIXAMPLE, "1693823567895", "1693822934570"
+        EIXAMPLE, EIXAMPLE, "1819477230355", "1693822934570"
     );
     let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
-    let post_array = ["L3W5N0F8Q2J7"];
+    let post_array = ["4ZCW1TGL5BKG7", "L3W5N0F8Q2J7"];
 
     for (index, post) in body
         .as_array()

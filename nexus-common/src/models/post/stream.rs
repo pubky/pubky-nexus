@@ -323,21 +323,21 @@ impl PostStream {
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Vec<String>, DynError> {
-        let user_ids = match source {
+        let mut user_ids = match &source {
             StreamSource::Following { observer_id } => {
-                Following::get_by_id(&observer_id, None, None)
+                Following::get_by_id(observer_id, None, None)
                     .await?
                     .unwrap_or_default()
                     .0
             }
             StreamSource::Followers { observer_id } => {
-                Followers::get_by_id(&observer_id, None, None)
+                Followers::get_by_id(observer_id, None, None)
                     .await?
                     .unwrap_or_default()
                     .0
             }
             StreamSource::Friends { observer_id } => {
-                Friends::get_by_id(&observer_id, None, None)
+                Friends::get_by_id(observer_id, None, None)
                     .await?
                     .unwrap_or_default()
                     .0
@@ -346,6 +346,11 @@ impl PostStream {
         };
 
         if !user_ids.is_empty() {
+            // Include the observer in the post stream
+            if let Some(observer_id) = source.get_observer() {
+                user_ids.push(observer_id.to_string());
+            }
+
             let post_keys = Self::get_posts_for_user_ids(
                 &user_ids.iter().map(AsRef::as_ref).collect::<Vec<_>>(),
                 start,
