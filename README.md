@@ -2,7 +2,7 @@
 
 # Pubky Nexus
 
-Pubky Nexus is the central bridge connecting Pubky homeservers with Pubky-App’s social clients. By aggregating events from homeservers into a rich social graph, Nexus transforms decentralized interactions into a high-performance, fully featured social-media-like API. It's designed to support Social-Semantic-Graph (SSG) inference, and more.
+Pubky Nexus is the central bridge connecting Pubky homeservers with [Pubky-App’s](https://github.com/pubky/pubky-app) social clients. By aggregating events from homeservers into a rich social graph, Nexus transforms decentralized interactions into a high-performance, fully featured social-media-like API. It's designed to support Social-Semantic-Graph (SSG) inference, and more.
 
 ## 🌟 Key Features
 
@@ -29,9 +29,10 @@ You can explore available endpoints, test queries, and view schema definitions d
 
 Nexus is composed of several core components:
 
-- **service.rs**: The REST API server for handling client requests, querying databases, and returning responses to the Pubky-App frontend.
-- **watcher.rs**: The event aggregator that listens to homeserver events, translating them into social graph updates within the Nexus databases.
-- **lib.rs**: A library crate containing common functionalities shared by `service` and `watcher`, including database connectors, models, and queries.
+- **nexus-service**: The REST API server for handling client requests, querying databases, and returning responses to the Pubky-App frontend.
+- **nexus-watcher**: The event aggregator that listens to homeserver events, translating them into social graph updates within the Nexus databases.
+- **nexus-common**: A library crate containing common functionalities shared by `service` and `watcher`, including database connectors, models, and queries.
+- **nexusd**: Manages the execution of Nexus components, with the capability to perform database migrations and reindexing when required
 
 ### Data Flow
 
@@ -49,53 +50,56 @@ Nexus graph schema.
 
 To get started with Nexus, first set up the required databases: Neo4j and Redis.
 
-### 1. Configure Databases
-
 1. Clone the repository and navigate to the project directory.
 2. Copy the environment template and set up the Docker environment:
 
-   ```bash
-   cd docker
-   cp .env-sample .env
-   docker-compose up -d
-   ```
+```bash
+cd docker
+cp .env-sample .env
+docker-compose up -d
+```
 
 3. Optionally, populate the Neo4j database with initial mock data. Follow [Running Tests](#running-tests) section about setting up mock data.  
 
 4. Run the Nexus service:
 
-   ```bash
-   cargo run
-   ```
+```bash
+# Run with defaults values
+cargo run -p nexusd
+# Run from config file (nexusd/src/config.toml)
+cargo run -p nexusd -- --config
+# There is also an option to run components individually
+# Useful to run a database clear command before start running the watcher
+# cargo run -p nexusd -- db clear
+cargo run -p nexusd -- watcher
+cargo run -p nexusd -- api
+```
 
-5. Run the Watcher service:
+5. **Access Redis and Neo4j UIs and Swagger endpoint**:
+   - Swagger UI: [http://localhost:8080/swagger-ui](http://localhost:8080/swagger-ui)
+   - Redis Insight: [http://localhost:8001/redis-stack/browser](http://localhost:8001/redis-stack/browser)
+   - Neo4J Browser: [http://localhost:7474/browser/](http://localhost:7474/browser/)
 
-   ```bash
-   cargo run --bin watcher
-   ```
 
-6. **Access Redis and Neo4j UIs**:
-   - Redis UI: [http://localhost:8001/redis-stack/browser](http://localhost:8001/redis-stack/browser)
-   - Neo4J UI: [http://localhost:7474/browser/](http://localhost:7474/browser/)
+## 📈 Observability
 
-## 🚀 Contributing
+If you want to enable observability in Nexus, you can connect it to an OpenTelemetry exporter. Follow these steps:
 
-To contribute to Nexus, follow these steps:
+1. Install Signoz locally – Follow the Signoz installation [guide](https://signoz.io/docs/install)
+2. Configure the connection – In _config.toml_, uncomment the `otlp_endpoint` variable to point Nexus to the Signoz endpoint
+3. Run Nexus – Start nexusd using the configured settings
+4. Access the Signoz dashboard – Open http://localhost:3301 in your browser (allow some time for data to populate).
 
-1. **Fork the Repository** and create a feature branch.
-2. **Write Tests**: Ensure new features and changes are tested and benchmarked.
-3. **Submit a Pull Request** and provide a description of the changes.
-
-### Data Migrations
+## 📦 Data Migrations
 
 The Migration Manager is a purpose-built tool designed to simplify and standardize the process of performing data migrations in our backend system. It ensures a smooth transition during breaking changes to our data sources, such as Neo4j and Redis, by coordinating phased migrations with minimal disruption to the application. The manager tracks the status of each migration in the database, automates phase progression where possible, and provides a clear structure for developers to implement and manage migrations. This approach reduces the risk of data inconsistencies, ensures reliability during deployments, and keeps migration-related code isolated and easy to find.
 
-#### Understanding Migration Phases
+### Understanding Migration Phases
 
 The Migration Manager uses a phased approach to handle data migrations safely and systematically. Each phase serves a distinct purpose in transitioning data from the old source to the new source, ensuring consistency and minimal disruption. Here's an overview of the phases:
 
-- **Dual Write**: During this phase, all writes to the old source are mirrored to the new source. This ensures that both sources remain synchronized during normal application operations. Developers invoke MigrationManager::dual_write in the application logic (preferrably in the application data layer) for this purpose. Once dual writes are stable and verified, the migration can progress to the next phase.
-  **Note**: Mark a migration as ready for backfill phase using the `MIGRATIONS_BACKFILL_READY` env var by providing a comma separated list of migration ids.
+- **Dual Write**: During this phase, all writes to the old source are mirrored to the new source. This ensures that both sources remain synchronized during normal application operations. Developers invoke `MigrationManager::dual_write` in the application logic (preferrably in the application data layer) for this purpose. Once dual writes are stable and verified, the migration can progress to the next phase.
+  **Note**: Mark a migration as ready for backfill phase using the `backfill_ready` in `config.toml`(_nexusd/src/migrations/conf.toml_) by providing a comma separated list of migration ids.
 
 - **Backfill**: In this phase, any missing or historical data in the new source is backfilled from the old source. This ensures that the new source is fully populated and consistent with the old source. The Migration Manager handles this phase automatically when the migration is progressed.
 
@@ -104,71 +108,74 @@ The Migration Manager uses a phased approach to handle data migrations safely an
 - **Cleanup**: The old source is no longer needed and can be safely cleaned up. This includes removing old keys in Redis or deleting data in Neo4j that is no longer required.
   Use the example at /examples/migration.rs as your guide.
 
-#### Adding a new migration
+### Adding a new migration
 
 To create a new migration, use the migrations binary by running:
 
-```
-cargo run --bin migrations new MigrationNAME
+```bash
+cargo run -p nexusd -- db migration new TagCountsReset
 ```
 
-This will generate a new migration file in the `src/db/migrations/migrations_list` directory.  
-Next, register your migration in the `get_migration_manager` function in `src/db/migrations/mod.rs` file, which ensures it is included in the migration lifecycle. Once registered, implement the required phases (dual_write, backfill, cutover, and cleanup) in the generated file. Each phase serves a specific purpose in safely transitioning data between the old and new sources. After implementing your migration, run the migrations binary to execute pending migrations:
+This will generate a new migration file in the `nexusd/src/migrations/migrations_list` directory.  
+Next, register your migration in the `import_migrations` function in `nexusd/src/migrations/mod.rs` file, which ensures it is included in the migration lifecycle. Once registered, implement the required phases (dual_write, backfill, cutover, and cleanup) in the generated file `nexusd/src/migrations/migrations_list/tag_counts_reset_1739459180.rs`. Each phase serves a specific purpose in safely transitioning data between the old and new sources. 
 
-```
-cargo run --bin migrations run
+### Run the migration
+
+After implementing your migration, run the migrations to execute pending migrations:
+
+```bash
+cargo run -p nexusd db migration run
 ```
 
 The manager will automatically handle migrations in the appropriate order, progressing through phases as needed.
 
-### Running Tests
+## 🧪 Running Tests
 
-Running tests requires setting up mock data into Neo4j and Redis.
+Running tests requires setting up mock data (`docker/test-graph/mocks`) into Neo4j and Redis
 
-Use the `mockdb` binary to load the mock data.
-
-```bash
-cargo run --bin mockdb [database]
-```
-
-`database` is optional and can be either `graph` or `redis`. Not providing any value will sync all the databases.
-
-> If the Redis cache is empty, the nexus-service will handle it automatically. If not follow the steps of warning section
-
-You can optionally pass the `GRAPH_CONTAINER_NAME` env var if your neo4j container in docker has a different name. Defaults to `neo4j`. For example:
+Use the `db` command to load the mock data
 
 ```bash
-GRAPH_CONTAINER_NAME=nexus-neo4j cargo run --bin mockdb
+cargo run -p nexusd -- db mock
 ```
 
 Then to run all tests:
 
 ```bash
-cargo test // cargo nextest run
+cargo nextest run # or, cargo test
 ```
 
-To test specific modules or features:
+To test specific componenets or feature(s):
 
 ```bash
-cargo test watcher:users
-cargo test test_homeserver_user_event
+# component tests
+cargo nextest run -p nexus-watcher --no-fail-fast
+cargo nextest run -p nexus-api --no-fail-fast
+# features
+cargo nextest run -p nexus-watcher files::create --no-fail-fast
 ```
 
-**Benchmarking**:
+## 🚀 Benchmarking
+
+If you want to see the performance of the server you can run the benchmarks
 
 ```bash
-cargo bench --bench user get_user_view_by_id
+cargo bench -p nexus-api
+# or if you want specific endpoint
+cargo bench --bench --bench user
 ```
 
 ## ⚠️ Troubleshooting
 
 If tests or the development environment seem out of sync, follow the [Running Tests](#running-tests) steps to reload the mock data.
 
-## Observability
-Nexus can be connected to an Opentelemetry exporter using `OTLP_ENDPOINT`.  
-You can set the name of the service using `OTEL_SERVICE_NAME`.
+## 🤝 Contributing
 
-If you're interested in using an observability tool locally you can try installing [Signoz](https://signoz.io/docs/install) and pointing to it using the above env vars.
+To contribute to Nexus, follow these steps:
+
+1. **Fork the Repository** and create a feature branch
+2. **Write Tests**: Ensure new features and changes are tested and benchmarked
+3. **Submit a Pull Request** and provide a description of the changes
 
 
 ## 🌐 Useful Links
@@ -176,5 +183,3 @@ If you're interested in using an observability tool locally you can try installi
 - **Swagger API**:
   - Staging: [https://nexus.staging.pubky.app/swagger-ui/](https://nexus.staging.pubky.app/swagger-ui/)
   - Production: [https://nexus.pubky.app/swagger-ui/](https://nexus.pubky.app/swagger-ui/)
-- **Local Redis Insight**: [http://localhost:8001/redis-stack/browser](http://localhost:8001/redis-stack/browser)
-- **Local Neo4J Browser**: [http://localhost:7474/browser/](http://localhost:7474/browser/)
