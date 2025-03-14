@@ -11,11 +11,13 @@ use utoipa::OpenApi;
 
 use crate::routes::{r#static::PubkyServeDir, AppState};
 use crate::{Error, Result};
-use nexus_common::models::{
-    file::{details::FileVariant, FileDetails},
-    traits::Collection,
+use nexus_common::{
+    media::{FileVariant, VariantController},
+    models::{
+        file::{Blob, FileDetails},
+        traits::Collection,
+    },
 };
-use nexus_common::static_processor::StaticProcessor;
 
 use super::endpoints::STATIC_FILES_ROUTE;
 
@@ -92,7 +94,7 @@ pub async fn static_files_handler(
         .and_then(Clone::clone)
         .ok_or(Error::FileNotFound {})?;
 
-    if !StaticProcessor::validate_variant_for_content_type(file.content_type.as_str(), &variant) {
+    if !VariantController::validate_variant_for_content_type(file.content_type.as_str(), &variant) {
         return Err(Error::InvalidInput {
             message: format!(
                 "variant {} is not valid for content type {}",
@@ -101,16 +103,15 @@ pub async fn static_files_handler(
         });
     }
 
-    let file_variant_content_type =
-        StaticProcessor::get_or_create_variant(&file, &variant, file_path.clone())
-            .await
-            .map_err(|err| {
-                error!(
-                    "Error while processing file variant for variant: {} and file: {}",
-                    variant, file_id
-                );
-                Error::InternalServerError { source: err }
-            })?;
+    let file_variant_content_type = Blob::get_by_id(&file, &variant, file_path.clone())
+        .await
+        .map_err(|err| {
+            error!(
+                "Error while processing file variant for variant: {} and file: {}",
+                variant, file_id
+            );
+            Error::InternalServerError { source: err }
+        })?;
 
     let request_uri = request.uri().clone();
 

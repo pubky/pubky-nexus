@@ -1,7 +1,3 @@
-use std::collections::HashMap;
-use std::fmt::Display;
-use std::str::FromStr;
-
 use crate::db::DbError;
 use crate::db::{exec_single_row, queries, RedisOps};
 use crate::models::traits::Collection;
@@ -11,40 +7,9 @@ use chrono::Utc;
 use neo4rs::Query;
 use pubky_app_specs::{ParsedUri, PubkyAppFile, Resource};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tracing::error;
 use utoipa::ToSchema;
-
-#[derive(Debug, PartialEq, Serialize, Deserialize, ToSchema, Clone)]
-#[serde(rename_all = "lowercase")]
-pub enum FileVariant {
-    Main,
-    Feed,
-    Small,
-}
-
-impl FromStr for FileVariant {
-    type Err = DynError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "main" => Ok(FileVariant::Main),
-            "feed" => Ok(FileVariant::Feed),
-            "small" => Ok(FileVariant::Small),
-            _ => Err("Invalid file version".into()),
-        }
-    }
-}
-
-impl Display for FileVariant {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let version_string = match self {
-            FileVariant::Main => "main",
-            FileVariant::Feed => "feed",
-            FileVariant::Small => "small",
-        };
-        write!(f, "{}", version_string)
-    }
-}
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema, Default)]
 pub struct FileUrls {

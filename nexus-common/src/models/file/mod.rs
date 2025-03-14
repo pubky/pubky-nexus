@@ -1,3 +1,5 @@
-pub mod details;
+mod blob;
+mod details;
 
-pub use details::FileDetails;
+pub use blob::*;
+pub use details::*;

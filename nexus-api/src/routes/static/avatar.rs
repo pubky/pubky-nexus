@@ -5,9 +5,9 @@ use crate::routes::AppState;
 use crate::{Error, Result};
 use axum::extract::{Request, State};
 use axum::{extract::Path, response::Response};
-use nexus_common::models::file::details::FileVariant;
+use nexus_common::media::FileVariant;
+use nexus_common::models::file::Blob;
 use nexus_common::models::{file::FileDetails, traits::Collection, user::UserDetails};
-use nexus_common::static_processor::StaticProcessor;
 use tower_http::services::fs::ServeFileSystemResponseBody;
 use tracing::{error, info};
 use utoipa::OpenApi;
@@ -71,19 +71,16 @@ pub async fn user_avatar_handler(
     };
 
     // 5. ensure small variant is created
-    let small_variant_content_type = StaticProcessor::get_or_create_variant(
-        &file_details,
-        &FileVariant::Small,
-        file_path.clone(),
-    )
-    .await
-    .map_err(|err| {
-        error!(
-            "Error while processing small variant for user: {} avatar with file: {}",
-            user_id, file_id
-        );
-        Error::InternalServerError { source: err }
-    })?;
+    let small_variant_content_type =
+        Blob::get_by_id(&file_details, &FileVariant::Small, file_path.clone())
+            .await
+            .map_err(|err| {
+                error!(
+                    "Error while processing small variant for user: {} avatar with file: {}",
+                    user_id, file_id
+                );
+                Error::InternalServerError { source: err }
+            })?;
 
     // serve the file using ServeDir
     // Create a new request with a modified path to serve the file using ServeDir

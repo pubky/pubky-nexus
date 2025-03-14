@@ -5,10 +5,8 @@ use std::{
 
 use crate::utils::host_url;
 use anyhow::Result;
-use nexus_common::models::{
-    file::{details::FileVariant, FileDetails},
-    traits::Collection,
-};
+use nexus_common::media::FileVariant;
+use nexus_common::models::{file::FileDetails, traits::Collection};
 use tokio::fs::create_dir_all;
 
 const IMAGE_BLOB_NAME: &str = "SynonymLogo.png";
