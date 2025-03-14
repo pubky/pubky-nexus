@@ -5,7 +5,7 @@ use crate::Config as WatcherConfig;
 use nexus_common::db::PubkyClient;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
-use nexus_common::FILES_DIR;
+use nexus_common::FILES_DIR_TEST;
 use opentelemetry::trace::{FutureExt, Span, TraceContextExt, Tracer};
 use opentelemetry::{global, Context, KeyValue};
 use pubky_app_specs::PubkyId;
@@ -39,7 +39,7 @@ impl EventProcessor {
         Self {
             homeserver,
             limit: 1000,
-            files_path: PathBuf::from(FILES_DIR),
+            files_path: PathBuf::from(FILES_DIR_TEST),
             tracer_name: String::from("watcher.test"),
         }
     }

@@ -11,7 +11,6 @@ use std::path::Path;
 async fn test_put_pubkyapp_file() -> Result<()> {
     // Arrange
     let mut test = WatcherTest::setup().await?;
-    //TestServiceServer::get_test_server().await;
 
     let keypair = Keypair::random();
     let user = PubkyAppUser {
