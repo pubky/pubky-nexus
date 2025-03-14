@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::{fmt::Debug, path::PathBuf};
 
 pub const LOG_LEVEL: Level = Level::Debug;
-pub const FILES_DIR: &str = "./static/files";
+pub const FILES_DIR: &str = "./nexus-api/static/files";
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
