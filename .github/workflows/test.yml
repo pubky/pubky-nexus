@@ -43,13 +43,6 @@ jobs:
         with:
           tool: cargo-nextest
 
-      - name: Copy environment variables
-        run: cp .env-sample .env
-
-      - name: Edit env for pipeline
-        # Remove OTLP_ENDPOINT from .env file
-        run: sed -i '/OTLP_ENDPOINT/d' .env
-
       - name: Set up Docker Compose
         working-directory: docker
         run: docker compose --env-file .env-sample up -d
@@ -69,10 +62,13 @@ jobs:
         run: sudo apt install -y imagemagick
 
       - name: Load Mock Data
-        run: cargo run -- db mock
+        run: cargo run -p nexusd -- db mock
         
-      - name: Run integration tests
-        run: cargo nextest run --no-fail-fast
+      - name: Run API integration tests
+        run: cargo nextest run -p nexus-api --no-fail-fast
+
+      - name: Run WATCHER integration tests
+        run: cargo nextest run -p nexus-watcher --no-fail-fast
 
       - name: Tear down Docker Compose
         if: always()

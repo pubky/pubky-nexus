@@ -1071,12 +1071,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dotenv"
-version = "0.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77c90badedccf4105eca100756a0b1289e191f6fcbdadd3cee1d2f614f97da8f"
-
-[[package]]
 name = "doxygen-rs"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1600,9 +1594,9 @@ checksum = "d231dfb89cfffdbc30e7fc41579ed6066ad03abda9e567ccafae602b97ec5024"
 
 [[package]]
 name = "hermit-abi"
-version = "0.4.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fbf6a919d6cf397374f7dfeeea91d974c7c0a7221d0d0f4f20d859d329e53fcc"
+checksum = "fbd780fe5cc30f81464441920d82ac8740e2e46b29a6fad543ddd075229ce37e"
 
 [[package]]
 name = "hex"
@@ -1989,11 +1983,11 @@ checksum = "469fb0b9cefa57e3ef31275ee7cacb78f2fdca44e4765491884a2b119d4eb130"
 
 [[package]]
 name = "is-terminal"
-version = "0.4.15"
+version = "0.4.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e19b23d53f35ce9f56aebc7d1bb4e6ac1e9c0db7ac85c8d1760c04379edced37"
+checksum = "e04d7f318608d35d4b61ddd75cbdaee86b023ebe2bd5a66ee0915f0bf93095a9"
 dependencies = [
- "hermit-abi 0.4.0",
+ "hermit-abi 0.5.0",
  "libc",
  "windows-sys 0.59.0",
 ]
@@ -2295,6 +2289,107 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-api"
+version = "0.4.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum 0.8.1",
+ "chrono",
+ "clap",
+ "const_format",
+ "criterion",
+ "httpc-test",
+ "neo4rs",
+ "nexus-common",
+ "once_cell",
+ "opentelemetry",
+ "opentelemetry_sdk",
+ "pubky",
+ "pubky-app-specs",
+ "redis",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.11",
+ "tokio",
+ "tokio-shared-rt",
+ "tower-http",
+ "tracing",
+ "url",
+ "utoipa",
+ "utoipa-swagger-ui",
+]
+
+[[package]]
+name = "nexus-common"
+version = "0.4.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "neo4rs",
+ "once_cell",
+ "opentelemetry",
+ "opentelemetry-appender-tracing",
+ "opentelemetry-otlp",
+ "opentelemetry_sdk",
+ "pubky",
+ "pubky-app-specs",
+ "redis",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.11",
+ "tokio",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+ "utoipa",
+]
+
+[[package]]
+name = "nexus-watcher"
+version = "0.4.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "httpc-test",
+ "neo4rs",
+ "nexus-common",
+ "opentelemetry",
+ "pubky",
+ "pubky-app-specs",
+ "pubky-homeserver",
+ "pubky-testnet",
+ "rand 0.9.0",
+ "rand_distr",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.11",
+ "tokio",
+ "tokio-shared-rt",
+ "tracing",
+]
+
+[[package]]
+name = "nexusd"
+version = "0.4.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "clap",
+ "neo4rs",
+ "nexus-api",
+ "nexus-common",
+ "nexus-watcher",
+ "serde",
+ "tokio",
+ "tokio-shared-rt",
+ "tracing",
+]
+
+[[package]]
 name = "no-std-compat"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2399,9 +2494,9 @@ checksum = "945462a4b81e43c4e3ba96bd7b49d834c6f61198356aa858733bc4acf3cbe62e"
 
 [[package]]
 name = "oorandom"
-version = "11.1.4"
+version = "11.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b410bbe7e14ab526a0e86877eb47c6996a2bd7746f027ba551028c925390e4e9"
+checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
 
 [[package]]
 name = "opaque-debug"
@@ -2524,21 +2619,6 @@ dependencies = [
  "opentelemetry_sdk",
  "prost",
  "tonic",
-]
-
-[[package]]
-name = "opentelemetry-stdout"
-version = "0.28.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5eb0e5a5132e4b80bf037a78e3e12c8402535199f5de490d0c38f7eac71bc831"
-dependencies = [
- "async-trait",
- "chrono",
- "futures-util",
- "opentelemetry",
- "opentelemetry_sdk",
- "serde",
- "thiserror 2.0.11",
 ]
 
 [[package]]
@@ -3025,49 +3105,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pubky-nexus"
-version = "0.3.1"
-dependencies = [
- "anyhow",
- "async-trait",
- "axum 0.8.1",
- "chrono",
- "clap",
- "const_format",
- "criterion",
- "dotenv",
- "httpc-test",
- "neo4rs",
- "once_cell",
- "opentelemetry",
- "opentelemetry-appender-tracing",
- "opentelemetry-otlp",
- "opentelemetry-stdout",
- "opentelemetry_sdk",
- "pubky",
- "pubky-app-specs",
- "pubky-homeserver",
- "pubky-testnet",
- "rand 0.8.5",
- "rand_distr",
- "redis",
- "reqwest",
- "serde",
- "serde_json",
- "thiserror 2.0.11",
- "tokio",
- "tokio-shared-rt",
- "toml",
- "tower-http",
- "tracing",
- "tracing-opentelemetry",
- "tracing-subscriber",
- "url",
- "utoipa",
- "utoipa-swagger-ui",
-]
-
-[[package]]
 name = "pubky-testnet"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3249,12 +3286,12 @@ dependencies = [
 
 [[package]]
 name = "rand_distr"
-version = "0.4.3"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32cb0b9bc82b0a0876c2dd994a7e7a2683d3e7390ca40e6886785ef0c7e3ee31"
+checksum = "6a8615d50dcf34fa31f7ab52692afec947c4dd0ab803cc87cb3b0b4570ff7463"
 dependencies = [
  "num-traits",
- "rand 0.8.5",
+ "rand 0.9.0",
 ]
 
 [[package]]
@@ -4422,24 +4459,6 @@ dependencies = [
  "log",
  "once_cell",
  "tracing-core",
-]
-
-[[package]]
-name = "tracing-opentelemetry"
-version = "0.29.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "721f2d2569dce9f3dfbbddee5906941e953bfcdf736a62da3377f5751650cc36"
-dependencies = [
- "js-sys",
- "once_cell",
- "opentelemetry",
- "opentelemetry_sdk",
- "smallvec",
- "tracing",
- "tracing-core",
- "tracing-log",
- "tracing-subscriber",
- "web-time",
 ]
 
 [[package]]
