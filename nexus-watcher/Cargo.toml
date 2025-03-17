@@ -1,6 +1,6 @@
 [package]
 name = "nexus-watcher"
-version = "0.1.0"
+version = "0.4.0"
 edition = "2021"
 description = "Nexus Watcher constructs a social graph out of all of the events on pubky-core homeservers"
 homepage = "https://github.com/pubky/pubky-nexus"
@@ -14,7 +14,7 @@ neo4rs = "0.8.0"
 opentelemetry = { version = "0.28" }
 pubky = "0.4.1"
 pubky-app-specs = { version = "0.3.2", features = ["openapi"] }
-nexus-common = { version = "0.1.0", path = "../nexus-common" }
+nexus-common = { version = "0.4.0", path = "../nexus-common" }
 serde = { version = "1.0.217", features = ["derive"] }
 serde_json = "1.0.137"
 thiserror = "2.0.11"

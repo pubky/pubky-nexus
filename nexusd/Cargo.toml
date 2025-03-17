@@ -1,6 +1,6 @@
 [package]
 name = "nexusd"
-version = "0.3.1"
+version = "0.4.0"
 edition = "2021"
 description = "Nexus daemon"
 homepage = "https://github.com/pubky/pubky-nexus"
@@ -12,9 +12,9 @@ async-trait = "0.1.85"
 chrono = { version = "0.4.39", default-features = false, features = ["clock"] }
 clap = { version = "4.5.29", features = ["derive"] }
 neo4rs = "0.8.0"
-nexus-api = { version = "0.1.0", path = "../nexus-api" }
-nexus-common = { version = "0.1.0", path = "../nexus-common" }
-nexus-watcher = { version = "0.1.0", path = "../nexus-watcher" }
+nexus-api = { version = "0.4.0", path = "../nexus-api" }
+nexus-common = { version = "0.4.0", path = "../nexus-common" }
+nexus-watcher = { version = "0.4.0", path = "../nexus-watcher" }
 serde = { version = "1.0.217", features = ["derive"] }
 tracing = "0.1"
 tokio = { version = "1.43.0", features = ["full"] }
