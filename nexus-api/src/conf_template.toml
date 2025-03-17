@@ -1,0 +1,19 @@
+# Service name used for tracing, logging, and metrics in OpenTelemetry
+name = "nexus.api"
+public_addr = "127.0.0.1:8080"
+
+[stack]
+# Logging, options: error, warn, info, debug and trace
+log_level = "debug"
+files_path = "./nexus-api/static/files"
+# OTLP_ENDPOINT is set to empty by default. If you want to enable tracing, set it to the OpenTelemetry Collector endpoint
+#otlp_endpoint="http://localhost:4317"
+
+[stack.db]
+redis = "redis://127.0.0.1:6379"
+
+[stack.db.neo4j]
+uri = "bolt://localhost:7687"
+# Not needed in the Community Edition
+#user = "neo4j"
+password = "12345678"

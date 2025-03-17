@@ -7,7 +7,6 @@ use pubky_app_specs::{
     PubkyAppBlob, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppPostKind, PubkyAppTag,
     PubkyAppUser,
 };
-use pubky_nexus::Config;
 use rand::rngs::StdRng;
 use rand::{distributions::Alphanumeric, Rng, SeedableRng};
 use rand_distr::{Distribution, LogNormal};
@@ -36,7 +35,7 @@ static MAX_FILES: usize = 10000;
 async fn main() -> Result<()> {
     let total_start = Instant::now(); // Start timing the whole script
 
-    let config = Config::from_env();
+    //let config = Config::from_env();
 
     // Initialize the Client based on configuration
     // let client = match config.testnet {
@@ -48,7 +47,8 @@ async fn main() -> Result<()> {
     let client = Client::builder().build()?;
 
     // Convert the homeserver from the config into a PublicKey
-    let homeserver = PublicKey::try_from(config.homeserver.as_str())?;
+    // Hard code from now homeserver pubky. This is a testnet default key
+    let homeserver = PublicKey::try_from("8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo")?;
 
     let mut rng = StdRng::seed_from_u64(SEED);
     println!("Using seed: {}", SEED);

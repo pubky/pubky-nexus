@@ -4,10 +4,13 @@ on:
   workflow_dispatch:
   workflow_call:
   push:
-    branches: ["main"]
+    branches: 
+      - main
+      - dev
   pull_request:
     branches:
       - main
+      - dev
 
 jobs:
   test:
@@ -40,13 +43,6 @@ jobs:
         with:
           tool: cargo-nextest
 
-      - name: Copy environment variables
-        run: cp .env-sample .env
-
-      - name: Edit env for pipeline
-        # Remove OTLP_ENDPOINT from .env file
-        run: sed -i '/OTLP_ENDPOINT/d' .env
-
       - name: Set up Docker Compose
         working-directory: docker
         run: docker compose --env-file .env-sample up -d
@@ -62,11 +58,17 @@ jobs:
             sleep 1
           done
 
-      - name: Load Mock Data
-        run: cargo run --bin mockdb
+      - name: Install dependencies
+        run: sudo apt install -y imagemagick
 
-      - name: Run integration tests
-        run: cargo nextest run --no-fail-fast
+      - name: Load Mock Data
+        run: cargo run -p nexusd -- db mock
+        
+      - name: Run API integration tests
+        run: cargo nextest run -p nexus-api --no-fail-fast
+
+      - name: Run WATCHER integration tests
+        run: cargo nextest run -p nexus-watcher --no-fail-fast
 
       - name: Tear down Docker Compose
         if: always()
