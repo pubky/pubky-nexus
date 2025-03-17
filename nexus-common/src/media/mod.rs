@@ -92,22 +92,10 @@ impl VariantController {
         }
     }
 
-    pub fn get_file_urls_by_content_type(content_type: &str, path: &str) -> FileUrls {
+    pub fn get_file_urls_by_content_type(content_type: &str, path: &PathBuf) -> FileUrls {
         let variants = Self::get_valid_variants_for_content_type(content_type);
 
-        FileUrls {
-            main: format!("{}/{}", path, FileVariant::Main),
-            feed: variants.contains(&FileVariant::Feed).then_some(format!(
-                "{}/{}",
-                path,
-                FileVariant::Feed
-            )),
-            small: variants.contains(&FileVariant::Small).then_some(format!(
-                "{}/{}",
-                path,
-                FileVariant::Small
-            )),
-        }
+        FileUrls::new(path, &variants)
     }
 
     pub fn validate_variant_for_content_type(content_type: &str, variant: &FileVariant) -> bool {

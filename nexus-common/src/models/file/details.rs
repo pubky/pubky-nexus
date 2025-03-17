@@ -1,5 +1,6 @@
 use crate::db::DbError;
 use crate::db::{exec_single_row, queries, RedisOps};
+use crate::media::FileVariant;
 use crate::models::traits::Collection;
 use crate::types::DynError;
 use async_trait::async_trait;
@@ -8,6 +9,7 @@ use neo4rs::Query;
 use pubky_app_specs::{ParsedUri, PubkyAppFile, Resource};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::Path;
 use tracing::error;
 use utoipa::ToSchema;
 
@@ -16,6 +18,32 @@ pub struct FileUrls {
     pub main: String,
     pub feed: Option<String>,
     pub small: Option<String>,
+}
+
+impl FileUrls {
+    /// Creates a new instance by constructing URLs for file variants
+    ///
+    /// # Arguments
+    /// * `base_path` - A reference to a `PathBuf` representing the base directory where files are stored
+    /// * `variants` - A slice of `FileVariant` values representing the available file variants
+    pub fn new(base_path: &Path, variants: &[FileVariant]) -> Self {
+        let build_url = |variant: &FileVariant| {
+            base_path
+                .join(variant.to_string())
+                .to_string_lossy()
+                .into_owned()
+        };
+
+        Self {
+            main: build_url(&FileVariant::Main),
+            feed: variants
+                .contains(&FileVariant::Feed)
+                .then(|| build_url(&FileVariant::Feed)),
+            small: variants
+                .contains(&FileVariant::Small)
+                .then(|| build_url(&FileVariant::Small)),
+        }
+    }
 }
 
 mod json_string {

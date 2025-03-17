@@ -11,7 +11,7 @@ use nexus_common::models::{
 };
 use nexus_common::types::DynError;
 use pubky_app_specs::{PubkyAppFile, PubkyAppObject, PubkyId};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tokio::fs::remove_dir_all;
 use tracing::debug;
 
@@ -83,7 +83,7 @@ async fn ingest(
         };
     }
 
-    let path = format!("{}/{}", user_id, file_id);
+    let path = Path::new(&user_id.to_string()).join(file_id);
     let full_path = files_path.join(path.clone());
 
     let blob = response.bytes().await?;
@@ -130,7 +130,7 @@ pub async fn del(user_id: &PubkyId, file_id: String, files_path: PathBuf) -> Res
             })?;
         }
 
-        let folder_path = format!("{}/{}", user_id, file_id);
+        let folder_path = Path::new(&user_id.to_string()).join(&file_id);
         let full_path = files_path.join(folder_path);
 
         remove_dir_all(full_path).await?;
