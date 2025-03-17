@@ -457,12 +457,15 @@ impl PostStream {
         post_keys.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
 
         // Apply global skip and limit after sorting
-        let start_index = skip.unwrap_or(0).max(0);
-        let end_index = if let Some(limit) = limit {
-            (start_index + limit).min(post_keys.len())
-        } else {
-            post_keys.len()
-        };
+        let start_index = skip.unwrap_or(0).clamp(0, post_keys.len());
+        let end_index = limit
+            .map(|l| (start_index + l).min(post_keys.len()))
+            .unwrap_or(post_keys.len());
+
+        // Ensure valid slice range
+        if start_index >= end_index {
+            return Ok(Vec::new());
+        }
 
         let selected_post_keys = post_keys[start_index..end_index]
             .iter()

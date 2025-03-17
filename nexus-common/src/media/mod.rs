@@ -4,7 +4,11 @@ use crate::{
 };
 use processors::{ImageProcessor, VariantProcessor, VideoProcessor};
 use serde::{Deserialize, Serialize};
-use std::{fmt::Display, path::PathBuf, str::FromStr};
+use std::{
+    fmt::Display,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 use tokio::fs;
 use utoipa::ToSchema;
 
@@ -92,7 +96,7 @@ impl VariantController {
         }
     }
 
-    pub fn get_file_urls_by_content_type(content_type: &str, path: &PathBuf) -> FileUrls {
+    pub fn get_file_urls_by_content_type(content_type: &str, path: &Path) -> FileUrls {
         let variants = Self::get_valid_variants_for_content_type(content_type);
 
         FileUrls::new(path, &variants)
