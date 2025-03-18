@@ -123,6 +123,22 @@ pub async fn static_files_handler(
     )
     .await?;
 
+    // Remove any default "cache-control" header (which may be set to no-cache)
+    response.headers_mut().remove("cache-control");
+
+    // Set a new Cache-Control header to cache the file for 3600 seconds (1 hour)
+    let cache_control_header = "public, max-age=3600".parse().map_err(|err| {
+        error!("Failed to parse Cache-Control header value: {}", err);
+        Error::InternalServerError {
+            source: Box::new(err),
+        }
+    })?;
+
+    // Insert our newly parsed Cache-Control header.
+    response
+        .headers_mut()
+        .insert("cache-control", cache_control_header);
+
     // if dl parameter is passed, set content-disposition header to attachment to force download
     if params.dl.is_some() {
         let content_disposition_header = format!("attachment; filename=\"{}\"", file.name)
