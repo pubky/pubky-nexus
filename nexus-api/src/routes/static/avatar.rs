@@ -92,13 +92,31 @@ pub async fn user_avatar_handler(
         FileVariant::Small,
     );
 
-    PubkyServeDir::try_call(
+    // 7. Serve the file. Then remove/replace any default Cache-Control header.
+    let mut response = PubkyServeDir::try_call(
         request,
         file_uri_path,
         small_variant_content_type,
         file_path.clone(),
     )
-    .await
+    .await?;
+
+    // Remove any default "cache-control" header
+    response.headers_mut().remove("cache-control");
+
+    // Insert a new Cache-Control header (e.g., 1 hour)
+    let cache_control_header = "public, max-age=3600".parse().map_err(|err| {
+        error!("Failed to parse Cache-Control header value: {}", err);
+        Error::InternalServerError {
+            source: Box::new(err),
+        }
+    })?;
+
+    response
+        .headers_mut()
+        .insert("cache-control", cache_control_header);
+
+    Ok(response)
 }
 
 #[derive(OpenApi)]
