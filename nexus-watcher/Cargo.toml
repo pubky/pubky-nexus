@@ -16,7 +16,7 @@ pubky = "0.4.1"
 pubky-app-specs = { version = "0.3.3", features = ["openapi"] }
 nexus-common = { version = "0.4.0", path = "../nexus-common" }
 serde = { version = "1.0.217", features = ["derive"] }
-serde_json = "1.0.137"
+serde_json = "1.0.140"
 thiserror = "2.0.12"
 tokio = { version = "1.43.0", features = ["full"] }
 tracing = "0.1"
