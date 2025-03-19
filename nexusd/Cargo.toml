@@ -9,7 +9,7 @@ license = "MIT"
 
 [dependencies]
 async-trait = "0.1.85"
-chrono = { version = "0.4.39", default-features = false, features = ["clock"] }
+chrono = { version = "0.4.40", default-features = false, features = ["clock"] }
 clap = { version = "4.5.32", features = ["derive"] }
 neo4rs = "0.8.0"
 nexus-api = { version = "0.4.0", path = "../nexus-api" }
