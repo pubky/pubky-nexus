@@ -9,7 +9,7 @@ license = "MIT"
 build = "build.rs"
 
 [dependencies]
-async-trait = "0.1.85"
+async-trait = "0.1.88"
 axum = "0.8.1"
 chrono = { version = "0.4.39", default-features = false, features = ["clock"] }
 clap = { version = "4.5.32", features = ["derive"] }
