@@ -123,7 +123,7 @@ impl FileDetails {
             created_at: pubkyapp_file.created_at,
             indexed_at: Utc::now().timestamp_millis(),
             owner_id: user_id.to_string(),
-            size: pubkyapp_file.size,
+            size: pubkyapp_file.size as i64,
             urls: meta.urls,
             metadata: None,
         }

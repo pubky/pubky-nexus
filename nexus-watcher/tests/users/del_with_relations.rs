@@ -129,7 +129,7 @@ async fn test_delete_user_with_relationships() -> Result<()> {
         name: "Watcher:UserDeleteWith:UserWith:Image".to_string(),
         content_type: "image/png".to_string(),
         src: blob_url.clone(),
-        size: blob.0.len() as i64,
+        size: blob.0.len(),
         created_at: Utc::now().timestamp_millis(),
     };
 

@@ -35,7 +35,7 @@ async fn test_put_pubkyapp_file() -> Result<()> {
         name: "myfile".to_string(),
         content_type: "text/plain".to_string(),
         src: blob_url.clone(),
-        size: blob.0.len() as i64,
+        size: blob.0.len(),
         created_at: Utc::now().timestamp_millis(),
     };
 
@@ -56,7 +56,7 @@ async fn test_put_pubkyapp_file() -> Result<()> {
         result_file.uri,
         format!("pubky://{user_id}/pub/pubky.app/files/{file_id}")
     );
-    assert_eq!(result_file.size, file.size);
+    assert_eq!(result_file.size, file.size as i64);
     assert_eq!(result_file.name, file.name);
     assert_eq!(result_file.owner_id, user_id);
 
