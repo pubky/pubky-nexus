@@ -34,7 +34,7 @@ async fn test_homeserver_post_attachments() -> Result<()> {
         name: "attachment".to_string(),
         content_type: "text/plain".to_string(),
         src: blob_url.clone(),
-        size: blob.0.len() as i64,
+        size: blob.0.len(),
         created_at: Utc::now().timestamp_millis(),
     };
     let (_, file_url) = test.create_file(&user_id, &file).await?;
