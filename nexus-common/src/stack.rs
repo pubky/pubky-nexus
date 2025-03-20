@@ -39,7 +39,7 @@ impl StackManager {
         }
     }
 
-    async fn setup_neo4j(neo4j_config: &Neo4JConfig) {
+    pub async fn setup_neo4j(neo4j_config: &Neo4JConfig) {
         let neo4j_connector = Neo4jConnector::new_connection(
             &neo4j_config.uri,
             &neo4j_config.user,
