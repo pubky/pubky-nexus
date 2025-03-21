@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Error, Result};
 use chrono::Utc;
 use pubky::Client;
 use pubky::{Keypair, PublicKey};
@@ -8,8 +8,8 @@ use pubky_app_specs::{
     PubkyAppUser,
 };
 use rand::rngs::StdRng;
-use rand::{distributions::Alphanumeric, Rng, SeedableRng};
-use rand_distr::{Distribution, LogNormal};
+use rand::{Rng, SeedableRng};
+use rand_distr::{Alphanumeric, Distribution, LogNormal};
 use std::collections::HashSet;
 use std::time::Instant;
 
@@ -217,8 +217,12 @@ async fn create_user(
     pk: &String,
     user_index: usize,
 ) -> bool {
+    let token = match request_invitation_code().await {
+        Ok(response) => response,
+        Err(e) => panic!("ERR: {:?}", e)
+    };
     // Perform signup
-    if let Err(e) = client.signup(keypair, homeserver).await {
+    if let Err(e) = client.signup(keypair, homeserver, Some(&token)).await {
         println!("ERROR: Failed to sign up user {}: {}", pk, e);
         return false;
     }
@@ -329,7 +333,7 @@ async fn create_follows(
     for _ in 0..num_follows {
         // Randomly select a user to follow, ensuring no duplicates and not self
         loop {
-            let random_user_index = rng.gen_range(0..current_index); // Only existing users
+            let random_user_index = rng.random_range(0..current_index); // Only existing users
             let random_user = &user_ids[random_user_index];
             if random_user != pk && follow_set.insert(random_user.clone()) {
                 // Create a follow
@@ -412,7 +416,7 @@ async fn create_files(
             name: format!("file_{}", random_string(rng, 5)),
             content_type: "text/plain".to_string(),
             src: blob_url.clone(),
-            size: blob.0.len() as i64,
+            size: blob.0.len(),
             created_at: Utc::now().timestamp_millis(),
         };
 
@@ -461,15 +465,15 @@ async fn create_tags(
     let num_tags = num_tags.min(max_tags);
 
     for _ in 0..num_tags {
-        let tag_length = rng.gen_range(4..=10);
+        let tag_length = rng.random_range(4..=10);
         let tag_label = random_string(rng, tag_length);
 
         // Randomly decide whether to tag a user or a post
-        let tag_target_user = rng.gen_bool(0.2);
+        let tag_target_user = rng.random_bool(0.2);
 
         if tag_target_user && current_index > 0 {
             // Tag a user
-            let random_user_index = rng.gen_range(0..current_index); // Only existing users
+            let random_user_index = rng.random_range(0..current_index); // Only existing users
             let random_user = &user_ids[random_user_index];
             let tag = PubkyAppTag {
                 uri: format!("pubky://{}/pub/pubky.app/profile.json", random_user),
@@ -506,12 +510,12 @@ async fn create_tags(
             } else {
                 current_index + 1
             };
-            let random_user_index = rng.gen_range(0..total_users); // Including self
+            let random_user_index = rng.random_range(0..total_users); // Including self
             let random_user = &user_ids[random_user_index];
             let user_post_ids = &user_posts[random_user_index];
 
             if !user_post_ids.is_empty() {
-                let random_post_index = rng.gen_range(0..user_post_ids.len());
+                let random_post_index = rng.random_range(0..user_post_ids.len());
                 let random_post_id = &user_post_ids[random_post_index];
 
                 let tag = PubkyAppTag {
@@ -614,4 +618,16 @@ impl IntoKeys for Keypair {
         let pk = self.public_key().to_z32();
         (pk, self)
     }
+}
+
+async fn request_invitation_code() -> Result<String, Error> {
+    let client = reqwest::Client::new();
+    
+    let response = client
+        .get("http://localhost:6286/admin/generate_signup_token")
+        .header("X-Admin-Password", "admin")
+        .send()
+        .await?;
+
+    Ok(response.text().await?)
 }
