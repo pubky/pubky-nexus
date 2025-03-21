@@ -7,10 +7,9 @@ use std::fs::OpenOptions;
 use std::path::Path;
 
 /// This structure represents a complete CSV record, containing both overall and daily metrics.
-/// The timestamp is maintained as an i64.
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct MetricsRecord {
-    pub timestamp: i64,
+    pub date: String,
     // Overall totals (across all time)
     pub overall_total_users: i64,
     pub overall_total_posts: i64,
@@ -209,7 +208,6 @@ CALL {
 RETURN newUsers, dailyActiveUsers, newPosts, replies, reposts, mentions, newFollows, newMutes, newBookmarks, newPostTags, newUserTags, newFiles;
     "#;
 
-    // Pass parameters in milliseconds.
     let neo_query = query(daily_query).param("start", start).param("end", end);
     let graph = get_neo4j_graph()?;
     let mut result = {
@@ -238,26 +236,54 @@ RETURN newUsers, dailyActiveUsers, newPosts, replies, reposts, mentions, newFoll
     }
 }
 
-/// Writes a CSV record to a file, appending headers only if the file does not exist.
+/// Writes a CSV record to a file. If the file already exists and its last record's date
+/// matches the current record’s date, then that row is replaced instead of appending a new one.
 pub fn write_metrics(record: MetricsRecord) -> Result<(), Box<dyn Error>> {
     let file_path = "metrics.csv";
-    let file_exists = Path::new(file_path).exists();
-    tracing::debug!(
-        "Writing metrics to {} (file exists: {})",
-        file_path,
-        file_exists
-    );
-    let file = OpenOptions::new()
-        .append(true)
-        .create(true)
-        .open(file_path)?;
-    let mut wtr = WriterBuilder::new()
-        .has_headers(!file_exists)
-        .from_writer(file);
-    wtr.serialize(record)?;
-    wtr.flush()?;
-    tracing::debug!("Metrics successfully written to CSV.");
-    Ok(())
+
+    if Path::new(file_path).exists() {
+        // Read existing records.
+        let mut rdr = csv::Reader::from_path(file_path)?;
+        let mut records: Vec<MetricsRecord> = rdr.deserialize().collect::<Result<_, _>>()?;
+
+        // Clone the date of the last record to drop the immutable borrow.
+        if let Some(last_date) = records.last().map(|r| r.date.clone()) {
+            if last_date == record.date {
+                records.pop();
+                records.push(record);
+                // Rewrite the whole file with headers.
+                let file = OpenOptions::new()
+                    .write(true)
+                    .truncate(true)
+                    .open(file_path)?;
+                let mut wtr = WriterBuilder::new().has_headers(true).from_writer(file);
+                for rec in records.into_iter() {
+                    wtr.serialize(rec)?;
+                }
+                wtr.flush()?;
+                tracing::debug!("Replaced metrics for date {}.", last_date);
+                return Ok(());
+            }
+        }
+        // Otherwise, append the new record.
+        let file = OpenOptions::new().append(true).open(file_path)?;
+        let mut wtr = WriterBuilder::new().has_headers(false).from_writer(file);
+        wtr.serialize(record)?;
+        wtr.flush()?;
+        tracing::debug!("Appended new metrics record.");
+        Ok(())
+    } else {
+        // File does not exist; create a new one with headers.
+        let file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(file_path)?;
+        let mut wtr = WriterBuilder::new().has_headers(true).from_writer(file);
+        wtr.serialize(record)?;
+        wtr.flush()?;
+        tracing::debug!("Created new metrics file with the first record.");
+        Ok(())
+    }
 }
 
 /// The main loop for the metrics collection service.
@@ -266,8 +292,6 @@ pub fn write_metrics(record: MetricsRecord) -> Result<(), Box<dyn Error>> {
 pub async fn run_metrics() -> Result<(), Box<dyn Error>> {
     tracing::debug!("Starting observability metrics collection...");
 
-    let now = Utc::now();
-
     // Compute today's midnight (UTC) then derive yesterday's window.
     let today_midnight = Utc::now()
         .date_naive()
@@ -275,7 +299,6 @@ pub async fn run_metrics() -> Result<(), Box<dyn Error>> {
         .expect("Failed to compute midnight");
     let yesterday_start = today_midnight - Duration::days(1);
     let yesterday_end = today_midnight - Duration::milliseconds(1);
-    // Use milliseconds since your data (indexed_at) is stored in ms.
     let start_of_yesterday = Utc.from_utc_datetime(&yesterday_start).timestamp_millis();
     let end_of_yesterday = Utc.from_utc_datetime(&yesterday_end).timestamp_millis();
 
@@ -285,13 +308,16 @@ pub async fn run_metrics() -> Result<(), Box<dyn Error>> {
         end_of_yesterday
     );
 
+    // Compute yesterday's date in ISO 8601 UTC (e.g. "2025-03-20T00:00:00+00:00").
+    let yesterday_date = Utc.from_utc_datetime(&yesterday_start).to_rfc3339();
+
     // Collect overall totals and daily metrics from Neo4j.
     let overall_totals = collect_overall_totals().await?;
     let daily_metrics = collect_daily_metrics(start_of_yesterday, end_of_yesterday).await?;
 
-    // Build the complete metrics record.
+    // Build the complete metrics record using the human-readable date.
     let record = MetricsRecord {
-        timestamp: now.timestamp_millis(),
+        date: yesterday_date,
         overall_total_users: overall_totals.total_users,
         overall_total_posts: overall_totals.total_posts,
         overall_total_files: overall_totals.total_files,
