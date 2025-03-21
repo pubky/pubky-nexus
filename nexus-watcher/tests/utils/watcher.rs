@@ -127,7 +127,7 @@ impl WatcherTest {
         let pubky_client = PubkyClient::get().unwrap();
 
         pubky_client
-            .signup(&keypair, &self.homeserver.public_key())
+            .signup(&keypair, &self.homeserver.public_key(), None)
             .await?;
         Ok(())
     }
@@ -137,7 +137,7 @@ impl WatcherTest {
         let pubky_client = PubkyClient::get().unwrap();
         // Register the key in the homeserver
         pubky_client
-            .signup(keypair, &self.homeserver.public_key())
+            .signup(keypair, &self.homeserver.public_key(), None)
             .await?;
         let url = format!("pubky://{}/pub/pubky.app/profile.json", user_id);
 
