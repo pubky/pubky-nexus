@@ -5,7 +5,6 @@ use nexus_common::db::get_neo4j_graph;
 use std::error::Error;
 use std::fs::OpenOptions;
 use std::path::Path;
-use tokio::time::{interval, Duration as TokioDuration};
 
 /// This structure represents a complete CSV record, containing both overall and daily metrics.
 /// The timestamp is maintained as an i64.
@@ -266,60 +265,57 @@ pub fn write_metrics(record: MetricsRecord) -> Result<(), Box<dyn Error>> {
 /// The window for yesterday is computed in milliseconds.
 pub async fn run_metrics() -> Result<(), Box<dyn Error>> {
     tracing::debug!("Starting observability metrics collection...");
-    let mut ticker = interval(TokioDuration::from_secs(24 * 60 * 60)); // adjust interval as needed
 
-    loop {
-        ticker.tick().await;
-        let now = Utc::now();
-        tracing::debug!("Ticker tick at {}", now);
+    let now = Utc::now();
 
-        // Compute today's midnight (UTC) then derive yesterday's window.
-        let today_midnight = Utc::now()
-            .date_naive()
-            .and_hms_opt(0, 0, 0)
-            .expect("Failed to compute midnight");
-        let yesterday_start = today_midnight - Duration::days(1);
-        let yesterday_end = today_midnight - Duration::milliseconds(1);
-        // Use milliseconds since your data (indexed_at) is stored in ms.
-        let start_of_yesterday = Utc.from_utc_datetime(&yesterday_start).timestamp_millis();
-        let end_of_yesterday = Utc.from_utc_datetime(&yesterday_end).timestamp_millis();
+    // Compute today's midnight (UTC) then derive yesterday's window.
+    let today_midnight = Utc::now()
+        .date_naive()
+        .and_hms_opt(0, 0, 0)
+        .expect("Failed to compute midnight");
+    let yesterday_start = today_midnight - Duration::days(1);
+    let yesterday_end = today_midnight - Duration::milliseconds(1);
+    // Use milliseconds since your data (indexed_at) is stored in ms.
+    let start_of_yesterday = Utc.from_utc_datetime(&yesterday_start).timestamp_millis();
+    let end_of_yesterday = Utc.from_utc_datetime(&yesterday_end).timestamp_millis();
 
-        tracing::debug!(
-            "Yesterday's window (in milliseconds): {} to {}",
-            start_of_yesterday,
-            end_of_yesterday
-        );
+    tracing::debug!(
+        "Yesterday's window (in milliseconds): {} to {}",
+        start_of_yesterday,
+        end_of_yesterday
+    );
 
-        // Collect overall totals and daily metrics from Neo4j.
-        let overall_totals = collect_overall_totals().await?;
-        let daily_metrics = collect_daily_metrics(start_of_yesterday, end_of_yesterday).await?;
+    // Collect overall totals and daily metrics from Neo4j.
+    let overall_totals = collect_overall_totals().await?;
+    let daily_metrics = collect_daily_metrics(start_of_yesterday, end_of_yesterday).await?;
 
-        // Build the complete metrics record.
-        let record = MetricsRecord {
-            timestamp: now.timestamp_millis(),
-            overall_total_users: overall_totals.total_users,
-            overall_total_posts: overall_totals.total_posts,
-            overall_total_files: overall_totals.total_files,
-            overall_total_replies: overall_totals.total_replies,
-            overall_total_reposts: overall_totals.total_reposts,
-            overall_total_user_tags: overall_totals.total_user_tags,
-            overall_total_post_tags: overall_totals.total_post_tags,
-            daily_new_users: daily_metrics.new_users,
-            daily_active_users: daily_metrics.daily_active_users,
-            daily_new_posts: daily_metrics.new_posts,
-            daily_replies: daily_metrics.replies,
-            daily_reposts: daily_metrics.reposts,
-            daily_mentions: daily_metrics.mentions,
-            daily_new_follows: daily_metrics.new_follows,
-            daily_new_mutes: daily_metrics.new_mutes,
-            daily_new_bookmarks: daily_metrics.new_bookmarks,
-            daily_new_post_tags: daily_metrics.new_post_tags,
-            daily_new_user_tags: daily_metrics.new_user_tags,
-            daily_new_files: daily_metrics.new_files,
-        };
+    // Build the complete metrics record.
+    let record = MetricsRecord {
+        timestamp: now.timestamp_millis(),
+        overall_total_users: overall_totals.total_users,
+        overall_total_posts: overall_totals.total_posts,
+        overall_total_files: overall_totals.total_files,
+        overall_total_replies: overall_totals.total_replies,
+        overall_total_reposts: overall_totals.total_reposts,
+        overall_total_user_tags: overall_totals.total_user_tags,
+        overall_total_post_tags: overall_totals.total_post_tags,
+        daily_new_users: daily_metrics.new_users,
+        daily_active_users: daily_metrics.daily_active_users,
+        daily_new_posts: daily_metrics.new_posts,
+        daily_replies: daily_metrics.replies,
+        daily_reposts: daily_metrics.reposts,
+        daily_mentions: daily_metrics.mentions,
+        daily_new_follows: daily_metrics.new_follows,
+        daily_new_mutes: daily_metrics.new_mutes,
+        daily_new_bookmarks: daily_metrics.new_bookmarks,
+        daily_new_post_tags: daily_metrics.new_post_tags,
+        daily_new_user_tags: daily_metrics.new_user_tags,
+        daily_new_files: daily_metrics.new_files,
+    };
 
-        tracing::debug!("Metrics record built: {:?}", record);
-        write_metrics(record)?;
-        tracing::debug!("Cycle complete. Waiting for the next tick...");
-    }
+    tracing::debug!("Metrics record built: {:?}", record);
+    write_metrics(record)?;
+    tracing::debug!("Cycle complete. Waiting for the next tick...");
+
+    Ok(())
 }
