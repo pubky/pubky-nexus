@@ -219,7 +219,7 @@ async fn create_user(
 ) -> bool {
     let token = match request_invitation_code().await {
         Ok(response) => response,
-        Err(e) => panic!("ERR: {:?}", e)
+        Err(e) => panic!("ERR: {:?}", e),
     };
     // Perform signup
     if let Err(e) = client.signup(keypair, homeserver, Some(&token)).await {
@@ -622,7 +622,7 @@ impl IntoKeys for Keypair {
 
 async fn request_invitation_code() -> Result<String, Error> {
     let client = reqwest::Client::new();
-    
+
     let response = client
         .get("http://localhost:6286/admin/generate_signup_token")
         .header("X-Admin-Password", "admin")
