@@ -46,11 +46,10 @@ COPY Cargo.toml Cargo.lock ./
 COPY . .
 
 # Build the project in release mode for the MUSL target
-RUN cargo build --release --bin service --bin watcher --target $TARGETARCH-unknown-linux-musl
+RUN cargo build --release --target $TARGETARCH-unknown-linux-musl
 
 # Strip the binaries to reduce size
-RUN strip target/$TARGETARCH-unknown-linux-musl/release/service
-RUN strip target/$TARGETARCH-unknown-linux-musl/release/watcher
+RUN strip target/$TARGETARCH-unknown-linux-musl/release/nexusd
 
 # ========================
 # Runtime Stage
@@ -63,8 +62,7 @@ ARG TARGETARCH=x86_64
 RUN apk add --no-cache ca-certificates
 
 # Copy the compiled binaries from the builder stage
-COPY --from=builder /usr/src/app/target/$TARGETARCH-unknown-linux-musl/release/service /usr/local/bin/service
-COPY --from=builder /usr/src/app/target/$TARGETARCH-unknown-linux-musl/release/watcher /usr/local/bin/watcher
+COPY --from=builder /usr/src/app/target/$TARGETARCH-unknown-linux-musl/release/nexusd /usr/local/bin/nexusd
 
 # Set the working directory
 WORKDIR /usr/local/bin
@@ -73,4 +71,4 @@ WORKDIR /usr/local/bin
 EXPOSE 8080
 
 # Set the default command to run the service binary
-CMD ["service"]
+CMD ["nexusd"]
