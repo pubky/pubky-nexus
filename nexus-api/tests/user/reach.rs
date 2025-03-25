@@ -1,6 +1,6 @@
 use crate::utils::{get_request, invalid_get_request};
 use anyhow::Result;
-use reqwest::StatusCode;
+use axum::http::StatusCode;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_get_followers() -> Result<()> {
