@@ -2989,9 +2989,9 @@ checksum = "33cb294fe86a74cbcf50d4445b37da762029549ebeea341421c7c70370f86cac"
 
 [[package]]
 name = "pubky"
-version = "0.4.1"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2617758fa7af985c605b9b5999e09659ba6693cdfe74137a54ff517d4ecd1a7"
+checksum = "8c74ff4a5a69f5925e1ad194586e33b86b1a005b3e7e25804084560bf5ac8d15"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
