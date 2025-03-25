@@ -1,6 +1,7 @@
 use crate::run_setup;
 use crate::streams_benches::LIMIT_20;
 use criterion::Criterion;
+use nexus_common::db::kv::SortOrder;
 use nexus_common::models::post::{PostStream, StreamSource};
 use nexus_common::types::StreamSorting;
 use tokio::runtime::Runtime;
@@ -26,6 +27,7 @@ pub fn bench_stream_tag_timeline(c: &mut Criterion) {
             let post_stream = PostStream::get_posts(
                 source,
                 LIMIT_20,
+                SortOrder::Descending,
                 StreamSorting::Timeline,
                 None,
                 Some(vec![TAG.to_string()]),
@@ -56,6 +58,7 @@ pub fn bench_stream_tag_total_engagement(c: &mut Criterion) {
             let post_stream = PostStream::get_posts(
                 source,
                 LIMIT_20,
+                SortOrder::Descending,
                 StreamSorting::TotalEngagement,
                 None,
                 Some(vec![TAG.to_string()]),

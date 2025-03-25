@@ -1,6 +1,7 @@
 use crate::run_setup;
 use crate::streams_benches::LIMIT_20;
 use criterion::Criterion;
+use nexus_common::db::kv::SortOrder;
 use nexus_common::models::post::{PostStream, StreamSource};
 use nexus_common::types::StreamSorting;
 use tokio::runtime::Runtime;
@@ -25,10 +26,17 @@ pub fn bench_stream_bookmarks_timeline(c: &mut Criterion) {
             };
 
             // Run the benchmark
-            let post_stream =
-                PostStream::get_posts(source, LIMIT_20, StreamSorting::Timeline, None, None, None)
-                    .await
-                    .unwrap();
+            let post_stream = PostStream::get_posts(
+                source,
+                LIMIT_20,
+                SortOrder::Descending,
+                StreamSorting::Timeline,
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
             criterion::black_box(post_stream);
         });
     });
@@ -53,6 +61,7 @@ pub fn bench_stream_bookmarks_total_engagement(c: &mut Criterion) {
             let post_stream = PostStream::get_posts(
                 source,
                 LIMIT_20,
+                SortOrder::Descending,
                 StreamSorting::TotalEngagement,
                 None,
                 None,

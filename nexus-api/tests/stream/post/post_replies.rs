@@ -36,12 +36,12 @@ async fn test_stream_posts_replies() -> Result<()> {
     assert_eq!(post_reply_stream.0.len(), 6);
 
     let replies_order = vec![
-        CHILD_1_POST_ID,
-        CHILD_2_POST_ID,
-        CHILD_3_POST_ID,
-        CHILD_4_POST_ID,
-        CHILD_5_POST_ID,
         CHILD_6_POST_ID,
+        CHILD_5_POST_ID,
+        CHILD_4_POST_ID,
+        CHILD_3_POST_ID,
+        CHILD_2_POST_ID,
+        CHILD_1_POST_ID,
     ];
 
     check_replies_timeline(post_reply_stream.0, replies_order);
@@ -69,7 +69,7 @@ async fn test_stream_posts_replies_with_limit() -> Result<()> {
     // Assert the post number
     assert_eq!(post_reply_stream.0.len(), 3);
 
-    let replies_order = vec![CHILD_1_POST_ID, CHILD_2_POST_ID, CHILD_3_POST_ID];
+    let replies_order = vec![CHILD_6_POST_ID, CHILD_5_POST_ID, CHILD_4_POST_ID];
 
     check_replies_timeline(post_reply_stream.0, replies_order);
 
@@ -94,14 +94,9 @@ async fn test_stream_posts_replies_with_start_query() -> Result<()> {
         "Post stream should not be empty"
     );
     // Assert the post number
-    assert_eq!(post_reply_stream.0.len(), 4);
+    assert_eq!(post_reply_stream.0.len(), 2);
 
-    let replies_order = vec![
-        CHILD_3_POST_ID,
-        CHILD_4_POST_ID,
-        CHILD_5_POST_ID,
-        CHILD_6_POST_ID,
-    ];
+    let replies_order = vec![CHILD_2_POST_ID, CHILD_1_POST_ID];
 
     check_replies_timeline(post_reply_stream.0, replies_order);
 
@@ -128,7 +123,7 @@ async fn test_stream_posts_replies_with_end_query() -> Result<()> {
     // Assert the post number
     assert_eq!(post_reply_stream.0.len(), 3);
 
-    let replies_order = vec![CHILD_1_POST_ID, CHILD_2_POST_ID, CHILD_3_POST_ID];
+    let replies_order = vec![CHILD_6_POST_ID, CHILD_5_POST_ID, CHILD_4_POST_ID];
 
     check_replies_timeline(post_reply_stream.0, replies_order);
 
@@ -156,10 +151,10 @@ async fn test_stream_posts_replies_with_start_and_end_query() -> Result<()> {
     assert_eq!(post_reply_stream.0.len(), 4);
 
     let replies_order = vec![
-        CHILD_2_POST_ID,
-        CHILD_3_POST_ID,
-        CHILD_4_POST_ID,
         CHILD_5_POST_ID,
+        CHILD_4_POST_ID,
+        CHILD_3_POST_ID,
+        CHILD_2_POST_ID,
     ];
 
     check_replies_timeline(post_reply_stream.0, replies_order);
@@ -187,7 +182,7 @@ async fn test_stream_posts_replies_with_start_and_end_also_limit_query() -> Resu
     // Assert the post number
     assert_eq!(post_reply_stream.0.len(), 3);
 
-    let replies_order = vec![CHILD_3_POST_ID, CHILD_4_POST_ID, CHILD_5_POST_ID];
+    let replies_order = vec![CHILD_5_POST_ID, CHILD_4_POST_ID, CHILD_3_POST_ID];
 
     check_replies_timeline(post_reply_stream.0, replies_order);
 

@@ -1,6 +1,7 @@
 use crate::run_setup;
 use crate::streams_benches::LIMIT_20;
 use criterion::Criterion;
+use nexus_common::db::kv::SortOrder;
 use nexus_common::models::post::{PostStream, StreamSource};
 use nexus_common::types::StreamSorting;
 use pubky_app_specs::PubkyAppPostKind;
@@ -25,6 +26,7 @@ pub fn bench_stream_post_kind_short(c: &mut Criterion) {
             let post_stream = PostStream::get_posts(
                 source,
                 LIMIT_20,
+                SortOrder::Descending,
                 StreamSorting::Timeline,
                 None,
                 None,
@@ -55,6 +57,7 @@ pub fn bench_stream_post_kind_long(c: &mut Criterion) {
             let post_stream = PostStream::get_posts(
                 source,
                 LIMIT_20,
+                SortOrder::Descending,
                 StreamSorting::Timeline,
                 None,
                 None,
@@ -85,6 +88,7 @@ pub fn bench_stream_post_kind_image(c: &mut Criterion) {
             let post_stream = PostStream::get_posts(
                 source,
                 LIMIT_20,
+                SortOrder::Descending,
                 StreamSorting::Timeline,
                 None,
                 None,
@@ -115,6 +119,7 @@ pub fn bench_stream_post_kind_video(c: &mut Criterion) {
             let post_stream = PostStream::get_posts(
                 source,
                 LIMIT_20,
+                SortOrder::Descending,
                 StreamSorting::Timeline,
                 None,
                 None,
@@ -145,6 +150,7 @@ pub fn bench_stream_post_kind_link(c: &mut Criterion) {
             let post_stream = PostStream::get_posts(
                 source,
                 LIMIT_20,
+                SortOrder::Descending,
                 StreamSorting::Timeline,
                 None,
                 None,
@@ -175,6 +181,7 @@ pub fn bench_stream_post_kind_file(c: &mut Criterion) {
             let post_stream = PostStream::get_posts(
                 source,
                 LIMIT_20,
+                SortOrder::Descending,
                 StreamSorting::Timeline,
                 None,
                 None,

@@ -63,9 +63,16 @@ async fn test_homeserver_viewer_bookmark() -> Result<()> {
     assert_eq!(viewer_bookmark.id, bookmark_id);
 
     // INDEX_OP: Assert if the event writes the indexes
-    let result_bookmarks = PostStream::get_bookmarked_posts(&viewer_id, None, None, None, None)
-        .await
-        .unwrap();
+    let result_bookmarks = PostStream::get_bookmarked_posts(
+        &viewer_id,
+        nexus_common::db::kv::SortOrder::Descending,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
 
     assert_eq!(result_bookmarks.len(), 1);
     assert_eq!(result_bookmarks[0], format!("{}:{}", user_id, post_id));
