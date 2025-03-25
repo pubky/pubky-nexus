@@ -405,7 +405,7 @@ impl PostStream {
             end,
             None,
             limit,
-            SortOrder::Descending,
+            SortOrder::Ascending,
             None,
         )
         .await?;
