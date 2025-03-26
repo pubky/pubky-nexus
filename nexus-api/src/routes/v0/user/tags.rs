@@ -26,6 +26,7 @@ use utoipa::OpenApi;
     ),
     responses(
         (status = 200, description = "User tags", body = TagDetails),
+        (status = 204, description = "Tags not found"),
         (status = 404, description = "User not found"),
         (status = 500, description = "Internal server error")
     )
@@ -50,7 +51,15 @@ pub async fn user_tags_handler(
     )
     .await
     {
-        Ok(Some(tags)) => Ok(Json(tags)),
+        Ok(Some(tags)) => {
+            if tags.len() == 0 {
+                Err(Error::EmptyStream {
+                    message: "No tags found for the given criteria.".to_string(),
+                })
+            } else {
+                Ok(Json(tags))
+            }
+        },
         Ok(None) => Err(Error::UserNotFound { user_id }),
         Err(source) => Err(Error::InternalServerError { source }),
     }

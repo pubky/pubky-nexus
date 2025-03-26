@@ -90,6 +90,7 @@ where
         {
             Some(tag_details) => Ok(Some(tag_details)),
             None => {
+                println!("Get from graph");
                 let graph_response = Self::get_from_graph(user_id, extra_param, None).await?;
                 if let Some(tag_details) = graph_response {
                     Self::put_to_index(user_id, extra_param, &tag_details, false).await?;
@@ -133,6 +134,7 @@ where
             ),
             false => (None, None),
         };
+        println!("skip_tags: {:?}, limit_tags: {:?}, limit_taggers: {:?}", skip_tags, limit_tags, limit_taggers);
         // Get related tags
         match Self::try_from_index_sorted_set(
             &key_parts,
@@ -146,6 +148,7 @@ where
         .await?
         {
             Some(tag_scores) => {
+                println!("{:?}", tag_scores);
                 let mut tags = Vec::with_capacity(limit_tags);
                 // TODO: Temporal fix. Should it delete SORTED SET value if score is 0?
                 for (label, score) in tag_scores.iter() {
@@ -159,8 +162,9 @@ where
                         ));
                     }
                 }
+                // The index exist but did not match the requested filters
                 if tags.is_empty() {
-                    return Ok(None);
+                    return Ok(Some(Vec::new()));
                 }
 
                 let tags_ref: Vec<&str> = tags.iter().map(|label| label.as_str()).collect();
