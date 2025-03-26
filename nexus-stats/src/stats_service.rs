@@ -1,4 +1,4 @@
-use chrono::{Duration, TimeZone, Utc};
+use chrono::{Duration, NaiveDate, TimeZone, Utc};
 use csv::WriterBuilder;
 use neo4rs::query;
 use nexus_common::db::get_neo4j_graph;
@@ -6,7 +6,11 @@ use std::error::Error;
 use std::fs::OpenOptions;
 use std::path::Path;
 
-/// This structure represents a complete CSV record, containing both overall and daily metrics.
+// Begining of time of Pubky App production homeserver.
+const EPOCH_YEAR: i32 = 2025;
+const EPOCH_MONTH: u32 = 03;
+const EPOCH_DAY: u32 = 12;
+
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct MetricsRecord {
     pub date: String,
@@ -18,7 +22,7 @@ pub struct MetricsRecord {
     pub overall_total_reposts: i64,
     pub overall_total_user_tags: i64,
     pub overall_total_post_tags: i64,
-    // Daily metrics (for a fully completed day, e.g. yesterday)
+    // Daily metrics
     pub daily_new_users: i64,
     pub daily_active_users: i64,
     pub daily_new_posts: i64,
@@ -31,9 +35,13 @@ pub struct MetricsRecord {
     pub daily_new_post_tags: i64,
     pub daily_new_user_tags: i64,
     pub daily_new_files: i64,
+    // Additional metrics: weekly & monthly active users and churned users.
+    pub active_users_weekly: i64,
+    pub active_users_monthly: i64,
+    pub churned_users_weekly: i64,
+    pub churned_users_monthly: i64,
 }
 
-/// Structure to hold overall totals (all-time counts).
 pub struct OverallTotals {
     pub total_users: i64,
     pub total_posts: i64,
@@ -44,7 +52,6 @@ pub struct OverallTotals {
     pub total_post_tags: i64,
 }
 
-/// Structure to hold daily metrics.
 pub struct DailyMetrics {
     pub new_users: i64,
     pub daily_active_users: i64,
@@ -60,7 +67,6 @@ pub struct DailyMetrics {
     pub new_files: i64,
 }
 
-/// Executes a multi-statement query to collect overall totals from Neo4j.
 pub async fn collect_overall_totals() -> Result<OverallTotals, Box<dyn Error>> {
     tracing::debug!("Collecting overall totals from Neo4j...");
     let overall_query = r#"
@@ -94,14 +100,12 @@ CALL {
 }
 RETURN totalUsers, totalPosts, totalFiles, totalReplies, totalReposts, totalUserTags, totalPostTags;
     "#;
-
     let neo_query = query(overall_query);
     let graph = get_neo4j_graph()?;
     let mut result = {
         let graph = graph.lock().await;
         graph.execute(neo_query).await?
     };
-
     if let Some(row) = result.next().await? {
         tracing::debug!("Overall totals collected: {:?}", row);
         Ok(OverallTotals {
@@ -118,13 +122,8 @@ RETURN totalUsers, totalPosts, totalFiles, totalReplies, totalReposts, totalUser
     }
 }
 
-/// Executes a query to collect daily metrics from Neo4j, using a time window defined by `start` and `end` (in milliseconds).
 pub async fn collect_daily_metrics(start: i64, end: i64) -> Result<DailyMetrics, Box<dyn Error>> {
-    tracing::debug!(
-        "Collecting daily metrics from Neo4j for time window {} - {}...",
-        start,
-        end
-    );
+    tracing::debug!("Collecting daily metrics from {} to {}...", start, end);
     let daily_query = r#"
 CALL {
   MATCH (u:User)
@@ -207,14 +206,12 @@ CALL {
 }
 RETURN newUsers, dailyActiveUsers, newPosts, replies, reposts, mentions, newFollows, newMutes, newBookmarks, newPostTags, newUserTags, newFiles;
     "#;
-
     let neo_query = query(daily_query).param("start", start).param("end", end);
     let graph = get_neo4j_graph()?;
     let mut result = {
         let graph = graph.lock().await;
         graph.execute(neo_query).await?
     };
-
     if let Some(row) = result.next().await? {
         tracing::debug!("Daily metrics collected: {:?}", row);
         Ok(DailyMetrics {
@@ -236,28 +233,62 @@ RETURN newUsers, dailyActiveUsers, newPosts, replies, reposts, mentions, newFoll
     }
 }
 
-/// Writes a CSV record to a file. If the file already exists and its last record's date
-/// matches the current record’s date, then that row is replaced instead of appending a new one.
+pub async fn collect_active_users(start: i64, end: i64) -> Result<i64, Box<dyn Error>> {
+    let active_users_query = r#"
+CALL {
+  MATCH (u:User)-[:AUTHORED]->(p:Post)
+  WHERE p.indexed_at >= $start AND p.indexed_at < $end
+  RETURN DISTINCT u.id AS userId
+  UNION
+  MATCH (u:User)-[r:FOLLOWS]->()
+  WHERE r.indexed_at >= $start AND r.indexed_at < $end
+  RETURN DISTINCT u.id AS userId
+  UNION
+  MATCH (u:User)-[r:MUTED]->()
+  WHERE r.indexed_at >= $start AND r.indexed_at < $end
+  RETURN DISTINCT u.id AS userId
+  UNION
+  MATCH (u:User)-[r:BOOKMARKED]->()
+  WHERE r.indexed_at >= $start AND r.indexed_at < $end
+  RETURN DISTINCT u.id AS userId
+  UNION
+  MATCH (u:User)-[r:TAGGED]->()
+  WHERE r.indexed_at >= $start AND r.indexed_at < $end
+  RETURN DISTINCT u.id AS userId
+}
+RETURN count(DISTINCT userId) AS activeUsers;
+    "#;
+    let neo_query = query(active_users_query)
+        .param("start", start)
+        .param("end", end);
+    let graph = get_neo4j_graph()?;
+    let mut result = {
+        let graph = graph.lock().await;
+        graph.execute(neo_query).await?
+    };
+    if let Some(row) = result.next().await? {
+        tracing::debug!("Active users for window {} - {}: {:?}", start, end, row);
+        Ok(row.get("activeUsers")?)
+    } else {
+        Err("No data returned from active users query".into())
+    }
+}
+
 pub fn write_metrics(record: MetricsRecord) -> Result<(), Box<dyn Error>> {
     let file_path = "metrics.csv";
-
     if Path::new(file_path).exists() {
-        // Read existing records.
         let mut rdr = csv::Reader::from_path(file_path)?;
         let mut records: Vec<MetricsRecord> = rdr.deserialize().collect::<Result<_, _>>()?;
-
-        // Clone the date of the last record to drop the immutable borrow.
         if let Some(last_date) = records.last().map(|r| r.date.clone()) {
             if last_date == record.date {
                 records.pop();
                 records.push(record);
-                // Rewrite the whole file with headers.
                 let file = OpenOptions::new()
                     .write(true)
                     .truncate(true)
                     .open(file_path)?;
                 let mut wtr = WriterBuilder::new().has_headers(true).from_writer(file);
-                for rec in records.into_iter() {
+                for rec in records {
                     wtr.serialize(rec)?;
                 }
                 wtr.flush()?;
@@ -265,7 +296,6 @@ pub fn write_metrics(record: MetricsRecord) -> Result<(), Box<dyn Error>> {
                 return Ok(());
             }
         }
-        // Otherwise, append the new record.
         let file = OpenOptions::new().append(true).open(file_path)?;
         let mut wtr = WriterBuilder::new().has_headers(false).from_writer(file);
         wtr.serialize(record)?;
@@ -273,7 +303,6 @@ pub fn write_metrics(record: MetricsRecord) -> Result<(), Box<dyn Error>> {
         tracing::debug!("Appended new metrics record.");
         Ok(())
     } else {
-        // File does not exist; create a new one with headers.
         let file = OpenOptions::new()
             .create(true)
             .write(true)
@@ -286,38 +315,47 @@ pub fn write_metrics(record: MetricsRecord) -> Result<(), Box<dyn Error>> {
     }
 }
 
-/// The main loop for the metrics collection service.
-/// This function runs periodically (every day, in this example) and writes metrics for a fully completed day.
-/// The window for yesterday is computed in milliseconds.
-pub async fn run_metrics() -> Result<(), Box<dyn Error>> {
-    tracing::debug!("Starting observability metrics collection...");
+// --- Helper Functions to simplify time computations and per-day processing ---
 
-    // Compute today's midnight (UTC) then derive yesterday's window.
-    let today_midnight = Utc::now()
-        .date_naive()
+fn get_day_timestamps(date: NaiveDate) -> (i64, i64) {
+    let start_of_day = date
         .and_hms_opt(0, 0, 0)
-        .expect("Failed to compute midnight");
-    let yesterday_start = today_midnight - Duration::days(1);
-    let yesterday_end = today_midnight - Duration::milliseconds(1);
-    let start_of_yesterday = Utc.from_utc_datetime(&yesterday_start).timestamp_millis();
-    let end_of_yesterday = Utc.from_utc_datetime(&yesterday_end).timestamp_millis();
+        .expect("Failed to compute start of day");
+    let end_of_day = date
+        .and_hms_milli_opt(23, 59, 59, 999)
+        .expect("Failed to compute end of day");
+    (
+        Utc.from_utc_datetime(&start_of_day).timestamp_millis(),
+        Utc.from_utc_datetime(&end_of_day).timestamp_millis(),
+    )
+}
 
-    tracing::debug!(
-        "Yesterday's window (in milliseconds): {} to {}",
-        start_of_yesterday,
-        end_of_yesterday
-    );
+fn get_window_start(date: NaiveDate, days_offset: i64) -> i64 {
+    let window_date = date - Duration::days(days_offset);
+    let window_start = window_date
+        .and_hms_opt(0, 0, 0)
+        .expect("Failed to compute window start");
+    Utc.from_utc_datetime(&window_start).timestamp_millis()
+}
 
-    // Compute yesterday's date in ISO 8601 UTC (e.g. "2025-03-20T00:00:00+00:00").
-    let yesterday_date = Utc.from_utc_datetime(&yesterday_start).to_rfc3339();
+async fn process_day(date: NaiveDate) -> Result<MetricsRecord, Box<dyn Error>> {
+    let (start_ts, end_ts) = get_day_timestamps(date);
+    let weekly_start_ts = get_window_start(date, 6);
+    let monthly_start_ts = get_window_start(date, 29);
+    let record_date = Utc
+        .from_utc_datetime(&date.and_hms_opt(0, 0, 0).unwrap())
+        .to_rfc3339();
 
-    // Collect overall totals and daily metrics from Neo4j.
     let overall_totals = collect_overall_totals().await?;
-    let daily_metrics = collect_daily_metrics(start_of_yesterday, end_of_yesterday).await?;
+    let daily_metrics = collect_daily_metrics(start_ts, end_ts).await?;
+    let weekly_active_users = collect_active_users(weekly_start_ts, end_ts).await?;
+    let monthly_active_users = collect_active_users(monthly_start_ts, end_ts).await?;
 
-    // Build the complete metrics record using the human-readable date.
-    let record = MetricsRecord {
-        date: yesterday_date,
+    let churned_users_weekly = overall_totals.total_users - weekly_active_users;
+    let churned_users_monthly = overall_totals.total_users - monthly_active_users;
+
+    Ok(MetricsRecord {
+        date: record_date,
         overall_total_users: overall_totals.total_users,
         overall_total_posts: overall_totals.total_posts,
         overall_total_files: overall_totals.total_files,
@@ -337,11 +375,44 @@ pub async fn run_metrics() -> Result<(), Box<dyn Error>> {
         daily_new_post_tags: daily_metrics.new_post_tags,
         daily_new_user_tags: daily_metrics.new_user_tags,
         daily_new_files: daily_metrics.new_files,
+        active_users_weekly: weekly_active_users,
+        active_users_monthly: monthly_active_users,
+        churned_users_weekly,
+        churned_users_monthly,
+    })
+}
+
+// --- Main loop: Process missing days from a start date until yesterday ---
+
+pub async fn run_metrics() -> Result<(), Box<dyn Error>> {
+    tracing::debug!("Starting observability metrics collection...");
+
+    let today_midnight = Utc::now().date_naive().and_hms_opt(0, 0, 0).unwrap();
+    let target_date = today_midnight - Duration::days(1);
+
+    let file_path = "metrics.csv";
+    let start_date = if Path::new(file_path).exists() {
+        let mut rdr = csv::Reader::from_path(file_path)?;
+        let records: Vec<MetricsRecord> = rdr.deserialize().collect::<Result<_, _>>()?;
+        if let Some(last_record) = records.last() {
+            let last_date = chrono::DateTime::parse_from_rfc3339(&last_record.date)?
+                .with_timezone(&Utc)
+                .date_naive();
+            last_date + Duration::days(1)
+        } else {
+            NaiveDate::from_ymd_opt(EPOCH_YEAR, EPOCH_MONTH, EPOCH_DAY).unwrap()
+        }
+    } else {
+        NaiveDate::from_ymd_opt(EPOCH_YEAR, EPOCH_MONTH, EPOCH_DAY).unwrap()
     };
 
-    tracing::debug!("Metrics record built: {:?}", record);
-    write_metrics(record)?;
-    tracing::debug!("Cycle complete. Waiting for the next tick...");
-
+    let mut current_date = start_date;
+    while current_date <= target_date.into() {
+        let record = process_day(current_date).await?;
+        tracing::debug!("Metrics record for {} built: {:?}", record.date, record);
+        write_metrics(record)?;
+        current_date = current_date + Duration::days(1);
+    }
+    tracing::debug!("All missing dates processed. Metrics up-to-date.");
     Ok(())
 }
