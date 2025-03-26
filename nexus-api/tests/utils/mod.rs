@@ -1,4 +1,4 @@
-use reqwest::{Method, StatusCode};
+use axum::http::{Method, StatusCode};
 use serde_json::Value;
 use server::{TestServiceServer, SERVER_URL};
 
