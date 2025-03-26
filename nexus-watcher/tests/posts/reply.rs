@@ -7,7 +7,7 @@ use crate::users::utils::find_user_counts;
 use crate::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::{
-    db::RedisOps,
+    db::{kv::SortOrder, RedisOps},
     models::post::{PostDetails, PostRelationships, PostStream},
 };
 use pubky::Keypair;
@@ -72,9 +72,16 @@ async fn test_homeserver_post_reply() -> Result<()> {
     // CACHE_OP: Check if the event writes in the index
     // ########### PARENT RELATED INDEXES ################
     // Sorted:Post:Replies:user_id:post_id
-    let post_replies = PostStream::get_post_replies(&user_id, &parent_post_id, None, None, None)
-        .await
-        .unwrap();
+    let post_replies = PostStream::get_post_replies(
+        &user_id,
+        &parent_post_id,
+        SortOrder::Descending,
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
     assert_eq!(post_replies.len(), 1);
     let post_key = format!("{}:{}", user_id, reply_id);
     assert_eq!(post_replies[0], post_key);

@@ -81,6 +81,7 @@ impl PostStream {
     pub async fn get_posts(
         source: StreamSource,
         pagination: Pagination,
+        order: SortOrder,
         sorting: StreamSorting,
         viewer_id: Option<String>,
         tags: Option<Vec<String>>,
@@ -90,7 +91,7 @@ impl PostStream {
         let use_index = Self::can_use_index(&sorting, &source, &tags, &kind);
 
         let post_keys = match use_index {
-            true => Self::get_from_index(source, sorting, &tags, pagination).await?,
+            true => Self::get_from_index(source, sorting, order, &tags, pagination).await?,
             false => Self::get_from_graph(source, sorting, &tags, pagination, kind).await?,
         };
 
@@ -137,6 +138,7 @@ impl PostStream {
     async fn get_from_index(
         source: StreamSource,
         sorting: StreamSorting,
+        order: SortOrder,
         tags: &Option<Vec<String>>,
         pagination: Pagination,
     ) -> Result<Vec<String>, DynError> {
@@ -148,7 +150,7 @@ impl PostStream {
         match (source, tags) {
             // Global post streams
             (StreamSource::All, None) => {
-                Self::get_global_posts_keys(sorting, start, end, skip, limit).await
+                Self::get_global_posts_keys(sorting, order, start, end, skip, limit).await
             }
             // Streams by tags
             (StreamSource::All, Some(tags)) if tags.len() == 1 => {
@@ -156,22 +158,24 @@ impl PostStream {
             }
             // Bookmark streams
             (StreamSource::Bookmarks { observer_id }, None) => {
-                Self::get_bookmarked_posts(&observer_id, start, end, skip, limit).await
+                Self::get_bookmarked_posts(&observer_id, order, start, end, skip, limit).await
             }
             // Stream of replies to specific a post
             (StreamSource::PostReplies { author_id, post_id }, None) => {
-                Self::get_post_replies(&author_id, &post_id, start, end, limit).await
+                Self::get_post_replies(&author_id, &post_id, order, start, end, limit).await
             }
             // Stream of parent post from a given author
             (StreamSource::Author { author_id }, None) => {
-                Self::get_author_posts(&author_id, start, end, skip, limit, false).await
+                Self::get_author_posts(&author_id, order, start, end, skip, limit, false).await
             }
             // Streams of replies from a given author
             (StreamSource::AuthorReplies { author_id }, None) => {
-                Self::get_author_posts(&author_id, start, end, skip, limit, true).await
+                Self::get_author_posts(&author_id, order, start, end, skip, limit, true).await
             }
             // Streams by simple source/reach: Following, Followers, Friends
-            (source, None) => Self::get_posts_by_source(source, start, end, skip, limit).await,
+            (source, None) => {
+                Self::get_posts_by_source(source, order, start, end, skip, limit).await
+            }
             _ => Ok(vec![]),
         }
     }
@@ -212,6 +216,7 @@ impl PostStream {
 
     pub async fn get_global_posts_keys(
         sorting: StreamSorting,
+        order: SortOrder,
         start: Option<f64>,
         end: Option<f64>,
         skip: Option<usize>,
@@ -225,7 +230,7 @@ impl PostStream {
                     end,
                     skip,
                     limit,
-                    SortOrder::Descending,
+                    order,
                     None,
                 )
                 .await?
@@ -237,7 +242,7 @@ impl PostStream {
                     end,
                     skip,
                     limit,
-                    SortOrder::Descending,
+                    order,
                     None,
                 )
                 .await?
@@ -281,6 +286,7 @@ impl PostStream {
 
     pub async fn get_author_posts(
         user_id: &str,
+        order: SortOrder,
         start: Option<f64>,
         end: Option<f64>,
         skip: Option<usize>,
@@ -294,16 +300,9 @@ impl PostStream {
         };
 
         let key_parts = [&key_parts[..], &[user_id]].concat();
-        let post_ids = Self::try_from_index_sorted_set(
-            &key_parts,
-            start,
-            end,
-            skip,
-            limit,
-            SortOrder::Descending,
-            None,
-        )
-        .await?;
+        let post_ids =
+            Self::try_from_index_sorted_set(&key_parts, start, end, skip, limit, order, None)
+                .await?;
 
         if let Some(post_ids) = post_ids {
             let post_keys = post_ids
@@ -318,6 +317,7 @@ impl PostStream {
 
     pub async fn get_posts_by_source(
         source: StreamSource,
+        order: SortOrder,
         start: Option<f64>,
         end: Option<f64>,
         skip: Option<usize>,
@@ -353,6 +353,7 @@ impl PostStream {
 
             let post_keys = Self::get_posts_for_user_ids(
                 &user_ids.iter().map(AsRef::as_ref).collect::<Vec<_>>(),
+                order,
                 start,
                 end,
                 skip,
@@ -367,22 +368,16 @@ impl PostStream {
 
     pub async fn get_bookmarked_posts(
         user_id: &str,
+        order: SortOrder,
         start: Option<f64>,
         end: Option<f64>,
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Vec<String>, DynError> {
         let key_parts = [&BOOKMARKS_USER_KEY_PARTS[..], &[user_id]].concat();
-        let post_keys = Self::try_from_index_sorted_set(
-            &key_parts,
-            start,
-            end,
-            skip,
-            limit,
-            SortOrder::Descending,
-            None,
-        )
-        .await?;
+        let post_keys =
+            Self::try_from_index_sorted_set(&key_parts, start, end, skip, limit, order, None)
+                .await?;
 
         if let Some(post_keys) = post_keys {
             Ok(post_keys.into_iter().map(|(key, _)| key).collect())
@@ -394,21 +389,15 @@ impl PostStream {
     pub async fn get_post_replies(
         author_id: &str,
         post_id: &str,
+        order: SortOrder,
         start: Option<f64>,
         end: Option<f64>,
         limit: Option<usize>,
     ) -> Result<Vec<String>, DynError> {
         let key_parts = [&POST_REPLIES_PER_POST_KEY_PARTS[..], &[author_id, post_id]].concat();
-        let post_replies = Self::try_from_index_sorted_set(
-            &key_parts,
-            start,
-            end,
-            None,
-            limit,
-            SortOrder::Descending,
-            None,
-        )
-        .await?;
+        let post_replies =
+            Self::try_from_index_sorted_set(&key_parts, start, end, None, limit, order, None)
+                .await?;
         let replies_keys = post_replies.map_or(Vec::new(), |post_entry| {
             post_entry.into_iter().map(|(post_id, _)| post_id).collect()
         });
@@ -420,6 +409,7 @@ impl PostStream {
     // TODO rethink, we could also fallback to graph
     async fn get_posts_for_user_ids(
         user_ids: &[&str],
+        order: SortOrder,
         start: Option<f64>,
         end: Option<f64>,
         skip: Option<usize>,
@@ -440,7 +430,7 @@ impl PostStream {
                 end,
                 None, // We do not apply skip and limit here, as we need the full sorted set
                 None,
-                SortOrder::Descending,
+                order.clone(),
                 None,
             )
             .await?

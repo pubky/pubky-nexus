@@ -1,9 +1,14 @@
 use crate::db::get_redis_conn;
 use crate::types::DynError;
 use redis::AsyncCommands;
+use serde::Deserialize;
+use utoipa::ToSchema;
 
+#[derive(Clone, Deserialize, Debug, ToSchema, Default)]
+#[serde(rename_all = "snake_case")]
 pub enum SortOrder {
     Ascending,
+    #[default]
     Descending,
 }
 
