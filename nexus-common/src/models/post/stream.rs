@@ -245,6 +245,7 @@ impl PostStream {
         };
         match sorted_set {
             Some(post_keys) => Ok(post_keys.into_iter().map(|(key, _)| key).collect()),
+            // The index does not exist
             None => Ok(vec![]),
         }
     }
@@ -267,8 +268,7 @@ impl PostStream {
             limit: Some(limit),
         };
 
-        let post_search_result =
-            TagSearch::get_by_label(label, Some(sorting), pag /*start, end, skip, limit*/).await?;
+        let post_search_result = TagSearch::get_by_label(label, Some(sorting), pag).await?;
 
         match post_search_result {
             Some(post_keys) => Ok(post_keys
@@ -409,6 +409,7 @@ impl PostStream {
             None,
         )
         .await?;
+
         let replies_keys = post_replies.map_or(Vec::new(), |post_entry| {
             post_entry.into_iter().map(|(post_id, _)| post_id).collect()
         });
@@ -426,7 +427,6 @@ impl PostStream {
         limit: Option<usize>,
     ) -> Result<Vec<String>, DynError> {
         let mut post_keys = Vec::new();
-
         // Limit the number of user IDs to process to the first 200
         let max_user_ids = 200;
         let truncated_user_ids: Vec<&str> = user_ids.iter().take(max_user_ids).cloned().collect();
@@ -451,6 +451,11 @@ impl PostStream {
                     .collect();
                 post_keys.extend(user_post_keys);
             }
+        }
+
+        // The selected user_ids does not have any post
+        if post_keys.is_empty() {
+            return Ok(Vec::new());
         }
 
         // Sort all the collected posts globally by their score (descending)

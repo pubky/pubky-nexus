@@ -134,7 +134,6 @@ where
             ),
             false => (None, None),
         };
-        println!("skip_tags: {:?}, limit_tags: {:?}, limit_taggers: {:?}", skip_tags, limit_tags, limit_taggers);
         // Get related tags
         match Self::try_from_index_sorted_set(
             &key_parts,
@@ -148,7 +147,6 @@ where
         .await?
         {
             Some(tag_scores) => {
-                println!("{:?}", tag_scores);
                 let mut tags = Vec::with_capacity(limit_tags);
                 // TODO: Temporal fix. Should it delete SORTED SET value if score is 0?
                 for (label, score) in tag_scores.iter() {

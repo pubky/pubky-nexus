@@ -117,7 +117,7 @@ pub async fn stream_posts_handler(
     {
         Ok(Some(stream)) => Ok(Json(stream)),
         Ok(None) => Err(Error::EmptyStream {
-            message: "No posts found for the given criteria.".to_string(),
+            message: "No posts found for the given criteria".to_string(),
         }),
         Err(source) => Err(Error::InternalServerError { source }),
     }

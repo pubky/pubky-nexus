@@ -146,7 +146,7 @@ pub async fn get_range(
     let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{}:{}", prefix, key);
 
-    // Make sure if the key that we want to find in the sorted set exist
+    // Make sure if the key that we want to find, it is in the sorted set
     if !redis_conn.exists(&index_key).await? {
         return Ok(None);
     }
