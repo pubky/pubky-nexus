@@ -200,6 +200,20 @@ async fn test_user_tags_full_filter_active() -> Result<()> {
 }
 
 #[tokio_shared_rt::test(shared)]
+async fn test_user_tags_skip_beyond_range() -> Result<()> {
+    let user_id = "58jc5bujzoj35g55pqjo6ykfdu9t156j8cxkh5ubdwgsnch1qagy";
+
+    let res = get_request(&format!("/v0/user/{}/tags", user_id)).await?;
+    let length = res.as_array().expect("Tag list should be an array").len();
+
+    // Beyond range query, should return 204
+    let path = format!("/v0/user/{}/tags?skip_tags={}", user_id, length);
+    invalid_get_request(&path, StatusCode::NO_CONTENT).await?;
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
 async fn test_user_does_not_exist() -> Result<()> {
     let endpoint = format!(
         "/v0/user/{}/tags",

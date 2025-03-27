@@ -298,6 +298,9 @@ pub async fn retrieve_and_handle_event_line(event_line: &str) -> Result<(), DynE
     Ok(())
 }
 
+/// NOTE: This might not be needed anymore because the `RetryManager` runs in the same thread as the watcher
+/// Previously, we were spawning the `RetryManager` in a separate task
+///
 /// Attempts to read an event index with retries before timing out
 /// # Arguments
 /// * `event_index` - A string slice representing the index to check

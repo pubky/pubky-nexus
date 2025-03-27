@@ -69,7 +69,7 @@ async fn test_homeserver_del_tag_to_another_user() -> Result<()> {
             .expect("Failed to get tag from cache");
 
     assert!(
-        cache_user_tag.is_none(),
+        cache_user_tag.unwrap().is_empty(),
         "The SORTED SET index cannot exist for the tag"
     );
 
