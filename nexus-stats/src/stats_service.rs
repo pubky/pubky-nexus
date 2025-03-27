@@ -67,40 +67,47 @@ pub struct DailyMetrics {
     pub new_files: i64,
 }
 
-pub async fn collect_overall_totals() -> Result<OverallTotals, Box<dyn Error>> {
-    tracing::debug!("Collecting overall totals from Neo4j...");
+pub async fn collect_overall_totals(end: i64) -> Result<OverallTotals, Box<dyn Error>> {
+    tracing::debug!("Collecting overall totals from Neo4j up to {}...", end);
     let overall_query = r#"
 CALL {
-  MATCH (u:User)
-  RETURN count(u) AS totalUsers
+MATCH (u:User)
+WHERE u.indexed_at < $end
+RETURN count(u) AS totalUsers
 }
 CALL {
-  MATCH (p:Post)
-  RETURN count(p) AS totalPosts
+MATCH (p:Post)
+WHERE p.indexed_at < $end
+RETURN count(p) AS totalPosts
 }
 CALL {
-  MATCH (f:File)
-  RETURN count(f) AS totalFiles
+MATCH (f:File)
+WHERE f.created_at < $end
+RETURN count(f) AS totalFiles
 }
 CALL {
-  MATCH (p:Post)-[:REPLIED]->(:Post)
-  RETURN count(p) AS totalReplies
+MATCH (p:Post)-[:REPLIED]->(:Post)
+WHERE p.indexed_at < $end
+RETURN count(p) AS totalReplies
 }
 CALL {
-  MATCH (p:Post)-[:REPOSTED]->(:Post)
-  RETURN count(p) AS totalReposts
+MATCH (p:Post)-[:REPOSTED]->(:Post)
+WHERE p.indexed_at < $end
+RETURN count(p) AS totalReposts
 }
 CALL {
-  MATCH ()-[r:TAGGED]->(target:User)
-  RETURN count(r) AS totalUserTags
+MATCH ()-[r:TAGGED]->(target:User)
+WHERE r.indexed_at < $end
+RETURN count(r) AS totalUserTags
 }
 CALL {
-  MATCH ()-[r:TAGGED]->(target:Post)
-  RETURN count(r) AS totalPostTags
+MATCH ()-[r:TAGGED]->(target:Post)
+WHERE r.indexed_at < $end
+RETURN count(r) AS totalPostTags
 }
 RETURN totalUsers, totalPosts, totalFiles, totalReplies, totalReposts, totalUserTags, totalPostTags;
-    "#;
-    let neo_query = query(overall_query);
+  "#;
+    let neo_query = query(overall_query).param("end", end);
     let graph = get_neo4j_graph()?;
     let mut result = {
         let graph = graph.lock().await;
@@ -346,7 +353,7 @@ async fn process_day(date: NaiveDate) -> Result<MetricsRecord, Box<dyn Error>> {
         .from_utc_datetime(&date.and_hms_opt(0, 0, 0).unwrap())
         .to_rfc3339();
 
-    let overall_totals = collect_overall_totals().await?;
+    let overall_totals = collect_overall_totals(end_ts).await?;
     let daily_metrics = collect_daily_metrics(start_ts, end_ts).await?;
     let weekly_active_users = collect_active_users(weekly_start_ts, end_ts).await?;
     let monthly_active_users = collect_active_users(monthly_start_ts, end_ts).await?;
