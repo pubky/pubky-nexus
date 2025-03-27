@@ -66,9 +66,16 @@ async fn test_homeserver_unbookmark() -> Result<()> {
     }
 
     // CACHE_OP: Assert the index is clear of the bookmark
-    let bookmarks = PostStream::get_bookmarked_posts(&bookmarker_id, None, None, None, None)
-        .await
-        .unwrap();
+    let bookmarks = PostStream::get_bookmarked_posts(
+        &bookmarker_id,
+        nexus_common::db::kv::SortOrder::Descending,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
     assert!(bookmarks.is_empty(), "The bookmark list should be empty");
 
     let exist_bookmark = Bookmark::get_from_index(&author_id, &post_id, &bookmarker_id)

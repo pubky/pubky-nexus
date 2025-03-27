@@ -1,7 +1,7 @@
 use crate::utils::{get_request, invalid_get_request};
 use anyhow::Result;
+use axum::http::StatusCode;
 use nexus_common::models::post::PostStream;
-use reqwest::StatusCode;
 
 use super::utils::{search_tag_in_post, verify_post_list, verify_timeline_post_list};
 use super::{POST_A, POST_B, POST_C, POST_F, POST_G, POST_H};

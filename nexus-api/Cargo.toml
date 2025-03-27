@@ -20,13 +20,17 @@ opentelemetry = { version = "0.28" }
 opentelemetry_sdk = { version = "0.28", features = ["rt-tokio"] }
 pubky-app-specs = { version = "0.3.3", features = ["openapi"] }
 nexus-common = { version = "0.4.0", path = "../nexus-common" }
-redis = { version = "0.29.1", features = ["tokio-comp", "json"] }
+redis = { version = "0.29.2", features = ["tokio-comp", "json"] }
 serde = { version = "1.0.217", features = ["derive"] }
 serde_json = "1.0.140"
 thiserror = "2.0.12"
-tokio = { version = "1.43.0", features = ["full"] }
-tower-http = { version = "0.6.2", features = ["fs", "cors"] }
-tracing = "0.1"
+tokio = { version = "1.44.1", features = ["full"] }
+tower-http = { version = "0.6.2", features = [
+    "fs",
+    "cors",
+    "compression-full",
+] }
+tracing = "0.1.41"
 utoipa = "5.3.1"
 utoipa-swagger-ui = { version = "9.0.0", features = ["axum"] }
 
@@ -36,8 +40,6 @@ criterion = { version = "0.5.1", features = ["async_tokio"] }
 httpc-test = "0.1.10"
 tokio-shared-rt = "0.1"
 url = "2.5.4"
-reqwest = "0.12.15"
-
 
 [[bench]]
 name = "user"

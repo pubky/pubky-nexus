@@ -1,5 +1,5 @@
 use anyhow::Result;
-use reqwest::StatusCode;
+use axum::http::StatusCode;
 
 use crate::utils::{get_request, invalid_get_request};
 

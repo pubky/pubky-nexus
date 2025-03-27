@@ -1,6 +1,7 @@
 use crate::{run_setup, streams_benches::LIMIT_20};
 use criterion::Criterion;
 use nexus_common::{
+    db::kv::SortOrder,
     models::post::{PostStream, StreamSource},
     types::StreamSorting,
 };
@@ -26,10 +27,17 @@ pub fn bench_stream_author_timeline(c: &mut Criterion) {
             };
 
             // Run the benchmark
-            let post_stream =
-                PostStream::get_posts(source, LIMIT_20, StreamSorting::Timeline, None, None, None)
-                    .await
-                    .unwrap();
+            let post_stream = PostStream::get_posts(
+                source,
+                LIMIT_20,
+                SortOrder::Descending,
+                StreamSorting::Timeline,
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
             criterion::black_box(post_stream);
         });
     });
@@ -55,6 +63,7 @@ pub fn bench_stream_author_total_engagement(c: &mut Criterion) {
             let post_stream = PostStream::get_posts(
                 source,
                 LIMIT_20,
+                SortOrder::Descending,
                 StreamSorting::TotalEngagement,
                 None,
                 None,
@@ -84,10 +93,17 @@ pub fn bench_stream_author_replies_timeline(c: &mut Criterion) {
             };
 
             // Run the benchmark
-            let post_stream =
-                PostStream::get_posts(source, LIMIT_20, StreamSorting::Timeline, None, None, None)
-                    .await
-                    .unwrap();
+            let post_stream = PostStream::get_posts(
+                source,
+                LIMIT_20,
+                SortOrder::Descending,
+                StreamSorting::Timeline,
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
             criterion::black_box(post_stream);
         });
     });

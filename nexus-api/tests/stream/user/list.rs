@@ -1,6 +1,6 @@
 use crate::utils::{invalid_post_request, post_request};
 use anyhow::Result;
-use reqwest::StatusCode;
+use axum::http::StatusCode;
 use serde_json::json;
 
 // ##### LIST OF USERS BY ID ######

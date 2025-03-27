@@ -1,5 +1,6 @@
 use axum::Router;
 use std::{path::PathBuf, sync::Arc};
+use tower_http::compression::CompressionLayer;
 use tower_http::cors::{Any, CorsLayer};
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -44,9 +45,10 @@ pub fn routes(files_path: PathBuf) -> Router {
         .allow_methods(Any) // Allow all HTTP methods
         .allow_headers(Any); // Allow all headers
 
-    // Layer the CORS middleware on top of the routes
+    // Layer the CORS, tracing middleware, and compression on top of the routes
     app.layer(axum::middleware::from_fn(
         middlewares::tracing::tracing_middleware,
     ))
     .layer(cors)
+    .layer(CompressionLayer::new())
 }

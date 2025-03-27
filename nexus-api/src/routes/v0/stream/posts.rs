@@ -1,6 +1,7 @@
 use crate::routes::v0::endpoints::STREAM_POSTS_ROUTE;
 use crate::{Error, Result as AppResult};
 use axum::{extract::Query, Json};
+use nexus_common::db::kv::SortOrder;
 use nexus_common::types::StreamSorting;
 use nexus_common::{
     models::post::{PostStream, StreamSource},
@@ -19,6 +20,7 @@ pub struct PostStreamQuery {
     pub source: Option<StreamSource>,
     #[serde(flatten)]
     pub pagination: Pagination,
+    pub order: Option<SortOrder>,
     pub sorting: Option<StreamSorting>,
     pub viewer_id: Option<String>,
     #[serde(default, deserialize_with = "deserialize_comma_separated")]
@@ -62,6 +64,7 @@ where
         ("author_id" = Option<String>, Query, description = "Filter posts by an specific author User ID"),
         ("post_id" = Option<String>, Query, description = "This parameter is needed when we want to retrieve the replies stream for a post"),
         ("sorting" = Option<StreamSorting>, Query, description = "StreamSorting method"),
+        ("order" = Option<SortOrder>, Query, description = "Ordering of response list. Either 'ascending' or 'descending'. Defaults to descending."),
         ("tags" = Option<Vec<String>>, Query, description = "Filter by a list of comma-separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned."),
         ("kind" = Option<PubkyAppPostKind>, Query, description = "Specifies the type of posts to retrieve: short, long, image, video, link and file"),
         ("skip" = Option<usize>, Query, description = "Skip N posts"),
@@ -103,11 +106,13 @@ pub async fn stream_posts_handler(
     }
 
     let source = query.source.unwrap_or_default(); // StreamSource::All is default
-    let sorting = query.sorting.unwrap_or_default(); // StreamSorting::Timeline) is default
+    let sorting = query.sorting.unwrap_or_default(); // StreamSorting::Timeline is default
+    let order = query.order.unwrap_or_default(); // SortOrder::Descending is default
 
     match PostStream::get_posts(
         source,
         query.pagination,
+        order,
         sorting,
         query.viewer_id,
         query.tags,
