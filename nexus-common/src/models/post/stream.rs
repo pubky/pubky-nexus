@@ -162,7 +162,7 @@ impl PostStream {
             }
             // Stream of replies to specific a post
             (StreamSource::PostReplies { author_id, post_id }, None) => {
-                Self::get_post_replies(&author_id, &post_id, order, start, end, limit).await
+                Self::get_post_replies(&author_id, &post_id, order, start, end, skip, limit).await
             }
             // Stream of parent post from a given author
             (StreamSource::Author { author_id }, None) => {
@@ -392,11 +392,12 @@ impl PostStream {
         order: SortOrder,
         start: Option<f64>,
         end: Option<f64>,
+        skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Vec<String>, DynError> {
         let key_parts = [&POST_REPLIES_PER_POST_KEY_PARTS[..], &[author_id, post_id]].concat();
         let post_replies =
-            Self::try_from_index_sorted_set(&key_parts, start, end, None, limit, order, None)
+            Self::try_from_index_sorted_set(&key_parts, start, end, skip, limit, order, None)
                 .await?;
         let replies_keys = post_replies.map_or(Vec::new(), |post_entry| {
             post_entry.into_iter().map(|(post_id, _)| post_id).collect()

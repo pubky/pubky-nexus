@@ -50,6 +50,38 @@ async fn test_stream_posts_replies() -> Result<()> {
 }
 
 #[tokio_shared_rt::test(shared)]
+async fn test_stream_posts_replies_ascending_with_skip() -> Result<()> {
+    let path = format!(
+        "{ROOT_PATH}?source=post_replies&author_id={}&post_id={}&order=ascending&skip=2",
+        AUTHOR_ID, PARENT_POST_ID
+    );
+    let body = get_request(&path).await?;
+
+    assert!(body.is_array());
+    // Deserialize the response body into a PostStream object
+    let post_reply_stream: PostStream = serde_json::from_value(body)?;
+
+    // Ensure the stream has posts
+    assert!(
+        !post_reply_stream.0.is_empty(),
+        "Post stream should not be empty"
+    );
+    // Assert the post number
+    assert_eq!(post_reply_stream.0.len(), 4);
+
+    let replies_order = vec![
+        CHILD_3_POST_ID,
+        CHILD_4_POST_ID,
+        CHILD_5_POST_ID,
+        CHILD_6_POST_ID,
+    ];
+
+    check_replies_timeline(post_reply_stream.0, replies_order);
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_replies_with_limit() -> Result<()> {
     let path = format!(
         "{ROOT_PATH}?source=post_replies&author_id={}&post_id={}&limit=3",
