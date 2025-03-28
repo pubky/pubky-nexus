@@ -1,7 +1,7 @@
+use crate::db::kv::SortOrder;
 use serde::de::{self, Deserializer};
 use serde::Deserialize;
 use utoipa::ToSchema;
-use crate::db::kv::SortOrder;
 
 #[derive(Default, Deserialize, Debug, ToSchema)]
 pub struct Pagination {

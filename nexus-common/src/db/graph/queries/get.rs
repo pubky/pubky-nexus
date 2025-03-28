@@ -1,3 +1,4 @@
+use crate::db::kv::SortOrder;
 use crate::models::post::StreamSource;
 use crate::types::routes::HotTagsInputDTO;
 use crate::types::Pagination;
@@ -6,7 +7,6 @@ use crate::types::StreamSorting;
 use crate::types::Timeframe;
 use neo4rs::{query, Query};
 use pubky_app_specs::PubkyAppPostKind;
-use crate::db::kv::SortOrder;
 
 // Retrieve post node by post id and author id
 pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
