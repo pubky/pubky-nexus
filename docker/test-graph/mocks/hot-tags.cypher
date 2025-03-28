@@ -4,12 +4,19 @@
 :param user3 => 'r4irb481b8qspaixq1brwre8o87cxybsbk9iwe1f6f9ukrxxs7bo';
 :param user4 => 'r91hi8kc3x6761gwfiigr7yn6nca1z47wm6jadhw1jbx1co93r9y';
 :param user5 => 'tkpeqpx3ywoawiw6q8e6kuo9o3egr7fnhx83rudznbrrmqgdmomo';
+:param user6 => '6xejaazm58f5dca3aj6o4is3k55wxy86hyxtd1pu5h897cfq76yy';
 
 :param post1 => '0032GZQ335NEJ';
 :param post2 => '0032GZQ338BMP';
 :param post3 => '0032BZ0T19R70';
 :param post4 => '0032BZ3YFDG2G';
 :param post5 => '0032DR2GJYAAG';
+
+:param post6a => '0032H5K9X31W5'
+:param post6b => '0032MV7YTGK38'
+:param post6c => '0032QX1N7RD2F'
+:param post6d => '0032JK8WTTVJ9'
+:param post6e => '0032C2M8B9Y6R'
 
 :param tag1 => 'tag1';
 :param tag2 => 'tag2';
@@ -24,6 +31,7 @@ MERGE (u:User {id: $user2}) SET u.name = "HotTag:User2", u.bio = "", u.status = 
 MERGE (u:User {id: $user3}) SET u.name = "HotTag:User3", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095000 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
 MERGE (u:User {id: $user4}) SET u.name = "HotTag:User4", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095000 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
 MERGE (u:User {id: $user5}) SET u.name = "HotTag:User5", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095000 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
+MERGE (u:User {id: $user6}) SET u.name = "Active:User6:Post", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095000 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
 
 // Create the posts
 MERGE (p:Post { id: $post1 }) SET p.content = "This is a test post", p.kind = "short", p.indexed_at = 1733380839000;
@@ -101,6 +109,7 @@ MATCH (u1:User {id: $user1}), (u2:User {id: $user2}) MERGE (u1)-[:FOLLOWS {index
 MATCH (u1:User {id: $user1}), (u2:User {id: $user3}) MERGE (u1)-[:FOLLOWS {indexed_at: 1737441141101, id: "GR3K85JG5EZK2"}]->(u2);
 MATCH (u1:User {id: $user1}), (u2:User {id: $user4}) MERGE (u1)-[:FOLLOWS {indexed_at: 1737441151102, id: "GR3K85JG5EZK3"}]->(u2);
 MATCH (u1:User {id: $user1}), (u2:User {id: $user5}) MERGE (u1)-[:FOLLOWS {indexed_at: 1737441161103, id: "GR3K85JG5EZK4"}]->(u2);
+MATCH (u1:User {id: $user1}), (u2:User {id: $user6}) MERGE (u1)-[:FOLLOWS {indexed_at: 1737441161103, id: "GR3K88JG5EZK5"}]->(u2);
 
 // u4 user followers
 MATCH (u1:User {id: $user2}), (u2:User {id: $user4}) MERGE (u1)-[:FOLLOWS {indexed_at: 1737441171104, id: "GR3K85JG5EZK5"}]->(u2);
@@ -121,6 +130,32 @@ MERGE (u)-[:AUTHORED]->(p);
 
 MERGE (p:Post { id: $post5 }) SET p.content = "Hello friends!?!?", p.kind = "short", p.indexed_at = 1737441201105109;
 MATCH (u:User { id: $user5 }), (p:Post {id: $post5})
+MERGE (u)-[:AUTHORED]->(p);
+
+// ** u6 user creates lot of post in that month
+WITH datetime({ year: datetime().year, month: datetime().month, day: 1 }).epochMillis AS this_month_millis
+MERGE (p:Post { id: $post6a }) SET p.content = "Post A", p.kind = "short", p.indexed_at = this_month_millis;
+MATCH (u:User { id: $user6 }), (p:Post {id: $post6a})
+MERGE (u)-[:AUTHORED]->(p);
+
+WITH datetime({ year: datetime().year, month: datetime().month, day: 1 }).epochMillis AS this_month_millis
+MERGE (p:Post { id: $post6b }) SET p.content = "Post A", p.kind = "short", p.indexed_at = this_month_millis;
+MATCH (u:User { id: $user6 }), (p:Post {id: $post6b})
+MERGE (u)-[:AUTHORED]->(p);
+
+WITH datetime({ year: datetime().year, month: datetime().month, day: 1 }).epochMillis AS this_month_millis
+MERGE (p:Post { id: $post6c }) SET p.content = "Post A", p.kind = "short", p.indexed_at = this_month_millis;
+MATCH (u:User { id: $user6 }), (p:Post {id: $post6c})
+MERGE (u)-[:AUTHORED]->(p);
+
+WITH datetime({ year: datetime().year, month: datetime().month, day: 1 }).epochMillis AS this_month_millis
+MERGE (p:Post { id: $post6d }) SET p.content = "Post A", p.kind = "short", p.indexed_at = this_month_millis;
+MATCH (u:User { id: $user6 }), (p:Post {id: $post6d})
+MERGE (u)-[:AUTHORED]->(p);
+
+WITH datetime({ year: datetime().year, month: datetime().month, day: 1 }).epochMillis AS this_month_millis
+MERGE (p:Post { id: $post6e }) SET p.content = "Post A", p.kind = "short", p.indexed_at = this_month_millis;
+MATCH (u:User { id: $user6 }), (p:Post {id: $post6e})
 MERGE (u)-[:AUTHORED]->(p);
 
 // #### Add tags to Post 3. reach=following&timeframe=x ####
