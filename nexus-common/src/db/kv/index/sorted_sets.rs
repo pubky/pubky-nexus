@@ -151,6 +151,11 @@ pub async fn get_range(
     let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{}:{}", prefix, key);
 
+    // Make sure if the key that we want to find, it is in the sorted set
+    if !redis_conn.exists(&index_key).await? {
+        return Ok(None);
+    }
+
     let min_score = min_score.unwrap_or(f64::MIN);
     let max_score = max_score.unwrap_or(f64::MAX);
     let skip = skip.unwrap_or(0) as isize;
@@ -169,11 +174,7 @@ pub async fn get_range(
                 .await?
         }
     };
-
-    match elements.len() {
-        0 => Ok(None),
-        _ => Ok(Some(elements)),
-    }
+    Ok(Some(elements))
 }
 
 /// Performs a lexicographical range search on the Redis sorted set.

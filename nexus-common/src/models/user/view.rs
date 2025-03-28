@@ -24,11 +24,10 @@ impl UserView {
         depth: Option<u8>,
     ) -> Result<Option<Self>, DynError> {
         // Perform all operations concurrently
-        let (details, counts, relationship, tags) = tokio::try_join!(
+        let (details, counts, relationship) = tokio::try_join!(
             UserDetails::get_by_id(user_id),
             UserCounts::get_by_id(user_id),
             Relationship::get_by_id(user_id, viewer_id),
-            TagUser::get_by_id(user_id, None, None, None, None, viewer_id, depth)
         )?;
 
         let details = match details {
@@ -38,7 +37,16 @@ impl UserView {
 
         let counts = counts.unwrap_or_default();
         let relationship = relationship.unwrap_or_default();
-        let tags = tags.unwrap_or_default();
+
+        // Before fetching post tags, check if the post has any tags
+        // Without this check, the index search will return a NONE because the tag index
+        // doesn't exist, leading us to query the graph unnecessarily, assuming the data wasn't indexed
+        let tags = match counts.tags {
+            0 => Vec::new(),
+            _ => TagUser::get_by_id(user_id, None, None, None, None, viewer_id, depth)
+                .await?
+                .unwrap_or_default(),
+        };
 
         Ok(Some(Self {
             details,

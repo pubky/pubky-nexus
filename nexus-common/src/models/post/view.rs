@@ -27,20 +27,11 @@ impl PostView {
         limit_taggers: Option<usize>,
     ) -> Result<Option<Self>, DynError> {
         // Perform all operations concurrently
-        let (details, counts, bookmark, relationships, tags) = tokio::try_join!(
+        let (details, counts, bookmark, relationships) = tokio::try_join!(
             PostDetails::get_by_id(author_id, post_id),
             PostCounts::get_by_id(author_id, post_id),
             Bookmark::get_by_id(author_id, post_id, viewer_id),
             PostRelationships::get_by_id(author_id, post_id),
-            TagPost::get_by_id(
-                author_id,
-                Some(post_id),
-                None,
-                limit_tags,
-                limit_taggers,
-                viewer_id,
-                None
-            ), // Avoid by default WoT tags in a Post
         )?;
 
         let details = match details {
@@ -51,7 +42,25 @@ impl PostView {
         let counts = counts.unwrap_or_default();
         let relationships = relationships.unwrap_or_default();
 
-        let tags = tags.unwrap_or_default();
+        // Before fetching post tags, check if the post has any tags
+        // Without this check, the index search will return a NONE because the tag index
+        // doesn't exist, leading us to query the graph unnecessarily, assuming the data wasn't indexed
+        let tags = match counts.tags {
+            0 => Vec::new(),
+            _ => {
+                TagPost::get_by_id(
+                    author_id,
+                    Some(post_id),
+                    None,
+                    limit_tags,
+                    limit_taggers,
+                    viewer_id,
+                    None, // Avoid by default WoT tags in a Post
+                )
+                .await?
+                .unwrap_or_default()
+            }
+        };
 
         Ok(Some(Self {
             details,

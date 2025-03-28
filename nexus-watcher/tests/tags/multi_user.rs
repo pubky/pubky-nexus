@@ -157,8 +157,9 @@ async fn test_homeserver_multi_user_tags() -> Result<()> {
         <TagUser as TagCollection>::get_from_index(tagged_id, None, None, None, None, None, false)
             .await
             .expect("Failed to get tag from cache");
+
     assert!(
-        cache_post_tag.is_none(),
+        cache_post_tag.unwrap().is_empty(),
         "The SORTED SET index cannot exist for the tag"
     );
 

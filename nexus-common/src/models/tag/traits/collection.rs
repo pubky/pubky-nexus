@@ -90,6 +90,7 @@ where
         {
             Some(tag_details) => Ok(Some(tag_details)),
             None => {
+                println!("Get from graph");
                 let graph_response = Self::get_from_graph(user_id, extra_param, None).await?;
                 if let Some(tag_details) = graph_response {
                     Self::put_to_index(user_id, extra_param, &tag_details, false).await?;
@@ -159,8 +160,9 @@ where
                         ));
                     }
                 }
+                // The index exist but did not match the requested filters
                 if tags.is_empty() {
-                    return Ok(None);
+                    return Ok(Some(Vec::new()));
                 }
 
                 let tags_ref: Vec<&str> = tags.iter().map(|label| label.as_str()).collect();

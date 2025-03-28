@@ -130,7 +130,9 @@ pub async fn hot_tags_handler(Query(query): Query<HotTagsQuery>) -> Result<Json<
 
     match HotTags::get_hot_tags(query.user_id, query.reach, &input).await {
         Ok(Some(hot_tags)) => Ok(Json(hot_tags)),
-        Ok(None) => Ok(Json(HotTags(vec![]))),
+        Ok(None) => Err(Error::EmptyStream {
+            message: String::from("No hot tags found for the given criteria"),
+        }),
         Err(source) => {
             error!("Internal Server ERROR: {:?}", source);
             Err(Error::InternalServerError { source })

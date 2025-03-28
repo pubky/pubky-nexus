@@ -1,4 +1,5 @@
 use crate::routes::v0::endpoints::NOTIFICATION_ROUTE;
+use crate::routes::v0::utils::as_json_or_error;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
@@ -21,6 +22,7 @@ use utoipa::OpenApi;
     ),
     responses(
         (status = 200, description = "List of notifications", body = Vec<Notification>),
+        (status = 204, description = "Notifications not found"),
         (status = 404, description = "No notifications found"),
         (status = 500, description = "Internal server error")
     )
@@ -32,7 +34,7 @@ pub async fn list_notifications_handler(
     info!("GET {NOTIFICATION_ROUTE} for user_id: {}", user_id);
 
     match Notification::get_by_id(&user_id, pagination).await {
-        Ok(notifications) => Ok(Json(notifications)),
+        Ok(notifications) => as_json_or_error(notifications, "notifications"),
         Err(source) => Err(Error::InternalServerError { source }),
     }
 }

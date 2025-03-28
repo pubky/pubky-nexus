@@ -91,7 +91,7 @@ async fn test_homeserver_del_tag_post() -> Result<()> {
     .expect("Failed to get tag from cache");
 
     assert!(
-        cache_post_tag.is_none(),
+        cache_post_tag.unwrap().is_empty(),
         "The SORTED SET index cannot exist for the tag"
     );
 
