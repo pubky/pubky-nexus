@@ -6,6 +6,7 @@ use crate::types::StreamSorting;
 use crate::types::Timeframe;
 use neo4rs::{query, Query};
 use pubky_app_specs::PubkyAppPostKind;
+use crate::db::kv::SortOrder;
 
 // Retrieve post node by post id and author id
 pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
@@ -679,7 +680,14 @@ pub fn post_stream(
     // Apply StreamSorting
     // Conditionally compute engagement counts only for TotalEngagement sorting
     let order_clause = match sorting {
-        StreamSorting::Timeline => "ORDER BY p.indexed_at DESC".to_string(),
+        StreamSorting::Timeline => format!(
+            "ORDER BY p.indexed_at {}",
+            if pagination.order == Some(SortOrder::Ascending) {
+                "ASC"
+            } else {
+                "DESC"
+            }
+        ),
         StreamSorting::TotalEngagement => {
             // TODO: These optional matches could potentially be combined/collected to improve performance
             cypher.push_str(
@@ -719,7 +727,14 @@ pub fn post_stream(
                 );
             }
 
-            "ORDER BY total_engagement DESC".to_string()
+            format!(
+                "ORDER BY total_engagement {}",
+                if pagination.order == Some(SortOrder::Ascending) {
+                    "ASC"
+                } else {
+                    "DESC"
+                }
+            )
         }
     };
 
@@ -737,8 +752,38 @@ pub fn post_stream(
         cypher.push_str(&format!("LIMIT {}\n", limit));
     }
 
-    // Build the query and apply parameters using `param` method
-    build_query_with_params(&cypher, &source, tags, kind, &pagination)
+    // Build the query with parameters
+    let mut query = query(&cypher);
+
+    // Add parameters based on source
+    if let Some(observer_id) = source.get_observer() {
+        query = query.param("observer_id", observer_id.as_str());
+    }
+
+    // Add parameters based on source
+    if let Some(author_id) = source.get_author() {
+        query = query.param("author_id", author_id.as_str());
+    }
+
+    // Add tags parameter if provided
+    if let Some(tags) = tags {
+        query = query.param("labels", tags.as_slice());
+    }
+
+    // Add kind parameter if provided
+    if let Some(kind) = kind {
+        query = query.param("kind", kind.to_string());
+    }
+
+    // Add time interval parameters if provided
+    if let Some(start) = pagination.start {
+        query = query.param("start", start);
+    }
+    if let Some(end) = pagination.end {
+        query = query.param("end", end);
+    }
+
+    query
 }
 
 /// Appends a condition to the Cypher query, using `WHERE` if no `WHERE` clause
@@ -757,50 +802,6 @@ fn append_condition(cypher: &mut String, condition: &str, where_clause_applied: 
         cypher.push_str(&format!("WHERE {condition}\n"));
         *where_clause_applied = true;
     }
-}
-
-/// Builds a `Query` object by applying the necessary parameters to the Cypher query string.
-///
-/// This function takes the constructed Cypher query string and applies all the relevant parameters
-/// based on the provided `source`, `tags`, `kind`, and `pagination`. It ensures that all parameters
-/// used in the query are properly set with their corresponding values.
-///
-/// # Arguments
-///
-/// * `cypher` - The Cypher query string that has been constructed.
-/// * `source` - The `StreamSource` specifying the origin of the posts (e.g., Following, Followers).
-/// * `tags` - An optional list of tag labels to filter the posts.
-/// * `kind` - An optional `PubkyAppPostKind` to filter the posts by their kind.
-/// * `pagination` - The `Pagination` object containing pagination parameters like `start`, `end`, `skip`, and `limit`.
-fn build_query_with_params(
-    cypher: &str,
-    source: &StreamSource,
-    tags: &Option<Vec<String>>,
-    kind: Option<PubkyAppPostKind>,
-    pagination: &Pagination,
-) -> Query {
-    let mut query = query(cypher);
-
-    if let Some(observer_id) = source.get_observer() {
-        query = query.param("observer_id", observer_id.to_string());
-    }
-    if let Some(labels) = tags.clone() {
-        query = query.param("labels", labels);
-    }
-    if let Some(author_id) = source.get_author() {
-        query = query.param("author_id", author_id.to_string());
-    }
-    if let Some(post_kind) = kind {
-        query = query.param("kind", post_kind.to_string());
-    }
-    if let Some(start_interval) = pagination.start {
-        query = query.param("start", start_interval);
-    }
-    if let Some(end_interval) = pagination.end {
-        query = query.param("end", end_interval);
-    }
-
-    query
 }
 
 /// Determines whether a user has any relationships

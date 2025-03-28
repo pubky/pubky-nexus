@@ -1,6 +1,7 @@
 use serde::de::{self, Deserializer};
 use serde::Deserialize;
 use utoipa::ToSchema;
+use crate::db::kv::SortOrder;
 
 #[derive(Default, Deserialize, Debug, ToSchema)]
 pub struct Pagination {
@@ -12,6 +13,7 @@ pub struct Pagination {
     pub start: Option<f64>,
     #[serde(default, deserialize_with = "parse_string_to_f64")]
     pub end: Option<f64>,
+    pub order: Option<SortOrder>,
 }
 
 // Parse a string into a usize

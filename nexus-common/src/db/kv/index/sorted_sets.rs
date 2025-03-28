@@ -4,7 +4,7 @@ use redis::AsyncCommands;
 use serde::Deserialize;
 use utoipa::ToSchema;
 
-#[derive(Clone, Deserialize, Debug, ToSchema, Default)]
+#[derive(Clone, Deserialize, Debug, ToSchema, Default, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum SortOrder {
     Ascending,

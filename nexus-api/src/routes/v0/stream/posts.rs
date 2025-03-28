@@ -109,6 +109,9 @@ pub async fn stream_posts_handler(
     let sorting = query.sorting.unwrap_or_default(); // StreamSorting::Timeline is default
     let order = query.order.unwrap_or_default(); // SortOrder::Descending is default
 
+    // Pass the order to pagination
+    query.pagination.order = Some(order.clone());
+
     match PostStream::get_posts(
         source,
         query.pagination,
