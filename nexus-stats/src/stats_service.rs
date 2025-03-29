@@ -82,7 +82,7 @@ RETURN count(p) AS totalPosts
 }
 CALL {
 MATCH (f:File)
-WHERE f.created_at < $end
+WHERE f.indexed_at < $end
 RETURN count(f) AS totalFiles
 }
 CALL {
@@ -208,7 +208,7 @@ CALL {
 }
 CALL {
   MATCH (f:File)
-  WHERE f.created_at >= $start AND f.created_at < $end
+  WHERE f.indexed_at >= $start AND f.indexed_at < $end
   RETURN count(f) AS newFiles
 }
 RETURN newUsers, dailyActiveUsers, newPosts, replies, reposts, mentions, newFollows, newMutes, newBookmarks, newPostTags, newUserTags, newFiles;
