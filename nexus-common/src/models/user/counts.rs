@@ -29,20 +29,17 @@ impl RedisOps for UserCounts {}
 impl UserCounts {
     /// Retrieves counts by user ID, first trying to get from Redis, then from Neo4j if not found.
     pub async fn get_by_id(user_id: &str) -> Result<Option<UserCounts>, DynError> {
-        // TODO: uncomment the get_from_index approach when index counting is stable
-
-        // match Self::get_from_index(user_id).await? {
-        //     Some(counts) => Ok(Some(counts)),
-        //     None => {
-        //         let graph_response = Self::get_from_graph(user_id).await?;
-        //         if let Some(user_counts) = graph_response {
-        //             user_counts.put_to_index(user_id).await?;
-        //             return Ok(Some(user_counts));
-        //         }
-        //         Ok(None)
-        //     }
-        // }
-        Self::get_from_graph(user_id).await
+        match Self::get_from_index(user_id).await? {
+            Some(counts) => Ok(Some(counts)),
+            None => {
+                let graph_response = Self::get_from_graph(user_id).await?;
+                if let Some(user_counts) = graph_response {
+                    user_counts.put_to_index(user_id).await?;
+                    return Ok(Some(user_counts));
+                }
+                Ok(None)
+            }
+        }
     }
 
     /// Retrieves the counts from Neo4j.
