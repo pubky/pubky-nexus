@@ -23,26 +23,18 @@ impl RedisOps for PostCounts {}
 impl PostCounts {
     /// Retrieves counts by user ID, first trying to get from Redis, then from Neo4j if not found.
     pub async fn get_by_id(author_id: &str, post_id: &str) -> Result<Option<PostCounts>, DynError> {
-        // TODO: uncomment the get_from_index approach when index counting is stable
-
-        // match Self::get_from_index(author_id, post_id).await? {
-        //     Some(counts) => Ok(Some(counts)),
-        //     None => {
-        //         let graph_response = Self::get_from_graph(author_id, post_id).await?;
-        //         if let Some((post_counts, is_reply)) = graph_response {
-        //             post_counts
-        //                 .put_to_index(author_id, post_id, !is_reply)
-        //                 .await?;
-        //             return Ok(Some(post_counts));
-        //         }
-        //         Ok(None)
-        //     }
-        // }
-
-        if let Some((post_counts, _)) = Self::get_from_graph(author_id, post_id).await? {
-            Ok(Some(post_counts))
-        } else {
-            Ok(None)
+        match Self::get_from_index(author_id, post_id).await? {
+            Some(counts) => Ok(Some(counts)),
+            None => {
+                let graph_response = Self::get_from_graph(author_id, post_id).await?;
+                if let Some((post_counts, is_reply)) = graph_response {
+                    post_counts
+                        .put_to_index(author_id, post_id, !is_reply)
+                        .await?;
+                    return Ok(Some(post_counts));
+                }
+                Ok(None)
+            }
         }
     }
 
