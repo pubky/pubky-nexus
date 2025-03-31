@@ -323,21 +323,22 @@ impl PostStream {
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Vec<String>, DynError> {
+        let custom_limit = Some(200);
         let mut user_ids = match &source {
             StreamSource::Following { observer_id } => {
-                Following::get_by_id(observer_id, None, None)
+                Following::get_by_id(observer_id, None, custom_limit)
                     .await?
                     .unwrap_or_default()
                     .0
             }
             StreamSource::Followers { observer_id } => {
-                Followers::get_by_id(observer_id, None, None)
+                Followers::get_by_id(observer_id, None, custom_limit)
                     .await?
                     .unwrap_or_default()
                     .0
             }
             StreamSource::Friends { observer_id } => {
-                Friends::get_by_id(observer_id, None, None)
+                Friends::get_by_id(observer_id, None, custom_limit)
                     .await?
                     .unwrap_or_default()
                     .0
