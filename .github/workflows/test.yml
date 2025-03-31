@@ -58,7 +58,10 @@ jobs:
             sleep 1
           done
 
-      - name: Install dependencies
+      - name: Update apt cache
+        run: sudo apt update
+
+      - name: Install ImageMagick
         run: sudo apt install -y imagemagick
 
       - name: Load Mock Data
