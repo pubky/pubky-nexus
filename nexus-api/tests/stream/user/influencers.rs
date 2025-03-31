@@ -1,9 +1,10 @@
 use anyhow::Result;
 use axum::http::StatusCode;
 
-use crate::utils::{get_request, invalid_get_request};
-
-const PEER_PUBKY: &str = "o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo";
+use crate::{
+    tags::hot::USER_1,
+    utils::{get_request, invalid_get_request},
+};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_global_influencers() -> Result<()> {
@@ -184,7 +185,7 @@ async fn test_influencers_by_reach_no_user_id() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_influencers_by_following_reach() -> Result<()> {
-    let endpoint = &format!("/v0/stream/users?source=influencers&timeframe=this_month&limit=3&user_id={}&reach=following", PEER_PUBKY);
+    let endpoint = &format!("/v0/stream/users?source=influencers&timeframe=this_month&limit=3&user_id={}&reach=following", USER_1);
 
     let body = get_request(endpoint).await?;
     assert!(body.is_array());
@@ -200,9 +201,9 @@ async fn test_influencers_by_following_reach() -> Result<()> {
 
     // List of expected user IDs
     let expected_user_ids = vec![
-        "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro",
-        "5g3fwnue819wfdjwiwm8qr35ww6uxxgbzrigrtdgmbi19ksioeoy",
-        "9arfi37owcrdywc9zqw3m5uc7gd5gqu1yfuykzo66od6tcayqk9y",
+        "r91hi8kc3x6761gwfiigr7yn6nca1z47wm6jadhw1jbx1co93r9y",
+        "6xejaazm58f5dca3aj6o4is3k55wxy86hyxtd1pu5h897cfq76yy",
+        "qumq6fady4bmw4w5tpsrj1tg36g3qo4tcfedga9p4bg4so4ikyzy",
     ];
     assert!(influencer_ids == expected_user_ids);
 
@@ -211,7 +212,7 @@ async fn test_influencers_by_following_reach() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_influencers_by_followers_reach() -> Result<()> {
-    let endpoint = &format!("/v0/stream/users?source=influencers&timeframe=this_month&limit=3&user_id={}&reach=followers", PEER_PUBKY);
+    let endpoint = &format!("/v0/stream/users?source=influencers&timeframe=this_month&limit=3&user_id={}&reach=followers", USER_1);
 
     let body = get_request(endpoint).await?;
     assert!(body.is_array());
@@ -224,11 +225,7 @@ async fn test_influencers_by_followers_reach() -> Result<()> {
         .collect::<Vec<&str>>();
 
     // List of expected user IDs
-    let expected_user_ids = vec![
-        "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro",
-        "gxk8itzrnikrpshfsudgsgtxrz59ojp4iwmp4w9iff3ess6zfr4y",
-        "h3fghnb3x59oh7r53x8y6a5x38oatqyjym9b31ybss17zqdnhcoy",
-    ];
+    let expected_user_ids = vec!["tkpeqpx3ywoawiw6q8e6kuo9o3egr7fnhx83rudznbrrmqgdmomo"];
     assert!(influencer_ids == expected_user_ids);
 
     Ok(())
@@ -238,7 +235,7 @@ async fn test_influencers_by_followers_reach() -> Result<()> {
 async fn test_influencers_by_friends_reach() -> Result<()> {
     let endpoint = &format!(
         "/v0/stream/users?source=influencers&timeframe=this_month&limit=3&user_id={}&reach=friends",
-        PEER_PUBKY
+        USER_1
     );
 
     let body = get_request(endpoint).await?;
@@ -252,11 +249,7 @@ async fn test_influencers_by_friends_reach() -> Result<()> {
         .collect::<Vec<&str>>();
 
     // List of expected user IDs
-    let expected_user_ids = vec![
-        "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro",
-        "gxk8itzrnikrpshfsudgsgtxrz59ojp4iwmp4w9iff3ess6zfr4y",
-        "h3fghnb3x59oh7r53x8y6a5x38oatqyjym9b31ybss17zqdnhcoy",
-    ];
+    let expected_user_ids = vec!["tkpeqpx3ywoawiw6q8e6kuo9o3egr7fnhx83rudznbrrmqgdmomo"];
     assert!(influencer_ids == expected_user_ids);
 
     Ok(())
