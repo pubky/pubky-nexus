@@ -59,7 +59,9 @@ impl Influencers {
         preview: bool,
     ) -> Result<Option<Influencers>, DynError> {
         let (skip, limit) = if preview {
-            // get a pseudo-random number between 0 and 97
+            // Generate a pseudo-random number between 0 and 97
+            // We cache 100 influencers, and pick 3 starting from this number
+            // Using modulo 98 ensures we always have room for 3 without going out of bounds
             let skip = Utc::now().timestamp_subsec_micros() % 98;
             (skip as usize, 3)
         } else {

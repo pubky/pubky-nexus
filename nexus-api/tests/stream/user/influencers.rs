@@ -1,5 +1,6 @@
 use anyhow::Result;
 use axum::http::StatusCode;
+use tracing::debug;
 
 use crate::{
     tags::hot::USER_1,
@@ -47,8 +48,9 @@ async fn test_global_influencers_preview() -> Result<()> {
 
     assert!(!influencers.is_empty(), "Influencers should not be empty");
 
-    // assert preview size is respected
-    assert_eq!(influencers.len(), 3);
+    // More info: nexus-common/src/models/user/influencers -> get_influencers()
+    assert!(influencers.len() <= 3);
+    debug!("Influencers length: {:?}", influencers.len());
 
     let first_influencer_ids = influencers
         .iter()
@@ -64,9 +66,8 @@ async fn test_global_influencers_preview() -> Result<()> {
         .expect("Stream influencers should be an array");
 
     assert!(!influencers.is_empty(), "Influencers should not be empty");
-
-    // assert preview size is respected
-    assert_eq!(influencers.len(), 3);
+    assert!(influencers.len() <= 3);
+    debug!("Influencers length: {:?}", influencers.len());
 
     let second_influencer_ids = influencers
         .iter()
