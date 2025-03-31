@@ -25,12 +25,10 @@ impl Timeframe {
     pub fn to_timestamp_range(&self) -> (i64, i64) {
         let now = chrono::Utc::now();
         let start = match self {
-            Timeframe::Today => now
-                .date_naive()
-                .and_hms_opt(0, 0, 0)
-                .unwrap_or_default()
-                .and_utc()
-                .timestamp_millis(),
+            Timeframe::Today => (now - chrono::Duration::hours(24)).timestamp_millis(),
+            // TODO: This month should be a running month just like `Today`
+            // Timeframe::ThisMonth => (now - chrono::Duration::days(30)).timestamp_millis(),
+            // But we need to fix all tests.
             Timeframe::ThisMonth => now
                 .date_naive()
                 .with_day(1)
