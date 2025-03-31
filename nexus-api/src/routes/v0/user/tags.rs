@@ -1,4 +1,5 @@
 use crate::routes::v0::endpoints::{USER_TAGGERS_ROUTE, USER_TAGS_ROUTE};
+use crate::routes::v0::utils::json_array_or_no_content;
 use crate::routes::v0::{TaggersInfoDTO, TagsQuery};
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
@@ -26,6 +27,7 @@ use utoipa::OpenApi;
     ),
     responses(
         (status = 200, description = "User tags", body = TagDetails),
+        (status = 204, description = "Tags not found"),
         (status = 404, description = "User not found"),
         (status = 500, description = "Internal server error")
     )
@@ -50,7 +52,7 @@ pub async fn user_tags_handler(
     )
     .await
     {
-        Ok(Some(tags)) => Ok(Json(tags)),
+        Ok(Some(tags)) => json_array_or_no_content(tags, "tags"),
         Ok(None) => Err(Error::UserNotFound { user_id }),
         Err(source) => Err(Error::InternalServerError { source }),
     }

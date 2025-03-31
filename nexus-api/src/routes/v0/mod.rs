@@ -12,6 +12,7 @@ pub mod stream;
 pub mod tag;
 pub mod types;
 pub mod user;
+pub mod utils;
 
 pub use dto::TaggersInfoDTO;
 pub use types::TagsQuery;

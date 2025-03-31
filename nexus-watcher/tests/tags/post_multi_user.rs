@@ -225,7 +225,7 @@ async fn test_homeserver_multi_user_posts_tags() -> Result<()> {
     .await
     .expect("Failed to get tag from cache");
     assert!(
-        cache_post_tag.is_none(),
+        cache_post_tag.unwrap().is_empty(),
         "The SORTED SET index cannot exist for the tag"
     );
 

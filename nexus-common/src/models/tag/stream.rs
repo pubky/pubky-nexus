@@ -99,10 +99,14 @@ impl HotTags {
         hot_tags_input: &HotTagsInputDTO,
     ) -> Result<Option<HotTags>, DynError> {
         let cached_hot_tags = HotTags::get_from_global_cache(hot_tags_input).await?;
-        // If it is cache miss, retry all the info related from the graph
-        if cached_hot_tags.is_some() {
+
+        if let Some(hot_tags) = &cached_hot_tags {
+            if hot_tags.0.is_empty() {
+                return Ok(None);
+            }
             return Ok(cached_hot_tags);
         }
+
         let hot_tag_input = HotTagsInputDTO::new(
             hot_tags_input.timeframe.clone(),
             100,
@@ -153,7 +157,13 @@ impl HotTags {
         .await?;
 
         let (hot_tags_score, hot_tag_taggers) = match (hot_tags_score, hot_tag_taggers) {
-            (Some(score_list), Some(taggers)) => (score_list, taggers),
+            (Some(score_list), Some(taggers)) => {
+                // Index exist but applyting the DTO filters, there is not records
+                if score_list.is_empty() {
+                    return Ok(Some(HotTags(Vec::new())));
+                }
+                (score_list, taggers)
+            }
             _ => return Ok(None),
         };
 

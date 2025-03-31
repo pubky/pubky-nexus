@@ -2,7 +2,10 @@ use anyhow::Result;
 use axum::http::StatusCode;
 use serde_json::Value;
 
-use crate::utils::{get_request, invalid_get_request};
+use crate::{
+    stream::post::TAG_LABEL_2,
+    utils::{get_request, invalid_get_request},
+};
 
 const ROOT_PATH: &str = "/v0/search/tags";
 const FREE_LABEL: &str = "free";
@@ -104,4 +107,20 @@ fn search_posts(posts: &[Value], post_order: Vec<&str>) {
             "The post does not have the right ordering"
         );
     }
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_tag_search_skip_beyond_range() -> Result<()> {
+    // Search opensource tag
+    let path = format!("{}/{}", ROOT_PATH, TAG_LABEL_2);
+
+    let body = get_request(&path).await?;
+    let length = body.as_array().expect("Post list should be an array").len();
+
+    assert!(body.is_array());
+
+    let path_w_skip = format!("{}/{}?skip={}", ROOT_PATH, TAG_LABEL_2, length);
+    invalid_get_request(&path_w_skip, StatusCode::NO_CONTENT).await?;
+
+    Ok(())
 }

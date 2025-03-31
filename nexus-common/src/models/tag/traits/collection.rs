@@ -159,8 +159,9 @@ where
                         ));
                     }
                 }
+                // The index exist but did not match the requested filters
                 if tags.is_empty() {
-                    return Ok(None);
+                    return Ok(Some(Vec::new()));
                 }
 
                 let tags_ref: Vec<&str> = tags.iter().map(|label| label.as_str()).collect();

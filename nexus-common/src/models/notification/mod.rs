@@ -131,6 +131,7 @@ impl Notification {
         .await?;
 
         let mut result = Vec::new();
+
         if let Some(notifications) = notifications {
             for (notification_body_str, score) in notifications {
                 if let Ok(body) = serde_json::from_str::<NotificationBody>(&notification_body_str) {
