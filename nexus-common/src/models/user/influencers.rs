@@ -4,8 +4,8 @@ use crate::types::StreamReach;
 use crate::types::Timeframe;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use tracing::debug;
 use std::ops::Deref;
+use tracing::debug;
 use utoipa::ToSchema;
 
 use crate::db::{queries, retrieve_from_graph, RedisOps};
