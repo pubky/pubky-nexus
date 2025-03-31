@@ -73,6 +73,7 @@ impl VariantProcessor for ImageProcessor {
             .arg(origin_file_path)
             .arg("-resize")
             .arg(format!("{}x", options.width))
+            .arg("-auto-orient") // https://github.com/ImageMagick/ImageMagick/issues/6396
             .arg(output)
             .output() // Automatically pipes stdout and stderr
             .await?;
