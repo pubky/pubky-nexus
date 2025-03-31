@@ -518,21 +518,23 @@ pub fn get_influencers_by_reach(
         WHERE user.id = $user_id
 
         OPTIONAL MATCH (others:User)-[follow:FOLLOWS]->(reach)
-        WHERE follow.indexed_at >= $from AND follow.indexed_at < $to
         
-        OPTIONAL MATCH (reach)-[tag:TAGGED]->(tagged:Post)
+        OPTIONAL MATCH (reach)-[tag:TAGGED]->(:Post)
         WHERE tag.indexed_at >= $from AND tag.indexed_at < $to
         
-        OPTIONAL MATCH (reach)-[authored:AUTHORED]->(post:Post)
-        WHERE authored.indexed_at >= $from AND authored.indexed_at < $to
+        OPTIONAL MATCH (reach)-[:AUTHORED]->(post:Post)
+        WHERE post.indexed_at >= $from AND post.indexed_at < $to
 
-        WITH reach, COUNT(DISTINCT follow) AS followers_count, COUNT(DISTINCT tag) AS tags_count,
-             COUNT(DISTINCT post) AS posts_count
+        WITH    reach, 
+                COUNT(DISTINCT follow) AS followers_count, 
+                COUNT(DISTINCT tag) AS tags_count,
+                COUNT(DISTINCT post) AS posts_count
+
         WITH {{
             id: reach.id,
             score: (tags_count + posts_count) * sqrt(followers_count)
         }} AS influencer
-        ORDER BY influencer.score DESC, reach.id ASC
+        ORDER BY influencer.score DESC
         SKIP $skip LIMIT $limit
         RETURN COLLECT([influencer.id, influencer.score]) as influencers
     ",
@@ -570,8 +572,10 @@ pub fn get_global_influencers(skip: usize, limit: usize, timeframe: &Timeframe) 
             score: (tags_count + posts_count) * sqrt(followers_count + 1)
         } AS influencer
         WHERE influencer.id IS NOT NULL
+        
         ORDER BY influencer.score DESC, influencer.id ASC
-        SKIP $skip LIMIT $limit
+        SKIP $skip 
+        LIMIT $limit
         RETURN COLLECT([influencer.id, influencer.score]) as influencers
     ",
     )
