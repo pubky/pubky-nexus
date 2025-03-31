@@ -511,7 +511,6 @@ pub fn get_influencers_by_reach(
     timeframe: &Timeframe,
 ) -> Query {
     let (from, to) = timeframe.to_timestamp_range();
-    println!("from: {}, to: {}", from, to);
     query(
         format!(
             "
