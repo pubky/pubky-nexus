@@ -4,6 +4,7 @@ use crate::types::StreamReach;
 use crate::types::Timeframe;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use tracing::debug;
 use std::ops::Deref;
 use utoipa::ToSchema;
 
@@ -63,6 +64,7 @@ impl Influencers {
             // We cache 100 influencers, and pick 3 starting from this number
             // Using modulo 98 ensures we always have room for 3 without going out of bounds
             let skip = Utc::now().timestamp_subsec_micros() % 98;
+            debug!("Influencer preview active: skip number {}", skip);
             (skip as usize, 3)
         } else {
             (skip, limit)
