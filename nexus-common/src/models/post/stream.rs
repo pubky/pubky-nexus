@@ -346,8 +346,6 @@ impl PostStream {
             _ => vec![],
         };
 
-        println!("{:?}", user_ids);
-
         if !user_ids.is_empty() {
             // Include the observer in the post stream
             if let Some(observer_id) = source.get_observer() {
