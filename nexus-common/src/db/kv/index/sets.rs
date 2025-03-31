@@ -79,6 +79,11 @@ pub async fn get_range(
 
     let mut skipped = 0;
 
+    println!(
+        "try_from_index_set: {:?}, SKIP: {:?}, LIMIT: {:?}",
+        index_key, skip, limit
+    );
+
     while collected.len() < limit {
         let result: (String, Vec<String>) = redis::cmd("SSCAN")
             .arg(&index_key)
