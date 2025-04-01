@@ -62,7 +62,10 @@ impl StackManager {
             None => Self::setup_local_logging(log_level),
             Some(endpoint) => {
                 match Self::setup_otlp_logging(service_name, endpoint, log_level).await {
-                    Ok(()) => info!("OpenTelemetry Logging initialized"),
+                    Ok(()) => info!(
+                        "OpenTelemetry Logging initialized for {} service",
+                        service_name
+                    ),
                     Err(e) => error!("Failed to initialize OpenTelemetry Logging: {:?}", e),
                 }
             }
@@ -143,9 +146,15 @@ impl StackManager {
         let subscriber = Registry::default().with(stdout_layer).with(otlp_layer);
 
         // Registers a global tracing subscriber that captures logs
+        // TODO: If multiple services run in the same process, only the first call to
+        // `tracing::subscriber::set_global_default(...)` succeeds. That means the logs from
+        // all services will be emitted under the first service's `service_name`
+        // This happens because tracing subscribers and OTEL logger providers are global.
+        // To fix this, use per-task `Dispatch` with isolated subscribers, or run services
+        // in separate processes.
         if tracing::subscriber::set_global_default(subscriber).is_ok() {
             info!(
-                "OpenTelemetry Logging initialized (OTLP_ENDPOINT={})",
+                "OpenTelemetry endpoint listening on (OTLP_ENDPOINT={})",
                 otel_endpoint
             );
         } else {
@@ -181,7 +190,10 @@ impl StackManager {
                 // Register globally the metrics
                 global::set_meter_provider(provider);
 
-                info!("Metrics initialized (OTLP_ENDPOINT={})", endpoint);
+                info!(
+                    "OpenTelemetry Metrics initialized for {} service",
+                    service_name
+                );
             }
         }
     }
