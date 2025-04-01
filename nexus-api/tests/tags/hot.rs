@@ -1,6 +1,5 @@
 use anyhow::Result;
 use axum::http::StatusCode;
-use chrono::{Datelike, Utc};
 use serde_json::Value;
 
 use crate::utils::{get_request, invalid_get_request};
@@ -165,19 +164,10 @@ async fn test_hot_tags_by_following_reach_and_today_timeframe() -> Result<()> {
     // Validate that the posts belong to the specified user's bookmarks
     analyse_hot_tags_structure(tags);
 
-    // If the test is run at the first day of the month the tags from thisMonth timeframe overlap with today
-    let today_day = Utc::now().day();
-
-    match today_day {
-        1 => assert_eq!(tags.len(), 5),
-        _ => assert_eq!(tags.len(), 3),
-    };
+    assert_eq!(tags.len(), 3);
 
     // Analyse the tag that is in the 0 index
-    let hot_tag = match today_day {
-        1 => StreamTagMockup::new(String::from("month"), 3, 2, 3),
-        _ => StreamTagMockup::new(String::from("today"), 2, 2, 2),
-    };
+    let hot_tag = StreamTagMockup::new(String::from("today"), 2, 2, 2);
     compare_unit_hot_tag(&tags[0], hot_tag);
 
     Ok(())
@@ -374,19 +364,9 @@ async fn test_hot_tags_by_followers_reach_and_today_timeframe() -> Result<()> {
     // Validate that the posts belong to the specified user's bookmarks
     analyse_hot_tags_structure(tags);
 
-    // If the test is run at the first day of the month the tags from thisMonth timeframe overlap with today
-    let today_day = Utc::now().day();
+    assert_eq!(tags.len(), 3);
 
-    match today_day {
-        1 => assert_eq!(tags.len(), 5),
-        _ => assert_eq!(tags.len(), 3),
-    };
-
-    // Analyse the tag that is in the 0 index
-    let hot_tag = match today_day {
-        1 => StreamTagMockup::new(String::from("month"), 3, 3, 3),
-        _ => StreamTagMockup::new(String::from("today"), 3, 3, 3),
-    };
+    let hot_tag = StreamTagMockup::new(String::from("today"), 3, 3, 3);
     compare_unit_hot_tag(&tags[0], hot_tag);
 
     Ok(())
@@ -522,19 +502,9 @@ async fn test_hot_tags_by_friends_reach_and_today_timeframe() -> Result<()> {
     // Validate that the posts belong to the specified user's bookmarks
     analyse_hot_tags_structure(tags);
 
-    // If the test is run at the first day of the month the tags from thisMonth timeframe overlap with today
-    let today_day = Utc::now().day();
+    assert_eq!(tags.len(), 1);
 
-    match today_day {
-        1 => assert_eq!(tags.len(), 4),
-        _ => assert_eq!(tags.len(), 1),
-    };
-
-    // Analyse the tag that is in the 0 index
-    let hot_tag = match today_day {
-        1 => StreamTagMockup::new(String::from("month"), 1, 1, 1),
-        _ => StreamTagMockup::new(String::from("today"), 1, 1, 1),
-    };
+    let hot_tag = StreamTagMockup::new(String::from("today"), 1, 1, 1);
     compare_unit_hot_tag(&tags[0], hot_tag);
 
     Ok(())

@@ -1,4 +1,3 @@
-use chrono::Datelike;
 use serde::Deserialize;
 use std::fmt::Display;
 use utoipa::ToSchema;
@@ -26,17 +25,7 @@ impl Timeframe {
         let now = chrono::Utc::now();
         let start = match self {
             Timeframe::Today => (now - chrono::Duration::hours(24)).timestamp_millis(),
-            // TODO: This month should be a running month just like `Today`
-            // Timeframe::ThisMonth => (now - chrono::Duration::days(30)).timestamp_millis(),
-            // But we need to fix all tests.
-            Timeframe::ThisMonth => now
-                .date_naive()
-                .with_day(1)
-                .unwrap_or_default()
-                .and_hms_opt(0, 0, 0)
-                .unwrap_or_default()
-                .and_utc()
-                .timestamp_millis(),
+            Timeframe::ThisMonth => (now - chrono::Duration::days(30)).timestamp_millis(),
             Timeframe::AllTime => 0,
         };
         (start, now.timestamp_millis())
