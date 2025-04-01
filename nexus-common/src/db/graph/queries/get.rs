@@ -515,21 +515,23 @@ pub fn get_influencers_by_reach(
         format!(
             "
         {}
-        WHERE user.id = $user_id
+        WHERE user.id = $user_id  
+        WITH DISTINCT reach
 
-        OPTIONAL MATCH (others:User)-[follow:FOLLOWS]->(reach)
-        
-        OPTIONAL MATCH (reach)-[tag:TAGGED]->(:Post)
-        WHERE tag.indexed_at >= $from AND tag.indexed_at < $to
-        
-        OPTIONAL MATCH (reach)-[:AUTHORED]->(post:Post)
-        WHERE post.indexed_at >= $from AND post.indexed_at < $to
+        CALL (reach) {{
+            MATCH (others:User)-[follow:FOLLOWS]->(reach)
+            RETURN count(follow) as followers_count
+        }}
+        CALL (reach) {{
+            MATCH (reach)-[tag:TAGGED]->(:Post)
+            RETURN count(tag) as tags_count
+        }}
+        CALL (reach) {{
+            MATCH (reach)-[:AUTHORED]->(post:Post)
+            RETURN count(post) as posts_count
+        }}
 
-        WITH    reach, 
-                COUNT(DISTINCT follow) AS followers_count, 
-                COUNT(DISTINCT tag) AS tags_count,
-                COUNT(DISTINCT post) AS posts_count
-
+        WITH reach, followers_count, tags_count, posts_count
         WITH {{
             id: reach.id,
             score: (tags_count + posts_count) * sqrt(followers_count)
