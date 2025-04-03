@@ -520,15 +520,17 @@ pub fn get_influencers_by_reach(
 
         CALL (reach) {{
             MATCH (others:User)-[follow:FOLLOWS]->(reach)
-            RETURN count(follow) as followers_count
+            RETURN count(DISTINCT follow) as followers_count
         }}
         CALL (reach) {{
             MATCH (reach)-[tag:TAGGED]->(:Post)
-            RETURN count(tag) as tags_count
+            WHERE tag.indexed_at >= $from AND tag.indexed_at < $to
+            RETURN count(DISTINCT tag) as tags_count
         }}
         CALL (reach) {{
             MATCH (reach)-[:AUTHORED]->(post:Post)
-            RETURN count(post) as posts_count
+            WHERE post.indexed_at >= $from AND post.indexed_at < $to
+            RETURN count(DISTINCT post) as posts_count
         }}
 
         WITH reach, followers_count, tags_count, posts_count
@@ -537,7 +539,8 @@ pub fn get_influencers_by_reach(
             score: (tags_count + posts_count) * sqrt(followers_count)
         }} AS influencer
         ORDER BY influencer.score DESC
-        SKIP $skip LIMIT $limit
+        SKIP $skip 
+        LIMIT $limit
         RETURN COLLECT([influencer.id, influencer.score]) as influencers
     ",
             stream_reach_to_graph_subquery(&reach),

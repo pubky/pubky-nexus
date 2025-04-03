@@ -200,6 +200,8 @@ async fn test_influencers_by_following_reach() -> Result<()> {
         .map(|f| f["details"]["id"].as_str().unwrap())
         .collect::<Vec<&str>>();
 
+    println!("Influencers: {:?}", influencer_ids);
+
     // List of expected user IDs
     let expected_user_ids = vec![
         "r91hi8kc3x6761gwfiigr7yn6nca1z47wm6jadhw1jbx1co93r9y",
