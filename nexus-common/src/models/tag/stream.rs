@@ -121,7 +121,7 @@ impl HotTags {
             Some(hot_tags) => hot_tags,
             None => return Ok(None),
         };
-        if hot_tags.len() > 0 {
+        if !hot_tags.is_empty() {
             HotTags::set_to_global_cache(hot_tags.clone(), hot_tags_input).await?;
         }
 

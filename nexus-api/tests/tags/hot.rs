@@ -646,11 +646,11 @@ async fn test_hot_tags_label_taggers_with_skip_limit_and_timeframe() -> Result<(
 
     assert_eq!(
         &taggers[0],
-        "r4irb481b8qspaixq1brwre8o87cxybsbk9iwe1f6f9ukrxxs7bo"
+        "qumq6fady4bmw4w5tpsrj1tg36g3qo4tcfedga9p4bg4so4ikyzy"
     );
     assert_eq!(
         &taggers[1],
-        "qumq6fady4bmw4w5tpsrj1tg36g3qo4tcfedga9p4bg4so4ikyzy"
+        "r4irb481b8qspaixq1brwre8o87cxybsbk9iwe1f6f9ukrxxs7bo"
     );
     Ok(())
 }

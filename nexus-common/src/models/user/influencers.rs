@@ -56,7 +56,7 @@ impl Influencers {
         reach: Option<StreamReach>,
         skip: usize,
         limit: usize,
-        timeframe: &Timeframe,
+        timeframe: Timeframe,
         preview: bool,
     ) -> Result<Option<Influencers>, DynError> {
         let (skip, limit) = if preview {
@@ -69,19 +69,17 @@ impl Influencers {
         } else {
             (skip, limit)
         };
-        match user_id {
-            Some(user_id) => {
-                Influencers::get_influencers_by_reach(
-                    user_id,
-                    reach.unwrap_or(StreamReach::Friends),
-                    skip,
-                    limit,
-                    timeframe,
-                )
-                .await
-            }
-            None => Influencers::get_global_influencers(skip, limit, timeframe).await,
+        if let Some(user) = user_id.filter(|_| timeframe != Timeframe::AllTime) {
+            return Influencers::get_influencers_by_reach(
+                user,
+                reach.unwrap_or(StreamReach::Friends),
+                skip,
+                limit,
+                &timeframe,
+            )
+            .await;
         }
+        Influencers::get_global_influencers(skip, limit, &timeframe).await
     }
 
     /// It first attempts to fetch a subset of global influencers from cache
