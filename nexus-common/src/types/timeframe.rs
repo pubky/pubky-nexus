@@ -2,7 +2,7 @@ use serde::Deserialize;
 use std::fmt::Display;
 use utoipa::ToSchema;
 
-#[derive(Deserialize, Debug, ToSchema, Clone)]
+#[derive(Deserialize, Debug, ToSchema, Clone, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum Timeframe {
     Today,

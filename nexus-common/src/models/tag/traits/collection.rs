@@ -357,7 +357,6 @@ where
     /// - `extra_param` - An optional parameter for additional context, such as a post ID.
     ///   If `Some`, the function retrieves and reindexes tags specific to the post;
     ///   if `None`, it reindexes tags globally for the author.
-
     async fn reindex(author_id: &str, extra_param: Option<&str>) -> Result<(), DynError> {
         match Self::get_from_graph(author_id, extra_param, None).await? {
             Some(tag_user) => Self::put_to_index(author_id, extra_param, &tag_user, false).await?,

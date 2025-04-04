@@ -321,7 +321,7 @@ impl UserStream {
                     Some(reach.unwrap_or(StreamReach::Wot(3))),
                     skip.unwrap_or(0),
                     limit.unwrap_or(10).min(100),
-                    &timeframe.unwrap_or(Timeframe::AllTime),
+                    timeframe.unwrap_or(Timeframe::AllTime),
                     preview.unwrap_or(false),
                 )
                 .await?
