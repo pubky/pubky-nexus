@@ -55,8 +55,7 @@ pub async fn check_member(
 ///
 /// * `prefix` - A string slice representing the prefix for the Redis keys.
 /// * `key` - A string slice representing the key under which the sorted set is stored.
-/// * `values` - A slice of tuples where each tuple contains a reference to a string slice representing
-///              the element and a f64 representing the score of the element.
+/// * `values` - A slice of tuples where each tuple contains a reference to a string slice representing the element and a f64 representing the score of the element.
 /// * `expiration` - An optional `i64` specifying the TTL (in seconds) for the set. If `None`, no TTL will be set.
 ///
 /// # Errors
