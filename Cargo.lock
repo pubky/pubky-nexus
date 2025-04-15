@@ -2339,6 +2339,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
+ "clap",
  "httpc-test",
  "neo4rs",
  "nexus-common",

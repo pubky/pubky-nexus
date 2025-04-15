@@ -1,5 +1,6 @@
 use anyhow::{Error, Result};
 use chrono::Utc;
+use clap::Parser;
 use pubky::Client;
 use pubky::{Keypair, PublicKey};
 use pubky_app_specs::{
@@ -14,8 +15,13 @@ use std::collections::HashSet;
 use std::time::Instant;
 
 // Configuration constants
-static NUM_USERS: usize = 1000;
+static NUM_USERS: usize = 3;
 static SEED: u64 = 42;
+
+// Max storage quota per user
+const USER_STORAGE_QUOTA: usize = 1024 * 1024 * 1024; // 1GB
+const MIN_FILE_SIZE: usize = 50 * 1024; // 50KB
+const MAX_FILE_SIZE: usize = 20 * 1024 * 1024; // 20MB
 
 // Adjusted distribution parameters
 const POSTS_MU: f64 = 1.7; // Adjust for mean ≈ 40
@@ -31,24 +37,35 @@ static MAX_FOLLOWS: usize = NUM_USERS - 1;
 static MAX_TAGS: usize = 10000;
 static MAX_FILES: usize = 10000;
 
+// Define CLI arguments using clap.
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Config {
+    /// Homeserver public key ID
+    #[arg(long)]
+    homeserver: String,
+
+    /// Base URL for the admin endpoint (e.g., http://localhost:6286)
+    #[arg(long)]
+    admin_endpoint: String,
+
+    /// Admin password used for generating signup tokens (default is "admin")
+    #[arg(long, default_value = "admin")]
+    admin_password: String,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    let config = Config::parse();
+
     let total_start = Instant::now(); // Start timing the whole script
-
-    //let config = Config::from_env();
-
-    // Initialize the Client based on configuration
-    // let client = match config.testnet {
-    //     true => Client::testnet()?,
-    //     false => Client::new()?,
-    // };
 
     // Only mainnet
     let client = Client::builder().build()?;
 
     // Convert the homeserver from the config into a PublicKey
     // Hard code from now homeserver pubky. This is a testnet default key
-    let homeserver = PublicKey::try_from("8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo")?;
+    let homeserver = PublicKey::try_from(config.homeserver.as_str())?;
 
     let mut rng = StdRng::seed_from_u64(SEED);
     println!("Using seed: {}", SEED);
@@ -96,7 +113,17 @@ async fn main() -> Result<()> {
         user_ids.push(pk.clone());
         user_posts.push(Vec::new());
 
-        if !create_user(&client, &keypair, &homeserver, &pk, i).await {
+        if !create_user(
+            &client,
+            &keypair,
+            &homeserver,
+            &pk,
+            i,
+            &config.admin_endpoint,
+            &config.admin_password,
+        )
+        .await
+        {
             users_failed += 1;
             continue;
         }
@@ -216,8 +243,10 @@ async fn create_user(
     homeserver: &PublicKey,
     pk: &String,
     user_index: usize,
+    admin_endpoint: &str,
+    admin_password: &str,
 ) -> bool {
-    let token = match request_invitation_code().await {
+    let token = match request_invitation_code(admin_endpoint, admin_password).await {
         Ok(response) => response,
         Err(e) => panic!("ERR: {:?}", e),
     };
@@ -389,9 +418,22 @@ async fn create_files(
     let num_files = files_dist.sample(rng).round() as usize;
     let num_files = num_files.min(max_files);
 
+    // Define the maximum cumulative file size per user: 1GB.
+    let mut total_user_bytes: usize = 0;
+    let mut actual_file_count = 0;
+
     for _ in 0..num_files {
+        // Determine a random file size between 50KB and 20MB.
+        let file_size = rng.random_range(MIN_FILE_SIZE..=MAX_FILE_SIZE);
+        // Check if adding this file would surpass the per-user limit.
+        if total_user_bytes + file_size > USER_STORAGE_QUOTA {
+            break;
+        }
+        total_user_bytes += file_size;
+        actual_file_count += 1;
+
         // Step 1: Create a blob with random content
-        let blob_data = random_string(rng, 256); // Random content
+        let blob_data = random_string(rng, file_size); // Random content
         let blob = PubkyAppBlob::new(blob_data.as_bytes().to_vec());
         let blob_id = blob.create_id();
         let blob_url = format!("pubky://{}{}", pk, blob.create_path());
@@ -444,7 +486,7 @@ async fn create_files(
         }
     }
 
-    (files_created_successfully, files_failed, num_files)
+    (files_created_successfully, files_failed, actual_file_count)
 }
 
 // Function to create tags
@@ -620,12 +662,17 @@ impl IntoKeys for Keypair {
     }
 }
 
-async fn request_invitation_code() -> Result<String, Error> {
+// Function to request an invitation code using the given admin endpoint and password.
+async fn request_invitation_code(
+    admin_endpoint: &str,
+    admin_password: &str,
+) -> Result<String, Error> {
     let client = reqwest::Client::new();
-
+    // Append the API path to the provided admin endpoint.
+    let url = format!("{}/admin/generate_signup_token", admin_endpoint);
     let response = client
-        .get("http://localhost:6286/admin/generate_signup_token")
-        .header("X-Admin-Password", "admin")
+        .get(url.as_str())
+        .header("X-Admin-Password", admin_password)
         .send()
         .await?;
 
