@@ -35,7 +35,7 @@ utoipa = "5.3.1"
 utoipa-swagger-ui = { version = "9.0.1", features = ["axum"] }
 
 [dev-dependencies]
-anyhow = "1.0.97"
+anyhow = "1.0.98"
 criterion = { version = "0.5.1", features = ["async_tokio"] }
 httpc-test = "0.1.10"
 tokio-shared-rt = "0.1"

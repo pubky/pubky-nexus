@@ -22,7 +22,7 @@ tokio = { version = "1.44.2", features = ["full"] }
 tracing = "0.1"
 
 [dev-dependencies]
-anyhow = "1.0.97"
+anyhow = "1.0.98"
 httpc-test = "0.1.10"
 pubky-homeserver = "0.1.2"
 pubky-testnet = "0.1.2"
