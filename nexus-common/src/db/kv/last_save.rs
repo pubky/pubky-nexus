@@ -2,10 +2,11 @@ use crate::db::get_redis_conn;
 use crate::types::DynError;
 
 pub async fn get_last_rdb_save_time() -> Result<u64, DynError> {
-    let mut redis_conn = get_redis_conn().await?;
+    let redis_conn_arc = get_redis_conn().await?;
+    let mut redis_conn = redis_conn_arc.lock().await;
     let info: String = redis::cmd("INFO")
         .arg("persistence")
-        .query_async(&mut redis_conn)
+        .query_async(&mut *redis_conn)
         .await?;
     for line in info.lines() {
         if line.starts_with("rdb_last_save_time:") {

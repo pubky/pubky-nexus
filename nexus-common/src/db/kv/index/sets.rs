@@ -27,7 +27,6 @@ pub async fn put(
         return Ok(());
     }
     let index_key = format!("{}:{}", prefix, key);
-    let mut redis_conn = get_redis_conn().await?;
 
     // Create a pipeline for atomicity and efficiency
     let mut pipe = redis::pipe();
@@ -38,8 +37,11 @@ pub async fn put(
         pipe.expire(&index_key, ttl);
     }
 
+    let redis_conn_arc = get_redis_conn().await?;
+    let mut redis_conn = redis_conn_arc.lock().await;
+
     // Execute the pipeline
-    let _: () = pipe.query_async(&mut redis_conn).await?;
+    let _: () = pipe.query_async(&mut *redis_conn).await?;
     Ok(())
 }
 
@@ -69,8 +71,6 @@ pub async fn get_range(
     skip: Option<usize>,
     limit: Option<usize>,
 ) -> Result<Option<Vec<String>>, DynError> {
-    let mut redis_conn = get_redis_conn().await?;
-
     let index_key = format!("{}:{}", prefix, key);
     let mut cursor = "0".to_string();
     let mut collected: Vec<String> = Vec::new();
@@ -79,13 +79,16 @@ pub async fn get_range(
 
     let mut skipped = 0;
 
+    let redis_conn_arc = get_redis_conn().await?;
+    let mut redis_conn = redis_conn_arc.lock().await;
+
     while collected.len() < limit {
         let result: (String, Vec<String>) = redis::cmd("SSCAN")
             .arg(&index_key)
             .arg(&cursor)
             .arg("COUNT")
             .arg(limit)
-            .query_async(&mut redis_conn)
+            .query_async(&mut *redis_conn)
             .await?;
 
         let (new_cursor, items) = result;
@@ -133,8 +136,10 @@ pub async fn get_range(
 ///
 /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
 pub async fn check_member(prefix: &str, key: &str, member: &str) -> Result<(bool, bool), DynError> {
-    let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{}:{}", prefix, key);
+
+    let redis_conn_arc = get_redis_conn().await?;
+    let mut redis_conn = redis_conn_arc.lock().await;
 
     // Check if the set exists
     let set_exists: bool = redis_conn.exists(&index_key).await?;
@@ -169,8 +174,10 @@ pub async fn check_member(prefix: &str, key: &str, member: &str) -> Result<(bool
 ///
 /// Returns an error if the Redis connection or the SCARD operation fails.
 pub async fn get_size(prefix: &str, key: &str) -> Result<Option<usize>, DynError> {
-    let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{}:{}", prefix, key);
+
+    let redis_conn_arc = get_redis_conn().await?;
+    let mut redis_conn = redis_conn_arc.lock().await;
 
     // Check if the set exists
     let set_exists: bool = redis_conn.exists(&index_key).await?;
@@ -205,8 +212,6 @@ pub async fn get_multiple_sets(
     member: Option<&str>,
     limit: Option<usize>,
 ) -> Result<Vec<Option<(Vec<String>, usize, bool)>>, DynError> {
-    let mut redis_conn = get_redis_conn().await?;
-
     // Create a Redis pipeline
     let mut pipe = redis::pipe();
 
@@ -216,8 +221,14 @@ pub async fn get_multiple_sets(
         pipe.smembers(index_key);
     }
 
-    // Execute the pipeline
-    let results: Vec<Vec<String>> = pipe.query_async(&mut redis_conn).await?;
+    let results: Vec<Vec<String>>;
+    {
+        let redis_conn_arc = get_redis_conn().await?;
+        let mut redis_conn = redis_conn_arc.lock().await;
+
+        // Execute the pipeline
+        results = pipe.query_async(&mut *redis_conn).await?;
+    }
 
     let taggers_list = results
         .into_iter()
@@ -268,7 +279,6 @@ pub async fn put_multiple_sets(
     collections: &[&[&str]],
     expiration: Option<i64>,
 ) -> Result<(), DynError> {
-    let mut redis_conn = get_redis_conn().await?;
     let mut pipe = redis::pipe();
 
     for (i, key) in index.iter().enumerate() {
@@ -281,8 +291,11 @@ pub async fn put_multiple_sets(
         }
     }
 
+    let redis_conn_arc = get_redis_conn().await?;
+    let mut redis_conn = redis_conn_arc.lock().await;
+
     // Execute the pipeline
-    let _: () = pipe.query_async(&mut redis_conn).await?;
+    let _: () = pipe.query_async(&mut *redis_conn).await?;
     Ok(())
 }
 
@@ -306,7 +319,9 @@ pub async fn del(prefix: &str, key: &str, values: &[&str]) -> Result<(), DynErro
     }
 
     let index_key = format!("{}:{}", prefix, key);
-    let mut redis_conn = get_redis_conn().await?;
+
+    let redis_conn_arc = get_redis_conn().await?;
+    let mut redis_conn = redis_conn_arc.lock().await;
 
     // Remove the elements from the set
     let _: () = redis_conn.srem(index_key, values).await?;
@@ -340,8 +355,10 @@ pub async fn get_random_members(
     key: &str,
     count: isize,
 ) -> Result<Option<Vec<String>>, DynError> {
-    let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{}:{}", prefix, key);
+
+    let redis_conn_arc = get_redis_conn().await?;
+    let mut redis_conn = redis_conn_arc.lock().await;
 
     // Check if the set exists
     let set_exists: bool = redis_conn.exists(&index_key).await?;
@@ -353,7 +370,7 @@ pub async fn get_random_members(
     let random_members: Vec<String> = redis::cmd("SRANDMEMBER")
         .arg(&index_key)
         .arg(count)
-        .query_async(&mut redis_conn)
+        .query_async(&mut *redis_conn)
         .await?;
 
     Ok(Some(random_members))

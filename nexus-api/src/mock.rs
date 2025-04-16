@@ -49,12 +49,14 @@ impl MockDb {
     pub async fn drop_cache() {
         info!("Dropping Redis database...");
         // Drop all keys in Redis
-        let mut redis_conn = get_redis_conn()
+
+        let redis_conn_arc = get_redis_conn()
             .await
             .expect("Could not get the redis connection");
+        let mut redis_conn = redis_conn_arc.lock().await;
 
         redis::cmd("FLUSHALL")
-            .exec_async(&mut redis_conn)
+            .exec_async(&mut *redis_conn)
             .await
             .expect("Failed to flush Redis");
     }

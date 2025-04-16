@@ -21,7 +21,10 @@ pub async fn put(prefix: &str, key: &str, values: &[&str]) -> Result<(), DynErro
         return Ok(());
     }
     let index_key = format!("{}:{}", prefix, key);
-    let mut redis_conn = get_redis_conn().await?;
+
+    let redis_conn_arc = get_redis_conn().await?;
+    let mut redis_conn = redis_conn_arc.lock().await;
+
     let _: () = redis_conn.rpush(index_key, values).await?;
     Ok(())
 }
@@ -51,14 +54,16 @@ pub async fn get_range(
     skip: Option<usize>,
     limit: Option<usize>,
 ) -> Result<Option<Vec<String>>, DynError> {
-    let mut redis_conn = get_redis_conn().await?;
-
     let index_key = format!("{}:{}", prefix, key);
     let skip = skip.unwrap_or(0);
     let limit = limit.unwrap_or(usize::MAX);
 
     let start = skip as isize;
     let end = start + (limit as isize) - 1;
+
+    let redis_conn_arc = get_redis_conn().await?;
+    let mut redis_conn = redis_conn_arc.lock().await;
+
     let result: Vec<String> = redis_conn.lrange(index_key, start, end).await?;
     match result.len() {
         0 => Ok(None),
