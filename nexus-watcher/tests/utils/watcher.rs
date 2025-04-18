@@ -12,7 +12,7 @@ use pubky::Keypair;
 use pubky_app_specs::{
     traits::TimestampId, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser,
 };
-use pubky_homeserver::Homeserver;
+use pubky_testnet::pubky_homeserver::Homeserver;
 use std::path::PathBuf;
 use std::time::Duration;
 use tracing::debug;
