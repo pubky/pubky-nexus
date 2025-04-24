@@ -1,4 +1,5 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use nexus_api::routes::v0::user::types::{ImAliveResponse, ViewType};
 use nexus_common::models::traits::Collection;
 use nexus_common::models::user::{Relationship, UserCounts, UserDetails, UserView};
 use setup::run_setup;
@@ -36,9 +37,9 @@ const USER_IDS: [&str; 25] = [
 ];
 
 fn bench_get_full_by_id(c: &mut Criterion) {
-    println!("******************************************************************************");
+    println!("**********************************************************************************");
     println!("Test the performance of getting a user view by ID, using index or graph as needed");
-    println!("******************************************************************************");
+    println!("**********************************************************************************");
 
     run_setup();
 
@@ -215,6 +216,28 @@ fn bench_get_details_by_ids_list_from_graph(c: &mut Criterion) {
     );
 }
 
+fn bench_im_alive(c: &mut Criterion) {
+    println!("*****************************************************");
+    println!("Test the performance of getting a user I AM ALIVEEE!!");
+    println!("*****************************************************");
+
+    run_setup();
+
+    let user_id = "zdbg13k5gh4tfz9qz11quohrxetgqxs7awandu8h57147xddcuhy";
+    let rt = Runtime::new().unwrap();
+
+    c.bench_with_input(
+        BenchmarkId::new("ImAliveResponse:create", user_id),
+        &user_id,
+        |b, &id| {
+            b.to_async(&rt).iter(|| async {
+                let user = ImAliveResponse::create(id, ViewType::Full).await.unwrap();
+                criterion::black_box(user);
+            });
+        },
+    );
+}
+
 fn configure_criterion() -> Criterion {
     Criterion::default()
         .measurement_time(Duration::new(5, 0))
@@ -232,7 +255,8 @@ criterion_group! {
               bench_get_details_from_graph,
               bench_get_details_by_id,
               bench_get_details_by_ids_list,
-              bench_get_details_by_ids_list_from_graph
+              bench_get_details_by_ids_list_from_graph,
+              bench_im_alive
 }
 
 criterion_main!(benches);

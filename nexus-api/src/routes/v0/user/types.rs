@@ -43,7 +43,8 @@ impl ImAliveResponse {
     ///   or only base posts (`Partial`)
     pub async fn create(user_id: &str, view_type: ViewType) -> Result<Self, DynError> {
         let mut im_alive = Self::default();
-        let mut user_ids = HashSet::new();
+        // Initialise the hashset with the user
+        let mut user_ids = HashSet::from([String::from(user_id)]);
         let is_full = view_type == ViewType::Full;
 
         let (source, pagination) = input_for_post_stream(20);
@@ -60,7 +61,7 @@ impl ImAliveResponse {
         .unwrap_or_default();
 
         let post_replies =
-            im_alive.authors_and_taggers(post_stream_by_timeline, &mut user_ids, view_type);
+            im_alive.post_authors_and_taggers(post_stream_by_timeline, &mut user_ids, view_type);
 
         if is_full {
             im_alive
@@ -72,8 +73,17 @@ impl ImAliveResponse {
         // Missing hot tags
         // HotTags::get_hot_tags(None, None, &hot_tag_filter).await?;
 
-        im_alive.add_user_stream(user_ids, Some(user_id)).await?;
+        im_alive.add_user_stream(&user_ids, Some(user_id)).await?;
 
+        // UserViews has also taggers, fetch the missing users UserViews
+        if is_full {
+            let missing_taggers = im_alive.get_user_view_taggers(&user_ids);
+            if !missing_taggers.is_empty() {
+                im_alive
+                    .add_user_stream(&missing_taggers, Some(user_id))
+                    .await?;
+            }
+        }
         Ok(im_alive)
     }
 
@@ -83,7 +93,7 @@ impl ImAliveResponse {
     /// - `post_stream`: The `PostStream` whose contained posts will be processed
     /// - `user_ids`: A mutable set of user IDs; authors and taggers encountered will be inserted
     /// - `view_type`: Indicates whether to operate in `Full` mode (recording stream entries and replies)
-    pub fn authors_and_taggers(
+    fn post_authors_and_taggers(
         &mut self,
         post_stream: PostStream,
         user_ids: &mut HashSet<String>,
@@ -102,7 +112,7 @@ impl ImAliveResponse {
             // Add the author of the post
             user_ids.insert(author_id.clone());
             // Get all the taggers related with the post
-            Self::append_post_taggers_id(&post_view.tags, user_ids);
+            Self::insert_taggers_id(&post_view.tags, user_ids);
             // Include the post in the stream list
             if is_full {
                 self.list.stream.push(format!("{author_id}:{post_id}"));
@@ -112,6 +122,28 @@ impl ImAliveResponse {
         post_replies
     }
 
+    /// Collects all tagger IDs from the current `users` view that are not yet present
+    /// in the given `user_ids` set
+    ///
+    /// # Parameters
+    ///
+    /// - `user_ids`: A set of user IDs that have already been fetched or seen
+    ///
+    fn get_user_view_taggers(&self, user_ids: &HashSet<String>) -> HashSet<String> {
+        let mut missing_taggers = HashSet::new();
+        for user in self.users.iter() {
+            user.tags
+                .iter()
+                .flat_map(|tags| tags.taggers.iter())
+                .for_each(|tagger| {
+                    if !user_ids.contains(tagger) {
+                        missing_taggers.insert(tagger.clone());
+                    }
+                });
+        }
+        missing_taggers
+    }
+
     /// Appends each tagger’s user ID from the given post tag details into the provided set
     ///
     /// # Parameters
@@ -119,10 +151,7 @@ impl ImAliveResponse {
     ///   A reference to a vector of `TagDetails`, each containing a list of tagger IDs
     /// - `users_list: &mut HashSet<String>`  
     ///   A mutable reference to a set of user IDs; each tagger ID will be inserted here
-    pub fn append_post_taggers_id(
-        tag_details_list: &[TagDetails],
-        users_list: &mut HashSet<String>,
-    ) {
+    fn insert_taggers_id(tag_details_list: &[TagDetails], users_list: &mut HashSet<String>) {
         for tag_details in tag_details_list.iter() {
             for tagger_pk in tag_details.taggers.iter() {
                 users_list.insert(tagger_pk.to_string());
@@ -137,15 +166,15 @@ impl ImAliveResponse {
     ///   A set of unique user IDs to fetch views for
     /// - `viewer_id: Option<&str>`  
     ///   Optional context user ID for personalized view generation
-    pub async fn add_user_stream(
+    async fn add_user_stream(
         &mut self,
-        user_ids: HashSet<String>,
+        user_ids: &HashSet<String>,
         viewer_id: Option<&str>,
     ) -> Result<(), DynError> {
         if user_ids.is_empty() {
             return Ok(());
         }
-        let user_ids_vec: Vec<String> = user_ids.into_iter().collect();
+        let user_ids_vec: Vec<String> = user_ids.iter().cloned().collect();
         // TODO: If the user list is too big, we could do in batches
         // for batch in user_ids.chunks(BATCH_SIZE) { ...
         if let Some(user_stream) =
@@ -166,7 +195,7 @@ impl ImAliveResponse {
     ///   A mutable reference to a set where each reply’s author ID (and any taggers) will be appended
     /// - `viewer_id: &str`  
     ///   The ID of the current viewer
-    pub async fn add_replies(
+    async fn add_replies(
         &mut self,
         post_replies: Vec<(String, String)>,
         user_ids: &mut HashSet<String>,
@@ -189,10 +218,9 @@ impl ImAliveResponse {
             )
             .await?
             {
-                self.authors_and_taggers(reply_stream, user_ids, ViewType::Partial);
+                self.post_authors_and_taggers(reply_stream, user_ids, ViewType::Partial);
             }
         }
-
         Ok(())
     }
 
@@ -202,20 +230,14 @@ impl ImAliveResponse {
     /// # Parameters
     /// - `user_ids: &mut HashSet<String>` A mutable reference to a set of user IDs
     ///
-    pub async fn add_active_users(
-        &mut self,
-        user_ids: &mut HashSet<String>,
-    ) -> Result<(), DynError> {
+    async fn add_active_users(&mut self, user_ids: &mut HashSet<String>) -> Result<(), DynError> {
         if let Some(influencers) =
             Influencers::get_influencers(None, None, 0, 0, Timeframe::Today, true).await?
         {
-            influencers
-                .0
-                .into_iter()
-                .for_each(|(id, _)| {
-                    self.list.active_users.push(id.clone());
-                    user_ids.insert(id);
-                });
+            influencers.0.into_iter().for_each(|(id, _)| {
+                self.list.active_users.push(id.clone());
+                user_ids.insert(id);
+            });
         }
         Ok(())
     }
@@ -226,18 +248,16 @@ impl ImAliveResponse {
     /// # Parameters
     /// - `user_ids: &mut HashSet<String>` A mutable reference to a set of user IDs
     /// - `viewer_id: &str` The ID of the user for whom suggestions are being generated
-    pub async fn add_suggestions(
+    async fn add_suggestions(
         &mut self,
         user_ids: &mut HashSet<String>,
         viewer_id: &str,
     ) -> Result<(), DynError> {
         if let Some(recommended_users) = UserStream::get_recommended_ids(viewer_id, None).await? {
-            recommended_users
-                .into_iter()
-                .for_each(|id| {
-                    self.list.suggestions.push(id.clone());
-                    user_ids.insert(id);
-                });
+            recommended_users.into_iter().for_each(|id| {
+                self.list.suggestions.push(id.clone());
+                user_ids.insert(id);
+            });
         }
         Ok(())
     }
@@ -248,7 +268,7 @@ impl ImAliveResponse {
 /// # Parameters
 /// - `limit: usize` The maximum number of posts to retrieve in the stream
 ///
-pub fn input_for_post_stream(limit: usize) -> (StreamSource, Pagination) {
+fn input_for_post_stream(limit: usize) -> (StreamSource, Pagination) {
     (
         StreamSource::All,
         Pagination {
