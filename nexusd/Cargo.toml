@@ -10,7 +10,7 @@ license = "MIT"
 [dependencies]
 async-trait = { workspace = true }
 chrono = { workspace = true }
-clap = { version = "4.5.35", features = ["derive"] }
+clap = { version = "4.5.37", features = ["derive"] }
 neo4rs = { workspace = true }
 nexus-api = { version = "0.4.0", path = "../nexus-api" }
 nexus-common = { version = "0.4.0", path = "../nexus-common" }
