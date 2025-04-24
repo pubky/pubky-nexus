@@ -1,5 +1,5 @@
 use crate::routes::v0::endpoints::{USER_ALIVE_ROUTE, USER_ROUTE};
-use crate::routes::v0::user::types::{ImAliveResponse, ViewType};
+use crate::routes::v0::user::types::ImAliveResponse;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
@@ -68,12 +68,14 @@ pub async fn user_im_alive_handler(
 ) -> Result<Json<ImAliveResponse>> {
     info!("GET {USER_ALIVE_ROUTE} user_id:{}", user_id);
 
-    let view_type = ViewType::Full;
+    // let view_type = ViewType::Full;
 
-    match ImAliveResponse::create(&user_id, view_type).await {
-        Ok(result) => Ok(Json(result)),
-        Err(source) => Err(Error::InternalServerError { source }),
-    }
+    // match ImAliveResponse::create(&user_id, view_type).await {
+    //     Ok(result) => Ok(Json(result)),
+    //     Err(source) => Err(Error::InternalServerError { source }),
+    // }
+    println!("Until new client, im_alive endpoint not available. NOTE: If you want to test, uncomment above code ;)");
+    Ok(Json(ImAliveResponse::default()))
 }
 
 #[derive(OpenApi)]
