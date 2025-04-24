@@ -1,4 +1,3 @@
-use super::testnet::TestnetNetwork;
 use anyhow::{anyhow, Result};
 use chrono::Utc;
 use nexus_common::db::PubkyClient;
@@ -12,14 +11,14 @@ use pubky::Keypair;
 use pubky_app_specs::{
     traits::TimestampId, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser,
 };
-use pubky_homeserver::Homeserver;
+use pubky_testnet::EphemeralTestnet;
 use std::path::PathBuf;
 use std::time::Duration;
 use tracing::debug;
 
 /// Struct to hold the setup environment for tests
 pub struct WatcherTest {
-    pub homeserver: Homeserver,
+    pub testnet: EphemeralTestnet,
     pub event_processor: EventProcessor,
     pub ensure_event_processing: bool,
 }
@@ -43,12 +42,11 @@ impl WatcherTest {
         NexusWatcher::builder().init_test_stack().await;
 
         // testnet initialization is time expensive, we only init one per process
-        let testnet = TestnetNetwork::get().await?;
+        let testnet = EphemeralTestnet::start().await.map_err(|e| e)?;
 
-        let homeserver = testnet.run_homeserver().await.unwrap();
-        let homeserver_id = homeserver.public_key().to_string();
+        let homeserver_id = testnet.homeserver_suite().public_key().to_string();
 
-        let client = testnet.client_builder().build().unwrap();
+        let client = testnet.pubky_client_builder().build().unwrap();
 
         match PubkyClient::init_from_client(client).await {
             Ok(_) => debug!("WatcherTest: PubkyConnector initialised"),
@@ -58,7 +56,7 @@ impl WatcherTest {
         let event_processor = EventProcessor::test(homeserver_id).await;
 
         Ok(Self {
-            homeserver,
+            testnet,
             event_processor,
             ensure_event_processing: true,
         })
@@ -127,7 +125,11 @@ impl WatcherTest {
         let pubky_client = PubkyClient::get().unwrap();
 
         pubky_client
-            .signup(&keypair, &self.homeserver.public_key(), None)
+            .signup(
+                &keypair,
+                &self.testnet.homeserver_suite().public_key(),
+                None,
+            )
             .await?;
         Ok(())
     }
@@ -137,7 +139,7 @@ impl WatcherTest {
         let pubky_client = PubkyClient::get().unwrap();
         // Register the key in the homeserver
         pubky_client
-            .signup(keypair, &self.homeserver.public_key(), None)
+            .signup(keypair, &self.testnet.homeserver_suite().public_key(), None)
             .await?;
         let url = format!("pubky://{}/pub/pubky.app/profile.json", user_id);
 
