@@ -68,14 +68,14 @@ pub async fn user_bootstrap_handler(
 ) -> Result<Json<BootstrapResponse>> {
     info!("GET {USER_BOOTSTRAP_ROUTE} user_id:{}", user_id);
 
-    let view_type = ViewType::Full;
+    // let view_type = ViewType::Full;
 
-    match BootstrapResponse::create(&user_id, view_type).await {
-        Ok(result) => Ok(Json(result)),
-        Err(source) => Err(Error::InternalServerError { source }),
-    }
-    // println!("Until new client, im_alive endpoint not available. NOTE: If you want to test, uncomment above code ;)");
-    // Ok(Json(BootstrapResponse::default()))
+    // match BootstrapResponse::create(&user_id, view_type).await {
+    //     Ok(result) => Ok(Json(result)),
+    //     Err(source) => Err(Error::InternalServerError { source }),
+    // }
+    println!("Until new client, im_alive endpoint not available. NOTE: If you want to test, uncomment above code ;)");
+    Ok(Json(BootstrapResponse::default()))
 }
 
 #[derive(OpenApi)]
