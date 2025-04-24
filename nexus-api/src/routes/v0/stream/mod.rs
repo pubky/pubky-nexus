@@ -14,15 +14,19 @@ pub fn routes() -> Router<AppState> {
         endpoints::STREAM_USERS_USERNAME_SEARCH_ROUTE => users::stream_username_search_handler,
 
         // Post stream
-        endpoints::STREAM_POSTS_ROUTE => posts::stream_posts_handler,
+        endpoints::STREAM_POSTS_ROUTE => posts::stream_posts_handler
     );
 
     // Register the POST route separately
-
-    router.route(
-        endpoints::STREAM_USERS_BY_IDS_ROUTE,
-        axum::routing::post(users::stream_users_by_ids_handler),
-    )
+    router
+        .route(
+            endpoints::STREAM_USERS_BY_IDS_ROUTE,
+            axum::routing::post(users::stream_users_by_ids_handler),
+        )
+        .route(
+            endpoints::STREAM_POSTS_BY_IDS_ROUTE,
+            axum::routing::post(posts::stream_posts_by_ids_handler),
+        )
 }
 
 #[derive(OpenApi)]

@@ -1,4 +1,4 @@
-use crate::routes::v0::endpoints::STREAM_POSTS_ROUTE;
+use crate::routes::v0::endpoints::{STREAM_POSTS_BY_IDS_ROUTE, STREAM_POSTS_ROUTE};
 use crate::{Error, Result as AppResult};
 use axum::{extract::Query, Json};
 use nexus_common::db::kv::SortOrder;
@@ -128,9 +128,65 @@ pub async fn stream_posts_handler(
     }
 }
 
+#[derive(ToSchema, Deserialize)]
+pub struct PostStreamByIdsRequest {
+    pub post_ids: Vec<String>,
+    pub viewer_id: Option<String>,
+}
+#[utoipa::path(
+    post,
+    path = STREAM_POSTS_BY_IDS_ROUTE,
+    tag = "Stream",
+    description = "Stream post by ID. This is a POST request because we're passing a potentially large list of post IDs in the request body",
+    request_body = PostStreamByIdsRequest,
+    params(
+        ("post_ids" = Vec<String>, Path, description = "Post ID array"),
+        ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID")
+    ),
+    responses(
+        (status = 200, description = "Post stream", body = PostStream),
+        (status = 404, description = "Posts not found"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn stream_posts_by_ids_handler(
+    Json(request): Json<PostStreamByIdsRequest>,
+) -> AppResult<Json<PostStream>> {
+    info!(
+        "POST {} post_ids size {:?}",
+        STREAM_POSTS_BY_IDS_ROUTE,
+        request.post_ids.len()
+    );
+
+    const MAX_POSTS: usize = 1000;
+
+    if request.post_ids.len() > MAX_POSTS {
+        return Err(Error::InvalidInput {
+            message: format!("The maximum number of post IDs allowed is {}", MAX_POSTS),
+        });
+    }
+
+    if request.post_ids.is_empty() {
+        return Err(Error::InvalidInput {
+            message: "The list of post IDs provided is empty".to_string(),
+        });
+    }
+
+    match PostStream::from_listed_post_ids(request.viewer_id, &request.post_ids).await {
+        Ok(Some(stream)) => Ok(Json(stream)),
+        Ok(None) => Err(Error::EmptyStream {
+            message: format!(
+                "No users found for the requested stream with user ids: {:?}",
+                request.post_ids
+            ),
+        }),
+        Err(source) => Err(Error::InternalServerError { source }),
+    }
+}
+
 #[derive(OpenApi)]
 #[openapi(
-    paths(stream_posts_handler,),
+    paths(stream_posts_handler, stream_posts_by_ids_handler),
     components(schemas(PostStream, StreamSorting, StreamSource))
 )]
 pub struct StreamPostsApiDocs;
