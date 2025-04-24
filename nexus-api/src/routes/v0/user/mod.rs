@@ -10,11 +10,13 @@ mod follows;
 mod muted;
 mod relationship;
 pub mod tags;
+pub mod types;
 mod view;
 
 pub fn routes() -> Router<AppState> {
     register_routes!(Router::new(),
         endpoints::USER_ROUTE => view::user_view_handler,
+        endpoints::USER_ALIVE_ROUTE => view::user_im_alive_handler,
         endpoints::USER_DETAILS_ROUTE => details::user_details_handler,
         endpoints::RELATIONSHIP_ROUTE => relationship::user_relationship_handler,
         endpoints::USER_TAGS_ROUTE => tags::user_tags_handler,

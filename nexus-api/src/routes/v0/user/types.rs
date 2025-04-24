@@ -1,0 +1,261 @@
+use std::collections::HashSet;
+
+use nexus_common::db::kv::SortOrder;
+use nexus_common::types::{DynError, Pagination, StreamSorting, Timeframe};
+
+use nexus_common::models::{
+    post::{PostStream, PostView, StreamSource},
+    tag::TagDetails,
+    user::{Influencers, UserStream, UserView},
+};
+use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
+
+#[derive(PartialEq, Deserialize)]
+pub enum ViewType {
+    Full,
+    Partial,
+}
+
+#[derive(Serialize, ToSchema, Deserialize, Default, Debug)]
+pub struct ImAliveResponse {
+    pub users: Vec<UserView>,
+    pub posts: Vec<PostView>,
+    pub list: ImAliveListResponse,
+}
+
+#[derive(Serialize, ToSchema, Deserialize, Default, Debug)]
+pub struct ImAliveListResponse {
+    pub stream: Vec<String>,
+    pub active_users: Vec<String>,
+    pub suggestions: Vec<String>,
+}
+
+impl ImAliveResponse {
+    /// Builds an `ImAlive` summary for the specified `user_id`, fetching posts, replies,
+    /// active influencers, and personalized suggestions
+    ///
+    /// # Parameters
+    /// - `user_id: &str`  
+    ///   The ID of the user whose “ImAlive” stream is being built
+    /// - `view_type: ViewType`  
+    ///   Controls whether to fetch replies and include full stream entries (`Full`)
+    ///   or only base posts (`Partial`)
+    pub async fn create(user_id: &str, view_type: ViewType) -> Result<Self, DynError> {
+        let mut im_alive = Self::default();
+        let mut user_ids = HashSet::new();
+        let is_full = view_type == ViewType::Full;
+
+        let (source, pagination) = input_for_post_stream(20);
+        let post_stream_by_timeline = PostStream::get_posts(
+            source,
+            pagination,
+            SortOrder::default(),
+            StreamSorting::Timeline,
+            Some(user_id.to_string()),
+            None,
+            None,
+        )
+        .await?
+        .unwrap_or_default();
+
+        let post_replies =
+            im_alive.authors_and_taggers(post_stream_by_timeline, &mut user_ids, view_type);
+
+        if is_full {
+            im_alive
+                .add_replies(post_replies, &mut user_ids, user_id)
+                .await?;
+        }
+        im_alive.add_active_users(&mut user_ids).await?;
+        im_alive.add_suggestions(&mut user_ids, user_id).await?;
+        // Missing hot tags
+        // HotTags::get_hot_tags(None, None, &hot_tag_filter).await?;
+
+        im_alive.add_user_stream(user_ids, Some(user_id)).await?;
+
+        Ok(im_alive)
+    }
+
+    /// Processes a stream of posts, collecting reply references and populating user and post lists
+    ///
+    /// # Parameters
+    /// - `post_stream`: The `PostStream` whose contained posts will be processed
+    /// - `user_ids`: A mutable set of user IDs; authors and taggers encountered will be inserted
+    /// - `view_type`: Indicates whether to operate in `Full` mode (recording stream entries and replies)
+    pub fn authors_and_taggers(
+        &mut self,
+        post_stream: PostStream,
+        user_ids: &mut HashSet<String>,
+        view_type: ViewType,
+    ) -> Vec<(String, String)> {
+        let is_full = view_type == ViewType::Full;
+        let mut post_replies = Vec::with_capacity(post_stream.0.len());
+
+        for post_view in post_stream.0.into_iter() {
+            let author_id = post_view.details.author.clone();
+            let post_id = post_view.details.id.clone();
+
+            if is_full && post_view.counts.replies > 0 {
+                post_replies.push((author_id.clone(), post_id.clone()))
+            }
+            // Add the author of the post
+            user_ids.insert(author_id.clone());
+            // Get all the taggers related with the post
+            Self::append_post_taggers_id(&post_view.tags, user_ids);
+            // Include the post in the stream list
+            if is_full {
+                self.list.stream.push(format!("{author_id}:{post_id}"));
+            }
+            self.posts.push(post_view);
+        }
+        post_replies
+    }
+
+    /// Appends each tagger’s user ID from the given post tag details into the provided set
+    ///
+    /// # Parameters
+    /// - `tag_details_list: &Vec<TagDetails>`  
+    ///   A reference to a vector of `TagDetails`, each containing a list of tagger IDs
+    /// - `users_list: &mut HashSet<String>`  
+    ///   A mutable reference to a set of user IDs; each tagger ID will be inserted here
+    pub fn append_post_taggers_id(
+        tag_details_list: &[TagDetails],
+        users_list: &mut HashSet<String>,
+    ) {
+        for tag_details in tag_details_list.iter() {
+            for tagger_pk in tag_details.taggers.iter() {
+                users_list.insert(tagger_pk.to_string());
+            }
+        }
+    }
+
+    /// Fetches and appends user views for the given set of `user_ids`
+    ///
+    /// # Parameters
+    /// - `user_ids: HashSet<String>`  
+    ///   A set of unique user IDs to fetch views for
+    /// - `viewer_id: Option<&str>`  
+    ///   Optional context user ID for personalized view generation
+    pub async fn add_user_stream(
+        &mut self,
+        user_ids: HashSet<String>,
+        viewer_id: Option<&str>,
+    ) -> Result<(), DynError> {
+        if user_ids.is_empty() {
+            return Ok(());
+        }
+        let user_ids_vec: Vec<String> = user_ids.into_iter().collect();
+        // TODO: If the user list is too big, we could do in batches
+        // for batch in user_ids.chunks(BATCH_SIZE) { ...
+        if let Some(user_stream) =
+            UserStream::from_listed_user_ids(&user_ids_vec, viewer_id, None).await?
+        {
+            self.users.extend(user_stream.0);
+        }
+        Ok(())
+    }
+
+    /// Fetches up to three replies for each post in `post_replies` and integrates their authors (and any taggers)
+    /// into both the internal user list
+    ///
+    /// # Parameters
+    /// - `post_replies: Vec<(String, String)>`  
+    ///   A list of `(author_id, post_id)` tuples indicating which post replies to fetch
+    /// - `user_ids: &mut HashSet<String>`  
+    ///   A mutable reference to a set where each reply’s author ID (and any taggers) will be appended
+    /// - `viewer_id: &str`  
+    ///   The ID of the current viewer
+    pub async fn add_replies(
+        &mut self,
+        post_replies: Vec<(String, String)>,
+        user_ids: &mut HashSet<String>,
+        viewer_id: &str,
+    ) -> Result<(), DynError> {
+        let (_, pagination) = input_for_post_stream(3);
+        let viewer = Some(viewer_id.to_string());
+
+        // TODO: Might consider in the future to do in all the requests in parallel
+        // tokio::task::JoinSet or tokio::spawn(async move {...
+        for (author_id, post_id) in post_replies {
+            if let Some(reply_stream) = PostStream::get_posts(
+                StreamSource::PostReplies { author_id, post_id },
+                pagination.clone(),
+                SortOrder::Descending,
+                StreamSorting::Timeline,
+                viewer.clone(),
+                None,
+                None,
+            )
+            .await?
+            {
+                self.authors_and_taggers(reply_stream, user_ids, ViewType::Partial);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Fetches today’s active influencers and appends their IDs to both the internal `active_users` list
+    /// and the provided `user_ids` set
+    ///
+    /// # Parameters
+    /// - `user_ids: &mut HashSet<String>` A mutable reference to a set of user IDs
+    ///
+    pub async fn add_active_users(
+        &mut self,
+        user_ids: &mut HashSet<String>,
+    ) -> Result<(), DynError> {
+        if let Some(influencers) =
+            Influencers::get_influencers(None, None, 0, 0, Timeframe::Today, true).await?
+        {
+            influencers
+                .0
+                .into_iter()
+                .for_each(|(id, _)| {
+                    self.list.active_users.push(id.clone());
+                    user_ids.insert(id);
+                });
+        }
+        Ok(())
+    }
+
+    /// Fetches recommended user IDs for the given `viewer_id` and appends them to both
+    /// the internal `active_users` list and the provided `user_ids` set
+    ///
+    /// # Parameters
+    /// - `user_ids: &mut HashSet<String>` A mutable reference to a set of user IDs
+    /// - `viewer_id: &str` The ID of the user for whom suggestions are being generated
+    pub async fn add_suggestions(
+        &mut self,
+        user_ids: &mut HashSet<String>,
+        viewer_id: &str,
+    ) -> Result<(), DynError> {
+        if let Some(recommended_users) = UserStream::get_recommended_ids(viewer_id, None).await? {
+            recommended_users
+                .into_iter()
+                .for_each(|id| {
+                    self.list.suggestions.push(id.clone());
+                    user_ids.insert(id);
+                });
+        }
+        Ok(())
+    }
+}
+
+/// Constructs the default `StreamSource` and `Pagination` for fetching a post stream
+///
+/// # Parameters
+/// - `limit: usize` The maximum number of posts to retrieve in the stream
+///
+pub fn input_for_post_stream(limit: usize) -> (StreamSource, Pagination) {
+    (
+        StreamSource::All,
+        Pagination {
+            skip: Some(0),
+            limit: Some(limit),
+            start: None,
+            end: None,
+        },
+    )
+}
