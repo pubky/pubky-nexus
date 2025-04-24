@@ -1,5 +1,5 @@
-use crate::routes::v0::endpoints::{USER_ALIVE_ROUTE, USER_ROUTE};
-use crate::routes::v0::user::types::ImAliveResponse;
+use crate::routes::v0::endpoints::{USER_BOOTSTRAP_ROUTE, USER_ROUTE};
+use crate::routes::v0::user::types::{BootstrapResponse, ViewType};
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
@@ -49,38 +49,38 @@ pub async fn user_view_handler(
 
 #[utoipa::path(
     get,
-    path = USER_ALIVE_ROUTE,
-    description = "Im alive",
+    path = USER_BOOTSTRAP_ROUTE,
+    description = "Aggregated initial payload of all data required to bootstrap the client application",
     tag = "User",
     params(
         ("user_id" = String, Path, description = "User Pubky ID")
     ),
     responses(
-        (status = 200, description = "User Profile", body = ImAliveResponse),
-        (status = 404, description = "User not found"),
+        (status = 200, description = "Initial payload to bootstrap the client", body = BootstrapResponse),
+        (status = 404, description = "User payload not found"),
         (status = 500, description = "Internal server error")
     )
 )]
-pub async fn user_im_alive_handler(
+pub async fn user_bootstrap_handler(
     Path(user_id): Path<String>,
     // TODO: Might need to add param like "ViewType". There are some data that it would be too much to delete in the first go
     //Query(query): Query<Pub>,
-) -> Result<Json<ImAliveResponse>> {
-    info!("GET {USER_ALIVE_ROUTE} user_id:{}", user_id);
+) -> Result<Json<BootstrapResponse>> {
+    info!("GET {USER_BOOTSTRAP_ROUTE} user_id:{}", user_id);
 
-    // let view_type = ViewType::Full;
+    let view_type = ViewType::Full;
 
-    // match ImAliveResponse::create(&user_id, view_type).await {
-    //     Ok(result) => Ok(Json(result)),
-    //     Err(source) => Err(Error::InternalServerError { source }),
-    // }
-    println!("Until new client, im_alive endpoint not available. NOTE: If you want to test, uncomment above code ;)");
-    Ok(Json(ImAliveResponse::default()))
+    match BootstrapResponse::create(&user_id, view_type).await {
+        Ok(result) => Ok(Json(result)),
+        Err(source) => Err(Error::InternalServerError { source }),
+    }
+    // println!("Until new client, im_alive endpoint not available. NOTE: If you want to test, uncomment above code ;)");
+    // Ok(Json(BootstrapResponse::default()))
 }
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(user_view_handler, user_im_alive_handler),
-    components(schemas(UserView, TagDetails, ImAliveResponse))
+    paths(user_view_handler, user_bootstrap_handler),
+    components(schemas(UserView, TagDetails, BootstrapResponse))
 )]
 pub struct UserViewApiDoc;

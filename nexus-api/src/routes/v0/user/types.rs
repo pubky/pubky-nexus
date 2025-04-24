@@ -18,20 +18,20 @@ pub enum ViewType {
 }
 
 #[derive(Serialize, ToSchema, Deserialize, Default, Debug)]
-pub struct ImAliveResponse {
+pub struct BootstrapResponse {
     pub users: Vec<UserView>,
     pub posts: Vec<PostView>,
-    pub list: ImAliveListResponse,
+    pub list: BootstrapList,
 }
 
 #[derive(Serialize, ToSchema, Deserialize, Default, Debug)]
-pub struct ImAliveListResponse {
+pub struct BootstrapList {
     pub stream: Vec<String>,
     pub active_users: Vec<String>,
     pub suggestions: Vec<String>,
 }
 
-impl ImAliveResponse {
+impl BootstrapResponse {
     /// Builds an `ImAlive` summary for the specified `user_id`, fetching posts, replies,
     /// active influencers, and personalized suggestions
     ///

@@ -9,7 +9,7 @@ pub const INFO_ROUTE: &str = concatcp!(VERSION_ROUTE, "/info");
 // -- USER endpoints --
 const USER_PREFIX: &str = concatcp!(VERSION_ROUTE, "/user");
 pub const USER_ROUTE: &str = concatcp!(USER_PREFIX, "/{user_id}");
-pub const USER_ALIVE_ROUTE: &str = concatcp!(USER_ROUTE, "/im_alive");
+pub const USER_BOOTSTRAP_ROUTE: &str = concatcp!(USER_ROUTE, "/im_alive");
 pub const RELATIONSHIP_ROUTE: &str = concatcp!(USER_ROUTE, "/relationship/{viewer_id}");
 pub const USER_COUNTS_ROUTE: &str = concatcp!(USER_ROUTE, "/counts");
 pub const USER_DETAILS_ROUTE: &str = concatcp!(USER_ROUTE, "/details");

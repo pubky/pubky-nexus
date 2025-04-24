@@ -2,14 +2,14 @@
 
 use crate::utils::get_request;
 use anyhow::Result;
-use nexus_api::routes::v0::user::types::ImAliveResponse;
+use nexus_api::routes::v0::user::types::BootstrapResponse;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_im_alive_full() -> Result<()> {
     let user_id = "zdbg13k5gh4tfz9qz11quohrxetgqxs7awandu8h57147xddcuhy";
 
     let body = get_request(&format!("/v0/user/{}/im_alive", user_id)).await?;
-    let _im_alive_respose: ImAliveResponse = serde_json::from_value(body).unwrap();
+    let _im_alive_respose: BootstrapResponse = serde_json::from_value(body).unwrap();
 
     // // Assert the lists
     // assert_eq!(im_alive_respose.list.stream.len(), 20);
