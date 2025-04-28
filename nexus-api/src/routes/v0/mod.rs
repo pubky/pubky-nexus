@@ -1,6 +1,7 @@
 use axum::Router;
 use utoipa::OpenApi;
 
+pub mod bootstrap;
 mod dto;
 pub mod endpoints;
 pub mod file;
@@ -28,6 +29,7 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
     let route_file = file::routes();
     let route_tag = tag::routes();
     let route_notification = notification::routes();
+    let route_bootstrap = bootstrap::routes();
 
     routes_post
         .merge(routes_info)
@@ -37,6 +39,7 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
         .merge(route_file)
         .merge(route_tag)
         .merge(route_notification)
+        .merge(route_bootstrap)
 }
 
 #[derive(OpenApi)]
@@ -54,6 +57,7 @@ impl ApiDoc {
         combined.merge(file::FileApiDoc::merge_docs());
         combined.merge(tag::TagApiDoc::merge_docs());
         combined.merge(notification::NotificationApiDoc::merge_docs());
+        combined.merge(bootstrap::BootstrapApiDoc::merge_docs());
         combined
     }
 }

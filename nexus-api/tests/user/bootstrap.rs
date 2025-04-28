@@ -8,7 +8,7 @@ use nexus_common::models::bootstrap::Bootstrap;
 async fn test_im_alive_full() -> Result<()> {
     let user_id = "zdbg13k5gh4tfz9qz11quohrxetgqxs7awandu8h57147xddcuhy";
 
-    let body = get_request(&format!("/v0/user/{}/im_alive", user_id)).await?;
+    let body = get_request(&format!("/v0/bootstrap/{}/im_alive", user_id)).await?;
     let _im_alive_respose: Bootstrap = serde_json::from_value(body).unwrap();
 
     // // Assert the lists
