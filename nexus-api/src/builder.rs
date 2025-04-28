@@ -140,7 +140,7 @@ impl NexusApi {
                 .expect("Failed to hook up Ctrl+C handler");
             info!("SIGINT received, starting graceful shutdown");
             handle.graceful_shutdown(Some(Duration::from_secs(30)));
-            // Close Redis and Neo4j connections 
+            // Close Redis and Neo4j connections
         });
 
         // Run the server until it finishes
