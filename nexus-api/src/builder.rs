@@ -1,10 +1,13 @@
 use crate::{routes, Config};
+use axum_server::{Handle, Server};
 use nexus_common::db::DatabaseConfig;
 use nexus_common::types::DynError;
 use nexus_common::StackManager;
 use nexus_common::{Config as StackConfig, ConfigLoader, Level};
+use std::time::Duration;
 use std::{fmt::Debug, net::SocketAddr, path::PathBuf};
 use tokio::net::TcpListener;
+use tokio::signal;
 use tracing::{debug, error, info};
 
 #[derive(Debug, Default)]
@@ -121,8 +124,26 @@ impl NexusApi {
         });
         info!("Listening on {:?}", addr);
 
-        // Start server
-        axum::serve(listener, app.into_make_service()).await?;
-        Ok(())
+        let std_listener = listener.into_std()?;
+
+        // Create a shutdown handle
+        let handle = Handle::new();
+
+        let server = Server::from_tcp(std_listener)
+            .handle(handle.clone()) // attach the handle
+            .serve(app.into_make_service());
+
+        // Spawn a task that waits for Ctrl+C and then tells the handle to shut down
+        tokio::spawn(async move {
+            signal::ctrl_c()
+                .await
+                .expect("Failed to hook up Ctrl+C handler");
+            info!("SIGINT received, starting graceful shutdown");
+            handle.graceful_shutdown(Some(Duration::from_secs(30)));
+            // Close Redis and Neo4j connections 
+        });
+
+        // Run the server until it finishes
+        server.await.map_err(Into::into)
     }
 }
