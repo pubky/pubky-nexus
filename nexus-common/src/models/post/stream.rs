@@ -78,6 +78,10 @@ pub struct PostStream(pub Vec<PostView>);
 impl RedisOps for PostStream {}
 
 impl PostStream {
+    pub fn merge(&mut self, post_stream: PostStream) {
+        self.0.extend(post_stream.0);
+        println!("lenght posts: {:?}", self.0.len());
+    }
     pub async fn get_posts(
         source: StreamSource,
         pagination: Pagination,

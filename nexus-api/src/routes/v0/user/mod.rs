@@ -10,7 +10,6 @@ mod follows;
 mod muted;
 mod relationship;
 pub mod tags;
-pub mod types;
 mod view;
 
 pub fn routes() -> Router<AppState> {

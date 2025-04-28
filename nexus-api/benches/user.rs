@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use nexus_api::routes::v0::user::types::{BootstrapResponse, ViewType};
+use nexus_common::models::bootstrap::{Bootstrap, ViewType};
 use nexus_common::models::traits::Collection;
 use nexus_common::models::user::{Relationship, UserCounts, UserDetails, UserView};
 use setup::run_setup;
@@ -231,7 +231,7 @@ fn bench_im_alive(c: &mut Criterion) {
         &user_id,
         |b, &id| {
             b.to_async(&rt).iter(|| async {
-                let user = BootstrapResponse::create(id, ViewType::Full).await.unwrap();
+                let user = Bootstrap::build(id, ViewType::Full).await.unwrap();
                 criterion::black_box(user);
             });
         },

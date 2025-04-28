@@ -41,12 +41,16 @@ pub struct UserStreamInput {
     pub post_id: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, ToSchema, Default)]
+#[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
 pub struct UserStream(pub Vec<UserView>);
 
 impl RedisOps for UserStream {}
 
 impl UserStream {
+    pub fn merge(&mut self, user_stream: UserStream) {
+        self.0.extend(user_stream.0);
+    }
+
     pub async fn get_by_id(
         input: UserStreamInput,
         viewer_id: Option<String>,
