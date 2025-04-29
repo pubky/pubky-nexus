@@ -55,7 +55,7 @@ impl ApiDoc {
         combined.merge(file::FileApiDoc::merge_docs());
         combined.merge(tag::TagApiDoc::merge_docs());
         combined.merge(notification::NotificationApiDoc::merge_docs());
-        combined.merge(bootstrap::BootstrapApiDoc::merge_docs());
+        combined.merge(bootstrap::SwaggerBootstrapApiDoc::merge_docs());
         combined
     }
 }
