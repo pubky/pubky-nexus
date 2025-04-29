@@ -53,7 +53,7 @@ impl MockDb {
             .await
             .expect("Could not get the redis connection");
 
-        redis::cmd("FLUSHALL")
+        deadpool_redis::redis::cmd("FLUSHALL")
             .exec_async(&mut redis_conn)
             .await
             .expect("Failed to flush Redis");
