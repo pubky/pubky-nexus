@@ -1029,7 +1029,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c136f185b3ca9d1f4e4e19c11570e1002f4bfdd592d589053e225716d613851f"
 dependencies = [
  "deadpool 0.12.2",
- "redis",
+ "redis 0.29.5",
 ]
 
 [[package]]
@@ -2403,7 +2403,7 @@ dependencies = [
  "opentelemetry",
  "opentelemetry_sdk",
  "pubky-app-specs",
- "redis",
+ "redis 0.30.0",
  "serde",
  "serde_json",
  "thiserror 2.0.12",
@@ -2431,7 +2431,7 @@ dependencies = [
  "opentelemetry_sdk",
  "pubky",
  "pubky-app-specs",
- "redis",
+ "redis 0.30.0",
  "serde",
  "serde_json",
  "thiserror 2.0.12",
@@ -2455,6 +2455,7 @@ dependencies = [
  "opentelemetry",
  "pubky",
  "pubky-app-specs",
+ "pubky-homeserver 0.1.2",
  "pubky-testnet",
  "rand 0.9.1",
  "rand_distr",
@@ -2982,6 +2983,25 @@ dependencies = [
 
 [[package]]
 name = "pkarr-republisher"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2374ab6c246ecb55660b7fe5152f199caac4533de8e0f2c97795372f98805ad"
+dependencies = [
+ "anyhow",
+ "clap",
+ "ctrlc",
+ "futures-lite",
+ "hex",
+ "pkarr",
+ "rand 0.9.1",
+ "thiserror 2.0.12",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "pkarr-republisher"
 version = "0.2.0-rc.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dbe824f3c8c888c706410e23fc5a65728cb81f71a221d49fc7921cbb9d2551db"
@@ -3157,7 +3177,7 @@ dependencies = [
  "js-sys",
  "log",
  "pkarr",
- "pubky-common",
+ "pubky-common 0.4.0-rc.0",
  "reqwest",
  "thiserror 2.0.12",
  "tokio",
@@ -3189,6 +3209,27 @@ dependencies = [
 
 [[package]]
 name = "pubky-common"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3220bb556278535a375d4c155f1dfb4602ac1d54a3f79656291accf38ad864bc"
+dependencies = [
+ "argon2",
+ "base32",
+ "blake3",
+ "crypto_secretbox",
+ "ed25519-dalek",
+ "js-sys",
+ "once_cell",
+ "pkarr",
+ "postcard",
+ "pubky-timestamp",
+ "rand 0.9.1",
+ "serde",
+ "thiserror 2.0.12",
+]
+
+[[package]]
+name = "pubky-common"
 version = "0.4.0-rc.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c5c9573b5151179b738dd0165fe34ce5e2b0f6b61f2a309567c5222aaffa4b5d"
@@ -3206,6 +3247,42 @@ dependencies = [
  "rand 0.9.1",
  "serde",
  "thiserror 2.0.12",
+]
+
+[[package]]
+name = "pubky-homeserver"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b73ba93159eb3aafc711e20af4d826bf5e914ca62c2af1515b9095333355abd"
+dependencies = [
+ "anyhow",
+ "axum",
+ "axum-extra",
+ "axum-server",
+ "base32",
+ "bytes",
+ "clap",
+ "dirs-next",
+ "flume",
+ "futures-util",
+ "heed",
+ "hex",
+ "httpdate",
+ "page_size",
+ "pkarr",
+ "pkarr-republisher 0.1.0",
+ "postcard",
+ "pubky-common 0.3.1",
+ "serde",
+ "thiserror 2.0.12",
+ "tokio",
+ "toml",
+ "tower 0.5.2",
+ "tower-cookies",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "url",
 ]
 
 [[package]]
@@ -3232,9 +3309,9 @@ dependencies = [
  "httpdate",
  "page_size",
  "pkarr",
- "pkarr-republisher",
+ "pkarr-republisher 0.2.0-rc.0",
  "postcard",
- "pubky-common",
+ "pubky-common 0.4.0-rc.0",
  "reqwest",
  "serde",
  "tempfile",
@@ -3261,8 +3338,8 @@ dependencies = [
  "pkarr",
  "pkarr-relay",
  "pubky",
- "pubky-common",
- "pubky-homeserver",
+ "pubky-common 0.4.0-rc.0",
+ "pubky-homeserver 0.2.0-rc.0",
  "tempfile",
  "tokio",
  "tracing",
@@ -3478,6 +3555,28 @@ checksum = "1bc42f3a12fd4408ce64d8efef67048a924e543bd35c6591c0447fda9054695f"
 dependencies = [
  "arc-swap",
  "bytes",
+ "combine",
+ "futures-util",
+ "itoa",
+ "num-bigint",
+ "percent-encoding",
+ "pin-project-lite",
+ "ryu",
+ "socket2",
+ "tokio",
+ "tokio-util",
+ "url",
+]
+
+[[package]]
+name = "redis"
+version = "0.30.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "438a4e5f8e9aa246d6f3666d6978441bf1b37d5f417b50c4dd220be09f5fcc17"
+dependencies = [
+ "arc-swap",
+ "bytes",
+ "cfg-if",
  "combine",
  "futures-util",
  "itoa",
@@ -3707,7 +3806,7 @@ dependencies = [
  "futures-util",
  "http",
  "mime",
- "rand 0.9.0",
+ "rand 0.9.1",
  "thiserror 2.0.12",
 ]
 
