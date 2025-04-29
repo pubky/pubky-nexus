@@ -1,15 +1,15 @@
-use crate::routes::v0::endpoints::IM_ALIVE_ROUTE;
 use crate::Result;
+use crate::{routes::v0::endpoints::USER_BOOTSTRAP_ROUTE, Error};
 use axum::extract::Path;
 use axum::Json;
-use nexus_common::models::bootstrap::Bootstrap;
+use nexus_common::models::bootstrap::{Bootstrap, ViewType};
 use tracing::info;
 use utoipa::OpenApi;
 
 #[utoipa::path(
     get,
-    path = IM_ALIVE_ROUTE,
-    description = "Initial payload of all data required to bootstrap the pubky.app application. The client will request in the authentication process",
+    path = USER_BOOTSTRAP_ROUTE,
+    description = "Initial payload for all data required to bootstrap the pubky.app application. The client app will request it while the user is performing sign-in in order to pre-populate the client DB",
     tag = "User",
     params(
         ("user_id" = String, Path, description = "User Pubky ID")
@@ -25,16 +25,14 @@ pub async fn user_bootstrap_handler(
     // TODO: Might need to add param like "ViewType". There are some data that it would be too much to delete in the first go
     //Query(query): Query<Pub>,
 ) -> Result<Json<Bootstrap>> {
-    info!("GET {IM_ALIVE_ROUTE}, user_id:{}", user_id);
+    info!("GET {USER_BOOTSTRAP_ROUTE}, user_id:{}", user_id);
 
-    // let view_type = ViewType::Full;
+    let view_type = ViewType::Full;
 
-    // match Bootstrap::build(&user_id, view_type).await {
-    //     Ok(result) => Ok(Json(result)),
-    //     Err(source) => Err(Error::InternalServerError { source }),
-    // }
-    println!("Until new client, im_alive endpoint not available. NOTE: If you want to test, uncomment above code ;)");
-    Ok(Json(Bootstrap::default()))
+    match Bootstrap::build(&user_id, view_type).await {
+        Ok(result) => Ok(Json(result)),
+        Err(source) => Err(Error::InternalServerError { source }),
+    }
 }
 
 #[derive(OpenApi)]

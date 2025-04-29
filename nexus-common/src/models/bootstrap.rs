@@ -32,7 +32,7 @@ pub struct BootstrapList {
 }
 
 impl Bootstrap {
-    /// Builds an `ImAlive` summary for the specified `user_id`, fetching posts, replies,
+    /// Builds an pubky.app bootstrap summary for the specified `user_id`, fetching posts, replies,
     /// active influencers, and personalized suggestions
     ///
     /// # Parameters
@@ -42,51 +42,45 @@ impl Bootstrap {
     ///   Controls whether to fetch replies and include full stream entries (`Full`)
     ///   or only base posts (`Partial`)
     pub async fn build(user_id: &str, view_type: ViewType) -> Result<Self, DynError> {
-        let mut im_alive = Self::default();
+        let mut bootstrap = Self::default();
         // Initialise the hashset with the user
         let mut user_ids = HashSet::from([String::from(user_id)]);
-        let is_full = view_type == ViewType::Full;
+        let is_full_view_type = view_type == ViewType::Full;
 
-        let (source, pagination) = post_stream_defaults(20);
-        let post_stream_by_timeline = PostStream::get_posts(
-            source,
-            pagination,
-            SortOrder::default(),
-            StreamSorting::Timeline,
-            Some(user_id.to_string()),
-            None,
-            None,
-        )
-        .await?
-        .unwrap_or_default();
+        let post_stream_by_timeline =
+            get_post_stream_timeline(user_id, StreamSource::All, 20).await?;
 
         let post_replies =
-            im_alive.process_post_stream(post_stream_by_timeline, &mut user_ids, view_type);
+            bootstrap.process_post_stream(post_stream_by_timeline, &mut user_ids, view_type);
 
-        if is_full {
-            im_alive
+        bootstrap.add_influencers(&mut user_ids).await?;
+        bootstrap
+            .add_recommended_users(&mut user_ids, user_id)
+            .await?;
+        // // TODO: Missing hot tags
+        // HotTags::get_hot_tags(None, None, &hot_tag_filter).await?;
+
+        if is_full_view_type {
+            bootstrap
                 .merge_post_replies(post_replies, &mut user_ids, user_id)
                 .await?;
         }
-        im_alive.add_influencers(&mut user_ids).await?;
-        im_alive
-            .add_recommended_users(&mut user_ids, user_id)
-            .await?;
-        // Missing hot tags
-        // HotTags::get_hot_tags(None, None, &hot_tag_filter).await?;
 
-        im_alive.merge_user_stream(&user_ids, Some(user_id)).await?;
+        // Merge all the users related with posts, post replies, influencers and recommended
+        bootstrap
+            .merge_user_stream(&user_ids, Some(user_id))
+            .await?;
 
         // UserViews has also taggers, fetch the missing users UserViews
-        if is_full {
-            let missing_taggers = im_alive.collect_missing_taggers(&user_ids);
+        if is_full_view_type {
+            let missing_taggers = bootstrap.collect_missing_taggers(&user_ids);
             if !missing_taggers.is_empty() {
-                im_alive
+                bootstrap
                     .merge_user_stream(&missing_taggers, Some(user_id))
                     .await?;
             }
         }
-        Ok(im_alive)
+        Ok(bootstrap)
     }
 
     /// Processes a stream of posts, collecting reply references, adding post taggers and populating the post stream
@@ -102,14 +96,14 @@ impl Bootstrap {
         user_ids: &mut HashSet<String>,
         view_type: ViewType,
     ) -> Vec<(String, String)> {
-        let is_full = view_type == ViewType::Full;
+        let is_full_view_type = view_type == ViewType::Full;
         let mut post_replies = Vec::with_capacity(post_stream.0.len());
 
         for post_view in post_stream.0.iter() {
             let author_id = post_view.details.author.clone();
             let post_id = post_view.details.id.clone();
 
-            if is_full && post_view.counts.replies > 0 {
+            if is_full_view_type && post_view.counts.replies > 0 {
                 post_replies.push((author_id.clone(), post_id.clone()))
             }
             // Add the author of the post
@@ -117,12 +111,12 @@ impl Bootstrap {
             // Get all the taggers related with the post
             Self::insert_taggers_id(&post_view.tags, user_ids);
             // Include the post in the stream list
-            if is_full {
+            if is_full_view_type {
                 self.list.stream.push(format!("{author_id}:{post_id}"));
             }
         }
         // After analyse the posts, authors and tags, push the stream
-        self.posts.merge(post_stream);
+        self.posts.extend(post_stream);
         post_replies
     }
 
@@ -184,7 +178,7 @@ impl Bootstrap {
         if let Some(user_stream) =
             UserStream::from_listed_user_ids(&user_ids_vec, viewer_id, None).await?
         {
-            self.users.merge(user_stream);
+            self.users.extend(user_stream);
         }
         Ok(())
     }
@@ -205,25 +199,16 @@ impl Bootstrap {
         user_ids: &mut HashSet<String>,
         viewer_id: &str,
     ) -> Result<(), DynError> {
-        let (_, pagination) = post_stream_defaults(3);
-        let viewer = Some(viewer_id.to_string());
-
         // TODO: Might consider in the future to do in all the requests in parallel
         // tokio::task::JoinSet or tokio::spawn(async move {...
         for (author_id, post_id) in post_replies {
-            if let Some(reply_stream) = PostStream::get_posts(
+            let reply_stream = get_post_stream_timeline(
+                viewer_id,
                 StreamSource::PostReplies { author_id, post_id },
-                pagination.clone(),
-                SortOrder::Descending,
-                StreamSorting::Timeline,
-                viewer.clone(),
-                None,
-                None,
+                3,
             )
-            .await?
-            {
-                self.process_post_stream(reply_stream, user_ids, ViewType::Partial);
-            }
+            .await?;
+            self.process_post_stream(reply_stream, user_ids, ViewType::Partial);
         }
         Ok(())
     }
@@ -267,19 +252,26 @@ impl Bootstrap {
     }
 }
 
-/// Constructs the default `StreamSource` and `Pagination` for fetching a post stream
-///
-/// # Parameters
-/// - `limit: usize` The maximum number of posts to retrieve in the stream
-///
-fn post_stream_defaults(limit: usize) -> (StreamSource, Pagination) {
-    (
-        StreamSource::All,
-        Pagination {
-            skip: Some(0),
-            limit: Some(limit),
-            start: None,
-            end: None,
-        },
+async fn get_post_stream_timeline(
+    viewer_id: &str,
+    source: StreamSource,
+    limit: usize,
+) -> Result<PostStream, DynError> {
+    let pagination = Pagination {
+        skip: Some(0),
+        limit: Some(limit),
+        start: None,
+        end: None,
+    };
+    Ok(PostStream::get_posts(
+        source,
+        pagination,
+        SortOrder::default(),
+        StreamSorting::Timeline,
+        Some(viewer_id.to_string()),
+        None,
+        None,
     )
+    .await?
+    .unwrap_or_default())
 }

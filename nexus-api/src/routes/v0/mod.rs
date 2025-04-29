@@ -2,7 +2,6 @@ use axum::Router;
 use utoipa::OpenApi;
 
 pub mod bootstrap;
-mod dto;
 pub mod endpoints;
 pub mod file;
 pub mod info;
@@ -11,12 +10,11 @@ pub mod post;
 pub mod search;
 pub mod stream;
 pub mod tag;
-pub mod types;
+mod types;
 pub mod user;
 pub mod utils;
 
-pub use dto::TaggersInfoDTO;
-pub use types::TagsQuery;
+pub use types::{TaggersInfoResponse, TagsQuery};
 
 use super::AppState;
 

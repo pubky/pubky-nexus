@@ -63,4 +63,4 @@ pub const NOTIFICATION_ROUTE: &str = concatcp!(USER_ROUTE, "/notifications");
 
 // -- BOOTSTRAP endpoints -
 const BOOTSTRAP_PREFIX: &str = concatcp!(VERSION_ROUTE, "/bootstrap");
-pub const IM_ALIVE_ROUTE: &str = concatcp!(BOOTSTRAP_PREFIX, "/{user_id}/im_alive");
+pub const USER_BOOTSTRAP_ROUTE: &str = concatcp!(BOOTSTRAP_PREFIX, "/{user_id}");

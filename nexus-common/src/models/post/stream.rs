@@ -78,7 +78,7 @@ pub struct PostStream(pub Vec<PostView>);
 impl RedisOps for PostStream {}
 
 impl PostStream {
-    pub fn merge(&mut self, post_stream: PostStream) {
+    pub fn extend(&mut self, post_stream: PostStream) {
         self.0.extend(post_stream.0);
     }
     pub async fn get_posts(

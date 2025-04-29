@@ -4,11 +4,11 @@ use crate::routes::AppState;
 use axum::Router;
 use utoipa::OpenApi;
 
-mod im_alive;
+mod user;
 
 pub fn routes() -> Router<AppState> {
     register_routes!(Router::new(),
-        endpoints::IM_ALIVE_ROUTE => im_alive::user_bootstrap_handler,
+        endpoints::USER_BOOTSTRAP_ROUTE => user::user_bootstrap_handler,
     )
 }
 
@@ -18,6 +18,6 @@ pub struct BootstrapApiDoc;
 
 impl BootstrapApiDoc {
     pub fn merge_docs() -> utoipa::openapi::OpenApi {
-        im_alive::ImAliveApiDoc::openapi()
+        user::ImAliveApiDoc::openapi()
     }
 }

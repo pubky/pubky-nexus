@@ -47,7 +47,7 @@ pub struct UserStream(pub Vec<UserView>);
 impl RedisOps for UserStream {}
 
 impl UserStream {
-    pub fn merge(&mut self, user_stream: UserStream) {
+    pub fn extend(&mut self, user_stream: UserStream) {
         self.0.extend(user_stream.0);
     }
 

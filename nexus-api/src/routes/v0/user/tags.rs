@@ -1,6 +1,6 @@
 use crate::routes::v0::endpoints::{USER_TAGGERS_ROUTE, USER_TAGS_ROUTE};
 use crate::routes::v0::utils::json_array_or_no_content;
-use crate::routes::v0::{TaggersInfoDTO, TagsQuery};
+use crate::routes::v0::{TaggersInfoResponse, TagsQuery};
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
@@ -80,7 +80,7 @@ pub struct TaggersQuery {
         ("depth" = Option<usize>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 4, will be ignored")
     ),
     responses(
-        (status = 200, description = "User tags", body = TaggersInfoDTO),
+        (status = 200, description = "User tags", body = TaggersInfoResponse),
         (status = 404, description = "User not found"),
         (status = 500, description = "Internal server error")
     )
@@ -91,7 +91,7 @@ pub async fn user_taggers_handler(
         pagination,
         tags_query,
     }): Query<TaggersQuery>,
-) -> Result<Json<TaggersInfoDTO>> {
+) -> Result<Json<TaggersInfoResponse>> {
     info!(
         "GET {USER_TAGGERS_ROUTE} user_id:{}, label: {}, skip:{:?}, limit:{:?}, viewer_id:{:?}, depth:{:?}",
         user_id, label, pagination.skip, pagination.limit, tags_query.viewer_id, tags_query.depth
@@ -107,7 +107,7 @@ pub async fn user_taggers_handler(
     )
     .await
     {
-        Ok(Some(tags)) => Ok(Json(TaggersInfoDTO::from(tags))),
+        Ok(Some(tags)) => Ok(Json(TaggersInfoResponse::from(tags))),
         Ok(None) => Err(Error::UserNotFound { user_id }),
         Err(source) => Err(Error::InternalServerError { source }),
     }
@@ -116,6 +116,6 @@ pub async fn user_taggers_handler(
 #[derive(OpenApi)]
 #[openapi(
     paths(user_tags_handler, user_taggers_handler),
-    components(schemas(TagDetails, TaggersInfoDTO))
+    components(schemas(TagDetails, TaggersInfoResponse))
 )]
 pub struct UserTagsApiDoc;

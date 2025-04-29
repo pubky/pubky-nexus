@@ -1,5 +1,4 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use nexus_common::models::bootstrap::{Bootstrap, ViewType};
 use nexus_common::models::traits::Collection;
 use nexus_common::models::user::{Relationship, UserCounts, UserDetails, UserView};
 use setup::run_setup;
@@ -216,28 +215,6 @@ fn bench_get_details_by_ids_list_from_graph(c: &mut Criterion) {
     );
 }
 
-fn bench_im_alive(c: &mut Criterion) {
-    println!("*****************************************************");
-    println!("Test the performance of getting a user I AM ALIVEEE!!");
-    println!("*****************************************************");
-
-    run_setup();
-
-    let user_id = "zdbg13k5gh4tfz9qz11quohrxetgqxs7awandu8h57147xddcuhy";
-    let rt = Runtime::new().unwrap();
-
-    c.bench_with_input(
-        BenchmarkId::new("user_bootstrap_handler", user_id),
-        &user_id,
-        |b, &id| {
-            b.to_async(&rt).iter(|| async {
-                let user = Bootstrap::build(id, ViewType::Full).await.unwrap();
-                criterion::black_box(user);
-            });
-        },
-    );
-}
-
 fn configure_criterion() -> Criterion {
     Criterion::default()
         .measurement_time(Duration::new(5, 0))
@@ -255,8 +232,7 @@ criterion_group! {
               bench_get_details_from_graph,
               bench_get_details_by_id,
               bench_get_details_by_ids_list,
-              bench_get_details_by_ids_list_from_graph,
-              bench_im_alive
+              bench_get_details_by_ids_list_from_graph
 }
 
 criterion_main!(benches);
