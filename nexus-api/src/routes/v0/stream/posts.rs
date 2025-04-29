@@ -158,7 +158,7 @@ pub async fn stream_posts_by_ids_handler(
         request.post_ids.len()
     );
 
-    const MAX_POSTS: usize = 1000;
+    const MAX_POSTS: usize = 100;
 
     if request.post_ids.len() > MAX_POSTS {
         return Err(Error::InvalidInput {
