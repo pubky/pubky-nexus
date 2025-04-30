@@ -243,7 +243,7 @@ pub async fn stream_users_by_ids_handler(
         STREAM_USERS_BY_IDS_ROUTE, request.user_ids
     );
 
-    const MAX_USERS: usize = 1000;
+    const MAX_USERS: usize = 100;
 
     if request.user_ids.len() > MAX_USERS {
         return Err(Error::InvalidInput {
