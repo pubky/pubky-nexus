@@ -14,7 +14,7 @@ async fn test_files_by_ids() -> Result<()> {
     let test_file_uri2 = format!("pubky://{test_file_user2}/pub/pubky.app/files/{test_file_id2}");
 
     let json_body = post_request(
-        "/v0/files/by-ids",
+        "/v0/files/by_ids",
         json!({"uris": [test_file_uri, test_file_uri2]}),
     )
     .await?;

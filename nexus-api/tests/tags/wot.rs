@@ -4,7 +4,7 @@ use crate::utils::{get_request, invalid_get_request};
 use anyhow::Result;
 use axum::http::StatusCode;
 use deadpool_redis::redis::AsyncCommands;
-use nexus_api::routes::v0::TaggersInfoDTO;
+use nexus_api::routes::v0::TaggersInfoResponse;
 use nexus_common::db::get_redis_conn;
 use nexus_common::models::tag::TagDetails;
 use nexus_common::types::DynError;
@@ -206,7 +206,7 @@ async fn test_wot_user_tags_endpoints() -> Result<(), DynError> {
 }
 
 fn verify_taggers_list(mock_taggers: Vec<&str>, body: Value) {
-    let taggers_info: TaggersInfoDTO = serde_json::from_value(body).unwrap();
+    let taggers_info: TaggersInfoResponse = serde_json::from_value(body).unwrap();
     assert_eq!(taggers_info.users.len(), mock_taggers.len());
 
     assert!(

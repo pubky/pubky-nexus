@@ -41,12 +41,16 @@ pub struct UserStreamInput {
     pub post_id: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, ToSchema, Default)]
-pub struct UserStream(Vec<UserView>);
+#[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
+pub struct UserStream(pub Vec<UserView>);
 
 impl RedisOps for UserStream {}
 
 impl UserStream {
+    pub fn extend(&mut self, user_stream: UserStream) {
+        self.0.extend(user_stream.0);
+    }
+
     pub async fn get_by_id(
         input: UserStreamInput,
         viewer_id: Option<String>,
@@ -134,7 +138,7 @@ impl UserStream {
             .await
     }
     /// Retrieves recommended user IDs based on the specified criteria.
-    async fn get_recommended_ids(
+    pub async fn get_recommended_ids(
         user_id: &str,
         limit: Option<usize>,
     ) -> Result<Option<Vec<String>>, DynError> {

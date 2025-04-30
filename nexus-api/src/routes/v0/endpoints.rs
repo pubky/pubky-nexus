@@ -37,6 +37,7 @@ pub const STREAM_USERS_USERNAME_SEARCH_ROUTE: &str = concatcp!(STREAM_USERS_ROUT
 pub const STREAM_USERS_BY_IDS_ROUTE: &str = concatcp!(STREAM_USERS_ROUTE, "/by_ids");
 // STREAM of PostView objects
 pub const STREAM_POSTS_ROUTE: &str = concatcp!(STREAM_PREFIX, "/posts");
+pub const STREAM_POSTS_BY_IDS_ROUTE: &str = concatcp!(STREAM_POSTS_ROUTE, "/by_ids");
 // STREAM of Tags for posts
 pub const STREAM_TAGS_ROUTE: &str = concatcp!(STREAM_PREFIX, "/tags");
 pub const STREAM_TAGS_GLOBAL_ROUTE: &str = concatcp!(STREAM_TAGS_ROUTE, "/global");
@@ -48,17 +49,18 @@ const SEARCH_PREFIX: &str = concatcp!(VERSION_ROUTE, "/search");
 pub const SEARCH_USERS_ROUTE: &str = concatcp!(SEARCH_PREFIX, "/users");
 pub const SEARCH_TAGS_ROUTE: &str = concatcp!(SEARCH_PREFIX, "/tags/{label}");
 
-// TAG endpoints
-// Axum routes
+// -- TAG endpoints --
 const TAG_PREFIX: &str = concatcp!(VERSION_ROUTE, "/tags");
 pub const TAGS_HOT_ROUTE: &str = concatcp!(TAG_PREFIX, "/hot");
 pub const TAG_TAGGERS_ROUTE: &str = concatcp!(TAG_PREFIX, "/taggers/{label}");
 
-// FILE endpoints
-// Axum routes
+// -- FILE endpoints --
 const FILE_PREFIX: &str = concatcp!(VERSION_ROUTE, "/files");
-pub const FILE_LIST_ROUTE: &str = concatcp!(FILE_PREFIX, "/by-ids");
+pub const FILE_LIST_ROUTE: &str = concatcp!(FILE_PREFIX, "/by_ids");
 pub const FILE_ROUTE: &str = concatcp!(FILE_PREFIX, "/file/{file_id}");
 
-// Notification route
+// -- NOTIFICATION endpoints -
 pub const NOTIFICATION_ROUTE: &str = concatcp!(USER_ROUTE, "/notifications");
+
+// -- BOOTSTRAP endpoints -
+pub const BOOTSTRAP_ROUTE: &str = concatcp!(VERSION_ROUTE, "/bootstrap/{user_id}");
