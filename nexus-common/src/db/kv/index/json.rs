@@ -1,7 +1,7 @@
 use crate::db::get_redis_conn;
 use crate::types::DynError;
-use redis::Script;
-use redis::{AsyncCommands, JsonAsyncCommands};
+use deadpool_redis::redis::Script;
+use deadpool_redis::redis::{AsyncCommands, JsonAsyncCommands};
 use serde::{de::DeserializeOwned, Serialize};
 use tracing::{debug, trace};
 

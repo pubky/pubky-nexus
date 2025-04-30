@@ -1,6 +1,6 @@
 use crate::db::get_redis_conn;
 use crate::types::DynError;
-use redis::AsyncCommands;
+use deadpool_redis::redis::AsyncCommands;
 
 /// Adds elements to a Redis list.
 ///
