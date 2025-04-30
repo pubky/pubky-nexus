@@ -47,6 +47,7 @@ pub struct ApiDoc;
 impl ApiDoc {
     pub fn merge_docs() -> utoipa::openapi::OpenApi {
         let mut combined = post::PostApiDoc::merge_docs();
+        combined.merge(bootstrap::BootstrapApiDoc::openapi());
         combined.merge(info::InfoApiDoc::openapi());
         combined.merge(user::UserApiDoc::merge_docs());
         combined.merge(stream::StreamApiDoc::merge_docs());
@@ -55,7 +56,6 @@ impl ApiDoc {
         combined.merge(file::FileApiDoc::merge_docs());
         combined.merge(tag::TagApiDoc::merge_docs());
         combined.merge(notification::NotificationApiDoc::merge_docs());
-        combined.merge(bootstrap::SwaggerBootstrapApiDoc::merge_docs());
         combined
     }
 }

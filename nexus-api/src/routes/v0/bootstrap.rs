@@ -20,20 +20,20 @@ use utoipa::OpenApi;
     ),
     responses(
         (status = 200, description = "Initial payload to bootstrap the client", body = Bootstrap),
+        (status = 404, description = "user_id requested for bootstrap payload not found"),
         (status = 500, description = "Internal server error")
     )
 )]
 pub async fn bootstrap_handler(
     Path(user_id): Path<String>,
-    // TODO: Might need to add param like "ViewType". There are some data that it would be too much to delete in the first go
+    // TODO: Might need a param like "ViewType". There might be too much data to include in the first go, especially for mobile
     //Query(query): Query<Pub>,
 ) -> Result<Json<Bootstrap>> {
     info!("GET {BOOTSTRAP_ROUTE}, user_id:{}", user_id);
 
-    let view_type = ViewType::Full;
-
-    match Bootstrap::build(&user_id, view_type).await {
-        Ok(result) => Ok(Json(result)),
+    match Bootstrap::build(&user_id, ViewType::Full).await {
+        Ok(Some(result)) => Ok(Json(result)),
+        Ok(None) => Err(Error::UserNotFound { user_id }),
         Err(source) => Err(Error::InternalServerError { source }),
     }
 }
@@ -46,14 +46,4 @@ pub fn routes() -> Router<AppState> {
     register_routes!(Router::new(),
         endpoints::BOOTSTRAP_ROUTE => bootstrap_handler,
     )
-}
-
-#[derive(OpenApi)]
-#[openapi()]
-pub struct SwaggerBootstrapApiDoc;
-
-impl SwaggerBootstrapApiDoc {
-    pub fn merge_docs() -> utoipa::openapi::OpenApi {
-        BootstrapApiDoc::openapi()
-    }
 }

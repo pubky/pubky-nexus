@@ -11,6 +11,8 @@ use crate::models::{
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use super::user::UserDetails;
+
 #[derive(PartialEq, Deserialize)]
 pub enum ViewType {
     Full,
@@ -41,17 +43,21 @@ impl Bootstrap {
     /// - `view_type: ViewType`  
     ///   Controls whether to fetch replies and include full stream entries (`Full`)
     ///   or only base posts (`Partial`)
-    pub async fn build(user_id: &str, view_type: ViewType) -> Result<Self, DynError> {
+    pub async fn build(user_id: &str, view_type: ViewType) -> Result<Option<Self>, DynError> {
         let mut bootstrap = Self::default();
-        // Initialise the hashset with the user
-        let mut user_ids = HashSet::from([String::from(user_id)]);
-        let is_full_view_type = view_type == ViewType::Full;
+        let mut user_ids = HashSet::new();
 
+        // Boostrap guard: Early return if the user lookup fails, avoiding unnecessary work
+        if !user_exists(user_id, &mut user_ids).await? {
+            return Ok(None);
+        }
+
+        let is_full_view_type = view_type == ViewType::Full;
         let post_stream_by_timeline =
             get_post_stream_timeline(user_id, StreamSource::All, 20).await?;
 
         let post_replies =
-            bootstrap.process_post_stream(post_stream_by_timeline, &mut user_ids, view_type);
+            bootstrap.handle_post_stream(post_stream_by_timeline, &mut user_ids, view_type);
 
         bootstrap.add_influencers(&mut user_ids).await?;
         bootstrap
@@ -62,13 +68,13 @@ impl Bootstrap {
 
         if is_full_view_type {
             bootstrap
-                .merge_post_replies(post_replies, &mut user_ids, user_id)
+                .fetch_and_handle_replies(post_replies, &mut user_ids, user_id)
                 .await?;
         }
 
         // Merge all the users related with posts, post replies, influencers and recommended
         bootstrap
-            .merge_user_stream(&user_ids, Some(user_id))
+            .fetch_and_merge_users(&user_ids, Some(user_id))
             .await?;
 
         // UserViews has also taggers, fetch the missing users UserViews
@@ -76,11 +82,11 @@ impl Bootstrap {
             let missing_taggers = bootstrap.collect_missing_taggers(&user_ids);
             if !missing_taggers.is_empty() {
                 bootstrap
-                    .merge_user_stream(&missing_taggers, Some(user_id))
+                    .fetch_and_merge_users(&missing_taggers, Some(user_id))
                     .await?;
             }
         }
-        Ok(bootstrap)
+        Ok(Some(bootstrap))
     }
 
     /// Processes a stream of posts, collecting reply references, adding post taggers and populating the post stream
@@ -90,7 +96,7 @@ impl Bootstrap {
     /// - `post_stream`: The `PostStream` whose contained posts will be processed
     /// - `user_ids`: A mutable set of user IDs; authors and taggers encountered will be inserted
     /// - `view_type`: Indicates whether to operate in `Full` mode (recording stream entries and replies)
-    fn process_post_stream(
+    fn handle_post_stream(
         &mut self,
         post_stream: PostStream,
         user_ids: &mut HashSet<String>,
@@ -126,7 +132,6 @@ impl Bootstrap {
     /// # Parameters
     ///
     /// - `user_ids`: A set of user IDs that have already been fetched or seen
-    ///
     fn collect_missing_taggers(&self, user_ids: &HashSet<String>) -> HashSet<String> {
         let mut missing_taggers = HashSet::new();
         for user in self.users.0.iter() {
@@ -164,7 +169,7 @@ impl Bootstrap {
     ///   A set of unique user IDs to fetch views for
     /// - `viewer_id: Option<&str>`  
     ///   Optional context user ID for personalized view generation
-    async fn merge_user_stream(
+    async fn fetch_and_merge_users(
         &mut self,
         user_ids: &HashSet<String>,
         viewer_id: Option<&str>,
@@ -193,7 +198,7 @@ impl Bootstrap {
     ///   A mutable reference to a set where each reply’s author ID (and any taggers) will be appended
     /// - `viewer_id: &str`  
     ///   The ID of the current viewer
-    async fn merge_post_replies(
+    async fn fetch_and_handle_replies(
         &mut self,
         post_replies: Vec<(String, String)>,
         user_ids: &mut HashSet<String>,
@@ -208,7 +213,7 @@ impl Bootstrap {
                 3,
             )
             .await?;
-            self.process_post_stream(reply_stream, user_ids, ViewType::Partial);
+            self.handle_post_stream(reply_stream, user_ids, ViewType::Partial);
         }
         Ok(())
     }
@@ -274,4 +279,19 @@ async fn get_post_stream_timeline(
     )
     .await?
     .unwrap_or_default())
+}
+
+// Checks if a user with the given `user_id` exists in the data store
+///
+/// # Arguments
+/// - `user_id` – A string slice representing the ID of the user to look up.
+/// - `user_ids: &mut HashSet<String>` A mutable reference to a set of user IDs
+async fn user_exists(user_id: &str, user_ids: &mut HashSet<String>) -> Result<bool, DynError> {
+    let exists = UserDetails::get_by_id(user_id).await?.is_some();
+
+    if exists {
+        user_ids.insert(user_id.to_string());
+    }
+
+    Ok(exists)
 }

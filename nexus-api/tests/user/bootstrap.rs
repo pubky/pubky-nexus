@@ -2,8 +2,9 @@
 
 use std::collections::HashSet;
 
-use crate::utils::get_request;
+use crate::utils::{get_request, invalid_get_request};
 use anyhow::Result;
+use axum::http::StatusCode;
 use nexus_common::models::bootstrap::Bootstrap;
 
 #[tokio_shared_rt::test(shared)]
@@ -44,5 +45,15 @@ async fn test_bootstrap_user() -> Result<()> {
                 );
             });
     }
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_bootstrap_user_does_not_exist() -> Result<()> {
+    let endpoint = format!(
+        "/v0/bootstrat/{}",
+        "zdbg13k5gh4tfz9qz11quohrxetgqxs7awandu8h57147xddcuhi"
+    );
+    invalid_get_request(&endpoint, StatusCode::NOT_FOUND).await?;
     Ok(())
 }
