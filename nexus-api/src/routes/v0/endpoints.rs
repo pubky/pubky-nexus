@@ -49,17 +49,18 @@ const SEARCH_PREFIX: &str = concatcp!(VERSION_ROUTE, "/search");
 pub const SEARCH_USERS_ROUTE: &str = concatcp!(SEARCH_PREFIX, "/users");
 pub const SEARCH_TAGS_ROUTE: &str = concatcp!(SEARCH_PREFIX, "/tags/{label}");
 
-// TAG endpoints
-// Axum routes
+// -- TAG endpoints --
 const TAG_PREFIX: &str = concatcp!(VERSION_ROUTE, "/tags");
 pub const TAGS_HOT_ROUTE: &str = concatcp!(TAG_PREFIX, "/hot");
 pub const TAG_TAGGERS_ROUTE: &str = concatcp!(TAG_PREFIX, "/taggers/{label}");
 
-// FILE endpoints
-// Axum routes
+// -- FILE endpoints --
 const FILE_PREFIX: &str = concatcp!(VERSION_ROUTE, "/files");
-pub const FILE_LIST_ROUTE: &str = concatcp!(FILE_PREFIX, "/by-ids");
+pub const FILE_LIST_ROUTE: &str = concatcp!(FILE_PREFIX, "/by_ids");
 pub const FILE_ROUTE: &str = concatcp!(FILE_PREFIX, "/file/{file_id}");
 
-// Notification route
+// -- NOTIFICATION endpoints -
 pub const NOTIFICATION_ROUTE: &str = concatcp!(USER_ROUTE, "/notifications");
+
+// -- BOOTSTRAP endpoints -
+pub const BOOTSTRAP_ROUTE: &str = concatcp!(VERSION_ROUTE, "/bootstrap/{user_id}");

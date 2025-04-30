@@ -1,3 +1,4 @@
+pub mod bootstrap;
 pub mod file;
 pub mod follow;
 pub mod homeserver;

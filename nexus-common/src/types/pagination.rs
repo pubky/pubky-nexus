@@ -2,7 +2,7 @@ use serde::de::{self, Deserializer};
 use serde::Deserialize;
 use utoipa::ToSchema;
 
-#[derive(Default, Deserialize, Debug, ToSchema)]
+#[derive(Default, Deserialize, Debug, ToSchema, Clone)]
 pub struct Pagination {
     #[serde(default, deserialize_with = "parse_string_to_usize")]
     pub skip: Option<usize>,

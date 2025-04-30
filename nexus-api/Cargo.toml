@@ -42,6 +42,10 @@ tokio-shared-rt = "0.1"
 url = "2.5.4"
 
 [[bench]]
+name = "bootstrap"
+harness = false
+
+[[bench]]
 name = "user"
 harness = false
 

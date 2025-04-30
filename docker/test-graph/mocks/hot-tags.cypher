@@ -241,3 +241,34 @@ MERGE (u)-[:TAGGED { label: $month, id: "53EYM1KZ1JGCHFXWG8RP0J67J2", indexed_at
 WITH (datetime() - duration({ days: 40 })).epochMillis AS all_time_millis
 MATCH (u:User { id: $user1 }), (p:Post {id: $post5})
 MERGE (u)-[:TAGGED { label: $all, id: "53EYM1KZ1JGCHFXWG8RP0J67J5", indexed_at: all_time_millis }]->(p);
+
+// Add some Replies
+:param reply_1 => '0032BZ3YFDGMG';
+MERGE (p:Post { id: $reply_1 }) SET p.content = "This is a 1 reply", p.kind = "short", p.indexed_at = 1737441201104209;
+MATCH (u:User { id: $user2 }), (p:Post {id: $reply_1}) MERGE (u)-[:AUTHORED]->(p);
+MATCH (p1:Post {id: $post4}), (p2:Post {id: $reply_1}) MERGE (p2)-[:REPLIED]->(p1);
+
+:param reply_2 => '0032BZ3YFDGM1';
+MERGE (p:Post { id: $reply_2 }) SET p.content = "This is a 2 reply", p.kind = "short", p.indexed_at = 1737441201104215;
+MATCH (u:User { id: $user3 }), (p:Post {id: $reply_2}) MERGE (u)-[:AUTHORED]->(p);
+MATCH (p1:Post {id: $post4}), (p2:Post {id: $reply_2}) MERGE (p2)-[:REPLIED]->(p1);
+
+:param reply_3 => '0032BZ3YFDGM2';
+MERGE (p:Post { id: $reply_3 }) SET p.content = "This is a 3 reply", p.kind = "short", p.indexed_at = 1737441201104220;
+MATCH (u:User { id: $user2 }), (p:Post {id: $reply_3}) MERGE (u)-[:AUTHORED]->(p);
+MATCH (p1:Post {id: $post3}), (p2:Post {id: $reply_3}) MERGE (p2)-[:REPLIED]->(p1);
+
+:param reply_4 => '0032BZ3YFDGM4';
+MERGE (p:Post { id: $reply_4 }) SET p.content = "This is a 4 reply", p.kind = "short", p.indexed_at = 1737441201104230;
+MATCH (u:User { id: $user3 }), (p:Post {id: $reply_4}) MERGE (u)-[:AUTHORED]->(p);
+MATCH (p1:Post {id: $post3}), (p2:Post {id: $reply_4}) MERGE (p2)-[:REPLIED]->(p1);
+
+:param reply_5 => '0032BZ3YFDGM6';
+MERGE (p:Post { id: $reply_5 }) SET p.content = "This is a 5 reply", p.kind = "short", p.indexed_at = 1737441201104240;
+MATCH (u:User { id: $user4 }), (p:Post {id: $reply_5}) MERGE (u)-[:AUTHORED]->(p);
+MATCH (p1:Post {id: $post3}), (p2:Post {id: $reply_5}) MERGE (p2)-[:REPLIED]->(p1);
+
+:param reply_6 => '0032BZ3YFDGM8';
+MERGE (p:Post { id: $reply_6 }) SET p.content = "This is a 6 reply", p.kind = "short", p.indexed_at = 1737441201104340;
+MATCH (u:User { id: $user5 }), (p:Post {id: $reply_6}) MERGE (u)-[:AUTHORED]->(p);
+MATCH (p1:Post {id: $post3}), (p2:Post {id: $reply_6}) MERGE (p2)-[:REPLIED]->(p1);

@@ -1,7 +1,7 @@
 use axum::Router;
 use utoipa::OpenApi;
 
-mod dto;
+pub mod bootstrap;
 pub mod endpoints;
 pub mod file;
 pub mod info;
@@ -10,12 +10,11 @@ pub mod post;
 pub mod search;
 pub mod stream;
 pub mod tag;
-pub mod types;
+mod types;
 pub mod user;
 pub mod utils;
 
-pub use dto::TaggersInfoDTO;
-pub use types::TagsQuery;
+pub use types::{TaggersInfoResponse, TagsQuery};
 
 use super::AppState;
 
@@ -28,6 +27,7 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
     let route_file = file::routes();
     let route_tag = tag::routes();
     let route_notification = notification::routes();
+    let route_bootstrap = bootstrap::routes();
 
     routes_post
         .merge(routes_info)
@@ -37,6 +37,7 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
         .merge(route_file)
         .merge(route_tag)
         .merge(route_notification)
+        .merge(route_bootstrap)
 }
 
 #[derive(OpenApi)]
@@ -46,6 +47,7 @@ pub struct ApiDoc;
 impl ApiDoc {
     pub fn merge_docs() -> utoipa::openapi::OpenApi {
         let mut combined = post::PostApiDoc::merge_docs();
+        combined.merge(bootstrap::BootstrapApiDoc::openapi());
         combined.merge(info::InfoApiDoc::openapi());
         combined.merge(user::UserApiDoc::merge_docs());
         combined.merge(stream::StreamApiDoc::merge_docs());

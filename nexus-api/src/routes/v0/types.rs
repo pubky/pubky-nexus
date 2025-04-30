@@ -1,5 +1,6 @@
+use nexus_common::models::tag::Taggers;
 use serde::de::{self, Deserializer};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 #[derive(Default, Deserialize, Debug, ToSchema)]
@@ -21,5 +22,22 @@ where
     match s {
         Some(s) => s.parse::<u8>().map(Some).map_err(de::Error::custom),
         None => Ok(None),
+    }
+}
+
+// DTO (Data Transfer Object) is used to transfer structured data between API layers,
+// ensuring clear separation between internal models and external representations
+#[derive(Serialize, ToSchema, Deserialize)]
+pub struct TaggersInfoResponse {
+    pub users: Taggers,
+    pub relationship: bool,
+}
+
+impl From<(Taggers, bool)> for TaggersInfoResponse {
+    fn from(tuple: (Taggers, bool)) -> Self {
+        Self {
+            users: tuple.0,
+            relationship: tuple.1,
+        }
     }
 }
