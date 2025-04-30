@@ -31,7 +31,7 @@ pub async fn bootstrap_handler(
 ) -> Result<Json<Bootstrap>> {
     info!("GET {BOOTSTRAP_ROUTE}, user_id:{}", user_id);
 
-    match Bootstrap::build(&user_id, ViewType::Full).await {
+    match Bootstrap::get_by_id(&user_id, ViewType::Full).await {
         Ok(Some(result)) => Ok(Json(result)),
         Ok(None) => Err(Error::UserNotFound { user_id }),
         Err(source) => Err(Error::InternalServerError { source }),

@@ -43,16 +43,18 @@ impl Bootstrap {
     /// - `view_type: ViewType`  
     ///   Controls whether to fetch replies and include full stream entries (`Full`)
     ///   or only base posts (`Partial`)
-    pub async fn build(user_id: &str, view_type: ViewType) -> Result<Option<Self>, DynError> {
+    pub async fn get_by_id(user_id: &str, view_type: ViewType) -> Result<Option<Self>, DynError> {
         let mut bootstrap = Self::default();
         let mut user_ids = HashSet::new();
 
         // Boostrap guard: Early return if the user lookup fails, avoiding unnecessary work
-        if !user_exists(user_id, &mut user_ids).await? {
+        let Some(_) = UserDetails::get_by_id(user_id).await? else {
             return Ok(None);
-        }
+        };
+        user_ids.insert(user_id.to_string());
 
         let is_full_view_type = view_type == ViewType::Full;
+
         let post_stream_by_timeline =
             get_post_stream_timeline(user_id, StreamSource::All, 20).await?;
 
@@ -279,19 +281,4 @@ async fn get_post_stream_timeline(
     )
     .await?
     .unwrap_or_default())
-}
-
-// Checks if a user with the given `user_id` exists in the data store
-///
-/// # Arguments
-/// - `user_id` – A string slice representing the ID of the user to look up.
-/// - `user_ids: &mut HashSet<String>` A mutable reference to a set of user IDs
-async fn user_exists(user_id: &str, user_ids: &mut HashSet<String>) -> Result<bool, DynError> {
-    let exists = UserDetails::get_by_id(user_id).await?.is_some();
-
-    if exists {
-        user_ids.insert(user_id.to_string());
-    }
-
-    Ok(exists)
 }

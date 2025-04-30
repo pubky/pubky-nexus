@@ -21,8 +21,8 @@ fn bench_bootstrap_user(c: &mut Criterion) {
         &user_id,
         |b, &id| {
             b.to_async(&rt).iter(|| async {
-                let user = Bootstrap::build(id, ViewType::Full).await.unwrap();
-                criterion::black_box(user);
+                let user = Bootstrap::get_by_id(id, ViewType::Full).await.unwrap();
+                criterion::black_box(user.unwrap());
             });
         },
     );
