@@ -108,18 +108,18 @@ impl NexusWatcher {
         pin!(shutdown_signal);
         // If we wanted to handle SIGTERM too
         // let mut sigterm = signal::unix::signal(signal::unix::SignalKind::terminate())?;
-        // Now we only catch carSIGINT
+        // Now we only catch SIGINT
 
         let mut interval = tokio::time::interval(Duration::from_millis(config.watcher_sleep));
 
-        // NOTE: to achieve low-latency shutdown (i.e. abort in-flight processing immediately on Ctrl+C),
+        // TODO: This lets you cancel the underlying future instead of waiting for it to complete
+        // To achieve low-latency shutdown (i.e. abort in-flight processing immediately on Ctrl+C),
         // consider offloading `event_processor.run()` into its own cancellable Tokio task (or spawn_blocking thread),
-        // keeping its `JoinHandle`, and invoking `handle.abort()` when the shutdown (ctlr + c) future resolves.
-        // This lets you cancel the underlying future instead of waiting for it to complete
+        // keeping its `JoinHandle`, and invoking `handle.abort()` when the shutdown (ctlr + c) future resolves
         loop {
             tokio::select! {
                 _ = &mut shutdown_signal => {
-                    info!("Ctrl+C received; stopping NexusWatcher.");
+                    info!("SIGINT received, starting graceful shutdown...");
                     break;
                 }
                 _ = interval.tick() => {
@@ -130,8 +130,7 @@ impl NexusWatcher {
                 }
             }
         }
-        // TODO: Clean up redis and Neo4j connections
-        info!("NexusWatcher shut down gracefully");
+        info!("service shut down gracefully");
         Ok(())
     }
 }
