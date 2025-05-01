@@ -11,6 +11,7 @@ build = "build.rs"
 [dependencies]
 async-trait = { workspace = true }
 axum = "0.8.3"
+axum-server = "0.7.2"
 chrono = { workspace = true }
 clap = { version = "4.5.37", features = ["derive"] }
 const_format = "0.2.34"

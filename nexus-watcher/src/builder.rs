@@ -6,7 +6,8 @@ use nexus_common::StackManager;
 use nexus_common::{Config as StackConfig, ConfigLoader, Level};
 use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
-use tokio::time::{sleep, Duration};
+use tokio::time::Duration;
+use tokio::{pin, signal};
 use tracing::{debug, error, info};
 
 #[derive(Debug, Default)]
@@ -103,13 +104,33 @@ impl NexusWatcher {
         debug!(?config, "Running NexusWatcher with ");
         let mut event_processor = EventProcessor::from_config(&config).await?;
 
+        let shutdown_signal = signal::ctrl_c();
+        pin!(shutdown_signal);
+        // If we wanted to handle SIGTERM too
+        // let mut sigterm = signal::unix::signal(signal::unix::SignalKind::terminate())?;
+        // Now we only catch SIGINT
+
+        let mut interval = tokio::time::interval(Duration::from_millis(config.watcher_sleep));
+
+        // TODO: This lets you cancel the underlying future instead of waiting for it to complete
+        // To achieve low-latency shutdown (i.e. abort in-flight processing immediately on Ctrl+C),
+        // consider offloading `event_processor.run()` into its own cancellable Tokio task (or spawn_blocking thread),
+        // keeping its `JoinHandle`, and invoking `handle.abort()` when the shutdown (ctlr + c) future resolves
         loop {
-            info!("Fetching events...");
-            if let Err(e) = event_processor.run().await {
-                error!("Uncaught error occurred while processing events: {:?}", e);
+            tokio::select! {
+                _ = &mut shutdown_signal => {
+                    info!("SIGINT received, starting graceful shutdown...");
+                    break;
+                }
+                _ = interval.tick() => {
+                    info!("Fetching events…");
+                    if let Err(e) = event_processor.run().await {
+                        error!("Error while processing events: {:?}", e);
+                    }
+                }
             }
-            // Wait for X milliseconds before fetching events again
-            sleep(Duration::from_millis(config.watcher_sleep)).await;
         }
+        info!("service shut down gracefully");
+        Ok(())
     }
 }
