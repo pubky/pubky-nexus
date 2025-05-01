@@ -31,6 +31,7 @@ impl PubkyClient {
                         .build()
                         .map_err(|e| PubkyClientError::ClientError(e.to_string()))?,
                     false => Client::builder()
+                        .pkarr(|b| b.no_relays())
                         .build()
                         .map_err(|e| PubkyClientError::ClientError(e.to_string()))?,
                 };
