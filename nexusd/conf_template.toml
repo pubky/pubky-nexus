@@ -7,7 +7,8 @@ public_addr = "127.0.0.1:8080"
 # Service name used for tracing, logging, and metrics in OpenTelemetry
 name = "nexusd.watcher"
 testnet = false
-homeserver = "8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo"
+# Synonym homeserver pubky
+homeserver = "8um71us3fyw6h8wbcxb5ar3rwusy1a6u49956ikzojg3gcwd1dty"
 events_limit = 50
 watcher_sleep = 5000
 
@@ -15,7 +16,7 @@ watcher_sleep = 5000
 [stack]
 # Logging, options: error, warn, info, debug and trace
 log_level = "debug"
-files_path = "./nexus-api/static/files"
+files_path = "~/pubky-nexus/static/files"
 # OTLP_ENDPOINT is set to empty by default. If you want to enable tracing, set it to the OpenTelemetry Collector endpoint
 #otlp_endpoint="http://localhost:4317"
 
@@ -24,6 +25,6 @@ redis = "redis://127.0.0.1:6379"
 
 [stack.db.neo4j]
 uri = "bolt://localhost:7687"
-# Not needed in the Community Edition
+# Not needed in the Community Edition the profile username, just the password
 #user = "neo4j"
 password = "12345678"

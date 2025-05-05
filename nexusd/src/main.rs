@@ -1,12 +1,13 @@
 use clap::Parser;
-use nexus_api::{builder::NexusApi, mock::MockDb};
-use nexus_watcher::builder::NexusWatcher;
-use nexusd::cli::{Cli, DbCommands, MigrationCommands, NexusCommands};
-use nexusd::config::NexusdConfig;
+use nexus_api::mock::MockDb;
+use nexus_api::NexusApiBuilder;
+use nexus_common::file::ConfigReader;
+use nexus_common::DaemonConfig;
+use nexus_watcher::NexusWatcherBuilder;
+use nexusd::cli::{ApiArgs, Cli, DbCommands, MigrationCommands, NexusCommands, WatcherArgs};
 use nexusd::migrations::{import_migrations, MigrationBuilder, MigrationManager};
+use nexusd::DaemonLauncher;
 use std::error::Error;
-use std::path::PathBuf;
-use tokio::join;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -15,24 +16,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let command = Cli::receive_command(cli);
 
     match command {
-        NexusCommands::Api(args) => {
-            if let Some(config_file) = args.config {
-                NexusApi::run_with_config_file(config_file).await?
-            } else {
-                println!("Starting api service...");
-                // Run watcher logic here
-                NexusApi::builder().run().await?
-            }
-        }
-        NexusCommands::Watcher(args) => {
-            if let Some(config_file) = args.config {
-                NexusWatcher::run_with_config_file(config_file).await?
-            } else {
-                println!("Starting watcher...");
-                // Run watcher logic here
-                NexusWatcher::builder().run().await?
-            }
-        }
         NexusCommands::Db(db_command) => match db_command {
             DbCommands::Clear => MockDb::clear_database().await,
             DbCommands::Mock(args) => MockDb::run(args.mock_type).await,
@@ -46,23 +29,19 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 }
             },
         },
-        NexusCommands::Run { config } => {
-            let (nexus_api_builder, nexus_watcher_builder) = match config {
-                None => {
-                    println!("HERE");
-                    (NexusApi::builder(), NexusWatcher::builder())
-                }
-                Some(file_path) => {
-                    NexusdConfig::load_builders_from_file(PathBuf::from(file_path)).await?
-                }
-            };
-
-            let (_, watcher_result) = join!(nexus_api_builder.run(), nexus_watcher_builder.run());
-
-            // TODO: Handle possible errors. Secure shutdown
-            watcher_result?;
+        NexusCommands::Api(ApiArgs { config }) => {
+            let config = DaemonConfig::read_config_file(config).await?;
+            println!("Starting api service...");
+            // Run API WebServer service
+            NexusApiBuilder(config.into()).start().await?
         }
+        NexusCommands::Watcher(WatcherArgs { config }) => {
+            let config = DaemonConfig::read_config_file(config).await?;
+            println!("Starting watcher...");
+            // Run watcher service
+            NexusWatcherBuilder(config.into()).start().await?
+        }
+        NexusCommands::Run { config } => DaemonLauncher::start(config).await?,
     }
-
     Ok(())
 }

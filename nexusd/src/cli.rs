@@ -1,17 +1,14 @@
 use clap::{Args, Parser, Subcommand};
 use nexus_api::mock::MockType;
+use nexus_common::file::DEFAULT_HOME_DIR;
 use std::path::PathBuf;
-
-const NEXUSD_CONFIG_PATH: &str = "./nexusd/src/conf.toml";
-const API_CONFIG_PATH: &str = "./nexus-api/src/conf.toml";
-const WATCHER_CONFIG_PATH: &str = "./nexus-watcher/src/conf.toml";
 
 #[derive(Parser, Debug)]
 #[command(name = "pubky-nexus")]
 #[command(about = "Pubky Nexus CLI", long_about = None)]
 pub struct Cli {
-    #[arg(short, long, num_args = 0..=1, require_equals = true, default_missing_value = NEXUSD_CONFIG_PATH)]
-    pub config: Option<PathBuf>,
+    #[arg(short, long, default_value_os_t = default_config_dir_path(), value_parser = validate_config_dir_path)]
+    pub config: PathBuf,
 
     #[command(subcommand)]
     pub command: Option<NexusCommands>,
@@ -19,14 +16,25 @@ pub struct Cli {
 
 impl Cli {
     pub fn receive_command(cli: Cli) -> NexusCommands {
-        match (cli.command, cli.config) {
-            (None, Some(file_path)) => NexusCommands::Run {
-                config: Some(file_path.to_string_lossy().into_owned()),
-            },
-            (None, None) => NexusCommands::Run { config: None },
-            (Some(command), _) => command,
+        match cli.command {
+            None => NexusCommands::Run { config: cli.config },
+            Some(command) => command,
         }
     }
+}
+
+fn default_config_dir_path() -> PathBuf {
+    dirs::home_dir().unwrap_or_default().join(DEFAULT_HOME_DIR)
+}
+
+/// Validate that the data_dir path is a directory.
+/// It doesnt need to exist, but if it does, it needs to be a directory.
+fn validate_config_dir_path(path: &str) -> Result<PathBuf, String> {
+    let path = PathBuf::from(path);
+    if path.exists() && path.is_file() {
+        return Err(format!("Given path is not a directory: {}", path.display()));
+    }
+    Ok(path)
 }
 
 #[derive(Subcommand, Debug)]
@@ -45,23 +53,23 @@ pub enum NexusCommands {
     #[command(hide = true)]
     Run {
         /// Path to the configuration file
-        #[arg(short, long, num_args = 0..=1, default_missing_value = NEXUSD_CONFIG_PATH)]
-        config: Option<String>,
+        #[arg(short, long, default_value_os_t = default_config_dir_path(), value_parser = validate_config_dir_path)]
+        config: PathBuf,
     },
 }
 
 #[derive(Args, Debug)]
 pub struct ApiArgs {
     /// Optional configuration file for the watcher
-    #[arg(short, long, num_args = 0..=1, require_equals = true, default_missing_value = API_CONFIG_PATH)]
-    pub config: Option<PathBuf>,
+    #[arg(short, long, default_value_os_t = default_config_dir_path(), value_parser = validate_config_dir_path)]
+    pub config: PathBuf,
 }
 
 #[derive(Args, Debug)]
 pub struct WatcherArgs {
     /// Optional configuration file for the watcher
-    #[arg(short, long, num_args = 0..=1, require_equals = true, default_missing_value = WATCHER_CONFIG_PATH)]
-    pub config: Option<PathBuf>,
+    #[arg(short, long, default_value_os_t = default_config_dir_path(), value_parser = validate_config_dir_path)]
+    pub config: PathBuf,
 }
 
 #[derive(Subcommand, Debug)]

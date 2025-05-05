@@ -1,7 +1,4 @@
 # Configuration files
-/nexus-api/src/conf.toml
-/nexus-watcher/src/conf.toml
-/nexusd/src/conf.toml
 /nexusd/src/migrations/conf.toml
 # Test and mock data  
 docker/.env

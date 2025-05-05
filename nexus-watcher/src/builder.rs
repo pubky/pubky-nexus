@@ -1,20 +1,20 @@
 use crate::events::processor::EventProcessor;
-use crate::Config;
 use nexus_common::db::{DatabaseConfig, PubkyClient};
+use nexus_common::file::ConfigLoader;
 use nexus_common::types::DynError;
-use nexus_common::StackManager;
-use nexus_common::{Config as StackConfig, ConfigLoader, Level};
+use nexus_common::{Level, StackConfig};
+use nexus_common::{StackManager, WatcherConfig};
 use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
 use tokio::time::{sleep, Duration};
 use tracing::{debug, error, info};
 
 #[derive(Debug, Default)]
-pub struct NexusWatcherBuilder(pub(crate) Config);
+pub struct NexusWatcherBuilder(pub WatcherConfig);
 
 impl NexusWatcherBuilder {
     /// Creates a `NexusWatcherBuilder` instance with the given configuration and stack settings.
-    pub fn with_stack(mut config: Config, stack: &StackConfig) -> Self {
+    pub fn with_stack(mut config: WatcherConfig, stack: &StackConfig) -> Self {
         config.stack = stack.clone();
         Self(config)
     }
@@ -78,9 +78,9 @@ impl NexusWatcherBuilder {
     }
 
     /// Initializes the service stack and starts the NexusWatcher event loop
-    pub async fn run(self) -> Result<(), DynError> {
+    pub async fn start(self) -> Result<(), DynError> {
         self.init_stack().await;
-        NexusWatcher::run(self.0).await
+        NexusWatcher::start(self.0).await
     }
 }
 
@@ -91,15 +91,15 @@ impl NexusWatcher {
         NexusWatcherBuilder::default()
     }
 
-    pub async fn run_with_config_file(config_file: PathBuf) -> Result<(), DynError> {
-        let config = Config::load(&config_file).await.map_err(|e| {
+    pub async fn start_with_config_file(config_file: PathBuf) -> Result<(), DynError> {
+        let config = WatcherConfig::load(&config_file).await.map_err(|e| {
             error!("Failed to load config file {:?}: {}", config_file, e);
             e
         })?;
-        NexusWatcherBuilder(config).run().await
+        NexusWatcherBuilder(config).start().await
     }
 
-    pub async fn run(config: Config) -> Result<(), DynError> {
+    pub async fn start(config: WatcherConfig) -> Result<(), DynError> {
         debug!(?config, "Running NexusWatcher with ");
         let mut event_processor = EventProcessor::from_config(&config).await?;
 

@@ -1,9 +1,8 @@
-use std::{fmt::Debug, net::SocketAddr};
-
+use super::file::ConfigLoader;
+use super::{default_stack, DaemonConfig, StackConfig};
 use async_trait::async_trait;
-use nexus_common::ConfigLoader;
-use nexus_common::{default_stack, Config as StackConfig};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
+use std::{fmt::Debug, net::SocketAddr};
 
 pub const NAME: &str = "nexus.api";
 
@@ -12,14 +11,14 @@ pub const DEFAULT_PORT: u16 = 8080;
 
 /// Configuration settings for the Nexus Watcher service
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Config {
+pub struct ApiConfig {
     pub name: String,
     pub public_addr: SocketAddr,
     #[serde(default = "default_stack")]
     pub stack: StackConfig,
 }
 
-impl Default for Config {
+impl Default for ApiConfig {
     fn default() -> Self {
         Self {
             name: String::from(NAME),
@@ -29,5 +28,15 @@ impl Default for Config {
     }
 }
 
+impl From<DaemonConfig> for ApiConfig {
+    fn from(daemon_config: DaemonConfig) -> Self {
+        ApiConfig {
+            name: daemon_config.api.name,
+            public_addr: daemon_config.api.public_addr,
+            stack: daemon_config.stack,
+        }
+    }
+}
+
 #[async_trait]
-impl<T> ConfigLoader<T> for Config where T: DeserializeOwned + Send + Sync + Debug {}
+impl ConfigLoader<ApiConfig> for ApiConfig {}

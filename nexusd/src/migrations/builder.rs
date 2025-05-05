@@ -2,8 +2,9 @@ use std::{fmt::Debug, path::PathBuf};
 
 use super::MigrationManager;
 use async_trait::async_trait;
+use nexus_common::file::ConfigLoader;
+use nexus_common::StackConfig;
 use nexus_common::StackManager;
-use nexus_common::{Config as StackConfig, ConfigLoader};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 pub const CONFIG_FILE: &str = "./src/migrations/mconf_template.toml";
