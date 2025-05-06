@@ -1,6 +1,6 @@
 use crate::events::processor::EventProcessor;
 use nexus_common::db::{DatabaseConfig, PubkyClient};
-use nexus_common::file::ConfigLoader;
+use nexus_common::file::ConfigReader;
 use nexus_common::types::DynError;
 use nexus_common::{Level, StackConfig};
 use nexus_common::{StackManager, WatcherConfig};
@@ -92,11 +92,8 @@ impl NexusWatcher {
         NexusWatcherBuilder::default()
     }
 
-    pub async fn start_with_config_file(config_file: PathBuf) -> Result<(), DynError> {
-        let config = WatcherConfig::load(&config_file).await.map_err(|e| {
-            error!("Failed to load config file {:?}: {}", config_file, e);
-            e
-        })?;
+    pub async fn start_from_path(config_file: PathBuf) -> Result<(), DynError> {
+        let config = WatcherConfig::read_config_file(config_file, false).await?;
         NexusWatcherBuilder(config).start().await
     }
 

@@ -99,7 +99,7 @@ impl NexusApi {
 
     /// Loads the configuration from a file and starts the Nexus API
     pub async fn start_from_path(config_file: PathBuf) -> Result<(), DynError> {
-        let config = ApiConfig::read_config_file(config_file).await?;
+        let config = ApiConfig::read_config_file(config_file, false).await?;
         NexusApiBuilder(config).start().await
     }
 

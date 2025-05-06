@@ -1,9 +1,7 @@
 use clap::Parser;
 use nexus_api::mock::MockDb;
-use nexus_api::NexusApiBuilder;
-use nexus_common::file::ConfigReader;
-use nexus_common::DaemonConfig;
-use nexus_watcher::NexusWatcherBuilder;
+use nexus_api::NexusApi;
+use nexus_watcher::NexusWatcher;
 use nexusd::cli::{ApiArgs, Cli, DbCommands, MigrationCommands, NexusCommands, WatcherArgs};
 use nexusd::migrations::{import_migrations, MigrationBuilder, MigrationManager};
 use nexusd::DaemonLauncher;
@@ -29,17 +27,9 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 }
             },
         },
-        NexusCommands::Api(ApiArgs { config }) => {
-            let config = DaemonConfig::read_config_file(config).await?;
-            println!("Starting api service...");
-            // Run API WebServer service
-            NexusApiBuilder(config.into()).start().await?
-        }
+        NexusCommands::Api(ApiArgs { config }) => NexusApi::start_from_path(config).await?,
         NexusCommands::Watcher(WatcherArgs { config }) => {
-            let config = DaemonConfig::read_config_file(config).await?;
-            println!("Starting watcher...");
-            // Run watcher service
-            NexusWatcherBuilder(config.into()).start().await?
+            NexusWatcher::start_from_path(config).await?
         }
         NexusCommands::Run { config } => DaemonLauncher::start(config).await?,
     }
