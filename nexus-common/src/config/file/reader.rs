@@ -13,12 +13,12 @@ const MIGRATION_TEMPLATE_CONFIG_FILE: &str = "nexusd/src/migrations/conf_templat
 const CONFIG_FILE_NAME: &str = "config.toml";
 
 /// Expands the data directory to the home directory if it starts with "~"
-/// Return the full path to the data directory.
+/// Return the full path to the data directory
 pub fn expand_home_dir(path: PathBuf) -> PathBuf {
     let path = match path.to_str() {
         Some(path) => path,
         None => {
-            // Path not valid utf-8 so we can't expand it.
+            // Path not valid utf-8 so we can't expand it
             return path;
         }
     };
@@ -38,7 +38,7 @@ pub trait ConfigReader<T>: ConfigLoader<T>
 where
     T: DeserializeOwned + Send + Sync + Debug,
 {
-    /// Returns the config file path in this directory.
+    /// Returns the config file path in this directory
     fn get_config_file_path(expanded_path: &Path) -> PathBuf {
         expanded_path.join(CONFIG_FILE_NAME)
     }
@@ -66,8 +66,8 @@ where
         Ok(())
     }
 
-    /// Reads the config file from the data directory.
-    /// Creates a default config file if it doesn't exist.
+    /// Reads the config file from the data directory
+    /// Creates a default config file if it doesn't exist
     async fn read_config_file(expanded_path: PathBuf, migration_file: bool) -> Result<T, DynError> {
         println!("nexusd reading the conf.toml file from {:?}", expanded_path);
         let config_file_path = Self::get_config_file_path(&expanded_path);

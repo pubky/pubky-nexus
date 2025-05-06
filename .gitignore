@@ -1,5 +1,4 @@
 # Configuration files
-/nexusd/src/migrations/conf.toml
 # Test and mock data  
 docker/.env
 docker/.database*
@@ -7,6 +6,7 @@ docker/.database*
 /static
 /nexus-watcher/static
 /nexus-api/static
+/examples/static
 # Build artifacts
 /target
 # System-specific files

@@ -8,6 +8,7 @@ use std::fmt::Debug;
 pub const NAME: &str = "nexus.watcher";
 
 pub const TESTNET: bool = false;
+// Testnet homeserver key
 pub const HOMESERVER_PUBKY: &str = "8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo";
 // Maximum number of events to fetch at once from a homeserver
 pub const EVENTS_LIMIT: u32 = 1000;
