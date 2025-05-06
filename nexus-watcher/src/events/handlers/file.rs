@@ -24,8 +24,6 @@ pub async fn sync_put(
 ) -> Result<(), DynError> {
     debug!("Indexing new file resource at {}/{}", user_id, file_id);
 
-    debug!("file input {:?}", file);
-
     let file_meta = ingest(&user_id, file_id.as_str(), &file, files_path).await?;
 
     // Create FileDetails object
