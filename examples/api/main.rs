@@ -2,7 +2,7 @@ use nexus_api::{NexusApi, NexusApiBuilder};
 use nexus_common::{types::DynError, ApiConfig, StackConfig};
 use std::{net::SocketAddr, path::PathBuf};
 
-const FROM_FILE: bool = true;
+const FROM_FILE: bool = false;
 
 #[tokio::main]
 async fn main() -> Result<(), DynError> {
