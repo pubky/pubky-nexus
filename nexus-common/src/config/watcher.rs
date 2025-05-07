@@ -44,6 +44,8 @@ impl Default for WatcherConfig {
     }
 }
 
+/// Converts a [`DaemonConfig`] into an [`WatcherConfig`], extracting only the Watcher-related settings
+/// and the shared application stack
 impl From<DaemonConfig> for WatcherConfig {
     fn from(daemon_config: DaemonConfig) -> Self {
         WatcherConfig {

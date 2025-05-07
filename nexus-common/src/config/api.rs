@@ -28,6 +28,8 @@ impl Default for ApiConfig {
     }
 }
 
+/// Converts a [`DaemonConfig`] into an [`ApiConfig`], extracting only the API-related settings
+/// and the shared application stack
 impl From<DaemonConfig> for ApiConfig {
     fn from(daemon_config: DaemonConfig) -> Self {
         ApiConfig {
