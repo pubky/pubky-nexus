@@ -662,6 +662,14 @@ pub fn post_stream(
         append_condition(&mut cypher, "p.kind = $kind", &mut where_clause_applied);
     }
 
+    // Filter just the parent posts: StreamSource:PostReplies and StreamSource:AuthorReplies do not reach that query
+    // so we do not need any condition to filter just parent nodes
+    append_condition(
+        &mut cypher,
+        "NOT ( (p)-[:REPLIED]->(:Post) )",
+        &mut where_clause_applied,
+    );
+
     // Apply time interval conditions. Only can be applied with timeline sorting
     // The engagament score has to be computed
     if sorting == StreamSorting::Timeline {
