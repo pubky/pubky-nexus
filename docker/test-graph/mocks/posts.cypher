@@ -224,3 +224,7 @@ MERGE (p:Post {id: "SIJW1TGL5BKG7"}) SET p.content = "LINK post, pubky G", p.kin
 MATCH (u:User {id: $eixample}), (p:Post {id: "SIJW1TGL5BKG7"}) MERGE (u)-[:AUTHORED]->(p);
 MERGE (p:Post {id: "SIJW1TGL5BKG8"}) SET p.content = "LINK post, pubky H", p.kind = "link", p.indexed_at = 1980477299368;
 MATCH (u:User {id: $eixample}), (p:Post {id: "SIJW1TGL5BKG8"}) MERGE (u)-[:AUTHORED]->(p);
+// It has a reply
+MERGE (p:Post {id: "SIJW1TGL5BKG9"}) SET p.content = "LINK post, pubky H", p.kind = "link", p.indexed_at = 1980477299378;
+MATCH (u:User {id: $eixample}), (p:Post {id: "SIJW1TGL5BKG9"}) MERGE (u)-[:AUTHORED]->(p);
+MATCH (reply:Post {id: "SIJW1TGL5BKG9" }), (parent:Post {id: "SIJW1TGL5BKG8" }) MERGE (reply)-[:REPLIED]->(parent)
