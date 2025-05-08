@@ -8,8 +8,9 @@ use tracing::error;
 use super::ConfigLoader;
 
 pub const DEFAULT_HOME_DIR: &str = ".pubky-nexus";
-const TEMPLATE_CONFIG_FILE: &str = "nexusd/conf_template.toml";
-const MIGRATION_TEMPLATE_CONFIG_FILE: &str = "nexusd/src/migrations/conf_template.toml";
+const TEMPLATE_CONFIG_FILE: &str = include_str!("../default.config.toml");
+const MIGRATION_TEMPLATE_CONFIG_FILE: &str =
+    include_str!("../../../../nexusd/src/migrations/default.config.toml");
 const CONFIG_FILE_NAME: &str = "config.toml";
 
 /// Expands the data directory to the home directory if it starts with "~"
@@ -45,35 +46,43 @@ where
 
     fn write_default_config_file(
         config_file_path: &PathBuf,
-        migration_file: bool,
+        is_migration_file: bool,
     ) -> std::io::Result<()> {
-        // Copy the default path
+        // Make sure before write the file, the directory path exists
         if let Some(parent) = config_file_path.parent() {
             println!(
-                "creating a new directory at {:?} and copying 'conf.toml' into it",
-                parent
+                "Validating existence of '{}' and creating it if missing before copying '{CONFIG_FILE_NAME}' file…",
+                parent.display()
             );
             std::fs::create_dir_all(parent)?;
         }
         // Define the template config file path
-        let file_path = if migration_file {
+        let file_path = if is_migration_file {
             MIGRATION_TEMPLATE_CONFIG_FILE
         } else {
             TEMPLATE_CONFIG_FILE
         };
-        // Copy the file
-        std::fs::copy(PathBuf::from(file_path), config_file_path)?;
+        // Create the file
+        std::fs::write(config_file_path, file_path)?;
         Ok(())
     }
 
     /// Reads the config file from the data directory
     /// Creates a default config file if it doesn't exist
-    async fn read_config_file(expanded_path: PathBuf, migration_file: bool) -> Result<T, DynError> {
-        println!("nexusd reading the conf.toml file from {:?}", expanded_path);
+    async fn read_config_file(
+        expanded_path: PathBuf,
+        is_migration_file: bool,
+    ) -> Result<T, DynError> {
         let config_file_path = Self::get_config_file_path(&expanded_path);
+
         if !config_file_path.exists() {
-            Self::write_default_config_file(&config_file_path, migration_file)?;
+            Self::write_default_config_file(&config_file_path, is_migration_file)?;
         }
+        println!(
+            "nexusd reading the '{CONFIG_FILE_NAME}' file from '{}'",
+            expanded_path.display()
+        );
+
         let config = <Self as ConfigLoader<T>>::load(config_file_path)
             .await
             .map_err(|e| {

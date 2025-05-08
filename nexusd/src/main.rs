@@ -27,9 +27,9 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 }
             },
         },
-        NexusCommands::Api(ApiArgs { config }) => NexusApi::start_from_path(config).await?,
+        NexusCommands::Api(ApiArgs { config }) => NexusApi::start_from_daemon(config).await?,
         NexusCommands::Watcher(WatcherArgs { config }) => {
-            NexusWatcher::start_from_path(config).await?
+            NexusWatcher::start_from_daemon(config).await?
         }
         NexusCommands::Run { config } => DaemonLauncher::start(config).await?,
     }

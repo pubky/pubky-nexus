@@ -1,6 +1,6 @@
 use clap::{Args, Parser, Subcommand};
 use nexus_api::mock::MockType;
-use nexus_common::file::DEFAULT_HOME_DIR;
+use nexus_common::file::{expand_home_dir, DEFAULT_HOME_DIR};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -30,7 +30,7 @@ fn default_config_dir_path() -> PathBuf {
 /// Validate that the data_dir path is a directory.
 /// It doesnt need to exist, but if it does, it needs to be a directory.
 fn validate_config_dir_path(path: &str) -> Result<PathBuf, String> {
-    let path = PathBuf::from(path);
+    let path = expand_home_dir(PathBuf::from(path));
     if path.exists() && path.is_file() {
         return Err(format!("Given path is not a directory: {}", path.display()));
     }

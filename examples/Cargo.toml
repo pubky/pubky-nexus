@@ -4,11 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "api"
+name = "api_example"
 path = "./api/main.rs"
 
 [[bin]]
-name = "watcher"
+name = "watcher_example"
 path = "./watcher/main.rs"
 
 [dependencies]

@@ -3,7 +3,7 @@ use axum_server::{Handle, Server};
 use nexus_common::db::DatabaseConfig;
 use nexus_common::file::ConfigReader;
 use nexus_common::types::DynError;
-use nexus_common::{ApiConfig, StackManager};
+use nexus_common::{ApiConfig, DaemonConfig, StackManager};
 use nexus_common::{Level, StackConfig};
 use std::time::Duration;
 use std::{fmt::Debug, net::SocketAddr, path::PathBuf};
@@ -101,6 +101,14 @@ impl NexusApi {
     pub async fn start_from_path(config_file: PathBuf) -> Result<(), DynError> {
         let config = ApiConfig::read_config_file(config_file, false).await?;
         NexusApiBuilder(config).start().await
+    }
+
+    /// Loads the configuration from nexusd service and starts the Nexus API
+    pub async fn start_from_daemon(config_file: PathBuf) -> Result<(), DynError> {
+        let config = DaemonConfig::read_config_file(config_file, false).await?;
+        NexusApiBuilder(Into::<ApiConfig>::into(config))
+            .start()
+            .await
     }
 
     /// It sets up the necessary routes, binds to the specified address (if no
