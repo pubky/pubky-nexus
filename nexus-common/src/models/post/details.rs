@@ -46,7 +46,16 @@ impl PostDetails {
         author_id: &str,
         post_id: &str,
     ) -> Result<Option<PostDetails>, DynError> {
-        if let Some(post_details) = Self::try_from_index_json(&[author_id, post_id], None).await? {
+        if let Some(mut post_details) =
+            Self::try_from_index_json(&[author_id, post_id], None).await?
+        {
+            // Normalize attachments: treat `None` the same as an empty Vec
+            // TODO: Since an empty Vec already conveys “no attachments,” we don’t actually need an Option.
+            // Move this normalization into post creation, `PostDetails::from_homeserver()`
+            // so that model property is always created with `attachments = Vec::new()`
+            if post_details.attachments.is_none() {
+                post_details.attachments = Some(Vec::new());
+            }
             return Ok(Some(post_details));
         }
         Ok(None)
@@ -124,6 +133,9 @@ impl PostDetails {
             indexed_at: Utc::now().timestamp_millis(),
             author: author_id.to_string(),
             kind: homeserver_post.kind,
+            // TODO: eliminate Option for attachments and always use Vec<String>
+            // Once PubkyAppPost.attachments is Vec<T>, we can drop this Option entirely
+            // Check above TODO in get_from_index()
             attachments: homeserver_post.attachments,
         })
     }
