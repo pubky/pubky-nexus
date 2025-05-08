@@ -7,6 +7,7 @@ use nexus_common::StackManager;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::fmt::Debug;
 
+/// Path to default migration config file. Defaults to ~/.pubky-nexus/migrations
 pub const CONFIG_FILE: &str = ".pubky-nexus/migrations";
 pub const TRACER_NAME: &str = "nexus.migration";
 

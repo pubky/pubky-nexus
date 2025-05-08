@@ -7,10 +7,12 @@ use tracing::error;
 
 use super::ConfigLoader;
 
+/// Path to default nexusd config file. Defaults to ~/.pubky-nexus
 pub const DEFAULT_HOME_DIR: &str = ".pubky-nexus";
 const TEMPLATE_CONFIG_FILE: &str = include_str!("../default.config.toml");
 const MIGRATION_TEMPLATE_CONFIG_FILE: &str =
     include_str!("../../../../nexusd/src/migrations/default.config.toml");
+/// The sole configuration file name recognized by nexus
 const CONFIG_FILE_NAME: &str = "config.toml";
 
 /// Expands the data directory to the home directory if it starts with "~"
