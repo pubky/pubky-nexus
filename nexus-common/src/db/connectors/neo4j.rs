@@ -38,8 +38,7 @@ impl Neo4jConnector {
         }
 
         // Set Neo4J graph data constraints
-        // TODO: FIX
-        setup_graph().await.unwrap_or_default();
+        setup_graph().await?;
         Ok(())
     }
 
@@ -70,7 +69,7 @@ impl Neo4jConnector {
         let graph = graph.lock().await;
         match graph.execute(query("RETURN 1")).await {
             Ok(_) => info!(
-                "Bolt protocol health-check ping to Neo4j succeeded; server is responsive at {}",
+                "Bolt protocol health-check PING to Neo4j succeeded; server is responsive at {}",
                 neo4j_uri
             ),
             Err(neo4j_err) => {

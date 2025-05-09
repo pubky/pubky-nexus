@@ -38,13 +38,15 @@ impl RedisConnector {
         &self.pool
     }
 
+    /// Perform a health-check PING against the Redis server
     async fn ping(&self, redis_uri: &str) -> Result<(), DynError> {
         let redis_conn = self.pool.get().await;
         match redis_conn {
-            Ok(_) => info!("PONG: "),
-            Err(_) => {
-                return Err(format!("Redis connection could not establish on {}", redis_uri).into())
-            }
+            Ok(_) => info!(
+                "Redis health check PING succeeded; server at {} is reachable",
+                redis_uri
+            ),
+            Err(_) => return Err(format!("Failed to connect to Redis at {}", redis_uri).into()),
         }
         Ok(())
     }

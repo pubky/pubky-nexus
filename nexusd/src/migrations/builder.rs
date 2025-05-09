@@ -37,7 +37,7 @@ impl MigrationBuilder {
 
     pub async fn init_stack(&self) -> Result<MigrationManager, DynError> {
         // Open ddbb connections and init tracing layer
-        StackManager::setup(&self.0.name, &self.0.stack).await;
+        StackManager::setup(&self.0.name, &self.0.stack).await?;
         Ok(MigrationManager::default())
     }
 
