@@ -32,7 +32,10 @@ fn default_config_dir_path() -> PathBuf {
 fn validate_config_dir_path(path: &str) -> Result<PathBuf, String> {
     let path = expand_home_dir(PathBuf::from(path));
     if path.exists() && path.is_file() {
-        return Err(format!("Given path is not a directory: {}", path.display()));
+        return Err(format!(
+            "create with `mkdir -p folder_path` or point to a directory: {}",
+            path.display()
+        ));
     }
     Ok(path)
 }
