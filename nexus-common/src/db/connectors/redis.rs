@@ -9,6 +9,7 @@ pub struct RedisConnector {
 }
 
 impl RedisConnector {
+    /// Initialize and register the global Redis connector
     pub async fn init(redis_uri: &str) -> Result<(), DynError> {
         let redis_connector = RedisConnector::new_connection(redis_uri)
             .await

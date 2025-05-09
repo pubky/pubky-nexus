@@ -9,7 +9,7 @@ use opentelemetry_sdk::metrics::{PeriodicReader, SdkMeterProvider};
 use opentelemetry_sdk::trace::SdkTracerProvider;
 use opentelemetry_sdk::Resource;
 use std::time::Duration;
-use tracing::{debug, error, info};
+use tracing::{error, info};
 use tracing_subscriber::{fmt, EnvFilter, Layer};
 use tracing_subscriber::{layer::SubscriberExt, Registry};
 
@@ -44,18 +44,20 @@ impl StackManager {
 
     fn setup_local_logging(log_level: Level) {
         // Enable log-to-tracing bridge so that `log`-based crates (e.g., neo4rs) emit through our `tracing` subscriber
-        tracing_log::LogTracer::init().expect("Failed to set logger");
-        let subscriber = fmt::Subscriber::builder()
-            .compact()
-            .with_env_filter(
-                EnvFilter::new(log_level.as_str()).add_directive("mainline=info".parse().unwrap()),
-            )
-            .with_line_number(true)
-            .finish();
+        let _ = tracing_log::LogTracer::init();
 
-        match tracing::subscriber::set_global_default(subscriber) {
-            Ok(()) => info!("Local application logging initialized"),
-            Err(e) => debug!("Logging already initialized: {:?}", e),
+        // Build an env‐based filter
+        let env_filter =
+            EnvFilter::new(log_level.as_str()).add_directive("mainline=info".parse().unwrap());
+
+        // Create a formatting layer
+        let fmt_layer = fmt::layer().compact().with_line_number(true);
+
+        // Compose the subscriber
+        let subscriber = Registry::default().with(env_filter).with(fmt_layer);
+
+        if tracing::subscriber::set_global_default(subscriber).is_ok() {
+            tracing::info!("Local application logging initialized");
         }
     }
 

@@ -22,6 +22,7 @@ impl Default for Neo4jConnector {
 }
 
 impl Neo4jConnector {
+    /// Initialize and register the global Neo4j connector and verify connectivity
     pub async fn init(neo4j_config: &Neo4JConfig) -> Result<(), DynError> {
         let neo4j_connector = Neo4jConnector::new_connection(
             &neo4j_config.uri,
@@ -42,6 +43,7 @@ impl Neo4jConnector {
         Ok(())
     }
 
+    /// Create and return a new connector after defining a database connection
     async fn new_connection(uri: &str, user: &str, password: &str) -> Result<Self, DynError> {
         let neo4j_connector = Neo4jConnector::default();
         match neo4j_connector.connect(uri, user, password).await {
@@ -51,6 +53,7 @@ impl Neo4jConnector {
         Ok(neo4j_connector)
     }
 
+    /// Dewfine a connection to the Neo4j database and store the graph instance
     async fn connect(
         &self,
         uri: &str,
@@ -64,6 +67,7 @@ impl Neo4jConnector {
         Ok(())
     }
 
+    /// Perform a health-check PING over the Bolt protocol to the Neo4j server
     async fn ping(&self, neo4j_uri: &str) -> Result<(), DynError> {
         let graph = self.graph.get().ok_or("Neo4jConnector not initialized")?;
         let graph = graph.lock().await;
@@ -80,7 +84,6 @@ impl Neo4jConnector {
                 .into())
             }
         };
-
         Ok(())
     }
 }
