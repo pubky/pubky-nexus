@@ -14,8 +14,7 @@
 //! The crate provides a builder interface via `NexusWatcher::builder()` and supports configuration from files.
 //! The main entry point is in `main.rs`, which simply calls the builder’s `run()` method to start the event loop.
 
-pub mod builder;
-mod config;
+mod builder;
 pub mod events;
 
-pub use config::Config;
+pub use builder::{NexusWatcher, NexusWatcherBuilder};

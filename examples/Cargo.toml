@@ -1,0 +1,21 @@
+[package]
+name = "nexus-examples"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "api_example"
+path = "./api/main.rs"
+
+[[bin]]
+name = "watcher_example"
+path = "./watcher/main.rs"
+
+[dependencies]
+anyhow = "1.0.95"
+tokio = { version = "1.44.2", features = ["full"] }
+nexus-common = { path = "../nexus-common" }
+nexus-api = { path = "../nexus-api" }
+nexus-watcher = { path = "../nexus-watcher" }
+pubky-app-specs = "0.3.4"
+clap = "4.5.37"

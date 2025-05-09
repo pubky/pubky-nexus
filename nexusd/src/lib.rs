@@ -1,3 +1,5 @@
 pub mod cli;
-pub mod config;
+mod launcher;
 pub mod migrations;
+
+pub use launcher::DaemonLauncher;

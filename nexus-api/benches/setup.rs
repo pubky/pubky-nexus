@@ -1,4 +1,4 @@
-use nexus_api::builder::NexusApi;
+use nexus_api::NexusApi;
 use std::{env, sync::Once};
 use tokio::runtime::Runtime;
 

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use nexus_api::builder::NexusApi;
+use nexus_api::NexusApi;
 use nexus_common::FILES_DIR_TEST;
 use std::{net::Ipv4Addr, path::PathBuf, sync::Arc};
 use tokio::{
@@ -56,7 +56,7 @@ impl TestServiceServer {
         let url = format!("http://{}", local_addr);
         SERVER_URL.set(url).expect("SERVER_URL already set");
 
-        tokio::spawn(async { nexus_builder.run_test(listener).await });
+        tokio::spawn(async { nexus_builder.start_test(listener).await });
 
         Ok(())
     }
