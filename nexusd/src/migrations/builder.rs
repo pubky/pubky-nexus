@@ -2,6 +2,7 @@ use super::MigrationManager;
 use async_trait::async_trait;
 use nexus_common::file::ConfigLoader;
 use nexus_common::file::ConfigReader;
+use nexus_common::types::DynError;
 use nexus_common::StackConfig;
 use nexus_common::StackManager;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -34,10 +35,10 @@ impl MigrationBuilder {
         MigrationBuilder(config)
     }
 
-    pub async fn init_stack(&self) -> MigrationManager {
+    pub async fn init_stack(&self) -> Result<MigrationManager, DynError> {
         // Open ddbb connections and init tracing layer
         StackManager::setup(&self.0.name, &self.0.stack).await;
-        MigrationManager::default()
+        Ok(MigrationManager::default())
     }
 
     pub fn migrations_backfill_ready(self) -> Vec<String> {

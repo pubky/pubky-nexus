@@ -1,8 +1,5 @@
-use std::time::Duration;
-
-use crate::db::setup::setup_graph;
-use crate::db::Neo4JConfig;
-use crate::db::{Neo4jConnector, RedisConnector, NEO4J_CONNECTOR, REDIS_CONNECTOR};
+use crate::db::{Neo4jConnector, RedisConnector};
+use crate::types::DynError;
 use crate::{Level, StackConfig};
 use opentelemetry::{global, KeyValue};
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
@@ -11,6 +8,7 @@ use opentelemetry_sdk::logs::SdkLoggerProvider;
 use opentelemetry_sdk::metrics::{PeriodicReader, SdkMeterProvider};
 use opentelemetry_sdk::trace::SdkTracerProvider;
 use opentelemetry_sdk::Resource;
+use std::time::Duration;
 use tracing::{debug, error, info};
 use tracing_subscriber::{fmt, EnvFilter, Layer};
 use tracing_subscriber::{layer::SubscriberExt, Registry};
@@ -18,43 +16,15 @@ use tracing_subscriber::{layer::SubscriberExt, Registry};
 pub struct StackManager {}
 
 impl StackManager {
-    pub async fn setup(name: &str, config: &StackConfig) {
+    pub async fn setup(name: &str, config: &StackConfig) -> Result<(), DynError> {
         // Initialize logging and metrics
         Self::setup_logging(name, &config.otlp_endpoint, config.log_level).await;
         Self::setup_metrics(name, &config.otlp_endpoint).await;
 
         // Initialize Redis and Neo4j
-        Self::setup_redis(&config.db.redis).await;
-        Self::setup_neo4j(&config.db.neo4j).await;
-    }
-
-    pub async fn setup_redis(redis_uri: &str) {
-        let redis_connector = RedisConnector::new_connection(redis_uri)
-            .await
-            .expect("Failed to connect to Redis");
-
-        match REDIS_CONNECTOR.set(redis_connector) {
-            Err(e) => debug!("RedisConnector was already set: {:?}", e),
-            Ok(()) => info!("RedisConnector successfully set up on {}", redis_uri),
-        }
-    }
-
-    async fn setup_neo4j(neo4j_config: &Neo4JConfig) {
-        let neo4j_connector = Neo4jConnector::new_connection(
-            &neo4j_config.uri,
-            &neo4j_config.user,
-            &neo4j_config.password,
-        )
-        .await
-        .expect("Failed to connect to Neo4j");
-
-        match NEO4J_CONNECTOR.set(neo4j_connector) {
-            Err(e) => debug!("Neo4jConnector was already set: {:?}", e),
-            Ok(()) => info!("Neo4jConnector successfully set up on {}", neo4j_config.uri),
-        }
-
-        // Set Neo4J graph data constraints
-        setup_graph().await.unwrap_or_default();
+        RedisConnector::init(&config.db.redis).await?;
+        Neo4jConnector::init(&config.db.neo4j).await?;
+        Ok(())
     }
 
     async fn setup_logging(service_name: &str, otel_endpoint: &Option<String>, log_level: Level) {
@@ -73,6 +43,8 @@ impl StackManager {
     }
 
     fn setup_local_logging(log_level: Level) {
+        // Enable log-to-tracing bridge so that `log`-based crates (e.g., neo4rs) emit through our `tracing` subscriber
+        tracing_log::LogTracer::init().expect("Failed to set logger");
         let subscriber = fmt::Subscriber::builder()
             .compact()
             .with_env_filter(
@@ -92,6 +64,7 @@ impl StackManager {
         otel_endpoint: &String,
         log_level: Level,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        // TODO: Add local tracer, https://github.com/pubky/pubky-nexus/issues/356
         // Set up OpenTelemetry Tracer (Spans)
         let tracing_exporter = SpanExporter::builder()
             .with_tonic()

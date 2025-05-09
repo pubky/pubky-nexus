@@ -65,7 +65,7 @@ impl NexusApiBuilder {
 
     /// Opens ddbb connections and initialises tracing layer (if provided in config)
     pub async fn init_stack(&self) -> Result<(), DynError> {
-        StackManager::setup(&self.0.name, &self.0.stack).await;
+        StackManager::setup(&self.0.name, &self.0.stack).await?;
         Ok(())
     }
 

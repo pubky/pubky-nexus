@@ -68,19 +68,21 @@ impl NexusWatcherBuilder {
     }
 
     /// Opens ddbb connections and initialises tracing layer (if provided in config)
-    pub async fn init_stack(&self) {
-        StackManager::setup(&self.0.name, &self.0.stack).await;
+    pub async fn init_stack(&self) -> Result<(), DynError> {
+        StackManager::setup(&self.0.name, &self.0.stack).await?;
         let _ = PubkyClient::initialise(self.0.testnet).await;
+        Ok(())
     }
 
     /// Initializes the watcher integration test stack
-    pub async fn init_test_stack(&self) {
-        StackManager::setup(&self.0.name, &self.0.stack).await;
+    pub async fn init_test_stack(&self) -> Result<(), DynError> {
+        StackManager::setup(&self.0.name, &self.0.stack).await?;
+        Ok(())
     }
 
     /// Initializes the service stack and starts the NexusWatcher event loop
     pub async fn start(self) -> Result<(), DynError> {
-        self.init_stack().await;
+        self.init_stack().await?;
         NexusWatcher::start(self.0).await
     }
 }
