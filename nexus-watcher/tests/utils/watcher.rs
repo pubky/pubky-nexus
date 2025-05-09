@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Error, Result};
 use chrono::Utc;
 use nexus_common::db::PubkyClient;
 use nexus_common::types::DynError;
@@ -39,7 +39,12 @@ impl WatcherTest {
     /// Returns an instance of `Self` containing the configuration, homeserver,
     /// event processor, and other test setup details.
     pub async fn setup() -> Result<Self> {
-        NexusWatcher::builder().init_test_stack().await;
+        if let Err(e) = NexusWatcher::builder().init_test_stack().await {
+            return Err(Error::msg(format!(
+                "could not initialise the stack, {:?}",
+                e
+            )));
+        }
 
         // testnet initialization is time expensive, we only init one per process
         let testnet = EphemeralTestnet::start().await.map_err(|e| e)?;
