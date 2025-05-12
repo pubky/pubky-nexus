@@ -77,11 +77,9 @@ impl Neo4jConnector {
                 neo4j_uri
             ),
             Err(neo4j_err) => {
-                return Err(format!(
-                    "Socket connection to {} failed: {} during the ping operation",
-                    neo4j_uri, neo4j_err
+                return Err(
+                    format!("Failed to PING to Neo4j at {}, {}", neo4j_uri, neo4j_err).into(),
                 )
-                .into())
             }
         };
         Ok(())
