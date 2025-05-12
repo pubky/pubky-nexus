@@ -1,14 +1,14 @@
 use clap::Parser;
 use nexus_api::mock::MockDb;
 use nexus_api::NexusApi;
+use nexus_common::types::DynError;
 use nexus_watcher::NexusWatcher;
 use nexusd::cli::{ApiArgs, Cli, DbCommands, MigrationCommands, NexusCommands, WatcherArgs};
 use nexusd::migrations::{import_migrations, MigrationBuilder, MigrationManager};
 use nexusd::DaemonLauncher;
-use std::error::Error;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
+async fn main() -> Result<(), DynError> {
     let cli = Cli::parse();
 
     let command = Cli::receive_command(cli);

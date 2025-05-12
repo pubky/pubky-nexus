@@ -1,8 +1,13 @@
-use neo4rs::Graph;
+use neo4rs::{query, Graph};
 use once_cell::sync::OnceCell;
 use std::fmt;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tracing::{debug, info};
+
+use crate::db::setup::setup_graph;
+use crate::db::Neo4JConfig;
+use crate::types::DynError;
 
 pub struct Neo4jConnector {
     pub graph: OnceCell<Arc<Mutex<Graph>>>,
@@ -10,18 +15,46 @@ pub struct Neo4jConnector {
 
 impl Default for Neo4jConnector {
     fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Neo4jConnector {
-    pub fn new() -> Self {
         Self {
             graph: OnceCell::new(),
         }
     }
+}
 
-    pub async fn connect(
+impl Neo4jConnector {
+    /// Initialize and register the global Neo4j connector and verify connectivity
+    pub async fn init(neo4j_config: &Neo4JConfig) -> Result<(), DynError> {
+        let neo4j_connector = Neo4jConnector::new_connection(
+            &neo4j_config.uri,
+            &neo4j_config.user,
+            &neo4j_config.password,
+        )
+        .await?;
+
+        neo4j_connector.ping(&neo4j_config.uri).await?;
+
+        match NEO4J_CONNECTOR.set(neo4j_connector) {
+            Err(e) => debug!("Neo4jConnector was already set: {:?}", e),
+            Ok(()) => info!("Neo4jConnector successfully set up on {}", neo4j_config.uri),
+        }
+
+        // Set Neo4J graph data constraints
+        setup_graph().await?;
+        Ok(())
+    }
+
+    /// Create and return a new connector after defining a database connection
+    async fn new_connection(uri: &str, user: &str, password: &str) -> Result<Self, DynError> {
+        let neo4j_connector = Neo4jConnector::default();
+        match neo4j_connector.connect(uri, user, password).await {
+            Ok(_) => info!("Created Neo4j connector"),
+            Err(e) => return Err(format!("Could not create Neo4J connector: {}", e).into()),
+        }
+        Ok(neo4j_connector)
+    }
+
+    /// Dewfine a connection to the Neo4j database and store the graph instance
+    async fn connect(
         &self,
         uri: &str,
         user: &str,
@@ -34,14 +67,22 @@ impl Neo4jConnector {
         Ok(())
     }
 
-    pub async fn new_connection(
-        uri: &str,
-        user: &str,
-        password: &str,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
-        let neo4j_connector = Neo4jConnector::new();
-        neo4j_connector.connect(uri, user, password).await?;
-        Ok(neo4j_connector)
+    /// Perform a health-check PING over the Bolt protocol to the Neo4j server
+    async fn ping(&self, neo4j_uri: &str) -> Result<(), DynError> {
+        let graph = self.graph.get().ok_or("Neo4jConnector not initialized")?;
+        let graph = graph.lock().await;
+        match graph.execute(query("RETURN 1")).await {
+            Ok(_) => info!(
+                "Bolt protocol health-check PING to Neo4j succeeded; server is responsive at {}",
+                neo4j_uri
+            ),
+            Err(neo4j_err) => {
+                return Err(
+                    format!("Failed to PING to Neo4j at {}, {}", neo4j_uri, neo4j_err).into(),
+                )
+            }
+        };
+        Ok(())
     }
 }
 

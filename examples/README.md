@@ -4,7 +4,7 @@ Example usage of crates `nexus-api` and `nexus-watcher`:
 - **`api`** – A Nexus API web server exposing HTTP endpoints to query the local graph database or in-memory cache
 - **`watcher`** – A background service that fetches homeserver events and ingests them into the graph database or cache
 
-## ⚡ Quickstart
+## Quickstart
 
 From the project root (`/pubky-nexus`);
 
@@ -16,7 +16,7 @@ cargo run --bin api_example
 cargo run --bin watcher_example
 ```
 
-## ⚙️ Configuration & Flags
+## Configuration & Flags
 
 Both `api` and `watcher` binaries include a compile-time switch in `main.rs`:
 
