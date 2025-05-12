@@ -1,8 +1,9 @@
 use crate::types::DynError;
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
+use std::ffi::OsStr;
 use std::fmt::Debug;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use tracing::error;
 
 use super::ConfigLoader;
@@ -16,22 +17,16 @@ pub const CONFIG_FILE_NAME: &str = "config.toml";
 /// Expands the data directory to the home directory if it starts with "~"
 /// Return the full path to the data directory
 pub fn expand_home_dir(path: PathBuf) -> PathBuf {
-    let path = match path.to_str() {
-        Some(path) => path,
-        None => {
-            // Path not valid utf-8 so we can't expand it
-            return path;
-        }
-    };
-
-    if path.starts_with("~/") {
-        if let Some(home) = dirs::home_dir() {
-            let without_home = path.strip_prefix("~/").expect("Invalid ~ prefix");
-            let joined = home.join(without_home);
-            return joined;
+    if let Some(first) = path.components().next() {
+        if first == Component::Normal(OsStr::new("~")) {
+            if let Some(home) = dirs::home_dir() {
+                // drop the "~" prefix and re-join
+                let without_tilde = path.iter().skip(1).collect::<PathBuf>();
+                return home.join(without_tilde);
+            }
         }
     }
-    PathBuf::from(path)
+    path
 }
 
 #[async_trait]

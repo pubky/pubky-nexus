@@ -9,18 +9,18 @@ It polls for events from the `/events` endpoint of a homeserver and processes th
   Processes various types of events such as posts, bookmarks, follows, mutes, tags, and user profile updates using [`pubky-app-specs`](https://github.com/pubky/pubky-app-specs) object builder.
 
 - **Retry Mechanism:**  
-  Supports retry logic for events that fail to index due to missing dependencies or other transient errors.
+  Supports retry logic for events that fail to index due to missing dependencies or other transient errors
 
 - **Integration with Nexus Common:**  
-  Leverages shared components from the `nexus-common` crate for configuration, database access, logging, and stack management.
+  Leverages shared components from the `nexus-common` crate for configuration, database access, logging, and stack management
 
 - **Configurable and Extensible:**  
-  Provides a builder API to configure service parameters such as the homeserver Pubky ID, database settings, logging level, testnet mode, and more.
+  Provides a builder API to configure service parameters such as the homeserver Pubky ID, database settings, logging level, testnet mode, and more
 
 - **Comprehensive Testing:**  
-  Comes with an extensive test suite covering all event types and error conditions.
+  Comes with an extensive test suite covering all event types and error conditions
 
-## Usage
+## Quick Examples
 
 The main entry point is available via the builder in the `nexus_watcher::builder` module. For example, you can start the watcher using:
 
@@ -41,7 +41,7 @@ use std::path::PathBuf;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    NexusWatcher::run_with_config_file(PathBuf::from("path/to/config.toml")).await?;
+    NexusWatcher::start_from_path(PathBuf::from("path/to/config/folder")).await?;
     Ok(())
 }
 ```
