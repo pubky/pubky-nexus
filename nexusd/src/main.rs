@@ -20,7 +20,7 @@ async fn main() -> Result<(), DynError> {
             DbCommands::Migration(migration_command) => match migration_command {
                 MigrationCommands::New(args) => MigrationManager::new_migration(args.name).await?,
                 MigrationCommands::Run => {
-                    let builder = MigrationBuilder::default().await;
+                    let builder = MigrationBuilder::default().await?;
                     let mut mm = builder.init_stack().await?;
                     import_migrations(&mut mm);
                     mm.run(&builder.migrations_backfill_ready()).await?;

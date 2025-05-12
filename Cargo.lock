@@ -2458,6 +2458,7 @@ name = "nexus-examples"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "clap",
  "nexus-api",
  "nexus-common",
  "nexus-watcher",

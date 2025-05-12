@@ -97,13 +97,13 @@ impl NexusWatcher {
 
     /// Loads the configuration from a file and starts the Watcher
     pub async fn start_from_path(config_file: PathBuf) -> Result<(), DynError> {
-        let config = WatcherConfig::read_config_file(config_file, false).await?;
+        let config = WatcherConfig::read_config_file(config_file).await?;
         NexusWatcherBuilder(config).start().await
     }
 
     /// Loads the configuration from nexusd service and starts the Watcher
     pub async fn start_from_daemon(config_file: PathBuf) -> Result<(), DynError> {
-        let config = DaemonConfig::read_config_file(config_file, false).await?;
+        let config = DaemonConfig::read_config_file(config_file).await?;
         NexusWatcherBuilder(Into::<WatcherConfig>::into(config))
             .start()
             .await

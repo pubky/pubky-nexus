@@ -36,8 +36,8 @@ impl EventProcessor {
         let id = PubkyId::try_from(&homeserver_id).expect("Homeserver ID should be valid");
         let homeserver = Homeserver::new(id).await.unwrap();
         info!(
-            "Watcher static files PATH is inside their own crate: {}",
-            FILES_DIR_TEST
+            "Watcher static files PATH during tests are stored inside of the watcher crate: {:?}",
+            PathBuf::from(FILES_DIR_TEST)
         );
         Self {
             homeserver,
