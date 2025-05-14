@@ -1,13 +1,14 @@
+use super::file::ConfigLoader;
+use super::{default_stack, DaemonConfig, StackConfig};
 use async_trait::async_trait;
-use nexus_common::{default_stack, Config as StackConfig, ConfigLoader};
 use pubky_app_specs::PubkyId;
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
 pub const NAME: &str = "nexus.watcher";
 
 pub const TESTNET: bool = false;
+// Testnet homeserver key
 pub const HOMESERVER_PUBKY: &str = "8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo";
 // Maximum number of events to fetch at once from a homeserver
 pub const EVENTS_LIMIT: u32 = 1000;
@@ -16,7 +17,7 @@ pub const WATCHER_SLEEP: u64 = 5000;
 
 /// Configuration settings for the Nexus Watcher service
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-pub struct Config {
+pub struct WatcherConfig {
     pub name: String,
     pub testnet: bool,
     pub homeserver: PubkyId,
@@ -26,7 +27,7 @@ pub struct Config {
     pub stack: StackConfig,
 }
 
-impl Default for Config {
+impl Default for WatcherConfig {
     /// The default values are derived from predefined constants
     /// This implementation is not secure as it may panic if the homeserver
     /// identifier fails to parse, but it ensures a valid initial state
@@ -43,5 +44,20 @@ impl Default for Config {
     }
 }
 
+/// Converts a [`DaemonConfig`] into an [`WatcherConfig`], extracting only the Watcher-related settings
+/// and the shared application stack
+impl From<DaemonConfig> for WatcherConfig {
+    fn from(daemon_config: DaemonConfig) -> Self {
+        WatcherConfig {
+            name: daemon_config.watcher.name,
+            testnet: daemon_config.watcher.testnet,
+            homeserver: daemon_config.watcher.homeserver,
+            events_limit: daemon_config.watcher.events_limit,
+            watcher_sleep: daemon_config.watcher.watcher_sleep,
+            stack: daemon_config.stack,
+        }
+    }
+}
+
 #[async_trait]
-impl<T> ConfigLoader<T> for Config where T: DeserializeOwned + Send + Sync + Debug {}
+impl ConfigLoader<WatcherConfig> for WatcherConfig {}

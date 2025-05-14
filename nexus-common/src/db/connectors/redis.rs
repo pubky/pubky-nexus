@@ -2,14 +2,30 @@ use crate::types::DynError;
 use deadpool_redis::{Config, Connection, Pool, Runtime};
 use once_cell::sync::OnceCell;
 use std::fmt;
+use tracing::{debug, info};
 
 pub struct RedisConnector {
     pool: Pool,
 }
 
 impl RedisConnector {
+    /// Initialize and register the global Redis connector
+    pub async fn init(redis_uri: &str) -> Result<(), DynError> {
+        let redis_connector = RedisConnector::new_connection(redis_uri)
+            .await
+            .expect("Failed to connect to Redis");
+
+        redis_connector.ping(redis_uri).await?;
+
+        match REDIS_CONNECTOR.set(redis_connector) {
+            Err(e) => debug!("RedisConnector was already set: {:?}", e),
+            Ok(()) => info!("RedisConnector successfully set up on {}", redis_uri),
+        }
+        Ok(())
+    }
+
     /// Creates a new RedisConnector instance by building a connection pool using the provided URI.
-    pub async fn new_connection(uri: &str) -> Result<Self, DynError> {
+    async fn new_connection(uri: &str) -> Result<Self, DynError> {
         // Create the deadpool-redis configuration from the URI.
         let cfg = Config::from_url(uri.to_string());
 
@@ -19,8 +35,21 @@ impl RedisConnector {
     }
 
     /// Returns a reference to the underlying connection pool.
-    pub fn pool(&self) -> &Pool {
+    fn pool(&self) -> &Pool {
         &self.pool
+    }
+
+    /// Perform a health-check PING against the Redis server
+    async fn ping(&self, redis_uri: &str) -> Result<(), DynError> {
+        let redis_conn = self.pool.get().await;
+        match redis_conn {
+            Ok(_) => info!(
+                "Redis health check PING succeeded; server at {} is reachable",
+                redis_uri
+            ),
+            Err(_) => return Err(format!("Failed to PING to Redis at {}", redis_uri).into()),
+        }
+        Ok(())
     }
 }
 

@@ -1,9 +1,10 @@
-use crate::{routes, Config};
+use crate::routes;
 use axum_server::{Handle, Server};
 use nexus_common::db::DatabaseConfig;
+use nexus_common::file::ConfigReader;
 use nexus_common::types::DynError;
-use nexus_common::StackManager;
-use nexus_common::{Config as StackConfig, ConfigLoader, Level};
+use nexus_common::{ApiConfig, DaemonConfig, StackManager};
+use nexus_common::{Level, StackConfig};
 use std::time::Duration;
 use std::{fmt::Debug, net::SocketAddr, path::PathBuf};
 use tokio::net::TcpListener;
@@ -11,11 +12,11 @@ use tokio::signal;
 use tracing::{debug, error, info};
 
 #[derive(Debug, Default)]
-pub struct NexusApiBuilder(pub(crate) Config);
+pub struct NexusApiBuilder(pub ApiConfig);
 
 impl NexusApiBuilder {
     /// Creates a `NexusWatcherBuilder` instance with the given configuration and stack settings.
-    pub fn with_stack(mut config: Config, stack: &StackConfig) -> Self {
+    pub fn with_stack(mut config: ApiConfig, stack: &StackConfig) -> Self {
         config.stack = stack.clone();
         Self(config)
     }
@@ -64,17 +65,17 @@ impl NexusApiBuilder {
 
     /// Opens ddbb connections and initialises tracing layer (if provided in config)
     pub async fn init_stack(&self) -> Result<(), DynError> {
-        StackManager::setup(&self.0.name, &self.0.stack).await;
+        StackManager::setup(&self.0.name, &self.0.stack).await?;
         Ok(())
     }
 
-    pub async fn run(self) -> Result<(), DynError> {
+    pub async fn start(self) -> Result<(), DynError> {
         if let Err(e) = self.init_stack().await {
             tracing::error!("Failed to initialize stack: {}", e);
             return Err(e);
         }
 
-        if let Err(e) = NexusApi::run(self.0, None).await {
+        if let Err(e) = NexusApi::start(self.0, None).await {
             tracing::error!("Failed to start Nexus API: {}", e);
             return Err(e);
         }
@@ -83,8 +84,8 @@ impl NexusApiBuilder {
     }
 
     /// Nexus API server for integration tests
-    pub async fn run_test(self, listener: TcpListener) -> Result<(), DynError> {
-        NexusApi::run(self.0, Some(listener)).await
+    pub async fn start_test(self, listener: TcpListener) -> Result<(), DynError> {
+        NexusApi::start(self.0, Some(listener)).await
     }
 }
 
@@ -97,17 +98,22 @@ impl NexusApi {
     }
 
     /// Loads the configuration from a file and starts the Nexus API
-    pub async fn run_with_config_file(config_file: PathBuf) -> Result<(), DynError> {
-        let config = Config::load(&config_file).await.map_err(|e| {
-            error!("Failed to load config file {:?}: {}", config_file, e);
-            e
-        })?;
-        NexusApiBuilder(config).run().await
+    pub async fn start_from_path(config_file: PathBuf) -> Result<(), DynError> {
+        let config = ApiConfig::read_config_file(config_file).await?;
+        NexusApiBuilder(config).start().await
+    }
+
+    /// Loads the configuration from nexusd service and starts the Nexus API
+    pub async fn start_from_daemon(config_file: PathBuf) -> Result<(), DynError> {
+        let config = DaemonConfig::read_config_file(config_file).await?;
+        NexusApiBuilder(Into::<ApiConfig>::into(config))
+            .start()
+            .await
     }
 
     /// It sets up the necessary routes, binds to the specified address (if no
     /// listener is provided), and starts the Axum server
-    pub async fn run(config: Config, listener: Option<TcpListener>) -> Result<(), DynError> {
+    pub async fn start(config: ApiConfig, listener: Option<TcpListener>) -> Result<(), DynError> {
         // Create all the routes of the API
         let app = routes::routes(config.stack.files_path.clone());
         debug!(?config, "Running NexusAPI with");

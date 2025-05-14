@@ -21,7 +21,7 @@ The crate leverages the shared `nexus_common` library for database interactions 
 - **Modular Design:** Organized into modules like `builder`, `config`, `error`, `mock`, `models`, and `routes`.
 - **Observability:** Integrated OpenTelemetry tracing and automatically generated OpenAPI documentation via Swagger UI.
 - **High Performance:** Includes extensive testing and benchmarking to ensure optimal performance.
-- **Flexible Configuration:** Configurable via files and environment variables with sensible defaults provided by the `Config` struct.
+- **Flexible Configuration:** Configurable via `toml` files with sensible defaults provided by the `ApiConfig` struct.
 
 ## Installation
 
@@ -31,7 +31,7 @@ To add Nexus API to your project, include it in your `Cargo.toml` dependencies:
 cargo add nexus-api
 ```
 
-## Usage
+## Quick Examples
 
 Below is a simple example to start the Nexus API server:
 
@@ -46,9 +46,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-## Configuration
+Alternatively, if you prefer to load the configuration from a file:
 
-Nexus API can be configured using a configuration file or environment variables. The default configuration is provided in the `Config` struct. For more advanced scenarios, use the builder pattern via `NexusApi::builder()` to adjust parameters such as the public address, logging level, file paths, and database settings.
+```rust
+use nexus_watcher::builder::NexusWatcher;
+use std::path::PathBuf;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    NexusApi::start_from_path(PathBuf::from("path/to/config/folder")).await?;
+    Ok(())
+}
+```
+
+## Advanced Configuration
+
+For more advanced scenarios, use the builder pattern via `NexusApi::builder()` to adjust parameters such as the public address, logging level, file paths, and database settings
 
 ## License
 

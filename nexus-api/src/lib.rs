@@ -43,12 +43,11 @@
 //!
 //! This project is licensed under the terms of the MIT License.
 
-pub mod builder;
-mod config;
+mod builder;
 pub mod error;
 pub mod mock;
 pub mod models;
 pub mod routes;
 
-pub use config::Config;
+pub use builder::{NexusApi, NexusApiBuilder};
 pub use error::{Error, Result};

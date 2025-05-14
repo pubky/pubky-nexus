@@ -1,9 +1,9 @@
 use crate::events::processor::EventProcessor;
-use crate::Config;
 use nexus_common::db::{DatabaseConfig, PubkyClient};
+use nexus_common::file::ConfigReader;
 use nexus_common::types::DynError;
-use nexus_common::StackManager;
-use nexus_common::{Config as StackConfig, ConfigLoader, Level};
+use nexus_common::{DaemonConfig, Level, StackConfig};
+use nexus_common::{StackManager, WatcherConfig};
 use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
 use tokio::time::Duration;
@@ -11,11 +11,11 @@ use tokio::{pin, signal};
 use tracing::{debug, error, info};
 
 #[derive(Debug, Default)]
-pub struct NexusWatcherBuilder(pub(crate) Config);
+pub struct NexusWatcherBuilder(pub WatcherConfig);
 
 impl NexusWatcherBuilder {
     /// Creates a `NexusWatcherBuilder` instance with the given configuration and stack settings.
-    pub fn with_stack(mut config: Config, stack: &StackConfig) -> Self {
+    pub fn with_stack(mut config: WatcherConfig, stack: &StackConfig) -> Self {
         config.stack = stack.clone();
         Self(config)
     }
@@ -68,39 +68,48 @@ impl NexusWatcherBuilder {
     }
 
     /// Opens ddbb connections and initialises tracing layer (if provided in config)
-    pub async fn init_stack(&self) {
-        StackManager::setup(&self.0.name, &self.0.stack).await;
+    pub async fn init_stack(&self) -> Result<(), DynError> {
+        StackManager::setup(&self.0.name, &self.0.stack).await?;
         let _ = PubkyClient::initialise(self.0.testnet).await;
+        Ok(())
     }
 
     /// Initializes the watcher integration test stack
-    pub async fn init_test_stack(&self) {
-        StackManager::setup(&self.0.name, &self.0.stack).await;
+    pub async fn init_test_stack(&self) -> Result<(), DynError> {
+        StackManager::setup(&self.0.name, &self.0.stack).await?;
+        Ok(())
     }
 
     /// Initializes the service stack and starts the NexusWatcher event loop
-    pub async fn run(self) -> Result<(), DynError> {
-        self.init_stack().await;
-        NexusWatcher::run(self.0).await
+    pub async fn start(self) -> Result<(), DynError> {
+        self.init_stack().await?;
+        NexusWatcher::start(self.0).await
     }
 }
 
 pub struct NexusWatcher {}
 
 impl NexusWatcher {
+    /// Creates a new instance with default configuration
     pub fn builder() -> NexusWatcherBuilder {
         NexusWatcherBuilder::default()
     }
 
-    pub async fn run_with_config_file(config_file: PathBuf) -> Result<(), DynError> {
-        let config = Config::load(&config_file).await.map_err(|e| {
-            error!("Failed to load config file {:?}: {}", config_file, e);
-            e
-        })?;
-        NexusWatcherBuilder(config).run().await
+    /// Loads the configuration from a file and starts the Watcher
+    pub async fn start_from_path(config_file: PathBuf) -> Result<(), DynError> {
+        let config = WatcherConfig::read_config_file(config_file).await?;
+        NexusWatcherBuilder(config).start().await
     }
 
-    pub async fn run(config: Config) -> Result<(), DynError> {
+    /// Loads the configuration from nexusd service and starts the Watcher
+    pub async fn start_from_daemon(config_file: PathBuf) -> Result<(), DynError> {
+        let config = DaemonConfig::read_config_file(config_file).await?;
+        NexusWatcherBuilder(Into::<WatcherConfig>::into(config))
+            .start()
+            .await
+    }
+
+    pub async fn start(config: WatcherConfig) -> Result<(), DynError> {
         debug!(?config, "Running NexusWatcher with ");
         let mut event_processor = EventProcessor::from_config(&config).await?;
 

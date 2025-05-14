@@ -1,11 +1,10 @@
 use super::Event;
 use crate::events::errors::EventProcessorError;
 use crate::events::retry::event::RetryEvent;
-use crate::Config as WatcherConfig;
 use nexus_common::db::PubkyClient;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
-use nexus_common::FILES_DIR_TEST;
+use nexus_common::{WatcherConfig, FILES_DIR_TEST};
 use opentelemetry::trace::{FutureExt, Span, TraceContextExt, Tracer};
 use opentelemetry::{global, Context, KeyValue};
 use pubky_app_specs::PubkyId;
@@ -36,6 +35,10 @@ impl EventProcessor {
     pub async fn test(homeserver_id: String) -> Self {
         let id = PubkyId::try_from(&homeserver_id).expect("Homeserver ID should be valid");
         let homeserver = Homeserver::new(id).await.unwrap();
+        info!(
+            "Watcher static files PATH during tests are stored inside of the watcher crate: {:?}",
+            PathBuf::from(FILES_DIR_TEST)
+        );
         Self {
             homeserver,
             limit: 1000,
