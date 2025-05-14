@@ -1028,7 +1028,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c136f185b3ca9d1f4e4e19c11570e1002f4bfdd592d589053e225716d613851f"
 dependencies = [
  "deadpool 0.12.2",
- "redis",
+ "redis 0.29.5",
 ]
 
 [[package]]
@@ -2441,7 +2441,7 @@ dependencies = [
  "opentelemetry_sdk",
  "pubky",
  "pubky-app-specs",
- "redis",
+ "redis 0.31.0",
  "serde",
  "serde_json",
  "thiserror 2.0.12",
@@ -3587,6 +3587,27 @@ checksum = "1bc42f3a12fd4408ce64d8efef67048a924e543bd35c6591c0447fda9054695f"
 dependencies = [
  "arc-swap",
  "bytes",
+ "combine",
+ "futures-util",
+ "itoa",
+ "num-bigint",
+ "percent-encoding",
+ "pin-project-lite",
+ "ryu",
+ "socket2",
+ "tokio",
+ "tokio-util",
+ "url",
+]
+
+[[package]]
+name = "redis"
+version = "0.31.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0bc1ea653e0b2e097db3ebb5b7f678be339620b8041f66b30a308c1d45d36a7f"
+dependencies = [
+ "bytes",
+ "cfg-if",
  "combine",
  "futures-util",
  "itoa",
