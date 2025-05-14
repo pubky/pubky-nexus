@@ -7,6 +7,7 @@ use std::path::PathBuf;
 #[command(name = "pubky-nexus")]
 #[command(about = "Pubky Nexus CLI", long_about = None)]
 pub struct Cli {
+    /// Directory containing `config.toml`
     #[arg(short, long, default_value_os_t = default_config_dir_path(), value_parser = validate_config_dir_path)]
     pub config: PathBuf,
 

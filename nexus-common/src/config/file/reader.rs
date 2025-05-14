@@ -53,8 +53,8 @@ where
         Ok(())
     }
 
-    /// Reads the config file from the data directory
-    /// Creates a default config file if it doesn't exist
+    /// Given a directory path, ensures the directory exists, writes a default
+    /// `config.toml` if absent, then parses and returns the loaded config
     async fn read_config_file(expanded_path: PathBuf) -> Result<T, DynError> {
         let config_file_path = Self::get_config_file_path(&expanded_path);
 
