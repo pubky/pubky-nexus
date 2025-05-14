@@ -56,7 +56,7 @@ The crate provides common types and utilities (`types/`) that are used across di
 
 ### Media Processing
 - Module: `media/`
-- Features: `ImageProcessor`, `VideoProcessor`, `FileVariant`, and `VariantController` for automated variant pipelines
+- Features: `ImageProcessor`, `VideoProcessor`, `FileVariant`, and `VariantController` for automated processing pipelines
 
 MIME-type management and storage directory configuration
 
@@ -77,9 +77,10 @@ Below is an example demonstrating how to load a configuration using the provided
 ```rust
 use nexus_common::config::{ConfigLoader, DaemonConfig};
 use std::path::Path;
+use nexus_common::types::DynError;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), DynError> {
     let cfg: DaemonConfig = DaemonConfig::read_config_file(
         config::expand_home_dir("~/.pubky-nexus".into())
     ).await?;
@@ -95,9 +96,10 @@ Below is an example demonstrating how to get the connectors of the data bases:
 ```rust
 use nexus_common::db::{Neo4jConnector, RedisConnector, get_neo4j_graph, get_redis_conn};
 use nexus_common::db::Neo4JConfig;
+use nexus_common::types::DynError;
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> Result<(), DynError> {
     // Initialize connectors (once per app)
     Neo4jConnector::init(Neo4JConfig::default()).await?;
     RedisConnector::init("redis://127.0.0.1:6379").await?;
@@ -115,9 +117,12 @@ Demonstrates cache-first retrieval of domain entities, attempting to load from R
 
 ```rust
 use nexus_common::models::user::UserDetails;
+use nexus_common::types::DynError;
+use nexus_common::{StackManager, StackConfig};
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> Result<(), DynError> {
+    StackManager::setup("common-example", StackConfig::default()).await?
     // Cache-first: Redis -> Neo4j fallback
     if let Some(user) = UserDetails::get_by_id("some_user_id").await? {
         println!("User: {}", user.name);
