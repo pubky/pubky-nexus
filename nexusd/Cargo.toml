@@ -11,7 +11,7 @@ license = "MIT"
 async-trait = { workspace = true }
 dirs = "6.0.0"
 chrono = { workspace = true }
-clap = { version = "4.5.37", features = ["derive"] }
+clap = { version = "4.5.38", features = ["derive"] }
 neo4rs = { workspace = true }
 nexus-api = { version = "0.4.0", path = "../nexus-api" }
 nexus-common = { version = "0.4.0", path = "../nexus-common" }
