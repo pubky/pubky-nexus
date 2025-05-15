@@ -10,7 +10,7 @@ use super::ConfigLoader;
 
 /// Path to default nexusd config file. Defaults to ~/.pubky-nexus
 pub const DEFAULT_HOME_DIR: &str = ".pubky-nexus";
-const DEFAULT_CONFIG_TOML: &str = include_str!("../default.config.toml");
+const DEFAULT_CONFIG_TOML: &str = include_str!("../../../default.config.toml");
 /// The sole configuration file name recognized by nexus
 pub const CONFIG_FILE_NAME: &str = "config.toml";
 
