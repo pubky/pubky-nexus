@@ -1,5 +1,5 @@
-use nexus_api::NexusApi;
-use std::{env, sync::Once};
+use nexus_common::{Level, StackConfig, StackManager};
+use std::sync::Once;
 use tokio::runtime::Runtime;
 
 static INIT: Once = Once::new();
@@ -7,9 +7,10 @@ static INIT: Once = Once::new();
 pub fn run_setup() {
     INIT.call_once(|| {
         let rt = Runtime::new().unwrap();
-        env::set_var("RUST_LOG", "error");
         rt.block_on(async {
-            let _ = NexusApi::builder().init_stack().await;
+            let mut config = StackConfig::default();
+            config.log_level = Level::Error;
+            let _ = StackManager::setup("benchmark", &config).await;
         });
     });
 }
