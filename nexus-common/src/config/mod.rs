@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
-pub const LOG_LEVEL: Level = Level::Debug;
+pub const LOG_LEVEL: Level = Level::Info;
 pub const FILES_DIR: &str = "~/.pubky-nexus/static/files";
 // All the tests run inside their own crate therefore the default directory does not apply
 pub const FILES_DIR_TEST: &str = "./static/files";
