@@ -52,6 +52,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "allocator-api2"
+version = "0.2.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
+
+[[package]]
 name = "android-tzdata"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1250,6 +1256,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "fast-glob"
+version = "0.4.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "39ea3f6bbcf4dbe2076b372186fc7aeecd5f6f84754582e56ee7db262b15a6f0"
+dependencies = [
+ "arrayvec",
+]
+
+[[package]]
 name = "fastrand"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1288,6 +1303,12 @@ name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
+
+[[package]]
+name = "foldhash"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
 
 [[package]]
 name = "foreign-types"
@@ -1534,6 +1555,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8d1add55171497b4705a648c6b583acafb01d58050a51727785f0b2c8e0a2b2"
 
 [[package]]
+name = "gloo-timers"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbb143cf96099802033e0d4f4963b19fd2e0b728bcf076cd9cf7f6634f092994"
+dependencies = [
+ "futures-channel",
+ "futures-core",
+ "js-sys",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "governor"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1546,6 +1579,29 @@ dependencies = [
  "futures-util",
  "getrandom 0.3.2",
  "no-std-compat",
+ "nonzero_ext",
+ "parking_lot",
+ "portable-atomic",
+ "quanta",
+ "rand 0.9.1",
+ "smallvec",
+ "spinning_top",
+ "web-time",
+]
+
+[[package]]
+name = "governor"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3cbe789d04bf14543f03c4b60cd494148aa79438c8440ae7d81a7778147745c3"
+dependencies = [
+ "cfg-if",
+ "dashmap",
+ "futures-sink",
+ "futures-timer",
+ "futures-util",
+ "getrandom 0.3.2",
+ "hashbrown 0.15.3",
  "nonzero_ext",
  "parking_lot",
  "portable-atomic",
@@ -1611,6 +1667,11 @@ name = "hashbrown"
 version = "0.15.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "84b26c544d002229e640969970a2e74021aadf6e2f96372b9c58eff97de08eb3"
+dependencies = [
+ "allocator-api2",
+ "equivalent",
+ "foldhash",
+]
 
 [[package]]
 name = "headers"
@@ -1761,8 +1822,7 @@ checksum = "9171a2ea8a68358193d15dd5d70c1c10a2afc3e7e4c5bc92bc9f025cebd7359c"
 [[package]]
 name = "http-relay"
 version = "0.3.0-rc.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ff07fed7d4966f1f55c66a114e714f632265c1c4368740cde62e31f9675e993"
+source = "git+https://github.com/pubky/pubky-core?branch=experiment%2Fpkarr-stream-merge-fix#eb03524eefcd30d0828f9408ad0016e2179105b0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2479,7 +2539,7 @@ dependencies = [
  "opentelemetry",
  "pubky",
  "pubky-app-specs",
- "pubky-homeserver 0.1.2",
+ "pubky-homeserver",
  "pubky-testnet",
  "rand 0.9.1",
  "rand_distr",
@@ -2954,6 +3014,37 @@ dependencies = [
  "document-features",
  "dyn-clone",
  "ed25519-dalek",
+ "futures-lite",
+ "getrandom 0.2.16",
+ "heed",
+ "log",
+ "lru",
+ "mainline",
+ "ntimestamp",
+ "page_size",
+ "self_cell",
+ "serde",
+ "sha1_smol",
+ "simple-dns",
+ "thiserror 2.0.12",
+ "tokio",
+ "tracing",
+ "wasm-bindgen-futures",
+]
+
+[[package]]
+name = "pkarr"
+version = "3.7.1"
+source = "git+https://github.com/pubky/pkarr?branch=fix%2Fmerge-dht-relay-streams#0c86289d1bd3245f3363b6dbfa229674ce6a692f"
+dependencies = [
+ "async-compat",
+ "base32",
+ "byteorder",
+ "bytes",
+ "cfg_aliases",
+ "document-features",
+ "dyn-clone",
+ "ed25519-dalek",
  "futures-buffered",
  "futures-lite",
  "genawaiter",
@@ -2990,10 +3081,10 @@ dependencies = [
  "bytes",
  "clap",
  "dirs-next",
- "governor",
+ "governor 0.8.1",
  "http",
  "httpdate",
- "pkarr",
+ "pkarr 3.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "rustls",
  "serde",
  "thiserror 2.0.12",
@@ -3008,35 +3099,15 @@ dependencies = [
 
 [[package]]
 name = "pkarr-republisher"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2374ab6c246ecb55660b7fe5152f199caac4533de8e0f2c97795372f98805ad"
-dependencies = [
- "anyhow",
- "clap",
- "ctrlc",
- "futures-lite",
- "hex",
- "pkarr",
- "rand 0.9.1",
- "thiserror 2.0.12",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "pkarr-republisher"
 version = "0.2.0-rc.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dbe824f3c8c888c706410e23fc5a65728cb81f71a221d49fc7921cbb9d2551db"
+source = "git+https://github.com/pubky/pubky-core?branch=experiment%2Fpkarr-stream-merge-fix#eb03524eefcd30d0828f9408ad0016e2179105b0"
 dependencies = [
  "anyhow",
  "clap",
  "ctrlc",
  "futures-lite",
  "hex",
- "pkarr",
+ "pkarr 3.7.1 (git+https://github.com/pubky/pkarr?branch=fix%2Fmerge-dht-relay-streams)",
  "rand 0.9.1",
  "thiserror 2.0.12",
  "tokio",
@@ -3184,8 +3255,7 @@ checksum = "33cb294fe86a74cbcf50d4445b37da762029549ebeea341421c7c70370f86cac"
 [[package]]
 name = "pubky"
 version = "0.4.3-rc.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "660b15d95df896f9eeed33b12aa1f4de8b3a01e4d91e6567c1135d5b78bbe3b2"
+source = "git+https://github.com/pubky/pubky-core?branch=experiment%2Fpkarr-stream-merge-fix#eb03524eefcd30d0828f9408ad0016e2179105b0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3199,10 +3269,11 @@ dependencies = [
  "futures-util",
  "getrandom 0.2.16",
  "getrandom 0.3.2",
+ "gloo-timers",
  "js-sys",
  "log",
- "pkarr",
- "pubky-common 0.4.0-rc.0",
+ "pkarr 3.7.1 (git+https://github.com/pubky/pkarr?branch=fix%2Fmerge-dht-relay-streams)",
+ "pubky-common",
  "reqwest",
  "thiserror 2.0.12",
  "tokio",
@@ -3234,30 +3305,8 @@ dependencies = [
 
 [[package]]
 name = "pubky-common"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3220bb556278535a375d4c155f1dfb4602ac1d54a3f79656291accf38ad864bc"
-dependencies = [
- "argon2",
- "base32",
- "blake3",
- "crypto_secretbox",
- "ed25519-dalek",
- "js-sys",
- "once_cell",
- "pkarr",
- "postcard",
- "pubky-timestamp",
- "rand 0.9.1",
- "serde",
- "thiserror 2.0.12",
-]
-
-[[package]]
-name = "pubky-common"
 version = "0.4.0-rc.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c5c9573b5151179b738dd0165fe34ce5e2b0f6b61f2a309567c5222aaffa4b5d"
+source = "git+https://github.com/pubky/pubky-core?branch=experiment%2Fpkarr-stream-merge-fix#eb03524eefcd30d0828f9408ad0016e2179105b0"
 dependencies = [
  "argon2",
  "base32",
@@ -3266,55 +3315,18 @@ dependencies = [
  "ed25519-dalek",
  "js-sys",
  "once_cell",
- "pkarr",
+ "pkarr 3.7.1 (git+https://github.com/pubky/pkarr?branch=fix%2Fmerge-dht-relay-streams)",
  "postcard",
  "pubky-timestamp",
  "rand 0.9.1",
  "serde",
  "thiserror 2.0.12",
-]
-
-[[package]]
-name = "pubky-homeserver"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b73ba93159eb3aafc711e20af4d826bf5e914ca62c2af1515b9095333355abd"
-dependencies = [
- "anyhow",
- "axum",
- "axum-extra",
- "axum-server",
- "base32",
- "bytes",
- "clap",
- "dirs-next",
- "flume",
- "futures-util",
- "heed",
- "hex",
- "httpdate",
- "page_size",
- "pkarr",
- "pkarr-republisher 0.1.0",
- "postcard",
- "pubky-common 0.3.1",
- "serde",
- "thiserror 2.0.12",
- "tokio",
- "toml",
- "tower 0.5.2",
- "tower-cookies",
- "tower-http",
- "tracing",
- "tracing-subscriber",
- "url",
 ]
 
 [[package]]
 name = "pubky-homeserver"
 version = "0.2.0-rc.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "031066d014dd0426bdebb1fbdb7d71a198bdd2036ad6197309cdbe162284da14"
+source = "git+https://github.com/pubky/pubky-core?branch=experiment%2Fpkarr-stream-merge-fix#eb03524eefcd30d0828f9408ad0016e2179105b0"
 dependencies = [
  "anyhow",
  "axum",
@@ -3326,19 +3338,22 @@ dependencies = [
  "clap",
  "dirs",
  "dyn-clone",
+ "fast-glob",
  "flume",
  "futures-util",
+ "governor 0.10.0",
  "heed",
  "hex",
  "hostname-validator",
  "httpdate",
  "page_size",
- "pkarr",
- "pkarr-republisher 0.2.0-rc.0",
+ "pkarr 3.7.1 (git+https://github.com/pubky/pkarr?branch=fix%2Fmerge-dht-relay-streams)",
+ "pkarr-republisher",
  "postcard",
- "pubky-common 0.4.0-rc.0",
+ "pubky-common",
  "reqwest",
  "serde",
+ "serde-toml-merge",
  "tempfile",
  "thiserror 2.0.12",
  "tokio",
@@ -3354,17 +3369,18 @@ dependencies = [
 [[package]]
 name = "pubky-testnet"
 version = "0.2.0-rc.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "942d2c3af70c25bac0f491fd1939642a043b4a0ed176a9e9238497751c5b72e9"
+source = "git+https://github.com/pubky/pubky-core?branch=experiment%2Fpkarr-stream-merge-fix#eb03524eefcd30d0828f9408ad0016e2179105b0"
 dependencies = [
  "anyhow",
+ "clap",
+ "dirs",
  "http-relay",
  "mainline",
- "pkarr",
+ "pkarr 3.7.1 (git+https://github.com/pubky/pkarr?branch=fix%2Fmerge-dht-relay-streams)",
  "pkarr-relay",
  "pubky",
- "pubky-common 0.4.0-rc.0",
- "pubky-homeserver 0.2.0-rc.0",
+ "pubky-common",
+ "pubky-homeserver",
  "tempfile",
  "tokio",
  "tracing",
@@ -4014,6 +4030,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5f0e2c6ed6606019b4e29e69dbaba95b11854410e5347d525002456dbbb786b6"
 dependencies = [
  "serde_derive",
+]
+
+[[package]]
+name = "serde-toml-merge"
+version = "0.3.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5817202d670278fb4dded71a70bae5181e00112543b1313463b02d43fc2d9243"
+dependencies = [
+ "toml",
 ]
 
 [[package]]
@@ -4715,7 +4740,7 @@ checksum = "57a2ccff6830fa835371af7541e561a90e4c07b84f72991ebac4b3cb6790dc0d"
 dependencies = [
  "axum",
  "forwarded-header-value",
- "governor",
+ "governor 0.8.1",
  "http",
  "pin-project",
  "thiserror 2.0.12",
