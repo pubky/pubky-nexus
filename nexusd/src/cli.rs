@@ -18,7 +18,9 @@ pub struct Cli {
 impl Cli {
     pub fn receive_command(cli: Cli) -> NexusCommands {
         match cli.command {
-            None => NexusCommands::Run { config_dir: cli.config_dir },
+            None => NexusCommands::Run {
+                config_dir: cli.config_dir,
+            },
             Some(command) => command,
         }
     }
