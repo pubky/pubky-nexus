@@ -9,7 +9,7 @@ use std::path::PathBuf;
 pub struct Cli {
     /// Directory containing `config.toml`
     #[arg(short, long, default_value_os_t = default_config_dir_path(), value_parser = validate_config_dir_path)]
-    pub config: PathBuf,
+    pub config_dir: PathBuf,
 
     #[command(subcommand)]
     pub command: Option<NexusCommands>,
@@ -18,7 +18,7 @@ pub struct Cli {
 impl Cli {
     pub fn receive_command(cli: Cli) -> NexusCommands {
         match cli.command {
-            None => NexusCommands::Run { config: cli.config },
+            None => NexusCommands::Run { config_dir: cli.config_dir },
             Some(command) => command,
         }
     }
@@ -58,7 +58,7 @@ pub enum NexusCommands {
     Run {
         /// Path to the configuration file
         #[arg(short, long, default_value_os_t = default_config_dir_path(), value_parser = validate_config_dir_path)]
-        config: PathBuf,
+        config_dir: PathBuf,
     },
 }
 
@@ -66,14 +66,14 @@ pub enum NexusCommands {
 pub struct ApiArgs {
     /// Optional configuration file for the watcher
     #[arg(short, long, default_value_os_t = default_config_dir_path(), value_parser = validate_config_dir_path)]
-    pub config: PathBuf,
+    pub config_dir: PathBuf,
 }
 
 #[derive(Args, Debug)]
 pub struct WatcherArgs {
     /// Optional configuration file for the watcher
     #[arg(short, long, default_value_os_t = default_config_dir_path(), value_parser = validate_config_dir_path)]
-    pub config: PathBuf,
+    pub config_dir: PathBuf,
 }
 
 #[derive(Subcommand, Debug)]
