@@ -46,7 +46,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY . .
 
 # Build the project in release mode for the MUSL target
-RUN cargo build --release --target $TARGETARCH-unknown-linux-musl
+RUN cargo build --release --bin nexusd --target $TARGETARCH-unknown-linux-musl
 
 # Strip the binaries to reduce size
 RUN strip target/$TARGETARCH-unknown-linux-musl/release/nexusd
