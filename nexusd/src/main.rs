@@ -27,11 +27,13 @@ async fn main() -> Result<(), DynError> {
                 }
             },
         },
-        NexusCommands::Api(ApiArgs { config }) => NexusApi::start_from_daemon(config).await?,
-        NexusCommands::Watcher(WatcherArgs { config }) => {
-            NexusWatcher::start_from_daemon(config).await?
+        NexusCommands::Api(ApiArgs { config_dir }) => {
+            NexusApi::start_from_daemon(config_dir).await?
         }
-        NexusCommands::Run { config } => DaemonLauncher::start(config).await?,
+        NexusCommands::Watcher(WatcherArgs { config_dir }) => {
+            NexusWatcher::start_from_daemon(config_dir).await?
+        }
+        NexusCommands::Run { config_dir } => DaemonLauncher::start(config_dir).await?,
     }
     Ok(())
 }

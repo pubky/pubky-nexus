@@ -98,14 +98,14 @@ impl NexusApi {
     }
 
     /// Loads the configuration from a file and starts the Nexus API
-    pub async fn start_from_path(config_file: PathBuf) -> Result<(), DynError> {
-        let config = ApiConfig::read_config_file(config_file).await?;
+    pub async fn start_from_path(config_dir: PathBuf) -> Result<(), DynError> {
+        let config = ApiConfig::read_config_file(config_dir).await?;
         NexusApiBuilder(config).start().await
     }
 
     /// Loads the configuration from nexusd service and starts the Nexus API
-    pub async fn start_from_daemon(config_file: PathBuf) -> Result<(), DynError> {
-        let config = DaemonConfig::read_config_file(config_file).await?;
+    pub async fn start_from_daemon(config_dir: PathBuf) -> Result<(), DynError> {
+        let config = DaemonConfig::read_config_file(config_dir).await?;
         NexusApiBuilder(Into::<ApiConfig>::into(config))
             .start()
             .await

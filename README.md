@@ -67,7 +67,7 @@ docker-compose up -d
 # Run with defaults values. The config file will default from $HOME/.pubky-nexus/config.toml
 cargo run -p nexusd
 # Run from config file
-cargo run -p nexusd -- --config="custom/config/folder"
+cargo run -p nexusd -- --config-dir="custom/config/folder"
 # There is also an option to run services individually
 # Useful to run a database clear command before start running the watcher
 # cargo run -p nexusd -- db clear
