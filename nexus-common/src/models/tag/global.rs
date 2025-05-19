@@ -174,6 +174,17 @@ impl Taggers {
         retrieve_from_graph::<TaggersType>(query, "tagger_ids").await
     }
 
+    pub async fn get_tags_by_label_prefix(
+        label_prefix: &str,
+        // user_id: &str,
+        // reach: StreamReach,
+        // skip: usize,
+        // limit: usize,
+    ) -> Result<Option<Vec<String>>, DynError> {
+        let query = queries::get::get_tags_by_label_prefix(label_prefix);
+        retrieve_from_graph::<Vec<String>>(query, "tag_labels").await
+    }
+
     /// Builds key parts for hot tag taggers based on the given timeframe
     ///
     /// # Arguments
