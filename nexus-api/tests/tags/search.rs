@@ -7,7 +7,7 @@ use crate::{
     utils::{get_request, invalid_get_request},
 };
 
-const ROOT_PATH: &str = "/v0/search/tags";
+const ROOT_PATH: &str = nexus_api::routes::v0::endpoints::SEARCH_POSTS_BY_TAG_ROUTE_BASE;
 const FREE_LABEL: &str = "free";
 
 const POST_A: &str = "2VDW8YBDZJ02";
@@ -15,14 +15,14 @@ const POST_B: &str = "1TDV7XBCF4M1";
 const POST_C: &str = "HC3T5CEPBPHQ";
 
 #[tokio_shared_rt::test(shared)]
-async fn test_tag_search_by_timeline() -> Result<()> {
+async fn test_post_search_by_timeline() -> Result<()> {
     let post_order = vec![POST_A, POST_B, POST_C];
     let path = format!("{}/{}", ROOT_PATH, FREE_LABEL);
     let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
-    let tags = body.as_array().expect("Stream tags should be an array");
+    let tags = body.as_array().expect("Stream posts should be an array");
 
     // Check the total posts using that tag
     assert_eq!(tags.len(), 3);
@@ -34,14 +34,14 @@ async fn test_tag_search_by_timeline() -> Result<()> {
 }
 
 #[tokio_shared_rt::test(shared)]
-async fn test_tag_search_with_skip() -> Result<()> {
+async fn test_post_search_with_skip() -> Result<()> {
     let post_order = vec![POST_B, POST_C];
     let path = format!("{}/{}?skip=1", ROOT_PATH, FREE_LABEL);
     let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
-    let tags = body.as_array().expect("Stream tags should be an array");
+    let tags = body.as_array().expect("Stream posts should be an array");
 
     // Check the total posts using that tag
     assert_eq!(tags.len(), 2);
@@ -53,33 +53,33 @@ async fn test_tag_search_with_skip() -> Result<()> {
 }
 
 #[tokio_shared_rt::test(shared)]
-async fn test_tag_search_with_limit() -> Result<()> {
+async fn test_post_search_with_limit() -> Result<()> {
     let post_order = vec![POST_A];
     let path = format!("{}/{}?limit=1", ROOT_PATH, FREE_LABEL);
     let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
-    let tags = body.as_array().expect("Stream tags should be an array");
+    let posts = body.as_array().expect("Stream posts should be an array");
 
     // Check the total posts using that tag
-    assert_eq!(tags.len(), 1);
+    assert_eq!(posts.len(), 1);
 
     // Validate that each post has the searched tag
-    search_posts(tags, post_order);
+    search_posts(posts, post_order);
 
     Ok(())
 }
 
 #[tokio_shared_rt::test(shared)]
-async fn test_tag_search_with_limit_and_skip() -> Result<()> {
+async fn test_post_search_with_limit_and_skip() -> Result<()> {
     let post_order = vec![POST_C];
     let path = format!("{}/{}?limit=1&skip=2", ROOT_PATH, FREE_LABEL);
     let body = get_request(&path).await?;
 
     assert!(body.is_array());
 
-    let tags = body.as_array().expect("Stream tags should be an array");
+    let tags = body.as_array().expect("Stream posts should be an array");
 
     // Check the total posts using that tag
     assert_eq!(tags.len(), 1);
@@ -110,7 +110,7 @@ fn search_posts(posts: &[Value], post_order: Vec<&str>) {
 }
 
 #[tokio_shared_rt::test(shared)]
-async fn test_tag_search_skip_beyond_range() -> Result<()> {
+async fn test_post_search_skip_beyond_range() -> Result<()> {
     // Search opensource tag
     let path = format!("{}/{}", ROOT_PATH, TAG_LABEL_2);
 
