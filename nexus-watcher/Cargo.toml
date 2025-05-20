@@ -25,7 +25,7 @@ tracing = { workspace = true }
 anyhow = "1.0.98"
 httpc-test = "0.1.10"
 pubky-testnet = "0.2.0-rc.1"
-pubky-homeserver = "0.1.2"
+pubky-homeserver = "0.5.0-rc"
 rand = "0.9.1"
 rand_distr = "0.5.1"
 tokio-shared-rt = "0.1"
