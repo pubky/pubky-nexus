@@ -2,9 +2,12 @@ use super::{
     stream::{HOT_TAGS_CACHE_PREFIX, POST_HOT_TAGS},
     Taggers as TaggersType,
 };
-use crate::db::{queries, retrieve_from_graph, RedisOps};
 use crate::types::StreamReach;
 use crate::types::{DynError, Timeframe};
+use crate::{
+    db::{queries, retrieve_from_graph, RedisOps},
+    types::Pagination,
+};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, ops::Deref};
@@ -176,10 +179,7 @@ impl Taggers {
 
     pub async fn get_tags_by_label_prefix(
         label_prefix: &str,
-        // user_id: &str,
-        // reach: StreamReach,
-        // skip: usize,
-        // limit: usize,
+        _pagination: &Pagination,
     ) -> Result<Option<Vec<String>>, DynError> {
         let query = queries::get::get_tags_by_label_prefix(label_prefix);
         retrieve_from_graph::<Vec<String>>(query, "tag_labels").await
