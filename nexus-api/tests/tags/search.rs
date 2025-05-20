@@ -1,5 +1,6 @@
 use anyhow::Result;
 use axum::http::StatusCode;
+use nexus_api::routes::v0::endpoints::SEARCH_POSTS_BY_TAG_ROUTE;
 use serde_json::Value;
 
 use crate::{
@@ -7,17 +8,22 @@ use crate::{
     utils::{get_request, invalid_get_request},
 };
 
-const ROOT_PATH: &str = nexus_api::routes::v0::endpoints::SEARCH_POSTS_BY_TAG_ROUTE_BASE;
-const FREE_LABEL: &str = "free";
-
 const POST_A: &str = "2VDW8YBDZJ02";
 const POST_B: &str = "1TDV7XBCF4M1";
 const POST_C: &str = "HC3T5CEPBPHQ";
 
+pub fn format_search_posts_by_tag(tag: &str) -> String {
+    SEARCH_POSTS_BY_TAG_ROUTE.replace("{tag}", tag)
+}
+
+fn search_posts_by_tag_free() -> String {
+    format_search_posts_by_tag("free")
+}
+
 #[tokio_shared_rt::test(shared)]
 async fn test_post_search_by_timeline() -> Result<()> {
     let post_order = vec![POST_A, POST_B, POST_C];
-    let path = format!("{}/{}", ROOT_PATH, FREE_LABEL);
+    let path = search_posts_by_tag_free();
     let body = get_request(&path).await?;
 
     assert!(body.is_array());
@@ -36,7 +42,7 @@ async fn test_post_search_by_timeline() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_post_search_with_skip() -> Result<()> {
     let post_order = vec![POST_B, POST_C];
-    let path = format!("{}/{}?skip=1", ROOT_PATH, FREE_LABEL);
+    let path = format!("{}?skip=1", search_posts_by_tag_free());
     let body = get_request(&path).await?;
 
     assert!(body.is_array());
@@ -55,7 +61,7 @@ async fn test_post_search_with_skip() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_post_search_with_limit() -> Result<()> {
     let post_order = vec![POST_A];
-    let path = format!("{}/{}?limit=1", ROOT_PATH, FREE_LABEL);
+    let path = format!("{}?limit=1", search_posts_by_tag_free());
     let body = get_request(&path).await?;
 
     assert!(body.is_array());
@@ -74,7 +80,7 @@ async fn test_post_search_with_limit() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_post_search_with_limit_and_skip() -> Result<()> {
     let post_order = vec![POST_C];
-    let path = format!("{}/{}?limit=1&skip=2", ROOT_PATH, FREE_LABEL);
+    let path = format!("{}?limit=1&skip=2", search_posts_by_tag_free());
     let body = get_request(&path).await?;
 
     assert!(body.is_array());
@@ -92,7 +98,7 @@ async fn test_post_search_with_limit_and_skip() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_post_specific_tag_with_no_result() -> Result<()> {
-    let path = format!("{}/{}", ROOT_PATH, "randommm");
+    let path = format_search_posts_by_tag("randommm");
     invalid_get_request(&path, StatusCode::NOT_FOUND).await?;
 
     Ok(())
@@ -112,14 +118,18 @@ fn search_posts(posts: &[Value], post_order: Vec<&str>) {
 #[tokio_shared_rt::test(shared)]
 async fn test_post_search_skip_beyond_range() -> Result<()> {
     // Search opensource tag
-    let path = format!("{}/{}", ROOT_PATH, TAG_LABEL_2);
+    let path = format_search_posts_by_tag(TAG_LABEL_2);
 
     let body = get_request(&path).await?;
     let length = body.as_array().expect("Post list should be an array").len();
 
     assert!(body.is_array());
 
-    let path_w_skip = format!("{}/{}?skip={}", ROOT_PATH, TAG_LABEL_2, length);
+    let path_w_skip = format!(
+        "{}?skip={}",
+        format_search_posts_by_tag(TAG_LABEL_2),
+        length
+    );
     invalid_get_request(&path_w_skip, StatusCode::NO_CONTENT).await?;
 
     Ok(())
