@@ -1,7 +1,6 @@
 pub mod details;
 pub mod global;
 pub mod post;
-pub mod search;
 pub mod stream;
 pub mod traits;
 pub mod user;

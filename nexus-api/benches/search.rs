@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use nexus_common::{
-    models::{tag::search::PostsByTagSearch, user::UserSearch},
+    models::{post::search::PostsByTagSearch, user::UserSearch},
     types::Pagination,
 };
 use setup::run_setup;

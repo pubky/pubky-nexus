@@ -3,7 +3,7 @@ use crate::routes::v0::utils::json_array_or_no_content;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
-use nexus_common::models::tag::search::PostsByTagSearch;
+use nexus_common::models::post::search::PostsByTagSearch;
 use nexus_common::types::Pagination;
 use nexus_common::types::StreamSorting;
 use serde::Deserialize;

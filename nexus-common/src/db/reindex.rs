@@ -1,7 +1,7 @@
 use crate::models::follow::{Followers, Following, UserFollows};
+use crate::models::post::search::PostsByTagSearch;
 use crate::models::post::Bookmark;
 use crate::models::tag::post::TagPost;
-use crate::models::tag::search::PostsByTagSearch;
 use crate::models::tag::stream::HotTags;
 use crate::models::tag::traits::TagCollection;
 use crate::models::tag::user::TagUser;

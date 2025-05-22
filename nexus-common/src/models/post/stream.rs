@@ -3,7 +3,7 @@ use crate::db::kv::{ScoreAction, SortOrder};
 use crate::db::{get_neo4j_graph, queries, RedisOps};
 use crate::models::{
     follow::{Followers, Following, Friends, UserFollows},
-    tag::search::PostsByTagSearch,
+    post::search::PostsByTagSearch,
 };
 use crate::types::{DynError, Pagination, StreamSorting};
 use pubky_app_specs::PubkyAppPostKind;

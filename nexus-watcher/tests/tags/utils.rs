@@ -2,9 +2,9 @@ use anyhow::Result;
 use neo4rs::{query, Query};
 use nexus_common::{
     db::{get_neo4j_graph, RedisOps},
-    models::tag::{
-        search::{PostsByTagSearch, TAG_GLOBAL_POST_ENGAGEMENT, TAG_GLOBAL_POST_TIMELINE},
-        TagDetails,
+    models::{
+        post::search::{PostsByTagSearch, TAG_GLOBAL_POST_ENGAGEMENT, TAG_GLOBAL_POST_TIMELINE},
+        tag::TagDetails,
     },
 };
 

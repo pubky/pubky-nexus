@@ -2,14 +2,13 @@ use crate::db::kv::{ScoreAction, SortOrder};
 use crate::db::queries::get::{global_tags_by_post, global_tags_by_post_engagement};
 use crate::db::{get_neo4j_graph, RedisOps};
 use crate::models::post::PostDetails;
+use crate::models::tag::post::TagPost;
 use crate::models::tag::traits::TaggersCollection;
 use crate::types::DynError;
 use crate::types::{Pagination, StreamSorting};
 use neo4rs::Query;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-
-use super::post::TagPost;
 
 pub const TAG_GLOBAL_POST_TIMELINE: [&str; 4] = ["Tags", "Global", "Post", "Timeline"];
 pub const TAG_GLOBAL_POST_ENGAGEMENT: [&str; 4] = ["Tags", "Global", "Post", "TotalEngagement"];
