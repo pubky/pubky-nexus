@@ -12,7 +12,7 @@ async-trait = { workspace = true }
 chrono = { workspace = true }
 neo4rs = { workspace = true }
 opentelemetry = { workspace = true }
-pubky = "0.4.3-rc.0"
+pubky = "0.5.0-rc.0"
 pubky-app-specs = { workspace = true }
 nexus-common = { version = "0.4.0", path = "../nexus-common" }
 serde = { workspace = true }
@@ -24,8 +24,7 @@ tracing = { workspace = true }
 [dev-dependencies]
 anyhow = "1.0.98"
 httpc-test = "0.1.10"
-pubky-testnet = "0.2.0-rc.1"
-pubky-homeserver = "0.1.2"
+pubky-testnet = "0.5.0-rc.0"
 rand = "0.9.1"
 rand_distr = "0.5.1"
 tokio-shared-rt = "0.1"
