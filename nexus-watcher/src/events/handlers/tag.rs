@@ -8,6 +8,7 @@ use nexus_common::models::notification::Notification;
 use nexus_common::models::post::search::PostsByTagSearch;
 use nexus_common::models::post::{PostCounts, PostStream};
 use nexus_common::models::tag::post::TagPost;
+use nexus_common::models::tag::search::TagSearch;
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::tag::user::TagUser;
 use nexus_common::models::user::UserCounts;
@@ -26,32 +27,26 @@ pub async fn sync_put(
 
     // Parse the embeded URI to extract author_id and post_id using parse_tagged_post_uri
     let parsed_uri = ParsedUri::try_from(tag.uri.as_str())?;
+    let user_id = parsed_uri.user_id;
     let indexed_at = Utc::now().timestamp_millis();
 
     match parsed_uri.resource {
         // If post_id is in the tagged URI, we place tag to a post.
         Resource::Post(post_id) => {
             put_sync_post(
-                tagger_id,
-                parsed_uri.user_id,
-                post_id,
-                tag_id,
-                tag.label,
-                tag.uri,
-                indexed_at,
+                tagger_id, user_id, &post_id, &tag_id, &tag.label, &tag.uri, indexed_at,
             )
             .await
         }
         // If no post_id in the tagged URI, we place tag to a user.
-        Resource::User => {
-            put_sync_user(tagger_id, parsed_uri.user_id, tag_id, tag.label, indexed_at).await
+        Resource::User => put_sync_user(tagger_id, user_id, &tag_id, &tag.label, indexed_at).await,
+        other => {
+            Err(format!("The tagged resource is not Post or User, instead is: {other:?}").into())
         }
-        other => Err(format!(
-            "The tagged resource is not Post or User resource. Tagged resource: {:?}",
-            other
-        )
-        .into()),
-    }
+    }?;
+
+    // After successful put_sync of the tagged resource, we index the tag label
+    TagSearch::put_to_index(&tag.label).await
 }
 
 /// Handles the synchronization of a tagged post by updating the graph, indexes, and related counts.
@@ -67,18 +62,18 @@ pub async fn sync_put(
 async fn put_sync_post(
     tagger_user_id: PubkyId,
     author_id: PubkyId,
-    post_id: String,
-    tag_id: String,
-    tag_label: String,
-    post_uri: String,
+    post_id: &str,
+    tag_id: &str,
+    tag_label: &str,
+    post_uri: &str,
     indexed_at: i64,
 ) -> Result<(), DynError> {
     match TagPost::put_to_graph(
         &tagger_user_id,
         &author_id,
-        Some(&post_id),
-        &tag_id,
-        &tag_label,
+        Some(post_id),
+        tag_id,
+        tag_label,
         indexed_at,
     )
     .await?
@@ -91,7 +86,7 @@ async fn put_sync_post(
         }
         OperationOutcome::CreatedOrDeleted => {
             // SAVE TO INDEXES
-            let post_key_slice: &[&str] = &[&author_id, &post_id];
+            let post_key_slice: &[&str] = &[&author_id, post_id];
 
             let indexing_results = tokio::join!(
                 // Update user counts for tagger
@@ -111,40 +106,35 @@ async fn put_sync_post(
                         post_key_slice,
                         "unique_tags",
                         JsonAction::Increment(1),
-                        Some(&tag_label),
+                        Some(tag_label),
                     )
                     .await?;
                     // Increment the label count to post
                     TagPost::update_index_score(
                         &author_id,
-                        Some(&post_id),
-                        &tag_label,
+                        Some(post_id),
+                        tag_label,
                         ScoreAction::Increment(1.0),
                     )
                     .await?;
                     Ok::<(), DynError>(())
                 },
                 // Add user tag in post
-                TagPost::add_tagger_to_index(
-                    &author_id,
-                    Some(&post_id),
-                    &tagger_user_id,
-                    &tag_label
-                ),
+                TagPost::add_tagger_to_index(&author_id, Some(post_id), &tagger_user_id, tag_label),
                 // Add post to label total engagement
                 PostsByTagSearch::update_index_score(
                     &author_id,
-                    &post_id,
-                    &tag_label,
+                    post_id,
+                    tag_label,
                     ScoreAction::Increment(1.0)
                 ),
                 async {
                     // Post replies cannot be included in the total engagement index once they have been tagged
-                    if !post_relationships_is_reply(&author_id, &post_id).await? {
+                    if !post_relationships_is_reply(&author_id, post_id).await? {
                         // Increment in one post global engagement
                         PostStream::update_index_score(
                             &author_id,
-                            &post_id,
+                            post_id,
                             ScoreAction::Increment(1.0),
                         )
                         .await?;
@@ -152,9 +142,9 @@ async fn put_sync_post(
                     Ok::<(), DynError>(())
                 },
                 // Add post to global label timeline
-                PostsByTagSearch::put_to_index(&author_id, &post_id, &tag_label),
+                PostsByTagSearch::put_to_index(&author_id, post_id, tag_label),
                 // Save new notification
-                Notification::new_post_tag(&tagger_user_id, &author_id, &tag_label, &post_uri)
+                Notification::new_post_tag(&tagger_user_id, &author_id, tag_label, post_uri)
             );
 
             handle_indexing_results!(
@@ -176,16 +166,16 @@ async fn put_sync_post(
 async fn put_sync_user(
     tagger_user_id: PubkyId,
     tagged_user_id: PubkyId,
-    tag_id: String,
-    tag_label: String,
+    tag_id: &str,
+    tag_label: &str,
     indexed_at: i64,
 ) -> Result<(), DynError> {
     match TagUser::put_to_graph(
         &tagger_user_id,
         &tagged_user_id,
         None,
-        &tag_id,
-        &tag_label,
+        tag_id,
+        tag_label,
         indexed_at,
     )
     .await?
@@ -215,23 +205,23 @@ async fn put_sync_user(
                         &tagged_user_id,
                         "unique_tags",
                         JsonAction::Increment(1),
-                        Some(&tag_label),
+                        Some(tag_label),
                     )
                     .await?;
                     // Add label count to the user profile tag
                     TagUser::update_index_score(
                         &tagged_user_id,
                         None,
-                        &tag_label,
+                        tag_label,
                         ScoreAction::Increment(1.0),
                     )
                     .await?;
                     Ok::<(), DynError>(())
                 },
                 // Add tagger to the user taggers list
-                TagUser::add_tagger_to_index(&tagged_user_id, None, &tagger_user_id, &tag_label),
+                TagUser::add_tagger_to_index(&tagged_user_id, None, &tagger_user_id, tag_label),
                 // Save new notification
-                Notification::new_user_tag(&tagger_user_id, &tagged_user_id, &tag_label)
+                Notification::new_user_tag(&tagger_user_id, &tagged_user_id, tag_label)
             );
 
             handle_indexing_results!(

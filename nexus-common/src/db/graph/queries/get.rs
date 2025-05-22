@@ -397,6 +397,15 @@ pub fn get_tags_by_label_prefix(label_prefix: &str) -> Query {
     .param("label_prefix", label_prefix)
 }
 
+pub fn get_tags() -> Query {
+    query(
+        "
+        MATCH ()-[t:TAGGED]->()
+        RETURN COLLECT(DISTINCT t.label) AS tag_labels
+        ",
+    )
+}
+
 pub fn get_tag_taggers_by_reach(
     label: &str,
     user_id: &str,

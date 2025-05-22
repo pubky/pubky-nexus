@@ -2,6 +2,7 @@ use crate::models::follow::{Followers, Following, UserFollows};
 use crate::models::post::search::PostsByTagSearch;
 use crate::models::post::Bookmark;
 use crate::models::tag::post::TagPost;
+use crate::models::tag::search::TagSearch;
 use crate::models::tag::stream::HotTags;
 use crate::models::tag::traits::TagCollection;
 use crate::models::tag::user::TagUser;
@@ -69,6 +70,10 @@ pub async fn sync() {
     PostsByTagSearch::reindex()
         .await
         .expect("Failed to store the global post tags");
+
+    TagSearch::reindex()
+        .await
+        .expect("Failed to store the global tags");
 
     info!("Reindexing completed successfully.");
 }

@@ -4,7 +4,7 @@ use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
 use nexus_common::models::post::search::PostsByTagSearch;
-use nexus_common::models::tag::global::Taggers;
+use nexus_common::models::tag::search::TagSearch;
 use nexus_common::types::Pagination;
 use serde::Deserialize;
 use tracing::info;
@@ -35,7 +35,7 @@ pub struct SearchTagsQuery {
 pub async fn search_tags_by_prefix_handler(
     Path(prefix): Path<String>,
     Query(query): Query<SearchTagsQuery>,
-) -> Result<Json<Vec<String>>> {
+) -> Result<Json<Vec<TagSearch>>> {
     let mut pagination = query.pagination;
     pagination.skip.get_or_insert_default();
     pagination.limit.get_or_insert(20);
@@ -45,7 +45,7 @@ pub async fn search_tags_by_prefix_handler(
         prefix, pagination.skip, pagination.limit
     );
 
-    match Taggers::get_tags_by_label_prefix(&prefix, &pagination).await {
+    match TagSearch::get_by_label(&prefix, &pagination).await {
         Ok(Some(tags_list)) => json_array_or_no_content(tags_list, "tags"),
         Ok(None) => Err(Error::TagsNotFound {
             reach: String::from("N/A"),

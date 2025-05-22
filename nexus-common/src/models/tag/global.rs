@@ -2,12 +2,9 @@ use super::{
     stream::{HOT_TAGS_CACHE_PREFIX, POST_HOT_TAGS},
     Taggers as TaggersType,
 };
+use crate::db::{queries, retrieve_from_graph, RedisOps};
 use crate::types::StreamReach;
 use crate::types::{DynError, Timeframe};
-use crate::{
-    db::{queries, retrieve_from_graph, RedisOps},
-    types::Pagination,
-};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, ops::Deref};
@@ -175,14 +172,6 @@ impl Taggers {
     ) -> Result<Option<TaggersType>, DynError> {
         let query = queries::get::get_tag_taggers_by_reach(label, user_id, reach, skip, limit);
         retrieve_from_graph::<TaggersType>(query, "tagger_ids").await
-    }
-
-    pub async fn get_tags_by_label_prefix(
-        label_prefix: &str,
-        _pagination: &Pagination,
-    ) -> Result<Option<Vec<String>>, DynError> {
-        let query = queries::get::get_tags_by_label_prefix(label_prefix);
-        retrieve_from_graph::<Vec<String>>(query, "tag_labels").await
     }
 
     /// Builds key parts for hot tag taggers based on the given timeframe
