@@ -1534,6 +1534,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8d1add55171497b4705a648c6b583acafb01d58050a51727785f0b2c8e0a2b2"
 
 [[package]]
+name = "gloo-timers"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbb143cf96099802033e0d4f4963b19fd2e0b728bcf076cd9cf7f6634f092994"
+dependencies = [
+ "futures-channel",
+ "futures-core",
+ "js-sys",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "governor"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2439,7 +2451,7 @@ dependencies = [
  "opentelemetry-appender-tracing",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
- "pubky",
+ "pubky 0.5.0-rc.0",
  "pubky-app-specs",
  "redis",
  "serde",
@@ -2477,7 +2489,7 @@ dependencies = [
  "neo4rs",
  "nexus-common",
  "opentelemetry",
- "pubky",
+ "pubky 0.5.0-rc.0",
  "pubky-app-specs",
  "pubky-homeserver 0.1.2",
  "pubky-testnet",
@@ -3214,6 +3226,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "pubky"
+version = "0.5.0-rc.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1052d12c280b78a5fef35eda95e9a6c1ef5697a1cd6c31602b8934698ce41b3b"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "bytes",
+ "cfg_aliases",
+ "console_log",
+ "cookie",
+ "cookie_store",
+ "flume",
+ "futures-lite",
+ "futures-util",
+ "getrandom 0.2.16",
+ "getrandom 0.3.2",
+ "gloo-timers",
+ "js-sys",
+ "log",
+ "pkarr",
+ "pubky-common 0.5.0-rc.0",
+ "reqwest",
+ "thiserror 2.0.12",
+ "tokio",
+ "tracing",
+ "url",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
 name = "pubky-app-specs"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3258,6 +3303,27 @@ name = "pubky-common"
 version = "0.4.0-rc.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c5c9573b5151179b738dd0165fe34ce5e2b0f6b61f2a309567c5222aaffa4b5d"
+dependencies = [
+ "argon2",
+ "base32",
+ "blake3",
+ "crypto_secretbox",
+ "ed25519-dalek",
+ "js-sys",
+ "once_cell",
+ "pkarr",
+ "postcard",
+ "pubky-timestamp",
+ "rand 0.9.1",
+ "serde",
+ "thiserror 2.0.12",
+]
+
+[[package]]
+name = "pubky-common"
+version = "0.5.0-rc.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a735e8b1e3c8614d61b8045f5771b4dddcd7791f6733361f86ca7ffde5ee57f9"
 dependencies = [
  "argon2",
  "base32",
@@ -3362,7 +3428,7 @@ dependencies = [
  "mainline",
  "pkarr",
  "pkarr-relay",
- "pubky",
+ "pubky 0.4.3-rc.0",
  "pubky-common 0.4.0-rc.0",
  "pubky-homeserver 0.2.0-rc.0",
  "tempfile",
