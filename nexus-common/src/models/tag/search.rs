@@ -14,25 +14,25 @@ use super::post::TagPost;
 pub const TAG_GLOBAL_POST_TIMELINE: [&str; 4] = ["Tags", "Global", "Post", "Timeline"];
 pub const TAG_GLOBAL_POST_ENGAGEMENT: [&str; 4] = ["Tags", "Global", "Post", "TotalEngagement"];
 
-/// Represents a single search result of post keys (`author_id:post_id`) by tags
+/// Represents a single search result of a "posts by tag" search, returning the post keys (`author_id:post_id`) and score
 #[derive(Serialize, Deserialize, ToSchema, Default)]
-pub struct TagSearch {
+pub struct PostsByTagSearch {
     pub post_key: String,
     pub score: usize,
 }
 
-impl From<(String, f64)> for TagSearch {
+impl From<(String, f64)> for PostsByTagSearch {
     fn from(tuple: (String, f64)) -> Self {
-        TagSearch {
+        PostsByTagSearch {
             post_key: tuple.0,
             score: tuple.1 as usize,
         }
     }
 }
 
-impl RedisOps for TagSearch {}
+impl RedisOps for PostsByTagSearch {}
 
-impl TagSearch {
+impl PostsByTagSearch {
     /// Indexes post tags into global sorted sets for timeline and engagement metrics.
     pub async fn reindex() -> Result<(), DynError> {
         Self::add_to_global_sorted_set(global_tags_by_post(), TAG_GLOBAL_POST_TIMELINE).await?;
@@ -70,7 +70,7 @@ impl TagSearch {
         label: &str,
         sort_by: Option<StreamSorting>,
         pagination: Pagination,
-    ) -> Result<Option<Vec<TagSearch>>, DynError> {
+    ) -> Result<Option<Vec<PostsByTagSearch>>, DynError> {
         let post_score_list = match sort_by {
             Some(StreamSorting::TotalEngagement) => {
                 Self::try_from_index_sorted_set(

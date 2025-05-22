@@ -7,7 +7,7 @@ use nexus_common::db::OperationOutcome;
 use nexus_common::models::notification::Notification;
 use nexus_common::models::post::{PostCounts, PostStream};
 use nexus_common::models::tag::post::TagPost;
-use nexus_common::models::tag::search::TagSearch;
+use nexus_common::models::tag::search::PostsByTagSearch;
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::tag::user::TagUser;
 use nexus_common::models::user::UserCounts;
@@ -132,7 +132,7 @@ async fn put_sync_post(
                     &tag_label
                 ),
                 // Add post to label total engagement
-                TagSearch::update_index_score(
+                PostsByTagSearch::update_index_score(
                     &author_id,
                     &post_id,
                     &tag_label,
@@ -152,7 +152,7 @@ async fn put_sync_post(
                     Ok::<(), DynError>(())
                 },
                 // Add post to global label timeline
-                TagSearch::put_to_index(&author_id, &post_id, &tag_label),
+                PostsByTagSearch::put_to_index(&author_id, &post_id, &tag_label),
                 // Save new notification
                 Notification::new_post_tag(&tagger_user_id, &author_id, &tag_label, &post_uri)
             );
@@ -352,7 +352,12 @@ async fn del_sync_post(
             Ok::<(), DynError>(())
         },
         // Decrease post from label total engagement
-        TagSearch::update_index_score(author_id, post_id, tag_label, ScoreAction::Decrement(1.0)),
+        PostsByTagSearch::update_index_score(
+            author_id,
+            post_id,
+            tag_label,
+            ScoreAction::Decrement(1.0)
+        ),
         async {
             // Post replies cannot be included in the total engagement index once the tag have been deleted
             if !post_relationships_is_reply(author_id, post_id).await? {
@@ -369,7 +374,7 @@ async fn del_sync_post(
                 .await?;
             // NOTE: The tag search index, depends on the post taggers collection to delete
             // Delete post from global label timeline
-            TagSearch::del_from_index(author_id, post_id, tag_label).await?;
+            PostsByTagSearch::del_from_index(author_id, post_id, tag_label).await?;
             Ok::<(), DynError>(())
         }
     );

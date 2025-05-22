@@ -3,7 +3,7 @@ use crate::db::kv::{ScoreAction, SortOrder};
 use crate::db::{get_neo4j_graph, queries, RedisOps};
 use crate::models::{
     follow::{Followers, Following, Friends, UserFollows},
-    tag::search::TagSearch,
+    tag::search::PostsByTagSearch,
 };
 use crate::types::{DynError, Pagination, StreamSorting};
 use pubky_app_specs::PubkyAppPostKind;
@@ -276,7 +276,7 @@ impl PostStream {
             limit: Some(limit),
         };
 
-        let post_search_result = TagSearch::get_by_label(label, Some(sorting), pag).await?;
+        let post_search_result = PostsByTagSearch::get_by_label(label, Some(sorting), pag).await?;
 
         match post_search_result {
             Some(post_keys) => Ok(post_keys

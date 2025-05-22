@@ -3,7 +3,7 @@ use crate::routes::v0::utils::json_array_or_no_content;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
-use nexus_common::models::tag::search::TagSearch;
+use nexus_common::models::tag::search::PostsByTagSearch;
 use nexus_common::types::Pagination;
 use nexus_common::types::StreamSorting;
 use serde::Deserialize;
@@ -31,7 +31,7 @@ pub struct SearchPostsQuery {
         ("limit" = Option<usize>, Query, description = "Limit the number of results")
     ),
     responses(
-        (status = 200, description = "Search results", body = Vec<TagSearch>),
+        (status = 200, description = "Search results", body = Vec<PostsByTagSearch>),
         (status = 404, description = "No posts with that tag found"),
         (status = 500, description = "Internal server error")
     )
@@ -39,7 +39,7 @@ pub struct SearchPostsQuery {
 pub async fn search_posts_by_tag_handler(
     Path(tag): Path<String>,
     Query(query): Query<SearchPostsQuery>,
-) -> Result<Json<Vec<TagSearch>>> {
+) -> Result<Json<Vec<PostsByTagSearch>>> {
     // Extract sorting and pagination fields from the query
     let sorting = query.sorting;
     let mut pagination = query.pagination;
@@ -55,7 +55,7 @@ pub async fn search_posts_by_tag_handler(
     pagination.skip = Some(skip);
     pagination.limit = Some(limit);
 
-    match TagSearch::get_by_label(&tag, sorting, pagination).await {
+    match PostsByTagSearch::get_by_label(&tag, sorting, pagination).await {
         Ok(Some(posts_list)) => json_array_or_no_content(posts_list, "posts"),
         Ok(None) => Err(Error::PostNotFound {
             author_id: String::from("global"),
@@ -66,5 +66,8 @@ pub async fn search_posts_by_tag_handler(
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(search_posts_by_tag_handler), components(schemas(TagSearch)))]
+#[openapi(
+    paths(search_posts_by_tag_handler),
+    components(schemas(PostsByTagSearch))
+)]
 pub struct SearchPostsByTagApiDocs;

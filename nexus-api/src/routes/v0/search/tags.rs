@@ -4,7 +4,7 @@ use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
 use nexus_common::models::tag::global::Taggers;
-use nexus_common::models::tag::search::TagSearch;
+use nexus_common::models::tag::search::PostsByTagSearch;
 use nexus_common::types::Pagination;
 use serde::Deserialize;
 use tracing::info;
@@ -55,5 +55,8 @@ pub async fn search_tags_by_prefix_handler(
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(search_tags_by_prefix_handler), components(schemas(TagSearch)))]
+#[openapi(
+    paths(search_tags_by_prefix_handler),
+    components(schemas(PostsByTagSearch))
+)]
 pub struct SearchTagsByPrefixApiDocs;
