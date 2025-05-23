@@ -386,6 +386,26 @@ fn stream_reach_to_graph_subquery(reach: &StreamReach) -> String {
     }
 }
 
+pub fn get_tags_by_label_prefix(label_prefix: &str) -> Query {
+    query(
+        "
+        MATCH ()-[t:TAGGED]->()
+        WHERE t.label STARTS WITH $label_prefix
+        RETURN COLLECT(DISTINCT t.label) AS tag_labels
+        ",
+    )
+    .param("label_prefix", label_prefix)
+}
+
+pub fn get_tags() -> Query {
+    query(
+        "
+        MATCH ()-[t:TAGGED]->()
+        RETURN COLLECT(DISTINCT t.label) AS tag_labels
+        ",
+    )
+}
+
 pub fn get_tag_taggers_by_reach(
     label: &str,
     user_id: &str,

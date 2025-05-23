@@ -2,6 +2,7 @@ mod bookmark;
 mod counts;
 mod details;
 mod relationships;
+pub mod search;
 mod stream;
 mod view;
 

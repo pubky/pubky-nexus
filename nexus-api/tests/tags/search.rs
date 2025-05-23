@@ -1,126 +1,42 @@
+use crate::utils::{get_request, invalid_get_request};
 use anyhow::Result;
 use axum::http::StatusCode;
-use serde_json::Value;
+use nexus_api::routes::v0::endpoints::SEARCH_TAGS_BY_PREFIX_ROUTE;
 
-use crate::{
-    stream::post::TAG_LABEL_2,
-    utils::{get_request, invalid_get_request},
-};
-
-const ROOT_PATH: &str = "/v0/search/tags";
-const FREE_LABEL: &str = "free";
-
-const POST_A: &str = "2VDW8YBDZJ02";
-const POST_B: &str = "1TDV7XBCF4M1";
-const POST_C: &str = "HC3T5CEPBPHQ";
+pub fn format_search_tags_by_prefix(prefix: &str) -> String {
+    SEARCH_TAGS_BY_PREFIX_ROUTE.replace("{prefix}", prefix)
+}
 
 #[tokio_shared_rt::test(shared)]
-async fn test_tag_search_by_timeline() -> Result<()> {
-    let post_order = vec![POST_A, POST_B, POST_C];
-    let path = format!("{}/{}", ROOT_PATH, FREE_LABEL);
-    let body = get_request(&path).await?;
+async fn test_search_tags_by_prefix() -> Result<()> {
+    let label_prefix = "he";
+    let url_path = format_search_tags_by_prefix(label_prefix);
+    let res = get_request(&url_path).await?;
 
-    assert!(body.is_array());
+    assert!(res.is_array());
 
-    let tags = body.as_array().expect("Stream tags should be an array");
+    let fetched_tags: Vec<String> = res
+        .as_array()
+        .expect("Tag search results should be an array")
+        .iter()
+        .map(|tag| tag.as_str().expect("Tag should be a string").to_string())
+        .collect();
 
-    // Check the total posts using that tag
-    assert_eq!(tags.len(), 3);
+    let expected_tags = vec!["healthily", "heavily", "hello"];
 
-    // Validate that each post has the searched tag
-    search_posts(tags, post_order);
+    assert_eq!(fetched_tags, expected_tags);
 
     Ok(())
 }
 
 #[tokio_shared_rt::test(shared)]
-async fn test_tag_search_with_skip() -> Result<()> {
-    let post_order = vec![POST_B, POST_C];
-    let path = format!("{}/{}?skip=1", ROOT_PATH, FREE_LABEL);
-    let body = get_request(&path).await?;
+async fn test_search_non_existing_prefix() -> Result<()> {
+    let non_existing_tag_prefix = "sdfsdf43fsddwt4g";
+    let url_path = format_search_tags_by_prefix(non_existing_tag_prefix);
+    let res = invalid_get_request(&url_path, StatusCode::NOT_FOUND).await?;
 
-    assert!(body.is_array());
-
-    let tags = body.as_array().expect("Stream tags should be an array");
-
-    // Check the total posts using that tag
-    assert_eq!(tags.len(), 2);
-
-    // Validate that each post has the searched tag
-    search_posts(tags, post_order);
-
-    Ok(())
-}
-
-#[tokio_shared_rt::test(shared)]
-async fn test_tag_search_with_limit() -> Result<()> {
-    let post_order = vec![POST_A];
-    let path = format!("{}/{}?limit=1", ROOT_PATH, FREE_LABEL);
-    let body = get_request(&path).await?;
-
-    assert!(body.is_array());
-
-    let tags = body.as_array().expect("Stream tags should be an array");
-
-    // Check the total posts using that tag
-    assert_eq!(tags.len(), 1);
-
-    // Validate that each post has the searched tag
-    search_posts(tags, post_order);
-
-    Ok(())
-}
-
-#[tokio_shared_rt::test(shared)]
-async fn test_tag_search_with_limit_and_skip() -> Result<()> {
-    let post_order = vec![POST_C];
-    let path = format!("{}/{}?limit=1&skip=2", ROOT_PATH, FREE_LABEL);
-    let body = get_request(&path).await?;
-
-    assert!(body.is_array());
-
-    let tags = body.as_array().expect("Stream tags should be an array");
-
-    // Check the total posts using that tag
-    assert_eq!(tags.len(), 1);
-
-    // Validate that each post has the searched tag
-    search_posts(tags, post_order);
-
-    Ok(())
-}
-
-#[tokio_shared_rt::test(shared)]
-async fn test_post_specific_tag_with_no_result() -> Result<()> {
-    let path = format!("{}/{}", ROOT_PATH, "randommm");
-    invalid_get_request(&path, StatusCode::NOT_FOUND).await?;
-
-    Ok(())
-}
-
-fn search_posts(posts: &[Value], post_order: Vec<&str>) {
-    for (index, post) in posts.iter().enumerate() {
-        let post_parts: Vec<&str> = post["post_key"].as_str().unwrap().split(':').collect();
-        // Check if the order of the post is the right one
-        assert_eq!(
-            post_parts[1], post_order[index],
-            "The post does not have the right ordering"
-        );
-    }
-}
-
-#[tokio_shared_rt::test(shared)]
-async fn test_tag_search_skip_beyond_range() -> Result<()> {
-    // Search opensource tag
-    let path = format!("{}/{}", ROOT_PATH, TAG_LABEL_2);
-
-    let body = get_request(&path).await?;
-    let length = body.as_array().expect("Post list should be an array").len();
-
-    assert!(body.is_array());
-
-    let path_w_skip = format!("{}/{}?skip={}", ROOT_PATH, TAG_LABEL_2, length);
-    invalid_get_request(&path_w_skip, StatusCode::NO_CONTENT).await?;
+    assert!(res["error"].is_string(), "Error message should be a string");
+    assert!(matches!(res["error"].as_str(), Some("Tags not found")));
 
     Ok(())
 }

@@ -26,6 +26,14 @@ pub enum Error {
     // Add other custom errors here
 }
 
+impl Error {
+    pub fn invalid_input(message: &str) -> Self {
+        Error::InvalidInput {
+            message: message.to_string(),
+        }
+    }
+}
+
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
         // HTTP Status codes
