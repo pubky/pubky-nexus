@@ -3,7 +3,6 @@ use nexus_common::types::DynError;
 use crate::utils::get_request;
 pub mod hot;
 pub mod post;
-pub mod search;
 pub mod user;
 pub mod utils;
 pub mod wot;
