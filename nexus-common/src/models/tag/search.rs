@@ -19,7 +19,7 @@ impl TagSearch {
     pub async fn reindex() -> Result<(), DynError> {
         let tag_labels: Option<Vec<String>> = retrieve_from_graph(get_tags(), "tag_labels").await?;
         for tag_label in tag_labels.unwrap_or_default() {
-            Self::put_index_sorted_set(&TAGS_LABEL, &[(0.0, &tag_label)], None, None).await?;
+            Self::put_to_index(&tag_label).await?;
         }
 
         Ok(())
