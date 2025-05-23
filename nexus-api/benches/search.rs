@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use nexus_common::{
-    models::{post::search::PostsByTagSearch, user::UserSearch},
+    models::{post::search::PostsByTagSearch, tag::search::TagSearch, user::UserSearch},
     types::Pagination,
 };
 use setup::run_setup;
@@ -27,6 +27,29 @@ fn bench_user_search(c: &mut Criterion) {
                 let result = UserSearch::get_by_name(username, None, Some(40))
                     .await
                     .unwrap();
+                criterion::black_box(result);
+            });
+        },
+    );
+}
+
+fn bench_tag_search(c: &mut Criterion) {
+    println!("******************************************************************************");
+    println!("Benchmarking the tag search.");
+    println!("******************************************************************************");
+
+    run_setup();
+
+    let tag_prefix = "he"; // Matches 3 tags
+    let rt = Runtime::new().unwrap();
+
+    let pagination = Pagination::default();
+    c.bench_with_input(
+        BenchmarkId::new("tag_search", tag_prefix),
+        &tag_prefix,
+        |b, &prefix| {
+            b.to_async(&rt).iter(|| async {
+                let result = TagSearch::get_by_label(prefix, &pagination).await.unwrap();
                 criterion::black_box(result);
             });
         },
@@ -74,6 +97,7 @@ criterion_group! {
     name = benches;
     config = configure_criterion();
     targets =   bench_user_search,
+                bench_tag_search,
                 bench_post_tag_search_by_timeline
 }
 
