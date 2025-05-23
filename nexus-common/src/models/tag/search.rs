@@ -46,11 +46,11 @@ impl TagSearch {
 
     pub async fn put_to_index(tag_label: &str) -> Result<(), DynError> {
         let elements = [(0.0, tag_label)];
-        Self::put_index_sorted_set(&TAGS_LABEL, &elements, Some("Sorted"), None).await
+        Self::put_index_sorted_set(&TAGS_LABEL, &elements, None, None).await
     }
 
     // TODO Needed? When are tags removed?
     pub async fn del_from_index(tag_label: &str) -> Result<(), DynError> {
-        Self::remove_from_index_sorted_set(Some("Sorted"), &TAGS_LABEL, &[tag_label]).await
+        Self::remove_from_index_sorted_set(None, &TAGS_LABEL, &[tag_label]).await
     }
 }
