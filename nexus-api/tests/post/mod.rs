@@ -1,5 +1,6 @@
 use nexus_api::routes::v0::endpoints;
 
+pub mod search;
 pub mod view;
 
 pub const ROOT_PATH: &str = endpoints::POST_PREFIX;

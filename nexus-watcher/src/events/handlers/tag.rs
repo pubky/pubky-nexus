@@ -5,6 +5,7 @@ use chrono::Utc;
 use nexus_common::db::kv::{JsonAction, ScoreAction};
 use nexus_common::db::OperationOutcome;
 use nexus_common::models::notification::Notification;
+use nexus_common::models::post::search::PostsByTagSearch;
 use nexus_common::models::post::{PostCounts, PostStream};
 use nexus_common::models::tag::post::TagPost;
 use nexus_common::models::tag::search::TagSearch;
@@ -26,31 +27,22 @@ pub async fn sync_put(
 
     // Parse the embeded URI to extract author_id and post_id using parse_tagged_post_uri
     let parsed_uri = ParsedUri::try_from(tag.uri.as_str())?;
+    let user_id = parsed_uri.user_id;
     let indexed_at = Utc::now().timestamp_millis();
 
     match parsed_uri.resource {
         // If post_id is in the tagged URI, we place tag to a post.
         Resource::Post(post_id) => {
             put_sync_post(
-                tagger_id,
-                parsed_uri.user_id,
-                post_id,
-                tag_id,
-                tag.label,
-                tag.uri,
-                indexed_at,
+                tagger_id, user_id, &post_id, &tag_id, &tag.label, &tag.uri, indexed_at,
             )
             .await
         }
         // If no post_id in the tagged URI, we place tag to a user.
-        Resource::User => {
-            put_sync_user(tagger_id, parsed_uri.user_id, tag_id, tag.label, indexed_at).await
+        Resource::User => put_sync_user(tagger_id, user_id, &tag_id, &tag.label, indexed_at).await,
+        other => {
+            Err(format!("The tagged resource is not Post or User, instead is: {other:?}").into())
         }
-        other => Err(format!(
-            "The tagged resource is not Post or User resource. Tagged resource: {:?}",
-            other
-        )
-        .into()),
     }
 }
 
@@ -67,18 +59,18 @@ pub async fn sync_put(
 async fn put_sync_post(
     tagger_user_id: PubkyId,
     author_id: PubkyId,
-    post_id: String,
-    tag_id: String,
-    tag_label: String,
-    post_uri: String,
+    post_id: &str,
+    tag_id: &str,
+    tag_label: &str,
+    post_uri: &str,
     indexed_at: i64,
 ) -> Result<(), DynError> {
     match TagPost::put_to_graph(
         &tagger_user_id,
         &author_id,
-        Some(&post_id),
-        &tag_id,
-        &tag_label,
+        Some(post_id),
+        tag_id,
+        tag_label,
         indexed_at,
     )
     .await?
@@ -91,7 +83,8 @@ async fn put_sync_post(
         }
         OperationOutcome::CreatedOrDeleted => {
             // SAVE TO INDEXES
-            let post_key_slice: &[&str] = &[&author_id, &post_id];
+            let post_key_slice: &[&str] = &[&author_id, post_id];
+            let tag_label_slice = &[tag_label];
 
             let indexing_results = tokio::join!(
                 // Update user counts for tagger
@@ -111,40 +104,35 @@ async fn put_sync_post(
                         post_key_slice,
                         "unique_tags",
                         JsonAction::Increment(1),
-                        Some(&tag_label),
+                        Some(tag_label),
                     )
                     .await?;
                     // Increment the label count to post
                     TagPost::update_index_score(
                         &author_id,
-                        Some(&post_id),
-                        &tag_label,
+                        Some(post_id),
+                        tag_label,
                         ScoreAction::Increment(1.0),
                     )
                     .await?;
                     Ok::<(), DynError>(())
                 },
                 // Add user tag in post
-                TagPost::add_tagger_to_index(
-                    &author_id,
-                    Some(&post_id),
-                    &tagger_user_id,
-                    &tag_label
-                ),
+                TagPost::add_tagger_to_index(&author_id, Some(post_id), &tagger_user_id, tag_label),
                 // Add post to label total engagement
-                TagSearch::update_index_score(
+                PostsByTagSearch::update_index_score(
                     &author_id,
-                    &post_id,
-                    &tag_label,
+                    post_id,
+                    tag_label,
                     ScoreAction::Increment(1.0)
                 ),
                 async {
                     // Post replies cannot be included in the total engagement index once they have been tagged
-                    if !post_relationships_is_reply(&author_id, &post_id).await? {
+                    if !post_relationships_is_reply(&author_id, post_id).await? {
                         // Increment in one post global engagement
                         PostStream::update_index_score(
                             &author_id,
-                            &post_id,
+                            post_id,
                             ScoreAction::Increment(1.0),
                         )
                         .await?;
@@ -152,9 +140,10 @@ async fn put_sync_post(
                     Ok::<(), DynError>(())
                 },
                 // Add post to global label timeline
-                TagSearch::put_to_index(&author_id, &post_id, &tag_label),
+                PostsByTagSearch::put_to_index(&author_id, post_id, tag_label),
                 // Save new notification
-                Notification::new_post_tag(&tagger_user_id, &author_id, &tag_label, &post_uri)
+                Notification::new_post_tag(&tagger_user_id, &author_id, tag_label, post_uri),
+                TagSearch::put_to_index(tag_label_slice)
             );
 
             handle_indexing_results!(
@@ -165,7 +154,8 @@ async fn put_sync_post(
                 indexing_results.4,
                 indexing_results.5,
                 indexing_results.6,
-                indexing_results.7
+                indexing_results.7,
+                indexing_results.8
             );
 
             Ok(())
@@ -176,16 +166,16 @@ async fn put_sync_post(
 async fn put_sync_user(
     tagger_user_id: PubkyId,
     tagged_user_id: PubkyId,
-    tag_id: String,
-    tag_label: String,
+    tag_id: &str,
+    tag_label: &str,
     indexed_at: i64,
 ) -> Result<(), DynError> {
     match TagUser::put_to_graph(
         &tagger_user_id,
         &tagged_user_id,
         None,
-        &tag_id,
-        &tag_label,
+        tag_id,
+        tag_label,
         indexed_at,
     )
     .await?
@@ -201,6 +191,8 @@ async fn put_sync_user(
             }
         }
         OperationOutcome::CreatedOrDeleted => {
+            let tag_label_slice = &[tag_label];
+
             // SAVE TO INDEX
             let indexing_results = tokio::join!(
                 // Update user counts for the tagged user
@@ -215,23 +207,24 @@ async fn put_sync_user(
                         &tagged_user_id,
                         "unique_tags",
                         JsonAction::Increment(1),
-                        Some(&tag_label),
+                        Some(tag_label),
                     )
                     .await?;
                     // Add label count to the user profile tag
                     TagUser::update_index_score(
                         &tagged_user_id,
                         None,
-                        &tag_label,
+                        tag_label,
                         ScoreAction::Increment(1.0),
                     )
                     .await?;
                     Ok::<(), DynError>(())
                 },
                 // Add tagger to the user taggers list
-                TagUser::add_tagger_to_index(&tagged_user_id, None, &tagger_user_id, &tag_label),
+                TagUser::add_tagger_to_index(&tagged_user_id, None, &tagger_user_id, tag_label),
                 // Save new notification
-                Notification::new_user_tag(&tagger_user_id, &tagged_user_id, &tag_label)
+                Notification::new_user_tag(&tagger_user_id, &tagged_user_id, tag_label),
+                TagSearch::put_to_index(tag_label_slice)
             );
 
             handle_indexing_results!(
@@ -239,7 +232,8 @@ async fn put_sync_user(
                 indexing_results.1,
                 indexing_results.2,
                 indexing_results.3,
-                indexing_results.4
+                indexing_results.4,
+                indexing_results.5
             );
 
             Ok(())
@@ -352,7 +346,12 @@ async fn del_sync_post(
             Ok::<(), DynError>(())
         },
         // Decrease post from label total engagement
-        TagSearch::update_index_score(author_id, post_id, tag_label, ScoreAction::Decrement(1.0)),
+        PostsByTagSearch::update_index_score(
+            author_id,
+            post_id,
+            tag_label,
+            ScoreAction::Decrement(1.0)
+        ),
         async {
             // Post replies cannot be included in the total engagement index once the tag have been deleted
             if !post_relationships_is_reply(author_id, post_id).await? {
@@ -369,7 +368,7 @@ async fn del_sync_post(
                 .await?;
             // NOTE: The tag search index, depends on the post taggers collection to delete
             // Delete post from global label timeline
-            TagSearch::del_from_index(author_id, post_id, tag_label).await?;
+            PostsByTagSearch::del_from_index(author_id, post_id, tag_label).await?;
             Ok::<(), DynError>(())
         }
     );

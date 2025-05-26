@@ -1,4 +1,5 @@
 use crate::models::follow::{Followers, Following, UserFollows};
+use crate::models::post::search::PostsByTagSearch;
 use crate::models::post::Bookmark;
 use crate::models::tag::post::TagPost;
 use crate::models::tag::search::TagSearch;
@@ -66,9 +67,13 @@ pub async fn sync() {
         .await
         .expect("Failed to reindex influencers");
 
-    TagSearch::reindex()
+    PostsByTagSearch::reindex()
         .await
         .expect("Failed to store the global post tags");
+
+    TagSearch::reindex()
+        .await
+        .expect("Failed to store the global tags");
 
     info!("Reindexing completed successfully.");
 }
