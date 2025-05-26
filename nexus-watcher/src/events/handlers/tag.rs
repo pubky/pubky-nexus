@@ -43,10 +43,7 @@ pub async fn sync_put(
         other => {
             Err(format!("The tagged resource is not Post or User, instead is: {other:?}").into())
         }
-    }?;
-
-    // Index the tag label outside of put_sync, as we only want to index it if put_sync was overall successful
-    TagSearch::put_to_index(&[&tag.label]).await
+    }
 }
 
 /// Handles the synchronization of a tagged post by updating the graph, indexes, and related counts.
@@ -87,6 +84,7 @@ async fn put_sync_post(
         OperationOutcome::CreatedOrDeleted => {
             // SAVE TO INDEXES
             let post_key_slice: &[&str] = &[&author_id, post_id];
+            let tag_label_slice = &[tag_label];
 
             let indexing_results = tokio::join!(
                 // Update user counts for tagger
@@ -144,7 +142,8 @@ async fn put_sync_post(
                 // Add post to global label timeline
                 PostsByTagSearch::put_to_index(&author_id, post_id, tag_label),
                 // Save new notification
-                Notification::new_post_tag(&tagger_user_id, &author_id, tag_label, post_uri)
+                Notification::new_post_tag(&tagger_user_id, &author_id, tag_label, post_uri),
+                TagSearch::put_to_index(tag_label_slice)
             );
 
             handle_indexing_results!(
@@ -155,7 +154,8 @@ async fn put_sync_post(
                 indexing_results.4,
                 indexing_results.5,
                 indexing_results.6,
-                indexing_results.7
+                indexing_results.7,
+                indexing_results.8
             );
 
             Ok(())
@@ -191,6 +191,8 @@ async fn put_sync_user(
             }
         }
         OperationOutcome::CreatedOrDeleted => {
+            let tag_label_slice = &[tag_label];
+
             // SAVE TO INDEX
             let indexing_results = tokio::join!(
                 // Update user counts for the tagged user
@@ -221,7 +223,8 @@ async fn put_sync_user(
                 // Add tagger to the user taggers list
                 TagUser::add_tagger_to_index(&tagged_user_id, None, &tagger_user_id, tag_label),
                 // Save new notification
-                Notification::new_user_tag(&tagger_user_id, &tagged_user_id, tag_label)
+                Notification::new_user_tag(&tagger_user_id, &tagged_user_id, tag_label),
+                TagSearch::put_to_index(tag_label_slice)
             );
 
             handle_indexing_results!(
@@ -229,7 +232,8 @@ async fn put_sync_user(
                 indexing_results.1,
                 indexing_results.2,
                 indexing_results.3,
-                indexing_results.4
+                indexing_results.4,
+                indexing_results.5
             );
 
             Ok(())
