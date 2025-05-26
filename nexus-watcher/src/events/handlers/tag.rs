@@ -45,7 +45,7 @@ pub async fn sync_put(
         }
     }?;
 
-    // After successful put_sync of the tagged resource, we index the tag label
+    // Index the tag label outside of put_sync, as we only want to index it if put_sync was overall successful
     TagSearch::put_to_index(&tag.label).await
 }
 
