@@ -46,7 +46,7 @@ pub async fn sync_put(
     }?;
 
     // Index the tag label outside of put_sync, as we only want to index it if put_sync was overall successful
-    TagSearch::put_to_index(&tag.label).await
+    TagSearch::put_to_index(&[&tag.label]).await
 }
 
 /// Handles the synchronization of a tagged post by updating the graph, indexes, and related counts.
