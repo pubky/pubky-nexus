@@ -13,7 +13,7 @@ path = "./watcher/main.rs"
 
 [dependencies]
 anyhow = "1.0.95"
-tokio = { version = "1.44.2", features = ["full"] }
+tokio = { version = "1.45.1", features = ["full"] }
 nexus-common = { path = "../nexus-common" }
 nexus-api = { path = "../nexus-api" }
 nexus-watcher = { path = "../nexus-watcher" }
