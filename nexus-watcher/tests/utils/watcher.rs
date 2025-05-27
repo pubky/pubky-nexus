@@ -3,11 +3,12 @@ use chrono::Utc;
 use nexus_common::db::PubkyClient;
 use nexus_common::types::DynError;
 use nexus_common::FILES_DIR;
-use nexus_watcher::events::processor::EventProcessor;
+use nexus_watcher::events::processor::{EventProcessor, ModerationConfig};
 use nexus_watcher::events::retry::event::RetryEvent;
 use nexus_watcher::events::Event;
 use nexus_watcher::NexusWatcher;
 use pubky::Keypair;
+use pubky_app_specs::PubkyId;
 use pubky_app_specs::{
     traits::TimestampId, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser,
 };
@@ -47,7 +48,7 @@ impl WatcherTest {
         }
 
         // testnet initialization is time expensive, we only init one per process
-        let testnet = EphemeralTestnet::start().await.map_err(|e| e)?;
+        let testnet = EphemeralTestnet::start().await?;
 
         let homeserver_id = testnet.homeserver_suite().public_key().to_string();
 
@@ -130,11 +131,7 @@ impl WatcherTest {
         let pubky_client = PubkyClient::get().unwrap();
 
         pubky_client
-            .signup(
-                &keypair,
-                &self.testnet.homeserver_suite().public_key(),
-                None,
-            )
+            .signup(keypair, &self.testnet.homeserver_suite().public_key(), None)
             .await?;
         Ok(())
     }
@@ -293,13 +290,15 @@ impl WatcherTest {
 /// * `event_line` - A string slice that represents the URI of the event to be retrieved
 ///   from the homeserver. It contains the event type and the homeserver uri
 pub async fn retrieve_and_handle_event_line(event_line: &str) -> Result<(), DynError> {
-    let event = match Event::parse_event(event_line, PathBuf::from(FILES_DIR)) {
-        Ok(event) => event,
-        Err(_) => None,
+    let event = Event::parse_event(event_line, PathBuf::from(FILES_DIR)).unwrap_or_default();
+
+    let moderation = ModerationConfig {
+        id: PubkyId::try_from("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")?,
+        tags: Vec::new(),
     };
 
     if let Some(event) = event {
-        event.clone().handle().await?
+        event.clone().handle(&moderation).await?
     }
 
     Ok(())
@@ -326,7 +325,7 @@ pub async fn assert_eventually_exists(event_index: &str) {
         match RetryEvent::check_uri(event_index).await {
             Ok(timeframe) => {
                 if timeframe.is_some() {
-                    return ();
+                    return;
                 }
             }
             Err(e) => panic!("Error while getting index: {:?}", e),

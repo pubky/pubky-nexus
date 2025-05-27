@@ -12,11 +12,17 @@ use std::error::Error;
 use std::path::PathBuf;
 use tracing::{debug, error, info};
 
+pub struct ModerationConfig {
+    pub id: PubkyId,
+    pub tags: Vec<String>,
+}
+
 pub struct EventProcessor {
     pub homeserver: Homeserver,
     limit: u32,
     pub files_path: PathBuf,
     pub tracer_name: String,
+    pub moderation: ModerationConfig,
 }
 
 impl EventProcessor {
@@ -35,6 +41,14 @@ impl EventProcessor {
     pub async fn test(homeserver_id: String) -> Self {
         let id = PubkyId::try_from(&homeserver_id).expect("Homeserver ID should be valid");
         let homeserver = Homeserver::new(id).await.unwrap();
+
+        // Default moderation
+        let default_config = WatcherConfig::default();
+        let moderation = ModerationConfig {
+            id: default_config.moderation_id,
+            tags: default_config.moderated_tags,
+        };
+
         info!(
             "Watcher static files PATH during tests are stored inside of the watcher crate: {:?}",
             PathBuf::from(FILES_DIR_TEST)
@@ -44,6 +58,7 @@ impl EventProcessor {
             limit: 1000,
             files_path: PathBuf::from(FILES_DIR_TEST),
             tracer_name: String::from("watcher.test"),
+            moderation,
         }
     }
 
@@ -52,6 +67,11 @@ impl EventProcessor {
         let limit = config.events_limit;
         let files_path = config.stack.files_path.clone();
         let tracer_name = config.name.clone();
+
+        let moderation = ModerationConfig {
+            id: config.moderation_id.clone(),
+            tags: config.moderated_tags.clone(),
+        };
 
         info!(
             "Initialized Event Processor for homeserver: {:?}",
@@ -63,6 +83,7 @@ impl EventProcessor {
             limit,
             files_path,
             tracer_name,
+            moderation,
         })
     }
 
@@ -179,7 +200,7 @@ impl EventProcessor {
     /// # Parameters:
     /// - `event`: The event to be processed
     async fn handle_event(&mut self, event: Event) -> Result<(), DynError> {
-        if let Err(e) = event.clone().handle().await {
+        if let Err(e) = event.clone().handle(&self.moderation).await {
             if let Some((index_key, retry_event)) = extract_retry_event_info(&event, e) {
                 error!("{}, {}", retry_event.error_type, index_key);
                 if let Err(err) = retry_event.put_to_index(index_key).await {
