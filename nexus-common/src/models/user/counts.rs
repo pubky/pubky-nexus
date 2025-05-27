@@ -119,8 +119,11 @@ impl UserCounts {
             match (score, &action) {
                 // to decrement `unique_tags`, the tag value must be less than or equal to 1
                 (Some(tag_value), JsonAction::Decrement(_)) if tag_value < 1 => (),
-                // to increment `unique_tags`, the tag must not exist in the sorted set
+
+                // to increment `unique_tags`, the tag must be less than 1, or not exist in the sorted set
+                (Some(tag_value), JsonAction::Increment(_)) if tag_value < 1 => (),
                 (None, JsonAction::Increment(_)) => (),
+
                 _ => return Ok(()),
             }
         }
