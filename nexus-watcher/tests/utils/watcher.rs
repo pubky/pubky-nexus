@@ -292,9 +292,10 @@ impl WatcherTest {
 pub async fn retrieve_and_handle_event_line(event_line: &str) -> Result<(), DynError> {
     let event = Event::parse_event(event_line, PathBuf::from(FILES_DIR)).unwrap_or_default();
 
+    // hardcoded tests/utils/moderator_key.pkarr public key used by the moderator user on tests
     let moderation = ModerationConfig {
-        id: PubkyId::try_from("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")?,
-        tags: Vec::new(),
+        id: PubkyId::try_from("uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko")?,
+        tags: Vec::from(["label_to_moderate".to_string()]),
     };
 
     if let Some(event) = event {

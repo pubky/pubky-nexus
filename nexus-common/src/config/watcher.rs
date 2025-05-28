@@ -17,7 +17,14 @@ pub const WATCHER_SLEEP: u64 = 5000;
 // Moderation service key
 pub const MODERATION_ID: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 // Moderation service key
-pub const MODERATED_TAGS: [&str; 3] = ["adult_nu_sex_act", "violence", "illegal_activities"];
+pub const MODERATED_TAGS: [&str; 6] = [
+    "hatespeech",
+    "harassement",
+    "terrorism",
+    "violence",
+    "illegal_activities",
+    "il_adult_nu_sex_act",
+];
 
 /// Configuration settings for the Nexus Watcher service
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]

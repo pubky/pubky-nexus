@@ -42,11 +42,11 @@ impl EventProcessor {
         let id = PubkyId::try_from(&homeserver_id).expect("Homeserver ID should be valid");
         let homeserver = Homeserver::new(id).await.unwrap();
 
-        // Default moderation
-        let default_config = WatcherConfig::default();
+        // hardcoded nexus-watcher/tests/utils/moderator_key.pkarr public key used by the moderator user on tests
         let moderation = ModerationConfig {
-            id: default_config.moderation_id,
-            tags: default_config.moderated_tags,
+            id: PubkyId::try_from("uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko")
+                .expect("Hardcoded test moderation key should be valid"),
+            tags: Vec::from(["label_to_moderate".to_string()]),
         };
 
         info!(
