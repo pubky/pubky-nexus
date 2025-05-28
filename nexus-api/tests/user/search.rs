@@ -1,12 +1,17 @@
 use crate::utils::{get_request, invalid_get_request};
 use anyhow::Result;
 use axum::http::StatusCode;
+use nexus_api::routes::v0::endpoints::SEARCH_USERS_BY_NAME_ROUTE;
+
+pub fn format_search_users_by_user_prefix(prefix: &str) -> String {
+    SEARCH_USERS_BY_NAME_ROUTE.replace("{prefix}", prefix)
+}
 
 #[tokio_shared_rt::test(shared)]
 async fn test_search_users_by_username() -> Result<()> {
-    let username = "Jo";
-
-    let res = get_request(&format!("/v0/search/users?username={}", username)).await?;
+    let user_prefix = "Jo";
+    let url_path = format_search_users_by_user_prefix(user_prefix);
+    let res = get_request(&url_path).await?;
 
     assert!(res.is_array());
 
@@ -39,12 +44,9 @@ async fn test_search_users_by_username() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_search_non_existing_user() -> Result<()> {
     let non_existing_username = "idfjwfs8u9jfkoi"; // Username that doesn't exist
+    let url_path = format_search_users_by_user_prefix(non_existing_username);
 
-    let res = invalid_get_request(
-        &format!("/v0/search/users?username={}", non_existing_username),
-        StatusCode::NOT_FOUND,
-    )
-    .await?;
+    let res = invalid_get_request(&url_path, StatusCode::NOT_FOUND).await?;
 
     // Assert that the status code is 404 Not Found
     assert!(res["error"].is_string(), "Error message should be a string");
@@ -64,23 +66,13 @@ async fn test_search_non_existing_user() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_search_empty_username() -> Result<()> {
     let empty_username = ""; // Empty username
+    let url_path = format_search_users_by_user_prefix(empty_username);
 
-    let res = invalid_get_request(
-        &format!("/v0/search/users?username={}", empty_username),
-        StatusCode::BAD_REQUEST,
-    )
-    .await?;
-
-    assert!(res["error"].is_string(), "Error message should be a string");
-
-    // Optional: Check that the error message contains the correct details
-    assert!(
-        res["error"]
-            .as_str()
-            .unwrap_or("")
-            .contains("Username cannot be empty"),
-        "Error message should mention that the username cannot be empty"
-    );
+    // Since the username is part of the prefix, empty username appears as if
+    // an unknown API endpoint is called, resulting in error 404 NOT_FOUND
+    // (server sees "/search/user/by_name" instead of expected "/search/user/by_name/{prefix}")
+    // Since it's thrown at router level, it has no message body
+    invalid_get_request(&url_path, StatusCode::NOT_FOUND).await?;
 
     Ok(())
 }
