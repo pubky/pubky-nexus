@@ -1,5 +1,6 @@
 use crate::db::queries::get::get_tags;
 use crate::db::{retrieve_from_graph, RedisOps};
+use crate::models::create_zero_score_tuples;
 use crate::types::DynError;
 use crate::types::Pagination;
 
@@ -19,8 +20,7 @@ impl TagSearch {
     pub async fn reindex() -> Result<(), DynError> {
         let tag_labels_opt = retrieve_from_graph(get_tags(), "tag_labels").await?;
         let tag_labels: Vec<String> = tag_labels_opt.unwrap_or_default();
-        let tag_labels_slice = &tag_labels.iter().map(String::as_str).collect::<Vec<&str>>();
-        Self::put_to_index(tag_labels_slice).await
+        Self::put_to_index(&tag_labels).await
     }
 
     pub async fn get_by_label(
@@ -42,8 +42,8 @@ impl TagSearch {
         .map(|opt| opt.map(|list| list.into_iter().map(TagSearch).collect()))
     }
 
-    pub async fn put_to_index(tag_labels: &[&str]) -> Result<(), DynError> {
-        let elements: Vec<(f64, &str)> = tag_labels.iter().map(|&label| (0.0, label)).collect();
+    pub async fn put_to_index(tag_labels: &[String]) -> Result<(), DynError> {
+        let elements: Vec<(f64, &str)> = create_zero_score_tuples(tag_labels);
         Self::put_index_sorted_set(&TAGS_LABEL, &elements, None, None).await
     }
 }
