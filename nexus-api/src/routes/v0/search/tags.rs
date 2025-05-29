@@ -6,6 +6,8 @@ use axum::Json;
 use nexus_common::models::post::search::PostsByTagSearch;
 use nexus_common::models::tag::search::TagSearch;
 use nexus_common::types::Pagination;
+use pubky_app_specs::traits::Validatable;
+use pubky_app_specs::PubkyAppTag;
 use serde::Deserialize;
 use tracing::info;
 use utoipa::OpenApi;
@@ -36,22 +38,39 @@ pub async fn search_tags_by_prefix_handler(
     Path(prefix): Path<String>,
     Query(query): Query<SearchTagsQuery>,
 ) -> Result<Json<Vec<TagSearch>>> {
+    let validated_prefix = sanitize_validate(&prefix)?;
+
     let mut pagination = query.pagination;
     pagination.skip.get_or_insert_default();
     pagination.limit.get_or_insert(20);
 
     info!(
-        "GET {SEARCH_TAGS_BY_PREFIX_ROUTE} prefix:{}, skip: {:?}, limit: {:?}",
-        prefix, pagination.skip, pagination.limit
+        "GET {SEARCH_TAGS_BY_PREFIX_ROUTE} validated_prefix:{}, skip: {:?}, limit: {:?}",
+        validated_prefix, pagination.skip, pagination.limit
     );
 
-    match TagSearch::get_by_label(&prefix, &pagination).await {
+    match TagSearch::get_by_label(&validated_prefix, &pagination).await {
         Ok(Some(tags_list)) => json_array_or_no_content(tags_list, "tags"),
         Ok(None) => Err(Error::TagsNotFound {
             reach: String::from("N/A"),
         }),
         Err(source) => Err(Error::InternalServerError { source }),
     }
+}
+
+fn sanitize_validate(tag_prefix: &str) -> Result<String> {
+    // Use a throwaway URI to build the tag instance, as we only need it for validation
+    let temp_tag = PubkyAppTag::new(
+        "pubky://user_pubky_id/pub/pubky.app/profile.json".into(),
+        tag_prefix.into(),
+    );
+
+    temp_tag
+        .validate(None)
+        .map_err(|e| Error::invalid_input(&e.to_string()))?;
+
+    let sanitized = temp_tag.label;
+    Ok(sanitized)
 }
 
 #[derive(OpenApi)]
