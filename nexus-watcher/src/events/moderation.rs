@@ -15,9 +15,9 @@ impl Moderation {
         tagger_id == self.id && self.tags.contains(&tag.label)
     }
 
-    pub async fn apply_moderation(tag: PubkyAppTag) -> Result<(), DynError> {
+    pub async fn apply_moderation(moderator_tag: PubkyAppTag) -> Result<(), DynError> {
         // Parse the embeded URI to extract author_id and post_id using parse_tagged_post_uri
-        let parsed_uri = ParsedUri::try_from(tag.uri.as_str())?;
+        let parsed_uri = ParsedUri::try_from(moderator_tag.uri.as_str())?;
         let user_id = parsed_uri.user_id;
 
         match parsed_uri.resource {
@@ -25,7 +25,7 @@ impl Moderation {
                 // Delete the post and return the result
                 debug!(
                     "Moderation tag '{}' detected. Deleting post {}:{}",
-                    tag.label, user_id, post_id
+                    moderator_tag.label, user_id, post_id
                 );
                 handlers::post::sync_del(user_id, post_id).await
             }
@@ -33,7 +33,7 @@ impl Moderation {
                 // Delete the tag and return the result
                 debug!(
                     "Moderation tag '{}' detected. Deleting tag {}:{}",
-                    tag.label, user_id, tag_id
+                    moderator_tag.label, user_id, tag_id
                 );
                 handlers::tag::del(user_id, tag_id).await
             }
