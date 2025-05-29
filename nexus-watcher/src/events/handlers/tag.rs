@@ -39,7 +39,7 @@ pub async fn sync_put(
             // Moderate content
             if tagger_id == moderation.id && moderation.tags.contains(&tag.label) {
                 debug!(
-                    "Moderation tag '{}' detected from {} – deleting post {}",
+                    "Moderation tag '{}' detected from {} - deleting post {}",
                     tag.label, tagger_id, post_id
                 );
                 // Delete the post and return the result
