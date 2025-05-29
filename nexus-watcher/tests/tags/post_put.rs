@@ -213,8 +213,60 @@ async fn test_homeserver_put_tag_post_unique_count() -> Result<()> {
     assert_eq!(post_counts_after_step_3.tags, 1);
     assert_eq!(post_counts_after_step_3.unique_tags, 1);
 
-    // Cleanup user and post
     test.cleanup_post(&tagger_user_id, &post_id).await?;
+    test.cleanup_user(&tagger_user_id).await?;
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_homeserver_put_tag_user_unique_count() -> Result<()> {
+    let mut test = WatcherTest::setup().await?;
+
+    // Create a user
+    let keypair = Keypair::random();
+    let tagger = PubkyAppUser {
+        bio: Some("test_homeserver_put_user_post_unique_count".to_string()),
+        image: None,
+        links: None,
+        name: "Watcher:PutTagUser:User".to_string(),
+        status: None,
+    };
+    let tagger_user_id = test.create_user(&keypair, &tagger).await?;
+
+    let label = "merkle_tree";
+    let tag = PubkyAppTag {
+        uri: format!("pubky://{tagger_user_id}/pub/pubky.app/profile.json"),
+        label: label.to_string(),
+        created_at: Utc::now().timestamp_millis(),
+    };
+    let tag_url = format!(
+        "pubky://{}/pub/pubky.app/tags/{}",
+        tagger_user_id,
+        tag.create_id()
+    );
+
+    // Step 1: Put tag (tag user)
+    test.put(&tag_url, tag.clone()).await?;
+
+    let user_counts_after_step_1 = find_user_counts(&tagger_user_id).await;
+    assert_eq!(user_counts_after_step_1.tags, 1);
+    assert_eq!(user_counts_after_step_1.unique_tags, 1);
+
+    // Step 2: Remove tag
+    test.del(&tag_url).await?;
+
+    let user_counts_after_step_2 = find_user_counts(&tagger_user_id).await;
+    assert_eq!(user_counts_after_step_2.tags, 0);
+    assert_eq!(user_counts_after_step_2.unique_tags, 0);
+
+    // Step 3: Re-add tag
+    test.put(&tag_url, tag).await?;
+
+    let user_counts_after_step_3 = find_user_counts(&tagger_user_id).await;
+    assert_eq!(user_counts_after_step_3.tags, 1);
+    assert_eq!(user_counts_after_step_3.unique_tags, 1);
+
     test.cleanup_user(&tagger_user_id).await?;
 
     Ok(())
