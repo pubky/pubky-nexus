@@ -1,3 +1,4 @@
+use super::moderation::Moderation;
 use super::Event;
 use crate::events::errors::EventProcessorError;
 use crate::events::retry::event::RetryEvent;
@@ -12,17 +13,12 @@ use std::error::Error;
 use std::path::PathBuf;
 use tracing::{debug, error, info};
 
-pub struct ModerationConfig {
-    pub id: PubkyId,
-    pub tags: Vec<String>,
-}
-
 pub struct EventProcessor {
     pub homeserver: Homeserver,
     limit: u32,
     pub files_path: PathBuf,
     pub tracer_name: String,
-    pub moderation: ModerationConfig,
+    pub moderation: Moderation,
 }
 
 impl EventProcessor {
@@ -43,7 +39,7 @@ impl EventProcessor {
         let homeserver = Homeserver::new(id).await.unwrap();
 
         // hardcoded nexus-watcher/tests/utils/moderator_key.pkarr public key used by the moderator user on tests
-        let moderation = ModerationConfig {
+        let moderation = Moderation {
             id: PubkyId::try_from("uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko")
                 .expect("Hardcoded test moderation key should be valid"),
             tags: Vec::from(["label_to_moderate".to_string()]),
@@ -68,7 +64,7 @@ impl EventProcessor {
         let files_path = config.stack.files_path.clone();
         let tracer_name = config.name.clone();
 
-        let moderation = ModerationConfig {
+        let moderation = Moderation {
             id: config.moderation_id.clone(),
             tags: config.moderated_tags.clone(),
         };

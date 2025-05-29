@@ -1,6 +1,4 @@
 use crate::events::errors::EventProcessorError;
-use crate::events::handlers;
-use crate::events::processor::ModerationConfig;
 use crate::events::retry::event::RetryEvent;
 use crate::handle_indexing_results;
 use chrono::Utc;
@@ -24,7 +22,6 @@ pub async fn sync_put(
     tag: PubkyAppTag,
     tagger_id: PubkyId,
     tag_id: String,
-    moderation: &ModerationConfig,
 ) -> Result<(), DynError> {
     debug!("Indexing new tag: {} -> {}", tagger_id, tag_id);
 
@@ -36,15 +33,6 @@ pub async fn sync_put(
     match parsed_uri.resource {
         // If post_id is in the tagged URI, we place tag to a post.
         Resource::Post(post_id) => {
-            // Moderate content
-            if tagger_id == moderation.id && moderation.tags.contains(&tag.label) {
-                debug!(
-                    "Moderation tag '{}' detected from {} - deleting post {}",
-                    tag.label, tagger_id, post_id
-                );
-                // Delete the post and return the result
-                return handlers::post::sync_del(user_id, post_id).await;
-            }
             // Place the tag on post
             put_sync_post(
                 tagger_id, user_id, &post_id, &tag_id, &tag.label, &tag.uri, indexed_at,

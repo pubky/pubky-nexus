@@ -3,7 +3,8 @@ use chrono::Utc;
 use nexus_common::db::PubkyClient;
 use nexus_common::types::DynError;
 use nexus_common::FILES_DIR;
-use nexus_watcher::events::processor::{EventProcessor, ModerationConfig};
+use nexus_watcher::events::moderation::Moderation;
+use nexus_watcher::events::processor::EventProcessor;
 use nexus_watcher::events::retry::event::RetryEvent;
 use nexus_watcher::events::Event;
 use nexus_watcher::NexusWatcher;
@@ -293,7 +294,7 @@ pub async fn retrieve_and_handle_event_line(event_line: &str) -> Result<(), DynE
     let event = Event::parse_event(event_line, PathBuf::from(FILES_DIR)).unwrap_or_default();
 
     // hardcoded tests/utils/moderator_key.pkarr public key used by the moderator user on tests
-    let moderation = ModerationConfig {
+    let moderation = Moderation {
         id: PubkyId::try_from("uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko")?,
         tags: Vec::from(["label_to_moderate".to_string()]),
     };
