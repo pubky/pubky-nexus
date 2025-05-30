@@ -1,7 +1,7 @@
 use crate::events::handlers;
 use nexus_common::types::DynError;
 use pubky_app_specs::{ParsedUri, PubkyAppTag, PubkyId, Resource};
-use tracing::debug;
+use tracing::info;
 
 pub struct Moderation {
     // Moderator trusted user id
@@ -23,7 +23,7 @@ impl Moderation {
         match parsed_uri.resource {
             Resource::Post(post_id) => {
                 // Delete the post and return the result
-                debug!(
+                info!(
                     "Moderation tag '{}' detected. Deleting post {}:{}",
                     moderator_tag.label, user_id, post_id
                 );
@@ -31,11 +31,19 @@ impl Moderation {
             }
             Resource::Tag(tag_id) => {
                 // Delete the tag and return the result
-                debug!(
+                info!(
                     "Moderation tag '{}' detected. Deleting tag {}:{}",
                     moderator_tag.label, user_id, tag_id
                 );
                 handlers::tag::del(user_id, tag_id).await
+            }
+            Resource::User => {
+                // Delete the user profile and return the result
+                info!(
+                    "Moderation tag '{}' detected. Deleting user profile {}",
+                    moderator_tag.label, user_id
+                );
+                handlers::user::del(user_id).await
             }
             _ => Ok(()),
         }
