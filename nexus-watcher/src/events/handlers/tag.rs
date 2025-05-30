@@ -33,6 +33,7 @@ pub async fn sync_put(
     match parsed_uri.resource {
         // If post_id is in the tagged URI, we place tag to a post.
         Resource::Post(post_id) => {
+            // Place the tag on post
             put_sync_post(
                 tagger_id, user_id, &post_id, &tag_id, &tag.label, &tag.uri, indexed_at,
             )

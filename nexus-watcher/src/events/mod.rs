@@ -1,4 +1,5 @@
 use errors::EventProcessorError;
+use moderation::Moderation;
 use nexus_common::db::PubkyClient;
 use nexus_common::types::DynError;
 use pubky_app_specs::{ParsedUri, PubkyAppObject, Resource};
@@ -8,6 +9,7 @@ use tracing::debug;
 
 pub mod errors;
 pub mod handlers;
+pub mod moderation;
 pub mod processor;
 pub mod retry;
 
@@ -89,16 +91,16 @@ impl Event {
         }))
     }
 
-    pub async fn handle(self) -> Result<(), DynError> {
+    pub async fn handle(self, moderation: &Moderation) -> Result<(), DynError> {
         match self.event_type {
-            EventType::Put => self.handle_put_event().await,
+            EventType::Put => self.handle_put_event(moderation).await,
             EventType::Del => self.handle_del_event().await,
         }
     }
 
     /// Handles a PUT event by fetching the blob from the homeserver
     /// and using the importer to convert it to a PubkyAppObject.
-    pub async fn handle_put_event(self) -> Result<(), DynError> {
+    pub async fn handle_put_event(self, moderation: &Moderation) -> Result<(), DynError> {
         debug!("Handling PUT event for URI: {}", self.uri);
 
         let response;
@@ -150,7 +152,11 @@ impl Event {
                 handlers::bookmark::sync_put(user_id, bookmark, bookmark_id).await?
             }
             (PubkyAppObject::Tag(tag), Resource::Tag(tag_id)) => {
-                handlers::tag::sync_put(tag, user_id, tag_id).await?
+                if moderation.should_delete(&tag, user_id.clone()).await {
+                    Moderation::apply_moderation(tag).await?
+                } else {
+                    handlers::tag::sync_put(tag, user_id, tag_id).await?
+                }
             }
             (PubkyAppObject::File(file), Resource::File(file_id)) => {
                 handlers::file::sync_put(file, self.uri, user_id, file_id, self.files_path).await?

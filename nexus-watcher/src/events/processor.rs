@@ -1,3 +1,4 @@
+use super::moderation::Moderation;
 use super::Event;
 use crate::events::errors::EventProcessorError;
 use crate::events::retry::event::RetryEvent;
@@ -17,6 +18,7 @@ pub struct EventProcessor {
     limit: u32,
     pub files_path: PathBuf,
     pub tracer_name: String,
+    pub moderation: Moderation,
 }
 
 impl EventProcessor {
@@ -35,6 +37,14 @@ impl EventProcessor {
     pub async fn test(homeserver_id: String) -> Self {
         let id = PubkyId::try_from(&homeserver_id).expect("Homeserver ID should be valid");
         let homeserver = Homeserver::new(id).await.unwrap();
+
+        // hardcoded nexus-watcher/tests/utils/moderator_key.pkarr public key used by the moderator user on tests
+        let moderation = Moderation {
+            id: PubkyId::try_from("uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko")
+                .expect("Hardcoded test moderation key should be valid"),
+            tags: Vec::from(["label_to_moderate".to_string()]),
+        };
+
         info!(
             "Watcher static files PATH during tests are stored inside of the watcher crate: {:?}",
             PathBuf::from(FILES_DIR_TEST)
@@ -44,6 +54,7 @@ impl EventProcessor {
             limit: 1000,
             files_path: PathBuf::from(FILES_DIR_TEST),
             tracer_name: String::from("watcher.test"),
+            moderation,
         }
     }
 
@@ -52,6 +63,11 @@ impl EventProcessor {
         let limit = config.events_limit;
         let files_path = config.stack.files_path.clone();
         let tracer_name = config.name.clone();
+
+        let moderation = Moderation {
+            id: config.moderation_id.clone(),
+            tags: config.moderated_tags.clone(),
+        };
 
         info!(
             "Initialized Event Processor for homeserver: {:?}",
@@ -63,6 +79,7 @@ impl EventProcessor {
             limit,
             files_path,
             tracer_name,
+            moderation,
         })
     }
 
@@ -179,7 +196,7 @@ impl EventProcessor {
     /// # Parameters:
     /// - `event`: The event to be processed
     async fn handle_event(&mut self, event: Event) -> Result<(), DynError> {
-        if let Err(e) = event.clone().handle().await {
+        if let Err(e) = event.clone().handle(&self.moderation).await {
             if let Some((index_key, retry_event)) = extract_retry_event_info(&event, e) {
                 error!("{}, {}", retry_event.error_type, index_key);
                 if let Err(err) = retry_event.put_to_index(index_key).await {

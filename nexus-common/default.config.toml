@@ -11,6 +11,17 @@ testnet = false
 homeserver = "8um71us3fyw6h8wbcxb5ar3rwusy1a6u49956ikzojg3gcwd1dty"
 events_limit = 50
 watcher_sleep = 5000
+# User public key to trust for moderating content
+moderation_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+# Tags on content to de-index when placed by the trusted moderator above
+moderated_tags = [
+    "hatespeech",
+    "harassement",
+    "terrorism",
+    "violence",
+    "illegal_activities",
+    "il_adult_nu_sex_act",
+]
 
 
 [stack]

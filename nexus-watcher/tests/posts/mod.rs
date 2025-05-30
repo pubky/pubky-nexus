@@ -17,6 +17,7 @@ mod fail_reply;
 mod fail_repost;
 mod fail_user;
 mod influencer;
+mod moderated;
 mod raw;
 mod reply;
 mod reply_engagement;

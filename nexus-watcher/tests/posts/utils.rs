@@ -27,8 +27,10 @@ pub async fn find_post_details(user_id: &str, post_id: &str) -> Result<PostDetai
     }
 
     let row = row_stream.next().await.unwrap();
-    if let Ok(result) = row.unwrap().get::<PostDetails>("details") {
-        return Ok(result);
+    if let Some(row) = row {
+        if let Ok(result) = row.get::<PostDetails>("details") {
+            return Ok(result);
+        }
     }
     anyhow::bail!("Post node not found in Nexus graph");
 }
