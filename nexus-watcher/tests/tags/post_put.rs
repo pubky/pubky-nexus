@@ -154,3 +154,120 @@ async fn test_homeserver_put_tag_post() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio_shared_rt::test(shared)]
+async fn test_homeserver_put_tag_post_unique_count() -> Result<()> {
+    let mut test = WatcherTest::setup().await?;
+
+    // Create a user
+    let keypair = Keypair::random();
+    let tagger = PubkyAppUser {
+        bio: Some("test_homeserver_put_tag_post_unique_count".to_string()),
+        image: None,
+        links: None,
+        name: "Watcher:PutUniqueTag:Post".to_string(),
+        status: None,
+    };
+    let tagger_user_id = test.create_user(&keypair, &tagger).await?;
+
+    // Create a post under that user
+    let post = PubkyAppPost {
+        content: "Watcher:PutTagPost:User:Post".to_string(),
+        kind: PubkyAppPost::default().kind,
+        parent: None,
+        embed: None,
+        attachments: None,
+    };
+    let post_id = test.create_post(&tagger_user_id, &post).await?;
+
+    let label = "tag-183";
+    let tag = PubkyAppTag {
+        uri: format!("pubky://{}/pub/pubky.app/posts/{}", tagger_user_id, post_id),
+        label: label.to_string(),
+        created_at: Utc::now().timestamp_millis(),
+    };
+    let tag_url = format!(
+        "pubky://{}/pub/pubky.app/tags/{}",
+        tagger_user_id,
+        tag.create_id()
+    );
+
+    // Step 1: Put tag (tag post)
+    test.put(&tag_url, tag.clone()).await?;
+
+    let post_counts_after_step_1 = find_post_counts(&tagger_user_id, &post_id).await;
+    assert_eq!(post_counts_after_step_1.tags, 1);
+    assert_eq!(post_counts_after_step_1.unique_tags, 1);
+
+    // Step 2: Remove tag
+    test.del(&tag_url).await?;
+
+    let post_counts_after_step_2 = find_post_counts(&tagger_user_id, &post_id).await;
+    assert_eq!(post_counts_after_step_2.tags, 0);
+    assert_eq!(post_counts_after_step_2.unique_tags, 0);
+
+    // Step 3: Re-add tag
+    test.put(&tag_url, tag).await?;
+
+    let post_counts_after_step_3 = find_post_counts(&tagger_user_id, &post_id).await;
+    assert_eq!(post_counts_after_step_3.tags, 1);
+    assert_eq!(post_counts_after_step_3.unique_tags, 1);
+
+    test.cleanup_post(&tagger_user_id, &post_id).await?;
+    test.cleanup_user(&tagger_user_id).await?;
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_homeserver_put_tag_user_unique_count() -> Result<()> {
+    let mut test = WatcherTest::setup().await?;
+
+    // Create a user
+    let keypair = Keypair::random();
+    let tagger = PubkyAppUser {
+        bio: Some("test_homeserver_put_user_post_unique_count".to_string()),
+        image: None,
+        links: None,
+        name: "Watcher:PutUniqueTag:User".to_string(),
+        status: None,
+    };
+    let tagger_user_id = test.create_user(&keypair, &tagger).await?;
+
+    let label = "tag-237";
+    let tag = PubkyAppTag {
+        uri: format!("pubky://{tagger_user_id}/pub/pubky.app/profile.json"),
+        label: label.to_string(),
+        created_at: Utc::now().timestamp_millis(),
+    };
+    let tag_url = format!(
+        "pubky://{}/pub/pubky.app/tags/{}",
+        tagger_user_id,
+        tag.create_id()
+    );
+
+    // Step 1: Put tag (tag user)
+    test.put(&tag_url, tag.clone()).await?;
+
+    let user_counts_after_step_1 = find_user_counts(&tagger_user_id).await;
+    assert_eq!(user_counts_after_step_1.tags, 1);
+    assert_eq!(user_counts_after_step_1.unique_tags, 1);
+
+    // Step 2: Remove tag
+    test.del(&tag_url).await?;
+
+    let user_counts_after_step_2 = find_user_counts(&tagger_user_id).await;
+    assert_eq!(user_counts_after_step_2.tags, 0);
+    assert_eq!(user_counts_after_step_2.unique_tags, 0);
+
+    // Step 3: Re-add tag
+    test.put(&tag_url, tag).await?;
+
+    let user_counts_after_step_3 = find_user_counts(&tagger_user_id).await;
+    assert_eq!(user_counts_after_step_3.tags, 1);
+    assert_eq!(user_counts_after_step_3.unique_tags, 1);
+
+    test.cleanup_user(&tagger_user_id).await?;
+
+    Ok(())
+}

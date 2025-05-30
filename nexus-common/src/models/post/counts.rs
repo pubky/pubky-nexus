@@ -109,10 +109,12 @@ impl PostCounts {
             let index_parts = [&POST_TAGS_KEY_PARTS[..], index_key].concat();
             let score = Self::check_sorted_set_member(None, &index_parts, &[label]).await?;
             match (score, &action) {
-                // to decrement `unique_tags`, the tag value must be less than or equal to 1
-                (Some(tag_value), JsonAction::Decrement(_)) if tag_value < 1 => (),
-                // to increment `unique_tags`, the tag must not exist in the sorted set
+                // If tag value is less than 1, `unique_tags` can be incremented or decremented
+                (Some(tag_value), _) if tag_value < 1 => (),
+
+                // Incrementing `unique_tags` is also allowed when the tag value doesn't exist yet in the sorted set
                 (None, JsonAction::Increment(_)) => (),
+
                 // Do not update the index
                 _ => return Ok(()),
             }
