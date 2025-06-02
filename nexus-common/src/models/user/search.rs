@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 pub const USER_NAME_KEY_PARTS: [&str; 2] = ["Users", "Name"];
-pub const USER_PK_KEY_PARTS: [&str; 2] = ["Users", "PK"];
+pub const USER_ID_KEY_PARTS: [&str; 2] = ["Users", "ID"];
 
 /// List of user IDs
 #[derive(Serialize, Deserialize, ToSchema, Default)]
@@ -38,13 +38,13 @@ impl UserSearch {
         Ok(None)
     }
 
-    pub async fn get_by_pk(
-        pk_prefix: &str,
+    pub async fn get_by_id(
+        id_prefix: &str,
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Option<Self>, DynError> {
         // Perform the lexicographical range search
-        let elements = Self::get_from_pk_index(pk_prefix, skip, limit).await?;
+        let elements = Self::get_from_id_index(id_prefix, skip, limit).await?;
 
         Ok(elements.map(|user_ids| UserSearch(user_ids)))
     }
@@ -64,22 +64,22 @@ impl UserSearch {
         Self::try_from_index_sorted_set_lex(&USER_NAME_KEY_PARTS, &min, &max, skip, limit).await
     }
 
-    pub async fn get_from_pk_index(
-        pk_prefix: &str,
+    pub async fn get_from_id_index(
+        id_prefix: &str,
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Option<Vec<String>>, DynError> {
-        let pk_prefix = pk_prefix.to_lowercase();
+        let id_prefix = id_prefix.to_lowercase();
 
-        let min = format!("[{}", pk_prefix); // Inclusive range starting with "pk_prefix"
-        let max = format!("({}~", pk_prefix); // Exclusive range ending just after "pk_prefix"
+        let min = format!("[{}", id_prefix); // Inclusive range starting with "id_prefix"
+        let max = format!("({}~", id_prefix); // Exclusive range ending just after "id_prefix"
 
-        Self::try_from_index_sorted_set_lex(&USER_PK_KEY_PARTS, &min, &max, skip, limit).await
+        Self::try_from_index_sorted_set_lex(&USER_ID_KEY_PARTS, &min, &max, skip, limit).await
     }
 
     /// Adds multiple `user_id`s to Redis sorted sets:
     /// - using the username as index
-    /// - using the PK as index
+    /// - using the user ID as index
     ///
     /// This method takes a list of `UserDetails` and adds them all to the sorted set at once.
     pub async fn put_to_index(details_list: &[&UserDetails]) -> Result<(), DynError> {
@@ -95,7 +95,7 @@ impl UserSearch {
 
         // Collect all the `username:user_id` pairs
         let mut pairs: Vec<String> = Vec::with_capacity(details_list.len());
-        let mut pks: Vec<String> = Vec::with_capacity(details_list.len());
+        let mut ids: Vec<String> = Vec::with_capacity(details_list.len());
 
         for details in details_list {
             // Convert the username to lowercase before storing
@@ -106,11 +106,11 @@ impl UserSearch {
             let user_id = &details.id;
 
             pairs.push(format!("{}:{}", username, user_id));
-            pks.push(user_id.to_string());
+            ids.push(user_id.to_string());
         }
 
         Self::put_index_sorted_set(&USER_NAME_KEY_PARTS, &Self::tuples(&pairs), None, None).await?;
-        Self::put_index_sorted_set(&USER_PK_KEY_PARTS, &Self::tuples(&pks), None, None).await
+        Self::put_index_sorted_set(&USER_ID_KEY_PARTS, &Self::tuples(&ids), None, None).await
     }
 
     /// Create tuples for the sorted set, by including the 0.0 score for each element and converting it to a &str
@@ -149,7 +149,7 @@ impl UserSearch {
                 .collect::<Vec<&str>>(),
         )
         .await?;
-        Self::remove_from_index_sorted_set(None, &USER_PK_KEY_PARTS, &user_ids).await?;
+        Self::remove_from_index_sorted_set(None, &USER_ID_KEY_PARTS, &user_ids).await?;
         Ok(())
     }
 }
