@@ -48,7 +48,7 @@ impl UserSearch {
         // Perform the lexicographical range search
         let elements = Self::get_from_id_index(id_prefix, skip, limit).await?;
 
-        Ok(elements.map(|user_ids| UserSearch(user_ids)))
+        Ok(elements.map(UserSearch))
     }
 
     pub async fn get_from_name_index(
@@ -151,7 +151,7 @@ impl UserSearch {
                 .collect::<Vec<&str>>(),
         )
         .await?;
-        Self::remove_from_index_sorted_set(None, &USER_ID_KEY_PARTS, &user_ids).await?;
+        Self::remove_from_index_sorted_set(None, &USER_ID_KEY_PARTS, user_ids).await?;
         Ok(())
     }
 }
