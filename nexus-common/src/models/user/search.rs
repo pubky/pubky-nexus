@@ -5,7 +5,9 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 pub const USER_NAME_KEY_PARTS: [&str; 2] = ["Users", "Name"];
+pub const USER_PK_KEY_PARTS: [&str; 2] = ["Users", "PK"];
 
+/// List of user IDs
 #[derive(Serialize, Deserialize, ToSchema, Default)]
 pub struct UserSearch(pub Vec<String>);
 
@@ -13,12 +15,12 @@ impl RedisOps for UserSearch {}
 
 impl UserSearch {
     pub async fn get_by_name(
-        name: &str,
+        name_prefix: &str,
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Option<Self>, DynError> {
         // Perform the lexicographical range search
-        let elements = Self::get_from_index(name, skip, limit).await?;
+        let elements = Self::get_from_name_index(name_prefix, skip, limit).await?;
 
         // If elements exist, process them to extract user_ids
         if let Some(elements) = elements {
@@ -36,22 +38,48 @@ impl UserSearch {
         Ok(None)
     }
 
-    pub async fn get_from_index(
-        name: &str,
+    pub async fn get_by_pk(
+        pk_prefix: &str,
+        skip: Option<usize>,
+        limit: Option<usize>,
+    ) -> Result<Option<Self>, DynError> {
+        // Perform the lexicographical range search
+        let elements = Self::get_from_pk_index(pk_prefix, skip, limit).await?;
+
+        Ok(elements.map(|user_ids| UserSearch(user_ids)))
+    }
+
+    pub async fn get_from_name_index(
+        name_prefix: &str,
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Option<Vec<String>>, DynError> {
         // Convert the username to lowercase to ensure case-insensitive search
-        let name = name.to_lowercase();
+        let name_prefix = name_prefix.to_lowercase();
 
-        let min = format!("[{}", name); // Inclusive range starting with "name"
-        let max = format!("({}~", name); // Exclusive range ending just after "name"
+        let min = format!("[{}", name_prefix); // Inclusive range starting with "name_prefix"
+        let max = format!("({}~", name_prefix); // Exclusive range ending just after "name_prefix"
 
         // Perform the lexicographical range search
         Self::try_from_index_sorted_set_lex(&USER_NAME_KEY_PARTS, &min, &max, skip, limit).await
     }
 
-    /// Adds multiple `user_id`s to the Redis sorted set using the username as index.
+    pub async fn get_from_pk_index(
+        pk_prefix: &str,
+        skip: Option<usize>,
+        limit: Option<usize>,
+    ) -> Result<Option<Vec<String>>, DynError> {
+        let pk_prefix = pk_prefix.to_lowercase();
+
+        let min = format!("[{}", pk_prefix); // Inclusive range starting with "pk_prefix"
+        let max = format!("({}~", pk_prefix); // Exclusive range ending just after "pk_prefix"
+
+        Self::try_from_index_sorted_set_lex(&USER_PK_KEY_PARTS, &min, &max, skip, limit).await
+    }
+
+    /// Adds multiple `user_id`s to Redis sorted sets:
+    /// - using the username as index
+    /// - using the PK as index
     ///
     /// This method takes a list of `UserDetails` and adds them all to the sorted set at once.
     pub async fn put_to_index(details_list: &[&UserDetails]) -> Result<(), DynError> {
@@ -65,8 +93,9 @@ impl UserSearch {
         )
         .await?;
 
-        // Collect all the `username:user_id` pairs and their corresponding scores
-        let mut items: Vec<(f64, String)> = Vec::with_capacity(details_list.len());
+        // Collect all the `username:user_id` pairs
+        let mut pairs: Vec<String> = Vec::with_capacity(details_list.len());
+        let mut pks: Vec<String> = Vec::with_capacity(details_list.len());
 
         for details in details_list {
             // Convert the username to lowercase before storing
@@ -75,25 +104,18 @@ impl UserSearch {
             }
             let username = details.name.to_lowercase();
             let user_id = &details.id;
-            let score = 0.0;
 
-            // The value in the sorted set will be `username:user_id`
-            let member = format!("{}:{}", username, user_id);
-
-            items.push((score, member));
+            pairs.push(format!("{}:{}", username, user_id));
+            pks.push(user_id.to_string());
         }
 
-        // Perform a single Redis ZADD operation with all the items
-        Self::put_index_sorted_set(
-            &USER_NAME_KEY_PARTS,
-            &items
-                .iter()
-                .map(|(score, member)| (*score, member.as_str()))
-                .collect::<Vec<_>>(),
-            None,
-            None,
-        )
-        .await
+        Self::put_index_sorted_set(&USER_NAME_KEY_PARTS, &Self::tuples(&pairs), None, None).await?;
+        Self::put_index_sorted_set(&USER_PK_KEY_PARTS, &Self::tuples(&pks), None, None).await
+    }
+
+    /// Create tuples for the sorted set, by including the 0.0 score for each element and converting it to a &str
+    fn tuples(strings: &[String]) -> Vec<(f64, &str)> {
+        strings.iter().map(|s| (0.0, s.as_str())).collect()
     }
 
     async fn delete_existing_records(user_ids: &[&str]) -> Result<(), DynError> {
@@ -101,10 +123,7 @@ impl UserSearch {
             return Ok(());
         }
         let mut records_to_delete: Vec<String> = Vec::with_capacity(user_ids.len());
-        let keys = user_ids
-            .iter()
-            .map(|&id| vec![id])
-            .collect::<Vec<Vec<&str>>>();
+        let keys: Vec<Vec<&str>> = user_ids.iter().map(|&id| vec![id]).collect();
         let users = UserDetails::get_from_index(keys.iter().map(|item| item.as_slice()).collect())
             .await?
             .into_iter()
@@ -124,13 +143,13 @@ impl UserSearch {
         Self::remove_from_index_sorted_set(
             None,
             &USER_NAME_KEY_PARTS,
-            records_to_delete
+            &records_to_delete
                 .iter()
                 .map(|item| item.as_str())
-                .collect::<Vec<&str>>()
-                .as_slice(),
+                .collect::<Vec<&str>>(),
         )
         .await?;
+        Self::remove_from_index_sorted_set(None, &USER_PK_KEY_PARTS, &user_ids).await?;
         Ok(())
     }
 }
