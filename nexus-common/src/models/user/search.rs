@@ -25,10 +25,8 @@ impl UserSearch {
             let user_ids: Vec<String> = elements
                 .into_iter()
                 .filter_map(|element| {
-                    // Split by `:` and take the second part (user_id)
-                    element
-                        .split_once(':')
-                        .map(|(_, user_id)| user_id.to_string())
+                    // Split by `:` and take the last part (user_id)
+                    element.split(':').next_back().map(|p| p.to_string())
                 })
                 .collect();
 
