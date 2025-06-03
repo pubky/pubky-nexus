@@ -1,7 +1,7 @@
 # ========================
 # Build Stage
 # ========================
-FROM rust:1.82.0-alpine3.20 AS builder
+FROM rust:1.87.0-alpine3.22 AS builder
 
 # Build platform argument (x86_64 or aarch64) (default: x86_64)
 ARG TARGETARCH=x86_64
@@ -19,10 +19,10 @@ RUN apk add --no-cache \
 
 # Install cross-compiler toolchain only for ARM (Apple Silicon)
 RUN if [ "$TARGETARCH" = "aarch64" ]; then \
-        wget -qO- https://musl.cc/aarch64-linux-musl-cross.tgz | tar -xz -C /usr/local && \
-        echo "/usr/local/aarch64-linux-musl-cross/bin" > /tmp/musl_cross_path; \
+    wget -qO- https://musl.cc/aarch64-linux-musl-cross.tgz | tar -xz -C /usr/local && \
+    echo "/usr/local/aarch64-linux-musl-cross/bin" > /tmp/musl_cross_path; \
     else \
-        echo "" > /tmp/musl_cross_path; \
+    echo "" > /tmp/musl_cross_path; \
     fi
 
 # Set PATH only if we installed the cross compiler (will be empty string for x86)
@@ -54,7 +54,7 @@ RUN strip target/$TARGETARCH-unknown-linux-musl/release/nexusd
 # ========================
 # Runtime Stage
 # ========================
-FROM alpine:3.20
+FROM alpine:3.22
 
 ARG TARGETARCH=x86_64
 
