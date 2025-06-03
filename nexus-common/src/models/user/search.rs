@@ -97,11 +97,8 @@ impl UserSearch {
         let mut pairs: Vec<String> = Vec::with_capacity(details_list.len());
         let mut ids: Vec<String> = Vec::with_capacity(details_list.len());
 
-        for details in details_list {
+        for details in details_list.iter().filter(|d| d.name != "[DELETED]") {
             // Convert the username to lowercase before storing
-            if details.name == "[DELETED]" {
-                break;
-            }
             let username = details.name.to_lowercase();
             let user_id = &details.id;
 
