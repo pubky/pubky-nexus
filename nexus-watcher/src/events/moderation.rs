@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use crate::events::handlers;
 use nexus_common::types::DynError;
 use pubky_app_specs::{ParsedUri, PubkyAppTag, PubkyId, Resource};
@@ -15,7 +17,10 @@ impl Moderation {
         tagger_id == self.id && self.tags.contains(&tag.label)
     }
 
-    pub async fn apply_moderation(moderator_tag: PubkyAppTag) -> Result<(), DynError> {
+    pub async fn apply_moderation(
+        moderator_tag: PubkyAppTag,
+        files_path: PathBuf,
+    ) -> Result<(), DynError> {
         // Parse the embeded URI to extract author_id and post_id using parse_tagged_post_uri
         let parsed_uri = ParsedUri::try_from(moderator_tag.uri.as_str())?;
         let user_id = parsed_uri.user_id;
@@ -44,6 +49,14 @@ impl Moderation {
                     moderator_tag.label, user_id
                 );
                 handlers::user::del(user_id).await
+            }
+            Resource::File(file_id) => {
+                // Delete the file and return the result
+                info!(
+                    "Moderation tag '{}' detected. Deleting file {}:{}",
+                    moderator_tag.label, user_id, file_id
+                );
+                handlers::file::del(&user_id, file_id, files_path).await
             }
             _ => Ok(()),
         }

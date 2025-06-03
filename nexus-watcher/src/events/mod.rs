@@ -153,7 +153,7 @@ impl Event {
             }
             (PubkyAppObject::Tag(tag), Resource::Tag(tag_id)) => {
                 if moderation.should_delete(&tag, user_id.clone()).await {
-                    Moderation::apply_moderation(tag).await?
+                    Moderation::apply_moderation(tag, self.files_path).await?
                 } else {
                     handlers::tag::sync_put(tag, user_id, tag_id).await?
                 }
