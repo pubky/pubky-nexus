@@ -6,6 +6,7 @@ mod del_bookmarked_notification;
 mod del_repost_notification;
 mod del_reposted_notification;
 mod del_tagged_notification;
+mod del_with_attachments;
 mod del_with_relations;
 mod del_without_relations;
 mod edit_bookmarked_notification;
