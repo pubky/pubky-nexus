@@ -27,7 +27,7 @@ fn bench_user_search(c: &mut Criterion) {
                 let result = UserSearch::get_by_name(username, None, Some(40))
                     .await
                     .unwrap();
-                criterion::black_box(result);
+                std::hint::black_box(result);
             });
         },
     );
@@ -50,7 +50,7 @@ fn bench_tag_search(c: &mut Criterion) {
         |b, &prefix| {
             b.to_async(&rt).iter(|| async {
                 let result = TagSearch::get_by_label(prefix, &pagination).await.unwrap();
-                criterion::black_box(result);
+                std::hint::black_box(result);
             });
         },
     );
@@ -80,7 +80,7 @@ fn bench_post_tag_search_by_timeline(c: &mut Criterion) {
                 let result = PostsByTagSearch::get_by_label(label, None, pagination)
                     .await
                     .unwrap();
-                criterion::black_box(result);
+                std::hint::black_box(result);
             });
         },
     );

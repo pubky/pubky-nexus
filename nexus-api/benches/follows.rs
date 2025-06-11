@@ -22,7 +22,7 @@ fn bench_get_followers_by_id(c: &mut Criterion) {
         |b, &id| {
             b.to_async(&rt).iter(|| async {
                 let followers = Followers::get_by_id(id, None, None).await.unwrap();
-                criterion::black_box(followers);
+                std::hint::black_box(followers);
             });
         },
     );
@@ -44,7 +44,7 @@ fn bench_get_followers_from_graph(c: &mut Criterion) {
         |b, &id| {
             b.to_async(&rt).iter(|| async {
                 let followers = Followers::get_from_graph(id, None, None).await.unwrap();
-                criterion::black_box(followers);
+                std::hint::black_box(followers);
             });
         },
     );
@@ -66,7 +66,7 @@ fn bench_get_following_by_id(c: &mut Criterion) {
         |b, &id| {
             b.to_async(&rt).iter(|| async {
                 let following = Following::get_by_id(id, None, None).await.unwrap();
-                criterion::black_box(following);
+                std::hint::black_box(following);
             });
         },
     );
@@ -88,7 +88,7 @@ fn bench_get_following_from_graph(c: &mut Criterion) {
         |b, &id| {
             b.to_async(&rt).iter(|| async {
                 let following = Following::get_from_graph(id, None, None).await.unwrap();
-                criterion::black_box(following);
+                std::hint::black_box(following);
             });
         },
     );
