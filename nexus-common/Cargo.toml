@@ -19,7 +19,7 @@ opentelemetry-otlp = { version = "0.30", features = ["grpc-tonic"] }
 opentelemetry_sdk = { workspace = true }
 pubky = "0.5.0-rc.0"
 pubky-app-specs = { workspace = true }
-redis = { version = "0.31", features = ["tokio-comp", "json"] }
+redis = { version = "0.32", features = ["tokio-comp", "json"] }
 deadpool-redis = "0.21.1"
 serde = { workspace = true }
 serde_json = { workspace = true }
