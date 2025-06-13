@@ -31,7 +31,7 @@ fn bench_get_user_tags(c: &mut Criterion) {
                 let tag_details_list = TagUser::get_by_id(id, None, None, None, None, None, None)
                     .await
                     .unwrap();
-                criterion::black_box(tag_details_list);
+                std::hint::black_box(tag_details_list);
             });
         },
     );
@@ -63,7 +63,7 @@ fn bench_get_wot_user_tags(c: &mut Criterion) {
                 )
                 .await
                 .unwrap();
-                criterion::black_box(tag_details_list);
+                std::hint::black_box(tag_details_list);
             });
         },
     );
@@ -88,7 +88,7 @@ fn bench_get_user_tag_taggers(c: &mut Criterion) {
                     TagUser::get_tagger_by_id(id, None, "pubky", Pagination::default(), None, None)
                         .await
                         .unwrap();
-                criterion::black_box(taggers);
+                std::hint::black_box(taggers);
             });
         },
     );
@@ -119,7 +119,7 @@ fn bench_get_wot_user_tag_taggers(c: &mut Criterion) {
                 )
                 .await
                 .unwrap();
-                criterion::black_box(taggers);
+                std::hint::black_box(taggers);
             });
         },
     );
@@ -148,7 +148,7 @@ fn bench_get_post_tags(c: &mut Criterion) {
                     TagPost::get_by_id(params[0], Some(params[1]), None, None, None, None, None)
                         .await
                         .unwrap();
-                criterion::black_box(tag_details_list);
+                std::hint::black_box(tag_details_list);
             });
         },
     );
@@ -182,7 +182,7 @@ fn bench_get_post_tag_taggers(c: &mut Criterion) {
                 )
                 .await
                 .unwrap();
-                criterion::black_box(taggers);
+                std::hint::black_box(taggers);
             });
         },
     );
@@ -201,7 +201,7 @@ fn bench_get_global_hot_tags(c: &mut Criterion) {
         b.to_async(&rt).iter(|| async {
             let input = HotTagsInputDTO::new(Timeframe::AllTime, 0, 40, 10, None);
             let stream_tag = HotTags::get_hot_tags(None, None, &input).await.unwrap();
-            criterion::black_box(stream_tag);
+            std::hint::black_box(stream_tag);
         });
     });
 }
@@ -231,7 +231,7 @@ fn bench_get_global_tag_taggers(c: &mut Criterion) {
                 )
                 .await
                 .unwrap();
-                criterion::black_box(tag_taggers);
+                std::hint::black_box(tag_taggers);
             });
         },
     );
@@ -272,7 +272,7 @@ fn bench_get_following_reach_hot_tags(c: &mut Criterion) {
                 )
                 .await
                 .unwrap();
-                criterion::black_box(profile);
+                std::hint::black_box(profile);
             });
         },
     );
@@ -313,7 +313,7 @@ fn bench_get_followers_reach_hot_tags(c: &mut Criterion) {
                 )
                 .await
                 .unwrap();
-                criterion::black_box(profile);
+                std::hint::black_box(profile);
             });
         },
     );
@@ -354,7 +354,7 @@ fn bench_get_friends_reach_hot_tags(c: &mut Criterion) {
                 )
                 .await
                 .unwrap();
-                criterion::black_box(profile);
+                std::hint::black_box(profile);
             });
         },
     );

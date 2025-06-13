@@ -38,7 +38,7 @@ pub fn bench_stream_author_timeline(c: &mut Criterion) {
             )
             .await
             .unwrap();
-            criterion::black_box(post_stream);
+            std::hint::black_box(post_stream);
         });
     });
 }
@@ -71,7 +71,7 @@ pub fn bench_stream_author_total_engagement(c: &mut Criterion) {
             )
             .await
             .unwrap();
-            criterion::black_box(post_stream);
+            std::hint::black_box(post_stream);
         });
     });
 }
@@ -104,7 +104,7 @@ pub fn bench_stream_author_replies_timeline(c: &mut Criterion) {
             )
             .await
             .unwrap();
-            criterion::black_box(post_stream);
+            std::hint::black_box(post_stream);
         });
     });
 }

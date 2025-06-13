@@ -37,7 +37,7 @@ pub fn bench_stream_following(c: &mut Criterion) {
             )
             .await
             .unwrap();
-            criterion::black_box(user_stream);
+            std::hint::black_box(user_stream);
         });
     });
 }
@@ -70,7 +70,7 @@ pub fn bench_stream_most_followed(c: &mut Criterion) {
             )
             .await
             .unwrap();
-            criterion::black_box(user_stream);
+            std::hint::black_box(user_stream);
         });
     });
 }
@@ -95,7 +95,7 @@ pub fn bench_stream_users_by_username_search(c: &mut Criterion) {
             )
             .await
             .unwrap();
-            criterion::black_box(user_stream);
+            std::hint::black_box(user_stream);
         });
     });
 }
@@ -128,7 +128,7 @@ pub fn bench_stream_influencers(c: &mut Criterion) {
             )
             .await
             .unwrap();
-            criterion::black_box(user_stream);
+            std::hint::black_box(user_stream);
         });
     });
 }
@@ -163,7 +163,7 @@ pub fn bench_stream_post_replies(c: &mut Criterion) {
             )
             .await
             .unwrap();
-            criterion::black_box(user_stream);
+            std::hint::black_box(user_stream);
         });
     });
 }
