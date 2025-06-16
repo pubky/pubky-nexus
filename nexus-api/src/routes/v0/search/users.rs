@@ -1,4 +1,5 @@
 use crate::routes::v0::endpoints::{SEARCH_USERS_BY_ID_ROUTE, SEARCH_USERS_BY_NAME_ROUTE};
+use crate::routes::v0::search::USER_ID_SEARCH_MIN_PREFIX_LEN;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
@@ -60,7 +61,7 @@ pub async fn search_users_by_name_handler(
     description = "Search user IDs by ID prefix",
     tag = "Search",
     params(
-        ("prefix" = String, Path, description = "User ID prefix to search for"),
+        ("prefix" = String, Path, description = format!("User ID prefix to search for (at least {USER_ID_SEARCH_MIN_PREFIX_LEN} characters)")),
         ("skip" = Option<usize>, Query, description = "Skip N results"),
         ("limit" = Option<usize>, Query, description = "Limit the number of results")
     ),
@@ -76,8 +77,10 @@ pub async fn search_users_by_id_handler(
     Query(query): Query<SearchQuery>,
 ) -> Result<Json<UserSearch>> {
     let id_prefix = prefix;
-    if id_prefix.trim().is_empty() {
-        return Err(Error::invalid_input("ID cannot be empty"));
+    if id_prefix.trim().chars().count() < USER_ID_SEARCH_MIN_PREFIX_LEN {
+        return Err(Error::invalid_input(&format!(
+            "ID prefix must be at least {USER_ID_SEARCH_MIN_PREFIX_LEN} chars"
+        )));
     }
 
     info!("GET {SEARCH_USERS_BY_ID_ROUTE} ID:{}", id_prefix);

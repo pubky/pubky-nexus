@@ -8,6 +8,8 @@ mod posts;
 mod tags;
 mod users;
 
+pub const USER_ID_SEARCH_MIN_PREFIX_LEN: usize = 3;
+
 pub fn routes() -> Router<AppState> {
     register_routes!(Router::new(),
         endpoints::SEARCH_USERS_BY_NAME_ROUTE => users::search_users_by_name_handler,
