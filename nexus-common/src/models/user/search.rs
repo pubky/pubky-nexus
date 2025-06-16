@@ -20,7 +20,7 @@ impl UserSearch {
         limit: Option<usize>,
     ) -> Result<Option<Self>, DynError> {
         // Perform the lexicographical range search
-        let elements = Self::get_from_name_index(name_prefix, skip, limit).await?;
+        let elements = Self::get_from_index_name(name_prefix, skip, limit).await?;
 
         // If elements exist, process them to extract user_ids
         if let Some(elements) = elements {
@@ -44,12 +44,12 @@ impl UserSearch {
         limit: Option<usize>,
     ) -> Result<Option<Self>, DynError> {
         // Perform the lexicographical range search
-        let elements = Self::get_from_id_index(id_prefix, skip, limit).await?;
+        let elements = Self::get_from_index_id(id_prefix, skip, limit).await?;
 
         Ok(elements.map(UserSearch))
     }
 
-    pub async fn get_from_name_index(
+    pub async fn get_from_index_name(
         name_prefix: &str,
         skip: Option<usize>,
         limit: Option<usize>,
@@ -64,7 +64,7 @@ impl UserSearch {
         Self::try_from_index_sorted_set_lex(&USER_NAME_KEY_PARTS, &min, &max, skip, limit).await
     }
 
-    pub async fn get_from_id_index(
+    pub async fn get_from_index_id(
         id_prefix: &str,
         skip: Option<usize>,
         limit: Option<usize>,
