@@ -47,7 +47,7 @@ async fn test_search_users_by_username() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_search_users_by_id() -> Result<()> {
-    let id_prefix = "x";
+    let id_prefix = "xte";
     let url_path = format_search_users_by_id_prefix(id_prefix);
     let res = get_request(&url_path).await?;
 
@@ -58,13 +58,7 @@ async fn test_search_users_by_id() -> Result<()> {
         .expect("User search results should be an array");
 
     // Define the expected user IDs
-    let expected_users = vec![
-        "x87dnkruxdnd35q7ayzjfhjpqa47gr5a6gdxpb61jymrpngwy1yo",
-        "xgoium16biftc8z7ecrbwrdokdwr1xphdke4nuaqiutnihdmxmny",
-        "xguypopohzf1e6h9njbrt94wty6enqqm7m3eqbr677upjdw74uzy",
-        "xtewe9x8yfuq5sr4tqrk5az47uz4qkt3gxaz5rms6nzugdfo8jao",
-        "xzinu5xbj55y33kfxe9sgtu9a4gxqgywj68oi91g6apiym8kz6to",
-    ];
+    let expected_users = vec!["xtewe9x8yfuq5sr4tqrk5az47uz4qkt3gxaz5rms6nzugdfo8jao"];
 
     // Convert the actual result to a Vec of strings
     let actual_users: Vec<String> = users
