@@ -1,5 +1,6 @@
 use super::UserDetails;
 use crate::db::RedisOps;
+use crate::models::create_zero_score_tuples;
 use crate::{models::traits::Collection, types::DynError};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -106,13 +107,10 @@ impl UserSearch {
             ids.push(user_id.to_string());
         }
 
-        Self::put_index_sorted_set(&USER_NAME_KEY_PARTS, &Self::tuples(&pairs), None, None).await?;
-        Self::put_index_sorted_set(&USER_ID_KEY_PARTS, &Self::tuples(&ids), None, None).await
-    }
-
-    /// Create tuples for the sorted set, by including the 0.0 score for each element and converting it to a &str
-    fn tuples(strings: &[String]) -> Vec<(f64, &str)> {
-        strings.iter().map(|s| (0.0, s.as_str())).collect()
+        let pairs_zscore_tuples = create_zero_score_tuples(&pairs);
+        Self::put_index_sorted_set(&USER_NAME_KEY_PARTS, &pairs_zscore_tuples, None, None).await?;
+        let ids_zscore_tuples = create_zero_score_tuples(&ids);
+        Self::put_index_sorted_set(&USER_ID_KEY_PARTS, &ids_zscore_tuples, None, None).await
     }
 
     async fn delete_existing_records(user_ids: &[&str]) -> Result<(), DynError> {
