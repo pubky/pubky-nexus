@@ -46,7 +46,9 @@ pub const STREAM_TAGS_REACH_ROUTE: &str =
 
 // -- SEARCH endpoints --
 const SEARCH_PREFIX: &str = concatcp!(VERSION_ROUTE, "/search");
-pub const SEARCH_USERS_ROUTE: &str = concatcp!(SEARCH_PREFIX, "/users");
+const SEARCH_USERS_ROUTE: &str = concatcp!(SEARCH_PREFIX, "/users");
+pub const SEARCH_USERS_BY_NAME_ROUTE: &str = concatcp!(SEARCH_USERS_ROUTE, "/by_name/{prefix}");
+pub const SEARCH_USERS_BY_ID_ROUTE: &str = concatcp!(SEARCH_USERS_ROUTE, "/by_id/{prefix}");
 pub const SEARCH_POSTS_BY_TAG_ROUTE: &str = concatcp!(SEARCH_PREFIX, "/posts/by_tag/{tag}");
 pub const SEARCH_TAGS_BY_PREFIX_ROUTE: &str = concatcp!(SEARCH_PREFIX, "/tags/by_prefix/{prefix}");
 
