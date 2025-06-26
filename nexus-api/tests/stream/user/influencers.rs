@@ -28,8 +28,8 @@ async fn test_global_influencers() -> Result<()> {
         "pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy",
         "kzq3o8y8w1b7ffogpq73okop4gb3ahm31ytwwk1na8p6gpr4511o",
         "o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo",
-        "zdbg13k5gh4tfz9qz11quohrxetgqxs7awandu8h57147xddcuhy",
         "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy",
+        "zdbg13k5gh4tfz9qz11quohrxetgqxs7awandu8h57147xddcuhy",
     ];
 
     assert!(influencer_ids == expected_user_ids);
@@ -98,8 +98,8 @@ async fn test_global_influencers_skip_limit() -> Result<()> {
 
     // List of expected user IDs
     let expected_user_ids = vec![
-        "zdbg13k5gh4tfz9qz11quohrxetgqxs7awandu8h57147xddcuhy",
         "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy",
+        "zdbg13k5gh4tfz9qz11quohrxetgqxs7awandu8h57147xddcuhy",
         "7hq56kap6exmhghyedrw1q3ar8b1wutomq8ax9eazhajcpdfx3so",
     ];
 

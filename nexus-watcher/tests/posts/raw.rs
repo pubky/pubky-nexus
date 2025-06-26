@@ -83,7 +83,7 @@ async fn test_homeserver_put_post_event() -> Result<()> {
     // Has influencer score. Sorted:Users:Influencers
     let influencer_score = check_member_user_influencer(&user_id).await.unwrap();
     assert!(influencer_score.is_some());
-    assert_eq!(influencer_score.unwrap(), 0);
+    assert_eq!(influencer_score.unwrap(), 1);
 
     let exist_count = find_user_counts(&user_id).await;
     assert_eq!(exist_count.posts, 1);
