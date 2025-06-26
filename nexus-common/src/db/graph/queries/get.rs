@@ -539,7 +539,7 @@ pub fn get_influencers_by_reach(
         WITH DISTINCT reach
 
         CALL (reach) {{
-            MATCH (others:User)-[follow:FOLLOWS]->(reach)
+            MATCH (reach)-[follow:FOLLOWS]->(others:User)
             RETURN count(DISTINCT follow) as followers_count
         }}
         CALL (reach) {{
