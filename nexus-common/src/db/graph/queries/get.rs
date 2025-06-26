@@ -556,7 +556,7 @@ pub fn get_influencers_by_reach(
         WITH reach, followers_count, tags_count, posts_count
         WITH {{
             id: reach.id,
-            score: (tags_count + posts_count) * sqrt(followers_count)
+            score: (tags_count + posts_count) * sqrt(followers_count + 1)
         }} AS influencer
         ORDER BY influencer.score DESC
         SKIP $skip 

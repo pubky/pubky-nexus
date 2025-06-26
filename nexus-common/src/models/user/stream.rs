@@ -133,7 +133,7 @@ impl UserStream {
         user_id: &str,
         counts: &UserCounts,
     ) -> Result<(), DynError> {
-        let score = (counts.tagged + counts.posts) as f64 * (counts.followers as f64).sqrt();
+        let score = (counts.tagged + counts.posts) as f64 * (counts.followers as f64 + 1.0).sqrt();
         Self::put_index_sorted_set(&USER_INFLUENCERS_KEY_PARTS, &[(score, user_id)], None, None)
             .await
     }
