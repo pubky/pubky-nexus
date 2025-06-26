@@ -125,10 +125,10 @@ async fn test_global_influencers_with_today_timeframe() -> Result<()> {
 
     // List of expected user IDs
     let expected_user_ids = vec![
-        "r91hi8kc3x6761gwfiigr7yn6nca1z47wm6jadhw1jbx1co93r9y",
-        "qumq6fady4bmw4w5tpsrj1tg36g3qo4tcfedga9p4bg4so4ikyzy",
-        "r4irb481b8qspaixq1brwre8o87cxybsbk9iwe1f6f9ukrxxs7bo",
-        "tkpeqpx3ywoawiw6q8e6kuo9o3egr7fnhx83rudznbrrmqgdmomo",
+        "omynbjw4ksjc4at5gretyoatw1g5h53tkee5z55fh69sng1d3jpy",
+        "oh8ku6csenwcyec6oaacz6xumydqjdaagh4ekr8jsm44rrdssjqo",
+        "o5ikmnpqa13brs9x38nyt76ojufaje6dtrb6mii5ycekb9tuxsno",
+        "o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo",
     ];
 
     // Verify that each expected user ID is present in the response
@@ -158,11 +158,11 @@ async fn test_global_influencers_with_this_month_timeframe() -> Result<()> {
 
     // List of expected user IDs
     let expected_user_ids = vec![
-        "r91hi8kc3x6761gwfiigr7yn6nca1z47wm6jadhw1jbx1co93r9y",
-        "tkpeqpx3ywoawiw6q8e6kuo9o3egr7fnhx83rudznbrrmqgdmomo",
-        "pyc598poqkdgtx1wc4aeptx67mqg71mmywyh7uzkffzittjmbiuo",
-        "r4irb481b8qspaixq1brwre8o87cxybsbk9iwe1f6f9ukrxxs7bo",
-        "qumq6fady4bmw4w5tpsrj1tg36g3qo4tcfedga9p4bg4so4ikyzy",
+        "nkmnt9uzjbwzusxjjnrzd4uwd79nhnywitqhj11pannyo7e5aory",
+        "omynbjw4ksjc4at5gretyoatw1g5h53tkee5z55fh69sng1d3jpy",
+        "oh8ku6csenwcyec6oaacz6xumydqjdaagh4ekr8jsm44rrdssjqo",
+        "o5ikmnpqa13brs9x38nyt76ojufaje6dtrb6mii5ycekb9tuxsno",
+        "o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo",
     ];
 
     // Verify that each expected user ID is present in the response

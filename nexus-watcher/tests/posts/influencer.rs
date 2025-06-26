@@ -33,7 +33,7 @@ async fn test_homeserver_post_influencer() -> Result<()> {
     // influencers score: Sorted:Users:Influencers
     let influencer_score = check_member_user_influencer(&alice_id).await.unwrap();
     assert!(influencer_score.is_some());
-    assert_eq!(influencer_score.unwrap(), 1);
+    assert_eq!(influencer_score.unwrap(), 0);
 
     // Create new user
     let bob_user_keypair = Keypair::random();

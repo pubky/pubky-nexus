@@ -556,7 +556,7 @@ pub fn get_influencers_by_reach(
         WITH reach, followers_count, tags_count, posts_count
         WITH {{
             id: reach.id,
-            score: (tags_count + posts_count) * sqrt(followers_count + 1)
+            score: (tags_count + posts_count) * sqrt(followers_count)
         }} AS influencer
         ORDER BY influencer.score DESC
         SKIP $skip 
@@ -594,7 +594,7 @@ pub fn get_global_influencers(skip: usize, limit: usize, timeframe: &Timeframe) 
              COUNT(DISTINCT post) AS posts_count
         WITH {
             id: user.id,
-            score: (tags_count + posts_count) * sqrt(followers_count + 1)
+            score: (tags_count + posts_count) * sqrt(followers_count)
         } AS influencer
         WHERE influencer.id IS NOT NULL
         

@@ -80,7 +80,7 @@ async fn test_homeserver_put_tag_user_self() -> Result<()> {
         influencer_score.is_some(),
         "Influencer score should be present"
     );
-    assert_eq!(influencer_score.unwrap(), 1);
+    assert_eq!(influencer_score.unwrap(), 0);
 
     // Cleanup user
     test.cleanup_user(&user_id).await?;
