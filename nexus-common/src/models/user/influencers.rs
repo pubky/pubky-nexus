@@ -130,24 +130,43 @@ impl Influencers {
         limit: usize,
         timeframe: &Timeframe,
     ) -> Result<Option<Influencers>, DynError> {
-        let key_parts = Influencers::get_cache_key_parts(timeframe);
-        let key_parts_vector: Vec<&str> =
-            key_parts.iter().map(|s| s.as_str()).collect::<Vec<&str>>();
-        let ranking = Influencers::try_from_index_sorted_set(
-            key_parts_vector.as_slice(),
-            None,
-            None,
-            Some(skip),
-            Some(limit),
-            SortOrder::Descending,
-            Some(GLOBAL_INFLUENCERS_PREFIX),
-        )
-        .await?;
+        let ranking = match timeframe {
+            // When timeframe is AllTime, we get the influencer list directly from Sorted::Users::Influencers,
+            // which is dynamically updated with each user action and therefore needs no TTL.
+            // Had we used the cache with TTL, it would have meant a random user gets hit with
+            // a full graph lookup, if they query this right after the TTL expires.
+            Timeframe::AllTime => {
+                Influencers::try_from_index_sorted_set(
+                    super::USER_INFLUENCERS_KEY_PARTS.as_slice(),
+                    None,
+                    None,
+                    Some(skip),
+                    Some(limit),
+                    SortOrder::Descending,
+                    None,
+                )
+                .await?
+            }
 
-        match ranking {
-            None => Ok(None),
-            Some(ranking) => Ok(Some(Influencers(ranking))),
-        }
+            // For all other timeframes, we fallback to the cache with TTL (Cache::Influencers::Timeframe)
+            _ => {
+                let key_parts = Influencers::get_cache_key_parts(timeframe);
+                let key_parts_vector: Vec<&str> = key_parts.iter().map(|s| s.as_str()).collect();
+
+                Influencers::try_from_index_sorted_set(
+                    key_parts_vector.as_slice(),
+                    None,
+                    None,
+                    Some(skip),
+                    Some(limit),
+                    SortOrder::Descending,
+                    Some(GLOBAL_INFLUENCERS_PREFIX),
+                )
+                .await?
+            }
+        };
+
+        Ok(ranking.map(Influencers))
     }
 
     /// Stores a list of global influencers in the cache as a sorted set for the given timeframe
