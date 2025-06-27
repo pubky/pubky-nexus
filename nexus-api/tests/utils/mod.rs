@@ -18,7 +18,7 @@ pub async fn host_url() -> String {
 
 pub async fn get_request(endpoint: &str) -> Result<Value, httpc_test::Error> {
     let url = host_url().await;
-    let full_endpoint = format!("{}{}", url, endpoint);
+    let full_endpoint = format!("{url}{endpoint}");
     let body = inner_make_request(&full_endpoint, None, None, None).await?;
     Ok(body)
 }
@@ -28,14 +28,14 @@ pub async fn invalid_get_request(
     error_code: StatusCode,
 ) -> Result<Value, httpc_test::Error> {
     let url = host_url().await;
-    let full_endpoint = format!("{}{}", url, endpoint);
+    let full_endpoint = format!("{url}{endpoint}");
     let body = inner_make_request(&full_endpoint, None, None, Some(error_code)).await?;
     Ok(body)
 }
 
 pub async fn post_request(endpoint: &str, data: Value) -> Result<Value, httpc_test::Error> {
     let url = host_url().await;
-    let full_endpoint = format!("{}{}", url, endpoint);
+    let full_endpoint = format!("{url}{endpoint}");
     let body = inner_make_request(&full_endpoint, Some(Method::POST), Some(data), None).await?;
     Ok(body)
 }
@@ -46,7 +46,7 @@ pub async fn invalid_post_request(
     error_code: StatusCode,
 ) -> Result<Value, httpc_test::Error> {
     let url = host_url().await;
-    let full_endpoint = format!("{}{}", url, endpoint);
+    let full_endpoint = format!("{url}{endpoint}");
     let body = inner_make_request(
         &full_endpoint,
         Some(Method::POST),
@@ -80,7 +80,7 @@ async fn inner_make_request(
     };
 
     if let Some(code) = error_code {
-        assert_eq!(res.status(), code, "Expected HTTP status {}", code);
+        assert_eq!(res.status(), code, "Expected HTTP status {code}");
     } else {
         assert_eq!(res.status(), 200, "Expected HTTP status 200 OK");
     }
@@ -88,7 +88,7 @@ async fn inner_make_request(
     let body = match res.json_body() {
         Ok(body) => body,
         Err(e) => {
-            eprintln!("Error parsing response body: {:?}", e);
+            eprintln!("Error parsing response body: {e:?}");
             Value::Null
         }
     };

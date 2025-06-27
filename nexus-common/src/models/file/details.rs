@@ -139,7 +139,7 @@ impl FileDetails {
                     Err(e) => {
                         error!("Index file deletion, {}: {:?}", self.id, e);
                         return Err(DbError::IndexOperationFailed {
-                            message: format!("Could not delete the index, {:?}", e),
+                            message: format!("Could not delete the index, {e:?}"),
                         });
                     }
                 }
@@ -147,7 +147,7 @@ impl FileDetails {
             Err(e) => {
                 error!("Graph file deletion, {}: {:?}", self.id, e);
                 return Err(DbError::GraphQueryFailed {
-                    message: format!("Could not delete the file, {:?}", e),
+                    message: format!("Could not delete the file, {e:?}"),
                 });
             }
         };

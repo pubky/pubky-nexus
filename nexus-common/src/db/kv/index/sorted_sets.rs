@@ -39,7 +39,7 @@ pub async fn check_member(
     key: &str,
     member: &str,
 ) -> Result<Option<isize>, DynError> {
-    let index_key = format!("{}:{}", prefix, key);
+    let index_key = format!("{prefix}:{key}");
     let mut redis_conn = get_redis_conn().await?;
     // Use the ZSCORE command to check if the member exists in the sorted set
     let rank = redis_conn.zscore(index_key, member).await?;
@@ -71,7 +71,7 @@ pub async fn put(
         return Ok(());
     }
 
-    let index_key = format!("{}:{}", prefix, key);
+    let index_key = format!("{prefix}:{key}");
     let mut redis_conn = get_redis_conn().await?;
 
     let mut pipe = redis::pipe();
@@ -104,7 +104,7 @@ pub async fn put_score(
     member: &str,
     score_mutation: ScoreAction,
 ) -> Result<(), DynError> {
-    let index_key = format!("{}:{}", prefix, key);
+    let index_key = format!("{prefix}:{key}");
     let mut redis_conn = get_redis_conn().await?;
     let value = match score_mutation {
         ScoreAction::Increment(val) => val,
@@ -148,7 +148,7 @@ pub async fn get_range(
     sorting: SortOrder,
 ) -> Result<Option<Vec<(String, f64)>>, DynError> {
     let mut redis_conn = get_redis_conn().await?;
-    let index_key = format!("{}:{}", prefix, key);
+    let index_key = format!("{prefix}:{key}");
 
     // Make sure if the key that we want to find, it is in the sorted set
     if !redis_conn.exists(&index_key).await? {
@@ -195,7 +195,7 @@ pub async fn get_lex_range(
     limit: Option<usize>,
 ) -> Result<Option<Vec<String>>, DynError> {
     let mut redis_conn = get_redis_conn().await?;
-    let index_key = format!("{}:{}", prefix, key);
+    let index_key = format!("{prefix}:{key}");
     let skip = skip.unwrap_or(0) as isize;
     let limit = limit.unwrap_or(1000) as isize;
 
@@ -219,7 +219,7 @@ pub async fn _remove(prefix: &str, key: &str, items: &[&str]) -> Result<(), DynE
         return Ok(());
     }
 
-    let index_key = format!("{}:{}", prefix, key);
+    let index_key = format!("{prefix}:{key}");
     let mut redis_conn = get_redis_conn().await?;
     let _: () = redis_conn.zrem(&index_key, items).await?;
     Ok(())
@@ -244,7 +244,7 @@ pub async fn del(prefix: &str, key: &str, values: &[&str]) -> Result<(), DynErro
         return Ok(());
     }
 
-    let index_key = format!("{}:{}", prefix, key);
+    let index_key = format!("{prefix}:{key}");
     let mut redis_conn = get_redis_conn().await?;
 
     // Remove the elements from the sorted set

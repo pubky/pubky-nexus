@@ -11,7 +11,7 @@ use super::{TAG_LABEL_1, TAG_LABEL_2, TAG_LABEL_3, TAG_LABEL_4};
 #[tokio_shared_rt::test(shared)]
 async fn test_post_tag_search() -> Result<()> {
     let post_order = vec![POST_C, POST_B, POST_A, POST_D, POST_E, POST_F];
-    let path = format!("{}?tags={}&limit=6", ROOT_PATH, TAG_LABEL_2);
+    let path = format!("{ROOT_PATH}?tags={TAG_LABEL_2}&limit=6");
     let body = get_request(&path).await?;
 
     assert!(body.is_array());
@@ -29,7 +29,7 @@ async fn test_post_tag_search() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_post_wrong_tag_param() -> Result<()> {
-    let path = format!("{}?tags=", ROOT_PATH);
+    let path = format!("{ROOT_PATH}?tags=");
     invalid_get_request(&path, StatusCode::BAD_REQUEST).await?;
     Ok(())
 }
@@ -37,7 +37,7 @@ async fn test_post_wrong_tag_param() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_post_tag_search_with_limit() -> Result<()> {
     let post_order = vec![POST_C, POST_B];
-    let path = format!("{}?tags={}&limit=2", ROOT_PATH, TAG_LABEL_2);
+    let path = format!("{ROOT_PATH}?tags={TAG_LABEL_2}&limit=2");
     let body = get_request(&path).await?;
 
     assert!(body.is_array());
@@ -56,7 +56,7 @@ async fn test_post_tag_search_with_limit() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_post_tag_search_with_skip() -> Result<()> {
     let post_order = vec![POST_G, POST_H];
-    let path = format!("{}?tags={}&skip=6", ROOT_PATH, TAG_LABEL_2);
+    let path = format!("{ROOT_PATH}?tags={TAG_LABEL_2}&skip=6");
     let body = get_request(&path).await?;
 
     assert!(body.is_array());
@@ -75,7 +75,7 @@ async fn test_post_tag_search_with_skip() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_post_tag_search_with_skip_and_limit() -> Result<()> {
     let post_order = vec![POST_B];
-    let path = format!("{}?tags={}&skip=1&limit=1", ROOT_PATH, TAG_LABEL_2);
+    let path = format!("{ROOT_PATH}?tags={TAG_LABEL_2}&skip=1&limit=1");
     let body = get_request(&path).await?;
 
     assert!(body.is_array());
@@ -95,7 +95,7 @@ async fn test_post_tag_search_with_skip_and_limit() -> Result<()> {
 async fn test_post_tag_search_with_viewer_id() -> Result<()> {
     const BOOKMARK_ID: &str = "A9G7F2L4Q1W3";
 
-    let path = format!("{}?tags={}&viewer_id={}", ROOT_PATH, TAG_LABEL_2, VIEWER_ID);
+    let path = format!("{ROOT_PATH}?tags={TAG_LABEL_2}&viewer_id={VIEWER_ID}");
     let body = get_request(&path).await?;
 
     assert!(body.is_array());
@@ -112,7 +112,7 @@ async fn test_post_tag_search_with_viewer_id() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_tag() -> Result<()> {
-    let path = format!("{ROOT_PATH}?tags={}&sorting=timeline", TAG_LABEL_1);
+    let path = format!("{ROOT_PATH}?tags={TAG_LABEL_1}&sorting=timeline");
     let body = get_request(&path).await?;
 
     assert!(body.is_array());
@@ -129,8 +129,7 @@ async fn test_stream_posts_by_tag() -> Result<()> {
 
         assert!(
             has_tag,
-            "Post should be tagged with the requested tag: {}",
-            TAG_LABEL_1
+            "Post should be tagged with the requested tag: {TAG_LABEL_1}"
         );
     }
     Ok(())
@@ -224,8 +223,7 @@ async fn test_stream_posts_by_tag_timeline_with_start_skip_and_limit() -> Result
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_multiple_tags() -> Result<()> {
     let path = format!(
-        "{ROOT_PATH}?tags={},{},{}&sorting=timeline&limit=30",
-        TAG_LABEL_2, TAG_LABEL_3, TAG_LABEL_4
+        "{ROOT_PATH}?tags={TAG_LABEL_2},{TAG_LABEL_3},{TAG_LABEL_4}&sorting=timeline&limit=30"
     );
     let body = get_request(&path).await?;
 
@@ -250,8 +248,7 @@ async fn test_stream_posts_by_multiple_tags() -> Result<()> {
 
         assert!(
             has_tag,
-            "Post should be tagged with any of the requested tags: {:?}",
-            valid_tags
+            "Post should be tagged with any of the requested tags: {valid_tags:?}"
         );
     }
 
@@ -277,7 +274,7 @@ pub const ENGAGEMENT_SCORE_END: &str = "4";
 
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_tag_posts_by_engagment_tag() -> Result<()> {
-    let path = format!("{ROOT_PATH}?tags={}&sorting=total_engagement", TAG_LABEL_1);
+    let path = format!("{ROOT_PATH}?tags={TAG_LABEL_1}&sorting=total_engagement");
 
     let body = get_request(&path).await?;
 
@@ -293,8 +290,7 @@ async fn test_stream_tag_posts_by_engagment_tag() -> Result<()> {
 
         assert!(
             has_tag,
-            "Post should be tagged with the requested tag: {}",
-            TAG_LABEL_1
+            "Post should be tagged with the requested tag: {TAG_LABEL_1}"
         );
     }
     Ok(())
@@ -303,8 +299,7 @@ async fn test_stream_tag_posts_by_engagment_tag() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_tag_posts_by_engagement_with_start() -> Result<()> {
     let path = format!(
-        "{}?tags={}&sorting=total_engagement&start={}",
-        ROOT_PATH, TAG_LABEL_1, ENGAGEMENT_SCORE_START
+        "{ROOT_PATH}?tags={TAG_LABEL_1}&sorting=total_engagement&start={ENGAGEMENT_SCORE_START}"
     );
 
     let body = get_request(&path).await?;
@@ -320,8 +315,7 @@ async fn test_stream_tag_posts_by_engagement_with_start() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_tag_posts_by_engagement_with_start_and_end() -> Result<()> {
     let path = format!(
-        "{}?tags={}&sorting=total_engagement&start={}&end={}",
-        ROOT_PATH, TAG_LABEL_1, ENGAGEMENT_SCORE_START, ENGAGEMENT_SCORE_END
+        "{ROOT_PATH}?tags={TAG_LABEL_1}&sorting=total_engagement&start={ENGAGEMENT_SCORE_START}&end={ENGAGEMENT_SCORE_END}"
     );
 
     let body = get_request(&path).await?;
@@ -335,8 +329,7 @@ async fn test_stream_tag_posts_by_engagement_with_start_and_end() -> Result<()> 
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_tag_posts_by_engagement_with_start_and_limit() -> Result<()> {
     let path = format!(
-        "{}?tags={}&sorting=total_engagement&start={}&limit=6",
-        ROOT_PATH, TAG_LABEL_1, ENGAGEMENT_SCORE_END
+        "{ROOT_PATH}?tags={TAG_LABEL_1}&sorting=total_engagement&start={ENGAGEMENT_SCORE_END}&limit=6"
     );
 
     let body = get_request(&path).await?;
@@ -350,8 +343,7 @@ async fn test_stream_tag_posts_by_engagement_with_start_and_limit() -> Result<()
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_tag_posts_by_engagement_with_end_skip_and_limit() -> Result<()> {
     let path = format!(
-        "{}?tags={}&sorting=total_engagement&end={}&skip=3&limit=6",
-        ROOT_PATH, TAG_LABEL_1, ENGAGEMENT_SCORE_END
+        "{ROOT_PATH}?tags={TAG_LABEL_1}&sorting=total_engagement&end={ENGAGEMENT_SCORE_END}&skip=3&limit=6"
     );
 
     let body = get_request(&path).await?;

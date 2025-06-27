@@ -36,7 +36,7 @@ async fn test_homeserver_multi_user_posts_tags() -> Result<()> {
             bio: Some("test_homeserver_multi_user_post".to_string()),
             image: None,
             links: None,
-            name: format!("Watcher:MultiUserPost:User{}", index),
+            name: format!("Watcher:MultiUserPost:User{index}"),
             status: None,
         };
         let user_id = test.create_user(&keypair, &tagger).await?;
@@ -68,7 +68,7 @@ async fn test_homeserver_multi_user_posts_tags() -> Result<()> {
 
     for tagger_id in water_taggers {
         let tag = PubkyAppTag {
-            uri: format!("pubky://{}/pub/pubky.app/posts/{}", author_id, post_id),
+            uri: format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}"),
             label: label_water.to_string(),
             created_at: Utc::now().timestamp_millis(),
         };
@@ -86,7 +86,7 @@ async fn test_homeserver_multi_user_posts_tags() -> Result<()> {
 
     for tagger_id in fire_taggers {
         let tag = PubkyAppTag {
-            uri: format!("pubky://{}/pub/pubky.app/posts/{}", author_id, post_id),
+            uri: format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}"),
             label: label_fire.to_string(),
             created_at: Utc::now().timestamp_millis(),
         };

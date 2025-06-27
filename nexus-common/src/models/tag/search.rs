@@ -28,8 +28,8 @@ impl TagSearch {
         pagination: &Pagination,
     ) -> Result<Option<Vec<TagSearch>>, DynError> {
         let label_lowercase = label.to_lowercase();
-        let min_inclusive = format!("[{}", label_lowercase);
-        let max_exclusive = format!("({}~", label_lowercase);
+        let min_inclusive = format!("[{label_lowercase}");
+        let max_exclusive = format!("({label_lowercase}~");
 
         Self::try_from_index_sorted_set_lex(
             &TAGS_LABEL,

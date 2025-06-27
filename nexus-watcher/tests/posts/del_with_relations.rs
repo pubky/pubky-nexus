@@ -32,7 +32,7 @@ async fn test_delete_post_with_relationships() -> Result<()> {
 
     // Create a tag
     let tag = PubkyAppTag {
-        uri: format!("pubky://{}/pub/pubky.app/posts/{}", user_id, post_id),
+        uri: format!("pubky://{user_id}/pub/pubky.app/posts/{post_id}"),
         label: "funny".to_string(),
         created_at: Utc::now().timestamp_millis(),
     };

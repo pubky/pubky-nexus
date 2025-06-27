@@ -487,10 +487,10 @@ where
     ) -> String {
         match extra_param {
             Some(extra_id) => match is_cache {
-                true => format!("{}:{}:{}", extra_id, user_id, label),
-                false => format!("{}:{}:{}", user_id, extra_id, label),
+                true => format!("{extra_id}:{user_id}:{label}"),
+                false => format!("{user_id}:{extra_id}:{label}"),
             },
-            None => format!("{}:{}", user_id, label),
+            None => format!("{user_id}:{label}"),
         }
     }
 }

@@ -5,7 +5,7 @@ use axum::http::StatusCode;
 #[tokio_shared_rt::test(shared)]
 async fn test_get_followers() -> Result<()> {
     let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
-    let res = get_request(&format!("/v0/user/{}/followers", user_id)).await?;
+    let res = get_request(&format!("/v0/user/{user_id}/followers")).await?;
 
     assert!(res.is_array());
     let followers: Vec<String> = res
@@ -38,7 +38,7 @@ async fn test_get_followers() -> Result<()> {
 
     // Check if all specified follower IDs are present in the followers list
     for id in &specified_follower_ids {
-        assert!(followers.contains(id), "Missing follower ID: {}", id);
+        assert!(followers.contains(id), "Missing follower ID: {id}");
     }
 
     // Test non-existing user
@@ -54,7 +54,7 @@ async fn test_get_followers() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_get_following() -> Result<()> {
     let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
-    let res = get_request(&format!("/v0/user/{}/following", user_id)).await?;
+    let res = get_request(&format!("/v0/user/{user_id}/following")).await?;
 
     assert!(res.is_array());
     let following: Vec<String> = res
@@ -92,7 +92,7 @@ async fn test_get_following() -> Result<()> {
 
     // Check if all specified IDs are present in the following list
     for id in &specified_ids {
-        assert!(following.contains(id), "Missing following ID: {}", id);
+        assert!(following.contains(id), "Missing following ID: {id}");
     }
 
     // Test non-existing user
@@ -108,7 +108,7 @@ async fn test_get_following() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_get_friends() -> Result<()> {
     let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
-    let res = get_request(&format!("/v0/user/{}/friends", user_id)).await?;
+    let res = get_request(&format!("/v0/user/{user_id}/friends")).await?;
 
     assert!(res.is_array());
     let following: Vec<String> = res
@@ -139,7 +139,7 @@ async fn test_get_friends() -> Result<()> {
 
     // Check if all specified IDs are present in the friend list
     for id in &specified_ids {
-        assert!(following.contains(id), "Missing friend ID: {}", id);
+        assert!(following.contains(id), "Missing friend ID: {id}");
     }
 
     // Test non-existing user

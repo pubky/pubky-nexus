@@ -5,10 +5,7 @@ use anyhow::Result;
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_user_replies() -> Result<()> {
     let author_id = "pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy";
-    let path = format!(
-        "{ROOT_PATH}?author_id={}&source=author_replies&sorting=timeline",
-        author_id
-    );
+    let path = format!("{ROOT_PATH}?author_id={author_id}&source=author_replies&sorting=timeline");
     let body = get_request(&path).await?;
 
     assert!(body.is_array());

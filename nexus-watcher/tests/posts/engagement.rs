@@ -53,7 +53,7 @@ async fn test_homeserver_post_engagement() -> Result<()> {
     let bob_id = test.create_user(&bob_user_keypair, &bob_user).await?;
 
     // Bob replies to popular alice post
-    let parent_uri = format!("pubky://{}/pub/pubky.app/posts/{}", alice_id, alice_post_id);
+    let parent_uri = format!("pubky://{alice_id}/pub/pubky.app/posts/{alice_post_id}");
 
     let reply = PubkyAppPost {
         content: "Watcher:PostInfluencer:Bob:Reply".to_string(),
@@ -66,7 +66,7 @@ async fn test_homeserver_post_engagement() -> Result<()> {
     let _reply_id = test.create_post(&bob_id, &reply).await?;
 
     // Create repost of alice post
-    let post_uri = format!("pubky://{}/pub/pubky.app/posts/{}", alice_id, alice_post_id);
+    let post_uri = format!("pubky://{alice_id}/pub/pubky.app/posts/{alice_post_id}");
 
     let repost = PubkyAppPost {
         content: "Watcher:PostInfluencer:Bob:Repost".to_string(),

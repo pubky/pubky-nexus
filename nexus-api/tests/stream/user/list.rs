@@ -33,7 +33,7 @@ async fn test_stream_users_by_ids_valid_request() -> Result<()> {
     // Verify that each expected user ID is present in the response
     for id in &user_ids {
         let exists = users.iter().any(|u| u["details"]["id"] == *id);
-        assert!(exists, "Expected user ID not found: {}", id);
+        assert!(exists, "Expected user ID not found: {id}");
     }
 
     // Additional checks for specific user attributes
@@ -56,7 +56,7 @@ async fn test_stream_users_by_ids_limit_exceeded() -> Result<()> {
     // Generate a list of 1001 user IDs to exceed the limit
     let mut user_ids = Vec::with_capacity(1001);
     for i in 0..1001 {
-        user_ids.push(format!("user_id_{}", i));
+        user_ids.push(format!("user_id_{i}"));
     }
 
     let request_body = json!({
@@ -111,7 +111,7 @@ async fn test_stream_users_by_ids_with_invalid_ids() -> Result<()> {
 
     for id in &expected_user_ids {
         let exists = users.iter().any(|u| u["details"]["id"] == *id);
-        assert!(exists, "Expected user ID not found: {}", id);
+        assert!(exists, "Expected user ID not found: {id}");
     }
 
     Ok(())

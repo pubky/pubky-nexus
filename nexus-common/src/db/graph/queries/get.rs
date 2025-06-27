@@ -274,8 +274,7 @@ pub fn get_viewer_trusted_network_tags(user_id: &str, viewer_id: &str, depth: u8
                 taggers: taggerIds,
                 taggers_count: SIZE(taggerIds)
         }}) AS tags
-        ",
-        depth = depth
+        "
     );
 
     // Add to the query the params
@@ -333,10 +332,10 @@ pub fn get_user_followers(user_id: &str, skip: Option<usize>, limit: Option<usiz
                 COLLECT(follower.id) AS follower_ids",
     );
     if let Some(skip_value) = skip {
-        query_string.push_str(&format!(" SKIP {}", skip_value));
+        query_string.push_str(&format!(" SKIP {skip_value}"));
     }
     if let Some(limit_value) = limit {
-        query_string.push_str(&format!(" LIMIT {}", limit_value));
+        query_string.push_str(&format!(" LIMIT {limit_value}"));
     }
     query(&query_string).param("user_id", user_id)
 }
@@ -349,10 +348,10 @@ pub fn get_user_following(user_id: &str, skip: Option<usize>, limit: Option<usiz
                 COLLECT(following.id) AS following_ids",
     );
     if let Some(skip_value) = skip {
-        query_string.push_str(&format!(" SKIP {}", skip_value));
+        query_string.push_str(&format!(" SKIP {skip_value}"));
     }
     if let Some(limit_value) = limit {
-        query_string.push_str(&format!(" LIMIT {}", limit_value));
+        query_string.push_str(&format!(" LIMIT {limit_value}"));
     }
     query(&query_string).param("user_id", user_id)
 }
@@ -365,10 +364,10 @@ pub fn get_user_muted(user_id: &str, skip: Option<usize>, limit: Option<usize>) 
                 COLLECT(muted.id) AS muted_ids",
     );
     if let Some(skip_value) = skip {
-        query_string.push_str(&format!(" SKIP {}", skip_value));
+        query_string.push_str(&format!(" SKIP {skip_value}"));
     }
     if let Some(limit_value) = limit {
-        query_string.push_str(&format!(" LIMIT {}", limit_value));
+        query_string.push_str(&format!(" LIMIT {limit_value}"));
     }
     query(&query_string).param("user_id", user_id)
 }
@@ -381,7 +380,7 @@ fn stream_reach_to_graph_subquery(reach: &StreamReach) -> String {
             "MATCH (user:User)-[:FOLLOWS]->(reach:User), (user)<-[:FOLLOWS]-(reach)".to_string()
         }
         StreamReach::Wot(depth) => {
-            format!("MATCH (user:User)-[:FOLLOWS*1..{}]->(reach:User)", depth)
+            format!("MATCH (user:User)-[:FOLLOWS*1..{depth}]->(reach:User)")
         }
     }
 }
@@ -762,16 +761,15 @@ pub fn post_stream(
 
     // Final return statement
     cypher.push_str(&format!(
-        "RETURN author.id AS author_id, p.id AS post_id\n{}\n",
-        order_clause
+        "RETURN author.id AS author_id, p.id AS post_id\n{order_clause}\n"
     ));
 
     // Apply skip and limit
     if let Some(skip) = pagination.skip {
-        cypher.push_str(&format!("SKIP {}\n", skip));
+        cypher.push_str(&format!("SKIP {skip}\n"));
     }
     if let Some(limit) = pagination.limit {
-        cypher.push_str(&format!("LIMIT {}\n", limit));
+        cypher.push_str(&format!("LIMIT {limit}\n"));
     }
 
     // Build the query and apply parameters using `param` method

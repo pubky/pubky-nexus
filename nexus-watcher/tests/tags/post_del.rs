@@ -52,7 +52,7 @@ async fn test_homeserver_del_tag_post() -> Result<()> {
     let label = "antonymous";
 
     let tag = PubkyAppTag {
-        uri: format!("pubky://{}/pub/pubky.app/posts/{}", author_user_id, post_id),
+        uri: format!("pubky://{author_user_id}/pub/pubky.app/posts/{post_id}"),
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };

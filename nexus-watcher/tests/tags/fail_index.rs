@@ -38,7 +38,7 @@ async fn test_homeserver_tag_cannot_add_while_index() -> Result<()> {
     let label = "friendly";
 
     let tag = PubkyAppTag {
-        uri: format!("pubky://{}/pub/pubky.app/profile.json", tagged_user_id),
+        uri: format!("pubky://{tagged_user_id}/pub/pubky.app/profile.json"),
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
@@ -54,7 +54,7 @@ async fn test_homeserver_tag_cannot_add_while_index() -> Result<()> {
     test.put(tag_url.as_str(), tag_blob).await?;
 
     // Create raw event line to retrieve the content from the homeserver
-    let tag_event = format!("PUT {}", tag_url);
+    let tag_event = format!("PUT {tag_url}");
 
     // Simulate the event processor to handle the event.
     // If the event processor were activated, the test would not catch the missing dependency
@@ -87,7 +87,7 @@ async fn test_homeserver_tag_cannot_add_while_index() -> Result<()> {
     let label = "merkle_tree";
 
     let tag = PubkyAppTag {
-        uri: format!("pubky://{}/pub/pubky.app/posts/{}", tagged_user_id, post_id),
+        uri: format!("pubky://{tagged_user_id}/pub/pubky.app/posts/{post_id}"),
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
@@ -101,7 +101,7 @@ async fn test_homeserver_tag_cannot_add_while_index() -> Result<()> {
     test.put(&tag_url, tag_blob).await?;
 
     // Create raw event line to retrieve the content from the homeserver
-    let tag_event = format!("PUT {}", tag_url);
+    let tag_event = format!("PUT {tag_url}");
 
     // Simulate the event processor to handle the event.
     // If the event processor were activated, the test would not catch the missing dependency

@@ -33,14 +33,11 @@ async fn test_homeserver_bookmark() -> Result<()> {
 
     // Step 3: Add a bookmark to the post. Before create a new user
     let bookmark = PubkyAppBookmark {
-        uri: format!("pubky://{}/pub/pubky.app/posts/{}", user_id, post_id),
+        uri: format!("pubky://{user_id}/pub/pubky.app/posts/{post_id}"),
         created_at: chrono::Utc::now().timestamp_millis(),
     };
     let bookmark_id = bookmark.create_id();
-    let bookmark_url = format!(
-        "pubky://{}/pub/pubky.app/bookmarks/{}",
-        user_id, bookmark_id
-    );
+    let bookmark_url = format!("pubky://{user_id}/pub/pubky.app/bookmarks/{bookmark_id}");
 
     // Put bookmark
     test.put(&bookmark_url, bookmark).await.unwrap();
@@ -69,7 +66,7 @@ async fn test_homeserver_bookmark() -> Result<()> {
     .unwrap();
 
     assert_eq!(result_bookmarks.len(), 1);
-    assert_eq!(result_bookmarks[0], format!("{}:{}", user_id, post_id));
+    assert_eq!(result_bookmarks[0], format!("{user_id}:{post_id}"));
 
     let exist_bookmark = Bookmark::get_from_index(&user_id, &post_id, &user_id)
         .await

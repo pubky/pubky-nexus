@@ -53,9 +53,9 @@ async fn test_large_network_scenario_counts() -> Result<()> {
     // Create users
     for i in 0..NUM_USERS {
         let keypair = Keypair::random();
-        let user_name = format!("User{}", i);
+        let user_name = format!("User{i}");
         let user = PubkyAppUser {
-            bio: Some(format!("{}'s bio", user_name)),
+            bio: Some(format!("{user_name}'s bio")),
             image: None,
             links: None,
             name: user_name.clone(),
@@ -137,7 +137,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                         created_at: chrono::Utc::now().timestamp_millis(),
                     };
                     let mute_url =
-                        format!("pubky://{}/pub/pubky.app/mutes/{}", user_id, target_user_id);
+                        format!("pubky://{user_id}/pub/pubky.app/mutes/{target_user_id}");
                     pubky_client
                         .put(mute_url.as_str())
                         .json(&mute)
@@ -160,10 +160,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                 let target_post_id = &user_posts[&target_user_id.clone()][post_index];
 
                 let bookmark = PubkyAppBookmark {
-                    uri: format!(
-                        "pubky://{}/pub/pubky.app/posts/{}",
-                        target_user_id, target_post_id
-                    ),
+                    uri: format!("pubky://{target_user_id}/pub/pubky.app/posts/{target_post_id}"),
                     created_at: chrono::Utc::now().timestamp_millis(),
                 };
 
@@ -191,10 +188,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
 
                 let tag_label = format!("tag{}", rng.random_range(0..100)); // FAILs tag labels are repeated, the same, the counts do not match graph vs index. Graph does not duplicate tag, but index counts do increase.
                 let tag = PubkyAppTag {
-                    uri: format!(
-                        "pubky://{}/pub/pubky.app/posts/{}",
-                        target_user_id, target_post_id
-                    ),
+                    uri: format!("pubky://{target_user_id}/pub/pubky.app/posts/{target_post_id}"),
                     label: tag_label.clone(),
                     created_at: chrono::Utc::now().timestamp_millis(),
                 };
@@ -235,10 +229,8 @@ async fn test_large_network_scenario_counts() -> Result<()> {
             let target_index = rng.random_range(0..following.len());
             let target_user_id = &following[target_index];
             if unfollowed.insert(target_user_id.clone()) {
-                let follow_uri = format!(
-                    "pubky://{}/pub/pubky.app/follows/{}",
-                    user_id, target_user_id
-                );
+                let follow_uri =
+                    format!("pubky://{user_id}/pub/pubky.app/follows/{target_user_id}");
                 test.del(&follow_uri).await?;
                 following_set.remove(target_user_id);
                 total_unfollows += 1;
@@ -263,8 +255,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
             let target_index = rng.random_range(0..muted.len());
             let target_user_id = &muted[target_index];
             if unmuted.insert(target_user_id.clone()) {
-                let mute_uri =
-                    format!("pubky://{}/pub/pubky.app/mutes/{}", user_id, target_user_id);
+                let mute_uri = format!("pubky://{user_id}/pub/pubky.app/mutes/{target_user_id}");
                 pubky_client.delete(mute_uri.as_str()).send().await?;
                 mute_set.remove(target_user_id);
                 _total_unmutes += 1;
@@ -292,18 +283,15 @@ async fn test_large_network_scenario_counts() -> Result<()> {
 
         assert_eq!(
             counts_cache.followers, counts_graph.followers,
-            "Follower counts mismatch for user {} between cache and graph",
-            user_id
+            "Follower counts mismatch for user {user_id} between cache and graph"
         );
         assert_eq!(
             counts_cache.following, counts_graph.following,
-            "Following counts mismatch for user {} between cache and graph",
-            user_id
+            "Following counts mismatch for user {user_id} between cache and graph"
         );
         assert_eq!(
             counts_cache.posts, counts_graph.posts,
-            "Post counts mismatch for user {} between cache and graph",
-            user_id
+            "Post counts mismatch for user {user_id} between cache and graph"
         );
         // FAILS: Maybe tagging same user twice with same tag?
         // Tag counts mismatch for user 7jh4mieniunce1admx4xrgrd3mqabacms64ek8rredxr7fkkpbto between cache and graph
@@ -311,8 +299,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
         // right: 10
         assert_eq!(
             counts_cache.tagged, counts_graph.tagged,
-            "Tag counts mismatch for user {} between cache and graph",
-            user_id
+            "Tag counts mismatch for user {user_id} between cache and graph"
         );
         // FAILS: possibly bookmarking twice?
         // Bookmarks counts mismatch for user taagfd54wqsm9erftpbi6q1tstgy1fbfca57jrk8dtkyodj483mo between cache and graph
@@ -320,23 +307,19 @@ async fn test_large_network_scenario_counts() -> Result<()> {
         //  right: 13
         assert_eq!(
             counts_cache.bookmarks, counts_graph.bookmarks,
-            "Bookmarks counts mismatch for user {} between cache and graph",
-            user_id
+            "Bookmarks counts mismatch for user {user_id} between cache and graph"
         );
         assert_eq!(
             counts_cache.tags, counts_graph.tags,
-            "Tag counts mismatch for user {} between cache and graph",
-            user_id
+            "Tag counts mismatch for user {user_id} between cache and graph"
         );
         assert_eq!(
             counts_cache.unique_tags, counts_graph.unique_tags,
-            "Tag unique counts mismatch for user {} between cache and graph",
-            user_id
+            "Tag unique counts mismatch for user {user_id} between cache and graph"
         );
         assert_eq!(
             counts_cache.unique_tags, counts_graph.unique_tags,
-            "Unique tag counts mismatch for user {} between cache and graph",
-            user_id
+            "Unique tag counts mismatch for user {user_id} between cache and graph"
         );
 
         // TODO: mute counts
@@ -357,23 +340,19 @@ async fn test_large_network_scenario_counts() -> Result<()> {
 
             assert_eq!(
                 counts_cache.tags, counts_graph.0.tags,
-                "Tag counts mismatch for post {} by user {} between cache and graph",
-                post_id, user_id
+                "Tag counts mismatch for post {post_id} by user {user_id} between cache and graph"
             );
             assert_eq!(
                 counts_cache.unique_tags, counts_graph.0.unique_tags,
-                "Tag unique counts mismatch for post {} by user {} between cache and graph",
-                post_id, user_id
+                "Tag unique counts mismatch for post {post_id} by user {user_id} between cache and graph"
             );
             assert_eq!(
                 counts_cache.replies, counts_graph.0.replies,
-                "Tag counts mismatch for post {} by user {} between cache and graph",
-                post_id, user_id
+                "Tag counts mismatch for post {post_id} by user {user_id} between cache and graph"
             );
             assert_eq!(
                 counts_cache.reposts, counts_graph.0.reposts,
-                "Tag counts mismatch for post {} by user {} between cache and graph",
-                post_id, user_id
+                "Tag counts mismatch for post {post_id} by user {user_id} between cache and graph"
             );
         }
     }

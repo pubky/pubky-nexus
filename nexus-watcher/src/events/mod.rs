@@ -26,7 +26,7 @@ impl fmt::Display for EventType {
             EventType::Put => "PUT",
             EventType::Del => "DEL",
         };
-        write!(f, "{}", upper_case_str)
+        write!(f, "{upper_case_str}")
     }
 }
 
@@ -44,7 +44,7 @@ impl Event {
         let parts: Vec<&str> = line.split(' ').collect();
         if parts.len() != 2 {
             return Err(EventProcessorError::InvalidEventLine {
-                message: format!("Malformed event line, {}", line),
+                message: format!("Malformed event line, {line}"),
             }
             .into());
         }
@@ -54,7 +54,7 @@ impl Event {
             "DEL" => EventType::Del,
             other => {
                 return Err(EventProcessorError::InvalidEventLine {
-                    message: format!("Unknown event type: {}", other),
+                    message: format!("Unknown event type: {other}"),
                 }
                 .into())
             }
@@ -65,7 +65,7 @@ impl Event {
         let parsed_uri = ParsedUri::try_from(uri.as_str()).map_err(|e| {
             {
                 EventProcessorError::InvalidEventLine {
-                    message: format!("Cannot parse event URI: {}", e),
+                    message: format!("Cannot parse event URI: {e}"),
                 }
             }
         })?;
@@ -74,7 +74,7 @@ impl Event {
             // Unknown resource
             Resource::Unknown => {
                 return Err(EventProcessorError::InvalidEventLine {
-                    message: format!("Unknown resource in URI: {}", uri),
+                    message: format!("Unknown resource in URI: {uri}"),
                 }
                 .into())
             }
@@ -114,7 +114,7 @@ impl Event {
                 Ok(response) => response,
                 Err(e) => {
                     return Err(EventProcessorError::PubkyClientError {
-                        message: format!("{}", e),
+                        message: format!("{e}"),
                     }
                     .into())
                 }
@@ -128,8 +128,7 @@ impl Event {
         let pubky_object = PubkyAppObject::from_resource(&resource, &blob).map_err(|e| {
             EventProcessorError::PubkyClientError {
                 message: format!(
-                    "The importer could not create PubkyAppObject from Uri and Blob: {}",
-                    e
+                    "The importer could not create PubkyAppObject from Uri and Blob: {e}"
                 ),
             }
         })?;

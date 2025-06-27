@@ -211,7 +211,7 @@ impl PostStream {
         while let Some(row) = result.next().await? {
             let author_id: String = row.get("author_id")?;
             let post_id: String = row.get("post_id")?;
-            post_keys.push(format!("{}:{}", author_id, post_id));
+            post_keys.push(format!("{author_id}:{post_id}"));
         }
 
         Ok(post_keys)
@@ -310,7 +310,7 @@ impl PostStream {
         if let Some(post_ids) = post_ids {
             let post_keys = post_ids
                 .into_iter()
-                .map(|(post_id, _)| format!("{}:{}", user_id, post_id))
+                .map(|(post_id, _)| format!("{user_id}:{post_id}"))
                 .collect();
             Ok(post_keys)
         } else {
@@ -441,7 +441,7 @@ impl PostStream {
             {
                 let user_post_keys: Vec<(f64, String)> = post_ids
                     .into_iter()
-                    .map(|(post_id, score)| (score, format!("{}:{}", user_id, post_id)))
+                    .map(|(post_id, score)| (score, format!("{user_id}:{post_id}")))
                     .collect();
                 post_keys.extend(user_post_keys);
             }
@@ -521,7 +521,7 @@ impl PostStream {
         author_id: &str,
         post_id: &str,
     ) -> Result<(), DynError> {
-        let element = format!("{}:{}", author_id, post_id);
+        let element = format!("{author_id}:{post_id}");
         Self::remove_from_index_sorted_set(None, &POST_TIMELINE_KEY_PARTS, &[element.as_str()])
             .await
     }
@@ -553,7 +553,7 @@ impl PostStream {
     ) -> Result<(), DynError> {
         let key_parts = [&POST_REPLIES_PER_POST_KEY_PARTS[..], parent_post_key_parts].concat();
         let score = indexed_at as f64;
-        let element = format!("{}:{}", author_id, reply_id);
+        let element = format!("{author_id}:{reply_id}");
         Self::put_index_sorted_set(&key_parts, &[(score, element.as_str())], None, None).await
     }
 
@@ -564,7 +564,7 @@ impl PostStream {
         reply_id: &str,
     ) -> Result<(), DynError> {
         let key_parts = [&POST_REPLIES_PER_POST_KEY_PARTS[..], parent_post_key_parts].concat();
-        let element = format!("{}:{}", author_id, reply_id);
+        let element = format!("{author_id}:{reply_id}");
         Self::remove_from_index_sorted_set(None, &key_parts, &[element.as_str()]).await
     }
 
@@ -596,7 +596,7 @@ impl PostStream {
         author_id: &str,
     ) -> Result<(), DynError> {
         let key_parts = [&BOOKMARKS_USER_KEY_PARTS[..], &[bookmarker_id]].concat();
-        let post_key = format!("{}:{}", author_id, post_id);
+        let post_key = format!("{author_id}:{post_id}");
         let score = bookmark.indexed_at as f64;
         Self::put_index_sorted_set(&key_parts, &[(score, post_key.as_str())], None, None).await
     }
@@ -608,7 +608,7 @@ impl PostStream {
         author_id: &str,
     ) -> Result<(), DynError> {
         let key_parts = [&BOOKMARKS_USER_KEY_PARTS[..], &[bookmarker_id]].concat();
-        let post_key = format!("{}:{}", author_id, post_id);
+        let post_key = format!("{author_id}:{post_id}");
         Self::remove_from_index_sorted_set(None, &key_parts, &[&post_key]).await
     }
 
@@ -618,7 +618,7 @@ impl PostStream {
         author_id: &str,
         post_id: &str,
     ) -> Result<(), DynError> {
-        let element = format!("{}:{}", author_id, post_id);
+        let element = format!("{author_id}:{post_id}");
         let score = counts.tags + counts.replies + counts.reposts;
         let score = score as f64;
 
@@ -635,7 +635,7 @@ impl PostStream {
         author_id: &str,
         post_id: &str,
     ) -> Result<(), DynError> {
-        let post_key = format!("{}:{}", author_id, post_id);
+        let post_key = format!("{author_id}:{post_id}");
         Self::remove_from_index_sorted_set(None, &POST_TOTAL_ENGAGEMENT_KEY_PARTS, &[&post_key])
             .await
     }

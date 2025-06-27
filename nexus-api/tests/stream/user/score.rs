@@ -32,7 +32,7 @@ async fn test_stream_most_followed() -> Result<()> {
         let exists = most_followed_users
             .iter()
             .any(|f| f["details"]["id"] == *id);
-        assert!(exists, "Expected user ID not found: {}", id);
+        assert!(exists, "Expected user ID not found: {id}");
     }
 
     // Additional checks for specific user attributes (e.g., name, follower counts)
@@ -73,8 +73,7 @@ async fn test_stream_recommended() -> Result<()> {
 
     // Test retrieving recommended users
     let res = get_request(&format!(
-        "/v0/stream/users?source=recommended&user_id={}&limit=5",
-        user_id
+        "/v0/stream/users?source=recommended&user_id={user_id}&limit=5"
     ))
     .await?;
 
@@ -110,8 +109,7 @@ async fn test_stream_recommended() -> Result<()> {
 
     // Test limiting the results to 3 users
     let res = get_request(&format!(
-        "/v0/stream/users?source=recommended&user_id={}&limit=3",
-        user_id
+        "/v0/stream/users?source=recommended&user_id={user_id}&limit=3"
     ))
     .await?;
 

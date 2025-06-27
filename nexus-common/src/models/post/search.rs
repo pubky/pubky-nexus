@@ -154,7 +154,7 @@ impl PostsByTagSearch {
         // Make sure that post does not have more taggers with that tag. Post:Taggers:user_id:post_id:label
         if label_taggers.is_none() {
             let key_parts = [&TAG_GLOBAL_POST_TIMELINE[..], &[tag_label]].concat();
-            let post_key = format!("{}:{}", author_id, post_id);
+            let post_key = format!("{author_id}:{post_id}");
             Self::remove_from_index_sorted_set(None, &key_parts, &[&post_key]).await?;
         }
         Ok(())

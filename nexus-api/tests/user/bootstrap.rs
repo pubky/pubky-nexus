@@ -11,7 +11,7 @@ use nexus_common::models::bootstrap::Bootstrap;
 async fn test_bootstrap_user() -> Result<()> {
     let user_id = "zdbg13k5gh4tfz9qz11quohrxetgqxs7awandu8h57147xddcuhy";
 
-    let body = get_request(&format!("/v0/bootstrap/{}", user_id)).await?;
+    let body = get_request(&format!("/v0/bootstrap/{user_id}")).await?;
     let user_bootstrap_respose: Bootstrap = serde_json::from_value(body).unwrap();
 
     // Assert the lists
@@ -31,8 +31,7 @@ async fn test_bootstrap_user() -> Result<()> {
         let author_id = post.details.author;
         assert!(
             user_ids.contains(&author_id),
-            "user_ids is missing author `{}`",
-            author_id
+            "user_ids is missing author `{author_id}`"
         );
         post.tags
             .iter()
@@ -40,8 +39,7 @@ async fn test_bootstrap_user() -> Result<()> {
             .for_each(|tagger| {
                 assert!(
                     user_ids.contains(tagger),
-                    "user_ids is missing tagger `{}`",
-                    tagger
+                    "user_ids is missing tagger `{tagger}`"
                 );
             });
     }

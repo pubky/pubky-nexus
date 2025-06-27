@@ -34,7 +34,7 @@ impl MigrationBuilder {
         Self::check_if_file_exists(&config_file_path)?;
         let config: MigrationConfig = match MigrationConfig::load(config_file_path).await {
             Ok(c) => c,
-            Err(e) => panic!("Error with migration config file, {:?}", e),
+            Err(e) => panic!("Error with migration config file, {e:?}"),
         };
         Ok(MigrationBuilder(config))
     }

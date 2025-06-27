@@ -134,7 +134,7 @@ async fn test_global_influencers_with_today_timeframe() -> Result<()> {
     // Verify that each expected user ID is present in the response
     for id in &expected_user_ids {
         let exists = influencer_ids.clone().into_iter().any(|item| item == *id);
-        assert!(exists, "Expected user ID not found: {}", id);
+        assert!(exists, "Expected user ID not found: {id}");
     }
 
     Ok(())
@@ -168,7 +168,7 @@ async fn test_global_influencers_with_this_month_timeframe() -> Result<()> {
     // Verify that each expected user ID is present in the response
     for id in &expected_user_ids {
         let exists = influencer_ids.clone().into_iter().any(|item| item == *id);
-        assert!(exists, "Expected user ID not found: {}", id);
+        assert!(exists, "Expected user ID not found: {id}");
     }
 
     Ok(())
@@ -186,7 +186,7 @@ async fn test_influencers_by_reach_no_user_id() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_influencers_by_following_reach() -> Result<()> {
-    let endpoint = &format!("/v0/stream/users?source=influencers&timeframe=this_month&limit=3&user_id={}&reach=following", USER_1);
+    let endpoint = &format!("/v0/stream/users?source=influencers&timeframe=this_month&limit=3&user_id={USER_1}&reach=following");
 
     let body = get_request(endpoint).await?;
     assert!(body.is_array());
@@ -213,7 +213,7 @@ async fn test_influencers_by_following_reach() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_influencers_by_followers_reach() -> Result<()> {
-    let endpoint = &format!("/v0/stream/users?source=influencers&timeframe=this_month&limit=3&user_id={}&reach=followers", USER_1);
+    let endpoint = &format!("/v0/stream/users?source=influencers&timeframe=this_month&limit=3&user_id={USER_1}&reach=followers");
 
     let body = get_request(endpoint).await?;
     assert!(body.is_array());
@@ -235,8 +235,7 @@ async fn test_influencers_by_followers_reach() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_influencers_by_friends_reach() -> Result<()> {
     let endpoint = &format!(
-        "/v0/stream/users?source=influencers&timeframe=this_month&limit=3&user_id={}&reach=friends",
-        USER_1
+        "/v0/stream/users?source=influencers&timeframe=this_month&limit=3&user_id={USER_1}&reach=friends"
     );
 
     let body = get_request(endpoint).await?;

@@ -11,7 +11,7 @@ const EIXAMPLE: &str = "8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy";
 
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_following() -> Result<()> {
-    let path = format!("{ROOT_PATH}?observer_id={}&source=following", USER_ID);
+    let path = format!("{ROOT_PATH}?observer_id={USER_ID}&source=following");
     let body = get_request(&path).await?;
 
     assert!(body.is_array());
@@ -28,7 +28,7 @@ async fn test_stream_posts_following() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_followers() -> Result<()> {
-    let path = format!("{ROOT_PATH}?observer_id={}&source=followers", USER_ID);
+    let path = format!("{ROOT_PATH}?observer_id={USER_ID}&source=followers");
     let body = get_request(&path).await?;
 
     assert!(body.is_array());
@@ -49,8 +49,7 @@ const END_TIME: usize = 1980477299312;
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_following_with_start() -> Result<()> {
     let path = format!(
-        "{ROOT_PATH}?observer_id={}&source=following&viewer_id={}&start={}&limit=5",
-        AMSTERDAM, AMSTERDAM, START_TIME
+        "{ROOT_PATH}?observer_id={AMSTERDAM}&source=following&viewer_id={AMSTERDAM}&start={START_TIME}&limit=5"
     );
     let body = get_request(&path).await?;
 
@@ -87,8 +86,7 @@ async fn test_stream_posts_following_with_start() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_following_with_start_and_end() -> Result<()> {
     let path = format!(
-        "{ROOT_PATH}?observer_id={}&source=following&viewer_id={}&start={}&end={}",
-        AMSTERDAM, AMSTERDAM, START_TIME, END_TIME
+        "{ROOT_PATH}?observer_id={AMSTERDAM}&source=following&viewer_id={AMSTERDAM}&start={START_TIME}&end={END_TIME}"
     );
     let body = get_request(&path).await?;
 
@@ -122,8 +120,7 @@ const END_TIME_ERS: usize = 1693823567880;
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_followers_with_start() -> Result<()> {
     let path = format!(
-        "{ROOT_PATH}?observer_id={}&source=followers&viewer_id={}&start={}&limit=5",
-        BOGOTA, BOGOTA, START_TIME_ERS
+        "{ROOT_PATH}?observer_id={BOGOTA}&source=followers&viewer_id={BOGOTA}&start={START_TIME_ERS}&limit=5"
     );
     let body = get_request(&path).await?;
 
@@ -154,8 +151,7 @@ async fn test_stream_posts_followers_with_start() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_followers_with_start_and_end() -> Result<()> {
     let path = format!(
-        "{ROOT_PATH}?observer_id={}&source=followers&viewer_id={}&start={}&end={}",
-        BOGOTA, BOGOTA, START_TIME_ERS, END_TIME_ERS
+        "{ROOT_PATH}?observer_id={BOGOTA}&source=followers&viewer_id={BOGOTA}&start={START_TIME_ERS}&end={END_TIME_ERS}"
     );
     let body = get_request(&path).await?;
 

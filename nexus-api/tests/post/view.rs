@@ -13,8 +13,7 @@ async fn test_get_post_view() -> Result<()> {
     let post_id = "2ZCW1TGR5BKG0";
 
     let body = get_request(&format!(
-        "/v0/post/{}/{}?viewer_id={}",
-        author_id, post_id, author_id
+        "/v0/post/{author_id}/{post_id}?viewer_id={author_id}"
     ))
     .await?;
 
@@ -55,7 +54,7 @@ async fn test_get_post_view() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_get_post_counts() -> Result<()> {
-    let path = format!("{}/{}/{}/counts", ROOT_PATH, CAIRO_USER, POST_H);
+    let path = format!("{ROOT_PATH}/{CAIRO_USER}/{POST_H}/counts");
 
     let body = get_request(&path).await?;
     //let post_tag: PostView = serde_json::from_value(body.clone())?;
@@ -72,7 +71,7 @@ async fn test_get_post_counts() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_get_post_view_with_limit_tags() -> Result<()> {
-    let path = format!("{}/{}/{}?limit_tags=1", ROOT_PATH, CAIRO_USER, POST_H);
+    let path = format!("{ROOT_PATH}/{CAIRO_USER}/{POST_H}?limit_tags=1");
 
     let body = get_request(&path).await?;
     //let post_tag: PostView = serde_json::from_value(body.clone())?;
@@ -98,7 +97,7 @@ async fn test_get_post_view_with_limit_tags() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_get_post_view_with_limit_taggers() -> Result<()> {
-    let path = format!("{}/{}/{}?limit_taggers=2", ROOT_PATH, CAIRO_USER, POST_H);
+    let path = format!("{ROOT_PATH}/{CAIRO_USER}/{POST_H}?limit_taggers=2");
 
     let body = get_request(&path).await?;
 
@@ -130,10 +129,7 @@ async fn test_get_post_view_with_limit_taggers() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_get_post_view_with_limit_tags_and_taggers() -> Result<()> {
-    let path = format!(
-        "{}/{}/{}?limit_tags=1&limit_taggers=2",
-        ROOT_PATH, CAIRO_USER, POST_H
-    );
+    let path = format!("{ROOT_PATH}/{CAIRO_USER}/{POST_H}?limit_tags=1&limit_taggers=2");
 
     let body = get_request(&path).await?;
 
@@ -159,10 +155,7 @@ async fn test_get_post_view_with_limit_tags_and_taggers() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_get_post_view_with_viewer() -> Result<()> {
-    let path = format!(
-        "{}/{}/{}?viewer_id={}",
-        ROOT_PATH, CAIRO_USER, POST_H, DETROIT
-    );
+    let path = format!("{ROOT_PATH}/{CAIRO_USER}/{POST_H}?viewer_id={DETROIT}");
 
     let body = get_request(&path).await?;
     assert!(body.is_object());

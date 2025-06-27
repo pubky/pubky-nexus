@@ -33,7 +33,7 @@ async fn test_moderated_user_lifecycle() -> Result<()> {
 
     // 4. Tag the target user with the moderation label
     let tag = PubkyAppTag {
-        uri: format!("pubky://{}/pub/pubky.app/profile.json", target_id),
+        uri: format!("pubky://{target_id}/pub/pubky.app/profile.json"),
         label: "label_to_moderate".to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
@@ -56,7 +56,7 @@ async fn test_moderated_user_lifecycle() -> Result<()> {
         links: None,
         status: None,
     };
-    let profile_url = format!("pubky://{}/pub/pubky.app/profile.json", target_id);
+    let profile_url = format!("pubky://{target_id}/pub/pubky.app/profile.json");
     test.put(&profile_url, new_profile).await?;
 
     let details = find_user_details(&target_id).await?;
@@ -64,7 +64,7 @@ async fn test_moderated_user_lifecycle() -> Result<()> {
 
     // 7. User places a tag on himself (create at least 1 relationship)
     let self_tag = PubkyAppTag {
-        uri: format!("pubky://{}/pub/pubky.app/profile.json", target_id),
+        uri: format!("pubky://{target_id}/pub/pubky.app/profile.json"),
         label: "tagging_myself".to_string(),
         created_at: Utc::now().timestamp_millis(),
     };

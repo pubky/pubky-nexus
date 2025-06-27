@@ -47,19 +47,19 @@ async fn test_edit_tagged_post_notification() -> Result<()> {
     // User B tags User A's post
     let label = "merkle_tree";
     let tag = PubkyAppTag {
-        uri: format!("pubky://{}/pub/pubky.app/posts/{}", user_a_id, post_id),
+        uri: format!("pubky://{user_a_id}/pub/pubky.app/posts/{post_id}"),
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
     let tag_id = tag.create_id();
-    let tag_url = format!("pubky://{}/pub/pubky.app/tags/{}", user_b_id, tag_id);
+    let tag_url = format!("pubky://{user_b_id}/pub/pubky.app/tags/{tag_id}");
 
     // Put tag
     test.put(&tag_url, tag).await?;
 
     // User A edits their post
     post.content = "Edited post by User A".to_string();
-    let edited_url = format!("pubky://{}/pub/pubky.app/posts/{}", user_a_id, post_id);
+    let edited_url = format!("pubky://{user_a_id}/pub/pubky.app/posts/{post_id}");
 
     // Overwrite existing post in the homeserver with the edited one
     test.put(edited_url.as_str(), &post).await?;
@@ -88,7 +88,7 @@ async fn test_edit_tagged_post_notification() -> Result<()> {
         );
         assert_eq!(
             edited_uri,
-            &format!("pubky://{}/pub/pubky.app/posts/{}", user_a_id, post_id),
+            &format!("pubky://{user_a_id}/pub/pubky.app/posts/{post_id}"),
             "Notification should contain the correct edited post URI"
         );
         assert_eq!(

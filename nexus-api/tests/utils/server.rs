@@ -39,7 +39,7 @@ impl TestServiceServer {
         let ip = [127, 0, 0, 1];
         // Default to port 0 so OS assigns an available port.
         let port = "0".to_string();
-        let binding = format!("{}:{}", Ipv4Addr::from(ip).to_string(), port);
+        let binding = format!("{}:{}", Ipv4Addr::from(ip), port);
 
         // Bind to the address.
         let listener = TcpListener::bind(&binding).await?;
@@ -53,7 +53,7 @@ impl TestServiceServer {
             .unwrap();
 
         // Save the actual server URL (e.g., "http://127.0.0.1:12345") in a global variable
-        let url = format!("http://{}", local_addr);
+        let url = format!("http://{local_addr}");
         SERVER_URL.set(url).expect("SERVER_URL already set");
 
         tokio::spawn(async { nexus_builder.start_test(listener).await });

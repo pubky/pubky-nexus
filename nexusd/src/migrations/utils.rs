@@ -49,12 +49,12 @@ pub fn generate_template(name: &str) -> String {
 use crate::migrations::manager::Migration;
 use nexus_common::types::DynError;
 
-pub struct {name};
+pub struct {struc_name};
 
 #[async_trait]
-impl Migration for {name} {{
+impl Migration for {struc_name} {{
     fn id(&self) -> &'static str {{
-        \"{name}\"
+        \"{struc_name}\"
     }}  
         
     fn is_multi_staged(&self) -> bool {{
@@ -81,8 +81,7 @@ impl Migration for {name} {{
         Ok(())
     }}
 }}
-",
-        name = struc_name
+"
     )
 }
 

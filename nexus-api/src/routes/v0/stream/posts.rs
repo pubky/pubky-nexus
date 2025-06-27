@@ -100,7 +100,7 @@ pub async fn stream_posts_handler(
     if let Some(ref tags) = query.tags {
         if tags.len() > MAX_TAGS {
             return Err(Error::InvalidInput {
-                message: format!("Too many tags provided; maximum allowed is {}", MAX_TAGS),
+                message: format!("Too many tags provided; maximum allowed is {MAX_TAGS}"),
             });
         }
     }
@@ -162,7 +162,7 @@ pub async fn stream_posts_by_ids_handler(
 
     if request.post_ids.len() > MAX_POSTS {
         return Err(Error::InvalidInput {
-            message: format!("The maximum number of post IDs allowed is {}", MAX_POSTS),
+            message: format!("The maximum number of post IDs allowed is {MAX_POSTS}"),
         });
     }
 

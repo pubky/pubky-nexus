@@ -47,7 +47,7 @@ impl RedisConnector {
                 "Redis health check PING succeeded; server at {} is reachable",
                 redis_uri
             ),
-            Err(_) => return Err(format!("Failed to PING to Redis at {}", redis_uri).into()),
+            Err(_) => return Err(format!("Failed to PING to Redis at {redis_uri}").into()),
         }
         Ok(())
     }
