@@ -29,4 +29,4 @@ toml = "0.8.23"
 tracing = { workspace = true }
 tracing-log = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-utoipa = "5.3.1"
+utoipa = "5.4.0"
