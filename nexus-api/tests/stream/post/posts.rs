@@ -136,8 +136,7 @@ pub const ENGAGEMENT_SCORE: &str = "10";
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_global_total_engagement_with_start_score() -> Result<()> {
     let path = format!(
-        "{}?sorting=total_engagement&start={}",
-        ROOT_PATH, ENGAGEMENT_SCORE
+        "{ROOT_PATH}?sorting=total_engagement&start={ENGAGEMENT_SCORE}"
     );
 
     let body = get_request(&path).await?;
@@ -154,8 +153,7 @@ async fn test_stream_posts_global_total_engagement_with_start_score() -> Result<
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_global_total_engagement_with_start_end_score() -> Result<()> {
     let path = format!(
-        "{}?sorting=total_engagement&start={}&end={}",
-        ROOT_PATH, ENGAGEMENT_SCORE, ENGAGEMENT_SCORE
+        "{ROOT_PATH}?sorting=total_engagement&start={ENGAGEMENT_SCORE}&end={ENGAGEMENT_SCORE}"
     );
 
     let body = get_request(&path).await?;
@@ -169,8 +167,7 @@ async fn test_stream_posts_global_total_engagement_with_start_end_score() -> Res
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_global_total_engagement_with_end_score() -> Result<()> {
     let path = format!(
-        "{}?sorting=total_engagement&end={}",
-        ROOT_PATH, ENGAGEMENT_SCORE
+        "{ROOT_PATH}?sorting=total_engagement&end={ENGAGEMENT_SCORE}"
     );
 
     let body = get_request(&path).await?;
@@ -193,8 +190,7 @@ async fn test_stream_posts_global_total_engagement_with_end_score() -> Result<()
 async fn test_post_tag_search_by_engagement() -> Result<()> {
     let post_order = vec![POST_A, POST_H, POST_C, POST_B];
     let path = format!(
-        "{}?tags={}&sorting=total_engagement&limit=4",
-        ROOT_PATH, TAG_LABEL_2
+        "{ROOT_PATH}?tags={TAG_LABEL_2}&sorting=total_engagement&limit=4"
     );
 
     let body = get_request(&path).await?;
@@ -213,8 +209,7 @@ async fn test_post_tag_search_by_engagement() -> Result<()> {
 async fn test_post_tag_search_by_engagement_with_skip() -> Result<()> {
     let post_order = vec![POST_G, POST_F];
     let path = format!(
-        "{}?tags={}&sorting=total_engagement&skip=6",
-        ROOT_PATH, TAG_LABEL_2
+        "{ROOT_PATH}?tags={TAG_LABEL_2}&sorting=total_engagement&skip=6"
     );
     let body = get_request(&path).await?;
 
@@ -235,8 +230,7 @@ async fn test_post_tag_search_by_engagement_with_skip() -> Result<()> {
 async fn test_post_tag_search_by_engagement_with_skip_and_limit() -> Result<()> {
     let post_order = vec![POST_H];
     let path = format!(
-        "{}?tags={}&sorting=total_engagement&skip=1&limit=1",
-        ROOT_PATH, TAG_LABEL_2
+        "{ROOT_PATH}?tags={TAG_LABEL_2}&sorting=total_engagement&skip=1&limit=1"
     );
     let body = get_request(&path).await?;
 
@@ -259,8 +253,7 @@ async fn test_stream_combined_parameters() -> Result<()> {
     let observer_id = USER_ID;
     let tag = TAG_LABEL_1;
     let path = format!(
-        "{ROOT_PATH}?observer_id={}&source=following&tags={}&sorting=total_engagement",
-        observer_id, tag
+        "{ROOT_PATH}?observer_id={observer_id}&source=following&tags={tag}&sorting=total_engagement"
     );
 
     let body = get_request(&path).await?;
@@ -277,8 +270,7 @@ async fn test_stream_combined_parameters() -> Result<()> {
 
         assert!(
             has_tag,
-            "Post should be tagged with the requested tag: {}",
-            tag
+            "Post should be tagged with the requested tag: {tag}"
         );
     }
 

@@ -28,7 +28,7 @@ async fn test_homeserver_multi_user_tags() -> Result<()> {
             bio: Some("test_homeserver_multi_user".to_string()),
             image: None,
             links: None,
-            name: format!("Watcher:MultiUser:User{}", index),
+            name: format!("Watcher:MultiUser:User{index}"),
             status: None,
         };
         let user_id = test.create_user(&keypair, &tagger).await?;
@@ -49,7 +49,7 @@ async fn test_homeserver_multi_user_tags() -> Result<()> {
 
     for tagger_id in wind_taggers {
         let tag = PubkyAppTag {
-            uri: format!("pubky://{}/pub/pubky.app/profile.json", tagged_id),
+            uri: format!("pubky://{tagged_id}/pub/pubky.app/profile.json"),
             label: label_wind.to_string(),
             created_at: Utc::now().timestamp_millis(),
         };
@@ -67,7 +67,7 @@ async fn test_homeserver_multi_user_tags() -> Result<()> {
 
     for tagger_id in earth_taggers {
         let tag = PubkyAppTag {
-            uri: format!("pubky://{}/pub/pubky.app/profile.json", tagged_id),
+            uri: format!("pubky://{tagged_id}/pub/pubky.app/profile.json"),
             label: label_earth.to_string(),
             created_at: Utc::now().timestamp_millis(),
         };

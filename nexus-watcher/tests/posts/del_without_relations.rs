@@ -153,7 +153,7 @@ async fn test_delete_post_that_reposted() -> Result<()> {
         parent: None,
         embed: Some(PubkyAppPostEmbed {
             kind: PubkyAppPostKind::Short,
-            uri: format!("pubky://{}/pub/pubky.app/posts/{}", user_id, post_id),
+            uri: format!("pubky://{user_id}/pub/pubky.app/posts/{post_id}"),
         }),
         attachments: None,
     };
@@ -282,8 +282,7 @@ async fn test_delete_post_that_replied() -> Result<()> {
         content: "Watcher:PostDeleteReplied:User:Reply".to_string(),
         kind: PubkyAppPostKind::Short,
         parent: Some(format!(
-            "pubky://{}/pub/pubky.app/posts/{}",
-            user_id, post_id
+            "pubky://{user_id}/pub/pubky.app/posts/{post_id}"
         )),
         embed: None,
         attachments: None,

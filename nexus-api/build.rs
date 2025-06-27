@@ -11,5 +11,5 @@ fn main() {
     let git_hash = git_hash.trim();
 
     // Write the commit hash to an environment variable
-    println!("cargo:rustc-env=GIT_COMMIT_HASH={}", git_hash);
+    println!("cargo:rustc-env=GIT_COMMIT_HASH={git_hash}");
 }

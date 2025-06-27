@@ -48,7 +48,7 @@ pub async fn put<T: Serialize + Send + Sync>(
     path: Option<&str>,
     expiration: Option<i64>,
 ) -> Result<(), DynError> {
-    let index_key = format!("{}:{}", prefix, key);
+    let index_key = format!("{prefix}:{key}");
 
     match serde_json::to_value(value)? {
         serde_json::Value::Bool(boolean_value) => {
@@ -90,8 +90,8 @@ pub async fn modify_json_field(
     range: Option<ValueRange>,
 ) -> Result<(), DynError> {
     let mut redis_conn = get_redis_conn().await?;
-    let index_key = format!("{}:{}", prefix, key);
-    let json_path = format!("$.{}", field); // Access the field using JSON path
+    let index_key = format!("{prefix}:{key}");
+    let json_path = format!("$.{field}"); // Access the field using JSON path
 
     // Determine the action to take (increment or decrement)
     let amount = match action {
@@ -304,7 +304,7 @@ pub async fn get<T: DeserializeOwned + Send + Sync>(
     path: Option<&str>,
 ) -> Result<Option<T>, DynError> {
     let mut redis_conn = get_redis_conn().await?;
-    let index_key = format!("{}:{}", prefix, key);
+    let index_key = format!("{prefix}:{key}");
     let json_path = path.unwrap_or("$").to_string(); // Ensure path is a String
 
     // Use RedisJSON commands to get the value from the specified path
@@ -396,7 +396,7 @@ fn deserialize_values<T: DeserializeOwned>(
 /// Returns an error if the operation fails.
 pub async fn _get_bool(prefix: &str, key: &str) -> Result<Option<bool>, DynError> {
     let mut redis_conn = get_redis_conn().await?;
-    let index_key = format!("{}:{}", prefix, key);
+    let index_key = format!("{prefix}:{key}");
 
     if let Ok(indexed_value) = redis_conn.get::<_, i32>(&index_key).await {
         trace!(

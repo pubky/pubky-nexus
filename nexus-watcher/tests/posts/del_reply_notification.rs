@@ -48,8 +48,7 @@ async fn test_delete_post_that_replied_notification() -> Result<()> {
         content: "User's post to be deleted".to_string(),
         kind: PubkyAppPostKind::Short,
         parent: Some(format!(
-            "pubky://{}/pub/pubky.app/posts/{}",
-            poster_id, post_id
+            "pubky://{poster_id}/pub/pubky.app/posts/{post_id}"
         )),
         embed: None,
         attachments: None,
@@ -84,12 +83,12 @@ async fn test_delete_post_that_replied_notification() -> Result<()> {
         );
         assert_eq!(
             deleted_uri,
-            &format!("pubky://{}/pub/pubky.app/posts/{}", replier_id, reply_id),
+            &format!("pubky://{replier_id}/pub/pubky.app/posts/{reply_id}"),
             "Notification should contain the correct deleted post URI"
         );
         assert_eq!(
             linked_uri,
-            &format!("pubky://{}/pub/pubky.app/posts/{}", poster_id, post_id),
+            &format!("pubky://{poster_id}/pub/pubky.app/posts/{post_id}"),
             "Notification should contain the correct linked post URI"
         );
         assert_eq!(

@@ -14,7 +14,7 @@ const PEER_PUBKY: &str = "db6w58pd5h63fbhtd88y8zz7pai9rkjwqt9omg6i7dz31dynrgcy";
 
 #[tokio_shared_rt::test(shared)]
 async fn check_mockups_loaded() -> Result<(), DynError> {
-    let endpoint = format!("/v0/user/{}/tags", PEER_PUBKY);
+    let endpoint = format!("/v0/user/{PEER_PUBKY}/tags");
 
     get_request(&endpoint).await?;
 

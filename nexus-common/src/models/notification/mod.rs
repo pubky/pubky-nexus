@@ -320,7 +320,7 @@ impl Notification {
                     let replier_id: &str = row.get("replier_id").unwrap_or_default();
                     let reply_id: &str = row.get("reply_id").unwrap_or_default();
                     let linked_uri =
-                        format!("pubky://{}/pub/pubky.app/posts/{}", replier_id, reply_id);
+                        format!("pubky://{replier_id}/pub/pubky.app/posts/{reply_id}");
                     (replier_id.to_string(), linked_uri)
                 }),
             ),
@@ -330,7 +330,7 @@ impl Notification {
                 Box::new(|row: &Row| {
                     let tagger_id: &str = row.get("tagger_id").unwrap_or_default();
                     let tag_id: &str = row.get("tag_id").unwrap_or_default();
-                    let linked_uri = format!("pubky://{}/pub/pubky.app/tags/{}", tagger_id, tag_id);
+                    let linked_uri = format!("pubky://{tagger_id}/pub/pubky.app/tags/{tag_id}");
                     (tagger_id.to_string(), linked_uri)
                 }),
             ),
@@ -341,8 +341,7 @@ impl Notification {
                     let bookmarker_id: &str = row.get("bookmarker_id").unwrap_or_default();
                     let bookmark_id: &str = row.get("bookmark_id").unwrap_or_default();
                     let linked_uri = format!(
-                        "pubky://{}/pub/pubky.app/bookmarks/{}",
-                        bookmarker_id, bookmark_id
+                        "pubky://{bookmarker_id}/pub/pubky.app/bookmarks/{bookmark_id}"
                     );
                     (bookmarker_id.to_string(), linked_uri)
                 }),
@@ -354,7 +353,7 @@ impl Notification {
                     let reposter_id: &str = row.get("reposter_id").unwrap_or_default();
                     let repost_id: &str = row.get("repost_id").unwrap_or_default();
                     let linked_uri =
-                        format!("pubky://{}/pub/pubky.app/posts/{}", reposter_id, repost_id);
+                        format!("pubky://{reposter_id}/pub/pubky.app/posts/{repost_id}");
                     (reposter_id.to_string(), linked_uri)
                 }),
             ),

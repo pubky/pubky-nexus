@@ -42,7 +42,7 @@ impl Display for FileVariant {
             FileVariant::Feed => "feed",
             FileVariant::Small => "small",
         };
-        write!(f, "{}", version_string)
+        write!(f, "{version_string}")
     }
 }
 

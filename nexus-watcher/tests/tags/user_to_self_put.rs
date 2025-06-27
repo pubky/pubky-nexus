@@ -29,7 +29,7 @@ async fn test_homeserver_put_tag_user_self() -> Result<()> {
     let label = "friendly";
 
     let tag = PubkyAppTag {
-        uri: format!("pubky://{}/pub/pubky.app/profile.json", user_id), // Tagging himself, so tag uri is his own profile uri
+        uri: format!("pubky://{user_id}/pub/pubky.app/profile.json"), // Tagging himself, so tag uri is his own profile uri
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };

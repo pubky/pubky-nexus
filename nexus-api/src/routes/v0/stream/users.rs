@@ -202,7 +202,7 @@ pub async fn stream_username_search_handler(
     {
         Ok(Some(stream)) => Ok(Json(stream)),
         Ok(None) => Err(Error::EmptyStream {
-            message: format!("No users found for the username '{}'", username),
+            message: format!("No users found for the username '{username}'"),
         }),
         Err(source) => Err(Error::InternalServerError { source }),
     }
@@ -247,7 +247,7 @@ pub async fn stream_users_by_ids_handler(
 
     if request.user_ids.len() > MAX_USERS {
         return Err(Error::InvalidInput {
-            message: format!("The maximum number of user IDs allowed is {}", MAX_USERS),
+            message: format!("The maximum number of user IDs allowed is {MAX_USERS}"),
         });
     }
 

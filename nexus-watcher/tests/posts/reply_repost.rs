@@ -33,7 +33,7 @@ async fn test_homeserver_reply_repost() -> Result<()> {
     let parent_post_id = test.create_post(&user_id, &parent_post).await?;
 
     // Create reply
-    let parent_uri = format!("pubky://{}/pub/pubky.app/posts/{}", user_id, parent_post_id);
+    let parent_uri = format!("pubky://{user_id}/pub/pubky.app/posts/{parent_post_id}");
 
     let reply = PubkyAppPost {
         content: "Watcher:ReplyRepost:User:Reply".to_string(),
@@ -46,7 +46,7 @@ async fn test_homeserver_reply_repost() -> Result<()> {
     let reply_id = test.create_post(&user_id, &reply).await?;
 
     // Create repost
-    let post_uri = format!("pubky://{}/pub/pubky.app/posts/{}", user_id, parent_post_id);
+    let post_uri = format!("pubky://{user_id}/pub/pubky.app/posts/{parent_post_id}");
 
     let repost = PubkyAppPost {
         content: "Watcher:ReplyRepost:User:Repost".to_string(),

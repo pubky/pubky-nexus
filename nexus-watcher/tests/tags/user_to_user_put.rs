@@ -40,7 +40,7 @@ async fn test_homeserver_put_tag_user_another() -> Result<()> {
     let label = "dev";
 
     let tag = PubkyAppTag {
-        uri: format!("pubky://{}/pub/pubky.app/profile.json", tagged_user_id),
+        uri: format!("pubky://{tagged_user_id}/pub/pubky.app/profile.json"),
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };

@@ -35,7 +35,7 @@ pub async fn sync_put(
         .put_to_graph()
         .await
         .map_err(|e| EventProcessorError::GraphQueryFailed {
-            message: format!("{:?}", e),
+            message: format!("{e:?}"),
         })?;
 
     // SAVE TO INDEX
@@ -72,8 +72,7 @@ async fn ingest(
             Err(e) => {
                 return Err(EventProcessorError::PubkyClientError {
                     message: format!(
-                        "The ingest process could not get the client while processing File event: {}",
-                        e
+                        "The ingest process could not get the client while processing File event: {e}"
                     ),
                 }
                 .into());

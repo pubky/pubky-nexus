@@ -5,7 +5,7 @@ use anyhow::Result;
 async fn test_stream_users_by_username_search() -> Result<()> {
     let username = "Jo";
 
-    let res = get_request(&format!("/v0/stream/users/username?username={}", username)).await?;
+    let res = get_request(&format!("/v0/stream/users/username?username={username}")).await?;
     assert!(res.is_array());
 
     let users = res

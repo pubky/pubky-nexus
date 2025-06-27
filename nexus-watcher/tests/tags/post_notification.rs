@@ -52,7 +52,7 @@ async fn test_homeserver_tag_post_notification() -> Result<()> {
     let label = "interesting";
 
     let tag = PubkyAppTag {
-        uri: format!("pubky://{}/pub/pubky.app/posts/{}", author_id, post_id),
+        uri: format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}"),
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
@@ -103,7 +103,7 @@ async fn test_homeserver_tag_post_notification() -> Result<()> {
         );
         assert_eq!(
             post_uri,
-            &format!("pubky://{}/pub/pubky.app/posts/{}", author_id, post_id),
+            &format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}"),
             "Notification should contain the correct post URI"
         );
     } else {

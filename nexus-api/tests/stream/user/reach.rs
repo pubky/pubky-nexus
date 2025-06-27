@@ -6,8 +6,7 @@ use axum::http::StatusCode;
 async fn test_stream_following() -> Result<()> {
     let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
     let res = get_request(&format!(
-        "/v0/stream/users?user_id={}&source=following&limit=20",
-        user_id
+        "/v0/stream/users?user_id={user_id}&source=following&limit=20"
     ))
     .await?;
     assert!(res.is_array());
@@ -27,7 +26,7 @@ async fn test_stream_following() -> Result<()> {
     // Verify that each expected following ID is present in the response
     for id in &expected_following_ids {
         let exists = following.iter().any(|f| f["details"]["id"] == *id);
-        assert!(exists, "Expected following ID not found: {}", id);
+        assert!(exists, "Expected following ID not found: {id}");
     }
 
     // Additional checks for specific user attributes (e.g., name, bio)

@@ -50,8 +50,7 @@ async fn test_homeserver_mentions_notifications() -> Result<()> {
 
     // User 1 writes a post mentioning User 2 and User 3
     let post_content = format!(
-        "This is a post mentioning pk:{}, and pk:{}",
-        mentioned_user_1_id, mentioned_user_2_id
+        "This is a post mentioning pk:{mentioned_user_1_id}, and pk:{mentioned_user_2_id}"
     );
     let post = PubkyAppPost {
         content: post_content.clone(),
@@ -85,7 +84,7 @@ async fn test_homeserver_mentions_notifications() -> Result<()> {
         );
         assert_eq!(
             post_uri,
-            &format!("pubky://{}/pub/pubky.app/posts/{}", author_user_id, post_id),
+            &format!("pubky://{author_user_id}/pub/pubky.app/posts/{post_id}"),
             "Notification should contain the correct post URI"
         );
     } else {
@@ -114,7 +113,7 @@ async fn test_homeserver_mentions_notifications() -> Result<()> {
         );
         assert_eq!(
             post_uri,
-            &format!("pubky://{}/pub/pubky.app/posts/{}", author_user_id, post_id),
+            &format!("pubky://{author_user_id}/pub/pubky.app/posts/{post_id}"),
             "Notification should contain the correct post URI"
         );
     } else {

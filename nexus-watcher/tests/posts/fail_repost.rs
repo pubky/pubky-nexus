@@ -54,7 +54,7 @@ async fn test_homeserver_post_repost_without_post_parent() -> Result<(), DynErro
         parent: None,
         embed: Some(PubkyAppPostEmbed {
             kind: PubkyAppPostKind::Short,
-            uri: format!("pubky://{}/pub/pubky.app/posts/{}", post_author_id, post_id),
+            uri: format!("pubky://{post_author_id}/pub/pubky.app/posts/{post_id}"),
         }),
         attachments: None,
     };
@@ -62,8 +62,7 @@ async fn test_homeserver_post_repost_without_post_parent() -> Result<(), DynErro
 
     // Create raw event line to retrieve the content from the homeserver
     let post_homeserver_uri = format!(
-        "PUT pubky://{}/pub/pubky.app/posts/{}",
-        repost_author_id, repost_id
+        "PUT pubky://{repost_author_id}/pub/pubky.app/posts/{repost_id}"
     );
 
     // Simulate the event processor to handle the event.

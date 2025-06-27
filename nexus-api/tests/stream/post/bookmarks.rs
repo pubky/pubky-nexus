@@ -9,7 +9,7 @@ const BOOKMARKER_ID: &str = "o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ng
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_bookmarked_posts() -> Result<()> {
     let observer_id = BOOKMARKER_ID;
-    let path = format!("{ROOT_PATH}?observer_id={}&source=bookmarks", observer_id);
+    let path = format!("{ROOT_PATH}?observer_id={observer_id}&source=bookmarks");
     let body = get_request(&path).await?;
 
     assert!(body.is_array());

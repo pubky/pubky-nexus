@@ -48,7 +48,7 @@ impl Neo4jConnector {
         let neo4j_connector = Neo4jConnector::default();
         match neo4j_connector.connect(uri, user, password).await {
             Ok(_) => info!("Created Neo4j connector"),
-            Err(e) => return Err(format!("Could not create Neo4J connector: {}", e).into()),
+            Err(e) => return Err(format!("Could not create Neo4J connector: {e}").into()),
         }
         Ok(neo4j_connector)
     }
@@ -78,7 +78,7 @@ impl Neo4jConnector {
             ),
             Err(neo4j_err) => {
                 return Err(
-                    format!("Failed to PING to Neo4j at {}, {}", neo4j_uri, neo4j_err).into(),
+                    format!("Failed to PING to Neo4j at {neo4j_uri}, {neo4j_err}").into(),
                 )
             }
         };

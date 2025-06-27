@@ -43,13 +43,12 @@ async fn test_homeserver_viewer_bookmark() -> Result<()> {
     let viewer_id = test.create_user(&viewer_keypair, &viewer_user).await?;
 
     let bookmark = PubkyAppBookmark {
-        uri: format!("pubky://{}/pub/pubky.app/posts/{}", user_id, post_id),
+        uri: format!("pubky://{user_id}/pub/pubky.app/posts/{post_id}"),
         created_at: chrono::Utc::now().timestamp_millis(),
     };
     let bookmark_id = bookmark.create_id();
     let bookmark_url = format!(
-        "pubky://{}/pub/pubky.app/bookmarks/{}",
-        viewer_id, bookmark_id
+        "pubky://{viewer_id}/pub/pubky.app/bookmarks/{bookmark_id}"
     );
 
     // Put bookmark
@@ -75,7 +74,7 @@ async fn test_homeserver_viewer_bookmark() -> Result<()> {
     .unwrap();
 
     assert_eq!(result_bookmarks.len(), 1);
-    assert_eq!(result_bookmarks[0], format!("{}:{}", user_id, post_id));
+    assert_eq!(result_bookmarks[0], format!("{user_id}:{post_id}"));
 
     // Cleanup user and post
     test.cleanup_post(&user_id, &post_id).await?;

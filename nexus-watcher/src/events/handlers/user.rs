@@ -22,7 +22,7 @@ pub async fn sync_put(user: PubkyAppUser, user_id: PubkyId) -> Result<(), DynErr
         .put_to_graph()
         .await
         .map_err(|e| EventProcessorError::GraphQueryFailed {
-            message: format!("{:?}", e),
+            message: format!("{e:?}"),
         })?;
 
     // Step 3: Run in parallel the cache process: SAVE TO INDEX

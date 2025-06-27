@@ -5,8 +5,7 @@ use anyhow::Result;
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_user_posts() -> Result<()> {
     let path = format!(
-        "{ROOT_PATH}?author_id={}&source=author&sorting=timeline",
-        USER_ID
+        "{ROOT_PATH}?author_id={USER_ID}&source=author&sorting=timeline"
     );
     let body = get_request(&path).await?;
 

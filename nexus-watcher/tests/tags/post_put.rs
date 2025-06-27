@@ -43,7 +43,7 @@ async fn test_homeserver_put_tag_post() -> Result<()> {
     let label = "merkle_tree";
 
     let tag = PubkyAppTag {
-        uri: format!("pubky://{}/pub/pubky.app/posts/{}", tagger_user_id, post_id),
+        uri: format!("pubky://{tagger_user_id}/pub/pubky.app/posts/{post_id}"),
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
@@ -182,7 +182,7 @@ async fn test_homeserver_put_tag_post_unique_count() -> Result<()> {
 
     let label = "tag-183";
     let tag = PubkyAppTag {
-        uri: format!("pubky://{}/pub/pubky.app/posts/{}", tagger_user_id, post_id),
+        uri: format!("pubky://{tagger_user_id}/pub/pubky.app/posts/{post_id}"),
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };

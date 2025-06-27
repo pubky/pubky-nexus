@@ -40,7 +40,7 @@ async fn test_homeserver_del_post_with_attachments() -> Result<()> {
         test.ensure_event_processing_complete().await?;
 
         let file = PubkyAppFile {
-            name: format!("post_attachment_DEL-{}", i),
+            name: format!("post_attachment_DEL-{i}"),
             content_type: "text/plain".to_string(),
             src: blob_url.clone(),
             size: blob.0.len(),

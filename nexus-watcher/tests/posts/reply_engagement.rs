@@ -38,8 +38,7 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
 
     // Create reply
     let parent_uri = format!(
-        "pubky://{}/pub/pubky.app/posts/{}",
-        author_id, parent_post_id
+        "pubky://{author_id}/pub/pubky.app/posts/{parent_post_id}"
     );
 
     let reply = PubkyAppPost {
@@ -62,7 +61,7 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
     );
 
     // Create a reply of a reply
-    let reply_uri = format!("pubky://{}/pub/pubky.app/posts/{}", author_id, reply_id);
+    let reply_uri = format!("pubky://{author_id}/pub/pubky.app/posts/{reply_id}");
 
     let reply_of_reply = PubkyAppPost {
         content: "Watcher:ReplyEngagement:User:ReplyOfReply".to_string(),
@@ -135,7 +134,7 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
     let label = "ignore_score";
 
     let tag = PubkyAppTag {
-        uri: format!("pubky://{}/pub/pubky.app/posts/{}", author_id, reply_id),
+        uri: format!("pubky://{author_id}/pub/pubky.app/posts/{reply_id}"),
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
