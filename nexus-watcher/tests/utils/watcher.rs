@@ -42,9 +42,7 @@ impl WatcherTest {
     /// event processor, and other test setup details.
     pub async fn setup() -> Result<Self> {
         if let Err(e) = NexusWatcher::builder().init_test_stack().await {
-            return Err(Error::msg(format!(
-                "could not initialise the stack, {e:?}"
-            )));
+            return Err(Error::msg(format!("could not initialise the stack, {e:?}")));
         }
 
         // testnet initialization is time expensive, we only init one per process
@@ -253,9 +251,7 @@ impl WatcherTest {
         let follow_relationship = PubkyAppFollow {
             created_at: Utc::now().timestamp_millis(),
         };
-        let follow_url = format!(
-            "pubky://{follower_id}/pub/pubky.app/follows/{followee_id}"
-        );
+        let follow_url = format!("pubky://{follower_id}/pub/pubky.app/follows/{followee_id}");
         PubkyClient::get()
             .unwrap()
             .put(follow_url.as_str())

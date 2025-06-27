@@ -281,9 +281,7 @@ async fn test_delete_post_that_replied() -> Result<()> {
     let reply = PubkyAppPost {
         content: "Watcher:PostDeleteReplied:User:Reply".to_string(),
         kind: PubkyAppPostKind::Short,
-        parent: Some(format!(
-            "pubky://{user_id}/pub/pubky.app/posts/{post_id}"
-        )),
+        parent: Some(format!("pubky://{user_id}/pub/pubky.app/posts/{post_id}")),
         embed: None,
         attachments: None,
     };

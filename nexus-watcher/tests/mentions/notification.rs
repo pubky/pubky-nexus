@@ -49,9 +49,8 @@ async fn test_homeserver_mentions_notifications() -> Result<()> {
         .await?;
 
     // User 1 writes a post mentioning User 2 and User 3
-    let post_content = format!(
-        "This is a post mentioning pk:{mentioned_user_1_id}, and pk:{mentioned_user_2_id}"
-    );
+    let post_content =
+        format!("This is a post mentioning pk:{mentioned_user_1_id}, and pk:{mentioned_user_2_id}");
     let post = PubkyAppPost {
         content: post_content.clone(),
         kind: PubkyAppPostKind::Short,

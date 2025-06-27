@@ -128,11 +128,7 @@ async fn test_get_counts() -> Result<()> {
 
     // Test non-existing user
     let user_id = "bad_user_id";
-    invalid_get_request(
-        &format!("/v0/user/{user_id}/counts"),
-        StatusCode::NOT_FOUND,
-    )
-    .await?;
+    invalid_get_request(&format!("/v0/user/{user_id}/counts"), StatusCode::NOT_FOUND).await?;
 
     Ok(())
 }

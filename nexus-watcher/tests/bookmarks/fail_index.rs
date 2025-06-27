@@ -44,9 +44,7 @@ async fn test_homeserver_bookmark_without_user() -> Result<()> {
 
     // Create the bookmark of the shadow user
     let bookmark_id = bookmark.create_id();
-    let bookmark_url = format!(
-        "pubky://{shadow_user_id}/pub/pubky.app/bookmarks/{bookmark_id}"
-    );
+    let bookmark_url = format!("pubky://{shadow_user_id}/pub/pubky.app/bookmarks/{bookmark_id}");
 
     // Switch OFF the event processor to simulate the pending events to index
     test = test.remove_event_processing().await;

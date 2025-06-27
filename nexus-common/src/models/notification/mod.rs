@@ -319,8 +319,7 @@ impl Notification {
                 Box::new(|row: &Row| {
                     let replier_id: &str = row.get("replier_id").unwrap_or_default();
                     let reply_id: &str = row.get("reply_id").unwrap_or_default();
-                    let linked_uri =
-                        format!("pubky://{replier_id}/pub/pubky.app/posts/{reply_id}");
+                    let linked_uri = format!("pubky://{replier_id}/pub/pubky.app/posts/{reply_id}");
                     (replier_id.to_string(), linked_uri)
                 }),
             ),
@@ -340,9 +339,8 @@ impl Notification {
                 Box::new(|row: &Row| {
                     let bookmarker_id: &str = row.get("bookmarker_id").unwrap_or_default();
                     let bookmark_id: &str = row.get("bookmark_id").unwrap_or_default();
-                    let linked_uri = format!(
-                        "pubky://{bookmarker_id}/pub/pubky.app/bookmarks/{bookmark_id}"
-                    );
+                    let linked_uri =
+                        format!("pubky://{bookmarker_id}/pub/pubky.app/bookmarks/{bookmark_id}");
                     (bookmarker_id.to_string(), linked_uri)
                 }),
             ),

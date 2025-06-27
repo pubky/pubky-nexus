@@ -37,9 +37,7 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
     let parent_post_id = test.create_post(&author_id, &parent_post).await?;
 
     // Create reply
-    let parent_uri = format!(
-        "pubky://{author_id}/pub/pubky.app/posts/{parent_post_id}"
-    );
+    let parent_uri = format!("pubky://{author_id}/pub/pubky.app/posts/{parent_post_id}");
 
     let reply = PubkyAppPost {
         content: "Watcher:ReplyEngagement:User:Reply".to_string(),

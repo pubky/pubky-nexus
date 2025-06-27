@@ -160,9 +160,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                 let target_post_id = &user_posts[&target_user_id.clone()][post_index];
 
                 let bookmark = PubkyAppBookmark {
-                    uri: format!(
-                        "pubky://{target_user_id}/pub/pubky.app/posts/{target_post_id}"
-                    ),
+                    uri: format!("pubky://{target_user_id}/pub/pubky.app/posts/{target_post_id}"),
                     created_at: chrono::Utc::now().timestamp_millis(),
                 };
 
@@ -190,9 +188,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
 
                 let tag_label = format!("tag{}", rng.random_range(0..100)); // FAILs tag labels are repeated, the same, the counts do not match graph vs index. Graph does not duplicate tag, but index counts do increase.
                 let tag = PubkyAppTag {
-                    uri: format!(
-                        "pubky://{target_user_id}/pub/pubky.app/posts/{target_post_id}"
-                    ),
+                    uri: format!("pubky://{target_user_id}/pub/pubky.app/posts/{target_post_id}"),
                     label: tag_label.clone(),
                     created_at: chrono::Utc::now().timestamp_millis(),
                 };
@@ -233,9 +229,8 @@ async fn test_large_network_scenario_counts() -> Result<()> {
             let target_index = rng.random_range(0..following.len());
             let target_user_id = &following[target_index];
             if unfollowed.insert(target_user_id.clone()) {
-                let follow_uri = format!(
-                    "pubky://{user_id}/pub/pubky.app/follows/{target_user_id}"
-                );
+                let follow_uri =
+                    format!("pubky://{user_id}/pub/pubky.app/follows/{target_user_id}");
                 test.del(&follow_uri).await?;
                 following_set.remove(target_user_id);
                 total_unfollows += 1;
@@ -260,8 +255,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
             let target_index = rng.random_range(0..muted.len());
             let target_user_id = &muted[target_index];
             if unmuted.insert(target_user_id.clone()) {
-                let mute_uri =
-                    format!("pubky://{user_id}/pub/pubky.app/mutes/{target_user_id}");
+                let mute_uri = format!("pubky://{user_id}/pub/pubky.app/mutes/{target_user_id}");
                 pubky_client.delete(mute_uri.as_str()).send().await?;
                 mute_set.remove(target_user_id);
                 _total_unmutes += 1;

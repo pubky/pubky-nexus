@@ -129,9 +129,7 @@ async fn test_get_post_view_with_limit_taggers() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_get_post_view_with_limit_tags_and_taggers() -> Result<()> {
-    let path = format!(
-        "{ROOT_PATH}/{CAIRO_USER}/{POST_H}?limit_tags=1&limit_taggers=2"
-    );
+    let path = format!("{ROOT_PATH}/{CAIRO_USER}/{POST_H}?limit_tags=1&limit_taggers=2");
 
     let body = get_request(&path).await?;
 
@@ -157,9 +155,7 @@ async fn test_get_post_view_with_limit_tags_and_taggers() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_get_post_view_with_viewer() -> Result<()> {
-    let path = format!(
-        "{ROOT_PATH}/{CAIRO_USER}/{POST_H}?viewer_id={DETROIT}"
-    );
+    let path = format!("{ROOT_PATH}/{CAIRO_USER}/{POST_H}?viewer_id={DETROIT}");
 
     let body = get_request(&path).await?;
     assert!(body.is_object());

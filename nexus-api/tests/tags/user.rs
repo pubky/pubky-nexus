@@ -134,9 +134,7 @@ async fn test_user_tags_skip_and_limit_tag_filter_active() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_user_tags_skip_limit_and_taggers_limit_filter_active() -> Result<()> {
-    let path = format!(
-        "/v0/user/{MEDHURST_USER}/tags?skip_tags=2&limit_tags=2&limit_taggers=1"
-    );
+    let path = format!("/v0/user/{MEDHURST_USER}/tags?skip_tags=2&limit_tags=2&limit_taggers=1");
     let body = get_request(&path).await?;
 
     assert!(body.is_array());
@@ -243,9 +241,7 @@ async fn test_user_specific_tag() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_user_specific_tag_with_viewer_id() -> Result<()> {
-    let path = format!(
-        "/v0/user/{PUBKY_PEER}/taggers/{PUBKY_LABEL}?viewer_id={PEER_PUBKY}"
-    );
+    let path = format!("/v0/user/{PUBKY_PEER}/taggers/{PUBKY_LABEL}?viewer_id={PEER_PUBKY}");
     let body = get_request(&path).await?;
 
     let taggers_info: TaggersInfoResponse = serde_json::from_value(body)?;
@@ -295,9 +291,7 @@ async fn test_user_specific_tag_with_skip() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_user_specific_tag_with_full_filters() -> Result<()> {
-    let path = format!(
-        "/v0/user/{PUBKY_PEER}/taggers/{PUBKY_LABEL}?skip=2&limit=1"
-    );
+    let path = format!("/v0/user/{PUBKY_PEER}/taggers/{PUBKY_LABEL}?skip=2&limit=1");
     let body = get_request(&path).await?;
 
     let taggers_info: TaggersInfoResponse = serde_json::from_value(body)?;
@@ -314,9 +308,7 @@ async fn test_user_specific_tag_with_full_filters() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_user_specific_tag_with_no_result() -> Result<()> {
-    let path = format!(
-        "/v0/user/{PUBKY_PEER}/taggers/{PUBKY_LABEL}?skip=3&limit=1"
-    );
+    let path = format!("/v0/user/{PUBKY_PEER}/taggers/{PUBKY_LABEL}?skip=3&limit=1");
     invalid_get_request(&path, StatusCode::NOT_FOUND).await?;
 
     Ok(())

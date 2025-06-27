@@ -17,9 +17,8 @@ const CHILD_6_POST_ID: &str = "7N8K0Y1C3T2Q";
 
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_replies() -> Result<()> {
-    let path = format!(
-        "{ROOT_PATH}?source=post_replies&author_id={AUTHOR_ID}&post_id={PARENT_POST_ID}"
-    );
+    let path =
+        format!("{ROOT_PATH}?source=post_replies&author_id={AUTHOR_ID}&post_id={PARENT_POST_ID}");
     let body = get_request(&path).await?;
 
     assert!(body.is_array());

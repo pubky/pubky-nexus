@@ -47,9 +47,7 @@ async fn test_edit_parent_post_notification() -> Result<()> {
     let reply = PubkyAppPost {
         content: "Reply by User B".to_string(),
         kind: PubkyAppPostKind::Short,
-        parent: Some(format!(
-            "pubky://{user_a_id}/pub/pubky.app/posts/{post_id}"
-        )),
+        parent: Some(format!("pubky://{user_a_id}/pub/pubky.app/posts/{post_id}")),
         embed: None,
         attachments: None,
     };
