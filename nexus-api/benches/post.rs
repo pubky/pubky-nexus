@@ -26,7 +26,7 @@ fn bench_get_post_by_id(c: &mut Criterion) {
                 let post = PostView::get_by_id(author_id, id, Some(viewer_id), None, None)
                     .await
                     .unwrap();
-                criterion::black_box(post);
+                std::hint::black_box(post);
             });
         },
     );
@@ -51,7 +51,7 @@ fn bench_get_post_details_by_id(c: &mut Criterion) {
         |b, &id| {
             b.to_async(&rt).iter(|| async {
                 let post = PostDetails::get_by_id(author_id, id).await.unwrap();
-                criterion::black_box(post);
+                std::hint::black_box(post);
             });
         },
     );
@@ -74,7 +74,7 @@ fn bench_get_post_details_from_graph(c: &mut Criterion) {
         |b, &id| {
             b.to_async(&rt).iter(|| async {
                 let post = PostDetails::get_from_graph(author_id, id).await.unwrap();
-                criterion::black_box(post);
+                std::hint::black_box(post);
             });
         },
     );
@@ -99,7 +99,7 @@ fn bench_get_post_counts_by_id(c: &mut Criterion) {
         |b, &id| {
             b.to_async(&rt).iter(|| async {
                 let post = PostCounts::get_by_id(author_id, id).await.unwrap();
-                criterion::black_box(post);
+                std::hint::black_box(post);
             });
         },
     );
@@ -122,7 +122,7 @@ fn bench_get_post_counts_from_graph(c: &mut Criterion) {
         |b, &id| {
             b.to_async(&rt).iter(|| async {
                 let post = PostCounts::get_from_graph(author_id, id).await.unwrap();
-                criterion::black_box(post);
+                std::hint::black_box(post);
             });
         },
     );
@@ -150,7 +150,7 @@ fn bench_get_post_bookmark_by_id(c: &mut Criterion) {
                 let post = Bookmark::get_by_id(author_id, id, Some(viewer_id))
                     .await
                     .unwrap();
-                criterion::black_box(post);
+                std::hint::black_box(post);
             });
         },
     );
@@ -176,7 +176,7 @@ fn bench_get_post_bookmark_from_graph(c: &mut Criterion) {
                 let post = Bookmark::get_from_graph(author_id, id, viewer_id)
                     .await
                     .unwrap();
-                criterion::black_box(post);
+                std::hint::black_box(post);
             });
         },
     );
@@ -201,7 +201,7 @@ fn bench_get_post_relationships_by_id(c: &mut Criterion) {
         |b, &id| {
             b.to_async(&rt).iter(|| async {
                 let post = PostRelationships::get_by_id(author_id, id).await.unwrap();
-                criterion::black_box(post);
+                std::hint::black_box(post);
             });
         },
     );
@@ -226,7 +226,7 @@ fn bench_get_post_relationships_from_graph(c: &mut Criterion) {
                 let post = PostRelationships::get_from_graph(author_id, id)
                     .await
                     .unwrap();
-                criterion::black_box(post);
+                std::hint::black_box(post);
             });
         },
     );

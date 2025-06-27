@@ -54,7 +54,7 @@ fn bench_get_full_by_id(c: &mut Criterion) {
                 let user = UserView::get_by_id(id, Some(viewer_id), None)
                     .await
                     .unwrap();
-                criterion::black_box(user);
+                std::hint::black_box(user);
             });
         },
     );
@@ -77,7 +77,7 @@ fn bench_get_relationship_by_id(c: &mut Criterion) {
         |b, &id| {
             b.to_async(&rt).iter(|| async {
                 let relationship = Relationship::get_by_id(id, Some(viewer_id)).await.unwrap();
-                criterion::black_box(relationship);
+                std::hint::black_box(relationship);
             });
         },
     );
@@ -99,7 +99,7 @@ fn bench_get_counts_from_graph(c: &mut Criterion) {
         |b, &id| {
             b.to_async(&rt).iter(|| async {
                 let counts = UserCounts::get_from_graph(id).await.unwrap();
-                criterion::black_box(counts);
+                std::hint::black_box(counts);
             });
         },
     );
@@ -121,7 +121,7 @@ fn bench_get_counts_by_id(c: &mut Criterion) {
         |b, &id| {
             b.to_async(&rt).iter(|| async {
                 let counts = UserCounts::get_by_id(id).await.unwrap();
-                criterion::black_box(counts);
+                std::hint::black_box(counts);
             });
         },
     );
@@ -143,7 +143,7 @@ fn bench_get_details_from_graph(c: &mut Criterion) {
         |b, &id| {
             b.to_async(&rt).iter(|| async {
                 let details = UserDetails::get_from_graph(&[id]).await.unwrap();
-                criterion::black_box(details);
+                std::hint::black_box(details);
             });
         },
     );
@@ -165,7 +165,7 @@ fn bench_get_details_by_id(c: &mut Criterion) {
         |b, &id| {
             b.to_async(&rt).iter(|| async {
                 let details = UserDetails::get_by_id(id).await.unwrap();
-                criterion::black_box(details);
+                std::hint::black_box(details);
             });
         },
     );
@@ -186,7 +186,7 @@ fn bench_get_details_by_ids_list(c: &mut Criterion) {
         |b, &user_ids| {
             b.to_async(&rt).iter(|| async {
                 let user_details = UserDetails::get_by_ids(&user_ids).await.unwrap();
-                criterion::black_box(user_details);
+                std::hint::black_box(user_details);
             });
         },
     );
@@ -209,7 +209,7 @@ fn bench_get_details_by_ids_list_from_graph(c: &mut Criterion) {
         |b, &user_ids| {
             b.to_async(&rt).iter(|| async {
                 let user_details = UserDetails::get_by_ids(&user_ids).await.unwrap();
-                criterion::black_box(user_details);
+                std::hint::black_box(user_details);
             });
         },
     );

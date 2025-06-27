@@ -34,7 +34,7 @@ pub fn bench_stream_post_kind_short(c: &mut Criterion) {
             )
             .await
             .unwrap();
-            criterion::black_box(post_stream);
+            std::hint::black_box(post_stream);
         });
     });
 }
@@ -65,7 +65,7 @@ pub fn bench_stream_post_kind_long(c: &mut Criterion) {
             )
             .await
             .unwrap();
-            criterion::black_box(post_stream);
+            std::hint::black_box(post_stream);
         });
     });
 }
@@ -96,7 +96,7 @@ pub fn bench_stream_post_kind_image(c: &mut Criterion) {
             )
             .await
             .unwrap();
-            criterion::black_box(post_stream);
+            std::hint::black_box(post_stream);
         });
     });
 }
@@ -127,7 +127,7 @@ pub fn bench_stream_post_kind_video(c: &mut Criterion) {
             )
             .await
             .unwrap();
-            criterion::black_box(post_stream);
+            std::hint::black_box(post_stream);
         });
     });
 }
@@ -158,7 +158,7 @@ pub fn bench_stream_post_kind_link(c: &mut Criterion) {
             )
             .await
             .unwrap();
-            criterion::black_box(post_stream);
+            std::hint::black_box(post_stream);
         });
     });
 }
@@ -189,7 +189,7 @@ pub fn bench_stream_post_kind_file(c: &mut Criterion) {
             )
             .await
             .unwrap();
-            criterion::black_box(post_stream);
+            std::hint::black_box(post_stream);
         });
     });
 }
