@@ -40,10 +40,11 @@ RUN rustup target add $TARGETARCH-unknown-linux-musl
 WORKDIR /usr/src/app
 
 # Copy over Cargo.toml and Cargo.lock for dependency caching
-COPY Cargo.toml Cargo.lock ./
 
 # Copy over all the source code
 COPY . .
+
+WORKDIR /usr/src/app/pubky-nexus
 
 # Build the project in release mode for the MUSL target
 RUN cargo build --release --bin nexusd --target $TARGETARCH-unknown-linux-musl
@@ -62,7 +63,7 @@ ARG TARGETARCH=x86_64
 RUN apk add --no-cache ca-certificates
 
 # Copy the compiled binaries from the builder stage
-COPY --from=builder /usr/src/app/target/$TARGETARCH-unknown-linux-musl/release/nexusd /usr/local/bin/nexusd
+COPY --from=builder /usr/src/app/pubky-nexus/target/$TARGETARCH-unknown-linux-musl/release/nexusd /usr/local/bin/nexusd
 
 # Set the working directory
 WORKDIR /usr/local/bin
