@@ -1,6 +1,6 @@
 [package]
 name = "nexus-watcher"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 description = "Nexus Watcher constructs a social graph out of all of the events on pubky-core homeservers"
 homepage = "https://github.com/pubky/pubky-nexus"
@@ -14,7 +14,7 @@ neo4rs = { workspace = true }
 opentelemetry = { workspace = true }
 pubky = { workspace = true }
 pubky-app-specs = { workspace = true }
-nexus-common = { version = "0.4.0", path = "../nexus-common" }
+nexus-common = { version = "0.4.1", path = "../nexus-common" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

@@ -1,6 +1,6 @@
 [package]
 name = "nexusd"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 description = "Nexus daemon"
 homepage = "https://github.com/pubky/pubky-nexus"
@@ -13,9 +13,9 @@ dirs = "6.0.0"
 chrono = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 neo4rs = { workspace = true }
-nexus-webapi = { version = "0.4.0", path = "../nexus-webapi" }
-nexus-common = { version = "0.4.0", path = "../nexus-common" }
-nexus-watcher = { version = "0.4.0", path = "../nexus-watcher" }
+nexus-webapi = { version = "0.4.1", path = "../nexus-webapi" }
+nexus-common = { version = "0.4.1", path = "../nexus-common" }
+nexus-watcher = { version = "0.4.1", path = "../nexus-watcher" }
 serde = { workspace = true }
 tracing = { workspace = true }
 tokio = { workspace = true }
