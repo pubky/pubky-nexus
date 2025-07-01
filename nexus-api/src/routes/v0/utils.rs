@@ -15,7 +15,7 @@ where
 {
     if items.is_empty() {
         Err(Error::EmptyStream {
-            message: format!("No {} found for the given criteria", model),
+            message: format!("No {model} found for the given criteria"),
         })
     } else {
         Ok(Json(items))

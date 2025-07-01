@@ -47,7 +47,7 @@ async fn test_delete_bookmarked_post_notification() -> Result<()> {
 
     // User B bookmarks User A's post
     let bookmark = PubkyAppBookmark {
-        uri: format!("pubky://{}/pub/pubky.app/posts/{}", user_a_id, post_id),
+        uri: format!("pubky://{user_a_id}/pub/pubky.app/posts/{post_id}"),
         created_at: 0,
     };
     let bookmark_url = format!(
@@ -84,7 +84,7 @@ async fn test_delete_bookmarked_post_notification() -> Result<()> {
         );
         assert_eq!(
             deleted_uri,
-            &format!("pubky://{}/pub/pubky.app/posts/{}", user_a_id, post_id),
+            &format!("pubky://{user_a_id}/pub/pubky.app/posts/{post_id}"),
             "Notification should contain the correct deleted post URI"
         );
         assert_eq!(

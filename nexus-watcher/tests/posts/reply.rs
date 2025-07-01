@@ -84,7 +84,7 @@ async fn test_homeserver_post_reply() -> Result<()> {
     .await
     .unwrap();
     assert_eq!(post_replies.len(), 1);
-    let post_key = format!("{}:{}", user_id, reply_id);
+    let post_key = format!("{user_id}:{reply_id}");
     assert_eq!(post_replies[0], post_key);
 
     // Assert the parent post has changed stats, Post:Counts:user_id:post_id

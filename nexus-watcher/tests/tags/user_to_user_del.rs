@@ -40,7 +40,7 @@ async fn test_homeserver_del_tag_to_another_user() -> Result<()> {
     let label = "neo4j";
 
     let tag = PubkyAppTag {
-        uri: format!("pubky://{}/pub/pubky.app/profile.json", tagged_user_id),
+        uri: format!("pubky://{tagged_user_id}/pub/pubky.app/profile.json"),
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };

@@ -42,7 +42,7 @@ async fn test_moderated_post_lifecycle() -> Result<()> {
     let moderator_id = test.create_user(&moderator_key, &user).await?;
 
     let tag = PubkyAppTag {
-        uri: format!("pubky://{}/pub/pubky.app/posts/{}", user_id, post_id),
+        uri: format!("pubky://{user_id}/pub/pubky.app/posts/{post_id}"),
         label: "label_to_moderate".to_string(),
         created_at: Utc::now().timestamp_millis(),
     };

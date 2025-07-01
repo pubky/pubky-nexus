@@ -47,10 +47,7 @@ async fn test_delete_parent_post_notification() -> Result<()> {
     let reply = PubkyAppPost {
         content: "Reply by User B".to_string(),
         kind: PubkyAppPostKind::Short,
-        parent: Some(format!(
-            "pubky://{}/pub/pubky.app/posts/{}",
-            user_a_id, post_id
-        )),
+        parent: Some(format!("pubky://{user_a_id}/pub/pubky.app/posts/{post_id}")),
         embed: None,
         attachments: None,
     };
@@ -83,12 +80,12 @@ async fn test_delete_parent_post_notification() -> Result<()> {
         );
         assert_eq!(
             deleted_uri,
-            &format!("pubky://{}/pub/pubky.app/posts/{}", user_a_id, post_id),
+            &format!("pubky://{user_a_id}/pub/pubky.app/posts/{post_id}"),
             "Notification should contain the correct deleted post URI"
         );
         assert_eq!(
             linked_uri,
-            &format!("pubky://{}/pub/pubky.app/posts/{}", user_b_id, reply_id),
+            &format!("pubky://{user_b_id}/pub/pubky.app/posts/{reply_id}"),
             "Notification should contain the correct reply URI"
         );
         assert_eq!(

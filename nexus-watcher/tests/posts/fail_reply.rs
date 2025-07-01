@@ -34,7 +34,7 @@ async fn test_homeserver_post_reply_without_post_parent() -> Result<(), DynError
     let post_id = test.create_post(&author_id, &post).await?;
 
     // Create reply
-    let parent_uri = format!("pubky://{}/pub/pubky.app/posts/{}", author_id, post_id);
+    let parent_uri = format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}");
 
     let reply = PubkyAppPost {
         content: "Watcher:PostReplyFail:Author:Reply".to_string(),
@@ -47,7 +47,7 @@ async fn test_homeserver_post_reply_without_post_parent() -> Result<(), DynError
     let reply_id = test.create_post(&author_id, &reply).await?;
 
     // Create raw event line to retrieve the content from the homeserver
-    let post_event = format!("PUT pubky://{}/pub/pubky.app/posts/{}", author_id, reply_id);
+    let post_event = format!("PUT pubky://{author_id}/pub/pubky.app/posts/{reply_id}");
 
     // Simulate the event processor to handle the event.
     // If the event processor were activated, the test would not catch the missing dependency

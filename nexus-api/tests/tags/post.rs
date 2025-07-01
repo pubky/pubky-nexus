@@ -20,7 +20,7 @@ const BAHRINGER_POST: &str = "2Z1N9M56X4EG0";
 
 #[tokio_shared_rt::test(shared)]
 async fn test_post_tag() -> Result<()> {
-    let path = format!("/v0/post/{}/{}/tags", PEER_PUBKY, POST_ID);
+    let path = format!("/v0/post/{PEER_PUBKY}/{POST_ID}/tags");
     let body = get_request(&path).await?;
 
     assert!(body.is_array());
@@ -41,7 +41,7 @@ async fn test_post_tag() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_user_tags_limit_tag_filter_active() -> Result<()> {
-    let path = format!("/v0/post/{}/{}/tags?limit_tags=2", PEER_PUBKY, POST_ID);
+    let path = format!("/v0/post/{PEER_PUBKY}/{POST_ID}/tags?limit_tags=2");
     let body = get_request(&path).await?;
 
     assert!(body.is_array());
@@ -61,10 +61,7 @@ async fn test_user_tags_limit_tag_filter_active() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_user_tags_viewer_filter_active() -> Result<()> {
-    let path = format!(
-        "/v0/post/{}/{}/tags?viewer_id={}",
-        PEER_PUBKY, POST_ID, PUBKY_PEER
-    );
+    let path = format!("/v0/post/{PEER_PUBKY}/{POST_ID}/tags?viewer_id={PUBKY_PEER}");
     let body = get_request(&path).await?;
 
     assert!(body.is_array());
@@ -93,10 +90,7 @@ async fn test_user_tags_viewer_filter_active() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_user_tags_skip_tag_filter_active() -> Result<()> {
-    let path = format!(
-        "/v0/post/{}/{}/tags?skip_tags=7",
-        BAHRINGER_USER, BAHRINGER_POST
-    );
+    let path = format!("/v0/post/{BAHRINGER_USER}/{BAHRINGER_POST}/tags?skip_tags=7");
     let body = get_request(&path).await?;
 
     assert!(body.is_array());
@@ -119,10 +113,7 @@ async fn test_user_tags_skip_tag_filter_active() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_user_tags_skip_and_limit_tag_filter_active() -> Result<()> {
-    let path = format!(
-        "/v0/post/{}/{}/tags?skip_tags=4&limit_tags=3",
-        BAHRINGER_USER, BAHRINGER_POST
-    );
+    let path = format!("/v0/post/{BAHRINGER_USER}/{BAHRINGER_POST}/tags?skip_tags=4&limit_tags=3");
     let body = get_request(&path).await?;
 
     assert!(body.is_array());
@@ -148,7 +139,7 @@ async fn test_user_tags_skip_and_limit_tag_filter_active() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_user_tags_limit_taggers_filter_active() -> Result<()> {
-    let path = format!("/v0/post/{}/{}/tags?limit_taggers=1", PEER_PUBKY, POST_ID);
+    let path = format!("/v0/post/{PEER_PUBKY}/{POST_ID}/tags?limit_taggers=1");
     let body = get_request(&path).await?;
 
     assert!(body.is_array());
@@ -168,10 +159,7 @@ async fn test_user_tags_limit_taggers_filter_active() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_user_tags_full_filter_active() -> Result<()> {
-    let path = format!(
-        "/v0/post/{}/{}/tags?limit_tags=1&limit_taggers=1",
-        PEER_PUBKY, POST_ID
-    );
+    let path = format!("/v0/post/{PEER_PUBKY}/{POST_ID}/tags?limit_tags=1&limit_taggers=1");
     let body = get_request(&path).await?;
 
     assert!(body.is_array());
@@ -210,7 +198,7 @@ async fn test_user_does_not_exist() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_post_specific_tag() -> Result<()> {
-    let path = format!("/v0/post/{}/{}/taggers/{}", PEER_PUBKY, POST_ID, FREE_LABEL);
+    let path = format!("/v0/post/{PEER_PUBKY}/{POST_ID}/taggers/{FREE_LABEL}");
     let body = get_request(&path).await?;
 
     let taggers_info: TaggersInfoResponse = serde_json::from_value(body)?;
@@ -227,10 +215,7 @@ async fn test_post_specific_tag() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_post_specific_tag_with_limit() -> Result<()> {
-    let path = format!(
-        "/v0/post/{}/{}/taggers/{}?limit=1",
-        PEER_PUBKY, POST_ID, FREE_LABEL
-    );
+    let path = format!("/v0/post/{PEER_PUBKY}/{POST_ID}/taggers/{FREE_LABEL}?limit=1");
     let body = get_request(&path).await?;
 
     let taggers_info: TaggersInfoResponse = serde_json::from_value(body)?;
@@ -244,10 +229,8 @@ async fn test_post_specific_tag_with_limit() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_post_specific_tag_with_viewer_id() -> Result<()> {
-    let path = format!(
-        "/v0/post/{}/{}/taggers/{}?viewer_id={}",
-        PEER_PUBKY, POST_ID, FREE_LABEL, ANONYMOUS_PUBKY
-    );
+    let path =
+        format!("/v0/post/{PEER_PUBKY}/{POST_ID}/taggers/{FREE_LABEL}?viewer_id={ANONYMOUS_PUBKY}");
     let body = get_request(&path).await?;
 
     let taggers_info: TaggersInfoResponse = serde_json::from_value(body)?;
@@ -261,10 +244,7 @@ async fn test_post_specific_tag_with_viewer_id() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_post_specific_tag_with_skip() -> Result<()> {
-    let path = format!(
-        "/v0/post/{}/{}/taggers/{}?skip=1",
-        PEER_PUBKY, POST_ID, FREE_LABEL
-    );
+    let path = format!("/v0/post/{PEER_PUBKY}/{POST_ID}/taggers/{FREE_LABEL}?skip=1");
     let body = get_request(&path).await?;
 
     let taggers_info: TaggersInfoResponse = serde_json::from_value(body)?;
@@ -280,10 +260,7 @@ async fn test_post_specific_tag_with_skip() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_post_specific_tag_with_full_filters() -> Result<()> {
-    let path = format!(
-        "/v0/post/{}/{}/taggers/{}?skip=2&limit=1",
-        PEER_PUBKY, POST_ID, FREE_LABEL
-    );
+    let path = format!("/v0/post/{PEER_PUBKY}/{POST_ID}/taggers/{FREE_LABEL}?skip=2&limit=1");
     let body = get_request(&path).await?;
 
     let taggers_info: TaggersInfoResponse = serde_json::from_value(body)?;
@@ -299,10 +276,7 @@ async fn test_post_specific_tag_with_full_filters() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_post_specific_tag_with_no_result() -> Result<()> {
-    let path = format!(
-        "/v0/post/{}/{}/taggers/{}?skip=3&limit=1",
-        PEER_PUBKY, POST_ID, FREE_LABEL
-    );
+    let path = format!("/v0/post/{PEER_PUBKY}/{POST_ID}/taggers/{FREE_LABEL}?skip=3&limit=1");
     invalid_get_request(&path, StatusCode::NOT_FOUND).await?;
 
     Ok(())

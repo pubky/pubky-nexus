@@ -139,7 +139,7 @@ fn bench_get_post_tags(c: &mut Criterion) {
     c.bench_with_input(
         BenchmarkId::new(
             "bench_get_post_tags",
-            format!("user_id: {}, post_id: {}", user_id, post_id),
+            format!("user_id: {user_id}, post_id: {post_id}"),
         ),
         &[user_id, post_id],
         |b, &params| {
@@ -167,7 +167,7 @@ fn bench_get_post_tag_taggers(c: &mut Criterion) {
     c.bench_with_input(
         BenchmarkId::new(
             "bench_get_post_tag_taggers",
-            format!("user_id: {}, post_id: {}", user_id, post_id),
+            format!("user_id: {user_id}, post_id: {post_id}"),
         ),
         &[user_id, post_id],
         |b, &params| {
@@ -217,7 +217,7 @@ fn bench_get_global_tag_taggers(c: &mut Criterion) {
     let rt: Runtime = Runtime::new().unwrap();
 
     c.bench_with_input(
-        BenchmarkId::new("bench_get_global_tag_taggers", format!("label: {}", label)),
+        BenchmarkId::new("bench_get_global_tag_taggers", format!("label: {label}")),
         &[label],
         |b, &params| {
             b.to_async(&rt).iter(|| async {
@@ -253,7 +253,7 @@ fn bench_get_following_reach_hot_tags(c: &mut Criterion) {
     c.bench_with_input(
         BenchmarkId::new(
             "bench_get_following_reach_hot_tags",
-            format!("user_id: {}, reach: {}", user_id, reach_by),
+            format!("user_id: {user_id}, reach: {reach_by}"),
         ),
         &[user_id],
         |b, &params| {
@@ -294,7 +294,7 @@ fn bench_get_followers_reach_hot_tags(c: &mut Criterion) {
     c.bench_with_input(
         BenchmarkId::new(
             "bench_get_followers_reach_hot_tags",
-            format!("user_id: {}, reach: {}", user_id, reach_by),
+            format!("user_id: {user_id}, reach: {reach_by}"),
         ),
         &[user_id],
         |b, &params| {
@@ -335,7 +335,7 @@ fn bench_get_friends_reach_hot_tags(c: &mut Criterion) {
     c.bench_with_input(
         BenchmarkId::new(
             "bench_get_friends_reach_hot_tags",
-            format!("user_id: {}, reach: {}", user_id, reach_by),
+            format!("user_id: {user_id}, reach: {reach_by}"),
         ),
         &[user_id],
         |b, &params| {

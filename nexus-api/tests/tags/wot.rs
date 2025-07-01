@@ -30,18 +30,13 @@ async fn test_wot_user_tags_endpoints() -> Result<(), DynError> {
     let _ = clear_wot_tags_cache().await;
 
     // Make sure, we still not index the WoT tags requesting the taggers
-    let path = format!(
-        "/v0/user/{}/taggers/{}?viewer_id={}&depth=2",
-        AURELIO_USER, ATHENS_TAG, EPICTTO_VIEWER
-    );
+    let path =
+        format!("/v0/user/{AURELIO_USER}/taggers/{ATHENS_TAG}?viewer_id={EPICTTO_VIEWER}&depth=2");
     // If we get error here, delete the Cache:... indexes
     invalid_get_request(&path, StatusCode::NOT_FOUND).await?;
 
     // => Start indexing the WoT tags
-    let path = format!(
-        "/v0/user/{}/tags?viewer_id={}&depth=2",
-        AURELIO_USER, EPICTTO_VIEWER
-    );
+    let path = format!("/v0/user/{AURELIO_USER}/tags?viewer_id={EPICTTO_VIEWER}&depth=2");
     let body = get_request(&path).await?;
 
     assert!(body.is_array());
@@ -59,10 +54,8 @@ async fn test_wot_user_tags_endpoints() -> Result<(), DynError> {
     compare_tag_details(&tags[0], athens_hot_tag);
 
     // => test_wot_user_tags_endpoint_with_tag_limit
-    let path = format!(
-        "/v0/user/{}/tags?viewer_id={}&depth=2&limit_tags=1",
-        AURELIO_USER, EPICTTO_VIEWER
-    );
+    let path =
+        format!("/v0/user/{AURELIO_USER}/tags?viewer_id={EPICTTO_VIEWER}&depth=2&limit_tags=1");
     let body = get_request(&path).await?;
 
     assert!(body.is_array());
@@ -78,10 +71,8 @@ async fn test_wot_user_tags_endpoints() -> Result<(), DynError> {
     compare_tag_details(&tags[0], athens_hot_tag);
 
     // => test_wot_user_tags_endpoint_with_tag_skip
-    let path = format!(
-        "/v0/user/{}/tags?viewer_id={}&depth=2&skip_tags=1",
-        AURELIO_USER, EPICTTO_VIEWER
-    );
+    let path =
+        format!("/v0/user/{AURELIO_USER}/tags?viewer_id={EPICTTO_VIEWER}&depth=2&skip_tags=1");
     let body = get_request(&path).await?;
 
     assert!(body.is_array());
@@ -98,8 +89,7 @@ async fn test_wot_user_tags_endpoints() -> Result<(), DynError> {
 
     // => test_wot_user_tags_endpoint_with_tag_skip_and_taggers_limit
     let path = format!(
-        "/v0/user/{}/tags?viewer_id={}&depth=2&skip_tags=1&limit_taggers=1",
-        AURELIO_USER, EPICTTO_VIEWER
+        "/v0/user/{AURELIO_USER}/tags?viewer_id={EPICTTO_VIEWER}&depth=2&skip_tags=1&limit_taggers=1"
     );
     let body = get_request(&path).await?;
 
@@ -116,10 +106,8 @@ async fn test_wot_user_tags_endpoints() -> Result<(), DynError> {
     compare_tag_details(&tags[0], now_hot_tag);
 
     // => test_wot_user_tags_endpoint_with_tagger_limit
-    let path = format!(
-        "/v0/user/{}/tags?viewer_id={}&depth=2&limit_taggers=1",
-        AURELIO_USER, EPICTTO_VIEWER
-    );
+    let path =
+        format!("/v0/user/{AURELIO_USER}/tags?viewer_id={EPICTTO_VIEWER}&depth=2&limit_taggers=1");
     let body = get_request(&path).await?;
 
     assert!(body.is_array());
@@ -138,8 +126,7 @@ async fn test_wot_user_tags_endpoints() -> Result<(), DynError> {
 
     // => test_wot_user_tags_endpoint_with_tag_and_tagger_limit
     let path = format!(
-        "/v0/user/{}/tags?viewer_id={}&depth=2&limit_tags=1&limit_taggers=1",
-        AURELIO_USER, EPICTTO_VIEWER
+        "/v0/user/{AURELIO_USER}/tags?viewer_id={EPICTTO_VIEWER}&depth=2&limit_tags=1&limit_taggers=1"
     );
     let body = get_request(&path).await?;
 
@@ -156,10 +143,8 @@ async fn test_wot_user_tags_endpoints() -> Result<(), DynError> {
     compare_tag_details(&tags[0], now_hot_tag);
 
     // => test_wot_user_label_taggers
-    let path = format!(
-        "/v0/user/{}/taggers/{}?viewer_id={}&depth=2",
-        AURELIO_USER, ATHENS_TAG, EPICTTO_VIEWER
-    );
+    let path =
+        format!("/v0/user/{AURELIO_USER}/taggers/{ATHENS_TAG}?viewer_id={EPICTTO_VIEWER}&depth=2");
     let body = get_request(&path).await?;
 
     let mut mock_taggers = vec![USER_A, USER_B, USER_C];
@@ -167,8 +152,7 @@ async fn test_wot_user_tags_endpoints() -> Result<(), DynError> {
 
     // => test_wot_user_label_taggers_with_limit
     let path = format!(
-        "/v0/user/{}/taggers/{}?viewer_id={}&depth=2&limit=2",
-        AURELIO_USER, ATHENS_TAG, EPICTTO_VIEWER
+        "/v0/user/{AURELIO_USER}/taggers/{ATHENS_TAG}?viewer_id={EPICTTO_VIEWER}&depth=2&limit=2"
     );
     let body = get_request(&path).await?;
 
@@ -177,8 +161,7 @@ async fn test_wot_user_tags_endpoints() -> Result<(), DynError> {
 
     // => test_wot_user_label_taggers_with_limit
     let path = format!(
-        "/v0/user/{}/taggers/{}?viewer_id={}&depth=2&limit=1&skip=1",
-        AURELIO_USER, ATHENS_TAG, EPICTTO_VIEWER
+        "/v0/user/{AURELIO_USER}/taggers/{ATHENS_TAG}?viewer_id={EPICTTO_VIEWER}&depth=2&limit=1&skip=1"
     );
     let body = get_request(&path).await?;
 
@@ -186,10 +169,7 @@ async fn test_wot_user_tags_endpoints() -> Result<(), DynError> {
     verify_taggers_list(mock_taggers, body);
 
     // USER VIEW
-    let path = format!(
-        "/v0/user/{}?viewer_id={}&depth=2",
-        AURELIO_USER, EPICTTO_VIEWER
-    );
+    let path = format!("/v0/user/{AURELIO_USER}?viewer_id={EPICTTO_VIEWER}&depth=2");
     let body = get_request(&path).await?;
     let tags = body["tags"].clone();
 
@@ -251,19 +231,13 @@ async fn clear_wot_tags_cache() -> Result<(), DynError> {
     TestServiceServer::get_test_server().await;
     let mut redis_conn = get_redis_conn().await?;
 
-    let athens_key = format!(
-        "Cache:User:Taggers:{}:{}:{}",
-        EPICTTO_VIEWER, AURELIO_USER, ATHENS_TAG
-    );
-    let now_key = format!(
-        "Cache:User:Taggers:{}:{}:{}",
-        EPICTTO_VIEWER, AURELIO_USER, NOW_TAG
-    );
+    let athens_key = format!("Cache:User:Taggers:{EPICTTO_VIEWER}:{AURELIO_USER}:{ATHENS_TAG}");
+    let now_key = format!("Cache:User:Taggers:{EPICTTO_VIEWER}:{AURELIO_USER}:{NOW_TAG}");
     // Remove the SETs
     let _: () = redis_conn.del(athens_key).await?;
     let _: () = redis_conn.del(now_key).await?;
     // Remove the SORTED SET
-    let sorted_set_key = format!("Cache:Sorted:Users:Tag:{}:{}", EPICTTO_VIEWER, AURELIO_USER);
+    let sorted_set_key = format!("Cache:Sorted:Users:Tag:{EPICTTO_VIEWER}:{AURELIO_USER}");
     let _: () = redis_conn.del(sorted_set_key).await?;
     Ok(())
 }

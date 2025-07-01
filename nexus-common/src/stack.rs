@@ -73,7 +73,7 @@ impl StackManager {
             .with_endpoint(otel_endpoint.clone())
             .with_timeout(Duration::from_secs(3))
             .build()
-            .map_err(|e| format!("OTLP Tracing Exporter Error: {}", e))?;
+            .map_err(|e| format!("OTLP Tracing Exporter Error: {e}"))?;
 
         // Collects spans in memory and sends them in batches
         let tracer_provider = SdkTracerProvider::builder()
@@ -91,7 +91,7 @@ impl StackManager {
             .with_endpoint(otel_endpoint.clone())
             .with_timeout(Duration::from_secs(3))
             .build()
-            .map_err(|e| format!("OTLP Logging Exporter Error: {}", e))?;
+            .map_err(|e| format!("OTLP Logging Exporter Error: {e}"))?;
 
         let logging_provider = SdkLoggerProvider::builder()
             .with_resource(Self::create_resource(service_name))

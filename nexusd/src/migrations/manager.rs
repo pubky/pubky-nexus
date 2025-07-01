@@ -95,7 +95,7 @@ impl Default for MigrationManager {
     fn default() -> Self {
         let graph_connection = match get_neo4j_graph() {
             Ok(connection) => connection,
-            Err(e) => panic!("Could not initialise migration manager: {:?}", e),
+            Err(e) => panic!("Could not initialise migration manager: {e:?}"),
         };
         Self {
             graph: graph_connection,
@@ -112,7 +112,7 @@ impl MigrationManager {
     pub async fn new_migration(name: String) -> Result<(), DynError> {
         let now = Utc::now().timestamp();
         let snake_case_name = utils::to_snake_case(&name);
-        let migration_file_name = format!("{}_{}", snake_case_name, now);
+        let migration_file_name = format!("{snake_case_name}_{now}");
         let migration_template = generate_template(&migration_file_name);
         let file_path = format!("{}{}.rs", MIGRATION_PATH, &migration_file_name);
         tokio::fs::write(file_path.clone(), migration_template)
@@ -126,14 +126,14 @@ impl MigrationManager {
             })?;
 
         // append to migrations_list/mod.rs
-        let mod_file_path = format!("{}mod.rs", MIGRATION_PATH);
-        let mod_file_content = format!("pub mod {};\n", migration_file_name);
+        let mod_file_path = format!("{MIGRATION_PATH}mod.rs");
+        let mod_file_content = format!("pub mod {migration_file_name};\n");
         let mut mod_file = tokio::fs::OpenOptions::new()
             .append(true)
             .open(mod_file_path)
             .await?;
         tokio::io::AsyncWriteExt::write_all(&mut mod_file, mod_file_content.as_bytes()).await?;
-        println!("Migration file created at {}", file_path);
+        println!("Migration file created at {file_path}");
         Ok(())
     }
 
@@ -229,11 +229,11 @@ impl MigrationManager {
             Ok(row) => match row {
                 Some(row) => match row.get::<Vec<MigrationNode>>("migrations") {
                     Ok(migrations) => Ok(migrations),
-                    Err(e) => Err(format!("GET ROW ERROR: {:?}, {:?}", e, row).into()),
+                    Err(e) => Err(format!("GET ROW ERROR: {e:?}, {row:?}").into()),
                 },
                 None => Err("Migration Not found".into()),
             },
-            Err(e) => Err(format!("GET MIGRATION ERROR: {:?}", e).into()),
+            Err(e) => Err(format!("GET MIGRATION ERROR: {e:?}").into()),
         }
     }
 

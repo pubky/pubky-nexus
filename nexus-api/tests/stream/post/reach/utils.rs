@@ -15,31 +15,31 @@ pub async fn test_reach_filter_with_posts(
     limit: Option<usize>,
     expected_posts: &[&str],
 ) -> Result<()> {
-    let mut path = format!("{ROOT_PATH}?observer_id={}&source={}", user_id, source);
+    let mut path = format!("{ROOT_PATH}?observer_id={user_id}&source={source}");
 
     let mut verify_timeline = true;
 
     if let Some(sorting) = sorting {
-        path.push_str(&format!("&sorting={}", sorting));
+        path.push_str(&format!("&sorting={sorting}"));
         verify_timeline = false;
     }
     if let Some(tags) = tags {
-        path.push_str(&format!("&tags={}", tags));
+        path.push_str(&format!("&tags={tags}"));
     }
     if let Some(start) = start {
-        path.push_str(&format!("&start={}", start));
+        path.push_str(&format!("&start={start}"));
     }
     if let Some(end) = end {
-        path.push_str(&format!("&end={}", end));
+        path.push_str(&format!("&end={end}"));
     }
     if let Some(skip) = skip {
-        path.push_str(&format!("&skip={}", skip));
+        path.push_str(&format!("&skip={skip}"));
     }
     if let Some(limit) = limit {
-        path.push_str(&format!("&limit={}", limit));
+        path.push_str(&format!("&limit={limit}"));
     }
 
-    println!("PATH: {:?}", path);
+    println!("PATH: {path:?}");
 
     let body = get_request(&path).await?;
 

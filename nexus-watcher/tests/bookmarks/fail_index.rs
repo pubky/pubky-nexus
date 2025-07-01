@@ -38,16 +38,13 @@ async fn test_homeserver_bookmark_without_user() -> Result<()> {
 
     // Create a bookmark content
     let bookmark = PubkyAppBookmark {
-        uri: format!("pubky://{}/pub/pubky.app/posts/{}", author_id, post_id),
+        uri: format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}"),
         created_at: chrono::Utc::now().timestamp_millis(),
     };
 
     // Create the bookmark of the shadow user
     let bookmark_id = bookmark.create_id();
-    let bookmark_url = format!(
-        "pubky://{}/pub/pubky.app/bookmarks/{}",
-        shadow_user_id, bookmark_id
-    );
+    let bookmark_url = format!("pubky://{shadow_user_id}/pub/pubky.app/bookmarks/{bookmark_id}");
 
     // Switch OFF the event processor to simulate the pending events to index
     test = test.remove_event_processing().await;
@@ -55,7 +52,7 @@ async fn test_homeserver_bookmark_without_user() -> Result<()> {
     test.put(&bookmark_url, bookmark).await?;
 
     // Create raw event line to retrieve the content from the homeserver
-    let bookmark_event = format!("PUT {}", bookmark_url);
+    let bookmark_event = format!("PUT {bookmark_url}");
 
     // Simulate the event processor to handle the event.
     // If the event processor were activated, the test would not catch the missing dependency

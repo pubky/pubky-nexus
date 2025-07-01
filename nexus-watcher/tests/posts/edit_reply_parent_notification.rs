@@ -47,10 +47,7 @@ async fn test_edit_parent_post_notification() -> Result<()> {
     let reply = PubkyAppPost {
         content: "Reply by User B".to_string(),
         kind: PubkyAppPostKind::Short,
-        parent: Some(format!(
-            "pubky://{}/pub/pubky.app/posts/{}",
-            user_a_id, post_id
-        )),
+        parent: Some(format!("pubky://{user_a_id}/pub/pubky.app/posts/{post_id}")),
         embed: None,
         attachments: None,
     };
@@ -58,7 +55,7 @@ async fn test_edit_parent_post_notification() -> Result<()> {
 
     // User A edits their original post
     post.content = "Edited post by User A".to_string();
-    let edited_url = format!("pubky://{}/pub/pubky.app/posts/{}", user_a_id, post_id);
+    let edited_url = format!("pubky://{user_a_id}/pub/pubky.app/posts/{post_id}");
 
     // Overwrite existing post in the homeserver with the edited one
     test.put(edited_url.as_str(), &post).await?;
@@ -87,12 +84,12 @@ async fn test_edit_parent_post_notification() -> Result<()> {
         );
         assert_eq!(
             edited_uri,
-            &format!("pubky://{}/pub/pubky.app/posts/{}", user_a_id, post_id),
+            &format!("pubky://{user_a_id}/pub/pubky.app/posts/{post_id}"),
             "Notification should contain the correct edited post URI"
         );
         assert_eq!(
             linked_uri,
-            &format!("pubky://{}/pub/pubky.app/posts/{}", user_b_id, reply_id),
+            &format!("pubky://{user_b_id}/pub/pubky.app/posts/{reply_id}"),
             "Notification should contain the correct reply URI"
         );
         assert_eq!(

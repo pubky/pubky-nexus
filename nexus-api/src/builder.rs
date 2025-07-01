@@ -126,7 +126,7 @@ impl NexusApi {
             })?,
         };
         let addr = listener.local_addr().unwrap_or_else(|e| {
-            panic!("Failed to get local address after binding: {}", e);
+            panic!("Failed to get local address after binding: {e}");
         });
         info!("Listening on {:?}", addr);
 

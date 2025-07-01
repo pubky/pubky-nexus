@@ -6,7 +6,7 @@ use axum::http::StatusCode;
 async fn test_search_users_by_username() -> Result<()> {
     let username = "Jo";
 
-    let res = get_request(&format!("/v0/search/users?username={}", username)).await?;
+    let res = get_request(&format!("/v0/search/users?username={username}")).await?;
 
     assert!(res.is_array());
 
@@ -41,7 +41,7 @@ async fn test_search_non_existing_user() -> Result<()> {
     let non_existing_username = "idfjwfs8u9jfkoi"; // Username that doesn't exist
 
     let res = invalid_get_request(
-        &format!("/v0/search/users?username={}", non_existing_username),
+        &format!("/v0/search/users?username={non_existing_username}"),
         StatusCode::NOT_FOUND,
     )
     .await?;
@@ -66,7 +66,7 @@ async fn test_search_empty_username() -> Result<()> {
     let empty_username = ""; // Empty username
 
     let res = invalid_get_request(
-        &format!("/v0/search/users?username={}", empty_username),
+        &format!("/v0/search/users?username={empty_username}"),
         StatusCode::BAD_REQUEST,
     )
     .await?;

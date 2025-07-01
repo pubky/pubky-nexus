@@ -17,10 +17,8 @@ const CHILD_6_POST_ID: &str = "7N8K0Y1C3T2Q";
 
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_replies() -> Result<()> {
-    let path = format!(
-        "{ROOT_PATH}?source=post_replies&author_id={}&post_id={}",
-        AUTHOR_ID, PARENT_POST_ID
-    );
+    let path =
+        format!("{ROOT_PATH}?source=post_replies&author_id={AUTHOR_ID}&post_id={PARENT_POST_ID}");
     let body = get_request(&path).await?;
 
     assert!(body.is_array());
@@ -52,8 +50,7 @@ async fn test_stream_posts_replies() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_replies_ascending_with_skip() -> Result<()> {
     let path = format!(
-        "{ROOT_PATH}?source=post_replies&author_id={}&post_id={}&order=ascending&skip=2",
-        AUTHOR_ID, PARENT_POST_ID
+        "{ROOT_PATH}?source=post_replies&author_id={AUTHOR_ID}&post_id={PARENT_POST_ID}&order=ascending&skip=2"
     );
     let body = get_request(&path).await?;
 
@@ -84,8 +81,7 @@ async fn test_stream_posts_replies_ascending_with_skip() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_replies_with_limit() -> Result<()> {
     let path = format!(
-        "{ROOT_PATH}?source=post_replies&author_id={}&post_id={}&limit=3",
-        AUTHOR_ID, PARENT_POST_ID
+        "{ROOT_PATH}?source=post_replies&author_id={AUTHOR_ID}&post_id={PARENT_POST_ID}&limit=3"
     );
     let body = get_request(&path).await?;
 
@@ -111,8 +107,7 @@ async fn test_stream_posts_replies_with_limit() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_replies_with_start_query() -> Result<()> {
     let path = format!(
-        "{ROOT_PATH}?source=post_replies&author_id={}&post_id={}&start=1719477230025",
-        AUTHOR_ID, PARENT_POST_ID
+        "{ROOT_PATH}?source=post_replies&author_id={AUTHOR_ID}&post_id={PARENT_POST_ID}&start=1719477230025"
     );
     let body = get_request(&path).await?;
 
@@ -138,8 +133,7 @@ async fn test_stream_posts_replies_with_start_query() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_replies_with_end_query() -> Result<()> {
     let path = format!(
-        "{ROOT_PATH}?source=post_replies&author_id={}&post_id={}&end=1719477230060",
-        AUTHOR_ID, PARENT_POST_ID
+        "{ROOT_PATH}?source=post_replies&author_id={AUTHOR_ID}&post_id={PARENT_POST_ID}&end=1719477230060"
     );
     let body = get_request(&path).await?;
 
@@ -165,8 +159,7 @@ async fn test_stream_posts_replies_with_end_query() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_replies_with_start_and_end_query() -> Result<()> {
     let path = format!(
-        "{ROOT_PATH}?source=post_replies&author_id={}&post_id={}&start=1719477230150&end=1719477230017",
-        AUTHOR_ID, PARENT_POST_ID
+        "{ROOT_PATH}?source=post_replies&author_id={AUTHOR_ID}&post_id={PARENT_POST_ID}&start=1719477230150&end=1719477230017"
     );
     let body = get_request(&path).await?;
 
@@ -197,8 +190,7 @@ async fn test_stream_posts_replies_with_start_and_end_query() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_replies_with_start_and_end_also_limit_query() -> Result<()> {
     let path = format!(
-        "{ROOT_PATH}?source=post_replies&author_id={}&post_id={}&start=1719477230150&end=1719477230017&limit=3",
-        AUTHOR_ID, PARENT_POST_ID
+        "{ROOT_PATH}?source=post_replies&author_id={AUTHOR_ID}&post_id={PARENT_POST_ID}&start=1719477230150&end=1719477230017&limit=3"
     );
     let body = get_request(&path).await?;
 

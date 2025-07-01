@@ -38,7 +38,7 @@ async fn test_homeserver_follow_cannot_complete() -> Result<()> {
         .await?;
 
     // Create raw event line to retrieve the content from the homeserver
-    let follow_event = format!("PUT {}", follow_url);
+    let follow_event = format!("PUT {follow_url}");
 
     // Simulate the event processor to handle the event.
     // If the event processor were activated, the test would not catch the missing dependency
@@ -61,7 +61,7 @@ async fn test_homeserver_follow_cannot_complete() -> Result<()> {
         .await?;
 
     // Create raw event line to retrieve the content from the homeserver
-    let opposite_follow_event = format!("PUT {}", opposite_follow);
+    let opposite_follow_event = format!("PUT {opposite_follow}");
 
     // Simulate the event processor to handle the event.
     // If the event processor were activated, the test would not catch the missing dependency

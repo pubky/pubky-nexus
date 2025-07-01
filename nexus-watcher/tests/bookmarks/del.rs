@@ -43,14 +43,11 @@ async fn test_homeserver_unbookmark() -> Result<()> {
 
     // Step 3: Add a bookmark to the post. Before create a new user
     let bookmark = PubkyAppBookmark {
-        uri: format!("pubky://{}/pub/pubky.app/posts/{}", author_id, post_id),
+        uri: format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}"),
         created_at: chrono::Utc::now().timestamp_millis(),
     };
     let bookmark_id = bookmark.create_id();
-    let bookmark_url = format!(
-        "pubky://{}/pub/pubky.app/bookmarks/{}",
-        bookmarker_id, bookmark_id
-    );
+    let bookmark_url = format!("pubky://{bookmarker_id}/pub/pubky.app/bookmarks/{bookmark_id}");
 
     // Put bookmark
     test.put(&bookmark_url, bookmark).await.unwrap();

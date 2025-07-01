@@ -44,8 +44,8 @@ impl UserSearch {
         // Convert the username to lowercase to ensure case-insensitive search
         let name = name.to_lowercase();
 
-        let min = format!("[{}", name); // Inclusive range starting with "name"
-        let max = format!("({}~", name); // Exclusive range ending just after "name"
+        let min = format!("[{name}"); // Inclusive range starting with "name"
+        let max = format!("({name}~"); // Exclusive range ending just after "name"
 
         // Perform the lexicographical range search
         Self::try_from_index_sorted_set_lex(&USER_NAME_KEY_PARTS, &min, &max, skip, limit).await
@@ -78,7 +78,7 @@ impl UserSearch {
             let score = 0.0;
 
             // The value in the sorted set will be `username:user_id`
-            let member = format!("{}:{}", username, user_id);
+            let member = format!("{username}:{user_id}");
 
             items.push((score, member));
         }
@@ -116,7 +116,7 @@ impl UserSearch {
                 .find(|user| user.id.to_string() == *user_id)
                 .map(|user| user.name.to_lowercase());
             if let Some(existing_record) = existing_username {
-                let search_key = format!("{}:{}", existing_record, user_id);
+                let search_key = format!("{existing_record}:{user_id}");
                 records_to_delete.push(search_key);
             }
         }
