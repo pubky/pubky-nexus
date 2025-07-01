@@ -1,7 +1,13 @@
 [workspace]
 # See: https://github.com/rust-lang/rust/issues/90148#issuecomment-949194352
 resolver = "2"
-members = ["nexus-api", "nexus-common", "nexus-watcher", "nexusd", "examples"]
+members = [
+    "nexus-webapi",
+    "nexus-common",
+    "nexus-watcher",
+    "nexusd",
+    "examples",
+]
 
 [workspace.dependencies]
 async-trait = "0.1.88"

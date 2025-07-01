@@ -1,6 +1,6 @@
 use clap::Parser;
-use nexus_api::{NexusApi, NexusApiBuilder};
 use nexus_common::{file::expand_home_dir, types::DynError, ApiConfig, StackConfig};
+use nexus_webapi::{NexusApi, NexusApiBuilder};
 use std::{net::SocketAddr, path::PathBuf};
 
 #[derive(Parser)]

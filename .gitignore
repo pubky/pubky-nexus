@@ -4,7 +4,7 @@ docker/.env
 docker/.database*
 # Files
 /examples/static
-/nexus-api/static
+/nexus-webapi/static
 /nexus-watcher/static
 # Build artifacts
 /target

@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   workflow_call:
   push:
-    branches: 
+    branches:
       - main
       - dev
   pull_request:
@@ -66,9 +66,9 @@ jobs:
 
       - name: Load Mock Data
         run: cargo run -p nexusd -- db mock
-        
+
       - name: Run API integration tests
-        run: cargo nextest run -p nexus-api --no-fail-fast
+        run: cargo nextest run -p nexus-webapi --no-fail-fast
 
       - name: Run WATCHER integration tests
         run: cargo nextest run -p nexus-watcher --no-fail-fast

@@ -4,10 +4,10 @@ use crate::utils::{get_request, invalid_get_request};
 use anyhow::Result;
 use axum::http::StatusCode;
 use deadpool_redis::redis::AsyncCommands;
-use nexus_api::routes::v0::TaggersInfoResponse;
 use nexus_common::db::get_redis_conn;
 use nexus_common::models::tag::TagDetails;
 use nexus_common::types::DynError;
+use nexus_webapi::routes::v0::TaggersInfoResponse;
 use serde_json::Value;
 
 // ##### WoT user tags ####

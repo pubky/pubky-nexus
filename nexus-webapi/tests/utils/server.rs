@@ -1,6 +1,6 @@
 use anyhow::Result;
-use nexus_api::NexusApi;
 use nexus_common::FILES_DIR_TEST;
+use nexus_webapi::NexusApi;
 use std::{net::Ipv4Addr, path::PathBuf, sync::Arc};
 use tokio::{
     net::TcpListener,

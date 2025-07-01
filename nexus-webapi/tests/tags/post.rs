@@ -1,6 +1,6 @@
 use anyhow::Result;
 use axum::http::StatusCode;
-use nexus_api::routes::v0::TaggersInfoResponse;
+use nexus_webapi::routes::v0::TaggersInfoResponse;
 
 use crate::{
     tags::user::PUBKY_PEER,

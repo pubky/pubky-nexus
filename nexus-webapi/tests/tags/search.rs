@@ -1,7 +1,7 @@
 use crate::utils::{get_request, invalid_get_request};
 use anyhow::Result;
 use axum::http::StatusCode;
-use nexus_api::routes::v0::endpoints::SEARCH_TAGS_BY_PREFIX_ROUTE;
+use nexus_webapi::routes::v0::endpoints::SEARCH_TAGS_BY_PREFIX_ROUTE;
 
 pub fn format_search_tags_by_prefix(prefix: &str) -> String {
     SEARCH_TAGS_BY_PREFIX_ROUTE.replace("{prefix}", prefix)

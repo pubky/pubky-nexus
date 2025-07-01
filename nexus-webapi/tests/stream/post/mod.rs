@@ -1,4 +1,4 @@
-use nexus_api::routes::v0::endpoints;
+use nexus_webapi::routes::v0::endpoints;
 
 pub mod author;
 pub mod author_replies;

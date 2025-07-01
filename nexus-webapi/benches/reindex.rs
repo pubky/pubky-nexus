@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use nexus_api::mock::MockDb;
 use nexus_common::db::reindex;
+use nexus_webapi::mock::MockDb;
 use setup::run_setup;
 use std::time::Duration;
 use tokio::runtime::Runtime;
