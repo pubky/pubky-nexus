@@ -2502,7 +2502,7 @@ dependencies = [
 
 [[package]]
 name = "nexus-common"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2543,7 +2543,7 @@ dependencies = [
 
 [[package]]
 name = "nexus-watcher"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2568,7 +2568,7 @@ dependencies = [
 
 [[package]]
 name = "nexus-webapi"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2600,7 +2600,7 @@ dependencies = [
 
 [[package]]
 name = "nexusd"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "async-trait",
  "chrono",

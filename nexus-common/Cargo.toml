@@ -1,6 +1,6 @@
 [package]
 name = "nexus-common"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 description = "Nexus common utils"
 homepage = "https://github.com/pubky/pubky-nexus"
