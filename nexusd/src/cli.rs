@@ -1,6 +1,6 @@
 use clap::{Args, Parser, Subcommand};
-use nexus_api::mock::MockType;
 use nexus_common::file::{expand_home_dir, DEFAULT_HOME_DIR};
+use nexus_webapi::mock::MockType;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]

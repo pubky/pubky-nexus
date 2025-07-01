@@ -1,6 +1,7 @@
 # Examples
 
-Example usage of crates `nexus-api` and `nexus-watcher`:
+Example usage of crates `nexus-webapi` and `nexus-watcher`:
+
 - **`api`** – A Nexus API web server exposing HTTP endpoints to query the local graph database or in-memory cache
 - **`watcher`** – A background service that fetches homeserver events and ingests them into the graph database or cache
 

@@ -28,7 +28,7 @@ The crate leverages the shared `nexus_common` library for database interactions 
 To add Nexus API to your project, include it in your `Cargo.toml` dependencies:
 
 ```bash
-cargo add nexus-api
+cargo add nexus-webapi
 ```
 
 ## Quick Examples
@@ -36,7 +36,7 @@ cargo add nexus-api
 Below is a simple example to start the Nexus API server:
 
 ```rust
-use nexus_api::builder::NexusApi;
+use nexus_webapi::builder::NexusApi;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

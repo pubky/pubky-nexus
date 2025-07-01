@@ -59,7 +59,7 @@ cp .env-sample .env
 docker-compose up -d
 ```
 
-3. Optionally, populate the Neo4j database with initial mock data. Follow [Running Tests](#running-tests) section about setting up mock data.  
+3. Optionally, populate the Neo4j database with initial mock data. Follow [Running Tests](#running-tests) section about setting up mock data.
 
 4. Run the Nexus service:
 
@@ -79,7 +79,6 @@ cargo run -p nexusd -- api
    - Swagger UI: [http://localhost:8080/swagger-ui](http://localhost:8080/swagger-ui)
    - Redis Insight: [http://localhost:8001/redis-stack/browser](http://localhost:8001/redis-stack/browser)
    - Neo4J Browser: [http://localhost:7474/browser/](http://localhost:7474/browser/)
-
 
 ## 📈 Observability
 
@@ -117,7 +116,7 @@ cargo run -p nexusd -- db migration new TagCountsReset
 ```
 
 This will generate a new migration file in the `nexusd/src/migrations/migrations_list` directory.  
-Next, register your migration in the `import_migrations` function in `nexusd/src/migrations/mod.rs` file, which ensures it is included in the migration lifecycle. Once registered, implement the required phases (dual_write, backfill, cutover, and cleanup) in the generated file `nexusd/src/migrations/migrations_list/tag_counts_reset_1739459180.rs`. Each phase serves a specific purpose in safely transitioning data between the old and new sources. 
+Next, register your migration in the `import_migrations` function in `nexusd/src/migrations/mod.rs` file, which ensures it is included in the migration lifecycle. Once registered, implement the required phases (dual_write, backfill, cutover, and cleanup) in the generated file `nexusd/src/migrations/migrations_list/tag_counts_reset_1739459180.rs`. Each phase serves a specific purpose in safely transitioning data between the old and new sources.
 
 ### Run the migration
 
@@ -150,7 +149,7 @@ To test specific componenets or feature(s):
 ```bash
 # component tests
 cargo nextest run -p nexus-watcher --no-fail-fast
-cargo nextest run -p nexus-api --no-fail-fast
+cargo nextest run -p nexus-webapi --no-fail-fast
 # features
 cargo nextest run -p nexus-watcher files::create --no-fail-fast
 ```
@@ -160,7 +159,7 @@ cargo nextest run -p nexus-watcher files::create --no-fail-fast
 If you want to see the performance of the server you can run the benchmarks
 
 ```bash
-cargo bench -p nexus-api
+cargo bench -p nexus-webapi
 # or if you want specific endpoint
 cargo bench --bench --bench user
 ```
@@ -176,7 +175,6 @@ To contribute to Nexus, follow these steps:
 1. **Fork the Repository** and create a feature branch
 2. **Write Tests**: Ensure new features and changes are tested and benchmarked
 3. **Submit a Pull Request** and provide a description of the changes
-
 
 ## 🌐 Useful Links
 

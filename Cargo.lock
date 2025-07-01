@@ -2460,38 +2460,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nexus-api"
-version = "0.4.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "axum",
- "axum-server",
- "chrono",
- "clap",
- "const_format",
- "criterion",
- "deadpool-redis",
- "httpc-test",
- "neo4rs",
- "nexus-common",
- "once_cell",
- "opentelemetry",
- "opentelemetry_sdk",
- "pubky-app-specs",
- "serde",
- "serde_json",
- "thiserror 2.0.12",
- "tokio",
- "tokio-shared-rt",
- "tower-http",
- "tracing",
- "url",
- "utoipa",
- "utoipa-swagger-ui",
-]
-
-[[package]]
 name = "nexus-common"
 version = "0.4.0"
 dependencies = [
@@ -2525,9 +2493,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "nexus-api",
  "nexus-common",
  "nexus-watcher",
+ "nexus-webapi",
  "pubky-app-specs",
  "tokio",
 ]
@@ -2558,6 +2526,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-webapi"
+version = "0.4.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "axum-server",
+ "chrono",
+ "clap",
+ "const_format",
+ "criterion",
+ "deadpool-redis",
+ "httpc-test",
+ "neo4rs",
+ "nexus-common",
+ "once_cell",
+ "opentelemetry",
+ "opentelemetry_sdk",
+ "pubky-app-specs",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.12",
+ "tokio",
+ "tokio-shared-rt",
+ "tower-http",
+ "tracing",
+ "url",
+ "utoipa",
+ "utoipa-swagger-ui",
+]
+
+[[package]]
 name = "nexusd"
 version = "0.4.0"
 dependencies = [
@@ -2566,9 +2566,9 @@ dependencies = [
  "clap",
  "dirs",
  "neo4rs",
- "nexus-api",
  "nexus-common",
  "nexus-watcher",
+ "nexus-webapi",
  "serde",
  "tokio",
  "tokio-shared-rt",

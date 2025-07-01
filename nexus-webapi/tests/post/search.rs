@@ -1,6 +1,6 @@
 use anyhow::Result;
 use axum::http::StatusCode;
-use nexus_api::routes::v0::endpoints::SEARCH_POSTS_BY_TAG_ROUTE;
+use nexus_webapi::routes::v0::endpoints::SEARCH_POSTS_BY_TAG_ROUTE;
 use serde_json::Value;
 
 use crate::{

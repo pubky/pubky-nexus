@@ -1,6 +1,6 @@
 //! # Nexus API
 //!
-//! The `nexus-api` crate implements the RESTful API server for the Nexus platform.
+//! The `nexus-webapi` crate implements the RESTful API server for the Nexus platform.
 //! It is responsible for:
 //!
 //! - **Defining and serving HTTP endpoints:** Implements endpoints for users, posts, files,
@@ -21,7 +21,7 @@
 //! To start the API server, use the provided builder API:
 //!
 //! ```rust
-//! use nexus_api::builder::NexusApi;
+//! use nexus_webapi::builder::NexusApi;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
