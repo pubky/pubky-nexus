@@ -85,7 +85,7 @@ async fn put_sync_post(
         OperationOutcome::CreatedOrDeleted => {
             // SAVE TO INDEXES
             let post_key_slice: &[&str] = &[&author_id, post_id];
-            let tag_label_slice = &[tag_label];
+            let tag_label_slice = &[tag_label.to_string()];
 
             let indexing_results = tokio::join!(
                 // Update user counts for tagger
@@ -192,7 +192,7 @@ async fn put_sync_user(
             }
         }
         OperationOutcome::CreatedOrDeleted => {
-            let tag_label_slice = &[tag_label];
+            let tag_label_slice = &[tag_label.to_string()];
 
             // SAVE TO INDEX
             let indexing_results = tokio::join!(

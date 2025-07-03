@@ -1,6 +1,7 @@
-use crate::routes::v0::endpoints::SEARCH_USERS_ROUTE;
+use crate::routes::v0::endpoints::{SEARCH_USERS_BY_ID_ROUTE, SEARCH_USERS_BY_NAME_ROUTE};
+use crate::routes::v0::search::USER_ID_SEARCH_MIN_PREFIX_LEN;
 use crate::{Error, Result};
-use axum::extract::Query;
+use axum::extract::{Path, Query};
 use axum::Json;
 use nexus_common::models::user::UserSearch;
 use nexus_common::types::Pagination;
@@ -10,18 +11,17 @@ use utoipa::OpenApi;
 
 #[derive(Deserialize)]
 pub struct SearchQuery {
-    username: Option<String>,
     #[serde(flatten)]
     pagination: Pagination,
 }
 
 #[utoipa::path(
     get,
-    path = SEARCH_USERS_ROUTE,
-    description = "Search user id by username",
+    path = SEARCH_USERS_BY_NAME_ROUTE,
+    description = "Search user id by username prefix",
     tag = "Search",
     params(
-        ("username" = Option<String>, Query, description = "Username to search for"),
+        ("prefix" = String, Path, description = "Username prefix to search for"),
         ("skip" = Option<usize>, Query, description = "Skip N results"),
         ("limit" = Option<usize>, Query, description = "Limit the number of results")
     ),
@@ -32,22 +32,21 @@ pub struct SearchQuery {
         (status = 500, description = "Internal server error")
     )
 )]
-pub async fn search_users_handler(Query(query): Query<SearchQuery>) -> Result<Json<UserSearch>> {
-    let username = match &query.username {
-        Some(username) if !username.trim().is_empty() => username,
-        _ => {
-            return Err(Error::InvalidInput {
-                message: "Username cannot be empty".to_string(),
-            })
-        }
-    };
+pub async fn search_users_by_name_handler(
+    Path(prefix): Path<String>,
+    Query(query): Query<SearchQuery>,
+) -> Result<Json<UserSearch>> {
+    let username = prefix;
+    if username.trim().is_empty() {
+        return Err(Error::invalid_input("Username cannot be empty"));
+    }
 
-    info!("GET {SEARCH_USERS_ROUTE} username:{}", username);
+    info!("GET {SEARCH_USERS_BY_NAME_ROUTE} username:{}", username);
 
     let skip = query.pagination.skip.unwrap_or(0);
     let limit = query.pagination.limit.unwrap_or(200);
 
-    match UserSearch::get_by_name(username, Some(skip), Some(limit)).await {
+    match UserSearch::get_by_name(&username, Some(skip), Some(limit)).await {
         Ok(Some(user_search)) => Ok(Json(user_search)),
         Ok(None) => Err(Error::UserNotFound {
             user_id: username.clone(),
@@ -56,6 +55,51 @@ pub async fn search_users_handler(Query(query): Query<SearchQuery>) -> Result<Js
     }
 }
 
+#[utoipa::path(
+    get,
+    path = SEARCH_USERS_BY_ID_ROUTE,
+    description = "Search user IDs by ID prefix",
+    tag = "Search",
+    params(
+        ("prefix" = String, Path, description = format!("User ID prefix to search for (at least {USER_ID_SEARCH_MIN_PREFIX_LEN} characters)")),
+        ("skip" = Option<usize>, Query, description = "Skip N results"),
+        ("limit" = Option<usize>, Query, description = "Limit the number of results")
+    ),
+    responses(
+        (status = 200, description = "Search results", body = UserSearch),
+        (status = 400, description = "Invalid input"),
+        (status = 404, description = "No users found"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn search_users_by_id_handler(
+    Path(prefix): Path<String>,
+    Query(query): Query<SearchQuery>,
+) -> Result<Json<UserSearch>> {
+    let id_prefix = prefix;
+    if id_prefix.trim().chars().count() < USER_ID_SEARCH_MIN_PREFIX_LEN {
+        return Err(Error::invalid_input(&format!(
+            "ID prefix must be at least {USER_ID_SEARCH_MIN_PREFIX_LEN} chars"
+        )));
+    }
+
+    info!("GET {SEARCH_USERS_BY_ID_ROUTE} ID:{}", id_prefix);
+
+    let skip = query.pagination.skip.unwrap_or(0);
+    let limit = query.pagination.limit.unwrap_or(200);
+
+    match UserSearch::get_by_id(&id_prefix, Some(skip), Some(limit)).await {
+        Ok(Some(user_search)) => Ok(Json(user_search)),
+        Ok(None) => Err(Error::UserNotFound {
+            user_id: id_prefix.clone(),
+        }),
+        Err(source) => Err(Error::InternalServerError { source }),
+    }
+}
+
 #[derive(OpenApi)]
-#[openapi(paths(search_users_handler), components(schemas(UserSearch)))]
+#[openapi(
+    paths(search_users_by_name_handler, search_users_by_id_handler),
+    components(schemas(UserSearch))
+)]
 pub struct SearchUsersApiDocs;

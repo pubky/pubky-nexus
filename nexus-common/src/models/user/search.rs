@@ -1,11 +1,14 @@
 use super::UserDetails;
 use crate::db::RedisOps;
+use crate::models::create_zero_score_tuples;
 use crate::{models::traits::Collection, types::DynError};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 pub const USER_NAME_KEY_PARTS: [&str; 2] = ["Users", "Name"];
+pub const USER_ID_KEY_PARTS: [&str; 2] = ["Users", "ID"];
 
+/// List of user IDs
 #[derive(Serialize, Deserialize, ToSchema, Default)]
 pub struct UserSearch(pub Vec<String>);
 
@@ -13,12 +16,12 @@ impl RedisOps for UserSearch {}
 
 impl UserSearch {
     pub async fn get_by_name(
-        name: &str,
+        name_prefix: &str,
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Option<Self>, DynError> {
         // Perform the lexicographical range search
-        let elements = Self::get_from_index(name, skip, limit).await?;
+        let elements = Self::get_from_index_name(name_prefix, skip, limit).await?;
 
         // If elements exist, process them to extract user_ids
         if let Some(elements) = elements {
@@ -36,22 +39,48 @@ impl UserSearch {
         Ok(None)
     }
 
-    pub async fn get_from_index(
-        name: &str,
+    pub async fn get_by_id(
+        id_prefix: &str,
+        skip: Option<usize>,
+        limit: Option<usize>,
+    ) -> Result<Option<Self>, DynError> {
+        // Perform the lexicographical range search
+        let elements = Self::get_from_index_id(id_prefix, skip, limit).await?;
+
+        Ok(elements.map(UserSearch))
+    }
+
+    pub async fn get_from_index_name(
+        name_prefix: &str,
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Option<Vec<String>>, DynError> {
         // Convert the username to lowercase to ensure case-insensitive search
-        let name = name.to_lowercase();
+        let name_prefix = name_prefix.to_lowercase();
 
-        let min = format!("[{name}"); // Inclusive range starting with "name"
-        let max = format!("({name}~"); // Exclusive range ending just after "name"
+        let min = format!("[{name_prefix}"); // Inclusive range starting with "name_prefix"
+        let max = format!("({name_prefix}~"); // Exclusive range ending just after "name_prefix"
 
         // Perform the lexicographical range search
         Self::try_from_index_sorted_set_lex(&USER_NAME_KEY_PARTS, &min, &max, skip, limit).await
     }
 
-    /// Adds multiple `user_id`s to the Redis sorted set using the username as index.
+    pub async fn get_from_index_id(
+        id_prefix: &str,
+        skip: Option<usize>,
+        limit: Option<usize>,
+    ) -> Result<Option<Vec<String>>, DynError> {
+        let id_prefix = id_prefix.to_lowercase();
+
+        let min = format!("[{id_prefix}"); // Inclusive range starting with "id_prefix"
+        let max = format!("({id_prefix}~"); // Exclusive range ending just after "id_prefix"
+
+        Self::try_from_index_sorted_set_lex(&USER_ID_KEY_PARTS, &min, &max, skip, limit).await
+    }
+
+    /// Adds multiple `user_id`s to Redis sorted sets:
+    /// - using the username as index
+    /// - using the user ID as index
     ///
     /// This method takes a list of `UserDetails` and adds them all to the sorted set at once.
     pub async fn put_to_index(details_list: &[&UserDetails]) -> Result<(), DynError> {
@@ -65,35 +94,23 @@ impl UserSearch {
         )
         .await?;
 
-        // Collect all the `username:user_id` pairs and their corresponding scores
-        let mut items: Vec<(f64, String)> = Vec::with_capacity(details_list.len());
+        // Collect all the `username:user_id` pairs
+        let mut pairs: Vec<String> = Vec::with_capacity(details_list.len());
+        let mut ids: Vec<String> = Vec::with_capacity(details_list.len());
 
-        for details in details_list {
+        for details in details_list.iter().filter(|d| d.name != "[DELETED]") {
             // Convert the username to lowercase before storing
-            if details.name == "[DELETED]" {
-                break;
-            }
             let username = details.name.to_lowercase();
             let user_id = &details.id;
-            let score = 0.0;
 
-            // The value in the sorted set will be `username:user_id`
-            let member = format!("{username}:{user_id}");
-
-            items.push((score, member));
+            pairs.push(format!("{username}:{user_id}"));
+            ids.push(user_id.to_string());
         }
 
-        // Perform a single Redis ZADD operation with all the items
-        Self::put_index_sorted_set(
-            &USER_NAME_KEY_PARTS,
-            &items
-                .iter()
-                .map(|(score, member)| (*score, member.as_str()))
-                .collect::<Vec<_>>(),
-            None,
-            None,
-        )
-        .await
+        let pairs_zscore_tuples = create_zero_score_tuples(&pairs);
+        Self::put_index_sorted_set(&USER_NAME_KEY_PARTS, &pairs_zscore_tuples, None, None).await?;
+        let ids_zscore_tuples = create_zero_score_tuples(&ids);
+        Self::put_index_sorted_set(&USER_ID_KEY_PARTS, &ids_zscore_tuples, None, None).await
     }
 
     async fn delete_existing_records(user_ids: &[&str]) -> Result<(), DynError> {
@@ -101,10 +118,7 @@ impl UserSearch {
             return Ok(());
         }
         let mut records_to_delete: Vec<String> = Vec::with_capacity(user_ids.len());
-        let keys = user_ids
-            .iter()
-            .map(|&id| vec![id])
-            .collect::<Vec<Vec<&str>>>();
+        let keys: Vec<Vec<&str>> = user_ids.iter().map(|&id| vec![id]).collect();
         let users = UserDetails::get_from_index(keys.iter().map(|item| item.as_slice()).collect())
             .await?
             .into_iter()
@@ -124,13 +138,13 @@ impl UserSearch {
         Self::remove_from_index_sorted_set(
             None,
             &USER_NAME_KEY_PARTS,
-            records_to_delete
+            &records_to_delete
                 .iter()
                 .map(|item| item.as_str())
-                .collect::<Vec<&str>>()
-                .as_slice(),
+                .collect::<Vec<&str>>(),
         )
         .await?;
+        Self::remove_from_index_sorted_set(None, &USER_ID_KEY_PARTS, user_ids).await?;
         Ok(())
     }
 }
