@@ -100,7 +100,7 @@ pub async fn reindex_post(author_id: &str, post_id: &str) -> Result<(), DynError
     Ok(())
 }
 
-async fn get_all_user_ids() -> Result<Vec<String>, DynError> {
+pub async fn get_all_user_ids() -> Result<Vec<String>, DynError> {
     let mut result;
     {
         let graph = get_neo4j_graph()?;

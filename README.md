@@ -109,14 +109,17 @@ The Migration Manager uses a phased approach to handle data migrations safely an
 
 ### Adding a new migration
 
-To create a new migration, use the migrations binary by running:
+1. To create a new migration, use the migrations binary by running:
 
 ```bash
 cargo run -p nexusd -- db migration new TagCountsReset
 ```
 
-This will generate a new migration file in the `nexusd/src/migrations/migrations_list` directory.  
-Next, register your migration in the `import_migrations` function in `nexusd/src/migrations/mod.rs` file, which ensures it is included in the migration lifecycle. Once registered, implement the required phases (dual_write, backfill, cutover, and cleanup) in the generated file `nexusd/src/migrations/migrations_list/tag_counts_reset_1739459180.rs`. Each phase serves a specific purpose in safely transitioning data between the old and new sources.
+This will generate a new migration file in the `nexusd/src/migrations/migrations_list` directory.
+
+2. Next, register your migration in the `import_migrations` function in `nexusd/src/migrations/mod.rs` file, which ensures it is included in the migration lifecycle.
+
+3. Once registered, implement the required phases (dual_write, backfill, cutover, and cleanup) in the generated file `nexusd/src/migrations/migrations_list/tag_counts_reset_1739459180.rs`. Each phase serves a specific purpose in safely transitioning data between the old and new sources.
 
 ### Run the migration
 
