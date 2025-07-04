@@ -8,6 +8,8 @@ mod utils;
 
 pub use builder::MigrationBuilder;
 pub use manager::MigrationManager;
+
+use crate::migrations::migrations_list::users_by_pk_reindex_1751635096::UsersByPkReindex1751635096;
 /// Registers migrations with the `MigrationManager`
 ///
 /// # Description
@@ -33,13 +35,12 @@ pub use manager::MigrationManager;
 /// # Parameters
 /// - `migration_manager`: A mutable reference to `MigrationManager` where migrations will be registered.
 ///
-pub fn import_migrations(_migration_manager: &mut MigrationManager) {
-    // Example: Add your migrations here to be picked up by the manager
-    // let migrations: Vec<Box<dyn Migration>> = vec![
-    //     Box::new(Boom1741101629),
-    //     Box::new(Xakala1741101644)
-    // ];
-    // for migration in migrations {
-    //     migration_manager.register(migration);
-    // }
+pub fn import_migrations(migration_manager: &mut MigrationManager) {
+    let migrations: Vec<Box<dyn Migration>> = vec![
+        // Note: Add your migrations here to be picked up by the manager
+        Box::new(UsersByPkReindex1751635096),
+    ];
+    for migration in migrations {
+        migration_manager.register(migration);
+    }
 }
