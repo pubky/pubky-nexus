@@ -106,7 +106,7 @@ impl NexusApi {
         let api_config = match ApiConfig::load(config_dir.join(API_CONFIG_FILE_NAME)).await {
             Ok(api_config) => api_config,
             Err(_) => {
-                let daemon_config = DaemonConfig::read_config_file(config_dir).await?;
+                let daemon_config = DaemonConfig::read_or_create_config_file(config_dir).await?;
                 ApiConfig::from(daemon_config)
             }
         };
@@ -116,7 +116,7 @@ impl NexusApi {
 
     /// Loads the configuration from nexusd service and starts the Nexus API
     pub async fn start_from_daemon(config_dir: PathBuf) -> Result<(), DynError> {
-        let daemon_config = DaemonConfig::read_config_file(config_dir).await?;
+        let daemon_config = DaemonConfig::read_or_create_config_file(config_dir).await?;
         let api_config = ApiConfig::from(daemon_config);
 
         NexusApiBuilder(api_config).start().await

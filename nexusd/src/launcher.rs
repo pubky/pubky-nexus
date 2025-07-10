@@ -11,7 +11,7 @@ pub struct DaemonLauncher {}
 
 impl DaemonLauncher {
     pub async fn start(config_dir: PathBuf) -> Result<(), DynError> {
-        let config = DaemonConfig::read_config_file(config_dir).await?;
+        let config = DaemonConfig::read_or_create_config_file(config_dir).await?;
         let nexus_webapi_builder = NexusApiBuilder::with_stack(config.api, &config.stack);
         let nexus_watcher_builder = NexusWatcherBuilder::with_stack(config.watcher, &config.stack);
         let _ = join!(nexus_webapi_builder.start(), nexus_watcher_builder.start());

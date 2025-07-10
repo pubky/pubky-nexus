@@ -105,7 +105,7 @@ impl NexusWatcher {
             match WatcherConfig::load(config_dir.join(WATCHER_CONFIG_FILE_NAME)).await {
                 Ok(watcher_config) => watcher_config,
                 Err(_) => {
-                    let daemon_config = DaemonConfig::read_config_file(config_dir).await?;
+                    let daemon_config = DaemonConfig::read_or_create_config_file(config_dir).await?;
                     WatcherConfig::from(daemon_config)
                 }
             };
@@ -117,7 +117,7 @@ impl NexusWatcher {
     ///
     /// If a [DaemonConfig] is not found, a new one is created in the given path with the default contents.
     pub async fn start_from_daemon(config_dir: PathBuf) -> Result<(), DynError> {
-        let daemon_config = DaemonConfig::read_config_file(config_dir).await?;
+        let daemon_config = DaemonConfig::read_or_create_config_file(config_dir).await?;
         let watcher_config = WatcherConfig::from(daemon_config);
         NexusWatcherBuilder(watcher_config).start().await
     }

@@ -42,7 +42,9 @@ impl DaemonConfig {
 
     /// Given a directory path, ensures the directory exists, writes a default
     /// [DaemonConfig] file if absent, then parses and returns the loaded config
-    pub async fn read_config_file(expanded_path: PathBuf) -> Result<DaemonConfig, DynError> {
+    pub async fn read_or_create_config_file(
+        expanded_path: PathBuf,
+    ) -> Result<DaemonConfig, DynError> {
         let config_file_path = Self::get_config_file_path(&expanded_path);
 
         if !config_file_path.exists() {
