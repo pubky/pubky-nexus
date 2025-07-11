@@ -6,7 +6,7 @@ use std::{net::SocketAddr, path::PathBuf};
 #[derive(Parser)]
 #[command(about = "Example Nexus API server", long_about = None)]
 struct Opt {
-    /// Path to a directory containing `api.yaml` (or similar)
+    /// Path to a directory containing `api-config.toml`
     /// If omitted, runs the built-in default API config
     #[arg(short, long, value_name = "DIR")]
     config: Option<PathBuf>,

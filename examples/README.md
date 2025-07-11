@@ -19,11 +19,14 @@ cargo run --bin watcher_example
 
 ## Configuration & Flags
 
-Both `api` and `watcher` binaries include a compile-time switch in `main.rs`:
+Both `api` and `watcher` binaries take an optional `config` argument:
 
-```rust
-// Toggle between embedded/default config vs. file-based config
-const FROM_FILE: bool = false;
+```bash
+# Expects api-config.toml in the given path
+cargo run --bin api_example -- --config=test_path
+
+# Expects watcher-config.toml in the given path
+cargo run --bin watcher_example -- --config=test_path
 ```
 
-When `FROM_FILE` is false, you must supply all service configuration parameters at runtime; when `FROM_FILE` is true, the application will instead load its settings from a `config.toml` file
+If the `test_path` contains no valid config file, a default `config.toml` will be created and used instead.
