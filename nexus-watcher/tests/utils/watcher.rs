@@ -1,8 +1,8 @@
 use anyhow::{anyhow, Error, Result};
 use chrono::Utc;
 use nexus_common::db::PubkyClient;
+use nexus_common::get_files_dir_pathbuf;
 use nexus_common::types::DynError;
-use nexus_common::FILES_DIR;
 use nexus_watcher::events::moderation::Moderation;
 use nexus_watcher::events::processor::EventProcessor;
 use nexus_watcher::events::retry::event::RetryEvent;
@@ -14,7 +14,6 @@ use pubky_app_specs::{
     traits::TimestampId, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser,
 };
 use pubky_testnet::EphemeralTestnet;
-use std::path::PathBuf;
 use std::time::Duration;
 use tracing::debug;
 
@@ -285,7 +284,7 @@ impl WatcherTest {
 /// * `event_line` - A string slice that represents the URI of the event to be retrieved
 ///   from the homeserver. It contains the event type and the homeserver uri
 pub async fn retrieve_and_handle_event_line(event_line: &str) -> Result<(), DynError> {
-    let event = Event::parse_event(event_line, PathBuf::from(FILES_DIR)).unwrap_or_default();
+    let event = Event::parse_event(event_line, get_files_dir_pathbuf()).unwrap_or_default();
 
     // hardcoded tests/utils/moderator_key.pkarr public key used by the moderator user on tests
     let moderation = Moderation {

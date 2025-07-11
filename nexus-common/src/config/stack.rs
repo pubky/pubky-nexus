@@ -1,8 +1,8 @@
-use crate::db::DatabaseConfig;
+use crate::{db::DatabaseConfig, get_files_dir_pathbuf};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::{fmt::Debug, path::PathBuf};
 
-use super::{file::expand_home_dir, Level, FILES_DIR, LOG_LEVEL};
+use super::{file::try_expand_home_dir, Level, LOG_LEVEL};
 
 /// Custom deserializer: take a String, expand `~`, clean up `.`/`..`, return PathBuf.
 fn deserialize_and_expand<'de, D>(deserializer: D) -> Result<PathBuf, D::Error>
@@ -10,7 +10,7 @@ where
     D: Deserializer<'de>,
 {
     let path: PathBuf = Deserialize::deserialize(deserializer)?;
-    Ok(expand_home_dir(path))
+    try_expand_home_dir(path).map_err(serde::de::Error::custom)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -31,7 +31,7 @@ impl Default for StackConfig {
     fn default() -> Self {
         Self {
             log_level: LOG_LEVEL,
-            files_path: expand_home_dir(PathBuf::from(FILES_DIR)),
+            files_path: get_files_dir_pathbuf(),
             otlp_endpoint: None,
             db: DatabaseConfig::default(),
         }

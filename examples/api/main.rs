@@ -1,5 +1,5 @@
 use clap::Parser;
-use nexus_common::{file::expand_home_dir, types::DynError, ApiConfig, StackConfig};
+use nexus_common::{file::try_expand_home_dir, types::DynError, ApiConfig, StackConfig};
 use nexus_webapi::{NexusApi, NexusApiBuilder};
 use std::{net::SocketAddr, path::PathBuf};
 
@@ -18,15 +18,8 @@ async fn main() -> Result<(), DynError> {
 
     match opts.config {
         Some(path) => {
-            let path = expand_home_dir(path);
-            if path.exists() && path.is_file() {
-                return Err(format!(
-                    "create with `mkdir -p folder_path` or point to a directory: {}",
-                    path.display()
-                )
-                .into());
-            }
-            NexusApi::start_from_path(path).await?
+            let expanded_path = try_expand_home_dir(path)?;
+            NexusApi::start_from_path(expanded_path).await?
         }
         None => {
             let config = ApiConfig {

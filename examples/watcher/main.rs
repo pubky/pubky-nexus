@@ -1,14 +1,14 @@
 use clap::Parser;
 use nexus_common::{
-    db::DatabaseConfig, file::expand_home_dir, types::DynError, StackConfig, WatcherConfig,
-    FILES_DIR, LOG_LEVEL,
+    db::DatabaseConfig, file::try_expand_home_dir, get_files_dir_pathbuf, types::DynError,
+    StackConfig, WatcherConfig, LOG_LEVEL,
 };
 use nexus_watcher::{NexusWatcher, NexusWatcherBuilder};
 use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(about = "Example Nexus API server", long_about = None)]
+#[command(about = "Example Nexus Watcher server", long_about = None)]
 struct Opt {
     /// Path to a directory containing `api.yaml` (or similar)
     /// If omitted, runs the built-in default API config
@@ -21,15 +21,8 @@ async fn main() -> Result<(), DynError> {
     let opts = Opt::parse();
     match opts.config {
         Some(path) => {
-            let path = expand_home_dir(path);
-            if path.exists() && path.is_file() {
-                return Err(format!(
-                    "create with `mkdir -p folder_path` or point to a directory: {}",
-                    path.display()
-                )
-                .into());
-            }
-            NexusWatcher::start_from_path(PathBuf::from("examples/watcher")).await?
+            let expanded_path = try_expand_home_dir(path)?;
+            NexusWatcher::start_from_path(expanded_path).await?
         }
         None => {
             let homeserver =
@@ -38,7 +31,7 @@ async fn main() -> Result<(), DynError> {
                 PubkyId::try_from("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap();
             let stack = StackConfig {
                 log_level: LOG_LEVEL,
-                files_path: expand_home_dir(PathBuf::from(FILES_DIR)),
+                files_path: get_files_dir_pathbuf(),
                 otlp_endpoint: None,
                 db: DatabaseConfig::default(),
             };

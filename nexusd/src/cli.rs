@@ -1,5 +1,5 @@
 use clap::{Args, Parser, Subcommand};
-use nexus_common::file::{expand_home_dir, DEFAULT_HOME_DIR};
+use nexus_common::file::{try_expand_home_dir, DEFAULT_HOME_DIR};
 use nexus_webapi::mock::MockType;
 use std::path::PathBuf;
 
@@ -33,14 +33,7 @@ fn default_config_dir_path() -> PathBuf {
 /// Validate that the data_dir path is a directory.
 /// It doesnt need to exist, but if it does, it needs to be a directory.
 fn validate_config_dir_path(path: &str) -> Result<PathBuf, String> {
-    let path = expand_home_dir(PathBuf::from(path));
-    if path.exists() && path.is_file() {
-        return Err(format!(
-            "create with `mkdir -p folder_path` or point to a directory: {}",
-            path.display()
-        ));
-    }
-    Ok(path)
+    try_expand_home_dir(PathBuf::from(path)).map_err(|e| e.to_string())
 }
 
 #[derive(Subcommand, Debug)]

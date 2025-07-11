@@ -1,7 +1,7 @@
 use anyhow::Result;
-use nexus_common::FILES_DIR_TEST;
+use nexus_common::get_files_dir_test_pathbuf;
 use nexus_webapi::NexusApi;
-use std::{net::Ipv4Addr, path::PathBuf, sync::Arc};
+use std::{net::Ipv4Addr, sync::Arc};
 use tokio::{
     net::TcpListener,
     sync::{Mutex, OnceCell},
@@ -47,7 +47,7 @@ impl TestServiceServer {
         // Init the stack before create the spawn. if not the app does not have time to initialise the stack and some tests fail
         nexus_builder
             .public_addr(local_addr)
-            .files_path(PathBuf::from(FILES_DIR_TEST))
+            .files_path(get_files_dir_test_pathbuf())
             .init_stack()
             .await
             .unwrap();
