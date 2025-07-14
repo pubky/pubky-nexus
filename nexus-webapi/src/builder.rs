@@ -94,7 +94,7 @@ impl NexusApi {
     pub async fn start_from_path(config_dir: PathBuf) -> Result<(), DynError> {
         match ApiConfig::load(config_dir.join(API_CONFIG_FILE_NAME)).await {
             Ok(api_config) => {
-                let api_context = ApiContextBuilder::from_config_dir(&config_dir)
+                let api_context = ApiContextBuilder::from_config_dir(config_dir)
                     .api_config(api_config)
                     .try_build()
                     .await?;
@@ -107,7 +107,7 @@ impl NexusApi {
 
     /// Loads the [ApiConfig] from the [DaemonConfig] in the given path and starts the Nexus API.
     pub async fn start_from_daemon(config_dir: PathBuf) -> Result<(), DynError> {
-        let api_context = ApiContextBuilder::from_config_dir(&config_dir)
+        let api_context = ApiContextBuilder::from_config_dir(config_dir)
             .try_build()
             .await?;
 

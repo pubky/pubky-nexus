@@ -22,7 +22,7 @@ async fn main() -> Result<(), DynError> {
     match opts.config {
         Some(path) => {
             let expanded_path = validate_and_expand_path(path)?;
-            NexusWatcher::start_from_path(&expanded_path).await?
+            NexusWatcher::start_from_path(expanded_path).await?
         }
         None => {
             let homeserver =

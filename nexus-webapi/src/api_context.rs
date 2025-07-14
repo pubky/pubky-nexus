@@ -16,10 +16,10 @@ pub struct ApiContextBuilder {
 
 impl ApiContextBuilder {
     pub fn from_default_config_dir() -> Self {
-        Self::from_config_dir(&default_config_dir_path())
+        Self::from_config_dir(default_config_dir_path())
     }
 
-    pub fn from_config_dir(config_dir: &PathBuf) -> Self {
+    pub fn from_config_dir(config_dir: PathBuf) -> Self {
         Self {
             api_config: None,
             config_dir: config_dir.clone(),
@@ -36,7 +36,7 @@ impl ApiContextBuilder {
     pub async fn try_build(&self) -> Result<ApiContext, DynError> {
         let api_config = match &self.api_config {
             None => {
-                let dc = DaemonConfig::read_or_create_config_file(&self.config_dir).await?;
+                let dc = DaemonConfig::read_or_create_config_file(self.config_dir.clone()).await?;
                 ApiConfig::from(dc)
             }
             Some(ac) => ac.clone(),
@@ -62,7 +62,7 @@ impl ApiContextBuilder {
         let secret_string = String::from_utf8_lossy(&secret).trim().to_string();
         let secret_bytes: [u8; 32] = const_hex::decode(secret_string)?
             .try_into()
-            .map_err(|_| format!("Failed to convert secret bytes into array of length 32"))?;
+            .map_err(|_| "Failed to convert secret bytes into array of length 32")?;
         let keypair = Keypair::from_secret_key(&secret_bytes);
         Ok(keypair)
     }

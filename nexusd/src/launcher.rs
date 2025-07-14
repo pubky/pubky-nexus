@@ -10,8 +10,8 @@ use tokio::try_join;
 pub struct DaemonLauncher {}
 
 impl DaemonLauncher {
-    pub async fn start(config_dir: &PathBuf) -> Result<(), DynError> {
-        let api_context = ApiContextBuilder::from_config_dir(config_dir)
+    pub async fn start(config_dir: PathBuf) -> Result<(), DynError> {
+        let api_context = ApiContextBuilder::from_config_dir(config_dir.clone())
             .try_build()
             .await?;
         let nexus_webapi_builder = NexusApiBuilder(api_context);
