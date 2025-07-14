@@ -1,6 +1,6 @@
 use clap::Parser;
 use nexus_common::{
-    db::DatabaseConfig, file::try_expand_home_dir, get_files_dir_pathbuf, types::DynError,
+    db::DatabaseConfig, file::validate_and_expand_path, get_files_dir_pathbuf, types::DynError,
     StackConfig, WatcherConfig, LOG_LEVEL,
 };
 use nexus_watcher::{NexusWatcher, NexusWatcherBuilder};
@@ -21,7 +21,7 @@ async fn main() -> Result<(), DynError> {
     let opts = Opt::parse();
     match opts.config {
         Some(path) => {
-            let expanded_path = try_expand_home_dir(path)?;
+            let expanded_path = validate_and_expand_path(path)?;
             NexusWatcher::start_from_path(expanded_path).await?
         }
         None => {

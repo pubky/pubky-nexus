@@ -1,5 +1,5 @@
 use clap::Parser;
-use nexus_common::{file::try_expand_home_dir, types::DynError, ApiConfig, StackConfig};
+use nexus_common::{file::validate_and_expand_path, types::DynError, ApiConfig, StackConfig};
 use nexus_webapi::{NexusApi, NexusApiBuilder};
 use std::{net::SocketAddr, path::PathBuf};
 
@@ -18,7 +18,7 @@ async fn main() -> Result<(), DynError> {
 
     match opts.config {
         Some(path) => {
-            let expanded_path = try_expand_home_dir(path)?;
+            let expanded_path = validate_and_expand_path(path)?;
             NexusApi::start_from_path(expanded_path).await?
         }
         None => {

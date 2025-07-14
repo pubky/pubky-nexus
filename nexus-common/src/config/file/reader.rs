@@ -8,9 +8,10 @@ pub(crate) const DEFAULT_CONFIG_TOML: &str = include_str!("../../../default.conf
 /// The sole configuration file name recognized by nexus
 pub const CONFIG_FILE_NAME: &str = "config.toml";
 
-/// Expands the data directory to the home directory if it starts with "~"
-/// Return the full path to the data directory
-pub fn try_expand_home_dir(path: PathBuf) -> Result<PathBuf, DynError> {
+/// If the path starts with a "~", this expands the "~" to the full home directory path.
+///
+/// If the path points to a file, this throws an error.
+pub fn validate_and_expand_path(path: PathBuf) -> Result<PathBuf, DynError> {
     let mut expanded_path = path.clone();
 
     if let Some(first) = path.components().next() {
