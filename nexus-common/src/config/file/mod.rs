@@ -1,5 +1,5 @@
 mod loader;
-mod reader;
+pub(super) mod reader;
 
 pub use loader::ConfigLoader;
-pub use reader::{expand_home_dir, ConfigReader, CONFIG_FILE_NAME, DEFAULT_HOME_DIR};
+pub use reader::{validate_and_expand_path, CONFIG_FILE_NAME, DEFAULT_HOME_DIR};

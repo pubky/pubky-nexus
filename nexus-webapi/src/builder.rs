@@ -1,7 +1,7 @@
 use crate::routes;
 use axum_server::{Handle, Server};
 use nexus_common::db::DatabaseConfig;
-use nexus_common::file::ConfigReader;
+use nexus_common::file::ConfigLoader;
 use nexus_common::types::DynError;
 use nexus_common::{ApiConfig, DaemonConfig, StackManager};
 use nexus_common::{Level, StackConfig};
@@ -10,6 +10,8 @@ use std::{fmt::Debug, net::SocketAddr, path::PathBuf};
 use tokio::net::TcpListener;
 use tokio::signal;
 use tracing::{debug, error, info};
+
+pub const API_CONFIG_FILE_NAME: &str = "api-config.toml";
 
 #[derive(Debug, Default)]
 pub struct NexusApiBuilder(pub ApiConfig);
@@ -97,18 +99,27 @@ impl NexusApi {
         NexusApiBuilder::default()
     }
 
-    /// Loads the configuration from a file and starts the Nexus API
+    /// Loads the [ApiConfig] from [API_CONFIG_FILE_NAME] in the given path and starts the Nexus API.
+    ///
+    /// If no [ApiConfig] file is found, it defaults to [NexusApi::start_from_daemon].
     pub async fn start_from_path(config_dir: PathBuf) -> Result<(), DynError> {
-        let config = ApiConfig::read_config_file(config_dir).await?;
-        NexusApiBuilder(config).start().await
+        let api_config = match ApiConfig::load(config_dir.join(API_CONFIG_FILE_NAME)).await {
+            Ok(api_config) => api_config,
+            Err(_) => {
+                let daemon_config = DaemonConfig::read_config_file(config_dir).await?;
+                ApiConfig::from(daemon_config)
+            }
+        };
+
+        NexusApiBuilder(api_config).start().await
     }
 
     /// Loads the configuration from nexusd service and starts the Nexus API
     pub async fn start_from_daemon(config_dir: PathBuf) -> Result<(), DynError> {
-        let config = DaemonConfig::read_config_file(config_dir).await?;
-        NexusApiBuilder(Into::<ApiConfig>::into(config))
-            .start()
-            .await
+        let daemon_config = DaemonConfig::read_config_file(config_dir).await?;
+        let api_config = ApiConfig::from(daemon_config);
+
+        NexusApiBuilder(api_config).start().await
     }
 
     /// It sets up the necessary routes, binds to the specified address (if no

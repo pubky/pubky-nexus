@@ -1,4 +1,3 @@
-use nexus_common::file::ConfigReader;
 use nexus_common::types::DynError;
 use nexus_common::DaemonConfig;
 use nexus_watcher::NexusWatcherBuilder;

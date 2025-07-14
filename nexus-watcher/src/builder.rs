@@ -1,6 +1,6 @@
 use crate::events::processor::EventProcessor;
 use nexus_common::db::{DatabaseConfig, PubkyClient};
-use nexus_common::file::ConfigReader;
+use nexus_common::file::ConfigLoader;
 use nexus_common::types::DynError;
 use nexus_common::{DaemonConfig, Level, StackConfig};
 use nexus_common::{StackManager, WatcherConfig};
@@ -9,6 +9,8 @@ use std::path::PathBuf;
 use tokio::time::Duration;
 use tokio::{pin, signal};
 use tracing::{debug, error, info};
+
+pub const WATCHER_CONFIG_FILE_NAME: &str = "watcher-config.toml";
 
 #[derive(Debug, Default)]
 pub struct NexusWatcherBuilder(pub WatcherConfig);
@@ -95,18 +97,29 @@ impl NexusWatcher {
         NexusWatcherBuilder::default()
     }
 
-    /// Loads the configuration from a file and starts the Watcher
+    /// Loads the [WatcherConfig] from [WATCHER_CONFIG_FILE_NAME] in the given path and starts the Nexus Watcher.
+    ///
+    /// If no [WatcherConfig] file is found, it defaults to [NexusWatcher::start_from_daemon].
     pub async fn start_from_path(config_dir: PathBuf) -> Result<(), DynError> {
-        let config = WatcherConfig::read_config_file(config_dir).await?;
-        NexusWatcherBuilder(config).start().await
+        let watcher_config =
+            match WatcherConfig::load(config_dir.join(WATCHER_CONFIG_FILE_NAME)).await {
+                Ok(watcher_config) => watcher_config,
+                Err(_) => {
+                    let daemon_config = DaemonConfig::read_config_file(config_dir).await?;
+                    WatcherConfig::from(daemon_config)
+                }
+            };
+
+        NexusWatcherBuilder(watcher_config).start().await
     }
 
-    /// Loads the configuration from nexusd service and starts the Watcher
+    /// Derives the [WatcherConfig] from [DaemonConfig] (nexusd service config), loads it and starts the Watcher.
+    ///
+    /// If a [DaemonConfig] is not found, a new one is created in the given path with the default contents.
     pub async fn start_from_daemon(config_dir: PathBuf) -> Result<(), DynError> {
-        let config = DaemonConfig::read_config_file(config_dir).await?;
-        NexusWatcherBuilder(Into::<WatcherConfig>::into(config))
-            .start()
-            .await
+        let daemon_config = DaemonConfig::read_config_file(config_dir).await?;
+        let watcher_config = WatcherConfig::from(daemon_config);
+        NexusWatcherBuilder(watcher_config).start().await
     }
 
     pub async fn start(config: WatcherConfig) -> Result<(), DynError> {

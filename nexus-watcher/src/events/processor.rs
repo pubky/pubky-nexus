@@ -5,7 +5,7 @@ use crate::events::retry::event::RetryEvent;
 use nexus_common::db::PubkyClient;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
-use nexus_common::{WatcherConfig, FILES_DIR_TEST};
+use nexus_common::{get_files_dir_test_pathbuf, WatcherConfig};
 use opentelemetry::trace::{FutureExt, Span, TraceContextExt, Tracer};
 use opentelemetry::{global, Context, KeyValue};
 use pubky_app_specs::PubkyId;
@@ -47,12 +47,12 @@ impl EventProcessor {
 
         info!(
             "Watcher static files PATH during tests are stored inside of the watcher crate: {:?}",
-            PathBuf::from(FILES_DIR_TEST)
+            get_files_dir_test_pathbuf()
         );
         Self {
             homeserver,
             limit: 1000,
-            files_path: PathBuf::from(FILES_DIR_TEST),
+            files_path: get_files_dir_test_pathbuf(),
             tracer_name: String::from("watcher.test"),
             moderation,
         }
