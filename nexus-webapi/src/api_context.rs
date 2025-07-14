@@ -34,6 +34,9 @@ impl ApiContextBuilder {
     }
 
     pub async fn try_build(&self) -> Result<ApiContext, DynError> {
+        // Ensure path to config dir exists, regardless of how the builder was initialized
+        std::fs::create_dir_all(self.config_dir.clone())?;
+
         let api_config = match &self.api_config {
             None => {
                 let dc = DaemonConfig::read_or_create_config_file(self.config_dir.clone()).await?;

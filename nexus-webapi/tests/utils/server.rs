@@ -1,5 +1,5 @@
 use anyhow::Result;
-use nexus_common::get_files_dir_test_pathbuf;
+use nexus_common::{get_files_dir_test_pathbuf, ApiConfig};
 use nexus_webapi::{api_context::ApiContextBuilder, NexusApiBuilder};
 use std::{
     net::{Ipv4Addr, TcpListener},
@@ -34,6 +34,7 @@ impl TestServiceServer {
 
     async fn start_server() -> Result<()> {
         let api_context = ApiContextBuilder::from_default_config_dir()
+            .api_config(ApiConfig::default())
             .try_build()
             .await
             .expect("Failed to create ApiContext");
