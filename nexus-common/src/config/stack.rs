@@ -4,7 +4,6 @@ use std::{fmt::Debug, path::PathBuf};
 
 use super::{file::validate_and_expand_path, Level, LOG_LEVEL};
 
-/// Custom deserializer: take a String, expand `~`, clean up `.`/`..`, return PathBuf.
 fn deserialize_and_expand<'de, D>(deserializer: D) -> Result<PathBuf, D::Error>
 where
     D: Deserializer<'de>,
