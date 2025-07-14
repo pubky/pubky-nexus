@@ -1,9 +1,6 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use std::{
-    fmt::Debug,
-    path::{Path, PathBuf},
-};
+use std::{fmt::Debug, path::PathBuf};
 use tracing::error;
 
 use crate::{file::CONFIG_FILE_NAME, types::DynError};
@@ -21,7 +18,7 @@ pub struct DaemonConfig {
 
 impl DaemonConfig {
     /// Returns the config file path in this directory
-    fn get_config_file_path(expanded_path: &Path) -> PathBuf {
+    fn get_config_file_path(expanded_path: &PathBuf) -> PathBuf {
         expanded_path.join(CONFIG_FILE_NAME)
     }
 
@@ -43,9 +40,9 @@ impl DaemonConfig {
     /// Given a directory path, ensures the directory exists, writes a default
     /// [DaemonConfig] file if absent, then parses and returns the loaded config
     pub async fn read_or_create_config_file(
-        expanded_path: PathBuf,
+        expanded_path: &PathBuf,
     ) -> Result<DaemonConfig, DynError> {
-        let config_file_path = Self::get_config_file_path(&expanded_path);
+        let config_file_path = Self::get_config_file_path(expanded_path);
 
         if !config_file_path.exists() {
             Self::write_default_config_file(&config_file_path)?;

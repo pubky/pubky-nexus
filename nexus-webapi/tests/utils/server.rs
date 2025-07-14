@@ -1,11 +1,11 @@
 use anyhow::Result;
 use nexus_common::get_files_dir_test_pathbuf;
-use nexus_webapi::NexusApi;
-use std::{net::Ipv4Addr, sync::Arc};
-use tokio::{
-    net::TcpListener,
-    sync::{Mutex, OnceCell},
+use nexus_webapi::{api_context::ApiContextBuilder, NexusApiBuilder};
+use std::{
+    net::{Ipv4Addr, TcpListener},
+    sync::Arc,
 };
+use tokio::sync::{Mutex, OnceCell};
 
 /// Util backend server for testing.
 /// Performs the same routine the main service server does.
@@ -33,7 +33,11 @@ impl TestServiceServer {
     }
 
     async fn start_server() -> Result<()> {
-        let mut nexus_builder = NexusApi::builder();
+        let api_context = ApiContextBuilder::from_default_config_dir()
+            .try_build()
+            .await
+            .expect("Failed to create ApiContext");
+        let mut nexus_builder = NexusApiBuilder(api_context);
 
         // Define IP and port
         let ip = [127, 0, 0, 1];
@@ -42,7 +46,7 @@ impl TestServiceServer {
         let binding = format!("{}:{}", Ipv4Addr::from(ip), port);
 
         // Bind to the address.
-        let listener = TcpListener::bind(&binding).await?;
+        let listener = TcpListener::bind(&binding)?;
         let local_addr = listener.local_addr()?;
         // Init the stack before create the spawn. if not the app does not have time to initialise the stack and some tests fail
         nexus_builder

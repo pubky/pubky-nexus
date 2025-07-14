@@ -1,6 +1,6 @@
 use clap::Parser;
 use nexus_common::{file::validate_and_expand_path, types::DynError, ApiConfig, StackConfig};
-use nexus_webapi::{NexusApi, NexusApiBuilder};
+use nexus_webapi::{api_context::ApiContextBuilder, NexusApi, NexusApiBuilder};
 use std::{net::SocketAddr, path::PathBuf};
 
 #[derive(Parser)]
@@ -22,12 +22,18 @@ async fn main() -> Result<(), DynError> {
             NexusApi::start_from_path(expanded_path).await?
         }
         None => {
-            let config = ApiConfig {
+            let api_config = ApiConfig {
                 name: String::from("nexusd.api"),
                 public_addr: SocketAddr::from(([127, 0, 0, 1], 8081)),
                 stack: StackConfig::default(),
             };
-            NexusApiBuilder(config).start().await?;
+
+            let api_context = ApiContextBuilder::from_default_config_dir()
+                .api_config(api_config)
+                .try_build()
+                .await?;
+
+            NexusApiBuilder(api_context).start().await?;
         }
     }
 
