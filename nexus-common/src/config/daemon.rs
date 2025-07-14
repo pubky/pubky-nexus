@@ -50,22 +50,11 @@ impl DaemonConfig {
         if !config_file_path.exists() {
             Self::write_default_config_file(&config_file_path)?;
         }
-        println!(
-            "nexusd reading the '{CONFIG_FILE_NAME}' file from '{}'",
-            expanded_path.display()
-        );
 
-        let config = <Self as ConfigLoader<DaemonConfig>>::load(config_file_path)
-            .await
-            .map_err(|e| {
-                error!(
-                    "Failed to load config file {:?}: {}",
-                    Self::get_config_file_path(&expanded_path),
-                    e
-                );
-                e
-            })?;
-        Ok(config)
+        println!("nexusd loading config file {}", config_file_path.display());
+        Self::load(&config_file_path).await.inspect_err(|e| {
+            error!("Failed to load config file: {e}");
+        })
     }
 }
 
