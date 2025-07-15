@@ -21,7 +21,7 @@ opentelemetry = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 pubky-app-specs = { workspace = true }
 nexus-common = { version = "0.4.1", path = "../nexus-common" }
-deadpool-redis = "0.21.1"
+deadpool-redis = "0.22.0"
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
