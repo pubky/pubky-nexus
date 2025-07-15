@@ -19,7 +19,7 @@ async fn main() -> Result<(), DynError> {
     match opts.config {
         Some(path) => {
             let expanded_path = validate_and_expand_path(path)?;
-            NexusApi::start_from_path(expanded_path).await?
+            NexusApi::start_from_path(expanded_path).await?;
         }
         None => {
             let api_config = ApiConfig {
@@ -36,6 +36,10 @@ async fn main() -> Result<(), DynError> {
             NexusApiBuilder(api_context).start().await?;
         }
     }
+
+    tracing::info!("Press Ctrl+C to stop the Nexus API");
+    tokio::signal::ctrl_c().await?;
+    tracing::info!("Shutting down Nexus API");
 
     Ok(())
 }
