@@ -25,6 +25,7 @@ async fn main() -> Result<(), DynError> {
             let api_config = ApiConfig {
                 name: String::from("nexusd.api"),
                 public_addr: SocketAddr::from(([127, 0, 0, 1], 8081)),
+                pubky_listen_socket: SocketAddr::from(([127, 0, 0, 1], 8082)),
                 stack: StackConfig::default(),
             };
 

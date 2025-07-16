@@ -2,17 +2,20 @@ use crate::api_context::{ApiContext, ApiContextBuilder};
 use crate::routes;
 
 use std::net::TcpListener;
+use std::sync::Arc;
 use std::time::Duration;
 use std::{fmt::Debug, net::SocketAddr, path::PathBuf};
 
 use axum::Router;
-use axum_server::{Handle, Server};
+use axum_server::tls_rustls::{RustlsAcceptor, RustlsConfig};
+use axum_server::Handle;
 use futures_util::TryFutureExt;
 use nexus_common::db::DatabaseConfig;
 use nexus_common::file::ConfigLoader;
 use nexus_common::types::DynError;
 use nexus_common::Level;
 use nexus_common::{ApiConfig, StackManager};
+use pkarr::Keypair;
 use tracing::{debug, error, info};
 
 pub const API_CONFIG_FILE_NAME: &str = "api-config.toml";
@@ -83,6 +86,10 @@ pub struct NexusApi {
     /// Local socket address used for the interface exposed via ICANN DNS
     pub icann_http_socket: SocketAddr,
     icann_http_handle: Handle,
+
+    /// Local socket address used for the interface exposed via Pubky PKDNS
+    pub pubky_tls_socket: SocketAddr,
+    pubky_tls_handle: Handle,
 }
 
 impl NexusApi {
@@ -122,12 +129,15 @@ impl NexusApi {
             Self::start_icann_http_server(&ctx, router.clone()).await?;
         info!("Nexus API listening on {icann_http_socket}");
 
-        // TODO Create server, init TLS, register shutdown handle
+        let (pubky_tls_handle, pubky_tls_socket) =
+            Self::start_pubky_tls_server(&ctx, router).await?;
         info!("Nexus API listening on http://{}", ctx.keypair.public_key());
 
         Ok(NexusApi {
             icann_http_socket,
             icann_http_handle,
+            pubky_tls_socket,
+            pubky_tls_handle,
         })
     }
 
@@ -141,24 +151,51 @@ impl NexusApi {
         let local_addr = listener
             .local_addr()
             .inspect_err(|e| error!("Failed to get local address after binding: {e})"))?;
-
         let handle = Handle::new();
+
         tokio::spawn(
-            Server::from_tcp(listener)
+            axum_server::from_tcp(listener)
                 .handle(handle.clone())
                 .serve(router.into_make_service())
-                .inspect_err(|e| tracing::error!("Nexus API server error: {e}")),
+                .inspect_err(|e| error!("Nexus API ICANN DNS endpoint error: {e}")),
         );
 
         Ok((handle, local_addr))
+    }
+
+    async fn start_pubky_tls_server(
+        ctx: &ApiContext,
+        router: Router,
+    ) -> Result<(Handle, SocketAddr), DynError> {
+        let https_listener = TcpListener::bind(ctx.api_config.pubky_listen_socket)?;
+        let https_socket = https_listener.local_addr()?;
+        let https_handle = Handle::new();
+
+        tokio::spawn(
+            axum_server::from_tcp(https_listener)
+                .acceptor(Self::create_pubky_tls_acceptor(&ctx.keypair))
+                .handle(https_handle.clone())
+                .serve(router.into_make_service())
+                .inspect_err(|e| error!("Nexus API pubky TLS endpoint error: {e}")),
+        );
+
+        Ok((https_handle, https_socket))
+    }
+
+    fn create_pubky_tls_acceptor(keypair: &Keypair) -> RustlsAcceptor {
+        let tls_config = Arc::new(keypair.to_rpk_rustls_server_config());
+        let rustls_config = RustlsConfig::from_config(tls_config);
+        RustlsAcceptor::new(rustls_config)
     }
 }
 
 impl Drop for NexusApi {
     fn drop(&mut self) {
+        let grace_period = Duration::from_secs(30);
+
         info!("Starting graceful shutdown...");
-        self.icann_http_handle
-            .graceful_shutdown(Some(Duration::from_secs(30)));
+        self.icann_http_handle.graceful_shutdown(Some(grace_period));
+        self.pubky_tls_handle.graceful_shutdown(Some(grace_period));
         info!("Nexus API shut down gracefully");
     }
 }
