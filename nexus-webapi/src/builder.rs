@@ -5,6 +5,7 @@ use std::net::TcpListener;
 use std::time::Duration;
 use std::{fmt::Debug, net::SocketAddr, path::PathBuf};
 
+use axum::Router;
 use axum_server::{Handle, Server};
 use futures_util::TryFutureExt;
 use nexus_common::db::DatabaseConfig;
@@ -12,7 +13,6 @@ use nexus_common::file::ConfigLoader;
 use nexus_common::types::DynError;
 use nexus_common::Level;
 use nexus_common::{ApiConfig, StackManager};
-use tokio::signal;
 use tracing::{debug, error, info};
 
 pub const API_CONFIG_FILE_NAME: &str = "api-config.toml";
@@ -80,7 +80,9 @@ impl NexusApiBuilder {
 }
 
 pub struct NexusApi {
-    pub socket: SocketAddr,
+    /// Local socket address used for the interface exposed via ICANN DNS
+    pub icann_http_socket: SocketAddr,
+    icann_http_handle: Handle,
 }
 
 impl NexusApi {
@@ -113,40 +115,50 @@ impl NexusApi {
     /// It sets up the necessary routes, binds to the specified address, and starts the Axum server
     pub async fn start(ctx: ApiContext) -> Result<Self, DynError> {
         // Create all the routes of the API
-        let app = routes::routes(ctx.api_config.stack.files_path.clone());
+        let router = routes::routes(ctx.api_config.stack.files_path.clone());
         debug!(?ctx.api_config, "Running NexusAPI with config");
 
-        let public_addr = ctx.api_config.public_addr;
-        let listener = TcpListener::bind(public_addr)
-            .inspect_err(|e| error!("Failed to bind to {public_addr:?}: {e}"))?;
-        let local_addr = listener.local_addr().unwrap_or_else(|e| {
-            panic!("Failed to get local address after binding: {e}");
-        });
-        info!("Nexus API listening on {local_addr}");
+        let (icann_http_handle, icann_http_socket) =
+            Self::start_icann_http_server(&ctx, router.clone()).await?;
+        info!("Nexus API listening on {icann_http_socket}");
 
         // TODO Create server, init TLS, register shutdown handle
         info!("Nexus API listening on http://{}", ctx.keypair.public_key());
 
-        // Create a shutdown handle
-        let handle = Handle::new();
+        Ok(NexusApi {
+            icann_http_socket,
+            icann_http_handle,
+        })
+    }
 
-        // Spin up the server
+    async fn start_icann_http_server(
+        ctx: &ApiContext,
+        router: Router,
+    ) -> Result<(Handle, SocketAddr), DynError> {
+        let public_addr = ctx.api_config.public_addr;
+        let listener = TcpListener::bind(public_addr)
+            .inspect_err(|e| error!("Failed to bind to {public_addr:?}: {e}"))?;
+        let local_addr = listener
+            .local_addr()
+            .inspect_err(|e| error!("Failed to get local address after binding: {e})"))?;
+
+        let handle = Handle::new();
         tokio::spawn(
             Server::from_tcp(listener)
                 .handle(handle.clone())
-                .serve(app.into_make_service())
+                .serve(router.into_make_service())
                 .inspect_err(|e| tracing::error!("Nexus API server error: {e}")),
         );
 
-        // Spawn a task that waits for Ctrl+C and then tells the handle to shut down
-        tokio::spawn(async move {
-            signal::ctrl_c()
-                .await
-                .expect("Failed to hook up Ctrl+C handler");
-            info!("SIGINT received, starting graceful shutdown...");
-            handle.graceful_shutdown(Some(Duration::from_secs(30)));
-        });
+        Ok((handle, local_addr))
+    }
+}
 
-        Ok(NexusApi { socket: local_addr })
+impl Drop for NexusApi {
+    fn drop(&mut self) {
+        info!("Starting graceful shutdown...");
+        self.icann_http_handle
+            .graceful_shutdown(Some(Duration::from_secs(30)));
+        info!("Nexus API shut down gracefully");
     }
 }

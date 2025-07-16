@@ -44,7 +44,7 @@ impl TestServiceServer {
         let nexus_api = nexus_builder.start().await.unwrap();
 
         // Save the server URL, including OS-chosen port (e.g., "http://127.0.0.1:12345") in a global variable
-        let url = format!("http://{}", nexus_api.socket);
+        let url = format!("http://{}", nexus_api.icann_http_socket);
         SERVER_URL.set(url).expect("SERVER_URL already set");
 
         Ok(())
