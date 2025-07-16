@@ -38,13 +38,6 @@ impl NexusApiBuilder {
         self
     }
 
-    /// Sets the server's listening address for incoming connections
-    pub fn public_addr(mut self, addr: SocketAddr) -> Self {
-        self.0.api_config.public_addr = addr;
-
-        self
-    }
-
     /// Sets the directory for storing static files on the server
     pub fn files_path(mut self, files_path: PathBuf) -> Self {
         self.0.api_config.stack.files_path = files_path;
@@ -167,19 +160,20 @@ impl NexusApi {
         ctx: &ApiContext,
         router: Router,
     ) -> Result<(Handle, SocketAddr), DynError> {
-        let https_listener = TcpListener::bind(ctx.api_config.pubky_listen_socket)?;
-        let https_socket = https_listener.local_addr()?;
-        let https_handle = Handle::new();
+        let pubky_socket = ctx.api_config.pubky_listen_socket;
+        let pubky_listener = TcpListener::bind(pubky_socket)
+            .inspect_err(|e| error!("Failed to bind to Pubky socket {pubky_socket:?}: {e}"))?;
+        let pubky_handle = Handle::new();
 
         tokio::spawn(
-            axum_server::from_tcp(https_listener)
+            axum_server::from_tcp(pubky_listener)
                 .acceptor(Self::create_pubky_tls_acceptor(&ctx.keypair))
-                .handle(https_handle.clone())
+                .handle(pubky_handle.clone())
                 .serve(router.into_make_service())
                 .inspect_err(|e| error!("Nexus API pubky TLS endpoint error: {e}")),
         );
 
-        Ok((https_handle, https_socket))
+        Ok((pubky_handle, pubky_socket))
     }
 
     fn create_pubky_tls_acceptor(keypair: &Keypair) -> RustlsAcceptor {

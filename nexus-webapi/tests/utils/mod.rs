@@ -1,15 +1,14 @@
 use axum::http::{Method, StatusCode};
 use serde_json::Value;
-use server::{TestServiceServer, SERVER_URL};
+use server::TestServiceServer;
 
 pub mod server;
 
-/// Instead of hardcoding the host, we have a function that returns it.
-pub async fn host_url() -> String {
-    // Ensure the server is running.
-    TestServiceServer::get_test_server().await;
-    // Get the URL that was stored when the server started.
-    SERVER_URL.get().expect("SERVER_URL should be set").clone()
+pub(crate) async fn host_url() -> String {
+    let test_server = TestServiceServer::get_test_server().await;
+
+    // Get the server URL, including OS-chosen port (e.g., "http://127.0.0.1:12345")
+    format!("http://{}", test_server.nexus_api.icann_http_socket)
 }
 
 // #######################################
