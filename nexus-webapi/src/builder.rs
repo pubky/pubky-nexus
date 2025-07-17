@@ -170,6 +170,9 @@ impl NexusApi {
         let pubky_socket = ctx.api_config.pubky_listen_socket;
         let pubky_listener = TcpListener::bind(pubky_socket)
             .inspect_err(|e| error!("Failed to bind to Pubky socket {pubky_socket:?}: {e}"))?;
+        let pubky_local_addr = pubky_listener
+            .local_addr()
+            .inspect_err(|e| error!("Failed to get local address after binding: {e})"))?;
         let pubky_handle = Handle::new();
 
         tokio::spawn(
@@ -180,7 +183,7 @@ impl NexusApi {
                 .inspect_err(|e| error!("Nexus API pubky TLS endpoint error: {e}")),
         );
 
-        Ok((pubky_handle, pubky_socket))
+        Ok((pubky_handle, pubky_local_addr))
     }
 
     /// Returns the public_key of this server
