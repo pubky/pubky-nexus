@@ -58,8 +58,15 @@ FROM alpine:3.22
 
 ARG TARGETARCH=x86_64
 
-# Install runtime dependencies (only ca-certificates)
-RUN apk add --no-cache ca-certificates
+# Install runtime dependencies
+RUN apk add --no-cache ca-certificates \
+    imagemagick \
+    imagemagick-webp \
+    imagemagick-heic \
+    imagemagick-svg \
+    imagemagick-jpeg \
+    imagemagick-tiff \
+    imagemagick-raw
 
 # Copy the compiled binaries from the builder stage
 COPY --from=builder /usr/src/app/target/$TARGETARCH-unknown-linux-musl/release/nexusd /usr/local/bin/nexusd
