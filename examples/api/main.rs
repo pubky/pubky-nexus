@@ -38,9 +38,9 @@ async fn main() -> Result<(), DynError> {
         }
     };
 
-    tracing::info!("Press Ctrl+C to stop the Nexus API");
+    println!("Press Ctrl+C to stop the Nexus API");
     tokio::signal::ctrl_c().await?;
-    tracing::info!("Shutting down Nexus API");
+    println!("Shutting down Nexus API");
 
     Ok(())
 }

@@ -19,4 +19,3 @@ nexus-webapi = { path = "../nexus-webapi" }
 nexus-watcher = { path = "../nexus-watcher" }
 pubky-app-specs = { workspace = true }
 clap = { workspace = true }
-tracing = { workspace = true }
