@@ -76,6 +76,8 @@ impl NexusApiBuilder {
 }
 
 pub struct NexusApi {
+    ctx: ApiContext,
+
     /// Local socket address used for the interface exposed via ICANN DNS
     pub icann_http_socket: SocketAddr,
     icann_http_handle: Handle,
@@ -127,6 +129,7 @@ impl NexusApi {
         info!("Nexus API listening on http://{}", ctx.keypair.public_key());
 
         Ok(NexusApi {
+            ctx,
             icann_http_socket,
             icann_http_handle,
             pubky_tls_socket,
