@@ -7,11 +7,16 @@ use pkarr::Keypair;
 pub struct ApiContext {
     pub(crate) api_config: ApiConfig,
     pub(crate) keypair: Keypair,
+
+    /// pkarr client builder in case we need to create more instances.
+    /// Comes ready with the correct bootstrap nodes and relays.
+    pub(crate) pkarr_builder: pkarr::ClientBuilder,
 }
 
 pub struct ApiContextBuilder {
     api_config: Option<ApiConfig>,
     config_dir: PathBuf,
+    pkarr_builder: Option<pkarr::ClientBuilder>,
 }
 
 impl ApiContextBuilder {
@@ -23,12 +28,19 @@ impl ApiContextBuilder {
         Self {
             api_config: None,
             config_dir: config_dir.clone(),
+            pkarr_builder: None,
         }
     }
 
     /// Sets a custom [ApiConfig], overriding the one that may be derived from a config file in the given dir
     pub fn api_config(mut self, api_config: ApiConfig) -> Self {
         self.api_config = Some(api_config);
+
+        self
+    }
+
+    pub fn pkarr_builder(mut self, pkarr_builder: pkarr::ClientBuilder) -> Self {
+        self.pkarr_builder = Some(pkarr_builder);
 
         self
     }
@@ -45,11 +57,17 @@ impl ApiContextBuilder {
             Some(ac) => ac.clone(),
         };
 
+        let pkarr_builder = self
+            .pkarr_builder
+            .clone()
+            .unwrap_or(pkarr::ClientBuilder::default());
+
         let keypair = self.read_or_create_keypair()?;
 
         Ok(ApiContext {
             api_config,
             keypair,
+            pkarr_builder,
         })
     }
 

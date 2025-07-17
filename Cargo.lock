@@ -2614,6 +2614,7 @@ dependencies = [
  "opentelemetry_sdk",
  "pkarr",
  "pubky-app-specs",
+ "pubky-testnet",
  "serde",
  "serde_json",
  "tempfile",

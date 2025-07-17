@@ -42,6 +42,7 @@ utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
 anyhow = "1.0.98"
 criterion = { version = "0.6.0", features = ["async_tokio"] }
 httpc-test = "0.1.10"
+pubky-testnet = { workspace = true }
 tempfile = { workspace = true }
 tokio-shared-rt = "0.1"
 url = "2.5.4"
