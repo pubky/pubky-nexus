@@ -32,7 +32,9 @@ impl TestServiceServer {
             ..Default::default()
         };
 
-        let api_context = ApiContextBuilder::from_default_config_dir()
+        // Every time we start a test server, use a new temp config dir, which is automatically removed after the tests
+        let temp_config_dir = tempfile::TempDir::new_in(".")?;
+        let api_context = ApiContextBuilder::from_config_dir(temp_config_dir.path().to_path_buf())
             .api_config(test_api_config)
             .try_build()
             .await
