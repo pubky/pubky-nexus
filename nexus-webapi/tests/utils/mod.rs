@@ -8,7 +8,7 @@ pub(crate) async fn host_url() -> String {
     let test_server = TestServiceServer::get_test_server().await;
 
     // Get the server URL, including OS-chosen port (e.g., "http://127.0.0.1:12345")
-    format!("http://{}", test_server.nexus_api.icann_http_socket)
+    test_server.nexus_api.icann_http_url()
 }
 
 // #######################################

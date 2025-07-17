@@ -15,7 +15,7 @@ use nexus_common::file::ConfigLoader;
 use nexus_common::types::DynError;
 use nexus_common::Level;
 use nexus_common::{ApiConfig, StackManager};
-use pkarr::Keypair;
+use pkarr::{Keypair, PublicKey};
 use tracing::{debug, error, info};
 
 pub const API_CONFIG_FILE_NAME: &str = "api-config.toml";
@@ -67,11 +67,17 @@ impl NexusApiBuilder {
     pub async fn start(self) -> Result<NexusApi, DynError> {
         self.init_stack()
             .await
-            .inspect_err(|e| tracing::error!("Failed to initialize stack: {e}"))?;
+            .inspect_err(|e| error!("Failed to initialize stack: {e}"))?;
 
-        NexusApi::start(self.0)
+        let nexus_api = NexusApi::start(self.0)
             .await
-            .inspect_err(|e| tracing::error!("Failed to start Nexus API: {e}"))
+            .inspect_err(|e| error!("Failed to start Nexus API: {e}"))?;
+
+        info!("Nexus API HTTP: {}", nexus_api.icann_http_url());
+        info!("Nexus API Pubky TLS: {}", nexus_api.pubky_tls_dns_url());
+        info!("Nexus API Pubky TLS: {}", nexus_api.pubky_tls_ip_url());
+
+        Ok(nexus_api)
     }
 }
 
@@ -79,11 +85,11 @@ pub struct NexusApi {
     ctx: ApiContext,
 
     /// Local socket address used for the interface exposed via ICANN DNS
-    pub icann_http_socket: SocketAddr,
+    icann_http_socket: SocketAddr,
     icann_http_handle: Handle,
 
     /// Local socket address used for the interface exposed via Pubky PKDNS
-    pub pubky_tls_socket: SocketAddr,
+    pubky_tls_socket: SocketAddr,
     pubky_tls_handle: Handle,
 }
 
@@ -122,11 +128,9 @@ impl NexusApi {
 
         let (icann_http_handle, icann_http_socket) =
             Self::start_icann_http_server(&ctx, router.clone()).await?;
-        info!("Nexus API listening on {icann_http_socket}");
 
         let (pubky_tls_handle, pubky_tls_socket) =
             Self::start_pubky_tls_server(&ctx, router).await?;
-        info!("Nexus API listening on http://{}", ctx.keypair.public_key());
 
         Ok(NexusApi {
             ctx,
@@ -177,6 +181,31 @@ impl NexusApi {
         );
 
         Ok((pubky_handle, pubky_socket))
+    }
+
+    /// Returns the public_key of this server
+    pub fn public_key(&self) -> PublicKey {
+        self.ctx.keypair.public_key()
+    }
+
+    /// Returns the `https://<server public key>` url
+    pub fn pubky_url(&self) -> String {
+        format!("https://{}", self.public_key())
+    }
+
+    /// Get the URL of the icann http server.
+    pub fn icann_http_url(&self) -> String {
+        format!("http://{}", self.icann_http_socket)
+    }
+
+    /// Get the URL of the pubky tls server with the Pubky DNS name.
+    pub fn pubky_tls_dns_url(&self) -> String {
+        format!("https://{}", self.public_key())
+    }
+
+    /// Get the URL of the pubky tls server with the Pubky IP address.
+    pub fn pubky_tls_ip_url(&self) -> String {
+        format!("https://{}", self.pubky_tls_socket)
     }
 
     fn create_pubky_tls_acceptor(keypair: &Keypair) -> RustlsAcceptor {
