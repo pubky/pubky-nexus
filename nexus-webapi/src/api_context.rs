@@ -57,10 +57,7 @@ impl ApiContextBuilder {
             Some(ac) => ac.clone(),
         };
 
-        let pkarr_builder = self
-            .pkarr_builder
-            .clone()
-            .unwrap_or(pkarr::ClientBuilder::default());
+        let pkarr_builder = self.pkarr_builder.clone().unwrap_or_default();
 
         let keypair = self.read_or_create_keypair()?;
 
