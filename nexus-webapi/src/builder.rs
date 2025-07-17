@@ -1,4 +1,5 @@
 use crate::api_context::{ApiContext, ApiContextBuilder};
+use crate::key_republisher::NexusApiKeyRepublisher;
 use crate::routes;
 
 use std::net::TcpListener;
@@ -91,6 +92,10 @@ pub struct NexusApi {
     /// Local socket address used for the interface exposed via Pubky PKDNS
     pubky_tls_socket: SocketAddr,
     pubky_tls_handle: Handle,
+
+    #[allow(dead_code)]
+    // Keep this alive. Republishing is stopped when the instance is dropped.
+    key_republisher: NexusApiKeyRepublisher,
 }
 
 impl NexusApi {
@@ -132,12 +137,15 @@ impl NexusApi {
         let (pubky_tls_handle, pubky_tls_socket) =
             Self::start_pubky_tls_server(&ctx, router).await?;
 
+        let key_republisher = NexusApiKeyRepublisher::start(&ctx, pubky_tls_socket.port()).await?;
+
         Ok(NexusApi {
             ctx,
             icann_http_socket,
             icann_http_handle,
             pubky_tls_socket,
             pubky_tls_handle,
+            key_republisher,
         })
     }
 
