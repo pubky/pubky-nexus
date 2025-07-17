@@ -12,12 +12,12 @@ members = [
 [workspace.dependencies]
 async-trait = "0.1.88"
 chrono = { version = "0.4.41", default-features = false, features = ["clock"] }
-clap = "4.5.40"
+clap = "4.5.41"
 neo4rs = "0.8.0"
 opentelemetry = "0.30"
 opentelemetry_sdk = { version = "0.30", features = ["rt-tokio"] }
 pubky = "0.5.1"
-pubky-app-specs = { version = "0.3.4", features = ["openapi"] }
+pubky-app-specs = { version = "0.3.5", features = ["openapi"] }
 pubky-testnet = "0.5.1"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"

@@ -17,6 +17,6 @@ tokio = { version = "1.46.1", features = ["full"] }
 nexus-common = { path = "../nexus-common" }
 nexus-webapi = { path = "../nexus-webapi" }
 nexus-watcher = { path = "../nexus-watcher" }
-pubky-app-specs = "0.3.4"
+pubky-app-specs = { workspace = true }
 clap = { workspace = true }
 tracing = { workspace = true }
