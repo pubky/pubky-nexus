@@ -28,7 +28,7 @@ async fn main() -> Result<(), DynError> {
             },
         },
         NexusCommands::Api(ApiArgs { config_dir }) => {
-            NexusApi::start_from_daemon(config_dir).await?
+            NexusApi::start_from_daemon(config_dir).await?;
         }
         NexusCommands::Watcher(WatcherArgs { config_dir }) => {
             NexusWatcher::start_from_daemon(config_dir).await?

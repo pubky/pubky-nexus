@@ -101,23 +101,17 @@ impl NexusWatcher {
     ///
     /// If no [WatcherConfig] file is found, it defaults to [NexusWatcher::start_from_daemon].
     pub async fn start_from_path(config_dir: PathBuf) -> Result<(), DynError> {
-        let watcher_config =
-            match WatcherConfig::load(config_dir.join(WATCHER_CONFIG_FILE_NAME)).await {
-                Ok(watcher_config) => watcher_config,
-                Err(_) => {
-                    let daemon_config = DaemonConfig::read_config_file(config_dir).await?;
-                    WatcherConfig::from(daemon_config)
-                }
-            };
-
-        NexusWatcherBuilder(watcher_config).start().await
+        match WatcherConfig::load(config_dir.join(WATCHER_CONFIG_FILE_NAME)).await {
+            Ok(watcher_config) => NexusWatcherBuilder(watcher_config).start().await,
+            Err(_) => NexusWatcher::start_from_daemon(config_dir).await,
+        }
     }
 
     /// Derives the [WatcherConfig] from [DaemonConfig] (nexusd service config), loads it and starts the Watcher.
     ///
     /// If a [DaemonConfig] is not found, a new one is created in the given path with the default contents.
     pub async fn start_from_daemon(config_dir: PathBuf) -> Result<(), DynError> {
-        let daemon_config = DaemonConfig::read_config_file(config_dir).await?;
+        let daemon_config = DaemonConfig::read_or_create_config_file(config_dir).await?;
         let watcher_config = WatcherConfig::from(daemon_config);
         NexusWatcherBuilder(watcher_config).start().await
     }
