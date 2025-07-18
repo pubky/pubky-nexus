@@ -57,3 +57,57 @@ impl DaemonConfig {
 
 #[async_trait]
 impl ConfigLoader<DaemonConfig> for DaemonConfig {}
+
+#[cfg(test)]
+mod tests {
+    use std::{net::SocketAddr, path::PathBuf, str::FromStr};
+
+    use pubky_app_specs::PubkyId;
+
+    use crate::{file::validate_and_expand_path, DaemonConfig, Level};
+
+    #[tokio_shared_rt::test(shared)]
+    async fn test_toml_parsing() {
+        let c: DaemonConfig = DaemonConfig::read_or_create_config_file(
+            tempfile::TempDir::new().unwrap().path().to_path_buf(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(c.api.name, "nexusd.api");
+        assert_eq!(c.api.public_addr, SocketAddr::from(([127, 0, 0, 1], 8080)));
+
+        assert_eq!(c.watcher.name, "nexusd.watcher");
+        assert_eq!(c.watcher.testnet, false);
+        assert_eq!(
+            c.watcher.homeserver,
+            PubkyId::try_from("8um71us3fyw6h8wbcxb5ar3rwusy1a6u49956ikzojg3gcwd1dty").unwrap()
+        );
+        assert_eq!(c.watcher.events_limit, 50);
+        assert_eq!(c.watcher.watcher_sleep, 5_000);
+        assert_eq!(
+            c.watcher.moderation_id,
+            PubkyId::try_from("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap()
+        );
+        assert_eq!(
+            c.watcher.moderated_tags,
+            vec![
+                "hatespeech",
+                "harassement",
+                "terrorism",
+                "violence",
+                "illegal_activities",
+                "il_adult_nu_sex_act",
+            ]
+        );
+
+        assert_eq!(c.stack.log_level, Level::Info);
+        assert_eq!(
+            c.stack.files_path,
+            validate_and_expand_path(PathBuf::from_str("~/.pubky-nexus/static/files").unwrap())
+                .unwrap()
+        );
+        assert_eq!(c.stack.db.redis, "redis://127.0.0.1:6379");
+        assert_eq!(c.stack.db.neo4j.uri, "bolt://localhost:7687");
+    }
+}
