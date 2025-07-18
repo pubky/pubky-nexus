@@ -1,7 +1,10 @@
-use crate::builder::NexusApi;
+use crate::{api_context::ApiContextBuilder, NexusApiBuilder};
 use clap::ValueEnum;
 use neo4rs::query;
-use nexus_common::db::{get_neo4j_graph, get_redis_conn, reindex};
+use nexus_common::{
+    db::{get_neo4j_graph, get_redis_conn, reindex},
+    ApiConfig,
+};
 use std::process::Stdio;
 use tracing::info;
 
@@ -17,14 +20,32 @@ pub struct MockDb {}
 
 impl MockDb {
     pub async fn clear_database() {
-        let _ = NexusApi::builder().init_stack().await;
+        let api_context = ApiContextBuilder::from_default_config_dir()
+            .api_config(ApiConfig::default())
+            .try_build()
+            .await
+            .expect("Failed to create ApiContext");
+        NexusApiBuilder(api_context)
+            .init_stack()
+            .await
+            .expect("Failed to initialize stack");
+
         Self::drop_cache().await;
         Self::drop_graph().await;
         info!("Both ddbb cleared successfully");
     }
 
     pub async fn run(mock_type: Option<MockType>) {
-        let _ = NexusApi::builder().init_stack().await;
+        let api_context = ApiContextBuilder::from_default_config_dir()
+            .api_config(ApiConfig::default())
+            .try_build()
+            .await
+            .expect("Failed to create ApiContext");
+        NexusApiBuilder(api_context)
+            .init_stack()
+            .await
+            .expect("Failed to initialize stack");
+
         match mock_type {
             Some(MockType::Redis) => Self::sync_redis().await,
             Some(MockType::Graph) => Self::sync_graph().await,
