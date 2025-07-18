@@ -43,7 +43,7 @@ criterion = { version = "0.7.0", features = ["async_tokio"] }
 httpc-test = "0.1.10"
 pubky-testnet = { workspace = true }
 tempfile = { workspace = true }
-tokio-shared-rt = "0.1"
+tokio-shared-rt = { workspace = true }
 url = "2.5.4"
 
 [[bench]]
