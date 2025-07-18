@@ -199,11 +199,6 @@ impl NexusApi {
         self.ctx.keypair.public_key()
     }
 
-    /// Returns the `https://<server public key>` url
-    pub fn pubky_url(&self) -> String {
-        format!("https://{}", self.public_key())
-    }
-
     /// Get the URL of the icann http server.
     pub fn icann_http_url(&self) -> String {
         format!("http://{}", self.icann_http_socket)
