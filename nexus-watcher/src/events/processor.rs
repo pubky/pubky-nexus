@@ -11,6 +11,7 @@ use opentelemetry::{global, Context, KeyValue};
 use pubky_app_specs::PubkyId;
 use std::error::Error;
 use std::path::PathBuf;
+use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info};
 
 pub struct EventProcessor {
@@ -83,7 +84,7 @@ impl EventProcessor {
         })
     }
 
-    pub async fn run(&mut self) -> Result<(), DynError> {
+    pub async fn run(&mut self, shutdown_rx: Receiver<bool>) -> Result<(), DynError> {
         let lines = {
             let tracer = global::tracer(self.tracer_name.clone());
             let span = tracer.start("Polling Events");
@@ -100,7 +101,8 @@ impl EventProcessor {
                 info!("No new events");
             }
             Ok(Some(lines)) => {
-                self.process_event_lines(lines).await?;
+                info!("Processing {} event lines", lines.len());
+                self.process_event_lines(shutdown_rx, lines).await?;
             }
         }
 
@@ -153,8 +155,17 @@ impl EventProcessor {
     ///
     /// # Parameters
     /// - `lines`: A vector of strings representing event lines retrieved from the homeserver.
-    pub async fn process_event_lines(&mut self, lines: Vec<String>) -> Result<(), DynError> {
+    pub async fn process_event_lines(
+        &mut self,
+        shutdown_rx: Receiver<bool>,
+        lines: Vec<String>,
+    ) -> Result<(), DynError> {
         for line in &lines {
+            if *shutdown_rx.borrow() {
+                info!("Shutdown detected, exiting event processing loop");
+                return Ok(());
+            }
+
             if line.starts_with("cursor:") {
                 if let Some(cursor) = line.strip_prefix("cursor: ") {
                     self.homeserver.cursor = cursor.to_string();

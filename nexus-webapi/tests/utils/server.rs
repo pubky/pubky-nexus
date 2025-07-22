@@ -43,7 +43,10 @@ impl TestServiceServer {
             .await
             .expect("Failed to create ApiContext");
         let nexus_builder = NexusApiBuilder(api_context).files_path(get_files_dir_test_pathbuf());
-        let nexus_api = nexus_builder.start().await.unwrap();
+
+        let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+        let _ = shutdown_tx.send(true); // We want the test server to return right away after start()
+        let nexus_api = nexus_builder.start(shutdown_rx).await.unwrap();
 
         Ok(nexus_api)
     }

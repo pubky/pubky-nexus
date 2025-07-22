@@ -74,7 +74,11 @@ impl WatcherTest {
     /// Ensures that event processing is completed if it is enabled.
     pub async fn ensure_event_processing_complete(&mut self) -> Result<()> {
         if self.ensure_event_processing {
-            self.event_processor.run().await.map_err(|e| anyhow!(e))?;
+            let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+            self.event_processor
+                .run(shutdown_rx)
+                .await
+                .map_err(|e| anyhow!(e))?;
             // tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         }
         Ok(())

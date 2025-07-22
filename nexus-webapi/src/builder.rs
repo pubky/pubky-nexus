@@ -17,6 +17,7 @@ use nexus_common::types::DynError;
 use nexus_common::Level;
 use nexus_common::{ApiConfig, StackManager};
 use pkarr::{Keypair, PublicKey};
+use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info};
 
 pub const API_CONFIG_FILE_NAME: &str = "api-config.toml";
@@ -65,7 +66,7 @@ impl NexusApiBuilder {
         StackManager::setup(&self.0.api_config.name, &self.0.api_config.stack).await
     }
 
-    pub async fn start(self) -> Result<NexusApi, DynError> {
+    pub async fn start(self, mut shutdown_rx: Receiver<bool>) -> Result<NexusApi, DynError> {
         self.init_stack()
             .await
             .inspect_err(|e| error!("Failed to initialize stack: {e}"))?;
@@ -77,6 +78,9 @@ impl NexusApiBuilder {
         info!("Nexus API HTTP: {}", nexus_api.icann_http_url());
         info!("Nexus API Pubky TLS: {}", nexus_api.pubky_tls_dns_url());
         info!("Nexus API Pubky TLS: {}", nexus_api.pubky_tls_ip_url());
+
+        let _ = shutdown_rx.changed().await;
+        info!("Received shutdown signal");
 
         Ok(nexus_api)
     }
@@ -102,7 +106,10 @@ impl NexusApi {
     /// Loads the [ApiConfig] from [API_CONFIG_FILE_NAME] in the given path and starts the Nexus API.
     ///
     /// If no [ApiConfig] file is found, it defaults to [NexusApi::start_from_daemon].
-    pub async fn start_from_path(config_dir: PathBuf) -> Result<Self, DynError> {
+    pub async fn start_from_path(
+        shutdown_rx: Receiver<bool>,
+        config_dir: PathBuf,
+    ) -> Result<Self, DynError> {
         match ApiConfig::load(config_dir.join(API_CONFIG_FILE_NAME)).await {
             Ok(api_config) => {
                 let api_context = ApiContextBuilder::from_config_dir(config_dir)
@@ -110,19 +117,22 @@ impl NexusApi {
                     .try_build()
                     .await?;
 
-                NexusApiBuilder(api_context).start().await
+                NexusApiBuilder(api_context).start(shutdown_rx).await
             }
-            Err(_) => NexusApi::start_from_daemon(config_dir).await,
+            Err(_) => NexusApi::start_from_daemon(shutdown_rx, config_dir).await,
         }
     }
 
     /// Loads the [ApiConfig] from the [DaemonConfig] in the given path and starts the Nexus API.
-    pub async fn start_from_daemon(config_dir: PathBuf) -> Result<Self, DynError> {
+    pub async fn start_from_daemon(
+        shutdown_rx: Receiver<bool>,
+        config_dir: PathBuf,
+    ) -> Result<Self, DynError> {
         let api_context = ApiContextBuilder::from_config_dir(config_dir)
             .try_build()
             .await?;
 
-        NexusApiBuilder(api_context).start().await
+        NexusApiBuilder(api_context).start(shutdown_rx).await
     }
 
     /// It sets up the necessary routes, binds to the specified address, and starts the Axum server

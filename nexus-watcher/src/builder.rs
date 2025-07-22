@@ -1,13 +1,15 @@
+use std::path::PathBuf;
+
 use crate::events::processor::EventProcessor;
+
 use nexus_common::db::{DatabaseConfig, PubkyClient};
 use nexus_common::file::ConfigLoader;
 use nexus_common::types::DynError;
 use nexus_common::{DaemonConfig, Level, StackConfig};
 use nexus_common::{StackManager, WatcherConfig};
 use pubky_app_specs::PubkyId;
-use std::path::PathBuf;
+use tokio::sync::watch::Receiver;
 use tokio::time::Duration;
-use tokio::{pin, signal};
 use tracing::{debug, error, info};
 
 pub const WATCHER_CONFIG_FILE_NAME: &str = "watcher-config.toml";
@@ -83,9 +85,9 @@ impl NexusWatcherBuilder {
     }
 
     /// Initializes the service stack and starts the NexusWatcher event loop
-    pub async fn start(self) -> Result<(), DynError> {
+    pub async fn start(self, shutdown_rx: Receiver<bool>) -> Result<(), DynError> {
         self.init_stack().await?;
-        NexusWatcher::start(self.0).await
+        NexusWatcher::start(shutdown_rx, self.0).await
     }
 }
 
@@ -100,47 +102,46 @@ impl NexusWatcher {
     /// Loads the [WatcherConfig] from [WATCHER_CONFIG_FILE_NAME] in the given path and starts the Nexus Watcher.
     ///
     /// If no [WatcherConfig] file is found, it defaults to [NexusWatcher::start_from_daemon].
-    pub async fn start_from_path(config_dir: PathBuf) -> Result<(), DynError> {
+    pub async fn start_from_path(
+        shutdown_rx: Receiver<bool>,
+        config_dir: PathBuf,
+    ) -> Result<(), DynError> {
         match WatcherConfig::load(config_dir.join(WATCHER_CONFIG_FILE_NAME)).await {
-            Ok(watcher_config) => NexusWatcherBuilder(watcher_config).start().await,
-            Err(_) => NexusWatcher::start_from_daemon(config_dir).await,
+            Ok(watcher_config) => NexusWatcherBuilder(watcher_config).start(shutdown_rx).await,
+            Err(_) => NexusWatcher::start_from_daemon(shutdown_rx, config_dir).await,
         }
     }
 
     /// Derives the [WatcherConfig] from [DaemonConfig] (nexusd service config), loads it and starts the Watcher.
     ///
     /// If a [DaemonConfig] is not found, a new one is created in the given path with the default contents.
-    pub async fn start_from_daemon(config_dir: PathBuf) -> Result<(), DynError> {
+    pub async fn start_from_daemon(
+        shutdown_rx: Receiver<bool>,
+        config_dir: PathBuf,
+    ) -> Result<(), DynError> {
         let daemon_config = DaemonConfig::read_or_create_config_file(config_dir).await?;
         let watcher_config = WatcherConfig::from(daemon_config);
-        NexusWatcherBuilder(watcher_config).start().await
+        NexusWatcherBuilder(watcher_config).start(shutdown_rx).await
     }
 
-    pub async fn start(config: WatcherConfig) -> Result<(), DynError> {
+    pub async fn start(
+        mut shutdown_rx: Receiver<bool>,
+        config: WatcherConfig,
+    ) -> Result<(), DynError> {
         debug!(?config, "Running NexusWatcher with ");
         let mut event_processor = EventProcessor::from_config(&config).await?;
 
-        let shutdown_signal = signal::ctrl_c();
-        pin!(shutdown_signal);
-        // If we wanted to handle SIGTERM too
-        // let mut sigterm = signal::unix::signal(signal::unix::SignalKind::terminate())?;
-        // Now we only catch SIGINT
-
         let mut interval = tokio::time::interval(Duration::from_millis(config.watcher_sleep));
 
-        // TODO: This lets you cancel the underlying future instead of waiting for it to complete
-        // To achieve low-latency shutdown (i.e. abort in-flight processing immediately on Ctrl+C),
-        // consider offloading `event_processor.run()` into its own cancellable Tokio task (or spawn_blocking thread),
-        // keeping its `JoinHandle`, and invoking `handle.abort()` when the shutdown (ctlr + c) future resolves
         loop {
             tokio::select! {
-                _ = &mut shutdown_signal => {
+                _ = shutdown_rx.changed() => {
                     info!("SIGINT received, starting graceful shutdown...");
                     break;
                 }
                 _ = interval.tick() => {
                     info!("Fetching events…");
-                    if let Err(e) = event_processor.run().await {
+                    if let Err(e) = event_processor.run(shutdown_rx.clone()).await {
                         error!("Error while processing events: {:?}", e);
                     }
                 }

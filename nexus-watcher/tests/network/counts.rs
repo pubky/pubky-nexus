@@ -263,9 +263,10 @@ async fn test_large_network_scenario_counts() -> Result<()> {
         }
     }
 
+    let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     if !PROCESS_EVENTS_ONE_BY_ONE {
         for _ in 1..=100 {
-            test.event_processor.run().await.unwrap();
+            test.event_processor.run(shutdown_rx.clone()).await.unwrap();
         }
     }
 

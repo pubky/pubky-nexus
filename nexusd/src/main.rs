@@ -9,10 +9,16 @@ use nexusd::DaemonLauncher;
 
 #[tokio::main]
 async fn main() -> Result<(), DynError> {
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+
+    // Ctrl+C handler
+    tokio::spawn(async move {
+        let _ = tokio::signal::ctrl_c().await;
+        let _ = shutdown_tx.send(true);
+    });
+
     let cli = Cli::parse();
-
     let command = Cli::receive_command(cli);
-
     match command {
         NexusCommands::Db(db_command) => match db_command {
             DbCommands::Clear => MockDb::clear_database().await,
@@ -28,12 +34,15 @@ async fn main() -> Result<(), DynError> {
             },
         },
         NexusCommands::Api(ApiArgs { config_dir }) => {
-            NexusApi::start_from_daemon(config_dir).await?;
+            NexusApi::start_from_daemon(shutdown_rx, config_dir).await?;
         }
         NexusCommands::Watcher(WatcherArgs { config_dir }) => {
-            NexusWatcher::start_from_daemon(config_dir).await?
+            NexusWatcher::start_from_daemon(shutdown_rx, config_dir).await?;
         }
-        NexusCommands::Run { config_dir } => DaemonLauncher::start(config_dir).await?,
+        NexusCommands::Run { config_dir } => {
+            DaemonLauncher::start(shutdown_rx, config_dir).await?;
+        }
     }
+
     Ok(())
 }
