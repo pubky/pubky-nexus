@@ -13,6 +13,7 @@ members = [
 async-trait = "0.1.88"
 chrono = { version = "0.4.41", default-features = false, features = ["clock"] }
 clap = "4.5.41"
+deadpool-redis = "0.22"
 neo4rs = "0.8.0"
 opentelemetry = "0.30"
 opentelemetry_sdk = { version = "0.30", features = ["rt-tokio"] }
