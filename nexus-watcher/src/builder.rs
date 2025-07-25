@@ -91,7 +91,7 @@ impl NexusWatcherBuilder {
     ///
     /// - `shutdown_rx`: optional shutdown signal. If none is provided, a default one will be created, listening for Ctrl-C.
     pub async fn start(self, shutdown_rx: Option<Receiver<bool>>) -> Result<(), DynError> {
-        let shutdown_rx = shutdown_rx.unwrap_or_else(|| create_shutdown_rx());
+        let shutdown_rx = shutdown_rx.unwrap_or_else(create_shutdown_rx);
 
         self.init_stack().await?;
         NexusWatcher::start(shutdown_rx, self.0).await
@@ -118,7 +118,7 @@ impl NexusWatcher {
         config_dir: PathBuf,
         shutdown_rx: Option<Receiver<bool>>,
     ) -> Result<(), DynError> {
-        let shutdown_rx = shutdown_rx.unwrap_or_else(|| create_shutdown_rx());
+        let shutdown_rx = shutdown_rx.unwrap_or_else(create_shutdown_rx);
 
         match WatcherConfig::load(config_dir.join(WATCHER_CONFIG_FILE_NAME)).await {
             Ok(config) => NexusWatcherBuilder(config).start(Some(shutdown_rx)).await,

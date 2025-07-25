@@ -25,7 +25,7 @@ impl DaemonLauncher {
         config_dir: PathBuf,
         shutdown_rx: Option<Receiver<bool>>,
     ) -> Result<(), DynError> {
-        let shutdown_rx = shutdown_rx.unwrap_or_else(|| create_shutdown_rx());
+        let shutdown_rx = shutdown_rx.unwrap_or_else(create_shutdown_rx);
 
         let api_context = ApiContextBuilder::from_config_dir(config_dir.clone())
             .try_build()
