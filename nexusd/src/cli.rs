@@ -1,5 +1,5 @@
 use clap::{Args, Parser, Subcommand};
-use nexus_common::file::{validate_and_expand_path, DEFAULT_HOME_DIR};
+use nexus_common::file::{default_config_dir_path, validate_and_expand_path};
 use nexus_webapi::mock::MockType;
 use std::path::PathBuf;
 
@@ -24,10 +24,6 @@ impl Cli {
             Some(command) => command,
         }
     }
-}
-
-fn default_config_dir_path() -> PathBuf {
-    dirs::home_dir().unwrap_or_default().join(DEFAULT_HOME_DIR)
 }
 
 /// Validate that the data_dir path is a directory.

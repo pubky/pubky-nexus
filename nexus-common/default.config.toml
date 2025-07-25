@@ -2,6 +2,7 @@
 # Service name used for tracing, logging, and metrics in OpenTelemetry
 name = "nexusd.api"
 public_addr = "127.0.0.1:8080"
+pubky_listen_socket = "127.0.0.1:8081"
 
 [watcher]
 # Service name used for tracing, logging, and metrics in OpenTelemetry
