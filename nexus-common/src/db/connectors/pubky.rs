@@ -28,7 +28,7 @@ impl PubkyClient {
                 debug!(
                     "Initialising PubkyClient in {} mode",
                     if let Some(host) = testnet_host {
-                        format!("testnet with host '{}'", host)
+                        format!("testnet with host '{host}'")
                     } else {
                         "mainnet".to_string()
                     }
