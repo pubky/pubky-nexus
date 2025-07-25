@@ -3,7 +3,7 @@ use tokio::sync::watch::Receiver;
 /// Creates a watch channel that can be used for shutdown signalling.
 ///
 /// On Ctrl-C, it sends a signal that can be picked up by the receiver returned.
-pub fn create_channel() -> Receiver<bool> {
+pub fn create_shutdown_rx() -> Receiver<bool> {
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
     tokio::spawn(async move {

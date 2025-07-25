@@ -1,7 +1,7 @@
 use std::{fmt::Debug, path::PathBuf};
 
 use nexus_common::DaemonConfig;
-use nexus_common::{types::DynError, utils::create_channel};
+use nexus_common::{types::DynError, utils::create_shutdown_rx};
 use nexus_watcher::NexusWatcherBuilder;
 use nexus_webapi::{api_context::ApiContextBuilder, NexusApiBuilder};
 use serde::{Deserialize, Serialize};
@@ -25,7 +25,7 @@ impl DaemonLauncher {
         config_dir: PathBuf,
         shutdown_rx: Option<Receiver<bool>>,
     ) -> Result<(), DynError> {
-        let shutdown_rx = shutdown_rx.unwrap_or_else(|| create_channel());
+        let shutdown_rx = shutdown_rx.unwrap_or_else(|| create_shutdown_rx());
 
         let api_context = ApiContextBuilder::from_config_dir(config_dir.clone())
             .try_build()

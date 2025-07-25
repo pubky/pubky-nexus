@@ -14,7 +14,7 @@ use futures_util::TryFutureExt;
 use nexus_common::db::DatabaseConfig;
 use nexus_common::file::ConfigLoader;
 use nexus_common::types::DynError;
-use nexus_common::utils::create_channel;
+use nexus_common::utils::create_shutdown_rx;
 use nexus_common::Level;
 use nexus_common::{ApiConfig, StackManager};
 use pkarr::{Keypair, PublicKey};
@@ -75,7 +75,7 @@ impl NexusApiBuilder {
     ///
     /// - `shutdown_rx`: optional shutdown signal. If none is provided, a default one will be created, listening for Ctrl-C.
     pub async fn start(self, shutdown_rx: Option<Receiver<bool>>) -> Result<NexusApi, DynError> {
-        let mut shutdown_rx = shutdown_rx.unwrap_or_else(|| create_channel());
+        let mut shutdown_rx = shutdown_rx.unwrap_or_else(|| create_shutdown_rx());
 
         self.init_stack()
             .await
@@ -148,7 +148,7 @@ impl NexusApi {
         config_dir: PathBuf,
         shutdown_rx: Option<Receiver<bool>>,
     ) -> Result<Self, DynError> {
-        let shutdown_rx = shutdown_rx.unwrap_or_else(|| create_channel());
+        let shutdown_rx = shutdown_rx.unwrap_or_else(|| create_shutdown_rx());
 
         let api_context = ApiContextBuilder::from_config_dir(config_dir)
             .try_build()
