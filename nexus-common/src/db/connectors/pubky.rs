@@ -18,19 +18,27 @@ pub enum PubkyClientError {
 pub struct PubkyClient;
 
 impl PubkyClient {
-    pub async fn initialise(testnet: bool) -> Result<(), PubkyClientError> {
+    /// Initializes the `PubkyClient`.
+    ///
+    /// - For mainnet, pass `None`.
+    /// - For testnet, pass `Some(hostname)` (e.g., "localhost" or "homeserver").
+    pub async fn initialise(testnet_host: Option<&str>) -> Result<(), PubkyClientError> {
         PUBKY_CLIENT_SINGLETON
             .get_or_try_init(|| async {
                 debug!(
                     "Initialising PubkyClient in {} mode",
-                    if testnet { "testnet" } else { "mainnet" }
+                    if let Some(host) = testnet_host {
+                        format!("testnet with host '{host}'")
+                    } else {
+                        "mainnet".to_string()
+                    }
                 );
-                let client = match testnet {
-                    true => Client::builder()
-                        .testnet()
+                let client = match testnet_host {
+                    Some(host) => Client::builder()
+                        .testnet_with_host(host)
                         .build()
                         .map_err(|e| PubkyClientError::ClientError(e.to_string()))?,
-                    false => Client::builder()
+                    None => Client::builder()
                         .build()
                         .map_err(|e| PubkyClientError::ClientError(e.to_string()))?,
                 };
