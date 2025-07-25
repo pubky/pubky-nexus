@@ -46,7 +46,7 @@ impl TestServiceServer {
 
         let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
         let _ = shutdown_tx.send(true); // We want the test server to return right away after start()
-        let nexus_api = nexus_builder.start(shutdown_rx).await.unwrap();
+        let nexus_api = nexus_builder.start(Some(shutdown_rx)).await.unwrap();
 
         Ok(nexus_api)
     }

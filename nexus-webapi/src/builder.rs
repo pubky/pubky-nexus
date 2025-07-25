@@ -14,6 +14,7 @@ use futures_util::TryFutureExt;
 use nexus_common::db::DatabaseConfig;
 use nexus_common::file::ConfigLoader;
 use nexus_common::types::DynError;
+use nexus_common::utils::create_channel;
 use nexus_common::Level;
 use nexus_common::{ApiConfig, StackManager};
 use pkarr::{Keypair, PublicKey};
@@ -66,7 +67,16 @@ impl NexusApiBuilder {
         StackManager::setup(&self.0.api_config.name, &self.0.api_config.stack).await
     }
 
-    pub async fn start(self, mut shutdown_rx: Receiver<bool>) -> Result<NexusApi, DynError> {
+    /// Creates and starts a [NexusApi] instance.
+    ///
+    /// This method is blocking and only returns after the shutdown signal is received and the [NexusApi] shut down.
+    ///
+    /// ### Arguments
+    ///
+    /// - `shutdown_rx`: optional shutdown signal. If none is provided, a default one will be created, listening for Ctrl-C.
+    pub async fn start(self, shutdown_rx: Option<Receiver<bool>>) -> Result<NexusApi, DynError> {
+        let mut shutdown_rx = shutdown_rx.unwrap_or_else(|| create_channel());
+
         self.init_stack()
             .await
             .inspect_err(|e| error!("Failed to initialize stack: {e}"))?;
@@ -106,9 +116,14 @@ impl NexusApi {
     /// Loads the [ApiConfig] from [API_CONFIG_FILE_NAME] in the given path and starts the Nexus API.
     ///
     /// If no [ApiConfig] file is found, it defaults to [NexusApi::start_from_daemon].
+    ///
+    /// ### Arguments
+    ///
+    /// - `config_dir`: the directory where the config file is expected to be
+    /// - `shutdown_rx`: optional shutdown signal. If none is provided, a default one will be created, listening for Ctrl-C.
     pub async fn start_from_path(
-        shutdown_rx: Receiver<bool>,
         config_dir: PathBuf,
+        shutdown_rx: Option<Receiver<bool>>,
     ) -> Result<Self, DynError> {
         match ApiConfig::load(config_dir.join(API_CONFIG_FILE_NAME)).await {
             Ok(api_config) => {
@@ -119,20 +134,27 @@ impl NexusApi {
 
                 NexusApiBuilder(api_context).start(shutdown_rx).await
             }
-            Err(_) => NexusApi::start_from_daemon(shutdown_rx, config_dir).await,
+            Err(_) => NexusApi::start_from_daemon(config_dir, shutdown_rx).await,
         }
     }
 
     /// Loads the [ApiConfig] from the [DaemonConfig] in the given path and starts the Nexus API.
+    ///
+    /// ### Arguments
+    ///
+    /// - `config_dir`: the directory where the config file is expected to be
+    /// - `shutdown_rx`: optional shutdown signal. If none is provided, a default one will be created, listening for Ctrl-C.
     pub async fn start_from_daemon(
-        shutdown_rx: Receiver<bool>,
         config_dir: PathBuf,
+        shutdown_rx: Option<Receiver<bool>>,
     ) -> Result<Self, DynError> {
+        let shutdown_rx = shutdown_rx.unwrap_or_else(|| create_channel());
+
         let api_context = ApiContextBuilder::from_config_dir(config_dir)
             .try_build()
             .await?;
 
-        NexusApiBuilder(api_context).start(shutdown_rx).await
+        NexusApiBuilder(api_context).start(Some(shutdown_rx)).await
     }
 
     /// It sets up the necessary routes, binds to the specified address, and starts the Axum server

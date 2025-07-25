@@ -1,7 +1,7 @@
 use std::{fmt::Debug, path::PathBuf};
 
-use nexus_common::types::DynError;
 use nexus_common::DaemonConfig;
+use nexus_common::{types::DynError, utils::create_channel};
 use nexus_watcher::NexusWatcherBuilder;
 use nexus_webapi::{api_context::ApiContextBuilder, NexusApiBuilder};
 use serde::{Deserialize, Serialize};
@@ -11,7 +11,22 @@ use tokio::{sync::watch::Receiver, try_join};
 pub struct DaemonLauncher {}
 
 impl DaemonLauncher {
-    pub async fn start(shutdown_rx: Receiver<bool>, config_dir: PathBuf) -> Result<(), DynError> {
+    /// Starts a daemon, with separate threads for a [NexusApi] and a [NexusWatcher] instances.
+    ///
+    /// This is a blocking method. It only returns:
+    /// - either when one of these services throws an error, or
+    /// - when the shutdown signal is received and both services shut down
+    ///
+    /// ### Arguments
+    ///
+    /// - `config_dir`: the directory where the config file is expected to be
+    /// - `shutdown_rx`: optional shutdown signal. If none is provided, a default one will be created, listening for Ctrl-C.
+    pub async fn start(
+        config_dir: PathBuf,
+        shutdown_rx: Option<Receiver<bool>>,
+    ) -> Result<(), DynError> {
+        let shutdown_rx = shutdown_rx.unwrap_or_else(|| create_channel());
+
         let api_context = ApiContextBuilder::from_config_dir(config_dir.clone())
             .try_build()
             .await?;
@@ -21,8 +36,8 @@ impl DaemonLauncher {
         let nexus_watcher_builder = NexusWatcherBuilder::with_stack(config.watcher, &config.stack);
 
         try_join!(
-            nexus_webapi_builder.start(shutdown_rx.clone()),
-            nexus_watcher_builder.start(shutdown_rx)
+            nexus_webapi_builder.start(Some(shutdown_rx.clone())),
+            nexus_watcher_builder.start(Some(shutdown_rx))
         )?;
         Ok(())
     }

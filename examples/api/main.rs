@@ -15,19 +15,11 @@ struct Opt {
 
 #[tokio::main]
 async fn main() -> Result<(), DynError> {
-    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-
-    // Ctrl+C handler
-    tokio::spawn(async move {
-        let _ = tokio::signal::ctrl_c().await;
-        let _ = shutdown_tx.send(true);
-    });
-
     let opts = Opt::parse();
     match opts.config {
         Some(path) => {
             let expanded_path = validate_and_expand_path(path)?;
-            NexusApi::start_from_path(shutdown_rx, expanded_path).await?
+            NexusApi::start_from_path(expanded_path, None).await?
         }
         None => {
             let api_config = ApiConfig {
@@ -42,7 +34,7 @@ async fn main() -> Result<(), DynError> {
                 .try_build()
                 .await?;
 
-            NexusApiBuilder(api_context).start(shutdown_rx).await?
+            NexusApiBuilder(api_context).start(None).await?
         }
     };
 
