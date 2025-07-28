@@ -15,7 +15,6 @@ axum-server = { version = "0.7.2", features = ["tls-rustls-no-provider"] }
 chrono = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 const_format = "0.2.34"
-const-hex = { version = "1.14" }
 futures-util = "0.3.31"
 neo4rs = { workspace = true }
 once_cell = "1.21.3"
@@ -24,7 +23,11 @@ opentelemetry_sdk = { workspace = true }
 pubky-app-specs = { workspace = true }
 nexus-common = { version = "0.4.1", path = "../nexus-common" }
 deadpool-redis = "0.21.1"
-pkarr = { version = "3.8.0", default-features = false }
+
+# TODO Revert back to using published pkarr version, as soon as read-/write-keypair is merged and published
+# pkarr = { version = "3.9.1", default-features = false }
+pkarr = { git = "https://github.com/ok300/pkarr", branch = "ok300-add-write-keypair", default-features = true, features = ["tls"] }
+
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

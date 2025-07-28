@@ -73,22 +73,12 @@ impl ApiContextBuilder {
         let secret_file_path = self.config_dir.join("secret");
 
         if !secret_file_path.exists() {
-            self.write_keypair(&secret_file_path, &Keypair::random())?;
+            Keypair::random().write_secret_key_file(&secret_file_path)?;
         }
 
-        let secret = std::fs::read(secret_file_path)?;
-        let secret_string = String::from_utf8_lossy(&secret).trim().to_string();
-        let secret_bytes: [u8; 32] = const_hex::decode(secret_string)?
-            .try_into()
-            .map_err(|_| "Failed to convert secret bytes into array of length 32")?;
-        let keypair = Keypair::from_secret_key(&secret_bytes);
-        Ok(keypair)
-    }
+        let keypair =
+            Keypair::from_secret_key_file(&secret_file_path).map_err(|e| e.to_string())?;
 
-    /// Writes the keypair to the secret file. If the file already exists, it will be overwritten.
-    fn write_keypair(&self, file_path: &PathBuf, keypair: &Keypair) -> Result<(), DynError> {
-        let secret = keypair.secret_key();
-        let hex_string = const_hex::encode(secret);
-        std::fs::write(file_path, hex_string).map_err(Into::into)
+        Ok(keypair)
     }
 }
