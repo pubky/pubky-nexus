@@ -22,7 +22,7 @@ opentelemetry = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 pubky-app-specs = { workspace = true }
 nexus-common = { version = "0.4.1", path = "../nexus-common" }
-deadpool-redis = "0.21.1"
+deadpool-redis = { workspace = true }
 
 # TODO Revert back to using published pkarr version, as soon as read-/write-keypair is merged and published
 # pkarr = { version = "3.9.1", default-features = false }
@@ -43,7 +43,7 @@ utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
 
 [dev-dependencies]
 anyhow = "1.0.98"
-criterion = { version = "0.6.0", features = ["async_tokio"] }
+criterion = { version = "0.7.0", features = ["async_tokio"] }
 httpc-test = "0.1.10"
 pubky-testnet = { workspace = true }
 tempfile = { workspace = true }

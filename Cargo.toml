@@ -13,6 +13,7 @@ members = [
 async-trait = "0.1.88"
 chrono = { version = "0.4.41", default-features = false, features = ["clock"] }
 clap = "4.5.41"
+deadpool-redis = "0.22"
 neo4rs = "0.8.0"
 opentelemetry = "0.30"
 opentelemetry_sdk = { version = "0.30", features = ["rt-tokio"] }
@@ -23,5 +24,5 @@ serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.141"
 tempfile = { version = "3.20" }
 thiserror = "2.0.12"
-tokio = { version = "1.46.1", features = ["full"] }
+tokio = { version = "1.47.0", features = ["full"] }
 tracing = "0.1.41"
