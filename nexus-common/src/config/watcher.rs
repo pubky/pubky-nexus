@@ -8,6 +8,7 @@ use std::fmt::Debug;
 pub const NAME: &str = "nexus.watcher";
 
 pub const TESTNET: bool = false;
+pub const DEFAULT_TESTNET_HOST: &str = "localhost";
 // Testnet homeserver key
 pub const HOMESERVER_PUBKY: &str = "8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo";
 // Maximum number of events to fetch at once from a homeserver
@@ -31,6 +32,7 @@ pub const MODERATED_TAGS: [&str; 6] = [
 pub struct WatcherConfig {
     pub name: String,
     pub testnet: bool,
+    pub testnet_host: String,
     pub homeserver: PubkyId,
     pub events_limit: u32,
     pub watcher_sleep: u64,
@@ -51,9 +53,10 @@ impl Default for WatcherConfig {
         let moderation_id = PubkyId::try_from(MODERATION_ID)
             .expect("Hardcoded moderation should be a valid pubky id");
         Self {
-            name: String::from(NAME),
+            name: NAME.to_string(),
             stack: StackConfig::default(),
             testnet: TESTNET,
+            testnet_host: DEFAULT_TESTNET_HOST.to_string(),
             homeserver,
             events_limit: EVENTS_LIMIT,
             watcher_sleep: WATCHER_SLEEP,
@@ -68,14 +71,8 @@ impl Default for WatcherConfig {
 impl From<DaemonConfig> for WatcherConfig {
     fn from(daemon_config: DaemonConfig) -> Self {
         WatcherConfig {
-            name: daemon_config.watcher.name,
-            testnet: daemon_config.watcher.testnet,
-            homeserver: daemon_config.watcher.homeserver,
-            events_limit: daemon_config.watcher.events_limit,
-            watcher_sleep: daemon_config.watcher.watcher_sleep,
             stack: daemon_config.stack,
-            moderation_id: daemon_config.watcher.moderation_id,
-            moderated_tags: daemon_config.watcher.moderated_tags,
+            ..daemon_config.watcher
         }
     }
 }
