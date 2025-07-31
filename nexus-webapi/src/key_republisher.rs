@@ -18,7 +18,7 @@ pub struct NexusApiKeyRepublisher {
 impl NexusApiKeyRepublisher {
     pub async fn start(context: &ApiContext, pubky_tls_port: u16) -> Result<Self, DynError> {
         let signed_packet = create_signed_packet(context, pubky_tls_port)?;
-        let pkarr_client = context.pkarr_builder.build()?;
+        let pkarr_client = context.pkarr_client.clone();
         let join_handle = Self::start_periodic_republish(pkarr_client, &signed_packet).await?;
         Ok(Self { join_handle })
     }

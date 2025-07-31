@@ -7,10 +7,7 @@ use pkarr::Keypair;
 pub struct ApiContext {
     pub(crate) api_config: ApiConfig,
     pub(crate) keypair: Keypair,
-
-    /// pkarr client builder in case we need to create more instances.
-    /// Comes ready with the correct bootstrap nodes and relays.
-    pub(crate) pkarr_builder: pkarr::ClientBuilder,
+    pub(crate) pkarr_client: pkarr::Client,
 }
 
 pub struct ApiContextBuilder {
@@ -58,13 +55,14 @@ impl ApiContextBuilder {
         };
 
         let pkarr_builder = self.pkarr_builder.clone().unwrap_or_default();
+        let pkarr_client = pkarr_builder.build()?;
 
         let keypair = self.read_or_create_keypair()?;
 
         Ok(ApiContext {
             api_config,
             keypair,
-            pkarr_builder,
+            pkarr_client,
         })
     }
 
