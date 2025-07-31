@@ -23,11 +23,7 @@ opentelemetry_sdk = { workspace = true }
 pubky-app-specs = { workspace = true }
 nexus-common = { version = "0.4.1", path = "../nexus-common" }
 deadpool-redis = { workspace = true }
-
-# TODO Revert back to using published pkarr version, as soon as read-/write-keypair is merged and published
-# pkarr = { version = "3.9.1", default-features = false }
-pkarr = { git = "https://github.com/ok300/pkarr", branch = "ok300-add-write-keypair", default-features = true, features = ["tls"] }
-
+pkarr = { version = "3.10.0", default-features = false }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
