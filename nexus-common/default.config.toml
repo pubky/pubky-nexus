@@ -8,6 +8,9 @@ pubky_listen_socket = "127.0.0.1:8081"
 # Service name used for tracing, logging, and metrics in OpenTelemetry
 name = "nexusd.watcher"
 testnet = false
+# testnet host, leave as "localhost" for local development. Change only if the
+# testnet homeserver/relay are on another machine (e.g. Docker setups).
+testnet_host = "localhost"
 # Synonym homeserver pubky
 homeserver = "8um71us3fyw6h8wbcxb5ar3rwusy1a6u49956ikzojg3gcwd1dty"
 events_limit = 50

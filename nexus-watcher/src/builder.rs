@@ -75,7 +75,12 @@ impl NexusWatcherBuilder {
     /// Opens ddbb connections and initialises tracing layer (if provided in config)
     pub async fn init_stack(&self) -> Result<(), DynError> {
         StackManager::setup(&self.0.name, &self.0.stack).await?;
-        let _ = PubkyClient::initialise(self.0.testnet).await;
+        let testnet_host = if self.0.testnet {
+            Some(self.0.testnet_host.as_str())
+        } else {
+            None
+        };
+        let _ = PubkyClient::initialise(testnet_host).await;
         Ok(())
     }
 
