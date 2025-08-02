@@ -98,22 +98,18 @@ fn create_signed_packet(context: &KeyRepublisherContext) -> Result<SignedPacket,
         .try_into()
         .expect(". is the root domain and always valid");
 
-    let mut signed_packet_builder = SignedPacket::builder();
-
     let public_ip = context.public_ip;
     let public_pubky_tls_port = context.public_pubky_tls_port;
+
+    let mut signed_packet_builder = SignedPacket::builder();
 
     // `SVCB(HTTPS)` record pointing to the pubky tls port and the public ip address
     // This is what is used in all applications expect for browsers.
     let mut svcb = SVCB::new(1, root_name.clone());
     svcb.set_port(public_pubky_tls_port);
     match &public_ip {
-        IpAddr::V4(ip) => {
-            svcb.set_ipv4hint([ip.to_bits()])?;
-        }
-        IpAddr::V6(ip) => {
-            svcb.set_ipv6hint([ip.to_bits()])?;
-        }
+        IpAddr::V4(ip) => svcb.set_ipv4hint([ip.to_bits()])?,
+        IpAddr::V6(ip) => svcb.set_ipv6hint([ip.to_bits()])?,
     };
     signed_packet_builder = signed_packet_builder.https(root_name.clone(), svcb, 60 * 60);
 
