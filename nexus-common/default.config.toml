@@ -1,7 +1,10 @@
 [api]
 # Service name used for tracing, logging, and metrics in OpenTelemetry
 name = "nexusd.api"
+# The local IP and port to which the HTTP server will bind and listen on
+# This HTTP endpoint can be used for the ICANN DNS-based TLS setup, for example via a reverse proxy
 public_addr = "127.0.0.1:8080"
+# The local IP and port to which the HTTPS (Pkarr TLS) server will bind and listen on
 pubky_listen_socket = "127.0.0.1:8081"
 
 [watcher]
