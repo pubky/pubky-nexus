@@ -1,4 +1,5 @@
-use crate::utils::host_url;
+use crate::utils::{host_url, server::TestServiceServer};
+
 use anyhow::Result;
 
 #[tokio_shared_rt::test(shared)]
@@ -40,6 +41,22 @@ async fn test_info_endpoint() -> Result<()> {
     println!("body: {body:?}");
     assert_eq!(body["name"], env!("CARGO_PKG_NAME"));
     assert_eq!(body["version"], env!("CARGO_PKG_VERSION"));
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_pkarr_endpoint() -> Result<()> {
+    let test_server = TestServiceServer::get_test_server().await;
+    let pubky_tls_dns_url = test_server.nexus_api.pubky_tls_dns_url();
+
+    let client = &test_server.testnet.pubky_client_builder().build()?;
+    let response = client
+        .get(format!("{pubky_tls_dns_url}/v0/info"))
+        .send()
+        .await?;
+
+    assert_eq!(response.status(), 200);
 
     Ok(())
 }
