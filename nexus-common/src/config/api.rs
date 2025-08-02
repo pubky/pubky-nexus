@@ -1,8 +1,11 @@
+use std::net::{IpAddr, Ipv4Addr};
+use std::{fmt::Debug, net::SocketAddr};
+
 use super::file::ConfigLoader;
 use super::{default_stack, DaemonConfig, StackConfig};
+
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use std::{fmt::Debug, net::SocketAddr};
 
 pub const NAME: &str = "nexus.api";
 
@@ -14,6 +17,7 @@ pub const DEFAULT_PUBKY_LOCAL_PORT: u16 = 8081;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiConfig {
     pub name: String,
+    pub public_ip: IpAddr,
     pub public_addr: SocketAddr,
     pub pubky_listen_socket: SocketAddr,
     #[serde(default = "default_stack")]
@@ -24,6 +28,7 @@ impl Default for ApiConfig {
     fn default() -> Self {
         Self {
             name: String::from(NAME),
+            public_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
             public_addr: SocketAddr::from((DEFAULT_LOCAL_IP, DEFAULT_ICANN_LOCAL_PORT)),
             pubky_listen_socket: SocketAddr::from((DEFAULT_LOCAL_IP, DEFAULT_PUBKY_LOCAL_PORT)),
             stack: StackConfig::default(),

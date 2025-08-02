@@ -270,8 +270,7 @@ fn derive_key_publisher_context(
     local_pubky_tls_port: u16,
 ) -> KeyRepublisherContext {
     KeyRepublisherContext {
-        // TODO Add specific config field for public_ip
-        public_ip: ctx.api_config.public_addr.ip(),
+        public_ip: ctx.api_config.public_ip,
         // Reference and expose the port of the local address used in the axum socket, which is where the axum server is listening.
         // This resolves ports :0 to an OS-chosen one.
         public_pubky_tls_port: local_pubky_tls_port,

@@ -1,4 +1,7 @@
-use std::{net::SocketAddr, path::PathBuf};
+use std::{
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    path::PathBuf,
+};
 
 use clap::Parser;
 use nexus_common::{file::validate_and_expand_path, types::DynError, ApiConfig, StackConfig};
@@ -24,6 +27,7 @@ async fn main() -> Result<(), DynError> {
         None => {
             let api_config = ApiConfig {
                 name: String::from("nexusd.api"),
+                public_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
                 public_addr: SocketAddr::from(([127, 0, 0, 1], 8081)),
                 pubky_listen_socket: SocketAddr::from(([127, 0, 0, 1], 8082)),
                 stack: StackConfig::default(),

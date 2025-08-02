@@ -1,6 +1,8 @@
 [api]
 # Service name used for tracing, logging, and metrics in OpenTelemetry
 name = "nexusd.api"
+# The public IP address where the Nexus API endpoint can be reached from the outside
+public_ip = "127.0.0.1"
 # The local IP and port to which the HTTP server will bind and listen on
 # This HTTP endpoint can be used for the ICANN DNS-based TLS setup, for example via a reverse proxy
 public_addr = "127.0.0.1:8080"
