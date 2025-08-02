@@ -100,6 +100,7 @@ fn create_signed_packet(context: &KeyRepublisherContext) -> Result<SignedPacket,
 
     let public_ip = context.public_ip;
     let public_pubky_tls_port = context.public_pubky_tls_port;
+    let ttl_sec = 60 * 60 * 3; // 3h
 
     let mut signed_packet_builder = SignedPacket::builder();
 
@@ -111,10 +112,10 @@ fn create_signed_packet(context: &KeyRepublisherContext) -> Result<SignedPacket,
         IpAddr::V4(ip) => svcb.set_ipv4hint([ip.to_bits()])?,
         IpAddr::V6(ip) => svcb.set_ipv6hint([ip.to_bits()])?,
     };
-    signed_packet_builder = signed_packet_builder.https(root_name.clone(), svcb, 60 * 60);
+    signed_packet_builder = signed_packet_builder.https(root_name.clone(), svcb, ttl_sec);
 
     // `A` record to the public IP. This is used for regular browser connections.
-    signed_packet_builder = signed_packet_builder.address(root_name.clone(), public_ip, 60 * 60);
+    signed_packet_builder = signed_packet_builder.address(root_name.clone(), public_ip, ttl_sec);
 
     Ok(signed_packet_builder.build(&context.keypair)?)
 }
