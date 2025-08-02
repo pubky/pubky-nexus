@@ -1,5 +1,5 @@
 use crate::api_context::{ApiContext, ApiContextBuilder};
-use crate::key_republisher::NexusApiKeyRepublisher;
+use crate::key_republisher::{KeyRepublisher, KeyRepublisherContext};
 use crate::routes;
 
 use std::net::TcpListener;
@@ -109,7 +109,7 @@ pub struct NexusApi {
 
     #[allow(dead_code)]
     // Keep this alive. Republishing is stopped when the instance is dropped.
-    key_republisher: NexusApiKeyRepublisher,
+    key_republisher: KeyRepublisher,
 }
 
 impl NexusApi {
@@ -169,7 +169,8 @@ impl NexusApi {
         let (pubky_tls_handle, pubky_tls_socket) =
             Self::start_pubky_tls_server(&ctx, router).await?;
 
-        let key_republisher = NexusApiKeyRepublisher::start(&ctx, pubky_tls_socket.port()).await?;
+        let ks_ctx = derive_key_publisher_context(&ctx, pubky_tls_socket.port());
+        let key_republisher = KeyRepublisher::start(&ks_ctx).await?;
 
         Ok(NexusApi {
             ctx,
@@ -261,5 +262,20 @@ impl Drop for NexusApi {
         self.icann_http_handle.graceful_shutdown(Some(grace_period));
         self.pubky_tls_handle.graceful_shutdown(Some(grace_period));
         info!("Nexus API shut down gracefully");
+    }
+}
+
+fn derive_key_publisher_context(
+    ctx: &ApiContext,
+    local_pubky_tls_port: u16,
+) -> KeyRepublisherContext {
+    KeyRepublisherContext {
+        // TODO Add specific config field for public_ip
+        public_ip: ctx.api_config.public_addr.ip(),
+        // Reference and expose the port of the local address used in the axum socket, which is where the axum server is listening.
+        // This resolves ports :0 to an OS-chosen one.
+        public_pubky_tls_port: local_pubky_tls_port,
+        keypair: ctx.keypair.clone(),
+        pkarr_client: ctx.pkarr_client.clone(),
     }
 }

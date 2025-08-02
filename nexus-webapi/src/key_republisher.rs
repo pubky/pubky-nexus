@@ -1,23 +1,40 @@
+//! Background task to republish a service's pkarr packet to the DHT.
+//!
+//! This task should be started on service startup and run until the service is stopped.
+//!
+//! The task is responsible for:
+//! - Republishing the service's pkarr packet to the DHT every hour.
+//! - Stopping the task when the service is stopped (dropped).
+//!
+//! This task is kept generic, with no coupling to Nexus models, such that it may be extracted to a common lib and re-used.
+
 use std::net::IpAddr;
 
 use nexus_common::types::DynError;
 use pkarr::dns::Name;
 use pkarr::errors::PublishError;
+use pkarr::Keypair;
 use pkarr::{dns::rdata::SVCB, SignedPacket};
-
 use tokio::task::JoinHandle;
 use tokio::time::{interval, Duration};
 
-use crate::api_context::ApiContext;
+/// Information needed to start the KeyRepublisher
+pub struct KeyRepublisherContext {
+    pub public_ip: IpAddr,
+    pub public_pubky_tls_port: u16,
 
-/// Republishes the Nexus API's pkarr packet to the DHT every hour.
-pub struct NexusApiKeyRepublisher {
+    pub(crate) pkarr_client: pkarr::Client,
+    pub(crate) keypair: Keypair,
+}
+
+/// Republishes the service's pkarr packet to the DHT periodically.
+pub struct KeyRepublisher {
     join_handle: JoinHandle<()>,
 }
 
-impl NexusApiKeyRepublisher {
-    pub async fn start(context: &ApiContext, pubky_tls_port: u16) -> Result<Self, DynError> {
-        let signed_packet = create_signed_packet(context, pubky_tls_port)?;
+impl KeyRepublisher {
+    pub async fn start(context: &KeyRepublisherContext) -> Result<Self, DynError> {
+        let signed_packet = create_signed_packet(context)?;
         let pkarr_client = context.pkarr_client.clone();
         let join_handle = Self::start_periodic_republish(pkarr_client, &signed_packet).await?;
         Ok(Self { join_handle })
@@ -29,9 +46,9 @@ impl NexusApiKeyRepublisher {
     ) -> Result<(), PublishError> {
         let res = client.publish(signed_packet, None).await;
         if let Err(e) = &res {
-            tracing::warn!("Failed to publish the Nexus API's pkarr packet to the DHT: {e}");
+            tracing::warn!("Failed to publish the service's pkarr packet to the DHT: {e}");
         } else {
-            tracing::info!("Published the Nexus API's pkarr packet to the DHT.");
+            tracing::info!("Published the service's pkarr packet to the DHT.");
         }
         res
     }
@@ -70,30 +87,25 @@ impl NexusApiKeyRepublisher {
     }
 }
 
-impl Drop for NexusApiKeyRepublisher {
+impl Drop for KeyRepublisher {
     fn drop(&mut self) {
         self.stop();
     }
 }
 
-pub fn create_signed_packet(
-    context: &ApiContext,
-    local_pubky_tls_port: u16,
-) -> Result<SignedPacket, DynError> {
+fn create_signed_packet(context: &KeyRepublisherContext) -> Result<SignedPacket, DynError> {
     let root_name: Name = "."
         .try_into()
         .expect(". is the root domain and always valid");
 
     let mut signed_packet_builder = SignedPacket::builder();
 
-    // TODO Getter / field for public IP
-    let public_ip = context.api_config.public_addr.ip();
-
-    let public_pubky_tls_port = local_pubky_tls_port;
+    let public_ip = context.public_ip;
+    let public_pubky_tls_port = context.public_pubky_tls_port;
 
     // `SVCB(HTTPS)` record pointing to the pubky tls port and the public ip address
     // This is what is used in all applications expect for browsers.
-    let mut svcb = SVCB::new(0, root_name.clone());
+    let mut svcb = SVCB::new(1, root_name.clone());
     svcb.set_port(public_pubky_tls_port);
     match &public_ip {
         IpAddr::V4(ip) => {
