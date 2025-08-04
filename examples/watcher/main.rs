@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use clap::Parser;
 use nexus_common::{
     db::DatabaseConfig, file::validate_and_expand_path, get_files_dir_pathbuf, types::DynError,
@@ -5,7 +7,6 @@ use nexus_common::{
 };
 use nexus_watcher::{NexusWatcher, NexusWatcherBuilder};
 use pubky_app_specs::PubkyId;
-use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(about = "Example Nexus Watcher server", long_about = None)]
@@ -22,7 +23,7 @@ async fn main() -> Result<(), DynError> {
     match opts.config {
         Some(path) => {
             let expanded_path = validate_and_expand_path(path)?;
-            NexusWatcher::start_from_path(expanded_path).await?
+            NexusWatcher::start_from_path(expanded_path, None).await?
         }
         None => {
             let homeserver =
@@ -46,7 +47,7 @@ async fn main() -> Result<(), DynError> {
                 moderation_id,
                 moderated_tags: Vec::new(),
             };
-            NexusWatcherBuilder(config).start().await?;
+            NexusWatcherBuilder(config).start(None).await?;
         }
     }
 
