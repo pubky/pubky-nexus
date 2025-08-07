@@ -1,9 +1,9 @@
-use crate::register_routes;
-use crate::routes::v0::endpoints;
 use crate::routes::AppState;
 use crate::Result;
 use crate::{routes::v0::endpoints::BOOTSTRAP_ROUTE, Error};
+
 use axum::extract::Path;
+use axum::routing::get;
 use axum::Json;
 use axum::Router;
 use nexus_common::models::bootstrap::{Bootstrap, ViewType};
@@ -43,7 +43,5 @@ pub async fn bootstrap_handler(
 pub struct BootstrapApiDoc;
 
 pub fn routes() -> Router<AppState> {
-    register_routes!(Router::new(),
-        endpoints::BOOTSTRAP_ROUTE => bootstrap_handler,
-    )
+    Router::new().route(BOOTSTRAP_ROUTE, get(bootstrap_handler))
 }

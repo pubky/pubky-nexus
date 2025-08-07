@@ -1,6 +1,10 @@
-use crate::register_routes;
-use crate::routes::v0::endpoints;
+use crate::routes::v0::endpoints::{
+    STREAM_POSTS_BY_IDS_ROUTE, STREAM_POSTS_ROUTE, STREAM_USERS_BY_IDS_ROUTE, STREAM_USERS_ROUTE,
+    STREAM_USERS_USERNAME_SEARCH_ROUTE,
+};
 use crate::routes::AppState;
+
+use axum::routing::{get, post};
 use axum::Router;
 use utoipa::OpenApi;
 
@@ -8,24 +12,20 @@ mod posts;
 mod users;
 
 pub fn routes() -> Router<AppState> {
-    let router = register_routes!(Router::new(),
-        // User stream
-        endpoints::STREAM_USERS_ROUTE => users::stream_users_handler,
-        endpoints::STREAM_USERS_USERNAME_SEARCH_ROUTE => users::stream_username_search_handler,
-
-        // Post stream
-        endpoints::STREAM_POSTS_ROUTE => posts::stream_posts_handler
-    );
-
-    // Register the POST route separately
-    router
+    Router::new()
+        .route(STREAM_USERS_ROUTE, get(users::stream_users_handler))
         .route(
-            endpoints::STREAM_USERS_BY_IDS_ROUTE,
-            axum::routing::post(users::stream_users_by_ids_handler),
+            STREAM_USERS_USERNAME_SEARCH_ROUTE,
+            get(users::stream_username_search_handler),
+        )
+        .route(STREAM_POSTS_ROUTE, get(posts::stream_posts_handler))
+        .route(
+            STREAM_USERS_BY_IDS_ROUTE,
+            post(users::stream_users_by_ids_handler),
         )
         .route(
-            endpoints::STREAM_POSTS_BY_IDS_ROUTE,
-            axum::routing::post(posts::stream_posts_by_ids_handler),
+            STREAM_POSTS_BY_IDS_ROUTE,
+            post(posts::stream_posts_by_ids_handler),
         )
 }
 

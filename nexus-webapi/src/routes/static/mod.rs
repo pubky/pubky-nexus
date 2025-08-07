@@ -1,24 +1,26 @@
 use super::AppState;
-use crate::register_routes_with_state;
-use axum::Router;
+
+use axum::{routing::get, Router};
 use endpoints::{LEGACY_STATIC_FILES_ROUTE, STATIC_FILES_ROUTE, USER_AVATAR_ROUTE};
 use utoipa::OpenApi;
+
+pub use serve_dir::PubkyServeDir;
 
 mod avatar;
 mod endpoints;
 mod files;
 mod legacy_files;
 mod serve_dir;
-pub use serve_dir::PubkyServeDir;
 
 pub fn routes(app_state: AppState) -> Router<AppState> {
-    register_routes_with_state!(
-        Router::new(),
-        app_state,
-        STATIC_FILES_ROUTE => files::static_files_handler,
-        LEGACY_STATIC_FILES_ROUTE => legacy_files::legacy_files_handler,
-        USER_AVATAR_ROUTE => avatar::user_avatar_handler,
-    )
+    Router::new()
+        .with_state(app_state)
+        .route(STATIC_FILES_ROUTE, get(files::static_files_handler))
+        .route(
+            LEGACY_STATIC_FILES_ROUTE,
+            get(legacy_files::legacy_files_handler),
+        )
+        .route(USER_AVATAR_ROUTE, get(avatar::user_avatar_handler))
 }
 
 #[derive(OpenApi)]

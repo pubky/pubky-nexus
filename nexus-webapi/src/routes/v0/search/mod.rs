@@ -1,6 +1,9 @@
-use crate::register_routes;
-use crate::routes::v0::endpoints;
+use crate::routes::v0::endpoints::{
+    SEARCH_POSTS_BY_TAG_ROUTE, SEARCH_TAGS_BY_PREFIX_ROUTE, SEARCH_USERS_BY_ID_ROUTE,
+    SEARCH_USERS_BY_NAME_ROUTE,
+};
 use crate::routes::AppState;
+use axum::routing::get;
 use axum::Router;
 use utoipa::OpenApi;
 
@@ -11,12 +14,23 @@ mod users;
 pub const USER_ID_SEARCH_MIN_PREFIX_LEN: usize = 3;
 
 pub fn routes() -> Router<AppState> {
-    register_routes!(Router::new(),
-        endpoints::SEARCH_USERS_BY_NAME_ROUTE => users::search_users_by_name_handler,
-        endpoints::SEARCH_USERS_BY_ID_ROUTE=> users::search_users_by_id_handler,
-        endpoints::SEARCH_POSTS_BY_TAG_ROUTE => posts::search_posts_by_tag_handler,
-        endpoints::SEARCH_TAGS_BY_PREFIX_ROUTE => tags::search_tags_by_prefix_handler
-    )
+    Router::new()
+        .route(
+            SEARCH_USERS_BY_NAME_ROUTE,
+            get(users::search_users_by_name_handler),
+        )
+        .route(
+            SEARCH_USERS_BY_ID_ROUTE,
+            get(users::search_users_by_id_handler),
+        )
+        .route(
+            SEARCH_POSTS_BY_TAG_ROUTE,
+            get(posts::search_posts_by_tag_handler),
+        )
+        .route(
+            SEARCH_TAGS_BY_PREFIX_ROUTE,
+            get(tags::search_tags_by_prefix_handler),
+        )
 }
 
 #[derive(OpenApi)]

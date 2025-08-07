@@ -1,16 +1,15 @@
-use crate::register_routes;
-use crate::routes::v0::endpoints;
+use crate::routes::v0::endpoints::{TAGS_HOT_ROUTE, TAG_TAGGERS_ROUTE};
 use crate::routes::AppState;
+use axum::routing::get;
 use axum::Router;
 use utoipa::OpenApi;
 
 mod global;
 
 pub fn routes() -> Router<AppState> {
-    register_routes!(Router::new(),
-        endpoints::TAGS_HOT_ROUTE => global::hot_tags_handler,
-        endpoints::TAG_TAGGERS_ROUTE => global::tag_taggers_handler
-    )
+    Router::new()
+        .route(TAGS_HOT_ROUTE, get(global::hot_tags_handler))
+        .route(TAG_TAGGERS_ROUTE, get(global::tag_taggers_handler))
 }
 
 #[derive(OpenApi)]
