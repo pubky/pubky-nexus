@@ -1,6 +1,9 @@
-use crate::register_routes;
-use crate::routes::v0::endpoints;
+use crate::routes::v0::endpoints::{
+    POST_BOOKMARK_ROUTE, POST_COUNTS_ROUTE, POST_DETAILS_ROUTE, POST_ROUTE, POST_TAGGERS_ROUTE,
+    POST_TAGS_ROUTE,
+};
 use crate::routes::AppState;
+use axum::routing::get;
 use axum::Router;
 use utoipa::OpenApi;
 
@@ -11,14 +14,13 @@ pub mod tags;
 mod view;
 
 pub fn routes() -> Router<AppState> {
-    register_routes!(Router::new(),
-        endpoints::POST_ROUTE => view::post_view_handler,
-        endpoints::POST_DETAILS_ROUTE => details::post_details_handler,
-        endpoints::POST_COUNTS_ROUTE => counts::post_counts_handler,
-        endpoints::POST_BOOKMARK_ROUTE => bookmark::post_bookmark_handler,
-        endpoints::POST_TAGS_ROUTE => tags::post_tags_handler,
-        endpoints::POST_TAGGERS_ROUTE => tags::post_taggers_handler,
-    )
+    Router::new()
+        .route(POST_ROUTE, get(view::post_view_handler))
+        .route(POST_DETAILS_ROUTE, get(details::post_details_handler))
+        .route(POST_COUNTS_ROUTE, get(counts::post_counts_handler))
+        .route(POST_BOOKMARK_ROUTE, get(bookmark::post_bookmark_handler))
+        .route(POST_TAGS_ROUTE, get(tags::post_tags_handler))
+        .route(POST_TAGGERS_ROUTE, get(tags::post_taggers_handler))
 }
 
 #[derive(OpenApi)]
