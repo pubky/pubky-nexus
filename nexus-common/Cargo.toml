@@ -30,3 +30,6 @@ tracing = { workspace = true }
 tracing-log = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 utoipa = "5.4.0"
+
+[dev-dependencies]
+tokio-shared-rt = { workspace = true }
