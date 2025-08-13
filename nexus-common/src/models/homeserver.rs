@@ -66,14 +66,16 @@ impl Homeserver {
         self.put_index_json(&[&self.id], None, None).await
     }
 
-    pub async fn from_config(homeserver: PubkyId) -> Result<Homeserver, DynError> {
-        // Attempt to load the homeserver cursor from Redis
-        match Homeserver::get_from_index(&homeserver).await? {
-            Some(hs) => Ok(hs),
-            None => {
-                // Create a new Homeserver instance with default cursor
-                Homeserver::new(homeserver).await
-            }
+    pub async fn get_by_id(homeserver_id: PubkyId) -> Result<Option<Homeserver>, DynError> {
+        match Homeserver::get_from_index(&homeserver_id).await? {
+            Some(hs) => Ok(Some(hs)),
+            None => match Self::get_from_graph(&homeserver_id).await? {
+                Some(hs_grom_graph) => {
+                    hs_grom_graph.put_to_index().await?;
+                    Ok(Some(hs_grom_graph))
+                }
+                None => Ok(None),
+            },
         }
     }
 }

@@ -60,7 +60,9 @@ impl EventProcessor {
     }
 
     pub async fn from_config(config: &WatcherConfig) -> Result<Self, DynError> {
-        let homeserver = Homeserver::from_config(config.homeserver.clone()).await?;
+        let homeserver = Homeserver::get_by_id(config.homeserver.clone())
+            .await?
+            .ok_or("Homeserver not found")?;
         let limit = config.events_limit;
         let files_path = config.stack.files_path.clone();
         let tracer_name = config.name.clone();
