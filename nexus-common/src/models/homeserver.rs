@@ -13,14 +13,12 @@ pub struct Homeserver {
 impl RedisOps for Homeserver {}
 
 impl Homeserver {
-    pub async fn new(id: PubkyId) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
-        let hs = Homeserver {
+    /// Instantiates a new homeserver with default cursor
+    pub fn new(id: PubkyId) -> Self {
+        Homeserver {
             id,
             cursor: "0000000000000".to_string(),
-        };
-        // Store homeserver with initial cursor in Index
-        hs.put_to_index().await?;
-        Ok(hs)
+        }
     }
 
     /// Retrieves the homeserver from Redis.

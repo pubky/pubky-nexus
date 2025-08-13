@@ -37,7 +37,7 @@ impl EventProcessor {
     /// - `tx`: A `RetryManagerSenderChannel` used to handle outgoing messages or events.
     pub async fn test(homeserver_id: String) -> Self {
         let id = PubkyId::try_from(&homeserver_id).expect("Homeserver ID should be valid");
-        let homeserver = Homeserver::new(id).await.unwrap();
+        let homeserver = Homeserver::new(id);
 
         // hardcoded nexus-watcher/tests/utils/moderator_key.pkarr public key used by the moderator user on tests
         let moderation = Moderation {
