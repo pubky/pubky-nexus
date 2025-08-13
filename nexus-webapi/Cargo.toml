@@ -38,7 +38,7 @@ utoipa = "5.4.0"
 utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
 
 [dev-dependencies]
-anyhow = "1.0.98"
+anyhow = "1.0.99"
 criterion = { version = "0.7.0", features = ["async_tokio"] }
 httpc-test = "0.1.10"
 pubky-testnet = { workspace = true }
