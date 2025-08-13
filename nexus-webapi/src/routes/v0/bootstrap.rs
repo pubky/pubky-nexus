@@ -1,13 +1,15 @@
-use crate::register_routes;
 use crate::routes::v0::endpoints::{self, PUT_HOMESERVER_ROUTE};
 use crate::routes::AppState;
 use crate::Result;
 use crate::{routes::v0::endpoints::BOOTSTRAP_ROUTE, Error};
+
 use axum::extract::Path;
 use axum::routing::{get, put};
 use axum::Json;
 use axum::Router;
+use nexus_common::db::OperationOutcome;
 use nexus_common::models::bootstrap::{Bootstrap, ViewType};
+use nexus_common::models::homeserver::Homeserver;
 use pubky_app_specs::PubkyId;
 use tracing::info;
 use utoipa::OpenApi;
@@ -54,15 +56,22 @@ pub async fn bootstrap_handler(
         (status = 500, description = "Internal server error")
     )
 )]
-pub async fn put_homeserver_handler(homeserver_pk: String) -> Result<()> {
+pub async fn put_homeserver_handler(Path(homeserver_pk): Path<String>) -> Result<()> {
     info!("PUT {PUT_HOMESERVER_ROUTE}, homeserver_pk:{homeserver_pk}");
 
-    let _homeserver_pk_parsed = PubkyId::try_from(&homeserver_pk)
-        .map_err(|_| Error::invalid_input("Invalid homeserver PK"))?;
+    let hs = PubkyId::try_from(&homeserver_pk)
+        .map(Homeserver::new)
+        .map_err(|e| Error::invalid_input(&format!("Invalid homeserver PK x: {e}")))?;
 
-    // TODO Persist new homeserver
-
-    Ok(())
+    match hs.put_to_graph().await {
+        Ok(OperationOutcome::MissingDependency) | Err(_) => {
+            Err(Error::invalid_input("Failed to store homeserver to graph"))
+        }
+        _ => hs
+            .put_to_index()
+            .await
+            .map_err(|_| Error::invalid_input("Failed to add homeserver to index")),
+    }
 }
 
 #[derive(OpenApi)]
