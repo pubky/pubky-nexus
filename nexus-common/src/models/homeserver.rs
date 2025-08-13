@@ -1,5 +1,10 @@
+use crate::db::execute_graph_operation;
+use crate::db::queries;
+use crate::db::OperationOutcome;
 use crate::db::RedisOps;
 use crate::types::DynError;
+
+use chrono::Utc;
 use pubky_app_specs::PubkyId;
 use serde::{Deserialize, Serialize};
 
@@ -19,6 +24,13 @@ impl Homeserver {
             id,
             cursor: "0000000000000".to_string(),
         }
+    }
+
+    /// Stores this homeserver in the graph.
+    pub async fn put_to_graph(&self) -> Result<OperationOutcome, DynError> {
+        let indexed_at = Utc::now().timestamp_millis();
+        let query = queries::put::create_homeserver(&self.id, indexed_at);
+        execute_graph_operation(query).await
     }
 
     /// Retrieves the homeserver from Redis.
