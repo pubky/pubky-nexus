@@ -25,10 +25,7 @@ impl Homeserver {
 
     /// Retrieves the homeserver from Redis.
     pub async fn get_from_index(id: &str) -> Result<Option<Self>, DynError> {
-        if let Some(homeserver) = Self::try_from_index_json(&[id], None).await? {
-            return Ok(Some(homeserver));
-        }
-        Ok(None)
+        Self::try_from_index_json(&[id], None).await
     }
 
     /// Stores the homeserver in Redis.
