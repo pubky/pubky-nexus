@@ -33,8 +33,7 @@ impl Homeserver {
 
     /// Stores the homeserver in Redis.
     pub async fn put_to_index(&self) -> Result<(), DynError> {
-        self.put_index_json(&[&self.id], None, None).await?;
-        Ok(())
+        self.put_index_json(&[&self.id], None, None).await
     }
 
     pub async fn from_config(homeserver: PubkyId) -> Result<Homeserver, DynError> {
