@@ -2,10 +2,11 @@ use std::path::PathBuf;
 
 use super::endpoints::INFO_ROUTE;
 use crate::models::info::ServerInfo;
-use crate::register_routes_with_state;
 use crate::routes::AppState;
+
 use axum::extract::State;
 use axum::response::IntoResponse;
+use axum::routing::get;
 use axum::{Json, Router};
 use utoipa::OpenApi;
 
@@ -24,7 +25,9 @@ pub async fn info_handler(State(app_state): State<AppState>) -> impl IntoRespons
 }
 
 pub fn routes(app_state: AppState) -> Router<AppState> {
-    register_routes_with_state!(Router::new(), app_state, super::endpoints::INFO_ROUTE => info_handler)
+    Router::new()
+        .with_state(app_state)
+        .route(INFO_ROUTE, get(info_handler))
 }
 
 #[derive(OpenApi)]

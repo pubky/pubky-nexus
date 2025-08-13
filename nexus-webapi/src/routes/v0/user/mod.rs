@@ -1,6 +1,11 @@
-use crate::register_routes;
-use crate::routes::v0::endpoints;
+use crate::routes::v0::endpoints::{
+    RELATIONSHIP_ROUTE, USER_COUNTS_ROUTE, USER_DETAILS_ROUTE, USER_FOLLOWERS_ROUTE,
+    USER_FOLLOWING_ROUTE, USER_FRIENDS_ROUTE, USER_MUTED_ROUTE, USER_ROUTE, USER_TAGGERS_ROUTE,
+    USER_TAGS_ROUTE,
+};
 use crate::routes::AppState;
+
+use axum::routing::get;
 use axum::Router;
 use utoipa::OpenApi;
 
@@ -13,18 +18,20 @@ pub mod tags;
 mod view;
 
 pub fn routes() -> Router<AppState> {
-    register_routes!(Router::new(),
-        endpoints::USER_ROUTE => view::user_view_handler,
-        endpoints::USER_DETAILS_ROUTE => details::user_details_handler,
-        endpoints::RELATIONSHIP_ROUTE => relationship::user_relationship_handler,
-        endpoints::USER_TAGS_ROUTE => tags::user_tags_handler,
-        endpoints::USER_TAGGERS_ROUTE => tags::user_taggers_handler,
-        endpoints::USER_COUNTS_ROUTE => counts::user_counts_handler,
-        endpoints::USER_FOLLOWERS_ROUTE => follows::user_followers_handler,
-        endpoints::USER_FOLLOWING_ROUTE => follows::user_following_handler,
-        endpoints::USER_FRIENDS_ROUTE => follows::user_friends_handler,
-        endpoints::USER_MUTED_ROUTE => muted::user_muted_handler,
-    )
+    Router::new()
+        .route(USER_ROUTE, get(view::user_view_handler))
+        .route(USER_DETAILS_ROUTE, get(details::user_details_handler))
+        .route(
+            RELATIONSHIP_ROUTE,
+            get(relationship::user_relationship_handler),
+        )
+        .route(USER_TAGS_ROUTE, get(tags::user_tags_handler))
+        .route(USER_TAGGERS_ROUTE, get(tags::user_taggers_handler))
+        .route(USER_COUNTS_ROUTE, get(counts::user_counts_handler))
+        .route(USER_FOLLOWERS_ROUTE, get(follows::user_followers_handler))
+        .route(USER_FOLLOWING_ROUTE, get(follows::user_following_handler))
+        .route(USER_FRIENDS_ROUTE, get(follows::user_friends_handler))
+        .route(USER_MUTED_ROUTE, get(muted::user_muted_handler))
 }
 
 #[derive(OpenApi)]

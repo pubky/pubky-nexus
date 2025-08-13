@@ -4,7 +4,6 @@ use tower_http::compression::CompressionLayer;
 use tower_http::cors::{Any, CorsLayer};
 use utoipa_swagger_ui::SwaggerUi;
 
-pub mod macros;
 pub mod r#static;
 pub mod v0;
 
