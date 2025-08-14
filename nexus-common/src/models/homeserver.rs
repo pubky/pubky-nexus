@@ -85,12 +85,14 @@ mod tests {
     use pubky::Keypair;
     use pubky_app_specs::PubkyId;
 
-    use crate::types::DynError;
+    use crate::{types::DynError, StackConfig, StackManager};
 
     use super::*;
 
     #[tokio_shared_rt::test(shared)]
     async fn test_put_to_get_from_graph() -> Result<(), DynError> {
+        StackManager::setup("unit-hs-test", &StackConfig::default()).await?;
+
         let keys = Keypair::random();
         let id = PubkyId::try_from(&keys.public_key().to_z32())?;
 
@@ -112,6 +114,8 @@ mod tests {
 
     #[tokio_shared_rt::test(shared)]
     async fn test_put_to_get_from_index() -> Result<(), DynError> {
+        StackManager::setup("unit-hs-test", &StackConfig::default()).await?;
+
         let keys = Keypair::random();
         let id = PubkyId::try_from(&keys.public_key().to_z32())?;
 
