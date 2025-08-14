@@ -1,4 +1,4 @@
-use crate::db::{exec_single_row, get_neo4j_graph, RedisOps};
+use crate::db::{exec_single_row, fetch_all_rows_from_graph, RedisOps};
 use crate::types::DynError;
 use async_trait::async_trait;
 use core::fmt;
@@ -81,18 +81,12 @@ where
     /// This function returns a `Result` containing a vector of `Option<Self>`. Each `Option` corresponds to
     /// a queried ID, containing `Some(record)` if the record was found in the graph database, or `None` if it was not found.
     async fn get_from_graph(ids: &[T]) -> Result<Vec<Option<Self>>, DynError> {
-        let mut result;
-        {
-            let graph = get_neo4j_graph()?;
-            let query = Self::collection_details_graph_query(ids);
-
-            let graph = graph.lock().await;
-            result = graph.execute(query).await?;
-        }
+        let query = Self::collection_details_graph_query(ids);
+        let rows = fetch_all_rows_from_graph(query).await?;
 
         let mut records = Vec::with_capacity(ids.len());
 
-        while let Some(row) = result.next().await? {
+        for row in rows {
             let record: Option<Self> = row.get("record").ok();
             records.push(record);
         }
