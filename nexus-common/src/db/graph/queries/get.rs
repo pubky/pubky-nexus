@@ -238,7 +238,8 @@ pub fn user_tags(user_id: &str) -> neo4rs::Query {
 pub fn get_homeserver_by_id(id: &str) -> Query {
     query(
         "MATCH (hs:Homeserver {id: $id})
-         RETURN hs",
+        WITH hs.id AS id
+        RETURN id",
     )
     .param("id", id)
 }
