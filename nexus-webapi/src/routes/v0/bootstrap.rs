@@ -7,7 +7,6 @@ use axum::extract::Path;
 use axum::routing::{get, put};
 use axum::Json;
 use axum::Router;
-use nexus_common::db::OperationOutcome;
 use nexus_common::models::bootstrap::{Bootstrap, ViewType};
 use nexus_common::models::homeserver::Homeserver;
 use pubky_app_specs::PubkyId;
@@ -61,16 +60,20 @@ pub async fn put_homeserver_handler(Path(homeserver_pk): Path<String>) -> Result
 
     let hs = PubkyId::try_from(&homeserver_pk)
         .map(Homeserver::new)
-        .map_err(|e| Error::invalid_input(&format!("Invalid homeserver PK x: {e}")))?;
+        .map_err(|e| Error::invalid_input(&format!("Invalid homeserver PK: {e}")))?;
 
-    match hs.put_to_graph().await {
-        Ok(OperationOutcome::MissingDependency) | Err(_) => {
-            Err(Error::invalid_input("Failed to store homeserver to graph"))
+    // Before saving to graph, check if it exists (indexed)
+    match Homeserver::get_from_index(&homeserver_pk).await {
+        Err(e) => Err(Error::internal(e)),
+        Ok(Some(_)) => Err(Error::invalid_input("Homeserver is already known")),
+        Ok(None) => {
+            hs.put_to_graph()
+                .await
+                .map_err(|_| Error::invalid_input("Failed to store homeserver to graph"))?;
+            hs.put_to_index()
+                .await
+                .map_err(|_| Error::invalid_input("Failed to add homeserver to index"))
         }
-        _ => hs
-            .put_to_index()
-            .await
-            .map_err(|_| Error::invalid_input("Failed to add homeserver to index")),
     }
 }
 
