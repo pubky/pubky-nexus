@@ -73,9 +73,17 @@ where
     // Key point: DeserializeOwned ensures we can deserialize into any type that implements it
     T: DeserializeOwned + Send + Sync,
 {
-    fetch_row_from_graph(query)
-        .await?
-        .map(|row| row.get(key))
-        .transpose()
-        .map_err(Into::into)
+    let maybe_row = fetch_row_from_graph(query).await?;
+
+    let Some(row) = maybe_row else {
+        return Ok(None);
+    };
+
+    match row.get(key) {
+        Ok(result) => Ok(Some(result)),
+        Err(e) => {
+            tracing::error!("Failed to get {key} from query result: {e}");
+            Ok(None)
+        }
+    }
 }
