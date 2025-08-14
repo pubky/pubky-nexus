@@ -52,6 +52,20 @@ pub async fn fetch_row_from_graph(query: Query) -> Result<Option<Row>, DynError>
     result.next().await.map_err(Into::into)
 }
 
+pub async fn fetch_all_rows_from_graph(query: Query) -> Result<Vec<Row>, DynError> {
+    let graph = get_neo4j_graph()?;
+    let graph = graph.lock().await;
+
+    let mut result = graph.execute(query).await?;
+    let mut rows = Vec::new();
+
+    while let Some(row) = result.next().await? {
+        rows.push(row);
+    }
+
+    Ok(rows)
+}
+
 // TODO Rename to fetch_key_from_graph?
 /// Generic function to retrieve data from Neo4J
 pub async fn retrieve_from_graph<T>(query: Query, key: &str) -> Result<Option<T>, DynError>
