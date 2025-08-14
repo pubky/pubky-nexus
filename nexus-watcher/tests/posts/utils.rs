@@ -1,7 +1,7 @@
 use anyhow::Result;
 use neo4rs::{query, Query};
 use nexus_common::{
-    db::{get_neo4j_graph, RedisOps},
+    db::{retrieve_from_graph, RedisOps},
     models::post::{
         PostCounts, PostDetails, PostStream, POST_PER_USER_KEY_PARTS,
         POST_REPLIES_PER_POST_KEY_PARTS, POST_REPLIES_PER_USER_KEY_PARTS, POST_TIMELINE_KEY_PARTS,
@@ -17,20 +17,11 @@ pub async fn find_post_counts(user_id: &str, post_id: &str) -> PostCounts {
 }
 
 pub async fn find_post_details(user_id: &str, post_id: &str) -> Result<PostDetails> {
-    let mut row_stream;
-    {
-        let graph = get_neo4j_graph().unwrap();
-        let query = get_post_details_by_id(user_id, post_id);
+    let query = get_post_details_by_id(user_id, post_id);
+    let maybe_details = retrieve_from_graph(query, "details").await.unwrap();
 
-        let graph = graph.lock().await;
-        row_stream = graph.execute(query).await.unwrap();
-    }
-
-    let row = row_stream.next().await.unwrap();
-    if let Some(row) = row {
-        if let Ok(result) = row.get::<PostDetails>("details") {
-            return Ok(result);
-        }
+    if let Some(result) = maybe_details {
+        return Ok(result);
     }
     anyhow::bail!("Post node not found in Nexus graph");
 }
@@ -93,17 +84,11 @@ pub async fn check_member_post_replies(
 }
 
 pub async fn find_reply_relationship_parent_uri(user_id: &str, post_id: &str) -> Result<String> {
-    let mut row_stream;
-    {
-        let graph = get_neo4j_graph().unwrap();
-        let query = post_reply_relationships(user_id, post_id);
+    let query = post_reply_relationships(user_id, post_id);
+    let maybe_details: Option<Vec<(String, String)>> =
+        retrieve_from_graph(query, "details").await.unwrap();
 
-        let graph = graph.lock().await;
-        row_stream = graph.execute(query).await.unwrap();
-    }
-
-    let row = row_stream.next().await.unwrap();
-    if let Ok(relationship) = row.unwrap().get::<Vec<(String, String)>>("details") {
+    if let Some(relationship) = maybe_details {
         assert_eq!(
             relationship.len(),
             1,
@@ -118,17 +103,11 @@ pub async fn find_reply_relationship_parent_uri(user_id: &str, post_id: &str) ->
 }
 
 pub async fn find_repost_relationship_parent_uri(user_id: &str, post_id: &str) -> Result<String> {
-    let mut row_stream;
-    {
-        let graph = get_neo4j_graph().unwrap();
-        let query = post_repost_relationships(user_id, post_id);
+    let query = post_repost_relationships(user_id, post_id);
+    let maybe_details: Option<Vec<(String, String)>> =
+        retrieve_from_graph(query, "details").await.unwrap();
 
-        let graph = graph.lock().await;
-        row_stream = graph.execute(query).await.unwrap();
-    }
-
-    let row = row_stream.next().await.unwrap();
-    if let Ok(relationship) = row.unwrap().get::<Vec<(String, String)>>("details") {
+    if let Some(relationship) = maybe_details {
         assert_eq!(
             relationship.len(),
             1,
