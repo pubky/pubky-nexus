@@ -1,19 +1,12 @@
 use anyhow::Result;
 use neo4rs::{query, Query};
-use nexus_common::db::get_neo4j_graph;
+use nexus_common::db::retrieve_from_graph;
 
 pub async fn find_post_mentions(follower: &str, followee: &str) -> Result<Vec<String>> {
-    let mut row_stream;
-    {
-        let graph = get_neo4j_graph().unwrap();
-        let query = post_mention_query(follower, followee);
+    let query = post_mention_query(follower, followee);
+    let maybe_mentioned_list = retrieve_from_graph(query, "mentioned_list").await.unwrap();
 
-        let graph = graph.lock().await;
-        row_stream = graph.execute(query).await.unwrap();
-    }
-
-    let row = row_stream.next().await.unwrap();
-    if let Ok(result) = row.unwrap().get::<Vec<String>>("mentioned_list") {
+    if let Some(result) = maybe_mentioned_list {
         return Ok(result);
     }
     anyhow::bail!("Follow edge not found in Nexus graph");
