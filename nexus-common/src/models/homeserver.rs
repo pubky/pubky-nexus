@@ -1,11 +1,9 @@
-use crate::db::execute_graph_operation;
-use crate::db::get_neo4j_graph;
+use crate::db::exec_single_row;
 use crate::db::queries;
-use crate::db::OperationOutcome;
+use crate::db::retrieve_from_graph;
 use crate::db::RedisOps;
 use crate::types::DynError;
 
-use chrono::Utc;
 use pubky_app_specs::PubkyId;
 use serde::{Deserialize, Serialize};
 
@@ -28,32 +26,22 @@ impl Homeserver {
     }
 
     /// Stores this homeserver in the graph.
-    pub async fn put_to_graph(&self) -> Result<OperationOutcome, DynError> {
-        let indexed_at = Utc::now().timestamp_millis();
-        let query = queries::put::create_homeserver(&self.id, indexed_at);
-        execute_graph_operation(query).await
+    pub async fn put_to_graph(&self) -> Result<(), DynError> {
+        let query = queries::put::create_homeserver(&self.id);
+        exec_single_row(query).await
     }
 
     /// Retrieves a homeserver from Neo4j.
     pub async fn get_from_graph(id: &str) -> Result<Option<Homeserver>, DynError> {
-        let mut result;
-        {
-            let graph = get_neo4j_graph()?;
-            let query = queries::get::get_homeserver_by_id(id);
+        let query = queries::get::get_homeserver_by_id(id);
 
-            let graph = graph.lock().await;
-            result = graph.execute(query).await?;
-        }
+        let maybe_id = retrieve_from_graph(query, "id").await?;
+        let maybe_hs = maybe_id.map(|id| Homeserver {
+            id,
+            cursor: "0000000000000".to_string(), // TODO Should cursor also be stored in graph? If so, also updated? When?
+        });
 
-        if let Some(row) = result.next().await? {
-            let hs = Self {
-                id: row.get("id").unwrap_or_default(),
-                cursor: "0000000000000".to_string(), // TODO Should cursor also be stored in graph? If so, also updated? When?
-            };
-            Ok(Some(hs))
-        } else {
-            Ok(None)
-        }
+        Ok(maybe_hs)
     }
 
     /// Retrieves the homeserver from Redis.

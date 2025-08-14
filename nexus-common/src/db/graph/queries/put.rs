@@ -310,15 +310,15 @@ pub fn create_file(file: &FileDetails) -> Result<Query, DynError> {
     Ok(query)
 }
 
-/// Create a homeserver
-pub fn create_homeserver(homeserver_id: &str, indexed_at: i64) -> Query {
+/// Create a homeserver.
+///
+/// It will explicitly fail if the homeserver already exists.
+pub fn create_homeserver(homeserver_id: &str) -> Query {
     query(
         "CREATE (hs:Homeserver {
-          id: $homeserver_id,
-          indexed_at: $indexed_at,
+          id: $id
         })
         RETURN hs;",
     )
     .param("id", homeserver_id)
-    .param("indexed_at", indexed_at)
 }
