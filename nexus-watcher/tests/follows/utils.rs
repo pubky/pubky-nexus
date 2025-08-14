@@ -1,19 +1,13 @@
 use anyhow::Result;
 use neo4rs::{query, Query};
-use nexus_common::db::get_neo4j_graph;
+use nexus_common::db::retrieve_from_graph;
 
 pub async fn find_follow_relationship(follower: &str, followee: &str) -> Result<bool> {
-    let mut row_stream;
-    {
-        let graph = get_neo4j_graph().unwrap();
-        let query = user_following_query(follower, followee);
+    let query = user_following_query(follower, followee);
 
-        let graph = graph.lock().await;
-        row_stream = graph.execute(query).await.unwrap();
-    }
+    let maybe_exists = retrieve_from_graph(query, "exist").await.unwrap();
 
-    let row = row_stream.next().await.unwrap();
-    if let Ok(result) = row.unwrap().get::<bool>("exist") {
+    if let Some(result) = maybe_exists {
         return Ok(result);
     }
     anyhow::bail!("Follow edge not found in Nexus graph");
