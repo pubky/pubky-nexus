@@ -1,4 +1,7 @@
-use crate::db::{execute_graph_operation, get_neo4j_graph, queries, OperationOutcome, RedisOps};
+use crate::db::{
+    execute_graph_operation, fetch_all_rows_from_graph, fetch_row_from_graph, queries,
+    OperationOutcome, RedisOps,
+};
 use crate::types::DynError;
 use neo4rs::Relation;
 use serde::{Deserialize, Serialize};
@@ -76,29 +79,23 @@ impl Bookmark {
         post_id: &str,
         viewer_id: &str,
     ) -> Result<Option<Bookmark>, DynError> {
-        let mut result;
-        {
-            let graph = get_neo4j_graph()?;
-            let query = queries::get::post_bookmark(author_id, post_id, viewer_id);
+        let query = queries::get::post_bookmark(author_id, post_id, viewer_id);
+        let maybe_row = fetch_row_from_graph(query).await?;
 
-            let graph = graph.lock().await;
-            result = graph.execute(query).await?;
-        }
+        let Some(row) = maybe_row else {
+            return Ok(None);
+        };
 
-        if let Some(row) = result.next().await? {
-            // TODO, research why sometimes there is a result that is not a Relation here ?
-            let relation: Relation = match row.get("b") {
-                Ok(value) => value,
-                Err(_) => return Ok(None),
-            };
-            let bookmark = Self {
-                id: relation.get("id").unwrap_or_default(),
-                indexed_at: relation.get("indexed_at").unwrap_or_default(),
-            };
-            Ok(Some(bookmark))
-        } else {
-            Ok(None)
-        }
+        // TODO, research why sometimes there is a result that is not a Relation here ?
+        let relation: Relation = match row.get("b") {
+            Ok(value) => value,
+            Err(_) => return Ok(None),
+        };
+        let bookmark = Self {
+            id: relation.get("id").unwrap_or_default(),
+            indexed_at: relation.get("indexed_at").unwrap_or_default(),
+        };
+        Ok(Some(bookmark))
     }
 
     pub async fn put_to_index(
@@ -116,16 +113,10 @@ impl Bookmark {
     /// Retrieves all post_keys a user bookmarked from Neo4j
     /// TODO: using in reindex, Refactor
     pub async fn reindex(user_id: &str) -> Result<(), DynError> {
-        let mut result;
-        {
-            let graph = get_neo4j_graph()?;
-            let query = queries::get::user_bookmarks(user_id);
+        let query = queries::get::user_bookmarks(user_id);
+        let rows = fetch_all_rows_from_graph(query).await?;
 
-            let graph = graph.lock().await;
-            result = graph.execute(query).await?;
-        }
-
-        while let Some(row) = result.next().await? {
+        for row in rows {
             if let Some(relation) = row.get::<Option<Relation>>("b")? {
                 let bookmark = Bookmark {
                     id: relation.get("id").unwrap_or_default(),
@@ -143,16 +134,10 @@ impl Bookmark {
         user_id: &str,
         bookmark_id: &str,
     ) -> Result<Option<(String, String)>, DynError> {
-        let mut result;
-        {
-            let graph = get_neo4j_graph()?;
-            let query = queries::del::delete_bookmark(user_id, bookmark_id);
+        let query = queries::del::delete_bookmark(user_id, bookmark_id);
+        let rows = fetch_all_rows_from_graph(query).await?;
 
-            let graph = graph.lock().await;
-            result = graph.execute(query).await?;
-        }
-
-        while let Some(row) = result.next().await? {
+        for row in rows {
             let post_id: Option<String> = row.get("post_id").unwrap_or(None);
             let author_id: Option<String> = row.get("author_id").unwrap_or(None);
             if let (Some(post_id), Some(author_id)) = (post_id, author_id) {
