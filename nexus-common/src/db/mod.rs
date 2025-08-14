@@ -11,9 +11,7 @@ pub use connectors::{
     REDIS_CONNECTOR,
 };
 pub use errors::*;
-pub use graph::exec::{
-    exec_single_row, execute_graph_operation, retrieve_from_graph, OperationOutcome,
-};
+pub use graph::exec::*;
 pub use graph::queries;
 pub use graph::setup;
 pub use kv::RedisOps;
