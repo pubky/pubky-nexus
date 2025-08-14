@@ -1,6 +1,6 @@
 use anyhow::Result;
 use nexus_common::{
-    db::{get_neo4j_graph, queries, RedisOps},
+    db::{queries, retrieve_from_graph, RedisOps},
     models::user::{
         UserCounts, UserDetails, UserStream, USER_INFLUENCERS_KEY_PARTS,
         USER_MOSTFOLLOWED_KEY_PARTS,
@@ -31,17 +31,10 @@ pub async fn find_user_counts(user_id: &str) -> UserCounts {
 }
 
 pub async fn find_user_details(user_id: &str) -> Result<UserDetails> {
-    let mut row_stream;
-    {
-        let graph = get_neo4j_graph().unwrap();
-        let query = queries::get::get_users_details_by_ids(&[user_id]);
+    let query = queries::get::get_users_details_by_ids(&[user_id]);
+    let maybe_record = retrieve_from_graph(query, "record").await.unwrap();
 
-        let graph = graph.lock().await;
-        row_stream = graph.execute(query).await.unwrap();
-    }
-
-    let row = row_stream.next().await.unwrap();
-    if let Ok(result) = row.unwrap().get::<UserDetails>("record") {
+    if let Some(result) = maybe_record {
         return Ok(result);
     }
     anyhow::bail!("User node not found in Nexus graph");
