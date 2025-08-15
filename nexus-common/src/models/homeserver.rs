@@ -1,5 +1,9 @@
+use crate::db::exec_single_row;
+use crate::db::queries;
+use crate::db::retrieve_from_graph;
 use crate::db::RedisOps;
 use crate::types::DynError;
+
 use pubky_app_specs::PubkyId;
 use serde::{Deserialize, Serialize};
 
@@ -13,38 +17,108 @@ pub struct Homeserver {
 impl RedisOps for Homeserver {}
 
 impl Homeserver {
-    pub async fn new(id: PubkyId) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
-        let hs = Homeserver {
+    /// Instantiates a new homeserver with default cursor
+    pub fn new(id: PubkyId) -> Self {
+        Homeserver {
             id,
             cursor: "0000000000000".to_string(),
-        };
-        // Store homeserver with initial cursor in Index
-        hs.put_to_index().await?;
-        Ok(hs)
+        }
+    }
+
+    /// Stores this homeserver in the graph.
+    pub async fn put_to_graph(&self) -> Result<(), DynError> {
+        let query = queries::put::create_homeserver(&self.id);
+        exec_single_row(query).await
+    }
+
+    /// Retrieves a homeserver from Neo4j.
+    ///
+    /// Note that the cursor in the returned homeserver will have the default value, as it is not persisted in the graph.
+    pub async fn get_from_graph(id: &str) -> Result<Option<Homeserver>, DynError> {
+        let query = queries::get::get_homeserver_by_id(id);
+
+        let maybe_id = retrieve_from_graph(query, "id").await?;
+        let maybe_hs = maybe_id.map(Homeserver::new);
+
+        Ok(maybe_hs)
     }
 
     /// Retrieves the homeserver from Redis.
     pub async fn get_from_index(id: &str) -> Result<Option<Self>, DynError> {
-        if let Some(homeserver) = Self::try_from_index_json(&[id], None).await? {
-            return Ok(Some(homeserver));
-        }
-        Ok(None)
+        Self::try_from_index_json(&[id], None).await
     }
 
-    /// Stores the homeserver in Redis.
+    /// Stores this homeserver in Redis.
     pub async fn put_to_index(&self) -> Result<(), DynError> {
-        self.put_index_json(&[&self.id], None, None).await?;
+        self.put_index_json(&[&self.id], None, None).await
+    }
+
+    pub async fn get_by_id(homeserver_id: PubkyId) -> Result<Option<Homeserver>, DynError> {
+        match Homeserver::get_from_index(&homeserver_id).await? {
+            Some(hs) => Ok(Some(hs)),
+            None => match Self::get_from_graph(&homeserver_id).await? {
+                Some(hs_grom_graph) => {
+                    hs_grom_graph.put_to_index().await?;
+                    Ok(Some(hs_grom_graph))
+                }
+                None => Ok(None),
+            },
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pubky::Keypair;
+    use pubky_app_specs::PubkyId;
+
+    use crate::{types::DynError, StackConfig, StackManager};
+
+    use super::*;
+
+    #[tokio_shared_rt::test(shared)]
+    async fn test_put_to_get_from_graph() -> Result<(), DynError> {
+        StackManager::setup("unit-hs-test", &StackConfig::default()).await?;
+
+        let keys = Keypair::random();
+        let id = PubkyId::try_from(&keys.public_key().to_z32())?;
+
+        let hs = Homeserver::new(id.clone());
+        hs.put_to_graph()
+            .await
+            .expect("Failed to put homeserver to graph");
+
+        let hs_from_graph = Homeserver::get_from_graph(&id)
+            .await
+            .ok()
+            .flatten()
+            .expect("Failed to get homeserver from graph");
+
+        assert_eq!(id, hs_from_graph.id);
+
         Ok(())
     }
 
-    pub async fn from_config(homeserver: PubkyId) -> Result<Homeserver, DynError> {
-        // Attempt to load the homeserver cursor from Redis
-        match Homeserver::get_from_index(&homeserver).await? {
-            Some(hs) => Ok(hs),
-            None => {
-                // Create a new Homeserver instance with default cursor
-                Homeserver::new(homeserver).await
-            }
-        }
+    #[tokio_shared_rt::test(shared)]
+    async fn test_put_to_get_from_index() -> Result<(), DynError> {
+        StackManager::setup("unit-hs-test", &StackConfig::default()).await?;
+
+        let keys = Keypair::random();
+        let id = PubkyId::try_from(&keys.public_key().to_z32())?;
+
+        let hs = Homeserver::new(id.clone());
+        hs.put_to_index()
+            .await
+            .expect("Failed to put homeserver to index");
+
+        let hs_from_index = Homeserver::get_from_index(&id)
+            .await
+            .ok()
+            .flatten()
+            .expect("Failed to get homeserver from index");
+
+        assert_eq!(id, hs_from_index.id);
+
+        Ok(())
     }
 }

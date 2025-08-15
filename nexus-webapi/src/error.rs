@@ -1,5 +1,6 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use nexus_common::types::DynError;
 use thiserror::Error;
 use tracing::error;
 
@@ -27,6 +28,10 @@ pub enum Error {
 }
 
 impl Error {
+    pub fn internal(source: DynError) -> Self {
+        Error::InternalServerError { source }
+    }
+
     pub fn invalid_input(message: &str) -> Self {
         Error::InvalidInput {
             message: message.to_string(),
