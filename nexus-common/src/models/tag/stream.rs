@@ -1,5 +1,5 @@
 use crate::db::kv::SortOrder;
-use crate::db::{queries, retrieve_from_graph, RedisOps};
+use crate::db::{fetch_key_from_graph, queries, RedisOps};
 use crate::types::routes::HotTagsInputDTO;
 use crate::types::{DynError, StreamReach, Timeframe};
 use serde::{Deserialize, Serialize};
@@ -84,7 +84,7 @@ impl HotTags {
         hot_tags_input: &HotTagsInputDTO,
     ) -> Result<Option<HotTags>, DynError> {
         let query = queries::get::get_hot_tags_by_reach(user_id.as_str(), reach, hot_tags_input);
-        retrieve_from_graph::<HotTags>(query, "hot_tags").await
+        fetch_key_from_graph::<HotTags>(query, "hot_tags").await
     }
 
     /// Retrieves global hot tags, checking the cache first before querying the database.
@@ -115,7 +115,7 @@ impl HotTags {
             hot_tags_input.tagged_type.clone(),
         );
         let query = queries::get::get_global_hot_tags(&hot_tag_input);
-        let result = retrieve_from_graph::<HotTags>(query, "hot_tags").await?;
+        let result = fetch_key_from_graph::<HotTags>(query, "hot_tags").await?;
 
         let hot_tags = match result {
             Some(hot_tags) => hot_tags,

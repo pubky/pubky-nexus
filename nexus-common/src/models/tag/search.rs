@@ -1,5 +1,5 @@
 use crate::db::queries::get::get_tags;
-use crate::db::{retrieve_from_graph, RedisOps};
+use crate::db::{fetch_key_from_graph, RedisOps};
 use crate::models::create_zero_score_tuples;
 use crate::types::DynError;
 use crate::types::Pagination;
@@ -18,7 +18,7 @@ impl RedisOps for TagSearch {}
 impl TagSearch {
     /// Retrieves tags from the Neo4j graph and updates global sorted set
     pub async fn reindex() -> Result<(), DynError> {
-        let tag_labels_opt = retrieve_from_graph(get_tags(), "tag_labels").await?;
+        let tag_labels_opt = fetch_key_from_graph(get_tags(), "tag_labels").await?;
         let tag_labels: Vec<String> = tag_labels_opt.unwrap_or_default();
         Self::put_to_index(&tag_labels).await
     }

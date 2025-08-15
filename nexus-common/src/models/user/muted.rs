@@ -1,4 +1,6 @@
-use crate::db::{execute_graph_operation, get_neo4j_graph, queries, OperationOutcome, RedisOps};
+use crate::db::{
+    execute_graph_operation, fetch_row_from_graph, queries, OperationOutcome, RedisOps,
+};
 use crate::types::DynError;
 use async_trait::async_trait;
 use chrono::Utc;
@@ -53,33 +55,22 @@ impl Muted {
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Option<Self>, DynError> {
-        let mut result;
-        {
-            let graph = get_neo4j_graph()?;
-            let query = queries::get::get_user_muted(user_id, skip, limit);
+        let query = queries::get::get_user_muted(user_id, skip, limit);
+        let maybe_row = fetch_row_from_graph(query).await?;
 
-            let graph = graph.lock().await;
-            result = graph.execute(query).await?;
+        let Some(row) = maybe_row else {
+            return Ok(None);
+        };
+
+        let user_exists: bool = row.get("user_exists").unwrap_or(false);
+        if !user_exists {
+            return Ok(None);
         }
 
-        if let Some(row) = result.next().await? {
-            let user_exists: bool = row.get("user_exists").unwrap_or(false);
-            if !user_exists {
-                return Ok(None);
-            }
-
-            match row.get::<Option<Vec<String>>>("muted_ids") {
-                Ok(response) => {
-                    if let Some(connections) = response {
-                        Ok(Some(Self::from_vec(connections)))
-                    } else {
-                        Ok(Some(Self::default()))
-                    }
-                }
-                Err(_e) => Ok(None),
-            }
-        } else {
-            Ok(None)
+        match row.get::<Option<Vec<String>>>("muted_ids") {
+            Ok(Some(connections)) => Ok(Some(Self::from_vec(connections))),
+            Ok(None) => Ok(Some(Self::default())),
+            Err(_e) => Ok(None),
         }
     }
 

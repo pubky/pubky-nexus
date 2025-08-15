@@ -1,6 +1,8 @@
 use super::{PostRelationships, PostStream};
-use crate::db::{exec_single_row, execute_graph_operation, OperationOutcome};
-use crate::db::{get_neo4j_graph, queries, RedisOps};
+use crate::db::{
+    exec_single_row, execute_graph_operation, fetch_row_from_graph, queries, OperationOutcome,
+    RedisOps,
+};
 use crate::types::DynError;
 use chrono::Utc;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyId};
@@ -57,27 +59,20 @@ impl PostDetails {
         author_id: &str,
         post_id: &str,
     ) -> Result<Option<(PostDetails, Option<(String, String)>)>, DynError> {
-        let mut result;
-        {
-            let graph = get_neo4j_graph()?;
-            let query = queries::get::get_post_by_id(author_id, post_id);
+        let query = queries::get::get_post_by_id(author_id, post_id);
+        let maybe_row = fetch_row_from_graph(query).await?;
 
-            let graph = graph.lock().await;
-            result = graph.execute(query).await?;
-        }
+        let Some(row) = maybe_row else {
+            return Ok(None);
+        };
 
-        match result.next().await? {
-            Some(row) => {
-                let post: PostDetails = row.get("details")?;
-                let reply_value: Vec<(String, String)> = row.get("reply").unwrap_or(Vec::new());
-                let reply_key = match reply_value.is_empty() {
-                    true => None,
-                    false => Some(reply_value[0].clone()),
-                };
-                Ok(Some((post, reply_key)))
-            }
-            None => Ok(None),
-        }
+        let post: PostDetails = row.get("details")?;
+        let reply_value: Vec<(String, String)> = row.get("reply").unwrap_or(Vec::new());
+        let reply_key = match reply_value.is_empty() {
+            true => None,
+            false => Some(reply_value[0].clone()),
+        };
+        Ok(Some((post, reply_key)))
     }
 
     pub async fn put_to_index(

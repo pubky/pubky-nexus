@@ -1,11 +1,13 @@
-use super::{Influencers, Muted, UserCounts, UserSearch, UserView};
-use crate::models::follow::{Followers, Following, Friends, UserFollows};
-use crate::types::{DynError, StreamReach, Timeframe};
 use std::collections::HashSet;
 
+use super::{Influencers, Muted, UserCounts, UserSearch, UserView};
+
 use crate::db::kv::SortOrder;
-use crate::db::{get_neo4j_graph, queries, RedisOps};
+use crate::db::{fetch_all_rows_from_graph, queries, RedisOps};
+use crate::models::follow::{Followers, Following, Friends, UserFollows};
 use crate::models::post::{PostStream, POST_REPLIES_PER_POST_KEY_PARTS};
+use crate::types::{DynError, StreamReach, Timeframe};
+
 use serde::{Deserialize, Serialize};
 use tokio::task::spawn;
 use utoipa::ToSchema;
@@ -150,19 +152,12 @@ impl UserStream {
         }
 
         // Cache miss; proceed to query Neo4j
-        let mut result;
-        {
-            let graph = get_neo4j_graph()?;
-            // Query Neo4j for 30 user IDs
-            let query = queries::get::recommend_users(user_id, 30);
-
-            let graph = graph.lock().await;
-            result = graph.execute(query).await?;
-        }
+        let query = queries::get::recommend_users(user_id, 30);
+        let rows = fetch_all_rows_from_graph(query).await?;
 
         let mut user_ids = Vec::new();
 
-        while let Some(row) = result.next().await? {
+        for row in rows {
             if let Some(user_id) = row.get::<Option<String>>("recommended_user_id")? {
                 user_ids.push(user_id);
             }

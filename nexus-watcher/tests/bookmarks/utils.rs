@@ -1,5 +1,5 @@
 use anyhow::Result;
-use nexus_common::db::{get_neo4j_graph, queries};
+use nexus_common::db::{fetch_key_from_graph, queries};
 use nexus_common::models::post::Bookmark;
 
 pub async fn find_post_bookmark(
@@ -7,17 +7,11 @@ pub async fn find_post_bookmark(
     post_id: &str,
     bookmarker_id: &str,
 ) -> Result<Bookmark> {
-    let mut row_stream;
-    {
-        let graph = get_neo4j_graph().unwrap();
-        let query = queries::get::post_bookmark(author, post_id, bookmarker_id);
+    let query = queries::get::post_bookmark(author, post_id, bookmarker_id);
 
-        let graph = graph.lock().await;
-        row_stream = graph.execute(query).await.unwrap();
-    }
+    let maybe_bookmark = fetch_key_from_graph(query, "b").await.unwrap();
 
-    let row = row_stream.next().await.unwrap();
-    if let Ok(result) = row.unwrap().get::<Bookmark>("b") {
+    if let Some(result) = maybe_bookmark {
         return Ok(result);
     }
     anyhow::bail!("Bookmarked relationship not found in Nexus graph");

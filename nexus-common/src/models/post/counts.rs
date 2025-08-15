@@ -1,5 +1,5 @@
 use crate::db::kv::JsonAction;
-use crate::db::{get_neo4j_graph, queries, RedisOps};
+use crate::db::{fetch_row_from_graph, queries, RedisOps};
 use crate::models::tag::post::POST_TAGS_KEY_PARTS;
 use crate::types::DynError;
 use serde::{Deserialize, Serialize};
@@ -53,16 +53,10 @@ impl PostCounts {
         author_id: &str,
         post_id: &str,
     ) -> Result<Option<(PostCounts, bool)>, DynError> {
-        let mut result;
-        {
-            let graph = get_neo4j_graph()?;
-            let query = queries::get::post_counts(author_id, post_id);
+        let query = queries::get::post_counts(author_id, post_id);
+        let maybe_row = fetch_row_from_graph(query).await?;
 
-            let graph = graph.lock().await;
-            result = graph.execute(query).await?;
-        }
-
-        if let Some(row) = result.next().await? {
+        if let Some(row) = maybe_row {
             let post_exists: bool = row.get("exists").unwrap_or(false);
             if post_exists {
                 let counts: PostCounts = row.get("counts")?;

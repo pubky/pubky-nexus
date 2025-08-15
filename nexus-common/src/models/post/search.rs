@@ -1,6 +1,6 @@
 use crate::db::kv::{ScoreAction, SortOrder};
 use crate::db::queries::get::{global_tags_by_post, global_tags_by_post_engagement};
-use crate::db::{get_neo4j_graph, RedisOps};
+use crate::db::{fetch_all_rows_from_graph, RedisOps};
 use crate::models::post::PostDetails;
 use crate::models::tag::post::TagPost;
 use crate::models::tag::traits::TaggersCollection;
@@ -46,15 +46,9 @@ impl PostsByTagSearch {
     /// Retrieves post tags from a Neo4j graph and updates global sorted sets
     /// for both timeline and engagement-based metrics.
     async fn add_to_global_sorted_set(query: Query, index_key: [&str; 4]) -> Result<(), DynError> {
-        let mut result;
-        {
-            let graph = get_neo4j_graph()?;
+        let rows = fetch_all_rows_from_graph(query).await?;
 
-            let graph = graph.lock().await;
-            result = graph.execute(query).await?;
-        }
-
-        while let Some(row) = result.next().await? {
+        for row in rows {
             let label: &str = row.get("label").unwrap_or("");
             let sorted_set: Vec<(f64, &str)> = row.get("sorted_set").unwrap_or(Vec::new());
             if !label.is_empty() && !sorted_set.is_empty() {
