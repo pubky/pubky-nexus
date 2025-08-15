@@ -1,5 +1,5 @@
 use crate::db::{
-    execute_graph_operation, fetch_all_rows_from_graph, fetch_row_from_graph, queries,
+    execute_graph_operation, fetch_all_rows_from_graph, queries, retrieve_from_graph,
     OperationOutcome, RedisOps,
 };
 use crate::types::DynError;
@@ -80,22 +80,7 @@ impl Bookmark {
         viewer_id: &str,
     ) -> Result<Option<Bookmark>, DynError> {
         let query = queries::get::post_bookmark(author_id, post_id, viewer_id);
-        let maybe_row = fetch_row_from_graph(query).await?;
-
-        let Some(row) = maybe_row else {
-            return Ok(None);
-        };
-
-        // TODO, research why sometimes there is a result that is not a Relation here ?
-        let relation: Relation = match row.get("b") {
-            Ok(value) => value,
-            Err(_) => return Ok(None),
-        };
-        let bookmark = Self {
-            id: relation.get("id").unwrap_or_default(),
-            indexed_at: relation.get("indexed_at").unwrap_or_default(),
-        };
-        Ok(Some(bookmark))
+        retrieve_from_graph(query, "b").await
     }
 
     pub async fn put_to_index(
