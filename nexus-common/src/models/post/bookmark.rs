@@ -1,5 +1,5 @@
 use crate::db::{
-    execute_graph_operation, fetch_all_rows_from_graph, queries, retrieve_from_graph,
+    execute_graph_operation, fetch_all_rows_from_graph, fetch_key_from_graph, queries,
     OperationOutcome, RedisOps,
 };
 use crate::types::DynError;
@@ -80,7 +80,7 @@ impl Bookmark {
         viewer_id: &str,
     ) -> Result<Option<Bookmark>, DynError> {
         let query = queries::get::post_bookmark(author_id, post_id, viewer_id);
-        retrieve_from_graph(query, "b").await
+        fetch_key_from_graph(query, "b").await
     }
 
     pub async fn put_to_index(

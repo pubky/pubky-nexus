@@ -26,7 +26,7 @@ pub enum OperationOutcome {
 /// indicating a missing dependency or an unmatched query condition.
 pub async fn execute_graph_operation(query: Query) -> Result<OperationOutcome, DynError> {
     // The "flag" field indicates a specific condition in the query
-    let maybe_flag = retrieve_from_graph(query, "flag").await?;
+    let maybe_flag = fetch_key_from_graph(query, "flag").await?;
     match maybe_flag {
         Some(true) => Ok(OperationOutcome::Updated),
         Some(false) => Ok(OperationOutcome::CreatedOrDeleted),
@@ -66,9 +66,8 @@ pub async fn fetch_all_rows_from_graph(query: Query) -> Result<Vec<Row>, DynErro
     Ok(rows)
 }
 
-// TODO Rename to fetch_key_from_graph?
-/// Generic function to retrieve data from Neo4J
-pub async fn retrieve_from_graph<T>(query: Query, key: &str) -> Result<Option<T>, DynError>
+/// Fetch the value of type T mapped to a specific key from the first row of a graph query's result
+pub async fn fetch_key_from_graph<T>(query: Query, key: &str) -> Result<Option<T>, DynError>
 where
     // Key point: DeserializeOwned ensures we can deserialize into any type that implements it
     T: DeserializeOwned + Send + Sync,

@@ -1,6 +1,6 @@
 use anyhow::Result;
 use neo4rs::query;
-use nexus_common::db::retrieve_from_graph;
+use nexus_common::db::fetch_key_from_graph;
 
 pub async fn find_mute_relationship(muter: &str, mutee: &str) -> Result<bool> {
     let query =
@@ -8,7 +8,7 @@ pub async fn find_mute_relationship(muter: &str, mutee: &str) -> Result<bool> {
             .param("muter", muter)
             .param("mutee", mutee);
 
-    let maybe_exists = retrieve_from_graph(query, "exist").await.unwrap();
+    let maybe_exists = fetch_key_from_graph(query, "exist").await.unwrap();
 
     if let Some(result) = maybe_exists {
         return Ok(result);

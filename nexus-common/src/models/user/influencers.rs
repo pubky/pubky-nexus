@@ -8,7 +8,7 @@ use std::ops::Deref;
 use tracing::debug;
 use utoipa::ToSchema;
 
-use crate::db::{queries, retrieve_from_graph, RedisOps};
+use crate::db::{fetch_key_from_graph, queries, RedisOps};
 
 const GLOBAL_INFLUENCERS_PREFIX: &str = "Cache:Influencers";
 
@@ -104,7 +104,7 @@ impl Influencers {
         }
 
         let query = queries::get::get_global_influencers(0, 100, timeframe);
-        let result = retrieve_from_graph::<Influencers>(query, "influencers").await?;
+        let result = fetch_key_from_graph::<Influencers>(query, "influencers").await?;
 
         let influencers = match result {
             Some(influencers) => influencers,
@@ -213,7 +213,7 @@ impl Influencers {
         timeframe: &Timeframe,
     ) -> Result<Option<Influencers>, DynError> {
         let query = queries::get::get_influencers_by_reach(user_id, reach, skip, limit, timeframe);
-        retrieve_from_graph::<Influencers>(query, "influencers").await
+        fetch_key_from_graph::<Influencers>(query, "influencers").await
     }
 
     fn get_cache_key_parts(timeframe: &Timeframe) -> Vec<String> {

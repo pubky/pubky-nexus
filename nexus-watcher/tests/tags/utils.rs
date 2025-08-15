@@ -1,7 +1,7 @@
 use anyhow::Result;
 use neo4rs::{query, Query};
 use nexus_common::{
-    db::{retrieve_from_graph, RedisOps},
+    db::{fetch_key_from_graph, RedisOps},
     models::{
         post::search::{PostsByTagSearch, TAG_GLOBAL_POST_ENGAGEMENT, TAG_GLOBAL_POST_TIMELINE},
         tag::TagDetails,
@@ -14,14 +14,14 @@ pub async fn find_post_tag(
     tag_name: &str,
 ) -> Result<Option<TagDetails>> {
     let query = post_tag_query(user_id, post_id, tag_name);
-    let maybe_tag_details = retrieve_from_graph(query, "tag_details").await.unwrap();
+    let maybe_tag_details = fetch_key_from_graph(query, "tag_details").await.unwrap();
 
     Ok(maybe_tag_details)
 }
 
 pub async fn find_user_tag(user_id: &str, tag_name: &str) -> Result<Option<TagDetails>> {
     let query = user_tag_query(user_id, tag_name);
-    let maybe_tag_details = retrieve_from_graph(query, "tag_details").await.unwrap();
+    let maybe_tag_details = fetch_key_from_graph(query, "tag_details").await.unwrap();
 
     Ok(maybe_tag_details)
 }

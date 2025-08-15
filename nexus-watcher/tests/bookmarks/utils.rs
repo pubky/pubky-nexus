@@ -1,5 +1,5 @@
 use anyhow::Result;
-use nexus_common::db::{queries, retrieve_from_graph};
+use nexus_common::db::{fetch_key_from_graph, queries};
 use nexus_common::models::post::Bookmark;
 
 pub async fn find_post_bookmark(
@@ -9,7 +9,7 @@ pub async fn find_post_bookmark(
 ) -> Result<Bookmark> {
     let query = queries::get::post_bookmark(author, post_id, bookmarker_id);
 
-    let maybe_bookmark = retrieve_from_graph(query, "b").await.unwrap();
+    let maybe_bookmark = fetch_key_from_graph(query, "b").await.unwrap();
 
     if let Some(result) = maybe_bookmark {
         return Ok(result);
