@@ -32,14 +32,13 @@ impl Homeserver {
     }
 
     /// Retrieves a homeserver from Neo4j.
+    ///
+    /// Note that the cursor in the returned homeserver will have the default value, as it is not persisted in the graph.
     pub async fn get_from_graph(id: &str) -> Result<Option<Homeserver>, DynError> {
         let query = queries::get::get_homeserver_by_id(id);
 
         let maybe_id = retrieve_from_graph(query, "id").await?;
-        let maybe_hs = maybe_id.map(|id| Homeserver {
-            id,
-            cursor: "0000000000000".to_string(), // TODO Should cursor also be stored in graph? If so, also updated? When?
-        });
+        let maybe_hs = maybe_id.map(Homeserver::new);
 
         Ok(maybe_hs)
     }
