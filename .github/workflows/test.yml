@@ -67,6 +67,9 @@ jobs:
       - name: Load Mock Data
         run: cargo run -p nexusd -- db mock
 
+      - name: Run nexus-common unit tests
+        run: cargo nextest run -p nexus-common --no-fail-fast
+
       - name: Run API integration tests
         run: cargo nextest run -p nexus-webapi --no-fail-fast
 
