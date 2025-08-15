@@ -79,11 +79,8 @@ where
         return Ok(None);
     };
 
-    match row.get(key) {
-        Ok(result) => Ok(Some(result)),
-        Err(e) => {
-            tracing::error!("Failed to get {key} from query result: {e}");
-            Ok(None)
-        }
-    }
+    row.get(key)
+        .map(Some)
+        .map_err(Into::into)
+        .inspect_err(|e| tracing::error!("Failed to get {key} from query result: {e}"))
 }
