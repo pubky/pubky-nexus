@@ -244,7 +244,7 @@ impl UserStream {
         Ok(Some(unique_user_ids.into_iter().collect()))
     }
 
-    // Get list of users based on the specified reach type
+    /// Get list of users based on the specified reach type
     pub async fn get_user_list_from_source(
         input: UserStreamInput,
     ) -> Result<Option<Vec<String>>, DynError> {
@@ -259,96 +259,84 @@ impl UserStream {
             author_id,
             post_id,
         } = input;
-        let user_ids =
-            match source {
-                UserStreamSource::Followers => Followers::get_by_id(
+        let user_ids = match source {
+            UserStreamSource::Followers => Followers::get_by_id(
+                user_id
+                    .ok_or("User ID should be provided for user streams with source 'followers'")?
+                    .as_str(),
+                skip,
+                limit,
+            )
+            .await?
+            .map(|u| u.0),
+            UserStreamSource::Following => Following::get_by_id(
+                user_id
+                    .ok_or("User ID should be provided for user streams with source 'following'")?
+                    .as_str(),
+                skip,
+                limit,
+            )
+            .await?
+            .map(|u| u.0),
+            UserStreamSource::Friends => Friends::get_by_id(
+                user_id
+                    .ok_or("User ID should be provided for user streams with source 'friends'")?
+                    .as_str(),
+                skip,
+                limit,
+            )
+            .await?
+            .map(|u| u.0),
+            UserStreamSource::Muted => Muted::get_by_id(
+                user_id
+                    .ok_or("User ID should be provided for user streams with source 'muted'")?
+                    .as_str(),
+                skip,
+                limit,
+            )
+            .await?
+            .map(|u| u.0),
+            UserStreamSource::MostFollowed => Self::try_from_index_sorted_set(
+                &USER_MOSTFOLLOWED_KEY_PARTS,
+                None,
+                None,
+                skip,
+                limit,
+                SortOrder::Descending,
+                None,
+            )
+            .await?
+            .map(|set| set.into_iter().map(|(user_id, _score)| user_id).collect()),
+            UserStreamSource::Influencers => Influencers::get_influencers(
+                user_id.as_deref(),
+                Some(reach.unwrap_or(StreamReach::Wot(3))),
+                skip.unwrap_or(0),
+                limit.unwrap_or(10).min(100),
+                timeframe.unwrap_or(Timeframe::AllTime),
+                preview.unwrap_or(false),
+            )
+            .await?
+            .map(|result| {
+                result
+                    .iter()
+                    .map(|(influencer_id, _)| influencer_id.clone())
+                    .collect()
+            }),
+            UserStreamSource::Recommended => {
+                UserStream::get_recommended_ids(
                     user_id
                         .ok_or(
-                            "User ID should be provided for user streams with source 'followers'"
-                                .to_string(),
-                        )?
-                        .as_str(),
-                    skip,
-                    limit,
-                )
-                .await?
-                .map(|u| u.0),
-                UserStreamSource::Following => Following::get_by_id(
-                    user_id
-                        .ok_or(
-                            "User ID should be provided for user streams with source 'following'"
-                                .to_string(),
-                        )?
-                        .as_str(),
-                    skip,
-                    limit,
-                )
-                .await?
-                .map(|u| u.0),
-                UserStreamSource::Friends => Friends::get_by_id(
-                    user_id
-                        .ok_or(
-                            "User ID should be provided for user streams with source 'friends'"
-                                .to_string(),
-                        )?
-                        .as_str(),
-                    skip,
-                    limit,
-                )
-                .await?
-                .map(|u| u.0),
-                UserStreamSource::Muted => Muted::get_by_id(
-                    user_id
-                        .ok_or(
-                            "User ID should be provided for user streams with source 'muted'"
-                                .to_string(),
-                        )?
-                        .as_str(),
-                    skip,
-                    limit,
-                )
-                .await?
-                .map(|u| u.0),
-                UserStreamSource::MostFollowed => Self::try_from_index_sorted_set(
-                    &USER_MOSTFOLLOWED_KEY_PARTS,
-                    None,
-                    None,
-                    skip,
-                    limit,
-                    SortOrder::Descending,
-                    None,
-                )
-                .await?
-                .map(|set| set.into_iter().map(|(user_id, _score)| user_id).collect()),
-                UserStreamSource::Influencers => Influencers::get_influencers(
-                    user_id.as_deref(),
-                    Some(reach.unwrap_or(StreamReach::Wot(3))),
-                    skip.unwrap_or(0),
-                    limit.unwrap_or(10).min(100),
-                    timeframe.unwrap_or(Timeframe::AllTime),
-                    preview.unwrap_or(false),
-                )
-                .await?
-                .map(|result| {
-                    result
-                        .iter()
-                        .map(|(influencer_id, _)| influencer_id.clone())
-                        .collect()
-                }),
-                UserStreamSource::Recommended => UserStream::get_recommended_ids(
-                    user_id
-                        .ok_or(
-                            "User ID should be provided for user streams with source 'recommended'"
-                                .to_string(),
+                            "User ID should be provided for user streams with source 'recommended'",
                         )?
                         .as_str(),
                     limit,
                 )
-                .await?,
-                UserStreamSource::PostReplies => {
-                    UserStream::get_post_replies_ids(post_id, author_id).await?
-                }
-            };
+                .await?
+            }
+            UserStreamSource::PostReplies => {
+                UserStream::get_post_replies_ids(post_id, author_id).await?
+            }
+        };
         Ok(user_ids)
     }
 }
