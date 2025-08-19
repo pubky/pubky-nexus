@@ -1,5 +1,7 @@
 use crate::db::kv::{ScoreAction, SortOrder};
-use crate::db::{execute_graph_operation, get_neo4j_graph, queries, OperationOutcome, RedisOps};
+use crate::db::{
+    execute_graph_operation, fetch_row_from_graph, queries, OperationOutcome, RedisOps,
+};
 use crate::types::DynError;
 use async_trait::async_trait;
 use neo4rs::Query;
@@ -191,24 +193,18 @@ where
         extra_param: Option<&str>,
         depth: Option<u8>,
     ) -> Result<Option<Vec<TagDetails>>, DynError> {
-        let mut result;
-        {
-            // We cannot use LIMIT clause because we need all data related
-            let query = match depth {
-                Some(distance) => queries::get::get_viewer_trusted_network_tags(
-                    user_id,
-                    extra_param.unwrap_or_default(),
-                    distance,
-                ),
-                None => Self::read_graph_query(user_id, extra_param),
-            };
-            let graph = get_neo4j_graph()?;
+        // We cannot use LIMIT clause because we need all data related
+        let query = match depth {
+            Some(distance) => queries::get::get_viewer_trusted_network_tags(
+                user_id,
+                extra_param.unwrap_or_default(),
+                distance,
+            ),
+            None => Self::read_graph_query(user_id, extra_param),
+        };
 
-            let graph = graph.lock().await;
-            result = graph.execute(query).await?;
-        }
-
-        if let Some(row) = result.next().await? {
+        let maybe_row = fetch_row_from_graph(query).await?;
+        if let Some(row) = maybe_row {
             let user_exists: bool = row.get("exists").unwrap_or(false);
             if user_exists {
                 match row.get::<Vec<TagDetails>>("tags") {
@@ -391,23 +387,18 @@ where
         user_id: &str,
         tag_id: &str,
     ) -> Result<Option<(Option<String>, Option<String>, Option<String>, String)>, DynError> {
-        let mut result;
-        {
-            let graph = get_neo4j_graph()?;
-            let query = queries::del::delete_tag(user_id, tag_id);
+        let query = queries::del::delete_tag(user_id, tag_id);
+        let maybe_row = fetch_row_from_graph(query).await?;
 
-            let graph = graph.lock().await;
-            result = graph.execute(query).await?;
-        }
+        let Some(row) = maybe_row else {
+            return Ok(None);
+        };
 
-        if let Some(row) = result.next().await? {
-            let user_id: Option<String> = row.get("user_id").unwrap_or(None);
-            let author_id: Option<String> = row.get("author_id").unwrap_or(None);
-            let post_id: Option<String> = row.get("post_id").unwrap_or(None);
-            let label: String = row.get("label").expect("Query should return tag label");
-            return Ok(Some((user_id, post_id, author_id, label)));
-        }
-        Ok(None)
+        let user_id: Option<String> = row.get("user_id").unwrap_or(None);
+        let author_id: Option<String> = row.get("author_id").unwrap_or(None);
+        let post_id: Option<String> = row.get("post_id").unwrap_or(None);
+        let label: String = row.get("label").expect("Query should return tag label");
+        Ok(Some((user_id, post_id, author_id, label)))
     }
 
     /// Returns the unique key parts used to identify a tag in the Redis database
