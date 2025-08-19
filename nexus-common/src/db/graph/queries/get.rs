@@ -58,7 +58,7 @@ pub fn post_counts(author_id: &str, post_id: &str) -> Query {
 pub fn post_bookmark(author_id: &str, post_id: &str, viewer_id: &str) -> Query {
     query(
         "MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
-         OPTIONAL MATCH (viewer:User {id: $viewer_id})-[b:BOOKMARKED]->(p)
+         MATCH (viewer:User {id: $viewer_id})-[b:BOOKMARKED]->(p)
          RETURN b",
     )
     .param("author_id", author_id)
