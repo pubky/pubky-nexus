@@ -5,6 +5,7 @@ use nexus_common::models::tag::post::TagPost;
 use nexus_common::models::tag::stream::HotTags;
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::tag::user::TagUser;
+use nexus_common::models::tag::view::TagView;
 use nexus_common::types::routes::HotTagsInputDTO;
 use nexus_common::types::{Pagination, StreamReach, Timeframe};
 use setup::run_setup;
@@ -360,6 +361,31 @@ fn bench_get_friends_reach_hot_tags(c: &mut Criterion) {
     );
 }
 
+fn bench_get_tag_by_tagger_and_id(c: &mut Criterion) {
+    println!("******************************************************************************");
+    println!("Test the performance of getting a user tag, using graph");
+    println!("******************************************************************************");
+
+    run_setup();
+
+    let tagger_id = "78guxwtzgtgpskij51om7t66awmqxznr6p7ogonfohoags6ahc5y";
+    let tag_id = "2Z1N8QBQK9EG0";
+    let rt = Runtime::new().unwrap();
+
+    c.bench_with_input(
+        BenchmarkId::new("bench_get_user_tags", tagger_id),
+        &[tagger_id, tag_id],
+        |b, &input| {
+            b.to_async(&rt).iter(|| async {
+                let tag_details_list = TagView::get_by_tagger_and_id(input[0], input[1])
+                    .await
+                    .unwrap();
+                std::hint::black_box(tag_details_list);
+            });
+        },
+    );
+}
+
 fn configure_criterion() -> Criterion {
     Criterion::default()
         .measurement_time(Duration::new(5, 0))
@@ -380,7 +406,8 @@ criterion_group! {
                 bench_get_global_tag_taggers,
                 bench_get_following_reach_hot_tags,
                 bench_get_followers_reach_hot_tags,
-                bench_get_friends_reach_hot_tags
+                bench_get_friends_reach_hot_tags,
+                bench_get_tag_by_tagger_and_id,
 }
 
 criterion_main!(benches);
