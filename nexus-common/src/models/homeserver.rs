@@ -1,6 +1,6 @@
 use crate::db::exec_single_row;
+use crate::db::fetch_key_from_graph;
 use crate::db::queries;
-use crate::db::retrieve_from_graph;
 use crate::db::RedisOps;
 use crate::types::DynError;
 
@@ -37,7 +37,7 @@ impl Homeserver {
     pub async fn get_from_graph(id: &str) -> Result<Option<Homeserver>, DynError> {
         let query = queries::get::get_homeserver_by_id(id);
 
-        let maybe_id = retrieve_from_graph(query, "id").await?;
+        let maybe_id = fetch_key_from_graph(query, "id").await?;
         let maybe_hs = maybe_id.map(Homeserver::new);
 
         Ok(maybe_hs)
