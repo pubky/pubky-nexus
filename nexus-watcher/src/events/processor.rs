@@ -12,7 +12,7 @@ use pubky_app_specs::PubkyId;
 use std::error::Error;
 use std::path::PathBuf;
 use tokio::sync::watch::Receiver;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 pub struct EventProcessor {
     pub homeserver: Homeserver,
@@ -59,11 +59,13 @@ impl EventProcessor {
         }
     }
 
-    pub async fn from_config(config: &WatcherConfig) -> Result<Self, DynError> {
-        let homeserver = Homeserver::get_by_id(config.homeserver.clone())
+    pub async fn from_config(config: &WatcherConfig, homeserver_id: String) -> Result<Self, DynError> {
+        let homeserver_id = PubkyId::try_from(homeserver_id.as_str()).map_err(|e| DynError::from(e))?;
+        let homeserver = Homeserver::get_by_id(homeserver_id)
             .await?
             .ok_or("Homeserver not found")?;
         let limit = config.events_limit;
+        warn!("----- Homeserver limit: {}", limit);
         let files_path = config.stack.files_path.clone();
         let tracer_name = config.name.clone();
 
@@ -107,7 +109,7 @@ impl EventProcessor {
                 self.process_event_lines(shutdown_rx, lines).await?;
             }
         }
-
+        warn!("----- EventProcessor::run finished: {:?}", self.homeserver.id);
         Ok(())
     }
 
