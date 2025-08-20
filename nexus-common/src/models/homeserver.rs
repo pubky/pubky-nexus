@@ -25,6 +25,14 @@ impl Homeserver {
         }
     }
 
+    /// Mutates the cursor of the homeserver
+    pub fn mutate_cursor(&self, cursor: String) -> Self {
+        Homeserver {
+            id: self.id.clone(),
+            cursor,
+        }
+    }
+
     /// Stores this homeserver in the graph.
     pub async fn put_to_graph(&self) -> Result<(), DynError> {
         let query = queries::put::create_homeserver(&self.id);
@@ -64,6 +72,24 @@ impl Homeserver {
                 None => Ok(None),
             },
         }
+    }
+
+    /// Verifies if homeserver exists, or persists it if missing
+    pub async fn verify_or_persist_default(homeserver_id: PubkyId) -> Result<(), DynError> {
+        if Self::get_by_id(homeserver_id.clone()).await?.is_none() {
+            let homeserver = Homeserver::new(homeserver_id);
+            homeserver.put_to_graph().await?;
+            homeserver.put_to_index().await?;
+        }
+
+        Ok(())
+    }
+
+    /// Retrieves all homeservers from the graph
+    pub async fn get_all_from_graph() -> Result<Vec<String>, DynError> {
+        let query = queries::get::get_all_homeservers();
+        let homeservers: Option<Vec<String>> = retrieve_from_graph(query, "list").await?;
+        Ok(homeservers.unwrap_or_default())
     }
 }
 
@@ -120,5 +146,13 @@ mod tests {
         assert_eq!(id, hs_from_index.id);
 
         Ok(())
+    }
+
+    #[test]
+    fn test_homeserver_cursor_mutation() {
+        let new_cursor = "0033EKQRGKFKT";
+        let hs = Homeserver::new(PubkyId::try_from("").unwrap());
+        let hs_mutated = hs.mutate_cursor(new_cursor.to_string());
+        assert_eq!(hs_mutated.cursor, new_cursor);
     }
 }

@@ -1,10 +1,10 @@
-use std::path::PathBuf;
 use nexus_common::db::{DatabaseConfig, PubkyClient};
 use nexus_common::types::DynError;
 use nexus_common::utils::create_shutdown_rx;
 use nexus_common::{Level, StackConfig};
 use nexus_common::{StackManager, WatcherConfig};
 use pubky_app_specs::PubkyId;
+use std::path::PathBuf;
 use tokio::sync::watch::Receiver;
 
 use crate::NexusWatcher;
