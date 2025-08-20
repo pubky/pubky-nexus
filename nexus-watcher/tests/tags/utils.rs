@@ -1,7 +1,7 @@
 use anyhow::Result;
 use neo4rs::{query, Query};
 use nexus_common::{
-    db::{get_neo4j_graph, RedisOps},
+    db::{fetch_key_from_graph, RedisOps},
     models::{
         post::search::{PostsByTagSearch, TAG_GLOBAL_POST_ENGAGEMENT, TAG_GLOBAL_POST_TIMELINE},
         tag::TagDetails,
@@ -13,48 +13,17 @@ pub async fn find_post_tag(
     post_id: &str,
     tag_name: &str,
 ) -> Result<Option<TagDetails>> {
-    let mut row_stream;
-    {
-        let graph = get_neo4j_graph().unwrap();
-        let query = post_tag_query(user_id, post_id, tag_name);
+    let query = post_tag_query(user_id, post_id, tag_name);
+    let maybe_tag_details = fetch_key_from_graph(query, "tag_details").await.unwrap();
 
-        let graph = graph.lock().await;
-        row_stream = graph.execute(query).await.unwrap();
-    }
-
-    let row = row_stream.next().await.unwrap();
-    match row {
-        Some(result) => {
-            if let Ok(result) = result.get::<Option<TagDetails>>("tag_details") {
-                return Ok(result);
-            }
-        }
-        None => return Ok(None),
-    }
-    anyhow::bail!("User/Post/Tag node not found in Nexus graph");
+    Ok(maybe_tag_details)
 }
 
 pub async fn find_user_tag(user_id: &str, tag_name: &str) -> Result<Option<TagDetails>> {
-    let mut row_stream;
-    {
-        let graph = get_neo4j_graph().unwrap();
-        let query = user_tag_query(user_id, tag_name);
+    let query = user_tag_query(user_id, tag_name);
+    let maybe_tag_details = fetch_key_from_graph(query, "tag_details").await.unwrap();
 
-        let graph = graph.lock().await;
-        row_stream = graph.execute(query).await.unwrap();
-    }
-
-    let row = row_stream.next().await.unwrap();
-    match row {
-        Some(result) => {
-            if let Ok(result) = result.get::<Option<TagDetails>>("tag_details") {
-                return Ok(result);
-            }
-        }
-        None => return Ok(None),
-    }
-
-    anyhow::bail!("User/Post/Tag node not found in Nexus graph");
+    Ok(maybe_tag_details)
 }
 
 pub async fn check_member_total_engagement_post_tag(

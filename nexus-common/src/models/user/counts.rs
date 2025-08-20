@@ -1,5 +1,5 @@
 use crate::db::kv::JsonAction;
-use crate::db::{get_neo4j_graph, queries, RedisOps};
+use crate::db::{fetch_row_from_graph, queries, RedisOps};
 use crate::models::tag::user::USER_TAGS_KEY_PARTS;
 use crate::types::DynError;
 use serde::{Deserialize, Serialize};
@@ -44,16 +44,10 @@ impl UserCounts {
 
     /// Retrieves the counts from Neo4j.
     pub async fn get_from_graph(user_id: &str) -> Result<Option<UserCounts>, DynError> {
-        let mut result;
-        {
-            let graph = get_neo4j_graph()?;
-            let query = queries::get::user_counts(user_id);
+        let query = queries::get::user_counts(user_id);
+        let maybe_row = fetch_row_from_graph(query).await?;
 
-            let graph = graph.lock().await;
-            result = graph.execute(query).await?;
-        }
-
-        if let Some(row) = result.next().await? {
+        if let Some(row) = maybe_row {
             let user_exists: bool = row.get("exists").unwrap_or(false);
             if user_exists {
                 match row.get("counts") {

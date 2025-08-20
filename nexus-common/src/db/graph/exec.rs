@@ -1,6 +1,6 @@
 use crate::db::get_neo4j_graph;
 use crate::types::DynError;
-use neo4rs::Query;
+use neo4rs::{Query, Row};
 use serde::de::DeserializeOwned;
 
 /// Represents the outcome of a mutation-like query in the graph database.
@@ -25,24 +25,16 @@ pub enum OperationOutcome {
 /// If no rows are returned, this function returns [`OperationOutcome::MissingDependency`], typically
 /// indicating a missing dependency or an unmatched query condition.
 pub async fn execute_graph_operation(query: Query) -> Result<OperationOutcome, DynError> {
-    let mut result;
-    {
-        let graph = get_neo4j_graph()?;
-        let graph = graph.lock().await;
-        result = graph.execute(query).await?;
-    }
-
-    match result.next().await? {
-        // The "flag" field indicates a specific condition in the query
-        Some(row) => match row.get("flag")? {
-            true => Ok(OperationOutcome::Updated),
-            false => Ok(OperationOutcome::CreatedOrDeleted),
-        },
+    // The "flag" field indicates a specific condition in the query
+    let maybe_flag = fetch_key_from_graph(query, "flag").await?;
+    match maybe_flag {
+        Some(true) => Ok(OperationOutcome::Updated),
+        Some(false) => Ok(OperationOutcome::CreatedOrDeleted),
         None => Ok(OperationOutcome::MissingDependency),
     }
 }
 
-// Exec a graph query without a return
+/// Exec a graph query without a return
 pub async fn exec_single_row(query: Query) -> Result<(), DynError> {
     let graph = get_neo4j_graph()?;
     let graph = graph.lock().await;
@@ -51,23 +43,43 @@ pub async fn exec_single_row(query: Query) -> Result<(), DynError> {
     Ok(())
 }
 
-// Generic function to retrieve data from Neo4J
-pub async fn retrieve_from_graph<T>(query: Query, key: &str) -> Result<Option<T>, DynError>
+pub async fn fetch_row_from_graph(query: Query) -> Result<Option<Row>, DynError> {
+    let graph = get_neo4j_graph()?;
+    let graph = graph.lock().await;
+
+    let mut result = graph.execute(query).await?;
+
+    result.next().await.map_err(Into::into)
+}
+
+pub async fn fetch_all_rows_from_graph(query: Query) -> Result<Vec<Row>, DynError> {
+    let graph = get_neo4j_graph()?;
+    let graph = graph.lock().await;
+
+    let mut result = graph.execute(query).await?;
+    let mut rows = Vec::new();
+
+    while let Some(row) = result.next().await? {
+        rows.push(row);
+    }
+
+    Ok(rows)
+}
+
+/// Fetch the value of type T mapped to a specific key from the first row of a graph query's result
+pub async fn fetch_key_from_graph<T>(query: Query, key: &str) -> Result<Option<T>, DynError>
 where
     // Key point: DeserializeOwned ensures we can deserialize into any type that implements it
     T: DeserializeOwned + Send + Sync,
 {
-    let mut result;
-    {
-        let graph = get_neo4j_graph()?;
-        let graph = graph.lock().await;
-        result = graph.execute(query).await?;
-    }
+    let maybe_row = fetch_row_from_graph(query).await?;
 
-    if let Some(row) = result.next().await? {
-        let data: T = row.get(key)?;
-        return Ok(Some(data));
-    }
+    let Some(row) = maybe_row else {
+        return Ok(None);
+    };
 
-    Ok(None)
+    row.get(key)
+        .map(Some)
+        .map_err(Into::into)
+        .inspect_err(|e| tracing::error!("Failed to get {key} from query result: {e}"))
 }

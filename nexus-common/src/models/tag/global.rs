@@ -2,7 +2,7 @@ use super::{
     stream::{HOT_TAGS_CACHE_PREFIX, POST_HOT_TAGS},
     Taggers as TaggersType,
 };
-use crate::db::{queries, retrieve_from_graph, RedisOps};
+use crate::db::{fetch_key_from_graph, queries, RedisOps};
 use crate::types::StreamReach;
 use crate::types::{DynError, Timeframe};
 use async_trait::async_trait;
@@ -171,7 +171,7 @@ impl Taggers {
         limit: usize,
     ) -> Result<Option<TaggersType>, DynError> {
         let query = queries::get::get_tag_taggers_by_reach(label, user_id, reach, skip, limit);
-        retrieve_from_graph::<TaggersType>(query, "tagger_ids").await
+        fetch_key_from_graph::<TaggersType>(query, "tagger_ids").await
     }
 
     /// Builds key parts for hot tag taggers based on the given timeframe

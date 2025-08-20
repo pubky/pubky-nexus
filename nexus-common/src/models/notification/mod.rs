@@ -1,5 +1,5 @@
 use crate::db::kv::SortOrder;
-use crate::db::{get_neo4j_graph, queries, RedisOps};
+use crate::db::{fetch_all_rows_from_graph, queries, RedisOps};
 use crate::types::DynError;
 use crate::types::Pagination;
 use chrono::Utc;
@@ -358,16 +358,10 @@ impl Notification {
         ];
 
         for (query_fn, post_changed_source, extract_fn) in notification_types {
-            let mut result;
-            {
-                let graph = get_neo4j_graph()?;
-                let query = query_fn(author_id, post_id);
+            let query = query_fn(author_id, post_id);
+            let rows = fetch_all_rows_from_graph(query).await?;
 
-                let graph = graph.lock().await;
-                result = graph.execute(query).await?;
-            }
-
-            while let Some(row) = result.next().await? {
+            for row in rows {
                 let (user_id, linked_uri) = extract_fn(&row);
 
                 if author_id == user_id {

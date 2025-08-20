@@ -1,3 +1,4 @@
+use crate::db::graph::exec::fetch_all_rows_from_graph;
 use crate::models::follow::{Followers, Following, UserFollows};
 use crate::models::post::search::PostsByTagSearch;
 use crate::models::post::Bookmark;
@@ -10,7 +11,6 @@ use crate::models::traits::Collection;
 use crate::models::user::{Influencers, Muted, UserDetails};
 use crate::types::DynError;
 use crate::{
-    db::get_neo4j_graph,
     models::post::{PostCounts, PostDetails, PostRelationships},
     models::user::UserCounts,
 };
@@ -101,17 +101,11 @@ pub async fn reindex_post(author_id: &str, post_id: &str) -> Result<(), DynError
 }
 
 pub async fn get_all_user_ids() -> Result<Vec<String>, DynError> {
-    let mut result;
-    {
-        let graph = get_neo4j_graph()?;
-        let query = query("MATCH (u:User) RETURN u.id AS id");
-
-        let graph = graph.lock().await;
-        result = graph.execute(query).await?;
-    }
+    let query = query("MATCH (u:User) RETURN u.id AS id");
+    let rows = fetch_all_rows_from_graph(query).await?;
 
     let mut user_ids = Vec::new();
-    while let Some(row) = result.next().await? {
+    for row in rows {
         if let Some(id) = row.get("id")? {
             user_ids.push(id);
         }
@@ -121,18 +115,12 @@ pub async fn get_all_user_ids() -> Result<Vec<String>, DynError> {
 }
 
 async fn get_all_post_ids() -> Result<Vec<(String, String)>, DynError> {
-    let mut result;
-    {
-        let graph = get_neo4j_graph()?;
-        let query =
-            query("MATCH (u:User)-[:AUTHORED]->(p:Post) RETURN u.id AS author_id, p.id AS post_id");
-
-        let graph = graph.lock().await;
-        result = graph.execute(query).await?;
-    }
+    let query =
+        query("MATCH (u:User)-[:AUTHORED]->(p:Post) RETURN u.id AS author_id, p.id AS post_id");
+    let rows = fetch_all_rows_from_graph(query).await?;
 
     let mut post_ids = Vec::new();
-    while let Some(row) = result.next().await? {
+    for row in rows {
         if let (Some(author_id), Some(post_id)) = (row.get("author_id")?, row.get("post_id")?) {
             post_ids.push((author_id, post_id));
         }

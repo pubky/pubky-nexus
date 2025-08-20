@@ -1,4 +1,4 @@
-use crate::db::{get_neo4j_graph, queries, RedisOps};
+use crate::db::{fetch_row_from_graph, queries, RedisOps};
 use crate::types::DynError;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind};
 use serde::{Deserialize, Serialize};
@@ -52,42 +52,36 @@ impl PostRelationships {
         author_id: &str,
         post_id: &str,
     ) -> Result<Option<PostRelationships>, DynError> {
-        let mut result;
-        {
-            let graph = get_neo4j_graph()?;
-            let query = queries::get::post_relationships(author_id, post_id);
+        let query = queries::get::post_relationships(author_id, post_id);
+        let maybe_row = fetch_row_from_graph(query).await?;
 
-            let graph = graph.lock().await;
-            result = graph.execute(query).await?;
-        }
+        let Some(row) = maybe_row else {
+            return Ok(None);
+        };
 
-        if let Some(row) = result.next().await? {
-            let replied_post_id: Option<String> = row.get("replied_post_id").unwrap_or(None);
-            let replied_author_id: Option<String> = row.get("replied_author_id").unwrap_or(None);
-            let reposted_post_id: Option<String> = row.get("reposted_post_id").unwrap_or(None);
-            let reposted_author_id: Option<String> = row.get("reposted_author_id").unwrap_or(None);
-            let mentioned: Vec<String> = row.get("mentioned_user_ids").unwrap_or(Vec::new());
+        let replied_post_id: Option<String> = row.get("replied_post_id").unwrap_or(None);
+        let replied_author_id: Option<String> = row.get("replied_author_id").unwrap_or(None);
+        let reposted_post_id: Option<String> = row.get("reposted_post_id").unwrap_or(None);
+        let reposted_author_id: Option<String> = row.get("reposted_author_id").unwrap_or(None);
+        let mentioned: Vec<String> = row.get("mentioned_user_ids").unwrap_or(Vec::new());
 
-            let replied = match (replied_author_id, replied_post_id) {
-                (Some(author_id), Some(post_id)) => {
-                    Some(format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}"))
-                }
-                _ => None,
-            };
-            let reposted = match (reposted_author_id, reposted_post_id) {
-                (Some(author_id), Some(post_id)) => {
-                    Some(format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}"))
-                }
-                _ => None,
-            };
-            Ok(Some(Self {
-                replied,
-                reposted,
-                mentioned,
-            }))
-        } else {
-            Ok(None)
-        }
+        let replied = match (replied_author_id, replied_post_id) {
+            (Some(author_id), Some(post_id)) => {
+                Some(format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}"))
+            }
+            _ => None,
+        };
+        let reposted = match (reposted_author_id, reposted_post_id) {
+            (Some(author_id), Some(post_id)) => {
+                Some(format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}"))
+            }
+            _ => None,
+        };
+        Ok(Some(Self {
+            replied,
+            reposted,
+            mentioned,
+        }))
     }
 
     /// Constructs a `Self` instance by extracting relationships from a `PubkyAppPost` object
