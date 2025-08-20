@@ -75,11 +75,13 @@ impl WatcherTest {
     pub async fn ensure_event_processing_complete(&mut self) -> Result<()> {
         if self.ensure_event_processing {
             let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-            self.event_processor
+            let cursor = self
+                .event_processor
                 .run(shutdown_rx)
                 .await
                 .map_err(|e| anyhow!(e))?;
-            // tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            // Update the event processor's homeserver cursor
+            self.event_processor.homeserver.cursor = cursor;
         }
         Ok(())
     }

@@ -6,6 +6,7 @@ use crate::types::DynError;
 
 use pubky_app_specs::PubkyId;
 use serde::{Deserialize, Serialize};
+use tracing::info;
 
 /// Represents a homeserver with its public key, URL, and cursor.
 #[derive(Serialize, Deserialize, Debug)]
@@ -75,8 +76,9 @@ impl Homeserver {
     }
 
     /// Verifies if homeserver exists, or persists it if missing
-    pub async fn verify_or_persist_default(homeserver_id: PubkyId) -> Result<(), DynError> {
+    pub async fn verify_or_persist(homeserver_id: PubkyId) -> Result<(), DynError> {
         if Self::get_by_id(homeserver_id.clone()).await?.is_none() {
+            info!("Homeserver {} not found, persisting it", homeserver_id);
             let homeserver = Homeserver::new(homeserver_id);
             homeserver.put_to_graph().await?;
             homeserver.put_to_index().await?;
@@ -151,7 +153,7 @@ mod tests {
     #[test]
     fn test_homeserver_cursor_mutation() {
         let new_cursor = "0033EKQRGKFKT";
-        let hs = Homeserver::new(PubkyId::try_from("").unwrap());
+        let hs = Homeserver::new(PubkyId::default());
         let hs_mutated = hs.mutate_cursor(new_cursor.to_string());
         assert_eq!(hs_mutated.cursor, new_cursor);
     }
