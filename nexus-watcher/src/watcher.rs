@@ -1,15 +1,16 @@
-use crate::events::processor::EventProcessor;
+use crate::events::processor::EventProcessorFactory;
 use crate::NexusWatcherBuilder;
 use nexus_common::file::ConfigLoader;
+use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
 use nexus_common::utils::create_shutdown_rx;
 use nexus_common::{DaemonConfig, WatcherConfig};
-use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::watch::Receiver;
 use tokio::task::JoinSet;
+use tokio::time::timeout;
 use tokio::time::{sleep, Duration};
 use tracing::{debug, error, info, warn};
 
@@ -70,15 +71,18 @@ impl NexusWatcher {
     ) -> Result<(), DynError> {
         debug!(?config, "Running NexusWatcher with ");
 
-        let cfg = Arc::new(config);
-        let period = Duration::from_millis(cfg.watcher_sleep);
+        let event_processor_factory = EventProcessorFactory::from_config(&config);
+        let period = Duration::from_millis(config.watcher_sleep);
 
-        let mut cycle_processor = CycleProcessor::new(cfg, period);
+        let mut cycle_processor = CycleProcessor::new(
+            Arc::new(event_processor_factory),
+            shutdown_rx.clone(),
+            period,
+        );
 
         loop {
             // Process one complete cycle and get elapsed time
-            // TODO: How to avoid to clone the shutdown_rx?
-            let elapsed = cycle_processor.run_cycle(shutdown_rx.clone()).await;
+            let elapsed = cycle_processor.run_cycle().await?;
 
             // Check shutdown after cycle completion
             if *shutdown_rx.borrow() {
@@ -105,22 +109,27 @@ impl NexusWatcher {
     }
 }
 
-/// Handles the processing of homeservers in cycles
+/// Manages the periodic processing of homeservers in isolated cycles
 struct CycleProcessor {
-    cfg: Arc<WatcherConfig>,
+    event_processor_factory: Arc<EventProcessorFactory>,
     period: Duration,
     cycle: u64,
     timeout: Duration,
+    shutdown_rx: Receiver<bool>,
 }
 
 impl CycleProcessor {
-    fn new(cfg: Arc<WatcherConfig>, period: Duration) -> Self {
-        let timeout = Duration::from_secs(PROCESSING_TIMEOUT_SECS);
+    fn new(
+        event_processor_factory: Arc<EventProcessorFactory>,
+        shutdown_rx: Receiver<bool>,
+        period: Duration,
+    ) -> Self {
         Self {
-            cfg,
+            event_processor_factory,
             period,
             cycle: 0,
-            timeout,
+            timeout: Duration::from_secs(PROCESSING_TIMEOUT_SECS),
+            shutdown_rx,
         }
     }
 
@@ -128,17 +137,19 @@ impl CycleProcessor {
         self.cycle
     }
 
-    async fn run_cycle(&mut self, shutdown_rx: Receiver<bool>) -> Duration {
+    /// Executes one full processing cycle
+    async fn run_cycle(&mut self) -> Result<Duration, DynError> {
         self.cycle += 1;
         let cycle_start = Instant::now();
 
         info!(cycle = self.cycle, "Starting cycle");
 
-        // TODO: Load homeservers from db
-        let homeservers: Vec<String> = vec![
-            String::from("8um71us3fyw6h8wbcxb5ar3rwusy1a6u49956ikzojg3gcwd1dty"),
-            String::from("ufibwbmed6jeq9k4p583go95wofakh9fwpp4k734trq79pd9u1uy"),
-        ];
+        let homeservers: Vec<String> = Homeserver::get_all_from_graph().await?;
+
+        if homeservers.is_empty() {
+            warn!("No homeservers found... skipping cycle");
+            return Ok(Duration::from_millis(0));
+        }
 
         info!(
             cycle = self.cycle,
@@ -147,7 +158,7 @@ impl CycleProcessor {
         );
 
         // Process with rolling window
-        let (ok, fail) = self.process_homeservers(homeservers, shutdown_rx).await;
+        let (ok, fail) = self.exec_watcher(homeservers).await;
 
         let elapsed = cycle_start.elapsed();
         info!(
@@ -158,14 +169,16 @@ impl CycleProcessor {
             "Cycle finished"
         );
 
-        elapsed
+        Ok(elapsed)
     }
 
-    async fn process_homeservers(
-        &self,
-        homeservers: Vec<String>,
-        shutdown_rx: Receiver<bool>,
-    ) -> (usize, usize) {
+    /// Processes a list of homeservers with bounded concurrency
+    ///
+    /// # Arguments
+    /// - `homeservers`: The list of homeservers to process
+    /// # Returns
+    /// - `(ok, fail)`: The number of successful and failed homeservers
+    async fn exec_watcher(&self, homeservers: Vec<String>) -> (usize, usize) {
         let mut window = RollingWindow::new(MAX_CONCURRENT);
         let mut iter = homeservers.into_iter();
 
@@ -174,7 +187,12 @@ impl CycleProcessor {
         let mut fail = 0usize;
 
         // Prime the window
-        window.fill(&mut iter, &self.cfg, self.timeout, shutdown_rx.clone());
+        window.fill(
+            &mut iter,
+            self.event_processor_factory.clone(),
+            self.timeout,
+            self.shutdown_rx.clone(),
+        );
 
         // Process until all complete
         while let Some(result) = window.join_next().await {
@@ -191,16 +209,27 @@ impl CycleProcessor {
             }
 
             // Refill to maintain window size
-            window.fill(&mut iter, &self.cfg, self.timeout, shutdown_rx.clone());
+            window.fill(
+                &mut iter,
+                self.event_processor_factory.clone(),
+                self.timeout,
+                self.shutdown_rx.clone(),
+            );
         }
 
         (ok, fail)
     }
 
+    /// Waits before starting the next cycle to maintain the target period
+    /// # Arguments
+    /// - `elapsed`: The elapsed time since the last cycle
+    /// - `shutdown_rx`: The receiver to listen for shutdown signals
+    /// # Returns
+    /// - `true` if the cycle should continue, `false` if the cycle should stop based on the timeout
     async fn pace_cycle(&self, elapsed: Duration, shutdown_rx: &mut Receiver<bool>) -> bool {
         if elapsed < self.period {
             let remaining = self.period - elapsed;
-            warn!(
+            debug!(
                 cycle = self.cycle,
                 remaining_ms = remaining.as_millis(),
                 "Pacing before next cycle"
@@ -235,20 +264,27 @@ impl RollingWindow {
         }
     }
 
+    /// Checks if the window is full
+    fn is_full(&self) -> bool {
+        self.set.len() >= self.max_size
+    }
+
+    /// Spawns new tasks into the rolling window until it is full
     fn fill(
         &mut self,
         iter: &mut impl Iterator<Item = String>,
-        cfg: &Arc<WatcherConfig>,
+        event_processor_factory: Arc<EventProcessorFactory>,
         timeout: Duration,
         shutdown_rx: Receiver<bool>,
     ) {
-        // Check how many tasks are currently active in the JoinSet
-        while self.set.len() < self.max_size {
+        // loop until the window is full or there are no more homeservers to process
+        while !self.is_full() {
             match iter.next() {
                 Some(homeserver_id) => {
+                    // spawn a task to process the homeserver
                     self.set.spawn(process_homeserver(
                         homeserver_id,
-                        cfg.clone(),
+                        event_processor_factory.clone(),
                         timeout,
                         shutdown_rx.clone(),
                     ));
@@ -258,6 +294,7 @@ impl RollingWindow {
         }
     }
 
+    /// Waits for the next task in the window to complete
     async fn join_next(&mut self) -> Option<ProcessResult> {
         match self.set.join_next().await? {
             Ok(Ok(())) => Some(ProcessResult::Success),
@@ -279,29 +316,25 @@ enum ProcessResult {
     Panic(tokio::task::JoinError),
 }
 
-/// Process a single homeserver with timeout
+/// Runs a single homeserver event processing with timeout
+/// # Arguments
+/// - `homeserver_id`: The ID of the homeserver to process
+/// - `event_processor_factory`: The factory to create the event processor
+/// - `task_timeout`: The timeout for the task
+/// - `shutdown_rx`: The receiver to listen for shutdown signals
 async fn process_homeserver(
     homeserver_id: String,
-    cfg: Arc<WatcherConfig>,
-    timeout: Duration,
+    event_processor_factory: Arc<EventProcessorFactory>,
+    task_timeout: Duration,
     shutdown_rx: Receiver<bool>,
 ) -> Result<(), DynError> {
     let start = Instant::now();
 
-    // Initialize processor
-    // TODO: How to solve homeserver_id? Shall we read from the config file or from the db?
-    // - Now we get the homeserver from the config file but when we do discover new homeservers, we need to read from the db
-    // - Create some mechanism to read default one from file, others from db in the initial phase
-    let mut processor = match EventProcessor::from_config(&cfg, homeserver_id.clone()).await {
-        Ok(p) => p,
-        Err(e) => {
-            error!(homeserver = %homeserver_id, error = %e, "Failed to init EventProcessor");
-            return Err(e);
-        }
-    };
+    // Initialize event processor
+    let event_processor = event_processor_factory.build(&homeserver_id).await?;
 
     // Process with timeout
-    match tokio::time::timeout(timeout, processor.run(shutdown_rx)).await {
+    match timeout(task_timeout, event_processor.run(shutdown_rx)).await {
         Ok(Ok(())) => {
             debug!(
                 homeserver = %homeserver_id,
@@ -317,74 +350,10 @@ async fn process_homeserver(
         Err(_) => {
             error!(
                 homeserver = %homeserver_id,
-                timeout_secs = timeout.as_secs(),
+                timeout_secs = task_timeout.as_secs(),
                 "Processing timeout"
             );
             Err("processing timeout".into())
         }
     }
 }
-
-//pub async fn start(
-//     mut shutdown_rx: Receiver<bool>,
-//     config: WatcherConfig,
-// ) -> Result<(), DynError> {
-//     debug!(?config, "Running NexusWatcher with ");
-
-//     let semaphore = Arc::new(Semaphore::new(5));
-//     let mut interval = tokio::time::interval(Duration::from_millis(config.watcher_sleep));
-
-//     loop {
-//         tokio::select! {
-//             _ = shutdown_rx.changed() => {
-//                 info!("SIGINT received, starting graceful shutdown...");
-//                 break;
-//             }
-//             // SOMEHOW WE NEED TO CONTROL BEFORE THE INTERVAL TICK ALL THE HOMESERVERS DID THEIR JOB
-//             //
-//             _ = interval.tick() => {
-//                 info!("----- Interval tick starting again ------");
-//                 // TODO: Get homeservers from db
-//                 let homeserver_ids = [
-//                     // PRODUCTION hs
-//                     "8um71us3fyw6h8wbcxb5ar3rwusy1a6u49956ikzojg3gcwd1dty",
-//                     // STAGING hs
-//                     "ufibwbmed6jeq9k4p583go95wofakh9fwpp4k734trq79pd9u1uy",
-//                     // LOCAL hs
-//                     "8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo",
-//                 ];
-//                 let tasks: Vec<_> = homeserver_ids.into_iter().map(|homeserver_id| {
-//                     let semaphore = semaphore.clone();
-//                     let shutdown_rx = shutdown_rx.clone();
-//                     let config = config.clone();
-//                     tokio::spawn(async move {
-//                         let _permit = semaphore.acquire().await;
-//                         let mut processor = EventProcessor::from_config(&config).await?;
-//                         // TODO wrong
-//                         processor.homeserver.id = PubkyId::try_from(homeserver_id).unwrap();
-//                         debug!(?processor.homeserver.id, "----- Starting event processing… ------");
-//                         processor.run(shutdown_rx).await
-//                     })
-//                 }).collect();
-//                 // Wait for all to complete
-//                 for task in tasks {
-//                     match task.await {
-//                         Ok(result) => {
-//                             if let Err(e) = result {
-//                                 error!("xxxxxx Task failed: {:?}", e);
-//                             } else {
-//                                 warn!("Task completed: {:?}", result);
-//                             }
-//                         }
-//                         // This only catches tokio task panics, not business logic errors
-//                         Err(e) => {
-//                             error!("Task panicked: {:?}", e);
-//                         }
-//                     }
-//                 }
-//             }
-//         }
-//     }
-//     info!("Nexus Watcher shut down gracefully");
-//     Ok(())
-// }

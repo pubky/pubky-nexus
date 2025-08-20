@@ -14,6 +14,47 @@ use std::path::PathBuf;
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info, warn};
 
+/// This implements the creation logic for [`EventProcessor`] objects
+pub struct EventProcessorFactory {
+    pub limit: u32,
+    pub files_path: PathBuf,
+    pub tracer_name: String,
+    pub moderation: Moderation,
+}
+
+impl EventProcessorFactory {
+    /// Creates a new factory instance from the provided configuration
+    pub fn from_config(config: &WatcherConfig) -> Self {
+        Self {
+            limit: config.events_limit,
+            files_path: config.stack.files_path.clone(),
+            tracer_name: config.name.clone(),
+            moderation: Moderation {
+                id: config.moderation_id.clone(),
+                tags: config.moderated_tags.clone(),
+            },
+        }
+    }
+
+    /// Builds and returns a configured [`EventProcessor`] instance.
+    /// # Arguments
+    /// - `homeserver_id`: The ID of the homeserver to process
+    pub async fn build(&self, homeserver_id: &str) -> Result<EventProcessor, DynError> {
+        let homeserver_id = PubkyId::try_from(homeserver_id).map_err(DynError::from)?;
+        let homeserver = Homeserver::get_by_id(homeserver_id)
+            .await?
+            .ok_or("Homeserver not found")?;
+
+        Ok(EventProcessor {
+            homeserver,
+            limit: self.limit,
+            files_path: self.files_path.clone(),
+            tracer_name: self.tracer_name.clone(),
+            moderation: self.moderation.clone(),
+        })
+    }
+}
+
 pub struct EventProcessor {
     pub homeserver: Homeserver,
     limit: u32,
@@ -23,14 +64,14 @@ pub struct EventProcessor {
 }
 
 impl EventProcessor {
-    /// Creates a new `EventProcessor` instance for testing purposes.
+    /// Creates a new [`EventProcessor`] instance for testing purposes.
     ///
-    /// This function initializes an `EventProcessor` configured with:
+    /// This function initializes an [`EventProcessor`] configured with:
     /// - A mock homeserver constructed using the provided `homeserver_url` and `homeserver_pubky`.
     /// - A default configuration, including an HTTP client, a limit of 1000 events, and a sender channel.
     ///
     /// It is designed for use in integration tests, benchmarking scenarios, or other test environments
-    /// where a controlled and predictable `EventProcessor` instance is required.
+    /// where a controlled and predictable [`EventProcessor`] instance is required.
     ///
     /// # Parameters
     /// - `homeserver_id`: A `String` representing the URL of the homeserver to be used in the test environment.
@@ -59,36 +100,7 @@ impl EventProcessor {
         }
     }
 
-    pub async fn from_config(config: &WatcherConfig, homeserver_id: String) -> Result<Self, DynError> {
-        let homeserver_id = PubkyId::try_from(homeserver_id.as_str()).map_err(|e| DynError::from(e))?;
-        let homeserver = Homeserver::get_by_id(homeserver_id)
-            .await?
-            .ok_or("Homeserver not found")?;
-        let limit = config.events_limit;
-        warn!("----- Homeserver limit: {}", limit);
-        let files_path = config.stack.files_path.clone();
-        let tracer_name = config.name.clone();
-
-        let moderation = Moderation {
-            id: config.moderation_id.clone(),
-            tags: config.moderated_tags.clone(),
-        };
-
-        info!(
-            "Initialized Event Processor for homeserver: {:?}",
-            homeserver
-        );
-
-        Ok(Self {
-            homeserver,
-            limit,
-            files_path,
-            tracer_name,
-            moderation,
-        })
-    }
-
-    pub async fn run(&mut self, shutdown_rx: Receiver<bool>) -> Result<(), DynError> {
+    pub async fn run(&self, shutdown_rx: Receiver<bool>) -> Result<(), DynError> {
         let lines = {
             let tracer = global::tracer(self.tracer_name.clone());
             let span = tracer.start("Polling Events");
@@ -109,7 +121,10 @@ impl EventProcessor {
                 self.process_event_lines(shutdown_rx, lines).await?;
             }
         }
-        warn!("----- EventProcessor::run finished: {:?}", self.homeserver.id);
+        warn!(
+            "----- EventProcessor::run finished: {:?}",
+            self.homeserver.id
+        );
         Ok(())
     }
 
@@ -119,7 +134,7 @@ impl EventProcessor {
     /// using the current cursor and a specified limit. It retrieves new event
     /// URIs in a newline-separated format, processes it into a vector of strings,
     /// and returns the result.
-    async fn poll_events(&mut self) -> Result<Option<Vec<String>>, DynError> {
+    async fn poll_events(&self) -> Result<Option<Vec<String>>, DynError> {
         debug!("Polling new events from homeserver");
 
         let response_text = {
@@ -160,20 +175,24 @@ impl EventProcessor {
     /// # Parameters
     /// - `lines`: A vector of strings representing event lines retrieved from the homeserver.
     pub async fn process_event_lines(
-        &mut self,
+        &self,
         shutdown_rx: Receiver<bool>,
         lines: Vec<String>,
     ) -> Result<(), DynError> {
+        println!("Processing {:?} event lines", lines);
         for line in &lines {
             if *shutdown_rx.borrow() {
                 info!("Shutdown detected, exiting event processing loop");
                 return Ok(());
             }
 
+            // Cursor is the last line of the event list
             if line.starts_with("cursor:") {
                 if let Some(cursor) = line.strip_prefix("cursor: ") {
-                    self.homeserver.cursor = cursor.to_string();
-                    self.homeserver.put_to_index().await?;
+                    self.homeserver
+                        .mutate_cursor(cursor.to_string())
+                        .put_to_index()
+                        .await?;
                     info!("Cursor for the next request: {}", cursor);
                 }
             } else {
@@ -210,7 +229,7 @@ impl EventProcessor {
     /// Processes an event and track the fail event it if necessary
     /// # Parameters:
     /// - `event`: The event to be processed
-    async fn handle_event(&mut self, event: Event) -> Result<(), DynError> {
+    async fn handle_event(&self, event: Event) -> Result<(), DynError> {
         if let Err(e) = event.clone().handle(&self.moderation).await {
             if let Some((index_key, retry_event)) = extract_retry_event_info(&event, e) {
                 error!("{}, {}", retry_event.error_type, index_key);
