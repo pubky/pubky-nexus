@@ -888,6 +888,8 @@ pub fn post_is_safe_to_delete(author_id: &str, post_id: &str) -> Query {
     .param("post_id", post_id)
 }
 
+/// Find user recommendations: active users (with 5+ posts) who are 1-3 degrees of separation away
+/// from the given user, but not directly followed by them
 pub fn recommend_users(user_id: &str, limit: usize) -> neo4rs::Query {
     query(
         "
