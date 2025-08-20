@@ -5,6 +5,7 @@ use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
 use nexus_common::utils::create_shutdown_rx;
 use nexus_common::{DaemonConfig, WatcherConfig};
+use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
@@ -70,6 +71,10 @@ impl NexusWatcher {
         config: WatcherConfig,
     ) -> Result<(), DynError> {
         debug!(?config, "Running NexusWatcher with ");
+
+        // Check if the configured homeserver is persisted in the graph
+        let config_hs = PubkyId::try_from(config.homeserver.as_str())?;
+        Homeserver::verify_or_persist(config_hs).await?;
 
         let event_processor_factory = EventProcessorFactory::from_config(&config);
         let period = Duration::from_millis(config.watcher_sleep);
@@ -229,7 +234,7 @@ impl CycleProcessor {
     async fn pace_cycle(&self, elapsed: Duration, shutdown_rx: &mut Receiver<bool>) -> bool {
         if elapsed < self.period {
             let remaining = self.period - elapsed;
-            debug!(
+            info!(
                 cycle = self.cycle,
                 remaining_ms = remaining.as_millis(),
                 "Pacing before next cycle"
@@ -335,9 +340,10 @@ async fn process_homeserver(
 
     // Process with timeout
     match timeout(task_timeout, event_processor.run(shutdown_rx)).await {
-        Ok(Ok(())) => {
-            debug!(
+        Ok(Ok(cursor)) => {
+            info!(
                 homeserver = %homeserver_id,
+                next_cursor = cursor,
                 took_ms = start.elapsed().as_millis(),
                 "Processed"
             );

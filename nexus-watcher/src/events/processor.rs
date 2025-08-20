@@ -12,7 +12,7 @@ use pubky_app_specs::PubkyId;
 use std::error::Error;
 use std::path::PathBuf;
 use tokio::sync::watch::Receiver;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 
 /// This implements the creation logic for [`EventProcessor`] objects
 pub struct EventProcessorFactory {
@@ -78,7 +78,7 @@ impl EventProcessor {
     /// - `tx`: A `RetryManagerSenderChannel` used to handle outgoing messages or events.
     pub async fn test(homeserver_id: String) -> Self {
         let id = PubkyId::try_from(&homeserver_id).expect("Homeserver ID should be valid");
-        let homeserver = Homeserver::new(id);
+        let homeserver = Homeserver::new(id.clone());
 
         // hardcoded nexus-watcher/tests/utils/moderator_key.pkarr public key used by the moderator user on tests
         let moderation = Moderation {
@@ -100,7 +100,7 @@ impl EventProcessor {
         }
     }
 
-    pub async fn run(&self, shutdown_rx: Receiver<bool>) -> Result<(), DynError> {
+    pub async fn run(&self, shutdown_rx: Receiver<bool>) -> Result<String, DynError> {
         let lines = {
             let tracer = global::tracer(self.tracer_name.clone());
             let span = tracer.start("Polling Events");
@@ -111,21 +111,17 @@ impl EventProcessor {
         match lines {
             Err(e) => {
                 error!("Error polling events: {:?}", e);
-                return Err(e);
+                Err(e)
             }
             Ok(None) => {
                 info!("No new events");
+                Ok(String::new())
             }
             Ok(Some(lines)) => {
                 info!("Processing {} event lines", lines.len());
-                self.process_event_lines(shutdown_rx, lines).await?;
+                self.process_event_lines(shutdown_rx, lines).await
             }
         }
-        warn!(
-            "----- EventProcessor::run finished: {:?}",
-            self.homeserver.id
-        );
-        Ok(())
     }
 
     /// Polls new events from the homeserver.
@@ -178,22 +174,24 @@ impl EventProcessor {
         &self,
         shutdown_rx: Receiver<bool>,
         lines: Vec<String>,
-    ) -> Result<(), DynError> {
+    ) -> Result<String, DynError> {
         println!("Processing {:?} event lines", lines);
+        let mut new_cursor = String::new();
         for line in &lines {
             if *shutdown_rx.borrow() {
                 info!("Shutdown detected, exiting event processing loop");
-                return Ok(());
+                return Ok(new_cursor);
             }
 
             // Cursor is the last line of the event list
             if line.starts_with("cursor:") {
                 if let Some(cursor) = line.strip_prefix("cursor: ") {
+                    new_cursor = String::from(cursor);
+                    // TODO: Might be good idea to update all the homeserver cursors in a batch
                     self.homeserver
                         .mutate_cursor(cursor.to_string())
                         .put_to_index()
                         .await?;
-                    info!("Cursor for the next request: {}", cursor);
                 }
             } else {
                 let event = match Event::parse_event(line, self.files_path.clone()) {
@@ -223,7 +221,7 @@ impl EventProcessor {
             }
         }
 
-        Ok(())
+        Ok(new_cursor)
     }
 
     /// Processes an event and track the fail event it if necessary
