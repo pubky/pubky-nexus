@@ -8,9 +8,11 @@ use nexus_common::types::DynError;
 use nexus_common::{get_files_dir_test_pathbuf, WatcherConfig};
 use opentelemetry::trace::{FutureExt, Span, TraceContextExt, Tracer};
 use opentelemetry::{global, Context, KeyValue};
+use pubky::PublicKey;
 use pubky_app_specs::PubkyId;
 use std::error::Error;
 use std::path::PathBuf;
+use std::str::FromStr;
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info};
 
@@ -197,7 +199,8 @@ impl EventProcessor {
                     ));
                     let cx = Context::new().with_span(span);
                     debug!("Processing event: {:?}", event);
-                    self.handle_event(event).with_context(cx).await?;
+                    self.handle_event(&event).with_context(cx).await?;
+                    self.maybe_ingest_homeserver(&event).await?;
                 }
             }
         }
@@ -208,7 +211,7 @@ impl EventProcessor {
     /// Processes an event and track the fail event it if necessary
     /// # Parameters:
     /// - `event`: The event to be processed
-    async fn handle_event(&mut self, event: Event) -> Result<(), DynError> {
+    async fn handle_event(&mut self, event: &Event) -> Result<(), DynError> {
         if let Err(e) = event.clone().handle(&self.moderation).await {
             if let Some((index_key, retry_event)) = extract_retry_event_info(&event, e) {
                 error!("{}, {}", retry_event.error_type, index_key);
@@ -217,6 +220,35 @@ impl EventProcessor {
                 }
             }
         }
+        Ok(())
+    }
+
+    // In case the new event points to an unknown HS, ingest that HS
+    async fn maybe_ingest_homeserver(&self, event: &Event) -> Result<(), DynError> {
+        if matches!(event.event_type, crate::events::EventType::Put) {
+            let user_id = event.parsed_uri.user_id.clone();
+
+            match user_id.parse::<PublicKey>() {
+                Ok(user_pk) => {
+                    let pubky_client = PubkyClient::get().unwrap();
+                    // TODO Isn't this expensive? Is there a better way to get user's HS?
+                    let maybe_user_hs = pubky_client.get_homeserver(&user_pk).await;
+
+                    if let Some(user_hs) = maybe_user_hs {
+                        // TODO Option 1: check redis if HS known, if not then persist
+                        let hs_pk = PubkyId::try_from(&user_hs).unwrap();
+                        if let Ok(None) = Homeserver::get_by_id(hs_pk.clone()).await {
+                            Homeserver::new(hs_pk).put_to_graph().await.unwrap()
+                        }
+
+                        // TODO Option 2: call MERGE query, to insert if it doesn't already exist
+                        // ...
+                    }
+                }
+                Err(e) => error!("Failed to parse User PK: {e}"),
+            }
+        }
+
         Ok(())
     }
 }
