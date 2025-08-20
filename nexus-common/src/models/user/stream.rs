@@ -158,8 +158,13 @@ impl UserStream {
         let mut user_ids = Vec::new();
 
         for row in rows {
-            if let Some(user_id) = row.get::<Option<String>>("recommended_user_id")? {
-                user_ids.push(user_id);
+            let maybe_rec_user_id = row.get::<Option<String>>("recommended_user_id")?;
+            let maybe_rec_user_name = row.get::<Option<String>>("recommended_user_name")?;
+
+            if let (Some(user_id), Some(user_name)) = (maybe_rec_user_id, maybe_rec_user_name) {
+                if user_name != "[DELETED]" {
+                    user_ids.push(user_id);
+                }
             }
         }
 

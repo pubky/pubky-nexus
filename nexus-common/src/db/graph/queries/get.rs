@@ -901,7 +901,7 @@ pub fn recommend_users(user_id: &str, limit: usize) -> neo4rs::Query {
         MATCH (potential)-[:AUTHORED]->(post:Post)
         WITH potential, COUNT(post) AS post_count
         WHERE post_count >= 5
-        RETURN potential.id AS recommended_user_id
+        RETURN potential.id AS recommended_user_id, potential.name AS recommended_user_name
         LIMIT $limit
     ",
     )
