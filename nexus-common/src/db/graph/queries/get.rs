@@ -911,7 +911,7 @@ pub fn recommend_users(user_id: &str, limit: usize) -> neo4rs::Query {
 pub fn get_tag_by_tagger_and_id(tagger_id: &str, tag_id: &str) -> neo4rs::Query {
     query(
         "
-        MATCH (tagger:User { id: $tagger_id})-[tag:TAGGED {id: $tag_id }]->(tagged)
+        MATCH (tagger:User { id: $tagger_id})-[tag:TAGGED {id: $tag_id }]->()
         RETURN tag.id as id, tag.indexed_at as indexed_at, tag.label as label
         ",
     )
