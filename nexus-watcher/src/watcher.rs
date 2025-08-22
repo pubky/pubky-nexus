@@ -74,7 +74,7 @@ impl NexusWatcher {
 
         // Check if the configured homeserver is persisted in the graph
         let config_hs = PubkyId::try_from(config.homeserver.as_str())?;
-        Homeserver::verify_or_persist(config_hs).await?;
+        Homeserver::persist_if_unknown(config_hs).await?;
 
         let event_processor_factory = EventProcessorFactory::from_config(&config);
         let period = Duration::from_millis(config.watcher_sleep);
