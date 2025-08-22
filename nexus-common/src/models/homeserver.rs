@@ -27,7 +27,7 @@ impl Homeserver {
     }
 
     /// Mutates the cursor of the homeserver
-    pub fn mutate_cursor(&self, cursor: String) -> Self {
+    pub fn persist_cursor(&self, cursor: String) -> Self {
         Homeserver {
             id: self.id.clone(),
             cursor,
@@ -154,7 +154,7 @@ mod tests {
     fn test_homeserver_cursor_mutation() {
         let new_cursor = "0033EKQRGKFKT";
         let hs = Homeserver::new(PubkyId::default());
-        let hs_mutated = hs.mutate_cursor(new_cursor.to_string());
+        let hs_mutated = hs.persist_cursor(new_cursor.to_string());
         assert_eq!(hs_mutated.cursor, new_cursor);
     }
 }
