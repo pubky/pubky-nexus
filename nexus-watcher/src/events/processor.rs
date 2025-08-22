@@ -189,7 +189,7 @@ impl EventProcessor {
                     new_cursor = String::from(cursor);
                     // TODO: Might be good idea to update all the homeserver cursors in a batch
                     self.homeserver
-                        .mutate_cursor(cursor.to_string())
+                        .persist_cursor(cursor.to_string())
                         .put_to_index()
                         .await?;
                 }
