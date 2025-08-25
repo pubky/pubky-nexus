@@ -3,14 +3,16 @@ use crate::events::retry::event::RetryEvent;
 use crate::handle_indexing_results;
 use nexus_common::db::kv::{JsonAction, ScoreAction};
 use nexus_common::db::queries::get::post_is_safe_to_delete;
-use nexus_common::db::{exec_single_row, execute_graph_operation, OperationOutcome};
+use nexus_common::db::{exec_single_row, execute_graph_operation, OperationOutcome, PubkyClient};
 use nexus_common::db::{queries, RedisOps};
+use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::notification::{Notification, PostChangedSource, PostChangedType};
 use nexus_common::models::post::{
     PostCounts, PostDetails, PostRelationships, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS,
 };
-use nexus_common::models::user::UserCounts;
+use nexus_common::models::user::{UserCounts, UserDetails};
 use nexus_common::types::DynError;
+use pubky::PublicKey;
 use pubky_app_specs::{
     user_uri_builder, ParsedUri, PubkyAppPost, PubkyAppPostKind, PubkyId, Resource,
 };
@@ -79,6 +81,10 @@ pub async fn sync_put(
         &mut post_relationships,
     )
     .await?;
+
+    if let Err(e) = maybe_ingest_homeservers(&post_relationships).await {
+        tracing::error!("Failed to ingest homeservers: {e}");
+    }
 
     // SAVE TO INDEX - PHASE 1, update post counts
     let indexing_results = tokio::join!(
@@ -457,6 +463,50 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
     );
 
     handle_indexing_results!(indexing_results.0, indexing_results.1);
+
+    Ok(())
+}
+
+/// If the [PostRelationships] if this post contain references to users or posts on unknown homeservers, ingest these homeservers
+async fn maybe_ingest_homeservers(rels: &PostRelationships) -> Result<(), DynError> {
+    let pubky_client = PubkyClient::get()?;
+
+    let mut new_homeservers: Vec<PubkyId> = vec![];
+
+    // Check parent post, if this is a reply
+    if let Some(parent_post_uri) = &rels.replied {
+        let parsed_uri = ParsedUri::try_from(parent_post_uri.as_str())?;
+        let parent_author_id = parsed_uri.user_id.as_str();
+        let parent_author_known = UserDetails::get_by_id(parent_author_id).await?.is_some();
+
+        if !parent_author_known {
+            let parent_author_pk = parent_author_id.parse::<PublicKey>()?;
+
+            if let Some(parent_author_hs) = pubky_client.get_homeserver(&parent_author_pk).await {
+                let hs_pk = PubkyId::try_from(&parent_author_hs)?;
+
+                if let Ok(None) = Homeserver::get_by_id(hs_pk.clone()).await {
+                    new_homeservers.push(hs_pk);
+                }
+            }
+        }
+    }
+
+    if let Some(reposted) = &rels.reposted {
+        // TODO Check reposts
+    }
+
+    for mentioned_user_id in &rels.mentioned {
+        // TODO Check mentions
+    }
+
+    for hs_pk in new_homeservers {
+        Homeserver::new(hs_pk.clone())
+            .put_to_graph()
+            .await
+            .inspect(|_| tracing::info!("Ingested new homeserver {hs_pk}"))
+            .inspect_err(|e| tracing::error!("Failed to ingest new homeserver {hs_pk}: {e}"))?;
+    }
 
     Ok(())
 }
