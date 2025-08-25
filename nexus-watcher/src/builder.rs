@@ -6,8 +6,7 @@ use nexus_common::{StackManager, WatcherConfig};
 use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
 use tokio::sync::watch::Receiver;
-
-use crate::NexusWatcher;
+use crate::service::NexusWatcher;
 
 #[derive(Debug, Default)]
 pub struct NexusWatcherBuilder(pub WatcherConfig);

@@ -59,6 +59,7 @@ pub struct EventProcessor {
     pub homeserver: Homeserver,
     limit: u32,
     pub files_path: PathBuf,
+    // TODO: Maybe we could define a name for each homeserver? Not sure about that.
     pub tracer_name: String,
     pub moderation: Moderation,
 }
@@ -100,6 +101,9 @@ impl EventProcessor {
         }
     }
 
+    /// Runs the event processor. Polls new events from the homeserver and processes them
+    /// # Parameters
+    /// - `shutdown_rx`: A `Receiver<bool>` used to listen for shutdown signals
     pub async fn run(&self, shutdown_rx: Receiver<bool>) -> Result<String, DynError> {
         let lines = {
             let tracer = global::tracer(self.tracer_name.clone());
