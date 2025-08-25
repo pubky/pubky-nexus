@@ -5,6 +5,7 @@ pub mod search;
 pub mod stream;
 pub mod traits;
 pub mod user;
+pub mod view;
 
 // TODO: Use all the structs in that away
 pub use details::TagDetails;
