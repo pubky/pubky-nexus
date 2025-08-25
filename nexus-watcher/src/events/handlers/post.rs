@@ -119,7 +119,7 @@ pub async fn sync_put(
         let parent_author_id = parsed_uri.user_id;
         let parent_post_id = match parsed_uri.resource {
             Resource::Post(id) => id,
-            _ => return Err("Reposted uri is not a Post resource".into()),
+            _ => return Err("Replied URI is not a Post resource".into()),
         };
 
         // Define the reply parent key to index the reply later
