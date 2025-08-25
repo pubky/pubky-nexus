@@ -7,7 +7,7 @@ use nexus_watcher::events::moderation::Moderation;
 use nexus_watcher::events::processor::EventProcessor;
 use nexus_watcher::events::retry::event::RetryEvent;
 use nexus_watcher::events::Event;
-use nexus_watcher::NexusWatcher;
+use nexus_watcher::service::NexusWatcher;
 use pubky::Keypair;
 use pubky_app_specs::PubkyId;
 use pubky_app_specs::{
