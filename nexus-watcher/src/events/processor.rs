@@ -197,7 +197,7 @@ impl EventProcessor {
                     ));
                     let cx = Context::new().with_span(span);
                     debug!("Processing event: {:?}", event);
-                    self.handle_event(event).with_context(cx).await?;
+                    self.handle_event(&event).with_context(cx).await?;
                 }
             }
         }
@@ -208,7 +208,7 @@ impl EventProcessor {
     /// Processes an event and track the fail event it if necessary
     /// # Parameters:
     /// - `event`: The event to be processed
-    async fn handle_event(&mut self, event: Event) -> Result<(), DynError> {
+    async fn handle_event(&mut self, event: &Event) -> Result<(), DynError> {
         if let Err(e) = event.clone().handle(&self.moderation).await {
             if let Some((index_key, retry_event)) = extract_retry_event_info(&event, e) {
                 error!("{}, {}", retry_event.error_type, index_key);
