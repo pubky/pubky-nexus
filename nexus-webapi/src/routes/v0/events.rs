@@ -1,13 +1,21 @@
 use crate::routes::AppState;
+use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use super::endpoints::EVENTS_ROUTE;
-use nexus_common::models::events::EventsList;
+use nexus_common::models::events::Event;
 
 use axum::extract::Query;
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::{Json, Router};
 use utoipa::OpenApi;
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct EventsList {
+    cursor: String,
+    events: Vec<String>,
+}
 
 #[utoipa::path(
     get,
