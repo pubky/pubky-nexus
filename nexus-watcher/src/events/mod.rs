@@ -92,6 +92,7 @@ impl Event {
     }
 
     pub async fn handle(self, moderation: &Moderation) -> Result<(), DynError> {
+        // TODO: (524): add method to insert event in to reddis sorted set
         match self.event_type {
             EventType::Put => self.handle_put_event(moderation).await,
             EventType::Del => self.handle_del_event().await,

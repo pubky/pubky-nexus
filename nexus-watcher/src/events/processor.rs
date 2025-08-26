@@ -215,6 +215,11 @@ impl EventProcessor {
                 }
             }
         }
+
+        // TODO: (524) event
+        // - ordered set, so that can be ordered by cursor
+        // - cursor is local timestamp in milliseconds encoded using crockford32
+        // <cursor>: { <PUT|DEL>, <URL> }
         Ok(())
     }
 }
