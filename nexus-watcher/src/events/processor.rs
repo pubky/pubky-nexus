@@ -22,6 +22,17 @@ pub struct EventProcessorFactory {
     pub moderation: Moderation,
 }
 
+impl Default for EventProcessorFactory {
+    fn default() -> Self {
+        Self {
+            limit: 1000,
+            files_path: PathBuf::from(""),
+            tracer_name: String::from(""),
+            moderation: Moderation::default(),
+        }
+    }
+}
+
 impl EventProcessorFactory {
     /// Creates a new factory instance from the provided configuration
     pub fn from_config(config: &WatcherConfig) -> Self {
