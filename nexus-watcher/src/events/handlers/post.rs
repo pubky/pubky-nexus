@@ -54,10 +54,7 @@ pub async fn sync_put(
                     dependency_event_keys.push(key);
                 }
             }
-            return Err(EventProcessorError::MissingDependency {
-                dependency: dependency_event_keys,
-            }
-            .into());
+            return Err(EventProcessorError::missing_dependencies(dependency_event_keys).into());
         }
     };
 
