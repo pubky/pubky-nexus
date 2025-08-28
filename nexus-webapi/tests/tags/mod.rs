@@ -6,6 +6,7 @@ pub mod post;
 pub mod search;
 pub mod user;
 pub mod utils;
+pub mod view;
 pub mod wot;
 
 // CMD to run test: cargo watch -q -c -w tests/ -x "test tag -- --nocapture"

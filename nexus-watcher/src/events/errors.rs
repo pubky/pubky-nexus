@@ -26,3 +26,11 @@ pub enum EventProcessorError {
     // #[error("PubkyClient could not reach/resolve the homeserver")]
     // NotResolvedHomeserver,
 }
+
+impl EventProcessorError {
+    pub fn missing_dependencies(dependency_uris: Vec<String>) -> Self {
+        Self::MissingDependency {
+            dependency: dependency_uris,
+        }
+    }
+}

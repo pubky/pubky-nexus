@@ -4,7 +4,7 @@ use crate::{
 };
 use anyhow::Result;
 use chrono::Utc;
-use nexus_common::models::user::{UserCounts, UserView};
+use nexus_common::models::user::{UserCounts, UserStream, UserView};
 use pubky::Keypair;
 use pubky_app_specs::{
     traits::{HasIdPath, HashId},
@@ -232,6 +232,68 @@ async fn test_delete_user_with_relationships() -> Result<()> {
         user_view.is_none(),
         "User view should not be found after final deletion"
     );
+
+    Ok(())
+}
+
+/// Scenario:
+/// - ensure a user is recommended in the Who To Follow list
+/// - delete that user
+/// - ensure that user is not recommended anymore in that list
+#[tokio_shared_rt::test(shared)]
+async fn test_delete_recommended_user() -> Result<()> {
+    let mut test = WatcherTest::setup().await?;
+
+    let fn_create_user =
+        async |test: &mut WatcherTest, keypair: Keypair, name: &str| -> Result<String> {
+            let user = PubkyAppUser {
+                bio: Some("test_delete_user_with_relationships".to_string()),
+                image: None,
+                links: None,
+                name: format!("Watcher:UserDeleteWith:User:{name}"),
+                status: None,
+            };
+            test.create_user(&keypair, &user).await
+        };
+
+    // Create 3 users: Alice, Bob, Carol
+    let keypair_alice = Keypair::random();
+    let keypair_bob = Keypair::random();
+    let keypair_carol = Keypair::random();
+    let alice_id = fn_create_user(&mut test, keypair_alice, "Alice").await?;
+    let bob_id = fn_create_user(&mut test, keypair_bob, "Bob").await?;
+    let carol_id = fn_create_user(&mut test, keypair_carol, "Carol").await?;
+
+    // Alice follows Bob, Bob follows Carol
+    // Carol is in Alice's social graph, but not directly followed
+    test.create_follow(&alice_id, &bob_id).await?;
+    test.create_follow(&bob_id, &carol_id).await?;
+
+    // Carol is an active user (has at least 5 posts)
+    for i in 0..5 {
+        let post = PubkyAppPost {
+            content: format!("Carol's post {i}"),
+            kind: PubkyAppPostKind::Short,
+            parent: None,
+            embed: None,
+            attachments: None,
+        };
+        test.create_post(&carol_id, &post).await?;
+    }
+
+    // Check if Carol is recommended to Alice
+    let alice_recommended_ids_res_1 = UserStream::get_recommended_ids(&alice_id, None).await;
+    let alice_recommended_ids_1 = alice_recommended_ids_res_1.unwrap().unwrap();
+    assert_eq!(alice_recommended_ids_1.len(), 1);
+    assert_eq!(alice_recommended_ids_1.first(), Some(&carol_id));
+
+    // Carol deletes her user
+    test.cleanup_user(&carol_id).await?;
+
+    // Check if Carol is not recommended anymore to Alice
+    let alice_recommended_ids_res_2 = UserStream::get_recommended_ids(&alice_id, None).await;
+    let alice_recommended_ids_2 = alice_recommended_ids_res_2.unwrap();
+    assert_eq!(alice_recommended_ids_2, None);
 
     Ok(())
 }
