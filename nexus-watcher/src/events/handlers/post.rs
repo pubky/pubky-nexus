@@ -93,14 +93,8 @@ pub async fn sync_put(
             }
         },
         // TODO: Use SCARD on a set for unique tag count to avoid race conditions in parallel processing
-        // Update user counts with the new post
-        UserCounts::update(&author_id, "posts", JsonAction::Increment(1), None),
-        async {
-            if is_reply {
-                UserCounts::update(&author_id, "replies", JsonAction::Increment(1), None).await?;
-            };
-            Ok::<(), DynError>(())
-        }
+        user_count_update_posts(&author_id, JsonAction::Increment(1)),
+        user_count_maybe_update_replies(&author_id, is_reply, JsonAction::Increment(1))
     );
 
     handle_indexing_results!(indexing_results.0, indexing_results.1, indexing_results.2);
@@ -342,13 +336,8 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
     // DELETE TO INDEX - PHASE 1, decrease post counts
     let indexing_results = tokio::join!(
         PostCounts::delete(&author_id, &post_id, !is_reply),
-        UserCounts::update(&author_id, "posts", JsonAction::Decrement(1), None),
-        async {
-            if is_reply {
-                UserCounts::update(&author_id, "replies", JsonAction::Decrement(1), None).await?;
-            };
-            Ok::<(), DynError>(())
-        }
+        user_count_update_posts(&author_id, JsonAction::Decrement(1)),
+        user_count_maybe_update_replies(&author_id, is_reply, JsonAction::Decrement(1))
     );
 
     handle_indexing_results!(indexing_results.0, indexing_results.1, indexing_results.2);
@@ -455,4 +444,19 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
     handle_indexing_results!(indexing_results.0, indexing_results.1);
 
     Ok(())
+}
+
+async fn user_count_update_posts(user_id: &str, action: JsonAction) -> Result<(), DynError> {
+    UserCounts::update(user_id, "posts", action, None).await
+}
+
+async fn user_count_maybe_update_replies(
+    user_id: &str,
+    is_reply: bool,
+    action: JsonAction,
+) -> Result<(), DynError> {
+    if is_reply {
+        UserCounts::update(&user_id, "replies", action, None).await?;
+    };
+    Ok::<(), DynError>(())
 }
