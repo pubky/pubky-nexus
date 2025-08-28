@@ -37,7 +37,7 @@ impl EventProcessor {
     /// - `tx`: A `RetryManagerSenderChannel` used to handle outgoing messages or events.
     pub async fn test(homeserver_id: String) -> Self {
         let id = PubkyId::try_from(&homeserver_id).expect("Homeserver ID should be valid");
-        let homeserver = Homeserver::new(id).await.unwrap();
+        let homeserver = Homeserver::new(id);
 
         // hardcoded nexus-watcher/tests/utils/moderator_key.pkarr public key used by the moderator user on tests
         let moderation = Moderation {
@@ -60,7 +60,9 @@ impl EventProcessor {
     }
 
     pub async fn from_config(config: &WatcherConfig) -> Result<Self, DynError> {
-        let homeserver = Homeserver::from_config(config.homeserver.clone()).await?;
+        let homeserver = Homeserver::get_by_id(config.homeserver.clone())
+            .await?
+            .ok_or("Homeserver not found")?;
         let limit = config.events_limit;
         let files_path = config.stack.files_path.clone();
         let tracer_name = config.name.clone();
