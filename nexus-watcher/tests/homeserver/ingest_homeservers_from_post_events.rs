@@ -151,3 +151,69 @@ async fn test_repost_of_post_on_unknown_homeserver() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio_shared_rt::test(shared)]
+async fn test_post_and_mention_users_on_unknown_homeserver() -> Result<()> {
+    let mut test = WatcherTest::setup().await?;
+
+    // Create three separate homeservers for three mentioned users, each on one HS
+    let user_1_hs_keypair = create_new_test_homeserver(&mut test).await?;
+    let user_1_hs_pk = user_1_hs_keypair.public_key();
+    let user_1_hs_id = PubkyId::try_from(&user_1_hs_pk.to_z32()).unwrap();
+    let user_2_hs_kp = create_new_test_homeserver(&mut test).await?;
+    let user_2_hs_pk = user_2_hs_kp.public_key();
+    let user_2_hs_id = PubkyId::try_from(&user_2_hs_pk.to_z32()).unwrap();
+    let user_3_hs_kp = create_new_test_homeserver(&mut test).await?;
+    let user_3_hs_pk = user_3_hs_kp.public_key();
+    let user_3_hs_id = PubkyId::try_from(&user_3_hs_pk.to_z32()).unwrap();
+
+    // Create three users, which will be later mentioned in the test post
+    let user_1_kp = Keypair::random();
+    let user_1_id = user_1_kp.public_key().to_z32();
+    let user_2_kp = Keypair::random();
+    let user_2_id = user_2_kp.public_key().to_z32();
+    let user_3_kp = Keypair::random();
+    let user_3_id = user_3_kp.public_key().to_z32();
+
+    // Register each new user in their respective homeserver
+    // We only need the record mapping, not necessarily the profile.json being uploaded
+    let pk_client = PubkyClient::get()?;
+    pk_client.signup(&user_1_kp, &user_1_hs_pk, None).await?;
+    pk_client.signup(&user_2_kp, &user_2_hs_pk, None).await?;
+    pk_client.signup(&user_3_kp, &user_3_hs_pk, None).await?;
+
+    // Create the test post on the main test homeserver, created by a known user (author)
+    let post_author = PubkyAppUser {
+        bio: Some("test_post_and_mention_users_on_unknown_homeserver".to_string()),
+        image: None,
+        links: None,
+        name: "Watcher:MentionHomeserverIngest:User".to_string(),
+        status: None,
+    };
+    let post_author_kp = Keypair::random();
+    let post_author_id = test.create_user(&post_author_kp, &post_author).await?;
+
+    let post = PubkyAppPost {
+        // The post content references the PKs of the external users
+        content: format!("Hey pk:{user_1_id}, pk:{user_2_id} and pk:{user_3_id}!"),
+        kind: PubkyAppPostKind::Short,
+        parent: None,
+        embed: None,
+        attachments: None,
+    };
+    let post_id = test.create_post(&post_author_id, &post).await?;
+
+    // Check if the new homeservers of the unknown mentioned users were ingested
+    assert!(Homeserver::get_by_id(user_1_hs_id).await.unwrap().is_some());
+    assert!(Homeserver::get_by_id(user_2_hs_id).await.unwrap().is_some());
+    assert!(Homeserver::get_by_id(user_3_hs_id).await.unwrap().is_some());
+
+    // Cleanup
+    test.cleanup_user(&post_author_id).await?;
+    test.cleanup_post(&post_author_id, &post_id).await?;
+    test.cleanup_user(&user_1_id).await?;
+    test.cleanup_user(&user_2_id).await?;
+    test.cleanup_user(&user_3_id).await?;
+
+    Ok(())
+}
