@@ -120,12 +120,7 @@ pub async fn sync_put(
 
         let indexing_results = tokio::join!(
             post_count_update_replies(parent_post_key_parts, JsonAction::Increment(1)),
-            async {
-                if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await? {
-                    post_stream_update_engagement(parent_post_key_parts, Increment(1.0)).await?;
-                }
-                Ok::<(), DynError>(())
-            },
+            ps_maybe_inc_engagement(&parent_author_id, &parent_post_id, parent_post_key_parts),
             PostStream::add_to_post_reply_sorted_set(
                 parent_post_key_parts,
                 &author_id,
@@ -161,13 +156,7 @@ pub async fn sync_put(
         let parent_post_key_parts: &[&str; 2] = &[&parent_author_id, &parent_post_id];
         let indexing_results = tokio::join!(
             post_count_update_reposts(parent_post_key_parts, JsonAction::Increment(1)),
-            async {
-                // Post replies cannot be included in the total engagement index after they receive a reply
-                if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await? {
-                    post_stream_update_engagement(parent_post_key_parts, Increment(1.0)).await?;
-                }
-                Ok::<(), DynError>(())
-            },
+            ps_maybe_inc_engagement(&parent_author_id, &parent_post_id, parent_post_key_parts),
             Notification::new_repost(
                 &author_id,
                 reposted_uri,
@@ -342,14 +331,7 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
 
             let indexing_results = tokio::join!(
                 post_count_update_replies(&parent_post_key_parts, JsonAction::Decrement(1)),
-                async {
-                    // Post replies cannot be included in the total engagement index after the reply is deleted
-                    if !post_relationships_is_reply(&parent_user_id, &parent_post_id).await? {
-                        post_stream_update_engagement(&parent_post_key_parts, Decrement(1.0))
-                            .await?;
-                    }
-                    Ok::<(), DynError>(())
-                },
+                ps_maybe_dec_engagement(&parent_user_id, &parent_post_id, &parent_post_key_parts),
                 // Notification: "A reply to your post was deleted"
                 Notification::post_children_changed(
                     &author_id,
@@ -376,14 +358,11 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
 
             let indexing_results = tokio::join!(
                 post_count_update_reposts(parent_post_key_parts, JsonAction::Decrement(1)),
-                async {
-                    // Post replies cannot be included in the total engagement index after the repost is deleted
-                    if !post_relationships_is_reply(&parsed_uri.user_id, &parent_post_id).await? {
-                        post_stream_update_engagement(parent_post_key_parts, Decrement(1.0))
-                            .await?;
-                    }
-                    Ok::<(), DynError>(())
-                },
+                ps_maybe_dec_engagement(
+                    &parsed_uri.user_id,
+                    &parent_post_id,
+                    &parent_post_key_parts
+                ),
                 // Notification: "A repost of your post was deleted"
                 Notification::post_children_changed(
                     &author_id,
@@ -436,4 +415,33 @@ async fn post_stream_update_engagement(
     action: ScoreAction,
 ) -> Result<(), DynError> {
     PostStream::put_score_index_sorted_set(&POST_TOTAL_ENGAGEMENT_KEY_PARTS, member, action).await
+}
+
+async fn ps_maybe_dec_engagement(
+    author_id: &str,
+    post_id: &str,
+    member: &[&str],
+) -> Result<(), DynError> {
+    ps_maybe_update_engagement(author_id, post_id, member, Decrement(1.0)).await
+}
+
+async fn ps_maybe_inc_engagement(
+    author_id: &str,
+    post_id: &str,
+    member: &[&str],
+) -> Result<(), DynError> {
+    ps_maybe_update_engagement(author_id, post_id, member, Increment(1.0)).await
+}
+
+async fn ps_maybe_update_engagement(
+    author_id: &str,
+    post_id: &str,
+    member: &[&str],
+    action: ScoreAction,
+) -> Result<(), DynError> {
+    // Post replies cannot count towards the total engagement index
+    if !post_relationships_is_reply(author_id, post_id).await? {
+        post_stream_update_engagement(member, action).await?;
+    }
+    Ok::<(), DynError>(())
 }
