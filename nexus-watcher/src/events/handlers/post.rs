@@ -198,10 +198,9 @@ async fn sync_edit(
 
     // Notifications
     // Determine the change type
-    let change_type = if post_details.content == *"[DELETED]" {
-        PostChangedType::Deleted
-    } else {
-        PostChangedType::Edited
+    let change_type = match post_details.content.as_str() {
+        "[DELETED]" => PostChangedType::Deleted,
+        _ => PostChangedType::Edited,
     };
 
     // Send notifications to users who interacted with the post
