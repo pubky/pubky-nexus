@@ -1,7 +1,7 @@
 use crate::events::errors::EventProcessorError;
 use crate::events::retry::event::RetryEvent;
 use crate::handle_indexing_results;
-use nexus_common::db::kv::{JsonAction, ScoreAction};
+use nexus_common::db::kv::{JsonAction, ScoreAction, ScoreAction::*};
 use nexus_common::db::queries::get::post_is_safe_to_delete;
 use nexus_common::db::{exec_single_row, execute_graph_operation, OperationOutcome};
 use nexus_common::db::{queries, RedisOps};
@@ -122,12 +122,7 @@ pub async fn sync_put(
             post_count_update_replies(parent_post_key_parts, JsonAction::Increment(1)),
             async {
                 if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await? {
-                    PostStream::put_score_index_sorted_set(
-                        &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
-                        parent_post_key_parts,
-                        ScoreAction::Increment(1.0),
-                    )
-                    .await?;
+                    post_stream_update_engagement(parent_post_key_parts, Increment(1.0)).await?;
                 }
                 Ok::<(), DynError>(())
             },
@@ -169,12 +164,7 @@ pub async fn sync_put(
             async {
                 // Post replies cannot be included in the total engagement index after they receive a reply
                 if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await? {
-                    PostStream::put_score_index_sorted_set(
-                        &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
-                        parent_post_key_parts,
-                        ScoreAction::Increment(1.0),
-                    )
-                    .await?;
+                    post_stream_update_engagement(parent_post_key_parts, Increment(1.0)).await?;
                 }
                 Ok::<(), DynError>(())
             },
@@ -355,12 +345,8 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
                 async {
                     // Post replies cannot be included in the total engagement index after the reply is deleted
                     if !post_relationships_is_reply(&parent_user_id, &parent_post_id).await? {
-                        PostStream::put_score_index_sorted_set(
-                            &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
-                            &parent_post_key_parts,
-                            ScoreAction::Decrement(1.0),
-                        )
-                        .await?;
+                        post_stream_update_engagement(&parent_post_key_parts, Decrement(1.0))
+                            .await?;
                     }
                     Ok::<(), DynError>(())
                 },
@@ -393,12 +379,8 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
                 async {
                     // Post replies cannot be included in the total engagement index after the repost is deleted
                     if !post_relationships_is_reply(&parsed_uri.user_id, &parent_post_id).await? {
-                        PostStream::put_score_index_sorted_set(
-                            &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
-                            parent_post_key_parts,
-                            ScoreAction::Decrement(1.0),
-                        )
-                        .await?;
+                        post_stream_update_engagement(parent_post_key_parts, Decrement(1.0))
+                            .await?;
                     }
                     Ok::<(), DynError>(())
                 },
@@ -447,4 +429,11 @@ async fn post_count_update_replies(index_key: &[&str], action: JsonAction) -> Re
 
 async fn post_count_update_reposts(index_key: &[&str], action: JsonAction) -> Result<(), DynError> {
     PostCounts::update_index_field(index_key, "reposts", action, None).await
+}
+
+async fn post_stream_update_engagement(
+    member: &[&str],
+    action: ScoreAction,
+) -> Result<(), DynError> {
+    PostStream::put_score_index_sorted_set(&POST_TOTAL_ENGAGEMENT_KEY_PARTS, member, action).await
 }
