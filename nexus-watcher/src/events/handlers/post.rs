@@ -83,17 +83,14 @@ pub async fn sync_put(
     let indexing_results = tokio::join!(
         // TODO: Use SCARD on a set for unique tag count to avoid race conditions in parallel processing
         async {
-            // Create post counts index
-            // If new post (no existing counts) save a new PostCounts.
-            if PostCounts::get_from_index(&author_id, &post_id)
-                .await?
-                .is_none()
-            {
-                PostCounts::default()
-                    .put_to_index(&author_id, &post_id, is_reply)
-                    .await?
+            // If this is a new post (no existing counts), we save a new PostCounts.
+            match PostCounts::get_from_index(&author_id, &post_id).await? {
+                None => {
+                    let pc = PostCounts::default();
+                    pc.put_to_index(&author_id, &post_id, is_reply).await
+                }
+                Some(_) => Ok(()),
             }
-            Ok::<(), DynError>(())
         },
         // TODO: Use SCARD on a set for unique tag count to avoid race conditions in parallel processing
         // Update user counts with the new post
