@@ -189,12 +189,12 @@ async fn sync_edit(
     let changed_uri = format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}");
 
     // Update content of PostDetails!
-    if let Err(e) = post_details.put_to_index(&author_id, None, true).await {
-        return Err(EventProcessorError::IndexWriteFailed {
-            message: format!("post edit failed - {:?}", e.to_string()),
-        }
-        .into());
-    };
+    post_details
+        .put_to_index(&author_id, None, true)
+        .await
+        .map_err(|e| EventProcessorError::IndexWriteFailed {
+            message: format!("post edit failed - {:?}", e),
+        })?;
 
     // Notifications
     // Determine the change type
