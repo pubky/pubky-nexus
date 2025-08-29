@@ -1,5 +1,5 @@
 use crate::events::errors::EventProcessorError;
-use crate::events::retry::event::RetryEvent;
+use crate::events::handlers::utils::build_missing_dependency_err;
 use crate::handle_indexing_results;
 use chrono::Utc;
 use nexus_common::db::kv::{JsonAction, ScoreAction};
@@ -13,7 +13,7 @@ use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::tag::user::TagUser;
 use nexus_common::models::user::UserCounts;
 use nexus_common::types::DynError;
-use pubky_app_specs::{user_uri_builder, ParsedUri, PubkyAppTag, PubkyId, Resource};
+use pubky_app_specs::{ParsedUri, PubkyAppTag, PubkyId, Resource};
 use tracing::debug;
 
 use super::utils::post_relationships_is_reply;
@@ -182,15 +182,7 @@ async fn put_sync_user(
     .await?
     {
         OperationOutcome::Updated => Ok(()),
-        OperationOutcome::MissingDependency => {
-            match RetryEvent::generate_index_key(&user_uri_builder(tagged_user_id.to_string())) {
-                Some(key) => {
-                    let dependency = vec![key];
-                    Err(EventProcessorError::MissingDependency { dependency }.into())
-                }
-                None => Err("Could not generate missing dependency key".into()),
-            }
-        }
+        OperationOutcome::MissingDependency => Err(build_missing_dependency_err(&tagged_user_id))?,
         OperationOutcome::CreatedOrDeleted => {
             let tag_label_slice = &[tag_label.to_string()];
 
