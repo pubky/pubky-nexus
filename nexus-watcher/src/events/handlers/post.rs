@@ -360,7 +360,7 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
                 ps_maybe_dec_engagement(
                     &parsed_uri.user_id,
                     &parent_post_id,
-                    &parent_post_key_parts
+                    parent_post_key_parts
                 ),
                 // Notification: "A repost of your post was deleted"
                 Notification::post_children_changed(
@@ -396,7 +396,7 @@ async fn user_count_maybe_update_replies(
     action: JsonAction,
 ) -> Result<(), DynError> {
     if is_reply {
-        UserCounts::update(&user_id, "replies", action, None).await?;
+        UserCounts::update(user_id, "replies", action, None).await?;
     };
     Ok::<(), DynError>(())
 }
