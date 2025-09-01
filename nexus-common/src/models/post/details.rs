@@ -142,7 +142,7 @@ impl PostDetails {
     ) -> Result<OperationOutcome, DynError> {
         match queries::put::create_post(self, post_relationships) {
             Ok(query) => execute_graph_operation(query).await,
-            Err(_) => Err("QUERY: Error while creating the query".into()),
+            Err(e) => Err(format!("QUERY: Error while creating the query: {e}").into()),
         }
     }
 
