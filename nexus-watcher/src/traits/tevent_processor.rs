@@ -1,7 +1,7 @@
 use nexus_common::types::DynError;
 use tokio::sync::watch::Receiver;
 
-/// Asynchronous event processor interface for the Pubky Nexus system.
+/// Asynchronous event processor interface for the Watcher service.
 ///
 /// This trait represents a component that can process events asynchronously and can be
 /// gracefully shut down through a watch channel.

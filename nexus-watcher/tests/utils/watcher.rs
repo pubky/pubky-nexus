@@ -90,7 +90,7 @@ impl WatcherTest {
         }
 
         // testnet initialization is time expensive, we only init one per process
-        let mut testnet = EphemeralTestnet::start().await?;
+        let mut testnet = EphemeralTestnet::start_minimal().await?;
         //let testnet = Testnet::get_ephemeral_testnet().await?;
 
         // let homeserver_id = testnet.homeserver_suite().public_key().to_string();

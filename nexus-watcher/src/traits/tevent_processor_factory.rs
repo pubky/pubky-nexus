@@ -1,7 +1,7 @@
 use nexus_common::types::DynError;
 use crate::traits::TEventProcessor;
 
-/// Asynchronous factory for creating event processors in the Pubky Nexus system.
+/// Asynchronous factory for creating event processors in the Watcher service.
 ///
 /// This trait represents a component responsible for creating event processor instances
 /// for specific homeservers. It provides a standardized way to instantiate processors
