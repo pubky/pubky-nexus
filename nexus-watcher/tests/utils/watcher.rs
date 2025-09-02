@@ -90,10 +90,9 @@ impl WatcherTest {
         }
 
         // testnet initialization is time expensive, we only init one per process
+        // TODO: Maybe we should create a single testnet network (singleton and push there more homeservers)
         let mut testnet = EphemeralTestnet::start_minimal().await?;
-        //let testnet = Testnet::get_ephemeral_testnet().await?;
 
-        // let homeserver_id = testnet.homeserver_suite().public_key().to_string();
         let homeserver_id = testnet.create_random_homeserver().await?.public_key().to_string();
         let pubky_id = PubkyId::try_from(&homeserver_id).unwrap();
         Homeserver::persist_if_unknown(pubky_id.clone()).await.unwrap();
@@ -105,11 +104,7 @@ impl WatcherTest {
             Err(e) => debug!("WatcherTest: {}", e),
         }
 
-        // let event_processor = EventProcessor::test(homeserver_id).await;
         let event_processor_factory = Self::create_test_event_processor_factory();
-        // Maybe we will wrap everything inside the factory and after, we do build + run. 
-        // WARNING: THis might change the behaviour of the test event processor
-        // Maybe we should create a huge testnet network (singleton and add more homeservers there)
 
         Ok(Self {
             testnet,
@@ -134,7 +129,6 @@ impl WatcherTest {
                 .run(shutdown_rx)
                 .await
                 .map_err(|e| anyhow!(e))?;
-            // tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         }
         Ok(())
     }
@@ -187,7 +181,6 @@ impl WatcherTest {
         let pubky_client = PubkyClient::get().unwrap();
 
         let public_key: PublicKey = self.homeserver_id.clone().try_into().unwrap();
-
         pubky_client
             .signup(keypair, &public_key, None)
             .await?;

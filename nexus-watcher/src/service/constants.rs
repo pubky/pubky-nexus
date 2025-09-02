@@ -12,5 +12,15 @@ pub const PROCESSING_TIMEOUT_SECS: u64 = 120;
 pub enum ProcessResult {
     Success(String),
     Error(DynError),
-    Panic(tokio::task::JoinError),
+    Panic(),
+}
+
+impl Clone for ProcessResult {
+    fn clone(&self) -> Self {
+        match self {
+            ProcessResult::Success(msg) => ProcessResult::Success(msg.clone()),
+            ProcessResult::Error(err) => ProcessResult::Error(err.to_string().into()),
+            ProcessResult::Panic() => ProcessResult::Panic(),
+        }
+    }
 }

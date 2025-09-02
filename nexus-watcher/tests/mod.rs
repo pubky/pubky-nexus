@@ -8,3 +8,4 @@ mod posts;
 mod tags;
 mod users;
 mod utils;
+mod service;
