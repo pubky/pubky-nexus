@@ -1,0 +1,33 @@
+use nexus_common::types::DynError;
+use tokio::sync::watch::Receiver;
+
+/// Asynchronous event processor interface for the Pubky Nexus system.
+///
+/// This trait represents a component that can process events asynchronously and can be
+/// gracefully shut down through a watch channel.
+///
+/// # Thread Safety
+/// Implementors must be `Send + Sync` to ensure they can be safely used across thread
+/// boundaries, which is crucial for asynchronous event processing.
+///
+/// # Implementation Notes
+/// - The `run` method consumes the processor instance (`Box<Self>`) to ensure exclusive
+///   ownership during execution
+/// - Implementors should regularly check the `shutdown_rx` channel for shutdown signals
+///   and terminate gracefully when received
+/// - The method returns a `DynError` to allow for flexible error handling across
+///   different processor implementations
+#[async_trait::async_trait]
+pub trait TEventProcessor: Send + Sync {
+    /// Runs the event processor asynchronously, consuming the processor instance.
+    ///
+    /// # Parameters
+    /// * `self` - The processor instance, consumed by this method (takes ownership)
+    /// * `shutdown_rx` - A watch channel receiver that signals when the processor should
+    ///   shut down. The processor should check this channel regularly and terminate
+    ///   when it receives a shutdown signal.
+    ///
+    /// Returns `Ok(())` on a clean exit, or `Err(DynError)` on failure.
+    async fn run(self: Box<Self>, shutdown_rx: Receiver<bool>)
+        -> Result<(), DynError>;
+}

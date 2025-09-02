@@ -1,14 +1,18 @@
 use anyhow::{anyhow, Error, Result};
 use chrono::Utc;
+use nexus_common::types::DynError;          
 use nexus_common::db::PubkyClient;
 use nexus_common::get_files_dir_pathbuf;
-use nexus_common::types::DynError;
-use nexus_watcher::events::moderation::Moderation;
-use nexus_watcher::events::processor::EventProcessor;
+use nexus_common::get_files_dir_test_pathbuf;
+use nexus_common::models::homeserver::Homeserver;
+use nexus_watcher::events::EventProcessorFactory;
+use nexus_watcher::events::Moderation;
 use nexus_watcher::events::retry::event::RetryEvent;
 use nexus_watcher::events::Event;
-use nexus_watcher::NexusWatcher;
+use nexus_watcher::service::NexusWatcher;
+use nexus_watcher::TEventProcessorFactory;
 use pubky::Keypair;
+use pubky::PublicKey;
 use pubky_app_specs::PubkyId;
 use pubky_app_specs::{
     traits::TimestampId, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser,
@@ -19,12 +23,53 @@ use tracing::debug;
 
 /// Struct to hold the setup environment for tests
 pub struct WatcherTest {
+    /// We keep the testnet instance to prevent it from being dropped while the tests are running
+    /// If you drop the testnet, the watcher will not be able to connect to the homeserver
+    #[allow(unused)]
     pub testnet: EphemeralTestnet,
-    pub event_processor: EventProcessor,
+    /// The homeserver ID
+    pub homeserver_id: String,
+    /// The event processor factory
+    pub event_processor_factory: EventProcessorFactory,
+    /// Whether to ensure event processing is complete
     pub ensure_event_processing: bool,
 }
 
 impl WatcherTest {
+    
+    /// Creates a test event processor factory with predefined configuration.
+    ///
+    /// This function sets up an `EventProcessorFactory` specifically for testing environments
+    /// with hardcoded values that are appropriate for test scenarios.
+    ///
+    /// # Configuration Details
+    /// - **Limit**: Set to 1000 events for test performance
+    /// - **Files Path**: Uses test directory path for file operations
+    /// - **Tracer Name**: Uses "watcher.test" for test-specific logging
+    /// - **Moderation**: Configured with hardcoded moderator key and test tags
+    ///
+    /// # Moderation Setup
+    /// Uses a hardcoded moderator public key and test moderation tags ("label_to_moderate")
+    /// that are designed specifically for test scenarios and should not be used in production.
+    ///
+    /// # Returns
+    /// Returns a fully configured `EventProcessorFactory` ready for use in tests.
+    fn create_test_event_processor_factory() -> EventProcessorFactory {
+        // hardcoded nexus-watcher/tests/utils/moderator_key.pkarr public key used by the moderator user on tests
+        let moderation = Moderation {
+            id: PubkyId::try_from("uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko")
+                .expect("Hardcoded test moderation key should be valid"),
+            tags: Vec::from(["label_to_moderate".to_string()]),
+        };
+
+        EventProcessorFactory {
+            limit: 1000,
+            files_path: get_files_dir_test_pathbuf(),
+            tracer_name: String::from("watcher.test"),
+            moderation
+        }
+    }
+
     /// Sets up the test environment for the watcher.
     ///
     /// This function performs the following steps:
@@ -45,9 +90,13 @@ impl WatcherTest {
         }
 
         // testnet initialization is time expensive, we only init one per process
-        let testnet = EphemeralTestnet::start().await?;
+        let mut testnet = EphemeralTestnet::start().await?;
+        //let testnet = Testnet::get_ephemeral_testnet().await?;
 
-        let homeserver_id = testnet.homeserver_suite().public_key().to_string();
+        // let homeserver_id = testnet.homeserver_suite().public_key().to_string();
+        let homeserver_id = testnet.create_random_homeserver().await?.public_key().to_string();
+        let pubky_id = PubkyId::try_from(&homeserver_id).unwrap();
+        Homeserver::persist_if_unknown(pubky_id.clone()).await.unwrap();
 
         let client = testnet.pubky_client_builder().build().unwrap();
 
@@ -56,11 +105,16 @@ impl WatcherTest {
             Err(e) => debug!("WatcherTest: {}", e),
         }
 
-        let event_processor = EventProcessor::test(homeserver_id).await;
+        // let event_processor = EventProcessor::test(homeserver_id).await;
+        let event_processor_factory = Self::create_test_event_processor_factory();
+        // Maybe we will wrap everything inside the factory and after, we do build + run. 
+        // WARNING: THis might change the behaviour of the test event processor
+        // Maybe we should create a huge testnet network (singleton and add more homeservers there)
 
         Ok(Self {
             testnet,
-            event_processor,
+            homeserver_id,
+            event_processor_factory,
             ensure_event_processing: true,
         })
     }
@@ -75,7 +129,8 @@ impl WatcherTest {
     pub async fn ensure_event_processing_complete(&mut self) -> Result<()> {
         if self.ensure_event_processing {
             let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-            self.event_processor
+            self.event_processor_factory.build(self.homeserver_id.clone()).await
+                .map_err(|e| anyhow!(e))?
                 .run(shutdown_rx)
                 .await
                 .map_err(|e| anyhow!(e))?;
@@ -131,8 +186,10 @@ impl WatcherTest {
     pub async fn register_user(&self, keypair: &Keypair) -> Result<()> {
         let pubky_client = PubkyClient::get().unwrap();
 
+        let public_key: PublicKey = self.homeserver_id.clone().try_into().unwrap();
+
         pubky_client
-            .signup(keypair, &self.testnet.homeserver_suite().public_key(), None)
+            .signup(keypair, &public_key, None)
             .await?;
         Ok(())
     }
@@ -140,9 +197,10 @@ impl WatcherTest {
     pub async fn create_user(&mut self, keypair: &Keypair, user: &PubkyAppUser) -> Result<String> {
         let user_id = keypair.public_key().to_z32();
         let pubky_client = PubkyClient::get().unwrap();
+        let public_key: PublicKey = self.homeserver_id.clone().try_into().unwrap();
         // Register the key in the homeserver
         pubky_client
-            .signup(keypair, &self.testnet.homeserver_suite().public_key(), None)
+            .signup(keypair, &public_key, None)
             .await?;
         let url = format!("pubky://{user_id}/pub/pubky.app/profile.json");
 

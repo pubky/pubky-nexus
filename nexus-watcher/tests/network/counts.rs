@@ -1,11 +1,12 @@
 // File: ./tests/watcher/network/large_network_test.rs
 
 use crate::utils::watcher::WatcherTest;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use nexus_common::{
     db::{PubkyClient, RedisOps},
     models::{post::PostCounts, user::UserCounts},
 };
+use nexus_watcher::TEventProcessorFactory;
 use pubky::Keypair;
 use pubky_app_specs::{
     traits::HashId, PubkyAppBookmark, PubkyAppMute, PubkyAppPost, PubkyAppPostKind, PubkyAppTag,
@@ -266,7 +267,11 @@ async fn test_large_network_scenario_counts() -> Result<()> {
     let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     if !PROCESS_EVENTS_ONE_BY_ONE {
         for _ in 1..=100 {
-            test.event_processor.run(shutdown_rx.clone()).await.unwrap();
+            test.event_processor_factory.build(test.homeserver_id.clone()).await
+                .map_err(|e| anyhow!(e))?
+                .run(shutdown_rx.clone())
+                .await
+                .map_err(|e| anyhow!(e))?;
         }
     }
 

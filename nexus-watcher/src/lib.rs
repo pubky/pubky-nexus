@@ -16,5 +16,8 @@
 
 mod builder;
 pub mod events;
+pub mod service;
+mod traits;
 
-pub use builder::{NexusWatcher, NexusWatcherBuilder};
+pub use builder::{NexusWatcherBuilder};
+pub use traits::{TEventProcessor, TEventProcessorFactory};

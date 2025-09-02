@@ -5,11 +5,18 @@ use nexus_common::types::DynError;
 use pubky_app_specs::{ParsedUri, PubkyAppTag, PubkyId, Resource};
 use tracing::info;
 
+#[derive(Clone)]
 pub struct Moderation {
     // Moderator trusted user id
     pub id: PubkyId,
     // Tags to be moderated (tagged content is deleted)
     pub tags: Vec<String>,
+}
+
+impl Default for Moderation {
+    fn default() -> Self {
+        Self { id: PubkyId::default(), tags: Vec::new() }
+    }
 }
 
 impl Moderation {

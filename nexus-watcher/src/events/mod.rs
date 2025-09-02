@@ -1,5 +1,4 @@
 use errors::EventProcessorError;
-use moderation::Moderation;
 use nexus_common::db::PubkyClient;
 use nexus_common::types::DynError;
 use pubky_app_specs::{ParsedUri, PubkyAppObject, Resource};
@@ -9,9 +8,14 @@ use tracing::debug;
 
 pub mod errors;
 pub mod handlers;
-pub mod moderation;
-pub mod processor;
+mod moderation;
+mod processor;
 pub mod retry;
+mod processor_factory;
+
+pub use processor::EventProcessor;
+pub use processor_factory::EventProcessorFactory;
+pub use moderation::Moderation;
 
 // Look for the end pattern after the start index, or use the end of the string if not found
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

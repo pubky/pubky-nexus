@@ -1,6 +1,7 @@
 use crate::utils::watcher::{retrieve_and_handle_event_line, WatcherTest};
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use chrono::Utc;
+use nexus_watcher::TEventProcessorFactory;
 use pubky::Keypair;
 use pubky_app_specs::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser};
 use tracing::error;
@@ -71,9 +72,17 @@ async fn test_homeserver_tag_cannot_add_while_index() -> Result<()> {
         "It seems that tagged node exists, which should not be possible. Event processor should be disconnected"
     );
 
-    // Sync all the previous events
+    // Create a channel to signal the event processor to shutdown
     let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-    test.event_processor.run(shutdown_rx).await.unwrap();
+
+    // Sync all the previous events with the event processor
+    test.event_processor_factory
+        .build(test.homeserver_id.clone())
+        .await
+        .map_err(|e| anyhow!(e))?
+        .run(shutdown_rx.clone())
+        .await
+        .map_err(|e| anyhow!(e))?;
 
     // => Create post tag
     let post = PubkyAppPost {

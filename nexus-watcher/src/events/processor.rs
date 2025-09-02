@@ -2,10 +2,11 @@ use super::moderation::Moderation;
 use super::Event;
 use crate::events::errors::EventProcessorError;
 use crate::events::retry::event::RetryEvent;
+use crate::TEventProcessor;
 use nexus_common::db::PubkyClient;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
-use nexus_common::{get_files_dir_test_pathbuf, WatcherConfig};
+use nexus_common::get_files_dir_test_pathbuf;
 use opentelemetry::trace::{FutureExt, Span, TraceContextExt, Tracer};
 use opentelemetry::{global, Context, KeyValue};
 use pubky_app_specs::PubkyId;
@@ -16,10 +17,45 @@ use tracing::{debug, error, info};
 
 pub struct EventProcessor {
     pub homeserver: Homeserver,
-    limit: u32,
+    pub limit: u32,
     pub files_path: PathBuf,
     pub tracer_name: String,
     pub moderation: Moderation,
+}
+
+#[async_trait::async_trait]
+impl TEventProcessor for EventProcessor {
+    /// Runs the event processor. Polls events from the homeserver and processes them.
+    /// # Parameters:
+    /// - `shutdown_rx`: A receiver for the shutdown signal
+    /// # Returns:
+    /// - `Result<(), DynError>`: The result of the event processing
+    async fn run(self: Box<Self>, shutdown_rx: Receiver<bool>) -> Result<(), DynError> {
+        // TODO: fix this. Might not need to be mut. This is just a workaround to avoid the borrow checker
+        let mut this = self;
+        let lines = {
+            let tracer = global::tracer(this.tracer_name.clone());
+            let span = tracer.start("Polling Events");
+            let cx = Context::new().with_span(span);
+            this.poll_events().with_context(cx).await
+        };
+
+        match lines {
+            Err(e) => {
+                error!("Error polling events: {:?}", e);
+                return Err(e);
+            }
+            Ok(None) => {
+                info!("No new events");
+            }
+            Ok(Some(lines)) => {
+                info!("Processing {} event lines", lines.len());
+                this.process_event_lines(shutdown_rx, lines).await?;
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl EventProcessor {
@@ -57,58 +93,6 @@ impl EventProcessor {
             tracer_name: String::from("watcher.test"),
             moderation,
         }
-    }
-
-    pub async fn from_config(config: &WatcherConfig) -> Result<Self, DynError> {
-        let homeserver = Homeserver::get_by_id(config.homeserver.clone())
-            .await?
-            .ok_or("Homeserver not found")?;
-        let limit = config.events_limit;
-        let files_path = config.stack.files_path.clone();
-        let tracer_name = config.name.clone();
-
-        let moderation = Moderation {
-            id: config.moderation_id.clone(),
-            tags: config.moderated_tags.clone(),
-        };
-
-        info!(
-            "Initialized Event Processor for homeserver: {:?}",
-            homeserver
-        );
-
-        Ok(Self {
-            homeserver,
-            limit,
-            files_path,
-            tracer_name,
-            moderation,
-        })
-    }
-
-    pub async fn run(&mut self, shutdown_rx: Receiver<bool>) -> Result<(), DynError> {
-        let lines = {
-            let tracer = global::tracer(self.tracer_name.clone());
-            let span = tracer.start("Polling Events");
-            let cx = Context::new().with_span(span);
-            self.poll_events().with_context(cx).await
-        };
-
-        match lines {
-            Err(e) => {
-                error!("Error polling events: {:?}", e);
-                return Err(e);
-            }
-            Ok(None) => {
-                info!("No new events");
-            }
-            Ok(Some(lines)) => {
-                info!("Processing {} event lines", lines.len());
-                self.process_event_lines(shutdown_rx, lines).await?;
-            }
-        }
-
-        Ok(())
     }
 
     /// Polls new events from the homeserver.
