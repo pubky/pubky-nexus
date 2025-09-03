@@ -906,6 +906,8 @@ pub fn post_is_safe_to_delete(author_id: &str, post_id: &str) -> Query {
     .param("post_id", post_id)
 }
 
+/// Find user recommendations: active users (with 5+ posts) who are 1-3 degrees of separation away
+/// from the given user, but not directly followed by them
 pub fn recommend_users(user_id: &str, limit: usize) -> neo4rs::Query {
     query(
         "
@@ -917,10 +919,22 @@ pub fn recommend_users(user_id: &str, limit: usize) -> neo4rs::Query {
         MATCH (potential)-[:AUTHORED]->(post:Post)
         WITH potential, COUNT(post) AS post_count
         WHERE post_count >= 5
-        RETURN potential.id AS recommended_user_id
+        RETURN potential.id AS recommended_user_id, potential.name AS recommended_user_name
         LIMIT $limit
     ",
     )
     .param("user_id", user_id.to_string())
     .param("limit", limit as i64)
+}
+
+/// Retrieve specific tag created by the user
+pub fn get_tag_by_tagger_and_id(tagger_id: &str, tag_id: &str) -> neo4rs::Query {
+    query(
+        "
+        MATCH (tagger:User { id: $tagger_id})-[tag:TAGGED {id: $tag_id }]->()
+        RETURN tag.id as id, tag.indexed_at as indexed_at, tag.label as label
+        ",
+    )
+    .param("tagger_id", tagger_id)
+    .param("tag_id", tag_id)
 }
