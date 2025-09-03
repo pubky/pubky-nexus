@@ -24,6 +24,8 @@ pub enum Error {
     InvalidInput { message: String },
     #[error("File not found.")]
     FileNotFound {},
+    #[error("Tag {tag_id} of {tagger_id} not found")]
+    TagNotFound { tag_id: String, tagger_id: String },
     // Add other custom errors here
 }
 
@@ -51,6 +53,7 @@ impl IntoResponse for Error {
             Error::TagsNotFound { .. } => StatusCode::NOT_FOUND,
             Error::InvalidInput { .. } => StatusCode::BAD_REQUEST,
             Error::InternalServerError { .. } => StatusCode::INTERNAL_SERVER_ERROR,
+            Error::TagNotFound { .. } => StatusCode::NOT_FOUND,
             // Map other errors to appropriate status codes
         };
 
@@ -72,6 +75,9 @@ impl IntoResponse for Error {
             }
             Error::InvalidInput { message } => {
                 error!("Invalid input: {}", message)
+            }
+            Error::TagNotFound { tag_id, tagger_id } => {
+                error!("Tag not found: {} of {}", tag_id, tagger_id)
             }
             Error::InternalServerError { source } => error!("Internal server error: {:?}", source),
         };

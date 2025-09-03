@@ -56,7 +56,7 @@ To get started with Nexus, first set up the required databases: Neo4j and Redis.
 ```bash
 cd docker
 cp .env-sample .env
-docker-compose up -d
+docker compose up -d
 ```
 
 3. Optionally, populate the Neo4j database with initial mock data. Follow [Running Tests](#running-tests) section about setting up mock data.
@@ -144,7 +144,7 @@ cargo run -p nexusd -- db mock
 Then to run all tests:
 
 ```bash
-cargo nextest run # or, cargo test
+cargo nextest run
 ```
 
 To test specific componenets or feature(s):

@@ -37,14 +37,14 @@ pub async fn sync_put(
         OperationOutcome::CreatedOrDeleted => false,
         OperationOutcome::Updated => true,
         OperationOutcome::MissingDependency => {
-            let mut dependency = Vec::new();
-            if let Some(replied_uri) = &post_relationships.replied {
-                let reply_dependency = RetryEvent::generate_index_key(replied_uri)
+            let mut dependency_event_keys = Vec::new();
+            if let Some(replied_to_uri) = &post_relationships.replied {
+                let reply_dependency = RetryEvent::generate_index_key(replied_to_uri)
                     // This block is unlikely to be reached, as it would typically fail during the validation process
-                    .unwrap_or_else(|| replied_uri.clone());
-                dependency.push(reply_dependency);
+                    .unwrap_or_else(|| replied_to_uri.clone());
+                dependency_event_keys.push(reply_dependency);
 
-                if let Err(e) = maybe_ingest_homeserver_for_post(replied_uri).await {
+                if let Err(e) = maybe_ingest_homeserver_for_post(replied_to_uri).await {
                     tracing::error!("Failed to ingest homeserver: {e}");
                 }
             }
@@ -52,20 +52,19 @@ pub async fn sync_put(
                 let reply_dependency = RetryEvent::generate_index_key(reposted_uri)
                     // This block is unlikely to be reached, as it would typically fail during the validation process
                     .unwrap_or_else(|| reposted_uri.clone());
-                dependency.push(reply_dependency);
+                dependency_event_keys.push(reply_dependency);
 
                 if let Err(e) = maybe_ingest_homeserver_for_post(reposted_uri).await {
                     tracing::error!("Failed to ingest homeserver: {e}");
                 }
             }
-            if dependency.is_empty() {
-                if let Some(key) =
-                    RetryEvent::generate_index_key(&user_uri_builder(author_id.to_string()))
-                {
-                    dependency.push(key);
+            if dependency_event_keys.is_empty() {
+                let author_uri = user_uri_builder(author_id.to_string());
+                if let Some(key) = RetryEvent::generate_index_key(&author_uri) {
+                    dependency_event_keys.push(key);
                 }
             }
-            return Err(EventProcessorError::MissingDependency { dependency }.into());
+            return Err(EventProcessorError::missing_dependencies(dependency_event_keys).into());
         }
     };
 
