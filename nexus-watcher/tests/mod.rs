@@ -5,7 +5,7 @@ mod mentions;
 mod mutes;
 mod network;
 mod posts;
+mod service;
 mod tags;
 mod users;
 mod utils;
-mod service;

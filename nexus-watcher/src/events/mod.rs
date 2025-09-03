@@ -10,12 +10,12 @@ pub mod errors;
 pub mod handlers;
 mod moderation;
 mod processor;
-pub mod retry;
 mod processor_factory;
+pub mod retry;
 
+pub use moderation::Moderation;
 pub use processor::EventProcessor;
 pub use processor_factory::EventProcessorFactory;
-pub use moderation::Moderation;
 
 // Look for the end pattern after the start index, or use the end of the string if not found
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

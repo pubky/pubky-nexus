@@ -1,5 +1,3 @@
-use nexus_common::types::DynError;
-
 /// Name of the watcher config file
 pub const WATCHER_CONFIG_FILE_NAME: &str = "watcher-config.toml";
 // TODO: Maybe that ones should be configurable? .toml file?
@@ -7,20 +5,3 @@ pub const WATCHER_CONFIG_FILE_NAME: &str = "watcher-config.toml";
 pub const MAX_CONCURRENT: usize = 3;
 ///  Per-homeserver hard timeout (seconds)
 pub const PROCESSING_TIMEOUT_SECS: u64 = 120;
-
-/// Result of a homeserver event processing
-pub enum ProcessResult {
-    Success(String),
-    Error(DynError),
-    Panic(),
-}
-
-impl Clone for ProcessResult {
-    fn clone(&self) -> Self {
-        match self {
-            ProcessResult::Success(msg) => ProcessResult::Success(msg.clone()),
-            ProcessResult::Error(err) => ProcessResult::Error(err.to_string().into()),
-            ProcessResult::Panic() => ProcessResult::Panic(),
-        }
-    }
-}

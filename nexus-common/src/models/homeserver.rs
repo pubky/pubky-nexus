@@ -74,7 +74,7 @@ impl Homeserver {
             },
         }
     }
-    
+
     /// Verifies if homeserver exists, or persists it if missing
     pub async fn persist_if_unknown(homeserver_id: PubkyId) -> Result<(), DynError> {
         if Self::get_by_id(homeserver_id.clone()).await?.is_none() {

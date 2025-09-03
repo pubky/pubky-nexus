@@ -28,6 +28,5 @@ pub trait TEventProcessor: Send + Sync {
     ///   when it receives a shutdown signal.
     ///
     /// Returns `Ok(())` on a clean exit, or `Err(DynError)` on failure.
-    async fn run(self: Box<Self>, shutdown_rx: Receiver<bool>)
-        -> Result<(), DynError>;
+    async fn run(self: Box<Self>, shutdown_rx: Receiver<bool>) -> Result<(), DynError>;
 }

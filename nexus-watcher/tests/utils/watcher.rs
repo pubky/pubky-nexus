@@ -1,14 +1,14 @@
 use anyhow::{anyhow, Error, Result};
 use chrono::Utc;
-use nexus_common::types::DynError;          
 use nexus_common::db::PubkyClient;
 use nexus_common::get_files_dir_pathbuf;
 use nexus_common::get_files_dir_test_pathbuf;
 use nexus_common::models::homeserver::Homeserver;
-use nexus_watcher::events::EventProcessorFactory;
-use nexus_watcher::events::Moderation;
+use nexus_common::types::DynError;
 use nexus_watcher::events::retry::event::RetryEvent;
 use nexus_watcher::events::Event;
+use nexus_watcher::events::EventProcessorFactory;
+use nexus_watcher::events::Moderation;
 use nexus_watcher::service::NexusWatcher;
 use nexus_watcher::TEventProcessorFactory;
 use pubky::Keypair;
@@ -19,6 +19,7 @@ use pubky_app_specs::{
 };
 use pubky_testnet::EphemeralTestnet;
 use std::time::Duration;
+use tokio::sync::watch::Receiver;
 use tracing::debug;
 
 /// Struct to hold the setup environment for tests
@@ -33,10 +34,11 @@ pub struct WatcherTest {
     pub event_processor_factory: EventProcessorFactory,
     /// Whether to ensure event processing is complete
     pub ensure_event_processing: bool,
+    /// The shutdown receiver
+    pub shutdown_rx: Receiver<bool>,
 }
 
 impl WatcherTest {
-    
     /// Creates a test event processor factory with predefined configuration.
     ///
     /// This function sets up an `EventProcessorFactory` specifically for testing environments
@@ -55,7 +57,7 @@ impl WatcherTest {
     /// # Returns
     /// Returns a fully configured `EventProcessorFactory` ready for use in tests.
     fn create_test_event_processor_factory() -> EventProcessorFactory {
-        // hardcoded nexus-watcher/tests/utils/moderator_key.pkarr public key used by the moderator user on tests
+        // hardcoded nexus-watcher/tests/utils/moderator_key.pkarr file contains the public key used by the moderator user on tests
         let moderation = Moderation {
             id: PubkyId::try_from("uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko")
                 .expect("Hardcoded test moderation key should be valid"),
@@ -66,7 +68,7 @@ impl WatcherTest {
             limit: 1000,
             files_path: get_files_dir_test_pathbuf(),
             tracer_name: String::from("watcher.test"),
-            moderation
+            moderation,
         }
     }
 
@@ -75,42 +77,54 @@ impl WatcherTest {
     /// This function performs the following steps:
     /// 1. Reads configuration from environment variables.
     /// 2. Initializes database connectors for Neo4j and Redis.
-    /// 3. Sets up the global DHT test network for the watcher.
-    /// 4. Creates and starts a test homeserver instance.
-    /// 5. Initializes a retry manager and ensures robustness by managing retries asynchronously.
-    /// 6. Initializes the PubkyConnector with the configuration and global test DHT nodes.
-    /// 7. Creates and configures the event processor with the homeserver URL.
+    /// 3. Sets up the global DHT test network for the watcher (ephemeral testnet).
+    /// 4. Creates and starts a test homeserver instance with a random public key.
+    /// 5. Initializes the PubkyConnector with the test homeserver client.
+    /// 6. Creates and configures the event processor with the test homeserver URL.
+    /// 7. Creates a channel to signal the event processor to shutdown.
     ///
     /// # Returns
     /// Returns an instance of `Self` containing the configuration, homeserver,
-    /// event processor, and other test setup details.
+    /// event processor, and other test setup details, including the shutdown receiver.
     pub async fn setup() -> Result<Self> {
         if let Err(e) = NexusWatcher::builder().init_test_stack().await {
             return Err(Error::msg(format!("could not initialise the stack, {e:?}")));
         }
 
-        // testnet initialization is time expensive, we only init one per process
+        // WARNING: testnet initialization is time expensive, we only init one per process
         // TODO: Maybe we should create a single testnet network (singleton and push there more homeservers)
         let mut testnet = EphemeralTestnet::start_minimal().await?;
 
-        let homeserver_id = testnet.create_random_homeserver().await?.public_key().to_string();
+        // Create a random homeserver with a random public key
+        let homeserver_id = testnet
+            .create_random_homeserver()
+            .await?
+            .public_key()
+            .to_string();
         let pubky_id = PubkyId::try_from(&homeserver_id).unwrap();
-        Homeserver::persist_if_unknown(pubky_id.clone()).await.unwrap();
+        Homeserver::persist_if_unknown(pubky_id.clone())
+            .await
+            .unwrap();
 
+        // Initialize the PubkyConnector with the test homeserver client
         let client = testnet.pubky_client_builder().build().unwrap();
-
         match PubkyClient::init_from_client(client).await {
             Ok(_) => debug!("WatcherTest: PubkyConnector initialised"),
             Err(e) => debug!("WatcherTest: {}", e),
         }
 
+        // Initialize the test-scoped EventProcessorFactory; mirrors the standard processor behavior
         let event_processor_factory = Self::create_test_event_processor_factory();
+
+        // Create a channel to signal the event processor to shutdown
+        let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
         Ok(Self {
             testnet,
             homeserver_id,
             event_processor_factory,
             ensure_event_processing: true,
+            shutdown_rx,
         })
     }
 
@@ -123,10 +137,12 @@ impl WatcherTest {
     /// Ensures that event processing is completed if it is enabled.
     pub async fn ensure_event_processing_complete(&mut self) -> Result<()> {
         if self.ensure_event_processing {
-            let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-            self.event_processor_factory.build(self.homeserver_id.clone()).await
+            // Build the event processor and run it
+            self.event_processor_factory
+                .build(self.homeserver_id.clone())
+                .await
                 .map_err(|e| anyhow!(e))?
-                .run(shutdown_rx)
+                .run(self.shutdown_rx.clone())
                 .await
                 .map_err(|e| anyhow!(e))?;
         }
@@ -181,9 +197,7 @@ impl WatcherTest {
         let pubky_client = PubkyClient::get().unwrap();
 
         let public_key: PublicKey = self.homeserver_id.clone().try_into().unwrap();
-        pubky_client
-            .signup(keypair, &public_key, None)
-            .await?;
+        pubky_client.signup(keypair, &public_key, None).await?;
         Ok(())
     }
 
@@ -192,9 +206,7 @@ impl WatcherTest {
         let pubky_client = PubkyClient::get().unwrap();
         let public_key: PublicKey = self.homeserver_id.clone().try_into().unwrap();
         // Register the key in the homeserver
-        pubky_client
-            .signup(keypair, &public_key, None)
-            .await?;
+        pubky_client.signup(keypair, &public_key, None).await?;
         let url = format!("pubky://{user_id}/pub/pubky.app/profile.json");
 
         // Write the user profile in the pubky.app repository
@@ -341,7 +353,7 @@ impl WatcherTest {
 pub async fn retrieve_and_handle_event_line(event_line: &str) -> Result<(), DynError> {
     let event = Event::parse_event(event_line, get_files_dir_pathbuf()).unwrap_or_default();
 
-    // hardcoded tests/utils/moderator_key.pkarr public key used by the moderator user on tests
+    // hardcoded tests/utils/moderator_key.pkarr file contains the public key used by the moderator user on tests
     let moderation = Moderation {
         id: PubkyId::try_from("uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko")?,
         tags: Vec::from(["label_to_moderate".to_string()]),

@@ -1,5 +1,5 @@
-use nexus_common::types::DynError;
 use crate::traits::TEventProcessor;
+use nexus_common::types::DynError;
 
 /// Asynchronous factory for creating event processors in the Watcher service.
 ///

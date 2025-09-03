@@ -1,8 +1,10 @@
-use crate::service::utils::{MockEventProcessor, MockEventProcessorFactory};
+use crate::service::utils::{
+    MockEventProcessor, MockEventProcessorFactory, MockEventProcessorResult,
+};
 use anyhow::{anyhow, Result};
-use nexus_watcher::{service::ProcessResult, TEventProcessorFactory};
-use tokio::time::timeout;
+use nexus_watcher::TEventProcessorFactory;
 use std::{collections::HashMap, time::Duration};
+use tokio::time::timeout;
 
 const HOMESERVER_IDS: [&str; 4] = [
     "1hb71xx9km3f4pw5izsy1gn19ff1uuuqonw4mcygzobwkryujoiy",
@@ -48,7 +50,7 @@ async fn test_multiple_mock_event_processors() -> Result<()> {
         .map_err(|e| anyhow!(e))?;
     match timeout(Duration::from_secs(3), processor.run(shutdown_rx.clone())).await {
         Ok(_) => {}
-        Err(_) => panic!("Event processor should nottimeout")
+        Err(_) => panic!("Event processor should nottimeout"),
     }
 
     // Run no timeout event proccessor
@@ -69,28 +71,30 @@ fn create_mock_event_processors() -> HashMap<String, MockEventProcessor> {
     let success = MockEventProcessor {
         homeserver_id: HOMESERVER_IDS[0].to_string(),
         timeout: None,
-        processor_status: ProcessResult::Success("Success finished!".to_string()),
+        processor_status: MockEventProcessorResult::Success("Success finished!".to_string()),
     };
     event_processor_hashmap.insert(HOMESERVER_IDS[0].to_string(), success);
 
     let error = MockEventProcessor {
         homeserver_id: HOMESERVER_IDS[1].to_string(),
         timeout: None,
-        processor_status: ProcessResult::Error("Event processor error!".to_string().into()),
+        processor_status: MockEventProcessorResult::Error(
+            "Event processor error!".to_string().into(),
+        ),
     };
     event_processor_hashmap.insert(HOMESERVER_IDS[1].to_string(), error);
 
     let error = MockEventProcessor {
         homeserver_id: HOMESERVER_IDS[2].to_string(),
         timeout: None,
-        processor_status: ProcessResult::Panic(),
+        processor_status: MockEventProcessorResult::Panic(),
     };
     event_processor_hashmap.insert(HOMESERVER_IDS[2].to_string(), error);
 
     let panic = MockEventProcessor {
         homeserver_id: HOMESERVER_IDS[3].to_string(),
         timeout: Some(Duration::from_secs(2)),
-        processor_status: ProcessResult::Success("Success finished!".to_string()),
+        processor_status: MockEventProcessorResult::Success("Success finished!".to_string()),
     };
     event_processor_hashmap.insert(HOMESERVER_IDS[3].to_string(), panic);
 

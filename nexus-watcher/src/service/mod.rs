@@ -1,13 +1,12 @@
-
-mod rolling_window;
 mod constants;
+mod rolling_window;
 
 /// Module exports
-pub use constants::{MAX_CONCURRENT, PROCESSING_TIMEOUT_SECS, WATCHER_CONFIG_FILE_NAME, ProcessResult};
+pub use constants::{MAX_CONCURRENT, PROCESSING_TIMEOUT_SECS, WATCHER_CONFIG_FILE_NAME};
 
-use nexus_common::file::ConfigLoader;
 use crate::events::EventProcessorFactory;
 use crate::{NexusWatcherBuilder, TEventProcessorFactory};
+use nexus_common::file::ConfigLoader;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
 use nexus_common::utils::create_shutdown_rx;
@@ -17,8 +16,6 @@ use std::path::PathBuf;
 use tokio::sync::watch::Receiver;
 use tokio::time::Duration;
 use tracing::{debug, error, info};
-
-
 
 pub struct NexusWatcher {}
 
