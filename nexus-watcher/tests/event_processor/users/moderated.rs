@@ -1,6 +1,8 @@
 // tests/users/moderated.rs
 
-use crate::{event_processor::users::utils::find_user_details, event_processor::utils::watcher::WatcherTest};
+use crate::{
+    event_processor::users::utils::find_user_details, event_processor::utils::watcher::WatcherTest,
+};
 use anyhow::Result;
 use chrono::Utc;
 use pubky::{recovery_file, Keypair};
@@ -27,7 +29,9 @@ async fn test_moderated_user_lifecycle() -> Result<()> {
     assert_eq!(details.id.to_string(), target_id);
 
     // 3. Load moderator key and create moderator
-    let mod_file = fs::read("./tests/utils/moderator_key.pkarr").await.unwrap();
+    let mod_file = fs::read("./tests/event_processor/utils/moderator_key.pkarr")
+        .await
+        .unwrap();
     let mod_key = recovery_file::decrypt_recovery_file(&mod_file, "password").unwrap();
     let moderator_id = test.create_user(&mod_key, &target).await?;
 

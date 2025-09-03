@@ -1,4 +1,6 @@
-use crate::{event_processor::posts::utils::find_post_details, event_processor::utils::watcher::WatcherTest};
+use crate::{
+    event_processor::posts::utils::find_post_details, event_processor::utils::watcher::WatcherTest,
+};
 use anyhow::Result;
 use chrono::Utc;
 use pubky::{recovery_file, Keypair};
@@ -35,7 +37,9 @@ async fn test_moderated_post_lifecycle() -> Result<()> {
     assert_eq!(post_details.id, post_id);
 
     // 3. Load moderation service key and place a tag on that post with label "label_to_moderate"
-    let moderator_recovery_file = fs::read("./tests/utils/moderator_key.pkarr").await.unwrap();
+    let moderator_recovery_file = fs::read("./tests/event_processor/utils/moderator_key.pkarr")
+        .await
+        .unwrap();
     let moderator_key =
         recovery_file::decrypt_recovery_file(&moderator_recovery_file, "password").unwrap();
 

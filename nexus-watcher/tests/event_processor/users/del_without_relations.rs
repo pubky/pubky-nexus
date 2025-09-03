@@ -1,4 +1,6 @@
-use crate::{event_processor::users::utils::find_user_details, event_processor::utils::watcher::WatcherTest};
+use crate::{
+    event_processor::users::utils::find_user_details, event_processor::utils::watcher::WatcherTest,
+};
 use anyhow::Result;
 use nexus_common::models::user::{UserCounts, UserView};
 use pubky::Keypair;

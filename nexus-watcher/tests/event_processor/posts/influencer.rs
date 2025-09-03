@@ -1,5 +1,6 @@
 use crate::{
-    event_processor::users::utils::check_member_user_influencer, event_processor::utils::watcher::WatcherTest,
+    event_processor::users::utils::check_member_user_influencer,
+    event_processor::utils::watcher::WatcherTest,
 };
 use anyhow::Result;
 use pubky::Keypair;

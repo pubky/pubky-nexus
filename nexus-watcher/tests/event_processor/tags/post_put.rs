@@ -1,6 +1,8 @@
 use super::utils::check_member_post_tag_global_timeline;
 use super::utils::{check_member_total_engagement_post_tag, find_post_tag};
-use crate::event_processor::posts::utils::{check_member_total_engagement_user_posts, find_post_counts};
+use crate::event_processor::posts::utils::{
+    check_member_total_engagement_user_posts, find_post_counts,
+};
 use crate::event_processor::users::utils::find_user_counts;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
