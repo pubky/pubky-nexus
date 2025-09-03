@@ -1,11 +1,1 @@
-mod bookmarks;
-mod files;
-mod follows;
-mod homeserver;
-mod mentions;
-mod mutes;
-mod network;
-mod posts;
-mod tags;
-mod users;
-mod utils;
+mod event_processor;
