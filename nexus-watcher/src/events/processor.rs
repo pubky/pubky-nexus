@@ -2,7 +2,7 @@ use super::moderation::Moderation;
 use super::Event;
 use crate::events::errors::EventProcessorError;
 use crate::events::retry::event::RetryEvent;
-use crate::TEventProcessor;
+use crate::events::TEventProcessor;
 use nexus_common::db::PubkyClient;
 use nexus_common::get_files_dir_test_pathbuf;
 use nexus_common::models::homeserver::Homeserver;

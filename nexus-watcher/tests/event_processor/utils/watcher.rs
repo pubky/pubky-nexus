@@ -10,7 +10,7 @@ use nexus_watcher::events::Event;
 use nexus_watcher::events::EventProcessorFactory;
 use nexus_watcher::events::Moderation;
 use nexus_watcher::service::NexusWatcher;
-use nexus_watcher::TEventProcessorFactory;
+use nexus_watcher::events::TEventProcessorFactory;
 use pubky::Keypair;
 use pubky::PublicKey;
 use pubky_app_specs::PubkyId;

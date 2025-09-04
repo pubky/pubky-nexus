@@ -1,5 +1,5 @@
 use crate::events::{EventProcessor, Moderation};
-use crate::traits::{TEventProcessor, TEventProcessorFactory};
+use crate::events::{TEventProcessor, TEventProcessorFactory};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;

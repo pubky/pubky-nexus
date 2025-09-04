@@ -11,11 +11,13 @@ pub mod handlers;
 mod moderation;
 mod processor;
 mod processor_factory;
+mod traits;
 pub mod retry;
 
 pub use moderation::Moderation;
 pub use processor::EventProcessor;
 pub use processor_factory::EventProcessorFactory;
+pub use traits::{TEventProcessor, TEventProcessorFactory};
 
 // Look for the end pattern after the start index, or use the end of the string if not found
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

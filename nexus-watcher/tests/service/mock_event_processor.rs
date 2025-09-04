@@ -2,7 +2,7 @@ use crate::service::utils::{
     MockEventProcessor, MockEventProcessorFactory, MockEventProcessorResult,
 };
 use anyhow::{anyhow, Result};
-use nexus_watcher::TEventProcessorFactory;
+use nexus_watcher::events::TEventProcessorFactory;
 use std::{collections::HashMap, time::Duration};
 use tokio::time::timeout;
 
@@ -14,7 +14,7 @@ const HOMESERVER_IDS: [&str; 4] = [
 ];
 
 #[tokio_shared_rt::test(shared)]
-async fn test_multiple_mock_event_processors() -> Result<()> {
+async fn test_mock_event_processors() -> Result<()> {
     let event_processor_hashmap = create_mock_event_processors();
     let factory = MockEventProcessorFactory::new(event_processor_hashmap);
     let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);

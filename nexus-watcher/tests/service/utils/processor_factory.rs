@@ -1,6 +1,6 @@
 use crate::service::utils::processor::MockEventProcessor;
 use nexus_common::types::DynError;
-use nexus_watcher::{TEventProcessor, TEventProcessorFactory};
+use nexus_watcher::events::{TEventProcessor, TEventProcessorFactory};
 use std::collections::HashMap;
 
 /// Store processors as concrete MockEventProcessor instances.

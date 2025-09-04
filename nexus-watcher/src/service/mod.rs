@@ -1,11 +1,12 @@
 mod constants;
-mod rolling_window;
+pub mod rolling_window;
 
 /// Module exports
 pub use constants::{MAX_CONCURRENT, PROCESSING_TIMEOUT_SECS, WATCHER_CONFIG_FILE_NAME};
 
 use crate::events::EventProcessorFactory;
-use crate::{NexusWatcherBuilder, TEventProcessorFactory};
+use crate::service::rolling_window::run_processors;
+use crate::NexusWatcherBuilder;
 use nexus_common::file::ConfigLoader;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
@@ -13,9 +14,10 @@ use nexus_common::utils::create_shutdown_rx;
 use nexus_common::{DaemonConfig, WatcherConfig};
 use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::sync::watch::Receiver;
 use tokio::time::Duration;
-use tracing::{debug, error, info};
+use tracing::{debug, info};
 
 pub struct NexusWatcher {}
 
@@ -71,9 +73,9 @@ impl NexusWatcher {
         let config_hs = PubkyId::try_from(config.homeserver.as_str())?;
         Homeserver::persist_if_unknown(config_hs).await?;
 
-        let event_processor_factory = EventProcessorFactory::from_config(&config);
-
         let mut interval = tokio::time::interval(Duration::from_millis(config.watcher_sleep));
+        // TODO: Add another function to the trait to create the event processor factory
+        let event_processor_factory = Arc::new(EventProcessorFactory::from_config(&config));
 
         loop {
             tokio::select! {
@@ -83,10 +85,7 @@ impl NexusWatcher {
                 }
                 _ = interval.tick() => {
                     info!("Fetching events…");
-                    let event_processor = event_processor_factory.build(config.homeserver.to_string()).await?;
-                    if let Err(e) = event_processor.run(shutdown_rx.clone()).await {
-                        error!("Error while processing events: {:?}", e);
-                    }
+                    run_processors(event_processor_factory.clone(), shutdown_rx.clone()).await?;
                 }
             }
         }
