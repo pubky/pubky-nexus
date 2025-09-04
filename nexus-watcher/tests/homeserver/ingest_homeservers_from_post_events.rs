@@ -1,4 +1,3 @@
-use crate::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::{db::PubkyClient, models::homeserver::Homeserver};
 use pubky::Keypair;
@@ -7,6 +6,8 @@ use pubky_app_specs::{
     PubkyAppUser, PubkyId,
 };
 use pubky_testnet::pubky_homeserver::{ConfigToml, MockDataDir};
+
+use crate::event_processor::utils::watcher::WatcherTest;
 
 async fn create_new_test_homeserver(test: &mut WatcherTest) -> Result<Keypair> {
     let mock_dir = MockDataDir::new(ConfigToml::test(), None)?;
