@@ -1,9 +1,11 @@
 use crate::events::TEventProcessorFactory;
+use crate::events::errors::EventProcessorError;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
+use tokio::time::timeout;
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
-use tracing::error;
+use tracing::{error, info};
 
 type ProcessorResultType = Result<(u64, u64), DynError>;
 
@@ -17,18 +19,27 @@ pub async fn run_processors(
 
     let mut processed_homeservers = 0;
     let mut skipped_homeservers = 0;
-    
+
     for hs_id in hs_ids {
-        let event_processor = event_processor_factory.build(hs_id).await?;
-        match event_processor.run(shutdown_rx.clone()).await {
-            Ok(_) => {
-                processed_homeservers += 1;
-            }
-            Err(e) => {
-                error!("Error while processing events: {:?}", e);
+        let Ok(event_processor) = event_processor_factory.build(hs_id.clone()).await else {
+            error!("Failed to build event processor for homeserver: {}", hs_id);
+            continue;
+        };
+        match timeout(event_processor_factory.timeout(), event_processor.run(shutdown_rx.clone())).await {
+            Ok(Ok(_)) => processed_homeservers += 1,
+            Ok(Err(e)) => {
+                if let Some(EventProcessorError::ShutdownRequested) = e.as_ref().downcast_ref::<EventProcessorError>() {
+                    skipped_homeservers += 1;
+                    continue;
+                }
+                error!("Event processor failed for {}: {:?}", hs_id, e);
                 skipped_homeservers += 1;
             }
-        }
+            Err(_) => {
+                error!("Event processor timed out for {}", hs_id);
+                skipped_homeservers += 1;
+            }
+        } 
     }
 
     Ok((processed_homeservers, skipped_homeservers))

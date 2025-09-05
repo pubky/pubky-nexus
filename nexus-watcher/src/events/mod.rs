@@ -11,8 +11,8 @@ pub mod handlers;
 mod moderation;
 mod processor;
 mod processor_factory;
-mod traits;
 pub mod retry;
+mod traits;
 
 pub use moderation::Moderation;
 pub use processor::EventProcessor;

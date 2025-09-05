@@ -148,8 +148,8 @@ impl EventProcessor {
     ) -> Result<(), DynError> {
         for line in &lines {
             if *shutdown_rx.borrow() {
-                info!("Shutdown detected, exiting event processing loop");
-                return Ok(());
+                debug!("Shutdown detected in {:#?}, exiting event processing loop", self.homeserver.id);
+                return Err(EventProcessorError::ShutdownRequested.into());
             }
 
             if line.starts_with("cursor:") {

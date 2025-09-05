@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::events::TEventProcessor;
 use nexus_common::types::DynError;
 
@@ -22,6 +24,9 @@ use nexus_common::types::DynError;
 ///   don't share mutable state unless explicitly intended
 #[async_trait::async_trait]
 pub trait TEventProcessorFactory: Send + Sync {
+    /// Returns the timeout for the event processor
+    fn timeout(&self) -> Duration;
+
     /// Creates and returns a new event processor instance for the specified homeserver.
     ///
     /// # Parameters

@@ -5,6 +5,7 @@ use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
 use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
+use std::time::Duration;
 
 /// This implements the creation logic for [`EventProcessor`] objects
 pub struct EventProcessorFactory {
@@ -31,6 +32,12 @@ impl EventProcessorFactory {
 
 #[async_trait::async_trait]
 impl TEventProcessorFactory for EventProcessorFactory {
+    /// Returns the timeout for the event processor
+    fn timeout(&self) -> Duration {
+        // TODO: Set timeout maybe from the config file
+        Duration::from_secs(3600)
+    }
+
     /// Creates and returns a new event processor instance for the specified homeserver
     /// The ownership of the event processor is transferred to the caller
     async fn build(&self, homeserver_id: String) -> Result<Box<dyn TEventProcessor>, DynError> {

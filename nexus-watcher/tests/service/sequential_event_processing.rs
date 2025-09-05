@@ -1,48 +1,58 @@
 use crate::service::utils::{
-    MockEventProcessor, MockEventProcessorFactory, MockEventProcessorResult,
+    create_random_homeservers_and_persist, error_result, setup, success_result, MockEventProcessorFactory,
 };
-use anyhow::{Error, Result};
-use nexus_common::models::homeserver::Homeserver;
-use nexus_watcher::service::{rolling_window::run_processors, NexusWatcher};
-use pubky::Keypair;
-use pubky_app_specs::PubkyId;
-use std::{collections::HashMap, time::Duration, sync::Arc};
+use anyhow::Result;
+use nexus_watcher::service::rolling_window::run_processors;
+use std::{sync::Arc, time::Duration};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_sequential_event_processing() -> Result<()> {
+    // Initialize the test
+    let mut event_processor_hashmap = setup().await?;
 
-    if let Err(e) = NexusWatcher::builder().init_test_stack().await {
-        return Err(Error::msg(format!("could not initialise the stack, {e:?}")));
+    // Create 3 random homeservers with success result
+    for _ in 0..3 {
+        let processor_status = success_result("success from homeserver");
+        create_random_homeservers_and_persist(&mut event_processor_hashmap, None, processor_status).await;
     }
 
-    let mut event_processor_hashmap: HashMap<String, MockEventProcessor> = HashMap::new();
-    create_random_homeservers(&mut event_processor_hashmap, None, MockEventProcessorResult::Success("Success finished!".to_string())).await;
-    create_random_homeservers(&mut event_processor_hashmap, None, MockEventProcessorResult::Success("Success finished!".to_string())).await;
-    create_random_homeservers(&mut event_processor_hashmap, None, MockEventProcessorResult::Success("Success finished!".to_string())).await;
-    create_random_homeservers(&mut event_processor_hashmap, None, MockEventProcessorResult::Success("Success finished!".to_string())).await;
+    // Create 1 random homeserver with error result
+    let processor_status = error_result("PubkyClient: timeout from homeserver");
+    create_random_homeservers_and_persist(&mut event_processor_hashmap, None, processor_status).await;
 
-
-    let factory = MockEventProcessorFactory::new(event_processor_hashmap);
+    let factory = MockEventProcessorFactory::new(event_processor_hashmap, None);
     let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
-    let result = run_processors(Arc::new(factory), shutdown_rx).await.unwrap();
-    assert_eq!(result.0, 4);
-    assert_eq!(result.1, 0);
+    let result = run_processors(Arc::new(factory), shutdown_rx)
+        .await
+        .unwrap();
+    assert_eq!(result.0, 3);
+    assert_eq!(result.1, 1);
 
     Ok(())
 }
 
-async fn create_random_homeservers(event_processor_hashmap: &mut HashMap<String, MockEventProcessor>, timeout: Option<Duration>, processor_status: MockEventProcessorResult) {
-    let homeserver_keypair = Keypair::random();
-    let homeserver_public_key = homeserver_keypair.public_key().to_z32();
+#[tokio_shared_rt::test(shared)]
+async fn test_sequential_event_processing_with_timeout() -> Result<()> {
+    const EVENT_PROCESSOR_TIMEOUT: Option<Duration> = Some(Duration::from_secs(1));
+    // Initialize the test
+    let mut event_processor_hashmap = setup().await?;
 
-    let config_hs = PubkyId::try_from(homeserver_public_key.as_str()).unwrap();
-    Homeserver::persist_if_unknown(config_hs).await.unwrap();
+    // Create 3 random homeservers with timeout limit
+    for index in 0..3 {
+        let processor_status = success_result("success from homeserver");
+        create_random_homeservers_and_persist(&mut event_processor_hashmap, Some(Duration::from_secs(index * 2)), processor_status).await;
+    }
+
+    let factory = MockEventProcessorFactory::new(event_processor_hashmap, EVENT_PROCESSOR_TIMEOUT);
+    let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+
+    let result = run_processors(Arc::new(factory), shutdown_rx)
+        .await
+        .unwrap();
     
-    let event_processor = MockEventProcessor {
-        homeserver_id: homeserver_public_key.clone(),
-        timeout,
-        processor_status,
-    };
-    event_processor_hashmap.insert(homeserver_public_key.clone(), event_processor);
+    assert_eq!(result.0, 1);
+    assert_eq!(result.1, 2);
+
+    Ok(())
 }

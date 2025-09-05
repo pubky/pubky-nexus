@@ -248,7 +248,9 @@ pub fn get_homeserver_by_id(id: &str) -> Query {
 pub fn get_all_homeservers() -> Query {
     query(
         "MATCH (hs:Homeserver)
-        RETURN collect(hs.id) AS homeservers_list",
+        WITH collect(hs.id) AS homeservers_list
+        WHERE size(homeservers_list) > 0
+        RETURN homeservers_list",
     )
 }
 
