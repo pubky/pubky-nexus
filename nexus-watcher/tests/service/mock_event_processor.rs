@@ -1,4 +1,6 @@
-use crate::service::utils::{MockEventProcessor, MockEventProcessorFactory, MockEventProcessorResult};
+use crate::service::utils::{
+    MockEventProcessor, MockEventProcessorFactory, MockEventProcessorResult,
+};
 use anyhow::{anyhow, Result};
 use nexus_watcher::events::TEventProcessorFactory;
 use std::{collections::HashMap, time::Duration};
@@ -18,9 +20,11 @@ const EVENT_PROCESSOR_TIMEOUT: Duration = Duration::from_secs(2);
 async fn test_mock_event_processors() -> Result<()> {
     let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
-    let factory =
-        MockEventProcessorFactory::new(create_mock_event_processors(), Some(EVENT_PROCESSOR_TIMEOUT), shutdown_rx);
-        
+    let factory = MockEventProcessorFactory::new(
+        create_mock_event_processors(),
+        Some(EVENT_PROCESSOR_TIMEOUT),
+        shutdown_rx,
+    );
 
     // Test successful event processor
     simulate_event_processor_success(&factory, HOMESERVER_IDS[0]).await?;
@@ -32,7 +36,7 @@ async fn test_mock_event_processors() -> Result<()> {
     simulate_event_processor_panic(&factory, HOMESERVER_IDS[2]).await?;
 
     // Test timeout scenarios
-    simulate_event_processor_timeout(&factory, HOMESERVER_IDS[3]).await?; 
+    simulate_event_processor_timeout(&factory, HOMESERVER_IDS[3]).await?;
     simulate_event_processor_completes_within_timeout(&factory, HOMESERVER_IDS[4]).await?;
 
     Ok(())

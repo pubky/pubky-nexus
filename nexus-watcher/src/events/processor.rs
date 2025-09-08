@@ -148,7 +148,10 @@ impl EventProcessor {
     ) -> Result<(), DynError> {
         for line in &lines {
             if *shutdown_rx.borrow() {
-                debug!("Shutdown detected in {:#?} homeserver, exiting event processing loop", self.homeserver.id.to_string());
+                debug!(
+                    "Shutdown detected in {:#?} homeserver, exiting event processing loop",
+                    self.homeserver.id.to_string()
+                );
                 return Err(EventProcessorError::ShutdownRequested.into());
             }
 

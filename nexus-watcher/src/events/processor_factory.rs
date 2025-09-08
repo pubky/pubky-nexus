@@ -4,9 +4,9 @@ use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
 use pubky_app_specs::PubkyId;
-use tokio::sync::watch::Receiver;
 use std::path::PathBuf;
 use std::time::Duration;
+use tokio::sync::watch::Receiver;
 
 /// This implements the creation logic for [`EventProcessor`] objects
 pub struct EventProcessorFactory {

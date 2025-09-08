@@ -1,8 +1,9 @@
 use crate::service::utils::{
-    create_random_homeservers_and_persist, error_result, setup, success_result, MockEventProcessorFactory,
+    create_random_homeservers_and_persist, error_result, setup, success_result,
+    MockEventProcessorFactory,
 };
 use anyhow::Result;
-use nexus_watcher::service::rolling_window::run_processors;
+use nexus_watcher::service::ProcessorScheduler;
 use std::{sync::Arc, time::Duration};
 
 #[tokio_shared_rt::test(shared)]
@@ -13,17 +14,20 @@ async fn test_sequential_event_processing() -> Result<()> {
     // Create 3 random homeservers with success result
     for _ in 0..3 {
         let processor_status = success_result("success from homeserver");
-        create_random_homeservers_and_persist(&mut event_processor_hashmap, None, processor_status).await;
+        create_random_homeservers_and_persist(&mut event_processor_hashmap, None, processor_status)
+            .await;
     }
 
     // Create 1 random homeserver with error result
     let processor_status = error_result("PubkyClient: timeout from homeserver");
-    create_random_homeservers_and_persist(&mut event_processor_hashmap, None, processor_status).await;
+    create_random_homeservers_and_persist(&mut event_processor_hashmap, None, processor_status)
+        .await;
 
     let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     let factory = MockEventProcessorFactory::new(event_processor_hashmap, None, shutdown_rx);
 
-    let result = run_processors(Arc::new(factory))
+    let result = ProcessorScheduler::new(Arc::new(factory))
+        .run()
         .await
         .unwrap();
     assert_eq!(result.0, 3);
@@ -41,16 +45,26 @@ async fn test_sequential_event_processing_with_timeout() -> Result<()> {
     // Create 3 random homeservers with timeout limit
     for index in 0..3 {
         let processor_status = success_result("success from homeserver");
-        create_random_homeservers_and_persist(&mut event_processor_hashmap, Some(Duration::from_secs(index * 2)), processor_status).await;
+        create_random_homeservers_and_persist(
+            &mut event_processor_hashmap,
+            Some(Duration::from_secs(index * 2)),
+            processor_status,
+        )
+        .await;
     }
 
     let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-    let factory = MockEventProcessorFactory::new(event_processor_hashmap, EVENT_PROCESSOR_TIMEOUT, shutdown_rx);
+    let factory = MockEventProcessorFactory::new(
+        event_processor_hashmap,
+        EVENT_PROCESSOR_TIMEOUT,
+        shutdown_rx,
+    );
 
-    let result = run_processors(Arc::new(factory))
+    let result = ProcessorScheduler::new(Arc::new(factory))
+        .run()
         .await
         .unwrap();
-    
+
     assert_eq!(result.0, 1);
     assert_eq!(result.1, 2);
 

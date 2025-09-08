@@ -1,11 +1,11 @@
 mod constants;
-pub mod rolling_window;
+mod processor_scheduler;
 
 /// Module exports
 pub use constants::{MAX_CONCURRENT, PROCESSING_TIMEOUT_SECS, WATCHER_CONFIG_FILE_NAME};
+pub use processor_scheduler::ProcessorScheduler;
 
 use crate::events::EventProcessorFactory;
-use crate::service::rolling_window::run_processors;
 use crate::NexusWatcherBuilder;
 use nexus_common::file::ConfigLoader;
 use nexus_common::models::homeserver::Homeserver;
@@ -75,7 +75,10 @@ impl NexusWatcher {
 
         let mut interval = tokio::time::interval(Duration::from_millis(config.watcher_sleep));
         // TODO: Add another function to the trait to create the event processor factory
-        let event_processor_factory = Arc::new(EventProcessorFactory::from_config(&config, shutdown_rx.clone()));
+        let event_processor_factory = Arc::new(EventProcessorFactory::from_config(
+            &config,
+            shutdown_rx.clone(),
+        ));
 
         loop {
             tokio::select! {
@@ -84,8 +87,8 @@ impl NexusWatcher {
                     break;
                 }
                 _ = interval.tick() => {
-                    info!("Fetching events…");
-                    run_processors(event_processor_factory.clone()).await?;
+                    info!("Indexing homeservers…");
+                    ProcessorScheduler::new(event_processor_factory.clone()).run().await?;
                 }
             }
         }

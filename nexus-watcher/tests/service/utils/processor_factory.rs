@@ -1,8 +1,8 @@
 use crate::service::utils::processor::MockEventProcessor;
 use nexus_common::types::DynError;
 use nexus_watcher::events::{TEventProcessor, TEventProcessorFactory};
-use tokio::sync::watch::Receiver;
 use std::{collections::HashMap, time::Duration};
+use tokio::sync::watch::Receiver;
 
 /// Store processors as concrete MockEventProcessor instances.
 /// This allows access to the fields for testing purposes.
@@ -15,8 +15,16 @@ pub struct MockEventProcessorFactory {
 
 impl MockEventProcessorFactory {
     /// Creates a new factory instance from the provided event processors
-    pub fn new(event_processors: HashMap<String, MockEventProcessor>, timeout: Option<Duration>, shutdown_rx: Receiver<bool>) -> Self {
-        Self { event_processors, timeout, shutdown_rx }
+    pub fn new(
+        event_processors: HashMap<String, MockEventProcessor>,
+        timeout: Option<Duration>,
+        shutdown_rx: Receiver<bool>,
+    ) -> Self {
+        Self {
+            event_processors,
+            timeout,
+            shutdown_rx,
+        }
     }
 }
 

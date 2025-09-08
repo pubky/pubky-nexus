@@ -64,7 +64,6 @@ impl WatcherTest {
             tags: Vec::from(["label_to_moderate".to_string()]),
         };
 
-
         let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
         EventProcessorFactory {
