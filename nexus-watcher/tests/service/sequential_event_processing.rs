@@ -20,10 +20,10 @@ async fn test_sequential_event_processing() -> Result<()> {
     let processor_status = error_result("PubkyClient: timeout from homeserver");
     create_random_homeservers_and_persist(&mut event_processor_hashmap, None, processor_status).await;
 
-    let factory = MockEventProcessorFactory::new(event_processor_hashmap, None);
     let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let factory = MockEventProcessorFactory::new(event_processor_hashmap, None, shutdown_rx);
 
-    let result = run_processors(Arc::new(factory), shutdown_rx)
+    let result = run_processors(Arc::new(factory))
         .await
         .unwrap();
     assert_eq!(result.0, 3);
@@ -44,10 +44,10 @@ async fn test_sequential_event_processing_with_timeout() -> Result<()> {
         create_random_homeservers_and_persist(&mut event_processor_hashmap, Some(Duration::from_secs(index * 2)), processor_status).await;
     }
 
-    let factory = MockEventProcessorFactory::new(event_processor_hashmap, EVENT_PROCESSOR_TIMEOUT);
     let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let factory = MockEventProcessorFactory::new(event_processor_hashmap, EVENT_PROCESSOR_TIMEOUT, shutdown_rx);
 
-    let result = run_processors(Arc::new(factory), shutdown_rx)
+    let result = run_processors(Arc::new(factory))
         .await
         .unwrap();
     

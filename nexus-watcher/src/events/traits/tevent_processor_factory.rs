@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use crate::events::TEventProcessor;
 use nexus_common::types::DynError;
+use tokio::sync::watch::Receiver;
 
 /// Asynchronous factory for creating event processors in the Watcher service.
 ///
@@ -26,6 +27,9 @@ use nexus_common::types::DynError;
 pub trait TEventProcessorFactory: Send + Sync {
     /// Returns the timeout for the event processor
     fn timeout(&self) -> Duration;
+
+    /// Returns the shutdown receiver for the event processor
+    fn shutdown_rx(&self) -> Receiver<bool>;
 
     /// Creates and returns a new event processor instance for the specified homeserver.
     ///

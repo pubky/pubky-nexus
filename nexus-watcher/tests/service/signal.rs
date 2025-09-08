@@ -17,9 +17,9 @@ async fn test_shutdown_signal() -> Result<()> {
         create_random_homeservers_and_persist(&mut event_processor_hashmap, Some(Duration::from_secs(index * 2)), processor_status).await;
     }
 
-    let factory = MockEventProcessorFactory::new(event_processor_hashmap, EVENT_PROCESSOR_TIMEOUT);
-
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let factory = MockEventProcessorFactory::new(event_processor_hashmap, EVENT_PROCESSOR_TIMEOUT, shutdown_rx);
+
 
     // Schedule Ctrl-C simulation after 1s
     tokio::spawn({
@@ -30,7 +30,7 @@ async fn test_shutdown_signal() -> Result<()> {
         }
     });
 
-    let result = run_processors(Arc::new(factory), shutdown_rx)
+    let result = run_processors(Arc::new(factory))
         .await
         .unwrap();
     

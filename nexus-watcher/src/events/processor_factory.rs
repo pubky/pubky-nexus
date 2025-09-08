@@ -4,6 +4,7 @@ use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
 use pubky_app_specs::PubkyId;
+use tokio::sync::watch::Receiver;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -13,11 +14,12 @@ pub struct EventProcessorFactory {
     pub files_path: PathBuf,
     pub tracer_name: String,
     pub moderation: Moderation,
+    pub shutdown_rx: Receiver<bool>,
 }
 
 impl EventProcessorFactory {
     /// Creates a new factory instance from the provided configuration
-    pub fn from_config(config: &WatcherConfig) -> Self {
+    pub fn from_config(config: &WatcherConfig, shutdown_rx: Receiver<bool>) -> Self {
         Self {
             limit: config.events_limit,
             files_path: config.stack.files_path.clone(),
@@ -26,6 +28,7 @@ impl EventProcessorFactory {
                 id: config.moderation_id.clone(),
                 tags: config.moderated_tags.clone(),
             },
+            shutdown_rx,
         }
     }
 }
@@ -36,6 +39,10 @@ impl TEventProcessorFactory for EventProcessorFactory {
     fn timeout(&self) -> Duration {
         // TODO: Set timeout maybe from the config file
         Duration::from_secs(3600)
+    }
+
+    fn shutdown_rx(&self) -> Receiver<bool> {
+        self.shutdown_rx.clone()
     }
 
     /// Creates and returns a new event processor instance for the specified homeserver

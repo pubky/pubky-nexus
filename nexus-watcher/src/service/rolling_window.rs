@@ -4,14 +4,12 @@ use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
 use tokio::time::timeout;
 use std::sync::Arc;
-use tokio::sync::watch::Receiver;
-use tracing::{error, info};
+use tracing::error;
 
 type ProcessorResultType = Result<(u64, u64), DynError>;
 
 pub async fn run_processors(
-    event_processor_factory: Arc<dyn TEventProcessorFactory>,
-    shutdown_rx: Receiver<bool>,
+    event_processor_factory: Arc<dyn TEventProcessorFactory>
 ) -> ProcessorResultType {
     let hs_ids = Homeserver::get_all_from_graph()
         .await
@@ -25,7 +23,7 @@ pub async fn run_processors(
             error!("Failed to build event processor for homeserver: {}", hs_id);
             continue;
         };
-        match timeout(event_processor_factory.timeout(), event_processor.run(shutdown_rx.clone())).await {
+        match timeout(event_processor_factory.timeout(), event_processor.run(event_processor_factory.shutdown_rx())).await {
             Ok(Ok(_)) => processed_homeservers += 1,
             Ok(Err(e)) => {
                 if let Some(EventProcessorError::ShutdownRequested) = e.as_ref().downcast_ref::<EventProcessorError>() {

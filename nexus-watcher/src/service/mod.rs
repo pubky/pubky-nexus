@@ -75,7 +75,7 @@ impl NexusWatcher {
 
         let mut interval = tokio::time::interval(Duration::from_millis(config.watcher_sleep));
         // TODO: Add another function to the trait to create the event processor factory
-        let event_processor_factory = Arc::new(EventProcessorFactory::from_config(&config));
+        let event_processor_factory = Arc::new(EventProcessorFactory::from_config(&config, shutdown_rx.clone()));
 
         loop {
             tokio::select! {
@@ -85,7 +85,7 @@ impl NexusWatcher {
                 }
                 _ = interval.tick() => {
                     info!("Fetching events…");
-                    run_processors(event_processor_factory.clone(), shutdown_rx.clone()).await?;
+                    run_processors(event_processor_factory.clone()).await?;
                 }
             }
         }

@@ -1,6 +1,7 @@
 use crate::service::utils::processor::MockEventProcessor;
 use nexus_common::types::DynError;
 use nexus_watcher::events::{TEventProcessor, TEventProcessorFactory};
+use tokio::sync::watch::Receiver;
 use std::{collections::HashMap, time::Duration};
 
 /// Store processors as concrete MockEventProcessor instances.
@@ -9,12 +10,13 @@ pub struct MockEventProcessorFactory {
     // TODO: In some point, we could use Box<dyn TEventProcessor> instead of MockEventProcessor
     pub event_processors: HashMap<String, MockEventProcessor>,
     pub timeout: Option<Duration>,
+    pub shutdown_rx: Receiver<bool>,
 }
 
 impl MockEventProcessorFactory {
     /// Creates a new factory instance from the provided event processors
-    pub fn new(event_processors: HashMap<String, MockEventProcessor>, timeout: Option<Duration>) -> Self {
-        Self { event_processors, timeout }
+    pub fn new(event_processors: HashMap<String, MockEventProcessor>, timeout: Option<Duration>, shutdown_rx: Receiver<bool>) -> Self {
+        Self { event_processors, timeout, shutdown_rx }
     }
 }
 
@@ -26,6 +28,11 @@ impl TEventProcessorFactory for MockEventProcessorFactory {
             Some(timeout) => timeout,
             None => Duration::from_secs(3600),
         }
+    }
+
+    /// Returns the shutdown receiver for the event processor
+    fn shutdown_rx(&self) -> Receiver<bool> {
+        self.shutdown_rx.clone()
     }
 
     /// Creates and returns a new event processor instance for the specified homeserver

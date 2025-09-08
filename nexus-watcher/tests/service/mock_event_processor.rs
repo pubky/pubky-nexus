@@ -16,23 +16,24 @@ const EVENT_PROCESSOR_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[tokio_shared_rt::test(shared)]
 async fn test_mock_event_processors() -> Result<()> {
-    let factory =
-        MockEventProcessorFactory::new(create_mock_event_processors(), Some(EVENT_PROCESSOR_TIMEOUT));
-        
     let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
+    let factory =
+        MockEventProcessorFactory::new(create_mock_event_processors(), Some(EVENT_PROCESSOR_TIMEOUT), shutdown_rx);
+        
+
     // Test successful event processor
-    simulate_event_processor_success(&factory, HOMESERVER_IDS[0], &shutdown_rx).await?;
+    simulate_event_processor_success(&factory, HOMESERVER_IDS[0]).await?;
 
     // Test error event processor
-    simulate_event_processor_error(&factory, HOMESERVER_IDS[1], &shutdown_rx).await?;
+    simulate_event_processor_error(&factory, HOMESERVER_IDS[1]).await?;
 
     // Test panic event processor
-    simulate_event_processor_panic(&factory, HOMESERVER_IDS[2], &shutdown_rx).await?;
+    simulate_event_processor_panic(&factory, HOMESERVER_IDS[2]).await?;
 
     // Test timeout scenarios
-    simulate_event_processor_timeout(&factory, HOMESERVER_IDS[3], &shutdown_rx).await?; 
-    simulate_event_processor_completes_within_timeout(&factory, HOMESERVER_IDS[4], &shutdown_rx).await?;
+    simulate_event_processor_timeout(&factory, HOMESERVER_IDS[3]).await?; 
+    simulate_event_processor_completes_within_timeout(&factory, HOMESERVER_IDS[4]).await?;
 
     Ok(())
 }
@@ -40,26 +41,24 @@ async fn test_mock_event_processors() -> Result<()> {
 async fn simulate_event_processor_success(
     factory: &MockEventProcessorFactory,
     homeserver_id: &str,
-    shutdown_rx: &tokio::sync::watch::Receiver<bool>,
 ) -> Result<()> {
     let processor = factory
         .build(homeserver_id.to_string())
         .await
         .map_err(|e| anyhow!(e))?;
-    assert!(processor.run(shutdown_rx.clone()).await.is_ok());
+    assert!(processor.run(factory.shutdown_rx()).await.is_ok());
     Ok(())
 }
 
 async fn simulate_event_processor_error(
     factory: &MockEventProcessorFactory,
     homeserver_id: &str,
-    shutdown_rx: &tokio::sync::watch::Receiver<bool>,
 ) -> Result<()> {
     let processor = factory
         .build(homeserver_id.to_string())
         .await
         .map_err(|e| anyhow!(e))?;
-    assert!(processor.run(shutdown_rx.clone()).await.is_err());
+    assert!(processor.run(factory.shutdown_rx()).await.is_err());
     Ok(())
 }
 
@@ -67,13 +66,12 @@ async fn simulate_event_processor_error(
 async fn simulate_event_processor_panic(
     factory: &MockEventProcessorFactory,
     homeserver_id: &str,
-    shutdown_rx: &tokio::sync::watch::Receiver<bool>,
 ) -> Result<()> {
     let processor = factory
         .build(homeserver_id.to_string())
         .await
         .map_err(|e| anyhow!(e))?;
-    let shutdown_rx = shutdown_rx.clone();
+    let shutdown_rx = factory.shutdown_rx();
     // We use `tokio::spawn` to isolate the panic - without it, the panic would propagate up and crash the test.
     // The `JoinHandle` allows us to detect that a panic occurred via `is_panic()` on the join error.
     let join_result = tokio::spawn(async move { processor.run(shutdown_rx).await }).await;
@@ -85,13 +83,12 @@ async fn simulate_event_processor_panic(
 async fn simulate_event_processor_timeout(
     factory: &MockEventProcessorFactory,
     homeserver_id: &str,
-    shutdown_rx: &tokio::sync::watch::Receiver<bool>,
 ) -> Result<()> {
     let processor = factory
         .build(homeserver_id.to_string())
         .await
         .map_err(|e| anyhow!(e))?;
-    match timeout(factory.timeout(), processor.run(shutdown_rx.clone())).await {
+    match timeout(factory.timeout(), processor.run(factory.shutdown_rx())).await {
         Ok(_) => Err(anyhow!(
             "Event processor should timeout after {EVENT_PROCESSOR_TIMEOUT:?}s"
         )),
@@ -102,13 +99,12 @@ async fn simulate_event_processor_timeout(
 async fn simulate_event_processor_completes_within_timeout(
     factory: &MockEventProcessorFactory,
     homeserver_id: &str,
-    shutdown_rx: &tokio::sync::watch::Receiver<bool>,
 ) -> Result<()> {
     let processor = factory
         .build(homeserver_id.to_string())
         .await
         .map_err(|e| anyhow!(e))?;
-    match timeout(factory.timeout(), processor.run(shutdown_rx.clone())).await {
+    match timeout(factory.timeout(), processor.run(factory.shutdown_rx())).await {
         Ok(_) => Ok(()),
         Err(_) => Err(anyhow!("Event processor should not timeout")),
     }
