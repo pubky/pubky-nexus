@@ -31,13 +31,11 @@ impl TEventProcessor for EventProcessor {
     /// # Returns:
     /// - `Result<(), DynError>`: The result of the event processing
     async fn run(self: Box<Self>, shutdown_rx: Receiver<bool>) -> Result<(), DynError> {
-        // TODO: fix this. Might not need to be mut. This is just a workaround to avoid the borrow checker
-        let mut this = self;
         let lines = {
-            let tracer = global::tracer(this.tracer_name.clone());
+            let tracer = global::tracer(self.tracer_name.clone());
             let span = tracer.start("Polling Events");
             let cx = Context::new().with_span(span);
-            this.poll_events().with_context(cx).await
+            self.poll_events().with_context(cx).await
         };
 
         match lines {
@@ -50,7 +48,7 @@ impl TEventProcessor for EventProcessor {
             }
             Ok(Some(lines)) => {
                 info!("Processing {} event lines", lines.len());
-                this.process_event_lines(shutdown_rx, lines).await?;
+                self.process_event_lines(shutdown_rx, lines).await?;
             }
         }
 
@@ -101,7 +99,7 @@ impl EventProcessor {
     /// using the current cursor and a specified limit. It retrieves new event
     /// URIs in a newline-separated format, processes it into a vector of strings,
     /// and returns the result.
-    async fn poll_events(&mut self) -> Result<Option<Vec<String>>, DynError> {
+    async fn poll_events(&self) -> Result<Option<Vec<String>>, DynError> {
         debug!("Polling new events from homeserver");
 
         let response_text = {
@@ -142,7 +140,7 @@ impl EventProcessor {
     /// # Parameters
     /// - `lines`: A vector of strings representing event lines retrieved from the homeserver.
     pub async fn process_event_lines(
-        &mut self,
+        &self,
         shutdown_rx: Receiver<bool>,
         lines: Vec<String>,
     ) -> Result<(), DynError> {
@@ -157,8 +155,10 @@ impl EventProcessor {
 
             if line.starts_with("cursor:") {
                 if let Some(cursor) = line.strip_prefix("cursor: ") {
-                    self.homeserver.cursor = cursor.to_string();
-                    self.homeserver.put_to_index().await?;
+                    // TODO: Find other way to persist the cursor
+                    Homeserver::from_cursor(self.homeserver.id.clone(), cursor.to_string())
+                        .put_to_index()
+                        .await?;
                     info!("Cursor for the next request: {}", cursor);
                 }
             } else {
@@ -195,7 +195,7 @@ impl EventProcessor {
     /// Processes an event and track the fail event it if necessary
     /// # Parameters:
     /// - `event`: The event to be processed
-    async fn handle_event(&mut self, event: &Event) -> Result<(), DynError> {
+    async fn handle_event(&self, event: &Event) -> Result<(), DynError> {
         if let Err(e) = event.clone().handle(&self.moderation).await {
             if let Some((index_key, retry_event)) = extract_retry_event_info(event, e) {
                 error!("{}, {}", retry_event.error_type, index_key);

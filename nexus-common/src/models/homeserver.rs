@@ -27,11 +27,8 @@ impl Homeserver {
     }
 
     /// Mutates the cursor of the homeserver
-    pub fn persist_cursor(&self, cursor: String) -> Self {
-        Homeserver {
-            id: self.id.clone(),
-            cursor,
-        }
+    pub fn from_cursor(id: PubkyId, cursor: String) -> Self {
+        Homeserver { id, cursor }
     }
 
     /// Stores this homeserver in the graph.
