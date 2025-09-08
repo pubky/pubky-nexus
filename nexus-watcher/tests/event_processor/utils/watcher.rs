@@ -58,11 +58,7 @@ impl WatcherTest {
     /// Returns a fully configured `EventProcessorFactory` ready for use in tests.
     fn create_test_event_processor_factory() -> EventProcessorFactory {
         // hardcoded nexus-watcher/tests/utils/moderator_key.pkarr file contains the public key used by the moderator user on tests
-        let moderation = Moderation {
-            id: PubkyId::try_from("uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko")
-                .expect("Hardcoded test moderation key should be valid"),
-            tags: Vec::from(["label_to_moderate".to_string()]),
-        };
+        let moderation = Moderation::default_tests();
 
         let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
