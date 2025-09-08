@@ -1,11 +1,11 @@
 mod constants;
-mod processor_scheduler;
+//mod processor_scheduler;
 
 /// Module exports
 pub use constants::{MAX_CONCURRENT, PROCESSING_TIMEOUT_SECS, WATCHER_CONFIG_FILE_NAME};
-pub use processor_scheduler::ProcessorScheduler;
+//pub use processor_scheduler::ProcessorScheduler;
 
-use crate::events::EventProcessorFactory;
+use crate::events::{EventProcessorFactory, TEventProcessorFactory};
 use crate::NexusWatcherBuilder;
 use nexus_common::file::ConfigLoader;
 use nexus_common::models::homeserver::Homeserver;
@@ -14,7 +14,6 @@ use nexus_common::utils::create_shutdown_rx;
 use nexus_common::{DaemonConfig, WatcherConfig};
 use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
-use std::sync::Arc;
 use tokio::sync::watch::Receiver;
 use tokio::time::Duration;
 use tracing::{debug, info};
@@ -75,10 +74,8 @@ impl NexusWatcher {
 
         let mut interval = tokio::time::interval(Duration::from_millis(config.watcher_sleep));
         // TODO: Add another function to the trait to create the event processor factory
-        let event_processor_factory = Arc::new(EventProcessorFactory::from_config(
-            &config,
-            shutdown_rx.clone(),
-        ));
+        let event_processor_factory =
+            EventProcessorFactory::from_config(&config, shutdown_rx.clone());
 
         loop {
             tokio::select! {
@@ -88,7 +85,7 @@ impl NexusWatcher {
                 }
                 _ = interval.tick() => {
                     info!("Indexing homeservers…");
-                    ProcessorScheduler::new(event_processor_factory.clone()).run().await?;
+                    event_processor_factory.run_all().await?;
                 }
             }
         }

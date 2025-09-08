@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 use tokio::sync::watch::Receiver;
 
+// TODO: Move to the service module. It seems to be out of place here.
 /// This implements the creation logic for [`EventProcessor`] objects
 pub struct EventProcessorFactory {
     pub limit: u32,

@@ -2,8 +2,8 @@ use crate::service::utils::{
     create_random_homeservers_and_persist, setup, success_result, MockEventProcessorFactory,
 };
 use anyhow::Result;
-use nexus_watcher::service::ProcessorScheduler;
-use std::{sync::Arc, time::Duration};
+use nexus_watcher::events::TEventProcessorFactory;
+use std::time::Duration;
 use tokio::time::sleep;
 
 const EVENT_PROCESSOR_TIMEOUT: Option<Duration> = Some(Duration::from_secs(2));
@@ -41,10 +41,7 @@ async fn test_shutdown_signal() -> Result<()> {
         }
     });
 
-    let result = ProcessorScheduler::new(Arc::new(factory))
-        .run()
-        .await
-        .unwrap();
+    let result = factory.run_all().await.unwrap();
 
     assert_eq!(result.0, 1);
     assert_eq!(result.1, 2);

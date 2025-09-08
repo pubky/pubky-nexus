@@ -72,15 +72,9 @@ async fn test_homeserver_tag_cannot_add_while_index() -> Result<()> {
         "It seems that tagged node exists, which should not be possible. Event processor should be disconnected"
     );
 
-    // Create a channel to signal the event processor to shutdown
-    let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-
     // Build the event processor and run it to sync all the previous events with the event processor
     test.event_processor_factory
-        .build(test.homeserver_id.clone())
-        .await
-        .map_err(|e| anyhow!(e))?
-        .run(shutdown_rx.clone())
+        .run(test.homeserver_id.clone())
         .await
         .map_err(|e| anyhow!(e))?;
 

@@ -264,15 +264,11 @@ async fn test_large_network_scenario_counts() -> Result<()> {
         }
     }
 
-    let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     if !PROCESS_EVENTS_ONE_BY_ONE {
         for _ in 1..=100 {
-            // Build the event processor and run it
+            // Run the event processor
             test.event_processor_factory
-                .build(test.homeserver_id.clone())
-                .await
-                .map_err(|e| anyhow!(e))?
-                .run(shutdown_rx.clone())
+                .run(test.homeserver_id.clone())
                 .await
                 .map_err(|e| anyhow!(e))?;
         }

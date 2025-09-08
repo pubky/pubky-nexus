@@ -3,8 +3,8 @@ use crate::service::utils::{
     MockEventProcessorFactory,
 };
 use anyhow::Result;
-use nexus_watcher::service::ProcessorScheduler;
-use std::{sync::Arc, time::Duration};
+use nexus_watcher::events::TEventProcessorFactory;
+use std::time::Duration;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_sequential_event_processing() -> Result<()> {
@@ -26,10 +26,8 @@ async fn test_sequential_event_processing() -> Result<()> {
     let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     let factory = MockEventProcessorFactory::new(event_processor_hashmap, None, shutdown_rx);
 
-    let result = ProcessorScheduler::new(Arc::new(factory))
-        .run()
-        .await
-        .unwrap();
+    let result = factory.run_all().await.unwrap();
+
     assert_eq!(result.0, 3);
     assert_eq!(result.1, 1);
 
@@ -60,10 +58,7 @@ async fn test_sequential_event_processing_with_timeout() -> Result<()> {
         shutdown_rx,
     );
 
-    let result = ProcessorScheduler::new(Arc::new(factory))
-        .run()
-        .await
-        .unwrap();
+    let result = factory.run_all().await.unwrap();
 
     assert_eq!(result.0, 1);
     assert_eq!(result.1, 2);
