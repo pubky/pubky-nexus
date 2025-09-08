@@ -4,4 +4,4 @@ pub const WATCHER_CONFIG_FILE_NAME: &str = "watcher-config.toml";
 /// Max homeservers processed concurrently within a cycle
 pub const MAX_CONCURRENT: usize = 3;
 ///  Per-homeserver hard timeout (seconds)
-pub const PROCESSING_TIMEOUT_SECS: u64 = 120;
+pub const PROCESSING_TIMEOUT_SECS: u64 = 3_600;
