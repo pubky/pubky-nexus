@@ -8,4 +8,4 @@ mod network;
 mod posts;
 mod tags;
 mod users;
-mod utils;
+pub(crate) mod utils;
