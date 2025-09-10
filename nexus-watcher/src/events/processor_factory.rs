@@ -42,10 +42,6 @@ impl TEventProcessorFactory for EventProcessorFactory {
         Duration::from_secs(3600)
     }
 
-    fn shutdown_rx(&self) -> Receiver<bool> {
-        self.shutdown_rx.clone()
-    }
-
     /// Creates and returns a new event processor instance for the specified homeserver
     /// The ownership of the event processor is transferred to the caller
     async fn build(&self, homeserver_id: String) -> Result<Box<dyn TEventProcessor>, DynError> {
@@ -61,6 +57,7 @@ impl TEventProcessorFactory for EventProcessorFactory {
             files_path: self.files_path.clone(),
             tracer_name: self.tracer_name.clone(),
             moderation: self.moderation.clone(),
+            shutdown_rx: self.shutdown_rx.clone(),
         }))
     }
 }

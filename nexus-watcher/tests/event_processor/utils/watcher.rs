@@ -19,7 +19,6 @@ use pubky_app_specs::{
 };
 use pubky_testnet::EphemeralTestnet;
 use std::time::Duration;
-use tokio::sync::watch::Receiver;
 use tracing::debug;
 
 /// Struct to hold the setup environment for tests
@@ -34,8 +33,6 @@ pub struct WatcherTest {
     pub event_processor_factory: EventProcessorFactory,
     /// Whether to ensure event processing is complete
     pub ensure_event_processing: bool,
-    /// The shutdown receiver
-    pub shutdown_rx: Receiver<bool>,
 }
 
 impl WatcherTest {
@@ -115,15 +112,11 @@ impl WatcherTest {
         // Initialize the test-scoped EventProcessorFactory; mirrors the standard processor behavior
         let event_processor_factory = Self::create_test_event_processor_factory();
 
-        // Create a channel to signal the event processor to shutdown
-        let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-
         Ok(Self {
             testnet,
             homeserver_id,
             event_processor_factory,
             ensure_event_processing: true,
-            shutdown_rx,
         })
     }
 
@@ -136,12 +129,11 @@ impl WatcherTest {
     /// Ensures that event processing is completed if it is enabled.
     pub async fn ensure_event_processing_complete(&mut self) -> Result<()> {
         if self.ensure_event_processing {
-            // Build the event processor and run it
             self.event_processor_factory
                 .build(self.homeserver_id.clone())
                 .await
                 .map_err(|e| anyhow!(e))?
-                .run(self.shutdown_rx.clone())
+                .run()
                 .await
                 .map_err(|e| anyhow!(e))?;
         }

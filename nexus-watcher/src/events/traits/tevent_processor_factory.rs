@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use crate::events::{errors::EventProcessorError, TEventProcessor};
 use nexus_common::{models::homeserver::Homeserver, types::DynError};
-use tokio::{sync::watch::Receiver, time::timeout};
+use tokio::time::timeout;
 use tracing::error;
 
 /// The result type for the event processor factory
@@ -32,9 +32,6 @@ pub trait TEventProcessorFactory: Send + Sync {
     /// Returns the timeout for the event processor
     fn timeout(&self) -> Duration;
 
-    /// Returns the shutdown receiver for the event processor
-    fn shutdown_rx(&self) -> Receiver<bool>;
-
     /// Creates and returns a new event processor instance for the specified homeserver.
     ///
     /// # Parameters
@@ -63,7 +60,7 @@ pub trait TEventProcessorFactory: Send + Sync {
                 error!("Failed to build event processor for homeserver: {}", hs_id);
                 continue;
             };
-            match timeout(self.timeout(), event_processor.run(self.shutdown_rx())).await {
+            match timeout(self.timeout(), event_processor.run()).await {
                 Ok(Ok(_)) => processed_homeservers += 1,
                 Ok(Err(e)) => {
                     if let Some(EventProcessorError::ShutdownRequested) =
@@ -93,7 +90,7 @@ pub trait TEventProcessorFactory: Send + Sync {
                 hs_id
             )));
         };
-        match timeout(self.timeout(), event_processor.run(self.shutdown_rx())).await {
+        match timeout(self.timeout(), event_processor.run()).await {
             Ok(Ok(_)) => Ok(()),
             Ok(Err(e)) => {
                 if let Some(EventProcessorError::ShutdownRequested) =
