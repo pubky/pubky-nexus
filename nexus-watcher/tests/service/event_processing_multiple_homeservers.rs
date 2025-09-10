@@ -3,6 +3,7 @@ use crate::service::utils::{
     MockEventProcessorFactory,
 };
 use anyhow::Result;
+use nexus_common::models::homeserver::Homeserver;
 use nexus_watcher::events::TEventProcessorFactory;
 use std::time::Duration;
 
@@ -69,6 +70,22 @@ async fn test_multi_hs_event_processing_with_timeout() -> Result<()> {
 
     assert_eq!(result.0, 1); // 1 success
     assert_eq!(result.1, 2); // 2 failures due to timeout
+
+    Ok(())
+}
+
+// TODO We need a way to ensure this test finds no homeservers in the graph
+#[tokio_shared_rt::test(shared)]
+async fn test_no_hs_found() -> Result<()> {
+    let event_processor_hashmap = setup().await?;
+
+    let factory = MockEventProcessorFactory::new(event_processor_hashmap, None);
+
+    // We explicitly don't add any homeservers, so we expect an empty list, which should result in an error
+    assert!(Homeserver::get_all_from_graph().await.is_err());
+
+    // Ensure that run_all does not panic or throw an error in case no HSs were found
+    assert!(factory.run_all().await.is_ok());
 
     Ok(())
 }
