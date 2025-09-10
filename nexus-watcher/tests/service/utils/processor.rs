@@ -9,7 +9,6 @@ pub struct MockEventProcessor {
     pub processor_status: MockEventProcessorResult,
     pub timeout: Option<Duration>,
     pub homeserver_id: String,
-    pub shutdown_rx: Receiver<bool>,
 }
 
 impl MockEventProcessor {
@@ -17,22 +16,20 @@ impl MockEventProcessor {
         processor_status: MockEventProcessorResult,
         timeout: Option<Duration>,
         homeserver_id: String,
-        shutdown_rx: Receiver<bool>,
     ) -> Self {
         Self {
             processor_status,
             timeout,
             homeserver_id,
-            shutdown_rx,
         }
     }
 }
 
 #[async_trait::async_trait]
 impl TEventProcessor for MockEventProcessor {
-    async fn run(mut self: Box<Self>) -> Result<(), DynError> {
+    async fn run(self: Box<Self>, mut shutdown_rx: Receiver<bool>) -> Result<(), DynError> {
         // If shutdown was already requested, exit immediately so callers can count it
-        if *self.shutdown_rx.borrow() {
+        if *shutdown_rx.borrow() {
             return Err(EventProcessorError::ShutdownRequested.into());
         }
 
@@ -40,14 +37,14 @@ impl TEventProcessor for MockEventProcessor {
         if let Some(timeout) = self.timeout {
             tokio::select! {
                 _ = tokio::time::sleep(timeout) => {},
-                _ = self.shutdown_rx.changed() => {
+                _ = shutdown_rx.changed() => {
                     return Err(EventProcessorError::ShutdownRequested.into());
                 }
             }
         }
 
         // Check again before returning a result
-        if *self.shutdown_rx.borrow() {
+        if *shutdown_rx.borrow() {
             return Err(EventProcessorError::ShutdownRequested.into());
         }
 

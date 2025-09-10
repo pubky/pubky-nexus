@@ -4,7 +4,7 @@ use crate::service::utils::{
 use nexus_common::types::DynError;
 use nexus_watcher::events::TEventProcessorFactory;
 use std::{collections::HashMap, time::Duration};
-use tokio::{sync::watch::Receiver, time::timeout};
+use tokio::time::timeout;
 
 const HS_IDS: [&str; 5] = [
     "1hb71xx9km3f4pw5izsy1gn19ff1uuuqonw4mcygzobwkryujoiy",
@@ -19,31 +19,32 @@ const TIMEOUT: Duration = Duration::from_secs(2);
 #[tokio_shared_rt::test(shared)]
 async fn test_mock_event_processors() -> Result<(), DynError> {
     let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-    let mock_processors = create_mock_event_processors(shutdown_rx.clone());
+    let mock_processors = create_mock_event_processors();
     let factory = MockEventProcessorFactory::new(mock_processors, Some(TIMEOUT), shutdown_rx);
 
     // Test successful event processor
     let processor = factory.build(HS_IDS[0].to_string()).await?;
-    assert!(processor.run().await.is_ok());
+    assert!(processor.run(factory.shutdown_rx()).await.is_ok());
 
     // Test error event processor
     let processor = factory.build(HS_IDS[1].to_string()).await?;
-    assert!(processor.run().await.is_err());
+    assert!(processor.run(factory.shutdown_rx()).await.is_err());
 
     // Test panic event processor
     let processor = factory.build(HS_IDS[2].to_string()).await?;
-    let join_result = tokio::spawn(async move { processor.run().await }).await;
+    let shutdown_rx = factory.shutdown_rx();
+    let join_result = tokio::spawn(async move { processor.run(shutdown_rx).await }).await;
     assert!(join_result.is_err() && join_result.unwrap_err().is_panic());
 
     // Test timeout scenarios
     let processor = factory.build(HS_IDS[3].to_string()).await?;
-    match timeout(factory.timeout(), processor.run()).await {
+    match timeout(factory.timeout(), processor.run(factory.shutdown_rx())).await {
         Ok(_) => return Err(format!("Event processor should timeout after {TIMEOUT:?}s"))?,
         Err(_) => {}
     };
 
     let processor = factory.build(HS_IDS[4].to_string()).await?;
-    match timeout(factory.timeout(), processor.run()).await {
+    match timeout(factory.timeout(), processor.run(factory.shutdown_rx())).await {
         Ok(_) => {}
         Err(_) => return Err(format!("Event processor should not timeout"))?,
     };
@@ -51,9 +52,7 @@ async fn test_mock_event_processors() -> Result<(), DynError> {
     Ok(())
 }
 
-fn create_mock_event_processors(
-    shutdown_rx: Receiver<bool>,
-) -> HashMap<String, MockEventProcessor> {
+fn create_mock_event_processors() -> HashMap<String, MockEventProcessor> {
     use MockEventProcessorResult::*;
     [
         (HS_IDS[0], None, Success("Success finished!".into())),
@@ -68,7 +67,6 @@ fn create_mock_event_processors(
             homeserver_id: id.to_string(),
             timeout: timeout_sec.map(Duration::from_secs),
             processor_status: status,
-            shutdown_rx: shutdown_rx.clone(),
         };
         (id.to_string(), processor)
     })

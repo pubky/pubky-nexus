@@ -38,6 +38,11 @@ impl TEventProcessorFactory for MockEventProcessorFactory {
         }
     }
 
+    /// Returns the shutdown receiver for the event processor
+    fn shutdown_rx(&self) -> Receiver<bool> {
+        self.shutdown_rx.clone()
+    }
+
     /// Creates and returns a new event processor instance for the specified homeserver
     /// The ownership of the event processor is transferred to the caller
     async fn build(&self, homeserver_id: String) -> Result<Box<dyn TEventProcessor>, DynError> {
@@ -52,7 +57,6 @@ impl TEventProcessorFactory for MockEventProcessorFactory {
             processor.processor_status.clone(),
             processor.timeout.clone(),
             processor.homeserver_id.clone(),
-            self.shutdown_rx.clone(),
         )))
     }
 }
