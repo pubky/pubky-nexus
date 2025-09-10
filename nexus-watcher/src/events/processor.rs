@@ -28,7 +28,7 @@ impl TEventProcessor for EventProcessor {
     /// Runs the event processor. Polls events from the homeserver and processes them.
     /// # Returns:
     /// - `Result<(), DynError>`: The result of the event processing
-    async fn run(self: Box<Self>) -> Result<(), DynError> {
+    async fn run(self: Arc<Self>) -> Result<(), DynError> {
         let lines = {
             let tracer = global::tracer(self.tracer_name.clone());
             let span = tracer.start("Polling Events");

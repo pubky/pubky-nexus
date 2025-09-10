@@ -7,11 +7,12 @@ pub use processor::MockEventProcessor;
 pub use processor_factory::MockEventProcessorFactory;
 pub use setup::setup;
 
-use nexus_common::{models::homeserver::Homeserver, utils::create_shutdown_rx};
+use nexus_common::models::homeserver::Homeserver;
 use pubky::Keypair;
 use pubky_app_specs::PubkyId;
 pub use result::MockEventProcessorResult;
 use std::{collections::HashMap, time::Duration};
+use tokio::sync::watch::Receiver;
 
 /// Create a success result type
 pub fn success_result(message: &str) -> MockEventProcessorResult {
@@ -33,6 +34,7 @@ pub async fn create_random_homeservers_and_persist(
     event_processor_hashmap: &mut HashMap<String, MockEventProcessor>,
     timeout: Option<Duration>,
     processor_status: MockEventProcessorResult,
+    shutdown_rx: Receiver<bool>,
 ) {
     let homeserver_keypair = Keypair::random();
     let homeserver_public_key = homeserver_keypair.public_key().to_z32();
@@ -44,7 +46,7 @@ pub async fn create_random_homeservers_and_persist(
         homeserver_id: homeserver_public_key.clone(),
         timeout,
         processor_status,
-        shutdown_rx: create_shutdown_rx(),
+        shutdown_rx,
     };
     event_processor_hashmap.insert(homeserver_public_key.clone(), event_processor);
 }

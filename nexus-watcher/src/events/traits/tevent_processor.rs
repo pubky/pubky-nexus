@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use nexus_common::types::DynError;
 
 /// Asynchronous event processor interface for the Watcher service.
@@ -27,5 +29,5 @@ pub trait TEventProcessor: Send + Sync {
     ///   when it receives a shutdown signal.
     ///
     /// Returns `Ok(())` on a clean exit, or `Err(DynError)` on failure.
-    async fn run(self: Box<Self>) -> Result<(), DynError>;
+    async fn run(self: Arc<Self>) -> Result<(), DynError>;
 }

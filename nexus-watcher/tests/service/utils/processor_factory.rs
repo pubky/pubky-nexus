@@ -2,16 +2,14 @@ use crate::service::utils::processor::MockEventProcessor;
 use nexus_common::types::DynError;
 use nexus_watcher::events::{TEventProcessor, TEventProcessorFactory};
 use nexus_watcher::service::PROCESSING_TIMEOUT_SECS;
+use std::sync::Arc;
 use std::{collections::HashMap, time::Duration};
-use tokio::sync::watch::Receiver;
 
 /// Store processors as concrete MockEventProcessor instances.
 /// This allows access to the fields for testing purposes.
 pub struct MockEventProcessorFactory {
-    // TODO: In some point, we could use Box<dyn TEventProcessor> instead of MockEventProcessor
-    pub event_processors: HashMap<String, MockEventProcessor>,
+    pub event_processors: HashMap<String, Arc<MockEventProcessor>>,
     pub timeout: Option<Duration>,
-    pub shutdown_rx: Receiver<bool>,
 }
 
 impl MockEventProcessorFactory {
@@ -19,12 +17,15 @@ impl MockEventProcessorFactory {
     pub fn new(
         event_processors: HashMap<String, MockEventProcessor>,
         timeout: Option<Duration>,
-        shutdown_rx: Receiver<bool>,
     ) -> Self {
+        let arcs: HashMap<String, Arc<MockEventProcessor>> = event_processors
+            .into_iter()
+            .map(|(k, v)| (k, Arc::new(v)))
+            .collect();
+
         Self {
-            event_processors,
+            event_processors: arcs,
             timeout,
-            shutdown_rx,
         }
     }
 }
@@ -39,21 +40,16 @@ impl TEventProcessorFactory for MockEventProcessorFactory {
         }
     }
 
-    /// Creates and returns a new event processor instance for the specified homeserver
-    /// The ownership of the event processor is transferred to the caller
-    async fn build(&self, homeserver_id: String) -> Result<Box<dyn TEventProcessor>, DynError> {
-        let processor = self.event_processors.get(&homeserver_id).ok_or_else(|| {
-            DynError::from(format!(
-                "no MockEventProcessor found for homeserver_id: {}",
-                homeserver_id
-            ))
-        })?;
-        // Create a new event processor instance with the specified homeserver
-        Ok(Box::new(MockEventProcessor::new(
-            processor.processor_status.clone(),
-            processor.timeout.clone(),
-            processor.homeserver_id.clone(),
-            self.shutdown_rx.clone(),
-        )))
+    /// Returns the event processor for the specified homeserver.
+    ///
+    /// The mock event processor was pre-built and given to the mock factory on initialization, so this returns a reference to it.
+    async fn build(&self, homeserver_id: String) -> Result<Arc<dyn TEventProcessor>, DynError> {
+        let mock_event_processor = self
+            .event_processors
+            .get(&homeserver_id)
+            .cloned()
+            .ok_or(format!("No MockEventProcessor for HS ID: {homeserver_id}"))?;
+
+        Ok(mock_event_processor)
     }
 }

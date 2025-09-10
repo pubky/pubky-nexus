@@ -45,15 +45,14 @@ impl TEventProcessorFactory for EventProcessorFactory {
     }
 
     /// Creates and returns a new event processor instance for the specified homeserver
-    /// The ownership of the event processor is transferred to the caller
-    async fn build(&self, homeserver_id: String) -> Result<Box<dyn TEventProcessor>, DynError> {
-        let homeserver_id = PubkyId::try_from(&homeserver_id).map_err(DynError::from)?;
+    async fn build(&self, homeserver_id: String) -> Result<Arc<dyn TEventProcessor>, DynError> {
+        let homeserver_id = PubkyId::try_from(&homeserver_id)?;
         let homeserver = Homeserver::get_by_id(homeserver_id)
             .await?
             .ok_or("Homeserver not found")?;
 
         // Create a new event processor instance with the specified homeserver
-        Ok(Box::new(EventProcessor {
+        Ok(Arc::new(EventProcessor {
             homeserver,
             limit: self.limit,
             files_path: self.files_path.clone(),
