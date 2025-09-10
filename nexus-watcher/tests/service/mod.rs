@@ -1,4 +1,4 @@
+pub mod event_processing_multiple_homeservers;
 pub mod mock_event_processor;
-pub mod sequential_event_processing;
 pub mod signal;
 pub mod utils;

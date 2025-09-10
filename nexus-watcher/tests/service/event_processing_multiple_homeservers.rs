@@ -7,7 +7,7 @@ use nexus_watcher::events::TEventProcessorFactory;
 use std::time::Duration;
 
 #[tokio_shared_rt::test(shared)]
-async fn test_sequential_event_processing() -> Result<()> {
+async fn test_multiple_homeserver_event_processing() -> Result<()> {
     // Initialize the test
     let mut event_processor_hashmap = setup().await?;
 
@@ -35,7 +35,7 @@ async fn test_sequential_event_processing() -> Result<()> {
 }
 
 #[tokio_shared_rt::test(shared)]
-async fn test_sequential_event_processing_with_timeout() -> Result<()> {
+async fn test_multi_hs_event_processing_with_timeout() -> Result<()> {
     const EVENT_PROCESSOR_TIMEOUT: Option<Duration> = Some(Duration::from_secs(1));
     // Initialize the test
     let mut event_processor_hashmap = setup().await?;
@@ -60,8 +60,8 @@ async fn test_sequential_event_processing_with_timeout() -> Result<()> {
 
     let result = factory.run_all().await.unwrap();
 
-    assert_eq!(result.0, 1);
-    assert_eq!(result.1, 2);
+    assert_eq!(result.0, 1); // 1 success
+    assert_eq!(result.1, 2); // 2 failures due to timeout
 
     Ok(())
 }
