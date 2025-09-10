@@ -4,12 +4,10 @@ use crate::events::errors::EventProcessorError;
 use crate::events::retry::event::RetryEvent;
 use crate::events::TEventProcessor;
 use nexus_common::db::PubkyClient;
-use nexus_common::get_files_dir_test_pathbuf;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
 use opentelemetry::trace::{FutureExt, Span, TraceContextExt, Tracer};
 use opentelemetry::{global, Context, KeyValue};
-use pubky_app_specs::PubkyId;
 use std::error::Error;
 use std::path::PathBuf;
 use tokio::sync::watch::Receiver;
@@ -21,16 +19,15 @@ pub struct EventProcessor {
     pub files_path: PathBuf,
     pub tracer_name: String,
     pub moderation: Moderation,
+    pub shutdown_rx: Receiver<bool>,
 }
 
 #[async_trait::async_trait]
 impl TEventProcessor for EventProcessor {
     /// Runs the event processor. Polls events from the homeserver and processes them.
-    /// # Parameters:
-    /// - `shutdown_rx`: A receiver for the shutdown signal
     /// # Returns:
     /// - `Result<(), DynError>`: The result of the event processing
-    async fn run(self: Box<Self>, shutdown_rx: Receiver<bool>) -> Result<(), DynError> {
+    async fn run(self: Box<Self>) -> Result<(), DynError> {
         let lines = {
             let tracer = global::tracer(self.tracer_name.clone());
             let span = tracer.start("Polling Events");
@@ -48,7 +45,7 @@ impl TEventProcessor for EventProcessor {
             }
             Ok(Some(lines)) => {
                 info!("Processing {} event lines", lines.len());
-                self.process_event_lines(shutdown_rx, lines).await?;
+                self.process_event_lines(lines).await?;
             }
         }
 
@@ -103,13 +100,9 @@ impl EventProcessor {
     ///
     /// # Parameters
     /// - `lines`: A vector of strings representing event lines retrieved from the homeserver.
-    pub async fn process_event_lines(
-        &self,
-        shutdown_rx: Receiver<bool>,
-        lines: Vec<String>,
-    ) -> Result<(), DynError> {
+    pub async fn process_event_lines(&self, lines: Vec<String>) -> Result<(), DynError> {
         for line in &lines {
-            if *shutdown_rx.borrow() {
+            if *self.shutdown_rx.borrow() {
                 debug!(
                     "Shutdown detected in {:#?} homeserver, exiting event processing loop",
                     self.homeserver.id.to_string()
