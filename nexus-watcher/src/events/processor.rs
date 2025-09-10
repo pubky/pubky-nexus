@@ -57,6 +57,42 @@ impl TEventProcessor for EventProcessor {
 }
 
 impl EventProcessor {
+    /// Creates a new `EventProcessor` instance for testing purposes.
+    ///
+    /// This function initializes an `EventProcessor` configured with:
+    /// - A mock homeserver constructed using the provided `homeserver_url` and `homeserver_pubky`.
+    /// - A default configuration, including an HTTP client, a limit of 1000 events, and a sender channel.
+    ///
+    /// It is designed for use in integration tests, benchmarking scenarios, or other test environments
+    /// where a controlled and predictable `EventProcessor` instance is required.
+    ///
+    /// # Parameters
+    /// - `homeserver_id`: A `String` representing the URL of the homeserver to be used in the test environment.
+    /// - `tx`: A `RetryManagerSenderChannel` used to handle outgoing messages or events.
+    pub async fn test(homeserver_id: String) -> Self {
+        let id = PubkyId::try_from(&homeserver_id).expect("Homeserver ID should be valid");
+        let homeserver = Homeserver::new(id);
+
+        // hardcoded nexus-watcher/tests/utils/moderator_key.pkarr public key used by the moderator user on tests
+        let moderation = Moderation {
+            id: PubkyId::try_from("uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko")
+                .expect("Hardcoded test moderation key should be valid"),
+            tags: Vec::from(["label_to_moderate".to_string()]),
+        };
+
+        info!(
+            "Watcher static files PATH during tests are stored inside of the watcher crate: {:?}",
+            get_files_dir_test_pathbuf()
+        );
+        Self {
+            homeserver,
+            limit: 1000,
+            files_path: get_files_dir_test_pathbuf(),
+            tracer_name: String::from("watcher.test"),
+            moderation,
+        }
+    }
+
     /// Polls new events from the homeserver.
     ///
     /// It sends a GET request to the homeserver's events endpoint
