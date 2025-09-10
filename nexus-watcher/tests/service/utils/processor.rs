@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::service::utils::MockEventProcessorResult;
 use nexus_common::types::DynError;
 use nexus_watcher::events::errors::EventProcessorError;
@@ -12,25 +14,9 @@ pub struct MockEventProcessor {
     pub shutdown_rx: Receiver<bool>,
 }
 
-impl MockEventProcessor {
-    pub fn new(
-        processor_status: MockEventProcessorResult,
-        timeout: Option<Duration>,
-        homeserver_id: String,
-        shutdown_rx: Receiver<bool>,
-    ) -> Self {
-        Self {
-            processor_status,
-            timeout,
-            homeserver_id,
-            shutdown_rx,
-        }
-    }
-}
-
 #[async_trait::async_trait]
 impl TEventProcessor for MockEventProcessor {
-    async fn run(mut self: Box<Self>) -> Result<(), DynError> {
+    async fn run(self: Arc<Self>) -> Result<(), DynError> {
         // If shutdown was already requested, exit immediately so callers can count it
         if *self.shutdown_rx.borrow() {
             return Err(EventProcessorError::ShutdownRequested.into());
@@ -38,9 +24,10 @@ impl TEventProcessor for MockEventProcessor {
 
         // Simulate a timeout/long-running work if needed, but be responsive to shutdown
         if let Some(timeout) = self.timeout {
+            let mut shutdown_rx = self.shutdown_rx.clone();
             tokio::select! {
                 _ = tokio::time::sleep(timeout) => {},
-                _ = self.shutdown_rx.changed() => {
+                _ = shutdown_rx.changed() => {
                     return Err(EventProcessorError::ShutdownRequested.into());
                 }
             }

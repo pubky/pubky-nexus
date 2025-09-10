@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use crate::events::{errors::EventProcessorError, TEventProcessor};
 use nexus_common::{models::homeserver::Homeserver, types::DynError};
@@ -46,9 +46,8 @@ pub trait TEventProcessorFactory: Send + Sync {
     /// Returns `Ok(Box<dyn TEventProcessor>)` containing the newly created processor
     /// instance on success, or `Err(DynError)` if processor creation fails.
     ///
-    /// The returned processor is fully configured and ready to be executed with its
-    /// `run` method. Ownership of the processor is transferred to the caller.
-    async fn build(&self, homeserver_id: String) -> Result<Box<dyn TEventProcessor>, DynError>;
+    /// The returned processor is fully configured and ready to be executed with its `run` method.
+    async fn build(&self, homeserver_id: String) -> Result<Arc<dyn TEventProcessor>, DynError>;
 
     /// Runs event processors for all homeservers retrieved from the graph.
     ///
