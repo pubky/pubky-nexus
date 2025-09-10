@@ -29,7 +29,10 @@ type ProcessorResultType = Result<(u64, u64), DynError>;
 ///   don't share mutable state unless explicitly intended
 #[async_trait::async_trait]
 pub trait TEventProcessorFactory: Send + Sync {
-    /// Returns the timeout for the event processor
+    /// Returns the timeout duration for event processor execution.
+    ///
+    /// This timeout is applied to individual event processor `run()` operations
+    /// to prevent hanging or long-running processors from blocking the system
     fn timeout(&self) -> Duration;
 
     /// Creates and returns a new event processor instance for the specified homeserver.
@@ -47,6 +50,16 @@ pub trait TEventProcessorFactory: Send + Sync {
     /// `run` method. Ownership of the processor is transferred to the caller.
     async fn build(&self, homeserver_id: String) -> Result<Box<dyn TEventProcessor>, DynError>;
 
+    /// Runs event processors for all homeservers retrieved from the graph.
+    ///
+    /// This method iterates through all homeserver IDs stored in the graph database,
+    /// creates an event processor for each one, and executes them with timeout protection.
+    /// It tracks both successfully processed homeservers and those that were skipped
+    ///
+    /// # Returns
+    /// Returns `Ok((processed_count, skipped_count))` where:
+    /// - `processed_count`: Number of homeservers successfully processed
+    /// - `skipped_count`: Number of homeservers that failed, timed out, or were skipped
     async fn run_all(&self) -> ProcessorResultType {
         let hs_ids = Homeserver::get_all_from_graph()
             .await
@@ -82,6 +95,22 @@ pub trait TEventProcessorFactory: Send + Sync {
         Ok((processed_homeservers, skipped_homeservers))
     }
 
+    /// Runs an event processor for a specific homeserver.
+    ///
+    /// This method creates an event processor for the specified homeserver ID and
+    /// executes it with timeout protection
+    ///
+    /// # Parameters
+    /// * `hs_id` - The homeserver identifier as a string. Must be a valid PubkyId
+    ///   that exists in the system and can be processed by the factory.
+    ///
+    /// # Returns
+    /// Returns `Ok(())` if the processor completes successfully within the timeout,
+    /// or `Err(DynError)` if:
+    /// - The processor cannot be built for the given homeserver
+    /// - The processor fails during execution
+    /// - The processor times out
+    /// - A shutdown is requested (treated as an error in single-run mode)
     async fn run(&self, hs_id: String) -> Result<(), DynError> {
         let Ok(event_processor) = self.build(hs_id.clone()).await else {
             error!("Failed to build event processor for homeserver: {}", hs_id);
