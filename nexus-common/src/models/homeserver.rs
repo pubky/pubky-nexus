@@ -84,16 +84,17 @@ impl Homeserver {
         Ok(())
     }
 
-    /// Retrieves all homeservers from the graph
+    /// Retrieves all homeservers from the graph.
+    ///
+    /// # Returns
+    /// A list of all known homeserver IDs.
+    ///
+    /// # Errors
+    /// Throws an error if no homeservers are found.
     pub async fn get_all_from_graph() -> Result<Vec<String>, DynError> {
         let query = queries::get::get_all_homeservers();
-        let homeservers: Option<Vec<String>> =
-            fetch_key_from_graph(query, "homeservers_list").await?;
-
-        if homeservers.is_none() {
-            return Err("No homeservers found in graph".into());
-        }
-        Ok(homeservers.unwrap())
+        let homeservers = fetch_key_from_graph(query, "homeservers_list").await?;
+        homeservers.ok_or("No homeservers found in graph".into())
     }
 }
 
