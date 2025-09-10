@@ -3,7 +3,7 @@ use nexus_common::db::PubkyClient;
 use nexus_common::types::DynError;
 use pubky_app_specs::{ParsedUri, PubkyAppObject, Resource};
 use serde::{Deserialize, Serialize};
-use std::{fmt, path::PathBuf};
+use std::{fmt, path::PathBuf, sync::Arc};
 use tracing::debug;
 
 pub mod errors;
@@ -97,7 +97,7 @@ impl Event {
         }))
     }
 
-    pub async fn handle(self, moderation: &Moderation) -> Result<(), DynError> {
+    pub async fn handle(self, moderation: Arc<Moderation>) -> Result<(), DynError> {
         match self.event_type {
             EventType::Put => self.handle_put_event(moderation).await,
             EventType::Del => self.handle_del_event().await,
@@ -106,7 +106,7 @@ impl Event {
 
     /// Handles a PUT event by fetching the blob from the homeserver
     /// and using the importer to convert it to a PubkyAppObject.
-    pub async fn handle_put_event(self, moderation: &Moderation) -> Result<(), DynError> {
+    pub async fn handle_put_event(self, moderation: Arc<Moderation>) -> Result<(), DynError> {
         debug!("Handling PUT event for URI: {}", self.uri);
 
         let response;

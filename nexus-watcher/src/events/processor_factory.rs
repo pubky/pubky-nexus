@@ -5,6 +5,7 @@ use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
 use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch::Receiver;
 
@@ -14,7 +15,7 @@ pub struct EventProcessorFactory {
     pub limit: u32,
     pub files_path: PathBuf,
     pub tracer_name: String,
-    pub moderation: Moderation,
+    pub moderation: Arc<Moderation>,
     pub shutdown_rx: Receiver<bool>,
 }
 
@@ -25,10 +26,10 @@ impl EventProcessorFactory {
             limit: config.events_limit,
             files_path: config.stack.files_path.clone(),
             tracer_name: config.name.clone(),
-            moderation: Moderation {
+            moderation: Arc::new(Moderation {
                 id: config.moderation_id.clone(),
                 tags: config.moderated_tags.clone(),
-            },
+            }),
             shutdown_rx,
         }
     }

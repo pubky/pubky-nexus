@@ -3,7 +3,6 @@ mod constants;
 
 /// Module exports
 pub use constants::{MAX_CONCURRENT, PROCESSING_TIMEOUT_SECS, WATCHER_CONFIG_FILE_NAME};
-//pub use processor_scheduler::ProcessorScheduler;
 
 use crate::events::{EventProcessorFactory, TEventProcessorFactory};
 use crate::NexusWatcherBuilder;

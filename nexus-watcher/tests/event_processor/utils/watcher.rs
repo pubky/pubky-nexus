@@ -18,6 +18,7 @@ use pubky_app_specs::{
     traits::TimestampId, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser,
 };
 use pubky_testnet::EphemeralTestnet;
+use std::sync::Arc;
 use std::time::Duration;
 use tracing::debug;
 
@@ -54,8 +55,7 @@ impl WatcherTest {
     /// # Returns
     /// Returns a fully configured `EventProcessorFactory` ready for use in tests.
     fn create_test_event_processor_factory() -> EventProcessorFactory {
-        // hardcoded nexus-watcher/tests/utils/moderator_key.pkarr file contains the public key used by the moderator user on tests
-        let moderation = Moderation::default_tests();
+        let moderation = Arc::new(Moderation::default_tests());
 
         let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
@@ -341,17 +341,14 @@ impl WatcherTest {
 /// # Arguments
 /// * `event_line` - A string slice that represents the URI of the event to be retrieved
 ///   from the homeserver. It contains the event type and the homeserver uri
-pub async fn retrieve_and_handle_event_line(event_line: &str) -> Result<(), DynError> {
+pub async fn retrieve_and_handle_event_line(
+    event_line: &str,
+    moderation: Arc<Moderation>,
+) -> Result<(), DynError> {
     let event = Event::parse_event(event_line, get_files_dir_pathbuf()).unwrap_or_default();
 
-    // hardcoded tests/utils/moderator_key.pkarr file contains the public key used by the moderator user on tests
-    let moderation = Moderation {
-        id: PubkyId::try_from("uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko")?,
-        tags: Vec::from(["label_to_moderate".to_string()]),
-    };
-
     if let Some(event) = event {
-        event.clone().handle(&moderation).await?
+        event.clone().handle(moderation).await?
     }
 
     Ok(())

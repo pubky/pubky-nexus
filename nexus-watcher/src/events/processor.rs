@@ -10,6 +10,7 @@ use opentelemetry::trace::{FutureExt, Span, TraceContextExt, Tracer};
 use opentelemetry::{global, Context, KeyValue};
 use std::error::Error;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info};
 
@@ -18,7 +19,7 @@ pub struct EventProcessor {
     pub limit: u32,
     pub files_path: PathBuf,
     pub tracer_name: String,
-    pub moderation: Moderation,
+    pub moderation: Arc<Moderation>,
     pub shutdown_rx: Receiver<bool>,
 }
 
@@ -153,7 +154,7 @@ impl EventProcessor {
     /// # Parameters:
     /// - `event`: The event to be processed
     async fn handle_event(&self, event: &Event) -> Result<(), DynError> {
-        if let Err(e) = event.clone().handle(&self.moderation).await {
+        if let Err(e) = event.clone().handle(self.moderation.clone()).await {
             if let Some((index_key, retry_event)) = extract_retry_event_info(event, e) {
                 error!("{}, {}", retry_event.error_type, index_key);
                 if let Err(err) = retry_event.put_to_index(index_key).await {

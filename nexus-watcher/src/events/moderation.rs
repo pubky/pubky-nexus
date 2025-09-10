@@ -5,7 +5,6 @@ use nexus_common::types::DynError;
 use pubky_app_specs::{ParsedUri, PubkyAppTag, PubkyId, Resource};
 use tracing::info;
 
-#[derive(Clone)]
 pub struct Moderation {
     // Moderator trusted user id
     pub id: PubkyId,
