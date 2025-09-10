@@ -113,7 +113,6 @@ impl EventProcessor {
 
             if line.starts_with("cursor:") {
                 if let Some(cursor) = line.strip_prefix("cursor: ") {
-                    // TODO: Find other way to persist the cursor
                     Homeserver::from_cursor(self.homeserver.id.clone(), cursor.to_string())
                         .put_to_index()
                         .await?;

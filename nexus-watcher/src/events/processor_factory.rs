@@ -1,5 +1,6 @@
 use crate::events::{EventProcessor, Moderation};
 use crate::events::{TEventProcessor, TEventProcessorFactory};
+use crate::service::PROCESSING_TIMEOUT_SECS;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
@@ -40,7 +41,7 @@ impl TEventProcessorFactory for EventProcessorFactory {
     /// Returns the timeout for the event processor
     fn timeout(&self) -> Duration {
         // TODO: Set timeout maybe from the config file
-        Duration::from_secs(3600)
+        Duration::from_secs(PROCESSING_TIMEOUT_SECS)
     }
 
     /// Creates and returns a new event processor instance for the specified homeserver

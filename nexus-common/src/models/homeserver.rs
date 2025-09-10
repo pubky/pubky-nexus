@@ -26,7 +26,7 @@ impl Homeserver {
         }
     }
 
-    /// Mutates the cursor of the homeserver
+    /// Creates a new homeserver instance with the specified cursor
     pub fn from_cursor(id: PubkyId, cursor: String) -> Self {
         Homeserver { id, cursor }
     }

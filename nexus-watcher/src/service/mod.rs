@@ -1,5 +1,4 @@
 mod constants;
-//mod processor_scheduler;
 
 /// Module exports
 pub use constants::{MAX_CONCURRENT, PROCESSING_TIMEOUT_SECS, WATCHER_CONFIG_FILE_NAME};

@@ -1,6 +1,7 @@
 use crate::service::utils::processor::MockEventProcessor;
 use nexus_common::types::DynError;
 use nexus_watcher::events::{TEventProcessor, TEventProcessorFactory};
+use nexus_watcher::service::PROCESSING_TIMEOUT_SECS;
 use std::{collections::HashMap, time::Duration};
 use tokio::sync::watch::Receiver;
 
@@ -34,7 +35,7 @@ impl TEventProcessorFactory for MockEventProcessorFactory {
     fn timeout(&self) -> Duration {
         match self.timeout {
             Some(timeout) => timeout,
-            None => Duration::from_secs(3600),
+            None => Duration::from_secs(PROCESSING_TIMEOUT_SECS),
         }
     }
 
