@@ -27,8 +27,11 @@ impl Homeserver {
     }
 
     /// Creates a new homeserver instance with the specified cursor
-    pub fn from_cursor(id: PubkyId, cursor: String) -> Self {
-        Homeserver { id, cursor }
+    pub fn from_cursor<T: Into<String>>(id: PubkyId, cursor: T) -> Self {
+        Homeserver {
+            id,
+            cursor: cursor.into(),
+        }
     }
 
     /// Stores this homeserver in the graph.

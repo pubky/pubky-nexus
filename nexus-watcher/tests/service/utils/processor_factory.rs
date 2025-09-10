@@ -4,12 +4,14 @@ use nexus_watcher::events::{TEventProcessor, TEventProcessorFactory};
 use nexus_watcher::service::PROCESSING_TIMEOUT_SECS;
 use std::sync::Arc;
 use std::{collections::HashMap, time::Duration};
+use tokio::sync::watch::Receiver;
 
 /// Store processors as concrete MockEventProcessor instances.
 /// This allows access to the fields for testing purposes.
 pub struct MockEventProcessorFactory {
     pub event_processors: HashMap<String, Arc<MockEventProcessor>>,
     pub timeout: Option<Duration>,
+    pub shutdown_rx: Receiver<bool>,
 }
 
 impl MockEventProcessorFactory {
@@ -17,6 +19,7 @@ impl MockEventProcessorFactory {
     pub fn new(
         event_processors: HashMap<String, MockEventProcessor>,
         timeout: Option<Duration>,
+        shutdown_rx: Receiver<bool>,
     ) -> Self {
         let arcs: HashMap<String, Arc<MockEventProcessor>> = event_processors
             .into_iter()
@@ -26,6 +29,7 @@ impl MockEventProcessorFactory {
         Self {
             event_processors: arcs,
             timeout,
+            shutdown_rx,
         }
     }
 }
@@ -38,6 +42,10 @@ impl TEventProcessorFactory for MockEventProcessorFactory {
             Some(timeout) => timeout,
             None => Duration::from_secs(PROCESSING_TIMEOUT_SECS),
         }
+    }
+
+    fn shutdown_rx(&self) -> Receiver<bool> {
+        self.shutdown_rx.clone()
     }
 
     /// Returns the event processor for the specified homeserver.

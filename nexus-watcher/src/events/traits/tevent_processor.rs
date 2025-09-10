@@ -20,13 +20,7 @@ use nexus_common::types::DynError;
 ///   different processor implementations
 #[async_trait::async_trait]
 pub trait TEventProcessor: Send + Sync {
-    /// Runs the event processor asynchronously, consuming the processor instance.
-    ///
-    /// # Parameters
-    /// * `self` - The processor instance, consumed by this method (takes ownership)
-    /// * `shutdown_rx` - A watch channel receiver that signals when the processor should
-    ///   shut down. The processor should check this channel regularly and terminate
-    ///   when it receives a shutdown signal.
+    /// Runs the event processor asynchronously.
     ///
     /// Returns `Ok(())` on a clean exit, or `Err(DynError)` on failure.
     async fn run(self: Arc<Self>) -> Result<(), DynError>;

@@ -34,7 +34,7 @@ async fn test_multiple_homeserver_event_processing() -> Result<()> {
     )
     .await;
 
-    let factory = MockEventProcessorFactory::new(event_processor_hashmap, None);
+    let factory = MockEventProcessorFactory::new(event_processor_hashmap, None, shutdown_rx);
 
     let result = factory.run_all().await.unwrap();
 
@@ -63,7 +63,11 @@ async fn test_multi_hs_event_processing_with_timeout() -> Result<()> {
         .await;
     }
 
-    let factory = MockEventProcessorFactory::new(event_processor_hashmap, EVENT_PROCESSOR_TIMEOUT);
+    let factory = MockEventProcessorFactory::new(
+        event_processor_hashmap,
+        EVENT_PROCESSOR_TIMEOUT,
+        shutdown_rx,
+    );
 
     let result = factory.run_all().await.unwrap();
 

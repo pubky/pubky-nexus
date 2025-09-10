@@ -20,7 +20,7 @@ const TIMEOUT: Duration = Duration::from_secs(2);
 async fn test_mock_event_processors() -> Result<(), DynError> {
     let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     let mock_processors = create_mock_event_processors(shutdown_rx.clone());
-    let factory = MockEventProcessorFactory::new(mock_processors, Some(TIMEOUT));
+    let factory = MockEventProcessorFactory::new(mock_processors, Some(TIMEOUT), shutdown_rx);
 
     // Test successful event processor
     let processor = factory.build(HS_IDS[0].to_string()).await?;
