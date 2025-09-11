@@ -64,7 +64,7 @@ pub trait TEventProcessorFactory: Send + Sync {
     async fn run_all(&self) -> RunAllProcessorsResult {
         let hs_ids = Homeserver::get_all_from_graph()
             .await
-            .expect("No Homeserver IDs found in graph");
+            .inspect_err(|e| error!("{e}"))?;
 
         let mut count_ok = 0;
         let mut count_error = 0;
