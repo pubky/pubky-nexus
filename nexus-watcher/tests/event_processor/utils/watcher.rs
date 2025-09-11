@@ -22,6 +22,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::debug;
 
+use crate::event_processor::utils::default_moderation_tests;
+
 /// Struct to hold the setup environment for tests
 pub struct WatcherTest {
     /// We keep the testnet instance to prevent it from being dropped while the tests are running
@@ -55,7 +57,7 @@ impl WatcherTest {
     /// # Returns
     /// Returns a fully configured `EventProcessorFactory` ready for use in tests.
     fn create_test_event_processor_factory() -> EventProcessorFactory {
-        let moderation = Arc::new(Moderation::default_tests());
+        let moderation = Arc::new(default_moderation_tests());
 
         let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
