@@ -63,10 +63,10 @@ fn create_mock_event_processors(
         (HS_IDS[4], Some(1), Success("Success finished!".into())),
     ]
     .into_iter()
-    .map(|(id, timeout_sec, status)| {
+    .map(|(id, sleep_duration_sec, status)| {
         let processor = MockEventProcessor {
             homeserver_id: id.to_string(),
-            timeout: timeout_sec.map(Duration::from_secs),
+            sleep_duration: sleep_duration_sec.map(Duration::from_secs),
             processor_status: status,
             shutdown_rx: shutdown_rx.clone(),
         };
