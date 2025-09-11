@@ -6,7 +6,7 @@ use nexus_common::{
     db::{PubkyClient, RedisOps},
     models::{post::PostCounts, user::UserCounts},
 };
-use nexus_watcher::events::TEventProcessorFactory;
+use nexus_watcher::service::TEventProcessorFactory;
 use pubky::Keypair;
 use pubky_app_specs::{
     traits::HashId, PubkyAppBookmark, PubkyAppMute, PubkyAppPost, PubkyAppPostKind, PubkyAppTag,

@@ -1,9 +1,14 @@
 mod constants;
+mod processor;
+mod processor_factory;
+mod traits;
 
 /// Module exports
 pub use constants::{MAX_CONCURRENT, PROCESSING_TIMEOUT_SECS, WATCHER_CONFIG_FILE_NAME};
+pub use processor::EventProcessor;
+pub use processor_factory::EventProcessorFactory;
+pub use traits::{TEventProcessor, TEventProcessorFactory};
 
-use crate::events::{EventProcessorFactory, TEventProcessorFactory};
 use crate::NexusWatcherBuilder;
 use nexus_common::file::ConfigLoader;
 use nexus_common::models::homeserver::Homeserver;

@@ -2,7 +2,7 @@ use crate::service::utils::{
     create_random_homeservers_and_persist, setup, success_result, MockEventProcessorFactory,
 };
 use anyhow::Result;
-use nexus_watcher::events::TEventProcessorFactory;
+use nexus_watcher::service::TEventProcessorFactory;
 use std::time::Duration;
 use tokio::time::sleep;
 

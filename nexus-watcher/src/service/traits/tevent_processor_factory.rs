@@ -1,9 +1,10 @@
 use std::{sync::Arc, time::Duration};
 
-use crate::events::TEventProcessor;
 use nexus_common::{models::homeserver::Homeserver, types::DynError};
 use tokio::{sync::watch::Receiver, time::timeout};
 use tracing::{error, info};
+
+use crate::service::traits::TEventProcessor;
 
 /// The type that describes the result of an event processor run
 type RunAllProcessorsResult = Result<(u64, u64), DynError>;

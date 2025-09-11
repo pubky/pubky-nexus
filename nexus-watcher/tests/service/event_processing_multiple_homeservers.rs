@@ -3,7 +3,7 @@ use crate::service::utils::{
     MockEventProcessorFactory,
 };
 use anyhow::Result;
-use nexus_watcher::events::TEventProcessorFactory;
+use nexus_watcher::service::TEventProcessorFactory;
 use std::time::Duration;
 
 #[tokio_shared_rt::test(shared)]

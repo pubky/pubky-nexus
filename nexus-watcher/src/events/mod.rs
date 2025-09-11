@@ -9,15 +9,9 @@ use tracing::debug;
 pub mod errors;
 pub mod handlers;
 mod moderation;
-mod processor;
-mod processor_factory;
 pub mod retry;
-mod traits;
 
 pub use moderation::Moderation;
-pub use processor::EventProcessor;
-pub use processor_factory::EventProcessorFactory;
-pub use traits::{TEventProcessor, TEventProcessorFactory};
 
 // Look for the end pattern after the start index, or use the end of the string if not found
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
