@@ -8,7 +8,8 @@ use tokio::time::Duration;
 
 pub struct MockEventProcessor {
     pub processor_status: MockEventProcessorResult,
-    pub timeout: Option<Duration>,
+    /// If set, this mock processor will return successfully after waiting for this amount of time
+    pub sleep_duration: Option<Duration>,
     pub homeserver_id: String,
     pub shutdown_rx: Receiver<bool>,
 }
@@ -16,12 +17,12 @@ pub struct MockEventProcessor {
 #[async_trait::async_trait]
 impl TEventProcessor for MockEventProcessor {
     async fn run(self: Arc<Self>) -> Result<(), DynError> {
-        // Simulate a timeout/long-running work if needed, but be responsive to shutdown
+        // Simulate a long-running task if needed, but be responsive to shutdown
         // This simulates the processing of event lines, which can take a while but can be interrupted by the shutdown signal
-        if let Some(timeout) = self.timeout {
+        if let Some(sleep_duration) = self.sleep_duration {
             let mut shutdown_rx = self.shutdown_rx.clone();
             tokio::select! {
-                _ = tokio::time::sleep(timeout) => {},
+                _ = tokio::time::sleep(sleep_duration) => {},
                 _ = shutdown_rx.changed() => {
                     return Ok(());
                 }

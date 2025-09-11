@@ -32,7 +32,7 @@ pub fn _panic_result() -> MockEventProcessorResult {
 // Create a random homeserver and add it to the event processor hashmap
 pub async fn create_random_homeservers_and_persist(
     event_processor_hashmap: &mut HashMap<String, MockEventProcessor>,
-    timeout: Option<Duration>,
+    sleep_duration: Option<Duration>,
     processor_status: MockEventProcessorResult,
     shutdown_rx: Receiver<bool>,
 ) {
@@ -44,7 +44,7 @@ pub async fn create_random_homeservers_and_persist(
 
     let event_processor = MockEventProcessor {
         homeserver_id: homeserver_public_key.clone(),
-        timeout,
+        sleep_duration,
         processor_status,
         shutdown_rx,
     };
