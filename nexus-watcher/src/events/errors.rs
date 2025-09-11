@@ -21,9 +21,6 @@ pub enum EventProcessorError {
     /// The Pubky client could not resolve the pubky
     #[error("PubkyClientError: {message}")]
     PubkyClientError { message: String },
-    /// Graceful shutdown requested (not a failure; used to stop the event processor)
-    #[error("ShutdownRequested: Graceful shutdown requested")]
-    ShutdownRequested,
 }
 
 impl EventProcessorError {

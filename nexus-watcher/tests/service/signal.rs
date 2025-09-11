@@ -24,7 +24,7 @@ async fn test_shutdown_signal() -> Result<()> {
         .await;
     }
 
-    let factory = MockEventProcessorFactory::new(event_processor_hashmap, None);
+    let factory = MockEventProcessorFactory::new(event_processor_hashmap, None, shutdown_rx);
 
     // Schedule Ctrl-C simulation after 1s
     tokio::spawn({
@@ -37,8 +37,10 @@ async fn test_shutdown_signal() -> Result<()> {
 
     let result = factory.run_all().await.unwrap();
 
-    assert_eq!(result.0, 1); // 1 processor succeeds, because it finishes before the signal
-    assert_eq!(result.1, 2); // 2 processors fail, because the signal is received before they finish
+    // We created 3 HSs, each with different execution durations (0s, 2s, 4s)
+    // We triggered the shutdown signal 1s after start
+    assert_eq!(result.0, 2); // 2 processors run without errors (of the 3, the 3rd one didn't even start)
+    assert_eq!(result.1, 0); // no processors fail, because no erratic or unexpected behavior was triggered
 
     Ok(())
 }

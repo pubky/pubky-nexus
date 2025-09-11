@@ -1,12 +1,12 @@
 use std::{sync::Arc, time::Duration};
 
-use crate::events::{errors::EventProcessorError, TEventProcessor};
+use crate::events::TEventProcessor;
 use nexus_common::{models::homeserver::Homeserver, types::DynError};
-use tokio::time::timeout;
-use tracing::error;
+use tokio::{sync::watch::Receiver, time::timeout};
+use tracing::{error, info};
 
-/// The result type for the event processor factory
-type ProcessorResultType = Result<(u64, u64), DynError>;
+/// The type that describes the result of an event processor run
+type RunAllProcessorsResult = Result<(u64, u64), DynError>;
 
 /// Asynchronous factory for creating event processors in the Watcher service.
 ///
@@ -35,6 +35,8 @@ pub trait TEventProcessorFactory: Send + Sync {
     /// to prevent hanging or long-running processors from blocking the system
     fn timeout(&self) -> Duration;
 
+    fn shutdown_rx(&self) -> Receiver<bool>;
+
     /// Creates and returns a new event processor instance for the specified homeserver.
     ///
     /// # Parameters
@@ -56,42 +58,41 @@ pub trait TEventProcessorFactory: Send + Sync {
     /// It tracks both successfully processed homeservers and those that were skipped
     ///
     /// # Returns
-    /// Returns `Ok((processed_count, skipped_count))` where:
-    /// - `processed_count`: Number of homeservers successfully processed
-    /// - `skipped_count`: Number of homeservers that failed, timed out, or were skipped
-    async fn run_all(&self) -> ProcessorResultType {
+    /// Returns `Ok((count_ok, count_error))` where:
+    /// - `count_ok`: Number of homeservers where processing returned Ok
+    /// - `count_error`: Number of homeservers where processing failed with Err
+    async fn run_all(&self) -> RunAllProcessorsResult {
         let hs_ids = Homeserver::get_all_from_graph()
             .await
             .expect("No Homeserver IDs found in graph");
 
-        let mut processed_homeservers = 0;
-        let mut skipped_homeservers = 0;
+        let mut count_ok = 0;
+        let mut count_error = 0;
 
         for hs_id in hs_ids {
+            if *self.shutdown_rx().borrow() {
+                info!("Shutdown detected in homeserver {hs_id}, exiting run_all loop");
+                return Ok((count_ok, count_error));
+            }
+
             let Ok(event_processor) = self.build(hs_id.clone()).await else {
                 error!("Failed to build event processor for homeserver: {}", hs_id);
                 continue;
             };
             match timeout(self.timeout(), event_processor.run()).await {
-                Ok(Ok(_)) => processed_homeservers += 1,
+                Ok(Ok(_)) => count_ok += 1,
                 Ok(Err(e)) => {
-                    if let Some(EventProcessorError::ShutdownRequested) =
-                        e.as_ref().downcast_ref::<EventProcessorError>()
-                    {
-                        skipped_homeservers += 1;
-                        continue;
-                    }
                     error!("Event processor failed for {}: {:?}", hs_id, e);
-                    skipped_homeservers += 1;
+                    count_error += 1;
                 }
                 Err(_) => {
                     error!("Event processor timed out for {}", hs_id);
-                    skipped_homeservers += 1;
+                    count_error += 1;
                 }
             }
         }
 
-        Ok((processed_homeservers, skipped_homeservers))
+        Ok((count_ok, count_error))
     }
 
     /// Runs an event processor for a specific homeserver.
@@ -121,14 +122,6 @@ pub trait TEventProcessorFactory: Send + Sync {
         match timeout(self.timeout(), event_processor.run()).await {
             Ok(Ok(_)) => Ok(()),
             Ok(Err(e)) => {
-                if let Some(EventProcessorError::ShutdownRequested) =
-                    e.as_ref().downcast_ref::<EventProcessorError>()
-                {
-                    return Err(DynError::from(format!(
-                        "Event processor failed for {}: {:?}",
-                        hs_id, e
-                    )));
-                }
                 error!("Event processor failed for {}: {:?}", hs_id, e);
                 return Err(DynError::from(format!(
                     "Event processor failed for {}: {:?}",

@@ -25,28 +25,22 @@ pub struct EventProcessor {
 
 #[async_trait::async_trait]
 impl TEventProcessor for EventProcessor {
-    /// Runs the event processor. Polls events from the homeserver and processes them.
-    /// # Returns:
-    /// - `Result<(), DynError>`: The result of the event processing
     async fn run(self: Arc<Self>) -> Result<(), DynError> {
-        let lines = {
+        let maybe_event_lines = {
             let tracer = global::tracer(self.tracer_name.clone());
             let span = tracer.start("Polling Events");
             let cx = Context::new().with_span(span);
-            self.poll_events().with_context(cx).await
+            self.poll_events()
+                .with_context(cx)
+                .await
+                .inspect_err(|e| error!("Error polling events: {e:?}"))?
         };
 
-        match lines {
-            Err(e) => {
-                error!("Error polling events: {:?}", e);
-                return Err(e);
-            }
-            Ok(None) => {
-                info!("No new events");
-            }
-            Ok(Some(lines)) => {
-                info!("Processing {} event lines", lines.len());
-                self.process_event_lines(lines).await?;
+        match maybe_event_lines {
+            None => info!("No new events"),
+            Some(event_lines) => {
+                info!("Processing {} event lines", event_lines.len());
+                self.process_event_lines(event_lines).await?;
             }
         }
 
@@ -103,21 +97,16 @@ impl EventProcessor {
     /// - `lines`: A vector of strings representing event lines retrieved from the homeserver.
     pub async fn process_event_lines(&self, lines: Vec<String>) -> Result<(), DynError> {
         for line in &lines {
+            let id = self.homeserver.id.clone();
+
             if *self.shutdown_rx.borrow() {
-                debug!(
-                    "Shutdown detected in {:#?} homeserver, exiting event processing loop",
-                    self.homeserver.id.to_string()
-                );
-                return Err(EventProcessorError::ShutdownRequested.into());
+                debug!("Shutdown detected in homeserver {id}, exiting event processing loop");
+                return Ok(());
             }
 
-            if line.starts_with("cursor:") {
-                if let Some(cursor) = line.strip_prefix("cursor: ") {
-                    Homeserver::from_cursor(self.homeserver.id.clone(), cursor.to_string())
-                        .put_to_index()
-                        .await?;
-                    info!("Cursor for the next request: {}", cursor);
-                }
+            if let Some(cursor) = line.strip_prefix("cursor: ") {
+                Homeserver::from_cursor(id, cursor).put_to_index().await?;
+                info!("Cursor for the next request: {cursor}");
             } else {
                 let event = match Event::parse_event(line, self.files_path.clone()) {
                     Ok(event) => event,

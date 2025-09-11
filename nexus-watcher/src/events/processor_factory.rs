@@ -44,6 +44,10 @@ impl TEventProcessorFactory for EventProcessorFactory {
         Duration::from_secs(PROCESSING_TIMEOUT_SECS)
     }
 
+    fn shutdown_rx(&self) -> Receiver<bool> {
+        self.shutdown_rx.clone()
+    }
+
     /// Creates and returns a new event processor instance for the specified homeserver
     async fn build(&self, homeserver_id: String) -> Result<Arc<dyn TEventProcessor>, DynError> {
         let homeserver_id = PubkyId::try_from(&homeserver_id)?;
