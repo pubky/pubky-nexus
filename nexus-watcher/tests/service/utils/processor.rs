@@ -10,7 +10,6 @@ pub struct MockEventProcessor {
     pub processor_status: MockEventProcessorResult,
     /// If set, this mock processor will return successfully after waiting for this amount of time
     pub sleep_duration: Option<Duration>,
-    pub homeserver_id: String,
     pub shutdown_rx: Receiver<bool>,
 }
 

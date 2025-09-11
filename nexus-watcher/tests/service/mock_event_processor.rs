@@ -1,18 +1,11 @@
 use crate::service::utils::{
-    MockEventProcessor, MockEventProcessorFactory, MockEventProcessorResult,
+    MockEventProcessor, MockEventProcessorFactory, MockEventProcessorResult, HS_IDS,
 };
+use indexmap::IndexMap;
 use nexus_common::types::DynError;
 use nexus_watcher::service::TEventProcessorFactory;
-use std::{collections::HashMap, time::Duration};
+use std::time::Duration;
 use tokio::{sync::watch::Receiver, time::timeout};
-
-const HS_IDS: [&str; 5] = [
-    "1hb71xx9km3f4pw5izsy1gn19ff1uuuqonw4mcygzobwkryujoiy",
-    "8rsrmfrn1anbrzuxiffwy1174o58emf4qgbfk5h7s8a33r3bd8dy",
-    "984orjzbusofbqhsqz9axpez3uuwd3hbpqztd6rtx3pr78y9s1my",
-    "mamtihagiptrngan9y6cdj1xu7yb8yc7us9uerytaewc13ejqy9y",
-    "8x93apuue6kjyqosu1wp9xye45j9noq8y3pmuwmhfo3o95eimgoo",
-];
 
 const TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -53,7 +46,7 @@ async fn test_mock_event_processors() -> Result<(), DynError> {
 
 fn create_mock_event_processors(
     shutdown_rx: Receiver<bool>,
-) -> HashMap<String, MockEventProcessor> {
+) -> IndexMap<String, MockEventProcessor> {
     use MockEventProcessorResult::*;
     [
         (HS_IDS[0], None, Success("Success finished!".into())),
@@ -65,7 +58,6 @@ fn create_mock_event_processors(
     .into_iter()
     .map(|(id, sleep_duration_sec, status)| {
         let processor = MockEventProcessor {
-            homeserver_id: id.to_string(),
             sleep_duration: sleep_duration_sec.map(Duration::from_secs),
             processor_status: status,
             shutdown_rx: shutdown_rx.clone(),

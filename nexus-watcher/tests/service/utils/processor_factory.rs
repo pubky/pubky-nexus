@@ -1,14 +1,17 @@
 use crate::service::utils::processor::MockEventProcessor;
+use indexmap::IndexMap;
 use nexus_common::types::DynError;
 use nexus_watcher::service::{TEventProcessor, TEventProcessorFactory, PROCESSING_TIMEOUT_SECS};
 use std::sync::Arc;
-use std::{collections::HashMap, time::Duration};
+use std::time::Duration;
 use tokio::sync::watch::Receiver;
 
 /// Store processors as concrete MockEventProcessor instances.
 /// This allows access to the fields for testing purposes.
 pub struct MockEventProcessorFactory {
-    pub event_processors: HashMap<String, Arc<MockEventProcessor>>,
+    /// The event processors to be used by the factory
+    /// TODO: https://github.com/pubky/pubky-nexus/issues/564
+    pub event_processors: IndexMap<String, Arc<MockEventProcessor>>,
     pub timeout: Option<Duration>,
     pub shutdown_rx: Receiver<bool>,
 }
@@ -16,11 +19,11 @@ pub struct MockEventProcessorFactory {
 impl MockEventProcessorFactory {
     /// Creates a new factory instance from the provided event processors
     pub fn new(
-        event_processors: HashMap<String, MockEventProcessor>,
+        event_processors: IndexMap<String, MockEventProcessor>,
         timeout: Option<Duration>,
         shutdown_rx: Receiver<bool>,
     ) -> Self {
-        let arcs: HashMap<String, Arc<MockEventProcessor>> = event_processors
+        let arcs: IndexMap<String, Arc<MockEventProcessor>> = event_processors
             .into_iter()
             .map(|(k, v)| (k, Arc::new(v)))
             .collect();
@@ -43,6 +46,13 @@ impl TEventProcessorFactory for MockEventProcessorFactory {
 
     fn shutdown_rx(&self) -> Receiver<bool> {
         self.shutdown_rx.clone()
+    }
+
+    fn default_homeserver(&self) -> &str {
+        // Use first mock homeserver ID if available, otherwise fallback to mock constant
+        self.event_processors.keys().next()
+            .map(|s| s.as_str())
+            .unwrap_or("8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo")
     }
 
     /// Returns the event processor for the specified homeserver.

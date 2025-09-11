@@ -3,15 +3,16 @@ mod processor_factory;
 mod result;
 mod setup;
 
+use indexmap::IndexMap;
 pub use processor::MockEventProcessor;
 pub use processor_factory::MockEventProcessorFactory;
-pub use setup::setup;
+pub use setup::{setup, HS_IDS};
 
 use nexus_common::models::homeserver::Homeserver;
 use pubky::Keypair;
 use pubky_app_specs::PubkyId;
 pub use result::MockEventProcessorResult;
-use std::{collections::HashMap, time::Duration};
+use std::time::Duration;
 use tokio::sync::watch::Receiver;
 
 /// Create a success result type
@@ -31,7 +32,7 @@ pub fn _panic_result() -> MockEventProcessorResult {
 
 // Create a random homeserver and add it to the event processor hashmap
 pub async fn create_random_homeservers_and_persist(
-    event_processor_hashmap: &mut HashMap<String, MockEventProcessor>,
+    event_processor_hashmap: &mut IndexMap<String, MockEventProcessor>,
     sleep_duration: Option<Duration>,
     processor_status: MockEventProcessorResult,
     shutdown_rx: Receiver<bool>,
@@ -43,7 +44,6 @@ pub async fn create_random_homeservers_and_persist(
     Homeserver::persist_if_unknown(config_hs).await.unwrap();
 
     let event_processor = MockEventProcessor {
-        homeserver_id: homeserver_public_key.clone(),
         sleep_duration,
         processor_status,
         shutdown_rx,

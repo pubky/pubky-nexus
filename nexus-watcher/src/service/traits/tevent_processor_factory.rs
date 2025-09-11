@@ -38,6 +38,10 @@ pub trait TEventProcessorFactory: Send + Sync {
 
     fn shutdown_rx(&self) -> Receiver<bool>;
 
+    /// Returns the default homeserver ID for this factory.
+    /// This is used to prioritize the default homeserver when processing multiple homeservers.
+    fn default_homeserver(&self) -> &str;
+
     /// Creates and returns a new event processor instance for the specified homeserver.
     ///
     /// # Parameters
@@ -63,10 +67,9 @@ pub trait TEventProcessorFactory: Send + Sync {
     /// - `count_ok`: Number of homeservers where processing returned Ok
     /// - `count_error`: Number of homeservers where processing failed with Err
     async fn run_all(&self) -> RunAllProcessorsResult {
-        let hs_ids = Homeserver::get_all_from_graph()
-            .await
-            .expect("No Homeserver IDs found in graph");
+        let hs_ids = self.prioritize_default_homeserver().await;
 
+        // Initialize counters for the number of homeservers that were processed successfully and those that failed
         let mut count_ok = 0;
         let mut count_error = 0;
 
@@ -94,6 +97,24 @@ pub trait TEventProcessorFactory: Send + Sync {
         }
 
         Ok((count_ok, count_error))
+    }
+
+    /// Returns homeserver IDs with the default homeserver prioritized at index 0
+    async fn prioritize_default_homeserver(&self) -> Vec<String> {
+        let mut hs_ids = Homeserver::get_all_from_graph()
+            .await
+            .expect("No Homeserver IDs found in graph");
+
+        // Move default homeserver to index 0 if it exists in the array to prioritize its processing
+        if let Some(default_pos) = hs_ids
+            .iter()
+            .position(|hs_id| hs_id == self.default_homeserver())
+        {
+            let default_hs = hs_ids.remove(default_pos);
+            hs_ids.insert(0, default_hs);
+        }
+
+        hs_ids
     }
 
     /// Runs an event processor for a specific homeserver.

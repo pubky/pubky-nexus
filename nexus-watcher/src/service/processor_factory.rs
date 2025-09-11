@@ -18,6 +18,8 @@ pub struct EventProcessorFactory {
     pub tracer_name: String,
     pub moderation: Arc<Moderation>,
     pub shutdown_rx: Receiver<bool>,
+    /// The default homeserver that the sync is done with
+    pub default_homeserver: PubkyId,
 }
 
 impl EventProcessorFactory {
@@ -32,6 +34,7 @@ impl EventProcessorFactory {
                 tags: config.moderated_tags.clone(),
             }),
             shutdown_rx,
+            default_homeserver: config.homeserver.clone(),
         }
     }
 }
@@ -46,6 +49,10 @@ impl TEventProcessorFactory for EventProcessorFactory {
 
     fn shutdown_rx(&self) -> Receiver<bool> {
         self.shutdown_rx.clone()
+    }
+
+    fn default_homeserver(&self) -> &str {
+        &self.default_homeserver
     }
 
     /// Creates and returns a new event processor instance for the specified homeserver

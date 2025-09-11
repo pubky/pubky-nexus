@@ -56,7 +56,7 @@ impl WatcherTest {
     ///
     /// # Returns
     /// Returns a fully configured `EventProcessorFactory` ready for use in tests.
-    fn create_test_event_processor_factory() -> EventProcessorFactory {
+    fn create_test_event_processor_factory(default_homeserver: PubkyId) -> EventProcessorFactory {
         let moderation = Arc::new(default_moderation_tests());
 
         let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
@@ -67,6 +67,7 @@ impl WatcherTest {
             tracer_name: String::from("watcher.test"),
             moderation,
             shutdown_rx,
+            default_homeserver,
         }
     }
 
@@ -112,7 +113,7 @@ impl WatcherTest {
         }
 
         // Initialize the test-scoped EventProcessorFactory; mirrors the standard processor behavior
-        let event_processor_factory = Self::create_test_event_processor_factory();
+        let event_processor_factory = Self::create_test_event_processor_factory(pubky_id);
 
         Ok(Self {
             testnet,

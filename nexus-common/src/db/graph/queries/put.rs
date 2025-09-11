@@ -315,7 +315,7 @@ pub fn create_file(file: &FileDetails) -> Result<Query, DynError> {
 /// It will explicitly fail if the homeserver already exists.
 pub fn create_homeserver(homeserver_id: &str) -> Query {
     query(
-        "CREATE (hs:Homeserver {
+        "MERGE (hs:Homeserver {
           id: $id
         })
         RETURN hs;",
