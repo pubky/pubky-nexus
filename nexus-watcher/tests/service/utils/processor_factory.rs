@@ -36,12 +36,10 @@ impl MockEventProcessorFactory {
 
 #[async_trait::async_trait]
 impl TEventProcessorFactory for MockEventProcessorFactory {
-    /// Returns the timeout for the event processor
+    /// Returns the timeout applied for each event processor run
     fn timeout(&self) -> Duration {
-        match self.timeout {
-            Some(timeout) => timeout,
-            None => Duration::from_secs(PROCESSING_TIMEOUT_SECS),
-        }
+        self.timeout
+            .unwrap_or(Duration::from_secs(PROCESSING_TIMEOUT_SECS))
     }
 
     fn shutdown_rx(&self) -> Receiver<bool> {
