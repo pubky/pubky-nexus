@@ -2,7 +2,7 @@ use crate::service::utils::{
     MockEventProcessor, MockEventProcessorFactory, MockEventProcessorResult,
 };
 use nexus_common::types::DynError;
-use nexus_watcher::events::TEventProcessorFactory;
+use nexus_watcher::service::TEventProcessorFactory;
 use std::{collections::HashMap, time::Duration};
 use tokio::{sync::watch::Receiver, time::timeout};
 

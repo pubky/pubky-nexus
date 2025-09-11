@@ -1,8 +1,7 @@
-use super::moderation::Moderation;
-use super::Event;
 use crate::events::errors::EventProcessorError;
 use crate::events::retry::event::RetryEvent;
-use crate::events::TEventProcessor;
+use crate::events::{Event, Moderation};
+use crate::service::traits::TEventProcessor;
 use nexus_common::db::PubkyClient;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::service::utils::MockEventProcessorResult;
 use nexus_common::types::DynError;
-use nexus_watcher::events::TEventProcessor;
+use nexus_watcher::service::TEventProcessor;
 use tokio::sync::watch::Receiver;
 use tokio::time::Duration;
 

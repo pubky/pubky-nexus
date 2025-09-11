@@ -1,5 +1,6 @@
-use crate::events::{EventProcessor, Moderation};
-use crate::events::{TEventProcessor, TEventProcessorFactory};
+use crate::events::Moderation;
+use crate::service::processor::EventProcessor;
+use crate::service::traits::{TEventProcessor, TEventProcessorFactory};
 use crate::service::PROCESSING_TIMEOUT_SECS;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
@@ -10,7 +11,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch::Receiver;
 
-// TODO: Move to the service module. It seems to be out of place here.
 /// This implements the creation logic for [`EventProcessor`] objects
 pub struct EventProcessorFactory {
     pub limit: u32,
