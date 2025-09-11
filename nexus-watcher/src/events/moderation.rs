@@ -6,24 +6,10 @@ use pubky_app_specs::{ParsedUri, PubkyAppTag, PubkyId, Resource};
 use tracing::info;
 
 pub struct Moderation {
-    // Moderator trusted user id
+    /// Moderator trusted user id
     pub id: PubkyId,
-    // Tags to be moderated (tagged content is deleted)
+    /// Tags to be moderated (tagged content is deleted)
     pub tags: Vec<String>,
-}
-
-impl Moderation {
-    /// Default Moderation settings for tests
-    ///
-    /// # Note
-    /// This function is intended for testing purposes only.
-    pub fn default_tests() -> Self {
-        Moderation {
-            id: PubkyId::try_from("uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko")
-                .expect("Hardcoded test moderation key should be valid"),
-            tags: Vec::from(["label_to_moderate".to_string()]),
-        }
-    }
 }
 
 impl Moderation {
