@@ -99,7 +99,7 @@ impl EventProcessor {
             let id = self.homeserver.id.clone();
 
             if *self.shutdown_rx.borrow() {
-                debug!("Shutdown detected in homeserver {id}, exiting event processing loop");
+                debug!("Shutdown detected while processing HS {id}, exiting event processing loop");
                 return Ok(());
             }
 
