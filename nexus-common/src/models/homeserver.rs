@@ -96,8 +96,13 @@ impl Homeserver {
     /// Throws an error if no homeservers are found.
     pub async fn get_all_from_graph() -> Result<Vec<String>, DynError> {
         let query = queries::get::get_all_homeservers();
-        let homeservers = fetch_key_from_graph(query, "homeservers_list").await?;
-        homeservers.ok_or("No homeservers found in graph".into())
+        let maybe_hs_ids = fetch_key_from_graph(query, "homeservers_list").await?;
+        let hs_ids: Vec<String> = maybe_hs_ids.unwrap_or_default();
+
+        match hs_ids.is_empty() {
+            true => Err("No homeservers found in graph".into()),
+            false => Ok(hs_ids),
+        }
     }
 }
 
