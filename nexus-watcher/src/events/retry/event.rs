@@ -38,10 +38,21 @@ impl RetryEvent {
         }
     }
 
+    pub fn generate_index_key_v2(event_uri: &ParsedUri) -> String {
+        let user_id = &event_uri.user_id;
+        let event_resource = &event_uri.resource;
+
+        match event_uri.resource.id() {
+            Some(id) => format!("{user_id}:{event_resource}:{id}"),
+            None => format!("{user_id}:{event_resource}"),
+        }
+    }
+
     /// It processes a homeserver URI and extracts specific components to form a index key
     /// in the format `"{pubkyId}:{repository_model}:{event_id}"`
     /// # Parameters
     /// - `event_uri`: A string slice representing the event URI to be processed
+    // TODO Deprecate and / or replace with v2 where appropriate
     pub fn generate_index_key(event_uri: &str) -> Option<String> {
         let parsed_uri = match ParsedUri::try_from(event_uri) {
             Ok(parsed_uri) => parsed_uri,

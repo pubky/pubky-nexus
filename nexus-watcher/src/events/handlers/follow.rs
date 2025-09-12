@@ -1,5 +1,5 @@
 use crate::events::errors::EventProcessorError;
-use crate::events::retry::event::RetryEvent;
+use crate::events::handlers::utils::build_missing_dependency_err;
 use crate::handle_indexing_results;
 use nexus_common::db::kv::JsonAction;
 use nexus_common::db::OperationOutcome;
@@ -8,7 +8,7 @@ use nexus_common::models::notification::Notification;
 use nexus_common::models::user::UserCounts;
 
 use nexus_common::types::DynError;
-use pubky_app_specs::{user_uri_builder, PubkyId};
+use pubky_app_specs::PubkyId;
 use tracing::debug;
 
 pub async fn sync_put(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), DynError> {
@@ -19,12 +19,7 @@ pub async fn sync_put(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), 
         // Do not duplicate the follow relationship
         OperationOutcome::Updated => return Ok(()),
         OperationOutcome::MissingDependency => {
-            if let Some(key) =
-                RetryEvent::generate_index_key(&user_uri_builder(followee_id.to_string()))
-            {
-                let dependency = vec![key];
-                return Err(EventProcessorError::MissingDependency { dependency }.into());
-            }
+            return Err(build_missing_dependency_err(&followee_id))?
         }
         // The relationship did not exist, create all related indexes
         OperationOutcome::CreatedOrDeleted => {
