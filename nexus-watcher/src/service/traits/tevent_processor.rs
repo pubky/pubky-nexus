@@ -12,8 +12,6 @@ use nexus_common::types::DynError;
 /// boundaries, which is crucial for asynchronous event processing.
 ///
 /// # Implementation Notes
-/// - The `run` method consumes the processor instance (`Box<Self>`) to ensure exclusive
-///   ownership during execution
 /// - Implementors should regularly check the `shutdown_rx` channel for shutdown signals
 ///   and terminate gracefully when received
 /// - The method returns a `DynError` to allow for flexible error handling across

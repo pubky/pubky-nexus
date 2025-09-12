@@ -83,7 +83,7 @@ impl NexusWatcher {
         loop {
             tokio::select! {
                 _ = shutdown_rx.changed() => {
-                    info!("SIGINT received, starting graceful shutdown...");
+                    info!("SIGINT received, exiting Nexus Watcher loop");
                     break;
                 }
                 _ = interval.tick() => {

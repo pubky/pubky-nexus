@@ -36,13 +36,16 @@ pub trait TEventProcessorFactory: Send + Sync {
     /// to prevent hanging or long-running processors from blocking the system
     fn timeout(&self) -> Duration;
 
+    /// Returns the shutdown signal receiver
     fn shutdown_rx(&self) -> Receiver<bool>;
 
     /// Returns the default homeserver ID for this factory.
     /// This is used to prioritize the default homeserver when processing multiple homeservers.
     fn default_homeserver(&self) -> &str;
 
-    /// Returns the homeserver IDs with the default homeserver prioritized at index 0
+    /// Returns the homeserver IDs relevant for this run.
+    ///
+    /// Contains all homeserver IDs from the graph, with the default homeserver prioritized at index 0.
     async fn prioritize_default_homeserver(&self) -> Vec<String>;
 
     /// Creates and returns a new event processor instance for the specified homeserver.
@@ -61,9 +64,9 @@ pub trait TEventProcessorFactory: Send + Sync {
 
     /// Runs event processors for all homeservers retrieved from the graph.
     ///
-    /// This method iterates through all homeserver IDs stored in the graph database,
+    /// This method iterates through all homeserver IDs relevant for this run,
     /// creates an event processor for each one, and executes them with timeout protection.
-    /// It tracks both successfully processed homeservers and those that were skipped
+    /// It tracks both successfully processed homeservers and those that failed.
     ///
     /// # Returns
     /// Returns `Ok((count_ok, count_error))` where:
@@ -117,13 +120,11 @@ pub trait TEventProcessorFactory: Send + Sync {
     /// - The processor cannot be built for the given homeserver
     /// - The processor fails during execution
     /// - The processor times out
-    /// - A shutdown is requested (treated as an error in single-run mode)
     async fn run(&self, hs_id: String) -> Result<(), DynError> {
         let Ok(event_processor) = self.build(hs_id.clone()).await else {
             error!("Failed to build event processor for homeserver: {}", hs_id);
             return Err(DynError::from(format!(
-                "Failed to build event processor for homeserver: {}",
-                hs_id
+                "Failed to build event processor for homeserver: {hs_id}",
             )));
         };
         match timeout(self.timeout(), event_processor.run()).await {
@@ -131,15 +132,13 @@ pub trait TEventProcessorFactory: Send + Sync {
             Ok(Err(e)) => {
                 error!("Event processor failed for {}: {:?}", hs_id, e);
                 return Err(DynError::from(format!(
-                    "Event processor failed for {}: {:?}",
-                    hs_id, e
+                    "Event processor failed for {hs_id}: {e:?}",
                 )));
             }
             Err(_) => {
                 error!("Event processor timed out for {}", hs_id);
                 return Err(DynError::from(format!(
-                    "Event processor timed out for {}",
-                    hs_id
+                    "Event processor timed out for {hs_id}"
                 )));
             }
         }
