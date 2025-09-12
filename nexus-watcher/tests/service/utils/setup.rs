@@ -1,5 +1,3 @@
-use indexmap::IndexMap;
-
 use anyhow::{Error, Result};
 use nexus_watcher::service::NexusWatcher;
 
@@ -13,11 +11,11 @@ pub const HS_IDS: [&str; 5] = [
     "8x93apuue6kjyqosu1wp9xye45j9noq8y3pmuwmhfo3o95eimgoo",
 ];
 
-pub async fn setup() -> Result<IndexMap<String, MockEventProcessor>> {
+pub async fn setup() -> Result<Vec<MockEventProcessor>> {
     // Initialize the test stack
     if let Err(e) = NexusWatcher::builder().init_test_stack().await {
         return Err(Error::msg(format!("could not initialise the stack, {e:?}")));
     }
 
-    Ok(IndexMap::new())
+    Ok(Vec::new())
 }

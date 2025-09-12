@@ -1,11 +1,10 @@
 use crate::service::utils::{
-    MockEventProcessor, MockEventProcessorFactory, MockEventProcessorResult, HS_IDS,
+    create_mock_event_processors, MockEventProcessorFactory, HS_IDS
 };
-use indexmap::IndexMap;
 use nexus_common::types::DynError;
 use nexus_watcher::service::TEventProcessorFactory;
 use std::time::Duration;
-use tokio::{sync::watch::Receiver, time::timeout};
+use tokio::time::timeout;
 
 const TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -42,27 +41,4 @@ async fn test_mock_event_processors() -> Result<(), DynError> {
     };
 
     Ok(())
-}
-
-fn create_mock_event_processors(
-    shutdown_rx: Receiver<bool>,
-) -> IndexMap<String, MockEventProcessor> {
-    use MockEventProcessorResult::*;
-    [
-        (HS_IDS[0], None, Success("Success finished!".into())),
-        (HS_IDS[1], None, Error("Event processor error!".into())),
-        (HS_IDS[2], None, Panic()),
-        (HS_IDS[3], Some(3), Success("Success finished!".into())),
-        (HS_IDS[4], Some(1), Success("Success finished!".into())),
-    ]
-    .into_iter()
-    .map(|(id, sleep_duration_sec, status)| {
-        let processor = MockEventProcessor {
-            sleep_duration: sleep_duration_sec.map(Duration::from_secs),
-            processor_status: status,
-            shutdown_rx: shutdown_rx.clone(),
-        };
-        (id.to_string(), processor)
-    })
-    .collect()
 }

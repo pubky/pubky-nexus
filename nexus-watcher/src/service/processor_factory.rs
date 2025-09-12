@@ -55,6 +55,24 @@ impl TEventProcessorFactory for EventProcessorFactory {
         &self.default_homeserver
     }
 
+    /// Returns homeserver IDs with the default homeserver prioritized at index 0
+    async fn prioritize_default_homeserver(&self) -> Vec<String> {
+        let mut hs_ids = Homeserver::get_all_from_graph()
+            .await
+            .expect("No Homeserver IDs found in graph");
+
+        // Move default homeserver to index 0 if it exists in the array to prioritize its processing
+        if let Some(default_pos) = hs_ids
+            .iter()
+            .position(|hs_id| hs_id == self.default_homeserver())
+        {
+            let default_hs = hs_ids.remove(default_pos);
+            hs_ids.insert(0, default_hs);
+        }
+
+        hs_ids
+    }
+
     /// Creates and returns a new event processor instance for the specified homeserver
     async fn build(&self, homeserver_id: String) -> Result<Arc<dyn TEventProcessor>, DynError> {
         let homeserver_id = PubkyId::try_from(&homeserver_id)?;

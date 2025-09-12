@@ -1,5 +1,5 @@
 use crate::service::utils::processor::MockEventProcessor;
-use indexmap::IndexMap;
+use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
 use nexus_watcher::service::{TEventProcessor, TEventProcessorFactory, PROCESSING_TIMEOUT_SECS};
 use std::sync::Arc;
@@ -10,8 +10,7 @@ use tokio::sync::watch::Receiver;
 /// This allows access to the fields for testing purposes.
 pub struct MockEventProcessorFactory {
     /// The event processors to be used by the factory
-    /// TODO: https://github.com/pubky/pubky-nexus/issues/564
-    pub event_processors: IndexMap<String, Arc<MockEventProcessor>>,
+    pub event_processors: Vec<Arc<MockEventProcessor>>,
     pub timeout: Option<Duration>,
     pub shutdown_rx: Receiver<bool>,
 }
@@ -19,13 +18,13 @@ pub struct MockEventProcessorFactory {
 impl MockEventProcessorFactory {
     /// Creates a new factory instance from the provided event processors
     pub fn new(
-        event_processors: IndexMap<String, MockEventProcessor>,
+        event_processors: Vec<MockEventProcessor>,
         timeout: Option<Duration>,
         shutdown_rx: Receiver<bool>,
     ) -> Self {
-        let arcs: IndexMap<String, Arc<MockEventProcessor>> = event_processors
+        let arcs: Vec<Arc<MockEventProcessor>> = event_processors
             .into_iter()
-            .map(|(k, v)| (k, Arc::new(v)))
+            .map(|mock_event_processor| Arc::new(mock_event_processor))
             .collect();
 
         Self {
@@ -50,9 +49,29 @@ impl TEventProcessorFactory for MockEventProcessorFactory {
 
     fn default_homeserver(&self) -> &str {
         // Use first mock homeserver ID if available, otherwise fallback to mock constant
-        self.event_processors.keys().next()
-            .map(|s| s.as_str())
+        self.event_processors
+            .first()
+            .map(|s| s.homeserver_id.as_str())
             .unwrap_or("8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo")
+    }
+
+    /// Returns homeserver IDs with the insert order of the event processors
+    async fn prioritize_default_homeserver(&self) -> Vec<String> {
+        let persistedhs_ids = Homeserver::get_all_from_graph()
+            .await
+            .expect("No Homeserver IDs found in graph");
+
+        let mut hs_ids = vec![];
+
+        // Skip the homeserver IDs that are not part of the factory's event processors
+        for mock_event_processor in self.event_processors.iter() {
+            let hs_id = mock_event_processor.homeserver_id.clone();
+            if persistedhs_ids.contains(&hs_id) {
+                hs_ids.push(hs_id);
+            }
+        }
+
+        hs_ids
     }
 
     /// Returns the event processor for the specified homeserver.
@@ -61,7 +80,8 @@ impl TEventProcessorFactory for MockEventProcessorFactory {
     async fn build(&self, homeserver_id: String) -> Result<Arc<dyn TEventProcessor>, DynError> {
         let mock_event_processor = self
             .event_processors
-            .get(&homeserver_id)
+            .iter()
+            .find(|p| p.homeserver_id == homeserver_id)
             .cloned()
             .ok_or(format!("No MockEventProcessor for HS ID: {homeserver_id}"))?;
 

@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use nexus_common::{models::homeserver::Homeserver, types::DynError};
+use nexus_common::types::DynError;
 use tokio::{sync::watch::Receiver, time::timeout};
 use tracing::{error, info};
 
@@ -41,6 +41,9 @@ pub trait TEventProcessorFactory: Send + Sync {
     /// Returns the default homeserver ID for this factory.
     /// This is used to prioritize the default homeserver when processing multiple homeservers.
     fn default_homeserver(&self) -> &str;
+
+    /// Returns the homeserver IDs with the default homeserver prioritized at index 0
+    async fn prioritize_default_homeserver(&self) -> Vec<String>;
 
     /// Creates and returns a new event processor instance for the specified homeserver.
     ///
@@ -97,24 +100,6 @@ pub trait TEventProcessorFactory: Send + Sync {
         }
 
         Ok((count_ok, count_error))
-    }
-
-    /// Returns homeserver IDs with the default homeserver prioritized at index 0
-    async fn prioritize_default_homeserver(&self) -> Vec<String> {
-        let mut hs_ids = Homeserver::get_all_from_graph()
-            .await
-            .expect("No Homeserver IDs found in graph");
-
-        // Move default homeserver to index 0 if it exists in the array to prioritize its processing
-        if let Some(default_pos) = hs_ids
-            .iter()
-            .position(|hs_id| hs_id == self.default_homeserver())
-        {
-            let default_hs = hs_ids.remove(default_pos);
-            hs_ids.insert(0, default_hs);
-        }
-
-        hs_ids
     }
 
     /// Runs an event processor for a specific homeserver.

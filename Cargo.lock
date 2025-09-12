@@ -2599,7 +2599,6 @@ dependencies = [
  "async-trait",
  "chrono",
  "httpc-test",
- "indexmap",
  "neo4rs",
  "nexus-common",
  "opentelemetry",
