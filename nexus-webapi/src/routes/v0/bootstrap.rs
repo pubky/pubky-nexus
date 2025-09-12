@@ -51,7 +51,6 @@ pub async fn bootstrap_handler(
     ),
     responses(
         (status = 200, description = "Successfully added new homeserver"),
-        (status = 404, description = "No homeserver found with the specified PK"),
         (status = 500, description = "Internal server error")
     )
 )]
