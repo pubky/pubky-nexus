@@ -4,7 +4,7 @@ mod processor_factory;
 mod traits;
 
 /// Module exports
-pub use constants::{MAX_CONCURRENT, PROCESSING_TIMEOUT_SECS, WATCHER_CONFIG_FILE_NAME};
+pub use constants::{PROCESSING_TIMEOUT_SECS, WATCHER_CONFIG_FILE_NAME};
 pub use processor::EventProcessor;
 pub use processor_factory::EventProcessorFactory;
 pub use traits::{TEventProcessor, TEventProcessorFactory};
