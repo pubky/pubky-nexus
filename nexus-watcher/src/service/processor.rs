@@ -7,6 +7,7 @@ use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
 use opentelemetry::trace::{FutureExt, Span, TraceContextExt, Tracer};
 use opentelemetry::{global, Context, KeyValue};
+use pubky_app_specs::PubkyId;
 use std::error::Error;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -24,7 +25,11 @@ pub struct EventProcessor {
 
 #[async_trait::async_trait]
 impl TEventProcessor for EventProcessor {
-    async fn run(self: Arc<Self>) -> Result<(), DynError> {
+    fn get_homeserver_id(&self) -> PubkyId {
+        self.homeserver.id.clone()
+    }
+
+    async fn run_internal(self: Arc<Self>) -> Result<(), DynError> {
         let maybe_event_lines = {
             let tracer = global::tracer(self.tracer_name.clone());
             let span = tracer.start("Polling Events");

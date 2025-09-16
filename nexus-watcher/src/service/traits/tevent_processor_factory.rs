@@ -1,23 +1,31 @@
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use nexus_common::types::DynError;
-use tokio::{sync::watch::Receiver, time::timeout};
+use tokio::sync::watch::Receiver;
 use tracing::{error, info};
 
-use crate::service::traits::TEventProcessor;
+use crate::service::traits::{tevent_processor::RunError, TEventProcessor};
+
+#[derive(Default)]
+pub struct RunAllProcessorsStats {
+    /// Number of homeservers where processing were successful
+    pub count_ok: u16,
+    /// Number of homeservers where processing failed with Err
+    pub count_error: u16,
+    /// Number of homeservers where processing panicked
+    pub count_panic: u16,
+    /// Number of homeservers where processing timed out
+    pub count_timeout: u16,
+}
 
 /// The type that describes the result of an event processor run
-type RunAllProcessorsResult = Result<(u64, u64), DynError>;
+type RunAllProcessorsResult = Result<RunAllProcessorsStats, DynError>;
 
 /// Asynchronous factory for creating event processors in the Watcher service.
 ///
 /// This trait represents a component responsible for creating event processor instances
 /// for specific homeservers. It provides a standardized way to instantiate processors
 /// with the appropriate configuration and dependencies.
-///
-/// # Thread Safety
-/// Implementors must be `Send + Sync` to ensure they can be safely used across thread
-/// boundaries, which is essential for asynchronous factory operations.
 ///
 /// # Implementation Notes
 /// - The `build` method should create and return a fully configured event processor
@@ -29,13 +37,7 @@ type RunAllProcessorsResult = Result<(u64, u64), DynError>;
 /// - Implementors should ensure that created processors are properly isolated and
 ///   don't share mutable state unless explicitly intended
 #[async_trait::async_trait]
-pub trait TEventProcessorFactory: Send + Sync {
-    /// Returns the timeout duration for event processor execution.
-    ///
-    /// This timeout is applied to individual event processor `run()` operations
-    /// to prevent hanging or long-running processors from blocking the system
-    fn timeout(&self) -> Duration;
-
+pub trait TEventProcessorFactory {
     /// Returns the shutdown signal receiver
     fn shutdown_rx(&self) -> Receiver<bool>;
 
@@ -75,40 +77,33 @@ pub trait TEventProcessorFactory: Send + Sync {
     async fn run_all(&self) -> RunAllProcessorsResult {
         let hs_ids = self.homeservers_by_priority().await;
 
-        // Initialize counters for the number of homeservers that were processed successfully and those that failed
-        let mut count_ok = 0;
-        let mut count_error = 0;
+        let mut run_stats = RunAllProcessorsStats::default();
 
         for hs_id in hs_ids {
             if *self.shutdown_rx().borrow() {
                 info!("Shutdown detected in homeserver {hs_id}, exiting run_all loop");
-                return Ok((count_ok, count_error));
+                return Ok(run_stats);
             }
+
+            // TODO Re-use run() below, instead of separate build/run for each processor
 
             let Ok(event_processor) = self.build(hs_id.clone()).await else {
                 error!("Failed to build event processor for homeserver: {}", hs_id);
                 continue;
             };
-            match timeout(self.timeout(), event_processor.run()).await {
-                Ok(Ok(_)) => count_ok += 1,
-                Ok(Err(e)) => {
-                    error!("Event processor failed for {}: {:?}", hs_id, e);
-                    count_error += 1;
-                }
-                Err(_) => {
-                    error!("Event processor timed out for {}", hs_id);
-                    count_error += 1;
-                }
+
+            match event_processor.run().await {
+                Ok(_) => run_stats.count_ok += 1,
+                Err(RunError::Internal(_)) => run_stats.count_error += 1,
+                Err(RunError::Panicked) => run_stats.count_panic += 1,
+                Err(RunError::TimedOut) => run_stats.count_timeout += 1,
             }
         }
 
-        Ok((count_ok, count_error))
+        Ok(run_stats)
     }
 
-    /// Runs an event processor for a specific homeserver.
-    ///
-    /// This method creates an event processor for the specified homeserver ID and
-    /// executes it with timeout protection
+    /// Creates and runs an event processor for a specific homeserver.
     ///
     /// # Parameters
     /// * `hs_id` - The homeserver identifier as a string. Must be a valid PubkyId
@@ -120,27 +115,15 @@ pub trait TEventProcessorFactory: Send + Sync {
     /// - The processor cannot be built for the given homeserver
     /// - The processor fails during execution
     /// - The processor times out
-    async fn run(&self, hs_id: String) -> Result<(), DynError> {
+    async fn run(&self, hs_id: String) -> Result<(), RunError> {
         let Ok(event_processor) = self.build(hs_id.clone()).await else {
             error!("Failed to build event processor for homeserver: {}", hs_id);
-            return Err(DynError::from(format!(
+            // TODO This is not an accurate Err, as RunError indicates the run started, but this happens before run()
+            return Err(RunError::Internal(DynError::from(format!(
                 "Failed to build event processor for homeserver: {hs_id}",
-            )));
+            ))));
         };
-        match timeout(self.timeout(), event_processor.run()).await {
-            Ok(Ok(_)) => Ok(()),
-            Ok(Err(e)) => {
-                error!("Event processor failed for {}: {:?}", hs_id, e);
-                return Err(DynError::from(format!(
-                    "Event processor failed for {hs_id}: {e:?}",
-                )));
-            }
-            Err(_) => {
-                error!("Event processor timed out for {}", hs_id);
-                return Err(DynError::from(format!(
-                    "Event processor timed out for {hs_id}"
-                )));
-            }
-        }
+
+        event_processor.run().await
     }
 }

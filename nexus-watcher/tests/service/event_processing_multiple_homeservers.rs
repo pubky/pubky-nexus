@@ -1,9 +1,9 @@
-use crate::{service::utils::{
-    error_result, setup, success_result, create_random_homeservers_and_persist,
+use crate::service::utils::{
+    create_random_homeservers_and_persist, error_result, setup, success_result,
     MockEventProcessorFactory,
-}};
+};
 use anyhow::Result;
-use nexus_watcher::service::{TEventProcessorFactory};
+use nexus_watcher::service::TEventProcessorFactory;
 use std::time::Duration;
 
 #[tokio_shared_rt::test(shared)]
@@ -19,6 +19,7 @@ async fn test_multiple_homeserver_event_processing() -> Result<()> {
             &mut event_processor_list,
             None,
             processor_status,
+            None,
             shutdown_rx.clone(),
         )
         .await;
@@ -30,16 +31,17 @@ async fn test_multiple_homeserver_event_processing() -> Result<()> {
         &mut event_processor_list,
         None,
         processor_status,
+        None,
         shutdown_rx.clone(),
     )
     .await;
 
-    let factory = MockEventProcessorFactory::new(event_processor_list, None, shutdown_rx);
+    let factory = MockEventProcessorFactory::new(event_processor_list, shutdown_rx);
 
     let result = factory.run_all().await.unwrap();
 
-    assert_eq!(result.0, 3);
-    assert_eq!(result.1, 1);
+    assert_eq!(result.count_ok, 3);
+    assert_eq!(result.count_error, 1);
 
     Ok(())
 }
@@ -58,21 +60,18 @@ async fn test_multi_hs_event_processing_with_timeout() -> Result<()> {
             &mut event_processor_list,
             Some(Duration::from_secs(index * 2)),
             processor_status,
+            EVENT_PROCESSOR_TIMEOUT.clone(),
             shutdown_rx.clone(),
         )
         .await;
     }
 
-    let factory = MockEventProcessorFactory::new(
-        event_processor_list,
-        EVENT_PROCESSOR_TIMEOUT,
-        shutdown_rx,
-    );
+    let factory = MockEventProcessorFactory::new(event_processor_list, shutdown_rx);
 
     let result = factory.run_all().await.unwrap();
 
-    assert_eq!(result.0, 1); // 1 success
-    assert_eq!(result.1, 2); // 2 failures due to timeout
+    assert_eq!(result.count_ok, 1); // 1 success
+    assert_eq!(result.count_timeout, 2); // 2 failures due to timeout
 
     Ok(())
 }
