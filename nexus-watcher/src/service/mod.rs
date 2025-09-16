@@ -76,9 +76,7 @@ impl NexusWatcher {
         Homeserver::persist_if_unknown(config_hs).await?;
 
         let mut interval = tokio::time::interval(Duration::from_millis(config.watcher_sleep));
-        // TODO: Add another function to the trait to create the event processor factory
-        let event_processor_factory =
-            EventProcessorFactory::from_config(&config, shutdown_rx.clone());
+        let ev_processor_factory = EventProcessorFactory::from_config(&config, shutdown_rx.clone());
 
         loop {
             tokio::select! {
@@ -88,7 +86,7 @@ impl NexusWatcher {
                 }
                 _ = interval.tick() => {
                     info!("Indexing homeservers…");
-                    event_processor_factory.run_all().await?;
+                    ev_processor_factory.run_all().await?;
                 }
             }
         }
