@@ -56,7 +56,7 @@ impl TEventProcessorFactory for MockEventProcessorFactory {
     }
 
     /// Returns homeserver IDs with the insert order of the event processors
-    async fn prioritize_default_homeserver(&self) -> Vec<String> {
+    async fn homeservers_by_priority(&self) -> Vec<String> {
         let persistedhs_ids = Homeserver::get_all_from_graph()
             .await
             .expect("No Homeserver IDs found in graph");
