@@ -1,18 +1,17 @@
 use crate::events::errors::EventProcessorError;
 use crate::events::retry::event::RetryEvent;
 use crate::handle_indexing_results;
+use crate::service::HomeserverManager;
 use nexus_common::db::kv::{JsonAction, ScoreAction};
 use nexus_common::db::queries::get::post_is_safe_to_delete;
-use nexus_common::db::{exec_single_row, execute_graph_operation, OperationOutcome, PubkyClient};
+use nexus_common::db::{exec_single_row, execute_graph_operation, OperationOutcome};
 use nexus_common::db::{queries, RedisOps};
-use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::notification::{Notification, PostChangedSource, PostChangedType};
 use nexus_common::models::post::{
     PostCounts, PostDetails, PostRelationships, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS,
 };
-use nexus_common::models::user::{UserCounts, UserDetails};
+use nexus_common::models::user::UserCounts;
 use nexus_common::types::DynError;
-use pubky::PublicKey;
 use pubky_app_specs::{
     user_uri_builder, ParsedUri, PubkyAppPost, PubkyAppPostKind, PubkyId, Resource,
 };
@@ -44,7 +43,7 @@ pub async fn sync_put(
                     .unwrap_or_else(|| replied_to_uri.clone());
                 dependency_event_keys.push(reply_dependency);
 
-                if let Err(e) = maybe_ingest_homeserver_for_post(replied_to_uri).await {
+                if let Err(e) = HomeserverManager::maybe_ingest_for_post(replied_to_uri).await {
                     tracing::error!("Failed to ingest homeserver: {e}");
                 }
             }
@@ -54,7 +53,7 @@ pub async fn sync_put(
                     .unwrap_or_else(|| reposted_uri.clone());
                 dependency_event_keys.push(reply_dependency);
 
-                if let Err(e) = maybe_ingest_homeserver_for_post(reposted_uri).await {
+                if let Err(e) = HomeserverManager::maybe_ingest_for_post(reposted_uri).await {
                     tracing::error!("Failed to ingest homeserver: {e}");
                 }
             }
@@ -90,7 +89,7 @@ pub async fn sync_put(
     .await?;
 
     for mentioned_user_id in &post_relationships.mentioned {
-        if let Err(e) = maybe_ingest_homeserver_for_user(mentioned_user_id).await {
+        if let Err(e) = HomeserverManager::maybe_ingest_for_user(mentioned_user_id).await {
             tracing::error!("Failed to ingest homeserver: {e}");
         }
     }
@@ -476,46 +475,3 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
     Ok(())
 }
 
-/// If a referenced post is hosted on a new, unknown homeserver, this method triggers ingestion of that homeserver.
-///
-/// ### Arguments
-///
-/// - `referenced_post_uri`: The parent post (if current post is a reply to it), or a reposted post (if current post is a Repost)
-async fn maybe_ingest_homeserver_for_post(referenced_post_uri: &str) -> Result<(), DynError> {
-    let parsed_post_uri = ParsedUri::try_from(referenced_post_uri)?;
-    let ref_post_author_id = parsed_post_uri.user_id.as_str();
-
-    maybe_ingest_homeserver_for_user(ref_post_author_id).await
-}
-
-/// If a referenced user is using a new, unknown homeserver, this method triggers ingestion of that homeserver.
-///
-/// ### Arguments
-///
-/// - `referenced_user_uri`: The URI of the referenced user
-async fn maybe_ingest_homeserver_for_user(referenced_user_id: &str) -> Result<(), DynError> {
-    let pubky_client = PubkyClient::get()?;
-
-    if UserDetails::get_by_id(referenced_user_id).await?.is_some() {
-        tracing::debug!("Skipping homeserver ingestion: author {referenced_user_id} already known");
-        return Ok(());
-    }
-
-    let ref_post_author_pk = referenced_user_id.parse::<PublicKey>()?;
-    let Some(ref_post_author_hs) = pubky_client.get_homeserver(&ref_post_author_pk).await else {
-        tracing::warn!("Skipping homeserver ingestion: author {ref_post_author_pk} has no published homeserver");
-        return Ok(());
-    };
-
-    let hs_pk = PubkyId::try_from(&ref_post_author_hs)?;
-    if let Ok(Some(_)) = Homeserver::get_by_id(hs_pk.clone()).await {
-        tracing::warn!("Skipping homeserver ingestion: author {ref_post_author_pk} not yet known, but their homeserver is known");
-        return Ok(());
-    }
-
-    Homeserver::new(hs_pk.clone())
-        .put_to_graph()
-        .await
-        .inspect(|_| tracing::info!("Ingested homeserver {hs_pk}"))
-        .inspect_err(|e| tracing::error!("Failed to ingest homeserver {hs_pk}: {e}"))
-}
