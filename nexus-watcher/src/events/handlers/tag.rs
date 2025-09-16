@@ -198,7 +198,9 @@ async fn put_sync_user(
             match RetryEvent::generate_index_key(&user_uri_builder(tagged_user_id.to_string())) {
                 Some(key) => {
                     let dependency = vec![key];
-                    if let Err(e) = HomeserverManager::maybe_ingest_for_user(tagged_user_id.as_str()).await {
+                    if let Err(e) =
+                        HomeserverManager::maybe_ingest_for_user(tagged_user_id.as_str()).await
+                    {
                         tracing::error!("Failed to ingest homeserver: {e}");
                     }
                     Err(EventProcessorError::MissingDependency { dependency }.into())

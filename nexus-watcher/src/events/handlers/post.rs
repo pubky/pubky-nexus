@@ -474,4 +474,3 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
 
     Ok(())
 }
-

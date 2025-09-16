@@ -30,12 +30,15 @@ impl HomeserverManager {
         let pubky_client = PubkyClient::get()?;
 
         if UserDetails::get_by_id(referenced_user_id).await?.is_some() {
-            tracing::debug!("Skipping homeserver ingestion: author {referenced_user_id} already known");
+            tracing::debug!(
+                "Skipping homeserver ingestion: author {referenced_user_id} already known"
+            );
             return Ok(());
         }
 
         let ref_post_author_pk = referenced_user_id.parse::<PublicKey>()?;
-        let Some(ref_post_author_hs) = pubky_client.get_homeserver(&ref_post_author_pk).await else {
+        let Some(ref_post_author_hs) = pubky_client.get_homeserver(&ref_post_author_pk).await
+        else {
             tracing::warn!("Skipping homeserver ingestion: author {ref_post_author_pk} has no published homeserver");
             return Ok(());
         };
