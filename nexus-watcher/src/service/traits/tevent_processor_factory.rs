@@ -43,10 +43,10 @@ pub trait TEventProcessorFactory: Send + Sync {
     /// This is used to prioritize the default homeserver when processing multiple homeservers.
     fn default_homeserver(&self) -> &str;
 
-    /// Returns the homeserver IDs relevant for this run.
+    /// Returns the homeserver IDs relevant for this run, ordered by their priority.
     ///
     /// Contains all homeserver IDs from the graph, with the default homeserver prioritized at index 0.
-    async fn prioritize_default_homeserver(&self) -> Vec<String>;
+    async fn homeservers_by_priority(&self) -> Vec<String>;
 
     /// Creates and returns a new event processor instance for the specified homeserver.
     ///
@@ -73,7 +73,7 @@ pub trait TEventProcessorFactory: Send + Sync {
     /// - `count_ok`: Number of homeservers where processing returned Ok
     /// - `count_error`: Number of homeservers where processing failed with Err
     async fn run_all(&self) -> RunAllProcessorsResult {
-        let hs_ids = self.prioritize_default_homeserver().await;
+        let hs_ids = self.homeservers_by_priority().await;
 
         // Initialize counters for the number of homeservers that were processed successfully and those that failed
         let mut count_ok = 0;
