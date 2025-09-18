@@ -57,26 +57,20 @@ pub trait TEventProcessor: Send + Sync + 'static {
             .inspect_err(|_| error!("Event processor timed out for {hs_id}"))
             .map_err(|_| RunError::TimedOut)?;
 
-        match join_result {
-            Ok(run_internal_result) => match run_internal_result {
-                Ok(_) => Ok(()),
-                Err(e) => {
-                    error!("Event processor failed for {hs_id}: {e:?}");
-                    Err(RunError::Internal(e))
-                }
-            },
+        // The JoinError can be:
+        // - join_error.is_panic() => panic by the inner future
+        // - join_error.is_cancelled() => inner future was abruptly interrupted, for example
+        //   - JoinHandle::abort() is called on the handle
+        //   - the Tokio runtime is shut down
+        // In our model, we don't trigger such interruptions. Instead we use the shutdown signal
+        // to gracefully stop the event processing loop. Therefore we consider all JoinErrors as panics.
+        let run_internal_result = join_result
+            .inspect_err(|je| error!("JoinError while running event processor for {hs_id}: {je:?}"))
+            .map_err(|_| RunError::Panicked)?;
 
-            Err(join_error) => {
-                // The JoinError can be:
-                // - join_error.is_panic() => panic by the inner future
-                // - join_error.is_cancelled() => inner future was abruptly interrupted, for example
-                //   - JoinHandle::abort() is called on the handle
-                //   - the Tokio runtime is shut down
-
-                error!("JoinError while running event processor for {hs_id}: {join_error:?}");
-                Err(RunError::Panicked)
-            }
-        }
+        run_internal_result
+            .inspect_err(|e| error!("Event processor failed for {hs_id}: {e:?}"))
+            .map_err(|e| RunError::Internal(e))
     }
 
     /// Runs the event processor asynchronously.
