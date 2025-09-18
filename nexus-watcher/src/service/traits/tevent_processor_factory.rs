@@ -115,7 +115,7 @@ pub trait TEventProcessorFactory {
     /// - The processor cannot be built for the given homeserver
     /// - The processor fails during execution
     /// - The processor times out
-    async fn run(&self, hs_id: String) -> Result<(), RunError> {
+    async fn run_single(&self, hs_id: String) -> Result<(), RunError> {
         let Ok(event_processor) = self.build(hs_id.clone()).await else {
             error!("Failed to build event processor for homeserver: {}", hs_id);
             // TODO This is not an accurate Err, as RunError indicates the run started, but this happens before run()

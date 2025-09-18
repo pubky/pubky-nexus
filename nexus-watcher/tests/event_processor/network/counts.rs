@@ -268,7 +268,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
         for _ in 1..=100 {
             // Run the event processor
             test.event_processor_factory
-                .run(test.homeserver_id.clone())
+                .run_single(test.homeserver_id.clone())
                 .await
                 .map_err(|e| anyhow!(e))?;
         }
