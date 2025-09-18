@@ -12,30 +12,28 @@ async fn test_mock_event_processors() -> Result<(), DynError> {
     let factory = MockEventProcessorFactory::new(mock_processors, shutdown_rx);
 
     // Test successful event processor
-    let processor = factory.build(HS_IDS[0].to_string()).await?;
-    assert!(processor.run().await.is_ok());
+    let ev_processor_0 = factory.build(HS_IDS[0].to_string()).await?;
+    assert!(ev_processor_0.run().await.is_ok());
 
     // Test error event processor
-    let processor = factory.build(HS_IDS[1].to_string()).await?;
-    assert!(processor.run().await.is_err());
+    let ev_processor_1 = factory.build(HS_IDS[1].to_string()).await?;
+    assert!(ev_processor_1.run().await.is_err());
 
     // Test panic event processor
-    let processor = factory.build(HS_IDS[2].to_string()).await?;
-    let res = processor.run().await;
-    assert!(res.is_err() && res.unwrap_err().is_panic());
+    let ev_processor_2 = factory.build(HS_IDS[2].to_string()).await?;
+    let ev_processor_2_res = ev_processor_2.run().await;
+    assert!(ev_processor_2_res.is_err() && ev_processor_2_res.unwrap_err().is_panic());
 
     // Test timeout scenarios
-    let processor = factory.build(HS_IDS[3].to_string()).await?;
-    match processor.run().await {
-        Ok(_) => return Err(format!("Event processor should timeout after {TIMEOUT:?}s"))?,
-        Err(_) => {}
-    };
+    let ev_processor_3 = factory.build(HS_IDS[3].to_string()).await?;
+    let ev_processor_3_res = ev_processor_3.run().await;
+    assert!(ev_processor_3_res.is_err() && ev_processor_3_res.unwrap_err().is_timeout());
 
-    let processor = factory.build(HS_IDS[4].to_string()).await?;
-    match processor.run().await {
-        Ok(_) => {}
-        Err(_) => return Err(format!("Event processor should not timeout"))?,
-    };
+    let ev_processor_4 = factory.build(HS_IDS[4].to_string()).await?;
+    assert!(
+        ev_processor_4.run().await.is_ok(),
+        "Event processor should not timeout"
+    );
 
     Ok(())
 }

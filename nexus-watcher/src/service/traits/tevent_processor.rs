@@ -18,6 +18,10 @@ impl RunError {
     pub fn is_panic(&self) -> bool {
         matches!(self, RunError::Panicked)
     }
+
+    pub fn is_timeout(&self) -> bool {
+        matches!(self, RunError::TimedOut)
+    }
 }
 
 impl Display for RunError {
