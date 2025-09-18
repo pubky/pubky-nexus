@@ -85,8 +85,6 @@ pub trait TEventProcessorFactory {
                 return Ok(run_stats);
             }
 
-            // TODO Re-use run() below, instead of separate build/run for each processor
-
             let Ok(event_processor) = self.build(hs_id.clone()).await else {
                 error!("Failed to build event processor for homeserver: {}", hs_id);
                 continue;
@@ -101,29 +99,5 @@ pub trait TEventProcessorFactory {
         }
 
         Ok(run_stats)
-    }
-
-    /// Creates and runs an event processor for a specific homeserver.
-    ///
-    /// # Parameters
-    /// * `hs_id` - The homeserver identifier as a string. Must be a valid PubkyId
-    ///   that exists in the system and can be processed by the factory.
-    ///
-    /// # Returns
-    /// Returns `Ok(())` if the processor completes successfully within the timeout,
-    /// or `Err(DynError)` if:
-    /// - The processor cannot be built for the given homeserver
-    /// - The processor fails during execution
-    /// - The processor times out
-    async fn run_single(&self, hs_id: String) -> Result<(), RunError> {
-        let Ok(event_processor) = self.build(hs_id.clone()).await else {
-            error!("Failed to build event processor for homeserver: {}", hs_id);
-            // TODO This is not an accurate Err, as RunError indicates the run started, but this happens before run()
-            return Err(RunError::Internal(DynError::from(format!(
-                "Failed to build event processor for homeserver: {hs_id}",
-            ))));
-        };
-
-        event_processor.run().await
     }
 }
