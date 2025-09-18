@@ -47,7 +47,7 @@ pub trait TEventProcessor: Send + Sync + 'static {
     async fn run(self: Arc<Self>) -> Result<(), RunError> {
         let hs_id = self.get_homeserver_id().to_string();
         let timeout = self
-            .timeout()
+            .custom_timeout()
             .unwrap_or(Duration::from_secs(PROCESSING_TIMEOUT_SECS));
 
         let handle = tokio::spawn(self.run_internal());
@@ -78,10 +78,10 @@ pub trait TEventProcessor: Send + Sync + 'static {
     /// Returns `Ok(())` on a clean exit, or `Err(DynError)` on failure.
     async fn run_internal(self: Arc<Self>) -> Result<(), DynError>;
 
-    /// Optional custom timeout for this event processor execution.
+    /// Optional custom timeout for this event processor.
     ///
     /// If not set, the [`PROCESSING_TIMEOUT_SECS`] is applied.
-    fn timeout(&self) -> Option<Duration> {
+    fn custom_timeout(&self) -> Option<Duration> {
         None
     }
 }

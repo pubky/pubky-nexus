@@ -12,12 +12,11 @@ use tokio::time::Duration;
 pub struct MockEventProcessor {
     pub homeserver_id: PubkyId,
     /// Desired event processor status. In other words, the type of execution that `run` should simulate.
-    pub processor_status: MockEventProcessorResult,
+    processor_status: MockEventProcessorResult,
     /// If set, this mock processor will return successfully after waiting for this amount of time
-    pub sleep_duration: Option<Duration>,
-    /// A custom timeout for this event processor. If set, it overrides the globally defined one.
-    pub timeout: Option<Duration>,
-    pub shutdown_rx: Receiver<bool>,
+    sleep_duration: Option<Duration>,
+    custom_timeout: Option<Duration>,
+    shutdown_rx: Receiver<bool>,
 }
 
 #[async_trait::async_trait]
@@ -26,8 +25,8 @@ impl TEventProcessor for MockEventProcessor {
         self.homeserver_id.clone()
     }
 
-    fn timeout(&self) -> Option<Duration> {
-        self.timeout
+    fn custom_timeout(&self) -> Option<Duration> {
+        self.custom_timeout
     }
 
     async fn run_internal(self: Arc<Self>) -> Result<(), DynError> {
@@ -56,7 +55,7 @@ pub async fn create_random_homeservers_and_persist(
     event_processor_list: &mut Vec<MockEventProcessor>,
     sleep_duration: Option<Duration>,
     processor_status: MockEventProcessorResult,
-    timeout: Option<Duration>,
+    custom_timeout: Option<Duration>,
     shutdown_rx: Receiver<bool>,
 ) {
     let homeserver_keypair = Keypair::random();
@@ -71,7 +70,7 @@ pub async fn create_random_homeservers_and_persist(
         homeserver_id,
         sleep_duration,
         processor_status,
-        timeout,
+        custom_timeout,
         shutdown_rx,
     };
     event_processor_list.push(event_processor);
@@ -79,7 +78,7 @@ pub async fn create_random_homeservers_and_persist(
 
 /// Create a list of mock event processors
 pub fn create_mock_event_processors(
-    timeout: Option<Duration>,
+    custom_timeout: Option<Duration>,
     shutdown_rx: Receiver<bool>,
 ) -> Vec<MockEventProcessor> {
     use MockEventProcessorResult::*;
@@ -96,7 +95,7 @@ pub fn create_mock_event_processors(
             homeserver_id: PubkyId::try_from(homeserver_id).unwrap(),
             sleep_duration: sleep_duration_sec.map(Duration::from_secs),
             processor_status: status,
-            timeout: timeout.clone(),
+            custom_timeout: custom_timeout.clone(),
             shutdown_rx: shutdown_rx.clone(),
         },
     )
