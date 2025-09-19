@@ -75,4 +75,3 @@ async fn test_multi_hs_event_processing_with_timeout() -> Result<()> {
 
     Ok(())
 }
-
