@@ -74,8 +74,13 @@ async fn test_homeserver_tag_cannot_add_while_index() -> Result<()> {
     );
 
     // Build the event processor and run it to sync all the previous events with the event processor
+    // We do this because earlier, the factory's event processing has been turned off temporarily
+    // but at this point we are ready to run the event processing
     test.event_processor_factory
-        .run(test.homeserver_id.clone())
+        .build(test.homeserver_id.clone())
+        .await
+        .map_err(|e| anyhow!(e))?
+        .run()
         .await
         .map_err(|e| anyhow!(e))?;
 

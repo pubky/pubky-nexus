@@ -1,9 +1,8 @@
 use crate::service::utils::processor::MockEventProcessor;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
-use nexus_watcher::service::{TEventProcessor, TEventProcessorFactory, PROCESSING_TIMEOUT_SECS};
+use nexus_watcher::service::{TEventProcessor, TEventProcessorFactory};
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::watch::Receiver;
 
 /// Store processors as concrete MockEventProcessor instances.
@@ -11,17 +10,12 @@ use tokio::sync::watch::Receiver;
 pub struct MockEventProcessorFactory {
     /// The event processors to be used by the factory
     pub event_processors: Vec<Arc<MockEventProcessor>>,
-    pub timeout: Option<Duration>,
     pub shutdown_rx: Receiver<bool>,
 }
 
 impl MockEventProcessorFactory {
     /// Creates a new factory instance from the provided event processors
-    pub fn new(
-        event_processors: Vec<MockEventProcessor>,
-        timeout: Option<Duration>,
-        shutdown_rx: Receiver<bool>,
-    ) -> Self {
+    pub fn new(event_processors: Vec<MockEventProcessor>, shutdown_rx: Receiver<bool>) -> Self {
         let arcs: Vec<Arc<MockEventProcessor>> = event_processors
             .into_iter()
             .map(|mock_event_processor| Arc::new(mock_event_processor))
@@ -29,7 +23,6 @@ impl MockEventProcessorFactory {
 
         Self {
             event_processors: arcs,
-            timeout,
             shutdown_rx,
         }
     }
@@ -37,12 +30,6 @@ impl MockEventProcessorFactory {
 
 #[async_trait::async_trait]
 impl TEventProcessorFactory for MockEventProcessorFactory {
-    /// Returns the timeout applied for each event processor run
-    fn timeout(&self) -> Duration {
-        self.timeout
-            .unwrap_or(Duration::from_secs(PROCESSING_TIMEOUT_SECS))
-    }
-
     fn shutdown_rx(&self) -> Receiver<bool> {
         self.shutdown_rx.clone()
     }
@@ -65,7 +52,7 @@ impl TEventProcessorFactory for MockEventProcessorFactory {
 
         // Skip the homeserver IDs that are not part of the factory's event processors
         for mock_event_processor in self.event_processors.iter() {
-            let hs_id = mock_event_processor.homeserver_id.clone();
+            let hs_id = mock_event_processor.homeserver_id.to_string().clone();
             if persistedhs_ids.contains(&hs_id) {
                 hs_ids.push(hs_id);
             }
@@ -81,7 +68,7 @@ impl TEventProcessorFactory for MockEventProcessorFactory {
         let mock_event_processor = self
             .event_processors
             .iter()
-            .find(|p| p.homeserver_id == homeserver_id)
+            .find(|p| p.homeserver_id.to_string() == homeserver_id)
             .cloned()
             .ok_or(format!("No MockEventProcessor for HS ID: {homeserver_id}"))?;
 

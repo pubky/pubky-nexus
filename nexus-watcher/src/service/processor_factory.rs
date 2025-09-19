@@ -1,14 +1,12 @@
 use crate::events::Moderation;
 use crate::service::processor::EventProcessor;
 use crate::service::traits::{TEventProcessor, TEventProcessorFactory};
-use crate::service::PROCESSING_TIMEOUT_SECS;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
 use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::watch::Receiver;
 
 /// This implements the creation logic for [`EventProcessor`] objects
@@ -41,12 +39,6 @@ impl EventProcessorFactory {
 
 #[async_trait::async_trait]
 impl TEventProcessorFactory for EventProcessorFactory {
-    /// Returns the timeout for the event processor
-    fn timeout(&self) -> Duration {
-        // TODO: Set timeout maybe from the config file
-        Duration::from_secs(PROCESSING_TIMEOUT_SECS)
-    }
-
     fn shutdown_rx(&self) -> Receiver<bool> {
         self.shutdown_rx.clone()
     }

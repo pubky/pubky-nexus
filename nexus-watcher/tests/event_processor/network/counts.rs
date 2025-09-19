@@ -267,8 +267,13 @@ async fn test_large_network_scenario_counts() -> Result<()> {
     if !PROCESS_EVENTS_ONE_BY_ONE {
         for _ in 1..=100 {
             // Run the event processor
+            // We do this because earlier, the factory's event processing has been turned off temporarily
+            // but at this point we are ready to run the event processing
             test.event_processor_factory
-                .run(test.homeserver_id.clone())
+                .build(test.homeserver_id.clone())
+                .await
+                .map_err(|e| anyhow!(e))?
+                .run()
                 .await
                 .map_err(|e| anyhow!(e))?;
         }
