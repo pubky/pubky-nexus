@@ -53,27 +53,20 @@ pub trait TEventProcessorFactory {
     /// Creates and returns a new event processor instance for the specified homeserver.
     ///
     /// # Parameters
-    /// * `homeserver_id` - The homeserver identifier (must be a valid `PubkyId`
-    ///   string). Used to configure the processor with homeserver-specific settings
-    ///   and connections.
+    /// * `homeserver_id` - The homeserver PubkyId. Represents the homeserver this event processor will
+    /// fetch and process events from.
     ///
     /// # Returns
-    /// Returns `Ok(Box<dyn TEventProcessor>)` containing the newly created processor
-    /// instance on success, or `Err(DynError)` if processor creation fails.
+    /// A reference to the event processor instance, ready to be executed with its `run` method.
     ///
-    /// The returned processor is fully configured and ready to be executed with its `run` method.
+    /// # Errors
+    /// Throws a [`DynError`] if the event processor couldn't be built
     async fn build(&self, homeserver_id: String) -> Result<Arc<dyn TEventProcessor>, DynError>;
 
-    /// Runs event processors for all homeservers retrieved from the graph.
-    ///
-    /// This method iterates through all homeserver IDs relevant for this run,
-    /// creates an event processor for each one, and executes them with timeout protection.
-    /// It tracks both successfully processed homeservers and those that failed.
+    /// Runs event processors for all homeservers relevant for this run, with timeout protection.
     ///
     /// # Returns
-    /// Returns `Ok((count_ok, count_error))` where:
-    /// - `count_ok`: Number of homeservers where processing returned Ok
-    /// - `count_error`: Number of homeservers where processing failed with Err
+    /// Statistics about the event processor run results, summarized as [`RunAllProcessorsStats`]
     async fn run_all(&self) -> RunAllProcessorsResult {
         let hs_ids = self.homeservers_by_priority().await;
 

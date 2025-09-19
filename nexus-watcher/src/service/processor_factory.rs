@@ -47,7 +47,6 @@ impl TEventProcessorFactory for EventProcessorFactory {
         &self.default_homeserver
     }
 
-    /// Returns homeserver IDs with the default homeserver prioritized at index 0
     async fn homeservers_by_priority(&self) -> Vec<String> {
         let mut hs_ids = Homeserver::get_all_from_graph()
             .await
