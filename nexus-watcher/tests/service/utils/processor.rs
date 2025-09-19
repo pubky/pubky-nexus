@@ -62,11 +62,8 @@ pub async fn create_random_homeservers_and_persist(
     event_processor_list.push(event_processor);
 }
 
-
 /// Create a list of mock event processors
-pub fn create_mock_event_processors(
-    shutdown_rx: Receiver<bool>,
-) -> Vec<MockEventProcessor> {
+pub fn create_mock_event_processors(shutdown_rx: Receiver<bool>) -> Vec<MockEventProcessor> {
     use MockEventProcessorResult::*;
     [
         (HS_IDS[0], None, Success("Success finished!".into())),
@@ -76,13 +73,13 @@ pub fn create_mock_event_processors(
         (HS_IDS[4], Some(1), Success("Success finished!".into())),
     ]
     .into_iter()
-    .map(|(homeserver_id, sleep_duration_sec, status)| {
-        MockEventProcessor {
+    .map(
+        |(homeserver_id, sleep_duration_sec, status)| MockEventProcessor {
             homeserver_id: homeserver_id.to_string(),
             sleep_duration: sleep_duration_sec.map(Duration::from_secs),
             processor_status: status,
             shutdown_rx: shutdown_rx.clone(),
-        }
-    })
+        },
+    )
     .collect()
 }

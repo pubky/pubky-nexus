@@ -1,10 +1,12 @@
 mod constants;
+mod homeserver;
 mod processor;
 mod processor_factory;
 mod traits;
 
 /// Module exports
 pub use constants::{PROCESSING_TIMEOUT_SECS, WATCHER_CONFIG_FILE_NAME};
+pub use homeserver::HomeserverManager;
 pub use processor::EventProcessor;
 pub use processor_factory::EventProcessorFactory;
 pub use traits::{TEventProcessor, TEventProcessorFactory};

@@ -1,3 +1,4 @@
+use super::utils::create_external_test_homeserver;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::{db::PubkyClient, models::homeserver::Homeserver};
@@ -6,31 +7,18 @@ use pubky_app_specs::{
     post_uri_builder, traits::TimestampId, PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind,
     PubkyAppUser, PubkyId,
 };
-use pubky_testnet::pubky_homeserver::{ConfigToml, MockDataDir};
-
-async fn create_new_test_homeserver(test: &mut WatcherTest) -> Result<Keypair> {
-    let mock_dir = MockDataDir::new(ConfigToml::test(), None)?;
-    let new_hs_keypair = mock_dir.keypair.clone();
-    test.testnet
-        .testnet
-        .create_homeserver_suite_with_mock(mock_dir)
-        .await?;
-
-    Ok(new_hs_keypair)
-}
 
 #[tokio_shared_rt::test(shared)]
 async fn test_reply_to_post_on_unknown_homeserver() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
-    // Create a separate homeserver with a new keypair
-    let parent_author_hs_kp = create_new_test_homeserver(&mut test).await?;
+    // Create a separate homeserver
+    let parent_author_hs_pk = create_external_test_homeserver(&mut test).await?;
 
     // Create parent post author
     let parent_author_kp = Keypair::random();
     let parent_author_id = parent_author_kp.public_key().to_z32();
 
-    let parent_author_hs_pk = parent_author_hs_kp.public_key();
     let parent_author_hs_id = PubkyId::try_from(&parent_author_hs_pk.to_z32()).unwrap();
 
     // Register the parent author PK in the new homeserver
@@ -87,15 +75,13 @@ async fn test_reply_to_post_on_unknown_homeserver() -> Result<()> {
 async fn test_repost_of_post_on_unknown_homeserver() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
-    // Create a separate homeserver with a new keypair
-    let original_author_hs_kp = create_new_test_homeserver(&mut test).await?;
+    // Create a separate homeserver
+    let original_author_hs_pk = create_external_test_homeserver(&mut test).await?;
+    let original_author_hs_id = PubkyId::try_from(&original_author_hs_pk.to_z32()).unwrap();
 
     // Create original post author
     let original_author_kp = Keypair::random();
     let original_author_id = original_author_kp.public_key().to_z32();
-
-    let original_author_hs_pk = original_author_hs_kp.public_key();
-    let original_author_hs_id = PubkyId::try_from(&original_author_hs_pk.to_z32()).unwrap();
 
     // Register the original author PK in the new homeserver
     // We only need the record mapping, not necessarily the profile.json being uploaded
@@ -157,14 +143,11 @@ async fn test_post_and_mention_users_on_unknown_homeserver() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Create three separate homeservers for three mentioned users, each on one HS
-    let user_1_hs_keypair = create_new_test_homeserver(&mut test).await?;
-    let user_1_hs_pk = user_1_hs_keypair.public_key();
+    let user_1_hs_pk = create_external_test_homeserver(&mut test).await?;
     let user_1_hs_id = PubkyId::try_from(&user_1_hs_pk.to_z32()).unwrap();
-    let user_2_hs_kp = create_new_test_homeserver(&mut test).await?;
-    let user_2_hs_pk = user_2_hs_kp.public_key();
+    let user_2_hs_pk = create_external_test_homeserver(&mut test).await?;
     let user_2_hs_id = PubkyId::try_from(&user_2_hs_pk.to_z32()).unwrap();
-    let user_3_hs_kp = create_new_test_homeserver(&mut test).await?;
-    let user_3_hs_pk = user_3_hs_kp.public_key();
+    let user_3_hs_pk = create_external_test_homeserver(&mut test).await?;
     let user_3_hs_id = PubkyId::try_from(&user_3_hs_pk.to_z32()).unwrap();
 
     // Create three users, which will be later mentioned in the test post

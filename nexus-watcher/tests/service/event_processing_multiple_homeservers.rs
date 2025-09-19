@@ -1,9 +1,9 @@
-use crate::{service::utils::{
-    error_result, setup, success_result, create_random_homeservers_and_persist,
+use crate::service::utils::{
+    create_random_homeservers_and_persist, error_result, setup, success_result,
     MockEventProcessorFactory,
-}};
+};
 use anyhow::Result;
-use nexus_watcher::service::{TEventProcessorFactory};
+use nexus_watcher::service::TEventProcessorFactory;
 use std::time::Duration;
 
 #[tokio_shared_rt::test(shared)]
@@ -63,11 +63,8 @@ async fn test_multi_hs_event_processing_with_timeout() -> Result<()> {
         .await;
     }
 
-    let factory = MockEventProcessorFactory::new(
-        event_processor_list,
-        EVENT_PROCESSOR_TIMEOUT,
-        shutdown_rx,
-    );
+    let factory =
+        MockEventProcessorFactory::new(event_processor_list, EVENT_PROCESSOR_TIMEOUT, shutdown_rx);
 
     let result = factory.run_all().await.unwrap();
 
@@ -76,4 +73,3 @@ async fn test_multi_hs_event_processing_with_timeout() -> Result<()> {
 
     Ok(())
 }
-

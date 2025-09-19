@@ -1,6 +1,4 @@
-use crate::service::utils::{
-    create_mock_event_processors, MockEventProcessorFactory, HS_IDS
-};
+use crate::service::utils::{create_mock_event_processors, MockEventProcessorFactory, HS_IDS};
 use nexus_common::types::DynError;
 use nexus_watcher::service::TEventProcessorFactory;
 use std::time::Duration;
