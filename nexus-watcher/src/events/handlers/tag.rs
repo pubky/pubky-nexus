@@ -169,13 +169,13 @@ async fn put_sync_post(
 }
 
 /// Handles the synchronization of a tagged user by updating the graph, indexes, and related counts.
+///
 /// # Arguments
 /// - `tagger_user_id` - The `PubkyId` of the user tagging the user.
 /// - `tagged_user_id` - The `PubkyId` of the user being tagged.
 /// - `tag_id` - A `String` representing the unique identifier of the tag.
 /// - `tag_label` - A `String` representing the label of the tag.
 /// - `indexed_at` - A 64-bit integer representing the timestamp when the user was indexed.
-///
 async fn put_sync_user(
     tagger_user_id: PubkyId,
     tagged_user_id: PubkyId,
