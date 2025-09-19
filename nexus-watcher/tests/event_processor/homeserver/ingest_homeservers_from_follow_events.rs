@@ -18,15 +18,14 @@ async fn test_follow_on_unknown_homeserver() -> Result<()> {
     let followee_kp = Keypair::random();
     let followee_id = followee_kp.public_key().to_z32();
 
-    // Register the tagged post author PK in the new homeserver
+    // Register the followee PK in the new homeserver
     // We only need the record mapping, not necessarily the profile.json being uploaded
     PubkyClient::get()?
         .signup(&followee_kp, &followee_hs_pk, None)
         .await?;
 
-    // Create tagger user
+    // Create follower user
     let follower_kp = Keypair::random();
-
     let follower_user = PubkyAppUser {
         bio: Some("test_follow_on_unknown_homeserver".to_string()),
         image: None,
