@@ -37,7 +37,7 @@ impl EventProcessor {
     /// - `tx`: A `RetryManagerSenderChannel` used to handle outgoing messages or events.
     pub async fn test(homeserver_id: String) -> Self {
         let id = PubkyId::try_from(&homeserver_id).expect("Homeserver ID should be valid");
-        let homeserver = Homeserver::new(id).await.unwrap();
+        let homeserver = Homeserver::new(id);
 
         // hardcoded nexus-watcher/tests/utils/moderator_key.pkarr public key used by the moderator user on tests
         let moderation = Moderation {
@@ -60,7 +60,9 @@ impl EventProcessor {
     }
 
     pub async fn from_config(config: &WatcherConfig) -> Result<Self, DynError> {
-        let homeserver = Homeserver::from_config(config.homeserver.clone()).await?;
+        let homeserver = Homeserver::get_by_id(config.homeserver.clone())
+            .await?
+            .ok_or("Homeserver not found")?;
         let limit = config.events_limit;
         let files_path = config.stack.files_path.clone();
         let tracer_name = config.name.clone();
@@ -195,7 +197,7 @@ impl EventProcessor {
                     ));
                     let cx = Context::new().with_span(span);
                     debug!("Processing event: {:?}", event);
-                    self.handle_event(event).with_context(cx).await?;
+                    self.handle_event(&event).with_context(cx).await?;
                 }
             }
         }
@@ -206,9 +208,9 @@ impl EventProcessor {
     /// Processes an event and track the fail event it if necessary
     /// # Parameters:
     /// - `event`: The event to be processed
-    async fn handle_event(&mut self, event: Event) -> Result<(), DynError> {
+    async fn handle_event(&mut self, event: &Event) -> Result<(), DynError> {
         if let Err(e) = event.clone().handle(&self.moderation).await {
-            if let Some((index_key, retry_event)) = extract_retry_event_info(&event, e) {
+            if let Some((index_key, retry_event)) = extract_retry_event_info(event, e) {
                 error!("{}, {}", retry_event.error_type, index_key);
                 if let Err(err) = retry_event.put_to_index(index_key).await {
                     error!("Failed to put event to retry index: {}", err);
