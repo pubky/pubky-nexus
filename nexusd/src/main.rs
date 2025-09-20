@@ -1,6 +1,6 @@
 use clap::Parser;
 use nexus_common::types::DynError;
-use nexus_watcher::NexusWatcher;
+use nexus_watcher::service::NexusWatcher;
 use nexus_webapi::mock::MockDb;
 use nexus_webapi::NexusApi;
 use nexusd::cli::{ApiArgs, Cli, DbCommands, MigrationCommands, NexusCommands, WatcherArgs};

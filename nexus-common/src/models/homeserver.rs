@@ -6,6 +6,7 @@ use crate::types::DynError;
 
 use pubky_app_specs::PubkyId;
 use serde::{Deserialize, Serialize};
+use tracing::info;
 
 /// Represents a homeserver with its public key, URL, and cursor.
 #[derive(Serialize, Deserialize, Debug)]
@@ -22,6 +23,14 @@ impl Homeserver {
         Homeserver {
             id,
             cursor: "0000000000000".to_string(),
+        }
+    }
+
+    /// Creates a new homeserver instance with the specified cursor
+    pub fn from_cursor<T: Into<String>>(id: PubkyId, cursor: T) -> Self {
+        Homeserver {
+            id,
+            cursor: cursor.into(),
         }
     }
 
@@ -63,6 +72,36 @@ impl Homeserver {
                 }
                 None => Ok(None),
             },
+        }
+    }
+
+    /// Verifies if homeserver exists, or persists it if missing
+    pub async fn persist_if_unknown(homeserver_id: PubkyId) -> Result<(), DynError> {
+        if Self::get_by_id(homeserver_id.clone()).await?.is_none() {
+            info!("Homeserver {} not found, persisting it", homeserver_id);
+            let homeserver = Homeserver::new(homeserver_id);
+            homeserver.put_to_graph().await?;
+            homeserver.put_to_index().await?;
+        }
+
+        Ok(())
+    }
+
+    /// Retrieves all homeservers from the graph.
+    ///
+    /// # Returns
+    /// A list of all known homeserver IDs.
+    ///
+    /// # Errors
+    /// Throws an error if no homeservers are found.
+    pub async fn get_all_from_graph() -> Result<Vec<String>, DynError> {
+        let query = queries::get::get_all_homeservers();
+        let maybe_hs_ids = fetch_key_from_graph(query, "homeservers_list").await?;
+        let hs_ids: Vec<String> = maybe_hs_ids.unwrap_or_default();
+
+        match hs_ids.is_empty() {
+            true => Err("No homeservers found in graph".into()),
+            false => Ok(hs_ids),
         }
     }
 }

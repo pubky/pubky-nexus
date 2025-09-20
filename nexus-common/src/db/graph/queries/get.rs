@@ -244,6 +244,15 @@ pub fn get_homeserver_by_id(id: &str) -> Query {
     .param("id", id)
 }
 
+/// Retrieves all homeserver IDs
+pub fn get_all_homeservers() -> Query {
+    query(
+        "MATCH (hs:Homeserver)
+        WITH collect(hs.id) AS homeservers_list
+        RETURN homeservers_list",
+    )
+}
+
 /// Retrieve tags for a user within the viewer's trusted network
 /// # Arguments
 ///
