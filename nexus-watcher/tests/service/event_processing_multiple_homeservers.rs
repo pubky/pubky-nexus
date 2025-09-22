@@ -79,3 +79,47 @@ async fn test_multi_hs_event_processing_with_timeout() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio_shared_rt::test(shared)]
+async fn test_multi_hs_event_processing_with_panic() -> Result<()> {
+    // Initialize the test
+    let mut event_processor_list = setup().await?;
+    let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+
+    // Create 3 random homeservers expected to succeed
+    for _i in 0..3 {
+        let processor_status = MockEventProcessorResult::Success;
+        create_random_homeservers_and_persist(
+            &mut event_processor_list,
+            None,
+            processor_status,
+            None,
+            shutdown_rx.clone(),
+        )
+        .await;
+    }
+
+    // Create 2 random homeservers expected to panic
+    for _i in 0..2 {
+        let processor_status = MockEventProcessorResult::Panic;
+        create_random_homeservers_and_persist(
+            &mut event_processor_list,
+            None,
+            processor_status,
+            None,
+            shutdown_rx.clone(),
+        )
+        .await;
+    }
+
+    let factory = MockEventProcessorFactory::new(event_processor_list, shutdown_rx);
+
+    let result = factory.run_all().await.unwrap();
+
+    assert_eq!(result.count_ok, 3); // 3 expected to succeed
+    assert_eq!(result.count_timeout, 0);
+    assert_eq!(result.count_error, 0);
+    assert_eq!(result.count_panic, 2); // 2 expected to panic
+
+    Ok(())
+}
