@@ -1,5 +1,6 @@
 use crate::service::utils::{
-    create_random_homeservers_and_persist, setup, success_result, MockEventProcessorFactory,
+    create_random_homeservers_and_persist, setup, MockEventProcessorFactory,
+    MockEventProcessorResult,
 };
 use anyhow::Result;
 use nexus_watcher::service::TEventProcessorFactory;
@@ -14,7 +15,7 @@ async fn test_shutdown_signal() -> Result<()> {
 
     // Create 3 random homeservers with timeout limit
     for index in 0..3 {
-        let processor_status = success_result("success from homeserver");
+        let processor_status = MockEventProcessorResult::Success("Success from HS".into());
         create_random_homeservers_and_persist(
             &mut event_processor_list,
             Some(Duration::from_secs(index * 2)),

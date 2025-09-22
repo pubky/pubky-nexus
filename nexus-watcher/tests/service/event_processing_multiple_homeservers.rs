@@ -1,6 +1,6 @@
 use crate::service::utils::{
-    create_random_homeservers_and_persist, error_result, setup, success_result,
-    MockEventProcessorFactory,
+    create_random_homeservers_and_persist, setup, MockEventProcessorFactory,
+    MockEventProcessorResult,
 };
 use anyhow::Result;
 use nexus_watcher::service::TEventProcessorFactory;
@@ -14,7 +14,7 @@ async fn test_multiple_homeserver_event_processing() -> Result<()> {
 
     // Create 3 random homeservers with success result
     for _ in 0..3 {
-        let processor_status = success_result("success from homeserver");
+        let processor_status = MockEventProcessorResult::Success("Success from HS".into());
         create_random_homeservers_and_persist(
             &mut event_processor_list,
             None,
@@ -26,7 +26,7 @@ async fn test_multiple_homeserver_event_processing() -> Result<()> {
     }
 
     // Create 1 random homeserver with error result
-    let processor_status = error_result("PubkyClient: timeout from homeserver");
+    let processor_status = MockEventProcessorResult::Error("PubkyClient: timeout from HS".into());
     create_random_homeservers_and_persist(
         &mut event_processor_list,
         None,
@@ -57,7 +57,7 @@ async fn test_multi_hs_event_processing_with_timeout() -> Result<()> {
 
     // Create 3 random homeservers with timeout limit
     for index in 0..3 {
-        let processor_status = success_result("success from homeserver");
+        let processor_status = MockEventProcessorResult::Success("Success from HS".into());
         create_random_homeservers_and_persist(
             &mut event_processor_list,
             Some(Duration::from_secs(index * 2)),
