@@ -6,9 +6,9 @@ use pubky_app_specs::{ParsedUri, PubkyAppTag, PubkyId, Resource};
 use tracing::info;
 
 pub struct Moderation {
-    // Moderator trusted user id
+    /// Moderator trusted user id
     pub id: PubkyId,
-    // Tags to be moderated (tagged content is deleted)
+    /// Tags to be moderated (tagged content is deleted)
     pub tags: Vec<String>,
 }
 

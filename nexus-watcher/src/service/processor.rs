@@ -1,123 +1,65 @@
-use super::moderation::Moderation;
-use super::Event;
 use crate::events::errors::EventProcessorError;
 use crate::events::retry::event::RetryEvent;
+use crate::events::{Event, Moderation};
+use crate::service::traits::TEventProcessor;
 use nexus_common::db::PubkyClient;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
-use nexus_common::{get_files_dir_test_pathbuf, WatcherConfig};
 use opentelemetry::trace::{FutureExt, Span, TraceContextExt, Tracer};
 use opentelemetry::{global, Context, KeyValue};
 use pubky_app_specs::PubkyId;
 use std::error::Error;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info};
 
 pub struct EventProcessor {
     pub homeserver: Homeserver,
-    limit: u32,
+    pub limit: u32,
     pub files_path: PathBuf,
     pub tracer_name: String,
-    pub moderation: Moderation,
+    pub moderation: Arc<Moderation>,
+    pub shutdown_rx: Receiver<bool>,
 }
 
-impl EventProcessor {
-    /// Creates a new `EventProcessor` instance for testing purposes.
-    ///
-    /// This function initializes an `EventProcessor` configured with:
-    /// - A mock homeserver constructed using the provided `homeserver_url` and `homeserver_pubky`.
-    /// - A default configuration, including an HTTP client, a limit of 1000 events, and a sender channel.
-    ///
-    /// It is designed for use in integration tests, benchmarking scenarios, or other test environments
-    /// where a controlled and predictable `EventProcessor` instance is required.
-    ///
-    /// # Parameters
-    /// - `homeserver_id`: A `String` representing the URL of the homeserver to be used in the test environment.
-    /// - `tx`: A `RetryManagerSenderChannel` used to handle outgoing messages or events.
-    pub async fn test(homeserver_id: String) -> Self {
-        let id = PubkyId::try_from(&homeserver_id).expect("Homeserver ID should be valid");
-        let homeserver = Homeserver::new(id);
-
-        // hardcoded nexus-watcher/tests/utils/moderator_key.pkarr public key used by the moderator user on tests
-        let moderation = Moderation {
-            id: PubkyId::try_from("uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko")
-                .expect("Hardcoded test moderation key should be valid"),
-            tags: Vec::from(["label_to_moderate".to_string()]),
-        };
-
-        info!(
-            "Watcher static files PATH during tests are stored inside of the watcher crate: {:?}",
-            get_files_dir_test_pathbuf()
-        );
-        Self {
-            homeserver,
-            limit: 1000,
-            files_path: get_files_dir_test_pathbuf(),
-            tracer_name: String::from("watcher.test"),
-            moderation,
-        }
+#[async_trait::async_trait]
+impl TEventProcessor for EventProcessor {
+    fn get_homeserver_id(&self) -> PubkyId {
+        self.homeserver.id.clone()
     }
 
-    pub async fn from_config(config: &WatcherConfig) -> Result<Self, DynError> {
-        let homeserver = Homeserver::get_by_id(config.homeserver.clone())
-            .await?
-            .ok_or("Homeserver not found")?;
-        let limit = config.events_limit;
-        let files_path = config.stack.files_path.clone();
-        let tracer_name = config.name.clone();
-
-        let moderation = Moderation {
-            id: config.moderation_id.clone(),
-            tags: config.moderated_tags.clone(),
-        };
-
-        info!(
-            "Initialized Event Processor for homeserver: {:?}",
-            homeserver
-        );
-
-        Ok(Self {
-            homeserver,
-            limit,
-            files_path,
-            tracer_name,
-            moderation,
-        })
-    }
-
-    pub async fn run(&mut self, shutdown_rx: Receiver<bool>) -> Result<(), DynError> {
-        let lines = {
+    async fn run_internal(self: Arc<Self>) -> Result<(), DynError> {
+        let maybe_event_lines = {
             let tracer = global::tracer(self.tracer_name.clone());
             let span = tracer.start("Polling Events");
             let cx = Context::new().with_span(span);
-            self.poll_events().with_context(cx).await
+            self.poll_events()
+                .with_context(cx)
+                .await
+                .inspect_err(|e| error!("Error polling events: {e:?}"))?
         };
 
-        match lines {
-            Err(e) => {
-                error!("Error polling events: {:?}", e);
-                return Err(e);
-            }
-            Ok(None) => {
-                info!("No new events");
-            }
-            Ok(Some(lines)) => {
-                info!("Processing {} event lines", lines.len());
-                self.process_event_lines(shutdown_rx, lines).await?;
+        match maybe_event_lines {
+            None => info!("No new events"),
+            Some(event_lines) => {
+                info!("Processing {} event lines", event_lines.len());
+                self.process_event_lines(event_lines).await?;
             }
         }
 
         Ok(())
     }
+}
 
+impl EventProcessor {
     /// Polls new events from the homeserver.
     ///
     /// It sends a GET request to the homeserver's events endpoint
     /// using the current cursor and a specified limit. It retrieves new event
     /// URIs in a newline-separated format, processes it into a vector of strings,
     /// and returns the result.
-    async fn poll_events(&mut self) -> Result<Option<Vec<String>>, DynError> {
+    async fn poll_events(&self) -> Result<Option<Vec<String>>, DynError> {
         debug!("Polling new events from homeserver");
 
         let response_text = {
@@ -157,23 +99,18 @@ impl EventProcessor {
     ///
     /// # Parameters
     /// - `lines`: A vector of strings representing event lines retrieved from the homeserver.
-    pub async fn process_event_lines(
-        &mut self,
-        shutdown_rx: Receiver<bool>,
-        lines: Vec<String>,
-    ) -> Result<(), DynError> {
+    pub async fn process_event_lines(&self, lines: Vec<String>) -> Result<(), DynError> {
         for line in &lines {
-            if *shutdown_rx.borrow() {
-                info!("Shutdown detected, exiting event processing loop");
+            let id = self.homeserver.id.clone();
+
+            if *self.shutdown_rx.borrow() {
+                debug!("Shutdown detected while processing HS {id}, exiting event processing loop");
                 return Ok(());
             }
 
-            if line.starts_with("cursor:") {
-                if let Some(cursor) = line.strip_prefix("cursor: ") {
-                    self.homeserver.cursor = cursor.to_string();
-                    self.homeserver.put_to_index().await?;
-                    info!("Cursor for the next request: {}", cursor);
-                }
+            if let Some(cursor) = line.strip_prefix("cursor: ") {
+                Homeserver::from_cursor(id, cursor).put_to_index().await?;
+                info!("Cursor for the next request: {cursor}");
             } else {
                 let event = match Event::parse_event(line, self.files_path.clone()) {
                     Ok(event) => event,
@@ -208,8 +145,8 @@ impl EventProcessor {
     /// Processes an event and track the fail event it if necessary
     /// # Parameters:
     /// - `event`: The event to be processed
-    async fn handle_event(&mut self, event: &Event) -> Result<(), DynError> {
-        if let Err(e) = event.clone().handle(&self.moderation).await {
+    async fn handle_event(&self, event: &Event) -> Result<(), DynError> {
+        if let Err(e) = event.clone().handle(self.moderation.clone()).await {
             if let Some((index_key, retry_event)) = extract_retry_event_info(event, e) {
                 error!("{}, {}", retry_event.error_type, index_key);
                 if let Err(err) = retry_event.put_to_index(index_key).await {

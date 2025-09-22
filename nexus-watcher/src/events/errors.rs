@@ -21,10 +21,6 @@ pub enum EventProcessorError {
     /// The Pubky client could not resolve the pubky
     #[error("PubkyClientError: {message}")]
     PubkyClientError { message: String },
-    // #[error("The event does not exist anymore in the homeserver")]
-    // ContentNotFound { dependency: String },
-    // #[error("PubkyClient could not reach/resolve the homeserver")]
-    // NotResolvedHomeserver,
 }
 
 impl EventProcessorError {

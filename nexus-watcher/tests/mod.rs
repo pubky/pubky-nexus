@@ -1,2 +1,2 @@
 mod event_processor;
-mod homeserver;
+mod service;
