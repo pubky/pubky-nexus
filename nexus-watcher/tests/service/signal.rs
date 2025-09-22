@@ -42,6 +42,8 @@ async fn test_shutdown_signal() -> Result<()> {
     // We triggered the shutdown signal 1s after start
     assert_eq!(result.count_ok, 2); // 2 processors run without errors (of the 3, the 3rd one didn't even start)
     assert_eq!(result.count_error, 0); // no processors fail, because no erratic or unexpected behavior was triggered
+    assert_eq!(result.count_panic, 0);
+    assert_eq!(result.count_timeout, 0);
 
     Ok(())
 }
