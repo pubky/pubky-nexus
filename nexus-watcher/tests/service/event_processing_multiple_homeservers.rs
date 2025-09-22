@@ -14,7 +14,7 @@ async fn test_multiple_homeserver_event_processing() -> Result<()> {
 
     // Create 3 random homeservers with success result
     for _ in 0..3 {
-        let processor_status = MockEventProcessorResult::Success("Success from HS".into());
+        let processor_status = MockEventProcessorResult::Success;
         create_random_homeservers_and_persist(
             &mut event_processor_list,
             None,
@@ -57,7 +57,7 @@ async fn test_multi_hs_event_processing_with_timeout() -> Result<()> {
 
     // Create 3 random homeservers with timeout limit
     for index in 0..3 {
-        let processor_status = MockEventProcessorResult::Success("Success from HS".into());
+        let processor_status = MockEventProcessorResult::Success;
         create_random_homeservers_and_persist(
             &mut event_processor_list,
             Some(Duration::from_secs(index * 2)),

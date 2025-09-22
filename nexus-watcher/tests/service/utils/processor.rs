@@ -43,9 +43,9 @@ impl TEventProcessor for MockEventProcessor {
         }
 
         match &self.processor_status {
-            MockEventProcessorResult::Success(_) => Ok(()),
+            MockEventProcessorResult::Success => Ok(()),
             MockEventProcessorResult::Error(e) => Err(format!("{e}").into()),
-            MockEventProcessorResult::Panic() => panic!("Event processor panicked: unknown error"),
+            MockEventProcessorResult::Panic => panic!("Event processor panicked: unknown error"),
         }
     }
 }
@@ -83,11 +83,11 @@ pub fn create_mock_event_processors(
 ) -> Vec<MockEventProcessor> {
     use MockEventProcessorResult::*;
     [
-        (HS_IDS[0], None, Success("Success finished!".into())),
+        (HS_IDS[0], None, Success),
         (HS_IDS[1], None, Error("Event processor error!".into())),
-        (HS_IDS[2], None, Panic()),
-        (HS_IDS[3], Some(3), Success("Success finished!".into())),
-        (HS_IDS[4], Some(1), Success("Success finished!".into())),
+        (HS_IDS[2], None, Panic),
+        (HS_IDS[3], Some(3), Success),
+        (HS_IDS[4], Some(1), Success),
     ]
     .into_iter()
     .map(

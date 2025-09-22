@@ -15,7 +15,7 @@ async fn test_shutdown_signal() -> Result<()> {
 
     // Create 3 random homeservers with timeout limit
     for index in 0..3 {
-        let processor_status = MockEventProcessorResult::Success("Success from HS".into());
+        let processor_status = MockEventProcessorResult::Success;
         create_random_homeservers_and_persist(
             &mut event_processor_list,
             Some(Duration::from_secs(index * 2)),
