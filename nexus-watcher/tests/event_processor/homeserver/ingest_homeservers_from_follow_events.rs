@@ -12,7 +12,7 @@ async fn test_follow_on_unknown_homeserver() -> Result<()> {
 
     // Create a separate homeserver for the followee
     let followee_hs_pk = create_external_test_homeserver(&mut test).await?;
-    let followe_hs_id = PubkyId::try_from(&followee_hs_pk.to_z32()).unwrap();
+    let followee_hs_id = PubkyId::try_from(&followee_hs_pk.to_z32()).unwrap();
 
     // Create followee
     let followee_kp = Keypair::random();
@@ -41,7 +41,7 @@ async fn test_follow_on_unknown_homeserver() -> Result<()> {
     // Follow the followee
     test.create_follow(&follower_id, &followee_id).await?;
 
-    assert!(Homeserver::get_by_id(followe_hs_id)
+    assert!(Homeserver::get_by_id(followee_hs_id)
         .await
         .unwrap()
         .is_some());
