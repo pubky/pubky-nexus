@@ -5,7 +5,7 @@ use nexus_common::{
     db::DatabaseConfig, file::validate_and_expand_path, get_files_dir_pathbuf, types::DynError,
     StackConfig, WatcherConfig, LOG_LEVEL,
 };
-use nexus_watcher::{NexusWatcher, NexusWatcherBuilder};
+use nexus_watcher::{service::NexusWatcher, NexusWatcherBuilder};
 use pubky_app_specs::PubkyId;
 
 #[derive(Parser)]

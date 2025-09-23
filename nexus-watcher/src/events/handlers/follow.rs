@@ -1,6 +1,7 @@
 use crate::events::errors::EventProcessorError;
 use crate::events::retry::event::RetryEvent;
 use crate::handle_indexing_results;
+use crate::service::HomeserverManager;
 use nexus_common::db::kv::JsonAction;
 use nexus_common::db::OperationOutcome;
 use nexus_common::models::follow::{Followers, Following, Friends, UserFollows};
@@ -22,6 +23,10 @@ pub async fn sync_put(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), 
             if let Some(key) =
                 RetryEvent::generate_index_key(&user_uri_builder(followee_id.to_string()))
             {
+                if let Err(e) = HomeserverManager::maybe_ingest_for_user(followee_id.as_str()).await
+                {
+                    tracing::error!("Failed to ingest homeserver: {e}");
+                }
                 let dependency = vec![key];
                 return Err(EventProcessorError::MissingDependency { dependency }.into());
             }

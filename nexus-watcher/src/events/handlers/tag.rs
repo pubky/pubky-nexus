@@ -1,6 +1,7 @@
 use crate::events::errors::EventProcessorError;
 use crate::events::retry::event::RetryEvent;
 use crate::handle_indexing_results;
+use crate::service::HomeserverManager;
 use chrono::Utc;
 use nexus_common::db::kv::{JsonAction, ScoreAction};
 use nexus_common::db::OperationOutcome;
@@ -80,6 +81,9 @@ async fn put_sync_post(
         OperationOutcome::MissingDependency => {
             // Ensure that dependencies follow the same format as the RetryManager keys
             let dependency = vec![format!("{author_id}:posts:{post_id}")];
+            if let Err(e) = HomeserverManager::maybe_ingest_for_post(post_uri).await {
+                tracing::error!("Failed to ingest homeserver: {e}");
+            }
             Err(EventProcessorError::MissingDependency { dependency }.into())
         }
         OperationOutcome::CreatedOrDeleted => {
@@ -164,6 +168,14 @@ async fn put_sync_post(
     }
 }
 
+/// Handles the synchronization of a tagged user by updating the graph, indexes, and related counts.
+///
+/// # Arguments
+/// - `tagger_user_id` - The `PubkyId` of the user tagging the user.
+/// - `tagged_user_id` - The `PubkyId` of the user being tagged.
+/// - `tag_id` - A `String` representing the unique identifier of the tag.
+/// - `tag_label` - A `String` representing the label of the tag.
+/// - `indexed_at` - A 64-bit integer representing the timestamp when the user was indexed.
 async fn put_sync_user(
     tagger_user_id: PubkyId,
     tagged_user_id: PubkyId,
@@ -186,6 +198,11 @@ async fn put_sync_user(
             match RetryEvent::generate_index_key(&user_uri_builder(tagged_user_id.to_string())) {
                 Some(key) => {
                     let dependency = vec![key];
+                    if let Err(e) =
+                        HomeserverManager::maybe_ingest_for_user(tagged_user_id.as_str()).await
+                    {
+                        tracing::error!("Failed to ingest homeserver: {e}");
+                    }
                     Err(EventProcessorError::MissingDependency { dependency }.into())
                 }
                 None => Err("Could not generate missing dependency key".into()),
