@@ -26,7 +26,11 @@ impl RunError {
 
 impl Display for RunError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self)
+        match self {
+            RunError::Internal(err) => write!(f, "Internal error: {err}"),
+            RunError::Panicked => write!(f, "Execution panicked"),
+            RunError::TimedOut => write!(f, "Execution timed out"),
+        }
     }
 }
 
@@ -70,7 +74,7 @@ pub trait TEventProcessor: Send + Sync + 'static {
 
         run_internal_result
             .inspect_err(|e| error!("Event processor failed for {hs_id}: {e:?}"))
-            .map_err(|e| RunError::Internal(e))
+            .map_err(RunError::Internal)
     }
 
     /// Runs the event processor asynchronously.
