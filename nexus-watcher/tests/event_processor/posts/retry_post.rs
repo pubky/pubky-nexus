@@ -3,7 +3,7 @@ use anyhow::Result;
 use nexus_watcher::events::errors::EventProcessorError;
 use nexus_watcher::events::{retry::event::RetryEvent, EventType};
 use pubky::Keypair;
-use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind};
+use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppPostKind};
 
 /// The user profile is stored in the homeserver. Missing the author to connect the post
 #[tokio_shared_rt::test(shared)]
@@ -27,7 +27,7 @@ async fn test_homeserver_post_cannot_index() -> Result<()> {
 
     let post_id = test.create_post(&user_id, &post).await?;
 
-    let post_url = format!("pubky://{user_id}/pub/pubky.app/posts/{post_id}");
+    let post_url = post_uri_builder(user_id.clone(), post_id);
 
     let index_key = format!(
         "{}:{}",

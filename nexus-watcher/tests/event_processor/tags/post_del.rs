@@ -10,6 +10,7 @@ use chrono::Utc;
 use nexus_common::models::tag::post::TagPost;
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use pubky::Keypair;
+use pubky_app_specs::{post_uri_builder, tag_uri_builder};
 use pubky_app_specs::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
@@ -54,15 +55,11 @@ async fn test_homeserver_del_tag_post() -> Result<()> {
     let label = "antonymous";
 
     let tag = PubkyAppTag {
-        uri: format!("pubky://{author_user_id}/pub/pubky.app/posts/{post_id}"),
+        uri: post_uri_builder(author_user_id.clone(), post_id.clone()),
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
-    let tag_url = format!(
-        "pubky://{}/pub/pubky.app/tags/{}",
-        tagger_user_id,
-        tag.create_id()
-    );
+    let tag_url = tag_uri_builder(tagger_user_id.clone(), tag.create_id());
 
     // Step 3: Creat & Delete the tag
     test.put(&tag_url, tag).await?;

@@ -4,7 +4,9 @@ use anyhow::Result;
 use nexus_common::models::notification::{Notification, NotificationBody};
 use nexus_common::types::Pagination;
 use pubky::Keypair;
-use pubky_app_specs::{PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser};
+use pubky_app_specs::{
+    post_uri_builder, PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser,
+};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_post_repost_notification() -> Result<()> {
@@ -32,7 +34,7 @@ async fn test_homeserver_post_repost_notification() -> Result<()> {
 
     let alice_post_id = test.create_post(&alice_id, &parent_post).await?;
 
-    let parent_uri = format!("pubky://{alice_id}/pub/pubky.app/posts/{alice_post_id}");
+    let parent_uri = post_uri_builder(alice_id.clone(), alice_post_id.clone());
 
     let alice_repost = PubkyAppPost {
         content: "Watcher:PostRepostNotification:Alice:Reply".to_string(),

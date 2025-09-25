@@ -5,7 +5,7 @@ use crate::db::{
 };
 use crate::types::DynError;
 use chrono::Utc;
-use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyId};
+use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyId};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -113,7 +113,7 @@ impl PostDetails {
         post_id: &String,
     ) -> Result<Self, DynError> {
         Ok(PostDetails {
-            uri: format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}"),
+            uri: post_uri_builder(author_id.to_string(), post_id.into()),
             content: homeserver_post.content,
             id: post_id.clone(),
             indexed_at: Utc::now().timestamp_millis(),

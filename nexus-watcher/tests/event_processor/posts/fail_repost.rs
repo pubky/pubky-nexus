@@ -2,7 +2,9 @@ use crate::event_processor::utils::watcher::{retrieve_and_handle_event_line, Wat
 use anyhow::Result;
 use nexus_common::types::DynError;
 use pubky::Keypair;
-use pubky_app_specs::{PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser};
+use pubky_app_specs::{
+    post_uri_builder, PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser,
+};
 use tracing::error;
 
 /// The user profile is stored in the homeserver and synched in the graph, but the posts just exist in the homeserver
@@ -54,15 +56,15 @@ async fn test_homeserver_post_repost_without_post_parent() -> Result<(), DynErro
         parent: None,
         embed: Some(PubkyAppPostEmbed {
             kind: PubkyAppPostKind::Short,
-            uri: format!("pubky://{post_author_id}/pub/pubky.app/posts/{post_id}"),
+            uri: post_uri_builder(post_author_id, post_id),
         }),
         attachments: None,
     };
     let repost_id = test.create_post(&repost_author_id, &repost).await?;
 
     // Create raw event line to retrieve the content from the homeserver
-    let post_homeserver_uri =
-        format!("PUT pubky://{repost_author_id}/pub/pubky.app/posts/{repost_id}");
+    let repost_uri = post_uri_builder(repost_author_id, repost_id);
+    let post_homeserver_uri = format!("PUT {repost_uri}");
 
     // Simulate the event processor to handle the event.
     // If the event processor were activated, the test would not catch the missing dependency

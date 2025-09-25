@@ -11,7 +11,7 @@ use nexus_common::{
     models::post::{PostDetails, PostRelationships, PostStream},
 };
 use pubky::Keypair;
-use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
+use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_post_reply() -> Result<()> {
@@ -40,7 +40,7 @@ async fn test_homeserver_post_reply() -> Result<()> {
     let parent_post_id = test.create_post(&user_id, &parent_post).await?;
 
     // Create reply uri
-    let parent_uri = format!("pubky://{user_id}/pub/pubky.app/posts/{parent_post_id}");
+    let parent_uri = post_uri_builder(user_id.clone(), parent_post_id.clone());
 
     let reply_post = PubkyAppPost {
         content: "Watcher:PostReply:User:Reply".to_string(),

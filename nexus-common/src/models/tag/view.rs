@@ -1,3 +1,4 @@
+use pubky_app_specs::tag_uri_builder;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -28,7 +29,7 @@ impl TagView {
         };
 
         Ok(Some(Self {
-            tag_uri: format!("pubky://{}/pub/pubky.app/tags/{}", tagger_id, tag_id),
+            tag_uri: tag_uri_builder(tagger_id.into(), tag_id.into()),
             label: row.get("label")?,
             indexed_at: row.get("indexed_at")?,
         }))
