@@ -1,6 +1,6 @@
 use nexus_common::models::post::PostRelationships;
 use nexus_common::types::DynError;
-use pubky_app_specs::{user_uri_builder, ParsedUri, PubkyId};
+use pubky_app_specs::PubkyId;
 
 use crate::events::errors::EventProcessorError;
 use crate::events::retry::event::RetryEvent;
@@ -37,14 +37,8 @@ macro_rules! handle_indexing_results {
     };
 }
 
+/// Builds an `EventProcessorError` indicating the argument user is a missing dependency
 pub(super) fn build_missing_dependency_err(referenced_user_id: &PubkyId) -> EventProcessorError {
-    let followee_uri_raw = user_uri_builder(referenced_user_id.to_string());
-
-    // TODO We need a way to go from PubkyId directly to ParsedUri
-    let followee_uri = ParsedUri::try_from(followee_uri_raw.as_str()).unwrap();
-
-    let retry_event_key = RetryEvent::generate_index_key_v2(&followee_uri);
-    EventProcessorError::MissingDependency {
-        dependency: vec![retry_event_key],
-    }
+    let retry_event_key = RetryEvent::generate_index_key_v2(&referenced_user_id.to_uri());
+    EventProcessorError::missing_dependencies(vec![retry_event_key])
 }
