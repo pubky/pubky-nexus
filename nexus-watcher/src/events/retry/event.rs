@@ -38,7 +38,7 @@ impl RetryEvent {
         }
     }
 
-    pub fn generate_index_key_v2(event_uri: &ParsedUri) -> String {
+    pub fn generate_index_key_from_uri(event_uri: &ParsedUri) -> String {
         let user_id = &event_uri.user_id;
         let event_resource = &event_uri.resource;
 
@@ -59,12 +59,7 @@ impl RetryEvent {
             Err(_) => return None,
         };
 
-        let user_id = parsed_uri.user_id;
-        let key = match parsed_uri.resource.id() {
-            Some(id) => format!("{}:{}:{}", user_id, parsed_uri.resource, id),
-            None => format!("{}:{}", user_id, parsed_uri.resource),
-        };
-
+        let key = Self::generate_index_key_from_uri(&parsed_uri);
         Some(key)
     }
 
