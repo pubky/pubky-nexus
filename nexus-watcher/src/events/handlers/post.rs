@@ -36,6 +36,7 @@ pub async fn sync_put(
         OperationOutcome::Updated => true,
         OperationOutcome::MissingDependency => {
             let mut dependency_event_keys = Vec::new();
+            // TODO post_relationships can be changed from String to PubkyId, to avoid error handling in next steps?
             if let Some(replied_to_uri) = &post_relationships.replied {
                 let reply_dependency = RetryEvent::generate_index_key(replied_to_uri)
                     // This block is unlikely to be reached, as it would typically fail during the validation process
