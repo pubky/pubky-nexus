@@ -2,7 +2,9 @@ use super::utils::check_member_total_engagement_user_posts;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use pubky::Keypair;
-use pubky_app_specs::{PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser};
+use pubky_app_specs::{
+    post_uri_builder, PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser,
+};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_post_engagement() -> Result<()> {
@@ -53,12 +55,12 @@ async fn test_homeserver_post_engagement() -> Result<()> {
     let bob_id = test.create_user(&bob_user_keypair, &bob_user).await?;
 
     // Bob replies to popular alice post
-    let parent_uri = format!("pubky://{alice_id}/pub/pubky.app/posts/{alice_post_id}");
+    let alice_post_uri = post_uri_builder(alice_id.clone(), alice_post_id.clone());
 
     let reply = PubkyAppPost {
         content: "Watcher:PostInfluencer:Bob:Reply".to_string(),
         kind: PubkyAppPostKind::Short,
-        parent: Some(parent_uri.clone()),
+        parent: Some(alice_post_uri.clone()),
         embed: None,
         attachments: None,
     };
@@ -66,15 +68,13 @@ async fn test_homeserver_post_engagement() -> Result<()> {
     let _reply_id = test.create_post(&bob_id, &reply).await?;
 
     // Create repost of alice post
-    let post_uri = format!("pubky://{alice_id}/pub/pubky.app/posts/{alice_post_id}");
-
     let repost = PubkyAppPost {
         content: "Watcher:PostInfluencer:Bob:Repost".to_string(),
         kind: PubkyAppPostKind::Short,
         parent: None,
         embed: Some(PubkyAppPostEmbed {
             kind: PubkyAppPostKind::Short,
-            uri: post_uri.clone(),
+            uri: alice_post_uri.clone(),
         }),
         attachments: None,
     };

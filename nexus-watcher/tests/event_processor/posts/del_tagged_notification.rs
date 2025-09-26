@@ -6,7 +6,9 @@ use nexus_common::{
     types::Pagination,
 };
 use pubky::Keypair;
-use pubky_app_specs::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser};
+use pubky_app_specs::{
+    post_uri_builder, tag_uri_builder, traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser,
+};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_delete_tagged_post_notification() -> Result<()> {
@@ -47,12 +49,12 @@ async fn test_delete_tagged_post_notification() -> Result<()> {
     // User B tags User A's post
     let label = "merkle_tree";
     let tag = PubkyAppTag {
-        uri: format!("pubky://{user_a_id}/pub/pubky.app/posts/{post_id}"),
+        uri: post_uri_builder(user_a_id.clone(), post_id.clone()),
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
     let tag_id = tag.create_id();
-    let tag_url = format!("pubky://{user_b_id}/pub/pubky.app/tags/{tag_id}");
+    let tag_url = tag_uri_builder(user_b_id.clone(), tag_id);
 
     // Put tag
     test.put(&tag_url, tag).await?;

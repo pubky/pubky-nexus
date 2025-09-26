@@ -7,7 +7,7 @@ use anyhow::Result;
 use chrono::Utc;
 use nexus_common::models::tag::{traits::TagCollection, user::TagUser};
 use pubky::Keypair;
-use pubky_app_specs::{traits::HashId, PubkyAppTag, PubkyAppUser};
+use pubky_app_specs::{tag_uri_builder, traits::HashId, PubkyAppTag, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_put_tag_user_self() -> Result<()> {
@@ -34,7 +34,7 @@ async fn test_homeserver_put_tag_user_self() -> Result<()> {
         created_at: Utc::now().timestamp_millis(),
     };
 
-    let tag_url = format!("pubky://{}/pub/pubky.app/tags/{}", user_id, tag.create_id());
+    let tag_url = tag_uri_builder(user_id.clone(), tag.create_id());
 
     // Put tag
     test.put(tag_url.as_str(), tag).await?;

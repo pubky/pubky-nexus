@@ -8,6 +8,7 @@ use nexus_common::{
         POST_TOTAL_ENGAGEMENT_KEY_PARTS,
     },
 };
+use pubky_app_specs::post_uri_builder;
 
 pub async fn find_post_counts(user_id: &str, post_id: &str) -> PostCounts {
     PostCounts::get_from_index(user_id, post_id)
@@ -94,10 +95,8 @@ pub async fn find_reply_relationship_parent_uri(user_id: &str, post_id: &str) ->
             1,
             "Reply relationship does not exist in the graph"
         );
-        return Ok(format!(
-            "pubky://{}/pub/pubky.app/posts/{}",
-            relationship[0].0, relationship[0].1
-        ));
+        let uri = post_uri_builder(relationship[0].0.clone(), relationship[0].1.clone());
+        return Ok(uri);
     }
     anyhow::bail!("Post relationship not found in Nexus graph");
 }
@@ -113,10 +112,8 @@ pub async fn find_repost_relationship_parent_uri(user_id: &str, post_id: &str) -
             1,
             "Reply relationship does not exist in the graph"
         );
-        return Ok(format!(
-            "pubky://{}/pub/pubky.app/posts/{}",
-            relationship[0].0, relationship[0].1
-        ));
+        let uri = post_uri_builder(relationship[0].0.clone(), relationship[0].1.clone());
+        return Ok(uri);
     }
     anyhow::bail!("Post relationship not found in Nexus graph");
 }

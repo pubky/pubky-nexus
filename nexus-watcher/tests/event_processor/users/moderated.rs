@@ -6,7 +6,7 @@ use crate::{
 use anyhow::Result;
 use chrono::Utc;
 use pubky::{recovery_file, Keypair};
-use pubky_app_specs::{traits::HashId, PubkyAppTag, PubkyAppUser};
+use pubky_app_specs::{tag_uri_builder, traits::HashId, PubkyAppTag, PubkyAppUser};
 use tokio::fs;
 
 #[tokio_shared_rt::test(shared)]
@@ -41,11 +41,7 @@ async fn test_moderated_user_lifecycle() -> Result<()> {
         label: "label_to_moderate".to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
-    let tag_url = format!(
-        "pubky://{}/pub/pubky.app/tags/{}",
-        moderator_id,
-        tag.create_id()
-    );
+    let tag_url = tag_uri_builder(moderator_id, tag.create_id());
     test.put(&tag_url, tag.clone()).await?;
 
     // 5. Confirm the user no longer exists
@@ -72,11 +68,7 @@ async fn test_moderated_user_lifecycle() -> Result<()> {
         label: "tagging_myself".to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
-    let selftag_url = format!(
-        "pubky://{}/pub/pubky.app/tags/{}",
-        target_id,
-        self_tag.create_id()
-    );
+    let selftag_url = tag_uri_builder(target_id.clone(), self_tag.create_id());
     test.put(&selftag_url, self_tag).await?;
 
     // 8. Tag the target user with the moderation label

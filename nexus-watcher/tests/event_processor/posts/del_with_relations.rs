@@ -3,7 +3,10 @@ use anyhow::Result;
 use chrono::Utc;
 use nexus_common::models::post::{PostCounts, PostDetails, PostView};
 use pubky::Keypair;
-use pubky_app_specs::{traits::HashId, PubkyAppPost, PubkyAppPostKind, PubkyAppTag, PubkyAppUser};
+use pubky_app_specs::{
+    post_uri_builder, tag_uri_builder, traits::HashId, PubkyAppPost, PubkyAppPostKind, PubkyAppTag,
+    PubkyAppUser,
+};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_delete_post_with_relationships() -> Result<()> {
@@ -32,11 +35,11 @@ async fn test_delete_post_with_relationships() -> Result<()> {
 
     // Create a tag
     let tag = PubkyAppTag {
-        uri: format!("pubky://{user_id}/pub/pubky.app/posts/{post_id}"),
+        uri: post_uri_builder(user_id.clone(), post_id.clone()),
         label: "funny".to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
-    let tag_url = format!("pubky://{}/pub/pubky.app/tags/{}", user_id, tag.create_id());
+    let tag_url = tag_uri_builder(user_id.clone(), tag.create_id());
 
     // Put tag
     test.put(&tag_url, tag).await?;

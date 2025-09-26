@@ -3,7 +3,9 @@ use anyhow::Result;
 use nexus_watcher::events::errors::EventProcessorError;
 use nexus_watcher::events::{retry::event::RetryEvent, EventType};
 use pubky::Keypair;
-use pubky_app_specs::{PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser};
+use pubky_app_specs::{
+    post_uri_builder, PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser,
+};
 /// The user profile is stored in the homeserver. Missing the post to connect the new one
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_post_with_reply_repost_cannot_index() -> Result<()> {
@@ -25,8 +27,8 @@ async fn test_homeserver_post_with_reply_repost_cannot_index() -> Result<()> {
     let reply_fake_post_id = "0032QB10HCRHG";
     let repost_fake_post_id = "0032QB10HP6JJ";
     // Create parent post uri
-    let reply_uri = format!("pubky://{user_id}/pub/pubky.app/posts/{reply_fake_post_id}");
-    let repost_uri = format!("pubky://{user_id}/pub/pubky.app/posts/{repost_fake_post_id}");
+    let reply_uri = post_uri_builder(user_id.clone(), reply_fake_post_id.into());
+    let repost_uri = post_uri_builder(user_id.clone(), repost_fake_post_id.into());
 
     let repost_reply_post = PubkyAppPost {
         content: "Watcher:IndexFail:PostRepost:User:Reply".to_string(),
@@ -41,7 +43,7 @@ async fn test_homeserver_post_with_reply_repost_cannot_index() -> Result<()> {
 
     let repost_reply_post_id = test.create_post(&user_id, &repost_reply_post).await?;
 
-    let repost_reply_url = format!("pubky://{user_id}/pub/pubky.app/posts/{repost_reply_post_id}");
+    let repost_reply_url = post_uri_builder(user_id, repost_reply_post_id);
 
     let index_key = format!(
         "{}:{}",

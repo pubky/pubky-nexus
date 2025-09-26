@@ -13,6 +13,7 @@ use nexus_common::models::tag::post::TagPost;
 use nexus_common::models::tag::traits::TagCollection;
 use nexus_common::types::Pagination;
 use pubky::Keypair;
+use pubky_app_specs::{post_uri_builder, tag_uri_builder};
 use pubky_app_specs::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
@@ -45,15 +46,11 @@ async fn test_homeserver_put_tag_post() -> Result<()> {
     let label = "merkle_tree";
 
     let tag = PubkyAppTag {
-        uri: format!("pubky://{tagger_user_id}/pub/pubky.app/posts/{post_id}"),
+        uri: post_uri_builder(tagger_user_id.clone(), post_id.clone()),
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
-    let tag_url = format!(
-        "pubky://{}/pub/pubky.app/tags/{}",
-        tagger_user_id,
-        tag.create_id()
-    );
+    let tag_url = tag_uri_builder(tagger_user_id.clone(), tag.create_id());
 
     // Put tag
     test.put(&tag_url, tag).await?;
@@ -184,15 +181,11 @@ async fn test_homeserver_put_tag_post_unique_count() -> Result<()> {
 
     let label = "tag-183";
     let tag = PubkyAppTag {
-        uri: format!("pubky://{tagger_user_id}/pub/pubky.app/posts/{post_id}"),
+        uri: post_uri_builder(tagger_user_id.clone(), post_id.clone()),
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
-    let tag_url = format!(
-        "pubky://{}/pub/pubky.app/tags/{}",
-        tagger_user_id,
-        tag.create_id()
-    );
+    let tag_url = tag_uri_builder(tagger_user_id.clone(), tag.create_id());
 
     // Step 1: Put tag (tag post)
     test.put(&tag_url, tag.clone()).await?;
@@ -242,11 +235,7 @@ async fn test_homeserver_put_tag_user_unique_count() -> Result<()> {
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
-    let tag_url = format!(
-        "pubky://{}/pub/pubky.app/tags/{}",
-        tagger_user_id,
-        tag.create_id()
-    );
+    let tag_url = tag_uri_builder(tagger_user_id.clone(), tag.create_id());
 
     // Step 1: Put tag (tag user)
     test.put(&tag_url, tag.clone()).await?;

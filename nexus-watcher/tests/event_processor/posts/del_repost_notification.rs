@@ -5,7 +5,9 @@ use nexus_common::{
     types::Pagination,
 };
 use pubky::Keypair;
-use pubky_app_specs::{PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser};
+use pubky_app_specs::{
+    post_uri_builder, PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser,
+};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_delete_post_that_reposted_notification() -> Result<()> {
@@ -50,7 +52,7 @@ async fn test_delete_post_that_reposted_notification() -> Result<()> {
         parent: None,
         embed: Some(PubkyAppPostEmbed {
             kind: PubkyAppPostKind::Short,
-            uri: format!("pubky://{poster_id}/pub/pubky.app/posts/{post_id}"),
+            uri: post_uri_builder(poster_id.clone(), post_id.clone()),
         }),
         attachments: None,
     };

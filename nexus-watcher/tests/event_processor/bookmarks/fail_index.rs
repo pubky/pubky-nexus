@@ -1,7 +1,10 @@
 use crate::event_processor::utils::watcher::{retrieve_and_handle_event_line, WatcherTest};
 use anyhow::Result;
 use pubky::Keypair;
-use pubky_app_specs::{traits::HashId, PubkyAppBookmark, PubkyAppPost, PubkyAppUser};
+use pubky_app_specs::{
+    bookmark_uri_builder, post_uri_builder, traits::HashId, PubkyAppBookmark, PubkyAppPost,
+    PubkyAppUser,
+};
 use tracing::error;
 
 /// The user profile is stored in the homeserver. Missing the author that creates the bookmark
@@ -38,13 +41,13 @@ async fn test_homeserver_bookmark_without_user() -> Result<()> {
 
     // Create a bookmark content
     let bookmark = PubkyAppBookmark {
-        uri: format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}"),
+        uri: post_uri_builder(author_id, post_id),
         created_at: chrono::Utc::now().timestamp_millis(),
     };
 
     // Create the bookmark of the shadow user
     let bookmark_id = bookmark.create_id();
-    let bookmark_url = format!("pubky://{shadow_user_id}/pub/pubky.app/bookmarks/{bookmark_id}");
+    let bookmark_url = bookmark_uri_builder(shadow_user_id, bookmark_id);
 
     // Switch OFF the event processor to simulate the pending events to index
     test = test.remove_event_processing().await;

@@ -3,7 +3,9 @@ use crate::event_processor::users::utils::find_user_counts;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use pubky::Keypair;
-use pubky_app_specs::{PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser};
+use pubky_app_specs::{
+    post_uri_builder, PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser,
+};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_reply_repost() -> Result<()> {
@@ -33,7 +35,7 @@ async fn test_homeserver_reply_repost() -> Result<()> {
     let parent_post_id = test.create_post(&user_id, &parent_post).await?;
 
     // Create reply
-    let parent_uri = format!("pubky://{user_id}/pub/pubky.app/posts/{parent_post_id}");
+    let parent_uri = post_uri_builder(user_id.clone(), parent_post_id.clone());
 
     let reply = PubkyAppPost {
         content: "Watcher:ReplyRepost:User:Reply".to_string(),
@@ -46,15 +48,13 @@ async fn test_homeserver_reply_repost() -> Result<()> {
     let reply_id = test.create_post(&user_id, &reply).await?;
 
     // Create repost
-    let post_uri = format!("pubky://{user_id}/pub/pubky.app/posts/{parent_post_id}");
-
     let repost = PubkyAppPost {
         content: "Watcher:ReplyRepost:User:Repost".to_string(),
         kind: PubkyAppPostKind::Short,
         parent: None,
         embed: Some(PubkyAppPostEmbed {
             kind: PubkyAppPostKind::Short,
-            uri: post_uri.clone(),
+            uri: parent_uri.clone(),
         }),
         attachments: None,
     };

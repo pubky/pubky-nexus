@@ -5,7 +5,7 @@ use nexus_common::{
     types::Pagination,
 };
 use pubky::Keypair;
-use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
+use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_edit_parent_post_notification() -> Result<()> {
@@ -47,7 +47,7 @@ async fn test_edit_parent_post_notification() -> Result<()> {
     let reply = PubkyAppPost {
         content: "Reply by User B".to_string(),
         kind: PubkyAppPostKind::Short,
-        parent: Some(format!("pubky://{user_a_id}/pub/pubky.app/posts/{post_id}")),
+        parent: Some(post_uri_builder(user_a_id.clone(), post_id.clone())),
         embed: None,
         attachments: None,
     };
@@ -55,7 +55,7 @@ async fn test_edit_parent_post_notification() -> Result<()> {
 
     // User A edits their original post
     post.content = "Edited post by User A".to_string();
-    let edited_url = format!("pubky://{user_a_id}/pub/pubky.app/posts/{post_id}");
+    let edited_url = post_uri_builder(user_a_id.clone(), post_id.clone());
 
     // Overwrite existing post in the homeserver with the edited one
     test.put(edited_url.as_str(), &post).await?;
