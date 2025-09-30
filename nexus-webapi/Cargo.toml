@@ -10,7 +10,7 @@ build = "build.rs"
 
 [dependencies]
 async-trait = { workspace = true }
-axum = "0.8.4"
+axum = "0.8.5"
 axum-server = { version = "0.7.2", features = ["tls-rustls-no-provider"] }
 chrono = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
