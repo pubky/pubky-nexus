@@ -4,7 +4,10 @@ use nexus_common::types::DynError;
 use tokio::sync::watch::Receiver;
 use tracing::{error, info};
 
-use crate::service::traits::{tevent_processor::RunError, TEventProcessor};
+use crate::service::{
+    constants::MAX_HOMESERVERS_PER_RUN,
+    traits::{tevent_processor::RunError, TEventProcessor},
+};
 
 #[derive(Default)]
 pub struct RunAllProcessorsStats {
@@ -17,6 +20,9 @@ pub struct RunAllProcessorsStats {
     /// Number of homeservers where processing timed out
     pub count_timeout: u16,
 }
+
+/// Wrapper around `RunAllProcessorsStats` which indicates they've been processed
+pub struct ProcessedStats(pub RunAllProcessorsStats);
 
 /// Asynchronous factory for creating event processors in the Watcher service.
 ///
@@ -60,24 +66,43 @@ pub trait TEventProcessorFactory {
     /// Throws a [`DynError`] if the event processor couldn't be built
     async fn build(&self, homeserver_id: String) -> Result<Arc<dyn TEventProcessor>, DynError>;
 
+    /// Decides the homeservers (which ones and in which order) from which events will be fetched and processed.
+    ///
+    /// # Returns
+    /// Ordered list of homeserver IDs considered for `run_all`, from highest to lowest prio.
+    async fn pre_run_all(&self) -> Vec<String> {
+        let hs_ids = self.homeservers_by_priority().await;
+        let max = std::cmp::min(MAX_HOMESERVERS_PER_RUN, hs_ids.len());
+        hs_ids[..max].to_vec()
+    }
+
+    /// Post-processing of the run results
+    async fn post_run_all(&self, stats: RunAllProcessorsStats) -> ProcessedStats {
+        info!(
+            "Run result: {} ok, {} error, {} panic, {} timeout",
+            stats.count_ok, stats.count_error, stats.count_panic, stats.count_timeout
+        );
+        ProcessedStats(stats)
+    }
+
     /// Runs event processors for all homeservers relevant for this run, with timeout protection.
     ///
     /// # Returns
     /// Statistics about the event processor run results, summarized as [`RunAllProcessorsStats`]
-    async fn run_all(&self) -> RunAllProcessorsStats {
-        let hs_ids = self.homeservers_by_priority().await;
+    async fn run_all(&self) -> ProcessedStats {
+        let hs_ids = self.pre_run_all().await;
 
         let mut run_stats = RunAllProcessorsStats::default();
 
         for hs_id in hs_ids {
             if *self.shutdown_rx().borrow() {
                 info!("Shutdown detected in homeserver {hs_id}, exiting run_all loop");
-                return run_stats;
+                break; // Exit loop
             }
 
             let Ok(event_processor) = self.build(hs_id.clone()).await else {
                 error!("Failed to build event processor for homeserver: {}", hs_id);
-                continue;
+                continue; // Skip this loop iteration, continue with the next
             };
 
             match event_processor.run().await {
@@ -88,6 +113,6 @@ pub trait TEventProcessorFactory {
             }
         }
 
-        run_stats
+        self.post_run_all(run_stats).await
     }
 }

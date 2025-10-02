@@ -37,14 +37,14 @@ async fn test_shutdown_signal() -> Result<()> {
         }
     });
 
-    let result = factory.run_all().await;
+    let stats = factory.run_all().await.0;
 
     // We created 3 HSs, each with different execution durations (0s, 2s, 4s)
     // We triggered the shutdown signal 1s after start
-    assert_eq!(result.count_ok, 2); // 2 processors run without errors (of the 3, the 3rd one didn't even start)
-    assert_eq!(result.count_error, 0); // no processors fail, because no erratic or unexpected behavior was triggered
-    assert_eq!(result.count_panic, 0);
-    assert_eq!(result.count_timeout, 0);
+    assert_eq!(stats.count_ok, 2); // 2 processors run without errors (of the 3, the 3rd one didn't even start)
+    assert_eq!(stats.count_error, 0); // no processors fail, because no erratic or unexpected behavior was triggered
+    assert_eq!(stats.count_panic, 0);
+    assert_eq!(stats.count_timeout, 0);
 
     Ok(())
 }
