@@ -18,9 +18,6 @@ pub struct RunAllProcessorsStats {
     pub count_timeout: u16,
 }
 
-/// The type that describes the result of an event processor run
-type RunAllProcessorsResult = Result<RunAllProcessorsStats, DynError>;
-
 /// Asynchronous factory for creating event processors in the Watcher service.
 ///
 /// This trait represents a component responsible for creating event processor instances
@@ -67,7 +64,7 @@ pub trait TEventProcessorFactory {
     ///
     /// # Returns
     /// Statistics about the event processor run results, summarized as [`RunAllProcessorsStats`]
-    async fn run_all(&self) -> RunAllProcessorsResult {
+    async fn run_all(&self) -> RunAllProcessorsStats {
         let hs_ids = self.homeservers_by_priority().await;
 
         let mut run_stats = RunAllProcessorsStats::default();
@@ -75,7 +72,7 @@ pub trait TEventProcessorFactory {
         for hs_id in hs_ids {
             if *self.shutdown_rx().borrow() {
                 info!("Shutdown detected in homeserver {hs_id}, exiting run_all loop");
-                return Ok(run_stats);
+                return run_stats;
             }
 
             let Ok(event_processor) = self.build(hs_id.clone()).await else {
@@ -91,6 +88,6 @@ pub trait TEventProcessorFactory {
             }
         }
 
-        Ok(run_stats)
+        run_stats
     }
 }

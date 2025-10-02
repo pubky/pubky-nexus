@@ -88,7 +88,7 @@ impl NexusWatcher {
                 }
                 _ = interval.tick() => {
                     info!("Indexing homeservers…");
-                    ev_processor_factory.run_all().await?;
+                    ev_processor_factory.run_all().await;
                 }
             }
         }
