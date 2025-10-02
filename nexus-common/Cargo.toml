@@ -14,7 +14,7 @@ chrono = { workspace = true }
 neo4rs = { workspace = true }
 once_cell = "1.21.3"
 opentelemetry = { workspace = true }
-opentelemetry-appender-tracing = "0.30.1"
+opentelemetry-appender-tracing = "0.31.0"
 opentelemetry-otlp = { version = "0.30", features = ["grpc-tonic"] }
 opentelemetry_sdk = { workspace = true }
 pubky = { workspace = true }
