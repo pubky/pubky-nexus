@@ -17,5 +17,6 @@
 mod builder;
 pub mod events;
 pub mod service;
+mod stats;
 
 pub use builder::NexusWatcherBuilder;

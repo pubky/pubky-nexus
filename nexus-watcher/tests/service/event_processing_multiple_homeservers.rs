@@ -38,12 +38,11 @@ async fn test_multiple_homeserver_event_processing() -> Result<()> {
 
     let factory = MockEventProcessorFactory::new(event_processor_list, shutdown_rx);
 
-    let result = factory.run_all().await.unwrap();
-
-    assert_eq!(result.count_ok, 3);
-    assert_eq!(result.count_error, 1);
-    assert_eq!(result.count_panic, 0);
-    assert_eq!(result.count_timeout, 0);
+    let stats = factory.run_all().await.0;
+    assert_eq!(stats.count_ok(), 3);
+    assert_eq!(stats.count_error(), 1);
+    assert_eq!(stats.count_panic(), 0);
+    assert_eq!(stats.count_timeout(), 0);
 
     Ok(())
 }
@@ -70,12 +69,11 @@ async fn test_multi_hs_event_processing_with_timeout() -> Result<()> {
 
     let factory = MockEventProcessorFactory::new(event_processor_list, shutdown_rx);
 
-    let result = factory.run_all().await.unwrap();
-
-    assert_eq!(result.count_ok, 1); // 1 success
-    assert_eq!(result.count_timeout, 2); // 2 failures due to timeout
-    assert_eq!(result.count_error, 0);
-    assert_eq!(result.count_panic, 0);
+    let stats = factory.run_all().await.0;
+    assert_eq!(stats.count_ok(), 1); // 1 success
+    assert_eq!(stats.count_timeout(), 2); // 2 failures due to timeout
+    assert_eq!(stats.count_error(), 0);
+    assert_eq!(stats.count_panic(), 0);
 
     Ok(())
 }
@@ -114,12 +112,11 @@ async fn test_multi_hs_event_processing_with_panic() -> Result<()> {
 
     let factory = MockEventProcessorFactory::new(event_processor_list, shutdown_rx);
 
-    let result = factory.run_all().await.unwrap();
-
-    assert_eq!(result.count_ok, 3); // 3 expected to succeed
-    assert_eq!(result.count_timeout, 0);
-    assert_eq!(result.count_error, 0);
-    assert_eq!(result.count_panic, 2); // 2 expected to panic
+    let stats = factory.run_all().await.0;
+    assert_eq!(stats.count_ok(), 3); // 3 expected to succeed
+    assert_eq!(stats.count_timeout(), 0);
+    assert_eq!(stats.count_error(), 0);
+    assert_eq!(stats.count_panic(), 2); // 2 expected to panic
 
     Ok(())
 }
