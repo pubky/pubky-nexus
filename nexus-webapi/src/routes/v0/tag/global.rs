@@ -38,7 +38,7 @@ pub struct TagTaggersQuery {
     tag = "Tags",
     params(
         ("label" = String, Path, description = "Tag name"),
-        ("reach" = StreamReach, Path, description = "Reach type: Follower | Following | Friends | Wot"),
+        ("reach" = Option<StreamReach>, Query, description = "Reach type: `follower` | `following` | `friends` | `wot`. To apply that, user_id is required"),
         ("user_id" = Option<String>, Query, description = "User ID to base reach on"),
         ("skip" = Option<usize>, Query, description = "Skip N taggers. Defaults to `0`"),
         ("limit" = Option<usize>, Query, description = "Retrieve N tagggers. Defaults to `20`"),
@@ -93,7 +93,7 @@ pub async fn tag_taggers_handler(
     tag = "Tags",
     params(
         ("user_id" = Option<String>, Query, description = "User Pubky ID"),
-        ("reach" = Option<StreamReach>, Query, description = "Reach type: follower | following | friends | wot"),
+        ("reach" = Option<StreamReach>, Query, description = "Reach type: `follower` | `following` | `friends` | `wot`. To apply that, user_id is required"),
         ("taggers_limit" = Option<usize>, Query, description = "Retrieve N user_id for each tag. Defaults to `20`"),
         ("skip" = Option<usize>, Query, description = "Skip N tags. Defaults to `0`"),
         ("limit" = Option<usize>, Query, description = "Retrieve N tag. Defaults to `40`"),
