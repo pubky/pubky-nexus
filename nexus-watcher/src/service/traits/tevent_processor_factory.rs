@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use nexus_common::types::DynError;
 use tokio::sync::watch::Receiver;
@@ -9,16 +12,58 @@ use crate::service::{
     traits::{tevent_processor::RunError, TEventProcessor},
 };
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ProcessorRunStatus {
+    Ok,
+    Error,
+    Panic,
+    Timeout,
+}
+
+struct ProcessorRunStats {
+    hs_id: String,
+    duration: Duration,
+    status: ProcessorRunStatus,
+}
+
 #[derive(Default)]
 pub struct RunAllProcessorsStats {
+    stats: Vec<ProcessorRunStats>,
+}
+
+impl RunAllProcessorsStats {
+    fn add_run_result(&mut self, hs_id: String, duration: Duration, status: ProcessorRunStatus) {
+        let individual_run_stats = ProcessorRunStats {
+            hs_id,
+            duration,
+            status,
+        };
+        self.stats.push(individual_run_stats);
+    }
+
+    fn count(&self, status: ProcessorRunStatus) -> usize {
+        self.stats.iter().filter(|ps| ps.status == status).count()
+    }
+
     /// Number of homeservers where processing were successful
-    pub count_ok: u16,
+    pub fn count_ok(&self) -> usize {
+        self.count(ProcessorRunStatus::Ok)
+    }
+
     /// Number of homeservers where processing failed with Err
-    pub count_error: u16,
+    pub fn count_error(&self) -> usize {
+        self.count(ProcessorRunStatus::Error)
+    }
+
     /// Number of homeservers where processing panicked
-    pub count_panic: u16,
+    pub fn count_panic(&self) -> usize {
+        self.count(ProcessorRunStatus::Panic)
+    }
+
     /// Number of homeservers where processing timed out
-    pub count_timeout: u16,
+    pub fn count_timeout(&self) -> usize {
+        self.count(ProcessorRunStatus::Timeout)
+    }
 }
 
 /// Wrapper around `RunAllProcessorsStats` which indicates they've been processed
@@ -78,10 +123,19 @@ pub trait TEventProcessorFactory {
 
     /// Post-processing of the run results
     async fn post_run_all(&self, stats: RunAllProcessorsStats) -> ProcessedStats {
-        info!(
-            "Run result: {} ok, {} error, {} panic, {} timeout",
-            stats.count_ok, stats.count_error, stats.count_panic, stats.count_timeout
-        );
+        for individual_run_stat in &stats.stats {
+            let hs_id = &individual_run_stat.hs_id;
+            let duration = individual_run_stat.duration;
+            let status = &individual_run_stat.status;
+            info!("Event processor run for HS {hs_id}: duration {duration:?}, status {status:?}");
+        }
+
+        let count_ok = stats.count_ok();
+        let count_error = stats.count_error();
+        let count_panic = stats.count_panic();
+        let count_timeout = stats.count_timeout();
+        info!("Run result: {count_ok} ok, {count_error} error, {count_panic} panic, {count_timeout} timeout");
+
         ProcessedStats(stats)
     }
 
@@ -105,12 +159,18 @@ pub trait TEventProcessorFactory {
                 continue; // Skip this loop iteration, continue with the next
             };
 
-            match event_processor.run().await {
-                Ok(_) => run_stats.count_ok += 1,
-                Err(RunError::Internal(_)) => run_stats.count_error += 1,
-                Err(RunError::Panicked) => run_stats.count_panic += 1,
-                Err(RunError::TimedOut) => run_stats.count_timeout += 1,
-            }
+            let t0 = Instant::now();
+            let run_result = event_processor.run().await;
+            let duration = Instant::now().duration_since(t0);
+
+            let status = match run_result {
+                Ok(_) => ProcessorRunStatus::Ok,
+                Err(RunError::Internal(_)) => ProcessorRunStatus::Error,
+                Err(RunError::Panicked) => ProcessorRunStatus::Panic,
+                Err(RunError::TimedOut) => ProcessorRunStatus::Timeout,
+            };
+
+            run_stats.add_run_result(hs_id, duration, status);
         }
 
         self.post_run_all(run_stats).await
