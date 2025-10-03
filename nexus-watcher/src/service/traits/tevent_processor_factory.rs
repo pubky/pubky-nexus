@@ -1,73 +1,16 @@
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{sync::Arc, time::Instant};
 
 use nexus_common::types::DynError;
 use tokio::sync::watch::Receiver;
 use tracing::{error, info};
 
-use crate::service::{
-    constants::MAX_HOMESERVERS_PER_RUN,
-    traits::{tevent_processor::RunError, TEventProcessor},
+use crate::{
+    service::{
+        constants::MAX_HOMESERVERS_PER_RUN,
+        traits::{tevent_processor::RunError, TEventProcessor},
+    },
+    stats::{ProcessedStats, ProcessorRunStatus, RunAllProcessorsStats},
 };
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum ProcessorRunStatus {
-    Ok,
-    Error,
-    Panic,
-    Timeout,
-}
-
-struct ProcessorRunStats {
-    hs_id: String,
-    duration: Duration,
-    status: ProcessorRunStatus,
-}
-
-#[derive(Default)]
-pub struct RunAllProcessorsStats {
-    stats: Vec<ProcessorRunStats>,
-}
-
-impl RunAllProcessorsStats {
-    fn add_run_result(&mut self, hs_id: String, duration: Duration, status: ProcessorRunStatus) {
-        let individual_run_stats = ProcessorRunStats {
-            hs_id,
-            duration,
-            status,
-        };
-        self.stats.push(individual_run_stats);
-    }
-
-    fn count(&self, status: ProcessorRunStatus) -> usize {
-        self.stats.iter().filter(|ps| ps.status == status).count()
-    }
-
-    /// Number of homeservers where processing were successful
-    pub fn count_ok(&self) -> usize {
-        self.count(ProcessorRunStatus::Ok)
-    }
-
-    /// Number of homeservers where processing failed with Err
-    pub fn count_error(&self) -> usize {
-        self.count(ProcessorRunStatus::Error)
-    }
-
-    /// Number of homeservers where processing panicked
-    pub fn count_panic(&self) -> usize {
-        self.count(ProcessorRunStatus::Panic)
-    }
-
-    /// Number of homeservers where processing timed out
-    pub fn count_timeout(&self) -> usize {
-        self.count(ProcessorRunStatus::Timeout)
-    }
-}
-
-/// Wrapper around `RunAllProcessorsStats` which indicates they've been processed
-pub struct ProcessedStats(pub RunAllProcessorsStats);
 
 /// Asynchronous factory for creating event processors in the Watcher service.
 ///
