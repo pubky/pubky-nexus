@@ -20,7 +20,8 @@ pub struct TagApiDoc;
 
 impl TagApiDoc {
     pub fn merge_docs() -> utoipa::openapi::OpenApi {
-        global::TagGlobalApiDoc::openapi();
-        view::TagViewApiDoc::openapi()
+        let mut combined = global::TagGlobalApiDoc::openapi();
+        combined.merge(view::TagViewApiDoc::openapi());
+        combined
     }
 }
