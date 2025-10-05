@@ -18,6 +18,8 @@ async fn test_bootstrap_user() -> Result<()> {
     assert_eq!(user_bootstrap_respose.list.stream.len(), 20);
     assert_eq!(user_bootstrap_respose.list.influencers.len(), 3);
     assert_eq!(user_bootstrap_respose.list.recommended.len(), 5);
+    println!("hot_tags: {:?}", user_bootstrap_respose.list.hot_tags);
+    assert!(user_bootstrap_respose.list.hot_tags.len() < 40);
 
     let user_ids: HashSet<String> = user_bootstrap_respose
         .users
@@ -49,7 +51,7 @@ async fn test_bootstrap_user() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_bootstrap_user_does_not_exist() -> Result<()> {
     let endpoint = format!(
-        "/v0/bootstrat/{}",
+        "/v0/bootstrap/{}",
         "zdbg13k5gh4tfz9qz11quohrxetgqxs7awandu8h57147xddcuhi"
     );
     invalid_get_request(&endpoint, StatusCode::NOT_FOUND).await?;
