@@ -3,7 +3,7 @@ use anyhow::Result;
 use nexus_watcher::events::errors::EventProcessorError;
 use nexus_watcher::events::{retry::event::RetryEvent, EventType};
 use pubky::Keypair;
-use pubky_app_specs::{user_uri_builder, PubkyAppUser};
+use pubky_app_specs::{follow_uri_builder, user_uri_builder, PubkyAppUser};
 
 /// The user profile is stored in the homeserver. Missing the followee to connect with follower
 #[tokio_shared_rt::test(shared)]
@@ -28,7 +28,7 @@ async fn test_homeserver_follow_cannot_index() -> Result<()> {
 
     test.create_follow(&follower_id, &followee_id).await?;
 
-    let follow_url = format!("pubky://{follower_id}/pub/pubky.app/follows/{followee_id}");
+    let follow_url = follow_uri_builder(follower_id, followee_id.clone());
 
     let index_key = format!(
         "{}:{}",

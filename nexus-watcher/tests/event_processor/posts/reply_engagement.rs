@@ -6,7 +6,8 @@ use anyhow::Result;
 use chrono::Utc;
 use pubky::Keypair;
 use pubky_app_specs::{
-    traits::HashId, PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
+    post_uri_builder, tag_uri_builder, traits::HashId, PubkyAppPost, PubkyAppPostEmbed,
+    PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
 };
 
 #[tokio_shared_rt::test(shared)]
@@ -37,7 +38,7 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
     let parent_post_id = test.create_post(&author_id, &parent_post).await?;
 
     // Create reply
-    let parent_uri = format!("pubky://{author_id}/pub/pubky.app/posts/{parent_post_id}");
+    let parent_uri = post_uri_builder(author_id.clone(), parent_post_id);
 
     let reply = PubkyAppPost {
         content: "Watcher:ReplyEngagement:User:Reply".to_string(),
@@ -59,7 +60,7 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
     );
 
     // Create a reply of a reply
-    let reply_uri = format!("pubky://{author_id}/pub/pubky.app/posts/{reply_id}");
+    let reply_uri = post_uri_builder(author_id.clone(), reply_id.clone());
 
     let reply_of_reply = PubkyAppPost {
         content: "Watcher:ReplyEngagement:User:ReplyOfReply".to_string(),
@@ -132,17 +133,12 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
     let label = "ignore_score";
 
     let tag = PubkyAppTag {
-        uri: format!("pubky://{author_id}/pub/pubky.app/posts/{reply_id}"),
+        uri: post_uri_builder(author_id.clone(), reply_id.clone()),
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
 
-    let tag_url = format!(
-        "pubky://{}/pub/pubky.app/tags/{}",
-        tagger_user_id,
-        tag.create_id()
-    );
-
+    let tag_url = tag_uri_builder(tagger_user_id, tag.create_id());
     test.put(&tag_url, tag).await?;
 
     // Check if reply post is not in total engagement index: Sorted:Posts:Global:TotalEngagement:user_id:post_id

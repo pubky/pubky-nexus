@@ -3,7 +3,9 @@ use anyhow::{anyhow, Result};
 use chrono::Utc;
 use nexus_watcher::service::TEventProcessorFactory;
 use pubky::Keypair;
-use pubky_app_specs::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser};
+use pubky_app_specs::{
+    post_uri_builder, tag_uri_builder, traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser,
+};
 use tracing::error;
 
 #[tokio_shared_rt::test(shared)]
@@ -45,11 +47,7 @@ async fn test_homeserver_tag_cannot_add_while_index() -> Result<()> {
     };
 
     let tag_blob = serde_json::to_vec(&tag)?;
-    let tag_url = format!(
-        "pubky://{}/pub/pubky.app/tags/{}",
-        shadow_user_id,
-        tag.create_id()
-    );
+    let tag_url = tag_uri_builder(shadow_user_id.clone(), tag.create_id());
 
     // PUT user tag
     test.put(tag_url.as_str(), tag_blob).await?;
@@ -97,16 +95,12 @@ async fn test_homeserver_tag_cannot_add_while_index() -> Result<()> {
     let label = "merkle_tree";
 
     let tag = PubkyAppTag {
-        uri: format!("pubky://{tagged_user_id}/pub/pubky.app/posts/{post_id}"),
+        uri: post_uri_builder(tagged_user_id, post_id),
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
     let tag_blob = serde_json::to_vec(&tag)?;
-    let tag_url = format!(
-        "pubky://{}/pub/pubky.app/tags/{}",
-        shadow_user_id,
-        tag.create_id()
-    );
+    let tag_url = tag_uri_builder(shadow_user_id, tag.create_id());
     // PUT post tag
     test.put(&tag_url, tag_blob).await?;
 

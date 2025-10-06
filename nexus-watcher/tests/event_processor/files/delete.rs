@@ -3,10 +3,7 @@ use anyhow::Result;
 use chrono::Utc;
 use nexus_common::models::{file::FileDetails, traits::Collection};
 use pubky::Keypair;
-use pubky_app_specs::{
-    traits::{HasIdPath, HashId},
-    PubkyAppBlob, PubkyAppFile, PubkyAppUser,
-};
+use pubky_app_specs::{blob_uri_builder, traits::HashId, PubkyAppBlob, PubkyAppFile, PubkyAppUser};
 use std::path::Path;
 
 #[tokio_shared_rt::test(shared)]
@@ -28,7 +25,7 @@ async fn test_delete_pubkyapp_file() -> Result<()> {
     let blob_data = "Hello World!".to_string();
     let blob = PubkyAppBlob::new(blob_data.as_bytes().to_vec());
     let blob_id = blob.create_id();
-    let blob_url = format!("pubky://{}{}", user_id, blob.create_path(&blob_id));
+    let blob_url = blob_uri_builder(user_id.clone(), blob_id);
 
     test.create_file_from_body(blob_url.as_str(), blob.0.clone())
         .await?;

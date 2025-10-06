@@ -3,7 +3,7 @@ use anyhow::Result;
 use nexus_watcher::events::errors::EventProcessorError;
 use nexus_watcher::events::{retry::event::RetryEvent, EventType};
 use pubky::Keypair;
-use pubky_app_specs::{user_uri_builder, PubkyAppUser};
+use pubky_app_specs::{mute_uri_builder, user_uri_builder, PubkyAppUser};
 /// The user profile is stored in the homeserver. Missing the mutee to connect with muter
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_mute_cannot_index() -> Result<()> {
@@ -28,7 +28,7 @@ async fn test_homeserver_mute_cannot_index() -> Result<()> {
     // Mute the user
     test.create_mute(&muter_id, &mutee_id).await?;
 
-    let mute_url = format!("pubky://{muter_id}/pub/pubky.app/mutes/{mutee_id}");
+    let mute_url = mute_uri_builder(muter_id, mutee_id.clone());
 
     let index_key = format!(
         "{}:{}",

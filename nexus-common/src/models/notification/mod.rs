@@ -4,6 +4,7 @@ use crate::types::DynError;
 use crate::types::Pagination;
 use chrono::Utc;
 use neo4rs::Row;
+use pubky_app_specs::{bookmark_uri_builder, post_uri_builder, tag_uri_builder};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -247,7 +248,7 @@ impl Notification {
         }
         let body = NotificationBody::Mention {
             mentioned_by: user_id.to_string(),
-            post_uri: format!("pubky://{user_id}/pub/pubky.app/posts/{post_id}"),
+            post_uri: post_uri_builder(user_id.to_string(), post_id.to_string()),
         };
         let notification = Notification::new(body);
         notification.put_to_index(mentioned_id).await?;
@@ -319,7 +320,7 @@ impl Notification {
                 Box::new(|row: &Row| {
                     let replier_id: &str = row.get("replier_id").unwrap_or_default();
                     let reply_id: &str = row.get("reply_id").unwrap_or_default();
-                    let linked_uri = format!("pubky://{replier_id}/pub/pubky.app/posts/{reply_id}");
+                    let linked_uri = post_uri_builder(replier_id.into(), reply_id.into());
                     (replier_id.to_string(), linked_uri)
                 }),
             ),
@@ -329,7 +330,7 @@ impl Notification {
                 Box::new(|row: &Row| {
                     let tagger_id: &str = row.get("tagger_id").unwrap_or_default();
                     let tag_id: &str = row.get("tag_id").unwrap_or_default();
-                    let linked_uri = format!("pubky://{tagger_id}/pub/pubky.app/tags/{tag_id}");
+                    let linked_uri = tag_uri_builder(tagger_id.into(), tag_id.into());
                     (tagger_id.to_string(), linked_uri)
                 }),
             ),
@@ -339,8 +340,7 @@ impl Notification {
                 Box::new(|row: &Row| {
                     let bookmarker_id: &str = row.get("bookmarker_id").unwrap_or_default();
                     let bookmark_id: &str = row.get("bookmark_id").unwrap_or_default();
-                    let linked_uri =
-                        format!("pubky://{bookmarker_id}/pub/pubky.app/bookmarks/{bookmark_id}");
+                    let linked_uri = bookmark_uri_builder(bookmarker_id.into(), bookmark_id.into());
                     (bookmarker_id.to_string(), linked_uri)
                 }),
             ),
@@ -350,8 +350,7 @@ impl Notification {
                 Box::new(|row: &Row| {
                     let reposter_id: &str = row.get("reposter_id").unwrap_or_default();
                     let repost_id: &str = row.get("repost_id").unwrap_or_default();
-                    let linked_uri =
-                        format!("pubky://{reposter_id}/pub/pubky.app/posts/{repost_id}");
+                    let linked_uri = post_uri_builder(reposter_id.into(), repost_id.into());
                     (reposter_id.to_string(), linked_uri)
                 }),
             ),

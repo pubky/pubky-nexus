@@ -4,6 +4,7 @@ use chrono::Utc;
 use nexus_watcher::events::errors::EventProcessorError;
 use nexus_watcher::events::{retry::event::RetryEvent, EventType};
 use pubky::Keypair;
+use pubky_app_specs::{post_uri_builder, tag_uri_builder};
 use pubky_app_specs::{traits::HashId, PubkyAppTag, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
@@ -34,10 +35,7 @@ async fn test_homeserver_post_tag_event_to_queue() -> Result<()> {
     // => Create user tag
     let label = "peak_limit";
 
-    let dependency_uri = format!(
-        "pubky://{author_id}/pub/pubky.app/posts/{}",
-        "0032Q4SFBFD4G"
-    );
+    let dependency_uri = post_uri_builder(author_id, "0032Q4SFBFD4G".into());
 
     // Create a tag in a fake post
     let tag = PubkyAppTag {
@@ -45,10 +43,7 @@ async fn test_homeserver_post_tag_event_to_queue() -> Result<()> {
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
-    let tag_url = format!(
-        "pubky://{tagger_user_id}/pub/pubky.app/tags/{}",
-        tag.create_id()
-    );
+    let tag_url = tag_uri_builder(tagger_user_id, tag.create_id());
 
     // PUT user tag
     // That operation is going to write the event in the pending events queue, so block a bit the thread

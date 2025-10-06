@@ -4,6 +4,7 @@ use chrono::Utc;
 use nexus_watcher::events::errors::EventProcessorError;
 use nexus_watcher::events::{retry::event::RetryEvent, EventType};
 use pubky::Keypair;
+use pubky_app_specs::tag_uri_builder;
 use pubky_app_specs::{traits::HashId, PubkyAppTag, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
@@ -35,11 +36,7 @@ async fn test_homeserver_user_tag_event_to_queue() -> Result<()> {
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
-    let tag_url = format!(
-        "pubky://{}/pub/pubky.app/tags/{}",
-        tagger_user_id,
-        tag.create_id()
-    );
+    let tag_url = tag_uri_builder(tagger_user_id, tag.create_id());
 
     // PUT user tag
     // That operation is going to write the event in the pending events queue, so block a bit the thread

@@ -13,7 +13,9 @@ use nexus_watcher::service::NexusWatcher;
 use nexus_watcher::service::TEventProcessorFactory;
 use pubky::Keypair;
 use pubky::PublicKey;
-use pubky_app_specs::PubkyId;
+use pubky_app_specs::{
+    file_uri_builder, follow_uri_builder, mute_uri_builder, post_uri_builder, PubkyId,
+};
 use pubky_app_specs::{
     traits::TimestampId, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser,
 };
@@ -228,7 +230,7 @@ impl WatcherTest {
 
     pub async fn create_post(&mut self, user_id: &str, post: &PubkyAppPost) -> Result<String> {
         let post_id = post.create_id();
-        let url = format!("pubky://{user_id}/pub/pubky.app/posts/{post_id}");
+        let url = post_uri_builder(user_id.into(), post_id.clone());
         // Write the post in the pubky.app repository
         PubkyClient::get()
             .unwrap()
@@ -254,7 +256,7 @@ impl WatcherTest {
     }
 
     pub async fn cleanup_post(&mut self, user_id: &str, post_id: &str) -> Result<()> {
-        let url = format!("pubky://{user_id}/pub/pubky.app/posts/{post_id}");
+        let url = post_uri_builder(user_id.into(), post_id.into());
         PubkyClient::get()
             .unwrap()
             .delete(url.as_str())
@@ -270,7 +272,7 @@ impl WatcherTest {
         file: &PubkyAppFile,
     ) -> Result<(String, String)> {
         let file_id = file.create_id();
-        let url = format!("pubky://{user_id}/pub/pubky.app/files/{file_id}");
+        let url = file_uri_builder(user_id.into(), file_id.clone());
         PubkyClient::get()
             .unwrap()
             .put(url.as_str())
@@ -297,7 +299,7 @@ impl WatcherTest {
     }
 
     pub async fn cleanup_file(&mut self, user_id: &str, file_id: &str) -> Result<()> {
-        let url = format!("pubky://{user_id}/pub/pubky.app/files/{file_id}");
+        let url = file_uri_builder(user_id.into(), file_id.into());
         PubkyClient::get()
             .unwrap()
             .delete(url.as_str())
@@ -311,7 +313,7 @@ impl WatcherTest {
         let follow_relationship = PubkyAppFollow {
             created_at: Utc::now().timestamp_millis(),
         };
-        let follow_url = format!("pubky://{follower_id}/pub/pubky.app/follows/{followee_id}");
+        let follow_url = follow_uri_builder(follower_id.into(), followee_id.into());
         PubkyClient::get()
             .unwrap()
             .put(follow_url.as_str())
@@ -327,7 +329,7 @@ impl WatcherTest {
         let mute_relationship = PubkyAppFollow {
             created_at: Utc::now().timestamp_millis(),
         };
-        let mute_url = format!("pubky://{muter_id}/pub/pubky.app/mutes/{mutee_id}");
+        let mute_url = mute_uri_builder(muter_id.into(), mutee_id.into());
         PubkyClient::get()
             .unwrap()
             .put(mute_url.as_str())

@@ -10,7 +10,9 @@ use nexus_common::{
     },
 };
 use pubky::Keypair;
-use pubky_app_specs::{PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser};
+use pubky_app_specs::{
+    post_uri_builder, PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser,
+};
 
 use super::utils::{
     check_member_global_timeline_user_post, check_member_total_engagement_user_posts,
@@ -154,7 +156,7 @@ async fn test_delete_post_that_reposted() -> Result<()> {
         parent: None,
         embed: Some(PubkyAppPostEmbed {
             kind: PubkyAppPostKind::Short,
-            uri: format!("pubky://{user_id}/pub/pubky.app/posts/{post_id}"),
+            uri: post_uri_builder(user_id.clone(), post_id.clone()),
         }),
         attachments: None,
     };
@@ -282,7 +284,7 @@ async fn test_delete_post_that_replied() -> Result<()> {
     let reply = PubkyAppPost {
         content: "Watcher:PostDeleteReplied:User:Reply".to_string(),
         kind: PubkyAppPostKind::Short,
-        parent: Some(format!("pubky://{user_id}/pub/pubky.app/posts/{post_id}")),
+        parent: Some(post_uri_builder(user_id.clone(), post_id.clone())),
         embed: None,
         attachments: None,
     };

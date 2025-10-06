@@ -9,6 +9,7 @@ use nexus_common::{
 use nexus_watcher::service::TEventProcessorFactory;
 use pubky::Keypair;
 use pubky_app_specs::{
+    bookmark_uri_builder, follow_uri_builder, mute_uri_builder, post_uri_builder, tag_uri_builder,
     traits::HashId, PubkyAppBookmark, PubkyAppMute, PubkyAppPost, PubkyAppPostKind, PubkyAppTag,
     PubkyAppUser,
 };
@@ -137,8 +138,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                     let mute = PubkyAppMute {
                         created_at: chrono::Utc::now().timestamp_millis(),
                     };
-                    let mute_url =
-                        format!("pubky://{user_id}/pub/pubky.app/mutes/{target_user_id}");
+                    let mute_url = mute_uri_builder(user_id.into(), target_user_id.into());
                     pubky_client
                         .put(mute_url.as_str())
                         .json(&mute)
@@ -161,15 +161,11 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                 let target_post_id = &user_posts[&target_user_id.clone()][post_index];
 
                 let bookmark = PubkyAppBookmark {
-                    uri: format!("pubky://{target_user_id}/pub/pubky.app/posts/{target_post_id}"),
+                    uri: post_uri_builder(target_user_id.into(), target_post_id.into()),
                     created_at: chrono::Utc::now().timestamp_millis(),
                 };
 
-                let bookmark_url = format!(
-                    "pubky://{}/pub/pubky.app/bookmarks/{}",
-                    user_id,
-                    bookmark.create_id()
-                );
+                let bookmark_url = bookmark_uri_builder(user_id.into(), bookmark.create_id());
 
                 test.put(&bookmark_url, &bookmark).await?;
                 total_bookmarks += 1;
@@ -189,12 +185,12 @@ async fn test_large_network_scenario_counts() -> Result<()> {
 
                 let tag_label = format!("tag{}", rng.random_range(0..100)); // FAILs tag labels are repeated, the same, the counts do not match graph vs index. Graph does not duplicate tag, but index counts do increase.
                 let tag = PubkyAppTag {
-                    uri: format!("pubky://{target_user_id}/pub/pubky.app/posts/{target_post_id}"),
+                    uri: post_uri_builder(target_user_id.into(), target_post_id.into()),
                     label: tag_label.clone(),
                     created_at: chrono::Utc::now().timestamp_millis(),
                 };
 
-                let tag_url = format!("pubky://{}/pub/pubky.app/tags/{}", user_id, tag.create_id());
+                let tag_url = tag_uri_builder(user_id.into(), tag.create_id());
 
                 test.put(&tag_url, &tag).await?;
                 total_tags += 1;
@@ -230,8 +226,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
             let target_index = rng.random_range(0..following.len());
             let target_user_id = &following[target_index];
             if unfollowed.insert(target_user_id.clone()) {
-                let follow_uri =
-                    format!("pubky://{user_id}/pub/pubky.app/follows/{target_user_id}");
+                let follow_uri = follow_uri_builder(user_id.into(), target_user_id.into());
                 test.del(&follow_uri).await?;
                 following_set.remove(target_user_id);
                 total_unfollows += 1;
@@ -256,7 +251,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
             let target_index = rng.random_range(0..muted.len());
             let target_user_id = &muted[target_index];
             if unmuted.insert(target_user_id.clone()) {
-                let mute_uri = format!("pubky://{user_id}/pub/pubky.app/mutes/{target_user_id}");
+                let mute_uri = mute_uri_builder(user_id.into(), target_user_id.into());
                 pubky_client.delete(mute_uri.as_str()).send().await?;
                 mute_set.remove(target_user_id);
                 _total_unmutes += 1;

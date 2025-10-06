@@ -3,7 +3,7 @@ use anyhow::Result;
 use nexus_watcher::events::errors::EventProcessorError;
 use nexus_watcher::events::{retry::event::RetryEvent, EventType};
 use pubky::Keypair;
-use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
+use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 
 /// The user profile is stored in the homeserver. Missing the post to connect the new one
 #[tokio_shared_rt::test(shared)]
@@ -25,7 +25,7 @@ async fn test_homeserver_post_reply_cannot_index() -> Result<()> {
     // Use a placeholder parent post ID to intentionally avoid resolving it in the graph database
     let parent_fake_post_id = "0032QB10HCRHG";
     // Create parent post uri
-    let dependency_uri = format!("pubky://{user_id}/pub/pubky.app/posts/{parent_fake_post_id}");
+    let dependency_uri = post_uri_builder(user_id.clone(), parent_fake_post_id.into());
 
     let reply_post = PubkyAppPost {
         content: "Watcher:IndexFail:PostReply:User:Reply".to_string(),
@@ -37,7 +37,7 @@ async fn test_homeserver_post_reply_cannot_index() -> Result<()> {
 
     let reply_id = test.create_post(&user_id, &reply_post).await?;
 
-    let reply_url = format!("pubky://{user_id}/pub/pubky.app/posts/{reply_id}");
+    let reply_url = post_uri_builder(user_id, reply_id);
 
     let index_key = format!(
         "{}:{}",

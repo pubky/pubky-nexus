@@ -12,6 +12,7 @@ use nexus_common::{
     types::Pagination,
 };
 use pubky::Keypair;
+use pubky_app_specs::tag_uri_builder;
 use pubky_app_specs::{traits::HashId, PubkyAppTag, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
@@ -53,11 +54,7 @@ async fn test_homeserver_multi_user_tags() -> Result<()> {
             label: label_wind.to_string(),
             created_at: Utc::now().timestamp_millis(),
         };
-        let tag_url = format!(
-            "pubky://{}/pub/pubky.app/tags/{}",
-            tagger_id,
-            tag.create_id()
-        );
+        let tag_url = tag_uri_builder(tagger_id.clone(), tag.create_id());
         // Put tag
         test.put(&tag_url, tag).await?;
         tag_urls.push(tag_url)
@@ -71,11 +68,7 @@ async fn test_homeserver_multi_user_tags() -> Result<()> {
             label: label_earth.to_string(),
             created_at: Utc::now().timestamp_millis(),
         };
-        let tag_url = format!(
-            "pubky://{}/pub/pubky.app/tags/{}",
-            tagger_id,
-            tag.create_id()
-        );
+        let tag_url = tag_uri_builder(tagger_id.clone(), tag.create_id());
         // Put tag
         test.put(&tag_url, tag).await?;
         tag_urls.push(tag_url)

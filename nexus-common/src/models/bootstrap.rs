@@ -1,6 +1,8 @@
 use std::collections::HashSet;
 
 use crate::db::kv::SortOrder;
+use crate::models::tag::stream::{HotTag, HotTags};
+use crate::types::routes::HotTagsInputDTO;
 use crate::types::{DynError, Pagination, StreamSorting, Timeframe};
 
 use crate::models::{
@@ -31,6 +33,7 @@ pub struct BootstrapList {
     pub stream: Vec<String>,
     pub influencers: Vec<String>,
     pub recommended: Vec<String>,
+    pub hot_tags: Vec<HotTag>,
 }
 
 impl Bootstrap {
@@ -65,8 +68,7 @@ impl Bootstrap {
         bootstrap
             .add_recommended_users(&mut user_ids, user_id)
             .await?;
-        // // TODO: Missing hot tags
-        // HotTags::get_hot_tags(None, None, &hot_tag_filter).await?;
+        bootstrap.add_global_hot_tags(&mut user_ids).await?;
 
         if is_full_view_type {
             bootstrap
@@ -253,6 +255,28 @@ impl Bootstrap {
             recommended_users.into_iter().for_each(|id| {
                 self.list.recommended.push(id.clone());
                 user_ids.insert(id);
+            });
+        }
+        Ok(())
+    }
+
+    /// Fetches today’s global hot tags and appends their IDs to both
+    /// the internal `hot_tags` list and the provided `user_ids` set
+    ///
+    /// # Parameters
+    /// - `user_ids: &mut HashSet<String>` A mutable reference to a set of user IDs
+    ///
+    async fn add_global_hot_tags(
+        &mut self,
+        user_ids: &mut HashSet<String>,
+    ) -> Result<(), DynError> {
+        let hot_tag_filter = HotTagsInputDTO::new(Timeframe::Today, 40, 0, 20, None);
+        if let Some(today_hot_tags) = HotTags::get_hot_tags(None, None, &hot_tag_filter).await? {
+            today_hot_tags.iter().for_each(|tag| {
+                self.list.hot_tags.push(tag.clone());
+                tag.taggers_id.iter().for_each(|tagger| {
+                    user_ids.insert(tagger.to_string());
+                });
             });
         }
         Ok(())

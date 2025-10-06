@@ -4,7 +4,10 @@ use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::models::post::{Bookmark, PostStream};
 use pubky::Keypair;
-use pubky_app_specs::{traits::HashId, PubkyAppBookmark, PubkyAppPost, PubkyAppUser};
+use pubky_app_specs::{
+    bookmark_uri_builder, post_uri_builder, traits::HashId, PubkyAppBookmark, PubkyAppPost,
+    PubkyAppUser,
+};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_unbookmark() -> Result<()> {
@@ -43,11 +46,11 @@ async fn test_homeserver_unbookmark() -> Result<()> {
 
     // Step 3: Add a bookmark to the post. Before create a new user
     let bookmark = PubkyAppBookmark {
-        uri: format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}"),
+        uri: post_uri_builder(author_id.clone(), post_id.clone()),
         created_at: chrono::Utc::now().timestamp_millis(),
     };
     let bookmark_id = bookmark.create_id();
-    let bookmark_url = format!("pubky://{bookmarker_id}/pub/pubky.app/bookmarks/{bookmark_id}");
+    let bookmark_url = bookmark_uri_builder(bookmarker_id.clone(), bookmark_id);
 
     // Put bookmark
     test.put(&bookmark_url, bookmark).await.unwrap();

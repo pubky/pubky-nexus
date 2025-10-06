@@ -5,7 +5,7 @@ use nexus_common::{
     types::Pagination,
 };
 use pubky::Keypair;
-use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
+use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_delete_post_that_replied_notification() -> Result<()> {
@@ -47,7 +47,7 @@ async fn test_delete_post_that_replied_notification() -> Result<()> {
     let reply = PubkyAppPost {
         content: "User's post to be deleted".to_string(),
         kind: PubkyAppPostKind::Short,
-        parent: Some(format!("pubky://{poster_id}/pub/pubky.app/posts/{post_id}")),
+        parent: Some(post_uri_builder(poster_id.clone(), post_id.clone())),
         embed: None,
         attachments: None,
     };

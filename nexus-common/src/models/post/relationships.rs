@@ -1,6 +1,6 @@
 use crate::db::{fetch_row_from_graph, queries, RedisOps};
 use crate::types::DynError;
-use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind};
+use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppPostKind};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -66,15 +66,11 @@ impl PostRelationships {
         let mentioned: Vec<String> = row.get("mentioned_user_ids").unwrap_or(Vec::new());
 
         let replied = match (replied_author_id, replied_post_id) {
-            (Some(author_id), Some(post_id)) => {
-                Some(format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}"))
-            }
+            (Some(author_id), Some(post_id)) => Some(post_uri_builder(author_id, post_id)),
             _ => None,
         };
         let reposted = match (reposted_author_id, reposted_post_id) {
-            (Some(author_id), Some(post_id)) => {
-                Some(format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}"))
-            }
+            (Some(author_id), Some(post_id)) => Some(post_uri_builder(author_id, post_id)),
             _ => None,
         };
         Ok(Some(Self {

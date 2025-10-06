@@ -7,8 +7,8 @@ use chrono::Utc;
 use nexus_common::models::user::{UserCounts, UserStream, UserView};
 use pubky::Keypair;
 use pubky_app_specs::{
-    traits::{HasIdPath, HashId},
-    PubkyAppBlob, PubkyAppFile, PubkyAppPost, PubkyAppPostKind, PubkyAppUser, PubkyAppUserLink,
+    blob_uri_builder, traits::HashId, PubkyAppBlob, PubkyAppFile, PubkyAppPost, PubkyAppPostKind,
+    PubkyAppUser, PubkyAppUserLink,
 };
 
 #[tokio_shared_rt::test(shared)]
@@ -120,7 +120,7 @@ async fn test_delete_user_with_relationships() -> Result<()> {
     let blob_data = "Image bytes blob".to_string();
     let blob = PubkyAppBlob::new(blob_data.as_bytes().to_vec());
     let blob_id = blob.create_id();
-    let blob_url = format!("pubky://{}{}", user_with_id, blob.create_path(&blob_id));
+    let blob_url = blob_uri_builder(user_with_id.clone(), blob_id);
 
     test.create_file_from_body(blob_url.as_str(), blob.0.clone())
         .await?;

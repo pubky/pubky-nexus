@@ -6,7 +6,8 @@ use nexus_common::{
 };
 use pubky::Keypair;
 use pubky_app_specs::{
-    traits::HashId, PubkyAppBookmark, PubkyAppPost, PubkyAppPostKind, PubkyAppUser,
+    bookmark_uri_builder, post_uri_builder, traits::HashId, PubkyAppBookmark, PubkyAppPost,
+    PubkyAppPostKind, PubkyAppUser,
 };
 
 #[tokio_shared_rt::test(shared)]
@@ -47,19 +48,15 @@ async fn test_edit_bookmarked_post_notification() -> Result<()> {
 
     // User B bookmarks User A's post
     let bookmark = PubkyAppBookmark {
-        uri: format!("pubky://{user_a_id}/pub/pubky.app/posts/{post_id}"),
+        uri: post_uri_builder(user_a_id.clone(), post_id.clone()),
         created_at: 0,
     };
-    let bookmark_url = format!(
-        "pubky://{}/pub/pubky.app/bookmarks/{}",
-        user_b_id,
-        bookmark.create_id()
-    );
+    let bookmark_url = bookmark_uri_builder(user_b_id.clone(), bookmark.create_id());
     test.put(&bookmark_url, bookmark).await?;
 
     // User A edits their post
     post.content = "Edited post by User A".to_string();
-    let edited_url = format!("pubky://{user_a_id}/pub/pubky.app/posts/{post_id}");
+    let edited_url = post_uri_builder(user_a_id.clone(), post_id.clone());
 
     // Overwrite existing post in the homeserver for the edited one
     test.put(edited_url.as_str(), &post).await?;

@@ -13,7 +13,8 @@ use nexus_common::models::post::{
 use nexus_common::models::user::UserCounts;
 use nexus_common::types::DynError;
 use pubky_app_specs::{
-    user_uri_builder, ParsedUri, PubkyAppPost, PubkyAppPostKind, PubkyId, Resource,
+    post_uri_builder, user_uri_builder, ParsedUri, PubkyAppPost, PubkyAppPostKind, PubkyId,
+    Resource,
 };
 use tracing::debug;
 
@@ -241,7 +242,7 @@ async fn sync_edit(
     post_details: PostDetails,
 ) -> Result<(), DynError> {
     // Construct the URI of the post that changed
-    let changed_uri = format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}");
+    let changed_uri = post_uri_builder(author_id.to_string(), post_id.clone());
 
     // Update content of PostDetails!
     if let Err(e) = post_details.put_to_index(&author_id, None, true).await {
@@ -348,7 +349,7 @@ pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), DynError> {
 }
 
 pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynError> {
-    let deleted_uri = format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}");
+    let deleted_uri = post_uri_builder(author_id.to_string(), post_id.clone());
 
     let post_relationships = PostRelationships::get_by_id(&author_id, &post_id).await?;
     // If the post is reply, cannot delete from the main feeds
