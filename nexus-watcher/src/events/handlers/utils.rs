@@ -1,5 +1,9 @@
 use nexus_common::models::post::PostRelationships;
 use nexus_common::types::DynError;
+use pubky_app_specs::PubkyId;
+
+use crate::events::errors::EventProcessorError;
+use crate::events::retry::event::RetryEvent;
 
 /// Checks if a post is a reply based on its relationships.
 /// # Arguments
@@ -31,4 +35,10 @@ macro_rules! handle_indexing_results {
             }
         }
     };
+}
+
+/// Builds an `EventProcessorError` indicating the argument user is a missing dependency
+pub(super) fn build_missing_dependency_err(referenced_user_id: &PubkyId) -> EventProcessorError {
+    let retry_event_key = RetryEvent::generate_index_key_from_uri(&referenced_user_id.to_uri());
+    EventProcessorError::missing_dependencies(vec![retry_event_key])
 }
