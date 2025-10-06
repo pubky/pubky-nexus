@@ -2,6 +2,7 @@ mod constants;
 mod homeserver;
 mod processor;
 mod processor_factory;
+mod stats;
 mod traits;
 
 /// Module exports

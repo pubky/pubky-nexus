@@ -4,12 +4,10 @@ use nexus_common::types::DynError;
 use tokio::sync::watch::Receiver;
 use tracing::{error, info};
 
-use crate::{
-    service::{
-        constants::MAX_HOMESERVERS_PER_RUN,
-        traits::{tevent_processor::RunError, TEventProcessor},
-    },
+use crate::service::{
+    constants::MAX_HOMESERVERS_PER_RUN,
     stats::{ProcessedStats, ProcessorRunStatus, RunAllProcessorsStats},
+    traits::{tevent_processor::RunError, TEventProcessor},
 };
 
 /// Asynchronous factory for creating event processors in the Watcher service.
