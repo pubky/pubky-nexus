@@ -2,6 +2,7 @@ mod constants;
 mod homeserver;
 mod processor;
 mod processor_factory;
+mod stats;
 mod traits;
 
 /// Module exports
@@ -88,7 +89,7 @@ impl NexusWatcher {
                 }
                 _ = interval.tick() => {
                     info!("Indexing homeservers…");
-                    ev_processor_factory.run_all().await?;
+                    ev_processor_factory.run_all().await;
                 }
             }
         }

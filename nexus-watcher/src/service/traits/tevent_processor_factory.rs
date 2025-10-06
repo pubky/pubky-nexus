@@ -1,25 +1,14 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 use nexus_common::types::DynError;
 use tokio::sync::watch::Receiver;
 use tracing::{error, info};
 
-use crate::service::traits::{tevent_processor::RunError, TEventProcessor};
-
-#[derive(Default)]
-pub struct RunAllProcessorsStats {
-    /// Number of homeservers where processing were successful
-    pub count_ok: u16,
-    /// Number of homeservers where processing failed with Err
-    pub count_error: u16,
-    /// Number of homeservers where processing panicked
-    pub count_panic: u16,
-    /// Number of homeservers where processing timed out
-    pub count_timeout: u16,
-}
-
-/// The type that describes the result of an event processor run
-type RunAllProcessorsResult = Result<RunAllProcessorsStats, DynError>;
+use crate::service::{
+    constants::MAX_HOMESERVERS_PER_RUN,
+    stats::{ProcessedStats, ProcessorRunStatus, RunAllProcessorsStats},
+    traits::{tevent_processor::RunError, TEventProcessor},
+};
 
 /// Asynchronous factory for creating event processors in the Watcher service.
 ///
@@ -63,34 +52,68 @@ pub trait TEventProcessorFactory {
     /// Throws a [`DynError`] if the event processor couldn't be built
     async fn build(&self, homeserver_id: String) -> Result<Arc<dyn TEventProcessor>, DynError>;
 
+    /// Decides the homeservers (which ones and in which order) from which events will be fetched and processed.
+    ///
+    /// # Returns
+    /// Ordered list of homeserver IDs considered for `run_all`, from highest to lowest prio.
+    async fn pre_run_all(&self) -> Vec<String> {
+        let hs_ids = self.homeservers_by_priority().await;
+        let max = std::cmp::min(MAX_HOMESERVERS_PER_RUN, hs_ids.len());
+        hs_ids[..max].to_vec()
+    }
+
+    /// Post-processing of the run results
+    async fn post_run_all(&self, stats: RunAllProcessorsStats) -> ProcessedStats {
+        for individual_run_stat in &stats.stats {
+            let hs_id = &individual_run_stat.hs_id;
+            let duration = individual_run_stat.duration;
+            let status = &individual_run_stat.status;
+            info!("Event processor run for HS {hs_id}: duration {duration:?}, status {status:?}");
+        }
+
+        let count_ok = stats.count_ok();
+        let count_error = stats.count_error();
+        let count_panic = stats.count_panic();
+        let count_timeout = stats.count_timeout();
+        info!("Run result: {count_ok} ok, {count_error} error, {count_panic} panic, {count_timeout} timeout");
+
+        ProcessedStats(stats)
+    }
+
     /// Runs event processors for all homeservers relevant for this run, with timeout protection.
     ///
     /// # Returns
     /// Statistics about the event processor run results, summarized as [`RunAllProcessorsStats`]
-    async fn run_all(&self) -> RunAllProcessorsResult {
-        let hs_ids = self.homeservers_by_priority().await;
+    async fn run_all(&self) -> ProcessedStats {
+        let hs_ids = self.pre_run_all().await;
 
         let mut run_stats = RunAllProcessorsStats::default();
 
         for hs_id in hs_ids {
             if *self.shutdown_rx().borrow() {
                 info!("Shutdown detected in homeserver {hs_id}, exiting run_all loop");
-                return Ok(run_stats);
+                break; // Exit loop
             }
 
             let Ok(event_processor) = self.build(hs_id.clone()).await else {
                 error!("Failed to build event processor for homeserver: {}", hs_id);
-                continue;
+                continue; // Skip this loop iteration, continue with the next
             };
 
-            match event_processor.run().await {
-                Ok(_) => run_stats.count_ok += 1,
-                Err(RunError::Internal(_)) => run_stats.count_error += 1,
-                Err(RunError::Panicked) => run_stats.count_panic += 1,
-                Err(RunError::TimedOut) => run_stats.count_timeout += 1,
-            }
+            let t0 = Instant::now();
+            let run_result = event_processor.run().await;
+            let duration = Instant::now().duration_since(t0);
+
+            let status = match run_result {
+                Ok(_) => ProcessorRunStatus::Ok,
+                Err(RunError::Internal(_)) => ProcessorRunStatus::Error,
+                Err(RunError::Panicked) => ProcessorRunStatus::Panic,
+                Err(RunError::TimedOut) => ProcessorRunStatus::Timeout,
+            };
+
+            run_stats.add_run_result(hs_id, duration, status);
         }
 
-        Ok(run_stats)
+        self.post_run_all(run_stats).await
     }
 }
