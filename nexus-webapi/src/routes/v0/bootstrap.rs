@@ -47,20 +47,20 @@ pub async fn bootstrap_handler(
     description = "Ingest (start monitoring all events of) the Homeserver on which this User PK stores data at this time",
     tag = "Bootstrap",
     params(
-        ("user_pk" = String, Path, description = "User PK")
+        ("user_id" = String, Path, description = "User Pubky ID")
     ),
     responses(
         (status = 200, description = "Successfully added new homeserver"),
         (status = 500, description = "Internal server error")
     )
 )]
-pub async fn put_homeserver_handler(Path(user_pk): Path<String>) -> Result<()> {
-    info!("PUT {PUT_HOMESERVER_ROUTE}, user_pk:{user_pk}");
+pub async fn put_homeserver_handler(Path(user_id): Path<String>) -> Result<()> {
+    info!("PUT {PUT_HOMESERVER_ROUTE}, user_id:{user_id}");
 
-    PubkyId::try_from(&user_pk)
+    PubkyId::try_from(&user_id)
         .map_err(|e| Error::invalid_input(&format!("Invalid user PK: {e}")))?;
 
-    HomeserverManager::maybe_ingest_for_user(&user_pk)
+    HomeserverManager::maybe_ingest_for_user(&user_id)
         .await
         .map_err(Error::internal)
 }
