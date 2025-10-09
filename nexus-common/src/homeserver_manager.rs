@@ -1,7 +1,8 @@
-use nexus_common::db::PubkyClient;
-use nexus_common::models::homeserver::Homeserver;
-use nexus_common::models::user::UserDetails;
-use nexus_common::types::DynError;
+use crate::db::PubkyClient;
+use crate::models::homeserver::Homeserver;
+use crate::models::user::UserDetails;
+use crate::types::DynError;
+
 use pubky::PublicKey;
 use pubky_app_specs::{ParsedUri, PubkyId};
 

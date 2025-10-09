@@ -1,7 +1,6 @@
 use crate::events::errors::EventProcessorError;
 use crate::events::retry::event::RetryEvent;
 use crate::handle_indexing_results;
-use crate::service::HomeserverManager;
 use nexus_common::db::kv::{JsonAction, ScoreAction};
 use nexus_common::db::queries::get::post_is_safe_to_delete;
 use nexus_common::db::{exec_single_row, execute_graph_operation, OperationOutcome};
@@ -12,6 +11,7 @@ use nexus_common::models::post::{
 };
 use nexus_common::models::user::UserCounts;
 use nexus_common::types::DynError;
+use nexus_common::HomeserverManager;
 use pubky_app_specs::{
     post_uri_builder, user_uri_builder, ParsedUri, PubkyAppPost, PubkyAppPostKind, PubkyId,
     Resource,
