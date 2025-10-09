@@ -13,7 +13,7 @@ pub enum EventProcessorError {
     #[error("IndexWriteFailed: Indexing incomplete due to Redis error - {message}")]
     IndexWriteFailed { message: String },
     /// The event appear to be unindexed. Verify the event in the retry queue
-    #[error("SkipIndexing: The PUT event appears to be unindexed")]
+    #[error("SkipIndexing: The PUT event appears to be unindexed, so we cannot delete an object that doesn't exist")]
     SkipIndexing,
     /// The event could not be parsed from a line
     #[error("InvalidEventLine: {message}")]
