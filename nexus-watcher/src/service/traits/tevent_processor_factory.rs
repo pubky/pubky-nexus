@@ -37,7 +37,7 @@ pub trait TEventProcessorFactory {
     /// Returns the homeserver IDs relevant for this run, ordered by their priority.
     ///
     /// Contains all homeserver IDs from the graph, with the default homeserver prioritized at index 0.
-    async fn homeservers_by_priority(&self) -> Vec<String>;
+    async fn homeservers_by_priority(&self) -> Result<Vec<String>, DynError>;
 
     /// Creates and returns a new event processor instance for the specified homeserver.
     ///
@@ -56,10 +56,10 @@ pub trait TEventProcessorFactory {
     ///
     /// # Returns
     /// Ordered list of homeserver IDs considered for `run_all`, from highest to lowest prio.
-    async fn pre_run_all(&self) -> Vec<String> {
-        let hs_ids = self.homeservers_by_priority().await;
+    async fn pre_run_all(&self) -> Result<Vec<String>, DynError> {
+        let hs_ids = self.homeservers_by_priority().await?;
         let max = std::cmp::min(MAX_HOMESERVERS_PER_RUN, hs_ids.len());
-        hs_ids[..max].to_vec()
+        Ok(hs_ids[..max].to_vec())
     }
 
     /// Post-processing of the run results
@@ -84,8 +84,8 @@ pub trait TEventProcessorFactory {
     ///
     /// # Returns
     /// Statistics about the event processor run results, summarized as [`RunAllProcessorsStats`]
-    async fn run_all(&self) -> ProcessedStats {
-        let hs_ids = self.pre_run_all().await;
+    async fn run_all(&self) -> Result<ProcessedStats, DynError> {
+        let hs_ids = self.pre_run_all().await?;
 
         let mut run_stats = RunAllProcessorsStats::default();
 
@@ -96,6 +96,7 @@ pub trait TEventProcessorFactory {
             }
 
             let Ok(event_processor) = self.build(hs_id.clone()).await else {
+                // throw err: new type ProcessorRunStatus::FailedToBuild
                 error!("Failed to build event processor for homeserver: {}", hs_id);
                 continue; // Skip this loop iteration, continue with the next
             };
@@ -114,6 +115,7 @@ pub trait TEventProcessorFactory {
             run_stats.add_run_result(hs_id, duration, status);
         }
 
-        self.post_run_all(run_stats).await
+        let processed_stats = self.post_run_all(run_stats).await;
+        Ok(processed_stats)
     }
 }

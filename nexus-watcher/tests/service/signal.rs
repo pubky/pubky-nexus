@@ -37,7 +37,7 @@ async fn test_shutdown_signal() -> Result<()> {
         }
     });
 
-    let stats = factory.run_all().await.0;
+    let stats = factory.run_all().await.unwrap().0;
 
     // We created 3 HSs, each with different execution durations (0s, 2s, 4s)
     // We triggered the shutdown signal 1s after start

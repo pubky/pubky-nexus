@@ -20,7 +20,7 @@ use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
 use tokio::sync::watch::Receiver;
 use tokio::time::Duration;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 pub struct NexusWatcher {}
 
@@ -87,7 +87,9 @@ impl NexusWatcher {
                 }
                 _ = interval.tick() => {
                     info!("Indexing homeservers…");
-                    ev_processor_factory.run_all().await;
+                    _ = ev_processor_factory.run_all()
+                        .await
+                        .inspect_err(|e| error!("Failed to start event processors run: {e}"));
                 }
             }
         }

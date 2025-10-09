@@ -43,10 +43,8 @@ impl TEventProcessorFactory for MockEventProcessorFactory {
     }
 
     /// Returns homeserver IDs with the insert order of the event processors
-    async fn homeservers_by_priority(&self) -> Vec<String> {
-        let persistedhs_ids = Homeserver::get_all_from_graph()
-            .await
-            .expect("No Homeserver IDs found in graph");
+    async fn homeservers_by_priority(&self) -> Result<Vec<String>, DynError> {
+        let persistedhs_ids = Homeserver::get_all_from_graph().await?;
 
         let mut hs_ids = vec![];
 
@@ -58,7 +56,7 @@ impl TEventProcessorFactory for MockEventProcessorFactory {
             }
         }
 
-        hs_ids
+        Ok(hs_ids)
     }
 
     /// Returns the event processor for the specified homeserver.

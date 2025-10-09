@@ -31,7 +31,7 @@ async fn test_event_processor_factory_default_homeserver_prioritization() -> Res
     }
 
     // Prioritize the default homeserver
-    let hs_ids = factory.homeservers_by_priority().await;
+    let hs_ids = factory.homeservers_by_priority().await?;
     assert_eq!(hs_ids[0], HS_IDS[3]);
 
     Ok(())
@@ -60,7 +60,7 @@ async fn test_mock_event_processor_factory_default_homeserver_prioritization(
     }
 
     // Prioritize the default homeserver
-    let hs_ids = factory.homeservers_by_priority().await;
+    let hs_ids = factory.homeservers_by_priority().await?;
     assert_eq!(hs_ids[0], HS_IDS[0]);
 
     Ok(())
