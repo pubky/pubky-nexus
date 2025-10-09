@@ -95,22 +95,20 @@ pub trait TEventProcessorFactory {
                 break; // Exit loop
             }
 
-            let Ok(event_processor) = self.build(hs_id.clone()).await else {
-                // throw err: new type ProcessorRunStatus::FailedToBuild
-                error!("Failed to build event processor for homeserver: {}", hs_id);
-                continue; // Skip this loop iteration, continue with the next
-            };
-
             let t0 = Instant::now();
-            let run_result = event_processor.run().await;
-            let duration = Instant::now().duration_since(t0);
-
-            let status = match run_result {
-                Ok(_) => ProcessorRunStatus::Ok,
-                Err(RunError::Internal(_)) => ProcessorRunStatus::Error,
-                Err(RunError::Panicked) => ProcessorRunStatus::Panic,
-                Err(RunError::TimedOut) => ProcessorRunStatus::Timeout,
+            let status = match self.build(hs_id.clone()).await {
+                Ok(event_processor) => match event_processor.run().await {
+                    Ok(_) => ProcessorRunStatus::Ok,
+                    Err(RunError::Internal(_)) => ProcessorRunStatus::Error,
+                    Err(RunError::Panicked) => ProcessorRunStatus::Panic,
+                    Err(RunError::TimedOut) => ProcessorRunStatus::Timeout,
+                },
+                Err(e) => {
+                    error!("Failed to build event processor for homeserver: {hs_id}: {e}");
+                    ProcessorRunStatus::FailedToBuild
+                }
             };
+            let duration = Instant::now().duration_since(t0);
 
             run_stats.add_run_result(hs_id, duration, status);
         }
