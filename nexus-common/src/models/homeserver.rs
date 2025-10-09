@@ -12,6 +12,9 @@ use tracing::info;
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Homeserver {
     pub id: PubkyId,
+
+    // We persist this field only in the cache, but not in the graph.
+    // Redis has regular snapshots, which ensures we get a recent state in case of RAM data loss (system crash).
     pub cursor: String,
 }
 
