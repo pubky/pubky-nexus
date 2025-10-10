@@ -6,11 +6,11 @@ use utoipa::ToSchema;
 
 #[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
 pub struct PostRelationships {
-    // URI of the replied post
+    /// If set, URI of the post this is a reply to
     pub replied: Option<String>,
-    // URI of the reposted post
+    /// If set, URI of the post this post is reposting
     pub reposted: Option<String>,
-    // List of user IDs
+    /// List of user IDs mentioned in this post
     pub mentioned: Vec<String>,
 }
 

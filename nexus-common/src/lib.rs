@@ -15,6 +15,7 @@
 
 mod config;
 pub mod db;
+mod homeserver_manager;
 pub mod media;
 pub mod models;
 mod stack;
@@ -22,4 +23,5 @@ pub mod types;
 pub mod utils;
 
 pub use config::*;
+pub use homeserver_manager::HomeserverManager;
 pub use stack::*;
