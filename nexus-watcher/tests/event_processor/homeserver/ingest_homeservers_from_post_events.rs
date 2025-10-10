@@ -186,10 +186,11 @@ async fn test_post_and_mention_users_on_unknown_homeserver() -> Result<()> {
     };
     let post_id = test.create_post(&post_author_id, &post).await?;
 
-    // Check if the new homeservers of the unknown mentioned users were ingested
+    // Check if the new homeserver of the first unknown mentioned user was ingested ...
     assert!(Homeserver::get_by_id(user_1_hs_id).await.unwrap().is_some());
-    assert!(Homeserver::get_by_id(user_2_hs_id).await.unwrap().is_some());
-    assert!(Homeserver::get_by_id(user_3_hs_id).await.unwrap().is_some());
+    // ... and the the HS of the other mentioned users are not ingested
+    assert!(Homeserver::get_by_id(user_2_hs_id).await.unwrap().is_none());
+    assert!(Homeserver::get_by_id(user_3_hs_id).await.unwrap().is_none());
 
     // Cleanup
     test.cleanup_user(&post_author_id).await?;

@@ -89,7 +89,8 @@ pub async fn sync_put(
     )
     .await?;
 
-    for mentioned_user_id in &post_relationships.mentioned {
+    // We only consider the first mentioned (tagged) user
+    if let Some(mentioned_user_id) = &post_relationships.mentioned.first() {
         if let Err(e) = HomeserverManager::maybe_ingest_for_user(mentioned_user_id).await {
             tracing::error!("Failed to ingest homeserver: {e}");
         }
