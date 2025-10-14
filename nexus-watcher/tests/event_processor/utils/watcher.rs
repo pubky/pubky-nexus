@@ -8,9 +8,9 @@ use nexus_common::types::DynError;
 use nexus_watcher::events::retry::event::RetryEvent;
 use nexus_watcher::events::Event;
 use nexus_watcher::events::Moderation;
-use nexus_watcher::service::EventProcessorFactory;
+use nexus_watcher::service::EventProcessorRunner;
 use nexus_watcher::service::NexusWatcher;
-use nexus_watcher::service::TEventProcessorFactory;
+use nexus_watcher::service::TEventProcessorRunner;
 use pubky::Keypair;
 use pubky::PublicKey;
 use pubky_app_specs::{
@@ -31,16 +31,16 @@ pub struct WatcherTest {
     pub testnet: EphemeralTestnet,
     /// The homeserver ID
     pub homeserver_id: String,
-    /// The event processor factory
-    pub event_processor_factory: EventProcessorFactory,
+    /// The event processor runner
+    pub event_processor_runner: EventProcessorRunner,
     /// Whether to ensure event processing is complete
     pub ensure_event_processing: bool,
 }
 
 impl WatcherTest {
-    /// Creates a test event processor factory with predefined configuration.
+    /// Creates a test event processor runner with predefined configuration.
     ///
-    /// This function sets up an `EventProcessorFactory` specifically for testing environments
+    /// This function sets up an `EventProcessorRunner` specifically for testing environments
     /// with hardcoded values that are appropriate for test scenarios.
     ///
     /// # Configuration Details
@@ -54,13 +54,13 @@ impl WatcherTest {
     /// that are designed specifically for test scenarios and should not be used in production.
     ///
     /// # Returns
-    /// Returns a fully configured `EventProcessorFactory` ready for use in tests.
-    fn create_test_event_processor_factory(default_homeserver: PubkyId) -> EventProcessorFactory {
+    /// Returns a fully configured `EventProcessorRunner` ready for use in tests.
+    fn create_test_event_processor_runner(default_homeserver: PubkyId) -> EventProcessorRunner {
         let moderation = Arc::new(default_moderation_tests());
 
         let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
-        EventProcessorFactory {
+        EventProcessorRunner {
             limit: 1000,
             files_path: get_files_dir_test_pathbuf(),
             tracer_name: String::from("watcher.test"),
@@ -111,13 +111,13 @@ impl WatcherTest {
             Err(e) => debug!("WatcherTest: {}", e),
         }
 
-        // Initialize the test-scoped EventProcessorFactory; mirrors the standard processor behavior
-        let event_processor_factory = Self::create_test_event_processor_factory(pubky_id);
+        // Initialize the test-scoped EventProcessorRunner; mirrors the standard processor behavior
+        let event_processor_runner = Self::create_test_event_processor_runner(pubky_id);
 
         Ok(Self {
             testnet,
             homeserver_id,
-            event_processor_factory,
+            event_processor_runner,
             ensure_event_processing: true,
         })
     }
@@ -131,7 +131,7 @@ impl WatcherTest {
     /// Ensures that event processing is completed if it is enabled.
     pub async fn ensure_event_processing_complete(&mut self) -> Result<()> {
         if self.ensure_event_processing {
-            self.event_processor_factory
+            self.event_processor_runner
                 .build(self.homeserver_id.clone())
                 .await
                 .map_err(|e| anyhow!(e))?

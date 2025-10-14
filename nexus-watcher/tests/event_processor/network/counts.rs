@@ -6,7 +6,7 @@ use nexus_common::{
     db::{PubkyClient, RedisOps},
     models::{post::PostCounts, user::UserCounts},
 };
-use nexus_watcher::service::TEventProcessorFactory;
+use nexus_watcher::service::TEventProcessorRunner;
 use pubky::Keypair;
 use pubky_app_specs::{
     bookmark_uri_builder, follow_uri_builder, mute_uri_builder, post_uri_builder, tag_uri_builder,
@@ -262,9 +262,9 @@ async fn test_large_network_scenario_counts() -> Result<()> {
     if !PROCESS_EVENTS_ONE_BY_ONE {
         for _ in 1..=100 {
             // Run the event processor
-            // We do this because earlier, the factory's event processing has been turned off temporarily
+            // We do this because earlier, the runner's event processing has been turned off temporarily
             // but at this point we are ready to run the event processing
-            test.event_processor_factory
+            test.event_processor_runner
                 .build(test.homeserver_id.clone())
                 .await
                 .map_err(|e| anyhow!(e))?

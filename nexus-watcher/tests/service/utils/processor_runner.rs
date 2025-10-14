@@ -1,20 +1,20 @@
 use crate::service::utils::processor::MockEventProcessor;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
-use nexus_watcher::service::{TEventProcessor, TEventProcessorFactory};
+use nexus_watcher::service::{TEventProcessor, TEventProcessorRunner};
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
 
 /// Store processors as concrete MockEventProcessor instances.
 /// This allows access to the fields for testing purposes.
-pub struct MockEventProcessorFactory {
-    /// The event processors to be used by the factory
+pub struct MockEventProcessorRunner {
+    /// The event processors to be used by the runner
     pub event_processors: Vec<Arc<MockEventProcessor>>,
     pub shutdown_rx: Receiver<bool>,
 }
 
-impl MockEventProcessorFactory {
-    /// Creates a new factory instance from the provided event processors
+impl MockEventProcessorRunner {
+    /// Creates a new instance from the provided event processors
     pub fn new(event_processors: Vec<MockEventProcessor>, shutdown_rx: Receiver<bool>) -> Self {
         let arcs: Vec<Arc<MockEventProcessor>> =
             event_processors.into_iter().map(Arc::new).collect();
@@ -27,7 +27,7 @@ impl MockEventProcessorFactory {
 }
 
 #[async_trait::async_trait]
-impl TEventProcessorFactory for MockEventProcessorFactory {
+impl TEventProcessorRunner for MockEventProcessorRunner {
     fn shutdown_rx(&self) -> Receiver<bool> {
         self.shutdown_rx.clone()
     }
@@ -46,7 +46,7 @@ impl TEventProcessorFactory for MockEventProcessorFactory {
 
         let mut hs_ids = vec![];
 
-        // Skip the homeserver IDs that are not part of the factory's event processors
+        // Skip the homeserver IDs that are not part of the runner's event processors
         for mock_event_processor in self.event_processors.iter() {
             let hs_id = mock_event_processor.homeserver_id.to_string().clone();
             if persistedhs_ids.contains(&hs_id) {
@@ -59,7 +59,7 @@ impl TEventProcessorFactory for MockEventProcessorFactory {
 
     /// Returns the event processor for the specified homeserver.
     ///
-    /// The mock event processor was pre-built and given to the mock factory on initialization, so this returns a reference to it.
+    /// The mock event processor was pre-built and given to the mock runner on initialization, so this returns a reference to it.
     async fn build(&self, homeserver_id: String) -> Result<Arc<dyn TEventProcessor>, DynError> {
         let mock_event_processor = self
             .event_processors

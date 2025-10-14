@@ -1,21 +1,21 @@
 use crate::event_processor::utils::default_moderation_tests;
 use crate::service::utils::HS_IDS;
-use crate::service::utils::{create_mock_event_processors, setup, MockEventProcessorFactory};
+use crate::service::utils::{create_mock_event_processors, setup, MockEventProcessorRunner};
 use anyhow::Result;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
-use nexus_watcher::service::EventProcessorFactory;
-use nexus_watcher::service::TEventProcessorFactory;
+use nexus_watcher::service::EventProcessorRunner;
+use nexus_watcher::service::TEventProcessorRunner;
 use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 #[tokio_shared_rt::test(shared)]
-async fn test_event_processor_factory_default_homeserver_prioritization() -> Result<(), DynError> {
+async fn test_event_processor_runner_default_homeserver_prioritization() -> Result<(), DynError> {
     // Initialize the test
     setup().await?;
 
-    let factory = EventProcessorFactory {
+    let runner = EventProcessorRunner {
         default_homeserver: PubkyId::try_from(HS_IDS[3]).unwrap(),
         shutdown_rx: tokio::sync::watch::channel(false).1,
         limit: 1000,
@@ -31,15 +31,15 @@ async fn test_event_processor_factory_default_homeserver_prioritization() -> Res
     }
 
     // Prioritize the default homeserver
-    let hs_ids = factory.homeservers_by_priority().await?;
+    let hs_ids = runner.homeservers_by_priority().await?;
     assert_eq!(hs_ids[0], HS_IDS[3]);
 
     Ok(())
 }
 
 #[tokio_shared_rt::test(shared)]
-async fn test_mock_event_processor_factory_default_homeserver_prioritization(
-) -> Result<(), DynError> {
+async fn test_mock_event_processor_runner_default_homeserver_prioritization() -> Result<(), DynError>
+{
     // Initialize the test
     setup().await?;
 
@@ -48,7 +48,7 @@ async fn test_mock_event_processor_factory_default_homeserver_prioritization(
         .map(Arc::new)
         .collect();
 
-    let factory = MockEventProcessorFactory {
+    let runner = MockEventProcessorRunner {
         event_processors,
         shutdown_rx: tokio::sync::watch::channel(false).1,
     };
@@ -60,7 +60,7 @@ async fn test_mock_event_processor_factory_default_homeserver_prioritization(
     }
 
     // Prioritize the default homeserver
-    let hs_ids = factory.homeservers_by_priority().await?;
+    let hs_ids = runner.homeservers_by_priority().await?;
     assert_eq!(hs_ids[0], HS_IDS[0]);
 
     Ok(())

@@ -1,14 +1,14 @@
 mod constants;
 mod processor;
-mod processor_factory;
+mod processor_runner;
 mod stats;
 mod traits;
 
 /// Module exports
 pub use constants::{PROCESSING_TIMEOUT_SECS, WATCHER_CONFIG_FILE_NAME};
 pub use processor::EventProcessor;
-pub use processor_factory::EventProcessorFactory;
-pub use traits::{TEventProcessor, TEventProcessorFactory};
+pub use processor_runner::EventProcessorRunner;
+pub use traits::{TEventProcessor, TEventProcessorRunner};
 
 use crate::NexusWatcherBuilder;
 use nexus_common::file::ConfigLoader;
@@ -77,7 +77,7 @@ impl NexusWatcher {
         Homeserver::persist_if_unknown(config_hs).await?;
 
         let mut interval = tokio::time::interval(Duration::from_millis(config.watcher_sleep));
-        let ev_processor_factory = EventProcessorFactory::from_config(&config, shutdown_rx.clone());
+        let ev_processor_runner = EventProcessorRunner::from_config(&config, shutdown_rx.clone());
 
         loop {
             tokio::select! {
@@ -87,7 +87,7 @@ impl NexusWatcher {
                 }
                 _ = interval.tick() => {
                     info!("Indexing homeservers…");
-                    _ = ev_processor_factory.run_all()
+                    _ = ev_processor_runner.run_all()
                         .await
                         .inspect_err(|e| error!("Failed to start event processors run: {e}"));
                 }

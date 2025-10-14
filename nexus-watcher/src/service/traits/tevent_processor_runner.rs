@@ -10,27 +10,19 @@ use crate::service::{
     traits::{tevent_processor::RunError, TEventProcessor},
 };
 
-/// Asynchronous factory for creating event processors in the Watcher service.
-///
-/// This trait represents a component responsible for creating event processor instances
-/// for specific homeservers. It provides a standardized way to instantiate processors
-/// with the appropriate configuration and dependencies.
+/// Asynchronous wrapper that helps build and run event processors in the Watcher service.
 ///
 /// # Implementation Notes
 /// - The `build` method should create and return a fully configured event processor
 ///   ready for immediate use
-/// - Factory implementations should initialize dependencies and configuration
-///   for the created processors
-/// - The method returns a `Result` to allow for proper error handling during processor
-///   creation, avoiding panics in production code
 /// - Implementors should ensure that created processors are properly isolated and
 ///   don't share mutable state unless explicitly intended
 #[async_trait::async_trait]
-pub trait TEventProcessorFactory {
+pub trait TEventProcessorRunner {
     /// Returns the shutdown signal receiver
     fn shutdown_rx(&self) -> Receiver<bool>;
 
-    /// Returns the default homeserver ID for this factory.
+    /// Returns the default homeserver ID for this runner.
     /// This is used to prioritize the default homeserver when processing multiple homeservers.
     fn default_homeserver(&self) -> &str;
 

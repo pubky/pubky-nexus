@@ -1,9 +1,9 @@
 use crate::service::utils::{
-    create_random_homeservers_and_persist, setup, MockEventProcessorFactory,
-    MockEventProcessorResult,
+    create_random_homeservers_and_persist, setup, MockEventProcessorResult,
+    MockEventProcessorRunner,
 };
 use anyhow::Result;
-use nexus_watcher::service::TEventProcessorFactory;
+use nexus_watcher::service::TEventProcessorRunner;
 use std::time::Duration;
 use tokio::time::sleep;
 
@@ -26,7 +26,7 @@ async fn test_shutdown_signal() -> Result<()> {
         .await;
     }
 
-    let factory = MockEventProcessorFactory::new(event_processor_list, shutdown_rx);
+    let runner = MockEventProcessorRunner::new(event_processor_list, shutdown_rx);
 
     // Schedule Ctrl-C simulation after 1s
     tokio::spawn({
@@ -37,7 +37,7 @@ async fn test_shutdown_signal() -> Result<()> {
         }
     });
 
-    let stats = factory.run_all().await.unwrap().0;
+    let stats = runner.run_all().await.unwrap().0;
 
     // We created 3 HSs, each with different execution durations (0s, 2s, 4s)
     // We triggered the shutdown signal 1s after start

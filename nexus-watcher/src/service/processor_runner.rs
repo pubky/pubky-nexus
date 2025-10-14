@@ -1,6 +1,6 @@
 use crate::events::Moderation;
 use crate::service::processor::EventProcessor;
-use crate::service::traits::{TEventProcessor, TEventProcessorFactory};
+use crate::service::traits::{TEventProcessor, TEventProcessorRunner};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
@@ -9,8 +9,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
 
-/// This implements the creation logic for [`EventProcessor`] objects
-pub struct EventProcessorFactory {
+pub struct EventProcessorRunner {
     pub limit: u32,
     pub files_path: PathBuf,
     pub tracer_name: String,
@@ -20,8 +19,8 @@ pub struct EventProcessorFactory {
     pub default_homeserver: PubkyId,
 }
 
-impl EventProcessorFactory {
-    /// Creates a new factory instance from the provided configuration
+impl EventProcessorRunner {
+    /// Creates a new instance from the provided configuration
     pub fn from_config(config: &WatcherConfig, shutdown_rx: Receiver<bool>) -> Self {
         Self {
             limit: config.events_limit,
@@ -38,7 +37,7 @@ impl EventProcessorFactory {
 }
 
 #[async_trait::async_trait]
-impl TEventProcessorFactory for EventProcessorFactory {
+impl TEventProcessorRunner for EventProcessorRunner {
     fn shutdown_rx(&self) -> Receiver<bool> {
         self.shutdown_rx.clone()
     }

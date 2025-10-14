@@ -1,9 +1,9 @@
 use crate::service::utils::{
-    create_random_homeservers_and_persist, setup, MockEventProcessorFactory,
-    MockEventProcessorResult,
+    create_random_homeservers_and_persist, setup, MockEventProcessorResult,
+    MockEventProcessorRunner,
 };
 use anyhow::Result;
-use nexus_watcher::service::TEventProcessorFactory;
+use nexus_watcher::service::TEventProcessorRunner;
 use std::time::Duration;
 
 #[tokio_shared_rt::test(shared)]
@@ -36,9 +36,9 @@ async fn test_multiple_homeserver_event_processing() -> Result<()> {
     )
     .await;
 
-    let factory = MockEventProcessorFactory::new(event_processor_list, shutdown_rx);
+    let runner = MockEventProcessorRunner::new(event_processor_list, shutdown_rx);
 
-    let stats = factory.run_all().await.unwrap().0;
+    let stats = runner.run_all().await.unwrap().0;
     assert_eq!(stats.count_ok(), 3);
     assert_eq!(stats.count_error(), 1);
     assert_eq!(stats.count_panic(), 0);
@@ -67,9 +67,9 @@ async fn test_multi_hs_event_processing_with_timeout() -> Result<()> {
         .await;
     }
 
-    let factory = MockEventProcessorFactory::new(event_processor_list, shutdown_rx);
+    let runner = MockEventProcessorRunner::new(event_processor_list, shutdown_rx);
 
-    let stats = factory.run_all().await.unwrap().0;
+    let stats = runner.run_all().await.unwrap().0;
     assert_eq!(stats.count_ok(), 1); // 1 success
     assert_eq!(stats.count_timeout(), 2); // 2 failures due to timeout
     assert_eq!(stats.count_error(), 0);
@@ -110,9 +110,9 @@ async fn test_multi_hs_event_processing_with_panic() -> Result<()> {
         .await;
     }
 
-    let factory = MockEventProcessorFactory::new(event_processor_list, shutdown_rx);
+    let runner = MockEventProcessorRunner::new(event_processor_list, shutdown_rx);
 
-    let stats = factory.run_all().await.unwrap().0;
+    let stats = runner.run_all().await.unwrap().0;
     assert_eq!(stats.count_ok(), 3); // 3 expected to succeed
     assert_eq!(stats.count_timeout(), 0);
     assert_eq!(stats.count_error(), 0);
