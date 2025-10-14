@@ -8,7 +8,7 @@ use axum::routing::{get, put};
 use axum::Json;
 use axum::Router;
 use nexus_common::models::bootstrap::{Bootstrap, ViewType};
-use nexus_common::HomeserverManager;
+use nexus_common::models::homeserver::Homeserver;
 use pubky_app_specs::PubkyId;
 use tracing::info;
 use utoipa::OpenApi;
@@ -60,7 +60,7 @@ pub async fn put_homeserver_handler(Path(user_id): Path<String>) -> Result<()> {
     PubkyId::try_from(&user_id)
         .map_err(|e| Error::invalid_input(&format!("Invalid user PK: {e}")))?;
 
-    HomeserverManager::maybe_ingest_for_user(&user_id)
+    Homeserver::maybe_ingest_for_user(&user_id)
         .await
         .map_err(Error::internal)
 }

@@ -5,13 +5,13 @@ use nexus_common::db::kv::{JsonAction, ScoreAction};
 use nexus_common::db::queries::get::post_is_safe_to_delete;
 use nexus_common::db::{exec_single_row, execute_graph_operation, OperationOutcome};
 use nexus_common::db::{queries, RedisOps};
+use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::notification::{Notification, PostChangedSource, PostChangedType};
 use nexus_common::models::post::{
     PostCounts, PostDetails, PostRelationships, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS,
 };
 use nexus_common::models::user::UserCounts;
 use nexus_common::types::DynError;
-use nexus_common::HomeserverManager;
 use pubky_app_specs::{
     post_uri_builder, user_uri_builder, ParsedUri, PubkyAppPost, PubkyAppPostKind, PubkyId,
     Resource,
@@ -44,7 +44,7 @@ pub async fn sync_put(
                     .unwrap_or_else(|| replied_to_uri.clone());
                 dependency_event_keys.push(reply_dependency);
 
-                if let Err(e) = HomeserverManager::maybe_ingest_for_post(replied_to_uri).await {
+                if let Err(e) = Homeserver::maybe_ingest_for_post(replied_to_uri).await {
                     tracing::error!("Failed to ingest homeserver: {e}");
                 }
             }
@@ -54,7 +54,7 @@ pub async fn sync_put(
                     .unwrap_or_else(|| reposted_uri.clone());
                 dependency_event_keys.push(reply_dependency);
 
-                if let Err(e) = HomeserverManager::maybe_ingest_for_post(reposted_uri).await {
+                if let Err(e) = Homeserver::maybe_ingest_for_post(reposted_uri).await {
                     tracing::error!("Failed to ingest homeserver: {e}");
                 }
             }
@@ -92,7 +92,7 @@ pub async fn sync_put(
     // We only consider the first mentioned (tagged) user, to mitigate DoS attacks against Nexus
     // whereby posts with many (inexistent) tagged PKs can cause Nexus to spend a lot of time trying to resolve them
     if let Some(mentioned_user_id) = &post_relationships.mentioned.first() {
-        if let Err(e) = HomeserverManager::maybe_ingest_for_user(mentioned_user_id).await {
+        if let Err(e) = Homeserver::maybe_ingest_for_user(mentioned_user_id).await {
             tracing::error!("Failed to ingest homeserver: {e}");
         }
     }

@@ -4,6 +4,7 @@ use crate::handle_indexing_results;
 use chrono::Utc;
 use nexus_common::db::kv::{JsonAction, ScoreAction};
 use nexus_common::db::OperationOutcome;
+use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::notification::Notification;
 use nexus_common::models::post::search::PostsByTagSearch;
 use nexus_common::models::post::{PostCounts, PostStream};
@@ -13,7 +14,6 @@ use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::tag::user::TagUser;
 use nexus_common::models::user::UserCounts;
 use nexus_common::types::DynError;
-use nexus_common::HomeserverManager;
 use pubky_app_specs::{user_uri_builder, ParsedUri, PubkyAppTag, PubkyId, Resource};
 use tracing::debug;
 
@@ -81,7 +81,7 @@ async fn put_sync_post(
         OperationOutcome::MissingDependency => {
             // Ensure that dependencies follow the same format as the RetryManager keys
             let dependency = vec![format!("{author_id}:posts:{post_id}")];
-            if let Err(e) = HomeserverManager::maybe_ingest_for_post(post_uri).await {
+            if let Err(e) = Homeserver::maybe_ingest_for_post(post_uri).await {
                 tracing::error!("Failed to ingest homeserver: {e}");
             }
             Err(EventProcessorError::MissingDependency { dependency }.into())
@@ -198,8 +198,7 @@ async fn put_sync_user(
             match RetryEvent::generate_index_key(&user_uri_builder(tagged_user_id.to_string())) {
                 Some(key) => {
                     let dependency = vec![key];
-                    if let Err(e) =
-                        HomeserverManager::maybe_ingest_for_user(tagged_user_id.as_str()).await
+                    if let Err(e) = Homeserver::maybe_ingest_for_user(tagged_user_id.as_str()).await
                     {
                         tracing::error!("Failed to ingest homeserver: {e}");
                     }
