@@ -89,7 +89,8 @@ pub async fn sync_put(
     )
     .await?;
 
-    // We only consider the first mentioned (tagged) user
+    // We only consider the first mentioned (tagged) user, to mitigate DoS attacks against Nexus
+    // whereby posts with many (inexistent) tagged PKs can cause Nexus to spend a lot of time trying to resolve them
     if let Some(mentioned_user_id) = &post_relationships.mentioned.first() {
         if let Err(e) = HomeserverManager::maybe_ingest_for_user(mentioned_user_id).await {
             tracing::error!("Failed to ingest homeserver: {e}");
