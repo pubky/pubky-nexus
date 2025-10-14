@@ -69,9 +69,9 @@ impl Homeserver {
         match Homeserver::get_from_index(&homeserver_id).await? {
             Some(hs) => Ok(Some(hs)),
             None => match Self::get_from_graph(&homeserver_id).await? {
-                Some(hs_grom_graph) => {
-                    hs_grom_graph.put_to_index().await?;
-                    Ok(Some(hs_grom_graph))
+                Some(hs_from_graph) => {
+                    hs_from_graph.put_to_index().await?;
+                    Ok(Some(hs_from_graph))
                 }
                 None => Ok(None),
             },
