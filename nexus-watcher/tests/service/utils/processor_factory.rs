@@ -16,10 +16,8 @@ pub struct MockEventProcessorFactory {
 impl MockEventProcessorFactory {
     /// Creates a new factory instance from the provided event processors
     pub fn new(event_processors: Vec<MockEventProcessor>, shutdown_rx: Receiver<bool>) -> Self {
-        let arcs: Vec<Arc<MockEventProcessor>> = event_processors
-            .into_iter()
-            .map(|mock_event_processor| Arc::new(mock_event_processor))
-            .collect();
+        let arcs: Vec<Arc<MockEventProcessor>> =
+            event_processors.into_iter().map(Arc::new).collect();
 
         Self {
             event_processors: arcs,

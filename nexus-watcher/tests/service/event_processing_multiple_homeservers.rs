@@ -61,7 +61,7 @@ async fn test_multi_hs_event_processing_with_timeout() -> Result<()> {
             &mut event_processor_list,
             Some(Duration::from_secs(index * 2)),
             processor_status,
-            EVENT_PROCESSOR_TIMEOUT.clone(),
+            EVENT_PROCESSOR_TIMEOUT,
             shutdown_rx.clone(),
         )
         .await;

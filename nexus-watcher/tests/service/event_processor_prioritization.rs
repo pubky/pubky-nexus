@@ -45,7 +45,7 @@ async fn test_mock_event_processor_factory_default_homeserver_prioritization(
 
     let event_processors = create_mock_event_processors(None, tokio::sync::watch::channel(false).1)
         .into_iter()
-        .map(|processor| Arc::new(processor))
+        .map(Arc::new)
         .collect();
 
     let factory = MockEventProcessorFactory {

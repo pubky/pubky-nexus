@@ -25,7 +25,7 @@ async fn test_tag_view() -> Result<()> {
     assert!(body.is_object());
 
     assert_eq!(body["tag_uri"], "pubky://78guxwtzgtgpskij51om7t66awmqxznr6p7ogonfohoags6ahc5y/pub/pubky.app/tags/2Z1N8QBQK9EG0");
-    assert_eq!(body["indexed_at"], 1724134095000 as i64);
+    assert_eq!(body["indexed_at"], 1724134095000_i64);
     assert_eq!(body["label"], "anti");
 
     Ok(())

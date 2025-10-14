@@ -3,7 +3,8 @@ use crate::stream::post::ROOT_PATH;
 use crate::utils::get_request;
 use anyhow::Result;
 
-// Test all the reach endpoints that hits the graph
+/// Test all the reach endpoints that hits the graph
+#[allow(clippy::too_many_arguments)]
 pub async fn test_reach_filter_with_posts(
     user_id: &str,
     sorting: Option<&str>,

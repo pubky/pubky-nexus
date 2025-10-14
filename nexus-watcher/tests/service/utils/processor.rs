@@ -95,7 +95,7 @@ pub fn create_mock_event_processors(
             homeserver_id: PubkyId::try_from(homeserver_id).unwrap(),
             sleep_duration: sleep_duration_sec.map(Duration::from_secs),
             processor_status: status,
-            custom_timeout: custom_timeout.clone(),
+            custom_timeout,
             shutdown_rx: shutdown_rx.clone(),
         },
     )
