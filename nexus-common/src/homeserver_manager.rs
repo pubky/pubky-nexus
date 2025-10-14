@@ -45,13 +45,7 @@ impl HomeserverManager {
         };
 
         let hs_pk = PubkyId::try_from(&ref_post_author_hs)?;
-        if let Ok(Some(_)) = Homeserver::get_by_id(hs_pk.clone()).await {
-            tracing::warn!("Skipping homeserver ingestion: author {ref_post_author_pk} not yet known, but their homeserver is known");
-            return Ok(());
-        }
-
-        Homeserver::new(hs_pk.clone())
-            .put_to_graph()
+        Homeserver::persist_if_unknown(hs_pk.clone())
             .await
             .inspect(|_| tracing::info!("Ingested homeserver {hs_pk}"))
             .inspect_err(|e| tracing::error!("Failed to ingest homeserver {hs_pk}: {e}"))
