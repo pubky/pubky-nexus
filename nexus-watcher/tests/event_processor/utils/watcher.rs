@@ -28,9 +28,6 @@ use crate::event_processor::utils::default_moderation_tests;
 
 /// Struct to hold the setup environment for tests
 pub struct WatcherTest {
-    /// We keep the testnet instance to prevent it from being dropped while the tests are running
-    /// If you drop the testnet, the watcher will not be able to connect to the homeserver
-    #[allow(unused)]
     pub testnet: EphemeralTestnet,
     /// The homeserver ID
     pub homeserver_id: String,
