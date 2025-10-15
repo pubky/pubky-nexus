@@ -1890,7 +1890,7 @@ checksum = "9171a2ea8a68358193d15dd5d70c1c10a2afc3e7e4c5bc92bc9f025cebd7359c"
 [[package]]
 name = "http-relay"
 version = "0.5.1"
-source = "git+https://github.com/pubky/pubky-core.git?branch=main#e9ec1b40dc917c0f25316fb6e716ca026806dbf0"
+source = "git+https://github.com/pubky/pubky-core.git?rev=e9ec1b40dc917c0f25316fb6e716ca026806dbf0#e9ec1b40dc917c0f25316fb6e716ca026806dbf0"
 dependencies = [
  "anyhow",
  "axum",
@@ -3182,7 +3182,7 @@ dependencies = [
 [[package]]
 name = "pkarr-republisher"
 version = "0.5.1"
-source = "git+https://github.com/pubky/pubky-core.git?branch=main#e9ec1b40dc917c0f25316fb6e716ca026806dbf0"
+source = "git+https://github.com/pubky/pubky-core.git?rev=e9ec1b40dc917c0f25316fb6e716ca026806dbf0#e9ec1b40dc917c0f25316fb6e716ca026806dbf0"
 dependencies = [
  "anyhow",
  "clap",
@@ -3367,7 +3367,7 @@ checksum = "33cb294fe86a74cbcf50d4445b37da762029549ebeea341421c7c70370f86cac"
 [[package]]
 name = "pubky"
 version = "0.5.4"
-source = "git+https://github.com/pubky/pubky-core.git?branch=main#e9ec1b40dc917c0f25316fb6e716ca026806dbf0"
+source = "git+https://github.com/pubky/pubky-core.git?rev=e9ec1b40dc917c0f25316fb6e716ca026806dbf0#e9ec1b40dc917c0f25316fb6e716ca026806dbf0"
 dependencies = [
  "base64",
  "bytes",
@@ -3409,7 +3409,7 @@ dependencies = [
 [[package]]
 name = "pubky-common"
 version = "0.5.4"
-source = "git+https://github.com/pubky/pubky-core.git?branch=main#e9ec1b40dc917c0f25316fb6e716ca026806dbf0"
+source = "git+https://github.com/pubky/pubky-core.git?rev=e9ec1b40dc917c0f25316fb6e716ca026806dbf0#e9ec1b40dc917c0f25316fb6e716ca026806dbf0"
 dependencies = [
  "argon2",
  "base32",
@@ -3429,7 +3429,7 @@ dependencies = [
 [[package]]
 name = "pubky-homeserver"
 version = "0.5.4"
-source = "git+https://github.com/pubky/pubky-core.git?branch=main#e9ec1b40dc917c0f25316fb6e716ca026806dbf0"
+source = "git+https://github.com/pubky/pubky-core.git?rev=e9ec1b40dc917c0f25316fb6e716ca026806dbf0#e9ec1b40dc917c0f25316fb6e716ca026806dbf0"
 dependencies = [
  "anyhow",
  "axum",
@@ -3480,7 +3480,7 @@ dependencies = [
 [[package]]
 name = "pubky-testnet"
 version = "0.5.4"
-source = "git+https://github.com/pubky/pubky-core.git?branch=main#e9ec1b40dc917c0f25316fb6e716ca026806dbf0"
+source = "git+https://github.com/pubky/pubky-core.git?rev=e9ec1b40dc917c0f25316fb6e716ca026806dbf0#e9ec1b40dc917c0f25316fb6e716ca026806dbf0"
 dependencies = [
  "anyhow",
  "clap",
