@@ -13,11 +13,11 @@ members = [
 anyhow = "1.0.100"
 async-trait = "0.1.89"
 chrono = { version = "0.4.42", default-features = false, features = ["clock"] }
-clap = "4.5.48"
+clap = "4.5.49"
 deadpool-redis = "0.22"
 neo4rs = "0.8.0"
-opentelemetry = "0.30"
-opentelemetry_sdk = { version = "0.30", features = ["rt-tokio"] }
+opentelemetry = "0.31"
+opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
 # pubky = "0.5.4"
 pubky = { git = "https://github.com/pubky/pubky-core.git", package = "pubky", rev = "e9ec1b40dc917c0f25316fb6e716ca026806dbf0" }
 pubky-app-specs = { version = "0.4.0", features = ["openapi"] }
