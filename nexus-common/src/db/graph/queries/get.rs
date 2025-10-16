@@ -234,6 +234,25 @@ pub fn user_tags(user_id: &str) -> neo4rs::Query {
     .param("user_id", user_id)
 }
 
+/// Retrieve a homeserver by ID
+pub fn get_homeserver_by_id(id: &str) -> Query {
+    query(
+        "MATCH (hs:Homeserver {id: $id})
+        WITH hs.id AS id
+        RETURN id",
+    )
+    .param("id", id)
+}
+
+/// Retrieves all homeserver IDs
+pub fn get_all_homeservers() -> Query {
+    query(
+        "MATCH (hs:Homeserver)
+        WITH collect(hs.id) AS homeservers_list
+        RETURN homeservers_list",
+    )
+}
+
 /// Retrieve tags for a user within the viewer's trusted network
 /// # Arguments
 ///

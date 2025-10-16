@@ -4,7 +4,7 @@ use crate::types::DynError;
 use neo4rs::{query, Query};
 use pubky_app_specs::{ParsedUri, Resource};
 
-// Create a user node
+/// Create a user node
 pub fn create_user(user: &UserDetails) -> Result<Query, DynError> {
     let links = serde_json::to_string(&user.links)?;
 
@@ -287,7 +287,7 @@ pub fn create_user_tag(
     .param("indexed_at", indexed_at)
 }
 
-// Create a file node
+/// Create a file node
 pub fn create_file(file: &FileDetails) -> Result<Query, DynError> {
     let urls = serde_json::to_string(&file.urls)?;
 
@@ -308,4 +308,15 @@ pub fn create_file(file: &FileDetails) -> Result<Query, DynError> {
     .param("urls", urls);
 
     Ok(query)
+}
+
+/// Create a homeserver
+pub fn create_homeserver(homeserver_id: &str) -> Query {
+    query(
+        "MERGE (hs:Homeserver {
+          id: $id
+        })
+        RETURN hs;",
+    )
+    .param("id", homeserver_id)
 }

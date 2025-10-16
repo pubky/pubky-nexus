@@ -13,7 +13,7 @@ pub enum EventProcessorError {
     #[error("IndexWriteFailed: Indexing incomplete due to Redis error - {message}")]
     IndexWriteFailed { message: String },
     /// The event appear to be unindexed. Verify the event in the retry queue
-    #[error("SkipIndexing: The PUT event appears to be unindexed")]
+    #[error("SkipIndexing: The PUT event appears to be unindexed, so we cannot delete an object that doesn't exist")]
     SkipIndexing,
     /// The event could not be parsed from a line
     #[error("InvalidEventLine: {message}")]
@@ -21,10 +21,6 @@ pub enum EventProcessorError {
     /// The Pubky client could not resolve the pubky
     #[error("PubkyClientError: {message}")]
     PubkyClientError { message: String },
-    // #[error("The event does not exist anymore in the homeserver")]
-    // ContentNotFound { dependency: String },
-    // #[error("PubkyClient could not reach/resolve the homeserver")]
-    // NotResolvedHomeserver,
 }
 
 impl EventProcessorError {

@@ -35,7 +35,7 @@ async fn test_homeserver_bookmark_cannot_index() -> Result<()> {
 
     // Create the bookmark of the shadow user
     let bookmark_id = bookmark.create_id();
-    let bookmark_url = bookmark_uri_builder(user_id.into(), bookmark_id);
+    let bookmark_url = bookmark_uri_builder(user_id, bookmark_id);
     // PUT bookmark
     test.put(&bookmark_url, bookmark).await?;
 

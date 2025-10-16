@@ -78,7 +78,7 @@ mod tests {
         assert_eq!(c.api.public_addr, SocketAddr::from(([127, 0, 0, 1], 8080)));
 
         assert_eq!(c.watcher.name, "nexusd.watcher");
-        assert_eq!(c.watcher.testnet, false);
+        assert!(!c.watcher.testnet);
         assert_eq!(
             c.watcher.homeserver,
             PubkyId::try_from("8um71us3fyw6h8wbcxb5ar3rwusy1a6u49956ikzojg3gcwd1dty").unwrap()

@@ -29,7 +29,7 @@ async fn test_homeserver_del_post_with_attachments() -> Result<()> {
     let mut file_urls = Vec::new();
     let mut file_ids = Vec::new();
 
-    for i in 0..2 {
+    for i in [0, 1] {
         let blob_data = format!("DEL me, im part of attachment of file {}", i + 1);
         let blob = PubkyAppBlob::new(blob_data.as_bytes().to_vec());
         let blob_id = blob.create_id();
@@ -73,9 +73,9 @@ async fn test_homeserver_del_post_with_attachments() -> Result<()> {
     test.cleanup_file(&user_id, &file_ids[0]).await?;
     test.cleanup_file(&user_id, &file_ids[1]).await?;
 
-    for i in 0..2 {
+    for file_id in file_ids {
         let files = FileDetails::get_by_ids(
-            vec![vec![user_id.as_str(), file_ids[i].as_str()].as_slice()].as_slice(),
+            vec![vec![user_id.as_str(), file_id.as_str()].as_slice()].as_slice(),
         )
         .await
         .expect("Failed to fetch files from Nexus");
@@ -84,7 +84,7 @@ async fn test_homeserver_del_post_with_attachments() -> Result<()> {
         assert!(result_file.is_none());
 
         // Assert: Ensure it's deleted
-        let blob_static_path = format!("./static/files/{}/{}/main", &user_id, &file_ids[i]);
+        let blob_static_path = format!("./static/files/{}/{}/main", &user_id, &file_id);
         assert!(
             !Path::new(&blob_static_path).exists(),
             "File cannot exist after DEL event"

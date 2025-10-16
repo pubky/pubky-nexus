@@ -30,11 +30,9 @@ impl UserView {
             Relationship::get_by_id(user_id, viewer_id),
         )?;
 
-        let details = match details {
-            None => return Ok(None),
-            Some(details) => details,
+        let Some(details) = details else {
+            return Ok(None);
         };
-
         let counts = counts.unwrap_or_default();
         let relationship = relationship.unwrap_or_default();
 

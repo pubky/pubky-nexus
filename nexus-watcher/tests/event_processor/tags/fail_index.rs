@@ -1,6 +1,7 @@
 use crate::event_processor::utils::watcher::{retrieve_and_handle_event_line, WatcherTest};
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use chrono::Utc;
+use nexus_watcher::service::TEventProcessorRunner;
 use pubky::Keypair;
 use pubky_app_specs::{
     post_uri_builder, tag_uri_builder, traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser,
@@ -57,7 +58,8 @@ async fn test_homeserver_tag_cannot_add_while_index() -> Result<()> {
     // Simulate the event processor to handle the event.
     // If the event processor were activated, the test would not catch the missing dependency
     // error, and it would pass successfully
-    let sync_fail = retrieve_and_handle_event_line(&tag_event)
+    let moderation_ref = test.event_processor_runner.moderation.clone();
+    let sync_fail = retrieve_and_handle_event_line(&tag_event, moderation_ref)
         .await
         .map_err(|e| {
             error!("SYNC ERROR: {:?}", e);
@@ -69,9 +71,16 @@ async fn test_homeserver_tag_cannot_add_while_index() -> Result<()> {
         "It seems that tagged node exists, which should not be possible. Event processor should be disconnected"
     );
 
-    // Sync all the previous events
-    let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-    test.event_processor.run(shutdown_rx).await.unwrap();
+    // Build the event processor and run it to sync all the previous events with the event processor
+    // We do this because earlier, the runner's event processing has been turned off temporarily
+    // but at this point we are ready to run the event processing
+    test.event_processor_runner
+        .build(test.homeserver_id.clone())
+        .await
+        .map_err(|e| anyhow!(e))?
+        .run()
+        .await
+        .map_err(|e| anyhow!(e))?;
 
     // => Create post tag
     let post = PubkyAppPost {
@@ -101,7 +110,8 @@ async fn test_homeserver_tag_cannot_add_while_index() -> Result<()> {
     // Simulate the event processor to handle the event.
     // If the event processor were activated, the test would not catch the missing dependency
     // error, and it would pass successfully
-    let sync_fail = retrieve_and_handle_event_line(&tag_event)
+    let moderation_ref = test.event_processor_runner.moderation.clone();
+    let sync_fail = retrieve_and_handle_event_line(&tag_event, moderation_ref)
         .await
         .map_err(|e| {
             error!("SYNC ERROR: {:?}", e);

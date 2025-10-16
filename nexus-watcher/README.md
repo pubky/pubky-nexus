@@ -22,10 +22,10 @@ It polls for events from the `/events` endpoint of a homeserver and processes th
 
 ## Quick Examples
 
-The main entry point is available via the builder in the `nexus_watcher::builder` module. For example, you can start the watcher using:
+The main entry point is available via the builder in the `nexus_watcher::service` module. For example, you can start the watcher using:
 
 ```rust
-use nexus_watcher::builder::NexusWatcher;
+use nexus_watcher::service::NexusWatcher;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -36,7 +36,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 Alternatively, if you prefer to load the configuration from a file:
 
 ```rust
-use nexus_watcher::builder::NexusWatcher;
+use nexus_watcher::service::NexusWatcher;
 use std::path::PathBuf;
 
 #[tokio::main]

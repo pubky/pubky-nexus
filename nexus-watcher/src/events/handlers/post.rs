@@ -5,6 +5,7 @@ use nexus_common::db::kv::{JsonAction, ScoreAction};
 use nexus_common::db::queries::get::post_is_safe_to_delete;
 use nexus_common::db::{exec_single_row, execute_graph_operation, OperationOutcome};
 use nexus_common::db::{queries, RedisOps};
+use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::notification::{Notification, PostChangedSource, PostChangedType};
 use nexus_common::models::post::{
     PostCounts, PostDetails, PostRelationships, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS,
@@ -42,12 +43,20 @@ pub async fn sync_put(
                     // This block is unlikely to be reached, as it would typically fail during the validation process
                     .unwrap_or_else(|| replied_to_uri.clone());
                 dependency_event_keys.push(reply_dependency);
+
+                if let Err(e) = Homeserver::maybe_ingest_for_post(replied_to_uri).await {
+                    tracing::error!("Failed to ingest homeserver: {e}");
+                }
             }
             if let Some(reposted_uri) = &post_relationships.reposted {
                 let reply_dependency = RetryEvent::generate_index_key(reposted_uri)
                     // This block is unlikely to be reached, as it would typically fail during the validation process
                     .unwrap_or_else(|| reposted_uri.clone());
                 dependency_event_keys.push(reply_dependency);
+
+                if let Err(e) = Homeserver::maybe_ingest_for_post(reposted_uri).await {
+                    tracing::error!("Failed to ingest homeserver: {e}");
+                }
             }
             if dependency_event_keys.is_empty() {
                 let author_uri = user_uri_builder(author_id.to_string());
@@ -79,6 +88,14 @@ pub async fn sync_put(
         &mut post_relationships,
     )
     .await?;
+
+    // We only consider the first mentioned (tagged) user, to mitigate DoS attacks against Nexus
+    // whereby posts with many (inexistent) tagged PKs can cause Nexus to spend a lot of time trying to resolve them
+    if let Some(mentioned_user_id) = &post_relationships.mentioned.first() {
+        if let Err(e) = Homeserver::maybe_ingest_for_user(mentioned_user_id).await {
+            tracing::error!("Failed to ingest homeserver: {e}");
+        }
+    }
 
     // SAVE TO INDEX - PHASE 1, update post counts
     let indexing_results = tokio::join!(
@@ -119,7 +136,7 @@ pub async fn sync_put(
         let parent_author_id = parsed_uri.user_id;
         let parent_post_id = match parsed_uri.resource {
             Resource::Post(id) => id,
-            _ => return Err("Reposted uri is not a Post resource".into()),
+            _ => return Err("Replied URI is not a Post resource".into()),
         };
 
         // Define the reply parent key to index the reply later
