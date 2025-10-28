@@ -82,9 +82,9 @@ impl Homeserver {
         }
     }
 
-    /// Verifies if homeserver exists, or persists it if missing
+    /// Verifies if homeserver exists in the graph, or persists it if missing
     pub async fn persist_if_unknown(homeserver_id: PubkyId) -> Result<(), DynError> {
-        if Self::get_by_id(homeserver_id.clone()).await?.is_none() {
+        if Self::get_from_graph(&homeserver_id).await?.is_none() {
             info!("Persisting new homeserver: {homeserver_id}");
             let homeserver = Homeserver::new(homeserver_id);
             homeserver.put_to_graph().await?;
