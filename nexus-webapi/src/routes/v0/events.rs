@@ -43,7 +43,7 @@ pub async fn get_events_handler(
     // cursor: 0032W24REPR5W
     //
     // XXX: not JSON but text
-    Json({})
+    Json(())
 }
 
 pub fn routes() -> Router<AppState> {

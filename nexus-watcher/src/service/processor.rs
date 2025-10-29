@@ -150,8 +150,8 @@ impl EventProcessor {
     /// # Parameters:
     /// - `event`: The event to be processed
     async fn handle_event(&self, event: &Event) -> Result<(), DynError> {
-        if let Err(e) = self.handle(&event).await {
-            if let Some((index_key, retry_event)) = extract_retry_event_info(&event, e) {
+        if let Err(e) = self.handle(event).await {
+            if let Some((index_key, retry_event)) = extract_retry_event_info(event, e) {
                 error!("{}, {}", retry_event.error_type, index_key);
                 if let Err(err) = retry_event.put_to_index(index_key).await {
                     error!("Failed to put event to retry index: {}", err);
