@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use super::endpoints::EVENTS_ROUTE;
-use nexus_common::models::events::Event;
 
 use axum::extract::Query;
 use axum::response::IntoResponse;

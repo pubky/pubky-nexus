@@ -1,4 +1,4 @@
-use crate::events::Moderation;
+use crate::events::moderation::Moderation;
 use crate::service::processor::EventProcessor;
 use crate::service::traits::{TEventProcessor, TEventProcessorRunner};
 use nexus_common::models::homeserver::Homeserver;

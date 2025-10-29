@@ -1,8 +1,7 @@
-use super::handlers;
-use super::moderation::Moderation;
 use crate::events::errors::EventProcessorError;
+use crate::events::handlers;
+use crate::events::moderation::Moderation;
 use crate::events::retry::event::RetryEvent;
-use crate::events::{Event, Moderation};
 use crate::service::traits::TEventProcessor;
 use nexus_common::db::PubkyClient;
 use nexus_common::models::events::{Event, EventType};
@@ -103,7 +102,7 @@ impl EventProcessor {
     ///
     /// # Parameters
     /// - `lines`: A vector of strings representing event lines retrieved from the homeserver.
-    pub async fn process_event_lines(&mut self, lines: Vec<String>) -> Result<(), DynError> {
+    pub async fn process_event_lines(&self, lines: Vec<String>) -> Result<(), DynError> {
         for line in &lines {
             let id = self.homeserver.id.clone();
 
@@ -150,7 +149,7 @@ impl EventProcessor {
     /// Processes an event and track the fail event it if necessary
     /// # Parameters:
     /// - `event`: The event to be processed
-    async fn handle_event(&mut self, event: &Event) -> Result<(), DynError> {
+    async fn handle_event(&self, event: &Event) -> Result<(), DynError> {
         if let Err(e) = self.handle(&event).await {
             if let Some((index_key, retry_event)) = extract_retry_event_info(&event, e) {
                 error!("{}, {}", retry_event.error_type, index_key);

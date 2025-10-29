@@ -1,4 +1,4 @@
-use nexus_watcher::events::Moderation;
+use nexus_watcher::events::moderation::Moderation;
 use pubky_app_specs::PubkyId;
 
 pub mod watcher;
