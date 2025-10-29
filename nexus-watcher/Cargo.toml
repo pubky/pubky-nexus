@@ -26,6 +26,4 @@ anyhow = { workspace = true }
 httpc-test = "0.1.10"
 pubky-testnet = { workspace = true }
 rand = "0.9.2"
-rand_distr = "0.5.1"
 tokio-shared-rt = { workspace = true }
-reqwest = "0.12.24"

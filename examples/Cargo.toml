@@ -12,7 +12,6 @@ name = "watcher_example"
 path = "./watcher/main.rs"
 
 [dependencies]
-anyhow = { workspace = true }
 tokio = { workspace = true }
 nexus-common = { path = "../nexus-common" }
 nexus-webapi = { path = "../nexus-webapi" }
