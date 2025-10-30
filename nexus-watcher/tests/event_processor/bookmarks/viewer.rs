@@ -4,8 +4,9 @@ use anyhow::Result;
 use nexus_common::models::post::PostStream;
 use pubky::Keypair;
 use pubky_app_specs::{
-    bookmark_uri_builder, post_uri_builder, traits::HashId, PubkyAppBookmark, PubkyAppPost,
-    PubkyAppUser,
+    post_uri_builder,
+    traits::{HasIdPath, HashId},
+    PubkyAppBookmark, PubkyAppPost, PubkyAppUser,
 };
 
 #[tokio_shared_rt::test(shared)]
@@ -13,7 +14,7 @@ async fn test_homeserver_viewer_bookmark() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Step 1: Create a user
-    let keypair = Keypair::random();
+    let user_kp = Keypair::random();
     let user = PubkyAppUser {
         bio: Some("test_homeserver_viewer_bookmark".to_string()),
         image: None,
@@ -21,7 +22,7 @@ async fn test_homeserver_viewer_bookmark() -> Result<()> {
         name: "Watcher:ViewerBookmark:User".to_string(),
         status: None,
     };
-    let user_id = test.create_user(&keypair, &user).await?;
+    let user_id = test.create_user(&user_kp, &user).await?;
 
     // Step 2: Create a post under that user
     let post = PubkyAppPost {
@@ -31,10 +32,10 @@ async fn test_homeserver_viewer_bookmark() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let post_id = test.create_post(&user_id, &post).await?;
+    let post_id = test.create_post(&user_kp, &post).await?;
 
     // Step 3: Add a bookmark to the post. Before create a new user
-    let viewer_keypair = Keypair::random();
+    let viewer_kp = Keypair::random();
 
     let viewer_user = PubkyAppUser {
         bio: Some("test_homeserver_viewer_bookmark".to_string()),
@@ -43,17 +44,19 @@ async fn test_homeserver_viewer_bookmark() -> Result<()> {
         name: "Watcher:ViewerBookmark:Viewer".to_string(),
         status: None,
     };
-    let viewer_id = test.create_user(&viewer_keypair, &viewer_user).await?;
+    let viewer_id = test.create_user(&viewer_kp, &viewer_user).await?;
 
     let bookmark = PubkyAppBookmark {
         uri: post_uri_builder(user_id.clone(), post_id.clone()),
         created_at: chrono::Utc::now().timestamp_millis(),
     };
     let bookmark_id = bookmark.create_id();
-    let bookmark_url = bookmark_uri_builder(viewer_id.clone(), bookmark_id.clone());
+    let bookmark_relative_url = PubkyAppBookmark::create_path(&bookmark_id);
 
     // Put bookmark
-    test.put(&bookmark_url, bookmark).await.unwrap();
+    test.put(&viewer_kp, &bookmark_relative_url, bookmark)
+        .await
+        .unwrap();
 
     // Step 4: Verify the bookmark exists in Nexus
     // GRAPH_OP: Assert if the event writes the graph
@@ -82,9 +85,9 @@ async fn test_homeserver_viewer_bookmark() -> Result<()> {
     assert!(result_bookmarks.last_post_score.is_some());
 
     // Cleanup user and post
-    test.cleanup_post(&user_id, &post_id).await?;
-    test.cleanup_user(&user_id).await?;
-    test.cleanup_user(&viewer_id).await?;
+    test.cleanup_post(&user_kp, &post_id).await?;
+    test.cleanup_user(&user_kp).await?;
+    test.cleanup_user(&viewer_kp).await?;
 
     Ok(())
 }

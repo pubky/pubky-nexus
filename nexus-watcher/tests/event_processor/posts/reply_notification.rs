@@ -10,7 +10,7 @@ use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyApp
 async fn test_homeserver_post_reply_notification() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
-    let alice_keypair = Keypair::random();
+    let alice_kp = Keypair::random();
 
     let alice = PubkyAppUser {
         bio: Some("test_homeserver_post_reply_notification".to_string()),
@@ -20,7 +20,7 @@ async fn test_homeserver_post_reply_notification() -> Result<()> {
         status: None,
     };
 
-    let alice_id = test.create_user(&alice_keypair, &alice).await?;
+    let alice_id = test.create_user(&alice_kp, &alice).await?;
 
     let parent_post = PubkyAppPost {
         content: "Watcher:PostReplyNotification:Alice:Post".to_string(),
@@ -30,19 +30,19 @@ async fn test_homeserver_post_reply_notification() -> Result<()> {
         attachments: None,
     };
 
-    let alice_post_id = test.create_post(&alice_id, &parent_post).await?;
+    let alice_post_id = test.create_post(&alice_kp, &parent_post).await?;
 
-    let parent_uri = post_uri_builder(alice_id.clone(), alice_post_id.clone());
+    let parent_absolute_uri = post_uri_builder(alice_id.clone(), alice_post_id.clone());
 
     let reply_post = PubkyAppPost {
         content: "Watcher:PostReplyNotification:Alice:Reply".to_string(),
         kind: PubkyAppPostKind::Short,
-        parent: Some(parent_uri.clone()),
+        parent: Some(parent_absolute_uri.clone()),
         embed: None,
         attachments: None,
     };
 
-    let alice_reply_id = test.create_post(&alice_id, &reply_post).await?;
+    let alice_reply_id = test.create_post(&alice_kp, &reply_post).await?;
 
     // Verify that alice does not get a REPLY notification
     let notifications = Notification::get_by_id(&alice_id, Pagination::default())
@@ -55,7 +55,7 @@ async fn test_homeserver_post_reply_notification() -> Result<()> {
     );
 
     // Create new user to test the notication
-    let bob_keypair = Keypair::random();
+    let bob_kp = Keypair::random();
 
     let bob = PubkyAppUser {
         bio: Some("test_homeserver_post_reply_notification".to_string()),
@@ -65,17 +65,17 @@ async fn test_homeserver_post_reply_notification() -> Result<()> {
         status: None,
     };
 
-    let bob_id = test.create_user(&bob_keypair, &bob).await?;
+    let bob_id = test.create_user(&bob_kp, &bob).await?;
 
     let reply_post = PubkyAppPost {
         content: "Watcher:PostReplyNotification:Bob:Reply".to_string(),
         kind: PubkyAppPostKind::Short,
-        parent: Some(parent_uri.clone()),
+        parent: Some(parent_absolute_uri.clone()),
         embed: None,
         attachments: None,
     };
 
-    let bob_reply_id = test.create_post(&bob_id, &reply_post).await?;
+    let bob_reply_id = test.create_post(&bob_kp, &reply_post).await?;
 
     // Verify that alice gets a REPLY notification
     let notifications = Notification::get_by_id(&alice_id, Pagination::default())
@@ -118,12 +118,12 @@ async fn test_homeserver_post_reply_notification() -> Result<()> {
     }
 
     // DEL post.
-    test.cleanup_post(&alice_id, &alice_reply_id).await?;
-    test.cleanup_post(&bob_id, &bob_reply_id).await?;
+    test.cleanup_post(&alice_kp, &alice_reply_id).await?;
+    test.cleanup_post(&bob_kp, &bob_reply_id).await?;
 
     // Cleanup
-    test.cleanup_user(&alice_id).await?;
-    test.cleanup_post(&alice_id, &alice_post_id).await?;
+    test.cleanup_user(&alice_kp).await?;
+    test.cleanup_post(&alice_kp, &alice_post_id).await?;
 
     Ok(())
 }

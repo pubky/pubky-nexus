@@ -7,14 +7,17 @@ use anyhow::Result;
 use chrono::Utc;
 use nexus_common::models::tag::{traits::TagCollection, user::TagUser};
 use pubky::Keypair;
-use pubky_app_specs::{tag_uri_builder, traits::HashId, PubkyAppTag, PubkyAppUser};
+use pubky_app_specs::{
+    traits::{HasIdPath, HashId},
+    PubkyAppTag, PubkyAppUser,
+};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_del_tag_to_another_user() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Step 1: Create the users
-    let tagged_keypair = Keypair::random();
+    let tagged_kp = Keypair::random();
 
     let tagged_user = PubkyAppUser {
         bio: Some("test_homeserver_del_tag_to_another_user".to_string()),
@@ -23,9 +26,9 @@ async fn test_homeserver_del_tag_to_another_user() -> Result<()> {
         name: "Watcher:DelTagToAnother:TaggedUser".to_string(),
         status: None,
     };
-    let tagged_user_id = test.create_user(&tagged_keypair, &tagged_user).await?;
+    let tagged_user_id = test.create_user(&tagged_kp, &tagged_user).await?;
 
-    let tagger_keypair = Keypair::random();
+    let tagger_kp = Keypair::random();
 
     let tagger_user = PubkyAppUser {
         bio: Some("test_homeserver_del_tag_to_another_user".to_string()),
@@ -34,7 +37,7 @@ async fn test_homeserver_del_tag_to_another_user() -> Result<()> {
         name: "Watcher:DelTagToAnother:TaggerUser".to_string(),
         status: None,
     };
-    let tagger_user_id = test.create_user(&tagger_keypair, &tagger_user).await?;
+    let tagger_user_id = test.create_user(&tagger_kp, &tagger_user).await?;
 
     // Step 2: Add a tag to the user
     let label = "neo4j";
@@ -45,13 +48,13 @@ async fn test_homeserver_del_tag_to_another_user() -> Result<()> {
         created_at: Utc::now().timestamp_millis(),
     };
 
-    let tag_url = tag_uri_builder(tagger_user_id.clone(), tag.create_id());
+    let tag_relative_url = PubkyAppTag::create_path(&tag.create_id());
 
     // Put tag
-    test.put(tag_url.as_str(), tag).await?;
+    test.put(&tagger_kp, &tag_relative_url, tag).await?;
 
     // Step 3: Delete the tag
-    test.del(&tag_url).await?;
+    test.del(&tagger_kp, &tag_relative_url).await?;
 
     // Step 4: Assert tag deletion
     // GRAPH_OP: Check if the tag node was deleted
@@ -89,8 +92,8 @@ async fn test_homeserver_del_tag_to_another_user() -> Result<()> {
     assert_eq!(influencer_score.unwrap(), 0);
 
     // Cleanup user
-    test.cleanup_user(&tagged_user_id).await?;
-    test.cleanup_user(&tagger_user_id).await?;
+    test.cleanup_user(&tagged_kp).await?;
+    test.cleanup_user(&tagger_kp).await?;
 
     Ok(())
 }

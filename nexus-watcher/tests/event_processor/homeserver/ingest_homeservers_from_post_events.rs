@@ -1,7 +1,7 @@
 use super::utils::create_external_test_homeserver;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
-use nexus_common::{db::PubkyClient, models::homeserver::Homeserver};
+use nexus_common::models::homeserver::Homeserver;
 use pubky::Keypair;
 use pubky_app_specs::{
     post_uri_builder, traits::TimestampId, PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind,
@@ -23,8 +23,7 @@ async fn test_reply_to_post_on_unknown_homeserver() -> Result<()> {
 
     // Register the parent author PK in the new homeserver
     // We only need the record mapping, not necessarily the profile.json being uploaded
-    PubkyClient::get()?
-        .signup(&parent_author_kp, &parent_author_hs_pk, None)
+    test.register_user_in_hs(&parent_author_kp, &parent_author_hs_pk)
         .await?;
 
     // Create parent Post
@@ -37,7 +36,8 @@ async fn test_reply_to_post_on_unknown_homeserver() -> Result<()> {
         attachments: None,
     };
     let parent_post_id = parent_post.create_id();
-    let parent_post_uri = post_uri_builder(parent_author_id.clone(), parent_post_id.clone());
+    let parent_post_absolute_uri =
+        post_uri_builder(parent_author_id.clone(), parent_post_id.clone());
 
     // Create reply, written by a separate reply author, on the main test homeserver
     let reply_author = PubkyAppUser {
@@ -48,25 +48,24 @@ async fn test_reply_to_post_on_unknown_homeserver() -> Result<()> {
         status: None,
     };
     let reply_author_kp = Keypair::random();
-    let reply_author_id = test.create_user(&reply_author_kp, &reply_author).await?;
+    let _reply_author_id = test.create_user(&reply_author_kp, &reply_author).await?;
 
     let reply = PubkyAppPost {
         content: "Watcher:ReplyRepost:User:Reply".to_string(),
         kind: PubkyAppPostKind::Short,
-        parent: Some(parent_post_uri),
+        parent: Some(parent_post_absolute_uri),
         embed: None,
         attachments: None,
     };
-    let reply_id = test.create_post(&reply_author_id, &reply).await?;
+    let reply_id = test.create_post(&reply_author_kp, &reply).await?;
 
     // Check if new HS was ingested
     let root_author_hs = Homeserver::get_by_id(parent_author_hs_id).await.unwrap();
     assert!(root_author_hs.is_some());
 
     // Cleanup
-    test.cleanup_user(&reply_author_id).await?;
-    test.cleanup_post(&reply_author_id, &reply_id).await?;
-    test.cleanup_post(&reply_author_id, &parent_post_id).await?;
+    test.cleanup_user(&reply_author_kp).await?;
+    test.cleanup_post(&reply_author_kp, &reply_id).await?;
 
     Ok(())
 }
@@ -85,8 +84,7 @@ async fn test_repost_of_post_on_unknown_homeserver() -> Result<()> {
 
     // Register the original author PK in the new homeserver
     // We only need the record mapping, not necessarily the profile.json being uploaded
-    PubkyClient::get()?
-        .signup(&original_author_kp, &original_author_hs_pk, None)
+    test.register_user_in_hs(&original_author_kp, &original_author_hs_pk)
         .await?;
 
     // Create original Post
@@ -110,7 +108,7 @@ async fn test_repost_of_post_on_unknown_homeserver() -> Result<()> {
         status: None,
     };
     let repost_author_kp = Keypair::random();
-    let repost_author_id = test.create_user(&repost_author_kp, &repost_author).await?;
+    let _repost_author_id = test.create_user(&repost_author_kp, &repost_author).await?;
 
     let repost = PubkyAppPost {
         content: "Watcher:Repost".to_string(),
@@ -123,17 +121,15 @@ async fn test_repost_of_post_on_unknown_homeserver() -> Result<()> {
         attachments: None,
     };
 
-    let repost_id = test.create_post(&repost_author_id, &repost).await?;
+    let repost_id = test.create_post(&repost_author_kp, &repost).await?;
 
     // Check if new HS was ingested
     let original_author_hs = Homeserver::get_by_id(original_author_hs_id).await.unwrap();
     assert!(original_author_hs.is_some());
 
     // Cleanup
-    test.cleanup_user(&repost_author_id).await?;
-    test.cleanup_post(&repost_author_id, &repost_id).await?;
-    test.cleanup_post(&repost_author_id, &original_post_id)
-        .await?;
+    test.cleanup_user(&repost_author_kp).await?;
+    test.cleanup_post(&repost_author_kp, &repost_id).await?;
 
     Ok(())
 }
@@ -160,10 +156,9 @@ async fn test_post_and_mention_users_on_unknown_homeserver() -> Result<()> {
 
     // Register each new user in their respective homeserver
     // We only need the record mapping, not necessarily the profile.json being uploaded
-    let pk_client = PubkyClient::get()?;
-    pk_client.signup(&user_1_kp, &user_1_hs_pk, None).await?;
-    pk_client.signup(&user_2_kp, &user_2_hs_pk, None).await?;
-    pk_client.signup(&user_3_kp, &user_3_hs_pk, None).await?;
+    test.register_user_in_hs(&user_1_kp, &user_1_hs_pk).await?;
+    test.register_user_in_hs(&user_2_kp, &user_2_hs_pk).await?;
+    test.register_user_in_hs(&user_3_kp, &user_3_hs_pk).await?;
 
     // Create the test post on the main test homeserver, created by a known user (author)
     let post_author = PubkyAppUser {
@@ -174,7 +169,7 @@ async fn test_post_and_mention_users_on_unknown_homeserver() -> Result<()> {
         status: None,
     };
     let post_author_kp = Keypair::random();
-    let post_author_id = test.create_user(&post_author_kp, &post_author).await?;
+    let _post_author_id = test.create_user(&post_author_kp, &post_author).await?;
 
     let post = PubkyAppPost {
         // The post content references the PKs of the external users
@@ -184,7 +179,7 @@ async fn test_post_and_mention_users_on_unknown_homeserver() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let post_id = test.create_post(&post_author_id, &post).await?;
+    let post_id = test.create_post(&post_author_kp, &post).await?;
 
     // Check if the new homeserver of the first unknown mentioned user was ingested ...
     assert!(Homeserver::get_by_id(user_1_hs_id).await.unwrap().is_some());
@@ -193,11 +188,8 @@ async fn test_post_and_mention_users_on_unknown_homeserver() -> Result<()> {
     assert!(Homeserver::get_by_id(user_3_hs_id).await.unwrap().is_none());
 
     // Cleanup
-    test.cleanup_user(&post_author_id).await?;
-    test.cleanup_post(&post_author_id, &post_id).await?;
-    test.cleanup_user(&user_1_id).await?;
-    test.cleanup_user(&user_2_id).await?;
-    test.cleanup_user(&user_3_id).await?;
+    test.cleanup_user(&post_author_kp).await?;
+    test.cleanup_post(&post_author_kp, &post_id).await?;
 
     Ok(())
 }

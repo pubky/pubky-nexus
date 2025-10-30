@@ -11,7 +11,7 @@ async fn test_delete_user_without_relationships() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Create a new user without any relationships
-    let keypair = Keypair::random();
+    let user_kp = Keypair::random();
     let user = PubkyAppUser {
         bio: Some("test_delete_user_with_relationships".to_string()),
         image: None,
@@ -19,10 +19,10 @@ async fn test_delete_user_without_relationships() -> Result<()> {
         name: "Watcher:UserDel:User".to_string(),
         status: None,
     };
-    let user_id = test.create_user(&keypair, &user).await?;
+    let user_id = test.create_user(&user_kp, &user).await?;
 
     // Delete the user
-    test.cleanup_user(&user_id).await?;
+    test.cleanup_user(&user_kp).await?;
 
     // Attempt to find user details; should not exist
     let user_details_result = find_user_details(&user_id).await;

@@ -110,7 +110,7 @@ impl Event {
                     message: e.to_string(),
                 })?;
 
-            response = match pubky_client.get(&self.uri).send().await {
+            response = match pubky_client.public_storage().get(&self.uri).await {
                 Ok(response) => response,
                 Err(e) => {
                     return Err(EventProcessorError::PubkyClientError {

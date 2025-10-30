@@ -8,12 +8,12 @@ use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind};
 async fn test_homeserver_post_without_user() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
-    let keypair = Keypair::random();
-    let user_id = keypair.public_key().to_z32();
+    let user_kp = Keypair::random();
+    let _user_id = user_kp.public_key().to_z32();
 
     // In that case, that user will act as a NotSyncUser or user not registered in pubky.app
     // It will not have a profile.json
-    test.register_user(&keypair).await?;
+    test.register_user(&user_kp).await?;
 
     let post = PubkyAppPost {
         content: "Watcher:PostEvent:PostWithoutUser".to_string(),
@@ -23,10 +23,10 @@ async fn test_homeserver_post_without_user() -> Result<()> {
         attachments: None,
     };
 
-    let post_id = test.create_post(&user_id, &post).await?;
+    let post_id = test.create_post(&user_kp, &post).await?;
 
     // Delete the post using the event handler
-    test.cleanup_post(&user_id, &post_id).await?;
+    test.cleanup_post(&user_kp, &post_id).await?;
 
     Ok(())
 }

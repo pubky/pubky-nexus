@@ -10,7 +10,8 @@ use chrono::Utc;
 use nexus_common::models::tag::post::TagPost;
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use pubky::Keypair;
-use pubky_app_specs::{post_uri_builder, tag_uri_builder};
+use pubky_app_specs::post_uri_builder;
+use pubky_app_specs::traits::HasIdPath;
 use pubky_app_specs::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
@@ -18,7 +19,7 @@ async fn test_homeserver_del_tag_post() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Step 1: Create a user
-    let tagger_keypair = Keypair::random();
+    let tagger_kp = Keypair::random();
 
     let tagger = PubkyAppUser {
         bio: Some("test_homeserver_tag_post".to_string()),
@@ -27,10 +28,10 @@ async fn test_homeserver_del_tag_post() -> Result<()> {
         name: "Watcher:DelTagPost:User".to_string(),
         status: None,
     };
-    let tagger_user_id = test.create_user(&tagger_keypair, &tagger).await?;
+    let tagger_user_id = test.create_user(&tagger_kp, &tagger).await?;
 
     // Step 1: Create a user
-    let author_keypair = Keypair::random();
+    let author_kp = Keypair::random();
 
     // Step 2: Create a post with a new author
     let author = PubkyAppUser {
@@ -40,7 +41,7 @@ async fn test_homeserver_del_tag_post() -> Result<()> {
         name: "Watcher:DelTagPost:User".to_string(),
         status: None,
     };
-    let author_user_id = test.create_user(&author_keypair, &author).await?;
+    let author_user_id = test.create_user(&author_kp, &author).await?;
 
     let post = PubkyAppPost {
         content: "Watcher:DelTagPost:User:Post".to_string(),
@@ -49,7 +50,7 @@ async fn test_homeserver_del_tag_post() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let post_id = test.create_post(&author_user_id, &post).await?;
+    let post_id = test.create_post(&author_kp, &post).await?;
 
     // Step 3: Tagger user adds a tag to the his own post
     let label = "antonymous";
@@ -59,12 +60,11 @@ async fn test_homeserver_del_tag_post() -> Result<()> {
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
-    let tag_url = tag_uri_builder(tagger_user_id.clone(), tag.create_id());
+    let tag_relative_url = PubkyAppTag::create_path(&tag.create_id());
 
     // Step 3: Creat & Delete the tag
-    test.put(&tag_url, tag).await?;
-
-    test.del(&tag_url).await?;
+    test.put(&author_kp, &tag_relative_url, tag).await?;
+    test.del(&author_kp, &tag_relative_url).await?;
 
     // Step 4: Verify tag existence and data consistency
     // GRAPH_OP: Check if the tag exists in the graph database
@@ -137,9 +137,9 @@ async fn test_homeserver_del_tag_post() -> Result<()> {
     assert!(tag_timeline.is_none());
 
     // Cleanup user and post
-    test.cleanup_post(&author_user_id, &post_id).await?;
-    test.cleanup_user(&author_user_id).await?;
-    test.cleanup_user(&tagger_user_id).await?;
+    test.cleanup_post(&author_kp, &post_id).await?;
+    test.cleanup_user(&author_kp).await?;
+    test.cleanup_user(&tagger_kp).await?;
 
     Ok(())
 }

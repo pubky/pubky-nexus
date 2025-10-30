@@ -13,7 +13,7 @@ use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 async fn test_homeserver_put_post_event() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
-    let keypair = Keypair::random();
+    let user_kp = Keypair::random();
     let user = PubkyAppUser {
         bio: Some("test_homeserver_post_event".to_string()),
         image: None,
@@ -22,7 +22,7 @@ async fn test_homeserver_put_post_event() -> Result<()> {
         status: None,
     };
 
-    let user_id = test.create_user(&keypair, &user).await?;
+    let user_id = test.create_user(&user_kp, &user).await?;
 
     let post = PubkyAppPost {
         content: "Watcher:PostEvent:Post".to_string(),
@@ -32,7 +32,7 @@ async fn test_homeserver_put_post_event() -> Result<()> {
         attachments: None,
     };
 
-    let post_id = test.create_post(&user_id, &post).await?;
+    let post_id = test.create_post(&user_kp, &post).await?;
 
     // GRAPH_OP: Assert if the event writes the graph
     // Cannot use PostDetails::get_from_graph because it indexes also,
@@ -89,8 +89,8 @@ async fn test_homeserver_put_post_event() -> Result<()> {
     assert_eq!(exist_count.posts, 1);
 
     // Cleanup
-    test.cleanup_user(&user_id).await?;
-    test.cleanup_post(&user_id, &post_id).await?;
+    test.cleanup_user(&user_kp).await?;
+    test.cleanup_post(&user_kp, &post_id).await?;
 
     // // TODO: Impl DEL post. Assert the new post does not exist in Nexus
     // let result_post = PostView::get_by_id(&user_id, &post_id, None, None, None)

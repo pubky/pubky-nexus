@@ -2,7 +2,7 @@ use crate::event_processor::{
     homeserver::utils::create_external_test_homeserver, utils::watcher::WatcherTest,
 };
 use anyhow::Result;
-use nexus_common::{db::PubkyClient, models::homeserver::Homeserver};
+use nexus_common::models::homeserver::Homeserver;
 use pubky::Keypair;
 use pubky_app_specs::{PubkyAppUser, PubkyId};
 
@@ -20,8 +20,7 @@ async fn test_follow_on_unknown_homeserver() -> Result<()> {
 
     // Register the followee PK in the new homeserver
     // We only need the record mapping, not necessarily the profile.json being uploaded
-    PubkyClient::get()?
-        .signup(&followee_kp, &followee_hs_pk, None)
+    test.register_user_in_hs(&followee_kp, &followee_hs_pk)
         .await?;
 
     // Create follower user
@@ -33,13 +32,10 @@ async fn test_follow_on_unknown_homeserver() -> Result<()> {
         name: "Watcher:Homeserver:Follow".to_string(),
         status: None,
     };
-    let follower_id = test
-        .create_user(&follower_kp, &follower_user)
-        .await
-        .unwrap();
+    let _follower_id = test.create_user(&follower_kp, &follower_user).await?;
 
     // Follow the followee
-    test.create_follow(&follower_id, &followee_id).await?;
+    test.create_follow(&follower_kp, &followee_id).await?;
 
     assert!(Homeserver::get_by_id(followee_hs_id)
         .await

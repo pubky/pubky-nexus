@@ -11,7 +11,7 @@ async fn test_homeserver_follow_friend() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Create Alice user
-    let alice_keypair = Keypair::random();
+    let alice_kp = Keypair::random();
 
     let alice_user = PubkyAppUser {
         bio: Some("test_homeserver_follow_friend".to_string()),
@@ -21,10 +21,10 @@ async fn test_homeserver_follow_friend() -> Result<()> {
         status: None,
     };
 
-    let alice_id = test.create_user(&alice_keypair, &alice_user).await?;
+    let alice_id = test.create_user(&alice_kp, &alice_user).await?;
 
     // Create Bob user
-    let bob_keypair = Keypair::random();
+    let bob_kp = Keypair::random();
     let bob_user = PubkyAppUser {
         bio: Some("test_homeserver_follow_friend".to_string()),
         image: None,
@@ -32,10 +32,10 @@ async fn test_homeserver_follow_friend() -> Result<()> {
         name: "Watcher:FollowFriend:Bob".to_string(),
         status: None,
     };
-    let bob_id = test.create_user(&bob_keypair, &bob_user).await?;
+    let bob_id = test.create_user(&bob_kp, &bob_user).await?;
 
     // Follow Alice
-    test.create_follow(&bob_id, &alice_id).await?;
+    test.create_follow(&bob_kp, &alice_id).await?;
 
     let relationship = Relationship::get_by_id(&alice_id, Some(&bob_id))
         .await
@@ -63,7 +63,7 @@ async fn test_homeserver_follow_friend() -> Result<()> {
     assert_eq!(bob_user_count.friends, 0);
 
     // Follow Bob
-    test.create_follow(&alice_id, &bob_id).await?;
+    test.create_follow(&alice_kp, &bob_id).await?;
 
     let relationship = Relationship::get_by_id(&bob_id, Some(&alice_id))
         .await
@@ -95,8 +95,8 @@ async fn test_homeserver_follow_friend() -> Result<()> {
     assert_eq!(bob_user_count.friends, 1);
 
     // Cleanup
-    test.cleanup_user(&alice_id).await?;
-    test.cleanup_user(&bob_id).await?;
+    test.cleanup_user(&alice_kp).await?;
+    test.cleanup_user(&bob_kp).await?;
     // TODO: Clear Follows
 
     Ok(())

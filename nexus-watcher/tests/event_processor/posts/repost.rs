@@ -19,7 +19,7 @@ use pubky_app_specs::{
 async fn test_homeserver_post_repost() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
-    let keypair = Keypair::random();
+    let user_kp = Keypair::random();
 
     let user = PubkyAppUser {
         bio: Some("test_homeserver_post_repost".to_string()),
@@ -29,7 +29,7 @@ async fn test_homeserver_post_repost() -> Result<()> {
         status: None,
     };
 
-    let user_id = test.create_user(&keypair, &user).await?;
+    let user_id = test.create_user(&user_kp, &user).await?;
 
     let parent_post = PubkyAppPost {
         content: "Watcher:PostRepost:User:Post".to_string(),
@@ -39,10 +39,10 @@ async fn test_homeserver_post_repost() -> Result<()> {
         attachments: None,
     };
 
-    let parent_post_id = test.create_post(&user_id, &parent_post).await?;
+    let parent_post_id = test.create_post(&user_kp, &parent_post).await?;
 
     // Create repost uri
-    let parent_uri = post_uri_builder(user_id.clone(), parent_post_id.clone());
+    let parent_absolute_uri = post_uri_builder(user_id.clone(), parent_post_id.clone());
 
     let repost = PubkyAppPost {
         content: "Watcher:PostReply:User:Repost".to_string(),
@@ -50,12 +50,12 @@ async fn test_homeserver_post_repost() -> Result<()> {
         parent: None,
         embed: Some(PubkyAppPostEmbed {
             kind: PubkyAppPostKind::Short,
-            uri: parent_uri.clone(),
+            uri: parent_absolute_uri.clone(),
         }),
         attachments: None,
     };
 
-    let repost_id = test.create_post(&user_id, &repost).await?;
+    let repost_id = test.create_post(&user_kp, &repost).await?;
 
     // GRAPH_OP: Assert repost relationship was created
     let repost_post_details = find_post_details(&user_id, &repost_id).await.unwrap();
@@ -72,7 +72,7 @@ async fn test_homeserver_post_repost() -> Result<()> {
     let reply_parent_uri = find_repost_relationship_parent_uri(&user_id, &repost_id)
         .await
         .unwrap();
-    assert_eq!(reply_parent_uri, parent_uri);
+    assert_eq!(reply_parent_uri, parent_absolute_uri);
 
     // CACHE_OP: Check if the event writes in the index
 
@@ -124,7 +124,7 @@ async fn test_homeserver_post_repost() -> Result<()> {
     );
     assert_eq!(
         relationships.reposted.unwrap(),
-        parent_uri,
+        parent_absolute_uri,
         "The parent URIs does not match"
     );
 
@@ -172,7 +172,7 @@ async fn test_homeserver_post_repost() -> Result<()> {
     );
 
     // // TODO: Impl DEL post. Assert the repost does not exist in Nexus
-    test.cleanup_post(&user_id, &repost_id).await?;
+    test.cleanup_post(&user_kp, &repost_id).await?;
     // let result_post = PostView::get_by_id(&user_id, &post_id, None, None, None)
     //     .await
     //     .unwrap();
@@ -180,8 +180,8 @@ async fn test_homeserver_post_repost() -> Result<()> {
     // assert!(result_post.is_none(), "The post should have been deleted");
 
     // Cleanup
-    test.cleanup_user(&user_id).await?;
-    test.cleanup_post(&user_id, &parent_post_id).await?;
+    test.cleanup_user(&user_kp).await?;
+    test.cleanup_post(&user_kp, &parent_post_id).await?;
 
     Ok(())
 }

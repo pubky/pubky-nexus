@@ -3,19 +3,20 @@ use anyhow::Result;
 use nexus_watcher::events::errors::EventProcessorError;
 use nexus_watcher::events::{retry::event::RetryEvent, EventType};
 use pubky::Keypair;
-use pubky_app_specs::{mute_uri_builder, user_uri_builder, PubkyAppUser};
+use pubky_app_specs::traits::HasIdPath;
+use pubky_app_specs::{mute_uri_builder, user_uri_builder, PubkyAppMute, PubkyAppUser};
 /// The user profile is stored in the homeserver. Missing the mutee to connect with muter
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_mute_cannot_index() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
-    let mutee_keypair = Keypair::random();
-    let mutee_id = mutee_keypair.public_key().to_z32();
+    let mutee_kp = Keypair::random();
+    let mutee_id = mutee_kp.public_key().to_z32();
     // In that case, that user will act as a NotSyncUser or user not registered in pubky.app
     // It will not have a profile.json
-    test.register_user(&mutee_keypair).await?;
+    test.register_user(&mutee_kp).await?;
 
-    let muter_keypair = Keypair::random();
+    let muter_kp = Keypair::random();
     let muter_user = PubkyAppUser {
         bio: Some("test_homeserver_mute_cannot_index".to_string()),
         image: None,
@@ -23,17 +24,18 @@ async fn test_homeserver_mute_cannot_index() -> Result<()> {
         name: "Watcher:IndexFail:Muter".to_string(),
         status: None,
     };
-    let muter_id = test.create_user(&muter_keypair, &muter_user).await?;
+    let muter_id = test.create_user(&muter_kp, &muter_user).await?;
 
     // Mute the user
-    test.create_mute(&muter_id, &mutee_id).await?;
+    test.create_mute(&muter_kp, &mutee_id).await?;
 
-    let mute_url = mute_uri_builder(muter_id, mutee_id.clone());
+    let mute_absolute_url = mute_uri_builder(muter_id, mutee_id.clone());
+    let mute_relative_url = PubkyAppMute::create_path(&mutee_id);
 
     let index_key = format!(
         "{}:{}",
         EventType::Put,
-        RetryEvent::generate_index_key(&mute_url).unwrap()
+        RetryEvent::generate_index_key(&mute_absolute_url).unwrap()
     );
 
     assert_eventually_exists(&index_key).await;
@@ -58,12 +60,12 @@ async fn test_homeserver_mute_cannot_index() -> Result<()> {
         _ => panic!("The error type has to be MissingDependency type"),
     };
 
-    test.del(&mute_url).await?;
+    test.del(&muter_kp, &mute_relative_url).await?;
 
     let del_index_key = format!(
         "{}:{}",
         EventType::Del,
-        RetryEvent::generate_index_key(&mute_url).unwrap()
+        RetryEvent::generate_index_key(&mute_absolute_url).unwrap()
     );
 
     assert_eventually_exists(&del_index_key).await;

@@ -7,8 +7,8 @@ use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
 use opentelemetry::trace::{FutureExt, Span, TraceContextExt, Tracer};
 use opentelemetry::{global, Context, KeyValue};
+use pubky::Method;
 use pubky_app_specs::PubkyId;
-use std::error::Error;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
@@ -65,19 +65,18 @@ impl EventProcessor {
 
         let response_text = {
             let pubky_client =
-                PubkyClient::get().map_err(|e| EventProcessorError::PubkyClientError {
-                    message: e.to_string(),
-                })?;
+                PubkyClient::get().map_err(|e| EventProcessorError::client_error(e.to_string()))?;
             let url = format!(
                 "https://{}/events/?cursor={}&limit={}",
                 self.homeserver.id, self.homeserver.cursor, self.limit
             );
 
-            let response = pubky_client.get(url).send().await.map_err(|e| {
-                Box::new(EventProcessorError::PubkyClientError {
-                    message: format!("{:?}", e.source()),
-                })
-            })?;
+            let response = pubky_client
+                .client()
+                .request(Method::GET, &url)
+                .send()
+                .await
+                .map_err(|e| EventProcessorError::client_error(e.to_string()))?;
 
             response.text().await?
         };

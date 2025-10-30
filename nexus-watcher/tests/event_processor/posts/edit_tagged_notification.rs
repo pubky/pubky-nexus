@@ -7,7 +7,9 @@ use nexus_common::{
 };
 use pubky::Keypair;
 use pubky_app_specs::{
-    post_uri_builder, tag_uri_builder, traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser,
+    post_uri_builder, tag_uri_builder,
+    traits::{HasIdPath, HashId},
+    PubkyAppPost, PubkyAppTag, PubkyAppUser,
 };
 
 #[tokio_shared_rt::test(shared)]
@@ -15,7 +17,7 @@ async fn test_edit_tagged_post_notification() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Create User A who makes the original post
-    let keypair_a = Keypair::random();
+    let user_a_kp = Keypair::random();
     let user_a = PubkyAppUser {
         bio: Some("User A bio".to_string()),
         image: None,
@@ -23,10 +25,10 @@ async fn test_edit_tagged_post_notification() -> Result<()> {
         name: "Watcher:TaggedPostEditNotification:UserA".to_string(),
         status: None,
     };
-    let user_a_id = test.create_user(&keypair_a, &user_a).await?;
+    let user_a_id = test.create_user(&user_a_kp, &user_a).await?;
 
     // Create User B who tags User A's post
-    let keypair_b = Keypair::random();
+    let user_b_kp = Keypair::random();
     let user_b = PubkyAppUser {
         bio: Some("User B bio".to_string()),
         image: None,
@@ -34,7 +36,7 @@ async fn test_edit_tagged_post_notification() -> Result<()> {
         name: "Watcher:TaggedPostEditNotification:UserB".to_string(),
         status: None,
     };
-    let user_b_id = test.create_user(&keypair_b, &user_b).await?;
+    let user_b_id = test.create_user(&user_b_kp, &user_b).await?;
 
     // User A creates a post
     let mut post = PubkyAppPost {
@@ -44,7 +46,7 @@ async fn test_edit_tagged_post_notification() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let post_id = test.create_post(&user_a_id, &post).await?;
+    let post_id = test.create_post(&user_a_kp, &post).await?;
 
     // User B tags User A's post
     let label = "merkle_tree";
@@ -54,17 +56,18 @@ async fn test_edit_tagged_post_notification() -> Result<()> {
         created_at: Utc::now().timestamp_millis(),
     };
     let tag_id = tag.create_id();
-    let tag_url = tag_uri_builder(user_b_id.clone(), tag_id);
+    let tag_relative_url = PubkyAppTag::create_path(&tag_id);
+    let tag_absolute_url = tag_uri_builder(user_b_id.clone(), tag_id);
 
     // Put tag
-    test.put(&tag_url, tag).await?;
+    test.put(&user_b_kp, &tag_relative_url, tag).await?;
 
     // User A edits their post
     post.content = "Edited post by User A".to_string();
-    let edited_url = post_uri_builder(user_a_id.clone(), post_id.clone());
+    let edited_relative_url = PubkyAppPost::create_path(&post_id);
 
     // Overwrite existing post in the homeserver with the edited one
-    test.put(edited_url.as_str(), &post).await?;
+    test.put(&user_a_kp, &edited_relative_url, &post).await?;
 
     // Verify that User B receives a notification about the edit
     let notifications = Notification::get_by_id(&user_b_id, Pagination::default())
@@ -94,7 +97,7 @@ async fn test_edit_tagged_post_notification() -> Result<()> {
             "Notification should contain the correct edited post URI"
         );
         assert_eq!(
-            linked_uri, &tag_url,
+            linked_uri, &tag_absolute_url,
             "Notification should contain the correct tag URI"
         );
         assert_eq!(

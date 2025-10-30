@@ -8,7 +8,9 @@ use nexus_common::{
 };
 use pubky::Keypair;
 use pubky_app_specs::{
-    post_uri_builder, tag_uri_builder, traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser,
+    post_uri_builder,
+    traits::{HasIdPath, HashId},
+    PubkyAppPost, PubkyAppTag, PubkyAppUser,
 };
 
 #[tokio_shared_rt::test(shared)]
@@ -16,7 +18,7 @@ async fn test_homeserver_tag_post_notification() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Create first user (post author)
-    let author_keypair = Keypair::random();
+    let author_kp = Keypair::random();
 
     let author_user = PubkyAppUser {
         bio: Some("test_homeserver_tag_post_notification".to_string()),
@@ -26,10 +28,10 @@ async fn test_homeserver_tag_post_notification() -> Result<()> {
         status: None,
     };
 
-    let author_id = test.create_user(&author_keypair, &author_user).await?;
+    let author_id = test.create_user(&author_kp, &author_user).await?;
 
     // Create second user (tagger)
-    let tagger_keypair = Keypair::random();
+    let tagger_kp = Keypair::random();
 
     let tagger_user = PubkyAppUser {
         bio: Some("test_homeserver_tag_post_notification".to_string()),
@@ -38,7 +40,7 @@ async fn test_homeserver_tag_post_notification() -> Result<()> {
         name: "Watcher:TagPostNotification:Tagger".to_string(),
         status: None,
     };
-    let tagger_id = test.create_user(&tagger_keypair, &tagger_user).await?;
+    let tagger_id = test.create_user(&tagger_kp, &tagger_user).await?;
 
     // Author creates a post
     let post = PubkyAppPost {
@@ -48,7 +50,7 @@ async fn test_homeserver_tag_post_notification() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let post_id = test.create_post(&author_id, &post).await?;
+    let post_id = test.create_post(&author_kp, &post).await?;
 
     // Tagger adds a tag to the post
     let label = "interesting";
@@ -59,10 +61,10 @@ async fn test_homeserver_tag_post_notification() -> Result<()> {
         created_at: Utc::now().timestamp_millis(),
     };
 
-    let tag_url = tag_uri_builder(tagger_id.clone(), tag.create_id());
+    let tag_relative_url = PubkyAppTag::create_path(&tag.create_id());
 
     // Put tag
-    test.put(tag_url.as_str(), tag).await?;
+    test.put(&tagger_kp, &tag_relative_url, tag).await?;
 
     // GRAPH_OP
     let post_tag = find_post_tag(&author_id, &post_id, label)
@@ -109,9 +111,9 @@ async fn test_homeserver_tag_post_notification() -> Result<()> {
     }
 
     // Cleanup
-    test.cleanup_post(&author_id, &post_id).await?;
-    test.cleanup_user(&author_id).await?;
-    test.cleanup_user(&tagger_id).await?;
+    test.cleanup_post(&author_kp, &post_id).await?;
+    test.cleanup_user(&author_kp).await?;
+    test.cleanup_user(&tagger_kp).await?;
 
     Ok(())
 }

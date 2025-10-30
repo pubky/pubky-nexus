@@ -6,7 +6,10 @@ use crate::{
 use anyhow::Result;
 use chrono::Utc;
 use pubky::{recovery_file, Keypair};
-use pubky_app_specs::{tag_uri_builder, traits::HashId, PubkyAppTag, PubkyAppUser};
+use pubky_app_specs::{
+    traits::{HasIdPath, HasPath, HashId},
+    PubkyAppTag, PubkyAppUser,
+};
 use tokio::fs;
 
 #[tokio_shared_rt::test(shared)]
@@ -14,7 +17,7 @@ async fn test_moderated_user_lifecycle() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // 1. Create the target user
-    let user_key = Keypair::random();
+    let user_kp = Keypair::random();
     let target = PubkyAppUser {
         name: "Watcher:UserModerate:Target".to_string(),
         bio: Some("to be moderated".to_string()),
@@ -22,7 +25,7 @@ async fn test_moderated_user_lifecycle() -> Result<()> {
         links: None,
         status: None,
     };
-    let target_id = test.create_user(&user_key, &target).await?;
+    let target_id = test.create_user(&user_kp, &target).await?;
 
     // 2. Confirm the user exists
     let details = find_user_details(&target_id).await?;
@@ -32,8 +35,8 @@ async fn test_moderated_user_lifecycle() -> Result<()> {
     let mod_file = fs::read("./tests/event_processor/utils/moderator_key.pkarr")
         .await
         .unwrap();
-    let mod_key = recovery_file::decrypt_recovery_file(&mod_file, "password").unwrap();
-    let moderator_id = test.create_user(&mod_key, &target).await?;
+    let mod_kp = recovery_file::decrypt_recovery_file(&mod_file, "password").unwrap();
+    let _moderator_id = test.create_user(&mod_kp, &target).await?;
 
     // 4. Tag the target user with the moderation label
     let tag = PubkyAppTag {
@@ -41,8 +44,8 @@ async fn test_moderated_user_lifecycle() -> Result<()> {
         label: "label_to_moderate".to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
-    let tag_url = tag_uri_builder(moderator_id, tag.create_id());
-    test.put(&tag_url, tag.clone()).await?;
+    let tag_relative_url = PubkyAppTag::create_path(&tag.create_id());
+    test.put(&mod_kp, &tag_relative_url, tag.clone()).await?;
 
     // 5. Confirm the user no longer exists
     let details = find_user_details(&target_id).await;
@@ -56,8 +59,9 @@ async fn test_moderated_user_lifecycle() -> Result<()> {
         links: None,
         status: None,
     };
-    let profile_url = format!("pubky://{target_id}/pub/pubky.app/profile.json");
-    test.put(&profile_url, new_profile).await?;
+    let profile_relative_url = PubkyAppUser::create_path();
+    test.put(&user_kp, &profile_relative_url, new_profile)
+        .await?;
 
     let details = find_user_details(&target_id).await?;
     assert_eq!(details.bio, Some("i am back, will behave".to_string()));
@@ -68,11 +72,11 @@ async fn test_moderated_user_lifecycle() -> Result<()> {
         label: "tagging_myself".to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
-    let selftag_url = tag_uri_builder(target_id.clone(), self_tag.create_id());
-    test.put(&selftag_url, self_tag).await?;
+    let selftag_relative_url = PubkyAppTag::create_path(&self_tag.create_id());
+    test.put(&user_kp, &selftag_relative_url, self_tag).await?;
 
     // 8. Tag the target user with the moderation label
-    test.put(&tag_url, tag).await?;
+    test.put(&mod_kp, &tag_relative_url, tag).await?;
 
     // 9. Confirm the user does exist but the profile has been cleaned
     let details = find_user_details(&target_id).await?;

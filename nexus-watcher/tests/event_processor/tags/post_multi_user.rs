@@ -20,15 +20,16 @@ use nexus_common::{
     types::Pagination,
 };
 use pubky::Keypair;
-use pubky_app_specs::{post_uri_builder, tag_uri_builder};
-use pubky_app_specs::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser};
+use pubky_app_specs::post_uri_builder;
+use pubky_app_specs::traits::{HasIdPath, HashId};
+use pubky_app_specs::{PubkyAppPost, PubkyAppTag, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_multi_user_posts_tags() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Step 1: Write in the homeserver and index in nexus
-    let mut user_ids = Vec::with_capacity(4);
+    let mut user_kps_and_ids = Vec::with_capacity(4);
     // Create 5 users
     for index in 0..4 {
         let keypair = Keypair::random();
@@ -41,10 +42,10 @@ async fn test_homeserver_multi_user_posts_tags() -> Result<()> {
             status: None,
         };
         let user_id = test.create_user(&keypair, &tagger).await?;
-        user_ids.push(user_id);
+        user_kps_and_ids.push((keypair, user_id));
     }
 
-    let author_id = &user_ids[0];
+    let (author_kp, author_id) = &user_kps_and_ids[0];
 
     let post = PubkyAppPost {
         content: "Watcher:MultiUserPost:User:Post".to_string(),
@@ -54,43 +55,43 @@ async fn test_homeserver_multi_user_posts_tags() -> Result<()> {
         attachments: None,
     };
     // Create a post for the current user
-    let post_id = test.create_post(author_id, &post).await?;
+    let post_id = test.create_post(author_kp, &post).await?;
 
-    let tagger_a_id = &user_ids[1];
-    let tagger_b_id = &user_ids[2];
-    let tagger_c_id = &user_ids[3];
+    let tagger_a_kp_id = &user_kps_and_ids[1];
+    let tagger_b_kp_id = &user_kps_and_ids[2];
+    let tagger_c_kp_id = &user_kps_and_ids[3];
 
     let label_water = "water";
     let label_fire = "fire";
 
     // Step 2: Create tags
-    let mut tag_urls = Vec::with_capacity(5);
-    let water_taggers = [tagger_a_id, tagger_b_id, tagger_c_id];
+    let mut tag_urls_and_tagger_kps = Vec::with_capacity(5);
+    let water_taggers = [tagger_a_kp_id, tagger_b_kp_id, tagger_c_kp_id];
 
-    for tagger_id in water_taggers {
+    for (tagger_kp, _tagger_id) in water_taggers {
         let tag = PubkyAppTag {
             uri: post_uri_builder(author_id.clone(), post_id.clone()),
             label: label_water.to_string(),
             created_at: Utc::now().timestamp_millis(),
         };
-        let tag_url = tag_uri_builder(tagger_id.clone(), tag.create_id());
+        let tag_relative_url = PubkyAppTag::create_path(&tag.create_id());
         // Put tag
-        test.put(&tag_url, tag).await?;
-        tag_urls.push(tag_url)
+        test.put(tagger_kp, &tag_relative_url, tag).await?;
+        tag_urls_and_tagger_kps.push((tag_relative_url, tagger_kp))
     }
 
-    let fire_taggers = [tagger_b_id, tagger_c_id];
+    let fire_taggers = [tagger_b_kp_id, tagger_c_kp_id];
 
-    for tagger_id in fire_taggers {
+    for (tagger_kp, _tagger_id) in fire_taggers {
         let tag = PubkyAppTag {
             uri: post_uri_builder(author_id.clone(), post_id.clone()),
             label: label_fire.to_string(),
             created_at: Utc::now().timestamp_millis(),
         };
-        let tag_url = tag_uri_builder(tagger_id.clone(), tag.create_id());
+        let tag_relative_url = PubkyAppTag::create_path(&tag.create_id());
         // Put tag
-        test.put(&tag_url, tag).await?;
-        tag_urls.push(tag_url)
+        test.put(tagger_kp, &tag_relative_url, tag).await?;
+        tag_urls_and_tagger_kps.push((tag_relative_url, tagger_kp))
     }
 
     // Step 3: Assert all the PUT operations
@@ -102,9 +103,9 @@ async fn test_homeserver_multi_user_posts_tags() -> Result<()> {
 
     assert_eq!(post_water_tag.label, label_water);
     assert_eq!(post_water_tag.taggers_count, 3);
-    assert!(post_water_tag.taggers.contains(tagger_a_id));
-    assert!(post_water_tag.taggers.contains(tagger_b_id));
-    assert!(post_water_tag.taggers.contains(tagger_c_id));
+    assert!(post_water_tag.taggers.contains(&tagger_a_kp_id.1));
+    assert!(post_water_tag.taggers.contains(&tagger_b_kp_id.1));
+    assert!(post_water_tag.taggers.contains(&tagger_c_kp_id.1));
 
     let post_fire_tag = find_post_tag(author_id, &post_id, label_fire)
         .await
@@ -113,8 +114,8 @@ async fn test_homeserver_multi_user_posts_tags() -> Result<()> {
 
     assert_eq!(post_fire_tag.label, label_fire);
     assert_eq!(post_fire_tag.taggers_count, 2);
-    assert!(post_fire_tag.taggers.contains(tagger_b_id));
-    assert!(post_fire_tag.taggers.contains(tagger_c_id));
+    assert!(post_fire_tag.taggers.contains(&tagger_b_kp_id.1));
+    assert!(post_fire_tag.taggers.contains(&tagger_c_kp_id.1));
 
     // CACHE_OP: Check if the tag is correctly cached
     let cache_post_tag = <TagPost as TagCollection>::get_from_index(
@@ -140,11 +141,11 @@ async fn test_homeserver_multi_user_posts_tags() -> Result<()> {
     assert_eq!(cache_tag_details[0].taggers_count, 3);
     assert_eq!(cache_tag_details[1].taggers_count, 2);
     // Find user as tagger in the post: Posts:Taggers:user_id:post_id
-    assert!(cache_tag_details[0].taggers.contains(tagger_a_id));
-    assert!(cache_tag_details[0].taggers.contains(tagger_b_id));
-    assert!(cache_tag_details[0].taggers.contains(tagger_c_id));
-    assert!(cache_tag_details[1].taggers.contains(tagger_b_id));
-    assert!(cache_tag_details[1].taggers.contains(tagger_c_id));
+    assert!(cache_tag_details[0].taggers.contains(&tagger_a_kp_id.1));
+    assert!(cache_tag_details[0].taggers.contains(&tagger_b_kp_id.1));
+    assert!(cache_tag_details[0].taggers.contains(&tagger_c_kp_id.1));
+    assert!(cache_tag_details[1].taggers.contains(&tagger_b_kp_id.1));
+    assert!(cache_tag_details[1].taggers.contains(&tagger_c_kp_id.1));
 
     let post_key: [&str; 2] = [author_id, &post_id];
 
@@ -168,11 +169,11 @@ async fn test_homeserver_multi_user_posts_tags() -> Result<()> {
     assert_eq!(post_counts.unique_tags, 2);
 
     // Check if user counts updated: User:Counts:user_id
-    let tagger_a_user_counts = find_user_counts(tagger_a_id).await;
+    let tagger_a_user_counts = find_user_counts(&tagger_a_kp_id.1).await;
     assert_eq!(tagger_a_user_counts.tagged, 1);
-    let tagger_b_user_counts = find_user_counts(tagger_b_id).await;
+    let tagger_b_user_counts = find_user_counts(&tagger_b_kp_id.1).await;
     assert_eq!(tagger_b_user_counts.tagged, 2);
-    let tagger_c_user_counts = find_user_counts(tagger_c_id).await;
+    let tagger_c_user_counts = find_user_counts(&tagger_c_kp_id.1).await;
     assert_eq!(tagger_c_user_counts.tagged, 2);
 
     // Assert if the new tag increments the engagement
@@ -187,8 +188,8 @@ async fn test_homeserver_multi_user_posts_tags() -> Result<()> {
     assert_eq!(total_engagement.unwrap(), 5);
 
     // Step 4: DEL tag from homeserver
-    for tag_url in tag_urls {
-        test.del(&tag_url).await?;
+    for (tag_url, tagger_kp) in tag_urls_and_tagger_kps {
+        test.del(tagger_kp, &tag_url).await?;
     }
 
     // Step 5: Assert all the DEL operations
@@ -243,8 +244,8 @@ async fn test_homeserver_multi_user_posts_tags() -> Result<()> {
     assert_eq!(post_counts.unique_tags, 0);
 
     // Check if user counts updated: User:Counts:user_id
-    for tagger_id in water_taggers {
-        let user_counts = find_user_counts(tagger_id).await;
+    for tagger_kp_id in water_taggers {
+        let user_counts = find_user_counts(&tagger_kp_id.1).await;
         assert_eq!(user_counts.tagged, 0);
     }
 

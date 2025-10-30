@@ -10,7 +10,7 @@ use tracing::error;
 async fn test_homeserver_post_reply_without_post_parent() -> Result<(), DynError> {
     let mut test = WatcherTest::setup().await?;
 
-    let author_user_keypair = Keypair::random();
+    let author_user_kp = Keypair::random();
     let author = PubkyAppUser {
         bio: Some("test_homeserver_post_reply_without_post_parent".to_string()),
         image: None,
@@ -18,7 +18,7 @@ async fn test_homeserver_post_reply_without_post_parent() -> Result<(), DynError
         name: "Watcher:PostReplyFail:Author".to_string(),
         status: None,
     };
-    let author_id = test.create_user(&author_user_keypair, &author).await?;
+    let author_id = test.create_user(&author_user_kp, &author).await?;
 
     // Switch OFF the event processor to simulate the pending events to index
     test = test.remove_event_processing().await;
@@ -31,24 +31,24 @@ async fn test_homeserver_post_reply_without_post_parent() -> Result<(), DynError
         attachments: None,
     };
 
-    let post_id = test.create_post(&author_id, &post).await?;
+    let post_id = test.create_post(&author_user_kp, &post).await?;
 
     // Create reply
-    let parent_uri = post_uri_builder(author_id.clone(), post_id);
+    let parent_absolute_uri = post_uri_builder(author_id.clone(), post_id);
 
     let reply = PubkyAppPost {
         content: "Watcher:PostReplyFail:Author:Reply".to_string(),
         kind: PubkyAppPostKind::Short,
-        parent: Some(parent_uri.clone()),
+        parent: Some(parent_absolute_uri.clone()),
         embed: None,
         attachments: None,
     };
 
-    let reply_id = test.create_post(&author_id, &reply).await?;
+    let reply_id = test.create_post(&author_user_kp, &reply).await?;
 
     // Create raw event line to retrieve the content from the homeserver
-    let reply_uri = post_uri_builder(author_id.clone(), reply_id);
-    let post_event = format!("PUT {reply_uri}");
+    let reply_absolute_uri = post_uri_builder(author_id.clone(), reply_id);
+    let post_event = format!("PUT {reply_absolute_uri}");
 
     // Simulate the event processor to handle the event.
     // If the event processor were activated, the test would not catch the missing dependency
@@ -56,9 +56,7 @@ async fn test_homeserver_post_reply_without_post_parent() -> Result<(), DynError
     let moderation_ref = test.event_processor_runner.moderation.clone();
     let sync_fail = retrieve_and_handle_event_line(&post_event, moderation_ref)
         .await
-        .map_err(|e| {
-            error!("SYNC ERROR: {:?}", e);
-        })
+        .map_err(|e| error!("SYNC ERROR: {:?}", e))
         .is_err();
 
     assert!(

@@ -7,8 +7,8 @@ use chrono::Utc;
 use nexus_common::models::user::{UserCounts, UserStream, UserView};
 use pubky::Keypair;
 use pubky_app_specs::{
-    blob_uri_builder, traits::HashId, PubkyAppBlob, PubkyAppFile, PubkyAppPost, PubkyAppPostKind,
-    PubkyAppUser, PubkyAppUserLink,
+    traits::{HasIdPath, HashId},
+    PubkyAppBlob, PubkyAppFile, PubkyAppPost, PubkyAppPostKind, PubkyAppUser, PubkyAppUserLink,
 };
 
 #[tokio_shared_rt::test(shared)]
@@ -16,7 +16,7 @@ async fn test_delete_user_with_relationships() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Create a new user
-    let keypair = Keypair::random();
+    let user_kp = Keypair::random();
     let user = PubkyAppUser {
         bio: Some("test_delete_user_with_relationships".to_string()),
         image: None,
@@ -24,7 +24,7 @@ async fn test_delete_user_with_relationships() -> Result<()> {
         name: "Watcher:UserDeleteWith:User".to_string(),
         status: None,
     };
-    let user_id = test.create_user(&keypair, &user).await?;
+    let user_id = test.create_user(&user_kp, &user).await?;
 
     // Create a post to establish a relationship
     let post = PubkyAppPost {
@@ -34,10 +34,10 @@ async fn test_delete_user_with_relationships() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let post_id = test.create_post(&user_id, &post).await?;
+    let post_id = test.create_post(&user_kp, &post).await?;
 
     // Delete the user
-    test.cleanup_user(&user_id).await?;
+    test.cleanup_user(&user_kp).await?;
 
     // Fetch user details; should be updated to "[DELETED]"
     let user_details = find_user_details(&user_id).await?;
@@ -78,11 +78,11 @@ async fn test_delete_user_with_relationships() -> Result<()> {
     );
 
     // Now delete the user's post
-    test.cleanup_post(&user_id, &post_id).await?;
+    test.cleanup_post(&user_kp, &post_id).await?;
 
     // Write and delete the user again; this time it should be fully removed
-    test.create_profile(&user_id, &user).await?;
-    test.cleanup_user(&user_id).await?;
+    test.create_profile(&user_kp, &user).await?;
+    test.cleanup_user(&user_kp).await?;
 
     // Attempt to find user details; should not exist
     let user_details_result = find_user_details(&user_id).await;
@@ -106,7 +106,7 @@ async fn test_delete_user_with_relationships() -> Result<()> {
     );
 
     // Create a User with image and links
-    let keypair = Keypair::random();
+    let user_with_kp = Keypair::random();
     let mut user_with = PubkyAppUser {
         bio: Some("test_delete_user_with_relationships".to_string()),
         image: None,
@@ -114,27 +114,27 @@ async fn test_delete_user_with_relationships() -> Result<()> {
         name: "Watcher:UserDeleteWith:UserWith".to_string(),
         status: None,
     };
-    let user_with_id = test.create_user(&keypair, &user_with).await?;
+    let user_with_id = test.create_user(&user_with_kp, &user_with).await?;
 
     // Add image to the user
     let blob_data = "Image bytes blob".to_string();
     let blob = PubkyAppBlob::new(blob_data.as_bytes().to_vec());
     let blob_id = blob.create_id();
-    let blob_url = blob_uri_builder(user_with_id.clone(), blob_id);
+    let blob_relative_url = PubkyAppBlob::create_path(&blob_id);
 
-    test.create_file_from_body(blob_url.as_str(), blob.0.clone())
+    test.create_file_from_body(&user_with_kp, &blob_relative_url, blob.0.clone())
         .await?;
 
     // Act
     let file = PubkyAppFile {
         name: "Watcher:UserDeleteWith:UserWith:Image".to_string(),
         content_type: "image/png".to_string(),
-        src: blob_url.clone(),
+        src: blob_relative_url.clone(),
         size: blob.0.len(),
         created_at: Utc::now().timestamp_millis(),
     };
 
-    let (file_id, image_url) = test.create_file(&user_with_id, &file).await?;
+    let (file_id, image_url) = test.create_file(&user_with_kp, &file).await?;
 
     user_with = PubkyAppUser {
         bio: Some("test_delete_user_with_relationships".to_string()),
@@ -146,7 +146,7 @@ async fn test_delete_user_with_relationships() -> Result<()> {
         name: "Watcher:UserDeleteWith:UserWith".to_string(),
         status: Some("Zombie soon".to_string()),
     };
-    let _ = test.create_profile(&user_with_id, &user_with).await?;
+    let _ = test.create_profile(&user_with_kp, &user_with).await?;
 
     // Create a post to establish a relationship
     let post_b = PubkyAppPost {
@@ -156,10 +156,10 @@ async fn test_delete_user_with_relationships() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let post_b_id = test.create_post(&user_with_id, &post_b).await?;
+    let post_b_id = test.create_post(&user_with_kp, &post_b).await?;
 
     // Delete the user
-    test.cleanup_user(&user_with_id).await?;
+    test.cleanup_user(&user_with_kp).await?;
 
     // Fetch user details; should be updated to "[DELETED]"
     let user_details = find_user_details(&user_with_id).await?;
@@ -202,13 +202,13 @@ async fn test_delete_user_with_relationships() -> Result<()> {
     );
 
     // Now delete the user's post
-    test.cleanup_post(&user_with_id, &post_b_id).await?;
+    test.cleanup_post(&user_with_kp, &post_b_id).await?;
 
     // Write and delete the user again; this time it should be fully removed
-    test.create_profile(&user_with_id, &user_with).await?;
-    test.cleanup_user(&user_with_id).await?;
+    test.create_profile(&user_with_kp, &user_with).await?;
+    test.cleanup_user(&user_with_kp).await?;
     // Delete the file
-    test.cleanup_file(&user_with_id, &file_id).await?;
+    test.cleanup_file(&user_with_kp, &file_id).await?;
 
     // Attempt to find user details; should not exist
     let user_details_result = find_user_details(&user_with_id).await;
@@ -245,7 +245,7 @@ async fn test_delete_recommended_user() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     let fn_create_user =
-        async |test: &mut WatcherTest, keypair: Keypair, name: &str| -> Result<String> {
+        async |test: &mut WatcherTest, keypair: &Keypair, name: &str| -> Result<String> {
             let user = PubkyAppUser {
                 bio: Some("test_delete_user_with_relationships".to_string()),
                 image: None,
@@ -253,21 +253,21 @@ async fn test_delete_recommended_user() -> Result<()> {
                 name: format!("Watcher:UserDeleteWith:User:{name}"),
                 status: None,
             };
-            test.create_user(&keypair, &user).await
+            test.create_user(keypair, &user).await
         };
 
     // Create 3 users: Alice, Bob, Carol
-    let keypair_alice = Keypair::random();
-    let keypair_bob = Keypair::random();
-    let keypair_carol = Keypair::random();
-    let alice_id = fn_create_user(&mut test, keypair_alice, "Alice").await?;
-    let bob_id = fn_create_user(&mut test, keypair_bob, "Bob").await?;
-    let carol_id = fn_create_user(&mut test, keypair_carol, "Carol").await?;
+    let alice_kp = Keypair::random();
+    let bob_kp = Keypair::random();
+    let carol_kp = Keypair::random();
+    let alice_id = fn_create_user(&mut test, &alice_kp, "Alice").await?;
+    let bob_id = fn_create_user(&mut test, &bob_kp, "Bob").await?;
+    let carol_id = fn_create_user(&mut test, &carol_kp, "Carol").await?;
 
     // Alice follows Bob, Bob follows Carol
     // Carol is in Alice's social graph, but not directly followed
-    test.create_follow(&alice_id, &bob_id).await?;
-    test.create_follow(&bob_id, &carol_id).await?;
+    test.create_follow(&alice_kp, &bob_id).await?;
+    test.create_follow(&bob_kp, &carol_id).await?;
 
     // Carol is an active user (has at least 5 posts)
     for i in 0..5 {
@@ -278,7 +278,7 @@ async fn test_delete_recommended_user() -> Result<()> {
             embed: None,
             attachments: None,
         };
-        test.create_post(&carol_id, &post).await?;
+        test.create_post(&carol_kp, &post).await?;
     }
 
     // Check if Carol is recommended to Alice
@@ -288,7 +288,7 @@ async fn test_delete_recommended_user() -> Result<()> {
     assert_eq!(alice_recommended_ids_1.first(), Some(&carol_id));
 
     // Carol deletes her user
-    test.cleanup_user(&carol_id).await?;
+    test.cleanup_user(&carol_kp).await?;
 
     // Check if Carol is not recommended anymore to Alice
     let alice_recommended_ids_res_2 = UserStream::get_recommended_ids(&alice_id, None).await;

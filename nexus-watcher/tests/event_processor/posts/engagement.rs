@@ -10,7 +10,7 @@ use pubky_app_specs::{
 async fn test_homeserver_post_engagement() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
-    let alice_user_keypair = Keypair::random();
+    let alice_user_kp = Keypair::random();
 
     let alice = PubkyAppUser {
         bio: Some("test_homeserver_post_engagement".to_string()),
@@ -19,7 +19,7 @@ async fn test_homeserver_post_engagement() -> Result<()> {
         name: "Watcher:PostEngagement:Alice".to_string(),
         status: None,
     };
-    let alice_id = test.create_user(&alice_user_keypair, &alice).await?;
+    let alice_id = test.create_user(&alice_user_kp, &alice).await?;
 
     // Alice creates a new post
     let alice_post = PubkyAppPost {
@@ -30,7 +30,7 @@ async fn test_homeserver_post_engagement() -> Result<()> {
         attachments: None,
     };
 
-    let alice_post_id = test.create_post(&alice_id, &alice_post).await?;
+    let alice_post_id = test.create_post(&alice_user_kp, &alice_post).await?;
 
     let alice_post_key: [&str; 2] = [&alice_id, &alice_post_id];
 
@@ -43,7 +43,7 @@ async fn test_homeserver_post_engagement() -> Result<()> {
     assert_eq!(total_engagement.unwrap(), 0);
 
     // Create new user
-    let bob_user_keypair = Keypair::random();
+    let bob_user_kp = Keypair::random();
 
     let bob_user = PubkyAppUser {
         bio: Some("test_homeserver_post_engagement".to_string()),
@@ -52,20 +52,20 @@ async fn test_homeserver_post_engagement() -> Result<()> {
         name: "Watcher:PostEngagement:Bob".to_string(),
         status: None,
     };
-    let bob_id = test.create_user(&bob_user_keypair, &bob_user).await?;
+    let _bob_id = test.create_user(&bob_user_kp, &bob_user).await?;
 
     // Bob replies to popular alice post
-    let alice_post_uri = post_uri_builder(alice_id.clone(), alice_post_id.clone());
+    let alice_post_absolute_uri = post_uri_builder(alice_id.clone(), alice_post_id.clone());
 
     let reply = PubkyAppPost {
         content: "Watcher:PostInfluencer:Bob:Reply".to_string(),
         kind: PubkyAppPostKind::Short,
-        parent: Some(alice_post_uri.clone()),
+        parent: Some(alice_post_absolute_uri.clone()),
         embed: None,
         attachments: None,
     };
 
-    let _reply_id = test.create_post(&bob_id, &reply).await?;
+    let _reply_id = test.create_post(&bob_user_kp, &reply).await?;
 
     // Create repost of alice post
     let repost = PubkyAppPost {
@@ -74,12 +74,12 @@ async fn test_homeserver_post_engagement() -> Result<()> {
         parent: None,
         embed: Some(PubkyAppPostEmbed {
             kind: PubkyAppPostKind::Short,
-            uri: alice_post_uri.clone(),
+            uri: alice_post_absolute_uri.clone(),
         }),
         attachments: None,
     };
 
-    let _repost_id = test.create_post(&bob_id, &repost).await?;
+    let _repost_id = test.create_post(&bob_user_kp, &repost).await?;
 
     let total_engagement = check_member_total_engagement_user_posts(&alice_post_key)
         .await
@@ -91,8 +91,8 @@ async fn test_homeserver_post_engagement() -> Result<()> {
     // test.cleanup_post(&user_id, &reply_id).await?;
 
     // Cleanup
-    test.cleanup_user(&alice_id).await?;
-    test.cleanup_user(&bob_id).await?;
+    test.cleanup_user(&alice_user_kp).await?;
+    test.cleanup_user(&bob_user_kp).await?;
     //test.cleanup_post(&user_id, &parent_post_id).await?;
 
     Ok(())

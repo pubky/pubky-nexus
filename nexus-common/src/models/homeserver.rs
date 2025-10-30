@@ -146,13 +146,13 @@ impl Homeserver {
         }
 
         let ref_post_author_pk = referenced_user_id.parse::<PublicKey>()?;
-        let Some(ref_post_author_hs) = pubky_client.get_homeserver(&ref_post_author_pk).await
+        let Some(ref_post_author_hs) = pubky_client.get_homeserver_of(&ref_post_author_pk).await
         else {
             tracing::warn!("Skipping homeserver ingestion: author {ref_post_author_pk} has no published homeserver");
             return Ok(());
         };
 
-        let hs_pk = PubkyId::try_from(&ref_post_author_hs)?;
+        let hs_pk = PubkyId::try_from(ref_post_author_hs.to_string().as_str())?;
         Self::persist_if_unknown(hs_pk.clone())
             .await
             .inspect(|_| tracing::info!("Ingested homeserver {hs_pk}"))

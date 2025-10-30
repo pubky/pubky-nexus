@@ -12,7 +12,7 @@ use tracing::error;
 async fn test_homeserver_post_repost_without_post_parent() -> Result<(), DynError> {
     let mut test = WatcherTest::setup().await?;
 
-    let post_author_user_keypair = Keypair::random();
+    let post_author_user_kp = Keypair::random();
     let post_author = PubkyAppUser {
         bio: Some("test_homeserver_post_repost_without_post_parent".to_string()),
         image: None,
@@ -20,11 +20,9 @@ async fn test_homeserver_post_repost_without_post_parent() -> Result<(), DynErro
         name: "Watcher:PostRepostFail:PostAuthor".to_string(),
         status: None,
     };
-    let post_author_id = test
-        .create_user(&post_author_user_keypair, &post_author)
-        .await?;
+    let post_author_id = test.create_user(&post_author_user_kp, &post_author).await?;
 
-    let post_repost_author_keypair = Keypair::random();
+    let post_repost_author_kp = Keypair::random();
     let repost_author = PubkyAppUser {
         bio: Some("test_homeserver_post_repost_without_post_parent".to_string()),
         image: None,
@@ -33,7 +31,7 @@ async fn test_homeserver_post_repost_without_post_parent() -> Result<(), DynErro
         status: None,
     };
     let repost_author_id = test
-        .create_user(&post_repost_author_keypair, &repost_author)
+        .create_user(&post_repost_author_kp, &repost_author)
         .await?;
 
     // Switch OFF the event processor to simulate the pending events to index
@@ -47,7 +45,7 @@ async fn test_homeserver_post_repost_without_post_parent() -> Result<(), DynErro
         attachments: None,
     };
 
-    let post_id = test.create_post(&post_author_id, &post).await?;
+    let post_id = test.create_post(&post_author_user_kp, &post).await?;
 
     // Create repost
     let repost = PubkyAppPost {
@@ -60,11 +58,11 @@ async fn test_homeserver_post_repost_without_post_parent() -> Result<(), DynErro
         }),
         attachments: None,
     };
-    let repost_id = test.create_post(&repost_author_id, &repost).await?;
+    let repost_id = test.create_post(&post_repost_author_kp, &repost).await?;
 
     // Create raw event line to retrieve the content from the homeserver
-    let repost_uri = post_uri_builder(repost_author_id, repost_id);
-    let post_homeserver_uri = format!("PUT {repost_uri}");
+    let repost_absolute_uri = post_uri_builder(repost_author_id, repost_id);
+    let post_homeserver_uri = format!("PUT {repost_absolute_uri}");
 
     // Simulate the event processor to handle the event.
     // If the event processor were activated, the test would not catch the missing dependency
@@ -72,9 +70,7 @@ async fn test_homeserver_post_repost_without_post_parent() -> Result<(), DynErro
     let moderation_ref = test.event_processor_runner.moderation.clone();
     let sync_fail = retrieve_and_handle_event_line(&post_homeserver_uri, moderation_ref)
         .await
-        .map_err(|e| {
-            error!("SYNC ERROR: {:?}", e);
-        })
+        .map_err(|e| error!("SYNC ERROR: {:?}", e))
         .is_err();
 
     assert!(

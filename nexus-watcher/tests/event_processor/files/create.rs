@@ -3,7 +3,7 @@ use anyhow::Result;
 use chrono::Utc;
 use nexus_common::models::{file::FileDetails, traits::Collection};
 use pubky::Keypair;
-use pubky_app_specs::traits::HashId;
+use pubky_app_specs::traits::{HasIdPath, HashId};
 use pubky_app_specs::{blob_uri_builder, PubkyAppBlob, PubkyAppFile, PubkyAppUser};
 use std::path::Path;
 
@@ -12,7 +12,7 @@ async fn test_put_pubkyapp_file() -> Result<()> {
     // Arrange
     let mut test = WatcherTest::setup().await?;
 
-    let keypair = Keypair::random();
+    let user_kp = Keypair::random();
     let user = PubkyAppUser {
         bio: None,
         image: None,
@@ -21,27 +21,27 @@ async fn test_put_pubkyapp_file() -> Result<()> {
         status: None,
     };
 
-    let user_id = test.create_user(&keypair, &user).await?;
+    let user_id = test.create_user(&user_kp, &user).await?;
 
     let blob_data = "Hello World!".to_string();
     let blob = PubkyAppBlob::new(blob_data.as_bytes().to_vec());
     let blob_id = blob.create_id();
-    let blob_url = blob_uri_builder(user_id.clone(), blob_id);
+    let blob_relative_url = PubkyAppBlob::create_path(&blob_id);
+    let blob_absolute_url = blob_uri_builder(user_id.clone(), blob_id);
 
-    test.create_file_from_body(blob_url.as_str(), blob.0.clone())
+    test.create_file_from_body(&user_kp, blob_relative_url.as_str(), blob.0.clone())
         .await?;
 
     // Act
     let file = PubkyAppFile {
         name: "myfile".to_string(),
         content_type: "text/plain".to_string(),
-        src: blob_url.clone(),
+        src: blob_absolute_url.clone(),
         size: blob.0.len(),
         created_at: Utc::now().timestamp_millis(),
     };
 
-    let (file_id, _) = test.create_file(&user_id, &file).await?;
-
+    let (file_id, _) = test.create_file(&user_kp, &file).await?;
     // Assert
     let files = FileDetails::get_by_ids(
         vec![vec![user_id.as_str(), file_id.as_str()].as_slice()].as_slice(),
@@ -52,7 +52,7 @@ async fn test_put_pubkyapp_file() -> Result<()> {
     let result_file = files[0].as_ref().expect("Created file was not found.");
 
     assert_eq!(result_file.id, file_id);
-    assert_eq!(result_file.src, blob_url);
+    assert_eq!(result_file.src, blob_absolute_url);
     assert_eq!(
         result_file.uri,
         format!("pubky://{user_id}/pub/pubky.app/files/{file_id}")

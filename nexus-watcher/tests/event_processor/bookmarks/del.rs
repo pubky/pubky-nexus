@@ -5,8 +5,9 @@ use anyhow::Result;
 use nexus_common::models::post::{Bookmark, PostStream};
 use pubky::Keypair;
 use pubky_app_specs::{
-    bookmark_uri_builder, post_uri_builder, traits::HashId, PubkyAppBookmark, PubkyAppPost,
-    PubkyAppUser,
+    post_uri_builder,
+    traits::{HasIdPath, HashId},
+    PubkyAppBookmark, PubkyAppPost, PubkyAppUser,
 };
 
 #[tokio_shared_rt::test(shared)]
@@ -14,7 +15,7 @@ async fn test_homeserver_unbookmark() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Step 1: Create a user
-    let keypair = Keypair::random();
+    let bookmarker_kp = Keypair::random();
     let bookmarker = PubkyAppUser {
         bio: Some("test_homeserver_unbookmark".to_string()),
         image: None,
@@ -22,9 +23,9 @@ async fn test_homeserver_unbookmark() -> Result<()> {
         name: "Watcher:Unbookmark:Bookmarker".to_string(),
         status: None,
     };
-    let bookmarker_id = test.create_user(&keypair, &bookmarker).await?;
+    let bookmarker_id = test.create_user(&bookmarker_kp, &bookmarker).await?;
 
-    let author_keypair = Keypair::random();
+    let author_kp = Keypair::random();
     let author = PubkyAppUser {
         bio: Some("test_homeserver_unbookmark".to_string()),
         image: None,
@@ -32,7 +33,7 @@ async fn test_homeserver_unbookmark() -> Result<()> {
         name: "Watcher:Unbookmark:Author".to_string(),
         status: None,
     };
-    let author_id = test.create_user(&author_keypair, &author).await?;
+    let author_id = test.create_user(&author_kp, &author).await?;
 
     // Step 2: Create a post under that user
     let post = PubkyAppPost {
@@ -42,7 +43,7 @@ async fn test_homeserver_unbookmark() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let post_id = test.create_post(&author_id, &post).await?;
+    let post_id = test.create_post(&author_kp, &post).await?;
 
     // Step 3: Add a bookmark to the post. Before create a new user
     let bookmark = PubkyAppBookmark {
@@ -50,13 +51,14 @@ async fn test_homeserver_unbookmark() -> Result<()> {
         created_at: chrono::Utc::now().timestamp_millis(),
     };
     let bookmark_id = bookmark.create_id();
-    let bookmark_url = bookmark_uri_builder(bookmarker_id.clone(), bookmark_id);
+    let bookmark_relative_url = PubkyAppBookmark::create_path(&bookmark_id);
 
     // Put bookmark
-    test.put(&bookmark_url, bookmark).await.unwrap();
+    test.put(&author_kp, &bookmark_relative_url, bookmark)
+        .await?;
 
     // Step 4: Delete bookmark
-    test.del(&bookmark_url).await?;
+    test.del(&author_kp, &bookmark_relative_url).await?;
 
     // GRAPH_OP: Assert if the event writes the graph
     let result = find_post_bookmark(&author_id, &post_id, &bookmarker_id).await;
@@ -95,9 +97,9 @@ async fn test_homeserver_unbookmark() -> Result<()> {
     assert_eq!(user_counts.bookmarks, 0);
 
     // Cleanup user and post
-    test.cleanup_post(&author_id, &post_id).await?;
-    test.cleanup_user(&bookmarker_id).await?;
-    test.cleanup_user(&author_id).await?;
+    test.cleanup_post(&author_kp, &post_id).await?;
+    test.cleanup_user(&bookmarker_kp).await?;
+    test.cleanup_user(&author_kp).await?;
 
     Ok(())
 }

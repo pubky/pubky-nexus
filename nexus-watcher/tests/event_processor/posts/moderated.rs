@@ -5,8 +5,9 @@ use anyhow::Result;
 use chrono::Utc;
 use pubky::{recovery_file, Keypair};
 use pubky_app_specs::{
-    post_uri_builder, tag_uri_builder, traits::HashId, PubkyAppPost, PubkyAppPostKind, PubkyAppTag,
-    PubkyAppUser,
+    post_uri_builder,
+    traits::{HasIdPath, HashId},
+    PubkyAppPost, PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
 };
 use tokio::fs;
 
@@ -15,7 +16,7 @@ async fn test_moderated_post_lifecycle() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // 1. User signup and writes a post
-    let keypair = Keypair::random();
+    let user_kp = Keypair::random();
     let user = PubkyAppUser {
         bio: Some("test_homeserver_post_to_moderate".to_string()),
         image: None,
@@ -23,7 +24,7 @@ async fn test_moderated_post_lifecycle() -> Result<()> {
         name: "Watcher:PostModerate:User".to_string(),
         status: None,
     };
-    let user_id = test.create_user(&keypair, &user).await?;
+    let user_id = test.create_user(&user_kp, &user).await?;
 
     let post = PubkyAppPost {
         content: "Watcher:PostModerate:Post".to_string(),
@@ -33,7 +34,7 @@ async fn test_moderated_post_lifecycle() -> Result<()> {
         attachments: None,
     };
 
-    let post_id = test.create_post(&user_id, &post).await?;
+    let post_id = test.create_post(&user_kp, &post).await?;
 
     // 2. Confirm this post does exist
     let post_details = find_post_details(&user_id, &post_id).await.unwrap();
@@ -46,16 +47,16 @@ async fn test_moderated_post_lifecycle() -> Result<()> {
     let moderator_key =
         recovery_file::decrypt_recovery_file(&moderator_recovery_file, "password").unwrap();
 
-    let moderator_id = test.create_user(&moderator_key, &user).await?;
+    test.create_user(&moderator_key, &user).await?;
 
     let tag = PubkyAppTag {
         uri: post_uri_builder(user_id.clone(), post_id.clone()),
         label: "label_to_moderate".to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
-    let tag_url = tag_uri_builder(moderator_id, tag.create_id());
+    let tag_relative_url = PubkyAppTag::create_path(&tag.create_id());
     // Put tag
-    test.put(&tag_url, tag).await?;
+    test.put(&moderator_key, &tag_relative_url, tag).await?;
 
     // 4. Confirm the post does not exist
     let post_details = find_post_details(&user_id, &post_id).await;

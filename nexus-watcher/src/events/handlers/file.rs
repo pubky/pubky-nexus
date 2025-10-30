@@ -67,7 +67,7 @@ async fn ingest(
                 message: e.to_string(),
             })?;
 
-        response = match pubky_client.get(&pubkyapp_file.src).send().await {
+        response = match pubky_client.public_storage().get(&pubkyapp_file.src).await {
             Ok(response) => response,
             Err(e) => {
                 return Err(EventProcessorError::PubkyClientError {

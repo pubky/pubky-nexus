@@ -29,4 +29,8 @@ impl EventProcessorError {
             dependency: dependency_uris,
         }
     }
+
+    pub fn client_error(message: String) -> Self {
+        Self::PubkyClientError { message }
+    }
 }

@@ -14,26 +14,26 @@ async fn test_delete_post_that_reposted_notification() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Create a user who posts
-    let keypair = Keypair::random();
-    let user = PubkyAppUser {
+    let poster_kp = Keypair::random();
+    let poster_user = PubkyAppUser {
         bio: Some("Test user for post deletion".to_string()),
         image: None,
         links: None,
         name: "Watcher:RepostDeleteNotification:User".to_string(),
         status: None,
     };
-    let poster_id = test.create_user(&keypair, &user).await?;
+    let poster_id = test.create_user(&poster_kp, &poster_user).await?;
 
-    // Create a user who posts
-    let keypair = Keypair::random();
-    let user = PubkyAppUser {
+    // Create a user who reposts
+    let reposter_kp = Keypair::random();
+    let reposter_user = PubkyAppUser {
         bio: Some("Test user for post deletion".to_string()),
         image: None,
         links: None,
         name: "Watcher:PostDeleteNotification:UserReposter".to_string(),
         status: None,
     };
-    let reposter_id = test.create_user(&keypair, &user).await?;
+    let reposter_id = test.create_user(&reposter_kp, &reposter_user).await?;
 
     // Create a post without any relationships
     let post = PubkyAppPost {
@@ -43,7 +43,7 @@ async fn test_delete_post_that_reposted_notification() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let post_id = test.create_post(&poster_id, &post).await?;
+    let post_id = test.create_post(&poster_kp, &post).await?;
 
     // Create a repost
     let repost = PubkyAppPost {
@@ -56,10 +56,10 @@ async fn test_delete_post_that_reposted_notification() -> Result<()> {
         }),
         attachments: None,
     };
-    let repost_id = test.create_post(&reposter_id, &repost).await?;
+    let repost_id = test.create_post(&reposter_kp, &repost).await?;
 
     // Delete the repost
-    test.cleanup_post(&reposter_id, &repost_id).await?;
+    test.cleanup_post(&reposter_kp, &repost_id).await?;
 
     // Verify that the poster gets the correct notification
     let notifications = Notification::get_by_id(&poster_id, Pagination::default())

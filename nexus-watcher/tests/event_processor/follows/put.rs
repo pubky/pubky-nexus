@@ -17,7 +17,7 @@ async fn test_homeserver_put_follow() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Create first user (follower)
-    let follower_keypair = Keypair::random();
+    let follower_kp = Keypair::random();
 
     let follower_user = PubkyAppUser {
         bio: Some("test_homeserver_raw_follow".to_string()),
@@ -27,12 +27,12 @@ async fn test_homeserver_put_follow() -> Result<()> {
         status: None,
     };
     let follower_id = test
-        .create_user(&follower_keypair, &follower_user)
+        .create_user(&follower_kp, &follower_user)
         .await
         .unwrap();
 
     // Create second user (followee)
-    let followee_keypair = Keypair::random();
+    let followee_kp = Keypair::random();
     let followee_user = PubkyAppUser {
         bio: Some("test_homeserver_raw_follow".to_string()),
         image: None,
@@ -41,12 +41,12 @@ async fn test_homeserver_put_follow() -> Result<()> {
         status: None,
     };
     let followee_id = test
-        .create_user(&followee_keypair, &followee_user)
+        .create_user(&followee_kp, &followee_user)
         .await
         .unwrap();
 
     // Follow the followee
-    test.create_follow(&follower_id, &followee_id).await?;
+    test.create_follow(&follower_kp, &followee_id).await?;
 
     // GRAPH_OP: Check if relationship was created
     let exist = find_follow_relationship(&follower_id, &followee_id)
@@ -89,8 +89,8 @@ async fn test_homeserver_put_follow() -> Result<()> {
     assert_eq!(exist_count.following, 1);
 
     // Cleanup
-    test.cleanup_user(&follower_id).await?;
-    test.cleanup_user(&followee_id).await?;
+    test.cleanup_user(&follower_kp).await?;
+    test.cleanup_user(&followee_kp).await?;
 
     Ok(())
 }
