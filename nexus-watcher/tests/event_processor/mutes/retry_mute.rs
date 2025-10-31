@@ -1,7 +1,8 @@
 use crate::event_processor::utils::watcher::{assert_eventually_exists, WatcherTest};
 use anyhow::Result;
+use nexus_common::models::events::EventType;
 use nexus_watcher::events::errors::EventProcessorError;
-use nexus_watcher::events::{retry::event::RetryEvent, EventType};
+use nexus_watcher::events::retry::event::RetryEvent;
 use pubky::Keypair;
 use pubky_app_specs::{mute_uri_builder, user_uri_builder, PubkyAppUser};
 /// The user profile is stored in the homeserver. Missing the mutee to connect with muter
