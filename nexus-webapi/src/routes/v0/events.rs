@@ -34,7 +34,7 @@ pub async fn get_events_handler(
     Query(_cursor): Query<String>,
     Query(_limit): Query<usize>,
 ) -> impl IntoResponse {
-    // TODO: (524)
+    // TODO: (524): read from redis
     // Example:
     //
     // PUT pubky://ujikizdojcuwn3m7nfypzt1xwiz8t68rqr9qbdbagmgotwd1duho/pub/pubky.app/profile.json

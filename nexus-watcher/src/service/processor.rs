@@ -158,16 +158,14 @@ impl EventProcessor {
                 }
             }
         }
-
-        // TODO: (524) event
-        // - ordered set, so that can be ordered by cursor
-        // - cursor is local timestamp in milliseconds encoded using crockford32
-        // <cursor>: { <PUT|DEL>, <URL> }
         Ok(())
     }
 
     pub async fn handle(&self, event: &Event) -> Result<(), DynError> {
         // TODO: (524): add method to insert event in to reddis sorted set
+        // - reddis ordered set, so that can be ordered by cursor
+        // - cursor is local timestamp in milliseconds encoded using crockford32
+        // <cursor>: { <PUT|DEL>, <URL> }
         match event.event_type {
             EventType::Put => self.handle_put_event(event).await,
             EventType::Del => self.handle_del_event(event).await,
