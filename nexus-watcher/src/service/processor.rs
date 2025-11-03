@@ -103,6 +103,7 @@ impl EventProcessor {
     /// # Parameters
     /// - `lines`: A vector of strings representing event lines retrieved from the homeserver.
     pub async fn process_event_lines(&self, lines: Vec<String>) -> Result<(), DynError> {
+        let current_cursor = self.homeserver.cursor.clone();
         for line in &lines {
             let id = self.homeserver.id.clone();
 
@@ -138,7 +139,9 @@ impl EventProcessor {
                     ));
                     let cx = Context::new().with_span(span);
                     debug!("Processing event: {:?}", event);
-                    self.handle_event(&event).with_context(cx).await?;
+                    self.handle_event(&event, &current_cursor)
+                        .with_context(cx)
+                        .await?;
                 }
             }
         }
@@ -149,8 +152,9 @@ impl EventProcessor {
     /// Processes an event and track the fail event it if necessary
     /// # Parameters:
     /// - `event`: The event to be processed
-    async fn handle_event(&self, event: &Event) -> Result<(), DynError> {
-        if let Err(e) = self.handle(event).await {
+    /// - `current_cursor`: The current cursor value
+    async fn handle_event(&self, event: &Event, event_cursor: &str) -> Result<(), DynError> {
+        if let Err(e) = self.handle(event, event_cursor).await {
             if let Some((index_key, retry_event)) = extract_retry_event_info(event, e) {
                 error!("{}, {}", retry_event.error_type, index_key);
                 if let Err(err) = retry_event.put_to_index(index_key).await {
@@ -161,15 +165,26 @@ impl EventProcessor {
         Ok(())
     }
 
-    pub async fn handle(&self, event: &Event) -> Result<(), DynError> {
-        // TODO: (524): add method to insert event in to reddis sorted set
-        // - reddis ordered set, so that can be ordered by cursor
-        // - cursor is local timestamp in milliseconds encoded using crockford32
-        // <cursor>: { <PUT|DEL>, <URL> }
+    pub async fn handle(&self, event: &Event, event_cursor: &str) -> Result<(), DynError> {
         match event.event_type {
-            EventType::Put => self.handle_put_event(event).await,
-            EventType::Del => self.handle_del_event(event).await,
-        }
+            EventType::Put => self.handle_put_event(event).await?,
+            EventType::Del => self.handle_del_event(event).await?,
+        };
+
+        let line = format!("{} {}", event.event_type, event.uri);
+
+        // 2) Score = local timestamp in millis
+        // alternatively use the HS timestamp as a decoding of the cursor
+        let ts_ms = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as i64;
+
+        // 3) Write to a global sorted set
+        // consider adding the event cursor as a member of the sorted set
+        // Key: Sorted:Events (prefix defaults to "Sorted")
+        // Member: event line
+        // Score: ts_ms as f64
+        Event::put_index_sorted_set(&["Events"], &[(ts_ms as f64, line.as_str())], None, None)
+            .await?;
+        Ok(())
     }
 
     /// Handles a PUT event by fetching the blob from the homeserver
