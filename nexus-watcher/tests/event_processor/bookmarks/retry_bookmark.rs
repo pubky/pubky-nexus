@@ -1,6 +1,6 @@
 use crate::event_processor::utils::watcher::{assert_eventually_exists, WatcherTest};
 use anyhow::Result;
-use nexus_common::models::events::EventType;
+use nexus_common::models::event::{Event, EventType};
 use nexus_watcher::events::{errors::EventProcessorError, retry::event::RetryEvent};
 use pubky::Keypair;
 use pubky_app_specs::{

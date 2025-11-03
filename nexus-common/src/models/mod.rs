@@ -1,5 +1,5 @@
 pub mod bootstrap;
-pub mod events;
+pub mod event;
 pub mod file;
 pub mod follow;
 pub mod homeserver;

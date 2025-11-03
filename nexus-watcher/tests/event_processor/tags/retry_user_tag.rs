@@ -1,7 +1,7 @@
 use crate::event_processor::utils::watcher::{assert_eventually_exists, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
-use nexus_common::models::events::EventType;
+use nexus_common::models::event::EventType;
 use nexus_watcher::events::errors::EventProcessorError;
 use nexus_watcher::events::retry::event::RetryEvent;
 

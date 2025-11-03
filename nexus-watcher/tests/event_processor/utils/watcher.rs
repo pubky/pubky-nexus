@@ -3,7 +3,7 @@ use chrono::Utc;
 use nexus_common::db::PubkyClient;
 use nexus_common::get_files_dir_pathbuf;
 use nexus_common::get_files_dir_test_pathbuf;
-use nexus_common::models::events::Event;
+use nexus_common::models::event::Event;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
 use nexus_watcher::events::moderation::Moderation;

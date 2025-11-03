@@ -4,7 +4,7 @@ use crate::events::moderation::Moderation;
 use crate::events::retry::event::RetryEvent;
 use crate::service::traits::TEventProcessor;
 use nexus_common::db::PubkyClient;
-use nexus_common::models::events::{Event, EventType};
+use nexus_common::models::event::{Event, EventType};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
 use opentelemetry::trace::{FutureExt, Span, TraceContextExt, Tracer};
