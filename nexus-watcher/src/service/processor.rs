@@ -4,6 +4,7 @@ use crate::events::moderation::Moderation;
 use crate::events::retry::event::RetryEvent;
 use crate::service::traits::TEventProcessor;
 use nexus_common::db::PubkyClient;
+use nexus_common::db::RedisOps;
 use nexus_common::models::event::{Event, EventType};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
@@ -14,6 +15,7 @@ use pubky_app_specs::{PubkyAppObject, Resource};
 use std::error::Error;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info};
 
@@ -103,7 +105,6 @@ impl EventProcessor {
     /// # Parameters
     /// - `lines`: A vector of strings representing event lines retrieved from the homeserver.
     pub async fn process_event_lines(&self, lines: Vec<String>) -> Result<(), DynError> {
-        let current_cursor = self.homeserver.cursor.clone();
         for line in &lines {
             let id = self.homeserver.id.clone();
 
@@ -139,9 +140,7 @@ impl EventProcessor {
                     ));
                     let cx = Context::new().with_span(span);
                     debug!("Processing event: {:?}", event);
-                    self.handle_event(&event, &current_cursor)
-                        .with_context(cx)
-                        .await?;
+                    self.handle_event(&event).with_context(cx).await?;
                 }
             }
         }
@@ -152,9 +151,8 @@ impl EventProcessor {
     /// Processes an event and track the fail event it if necessary
     /// # Parameters:
     /// - `event`: The event to be processed
-    /// - `current_cursor`: The current cursor value
-    async fn handle_event(&self, event: &Event, event_cursor: &str) -> Result<(), DynError> {
-        if let Err(e) = self.handle(event, event_cursor).await {
+    async fn handle_event(&self, event: &Event) -> Result<(), DynError> {
+        if let Err(e) = self.handle(event).await {
             if let Some((index_key, retry_event)) = extract_retry_event_info(event, e) {
                 error!("{}, {}", retry_event.error_type, index_key);
                 if let Err(err) = retry_event.put_to_index(index_key).await {
@@ -165,26 +163,21 @@ impl EventProcessor {
         Ok(())
     }
 
-    pub async fn handle(&self, event: &Event, event_cursor: &str) -> Result<(), DynError> {
+    pub async fn handle(&self, event: &Event) -> Result<(), DynError> {
         match event.event_type {
             EventType::Put => self.handle_put_event(event).await?,
             EventType::Del => self.handle_del_event(event).await?,
         };
 
+        // We use sync timestamp instead of homeserver cursor (creation timestamp)
+        // because we want to ensure that events are processed in the order they
+        // were received and they can not be inserted in between already processed events
+        let ts_ms = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as f64;
         let line = format!("{} {}", event.event_type, event.uri);
 
-        // 2) Score = local timestamp in millis
-        // alternatively use the HS timestamp as a decoding of the cursor
-        let ts_ms = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as i64;
+        let elements = vec![(ts_ms, line.as_str())];
 
-        // 3) Write to a global sorted set
-        // consider adding the event cursor as a member of the sorted set
-        // Key: Sorted:Events (prefix defaults to "Sorted")
-        // Member: event line
-        // Score: ts_ms as f64
-        Event::put_index_sorted_set(&["Events"], &[(ts_ms as f64, line.as_str())], None, None)
-            .await?;
-        Ok(())
+        Event::put_index_sorted_set(&["Events"], &elements, None, None).await
     }
 
     /// Handles a PUT event by fetching the blob from the homeserver
