@@ -1,5 +1,6 @@
 pub mod author;
 pub mod bookmarks;
+pub mod keys;
 pub mod kind;
 pub mod reach;
 pub mod sorting;

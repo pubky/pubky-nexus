@@ -68,8 +68,12 @@ async fn test_homeserver_bookmark() -> Result<()> {
     .await
     .unwrap();
 
-    assert_eq!(result_bookmarks.len(), 1);
-    assert_eq!(result_bookmarks[0], format!("{user_id}:{post_id}"));
+    assert_eq!(result_bookmarks.post_keys.len(), 1);
+    assert_eq!(
+        result_bookmarks.post_keys[0],
+        format!("{user_id}:{post_id}")
+    );
+    assert!(result_bookmarks.last_post_score.is_some());
 
     let exist_bookmark = Bookmark::get_from_index(&user_id, &post_id, &user_id)
         .await
