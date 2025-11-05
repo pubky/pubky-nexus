@@ -3,10 +3,11 @@ use chrono::Utc;
 use nexus_common::db::PubkyClient;
 use nexus_common::get_files_dir_pathbuf;
 use nexus_common::get_files_dir_test_pathbuf;
+use nexus_common::models::event::Event;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
+use nexus_watcher::events::handle;
 use nexus_watcher::events::retry::event::RetryEvent;
-use nexus_watcher::events::Event;
 use nexus_watcher::events::Moderation;
 use nexus_watcher::service::EventProcessorRunner;
 use nexus_watcher::service::NexusWatcher;
@@ -350,7 +351,7 @@ pub async fn retrieve_and_handle_event_line(
     let event = Event::parse_event(event_line, get_files_dir_pathbuf()).unwrap_or_default();
 
     if let Some(event) = event {
-        event.clone().handle(moderation).await?
+        handle(&event, moderation).await?
     }
 
     Ok(())

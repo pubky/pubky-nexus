@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use nexus_common::db::RedisOps;
 use nexus_common::types::DynError;
 
-use crate::events::errors::EventProcessorError;
+use crate::events::EventProcessorError;
 
 pub const RETRY_MANAGER_PREFIX: &str = "RetryManager";
 pub const RETRY_MANAGER_EVENTS_INDEX: [&str; 1] = ["events"];

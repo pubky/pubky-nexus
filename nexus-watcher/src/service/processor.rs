@@ -1,8 +1,8 @@
-use crate::events::errors::EventProcessorError;
 use crate::events::retry::event::RetryEvent;
-use crate::events::{Event, Moderation};
+use crate::events::{handle, Moderation};
 use crate::service::traits::TEventProcessor;
 use nexus_common::db::PubkyClient;
+use nexus_common::models::event::{Event, EventProcessorError};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
 use opentelemetry::trace::{FutureExt, Span, TraceContextExt, Tracer};
@@ -146,7 +146,7 @@ impl EventProcessor {
     /// # Parameters:
     /// - `event`: The event to be processed
     async fn handle_event(&self, event: &Event) -> Result<(), DynError> {
-        if let Err(e) = event.clone().handle(self.moderation.clone()).await {
+        if let Err(e) = handle(event, self.moderation.clone()).await {
             if let Some((index_key, retry_event)) = extract_retry_event_info(event, e) {
                 error!("{}, {}", retry_event.error_type, index_key);
                 if let Err(err) = retry_event.put_to_index(index_key).await {

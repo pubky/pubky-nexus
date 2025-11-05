@@ -1,7 +1,7 @@
 use crate::event_processor::utils::watcher::{assert_eventually_exists, WatcherTest};
 use anyhow::Result;
-use nexus_watcher::events::errors::EventProcessorError;
-use nexus_watcher::events::{retry::event::RetryEvent, EventType};
+use nexus_common::models::event::{EventProcessorError, EventType};
+use nexus_watcher::events::retry::event::RetryEvent;
 use pubky::Keypair;
 use pubky_app_specs::{
     post_uri_builder, PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser,
