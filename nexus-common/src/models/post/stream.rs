@@ -87,10 +87,7 @@ impl PostKeyStream {
         }
     }
 
-    pub fn from_keys(post_keys: Vec<String>) -> Self {
-        Self::new(post_keys, None)
-    }
-
+    // Iterate over tuples of (post_key, score) to extract the post keys and capture the last score
     pub fn from_scored_entries(entries: Vec<(String, f64)>) -> Self {
         let last_post_score = entries.last().map(|(_, score)| *score);
         let post_keys = entries.into_iter().map(|(key, _)| key).collect();
@@ -218,6 +215,7 @@ impl PostStream {
                 Self::get_global_posts_keys(sorting, order, start, end, skip, limit).await
             }
             // Streams by tags
+            //DIFF
             (StreamSource::All, Some(tags)) if tags.len() == 1 => {
                 Self::get_posts_keys_by_tag(&tags[0], sorting, start, end, skip, limit).await
             }
@@ -269,14 +267,27 @@ impl PostStream {
         }
 
         let mut post_keys = Vec::new();
+        // Composite id: (author_id, post_id)
+        let mut last_post_id: Option<(String, String)> = None;
 
         while let Some(row) = result.next().await? {
             let author_id: String = row.get("author_id")?;
             let post_id: String = row.get("post_id")?;
-            post_keys.push(format!("{author_id}:{post_id}"));
+            let post_key = format!("{author_id}:{post_id}");
+            // Track the last post ID by overwriting on each iteration
+            last_post_id = Some((author_id, post_id));
+            post_keys.push(post_key);
         }
 
-        Ok(PostKeyStream::from_keys(post_keys))
+        // TODO: Not sure if it is a good idea to return a None as a score. TBD with FE
+        let last_post_score = if let Some((author_id, post_id)) = last_post_id {
+            let post_details = PostDetails::get_by_id(&author_id, &post_id).await?;
+            post_details.map(|details| details.indexed_at as f64)
+        } else {
+            None
+        };
+
+        Ok(PostKeyStream::new(post_keys, last_post_score))
     }
 
     pub async fn get_global_posts_keys(
@@ -340,6 +351,7 @@ impl PostStream {
 
         let stream = match post_search_result {
             Some(post_keys) => {
+                // Iterate over PostsByTagSearch structs to extract post keys and capture the last score
                 let last_post_score = post_keys.last().map(|entry| entry.score as f64);
                 let post_keys = post_keys
                     .into_iter()
