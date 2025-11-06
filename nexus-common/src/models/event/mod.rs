@@ -94,7 +94,7 @@ impl Event {
         // We use sync timestamp instead of homeserver cursor (creation timestamp)
         // because we want to ensure that events are processed in the order they
         // were received and they can not be inserted in between already processed events
-        let ts_ms = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as f64;
+        let ts_ms = SystemTime::now().duration_since(UNIX_EPOCH)?.as_micros() as f64;
         let line = format!("{} {}", self.event_type, self.uri);
 
         let elements = vec![(ts_ms, line.as_str())];
