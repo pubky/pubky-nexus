@@ -70,11 +70,13 @@ fn assemble_page(items: Vec<(String, f64)>) -> EventsList {
     let mut events = Vec::with_capacity(items.len());
     let mut cursor: u64 = 0;
     if !items.is_empty() {
-        for (line, _score) in &items {
-            events.push(line.clone());
-        }
-        if let Some((_, last_score)) = items.last() {
-            cursor = *last_score as u64;
+        // if line is the last one , set the cursor to its score, for the res of the items collect them in events
+        for (i, (line, score)) in items.clone().into_iter().enumerate() {
+            if i == items.len() - 1 {
+                cursor = score as u64;
+            } else {
+                events.push(line);
+            }
         }
     }
 
@@ -84,12 +86,12 @@ fn assemble_page(items: Vec<(String, f64)>) -> EventsList {
 async fn get_from_redis(cursor: Option<f64>, limit: usize) -> Result<Vec<(String, f64)>, Error> {
     let result = Event::try_from_index_sorted_set(
         &["Events"],
-        cursor,      // start (exclusive/inclusive is handled by the ZRANGEBYSCORE impl)
-        None,        // end
-        None,        // skip
-        Some(limit), // limit
-        SortOrder::Ascending,
-        None, // prefix -> "Sorted"
+        cursor,
+        None,
+        None,
+        Some(limit + 1),
+        SortOrder::Descending,
+        None,
     )
     .await;
 
