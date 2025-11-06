@@ -11,13 +11,22 @@ use crate::Error;
 use axum::extract::Query;
 // use axum::response::IntoResponse;
 use axum::routing::get;
-use axum::{Json, Router};
+use axum::{response::Response, Router};
 use utoipa::OpenApi;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct EventsList {
-    cursor: String,
+    cursor: u64,
     events: Vec<String>,
+}
+
+impl std::fmt::Display for EventsList {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for line in &self.events {
+            writeln!(f, "{}", line)?;
+        }
+        write!(f, "cursor: {:0>13}", crockford::encode(self.cursor))
+    }
 }
 
 #[derive(Deserialize)]
@@ -26,9 +35,6 @@ pub struct EventsQuery {
     limit: Option<usize>,
 }
 
-fn encode_crockford32(ts_ms: i64) -> String {
-    crockford::encode(ts_ms as u64)
-}
 // HACK: return proper error?
 fn decode_crockford32(s: &str) -> Result<i64, String> {
     crockford::decode(s)
@@ -50,25 +56,25 @@ fn decode_crockford32(s: &str) -> Result<i64, String> {
         (status = 500, description = "Internal server error")
     )
 )]
-pub async fn get_events_handler(Query(q): Query<EventsQuery>) -> Result<Json<EventsList>, Error> {
+pub async fn get_events_handler(Query(q): Query<EventsQuery>) -> Result<Response, Error> {
     let (limit, cursor) = parse_query(&q)?;
     let items = get_from_redis(cursor, limit).await?;
     let event_list = assemble_page(items);
 
-    Ok(Json(event_list))
+    // Convert to a plain text response
+    let response: Response = axum::response::IntoResponse::into_response(event_list.to_string());
+    Ok(response)
 }
 
 fn assemble_page(items: Vec<(String, f64)>) -> EventsList {
     let mut events = Vec::with_capacity(items.len());
-    let mut cursor = "0000000000000".to_string();
+    let mut cursor: u64 = 0;
     if !items.is_empty() {
         for (line, _score) in &items {
-            events.push(line.clone()); // "PUT ...", "DEL ..."
+            events.push(line.clone());
         }
         if let Some((_, last_score)) = items.last() {
-            // last_score is f64; convert to i64 millis then Crockford32
-            let millis = *last_score as i64;
-            cursor = encode_crockford32(millis);
+            cursor = *last_score as u64;
         }
     }
 
