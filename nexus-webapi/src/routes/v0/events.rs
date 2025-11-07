@@ -33,7 +33,6 @@ pub struct EventsQuery {
     limit: Option<usize>,
 }
 
-// HACK: return proper error?
 fn decode_crockford32(s: &str) -> Result<i64, String> {
     crockford::decode(s)
         .map(|v| v as i64)
