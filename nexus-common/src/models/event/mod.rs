@@ -106,7 +106,12 @@ impl Event {
         let elements = vec![(ts_ms, line.as_str())];
         debug!("Storing event line: {ts_ms} {line}");
 
-        Event::put_index_sorted_set(&["Events"], &elements, None, None).await
+        // While events can be removed basically right after they were exposed to consumer, it
+        // is better to have certain retention policy to avoid accidental data loss.
+        // Therefore we have 180 days retention policy "just in case".
+        let expiration = 180 * 24 * 60 * 60;
+
+        Event::put_index_sorted_set(&["Events"], &elements, None, Some(expiration)).await
     }
 
     pub async fn get_events_from_redis(
