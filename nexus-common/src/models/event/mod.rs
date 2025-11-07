@@ -1,12 +1,12 @@
 mod errors;
 
-use crate::db::RedisOps;
+use crate::db::{kv::SortOrder, RedisOps};
 use crate::types::DynError;
 use pubky_app_specs::{ParsedUri, Resource};
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{fmt, path::PathBuf};
-use tracing::debug;
+use tracing::{debug, error};
 
 pub use errors::EventProcessorError;
 
@@ -101,5 +101,37 @@ impl Event {
         debug!("Storing event line: {ts_ms} {line}");
 
         Event::put_index_sorted_set(&["Events"], &elements, None, None).await
+    }
+
+    pub async fn get_events_from_redis(
+        cursor: Option<f64>,
+        limit: usize,
+    ) -> Result<Vec<(String, f64)>, DynError> {
+        let result = Event::try_from_index_sorted_set(
+            &["Events"],
+            cursor,
+            None,
+            None,
+            Some(limit + 1),
+            SortOrder::Descending,
+            None,
+        )
+        .await;
+
+        let result = match result {
+            Ok(r) => r,
+            Err(error) => {
+                error!(
+                    "IndexReadFailed: Failed to read from index due to Redis error: {}",
+                    error
+                );
+                return Err(error);
+            }
+        };
+
+        match result {
+            Some(v) => Ok(v),
+            None => Ok(Vec::new()),
+        }
     }
 }

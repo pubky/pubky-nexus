@@ -1,5 +1,4 @@
 use crate::routes::AppState;
-use nexus_common::db::{kv::SortOrder, RedisOps};
 use nexus_common::models::event::Event;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -58,7 +57,9 @@ fn decode_crockford32(s: &str) -> Result<i64, String> {
 )]
 pub async fn get_events_handler(Query(q): Query<EventsQuery>) -> Result<Response, Error> {
     let (limit, cursor) = parse_query(&q)?;
-    let items = get_from_redis(cursor, limit).await?;
+    let items = Event::get_events_from_redis(cursor, limit)
+        .await
+        .map_err(|source| Error::InternalServerError { source })?;
     let event_list = assemble_page(items);
 
     // Convert to a plain text response
@@ -81,29 +82,6 @@ fn assemble_page(items: Vec<(String, f64)>) -> EventsList {
     }
 
     EventsList { events, cursor }
-}
-
-async fn get_from_redis(cursor: Option<f64>, limit: usize) -> Result<Vec<(String, f64)>, Error> {
-    let result = Event::try_from_index_sorted_set(
-        &["Events"],
-        cursor,
-        None,
-        None,
-        Some(limit + 1),
-        SortOrder::Descending,
-        None,
-    )
-    .await;
-
-    let result = match result {
-        Ok(r) => r,
-        Err(source) => return Err(Error::InternalServerError { source }),
-    };
-
-    match result {
-        Some(v) => Ok(v),
-        None => Ok(Vec::new()),
-    }
 }
 
 fn parse_query(q: &EventsQuery) -> Result<(usize, Option<f64>), Error> {
