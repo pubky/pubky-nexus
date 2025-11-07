@@ -37,7 +37,7 @@ pub struct Event {
 impl RedisOps for Event {}
 
 impl Event {
-    /// Parse event based on event line retured by homeservers' /events endpoint.
+    /// Parse event based on event line returned by homeservers' /events endpoint.
     /// - line - event line string
     /// - files_path - path to the directory where files are stored on nexus
     pub fn parse_event(line: &str, files_path: PathBuf) -> Result<Option<Self>, DynError> {
@@ -99,7 +99,7 @@ impl Event {
         //
         // At the same time the timestamp is the same as it is used in homeserver in order
         // to simplify migration from homeserver /events endpoint to nexus /events endpoint
-        // aiming to make them mutually replacable from the consumer standpoint.
+        // aiming to make them mutually replaceable from the consumer standpoint.
         let ts_ms = SystemTime::now().duration_since(UNIX_EPOCH)?.as_micros() as f64;
         let line = format!("{} {}", self.event_type, self.uri);
 

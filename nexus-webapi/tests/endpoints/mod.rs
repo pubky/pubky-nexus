@@ -101,7 +101,9 @@ async fn test_events_endpoint() -> Result<()> {
             .map(|s| format!("cursor={}&", s))
             .unwrap_or_default();
 
-        for line in part_of_body.lines().take(part_of_body.lines().count() - 1) {
+        let lines: Vec<&str> = part_of_body.lines().collect();
+        let count = lines.len();
+        for line in lines.into_iter().take(count - 1) {
             assert!(whole_body.contains(line));
         }
         counter += 1;

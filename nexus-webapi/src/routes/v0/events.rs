@@ -8,7 +8,6 @@ use crockford;
 
 use crate::Error;
 use axum::extract::Query;
-// use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::{response::Response, Router};
 use utoipa::OpenApi;
@@ -71,9 +70,10 @@ fn assemble_page(items: Vec<(String, f64)>) -> EventsList {
     let mut events = Vec::with_capacity(items.len());
     let mut cursor: u64 = 0;
     if !items.is_empty() {
-        // if line is the last one , set the cursor to its score, for the res of the items collect them in events
-        for (i, (line, score)) in items.clone().into_iter().enumerate() {
-            if i == items.len() - 1 {
+        // if line is the last one, set the cursor to its score, for the rest of the items collect them in events
+        let len = items.len();
+        for (i, (line, score)) in items.into_iter().enumerate() {
+            if i == len - 1 {
                 cursor = score as u64;
             } else {
                 events.push(line);
