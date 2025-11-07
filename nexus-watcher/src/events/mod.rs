@@ -94,6 +94,7 @@ pub async fn handle_put_event(event: &Event, moderation: Arc<Moderation>) -> Res
     Ok(())
 }
 
+/// Handles a DEL event by deleting the corresponding resource from the database.
 pub async fn handle_del_event(event: &Event) -> Result<(), DynError> {
     debug!("Handling DEL event for URI: {}", event.uri);
 
