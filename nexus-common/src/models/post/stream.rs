@@ -76,11 +76,11 @@ impl StreamSource {
 #[serde(rename_all = "snake_case")]
 pub struct PostKeyStream {
     pub post_keys: Vec<String>,
-    pub last_post_score: Option<f64>,
+    pub last_post_score: Option<u64>,
 }
 
 impl PostKeyStream {
-    pub fn new(post_keys: Vec<String>, last_post_score: Option<f64>) -> Self {
+    pub fn new(post_keys: Vec<String>, last_post_score: Option<u64>) -> Self {
         Self {
             post_keys,
             last_post_score,
@@ -89,7 +89,7 @@ impl PostKeyStream {
 
     // Iterate over tuples of (post_key, score) to extract the post keys and capture the last score
     pub fn from_scored_entries(entries: Vec<(String, f64)>) -> Self {
-        let last_post_score = entries.last().map(|(_, score)| *score);
+        let last_post_score = entries.last().map(|(_, score)| score.round() as u64);
         let post_keys = entries.into_iter().map(|(key, _)| key).collect();
         Self::new(post_keys, last_post_score)
     }
@@ -282,7 +282,7 @@ impl PostStream {
         // TODO: Not sure if it is a good idea to return a None as a score. TBD with FE
         let last_post_score = if let Some((author_id, post_id)) = last_post_id {
             let post_details = PostDetails::get_by_id(&author_id, &post_id).await?;
-            post_details.map(|details| details.indexed_at as f64)
+            post_details.map(|details| details.indexed_at as u64)
         } else {
             None
         };
@@ -352,7 +352,7 @@ impl PostStream {
         let stream = match post_search_result {
             Some(post_keys) => {
                 // Iterate over PostsByTagSearch structs to extract post keys and capture the last score
-                let last_post_score = post_keys.last().map(|entry| entry.score as f64);
+                let last_post_score = post_keys.last().map(|entry| entry.score as u64);
                 let post_keys = post_keys
                     .into_iter()
                     .map(|post_score| post_score.post_key)
