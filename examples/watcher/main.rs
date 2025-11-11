@@ -39,6 +39,7 @@ async fn main() -> Result<(), DynError> {
             let config = WatcherConfig {
                 name: String::from("nexusd.watcher"),
                 testnet: false,
+                decentralization: true,
                 testnet_host: "not-needed".to_string(),
                 homeserver,
                 events_limit: 100,
