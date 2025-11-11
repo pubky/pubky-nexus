@@ -17,6 +17,7 @@ pub struct EventProcessorRunner {
     pub shutdown_rx: Receiver<bool>,
     /// The default homeserver that the sync is done with
     pub default_homeserver: PubkyId,
+    pub decentralization: bool,
 }
 
 impl EventProcessorRunner {
@@ -32,6 +33,7 @@ impl EventProcessorRunner {
             }),
             shutdown_rx,
             default_homeserver: config.homeserver.clone(),
+            decentralization: config.decentralization,
         }
     }
 }
@@ -47,6 +49,10 @@ impl TEventProcessorRunner for EventProcessorRunner {
     }
 
     async fn homeservers_by_priority(&self) -> Result<Vec<String>, DynError> {
+        if !self.decentralization {
+            return Ok(vec![self.default_homeserver().to_string()]);
+        }
+
         let mut hs_ids = Homeserver::get_all_from_graph().await?;
 
         // Move default homeserver to index 0 if it exists in the array to prioritize its processing

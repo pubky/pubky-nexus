@@ -22,6 +22,7 @@ async fn test_event_processor_runner_default_homeserver_prioritization() -> Resu
         files_path: PathBuf::from("/tmp/nexus-watcher-test"),
         tracer_name: String::from("unit-test-hs-list-test"),
         moderation: Arc::new(default_moderation_tests()),
+        decentralization: true,
     };
 
     // Persist the homeservers
@@ -33,6 +34,33 @@ async fn test_event_processor_runner_default_homeserver_prioritization() -> Resu
     // Prioritize the default homeserver
     let hs_ids = runner.homeservers_by_priority().await?;
     assert_eq!(hs_ids[0], HS_IDS[3]);
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_event_processor_runner_without_decentralization_tracks_default_only(
+) -> Result<(), DynError> {
+    setup().await?;
+
+    let default_homeserver = PubkyId::try_from(HS_IDS[0]).unwrap();
+    let runner = EventProcessorRunner {
+        default_homeserver: default_homeserver.clone(),
+        shutdown_rx: tokio::sync::watch::channel(false).1,
+        limit: 1000,
+        files_path: PathBuf::from("/tmp/nexus-watcher-test"),
+        tracer_name: String::from("unit-test-hs-list-test"),
+        moderation: Arc::new(default_moderation_tests()),
+        decentralization: false,
+    };
+
+    for hs_id in HS_IDS {
+        let hs = Homeserver::new(PubkyId::try_from(hs_id).unwrap());
+        hs.put_to_graph().await.unwrap();
+    }
+
+    let hs_ids = runner.homeservers_by_priority().await?;
+    assert_eq!(hs_ids, vec![default_homeserver.to_string()]);
 
     Ok(())
 }

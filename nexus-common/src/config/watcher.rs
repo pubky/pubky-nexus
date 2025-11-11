@@ -11,6 +11,7 @@ pub const TESTNET: bool = false;
 pub const DEFAULT_TESTNET_HOST: &str = "localhost";
 // Testnet homeserver key
 pub const HOMESERVER_PUBKY: &str = "8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo";
+pub const DECENTRALIZATION: bool = true;
 // Maximum number of events to fetch at once from a homeserver
 pub const EVENTS_LIMIT: u32 = 1000;
 // Sleep between checks to homeserver
@@ -32,6 +33,8 @@ pub const MODERATED_TAGS: [&str; 6] = [
 pub struct WatcherConfig {
     pub name: String,
     pub testnet: bool,
+    #[serde(default = "default_decentralization")]
+    pub decentralization: bool,
     pub testnet_host: String,
     pub homeserver: PubkyId,
     pub events_limit: u32,
@@ -56,6 +59,7 @@ impl Default for WatcherConfig {
             name: NAME.to_string(),
             stack: StackConfig::default(),
             testnet: TESTNET,
+            decentralization: DECENTRALIZATION,
             testnet_host: DEFAULT_TESTNET_HOST.to_string(),
             homeserver,
             events_limit: EVENTS_LIMIT,
@@ -64,6 +68,10 @@ impl Default for WatcherConfig {
             moderated_tags: MODERATED_TAGS.iter().map(|s| s.to_string()).collect(),
         }
     }
+}
+
+fn default_decentralization() -> bool {
+    DECENTRALIZATION
 }
 
 /// Converts a [`DaemonConfig`] into an [`WatcherConfig`], extracting only the Watcher-related settings

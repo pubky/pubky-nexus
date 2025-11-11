@@ -38,6 +38,12 @@ impl NexusWatcherBuilder {
         self
     }
 
+    pub fn decentralization(&mut self, decentralization: bool) -> &mut Self {
+        self.0.decentralization = decentralization;
+
+        self
+    }
+
     pub fn homeserver(&mut self, homeserver: PubkyId) -> &mut Self {
         self.0.homeserver = homeserver;
 
