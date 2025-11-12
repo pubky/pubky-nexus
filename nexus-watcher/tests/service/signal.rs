@@ -26,7 +26,7 @@ async fn test_shutdown_signal() -> Result<()> {
         .await;
     }
 
-    let runner = MockEventProcessorRunner::new(event_processor_list, shutdown_rx);
+    let runner = MockEventProcessorRunner::new(event_processor_list, 3, shutdown_rx);
 
     // Schedule Ctrl-C simulation after 1s
     tokio::spawn({

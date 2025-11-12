@@ -19,6 +19,7 @@ async fn test_event_processor_runner_default_homeserver_prioritization() -> Resu
         default_homeserver: PubkyId::try_from(HS_IDS[3]).unwrap(),
         shutdown_rx: tokio::sync::watch::channel(false).1,
         limit: 1000,
+        monitored_homeservers_limit: HS_IDS.len(),
         files_path: PathBuf::from("/tmp/nexus-watcher-test"),
         tracer_name: String::from("unit-test-hs-list-test"),
         moderation: Arc::new(default_moderation_tests()),
@@ -50,6 +51,7 @@ async fn test_mock_event_processor_runner_default_homeserver_prioritization() ->
 
     let runner = MockEventProcessorRunner {
         event_processors,
+        monitored_homeservers_limit: 100,
         shutdown_rx: tokio::sync::watch::channel(false).1,
     };
 

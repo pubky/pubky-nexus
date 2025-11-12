@@ -36,7 +36,7 @@ async fn test_multiple_homeserver_event_processing() -> Result<()> {
     )
     .await;
 
-    let runner = MockEventProcessorRunner::new(event_processor_list, shutdown_rx);
+    let runner = MockEventProcessorRunner::new(event_processor_list, 4, shutdown_rx);
 
     let stats = runner.run_all().await.unwrap().0;
     assert_eq!(stats.count_ok(), 3);
@@ -67,7 +67,7 @@ async fn test_multi_hs_event_processing_with_timeout() -> Result<()> {
         .await;
     }
 
-    let runner = MockEventProcessorRunner::new(event_processor_list, shutdown_rx);
+    let runner = MockEventProcessorRunner::new(event_processor_list, 3, shutdown_rx);
 
     let stats = runner.run_all().await.unwrap().0;
     assert_eq!(stats.count_ok(), 1); // 1 success
@@ -110,7 +110,7 @@ async fn test_multi_hs_event_processing_with_panic() -> Result<()> {
         .await;
     }
 
-    let runner = MockEventProcessorRunner::new(event_processor_list, shutdown_rx);
+    let runner = MockEventProcessorRunner::new(event_processor_list, 5, shutdown_rx);
 
     let stats = runner.run_all().await.unwrap().0;
     assert_eq!(stats.count_ok(), 3); // 3 expected to succeed

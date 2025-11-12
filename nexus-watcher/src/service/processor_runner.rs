@@ -12,6 +12,8 @@ use tokio::sync::watch::Receiver;
 pub struct EventProcessorRunner {
     /// See [WatcherConfig::events_limit]
     pub limit: u32,
+    /// See [WatcherConfig::monitored_homeservers_limit]
+    pub monitored_homeservers_limit: usize,
     pub files_path: PathBuf,
     pub tracer_name: String,
     pub moderation: Arc<Moderation>,
@@ -25,6 +27,7 @@ impl EventProcessorRunner {
     pub fn from_config(config: &WatcherConfig, shutdown_rx: Receiver<bool>) -> Self {
         Self {
             limit: config.events_limit,
+            monitored_homeservers_limit: config.monitored_homeservers_limit,
             files_path: config.stack.files_path.clone(),
             tracer_name: config.name.clone(),
             moderation: Arc::new(Moderation {
@@ -45,6 +48,10 @@ impl TEventProcessorRunner for EventProcessorRunner {
 
     fn default_homeserver(&self) -> &str {
         &self.default_homeserver
+    }
+
+    fn monitored_homeservers_limit(&self) -> usize {
+        self.monitored_homeservers_limit
     }
 
     async fn homeservers_by_priority(&self) -> Result<Vec<String>, DynError> {
