@@ -33,6 +33,7 @@ pub struct WatcherConfig {
     pub name: String,
     pub testnet: bool,
     pub testnet_host: String,
+    /// Default homeserver. Other homeservers may be ingested in addition, but this one is prioritized.
     pub homeserver: PubkyId,
     /// Maximum number of events to fetch per run from each homeserver
     pub events_limit: u32,

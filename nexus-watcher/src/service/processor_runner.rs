@@ -16,7 +16,7 @@ pub struct EventProcessorRunner {
     pub tracer_name: String,
     pub moderation: Arc<Moderation>,
     pub shutdown_rx: Receiver<bool>,
-    /// The default homeserver that the sync is done with
+    /// See [WatcherConfig::homeserver]
     pub default_homeserver: PubkyId,
 }
 
