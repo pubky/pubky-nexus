@@ -18,7 +18,10 @@ testnet = false
 testnet_host = "localhost"
 # Synonym homeserver pubky
 homeserver = "8um71us3fyw6h8wbcxb5ar3rwusy1a6u49956ikzojg3gcwd1dty"
+# Maximum number of events to fetch per run from each homeserver
 events_limit = 50
+# Maximum number of monitored homeservers. If set to 1, only the default homeserver is monitored.
+monitored_homeservers_limit = 50
 watcher_sleep = 5000
 # User public key to trust for moderating content
 moderation_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"

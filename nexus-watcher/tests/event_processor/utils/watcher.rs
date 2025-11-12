@@ -62,6 +62,7 @@ impl WatcherTest {
 
         EventProcessorRunner {
             limit: 1000,
+            monitored_homeservers_limit: 100,
             files_path: get_files_dir_test_pathbuf(),
             tracer_name: String::from("watcher.test"),
             moderation,

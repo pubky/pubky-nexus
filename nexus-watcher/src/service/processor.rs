@@ -16,6 +16,7 @@ use tracing::{debug, error, info};
 
 pub struct EventProcessor {
     pub homeserver: Homeserver,
+    /// See [WatcherConfig::events_limit]
     pub limit: u32,
     pub files_path: PathBuf,
     pub tracer_name: String,

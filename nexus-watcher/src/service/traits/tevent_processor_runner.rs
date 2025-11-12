@@ -5,7 +5,6 @@ use tokio::sync::watch::Receiver;
 use tracing::{error, info};
 
 use crate::service::{
-    constants::MAX_HOMESERVERS_PER_RUN,
     stats::{ProcessedStats, ProcessorRunStatus, RunAllProcessorsStats},
     traits::{tevent_processor::RunError, TEventProcessor},
 };
@@ -26,6 +25,8 @@ pub trait TEventProcessorRunner {
     /// This is used to prioritize the default homeserver when processing multiple homeservers.
     fn default_homeserver(&self) -> &str;
 
+    fn monitored_homeservers_limit(&self) -> usize;
+
     /// Returns the homeserver IDs relevant for this run, ordered by their priority.
     ///
     /// Contains all homeserver IDs from the graph, with the default homeserver prioritized at index 0.
@@ -44,14 +45,15 @@ pub trait TEventProcessorRunner {
     /// Throws a [`DynError`] if the event processor couldn't be built
     async fn build(&self, homeserver_id: String) -> Result<Arc<dyn TEventProcessor>, DynError>;
 
-    /// Decides the homeservers (which ones and in which order) from which events will be fetched and processed.
+    /// Decides the amount and order of homeservers from which events will be fetched and processed in `run_all`.
     ///
     /// # Returns
-    /// Ordered list of homeserver IDs considered for `run_all`, from highest to lowest prio.
+    /// Considers the values of [TEventProcessorRunner::homeservers_by_priority].
+    /// Depending on [TEventProcessorRunner::monitored_homeservers_limit], only a subset of this list may be returned.
     async fn pre_run_all(&self) -> Result<Vec<String>, DynError> {
         let hs_ids = self.homeservers_by_priority().await?;
-        let max = std::cmp::min(MAX_HOMESERVERS_PER_RUN, hs_ids.len());
-        Ok(hs_ids[..max].to_vec())
+        let max_index = std::cmp::min(self.monitored_homeservers_limit(), hs_ids.len());
+        Ok(hs_ids[..max_index].to_vec())
     }
 
     /// Post-processing of the run results
