@@ -48,6 +48,38 @@ async fn test_multiple_homeserver_event_processing() -> Result<()> {
 }
 
 #[tokio_shared_rt::test(shared)]
+async fn test_multi_hs_event_processing_with_homeserver_limit() -> Result<()> {
+    // Initialize the test
+    let mut event_processor_list = setup().await?;
+    let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+
+    // Create 5 random homeservers
+    for _ in 0..5 {
+        let processor_status = MockEventProcessorResult::Success;
+        create_random_homeservers_and_persist(
+            &mut event_processor_list,
+            None,
+            processor_status,
+            None,
+            shutdown_rx.clone(),
+        )
+        .await;
+    }
+
+    assert_eq!(event_processor_list.len(), 5); // Ensure 5 HSs are available
+    let hs_limit = 3; // Configure a monitored_homeservers_limit of 3
+    let runner = MockEventProcessorRunner::new(event_processor_list, hs_limit, shutdown_rx);
+    let stats = runner.run_all().await.unwrap().0;
+
+    assert_eq!(stats.count_ok(), 3); // 3 successful ones, due to the limit (5 HSs were available)
+    assert_eq!(stats.count_timeout(), 0);
+    assert_eq!(stats.count_error(), 0);
+    assert_eq!(stats.count_panic(), 0);
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
 async fn test_multi_hs_event_processing_with_timeout() -> Result<()> {
     const EVENT_PROCESSOR_TIMEOUT: Option<Duration> = Some(Duration::from_secs(1));
     // Initialize the test
