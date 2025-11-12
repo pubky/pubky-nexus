@@ -215,7 +215,6 @@ impl PostStream {
                 Self::get_global_posts_keys(sorting, order, start, end, skip, limit).await
             }
             // Streams by tags
-            //DIFF
             (StreamSource::All, Some(tags)) if tags.len() == 1 => {
                 Self::get_posts_keys_by_tag(&tags[0], sorting, start, end, skip, limit).await
             }
@@ -267,25 +266,21 @@ impl PostStream {
         }
 
         let mut post_keys = Vec::new();
-        // Composite id: (author_id, post_id)
-        let mut last_post_id: Option<(String, String)> = None;
+        // Track the last post's indexed_at value
+        let mut last_post_indexed_at: Option<i64> = None;
 
         while let Some(row) = result.next().await? {
             let author_id: String = row.get("author_id")?;
             let post_id: String = row.get("post_id")?;
+            let indexed_at: i64 = row.get("indexed_at")?;
             let post_key = format!("{author_id}:{post_id}");
-            // Track the last post ID by overwriting on each iteration
-            last_post_id = Some((author_id, post_id));
+            // Track the last post's indexed_at by overwriting on each iteration
+            last_post_indexed_at = Some(indexed_at);
             post_keys.push(post_key);
         }
 
-        // TODO: Not sure if it is a good idea to return a None as a score. TBD with FE
-        let last_post_score = if let Some((author_id, post_id)) = last_post_id {
-            let post_details = PostDetails::get_by_id(&author_id, &post_id).await?;
-            post_details.map(|details| details.indexed_at as u64)
-        } else {
-            None
-        };
+        // Convert the last indexed_at to u64 for the score
+        let last_post_score = last_post_indexed_at.map(|indexed_at| indexed_at as u64);
 
         Ok(PostKeyStream::new(post_keys, last_post_score))
     }
