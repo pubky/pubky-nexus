@@ -10,6 +10,7 @@ use std::sync::Arc;
 use tokio::sync::watch::Receiver;
 
 pub struct EventProcessorRunner {
+    /// See [WatcherConfig::events_limit]
     pub limit: u32,
     pub files_path: PathBuf,
     pub tracer_name: String,
