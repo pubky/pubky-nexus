@@ -12,9 +12,9 @@ pub const DEFAULT_TESTNET_HOST: &str = "localhost";
 // Testnet homeserver key
 pub const HOMESERVER_PUBKY: &str = "8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo";
 /// Default for [WatcherConfig::events_limit]
-pub const DEFAULT_EVENTS_LIMIT: u32 = 1000;
-// Sleep between checks to homeserver
-pub const WATCHER_SLEEP: u64 = 5000;
+pub const DEFAULT_EVENTS_LIMIT: u32 = 1_000;
+/// Default for [WatcherConfig::watcher_sleep]
+pub const DEFAULT_WATCHER_SLEEP: u64 = 5_000;
 // Moderation service key
 pub const MODERATION_ID: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 // Moderation service key
@@ -36,6 +36,7 @@ pub struct WatcherConfig {
     pub homeserver: PubkyId,
     /// Maximum number of events to fetch per run from each homeserver
     pub events_limit: u32,
+    /// Sleep between every full run (over all monitored homeservers), in milliseconds
     pub watcher_sleep: u64,
     #[serde(default = "default_stack")]
     pub stack: StackConfig,
@@ -60,7 +61,7 @@ impl Default for WatcherConfig {
             testnet_host: DEFAULT_TESTNET_HOST.to_string(),
             homeserver,
             events_limit: DEFAULT_EVENTS_LIMIT,
-            watcher_sleep: WATCHER_SLEEP,
+            watcher_sleep: DEFAULT_WATCHER_SLEEP,
             moderation_id,
             moderated_tags: MODERATED_TAGS.iter().map(|s| s.to_string()).collect(),
         }
