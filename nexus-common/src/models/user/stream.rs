@@ -43,6 +43,21 @@ pub struct UserStreamInput {
     pub post_id: Option<String>,
 }
 
+#[derive(Serialize, Deserialize, ToSchema, Debug, Default, Clone)]
+pub struct UserIdStream {
+    pub user_ids: Vec<String>,
+}
+
+impl UserIdStream {
+    pub fn new(user_ids: Vec<String>) -> Self {
+        Self { user_ids }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.user_ids.is_empty()
+    }
+}
+
 #[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
 pub struct UserStream(pub Vec<UserView>);
 

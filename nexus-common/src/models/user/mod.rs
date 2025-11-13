@@ -17,7 +17,7 @@ pub use muted::Muted;
 pub use relationship::Relationship;
 pub use search::{UserSearch, USER_NAME_KEY_PARTS};
 pub use stream::{
-    UserStream, UserStreamInput, UserStreamSource, USER_INFLUENCERS_KEY_PARTS,
+    UserIdStream, UserStream, UserStreamInput, UserStreamSource, USER_INFLUENCERS_KEY_PARTS,
     USER_MOSTFOLLOWED_KEY_PARTS,
 };
 pub use tags::ProfileTag;
