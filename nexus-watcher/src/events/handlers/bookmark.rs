@@ -7,7 +7,7 @@ use nexus_common::types::DynError;
 use pubky_app_specs::{ParsedUri, PubkyAppBookmark, PubkyId, Resource};
 use tracing::debug;
 
-use crate::events::errors::EventProcessorError;
+use crate::events::EventProcessorError;
 
 pub async fn sync_put(
     user_id: PubkyId,

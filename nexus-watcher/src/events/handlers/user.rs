@@ -1,4 +1,4 @@
-use crate::events::errors::EventProcessorError;
+use crate::events::EventProcessorError;
 use crate::handle_indexing_results;
 use nexus_common::db::queries::get::user_is_safe_to_delete;
 use nexus_common::db::{execute_graph_operation, OperationOutcome};

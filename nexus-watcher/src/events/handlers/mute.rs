@@ -1,4 +1,4 @@
-use crate::events::{errors::EventProcessorError, retry::event::RetryEvent};
+use crate::events::{retry::event::RetryEvent, EventProcessorError};
 use nexus_common::db::OperationOutcome;
 use nexus_common::models::user::Muted;
 use nexus_common::types::DynError;
