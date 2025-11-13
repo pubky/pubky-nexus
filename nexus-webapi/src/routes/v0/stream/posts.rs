@@ -16,41 +16,6 @@ use utoipa::{OpenApi, ToSchema};
 
 const MAX_TAGS: usize = 5;
 
-// Parameter description constants for OpenAPI documentation
-const PARAM_SOURCE_DESC: &str = "Source of posts for streams with viewer (following, followers, friends, bookmarks, replies, all)";
-const PARAM_VIEWER_ID_DESC: &str = "Viewer Pubky ID";
-const PARAM_OBSERVER_ID_DESC: &str = "Observer Pubky ID. The central point for streams with Reach";
-const PARAM_AUTHOR_ID_DESC: &str = "Filter posts by an specific author User ID";
-const PARAM_POST_ID_DESC: &str =
-    "This parameter is needed when we want to retrieve the replies stream for a post";
-const PARAM_SORTING_DESC: &str = "StreamSorting method";
-const PARAM_ORDER_DESC: &str =
-    "Ordering of response list. Either 'ascending' or 'descending'. Defaults to descending.";
-const PARAM_TAGS_DESC: &str = "Filter by a list of comma-separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned.";
-const PARAM_KIND_DESC: &str =
-    "Specifies the type of posts to retrieve: short, long, image, video, link and file";
-const PARAM_SKIP_DESC: &str = "Skip N posts";
-const PARAM_LIMIT_DESC: &str = "Retrieve N posts";
-const PARAM_START_DESC: &str = "The start of the stream timeframe or score. Posts with a timestamp/score greater than this value will be excluded from the results";
-const PARAM_END_DESC: &str = "The end of the stream timeframe or score. Posts with a timestamp/score less than this value will be excluded from the results";
-
-macro_rules! stream_desc {
-    ($intro:literal) => {
-        concat!(
-            $intro,
-            "\n",
-            "\n",
-            "The `source` parameter determines the type of stream. Depending on the `source`, certain parameters are required:\n",
-            "- *following*, *followers*, *friends*, *bookmarks*: Requires **observer_id**.\n",
-            "- *post_replies*: Requires **author_id** and **post_id** to filter replies to a specific post.\n",
-            "- *author*:  Requires  **author_id** to filter posts by a specific author.\n",
-            "- *author_replies*:  Requires  **author_id** to filter replies by a specific author.\n",
-            "\n",
-            "Ensure that you provide the necessary parameters based on the selected `source`. If the required parameter is not provided, the provided `source` will be ignored and the stream type will default to *all*"
-        )
-    };
-}
-
 #[derive(Deserialize, Debug, ToSchema)]
 pub struct PostStreamQuery {
     #[serde(flatten, default)]
@@ -114,26 +79,35 @@ where
     path = STREAM_POSTS_ROUTE,
     tag = "Stream",
     params(
-        ("source" = Option<StreamSource>, Query, description = PARAM_SOURCE_DESC),
-        ("viewer_id" = Option<String>, Query, description = PARAM_VIEWER_ID_DESC),
-        ("observer_id" = Option<String>, Query, description = PARAM_OBSERVER_ID_DESC),
-        ("author_id" = Option<String>, Query, description = PARAM_AUTHOR_ID_DESC),
-        ("post_id" = Option<String>, Query, description = PARAM_POST_ID_DESC),
-        ("sorting" = Option<StreamSorting>, Query, description = PARAM_SORTING_DESC),
-        ("order" = Option<SortOrder>, Query, description = PARAM_ORDER_DESC),
-        ("tags" = Option<Vec<String>>, Query, description = PARAM_TAGS_DESC),
-        ("kind" = Option<PubkyAppPostKind>, Query, description = PARAM_KIND_DESC),
-        ("skip" = Option<usize>, Query, description = PARAM_SKIP_DESC),
-        ("limit" = Option<usize>, Query, description = PARAM_LIMIT_DESC),
-        ("start" = Option<usize>, Query, description = PARAM_START_DESC),
-        ("end" = Option<usize>, Query, description = PARAM_END_DESC),
+        ("source" = Option<StreamSource>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, replies, all)"),
+        ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
+        ("observer_id" = Option<String>, Query, description = "Observer Pubky ID. The central point for streams with Reach"),
+        ("author_id" = Option<String>, Query, description = "Filter posts by an specific author User ID"),
+        ("post_id" = Option<String>, Query, description = "This parameter is needed when we want to retrieve the replies stream for a post"),
+        ("sorting" = Option<StreamSorting>, Query, description = "StreamSorting method"),
+        ("order" = Option<SortOrder>, Query, description = "Ordering of response list. Either 'ascending' or 'descending'. Defaults to descending."),
+        ("tags" = Option<Vec<String>>, Query, description = "Filter by a list of comma-separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned."),
+        ("kind" = Option<PubkyAppPostKind>, Query, description = "Specifies the type of posts to retrieve: short, long, image, video, link and file"),
+        ("skip" = Option<usize>, Query, description = "Skip N posts"),
+        ("limit" = Option<usize>, Query, description = "Retrieve N posts"),
+        ("start" = Option<usize>, Query, description = "The start of the stream timeframe or score. Posts with a timestamp/score greater than this value will be excluded from the results"),
+        ("end" = Option<usize>, Query, description = "The end of the stream timeframe or score. Posts with a timestamp/score less than this value will be excluded from the results"),
     ),
     responses(
         (status = 200, description = "Posts stream", body = PostStream),
         (status = 404, description = "Posts not found"),
         (status = 500, description = "Internal server error")
     ),
-    description = stream_desc!("Stream Posts: Retrieve a stream of posts.\n")
+    description = r#"Stream Posts: Retrieve a stream of posts.
+
+
+The `source` parameter determines the type of stream. Depending on the `source`, certain parameters are required:
+- *following*, *followers*, *friends*, *bookmarks*: Requires **observer_id**.
+- *post_replies*: Requires **author_id** and **post_id** to filter replies to a specific post.
+- *author*:  Requires  **author_id** to filter posts by a specific author.
+- *author_replies*:  Requires  **author_id** to filter replies by a specific author.
+
+Ensure that you provide the necessary parameters based on the selected `source`. If the required parameter is not provided, the provided `source` will be ignored and the stream type will default to *all*"#
 )]
 pub async fn stream_posts_handler(
     Query(mut query): Query<PostStreamQuery>,
@@ -168,25 +142,33 @@ pub async fn stream_posts_handler(
     path = STREAM_POST_KEYS_ROUTE,
     tag = "Stream",
     params(
-        ("source" = Option<StreamSource>, Query, description = PARAM_SOURCE_DESC),
-        ("observer_id" = Option<String>, Query, description = PARAM_OBSERVER_ID_DESC),
-        ("author_id" = Option<String>, Query, description = PARAM_AUTHOR_ID_DESC),
-        ("post_id" = Option<String>, Query, description = PARAM_POST_ID_DESC),
-        ("sorting" = Option<StreamSorting>, Query, description = PARAM_SORTING_DESC),
-        ("order" = Option<SortOrder>, Query, description = PARAM_ORDER_DESC),
-        ("tags" = Option<Vec<String>>, Query, description = PARAM_TAGS_DESC),
-        ("kind" = Option<PubkyAppPostKind>, Query, description = PARAM_KIND_DESC),
-        ("skip" = Option<usize>, Query, description = PARAM_SKIP_DESC),
-        ("limit" = Option<usize>, Query, description = PARAM_LIMIT_DESC),
-        ("start" = Option<usize>, Query, description = PARAM_START_DESC),
-        ("end" = Option<usize>, Query, description = PARAM_END_DESC),
+        ("source" = Option<StreamSource>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, replies, all)"),
+        ("observer_id" = Option<String>, Query, description = "Observer Pubky ID. The central point for streams with Reach"),
+        ("author_id" = Option<String>, Query, description = "Filter posts by an specific author User ID"),
+        ("post_id" = Option<String>, Query, description = "This parameter is needed when we want to retrieve the replies stream for a post"),
+        ("sorting" = Option<StreamSorting>, Query, description = "StreamSorting method"),
+        ("order" = Option<SortOrder>, Query, description = "Ordering of response list. Either 'ascending' or 'descending'. Defaults to descending."),
+        ("tags" = Option<Vec<String>>, Query, description = "Filter by a list of comma-separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned."),
+        ("kind" = Option<PubkyAppPostKind>, Query, description = "Specifies the type of posts to retrieve: short, long, image, video, link and file"),
+        ("skip" = Option<usize>, Query, description = "Skip N posts"),
+        ("limit" = Option<usize>, Query, description = "Retrieve N posts"),
+        ("start" = Option<usize>, Query, description = "The start of the stream timeframe or score. Posts with a timestamp/score greater than this value will be excluded from the results"),
+        ("end" = Option<usize>, Query, description = "The end of the stream timeframe or score. Posts with a timestamp/score less than this value will be excluded from the results"),
     ),
     responses(
         (status = 200, description = "Post key stream", body = PostKeyStream),
         (status = 404, description = "Posts not found"),
         (status = 500, description = "Internal server error")
     ),
-    description = stream_desc!("Stream Post Keys: Retrieve a stream of post identifiers")
+    description = r#"Stream Post Keys: Retrieve a stream of post identifiers
+
+The `source` parameter determines the type of stream. Depending on the `source`, certain parameters are required:
+- *following*, *followers*, *friends*, *bookmarks*: Requires **observer_id**.
+- *post_replies*: Requires **author_id** and **post_id** to filter replies to a specific post.
+- *author*:  Requires  **author_id** to filter posts by a specific author.
+- *author_replies*:  Requires  **author_id** to filter replies by a specific author.
+
+Ensure that you provide the necessary parameters based on the selected `source`. If the required parameter is not provided, the provided `source` will be ignored and the stream type will default to *all*"#
 )]
 pub async fn stream_post_keys_handler(
     Query(mut query): Query<PostStreamQuery>,
