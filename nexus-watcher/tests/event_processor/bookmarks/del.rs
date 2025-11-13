@@ -76,7 +76,11 @@ async fn test_homeserver_unbookmark() -> Result<()> {
     )
     .await
     .unwrap();
-    assert!(bookmarks.is_empty(), "The bookmark list should be empty");
+    assert!(
+        bookmarks.post_keys.is_empty(),
+        "The bookmark list should be empty"
+    );
+    assert!(bookmarks.last_post_score.is_none());
 
     let exist_bookmark = Bookmark::get_from_index(&author_id, &post_id, &bookmarker_id)
         .await
