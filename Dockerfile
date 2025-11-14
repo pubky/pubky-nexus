@@ -1,10 +1,10 @@
 # ========================
 # Build Stage
 # ========================
-FROM rust:1.87.0-alpine3.22 AS builder
+FROM rust:1.90.0-alpine3.22 AS builder
 
 # Build platform argument (x86_64 or aarch64) (default: x86_64)
-ARG TARGETARCH=x86_64
+ARG TARGETARCH
 RUN echo "TARGETARCH: $TARGETARCH"
 
 # Install build dependencies, including static OpenSSL libraries
@@ -17,14 +17,6 @@ RUN apk add --no-cache \
     curl \
     git
 
-# Install cross-compiler toolchain only for ARM (Apple Silicon)
-RUN if [ "$TARGETARCH" = "aarch64" ]; then \
-    wget -qO- https://musl.cc/aarch64-linux-musl-cross.tgz | tar -xz -C /usr/local && \
-    echo "/usr/local/aarch64-linux-musl-cross/bin" > /tmp/musl_cross_path; \
-    else \
-    echo "" > /tmp/musl_cross_path; \
-    fi
-
 # Set PATH only if we installed the cross compiler (will be empty string for x86)
 ENV PATH="$(cat /tmp/musl_cross_path):$PATH"
 
@@ -32,9 +24,6 @@ ENV PATH="$(cat /tmp/musl_cross_path):$PATH"
 ENV OPENSSL_STATIC=yes
 ENV OPENSSL_LIB_DIR=/usr/lib
 ENV OPENSSL_INCLUDE_DIR=/usr/include
-
-# Add the MUSL target for static linking
-RUN rustup target add $TARGETARCH-unknown-linux-musl
 
 # Set the working directory
 WORKDIR /usr/src/app
@@ -46,17 +35,17 @@ COPY Cargo.toml Cargo.lock ./
 COPY . .
 
 # Build the project in release mode for the MUSL target
-RUN cargo build --release --bin nexusd --target $TARGETARCH-unknown-linux-musl
+RUN cargo build --release --bin nexusd
 
 # Strip the binaries to reduce size
-RUN strip target/$TARGETARCH-unknown-linux-musl/release/nexusd
+RUN strip target/release/nexusd
 
 # ========================
 # Runtime Stage
 # ========================
 FROM alpine:3.22
 
-ARG TARGETARCH=x86_64
+ARG TARGETARCH
 
 # Install runtime dependencies
 RUN apk add --no-cache ca-certificates \
@@ -69,7 +58,7 @@ RUN apk add --no-cache ca-certificates \
     imagemagick-raw
 
 # Copy the compiled binaries from the builder stage
-COPY --from=builder /usr/src/app/target/$TARGETARCH-unknown-linux-musl/release/nexusd /usr/local/bin/nexusd
+COPY --from=builder /usr/src/app/target/release/nexusd /usr/local/bin/nexusd
 
 # Set the working directory
 WORKDIR /usr/local/bin
