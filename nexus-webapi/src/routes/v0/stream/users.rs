@@ -29,26 +29,34 @@ pub struct UserStreamQuery {
 #[utoipa::path(
     get,
     path = STREAM_USERS_ROUTE,
-    description = "Stream users",
     tag = "Stream",
     params(
-        ("user_id" = Option<String>, Query, description = "User ID to use for streams with source 'following', 'followers', 'friends', 'muted', 'most_followed', 'influencers' and 'recommended'"),
+        ("source" = Option<UserStreamSource>, Query, description = "Source of users for streams (followers, following, friends, muted, most_followed, influencers, recommended, post_replies)"),
+        ("user_id" = Option<String>, Query, description = "User ID to use for streams with source 'following', 'followers', 'friends', 'muted', 'influencers' and 'recommended'"),
         ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
-        ("skip" = Option<usize>, Query, description = "Skip N followers"),
-        ("limit" = Option<usize>, Query, description = "Retrieve N followers"),
-        ("source" = Option<UserStreamSource>, Query, description = "Source of users for the stream."),
+        ("author_id" = Option<String>, Query, description = "Author ID when source is 'post_replies'"),
+        ("post_id" = Option<String>, Query, description = "Post ID when source is 'post_replies'"),
         ("reach" = Option<StreamReach>, Query, description = "The target reach of the source. Supported in 'influencers' source."),
         ("timeframe" = Option<Timeframe>, Query, description = "Timeframe for sources supporting a range"),
         ("preview" = Option<bool>, Query, description = "Provide a random selection of size 3 for sources supporting preview. Passing preview ignores skip and limit parameters."),
-        ("author_id" = Option<String>, Query, description = "Author id when source is 'post_replies'"),
-        ("post_id" = Option<String>, Query, description = "Post id when source is 'post_replies'"),
-        ("depth" = Option<usize>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 4, will be ignored")
+        ("depth" = Option<u8>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 3 will be ignored"),
+        ("skip" = Option<usize>, Query, description = "Skip N users"),
+        ("limit" = Option<usize>, Query, description = "Retrieve N users")
     ),
     responses(
         (status = 200, description = "Users stream", body = UserStream),
-        (status = 404, description = "User not found"),
+        (status = 404, description = "Users not found"),
         (status = 500, description = "Internal server error")
-    )
+    ),
+    description = r#"Stream Users: Retrieve a stream of users.
+
+The `source` parameter determines the type of stream. Depending on the `source`, certain parameters are required:
+- *following*, *followers*, *friends*, *muted*, *recommended*: Requires **user_id**.
+- *influencers*: When **user_id** is provided with a **timeframe** (not 'all_time'), **reach** determines the network scope for finding influencers.The **reach** parameter can be: 'followers', 'following', 'friends', 'wot' (defaults to depth 3), or 'wot_1', 'wot_2', 'wot_3'. Defaults to 'wot_3' if not specified. If **user_id** is not provided, returns global influencers.
+- *post_replies*: Requires **author_id** and **post_id** to filter replies to a specific post.
+- *most_followed*: Does not require **user_id**.
+
+Ensure that you provide the necessary parameters based on the selected `source`. If the required parameter is not provided, an error will be returned."#
 )]
 pub async fn stream_users_handler(
     Query(query): Query<UserStreamQuery>,
@@ -77,26 +85,34 @@ pub async fn stream_users_handler(
 #[utoipa::path(
     get,
     path = STREAM_USER_IDS_ROUTE,
-    description = "Stream user identifiers",
     tag = "Stream",
     params(
-        ("user_id" = Option<String>, Query, description = "User ID to use for streams with source 'following', 'followers', 'friends', 'muted', 'most_followed', 'influencers' and 'recommended'"),
+        ("source" = Option<UserStreamSource>, Query, description = "Source of users for streams (followers, following, friends, muted, most_followed, influencers, recommended, post_replies)"),
+        ("user_id" = Option<String>, Query, description = "User ID to use for streams with source 'following', 'followers', 'friends', 'muted', 'influencers' and 'recommended'"),
         ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
-        ("skip" = Option<usize>, Query, description = "Skip N followers"),
-        ("limit" = Option<usize>, Query, description = "Retrieve N followers"),
-        ("source" = Option<UserStreamSource>, Query, description = "Source of users for the stream."),
+        ("author_id" = Option<String>, Query, description = "Author ID when source is 'post_replies'"),
+        ("post_id" = Option<String>, Query, description = "Post ID when source is 'post_replies'"),
         ("reach" = Option<StreamReach>, Query, description = "The target reach of the source. Supported in 'influencers' source."),
         ("timeframe" = Option<Timeframe>, Query, description = "Timeframe for sources supporting a range"),
         ("preview" = Option<bool>, Query, description = "Provide a random selection of size 3 for sources supporting preview. Passing preview ignores skip and limit parameters."),
-        ("author_id" = Option<String>, Query, description = "Author id when source is 'post_replies'"),
-        ("post_id" = Option<String>, Query, description = "Post id when source is 'post_replies'"),
-        ("depth" = Option<usize>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 4, will be ignored")
+        ("depth" = Option<u8>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 3 will be ignored"),
+        ("skip" = Option<usize>, Query, description = "Skip N users"),
+        ("limit" = Option<usize>, Query, description = "Retrieve N users")
     ),
     responses(
-        (status = 200, description = "User ids stream", body = UserIdStream),
-        (status = 404, description = "User not found"),
+        (status = 200, description = "User IDs stream", body = UserIdStream),
+        (status = 404, description = "User IDs not found"),
         (status = 500, description = "Internal server error")
-    )
+    ),
+    description = r#"Stream User IDs: Retrieve a stream of user identifiers.
+
+The `source` parameter determines the type of stream. Depending on the `source`, certain parameters are required:
+- *following*, *followers*, *friends*, *muted*, *recommended*: Requires **user_id**.
+- *influencers*: When **user_id** is provided with a **timeframe** (not 'all_time'), **reach** determines the network scope for finding influencers.The **reach** parameter can be: 'followers', 'following', 'friends', 'wot' (defaults to depth 3), or 'wot_1', 'wot_2', 'wot_3'. Defaults to 'wot_3' if not specified. If **user_id** is not provided, returns global influencers.
+- *post_replies*: Requires **author_id** and **post_id** to filter replies to a specific post.
+- *most_followed*: Does not require **user_id**.
+
+Ensure that you provide the necessary parameters based on the selected `source`. If the required parameter is not provided, an error will be returned."#
 )]
 pub async fn stream_user_ids_handler(
     Query(query): Query<UserStreamQuery>,
@@ -211,9 +227,9 @@ pub struct UserStreamByIdsRequest {
     description = "Stream users by ID. This is a POST request because we're passing a potentially large list of user IDs in the request body.",
     request_body = UserStreamByIdsRequest,
     params(
-        ("user_ids" = Vec<String>, Path, description = "Users Pubky ID array"),
+        ("user_ids" = Vec<String>, Path, description = "User Pubky ID array"),
         ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
-        ("depth" = Option<usize>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 4, will be ignored")
+        ("depth" = Option<u8>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 4 will be ignored")
     ),
     responses(
         (status = 200, description = "Users stream", body = UserStream),

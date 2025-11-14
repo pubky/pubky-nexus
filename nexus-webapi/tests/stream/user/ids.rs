@@ -1,5 +1,6 @@
-use crate::utils::get_request;
+use crate::utils::{get_request, invalid_get_request};
 use anyhow::Result;
+use axum::http::StatusCode;
 use serde_json::Value;
 
 const IDS_ROOT_PATH: &str = "/v0/stream/users/ids";
@@ -77,4 +78,21 @@ async fn test_stream_user_ids_most_followed_align() -> Result<()> {
 async fn test_stream_user_ids_followers_align() -> Result<()> {
     let query = format!("source=followers&user_id={USER_ID}&limit=5");
     assert_user_ids_align(&query, "for follower streams requiring a user id").await
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_stream_user_ids_influencers_wot_1_align() -> Result<()> {
+    let query = format!(
+        "source=influencers&user_id={USER_ID}&timeframe=this_month&reach=wot_1&limit=5"
+    );
+    assert_user_ids_align(&query, "for influencers stream with reach wot_1").await
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_stream_user_ids_influencers_wot_5_invalid() -> Result<()> {
+    let endpoint = format!(
+        "{IDS_ROOT_PATH}?source=influencers&user_id={USER_ID}&timeframe=this_month&reach=wot_5&limit=5"
+    );
+    invalid_get_request(&endpoint, StatusCode::BAD_REQUEST).await?;
+    Ok(())
 }
