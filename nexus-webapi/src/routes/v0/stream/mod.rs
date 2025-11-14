@@ -1,5 +1,5 @@
 use crate::routes::v0::endpoints::{
-    STREAM_POSTS_BY_IDS_ROUTE, STREAM_POSTS_ROUTE, STREAM_POST_KEYS_ROUTE,
+    STREAM_POSTS_BY_IDS_ROUTE, STREAM_POSTS_ROUTE, STREAM_POST_IDS_ROUTE,
     STREAM_USERS_BY_IDS_ROUTE, STREAM_USERS_ROUTE, STREAM_USERS_USERNAME_SEARCH_ROUTE,
     STREAM_USER_IDS_ROUTE,
 };
@@ -20,7 +20,7 @@ pub fn routes() -> Router<AppState> {
             STREAM_USERS_USERNAME_SEARCH_ROUTE,
             get(users::stream_username_search_handler),
         )
-        .route(STREAM_POST_KEYS_ROUTE, get(posts::stream_post_keys_handler))
+        .route(STREAM_POST_IDS_ROUTE, get(posts::stream_post_keys_handler))
         .route(STREAM_POSTS_ROUTE, get(posts::stream_posts_handler))
         .route(
             STREAM_USERS_BY_IDS_ROUTE,

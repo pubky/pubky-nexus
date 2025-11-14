@@ -82,9 +82,8 @@ async fn test_stream_user_ids_followers_align() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_user_ids_influencers_wot_1_align() -> Result<()> {
-    let query = format!(
-        "source=influencers&user_id={USER_ID}&timeframe=this_month&reach=wot_1&limit=5"
-    );
+    let query =
+        format!("source=influencers&user_id={USER_ID}&timeframe=this_month&reach=wot_1&limit=5");
     assert_user_ids_align(&query, "for influencers stream with reach wot_1").await
 }
 

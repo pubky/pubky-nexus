@@ -39,7 +39,7 @@ pub const STREAM_USERS_BY_IDS_ROUTE: &str = concatcp!(STREAM_USERS_ROUTE, "/by_i
 // STREAM of PostView objects
 pub const STREAM_POSTS_ROUTE: &str = concatcp!(STREAM_PREFIX, "/posts");
 pub const STREAM_POSTS_BY_IDS_ROUTE: &str = concatcp!(STREAM_POSTS_ROUTE, "/by_ids");
-pub const STREAM_POST_KEYS_ROUTE: &str = concatcp!(STREAM_POSTS_ROUTE, "/keys");
+pub const STREAM_POST_IDS_ROUTE: &str = concatcp!(STREAM_POSTS_ROUTE, "/ids");
 // STREAM of Tags for posts
 pub const STREAM_TAGS_ROUTE: &str = concatcp!(STREAM_PREFIX, "/tags");
 pub const STREAM_TAGS_GLOBAL_ROUTE: &str = concatcp!(STREAM_TAGS_ROUTE, "/global");
