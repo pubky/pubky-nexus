@@ -1,7 +1,7 @@
 use crate::run_setup;
 use criterion::Criterion;
 use nexus_common::{
-    models::user::{UserStream, UserStreamInput, UserStreamSource},
+    models::user::{UserIdStream, UserStream, UserStreamInput, UserStreamSource},
     types::StreamReach,
 };
 use tokio::runtime::Runtime;
@@ -164,6 +164,37 @@ pub fn bench_stream_post_replies(c: &mut Criterion) {
             .await
             .unwrap();
             std::hint::black_box(user_stream);
+        });
+    });
+}
+
+pub fn bench_stream_user_ids_most_followed(c: &mut Criterion) {
+    println!("******************************************************************************");
+    println!("Benchmarking the user id stream for most followed users.");
+    println!("******************************************************************************");
+
+    run_setup();
+
+    let rt = Runtime::new().unwrap();
+
+    c.bench_function("stream_user_ids_most_followed", |b| {
+        b.to_async(&rt).iter(|| async {
+            let user_ids = UserStream::get_user_list_from_source(UserStreamInput {
+                user_id: None,
+                skip: None,
+                limit: Some(20),
+                source: UserStreamSource::MostFollowed,
+                reach: None,
+                timeframe: None,
+                preview: None,
+                author_id: None,
+                post_id: None,
+            })
+            .await
+            .unwrap()
+            .unwrap_or_default();
+            let user_id_stream = UserIdStream::new(user_ids);
+            std::hint::black_box(user_id_stream);
         });
     });
 }

@@ -1,5 +1,5 @@
 use crate::routes::v0::endpoints::{
-    STREAM_POSTS_BY_IDS_ROUTE, STREAM_POSTS_ROUTE, STREAM_POST_KEYS_ROUTE,
+    STREAM_POSTS_BY_IDS_ROUTE, STREAM_POSTS_ROUTE, STREAM_POST_IDS_ROUTE,
 };
 use crate::{Error, Result as AppResult};
 use axum::{extract::Query, Json};
@@ -79,7 +79,7 @@ where
     path = STREAM_POSTS_ROUTE,
     tag = "Stream",
     params(
-        ("source" = Option<StreamSource>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, replies, all)"),
+        ("source" = Option<StreamSource>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, post_replies, author, author_replies, all)"),
         ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
         ("observer_id" = Option<String>, Query, description = "Observer Pubky ID. The central point for streams with Reach"),
         ("author_id" = Option<String>, Query, description = "Filter posts by an specific author User ID"),
@@ -139,10 +139,10 @@ pub async fn stream_posts_handler(
 
 #[utoipa::path(
     get,
-    path = STREAM_POST_KEYS_ROUTE,
+    path = STREAM_POST_IDS_ROUTE,
     tag = "Stream",
     params(
-        ("source" = Option<StreamSource>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, replies, all)"),
+        ("source" = Option<StreamSource>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, post_replies, author, author_replies, all)"),
         ("observer_id" = Option<String>, Query, description = "Observer Pubky ID. The central point for streams with Reach"),
         ("author_id" = Option<String>, Query, description = "Filter posts by an specific author User ID"),
         ("post_id" = Option<String>, Query, description = "This parameter is needed when we want to retrieve the replies stream for a post"),
@@ -173,7 +173,7 @@ Ensure that you provide the necessary parameters based on the selected `source`.
 pub async fn stream_post_keys_handler(
     Query(mut query): Query<PostStreamQuery>,
 ) -> AppResult<Json<PostKeyStream>> {
-    info!("GET {STREAM_POST_KEYS_ROUTE}");
+    info!("GET {STREAM_POST_IDS_ROUTE}");
 
     query.initialize_defaults();
     query.validate_tags()?;

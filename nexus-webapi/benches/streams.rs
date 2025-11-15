@@ -37,6 +37,7 @@ criterion_group! {
               user::bench_stream_following,
               user::bench_stream_most_followed,
               user::bench_stream_post_replies,
+              user::bench_stream_user_ids_most_followed,
               kind::bench_stream_post_kind_short,
               kind::bench_stream_post_kind_long,
               kind::bench_stream_post_kind_image,
