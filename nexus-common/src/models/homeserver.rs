@@ -34,11 +34,13 @@ impl Homeserver {
     }
 
     /// Creates a new homeserver instance with the specified cursor
-    pub fn from_cursor<T: Into<String>>(id: PubkyId, cursor: T) -> Self {
-        Homeserver {
-            id,
-            cursor: cursor.into(),
+    pub fn try_from_cursor<T: Into<String>>(id: PubkyId, cursor: T) -> Result<Self, DynError> {
+        let cursor = cursor.into();
+        if cursor.is_empty() {
+            return Err("Cannot create a homeserver from an empty cursor".into());
         }
+
+        Ok(Homeserver { id, cursor })
     }
 
     /// Stores this homeserver in the graph.
@@ -66,6 +68,10 @@ impl Homeserver {
 
     /// Stores this homeserver in Redis.
     pub async fn put_to_index(&self) -> Result<(), DynError> {
+        if self.cursor.is_empty() {
+            return Err("Cannot save to index a homeserver with an empty cursor".into());
+        }
+
         self.put_index_json(&[&self.id], None, None).await
     }
 

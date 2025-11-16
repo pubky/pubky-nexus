@@ -12,7 +12,7 @@ use std::error::Error;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 pub struct EventProcessor {
     pub homeserver: Homeserver,
@@ -110,8 +110,11 @@ impl EventProcessor {
             }
 
             if let Some(cursor) = line.strip_prefix("cursor: ") {
-                Homeserver::from_cursor(id, cursor).put_to_index().await?;
-                info!("Cursor for the next request: {cursor}");
+                info!("Received cursor for the next request: {cursor}");
+                match Homeserver::try_from_cursor(id, cursor) {
+                    Ok(hs) => hs.put_to_index().await?,
+                    Err(e) => warn!("{e}"),
+                }
             } else {
                 let event = match Event::parse_event(line, self.files_path.clone()) {
                     Ok(event) => event,
