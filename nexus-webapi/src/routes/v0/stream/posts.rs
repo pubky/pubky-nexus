@@ -1,5 +1,5 @@
 use crate::routes::v0::endpoints::{
-    STREAM_POSTS_BY_IDS_ROUTE, STREAM_POSTS_ROUTE, STREAM_POST_IDS_ROUTE,
+    STREAM_POSTS_BY_IDS_ROUTE, STREAM_POSTS_ROUTE, STREAM_POST_KEYS_ROUTE,
 };
 use crate::{Error, Result as AppResult};
 use axum::{extract::Query, Json};
@@ -139,7 +139,7 @@ pub async fn stream_posts_handler(
 
 #[utoipa::path(
     get,
-    path = STREAM_POST_IDS_ROUTE,
+    path = STREAM_POST_KEYS_ROUTE,
     tag = "Stream",
     params(
         ("source" = Option<StreamSource>, Query, description = "Source of posts for streams with viewer (following, followers, friends, bookmarks, post_replies, author, author_replies, all)"),
@@ -160,7 +160,7 @@ pub async fn stream_posts_handler(
         (status = 404, description = "Posts not found"),
         (status = 500, description = "Internal server error")
     ),
-    description = r#"Stream Post Keys: Retrieve a stream of post identifiers
+    description = r#"Stream Post Keys: Retrieve a stream of post keys
 
 The `source` parameter determines the type of stream. Depending on the `source`, certain parameters are required:
 - *following*, *followers*, *friends*, *bookmarks*: Requires **observer_id**.
@@ -173,7 +173,7 @@ Ensure that you provide the necessary parameters based on the selected `source`.
 pub async fn stream_post_keys_handler(
     Query(mut query): Query<PostStreamQuery>,
 ) -> AppResult<Json<PostKeyStream>> {
-    info!("GET {STREAM_POST_IDS_ROUTE}");
+    info!("GET {STREAM_POST_KEYS_ROUTE}");
 
     query.initialize_defaults();
     query.validate_tags()?;
