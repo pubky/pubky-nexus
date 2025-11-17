@@ -74,6 +74,8 @@ jobs:
         run: cargo nextest run -p nexus-webapi --no-fail-fast
 
       - name: Run WATCHER integration tests
+        env:
+          TEST_PUBKY_CONNECTION_STRING: postgres://test_user:test_pass@localhost:5432/postgres?pubky-test=true
         run: cargo nextest run -p nexus-watcher --no-fail-fast
 
       - name: Tear down Docker Compose
