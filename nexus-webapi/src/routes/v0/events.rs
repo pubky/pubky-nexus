@@ -14,7 +14,8 @@ use axum::routing::get;
 use axum::{response::Response, Router};
 use utoipa::OpenApi;
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, utoipa::ToResponse)]
+#[schema(as = String)]
 pub struct EventsList {
     cursor: u64,
     events: Vec<String>,
@@ -51,9 +52,17 @@ fn decode_crockford32(s: &str) -> Result<i64, String> {
         ("limit" = usize, Query, description = "Limit the number of results")
     ),
     responses(
-        (status = 200, description = "Events list", body = EventsList),
+        (
+            status = 200,
+            description = "Events list",
+            body = String,
+            description = "Events list as plain text with cursor",
+            content_type = "text/plain",
+            example = "PUT pubky://<pk>/<path>\nDEL pubky://<pk>/<path>\nPUT pubky://<pk>/<path>\ncursor: 000000000000Y"
+        ),
         (status = 400, description = "Bad request"),
-        (status = 500, description = "Internal server error")
+        (status = 500, description = "Internal server error"),
+
     )
 )]
 pub async fn get_events_handler(Query(q): Query<EventsQuery>) -> Result<Response, Error> {
