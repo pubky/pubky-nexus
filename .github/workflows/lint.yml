@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   workflow_call:
   push:
-    branches: 
+    branches:
       - main
       - dev
   pull_request:

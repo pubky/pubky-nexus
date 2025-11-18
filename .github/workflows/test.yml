@@ -50,11 +50,14 @@ jobs:
       - name: Wait for services to be ready
         run: |
           echo "Waiting for Redis..."
-          timeout 60 bash -c 'until nc -z 127.0.0.1 6379; do sleep 1; done' || (echo "Redis failed to start" && exit 1)
+          timeout 60 bash -c 'until nc -z 127.0.0.1 6379; do sleep 1; done' \
+            || (echo "Redis failed to start" && exit 1)
           echo "Redis is ready"
-          
+
           echo "Waiting for Neo4j..."
-          timeout 120 bash -c 'until curl -sf http://localhost:7474 > /dev/null; do sleep 2; done' || (echo "Neo4j failed to start" && exit 1)
+          timeout 120 bash -c \
+            'until curl -sf http://localhost:7474 > /dev/null; do sleep 2; done' \
+            || (echo "Neo4j failed to start" && exit 1)
           echo "Neo4j is ready"
 
       - name: Load Mock Data
