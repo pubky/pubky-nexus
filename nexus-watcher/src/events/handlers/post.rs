@@ -1,7 +1,7 @@
 use crate::events::errors::EventProcessorError;
 use crate::events::retry::event::RetryEvent;
 use crate::handle_indexing_results;
-use nexus_common::db::kv::{JsonAction, ScoreAction};
+use nexus_common::db::kv::{JsonAction, ScoreAction, ScoreAction::*};
 use nexus_common::db::queries::get::post_is_safe_to_delete;
 use nexus_common::db::{exec_single_row, execute_graph_operation, OperationOutcome};
 use nexus_common::db::{queries, RedisOps};
@@ -101,27 +101,18 @@ pub async fn sync_put(
     let indexing_results = tokio::join!(
         // TODO: Use SCARD on a set for unique tag count to avoid race conditions in parallel processing
         async {
-            // Create post counts index
-            // If new post (no existing counts) save a new PostCounts.
-            if PostCounts::get_from_index(&author_id, &post_id)
-                .await?
-                .is_none()
-            {
-                PostCounts::default()
-                    .put_to_index(&author_id, &post_id, is_reply)
-                    .await?
+            // If this is a new post (no existing counts), we save a new PostCounts.
+            match PostCounts::get_from_index(&author_id, &post_id).await? {
+                None => {
+                    let pc = PostCounts::default();
+                    pc.put_to_index(&author_id, &post_id, is_reply).await
+                }
+                Some(_) => Ok(()),
             }
-            Ok::<(), DynError>(())
         },
         // TODO: Use SCARD on a set for unique tag count to avoid race conditions in parallel processing
-        // Update user counts with the new post
-        UserCounts::update(&author_id, "posts", JsonAction::Increment(1), None),
-        async {
-            if is_reply {
-                UserCounts::update(&author_id, "replies", JsonAction::Increment(1), None).await?;
-            };
-            Ok::<(), DynError>(())
-        }
+        user_count_update_posts(&author_id, JsonAction::Increment(1)),
+        user_count_maybe_update_replies(&author_id, is_reply, JsonAction::Increment(1))
     );
 
     handle_indexing_results!(indexing_results.0, indexing_results.1, indexing_results.2);
@@ -146,23 +137,8 @@ pub async fn sync_put(
         let parent_post_key_parts: &[&str; 2] = &[&parent_author_id, &parent_post_id];
 
         let indexing_results = tokio::join!(
-            PostCounts::update_index_field(
-                parent_post_key_parts,
-                "replies",
-                JsonAction::Increment(1),
-                None
-            ),
-            async {
-                if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await? {
-                    PostStream::put_score_index_sorted_set(
-                        &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
-                        parent_post_key_parts,
-                        ScoreAction::Increment(1.0),
-                    )
-                    .await?;
-                }
-                Ok::<(), DynError>(())
-            },
+            post_count_update_replies(parent_post_key_parts, JsonAction::Increment(1)),
+            ps_maybe_inc_engagement(&parent_author_id, &parent_post_id, parent_post_key_parts),
             PostStream::add_to_post_reply_sorted_set(
                 parent_post_key_parts,
                 &author_id,
@@ -197,24 +173,8 @@ pub async fn sync_put(
 
         let parent_post_key_parts: &[&str; 2] = &[&parent_author_id, &parent_post_id];
         let indexing_results = tokio::join!(
-            PostCounts::update_index_field(
-                parent_post_key_parts,
-                "reposts",
-                JsonAction::Increment(1),
-                None
-            ),
-            async {
-                // Post replies cannot be included in the total engagement index after they receive a reply
-                if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await? {
-                    PostStream::put_score_index_sorted_set(
-                        &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
-                        parent_post_key_parts,
-                        ScoreAction::Increment(1.0),
-                    )
-                    .await?;
-                }
-                Ok::<(), DynError>(())
-            },
+            post_count_update_reposts(parent_post_key_parts, JsonAction::Increment(1)),
+            ps_maybe_inc_engagement(&parent_author_id, &parent_post_id, parent_post_key_parts),
             Notification::new_repost(
                 &author_id,
                 reposted_uri,
@@ -247,19 +207,18 @@ async fn sync_edit(
     let changed_uri = post_uri_builder(author_id.to_string(), post_id.clone());
 
     // Update content of PostDetails!
-    if let Err(e) = post_details.put_to_index(&author_id, None, true).await {
-        return Err(EventProcessorError::IndexWriteFailed {
-            message: format!("post edit failed - {:?}", e.to_string()),
-        }
-        .into());
-    };
+    post_details
+        .put_to_index(&author_id, None, true)
+        .await
+        .map_err(|e| EventProcessorError::IndexWriteFailed {
+            message: format!("post edit failed - {:?}", e),
+        })?;
 
     // Notifications
     // Determine the change type
-    let change_type = if post_details.content == *"[DELETED]" {
-        PostChangedType::Deleted
-    } else {
-        PostChangedType::Edited
+    let change_type = match post_details.content.as_str() {
+        "[DELETED]" => PostChangedType::Deleted,
+        _ => PostChangedType::Edited,
     };
 
     // Send notifications to users who interacted with the post
@@ -363,13 +322,8 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
     // DELETE TO INDEX - PHASE 1, decrease post counts
     let indexing_results = tokio::join!(
         PostCounts::delete(&author_id, &post_id, !is_reply),
-        UserCounts::update(&author_id, "posts", JsonAction::Decrement(1), None),
-        async {
-            if is_reply {
-                UserCounts::update(&author_id, "replies", JsonAction::Decrement(1), None).await?;
-            };
-            Ok::<(), DynError>(())
-        }
+        user_count_update_posts(&author_id, JsonAction::Decrement(1)),
+        user_count_maybe_update_replies(&author_id, is_reply, JsonAction::Decrement(1))
     );
 
     handle_indexing_results!(indexing_results.0, indexing_results.1, indexing_results.2);
@@ -393,24 +347,8 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
                 Some([parent_user_id.to_string(), parent_post_id.clone()]);
 
             let indexing_results = tokio::join!(
-                PostCounts::update_index_field(
-                    &parent_post_key_parts,
-                    "replies",
-                    JsonAction::Decrement(1),
-                    None
-                ),
-                async {
-                    // Post replies cannot be included in the total engagement index after the reply is deleted
-                    if !post_relationships_is_reply(&parent_user_id, &parent_post_id).await? {
-                        PostStream::put_score_index_sorted_set(
-                            &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
-                            &parent_post_key_parts,
-                            ScoreAction::Decrement(1.0),
-                        )
-                        .await?;
-                    }
-                    Ok::<(), DynError>(())
-                },
+                post_count_update_replies(&parent_post_key_parts, JsonAction::Decrement(1)),
+                ps_maybe_dec_engagement(&parent_user_id, &parent_post_id, &parent_post_key_parts),
                 // Notification: "A reply to your post was deleted"
                 Notification::post_children_changed(
                     &author_id,
@@ -436,24 +374,12 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
             let parent_post_key_parts: &[&str] = &[&parsed_uri.user_id, &parent_post_id];
 
             let indexing_results = tokio::join!(
-                PostCounts::update_index_field(
-                    parent_post_key_parts,
-                    "reposts",
-                    JsonAction::Decrement(1),
-                    None
+                post_count_update_reposts(parent_post_key_parts, JsonAction::Decrement(1)),
+                ps_maybe_dec_engagement(
+                    &parsed_uri.user_id,
+                    &parent_post_id,
+                    parent_post_key_parts
                 ),
-                async {
-                    // Post replies cannot be included in the total engagement index after the repost is deleted
-                    if !post_relationships_is_reply(&parsed_uri.user_id, &parent_post_id).await? {
-                        PostStream::put_score_index_sorted_set(
-                            &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
-                            parent_post_key_parts,
-                            ScoreAction::Decrement(1.0),
-                        )
-                        .await?;
-                    }
-                    Ok::<(), DynError>(())
-                },
                 // Notification: "A repost of your post was deleted"
                 Notification::post_children_changed(
                     &author_id,
@@ -476,4 +402,63 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
     handle_indexing_results!(indexing_results.0, indexing_results.1);
 
     Ok(())
+}
+
+async fn user_count_update_posts(user_id: &str, action: JsonAction) -> Result<(), DynError> {
+    UserCounts::update(user_id, "posts", action, None).await
+}
+
+async fn user_count_maybe_update_replies(
+    user_id: &str,
+    is_reply: bool,
+    action: JsonAction,
+) -> Result<(), DynError> {
+    if is_reply {
+        UserCounts::update(user_id, "replies", action, None).await?;
+    };
+    Ok::<(), DynError>(())
+}
+
+async fn post_count_update_replies(index_key: &[&str], action: JsonAction) -> Result<(), DynError> {
+    PostCounts::update_index_field(index_key, "replies", action, None).await
+}
+
+async fn post_count_update_reposts(index_key: &[&str], action: JsonAction) -> Result<(), DynError> {
+    PostCounts::update_index_field(index_key, "reposts", action, None).await
+}
+
+async fn post_stream_update_engagement(
+    member: &[&str],
+    action: ScoreAction,
+) -> Result<(), DynError> {
+    PostStream::put_score_index_sorted_set(&POST_TOTAL_ENGAGEMENT_KEY_PARTS, member, action).await
+}
+
+async fn ps_maybe_dec_engagement(
+    author_id: &str,
+    post_id: &str,
+    member: &[&str],
+) -> Result<(), DynError> {
+    ps_maybe_update_engagement(author_id, post_id, member, Decrement(1.0)).await
+}
+
+async fn ps_maybe_inc_engagement(
+    author_id: &str,
+    post_id: &str,
+    member: &[&str],
+) -> Result<(), DynError> {
+    ps_maybe_update_engagement(author_id, post_id, member, Increment(1.0)).await
+}
+
+async fn ps_maybe_update_engagement(
+    author_id: &str,
+    post_id: &str,
+    member: &[&str],
+    action: ScoreAction,
+) -> Result<(), DynError> {
+    // Post replies cannot count towards the total engagement index
+    if !post_relationships_is_reply(author_id, post_id).await? {
+        post_stream_update_engagement(member, action).await?;
+    }
+    Ok::<(), DynError>(())
 }
