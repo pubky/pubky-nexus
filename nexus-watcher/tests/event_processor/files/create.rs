@@ -1,7 +1,6 @@
-use crate::event_processor::utils::watcher::WatcherTest;
+use crate::event_processor::utils::watcher::{assert_file_details, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
-use nexus_common::models::{file::FileDetails, traits::Collection};
 use pubky::Keypair;
 use pubky_app_specs::traits::{HasIdPath, HashId};
 use pubky_app_specs::{blob_uri_builder, PubkyAppBlob, PubkyAppFile, PubkyAppUser};
@@ -42,24 +41,8 @@ async fn test_put_pubkyapp_file() -> Result<()> {
     };
 
     let (file_id, _) = test.create_file(&user_kp, &file).await?;
-    // Assert
-    let files = FileDetails::get_by_ids(
-        vec![vec![user_id.as_str(), file_id.as_str()].as_slice()].as_slice(),
-    )
-    .await
-    .expect("Failed to fetch files from Nexus");
 
-    let result_file = files[0].as_ref().expect("Created file was not found.");
-
-    assert_eq!(result_file.id, file_id);
-    assert_eq!(result_file.src, blob_absolute_url);
-    assert_eq!(
-        result_file.uri,
-        format!("pubky://{user_id}/pub/pubky.app/files/{file_id}")
-    );
-    assert_eq!(result_file.size, file.size as i64);
-    assert_eq!(result_file.name, file.name);
-    assert_eq!(result_file.owner_id, user_id);
+    let result_file = assert_file_details(&user_id, &file_id, &blob_absolute_url, &file).await;
 
     // Assert: Ensure it's created
     let blob_static_path = format!("./static/files/{}", result_file.urls.main.clone());

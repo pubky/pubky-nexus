@@ -1,9 +1,10 @@
 use super::utils::find_post_details;
-use crate::event_processor::utils::watcher::WatcherTest;
+use crate::event_processor::utils::watcher::{assert_file_details, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
 use pubky::Keypair;
 use pubky_app_specs::{
+    blob_uri_builder,
     traits::{HasIdPath, HashId},
     PubkyAppBlob, PubkyAppFile, PubkyAppPost, PubkyAppPostKind, PubkyAppUser,
 };
@@ -27,6 +28,7 @@ async fn test_homeserver_post_attachments() -> Result<()> {
     let blob = PubkyAppBlob::new(blob_data.as_bytes().to_vec());
     let blob_id = blob.create_id();
     let blob_relative_url = PubkyAppBlob::create_path(&blob_id);
+    let blob_absolute_url = blob_uri_builder(user_id.clone(), blob_id);
 
     test.create_file_from_body(&user_kp, blob_relative_url.as_str(), blob.0.clone())
         .await?;
@@ -35,18 +37,20 @@ async fn test_homeserver_post_attachments() -> Result<()> {
     let file = PubkyAppFile {
         name: "attachment".to_string(),
         content_type: "text/plain".to_string(),
-        src: blob_relative_url.clone(),
+        src: blob_absolute_url.clone(),
         size: blob.0.len(),
         created_at: Utc::now().timestamp_millis(),
     };
-    let (_, file_url) = test.create_file(&user_kp, &file).await?;
+    let (file_id, file_relative_url) = test.create_file(&user_kp, &file).await?;
+
+    assert_file_details(&user_id, &file_id, &blob_absolute_url, &file).await;
 
     let post = PubkyAppPost {
         content: "Watcher:PostEvent:Post".to_string(),
         kind: PubkyAppPostKind::Short,
         parent: None,
         embed: None,
-        attachments: Some(vec![file_url.clone()]),
+        attachments: Some(vec![file_relative_url.clone()]),
     };
 
     let post_id = test.create_post(&user_kp, &post).await?;
@@ -55,7 +59,7 @@ async fn test_homeserver_post_attachments() -> Result<()> {
 
     assert_eq!(post_details.id, post_id);
     assert_eq!(post_details.content, post.content);
-    assert_eq!(post_details.attachments, Some(vec![file_url]));
+    assert_eq!(post_details.attachments, Some(vec![file_relative_url]));
     // Cleanup
     test.cleanup_user(&user_kp).await?;
     test.cleanup_post(&user_kp, &post_id).await?;
