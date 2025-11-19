@@ -137,9 +137,6 @@ impl Event {
             }
         };
 
-        match result {
-            Some(v) => Ok(v),
-            None => Ok(Vec::new()),
-        }
+        Ok(result.unwrap_or_default())
     }
 }
