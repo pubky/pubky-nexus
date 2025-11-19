@@ -1,11 +1,11 @@
-use crate::event_processor::utils::watcher::{assert_eventually_exists, WatcherTest};
+use crate::event_processor::utils::watcher::{
+    assert_eventually_exists, HomeserverHashIdPath, WatcherTest,
+};
 use anyhow::Result;
 use nexus_watcher::events::{errors::EventProcessorError, retry::event::RetryEvent, EventType};
 use pubky::Keypair;
 use pubky_app_specs::{
-    bookmark_uri_builder, post_uri_builder,
-    traits::{HasIdPath, HashId},
-    PubkyAppBookmark, PubkyAppUser,
+    bookmark_uri_builder, post_uri_builder, traits::HashId, PubkyAppBookmark, PubkyAppUser,
 };
 
 /// The user profile is stored in the homeserver. Missing the post to connect the bookmark
@@ -36,11 +36,11 @@ async fn test_homeserver_bookmark_cannot_index() -> Result<()> {
     };
 
     // Create the bookmark of the shadow user
+    let bookmark_path = bookmark.hs_path();
     let bookmark_id = bookmark.create_id();
-    let bookmark_relative_url = PubkyAppBookmark::create_path(&bookmark_id);
     let bookmark_absolute_url = bookmark_uri_builder(user_id, bookmark_id);
     // PUT bookmark
-    test.put(&user_kp, &bookmark_relative_url, bookmark).await?;
+    test.put(&user_kp, &bookmark_path, bookmark).await?;
 
     let put_index_key = format!(
         "{}:{}",
@@ -69,7 +69,7 @@ async fn test_homeserver_bookmark_cannot_index() -> Result<()> {
     };
 
     // DEL bookmark
-    test.del(&user_kp, &bookmark_relative_url).await?;
+    test.del(&user_kp, &bookmark_path).await?;
 
     let del_index_key = format!(
         "{}:{}",

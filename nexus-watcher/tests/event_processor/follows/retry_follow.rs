@@ -3,8 +3,7 @@ use anyhow::Result;
 use nexus_watcher::events::errors::EventProcessorError;
 use nexus_watcher::events::{retry::event::RetryEvent, EventType};
 use pubky::Keypair;
-use pubky_app_specs::traits::HasIdPath;
-use pubky_app_specs::{follow_uri_builder, user_uri_builder, PubkyAppFollow, PubkyAppUser};
+use pubky_app_specs::{follow_uri_builder, user_uri_builder, PubkyAppUser};
 
 /// The user profile is stored in the homeserver. Missing the followee to connect with follower
 #[tokio_shared_rt::test(shared)]
@@ -27,10 +26,8 @@ async fn test_homeserver_follow_cannot_index() -> Result<()> {
     };
     let follower_id = test.create_user(&follower_kp, &follower_user).await?;
 
-    test.create_follow(&follower_kp, &followee_id).await?;
-
+    let follow_path = test.create_follow(&follower_kp, &followee_id).await?;
     let follow_absolute_url = follow_uri_builder(follower_id, followee_id.clone());
-    let follow_url = PubkyAppFollow::create_path(&followee_id);
 
     let index_key = format!(
         "{}:{}",
@@ -59,7 +56,7 @@ async fn test_homeserver_follow_cannot_index() -> Result<()> {
         _ => panic!("The error type has to be MissingDependency type"),
     };
 
-    test.del(&follower_kp, &follow_url).await?;
+    test.del(&follower_kp, &follow_path).await?;
 
     let del_index_key = format!(
         "{}:{}",

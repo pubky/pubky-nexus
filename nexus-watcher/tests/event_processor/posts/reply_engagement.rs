@@ -1,14 +1,12 @@
 use super::utils::{
     check_member_global_timeline_user_post, check_member_total_engagement_user_posts,
 };
-use crate::event_processor::utils::watcher::WatcherTest;
+use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
 use pubky::Keypair;
 use pubky_app_specs::{
-    post_uri_builder,
-    traits::{HasIdPath, HashId},
-    PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
+    post_uri_builder, PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
 };
 
 #[tokio_shared_rt::test(shared)]
@@ -36,7 +34,7 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
         attachments: None,
     };
 
-    let parent_post_id = test.create_post(&user_kp, &parent_post).await?;
+    let (parent_post_id, _parent_post_path) = test.create_post(&user_kp, &parent_post).await?;
 
     // Create reply
     let parent_absolute_uri = post_uri_builder(author_id.clone(), parent_post_id);
@@ -49,7 +47,7 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
         attachments: None,
     };
 
-    let reply_id = test.create_post(&user_kp, &reply).await?;
+    let (reply_id, _reply_path) = test.create_post(&user_kp, &reply).await?;
 
     // Check if reply post is not in global timeline index: Sorted:Posts:Global:Timeline:user_id:post_id
     let global_timeline = check_member_global_timeline_user_post(&author_id, &reply_id)
@@ -71,7 +69,7 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
         attachments: None,
     };
 
-    let reply_reply_id = test.create_post(&user_kp, &reply_of_reply).await?;
+    let (_reply_reply_id, reply_reply_path) = test.create_post(&user_kp, &reply_of_reply).await?;
 
     // Check if reply post is not in total engagement index: Sorted:Posts:Global:TotalEngagement:user_id:post_id
     let total_engagement = check_member_total_engagement_user_posts(&[&author_id, &reply_id])
@@ -102,7 +100,7 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
         attachments: None,
     };
 
-    let reply_repost_id = test.create_post(&user_kp, &reply_repost).await?;
+    let (reply_repost_id, reply_repost_path) = test.create_post(&user_kp, &reply_repost).await?;
 
     // Check if reply post is not in total engagement index: Sorted:Posts:Global:TotalEngagement:user_id:post_id
     let total_engagement = check_member_total_engagement_user_posts(&[&author_id, &reply_id])
@@ -139,8 +137,8 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
         created_at: Utc::now().timestamp_millis(),
     };
 
-    let tag_relative_url = PubkyAppTag::create_path(&tag.create_id());
-    test.put(&tagger_kp, &tag_relative_url, tag).await?;
+    let tag_path = tag.hs_path();
+    test.put(&tagger_kp, &tag_path, tag).await?;
 
     // Check if reply post is not in total engagement index: Sorted:Posts:Global:TotalEngagement:user_id:post_id
     let total_engagement = check_member_total_engagement_user_posts(&[&author_id, &reply_id])
@@ -153,7 +151,7 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
 
     // Start deleting the posts and tags added to the reply
     // Delete the reply
-    test.cleanup_post(&user_kp, &reply_reply_id).await?;
+    test.cleanup_post(&user_kp, &reply_reply_path).await?;
 
     // Check if reply post is not in total engagement index: Sorted:Posts:Global:TotalEngagement:user_id:post_id
     let total_engagement = check_member_total_engagement_user_posts(&[&author_id, &reply_id])
@@ -164,7 +162,7 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
         "Replies score cannot be decremented in the total engagement list after deleting a reply"
     );
 
-    test.cleanup_post(&user_kp, &reply_repost_id).await?;
+    test.cleanup_post(&user_kp, &reply_repost_path).await?;
 
     // Check if reply post is not in total engagement index: Sorted:Posts:Global:TotalEngagement:user_id:post_id
     let total_engagement = check_member_total_engagement_user_posts(&[&author_id, &reply_id])
@@ -183,7 +181,7 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
         "Repost cannot be in global timeline after deletion"
     );
 
-    test.del(&tagger_kp, &tag_relative_url).await?;
+    test.del(&tagger_kp, &tag_path).await?;
 
     // Check if reply post is not in total engagement index: Sorted:Posts:Global:TotalEngagement:user_id:post_id
     let total_engagement = check_member_total_engagement_user_posts(&[&author_id, &reply_id])

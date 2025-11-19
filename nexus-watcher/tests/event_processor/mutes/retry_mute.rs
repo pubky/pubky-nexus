@@ -3,8 +3,7 @@ use anyhow::Result;
 use nexus_watcher::events::errors::EventProcessorError;
 use nexus_watcher::events::{retry::event::RetryEvent, EventType};
 use pubky::Keypair;
-use pubky_app_specs::traits::HasIdPath;
-use pubky_app_specs::{mute_uri_builder, user_uri_builder, PubkyAppMute, PubkyAppUser};
+use pubky_app_specs::{mute_uri_builder, user_uri_builder, PubkyAppUser};
 /// The user profile is stored in the homeserver. Missing the mutee to connect with muter
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_mute_cannot_index() -> Result<()> {
@@ -27,10 +26,9 @@ async fn test_homeserver_mute_cannot_index() -> Result<()> {
     let muter_id = test.create_user(&muter_kp, &muter_user).await?;
 
     // Mute the user
-    test.create_mute(&muter_kp, &mutee_id).await?;
+    let mute_path = test.create_mute(&muter_kp, &mutee_id).await?;
 
     let mute_absolute_url = mute_uri_builder(muter_id, mutee_id.clone());
-    let mute_relative_url = PubkyAppMute::create_path(&mutee_id);
 
     let index_key = format!(
         "{}:{}",
@@ -60,7 +58,7 @@ async fn test_homeserver_mute_cannot_index() -> Result<()> {
         _ => panic!("The error type has to be MissingDependency type"),
     };
 
-    test.del(&muter_kp, &mute_relative_url).await?;
+    test.del(&muter_kp, &mute_path).await?;
 
     let del_index_key = format!(
         "{}:{}",

@@ -1,15 +1,13 @@
 // tests/users/moderated.rs
 
-use crate::{
-    event_processor::users::utils::find_user_details, event_processor::utils::watcher::WatcherTest,
+use crate::event_processor::{
+    users::utils::find_user_details,
+    utils::watcher::{HomeserverHashIdPath, HomeserverPath, WatcherTest},
 };
 use anyhow::Result;
 use chrono::Utc;
 use pubky::{recovery_file, Keypair};
-use pubky_app_specs::{
-    traits::{HasIdPath, HasPath, HashId},
-    PubkyAppTag, PubkyAppUser,
-};
+use pubky_app_specs::{PubkyAppTag, PubkyAppUser};
 use tokio::fs;
 
 #[tokio_shared_rt::test(shared)]
@@ -44,8 +42,8 @@ async fn test_moderated_user_lifecycle() -> Result<()> {
         label: "label_to_moderate".to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
-    let tag_relative_url = PubkyAppTag::create_path(&tag.create_id());
-    test.put(&mod_kp, &tag_relative_url, tag.clone()).await?;
+    let tag_path = tag.hs_path();
+    test.put(&mod_kp, &tag_path, tag.clone()).await?;
 
     // 5. Confirm the user no longer exists
     let details = find_user_details(&target_id).await;
@@ -59,9 +57,8 @@ async fn test_moderated_user_lifecycle() -> Result<()> {
         links: None,
         status: None,
     };
-    let profile_relative_url = PubkyAppUser::create_path();
-    test.put(&user_kp, &profile_relative_url, new_profile)
-        .await?;
+    let profile_path = PubkyAppUser::hs_path();
+    test.put(&user_kp, &profile_path, new_profile).await?;
 
     let details = find_user_details(&target_id).await?;
     assert_eq!(details.bio, Some("i am back, will behave".to_string()));
@@ -72,11 +69,11 @@ async fn test_moderated_user_lifecycle() -> Result<()> {
         label: "tagging_myself".to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
-    let selftag_relative_url = PubkyAppTag::create_path(&self_tag.create_id());
-    test.put(&user_kp, &selftag_relative_url, self_tag).await?;
+    let self_tag_path = self_tag.hs_path();
+    test.put(&user_kp, &self_tag_path, self_tag).await?;
 
     // 8. Tag the target user with the moderation label
-    test.put(&mod_kp, &tag_relative_url, tag).await?;
+    test.put(&mod_kp, &tag_path, tag).await?;
 
     // 9. Confirm the user does exist but the profile has been cleaned
     let details = find_user_details(&target_id).await?;

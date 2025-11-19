@@ -32,7 +32,7 @@ async fn test_homeserver_reply_repost() -> Result<()> {
         attachments: None,
     };
 
-    let parent_post_id = test.create_post(&user_kp, &parent_post).await?;
+    let (parent_post_id, parent_post_path) = test.create_post(&user_kp, &parent_post).await?;
 
     // Create reply
     let parent_absolute_uri = post_uri_builder(user_id.clone(), parent_post_id.clone());
@@ -45,7 +45,7 @@ async fn test_homeserver_reply_repost() -> Result<()> {
         attachments: None,
     };
 
-    let reply_id = test.create_post(&user_kp, &reply).await?;
+    let (_reply_id, reply_path) = test.create_post(&user_kp, &reply).await?;
 
     // Create repost
     let repost = PubkyAppPost {
@@ -82,11 +82,11 @@ async fn test_homeserver_reply_repost() -> Result<()> {
     assert_eq!(exist_count.posts, 3);
 
     // TODO: Impl DEL post. Assert the reply does not exist in Nexus
-    test.cleanup_post(&user_kp, &reply_id).await?;
+    test.cleanup_post(&user_kp, &reply_path).await?;
 
     // Cleanup
     test.cleanup_user(&user_kp).await?;
-    test.cleanup_post(&user_kp, &parent_post_id).await?;
+    test.cleanup_post(&user_kp, &parent_post_path).await?;
 
     Ok(())
 }

@@ -41,28 +41,29 @@ async fn test_homeserver_post_attachments() -> Result<()> {
         size: blob.0.len(),
         created_at: Utc::now().timestamp_millis(),
     };
-    let (file_id, file_relative_url) = test.create_file(&user_kp, &file).await?;
+    let (file_id, file_path) = test.create_file(&user_kp, &file).await?;
 
     assert_file_details(&user_id, &file_id, &blob_absolute_url, &file).await;
 
+    let post_attachments = Some(vec![file_path.to_string()]);
     let post = PubkyAppPost {
         content: "Watcher:PostEvent:Post".to_string(),
         kind: PubkyAppPostKind::Short,
         parent: None,
         embed: None,
-        attachments: Some(vec![file_relative_url.clone()]),
+        attachments: post_attachments.clone(),
     };
 
-    let post_id = test.create_post(&user_kp, &post).await?;
+    let (post_id, post_path) = test.create_post(&user_kp, &post).await?;
 
     let post_details = find_post_details(&user_id, &post_id).await.unwrap();
 
     assert_eq!(post_details.id, post_id);
     assert_eq!(post_details.content, post.content);
-    assert_eq!(post_details.attachments, Some(vec![file_relative_url]));
+    assert_eq!(post_details.attachments, post_attachments);
     // Cleanup
     test.cleanup_user(&user_kp).await?;
-    test.cleanup_post(&user_kp, &post_id).await?;
+    test.cleanup_post(&user_kp, &post_path).await?;
 
     Ok(())
 }

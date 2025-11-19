@@ -1,4 +1,4 @@
-use crate::event_processor::utils::watcher::WatcherTest;
+use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
 use nexus_common::{
@@ -7,9 +7,7 @@ use nexus_common::{
 };
 use pubky::Keypair;
 use pubky_app_specs::{
-    post_uri_builder, tag_uri_builder,
-    traits::{HasIdPath, HashId},
-    PubkyAppPost, PubkyAppTag, PubkyAppUser,
+    post_uri_builder, tag_uri_builder, traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser,
 };
 
 #[tokio_shared_rt::test(shared)]
@@ -46,7 +44,7 @@ async fn test_delete_tagged_post_notification() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let post_id = test.create_post(&user_a_kp, &post).await?;
+    let (post_id, post_path) = test.create_post(&user_a_kp, &post).await?;
 
     // User B tags User A's post
     let label = "merkle_tree";
@@ -55,15 +53,15 @@ async fn test_delete_tagged_post_notification() -> Result<()> {
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
+    let tag_path = tag.hs_path();
     let tag_id = tag.create_id();
-    let tag_relative_url = PubkyAppTag::create_path(&tag_id);
     let tag_absolute_url = tag_uri_builder(user_b_id.clone(), tag_id);
 
     // Put tag
-    test.put(&user_b_kp, &tag_relative_url, tag).await?;
+    test.put(&user_b_kp, &tag_path, tag).await?;
 
     // User A deletes their post
-    test.cleanup_post(&user_a_kp, &post_id).await?;
+    test.cleanup_post(&user_a_kp, &post_path).await?;
 
     // Verify that User B receives a notification about the deletion
     let notifications = Notification::get_by_id(&user_b_id, Pagination::default())

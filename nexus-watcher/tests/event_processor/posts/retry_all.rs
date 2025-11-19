@@ -3,7 +3,6 @@ use anyhow::Result;
 use nexus_watcher::events::errors::EventProcessorError;
 use nexus_watcher::events::{retry::event::RetryEvent, EventType};
 use pubky::Keypair;
-use pubky_app_specs::traits::HasIdPath;
 use pubky_app_specs::{
     post_uri_builder, PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser,
 };
@@ -31,7 +30,7 @@ async fn test_homeserver_post_with_reply_repost_cannot_index() -> Result<()> {
     let reply_absolute_uri = post_uri_builder(user_id.clone(), reply_fake_post_id.into());
     let repost_absolute_uri = post_uri_builder(user_id.clone(), repost_fake_post_id.into());
 
-    let repost_reply_post = PubkyAppPost {
+    let repost_reply = PubkyAppPost {
         content: "Watcher:IndexFail:PostRepost:User:Reply".to_string(),
         kind: PubkyAppPostKind::Short,
         parent: Some(reply_absolute_uri.clone()),
@@ -42,10 +41,9 @@ async fn test_homeserver_post_with_reply_repost_cannot_index() -> Result<()> {
         attachments: None,
     };
 
-    let repost_reply_post_id = test.create_post(&user_kp, &repost_reply_post).await?;
+    let (repost_reply_id, repost_reply_path) = test.create_post(&user_kp, &repost_reply).await?;
 
-    let repost_reply_relative_url = PubkyAppPost::create_path(&repost_reply_post_id);
-    let repost_reply_absolute_url = post_uri_builder(user_id, repost_reply_post_id);
+    let repost_reply_absolute_url = post_uri_builder(user_id, repost_reply_id);
 
     let index_key = format!(
         "{}:{}",
@@ -79,7 +77,7 @@ async fn test_homeserver_post_with_reply_repost_cannot_index() -> Result<()> {
         _ => panic!("The error type has to be MissingDependency type"),
     };
 
-    test.del(&user_kp, &repost_reply_relative_url).await?;
+    test.del(&user_kp, &repost_reply_path).await?;
 
     let del_index_key = format!(
         "{}:{}",

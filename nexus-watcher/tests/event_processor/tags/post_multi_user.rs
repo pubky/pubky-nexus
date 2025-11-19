@@ -1,4 +1,4 @@
-use crate::event_processor::utils::watcher::WatcherTest;
+use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use crate::{
     event_processor::posts::utils::{check_member_total_engagement_user_posts, find_post_counts},
     event_processor::tags::utils::{
@@ -21,7 +21,6 @@ use nexus_common::{
 };
 use pubky::Keypair;
 use pubky_app_specs::post_uri_builder;
-use pubky_app_specs::traits::{HasIdPath, HashId};
 use pubky_app_specs::{PubkyAppPost, PubkyAppTag, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
@@ -55,7 +54,7 @@ async fn test_homeserver_multi_user_posts_tags() -> Result<()> {
         attachments: None,
     };
     // Create a post for the current user
-    let post_id = test.create_post(author_kp, &post).await?;
+    let (post_id, _post_path) = test.create_post(author_kp, &post).await?;
 
     let tagger_a_kp_id = &user_kps_and_ids[1];
     let tagger_b_kp_id = &user_kps_and_ids[2];
@@ -65,7 +64,7 @@ async fn test_homeserver_multi_user_posts_tags() -> Result<()> {
     let label_fire = "fire";
 
     // Step 2: Create tags
-    let mut tag_urls_and_tagger_kps = Vec::with_capacity(5);
+    let mut tag_paths_and_tagger_kps = Vec::with_capacity(5);
     let water_taggers = [tagger_a_kp_id, tagger_b_kp_id, tagger_c_kp_id];
 
     for (tagger_kp, _tagger_id) in water_taggers {
@@ -74,10 +73,10 @@ async fn test_homeserver_multi_user_posts_tags() -> Result<()> {
             label: label_water.to_string(),
             created_at: Utc::now().timestamp_millis(),
         };
-        let tag_relative_url = PubkyAppTag::create_path(&tag.create_id());
+        let tag_path = tag.hs_path();
         // Put tag
-        test.put(tagger_kp, &tag_relative_url, tag).await?;
-        tag_urls_and_tagger_kps.push((tag_relative_url, tagger_kp))
+        test.put(tagger_kp, &tag_path, tag).await?;
+        tag_paths_and_tagger_kps.push((tag_path, tagger_kp))
     }
 
     let fire_taggers = [tagger_b_kp_id, tagger_c_kp_id];
@@ -88,10 +87,10 @@ async fn test_homeserver_multi_user_posts_tags() -> Result<()> {
             label: label_fire.to_string(),
             created_at: Utc::now().timestamp_millis(),
         };
-        let tag_relative_url = PubkyAppTag::create_path(&tag.create_id());
+        let tag_path = tag.hs_path();
         // Put tag
-        test.put(tagger_kp, &tag_relative_url, tag).await?;
-        tag_urls_and_tagger_kps.push((tag_relative_url, tagger_kp))
+        test.put(tagger_kp, &tag_path, tag).await?;
+        tag_paths_and_tagger_kps.push((tag_path, tagger_kp))
     }
 
     // Step 3: Assert all the PUT operations
@@ -188,8 +187,8 @@ async fn test_homeserver_multi_user_posts_tags() -> Result<()> {
     assert_eq!(total_engagement.unwrap(), 5);
 
     // Step 4: DEL tag from homeserver
-    for (tag_url, tagger_kp) in tag_urls_and_tagger_kps {
-        test.del(tagger_kp, &tag_url).await?;
+    for (tag_path, tagger_kp) in tag_paths_and_tagger_kps {
+        test.del(tagger_kp, &tag_path).await?;
     }
 
     // Step 5: Assert all the DEL operations

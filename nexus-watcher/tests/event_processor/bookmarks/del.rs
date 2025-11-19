@@ -1,14 +1,12 @@
 use super::utils::find_post_bookmark;
-use crate::event_processor::users::utils::find_user_counts;
 use crate::event_processor::utils::watcher::WatcherTest;
+use crate::event_processor::{
+    users::utils::find_user_counts, utils::watcher::HomeserverHashIdPath,
+};
 use anyhow::Result;
 use nexus_common::models::post::{Bookmark, PostStream};
 use pubky::Keypair;
-use pubky_app_specs::{
-    post_uri_builder,
-    traits::{HasIdPath, HashId},
-    PubkyAppBookmark, PubkyAppPost, PubkyAppUser,
-};
+use pubky_app_specs::{post_uri_builder, PubkyAppBookmark, PubkyAppPost, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_unbookmark() -> Result<()> {
@@ -43,22 +41,20 @@ async fn test_homeserver_unbookmark() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let post_id = test.create_post(&author_kp, &post).await?;
+    let (post_id, post_path) = test.create_post(&author_kp, &post).await?;
 
     // Step 3: Add a bookmark to the post. Before create a new user
     let bookmark = PubkyAppBookmark {
         uri: post_uri_builder(author_id.clone(), post_id.clone()),
         created_at: chrono::Utc::now().timestamp_millis(),
     };
-    let bookmark_id = bookmark.create_id();
-    let bookmark_relative_url = PubkyAppBookmark::create_path(&bookmark_id);
+    let bookmark_path = bookmark.hs_path();
 
     // Put bookmark
-    test.put(&author_kp, &bookmark_relative_url, bookmark)
-        .await?;
+    test.put(&author_kp, &bookmark_path, bookmark).await?;
 
     // Step 4: Delete bookmark
-    test.del(&author_kp, &bookmark_relative_url).await?;
+    test.del(&author_kp, &bookmark_path).await?;
 
     // GRAPH_OP: Assert if the event writes the graph
     let result = find_post_bookmark(&author_id, &post_id, &bookmarker_id).await;
@@ -97,7 +93,7 @@ async fn test_homeserver_unbookmark() -> Result<()> {
     assert_eq!(user_counts.bookmarks, 0);
 
     // Cleanup user and post
-    test.cleanup_post(&author_kp, &post_id).await?;
+    test.cleanup_post(&author_kp, &post_path).await?;
     test.cleanup_user(&bookmarker_kp).await?;
     test.cleanup_user(&author_kp).await?;
 

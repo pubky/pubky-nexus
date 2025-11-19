@@ -1,6 +1,6 @@
 // File: ./tests/watcher/network/large_network_test.rs
 
-use crate::event_processor::utils::watcher::WatcherTest;
+use crate::event_processor::utils::watcher::{HomeserverHashIdPath, HomeserverIdPath, WatcherTest};
 use anyhow::{anyhow, Result};
 use nexus_common::{
     db::RedisOps,
@@ -9,10 +9,8 @@ use nexus_common::{
 use nexus_watcher::service::TEventProcessorRunner;
 use pubky::Keypair;
 use pubky_app_specs::{
-    post_uri_builder,
-    traits::{HasIdPath, HashId},
-    PubkyAppBookmark, PubkyAppFollow, PubkyAppMute, PubkyAppPost, PubkyAppPostKind, PubkyAppTag,
-    PubkyAppUser,
+    post_uri_builder, PubkyAppBookmark, PubkyAppFollow, PubkyAppMute, PubkyAppPost,
+    PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
 };
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use std::collections::{HashMap, HashSet};
@@ -88,7 +86,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                 embed: None,
                 attachments: None,
             };
-            let post_id = test.create_post(user_kp, &post).await?;
+            let (post_id, _post_path) = test.create_post(user_kp, &post).await?;
             user_posts.get_mut(user_id).unwrap().push(post_id);
             total_posts += 1;
         }
@@ -135,8 +133,8 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                     let mute = PubkyAppMute {
                         created_at: chrono::Utc::now().timestamp_millis(),
                     };
-                    let mute_url = PubkyAppMute::create_path(&target_user_id);
-                    test.put(user_kp, &mute_url, mute).await?;
+                    let mute_path = PubkyAppMute::hs_path(&target_user_id);
+                    test.put(user_kp, &mute_path, mute).await?;
                     _total_mutes += 1;
                 }
             }
@@ -158,9 +156,9 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                     created_at: chrono::Utc::now().timestamp_millis(),
                 };
 
-                let bookmark_url = PubkyAppBookmark::create_path(&bookmark.create_id());
+                let bookmark_path = bookmark.hs_path();
 
-                test.put(user_kp, &bookmark_url, &bookmark).await?;
+                test.put(user_kp, &bookmark_path, &bookmark).await?;
                 total_bookmarks += 1;
             }
         }
@@ -182,10 +180,9 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                     label: tag_label.clone(),
                     created_at: chrono::Utc::now().timestamp_millis(),
                 };
+                let tag_path = tag.hs_path();
 
-                let tag_url = PubkyAppTag::create_path(&tag.create_id());
-
-                test.put(user_kp, &tag_url, &tag).await?;
+                test.put(user_kp, &tag_path, &tag).await?;
                 total_tags += 1;
 
                 // FAILS: possibly deletes a tag twice and decrements twice in index.
@@ -195,7 +192,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                 // Randomly decide to delete the tag
                 if rng.random_bool(0.1) {
                     // 10% chance to delete the tag
-                    test.del(user_kp, &tag_url).await?;
+                    test.del(user_kp, &tag_path).await?;
                     total_tag_deletions += 1;
                 }
             }
@@ -219,8 +216,8 @@ async fn test_large_network_scenario_counts() -> Result<()> {
             let target_index = rng.random_range(0..following.len());
             let target_user_id = &following[target_index];
             if unfollowed.insert(target_user_id.clone()) {
-                let follow_uri = PubkyAppFollow::create_path(&target_user_id);
-                test.del(user_kp, &follow_uri).await?;
+                let follow_path = PubkyAppFollow::hs_path(target_user_id);
+                test.del(user_kp, &follow_path).await?;
                 following_set.remove(target_user_id);
                 total_unfollows += 1;
             }
@@ -244,8 +241,8 @@ async fn test_large_network_scenario_counts() -> Result<()> {
             let target_index = rng.random_range(0..muted.len());
             let target_user_id = &muted[target_index];
             if unmuted.insert(target_user_id.clone()) {
-                let mute_uri = PubkyAppMute::create_path(&target_user_id);
-                test.del(user_kp, &mute_uri).await?;
+                let mute_path = PubkyAppMute::hs_path(&target_user_id);
+                test.del(user_kp, &mute_path).await?;
                 mute_set.remove(target_user_id);
                 _total_unmutes += 1;
             }

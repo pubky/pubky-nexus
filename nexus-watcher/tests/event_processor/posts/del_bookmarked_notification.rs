@@ -1,4 +1,4 @@
-use crate::event_processor::utils::watcher::WatcherTest;
+use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use nexus_common::{
     models::notification::{Notification, NotificationBody, PostChangedSource},
@@ -6,9 +6,8 @@ use nexus_common::{
 };
 use pubky::Keypair;
 use pubky_app_specs::{
-    bookmark_uri_builder, post_uri_builder,
-    traits::{HasIdPath, HashId},
-    PubkyAppBookmark, PubkyAppPost, PubkyAppPostKind, PubkyAppUser,
+    bookmark_uri_builder, post_uri_builder, traits::HashId, PubkyAppBookmark, PubkyAppPost,
+    PubkyAppPostKind, PubkyAppUser,
 };
 
 #[tokio_shared_rt::test(shared)]
@@ -45,7 +44,7 @@ async fn test_delete_bookmarked_post_notification() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let post_id = test.create_post(&user_a_kp, &post).await?;
+    let (post_id, post_path) = test.create_post(&user_a_kp, &post).await?;
 
     // User B bookmarks User A's post
     let bookmark = PubkyAppBookmark {
@@ -53,12 +52,11 @@ async fn test_delete_bookmarked_post_notification() -> Result<()> {
         created_at: 0,
     };
     let bookmark_absolute_url = bookmark_uri_builder(user_b_id.clone(), bookmark.create_id());
-    let bookmark_relative_url = PubkyAppBookmark::create_path(&bookmark.create_id());
-    test.put(&user_b_kp, &bookmark_relative_url, bookmark)
-        .await?;
+    let bookmark_path = bookmark.hs_path();
+    test.put(&user_b_kp, &bookmark_path, bookmark).await?;
 
     // User A deletes their post
-    test.cleanup_post(&user_a_kp, &post_id).await?;
+    test.cleanup_post(&user_a_kp, &post_path).await?;
 
     // Verify that User B receives a notification about the deletion
     let notifications = Notification::get_by_id(&user_b_id, Pagination::default())

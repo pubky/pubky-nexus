@@ -4,15 +4,14 @@ use crate::event_processor::posts::utils::{
 };
 use crate::event_processor::tags::utils::check_member_post_tag_global_timeline;
 use crate::event_processor::users::utils::find_user_counts;
-use crate::event_processor::utils::watcher::WatcherTest;
+use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
 use nexus_common::models::tag::post::TagPost;
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use pubky::Keypair;
 use pubky_app_specs::post_uri_builder;
-use pubky_app_specs::traits::HasIdPath;
-use pubky_app_specs::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser};
+use pubky_app_specs::{PubkyAppPost, PubkyAppTag, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_del_tag_post() -> Result<()> {
@@ -50,7 +49,7 @@ async fn test_homeserver_del_tag_post() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let post_id = test.create_post(&author_kp, &post).await?;
+    let (post_id, post_path) = test.create_post(&author_kp, &post).await?;
 
     // Step 3: Tagger user adds a tag to the his own post
     let label = "antonymous";
@@ -60,11 +59,11 @@ async fn test_homeserver_del_tag_post() -> Result<()> {
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
-    let tag_relative_url = PubkyAppTag::create_path(&tag.create_id());
+    let tag_path = tag.hs_path();
 
     // Step 3: Creat & Delete the tag
-    test.put(&author_kp, &tag_relative_url, tag).await?;
-    test.del(&author_kp, &tag_relative_url).await?;
+    test.put(&author_kp, &tag_path, tag).await?;
+    test.del(&author_kp, &tag_path).await?;
 
     // Step 4: Verify tag existence and data consistency
     // GRAPH_OP: Check if the tag exists in the graph database
@@ -137,7 +136,7 @@ async fn test_homeserver_del_tag_post() -> Result<()> {
     assert!(tag_timeline.is_none());
 
     // Cleanup user and post
-    test.cleanup_post(&author_kp, &post_id).await?;
+    test.cleanup_post(&author_kp, &post_path).await?;
     test.cleanup_user(&author_kp).await?;
     test.cleanup_user(&tagger_kp).await?;
 

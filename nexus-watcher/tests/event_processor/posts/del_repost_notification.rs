@@ -43,7 +43,7 @@ async fn test_delete_post_that_reposted_notification() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let post_id = test.create_post(&poster_kp, &post).await?;
+    let (post_id, _post_path) = test.create_post(&poster_kp, &post).await?;
 
     // Create a repost
     let repost = PubkyAppPost {
@@ -56,10 +56,10 @@ async fn test_delete_post_that_reposted_notification() -> Result<()> {
         }),
         attachments: None,
     };
-    let repost_id = test.create_post(&reposter_kp, &repost).await?;
+    let (repost_id, repost_path) = test.create_post(&reposter_kp, &repost).await?;
 
     // Delete the repost
-    test.cleanup_post(&reposter_kp, &repost_id).await?;
+    test.cleanup_post(&reposter_kp, &repost_path).await?;
 
     // Verify that the poster gets the correct notification
     let notifications = Notification::get_by_id(&poster_id, Pagination::default())

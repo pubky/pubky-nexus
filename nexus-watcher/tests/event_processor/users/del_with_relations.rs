@@ -34,7 +34,7 @@ async fn test_delete_user_with_relationships() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let post_id = test.create_post(&user_kp, &post).await?;
+    let (_post_id, post_path) = test.create_post(&user_kp, &post).await?;
 
     // Delete the user
     test.cleanup_user(&user_kp).await?;
@@ -78,7 +78,7 @@ async fn test_delete_user_with_relationships() -> Result<()> {
     );
 
     // Now delete the user's post
-    test.cleanup_post(&user_kp, &post_id).await?;
+    test.cleanup_post(&user_kp, &post_path).await?;
 
     // Write and delete the user again; this time it should be fully removed
     test.create_profile(&user_kp, &user).await?;
@@ -134,11 +134,11 @@ async fn test_delete_user_with_relationships() -> Result<()> {
         created_at: Utc::now().timestamp_millis(),
     };
 
-    let (file_id, image_url) = test.create_file(&user_with_kp, &file).await?;
+    let (_file_id, file_path) = test.create_file(&user_with_kp, &file).await?;
 
     user_with = PubkyAppUser {
         bio: Some("test_delete_user_with_relationships".to_string()),
-        image: Some(image_url),
+        image: Some(file_path.to_string()),
         links: Some(vec![PubkyAppUserLink {
             title: "Heaven".to_string(),
             url: "pubky://rest.now".to_string(),
@@ -156,7 +156,7 @@ async fn test_delete_user_with_relationships() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let post_b_id = test.create_post(&user_with_kp, &post_b).await?;
+    let (_post_b_id, post_b_path) = test.create_post(&user_with_kp, &post_b).await?;
 
     // Delete the user
     test.cleanup_user(&user_with_kp).await?;
@@ -202,13 +202,13 @@ async fn test_delete_user_with_relationships() -> Result<()> {
     );
 
     // Now delete the user's post
-    test.cleanup_post(&user_with_kp, &post_b_id).await?;
+    test.cleanup_post(&user_with_kp, &post_b_path).await?;
 
     // Write and delete the user again; this time it should be fully removed
     test.create_profile(&user_with_kp, &user_with).await?;
     test.cleanup_user(&user_with_kp).await?;
     // Delete the file
-    test.cleanup_file(&user_with_kp, &file_id).await?;
+    test.cleanup_file(&user_with_kp, &file_path).await?;
 
     // Attempt to find user details; should not exist
     let user_details_result = find_user_details(&user_with_id).await;

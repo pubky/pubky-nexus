@@ -1,13 +1,12 @@
 use super::utils::find_user_tag;
-use crate::{
-    event_processor::users::utils::{check_member_user_influencer, find_user_counts},
-    event_processor::utils::watcher::WatcherTest,
+use crate::event_processor::{
+    users::utils::{check_member_user_influencer, find_user_counts},
+    utils::watcher::{HomeserverHashIdPath, WatcherTest},
 };
 use anyhow::Result;
 use chrono::Utc;
 use nexus_common::models::tag::{traits::TagCollection, user::TagUser};
 use pubky::Keypair;
-use pubky_app_specs::traits::{HasIdPath, HashId};
 use pubky_app_specs::{PubkyAppTag, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
@@ -35,10 +34,10 @@ async fn test_homeserver_put_tag_user_self() -> Result<()> {
         created_at: Utc::now().timestamp_millis(),
     };
 
-    let tag_relative_url = PubkyAppTag::create_path(&tag.create_id());
+    let tag_path = tag.hs_path();
 
     // Put tag
-    test.put(&user_kp, &tag_relative_url, tag).await?;
+    test.put(&user_kp, &tag_path, tag).await?;
 
     // Step 3: Verify tag existence and data consistency
 

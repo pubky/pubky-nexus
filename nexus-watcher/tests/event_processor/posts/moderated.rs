@@ -1,13 +1,12 @@
-use crate::{
-    event_processor::posts::utils::find_post_details, event_processor::utils::watcher::WatcherTest,
+use crate::event_processor::{
+    posts::utils::find_post_details,
+    utils::watcher::{HomeserverHashIdPath, WatcherTest},
 };
 use anyhow::Result;
 use chrono::Utc;
 use pubky::{recovery_file, Keypair};
 use pubky_app_specs::{
-    post_uri_builder,
-    traits::{HasIdPath, HashId},
-    PubkyAppPost, PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
+    post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
 };
 use tokio::fs;
 
@@ -34,7 +33,7 @@ async fn test_moderated_post_lifecycle() -> Result<()> {
         attachments: None,
     };
 
-    let post_id = test.create_post(&user_kp, &post).await?;
+    let (post_id, _post_path) = test.create_post(&user_kp, &post).await?;
 
     // 2. Confirm this post does exist
     let post_details = find_post_details(&user_id, &post_id).await.unwrap();
@@ -54,9 +53,9 @@ async fn test_moderated_post_lifecycle() -> Result<()> {
         label: "label_to_moderate".to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
-    let tag_relative_url = PubkyAppTag::create_path(&tag.create_id());
+    let tag_path = tag.hs_path();
     // Put tag
-    test.put(&moderator_key, &tag_relative_url, tag).await?;
+    test.put(&moderator_key, &tag_path, tag).await?;
 
     // 4. Confirm the post does not exist
     let post_details = find_post_details(&user_id, &post_id).await;

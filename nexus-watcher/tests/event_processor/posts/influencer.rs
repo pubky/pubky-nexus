@@ -32,7 +32,7 @@ async fn test_homeserver_post_influencer() -> Result<()> {
         attachments: None,
     };
 
-    let alice_post_id = test.create_post(&alice_user_kp, &alice_post).await?;
+    let (alice_post_id, _alice_post_path) = test.create_post(&alice_user_kp, &alice_post).await?;
 
     // CACHE_OP: Assert cache has not been updated. Missing followers
     // influencers score: Sorted:Users:Influencers
@@ -71,7 +71,7 @@ async fn test_homeserver_post_influencer() -> Result<()> {
         attachments: None,
         embed: None,
     };
-    let _reply_id = test.create_post(&bob_user_kp, &reply).await?;
+    let (_reply_id, _reply_path) = test.create_post(&bob_user_kp, &reply).await?;
 
     // Create repost of alice post
     let repost = PubkyAppPost {

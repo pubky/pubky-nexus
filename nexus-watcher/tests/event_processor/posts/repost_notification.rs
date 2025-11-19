@@ -32,7 +32,7 @@ async fn test_homeserver_post_repost_notification() -> Result<()> {
         attachments: None,
     };
 
-    let alice_post_id = test.create_post(&alice_kp, &parent_post).await?;
+    let (alice_post_id, alice_post_path) = test.create_post(&alice_kp, &parent_post).await?;
 
     let parent_absolute_uri = post_uri_builder(alice_id.clone(), alice_post_id.clone());
 
@@ -47,7 +47,7 @@ async fn test_homeserver_post_repost_notification() -> Result<()> {
         attachments: None,
     };
 
-    let alice_reply_id = test.create_post(&alice_kp, &alice_repost).await?;
+    let (_alice_reply_id, alice_reply_path) = test.create_post(&alice_kp, &alice_repost).await?;
 
     // Verify that alice does not get a REPLY notification
     let notifications = Notification::get_by_id(&alice_id, Pagination::default())
@@ -83,7 +83,7 @@ async fn test_homeserver_post_repost_notification() -> Result<()> {
         attachments: None,
     };
 
-    let bob_reply_id = test.create_post(&bob_kp, &bob_repost).await?;
+    let (bob_reply_id, bob_reply_path) = test.create_post(&bob_kp, &bob_repost).await?;
 
     // Verify that alice gets a REPLY notification
     let notifications = Notification::get_by_id(&alice_id, Pagination::default())
@@ -126,12 +126,12 @@ async fn test_homeserver_post_repost_notification() -> Result<()> {
     }
 
     // // TODO: Impl DEL post. Assert the reply does not exist in Nexus
-    test.cleanup_post(&alice_kp, &alice_reply_id).await?;
-    test.cleanup_post(&bob_kp, &bob_reply_id).await?;
+    test.cleanup_post(&alice_kp, &alice_reply_path).await?;
+    test.cleanup_post(&bob_kp, &bob_reply_path).await?;
 
     // Cleanup
     test.cleanup_user(&alice_kp).await?;
-    test.cleanup_post(&alice_kp, &alice_post_id).await?;
+    test.cleanup_post(&alice_kp, &alice_post_path).await?;
 
     Ok(())
 }

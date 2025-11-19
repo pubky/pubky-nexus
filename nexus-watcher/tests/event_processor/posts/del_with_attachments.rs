@@ -26,7 +26,7 @@ async fn test_homeserver_del_post_with_attachments() -> Result<()> {
 
     let user_id = test.create_user(&user_kp, &user).await?;
 
-    let mut file_urls = Vec::new();
+    let mut file_paths = Vec::new();
     let mut file_ids = Vec::new();
 
     for i in [0, 1] {
@@ -46,32 +46,33 @@ async fn test_homeserver_del_post_with_attachments() -> Result<()> {
             size: blob.0.len(),
             created_at: Utc::now().timestamp_millis(),
         };
-        let (file_id, file_url) = test.create_file(&user_kp, &file).await?;
-        file_urls.push(file_url);
+        let (file_id, file_path) = test.create_file(&user_kp, &file).await?;
+        file_paths.push(file_path);
         file_ids.push(file_id);
     }
 
+    let post_attachments: Vec<String> = file_paths.iter().map(|p| p.to_string()).collect();
     let post = PubkyAppPost {
         content: "Watcher:DelWithAttachmentEvent:Post".to_string(),
         kind: PubkyAppPostKind::Short,
         parent: None,
         embed: None,
-        attachments: Some(file_urls.clone()),
+        attachments: Some(post_attachments.clone()),
     };
 
-    let post_id = test.create_post(&user_kp, &post).await?;
+    let (post_id, post_path) = test.create_post(&user_kp, &post).await?;
 
     let post_details = find_post_details(&user_id, &post_id).await.unwrap();
 
     assert_eq!(post_details.id, post_id);
     assert_eq!(post_details.content, post.content);
-    assert_eq!(post_details.attachments, Some(file_urls));
+    assert_eq!(post_details.attachments, Some(post_attachments));
 
     // Cleanup
-    test.cleanup_post(&user_kp, &post_id).await?;
+    test.cleanup_post(&user_kp, &post_path).await?;
     // If the post has attachments, it also needs to send DEL event
-    test.cleanup_file(&user_kp, &file_ids[0]).await?;
-    test.cleanup_file(&user_kp, &file_ids[1]).await?;
+    test.cleanup_file(&user_kp, &file_paths[0]).await?;
+    test.cleanup_file(&user_kp, &file_paths[1]).await?;
 
     for file_id in file_ids {
         let files = FileDetails::get_by_ids(

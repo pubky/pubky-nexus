@@ -37,7 +37,7 @@ async fn test_homeserver_post_reply() -> Result<()> {
         attachments: None,
     };
 
-    let parent_post_id = test.create_post(&user_kp, &parent_post).await?;
+    let (parent_post_id, parent_post_path) = test.create_post(&user_kp, &parent_post).await?;
 
     // Create reply uri
     let parent_absolute_uri = post_uri_builder(user_id.clone(), parent_post_id.clone());
@@ -50,7 +50,7 @@ async fn test_homeserver_post_reply() -> Result<()> {
         attachments: None,
     };
 
-    let reply_id = test.create_post(&user_kp, &reply_post).await?;
+    let (reply_id, reply_path) = test.create_post(&user_kp, &reply_post).await?;
 
     // GRAPH_OP: Assert reply relationship was created
     let reply_post_details = find_post_details(&user_id, &reply_id).await.unwrap();
@@ -182,11 +182,11 @@ async fn test_homeserver_post_reply() -> Result<()> {
         "Replies should not be in the global total engagement sorted set"
     );
 
-    test.cleanup_post(&user_kp, &reply_id).await?;
+    test.cleanup_post(&user_kp, &reply_path).await?;
 
     // Cleanup
     test.cleanup_user(&user_kp).await?;
-    test.cleanup_post(&user_kp, &parent_post_id).await?;
+    test.cleanup_post(&user_kp, &parent_post_path).await?;
 
     Ok(())
 }

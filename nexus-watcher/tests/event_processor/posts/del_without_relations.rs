@@ -42,10 +42,10 @@ async fn test_delete_post_without_relationships() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let post_id = test.create_post(&user_kp, &post).await?;
+    let (post_id, post_path) = test.create_post(&user_kp, &post).await?;
 
     // Delete the post using the event handler
-    test.cleanup_post(&user_kp, &post_id).await?;
+    test.cleanup_post(&user_kp, &post_path).await?;
 
     // Attempt to find post details; should not exist in INDEX + GRAPH
     // Post:Details:user_id:post_id
@@ -147,7 +147,7 @@ async fn test_delete_post_that_reposted() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let post_id = test.create_post(&user_kp, &post).await?;
+    let (post_id, _post_path) = test.create_post(&user_kp, &post).await?;
 
     // Create a repost
     let repost = PubkyAppPost {
@@ -160,10 +160,10 @@ async fn test_delete_post_that_reposted() -> Result<()> {
         }),
         attachments: None,
     };
-    let repost_id = test.create_post(&user_kp, &repost).await?;
+    let (repost_id, repost_path) = test.create_post(&user_kp, &repost).await?;
 
     // Delete the post using the event handler
-    test.cleanup_post(&user_kp, &repost_id).await?;
+    test.cleanup_post(&user_kp, &repost_path).await?;
 
     // GRAPH_OP + CACHE_OP: Assert relationship does not exist in the data layer
 
@@ -278,7 +278,7 @@ async fn test_delete_post_that_replied() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let post_id = test.create_post(&user_kp, &post).await?;
+    let (post_id, _post_path) = test.create_post(&user_kp, &post).await?;
 
     // Create a reply
     let reply = PubkyAppPost {
@@ -288,10 +288,10 @@ async fn test_delete_post_that_replied() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let reply_id = test.create_post(&user_kp, &reply).await?;
+    let (reply_id, reply_path) = test.create_post(&user_kp, &reply).await?;
 
     // Delete the post using the event handler
-    test.cleanup_post(&user_kp, &reply_id).await?;
+    test.cleanup_post(&user_kp, &reply_path).await?;
 
     // GRAPH_OP + CACHE_OP: Assert relationship does not exist in the data layer
     // PARENT post counts should have reposts counts 0 once again

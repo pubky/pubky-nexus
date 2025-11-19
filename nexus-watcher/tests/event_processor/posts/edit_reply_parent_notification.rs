@@ -5,9 +5,7 @@ use nexus_common::{
     types::Pagination,
 };
 use pubky::Keypair;
-use pubky_app_specs::{
-    post_uri_builder, traits::HasIdPath, PubkyAppPost, PubkyAppPostKind, PubkyAppUser,
-};
+use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_edit_parent_post_notification() -> Result<()> {
@@ -43,7 +41,7 @@ async fn test_edit_parent_post_notification() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let post_id = test.create_post(&user_a_kp, &post).await?;
+    let (post_id, post_path) = test.create_post(&user_a_kp, &post).await?;
 
     // User B replies to User A's post
     let reply = PubkyAppPost {
@@ -53,14 +51,13 @@ async fn test_edit_parent_post_notification() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let reply_id = test.create_post(&user_b_kp, &reply).await?;
+    let (reply_id, _reply_path) = test.create_post(&user_b_kp, &reply).await?;
 
     // User A edits their original post
     post.content = "Edited post by User A".to_string();
-    let edited_relative_url = PubkyAppPost::create_path(&post_id);
 
     // Overwrite existing post in the homeserver with the edited one
-    test.put(&user_a_kp, &edited_relative_url, &post).await?;
+    test.put(&user_a_kp, &post_path, &post).await?;
 
     // Verify that User B receives a notification about the edit
     let notifications = Notification::get_by_id(&user_b_id, Pagination::default())

@@ -1,13 +1,13 @@
 use super::utils::find_post_bookmark;
-use crate::event_processor::users::utils::find_user_counts;
 use crate::event_processor::utils::watcher::WatcherTest;
+use crate::event_processor::{
+    users::utils::find_user_counts, utils::watcher::HomeserverHashIdPath,
+};
 use anyhow::Result;
 use nexus_common::models::post::{Bookmark, PostStream};
 use pubky::Keypair;
 use pubky_app_specs::{
-    post_uri_builder,
-    traits::{HasIdPath, HashId},
-    PubkyAppBookmark, PubkyAppPost, PubkyAppUser,
+    post_uri_builder, traits::HashId, PubkyAppBookmark, PubkyAppPost, PubkyAppUser,
 };
 
 #[tokio_shared_rt::test(shared)]
@@ -33,7 +33,7 @@ async fn test_homeserver_bookmark() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let post_id = test.create_post(&user_kp, &post).await?;
+    let (post_id, post_path) = test.create_post(&user_kp, &post).await?;
 
     // Step 3: Add a bookmark to the post. Before create a new user
     let bookmark = PubkyAppBookmark {
@@ -41,12 +41,10 @@ async fn test_homeserver_bookmark() -> Result<()> {
         created_at: chrono::Utc::now().timestamp_millis(),
     };
     let bookmark_id = bookmark.create_id();
-    let bookmark_relative_url = PubkyAppBookmark::create_path(&bookmark_id);
+    let bookmark_path = bookmark.hs_path();
 
     // Put bookmark
-    test.put(&user_kp, &bookmark_relative_url, bookmark)
-        .await
-        .unwrap();
+    test.put(&user_kp, &bookmark_path, bookmark).await.unwrap();
 
     // Step 4: Verify the bookmark exists in Nexus
     // GRAPH_OP: Assert if the event writes the graph
@@ -87,7 +85,7 @@ async fn test_homeserver_bookmark() -> Result<()> {
     assert_eq!(bookmark.id, bookmark_id, "Bookmark ids does not match");
 
     // Cleanup user and post
-    test.cleanup_post(&user_kp, &post_id).await?;
+    test.cleanup_post(&user_kp, &post_path).await?;
     test.cleanup_user(&user_kp).await?;
 
     Ok(())

@@ -1,4 +1,6 @@
-use crate::event_processor::utils::watcher::{retrieve_and_handle_event_line, WatcherTest};
+use crate::event_processor::utils::watcher::{
+    retrieve_and_handle_event_line, HomeserverHashIdPath, WatcherTest,
+};
 use anyhow::{anyhow, Result};
 use chrono::Utc;
 use nexus_watcher::service::TEventProcessorRunner;
@@ -48,15 +50,14 @@ async fn test_homeserver_tag_cannot_add_while_index() -> Result<()> {
         created_at: Utc::now().timestamp_millis(),
     };
 
+    let tag_path = tag.hs_path();
     let tag_blob = serde_json::to_vec(&tag)?;
-    let tag_relative_url = PubkyAppTag::create_path(&tag.create_id());
 
     // PUT user tag
-    test.put(&shadow_user_kp, &tag_relative_url, tag_blob)
-        .await?;
+    test.put(&shadow_user_kp, &tag_path, tag_blob).await?;
 
     // Create raw event line to retrieve the content from the homeserver
-    let tag_event = format!("PUT {tag_relative_url}");
+    let tag_event = format!("PUT {tag_path}");
 
     // Simulate the event processor to handle the event.
     // If the event processor were activated, the test would not catch the missing dependency
@@ -91,7 +92,7 @@ async fn test_homeserver_tag_cannot_add_while_index() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let post_id = test.create_post(&tagged_keypair, &post).await?;
+    let (post_id, _post_path) = test.create_post(&tagged_keypair, &post).await?;
 
     let label = "merkle_tree";
 
@@ -103,8 +104,7 @@ async fn test_homeserver_tag_cannot_add_while_index() -> Result<()> {
     let tag_blob = serde_json::to_vec(&tag)?;
     let tag_relative_url = PubkyAppTag::create_path(&tag.create_id());
     // PUT post tag
-    test.put(&shadow_user_kp, &tag_relative_url, tag_blob)
-        .await?;
+    test.put(&shadow_user_kp, &tag_path, tag_blob).await?;
 
     // Create raw event line to retrieve the content from the homeserver
     let tag_event = format!("PUT {tag_relative_url}");

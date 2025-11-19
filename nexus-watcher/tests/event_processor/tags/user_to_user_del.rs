@@ -1,16 +1,13 @@
 use super::utils::find_user_tag;
-use crate::{
-    event_processor::users::utils::{check_member_user_influencer, find_user_counts},
-    event_processor::utils::watcher::WatcherTest,
+use crate::event_processor::{
+    users::utils::{check_member_user_influencer, find_user_counts},
+    utils::watcher::{HomeserverHashIdPath, WatcherTest},
 };
 use anyhow::Result;
 use chrono::Utc;
 use nexus_common::models::tag::{traits::TagCollection, user::TagUser};
 use pubky::Keypair;
-use pubky_app_specs::{
-    traits::{HasIdPath, HashId},
-    PubkyAppTag, PubkyAppUser,
-};
+use pubky_app_specs::{PubkyAppTag, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_del_tag_to_another_user() -> Result<()> {
@@ -48,13 +45,13 @@ async fn test_homeserver_del_tag_to_another_user() -> Result<()> {
         created_at: Utc::now().timestamp_millis(),
     };
 
-    let tag_relative_url = PubkyAppTag::create_path(&tag.create_id());
+    let tag_path = tag.hs_path();
 
     // Put tag
-    test.put(&tagger_kp, &tag_relative_url, tag).await?;
+    test.put(&tagger_kp, &tag_path, tag).await?;
 
     // Step 3: Delete the tag
-    test.del(&tagger_kp, &tag_relative_url).await?;
+    test.del(&tagger_kp, &tag_path).await?;
 
     // Step 4: Assert tag deletion
     // GRAPH_OP: Check if the tag node was deleted

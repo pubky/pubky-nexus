@@ -1,12 +1,10 @@
 use super::utils::find_post_bookmark;
-use crate::event_processor::utils::watcher::WatcherTest;
+use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use nexus_common::models::post::PostStream;
 use pubky::Keypair;
 use pubky_app_specs::{
-    post_uri_builder,
-    traits::{HasIdPath, HashId},
-    PubkyAppBookmark, PubkyAppPost, PubkyAppUser,
+    post_uri_builder, traits::HashId, PubkyAppBookmark, PubkyAppPost, PubkyAppUser,
 };
 
 #[tokio_shared_rt::test(shared)]
@@ -32,7 +30,7 @@ async fn test_homeserver_viewer_bookmark() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let post_id = test.create_post(&user_kp, &post).await?;
+    let (post_id, post_path) = test.create_post(&user_kp, &post).await?;
 
     // Step 3: Add a bookmark to the post. Before create a new user
     let viewer_kp = Keypair::random();
@@ -50,11 +48,11 @@ async fn test_homeserver_viewer_bookmark() -> Result<()> {
         uri: post_uri_builder(user_id.clone(), post_id.clone()),
         created_at: chrono::Utc::now().timestamp_millis(),
     };
+    let bookmark_path = bookmark.hs_path();
     let bookmark_id = bookmark.create_id();
-    let bookmark_relative_url = PubkyAppBookmark::create_path(&bookmark_id);
 
     // Put bookmark
-    test.put(&viewer_kp, &bookmark_relative_url, bookmark)
+    test.put(&viewer_kp, &bookmark_path, bookmark)
         .await
         .unwrap();
 
@@ -85,7 +83,7 @@ async fn test_homeserver_viewer_bookmark() -> Result<()> {
     assert!(result_bookmarks.last_post_score.is_some());
 
     // Cleanup user and post
-    test.cleanup_post(&user_kp, &post_id).await?;
+    test.cleanup_post(&user_kp, &post_path).await?;
     test.cleanup_user(&user_kp).await?;
     test.cleanup_user(&viewer_kp).await?;
 

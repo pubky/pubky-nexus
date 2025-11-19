@@ -1,14 +1,14 @@
 use crate::event_processor::{
-    homeserver::utils::create_external_test_homeserver, utils::watcher::WatcherTest,
+    homeserver::utils::create_external_test_homeserver,
+    utils::watcher::{HomeserverHashIdPath, WatcherTest},
 };
 use anyhow::Result;
 use chrono::Utc;
 use nexus_common::models::homeserver::Homeserver;
 use pubky::Keypair;
 use pubky_app_specs::{
-    post_uri_builder,
-    traits::{HasIdPath, HashId, TimestampId},
-    user_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyAppTag, PubkyAppUser, PubkyId,
+    post_uri_builder, traits::TimestampId, user_uri_builder, PubkyAppPost, PubkyAppPostKind,
+    PubkyAppTag, PubkyAppUser, PubkyId,
 };
 
 #[tokio_shared_rt::test(shared)]
@@ -61,8 +61,8 @@ async fn test_tag_post_on_unknown_homeserver() -> Result<()> {
         created_at: Utc::now().timestamp_millis(),
     };
     // PUT tag
-    let tag_relative_url = PubkyAppTag::create_path(&tag.create_id());
-    test.put(&tagger_author_kp, &tag_relative_url, tag).await?;
+    let tag_path = tag.hs_path();
+    test.put(&tagger_author_kp, &tag_path, tag).await?;
 
     // Check if the new homeserver of the unknown tagged user was ingested
     let tagged_post_hs_id = PubkyId::try_from(&tagged_post_hs_pk.to_z32()).unwrap();
@@ -111,8 +111,8 @@ async fn test_tag_user_on_unknown_homeserver() -> Result<()> {
         created_at: Utc::now().timestamp_millis(),
     };
     // PUT tag
-    let tag_url = PubkyAppTag::create_path(&tag.create_id());
-    test.put(&tagger_author_kp, &tag_url, tag).await?;
+    let tag_path = tag.hs_path();
+    test.put(&tagger_author_kp, &tag_path, tag).await?;
 
     // Check if the new homeserver of the unknown tagged user was ingested
     let tagged_user_hs_id = PubkyId::try_from(&tagged_user_hs_pk.to_z32()).unwrap();

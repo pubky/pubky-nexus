@@ -57,7 +57,7 @@ async fn test_reply_to_post_on_unknown_homeserver() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let reply_id = test.create_post(&reply_author_kp, &reply).await?;
+    let (_reply_id, reply_path) = test.create_post(&reply_author_kp, &reply).await?;
 
     // Check if new HS was ingested
     let root_author_hs = Homeserver::get_by_id(parent_author_hs_id).await.unwrap();
@@ -65,7 +65,7 @@ async fn test_reply_to_post_on_unknown_homeserver() -> Result<()> {
 
     // Cleanup
     test.cleanup_user(&reply_author_kp).await?;
-    test.cleanup_post(&reply_author_kp, &reply_id).await?;
+    test.cleanup_post(&reply_author_kp, &reply_path).await?;
 
     Ok(())
 }
@@ -121,7 +121,7 @@ async fn test_repost_of_post_on_unknown_homeserver() -> Result<()> {
         attachments: None,
     };
 
-    let repost_id = test.create_post(&repost_author_kp, &repost).await?;
+    let (_repost_id, repost_path) = test.create_post(&repost_author_kp, &repost).await?;
 
     // Check if new HS was ingested
     let original_author_hs = Homeserver::get_by_id(original_author_hs_id).await.unwrap();
@@ -129,7 +129,7 @@ async fn test_repost_of_post_on_unknown_homeserver() -> Result<()> {
 
     // Cleanup
     test.cleanup_user(&repost_author_kp).await?;
-    test.cleanup_post(&repost_author_kp, &repost_id).await?;
+    test.cleanup_post(&repost_author_kp, &repost_path).await?;
 
     Ok(())
 }
@@ -179,7 +179,7 @@ async fn test_post_and_mention_users_on_unknown_homeserver() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let post_id = test.create_post(&post_author_kp, &post).await?;
+    let (_post_id, post_path) = test.create_post(&post_author_kp, &post).await?;
 
     // Check if the new homeserver of the first unknown mentioned user was ingested ...
     assert!(Homeserver::get_by_id(user_1_hs_id).await.unwrap().is_some());
@@ -189,7 +189,7 @@ async fn test_post_and_mention_users_on_unknown_homeserver() -> Result<()> {
 
     // Cleanup
     test.cleanup_user(&post_author_kp).await?;
-    test.cleanup_post(&post_author_kp, &post_id).await?;
+    test.cleanup_post(&post_author_kp, &post_path).await?;
 
     Ok(())
 }

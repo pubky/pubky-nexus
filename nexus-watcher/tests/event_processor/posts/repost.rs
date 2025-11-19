@@ -39,7 +39,7 @@ async fn test_homeserver_post_repost() -> Result<()> {
         attachments: None,
     };
 
-    let parent_post_id = test.create_post(&user_kp, &parent_post).await?;
+    let (parent_post_id, parent_post_path) = test.create_post(&user_kp, &parent_post).await?;
 
     // Create repost uri
     let parent_absolute_uri = post_uri_builder(user_id.clone(), parent_post_id.clone());
@@ -55,7 +55,7 @@ async fn test_homeserver_post_repost() -> Result<()> {
         attachments: None,
     };
 
-    let repost_id = test.create_post(&user_kp, &repost).await?;
+    let (repost_id, repost_path) = test.create_post(&user_kp, &repost).await?;
 
     // GRAPH_OP: Assert repost relationship was created
     let repost_post_details = find_post_details(&user_id, &repost_id).await.unwrap();
@@ -172,7 +172,7 @@ async fn test_homeserver_post_repost() -> Result<()> {
     );
 
     // // TODO: Impl DEL post. Assert the repost does not exist in Nexus
-    test.cleanup_post(&user_kp, &repost_id).await?;
+    test.cleanup_post(&user_kp, &repost_path).await?;
     // let result_post = PostView::get_by_id(&user_id, &post_id, None, None, None)
     //     .await
     //     .unwrap();
@@ -181,7 +181,7 @@ async fn test_homeserver_post_repost() -> Result<()> {
 
     // Cleanup
     test.cleanup_user(&user_kp).await?;
-    test.cleanup_post(&user_kp, &parent_post_id).await?;
+    test.cleanup_post(&user_kp, &parent_post_path).await?;
 
     Ok(())
 }

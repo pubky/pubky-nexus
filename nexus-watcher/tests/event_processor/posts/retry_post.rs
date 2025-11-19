@@ -3,7 +3,6 @@ use anyhow::Result;
 use nexus_watcher::events::errors::EventProcessorError;
 use nexus_watcher::events::{retry::event::RetryEvent, EventType};
 use pubky::Keypair;
-use pubky_app_specs::traits::HasIdPath;
 use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppPostKind};
 
 /// The user profile is stored in the homeserver. Missing the author to connect the post
@@ -26,9 +25,8 @@ async fn test_homeserver_post_cannot_index() -> Result<()> {
         attachments: None,
     };
 
-    let post_id = test.create_post(&user_kp, &post).await?;
+    let (post_id, post_path) = test.create_post(&user_kp, &post).await?;
 
-    let post_relative_url = PubkyAppPost::create_path(&post_id);
     let post_absolute_url = post_uri_builder(user_id.clone(), post_id);
 
     let index_key = format!(
@@ -61,7 +59,7 @@ async fn test_homeserver_post_cannot_index() -> Result<()> {
         _ => panic!("The error type has to be MissingDependency type"),
     };
 
-    test.del(&user_kp, &post_relative_url).await?;
+    test.del(&user_kp, &post_path).await?;
 
     let del_index_key = format!(
         "{}:{}",

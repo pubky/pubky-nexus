@@ -1,10 +1,11 @@
-use crate::event_processor::utils::watcher::{retrieve_and_handle_event_line, WatcherTest};
+use crate::event_processor::utils::watcher::{
+    retrieve_and_handle_event_line, HomeserverHashIdPath, WatcherTest,
+};
 use anyhow::Result;
 use pubky::Keypair;
 use pubky_app_specs::{
-    bookmark_uri_builder, post_uri_builder,
-    traits::{HasIdPath, HashId},
-    PubkyAppBookmark, PubkyAppPost, PubkyAppUser,
+    bookmark_uri_builder, post_uri_builder, traits::HashId, PubkyAppBookmark, PubkyAppPost,
+    PubkyAppUser,
 };
 use tracing::error;
 
@@ -30,7 +31,7 @@ async fn test_homeserver_bookmark_without_user() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let post_id = test.create_post(&author_kp, &post).await?;
+    let (post_id, _post_path) = test.create_post(&author_kp, &post).await?;
 
     // Create a key but it would not be synchronised in nexus
     let shadow_user_kp = Keypair::random();
@@ -47,15 +48,14 @@ async fn test_homeserver_bookmark_without_user() -> Result<()> {
     };
 
     // Create the bookmark of the shadow user
+    let bookmark_path = bookmark.hs_path();
     let bookmark_id = bookmark.create_id();
-    let bookmark_relative_url = PubkyAppBookmark::create_path(&bookmark_id);
     let bookmark_absolute_url = bookmark_uri_builder(shadow_user_id, bookmark_id);
 
     // Switch OFF the event processor to simulate the pending events to index
     test = test.remove_event_processing().await;
     // Put bookmark
-    test.put(&shadow_user_kp, &bookmark_relative_url, bookmark)
-        .await?;
+    test.put(&shadow_user_kp, &bookmark_path, bookmark).await?;
 
     // Create raw event line to retrieve the content from the homeserver
     let bookmark_event = format!("PUT {bookmark_absolute_url}");

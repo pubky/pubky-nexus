@@ -1,6 +1,6 @@
 use super::utils::find_user_tag;
 use crate::event_processor::users::utils::find_user_counts;
-use crate::event_processor::utils::watcher::WatcherTest;
+use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
 use nexus_common::models::tag::user::TagUser;
@@ -12,8 +12,7 @@ use nexus_common::{
     types::Pagination,
 };
 use pubky::Keypair;
-use pubky_app_specs::traits::HasIdPath;
-use pubky_app_specs::{traits::HashId, PubkyAppTag, PubkyAppUser};
+use pubky_app_specs::{PubkyAppTag, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_multi_user_tags() -> Result<()> {
@@ -45,7 +44,7 @@ async fn test_homeserver_multi_user_tags() -> Result<()> {
     let label_earth = "earth";
 
     // Step 2: Create tags
-    let mut tag_urls_and_tagger_kps = Vec::with_capacity(5);
+    let mut tag_paths_and_tagger_kps = Vec::with_capacity(5);
     let wind_taggers = [tagger_a_id_kp, tagger_b_id_kp, tagger_c_id_kp];
 
     for (_tagger_id, tagger_kp) in wind_taggers {
@@ -54,10 +53,10 @@ async fn test_homeserver_multi_user_tags() -> Result<()> {
             label: label_wind.to_string(),
             created_at: Utc::now().timestamp_millis(),
         };
-        let tag_relative_url = PubkyAppTag::create_path(&tag.create_id());
+        let tag_path = tag.hs_path();
         // Put tag
-        test.put(&tagger_kp, &tag_relative_url, tag).await?;
-        tag_urls_and_tagger_kps.push((tag_relative_url, tagger_kp))
+        test.put(&tagger_kp, &tag_path, tag).await?;
+        tag_paths_and_tagger_kps.push((tag_path, tagger_kp))
     }
 
     let earth_taggers = [tagger_b_id_kp, tagger_c_id_kp];
@@ -68,10 +67,10 @@ async fn test_homeserver_multi_user_tags() -> Result<()> {
             label: label_earth.to_string(),
             created_at: Utc::now().timestamp_millis(),
         };
-        let tag_relative_url = PubkyAppTag::create_path(&tag.create_id());
+        let tag_path = tag.hs_path();
         // Put tag
-        test.put(&tagger_kp, &tag_relative_url, tag).await?;
-        tag_urls_and_tagger_kps.push((tag_relative_url, tagger_kp))
+        test.put(&tagger_kp, &tag_path, tag).await?;
+        tag_paths_and_tagger_kps.push((tag_path, tagger_kp))
     }
 
     // Step 3: Assert all the PUT operations
@@ -132,7 +131,7 @@ async fn test_homeserver_multi_user_tags() -> Result<()> {
     assert_eq!(tagger_c_user_counts.tagged, 2);
 
     // Step 4: DEL tag from homeserver
-    for (tag_url, tagger_kp) in tag_urls_and_tagger_kps {
+    for (tag_url, tagger_kp) in tag_paths_and_tagger_kps {
         test.del(&tagger_kp, &tag_url).await?;
     }
 

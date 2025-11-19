@@ -3,7 +3,6 @@ use anyhow::Result;
 use nexus_watcher::events::errors::EventProcessorError;
 use nexus_watcher::events::{retry::event::RetryEvent, EventType};
 use pubky::Keypair;
-use pubky_app_specs::traits::HasIdPath;
 use pubky_app_specs::{
     post_uri_builder, PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser,
 };
@@ -41,9 +40,8 @@ async fn test_homeserver_post_repost_cannot_index() -> Result<()> {
         attachments: None,
     };
 
-    let repost_id = test.create_post(&user_kp, &repost_post).await?;
+    let (repost_id, repost_path) = test.create_post(&user_kp, &repost_post).await?;
 
-    let repost_relative_url = PubkyAppPost::create_path(&repost_id);
     let repost_absolute_url = post_uri_builder(user_id, repost_id);
 
     let index_key = format!(
@@ -74,7 +72,7 @@ async fn test_homeserver_post_repost_cannot_index() -> Result<()> {
         _ => panic!("The error type has to be MissingDependency type"),
     };
 
-    test.del(&user_kp, &repost_relative_url).await?;
+    test.del(&user_kp, &repost_path).await?;
 
     let del_index_key = format!(
         "{}:{}",

@@ -1,5 +1,5 @@
 use super::utils::find_post_tag;
-use crate::event_processor::utils::watcher::WatcherTest;
+use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
 use nexus_common::{
@@ -7,11 +7,7 @@ use nexus_common::{
     types::Pagination,
 };
 use pubky::Keypair;
-use pubky_app_specs::{
-    post_uri_builder,
-    traits::{HasIdPath, HashId},
-    PubkyAppPost, PubkyAppTag, PubkyAppUser,
-};
+use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppTag, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_tag_post_notification() -> Result<()> {
@@ -50,7 +46,7 @@ async fn test_homeserver_tag_post_notification() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let post_id = test.create_post(&author_kp, &post).await?;
+    let (post_id, post_path) = test.create_post(&author_kp, &post).await?;
 
     // Tagger adds a tag to the post
     let label = "interesting";
@@ -61,10 +57,10 @@ async fn test_homeserver_tag_post_notification() -> Result<()> {
         created_at: Utc::now().timestamp_millis(),
     };
 
-    let tag_relative_url = PubkyAppTag::create_path(&tag.create_id());
+    let tag_path = tag.hs_path();
 
     // Put tag
-    test.put(&tagger_kp, &tag_relative_url, tag).await?;
+    test.put(&tagger_kp, &tag_path, tag).await?;
 
     // GRAPH_OP
     let post_tag = find_post_tag(&author_id, &post_id, label)
@@ -111,7 +107,7 @@ async fn test_homeserver_tag_post_notification() -> Result<()> {
     }
 
     // Cleanup
-    test.cleanup_post(&author_kp, &post_id).await?;
+    test.cleanup_post(&author_kp, &post_path).await?;
     test.cleanup_user(&author_kp).await?;
     test.cleanup_user(&tagger_kp).await?;
 

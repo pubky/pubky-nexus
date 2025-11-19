@@ -15,7 +15,9 @@ use nexus_watcher::service::NexusWatcher;
 use nexus_watcher::service::TEventProcessorRunner;
 use pubky::Keypair;
 use pubky::PublicKey;
+use pubky::ResourcePath;
 use pubky_app_specs::file_uri_builder;
+use pubky_app_specs::traits::HashId;
 use pubky_app_specs::{
     traits::{HasIdPath, HasPath, TimestampId},
     PubkyAppFile, PubkyAppFollow, PubkyAppMute, PubkyAppPost, PubkyAppUser, PubkyId,
@@ -152,12 +154,12 @@ impl WatcherTest {
     /// 3. Ensures that all event processing is complete after the PUT operation.
     ///
     /// # Parameters
-    /// - `homeserver_uri`: The URI of the homeserver to write the data to.
+    /// - `hs_path`: The homeserver path to the file to write the data to.
     /// - `object`: A generic type representing the data to be sent, which must implement `serde::Serialize`.
     pub async fn put<T>(
         &mut self,
         user_keypair: &Keypair,
-        homeserver_uri: &str,
+        hs_path: &ResourcePath,
         object: T,
     ) -> Result<()>
     where
@@ -169,7 +171,7 @@ impl WatcherTest {
         let session = signer.signin().await?;
         session
             .storage()
-            .put(homeserver_uri, serde_json::to_string(&object)?)
+            .put(hs_path, serde_json::to_string(&object)?)
             .await?;
         self.ensure_event_processing_complete().await?;
         Ok(())
@@ -183,14 +185,14 @@ impl WatcherTest {
     /// 3. Ensures that all event processing is complete after the DELETE operation.
     ///
     /// # Parameters
-    /// - `homeserver_uri`: The URI of the homeserver from which content should be deleted.
+    /// - `hs_path`: The homeserver path to the file to be deleted.
     ///
-    pub async fn del(&mut self, user_keypair: &Keypair, homeserver_uri: &str) -> Result<()> {
+    pub async fn del(&mut self, user_keypair: &Keypair, hs_path: &ResourcePath) -> Result<()> {
         let pubky_client = PubkyClient::get()?;
 
         let signer = pubky_client.signer(user_keypair.clone());
         let session = signer.signin().await?;
-        session.storage().delete(homeserver_uri).await?;
+        session.storage().delete(hs_path).await?;
         self.ensure_event_processing_complete().await?;
         Ok(())
     }
@@ -220,8 +222,8 @@ impl WatcherTest {
         self.register_user(user_kp).await?;
 
         // Write the user profile in the pubky.app repository
-        let user_relative_url = PubkyAppUser::create_path();
-        self.put(user_kp, &user_relative_url, &user).await?;
+        let user_path = PubkyAppUser::hs_path();
+        self.put(user_kp, &user_path, &user).await?;
 
         // Index to Nexus from Homeserver using the events processor
         self.ensure_event_processing_complete().await?;
@@ -239,35 +241,41 @@ impl WatcherTest {
         let user_id = user_kp.public_key().to_z32();
 
         // Write the user profile in the pubky.app repository
-        let user_relative_url = PubkyAppUser::create_path();
-        self.put(user_kp, &user_relative_url, &user).await?;
+        let user_path = PubkyAppUser::hs_path();
+        self.put(user_kp, &user_path, &user).await?;
 
         // Index to Nexus from Homeserver using the events processor
         self.ensure_event_processing_complete().await?;
         Ok(user_id.to_string())
     }
 
-    pub async fn create_post(&mut self, user_kp: &Keypair, post: &PubkyAppPost) -> Result<String> {
-        let post_id = post.create_id();
-        let post_relative_url = PubkyAppPost::create_path(&post_id);
+    pub async fn create_post(
+        &mut self,
+        user_kp: &Keypair,
+        post: &PubkyAppPost,
+    ) -> Result<(String, ResourcePath)> {
+        let (post_id, post_path) = post.hs_path();
         // Write the post in the pubky.app repository
-        self.put(&user_kp, &post_relative_url, post).await?;
+        self.put(&user_kp, &post_path, post).await?;
 
         // Index to Nexus from Homeserver using the events processor
         self.ensure_event_processing_complete().await?;
-        Ok(post_id)
+        Ok((post_id, post_path))
     }
 
     pub async fn cleanup_user(&mut self, user_kp: &Keypair) -> Result<()> {
-        let url = PubkyAppUser::create_path();
-        self.del(user_kp, &url).await?;
+        let user_path = PubkyAppUser::hs_path();
+        self.del(user_kp, &user_path).await?;
         self.ensure_event_processing_complete().await?;
         Ok(())
     }
 
-    pub async fn cleanup_post(&mut self, user_kp: &Keypair, post_id: &str) -> Result<()> {
-        let post_relative_url = PubkyAppPost::create_path(&post_id);
-        self.del(user_kp, &post_relative_url).await?;
+    pub async fn cleanup_post(
+        &mut self,
+        user_kp: &Keypair,
+        post_path: &ResourcePath,
+    ) -> Result<()> {
+        self.del(user_kp, post_path).await?;
         self.ensure_event_processing_complete().await?;
         Ok(())
     }
@@ -276,13 +284,12 @@ impl WatcherTest {
         &mut self,
         user_kp: &Keypair,
         file: &PubkyAppFile,
-    ) -> Result<(String, String)> {
-        let file_id = file.create_id();
-        let file_relative_url = PubkyAppFile::create_path(&file_id);
-        self.put(&user_kp, &file_relative_url, file).await?;
+    ) -> Result<(String, ResourcePath)> {
+        let (file_id, file_path) = file.hs_path();
+        self.put(&user_kp, &file_path, file).await?;
 
         self.ensure_event_processing_complete().await?;
-        Ok((file_id, file_relative_url))
+        Ok((file_id, file_path))
     }
 
     pub async fn create_file_from_body(
@@ -299,9 +306,12 @@ impl WatcherTest {
         Ok(())
     }
 
-    pub async fn cleanup_file(&mut self, user_kp: &Keypair, file_id: &str) -> Result<()> {
-        let file_relative_url = PubkyAppFile::create_path(&file_id);
-        self.del(user_kp, &file_relative_url).await?;
+    pub async fn cleanup_file(
+        &mut self,
+        user_kp: &Keypair,
+        file_path: &ResourcePath,
+    ) -> Result<()> {
+        self.del(user_kp, &file_path).await?;
         self.ensure_event_processing_complete().await?;
         Ok(())
     }
@@ -310,28 +320,31 @@ impl WatcherTest {
         &mut self,
         follower_kp: &Keypair,
         followee_id: &str,
-    ) -> Result<String> {
+    ) -> Result<ResourcePath> {
         let follow_relationship = PubkyAppFollow {
             created_at: Utc::now().timestamp_millis(),
         };
-        let follow_relative_url = PubkyAppFollow::create_path(&followee_id);
-        self.put(&follower_kp, &follow_relative_url, follow_relationship)
+        let follow_path = follow_relationship.hs_path(followee_id);
+        self.put(&follower_kp, &follow_path, follow_relationship)
             .await?;
         // Process the event
         self.ensure_event_processing_complete().await?;
-        Ok(follow_relative_url)
+        Ok(follow_path)
     }
 
-    pub async fn create_mute(&mut self, muter_kp: &Keypair, mutee_id: &str) -> Result<String> {
-        let mute_relationship = PubkyAppFollow {
+    pub async fn create_mute(
+        &mut self,
+        muter_kp: &Keypair,
+        mutee_id: &str,
+    ) -> Result<ResourcePath> {
+        let mute_relationship = PubkyAppMute {
             created_at: Utc::now().timestamp_millis(),
         };
-        let mute_relative_url = PubkyAppMute::create_path(&mutee_id);
-        self.put(&muter_kp, &mute_relative_url, mute_relationship)
-            .await?;
+        let mute_path = PubkyAppMute::hs_path(mutee_id);
+        self.put(&muter_kp, &mute_path, mute_relationship).await?;
         // Process the event
         self.ensure_event_processing_complete().await?;
-        Ok(mute_relative_url)
+        Ok(mute_path)
     }
 }
 
@@ -407,4 +420,44 @@ pub async fn assert_file_details(
     assert_eq!(result_file.owner_id, user_id);
 
     result_file.clone()
+}
+
+pub trait HomeserverIdPath: HasIdPath {
+    fn hs_path(pubky_id: &str) -> ResourcePath {
+        Self::create_path(pubky_id).parse().unwrap()
+    }
+}
+impl<T> HomeserverIdPath for T where T: HasIdPath {}
+
+pub trait HomeserverPath: HasPath {
+    fn hs_path() -> ResourcePath {
+        Self::create_path().parse().unwrap()
+    }
+}
+impl<T> HomeserverPath for T where T: HasPath {}
+
+pub trait HomeserverHashIdPath: HashId + HasIdPath {
+    fn hs_path(&self) -> ResourcePath {
+        let id = self.create_id();
+        Self::create_path(&id).parse().unwrap()
+    }
+}
+impl<T> HomeserverHashIdPath for T where T: HashId + HasIdPath {}
+
+pub trait HomeserverTimestampIdPath: TimestampId + HasIdPath {
+    fn hs_path(&self) -> (String, ResourcePath) {
+        let id = self.create_id();
+        let path = Self::create_path(&id).parse().unwrap();
+        (id, path)
+    }
+}
+impl<T> HomeserverTimestampIdPath for T where T: TimestampId + HasIdPath {}
+
+pub trait HomeserverPathForPubkyId {
+    fn hs_path(&self, pubky_id: &str) -> ResourcePath;
+}
+impl HomeserverPathForPubkyId for PubkyAppFollow {
+    fn hs_path(&self, pubky_id: &str) -> ResourcePath {
+        Self::create_path(pubky_id).parse().unwrap()
+    }
 }

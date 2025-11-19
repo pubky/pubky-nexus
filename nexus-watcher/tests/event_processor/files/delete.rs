@@ -43,7 +43,7 @@ async fn test_delete_pubkyapp_file() -> Result<()> {
         created_at: Utc::now().timestamp_millis(),
     };
 
-    let (file_id, _) = test.create_file(&user_kp, &file).await?;
+    let (file_id, file_path) = test.create_file(&user_kp, &file).await?;
 
     // Act
     let files_before_delete = FileDetails::get_by_ids(
@@ -55,7 +55,7 @@ async fn test_delete_pubkyapp_file() -> Result<()> {
     let file_before_delete = files_before_delete[0].as_ref();
     assert!(file_before_delete.is_some());
 
-    test.cleanup_file(&user_kp, &file_id).await?;
+    test.cleanup_file(&user_kp, &file_path).await?;
 
     // Assert
     let files = FileDetails::get_by_ids(
