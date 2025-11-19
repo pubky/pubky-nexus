@@ -132,10 +132,7 @@ impl Event {
         let result = match result {
             Ok(r) => r,
             Err(error) => {
-                error!(
-                    "IndexReadFailed: Failed to read from index due to Redis error: {}",
-                    error
-                );
+                error!("IndexReadFailed: Failed to read from index due to Redis error: {error}");
                 return Err(error);
             }
         };
