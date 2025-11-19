@@ -51,15 +51,12 @@ impl Event {
         }
 
         let event_type = match parts[0] {
-            "PUT" => EventType::Put,
-            "DEL" => EventType::Del,
-            other => {
-                return Err(EventProcessorError::InvalidEventLine {
-                    message: format!("Unknown event type: {other}"),
-                }
-                .into())
-            }
-        };
+            "PUT" => Ok(EventType::Put),
+            "DEL" => Ok(EventType::Del),
+            other => Err(EventProcessorError::InvalidEventLine {
+                message: format!("Unknown event type: {other}"),
+            }),
+        }?;
 
         // Validate and parse the URI using pubky-app-specs
         let uri = parts[1].to_string();
