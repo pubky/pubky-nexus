@@ -876,12 +876,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "790eea4361631c5e7d22598ecd5723ff611904e3344ce8720784c93e3d83d40b"
 
 [[package]]
-name = "crockford"
-version = "1.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f5b8c2e7977312ea8b57b92df14c4ecf5d1af056f5d71974ce970b38697f140"
-
-[[package]]
 name = "crossbeam-deque"
 version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2590,7 +2584,6 @@ dependencies = [
  "clap",
  "const_format",
  "criterion",
- "crockford",
  "deadpool-redis",
  "futures-util",
  "httpc-test",

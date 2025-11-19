@@ -112,12 +112,12 @@ impl Event {
     }
 
     pub async fn get_events_from_redis(
-        cursor: Option<f64>,
+        cursor: f64,
         limit: usize,
     ) -> Result<Vec<(String, f64)>, DynError> {
         let result = Event::try_from_index_sorted_set(
             &["Events"],
-            cursor,
+            Some(cursor),
             None,
             None,
             Some(limit + 1),

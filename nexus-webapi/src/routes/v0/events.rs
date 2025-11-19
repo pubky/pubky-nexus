@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use super::endpoints::EVENTS_ROUTE;
-use crockford;
 
 use crate::Error;
 use axum::extract::Query;
@@ -24,20 +23,14 @@ impl std::fmt::Display for EventsList {
         for line in &self.events {
             writeln!(f, "{}", line)?;
         }
-        write!(f, "cursor: {:0>13}", crockford::encode(self.cursor))
+        write!(f, "cursor: {}", self.cursor)
     }
 }
 
 #[derive(Deserialize)]
 pub struct EventsQuery {
-    cursor: Option<String>,
+    cursor: Option<u64>,
     limit: Option<usize>,
-}
-
-fn decode_crockford32(s: &str) -> Result<i64, String> {
-    crockford::decode(s)
-        .map(|v| v as i64)
-        .map_err(|_e| format!("Invalid cursor {}", s))
 }
 
 #[utoipa::path(
@@ -45,7 +38,7 @@ fn decode_crockford32(s: &str) -> Result<i64, String> {
     path = EVENTS_ROUTE,
     tag = "Events",
     params(
-        ("cursor" = String, Query, description = "Cursor"),
+        ("cursor" = u64, Query, description = "Cursor"),
         ("limit" = usize, Query, description = "Limit the number of results")
     ),
     responses(
@@ -55,7 +48,7 @@ fn decode_crockford32(s: &str) -> Result<i64, String> {
             body = String,
             description = "Events list as plain text with cursor",
             content_type = "text/plain",
-            example = "PUT pubky://<pk>/<path>\nDEL pubky://<pk>/<path>\nPUT pubky://<pk>/<path>\ncursor: 000000000000Y"
+            example = "PUT pubky://<pk>/<path>\nDEL pubky://<pk>/<path>\nPUT pubky://<pk>/<path>\ncursor: 2"
         ),
         (status = 400, description = "Bad request"),
         (status = 500, description = "Internal server error"),
@@ -92,16 +85,9 @@ fn assemble_page(items: Vec<(String, f64)>) -> EventsList {
     EventsList { events, cursor }
 }
 
-fn parse_query(q: &EventsQuery) -> Result<(usize, Option<f64>), Error> {
+fn parse_query(q: &EventsQuery) -> Result<(usize, f64), Error> {
     let limit = q.limit.unwrap_or(500);
-
-    let cursor = match q.cursor.as_deref() {
-        None => None,
-        Some(c) => match decode_crockford32(c) {
-            Ok(score) => Some(score as f64),
-            Err(e) => return Err(Error::InvalidInput { message: e }),
-        },
-    };
+    let cursor = q.cursor.unwrap_or(0) as f64;
 
     Ok((limit, cursor))
 }
