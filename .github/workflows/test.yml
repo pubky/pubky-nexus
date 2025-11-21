@@ -23,6 +23,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Load environment variables from .env-sample
+        working-directory: docker
+        run: |
+          set -a
+          source .env-sample
+          set +a
+          echo "POSTGRES_USER=${POSTGRES_USER}" >> $GITHUB_ENV
+          echo "POSTGRES_PASSWORD=${POSTGRES_PASSWORD}" >> $GITHUB_ENV
+          echo "POSTGRES_DB=${POSTGRES_DB}" >> $GITHUB_ENV
+          echo "POSTGRES_HOST=localhost" >> $GITHUB_ENV
+          echo "POSTGRES_PORT=5432" >> $GITHUB_ENV
+
       - name: Set up Rust
         uses: actions-rs/toolchain@v1
         with:
@@ -75,7 +87,7 @@ jobs:
 
       - name: Run WATCHER integration tests
         env:
-          TEST_PUBKY_CONNECTION_STRING: postgres://test_user:test_pass@localhost:5432/postgres?pubky-test=true
+          TEST_PUBKY_CONNECTION_STRING: postgres://${{ env.POSTGRES_USER }}:${{ env.POSTGRES_PASSWORD }}@${{ env.POSTGRES_HOST }}:${{ env.POSTGRES_PORT }}/${{ env.POSTGRES_DB }}?pubky-test=true
         run: cargo nextest run -p nexus-watcher --no-fail-fast
 
       - name: Tear down Docker Compose
