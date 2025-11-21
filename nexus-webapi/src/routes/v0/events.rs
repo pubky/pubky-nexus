@@ -39,7 +39,7 @@ pub struct EventsQuery {
     tag = "Events",
     params(
         ("cursor" = u64, Query, description = "Cursor"),
-        ("limit" = usize, Query, description = "Limit the number of results")
+        ("limit" = usize, Query, description = "Limit the number of results, (default 500, maximum 1000)")
     ),
     responses(
         (
@@ -86,7 +86,7 @@ fn assemble_page(items: Vec<(String, f64)>) -> EventsList {
 }
 
 fn parse_query(q: &EventsQuery) -> Result<(usize, f64), Error> {
-    let limit = q.limit.unwrap_or(500);
+    let limit = q.limit.unwrap_or(500).min(1000);
     let cursor = q.cursor.unwrap_or(0) as f64;
 
     Ok((limit, cursor))
