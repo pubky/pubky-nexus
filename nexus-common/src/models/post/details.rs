@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 /// Represents post data with content, bio, image, links, and status.
-#[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
+#[derive(Serialize, Deserialize, ToSchema, Default, Debug, PartialEq)]
 // NOTE: Might not be necessary the default values for serde because before PUT a PostDetails node
 // we do sanity check
 pub struct PostDetails {
