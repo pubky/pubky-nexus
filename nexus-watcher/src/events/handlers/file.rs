@@ -1,4 +1,4 @@
-use crate::events::errors::EventProcessorError;
+use crate::events::EventProcessorError;
 use crate::handle_indexing_results;
 use nexus_common::db::DbError;
 use nexus_common::db::PubkyClient;
