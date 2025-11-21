@@ -19,8 +19,8 @@ pub enum EventProcessorError {
     #[error("InvalidEventLine: {message}")]
     InvalidEventLine { message: String },
     /// The Pubky client could not resolve the pubky
-    #[error("PubkyClientError: {message}")]
-    PubkyClientError { message: String },
+    #[error("PubkyClientError: {0}")]
+    PubkyClientError(#[from] nexus_common::db::PubkyClientError),
 }
 
 impl EventProcessorError {
@@ -31,6 +31,6 @@ impl EventProcessorError {
     }
 
     pub fn client_error(message: String) -> Self {
-        Self::PubkyClientError { message }
+        nexus_common::db::PubkyClientError::ClientError(message).into()
     }
 }

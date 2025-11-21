@@ -64,8 +64,7 @@ impl EventProcessor {
         debug!("Polling new events from homeserver");
 
         let response_text = {
-            let pubky_client =
-                PubkyClient::get().map_err(|e| EventProcessorError::client_error(e.to_string()))?;
+            let pubky_client = PubkyClient::get()?;
             let url = format!(
                 "https://{}/events/?cursor={}&limit={}",
                 self.homeserver.id, self.homeserver.cursor, self.limit
@@ -115,14 +114,11 @@ impl EventProcessor {
                     Err(e) => warn!("{e}"),
                 }
             } else {
-                let event = match Event::parse_event(line, self.files_path.clone()) {
-                    Ok(event) => event,
-                    Err(e) => {
-                        error!("{}", e);
-                        None
-                    }
-                };
-                if let Some(event) = event {
+                let maybe_event = Event::parse_event(line, self.files_path.clone())
+                    .inspect_err(|e| error!("{e}"))
+                    .unwrap_or(None);
+
+                if let Some(event) = maybe_event {
                     let tracer = global::tracer(self.tracer_name.clone());
                     let mut span = tracer.start(event.parsed_uri.resource.to_string());
                     span.set_attribute(KeyValue::new("event.uri", event.uri.clone()));

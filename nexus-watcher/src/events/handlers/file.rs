@@ -60,25 +60,11 @@ async fn ingest(
     pubkyapp_file: &PubkyAppFile,
     files_path: PathBuf,
 ) -> Result<FileMeta, DynError> {
-    let response;
-    {
-        let pubky_client =
-            PubkyClient::get().map_err(|e| EventProcessorError::PubkyClientError {
-                message: e.to_string(),
-            })?;
-
-        response = match pubky_client.public_storage().get(&pubkyapp_file.src).await {
-            Ok(response) => response,
-            Err(e) => {
-                return Err(EventProcessorError::PubkyClientError {
-                    message: format!(
-                        "The ingest process could not get the client while processing File event: {e}"
-                    ),
-                }
-                .into());
-            }
-        };
-    }
+    let pubky_client = PubkyClient::get()?;
+    let response = pubky_client
+        .public_storage()
+        .get(&pubkyapp_file.src)
+        .await?;
 
     let path = Path::new(&user_id.to_string()).join(file_id);
     let full_path = files_path.join(path.clone());

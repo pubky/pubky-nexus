@@ -1,4 +1,5 @@
 use pubky::{Pubky, PubkyHttpClient};
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::OnceCell;
@@ -6,7 +7,7 @@ use tracing::debug;
 
 static PUBKY_SINGLETON: OnceCell<Arc<Pubky>> = OnceCell::const_new();
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone, Serialize, Deserialize)]
 pub enum PubkyClientError {
     #[error("PubkyClient not initialized")]
     NotInitialized,
