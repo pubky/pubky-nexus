@@ -69,20 +69,22 @@ async fn test_events_endpoint() -> Result<()> {
     let client = &test_server.testnet.pubky_client_builder().build()?;
 
     let response = client
-        .get(format!("{pubky_tls_dns_url}/v0/events?limit=100"))
+        .get(format!("{pubky_tls_dns_url}/v0/events?limit=1000"))
         .send()
         .await?;
 
     assert_eq!(response.status(), 200);
 
     let whole_body = response.text().await?;
-    assert!(whole_body.lines().count() - 1 <= 100);
+    let whole_body_lines: Vec<&str> = whole_body.lines().collect();
+    let mut whole_line_index = 0usize;
+    assert!(whole_body.lines().count() - 1 <= 1000);
 
     let limit = 10;
     let mut cursor = String::from("");
     let mut counter = 1;
 
-    while limit * counter <= 100 {
+    while limit * counter <= 1000 {
         let response = client
             .get(format!(
                 "{pubky_tls_dns_url}/v0/events?{cursor}limit={limit}"
@@ -103,8 +105,18 @@ async fn test_events_endpoint() -> Result<()> {
 
         let lines: Vec<&str> = part_of_body.lines().collect();
         let count = lines.len();
-        for line in lines.into_iter().take(count - 1) {
-            assert!(whole_body.contains(line));
+        for &line in lines.iter().take(count - 1) {
+            assert!(
+                whole_body_lines[whole_line_index..]
+                    .iter()
+                    .position(|candidate| candidate == &line)
+                    .map(|pos| {
+                        whole_line_index += pos + 1;
+                        true
+                    })
+                    .unwrap_or(false),
+                "Line `{line}` missing or out of order in complete response"
+            );
         }
         counter += 1;
     }
