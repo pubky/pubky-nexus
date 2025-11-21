@@ -16,9 +16,9 @@ pub enum PubkyClientError {
     ClientError(String),
 }
 
-pub struct PubkyClient;
+pub struct PubkyConnector;
 
-impl PubkyClient {
+impl PubkyConnector {
     /// Initializes the `Pubky` singleton.
     ///
     /// - For mainnet, pass `None`.

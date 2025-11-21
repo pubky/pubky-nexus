@@ -1,8 +1,7 @@
 use crate::db::exec_single_row;
 use crate::db::fetch_key_from_graph;
 use crate::db::queries;
-use crate::db::PubkyClient;
-use crate::db::RedisOps;
+use crate::db::{PubkyConnector, RedisOps};
 use crate::models::user::UserDetails;
 use crate::types::DynError;
 
@@ -136,7 +135,7 @@ impl Homeserver {
     ///
     /// - `referenced_user_id`: The URI of the referenced user
     pub async fn maybe_ingest_for_user(referenced_user_id: &str) -> Result<(), DynError> {
-        let pubky_client = PubkyClient::get()?;
+        let pubky = PubkyConnector::get()?;
 
         if UserDetails::get_by_id(referenced_user_id).await?.is_some() {
             tracing::debug!(
@@ -146,8 +145,7 @@ impl Homeserver {
         }
 
         let ref_post_author_pk = referenced_user_id.parse::<PublicKey>()?;
-        let Some(ref_post_author_hs) = pubky_client.get_homeserver_of(&ref_post_author_pk).await
-        else {
+        let Some(ref_post_author_hs) = pubky.get_homeserver_of(&ref_post_author_pk).await else {
             tracing::warn!("Skipping homeserver ingestion: author {ref_post_author_pk} has no published homeserver");
             return Ok(());
         };

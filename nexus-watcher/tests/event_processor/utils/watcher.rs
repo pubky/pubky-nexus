@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Error, Result};
 use chrono::Utc;
-use nexus_common::db::PubkyClient;
+use nexus_common::db::PubkyConnector;
 use nexus_common::get_files_dir_pathbuf;
 use nexus_common::get_files_dir_test_pathbuf;
 use nexus_common::models::file::FileDetails;
@@ -110,7 +110,7 @@ impl WatcherTest {
 
         // Initialize the PubkyConnector with the test homeserver client
         let sdk = testnet.sdk().unwrap();
-        match PubkyClient::init_from_client(sdk).await {
+        match PubkyConnector::init_from_client(sdk).await {
             Ok(_) => debug!("WatcherTest: PubkyConnector initialised"),
             Err(e) => debug!("WatcherTest: {}", e),
         }
@@ -165,9 +165,9 @@ impl WatcherTest {
     where
         T: serde::Serialize,
     {
-        let pubky_client = PubkyClient::get()?;
+        let pubky = PubkyConnector::get()?;
 
-        let signer = pubky_client.signer(user_keypair.clone());
+        let signer = pubky.signer(user_keypair.clone());
         let session = signer.signin().await?;
         session
             .storage()
@@ -188,9 +188,9 @@ impl WatcherTest {
     /// - `hs_path`: The homeserver path to the file to be deleted.
     ///
     pub async fn del(&mut self, user_keypair: &Keypair, hs_path: &ResourcePath) -> Result<()> {
-        let pubky_client = PubkyClient::get()?;
+        let pubky = PubkyConnector::get()?;
 
-        let signer = pubky_client.signer(user_keypair.clone());
+        let signer = pubky.signer(user_keypair.clone());
         let session = signer.signin().await?;
         session.storage().delete(hs_path).await?;
         self.ensure_event_processing_complete().await?;
@@ -198,9 +198,9 @@ impl WatcherTest {
     }
 
     pub async fn register_user(&self, user_kp: &Keypair) -> Result<()> {
-        let pubky_client = PubkyClient::get()?;
+        let pubky = PubkyConnector::get()?;
 
-        let signer = pubky_client.signer(user_kp.clone());
+        let signer = pubky.signer(user_kp.clone());
         let hs_pk: PublicKey = self.homeserver_id.clone().try_into()?;
         signer.signup(&hs_pk, None).await?;
 
@@ -208,9 +208,9 @@ impl WatcherTest {
     }
 
     pub async fn register_user_in_hs(&self, user_kp: &Keypair, hs_pk: &PublicKey) -> Result<()> {
-        let pubky_client = PubkyClient::get()?;
+        let pubky = PubkyConnector::get()?;
 
-        let signer = pubky_client.signer(user_kp.clone());
+        let signer = pubky.signer(user_kp.clone());
         signer.signup(hs_pk, None).await?;
 
         Ok(())
@@ -298,9 +298,9 @@ impl WatcherTest {
         homeserver_uri: &str,
         object: Vec<u8>,
     ) -> Result<()> {
-        let pubky_client = PubkyClient::get()?;
+        let pubky = PubkyConnector::get()?;
 
-        let signer = pubky_client.signer(user_kp.clone());
+        let signer = pubky.signer(user_kp.clone());
         let session = signer.signin().await?;
         session.storage().put(homeserver_uri, object).await?;
         Ok(())

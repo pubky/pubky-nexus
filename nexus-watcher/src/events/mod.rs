@@ -1,5 +1,5 @@
 use errors::EventProcessorError;
-use nexus_common::db::PubkyClient;
+use nexus_common::db::PubkyConnector;
 use nexus_common::types::DynError;
 use pubky_app_specs::{ParsedUri, PubkyAppObject, Resource};
 use serde::{Deserialize, Serialize};
@@ -103,8 +103,8 @@ impl Event {
     pub async fn handle_put_event(self, moderation: Arc<Moderation>) -> Result<(), DynError> {
         debug!("Handling PUT event for URI: {}", self.uri);
 
-        let pubky_client = PubkyClient::get()?;
-        let response = pubky_client.public_storage().get(&self.uri).await?;
+        let pubky = PubkyConnector::get()?;
+        let response = pubky.public_storage().get(&self.uri).await?;
 
         let blob = response.bytes().await?;
         let resource = self.parsed_uri.resource;
