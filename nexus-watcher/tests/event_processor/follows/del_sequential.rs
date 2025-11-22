@@ -13,7 +13,7 @@ async fn test_homeserver_sequential_unfollow() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Create followee
-    let followee_keypair = Keypair::random();
+    let followee_kp = Keypair::random();
 
     let followee_user = PubkyAppUser {
         bio: Some("test_homeserver_sequential_follow".to_string()),
@@ -23,10 +23,10 @@ async fn test_homeserver_sequential_unfollow() -> Result<()> {
         status: None,
     };
 
-    let followee_id = test.create_user(&followee_keypair, &followee_user).await?;
+    let followee_id = test.create_user(&followee_kp, &followee_user).await?;
 
     // Create Alice user
-    let alice_keypair = Keypair::random();
+    let alice_kp = Keypair::random();
     let alice_user = PubkyAppUser {
         bio: Some("test_homeserver_sequential_follow".to_string()),
         image: None,
@@ -34,13 +34,13 @@ async fn test_homeserver_sequential_unfollow() -> Result<()> {
         name: "Watcher:FollowChain:Alice".to_string(),
         status: None,
     };
-    let alice_id = test.create_user(&alice_keypair, &alice_user).await?;
+    let _alice_id = test.create_user(&alice_kp, &alice_user).await?;
 
     // Follow followee
-    let alice_follow_uri = test.create_follow(&alice_id, &followee_id).await?;
+    let alice_follow_uri = test.create_follow(&alice_kp, &followee_id).await?;
 
     // Create Bob user
-    let bob_keypair = Keypair::random();
+    let bob_kp = Keypair::random();
     let bob_user = PubkyAppUser {
         bio: Some("test_homeserver_sequential_follow".to_string()),
         image: None,
@@ -48,12 +48,12 @@ async fn test_homeserver_sequential_unfollow() -> Result<()> {
         name: "Watcher:FollowChain:Bob".to_string(),
         status: None,
     };
-    let bob_id = test.create_user(&bob_keypair, &bob_user).await?;
+    let _bob_id = test.create_user(&bob_kp, &bob_user).await?;
 
     // Follow followee
-    let bob_follow_uri = test.create_follow(&bob_id, &followee_id).await?;
+    let bob_follow_uri = test.create_follow(&bob_kp, &followee_id).await?;
 
-    let carla_keypair = Keypair::random();
+    let carla_kp = Keypair::random();
     let carla_user = PubkyAppUser {
         bio: Some("test_homeserver_sequential_follow".to_string()),
         image: None,
@@ -61,12 +61,12 @@ async fn test_homeserver_sequential_unfollow() -> Result<()> {
         name: "Watcher:FollowChain:Carla".to_string(),
         status: None,
     };
-    let carla_id = test.create_user(&carla_keypair, &carla_user).await?;
+    let _carla_id = test.create_user(&carla_kp, &carla_user).await?;
 
     // Follow followee
-    let carla_follow_uri = test.create_follow(&carla_id, &followee_id).await?;
+    let carla_follow_uri = test.create_follow(&carla_kp, &followee_id).await?;
 
-    let danonino_keypair = Keypair::random();
+    let danonino_kp = Keypair::random();
     let danonino_user = PubkyAppUser {
         bio: Some("test_homeserver_sequential_follow".to_string()),
         image: None,
@@ -74,13 +74,13 @@ async fn test_homeserver_sequential_unfollow() -> Result<()> {
         name: "Watcher:FollowChain:Danonino".to_string(),
         status: None,
     };
-    let danonino_id = test.create_user(&danonino_keypair, &danonino_user).await?;
+    let danonino_id = test.create_user(&danonino_kp, &danonino_user).await?;
 
     // Follow followee
-    let danonino_follow_uri = test.create_follow(&danonino_id, &followee_id).await?;
+    let danonino_follow_uri = test.create_follow(&danonino_kp, &followee_id).await?;
 
     // Create Enzo user
-    let enzo_keypair = Keypair::random();
+    let enzo_kp = Keypair::random();
     let enzo_user = PubkyAppUser {
         bio: Some("test_homeserver_sequential_follow".to_string()),
         image: None,
@@ -88,17 +88,17 @@ async fn test_homeserver_sequential_unfollow() -> Result<()> {
         name: "Watcher:FollowChain:Enzo".to_string(),
         status: None,
     };
-    let enzo_id = test.create_user(&enzo_keypair, &enzo_user).await?;
+    let enzo_id = test.create_user(&enzo_kp, &enzo_user).await?;
 
     // Followee Follow Danonino
-    let followee_follow_danonino_uri = test.create_follow(&followee_id, &danonino_id).await?;
+    let followee_follow_danonino_uri = test.create_follow(&followee_kp, &danonino_id).await?;
 
     // Follow Enzo
-    let followee_follow_enzo_uri = test.create_follow(&followee_id, &enzo_id).await?;
+    let followee_follow_enzo_uri = test.create_follow(&followee_kp, &enzo_id).await?;
 
     // Start unfollowing users
-    test.del(&alice_follow_uri).await?;
-    test.del(&bob_follow_uri).await?;
+    test.del(&alice_kp, &alice_follow_uri).await?;
+    test.del(&bob_kp, &bob_follow_uri).await?;
 
     // Assert folowee counts
     let follower_count = UserCounts::try_from_index_json(&[&followee_id], None)
@@ -110,7 +110,8 @@ async fn test_homeserver_sequential_unfollow() -> Result<()> {
     assert_eq!(follower_count.following, 2);
     assert_eq!(follower_count.friends, 1);
 
-    test.del(&followee_follow_danonino_uri).await?;
+    test.del(&followee_kp, &followee_follow_danonino_uri)
+        .await?;
 
     // Assert folowee relationships and notifications
     let relationship = Relationship::get_by_id(&danonino_id, Some(&followee_id))
@@ -154,9 +155,9 @@ async fn test_homeserver_sequential_unfollow() -> Result<()> {
         panic!("Expected a new friend notification, found something else");
     }
 
-    test.del(&carla_follow_uri).await?;
-    test.del(&danonino_follow_uri).await?;
-    test.del(&followee_follow_enzo_uri).await?;
+    test.del(&carla_kp, &carla_follow_uri).await?;
+    test.del(&danonino_kp, &danonino_follow_uri).await?;
+    test.del(&followee_kp, &followee_follow_enzo_uri).await?;
 
     // Assert folowee last counts
     let follower_count = UserCounts::try_from_index_json(&[&followee_id], None)
@@ -182,12 +183,12 @@ async fn test_homeserver_sequential_unfollow() -> Result<()> {
     );
 
     // Cleanup
-    test.cleanup_user(&followee_id).await?;
-    test.cleanup_user(&bob_id).await?;
-    test.cleanup_user(&alice_id).await?;
-    test.cleanup_user(&carla_id).await?;
-    test.cleanup_user(&danonino_id).await?;
-    test.cleanup_user(&enzo_id).await?;
+    test.cleanup_user(&followee_kp).await?;
+    test.cleanup_user(&alice_kp).await?;
+    test.cleanup_user(&bob_kp).await?;
+    test.cleanup_user(&carla_kp).await?;
+    test.cleanup_user(&danonino_kp).await?;
+    test.cleanup_user(&enzo_kp).await?;
     // TODO: Clear Follows
 
     Ok(())

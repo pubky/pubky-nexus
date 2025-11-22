@@ -1,7 +1,7 @@
 use crate::events::errors::EventProcessorError;
 use crate::handle_indexing_results;
 use nexus_common::db::DbError;
-use nexus_common::db::PubkyClient;
+use nexus_common::db::PubkyConnector;
 use nexus_common::media::FileVariant;
 use nexus_common::media::VariantController;
 use nexus_common::models::file::Blob;
@@ -60,25 +60,8 @@ async fn ingest(
     pubkyapp_file: &PubkyAppFile,
     files_path: PathBuf,
 ) -> Result<FileMeta, DynError> {
-    let response;
-    {
-        let pubky_client =
-            PubkyClient::get().map_err(|e| EventProcessorError::PubkyClientError {
-                message: e.to_string(),
-            })?;
-
-        response = match pubky_client.get(&pubkyapp_file.src).send().await {
-            Ok(response) => response,
-            Err(e) => {
-                return Err(EventProcessorError::PubkyClientError {
-                    message: format!(
-                        "The ingest process could not get the client while processing File event: {e}"
-                    ),
-                }
-                .into());
-            }
-        };
-    }
+    let pubky = PubkyConnector::get()?;
+    let response = pubky.public_storage().get(&pubkyapp_file.src).await?;
 
     let path = Path::new(&user_id.to_string()).join(file_id);
     let full_path = files_path.join(path.clone());

@@ -12,7 +12,7 @@ use pubky_app_specs::{
 async fn test_homeserver_post_influencer() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
-    let alice_user_keypair = Keypair::random();
+    let alice_user_kp = Keypair::random();
 
     let alice_user = PubkyAppUser {
         bio: Some("test_homeserver_post_influencer".to_string()),
@@ -21,7 +21,7 @@ async fn test_homeserver_post_influencer() -> Result<()> {
         name: "Watcher:PostInfluencer:Alice".to_string(),
         status: None,
     };
-    let alice_id = test.create_user(&alice_user_keypair, &alice_user).await?;
+    let alice_id = test.create_user(&alice_user_kp, &alice_user).await?;
 
     // Alice creates a new post
     let alice_post = PubkyAppPost {
@@ -32,7 +32,7 @@ async fn test_homeserver_post_influencer() -> Result<()> {
         attachments: None,
     };
 
-    let alice_post_id = test.create_post(&alice_id, &alice_post).await?;
+    let (alice_post_id, _alice_post_path) = test.create_post(&alice_user_kp, &alice_post).await?;
 
     // CACHE_OP: Assert cache has not been updated. Missing followers
     // influencers score: Sorted:Users:Influencers
@@ -41,7 +41,7 @@ async fn test_homeserver_post_influencer() -> Result<()> {
     assert_eq!(influencer_score.unwrap(), 0);
 
     // Create new user
-    let bob_user_keypair = Keypair::random();
+    let bob_user_kp = Keypair::random();
 
     let bob_user = PubkyAppUser {
         bio: Some("test_homeserver_post_influencer".to_string()),
@@ -50,10 +50,10 @@ async fn test_homeserver_post_influencer() -> Result<()> {
         name: "Watcher:PostInfluencer:Bob".to_string(),
         status: None,
     };
-    let bob_id = test.create_user(&bob_user_keypair, &bob_user).await?;
+    let bob_id = test.create_user(&bob_user_kp, &bob_user).await?;
 
     // Follow Alice
-    test.create_follow(&bob_id, &alice_id).await?;
+    test.create_follow(&bob_user_kp, &alice_id).await?;
 
     // CACHE_OP: Assert if cache has been updated
     // influencers score: Sorted:Users:Influencers
@@ -71,7 +71,7 @@ async fn test_homeserver_post_influencer() -> Result<()> {
         attachments: None,
         embed: None,
     };
-    let _reply_id = test.create_post(&bob_id, &reply).await?;
+    let (_reply_id, _reply_path) = test.create_post(&bob_user_kp, &reply).await?;
 
     // Create repost of alice post
     let repost = PubkyAppPost {
@@ -85,7 +85,7 @@ async fn test_homeserver_post_influencer() -> Result<()> {
         attachments: None,
     };
 
-    test.create_post(&bob_id, &repost).await?;
+    test.create_post(&bob_user_kp, &repost).await?;
 
     // CACHE_OP: Assert if cache has been updated
     let influencer_score = check_member_user_influencer(&bob_id).await.unwrap();
@@ -94,7 +94,7 @@ async fn test_homeserver_post_influencer() -> Result<()> {
     assert_eq!(influencer_score.unwrap(), 0);
 
     // Follow Bob
-    test.create_follow(&alice_id, &bob_id).await?;
+    test.create_follow(&alice_user_kp, &bob_id).await?;
 
     // CACHE_OP: Assert if cache has been updated
     let influencer_score = check_member_user_influencer(&bob_id).await.unwrap();
@@ -105,8 +105,8 @@ async fn test_homeserver_post_influencer() -> Result<()> {
     // test.cleanup_post(&user_id, &reply_id).await?;
 
     // TODO: Cleanup
-    test.cleanup_user(&alice_id).await?;
-    test.cleanup_user(&bob_id).await?;
+    test.cleanup_user(&alice_user_kp).await?;
+    test.cleanup_user(&bob_user_kp).await?;
     //test.cleanup_post(&user_id, &parent_post_id).await?;
 
     Ok(())

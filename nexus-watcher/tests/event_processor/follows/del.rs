@@ -17,7 +17,7 @@ async fn test_homeserver_unfollow() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Create first user (follower)
-    let follower_keypair = Keypair::random();
+    let follower_kp = Keypair::random();
 
     let follower_user = PubkyAppUser {
         bio: Some("test_homeserver_unfollow".to_string()),
@@ -26,13 +26,10 @@ async fn test_homeserver_unfollow() -> Result<()> {
         name: "Watcher:Unfollow:Follower".to_string(),
         status: None,
     };
-    let follower_id = test
-        .create_user(&follower_keypair, &follower_user)
-        .await
-        .unwrap();
+    let follower_id = test.create_user(&follower_kp, &follower_user).await?;
 
     // Create second user (followee)
-    let followee_keypair = Keypair::random();
+    let followee_kp = Keypair::random();
     let followee_user = PubkyAppUser {
         bio: Some("test_homeserver_unfollow".to_string()),
         image: None,
@@ -41,15 +38,15 @@ async fn test_homeserver_unfollow() -> Result<()> {
         status: None,
     };
     let followee_id = test
-        .create_user(&followee_keypair, &followee_user)
+        .create_user(&followee_kp, &followee_user)
         .await
         .unwrap();
 
     // Follow the followee
-    let follow_url = test.create_follow(&follower_id, &followee_id).await?;
+    let follow_url = test.create_follow(&follower_kp, &followee_id).await?;
 
     // Unfollow the followee
-    test.del(&follow_url).await?;
+    test.del(&follower_kp, &follow_url).await?;
 
     // GRAPH_OP: Check if relationship was deleted
     let exist = find_follow_relationship(&follower_id, &followee_id)
@@ -115,8 +112,8 @@ async fn test_homeserver_unfollow() -> Result<()> {
     );
 
     // Cleanup
-    test.cleanup_user(&follower_id).await?;
-    test.cleanup_user(&followee_id).await?;
+    test.cleanup_user(&follower_kp).await?;
+    test.cleanup_user(&followee_kp).await?;
 
     Ok(())
 }

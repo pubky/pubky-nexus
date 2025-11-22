@@ -1,4 +1,6 @@
-use crate::event_processor::utils::watcher::{retrieve_and_handle_event_line, WatcherTest};
+use crate::event_processor::utils::watcher::{
+    retrieve_and_handle_event_line, HomeserverHashIdPath, WatcherTest,
+};
 use anyhow::Result;
 use pubky::Keypair;
 use pubky_app_specs::{
@@ -12,7 +14,7 @@ use tracing::error;
 async fn test_homeserver_bookmark_without_user() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
-    let author_keypair = Keypair::random();
+    let author_kp = Keypair::random();
     let author = PubkyAppUser {
         bio: Some("test_homeserver_bookmark_without_user".to_string()),
         image: None,
@@ -20,7 +22,7 @@ async fn test_homeserver_bookmark_without_user() -> Result<()> {
         name: "Watcher:Bookmark:User:Sync".to_string(),
         status: None,
     };
-    let author_id = test.create_user(&author_keypair, &author).await?;
+    let author_id = test.create_user(&author_kp, &author).await?;
 
     let post = PubkyAppPost {
         content: "Watcher:Bookmark:User:Sync:Post".to_string(),
@@ -29,15 +31,15 @@ async fn test_homeserver_bookmark_without_user() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let post_id = test.create_post(&author_id, &post).await?;
+    let (post_id, _post_path) = test.create_post(&author_kp, &post).await?;
 
     // Create a key but it would not be synchronised in nexus
-    let keypair = Keypair::random();
-    let shadow_user_id = keypair.public_key().to_z32();
+    let shadow_user_kp = Keypair::random();
+    let shadow_user_id = shadow_user_kp.public_key().to_z32();
 
     // In that case, that user will act as a NotSyncUser or user not registered in pubky.app
     // It will not have a profile.json
-    test.register_user(&keypair).await?;
+    test.register_user(&shadow_user_kp).await?;
 
     // Create a bookmark content
     let bookmark = PubkyAppBookmark {
@@ -46,16 +48,17 @@ async fn test_homeserver_bookmark_without_user() -> Result<()> {
     };
 
     // Create the bookmark of the shadow user
+    let bookmark_path = bookmark.hs_path();
     let bookmark_id = bookmark.create_id();
-    let bookmark_url = bookmark_uri_builder(shadow_user_id, bookmark_id);
+    let bookmark_absolute_url = bookmark_uri_builder(shadow_user_id, bookmark_id);
 
     // Switch OFF the event processor to simulate the pending events to index
     test = test.remove_event_processing().await;
     // Put bookmark
-    test.put(&bookmark_url, bookmark).await?;
+    test.put(&shadow_user_kp, &bookmark_path, bookmark).await?;
 
     // Create raw event line to retrieve the content from the homeserver
-    let bookmark_event = format!("PUT {bookmark_url}");
+    let bookmark_event = format!("PUT {bookmark_absolute_url}");
 
     // Simulate the event processor to handle the event.
     // If the event processor were activated, the test would not catch the missing dependency
@@ -63,9 +66,7 @@ async fn test_homeserver_bookmark_without_user() -> Result<()> {
     let moderation_ref = test.event_processor_runner.moderation.clone();
     let sync_fail = retrieve_and_handle_event_line(&bookmark_event, moderation_ref)
         .await
-        .map_err(|e| {
-            error!("SYNC ERROR: {:?}", e);
-        })
+        .map_err(|e| error!("SYNC ERROR: {:?}", e))
         .is_err();
 
     assert!(

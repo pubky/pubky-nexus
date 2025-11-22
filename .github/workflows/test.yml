@@ -23,6 +23,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Load environment variables from .env-sample
+        working-directory: docker
+        run: |
+          set -a
+          source .env-sample
+          set +a
+          echo "TEST_PUBKY_CONNECTION_STRING=${TEST_PUBKY_CONNECTION_STRING}" >> $GITHUB_ENV
+
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -69,6 +77,7 @@ jobs:
       - name: Run API integration tests
         run: cargo nextest run -p nexus-webapi --no-fail-fast
 
+      # This test suite uses the TEST_PUBKY_CONNECTION_STRING env variable
       - name: Run WATCHER integration tests
         run: cargo nextest run -p nexus-watcher --no-fail-fast
 

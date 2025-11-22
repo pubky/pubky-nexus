@@ -1,17 +1,16 @@
 // File: ./tests/watcher/network/large_network_test.rs
 
-use crate::event_processor::utils::watcher::WatcherTest;
+use crate::event_processor::utils::watcher::{HomeserverHashIdPath, HomeserverIdPath, WatcherTest};
 use anyhow::{anyhow, Result};
 use nexus_common::{
-    db::{PubkyClient, RedisOps},
+    db::RedisOps,
     models::{post::PostCounts, user::UserCounts},
 };
 use nexus_watcher::service::TEventProcessorRunner;
 use pubky::Keypair;
 use pubky_app_specs::{
-    bookmark_uri_builder, follow_uri_builder, mute_uri_builder, post_uri_builder, tag_uri_builder,
-    traits::HashId, PubkyAppBookmark, PubkyAppMute, PubkyAppPost, PubkyAppPostKind, PubkyAppTag,
-    PubkyAppUser,
+    post_uri_builder, PubkyAppBookmark, PubkyAppFollow, PubkyAppMute, PubkyAppPost,
+    PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
 };
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use std::collections::{HashMap, HashSet};
@@ -33,8 +32,6 @@ async fn test_large_network_scenario_counts() -> Result<()> {
         test = test.remove_event_processing().await;
     }
 
-    let pubky_client = PubkyClient::get().unwrap();
-
     // Seed for reproducibility
     let seed = 42;
     let mut rng = StdRng::seed_from_u64(seed);
@@ -47,9 +44,8 @@ async fn test_large_network_scenario_counts() -> Result<()> {
     let max_bookmarks_per_user = 15;
 
     // Containers to hold user data
-    let mut user_ids = Vec::new();
+    let mut user_kps_and_ids = Vec::new();
     let mut user_names = Vec::new();
-    let mut keypairs = Vec::new();
     let mut user_posts: HashMap<String, Vec<String>> = HashMap::new(); // Map user_id to post IDs
 
     // Create users
@@ -64,10 +60,9 @@ async fn test_large_network_scenario_counts() -> Result<()> {
             status: None,
         };
         let user_id = test.create_user(&keypair, &user).await?;
-        user_ids.push(user_id.clone());
+        user_kps_and_ids.push((keypair, user_id.clone()));
         user_names.push(user_name);
-        keypairs.push(keypair);
-        user_posts.insert(user_id.clone(), Vec::new()); // Initialize posts vector for this user
+        user_posts.insert(user_id, Vec::new()); // Initialize posts vector for this user
     }
 
     // Total event counters
@@ -81,7 +76,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
     let mut _total_unmutes = 0;
 
     // Users create posts
-    for (i, user_id) in user_ids.iter().enumerate() {
+    for (i, (user_kp, user_id)) in user_kps_and_ids.iter().enumerate() {
         let num_posts = rng.random_range(1..=max_posts_per_user);
         for _ in 0..num_posts {
             let post = PubkyAppPost {
@@ -91,7 +86,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                 embed: None,
                 attachments: None,
             };
-            let post_id = test.create_post(user_id, &post).await?;
+            let (post_id, _post_path) = test.create_post(user_kp, &post).await?;
             user_posts.get_mut(user_id).unwrap().push(post_id);
             total_posts += 1;
         }
@@ -100,19 +95,19 @@ async fn test_large_network_scenario_counts() -> Result<()> {
     // Users follow other users
     let mut user_followings: HashMap<String, HashSet<String>> = HashMap::new(); // Map user_id to set of following user_ids
 
-    for user_id in user_ids.iter() {
+    for (_user_kp, user_id) in user_kps_and_ids.iter() {
         user_followings.insert(user_id.clone(), HashSet::new());
     }
 
-    for (i, user_id) in user_ids.iter().enumerate() {
+    for (i, (user_kp, user_id)) in user_kps_and_ids.iter().enumerate() {
         let num_follows = rng.random_range(1..=max_follows_per_user.min(NUM_USERS - 1));
         let follow_set = &mut user_followings.get_mut(user_id).unwrap();
         while follow_set.len() < num_follows {
             let target_index = rng.random_range(0..NUM_USERS);
             if target_index != i {
-                let target_user_id = &user_ids[target_index];
+                let (_target_user_kp, target_user_id) = &user_kps_and_ids[target_index];
                 if follow_set.insert(target_user_id.clone()) {
-                    test.create_follow(user_id, target_user_id).await?;
+                    test.create_follow(user_kp, target_user_id).await?;
                     total_follows += 1;
                 }
             }
@@ -122,28 +117,24 @@ async fn test_large_network_scenario_counts() -> Result<()> {
     // Users mute other users
     let mut user_mutes: HashMap<String, HashSet<String>> = HashMap::new(); // Map user_id to set of muted user_ids
 
-    for user_id in user_ids.iter() {
+    for (_user_kp, user_id) in user_kps_and_ids.iter() {
         user_mutes.insert(user_id.clone(), HashSet::new());
     }
 
-    for (i, user_id) in user_ids.iter().enumerate() {
+    for (i, (user_kp, user_id)) in user_kps_and_ids.iter().enumerate() {
         let num_mutes = rng.random_range(0..=max_mutes_per_user.min(NUM_USERS - 1));
         let mute_set = &mut user_mutes.get_mut(user_id).unwrap();
         while mute_set.len() < num_mutes {
             let target_index = rng.random_range(0..NUM_USERS);
             if target_index != i {
-                let target_user_id = &user_ids[target_index];
+                let (_target_user_kp, target_user_id) = &user_kps_and_ids[target_index];
                 if mute_set.insert(target_user_id.clone()) {
                     // Create mute
                     let mute = PubkyAppMute {
                         created_at: chrono::Utc::now().timestamp_millis(),
                     };
-                    let mute_url = mute_uri_builder(user_id.into(), target_user_id.into());
-                    pubky_client
-                        .put(mute_url.as_str())
-                        .json(&mute)
-                        .send()
-                        .await?;
+                    let mute_path = PubkyAppMute::hs_path(&target_user_id);
+                    test.put(user_kp, &mute_path, mute).await?;
                     _total_mutes += 1;
                 }
             }
@@ -151,11 +142,11 @@ async fn test_large_network_scenario_counts() -> Result<()> {
     }
 
     // Users bookmark posts
-    for user_id in user_ids.iter() {
+    for (user_kp, _user_id) in user_kps_and_ids.iter() {
         let num_bookmarks = rng.random_range(1..=max_bookmarks_per_user);
         for _ in 0..num_bookmarks {
             let target_user_index = rng.random_range(0..NUM_USERS);
-            let target_user_id = &user_ids[target_user_index];
+            let (_target_user_kp, target_user_id) = &user_kps_and_ids[target_user_index];
             if !user_posts[&target_user_id.clone()].is_empty() {
                 let post_index = rng.random_range(0..user_posts[&target_user_id.clone()].len());
                 let target_post_id = &user_posts[&target_user_id.clone()][post_index];
@@ -165,20 +156,20 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                     created_at: chrono::Utc::now().timestamp_millis(),
                 };
 
-                let bookmark_url = bookmark_uri_builder(user_id.into(), bookmark.create_id());
+                let bookmark_path = bookmark.hs_path();
 
-                test.put(&bookmark_url, &bookmark).await?;
+                test.put(user_kp, &bookmark_path, &bookmark).await?;
                 total_bookmarks += 1;
             }
         }
     }
 
     // Users tag posts of other users
-    for user_id in user_ids.iter() {
+    for (user_kp, _user_id) in user_kps_and_ids.iter() {
         let num_tags = rng.random_range(1..=max_tags_per_user);
         for _ in 0..num_tags {
             let target_user_index = rng.random_range(0..NUM_USERS);
-            let target_user_id = &user_ids[target_user_index];
+            let (_target_user_kp, target_user_id) = &user_kps_and_ids[target_user_index];
             if !user_posts[&target_user_id.clone()].is_empty() {
                 let post_index = rng.random_range(0..user_posts[&target_user_id.clone()].len());
                 let target_post_id = &user_posts[&target_user_id.clone()][post_index];
@@ -189,10 +180,9 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                     label: tag_label.clone(),
                     created_at: chrono::Utc::now().timestamp_millis(),
                 };
+                let tag_path = tag.hs_path();
 
-                let tag_url = tag_uri_builder(user_id.into(), tag.create_id());
-
-                test.put(&tag_url, &tag).await?;
+                test.put(user_kp, &tag_path, &tag).await?;
                 total_tags += 1;
 
                 // FAILS: possibly deletes a tag twice and decrements twice in index.
@@ -202,7 +192,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                 // Randomly decide to delete the tag
                 if rng.random_bool(0.1) {
                     // 10% chance to delete the tag
-                    test.del(&tag_url).await?;
+                    test.del(user_kp, &tag_path).await?;
                     total_tag_deletions += 1;
                 }
             }
@@ -210,7 +200,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
     }
 
     // Users unfollow other users
-    for user_id in user_ids.iter() {
+    for (user_kp, user_id) in user_kps_and_ids.iter() {
         // Get list of users this user is following
         let following_set = &mut user_followings.get_mut(user_id).unwrap();
         let following: Vec<String> = following_set.iter().cloned().collect();
@@ -226,8 +216,8 @@ async fn test_large_network_scenario_counts() -> Result<()> {
             let target_index = rng.random_range(0..following.len());
             let target_user_id = &following[target_index];
             if unfollowed.insert(target_user_id.clone()) {
-                let follow_uri = follow_uri_builder(user_id.into(), target_user_id.into());
-                test.del(&follow_uri).await?;
+                let follow_path = PubkyAppFollow::hs_path(target_user_id);
+                test.del(user_kp, &follow_path).await?;
                 following_set.remove(target_user_id);
                 total_unfollows += 1;
             }
@@ -235,7 +225,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
     }
 
     // Users unmute other users
-    for user_id in user_ids.iter() {
+    for (user_kp, user_id) in user_kps_and_ids.iter() {
         // Get list of users this user has muted
         let mute_set = &mut user_mutes.get_mut(user_id).unwrap();
         let muted: Vec<String> = mute_set.iter().cloned().collect();
@@ -251,8 +241,8 @@ async fn test_large_network_scenario_counts() -> Result<()> {
             let target_index = rng.random_range(0..muted.len());
             let target_user_id = &muted[target_index];
             if unmuted.insert(target_user_id.clone()) {
-                let mute_uri = mute_uri_builder(user_id.into(), target_user_id.into());
-                pubky_client.delete(mute_uri.as_str()).send().await?;
+                let mute_path = PubkyAppMute::hs_path(&target_user_id);
+                test.del(user_kp, &mute_path).await?;
                 mute_set.remove(target_user_id);
                 _total_unmutes += 1;
             }
@@ -276,7 +266,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
 
     // Now, make assertions
     // For each user, compare counts from cache and graph
-    for user_id in user_ids.iter() {
+    for (_user_kp, user_id) in user_kps_and_ids.iter() {
         let counts_cache = UserCounts::try_from_index_json(&[user_id], None)
             .await
             .unwrap()
@@ -329,7 +319,6 @@ async fn test_large_network_scenario_counts() -> Result<()> {
 
         // TODO: mute counts
     }
-    //
 
     // Compare PostCounts for each post
     for (user_id, posts) in user_posts.iter() {
@@ -369,7 +358,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
     let mut total_following_cache = 0;
     let mut total_followers_cache = 0;
 
-    for user_id in user_ids.iter() {
+    for (_user_kp, user_id) in user_kps_and_ids.iter() {
         let counts_cache = UserCounts::try_from_index_json(&[user_id], None)
             .await
             .unwrap()
@@ -391,26 +380,14 @@ async fn test_large_network_scenario_counts() -> Result<()> {
     info!("Total tags counted in index: {}", total_tags_cache);
 
     info!("Total bookmarks created: {}", total_bookmarks);
-    info!(
-        "Total bookmarks counted in index: {}",
-        total_bookmarks_cache
-    );
+    info!("Total bookmarks counted in index: {total_bookmarks_cache}",);
 
     info!("Total follows created: {}", total_follows);
     info!("Total unfollows performed: {}", total_unfollows);
     let net_follows = total_follows - total_unfollows;
-    info!(
-        "Net follows (should equal total following counts): {}",
-        net_follows
-    );
-    info!(
-        "Total following counted in index: {}",
-        total_following_cache
-    );
-    info!(
-        "Total followers counted in index: {}",
-        total_followers_cache
-    );
+    info!("Net follows (should equal total following counts): {net_follows}",);
+    info!("Total following counted in index: {total_following_cache}",);
+    info!("Total followers counted in index: {total_followers_cache}",);
 
     assert_eq!(
         total_followers_cache, total_following_cache,

@@ -13,7 +13,7 @@ async fn test_homeserver_unfollow_notification() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Step 1: Create first user (follower)
-    let follower_keypair = Keypair::random();
+    let follower_kp = Keypair::random();
 
     let follower_user = PubkyAppUser {
         bio: Some("test_homeserver_unfollow_notification".to_string()),
@@ -22,10 +22,10 @@ async fn test_homeserver_unfollow_notification() -> Result<()> {
         name: "Watcher:UnfollowNotification:Follower".to_string(),
         status: None,
     };
-    let follower_id = test.create_user(&follower_keypair, &follower_user).await?;
+    let follower_id = test.create_user(&follower_kp, &follower_user).await?;
 
     // Step 2: Create second user (followee)
-    let followee_keypair = Keypair::random();
+    let followee_kp = Keypair::random();
 
     let followee_user = PubkyAppUser {
         bio: Some("test_homeserver_unfollow_notification".to_string()),
@@ -34,15 +34,15 @@ async fn test_homeserver_unfollow_notification() -> Result<()> {
         name: "Watcher:UnfollowNotification:Followee".to_string(),
         status: None,
     };
-    let followee_id = test.create_user(&followee_keypair, &followee_user).await?;
+    let followee_id = test.create_user(&followee_kp, &followee_user).await?;
 
     // Step 3: Follower follows the followee
-    let follow_uri = test.create_follow(&follower_id, &followee_id).await?;
+    let follow_uri = test.create_follow(&follower_kp, &followee_id).await?;
     // Step 4: Followee follows the follower back. To get notification of unfollow, users has to be friends
-    let follow_back_uri = test.create_follow(&followee_id, &follower_id).await?;
+    let follow_back_uri = test.create_follow(&followee_kp, &follower_id).await?;
 
     // Step 5: Follower unfollows the followee
-    test.del(&follow_uri).await?;
+    test.del(&follower_kp, &follow_uri).await?;
 
     // Verify the followee gets a "Lost Friend" notification
     let notifications = Notification::get_by_id(&followee_id, Pagination::default())
@@ -64,7 +64,7 @@ async fn test_homeserver_unfollow_notification() -> Result<()> {
     }
 
     // Step 6: Followee unfollows the follower (no new notification should be generated)
-    test.del(&follow_back_uri).await?;
+    test.del(&followee_kp, &follow_back_uri).await?;
 
     // Verify the follower gets no new notification after unfollow
     let notifications_follower = Notification::get_by_id(&follower_id, Pagination::default())
@@ -77,8 +77,8 @@ async fn test_homeserver_unfollow_notification() -> Result<()> {
     );
 
     // Cleanup
-    test.cleanup_user(&follower_id).await?;
-    test.cleanup_user(&followee_id).await?;
+    test.cleanup_user(&follower_kp).await?;
+    test.cleanup_user(&followee_kp).await?;
 
     Ok(())
 }

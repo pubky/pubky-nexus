@@ -12,7 +12,7 @@ use pubky_app_specs::{
 async fn test_homeserver_post_repost_notification() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
-    let alice_keypair = Keypair::random();
+    let alice_kp = Keypair::random();
 
     let alice = PubkyAppUser {
         bio: Some("test_homeserver_post_repost_notification".to_string()),
@@ -22,7 +22,7 @@ async fn test_homeserver_post_repost_notification() -> Result<()> {
         status: None,
     };
 
-    let alice_id = test.create_user(&alice_keypair, &alice).await?;
+    let alice_id = test.create_user(&alice_kp, &alice).await?;
 
     let parent_post = PubkyAppPost {
         content: "Watcher:PostRepostNotification:Alice:Post".to_string(),
@@ -32,9 +32,9 @@ async fn test_homeserver_post_repost_notification() -> Result<()> {
         attachments: None,
     };
 
-    let alice_post_id = test.create_post(&alice_id, &parent_post).await?;
+    let (alice_post_id, alice_post_path) = test.create_post(&alice_kp, &parent_post).await?;
 
-    let parent_uri = post_uri_builder(alice_id.clone(), alice_post_id.clone());
+    let parent_absolute_uri = post_uri_builder(alice_id.clone(), alice_post_id.clone());
 
     let alice_repost = PubkyAppPost {
         content: "Watcher:PostRepostNotification:Alice:Reply".to_string(),
@@ -42,12 +42,12 @@ async fn test_homeserver_post_repost_notification() -> Result<()> {
         parent: None,
         embed: Some(PubkyAppPostEmbed {
             kind: PubkyAppPostKind::Short,
-            uri: parent_uri.clone(),
+            uri: parent_absolute_uri.clone(),
         }),
         attachments: None,
     };
 
-    let alice_reply_id = test.create_post(&alice_id, &alice_repost).await?;
+    let (_alice_reply_id, alice_reply_path) = test.create_post(&alice_kp, &alice_repost).await?;
 
     // Verify that alice does not get a REPLY notification
     let notifications = Notification::get_by_id(&alice_id, Pagination::default())
@@ -60,7 +60,7 @@ async fn test_homeserver_post_repost_notification() -> Result<()> {
     );
 
     // Create new user to test the notication
-    let bob_keypair = Keypair::random();
+    let bob_kp = Keypair::random();
 
     let bob = PubkyAppUser {
         bio: Some("test_homeserver_post_repost_notification".to_string()),
@@ -70,7 +70,7 @@ async fn test_homeserver_post_repost_notification() -> Result<()> {
         status: None,
     };
 
-    let bob_id = test.create_user(&bob_keypair, &bob).await?;
+    let bob_id = test.create_user(&bob_kp, &bob).await?;
 
     let bob_repost = PubkyAppPost {
         content: "Watcher:PostRepostNotification:Bob:Reply".to_string(),
@@ -78,12 +78,12 @@ async fn test_homeserver_post_repost_notification() -> Result<()> {
         parent: None,
         embed: Some(PubkyAppPostEmbed {
             kind: PubkyAppPostKind::Short,
-            uri: parent_uri.clone(),
+            uri: parent_absolute_uri.clone(),
         }),
         attachments: None,
     };
 
-    let bob_reply_id = test.create_post(&bob_id, &bob_repost).await?;
+    let (bob_reply_id, bob_reply_path) = test.create_post(&bob_kp, &bob_repost).await?;
 
     // Verify that alice gets a REPLY notification
     let notifications = Notification::get_by_id(&alice_id, Pagination::default())
@@ -126,12 +126,12 @@ async fn test_homeserver_post_repost_notification() -> Result<()> {
     }
 
     // // TODO: Impl DEL post. Assert the reply does not exist in Nexus
-    test.cleanup_post(&alice_id, &alice_reply_id).await?;
-    test.cleanup_post(&bob_id, &bob_reply_id).await?;
+    test.cleanup_post(&alice_kp, &alice_reply_path).await?;
+    test.cleanup_post(&bob_kp, &bob_reply_path).await?;
 
     // Cleanup
-    test.cleanup_user(&alice_id).await?;
-    test.cleanup_post(&alice_id, &alice_post_id).await?;
+    test.cleanup_user(&alice_kp).await?;
+    test.cleanup_post(&alice_kp, &alice_post_path).await?;
 
     Ok(())
 }

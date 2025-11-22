@@ -1,11 +1,10 @@
-use crate::event_processor::utils::watcher::WatcherTest;
+use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
 use nexus_common::models::post::{PostCounts, PostDetails, PostView};
 use pubky::Keypair;
 use pubky_app_specs::{
-    post_uri_builder, tag_uri_builder, traits::HashId, PubkyAppPost, PubkyAppPostKind, PubkyAppTag,
-    PubkyAppUser,
+    post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
 };
 
 #[tokio_shared_rt::test(shared)]
@@ -13,7 +12,7 @@ async fn test_delete_post_with_relationships() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Create a new user
-    let keypair = Keypair::random();
+    let user_kp = Keypair::random();
     let user = PubkyAppUser {
         bio: Some("Test user for post deletion".to_string()),
         image: None,
@@ -21,7 +20,7 @@ async fn test_delete_post_with_relationships() -> Result<()> {
         name: "Watcher:PostDelete:User".to_string(),
         status: None,
     };
-    let user_id = test.create_user(&keypair, &user).await?;
+    let user_id = test.create_user(&user_kp, &user).await?;
 
     // Create a post without any relationships
     let post = PubkyAppPost {
@@ -31,7 +30,7 @@ async fn test_delete_post_with_relationships() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let post_id = test.create_post(&user_id, &post).await?;
+    let (post_id, post_path) = test.create_post(&user_kp, &post).await?;
 
     // Create a tag
     let tag = PubkyAppTag {
@@ -39,13 +38,13 @@ async fn test_delete_post_with_relationships() -> Result<()> {
         label: "funny".to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
-    let tag_url = tag_uri_builder(user_id.clone(), tag.create_id());
+    let tag_path = tag.hs_path();
 
     // Put tag
-    test.put(&tag_url, tag).await?;
+    test.put(&user_kp, &tag_path, tag).await?;
 
     // Delete the post using the event handler
-    test.cleanup_post(&user_id, &post_id).await?;
+    test.cleanup_post(&user_kp, &post_path).await?;
 
     // Attempt to find post details; should exist, but content is [DELETED]
     let post_details_result = PostDetails::get_by_id(&user_id, &post_id)

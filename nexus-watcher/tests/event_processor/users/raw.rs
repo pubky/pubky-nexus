@@ -16,7 +16,7 @@ use pubky_app_specs::{file_uri_builder, PubkyAppUser, PubkyAppUserLink};
 async fn test_homeserver_user_put_event() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
-    let keypair = Keypair::random();
+    let user_kp = Keypair::random();
 
     let user = PubkyAppUser {
         bio: Some("test_homeserver_user_event".to_string()),
@@ -32,7 +32,7 @@ async fn test_homeserver_user_put_event() -> Result<()> {
         status: Some("Running Nexus Watcher".to_string()),
     };
 
-    let user_id = test.create_user(&keypair, &user).await?;
+    let user_id = test.create_user(&user_kp, &user).await?;
 
     // GRAPH_OP: Assert if the event writes the graph
     // Cannot use UserDetails::from_graph because it indexes also, Sorted:Users:Name and that
@@ -91,7 +91,7 @@ async fn test_homeserver_user_put_event() -> Result<()> {
     assert_eq!(influencer_score.unwrap(), 0);
 
     // Cleanup
-    test.cleanup_user(&user_id).await?;
+    test.cleanup_user(&user_kp).await?;
 
     // Assert the new user does not exist in Nexus
     // let result = UserView::get_by_id(&user_id, None).await.unwrap();

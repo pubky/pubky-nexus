@@ -1,5 +1,5 @@
 use crate::service::NexusWatcher;
-use nexus_common::db::{DatabaseConfig, PubkyClient};
+use nexus_common::db::{DatabaseConfig, PubkyConnector};
 use nexus_common::types::DynError;
 use nexus_common::utils::create_shutdown_rx;
 use nexus_common::{Level, StackConfig};
@@ -73,7 +73,7 @@ impl NexusWatcherBuilder {
         } else {
             None
         };
-        let _ = PubkyClient::initialise(testnet_host).await;
+        let _ = PubkyConnector::initialise(testnet_host).await;
         Ok(())
     }
 
