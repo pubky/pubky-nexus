@@ -15,6 +15,7 @@ use tracing::{info, warn};
 
 use crate::migrations::manager::Migration;
 
+/// Synchronizes `indexed_at` between Redis and Graph entities (overwrites Graph with Redis values)
 pub struct IndexedAtSyncRedisToGraph1763650675;
 
 const USER_DETAILS_PREFIX: &str = "User:Details";
@@ -117,7 +118,9 @@ async fn sync_user_details_indexed_at() -> Result<(usize, usize), DynError> {
 
         let matched = fetch_key_from_graph(
             query(
-                "MATCH (u:User {id: $user_id})\n                 SET u.indexed_at = $indexed_at\n                 RETURN count(u) AS matched",
+                "MATCH (u:User {id: $user_id})
+                SET u.indexed_at = $indexed_at
+                RETURN count(u) AS matched",
             )
             .param("user_id", user_id)
             .param("indexed_at", redis_details.indexed_at),
@@ -178,7 +181,9 @@ async fn sync_post_details_indexed_at() -> Result<(usize, usize), DynError> {
 
         let matched = fetch_key_from_graph(
             query(
-                "MATCH (:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})\n                 SET p.indexed_at = $indexed_at\n                 RETURN count(p) AS matched",
+                "MATCH (:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+                SET p.indexed_at = $indexed_at
+                RETURN count(p) AS matched",
             )
             .param("author_id", author_id)
             .param("post_id", post_id)
@@ -242,7 +247,9 @@ async fn sync_file_details_indexed_at() -> Result<(usize, usize), DynError> {
 
         let matched = fetch_key_from_graph(
             query(
-                "MATCH (f:File {id: $file_id, owner_id: $owner_id})\n                 SET f.indexed_at = $indexed_at\n                 RETURN count(f) AS matched",
+                "MATCH (f:File {id: $file_id, owner_id: $owner_id})
+                SET f.indexed_at = $indexed_at
+                RETURN count(f) AS matched",
             )
             .param("owner_id", owner_id)
             .param("file_id", file_id)
@@ -308,7 +315,10 @@ async fn sync_bookmark_indexed_at() -> Result<(usize, usize), DynError> {
 
         let matched = fetch_key_from_graph(
             query(
-                "MATCH (:User {id: $author_id})<-[:AUTHORED]-(p:Post {id: $post_id})\n                 MATCH (:User {id: $viewer_id})-[b:BOOKMARKED {id: $bookmark_id}]->(p)\n                 SET b.indexed_at = $indexed_at\n                 RETURN count(b) AS matched",
+                "MATCH (:User {id: $author_id})<-[:AUTHORED]-(p:Post {id: $post_id})
+                MATCH (:User {id: $viewer_id})-[b:BOOKMARKED {id: $bookmark_id}]->(p)
+                SET b.indexed_at = $indexed_at
+                RETURN count(b) AS matched",
             )
             .param("author_id", author_id)
             .param("post_id", post_id)
