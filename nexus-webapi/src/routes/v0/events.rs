@@ -14,7 +14,7 @@ use utoipa::OpenApi;
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, utoipa::ToResponse)]
 #[schema(as = String)]
 pub struct EventsList {
-    cursor: u64,
+    cursor: usize,
     events: Vec<String>,
 }
 
@@ -29,7 +29,7 @@ impl std::fmt::Display for EventsList {
 
 #[derive(Deserialize)]
 pub struct EventsQuery {
-    cursor: Option<u64>,
+    cursor: Option<usize>,
     limit: Option<usize>,
 }
 
@@ -57,37 +57,22 @@ pub struct EventsQuery {
 )]
 pub async fn get_events_handler(Query(q): Query<EventsQuery>) -> Result<Response, Error> {
     let (limit, cursor) = parse_query(&q)?;
-    let items = Event::get_events_from_redis(cursor, limit)
+    let (events, next_cursor) = Event::get_events_from_redis(cursor, limit)
         .await
         .map_err(|source| Error::InternalServerError { source })?;
-    let event_list = assemble_page(items);
+    let event_list = EventsList {
+        events,
+        cursor: next_cursor,
+    };
 
     // Convert to a plain text response
     let response: Response = axum::response::IntoResponse::into_response(event_list.to_string());
     Ok(response)
 }
 
-fn assemble_page(items: Vec<(String, f64)>) -> EventsList {
-    let mut events = Vec::with_capacity(items.len());
-    let mut cursor: u64 = 0;
-    if !items.is_empty() {
-        // if line is the last one, set the cursor to its score, for the rest of the items collect them in events
-        let len = items.len();
-        for (i, (line, score)) in items.into_iter().enumerate() {
-            if i == len - 1 {
-                cursor = score as u64;
-            } else {
-                events.push(line);
-            }
-        }
-    }
-
-    EventsList { events, cursor }
-}
-
-fn parse_query(q: &EventsQuery) -> Result<(usize, f64), Error> {
+fn parse_query(q: &EventsQuery) -> Result<(usize, Option<usize>), Error> {
     let limit = q.limit.unwrap_or(500).min(1000);
-    let cursor = q.cursor.unwrap_or(0) as f64;
+    let cursor = q.cursor;
 
     Ok((limit, cursor))
 }

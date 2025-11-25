@@ -17,15 +17,17 @@ fn bench_events(c: &mut Criterion) {
 
     c.bench_function("events", |b| {
         b.to_async(&rt).iter(|| async {
-            let mut total_result = Event::get_events_from_redis(None, 500).await.unwrap();
+            let (mut total_result, mut cursor) =
+                Event::get_events_from_redis(None, 500).await.unwrap();
             let mut current_result = total_result.clone();
 
             while !current_result.is_empty() {
-                current_result =
-                    Event::get_events_from_redis(current_result.last().map(|e| e.1), 500)
-                        .await
-                        .unwrap();
-                total_result.extend(current_result.iter().cloned());
+                let (next_result, next_cursor) = Event::get_events_from_redis(Some(cursor), 500)
+                    .await
+                    .unwrap();
+                cursor = next_cursor;
+                total_result.extend(next_result.iter().cloned());
+                current_result = next_result;
             }
 
             std::hint::black_box(total_result);
