@@ -2614,7 +2614,6 @@ dependencies = [
  "async-trait",
  "chrono",
  "clap",
- "deadpool-redis",
  "dirs",
  "neo4rs",
  "nexus-common",
