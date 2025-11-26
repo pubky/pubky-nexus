@@ -3,7 +3,7 @@ use crate::{Error, Result};
 use axum::extract::Path;
 use axum::Json;
 use nexus_common::models::user::UserCounts;
-use tracing::info;
+use tracing::debug;
 use utoipa::OpenApi;
 
 #[utoipa::path(
@@ -21,7 +21,7 @@ use utoipa::OpenApi;
     )
 )]
 pub async fn user_counts_handler(Path(user_id): Path<String>) -> Result<Json<UserCounts>> {
-    info!("GET {USER_COUNTS_ROUTE} user_id:{}", user_id);
+    debug!("GET {USER_COUNTS_ROUTE} user_id:{}", user_id);
 
     match UserCounts::get_by_id(&user_id).await {
         Ok(Some(counts)) => Ok(Json(counts)),

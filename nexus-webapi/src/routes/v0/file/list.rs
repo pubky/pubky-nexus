@@ -4,7 +4,7 @@ use axum::Json;
 use nexus_common::models::file::FileDetails;
 use nexus_common::models::traits::Collection;
 use serde::Deserialize;
-use tracing::info;
+use tracing::debug;
 use utoipa::{OpenApi, ToSchema};
 
 #[derive(Deserialize, ToSchema)]
@@ -26,7 +26,7 @@ pub struct FilesByIdsBody {
 pub async fn file_details_by_uris_handler(
     Json(body): Json<FilesByIdsBody>,
 ) -> Result<Json<Vec<FileDetails>>> {
-    info!("GET {FILE_LIST_ROUTE} uris:{:?}", body.uris);
+    debug!("GET {FILE_LIST_ROUTE} uris:{:?}", body.uris);
 
     let keys: Vec<Vec<String>> = body
         .uris

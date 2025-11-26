@@ -42,7 +42,7 @@ impl TEventProcessor for EventProcessor {
         };
 
         match maybe_event_lines {
-            None => info!("No new events"),
+            None => debug!("No new events"),
             Some(event_lines) => {
                 info!("Processing {} event lines", event_lines.len());
                 self.process_event_lines(event_lines).await?;

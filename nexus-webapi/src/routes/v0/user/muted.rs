@@ -4,7 +4,7 @@ use axum::extract::{Path, Query};
 use axum::Json;
 use nexus_common::models::user::Muted;
 use nexus_common::types::Pagination;
-use tracing::info;
+use tracing::debug;
 use utoipa::OpenApi;
 
 #[utoipa::path(
@@ -27,7 +27,7 @@ pub async fn user_muted_handler(
     Path(user_id): Path<String>,
     Query(query): Query<Pagination>,
 ) -> Result<Json<Muted>> {
-    info!("GET {USER_MUTED_ROUTE} user_id:{}", user_id);
+    debug!("GET {USER_MUTED_ROUTE} user_id:{}", user_id);
 
     let skip = query.skip.unwrap_or(0);
     let limit = query.limit.unwrap_or(200);

@@ -5,7 +5,7 @@ use axum::extract::{Path, Query};
 use axum::Json;
 use nexus_common::models::notification::{Notification, NotificationBody, PostChangedSource};
 use nexus_common::types::Pagination;
-use tracing::info;
+use tracing::debug;
 use utoipa::OpenApi;
 
 #[utoipa::path(
@@ -31,7 +31,7 @@ pub async fn list_notifications_handler(
     Path(user_id): axum::extract::Path<String>,
     Query(pagination): Query<Pagination>,
 ) -> Result<Json<Vec<Notification>>> {
-    info!("GET {NOTIFICATION_ROUTE} for user_id: {}", user_id);
+    debug!("GET {NOTIFICATION_ROUTE} for user_id: {}", user_id);
 
     match Notification::get_by_id(&user_id, pagination).await {
         Ok(notifications) => json_array_or_no_content(notifications, "notifications"),

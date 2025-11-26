@@ -9,7 +9,7 @@ use nexus_common::types::Pagination;
 use pubky_app_specs::traits::Validatable;
 use pubky_app_specs::PubkyAppTag;
 use serde::Deserialize;
-use tracing::info;
+use tracing::debug;
 use utoipa::OpenApi;
 
 #[derive(Deserialize)]
@@ -44,7 +44,7 @@ pub async fn search_tags_by_prefix_handler(
     pagination.skip.get_or_insert_default();
     pagination.limit.get_or_insert(20);
 
-    info!(
+    debug!(
         "GET {SEARCH_TAGS_BY_PREFIX_ROUTE} validated_prefix:{}, skip: {:?}, limit: {:?}",
         validated_prefix, pagination.skip, pagination.limit
     );

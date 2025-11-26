@@ -5,7 +5,7 @@ use axum::Json;
 use nexus_common::models::file::FileDetails;
 use nexus_common::models::file::FileUrls;
 use nexus_common::models::traits::Collection;
-use tracing::info;
+use tracing::debug;
 use utoipa::OpenApi;
 
 #[utoipa::path(
@@ -23,7 +23,7 @@ use utoipa::OpenApi;
     )
 )]
 pub async fn file_details_handler(Path(file_uri): Path<String>) -> Result<Json<FileDetails>> {
-    info!("GET {FILE_ROUTE} file_uri:{}", file_uri);
+    debug!("GET {FILE_ROUTE} file_uri:{}", file_uri);
 
     let file_key = FileDetails::file_key_from_uri(&file_uri);
     let result = FileDetails::get_by_ids(
