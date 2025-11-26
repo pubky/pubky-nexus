@@ -110,7 +110,7 @@ impl WatcherTest {
 
         // Initialize the PubkyConnector with the test homeserver client
         let sdk = testnet.sdk().unwrap();
-        match PubkyConnector::init_from_client(sdk).await {
+        match PubkyConnector::init_from(sdk).await {
             Ok(_) => debug!("WatcherTest: PubkyConnector initialised"),
             Err(e) => debug!("WatcherTest: {}", e),
         }

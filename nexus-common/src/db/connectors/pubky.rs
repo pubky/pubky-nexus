@@ -54,9 +54,9 @@ impl PubkyConnector {
     /// # Usage:
     /// - This function is primarily intended for **watcher tests** where a controlled `Pubky` instance
     ///   needs to be injected instead of relying on environment-based initialization
-    pub async fn init_from_client(client: Pubky) -> Result<(), PubkyClientError> {
+    pub async fn init_from(sdk: Pubky) -> Result<(), PubkyClientError> {
         PUBKY_SINGLETON
-            .get_or_try_init(|| async { Ok(Arc::new(client)) })
+            .get_or_try_init(|| async { Ok(Arc::new(sdk)) })
             .await
             .map(|_| ())
     }
