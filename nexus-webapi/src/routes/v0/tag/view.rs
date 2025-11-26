@@ -3,7 +3,7 @@ use crate::{Error, Result};
 use axum::extract::Path;
 use axum::Json;
 use nexus_common::models::tag::view::TagView;
-use tracing::info;
+use tracing::debug;
 use utoipa::OpenApi;
 
 #[utoipa::path(
@@ -24,7 +24,7 @@ use utoipa::OpenApi;
 pub async fn tag_view_handler(
     Path((tagger_id, tag_id)): Path<(String, String)>,
 ) -> Result<Json<TagView>> {
-    info!("GET {TAG_ROUTE} tagger_id:{}, tag_id:{}", tagger_id, tag_id);
+    debug!("GET {TAG_ROUTE} tagger_id:{}, tag_id:{}", tagger_id, tag_id);
 
     match TagView::get_by_tagger_and_id(&tagger_id, &tag_id).await {
         Ok(Some(tag)) => Ok(Json(tag)),

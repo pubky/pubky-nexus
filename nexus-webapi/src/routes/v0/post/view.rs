@@ -6,7 +6,7 @@ use axum::Json;
 use nexus_common::models::post::{PostRelationships, PostView};
 use nexus_common::models::tag::post::TagPost;
 use nexus_common::models::tag::TagDetails;
-use tracing::info;
+use tracing::debug;
 use utoipa::OpenApi;
 
 #[utoipa::path(
@@ -31,7 +31,7 @@ pub async fn post_view_handler(
     Path((author_id, post_id)): Path<(String, String)>,
     Query(query): Query<TagsQuery>,
 ) -> Result<Json<PostView>> {
-    info!(
+    debug!(
         "GET {POST_ROUTE} author_id:{}, post_id:{}, viewer_id:{}, limit_tags:{:?}, limit_taggers:{:?}",
         author_id,
         post_id,

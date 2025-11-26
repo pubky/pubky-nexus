@@ -6,7 +6,7 @@ use axum::Json;
 use nexus_common::models::user::UserSearch;
 use nexus_common::types::Pagination;
 use serde::Deserialize;
-use tracing::info;
+use tracing::debug;
 use utoipa::OpenApi;
 
 #[derive(Deserialize)]
@@ -41,7 +41,7 @@ pub async fn search_users_by_name_handler(
         return Err(Error::invalid_input("Username cannot be empty"));
     }
 
-    info!("GET {SEARCH_USERS_BY_NAME_ROUTE} username:{}", username);
+    debug!("GET {SEARCH_USERS_BY_NAME_ROUTE} username:{}", username);
 
     let skip = query.pagination.skip.unwrap_or(0);
     let limit = query.pagination.limit.unwrap_or(200);
@@ -83,7 +83,7 @@ pub async fn search_users_by_id_handler(
         )));
     }
 
-    info!("GET {SEARCH_USERS_BY_ID_ROUTE} ID:{}", id_prefix);
+    debug!("GET {SEARCH_USERS_BY_ID_ROUTE} ID:{}", id_prefix);
 
     let skip = query.pagination.skip.unwrap_or(0);
     let limit = query.pagination.limit.unwrap_or(200);

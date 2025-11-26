@@ -9,7 +9,7 @@ use nexus_common::media::FileVariant;
 use nexus_common::models::file::Blob;
 use nexus_common::models::{file::FileDetails, traits::Collection, user::UserDetails};
 use tower_http::services::fs::ServeFileSystemResponseBody;
-use tracing::{error, info};
+use tracing::{debug, error};
 use utoipa::OpenApi;
 
 use super::endpoints::USER_AVATAR_ROUTE;
@@ -33,7 +33,7 @@ pub async fn user_avatar_handler(
     State(app_state): State<AppState>,
     request: Request,
 ) -> Result<Response<ServeFileSystemResponseBody>> {
-    info!("GET {USER_AVATAR_ROUTE} user_id:{}", user_id);
+    debug!("GET {USER_AVATAR_ROUTE} user_id:{}", user_id);
 
     let file_path: &PathBuf = &app_state.files_path;
 

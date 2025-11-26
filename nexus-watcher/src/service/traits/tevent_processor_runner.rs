@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Instant};
 
 use nexus_common::types::DynError;
 use tokio::sync::watch::Receiver;
-use tracing::{error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::service::{
     stats::{ProcessedStats, ProcessorRunStatus, RunAllProcessorsStats},
@@ -62,14 +62,23 @@ pub trait TEventProcessorRunner {
             let hs_id = &individual_run_stat.hs_id;
             let duration = individual_run_stat.duration;
             let status = &individual_run_stat.status;
-            info!("Event processor run for HS {hs_id}: duration {duration:?}, status {status:?}");
+            debug!("Event processor run for HS {hs_id}: duration {duration:?}, status {status:?}");
         }
 
         let count_ok = stats.count_ok();
         let count_error = stats.count_error();
         let count_panic = stats.count_panic();
         let count_timeout = stats.count_timeout();
-        info!("Run result: {count_ok} ok, {count_error} error, {count_panic} panic, {count_timeout} timeout");
+        let count_failed_to_build = stats.count_failed_to_build();
+        let had_issues = count_error + count_panic + count_timeout + count_failed_to_build > 0;
+
+        if had_issues {
+            warn!(
+                "Run result: {count_ok} ok, {count_failed_to_build} failed to build, {count_error} error, {count_panic} panic, {count_timeout} timeout"
+            );
+        } else {
+            debug!("Run result: {count_ok} ok");
+        }
 
         ProcessedStats(stats)
     }

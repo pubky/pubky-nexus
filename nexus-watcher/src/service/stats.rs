@@ -58,6 +58,11 @@ impl RunAllProcessorsStats {
     pub fn count_timeout(&self) -> usize {
         self.count(ProcessorRunStatus::Timeout)
     }
+
+    /// Number of homeservers where processing failed to start
+    pub fn count_failed_to_build(&self) -> usize {
+        self.count(ProcessorRunStatus::FailedToBuild)
+    }
 }
 
 /// Wrapper around `RunAllProcessorsStats` which indicates they've been processed
