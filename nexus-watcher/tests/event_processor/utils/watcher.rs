@@ -1,9 +1,11 @@
 use anyhow::{anyhow, Error, Result};
 use chrono::Utc;
-use nexus_common::db::PubkyClient;
+use nexus_common::db::PubkyConnector;
 use nexus_common::get_files_dir_pathbuf;
 use nexus_common::get_files_dir_test_pathbuf;
+use nexus_common::models::file::FileDetails;
 use nexus_common::models::homeserver::Homeserver;
+use nexus_common::models::traits::Collection;
 use nexus_common::types::DynError;
 use nexus_watcher::events::retry::event::RetryEvent;
 use nexus_watcher::events::Event;
@@ -13,11 +15,12 @@ use nexus_watcher::service::NexusWatcher;
 use nexus_watcher::service::TEventProcessorRunner;
 use pubky::Keypair;
 use pubky::PublicKey;
+use pubky::ResourcePath;
+use pubky_app_specs::file_uri_builder;
+use pubky_app_specs::traits::HashId;
 use pubky_app_specs::{
-    file_uri_builder, follow_uri_builder, mute_uri_builder, post_uri_builder, PubkyId,
-};
-use pubky_app_specs::{
-    traits::TimestampId, PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser,
+    traits::{HasIdPath, HasPath, TimestampId},
+    PubkyAppFile, PubkyAppFollow, PubkyAppMute, PubkyAppPost, PubkyAppUser, PubkyId,
 };
 use pubky_testnet::EphemeralTestnet;
 use std::sync::Arc;
@@ -106,8 +109,8 @@ impl WatcherTest {
             .unwrap();
 
         // Initialize the PubkyConnector with the test homeserver client
-        let client = testnet.pubky_client_builder().build().unwrap();
-        match PubkyClient::init_from_client(client).await {
+        let sdk = testnet.sdk().unwrap();
+        match PubkyConnector::init_from(sdk).await {
             Ok(_) => debug!("WatcherTest: PubkyConnector initialised"),
             Err(e) => debug!("WatcherTest: {}", e),
         }
@@ -151,17 +154,24 @@ impl WatcherTest {
     /// 3. Ensures that all event processing is complete after the PUT operation.
     ///
     /// # Parameters
-    /// - `homeserver_uri`: The URI of the homeserver to write the data to.
+    /// - `hs_path`: The homeserver path to the file to write the data to.
     /// - `object`: A generic type representing the data to be sent, which must implement `serde::Serialize`.
-    pub async fn put<T>(&mut self, homeserver_uri: &str, object: T) -> Result<()>
+    pub async fn put<T>(
+        &mut self,
+        user_keypair: &Keypair,
+        hs_path: &ResourcePath,
+        object: T,
+    ) -> Result<()>
     where
         T: serde::Serialize,
     {
-        let pubky_client = PubkyClient::get().unwrap();
-        pubky_client
-            .put(homeserver_uri)
-            .json(&object)
-            .send()
+        let pubky = PubkyConnector::get()?;
+
+        let signer = pubky.signer(user_keypair.clone());
+        let session = signer.signin().await?;
+        session
+            .storage()
+            .put(hs_path, serde_json::to_string(&object)?)
             .await?;
         self.ensure_event_processing_complete().await?;
         Ok(())
@@ -175,36 +185,45 @@ impl WatcherTest {
     /// 3. Ensures that all event processing is complete after the DELETE operation.
     ///
     /// # Parameters
-    /// - `homeserver_uri`: The URI of the homeserver from which content should be deleted.
+    /// - `hs_path`: The homeserver path to the file to be deleted.
     ///
-    pub async fn del(&mut self, homeserver_uri: &str) -> Result<()> {
-        let pubky_client = PubkyClient::get().unwrap();
-        pubky_client.delete(homeserver_uri).send().await?;
+    pub async fn del(&mut self, user_keypair: &Keypair, hs_path: &ResourcePath) -> Result<()> {
+        let pubky = PubkyConnector::get()?;
+
+        let signer = pubky.signer(user_keypair.clone());
+        let session = signer.signin().await?;
+        session.storage().delete(hs_path).await?;
         self.ensure_event_processing_complete().await?;
         Ok(())
     }
 
-    /// Registers a user in the homeserver with the keypair.
-    /// # Arguments
-    /// * `keypair` - A reference to the `Keypair` used for signing up the user.
-    pub async fn register_user(&self, keypair: &Keypair) -> Result<()> {
-        let pubky_client = PubkyClient::get().unwrap();
+    pub async fn register_user(&self, user_kp: &Keypair) -> Result<()> {
+        let pubky = PubkyConnector::get()?;
 
-        let public_key: PublicKey = self.homeserver_id.clone().try_into().unwrap();
-        pubky_client.signup(keypair, &public_key, None).await?;
+        let signer = pubky.signer(user_kp.clone());
+        let hs_pk: PublicKey = self.homeserver_id.clone().try_into()?;
+        signer.signup(&hs_pk, None).await?;
+
         Ok(())
     }
 
-    pub async fn create_user(&mut self, keypair: &Keypair, user: &PubkyAppUser) -> Result<String> {
-        let user_id = keypair.public_key().to_z32();
-        let pubky_client = PubkyClient::get().unwrap();
-        let public_key: PublicKey = self.homeserver_id.clone().try_into().unwrap();
+    pub async fn register_user_in_hs(&self, user_kp: &Keypair, hs_pk: &PublicKey) -> Result<()> {
+        let pubky = PubkyConnector::get()?;
+
+        let signer = pubky.signer(user_kp.clone());
+        signer.signup(hs_pk, None).await?;
+
+        Ok(())
+    }
+
+    pub async fn create_user(&mut self, user_kp: &Keypair, user: &PubkyAppUser) -> Result<String> {
+        let user_id = user_kp.public_key().to_z32();
         // Register the key in the homeserver
-        pubky_client.signup(keypair, &public_key, None).await?;
-        let url = format!("pubky://{user_id}/pub/pubky.app/profile.json");
+        self.register_user(user_kp).await?;
 
         // Write the user profile in the pubky.app repository
-        pubky_client.put(url.as_str()).json(&user).send().await?;
+        let user_path = PubkyAppUser::hs_path();
+        self.put(user_kp, &user_path, &user).await?;
 
         // Index to Nexus from Homeserver using the events processor
         self.ensure_event_processing_complete().await?;
@@ -214,129 +233,118 @@ impl WatcherTest {
     /// If we attempt two consecutive sign-ups with the same key, the homeserver returns the following error:
     /// 412 Precondition Failed - Compare and swap failed; there is a more recent SignedPacket than the one seen before publishing.
     /// To prevent this error after the first sign-up, we will create/update the existing record instead of creating a new one
-    pub async fn create_profile(&mut self, user_id: &str, user: &PubkyAppUser) -> Result<String> {
-        let pubky_client = PubkyClient::get().unwrap();
-        let url = format!("pubky://{user_id}/pub/pubky.app/profile.json");
+    pub async fn create_profile(
+        &mut self,
+        user_kp: &Keypair,
+        user: &PubkyAppUser,
+    ) -> Result<String> {
+        let user_id = user_kp.public_key().to_z32();
 
         // Write the user profile in the pubky.app repository
-        pubky_client.put(url.as_str()).json(&user).send().await?;
+        let user_path = PubkyAppUser::hs_path();
+        self.put(user_kp, &user_path, &user).await?;
 
         // Index to Nexus from Homeserver using the events processor
         self.ensure_event_processing_complete().await?;
         Ok(user_id.to_string())
     }
 
-    pub async fn create_post(&mut self, user_id: &str, post: &PubkyAppPost) -> Result<String> {
-        let post_id = post.create_id();
-        let url = post_uri_builder(user_id.into(), post_id.clone());
+    pub async fn create_post(
+        &mut self,
+        user_kp: &Keypair,
+        post: &PubkyAppPost,
+    ) -> Result<(String, ResourcePath)> {
+        let (post_id, post_path) = post.hs_path();
         // Write the post in the pubky.app repository
-        PubkyClient::get()
-            .unwrap()
-            .put(url.as_str())
-            .json(&post)
-            .send()
-            .await?;
+        self.put(&user_kp, &post_path, post).await?;
 
         // Index to Nexus from Homeserver using the events processor
         self.ensure_event_processing_complete().await?;
-        Ok(post_id)
+        Ok((post_id, post_path))
     }
 
-    pub async fn cleanup_user(&mut self, user_id: &str) -> Result<()> {
-        let url = format!("pubky://{user_id}/pub/pubky.app/profile.json");
-        PubkyClient::get()
-            .unwrap()
-            .delete(url.as_str())
-            .send()
-            .await?;
+    pub async fn cleanup_user(&mut self, user_kp: &Keypair) -> Result<()> {
+        let user_path = PubkyAppUser::hs_path();
+        self.del(user_kp, &user_path).await?;
         self.ensure_event_processing_complete().await?;
         Ok(())
     }
 
-    pub async fn cleanup_post(&mut self, user_id: &str, post_id: &str) -> Result<()> {
-        let url = post_uri_builder(user_id.into(), post_id.into());
-        PubkyClient::get()
-            .unwrap()
-            .delete(url.as_str())
-            .send()
-            .await?;
+    pub async fn cleanup_post(
+        &mut self,
+        user_kp: &Keypair,
+        post_path: &ResourcePath,
+    ) -> Result<()> {
+        self.del(user_kp, post_path).await?;
         self.ensure_event_processing_complete().await?;
         Ok(())
     }
 
     pub async fn create_file(
         &mut self,
-        user_id: &str,
+        user_kp: &Keypair,
         file: &PubkyAppFile,
-    ) -> Result<(String, String)> {
-        let file_id = file.create_id();
-        let url = file_uri_builder(user_id.into(), file_id.clone());
-        PubkyClient::get()
-            .unwrap()
-            .put(url.as_str())
-            .json(&file)
-            .send()
-            .await?;
+    ) -> Result<(String, ResourcePath)> {
+        let (file_id, file_path) = file.hs_path();
+        self.put(&user_kp, &file_path, file).await?;
 
         self.ensure_event_processing_complete().await?;
-        Ok((file_id, url))
+        Ok((file_id, file_path))
     }
 
     pub async fn create_file_from_body(
         &mut self,
+        user_kp: &Keypair,
         homeserver_uri: &str,
         object: Vec<u8>,
     ) -> Result<()> {
-        PubkyClient::get()
-            .unwrap()
-            .put(homeserver_uri)
-            .body(object)
-            .send()
-            .await?;
+        let pubky = PubkyConnector::get()?;
+
+        let signer = pubky.signer(user_kp.clone());
+        let session = signer.signin().await?;
+        session.storage().put(homeserver_uri, object).await?;
         Ok(())
     }
 
-    pub async fn cleanup_file(&mut self, user_id: &str, file_id: &str) -> Result<()> {
-        let url = file_uri_builder(user_id.into(), file_id.into());
-        PubkyClient::get()
-            .unwrap()
-            .delete(url.as_str())
-            .send()
-            .await?;
+    pub async fn cleanup_file(
+        &mut self,
+        user_kp: &Keypair,
+        file_path: &ResourcePath,
+    ) -> Result<()> {
+        self.del(user_kp, &file_path).await?;
         self.ensure_event_processing_complete().await?;
         Ok(())
     }
 
-    pub async fn create_follow(&mut self, follower_id: &str, followee_id: &str) -> Result<String> {
+    pub async fn create_follow(
+        &mut self,
+        follower_kp: &Keypair,
+        followee_id: &str,
+    ) -> Result<ResourcePath> {
         let follow_relationship = PubkyAppFollow {
             created_at: Utc::now().timestamp_millis(),
         };
-        let follow_url = follow_uri_builder(follower_id.into(), followee_id.into());
-        PubkyClient::get()
-            .unwrap()
-            .put(follow_url.as_str())
-            .json(&follow_relationship)
-            .send()
+        let follow_path = follow_relationship.hs_path(followee_id);
+        self.put(&follower_kp, &follow_path, follow_relationship)
             .await?;
         // Process the event
         self.ensure_event_processing_complete().await?;
-        Ok(follow_url)
+        Ok(follow_path)
     }
 
-    pub async fn create_mute(&mut self, muter_id: &str, mutee_id: &str) -> Result<String> {
-        let mute_relationship = PubkyAppFollow {
+    pub async fn create_mute(
+        &mut self,
+        muter_kp: &Keypair,
+        mutee_id: &str,
+    ) -> Result<ResourcePath> {
+        let mute_relationship = PubkyAppMute {
             created_at: Utc::now().timestamp_millis(),
         };
-        let mute_url = mute_uri_builder(muter_id.into(), mutee_id.into());
-        PubkyClient::get()
-            .unwrap()
-            .put(mute_url.as_str())
-            .json(&mute_relationship)
-            .send()
-            .await?;
+        let mute_path = PubkyAppMute::hs_path(mutee_id);
+        self.put(&muter_kp, &mute_path, mute_relationship).await?;
         // Process the event
         self.ensure_event_processing_complete().await?;
-        Ok(mute_url)
+        Ok(mute_path)
     }
 }
 
@@ -344,17 +352,17 @@ impl WatcherTest {
 /// # Arguments
 /// * `event_line` - A string slice that represents the URI of the event to be retrieved
 ///   from the homeserver. It contains the event type and the homeserver uri
+///
+/// # Errors
+/// Throws an error if event parsing fails
 pub async fn retrieve_and_handle_event_line(
     event_line: &str,
     moderation: Arc<Moderation>,
 ) -> Result<(), DynError> {
-    let event = Event::parse_event(event_line, get_files_dir_pathbuf()).unwrap_or_default();
-
-    if let Some(event) = event {
-        event.clone().handle(moderation).await?
+    match Event::parse_event(event_line, get_files_dir_pathbuf())? {
+        Some(event) => event.clone().handle(moderation).await,
+        None => Ok(()),
     }
-
-    Ok(())
 }
 
 /// NOTE: This might not be needed anymore because the `RetryManager` runs in the same thread as the watcher
@@ -387,4 +395,69 @@ pub async fn assert_eventually_exists(event_index: &str) {
         tokio::time::sleep(Duration::from_millis(SLEEP_MS)).await;
     }
     panic!("TIMEOUT: It takes to much time to read the RetryManager new index")
+}
+
+/// Common assertions for FileDetails of an existing file
+pub async fn assert_file_details(
+    user_id: &str,
+    file_id: &str,
+    blob_absolute_url: &str,
+    file: &PubkyAppFile,
+) -> FileDetails {
+    let file_absolute_url = file_uri_builder(user_id.into(), file_id.into());
+
+    let files = FileDetails::get_by_ids(vec![vec![user_id, file_id].as_slice()].as_slice())
+        .await
+        .expect("Failed to fetch files from Nexus");
+
+    let result_file = files[0].as_ref().expect("Created file was not found.");
+
+    assert_eq!(result_file.id, file_id);
+    assert_eq!(result_file.src, blob_absolute_url);
+    assert_eq!(result_file.uri, file_absolute_url);
+    assert_eq!(result_file.size, file.size as i64);
+    assert_eq!(result_file.name, file.name);
+    assert_eq!(result_file.owner_id, user_id);
+
+    result_file.clone()
+}
+
+pub trait HomeserverIdPath: HasIdPath {
+    fn hs_path(pubky_id: &str) -> ResourcePath {
+        Self::create_path(pubky_id).parse().unwrap()
+    }
+}
+impl<T> HomeserverIdPath for T where T: HasIdPath {}
+
+pub trait HomeserverPath: HasPath {
+    fn hs_path() -> ResourcePath {
+        Self::create_path().parse().unwrap()
+    }
+}
+impl<T> HomeserverPath for T where T: HasPath {}
+
+pub trait HomeserverHashIdPath: HashId + HasIdPath {
+    fn hs_path(&self) -> ResourcePath {
+        let id = self.create_id();
+        Self::create_path(&id).parse().unwrap()
+    }
+}
+impl<T> HomeserverHashIdPath for T where T: HashId + HasIdPath {}
+
+pub trait HomeserverTimestampIdPath: TimestampId + HasIdPath {
+    fn hs_path(&self) -> (String, ResourcePath) {
+        let id = self.create_id();
+        let path = Self::create_path(&id).parse().unwrap();
+        (id, path)
+    }
+}
+impl<T> HomeserverTimestampIdPath for T where T: TimestampId + HasIdPath {}
+
+pub trait HomeserverPathForPubkyId {
+    fn hs_path(&self, pubky_id: &str) -> ResourcePath;
+}
+impl HomeserverPathForPubkyId for PubkyAppFollow {
+    fn hs_path(&self, pubky_id: &str) -> ResourcePath {
+        Self::create_path(pubky_id).parse().unwrap()
+    }
 }

@@ -1,5 +1,5 @@
 use errors::EventProcessorError;
-use nexus_common::db::PubkyClient;
+use nexus_common::db::PubkyConnector;
 use nexus_common::types::DynError;
 use pubky_app_specs::{ParsedUri, PubkyAppObject, Resource};
 use serde::{Deserialize, Serialize};
@@ -103,22 +103,8 @@ impl Event {
     pub async fn handle_put_event(self, moderation: Arc<Moderation>) -> Result<(), DynError> {
         debug!("Handling PUT event for URI: {}", self.uri);
 
-        let response = {
-            let pubky_client =
-                PubkyClient::get().map_err(|e| EventProcessorError::PubkyClientError {
-                    message: e.to_string(),
-                })?;
-
-            match pubky_client.get(&self.uri).send().await {
-                Ok(response) => response,
-                Err(e) => {
-                    return Err(EventProcessorError::PubkyClientError {
-                        message: format!("{e}"),
-                    }
-                    .into())
-                }
-            }
-        }; // drop the pubky_client lock
+        let pubky = PubkyConnector::get()?;
+        let response = pubky.public_storage().get(&self.uri).await?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -127,26 +113,15 @@ impl Event {
                 .await
                 .unwrap_or_else(|_| "<unable to read body>".to_string());
 
-            return Err(EventProcessorError::PubkyClientError {
-                message: format!(
-                    "Failed to fetch resource {}: HTTP {} - {}",
-                    self.uri, status, body
-                ),
-            }
-            .into());
+            let err_msg = format!("Fetch resource failed {}: HTTP {status} - {body}", self.uri);
+            return Err(EventProcessorError::client_error(err_msg))?;
         }
 
         let blob = response.bytes().await?;
         let resource = self.parsed_uri.resource;
 
         // Use the new importer from pubky-app-specs
-        let pubky_object = PubkyAppObject::from_resource(&resource, &blob).map_err(|e| {
-            EventProcessorError::PubkyClientError {
-                message: format!(
-                    "The importer could not create PubkyAppObject from Uri and Blob: {e}"
-                ),
-            }
-        })?;
+        let pubky_object = PubkyAppObject::from_resource(&resource, &blob)?;
 
         let user_id = self.parsed_uri.user_id;
         match (pubky_object, resource) {
@@ -175,9 +150,7 @@ impl Event {
             (PubkyAppObject::File(file), Resource::File(file_id)) => {
                 handlers::file::sync_put(file, self.uri, user_id, file_id, self.files_path).await?
             }
-            other => {
-                debug!("Event type not handled, Resource: {:?}", other);
-            }
+            other => debug!("Event type not handled, Resource: {other:?}"),
         }
         Ok(())
     }
@@ -198,9 +171,7 @@ impl Event {
             Resource::File(file_id) => {
                 handlers::file::del(&user_id, file_id, self.files_path).await?
             }
-            other => {
-                debug!("DEL event type not handled for resource: {:?}", other);
-            }
+            other => debug!("DEL event type not handled for resource: {other:?}"),
         }
         Ok(())
     }

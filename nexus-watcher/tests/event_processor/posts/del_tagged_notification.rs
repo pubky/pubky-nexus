@@ -1,4 +1,4 @@
-use crate::event_processor::utils::watcher::WatcherTest;
+use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
 use nexus_common::{
@@ -15,7 +15,7 @@ async fn test_delete_tagged_post_notification() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Create User A who makes the original post
-    let keypair_a = Keypair::random();
+    let user_a_kp = Keypair::random();
     let user_a = PubkyAppUser {
         bio: Some("User A bio".to_string()),
         image: None,
@@ -23,10 +23,10 @@ async fn test_delete_tagged_post_notification() -> Result<()> {
         name: "Watcher:TaggedPostDeleteNotification:UserA".to_string(),
         status: None,
     };
-    let user_a_id = test.create_user(&keypair_a, &user_a).await?;
+    let user_a_id = test.create_user(&user_a_kp, &user_a).await?;
 
     // Create User B who tags User A's post
-    let keypair_b = Keypair::random();
+    let user_b_kp = Keypair::random();
     let user_b = PubkyAppUser {
         bio: Some("User B bio".to_string()),
         image: None,
@@ -34,7 +34,7 @@ async fn test_delete_tagged_post_notification() -> Result<()> {
         name: "Watcher:TaggedPostDeleteNotification:UserB".to_string(),
         status: None,
     };
-    let user_b_id = test.create_user(&keypair_b, &user_b).await?;
+    let user_b_id = test.create_user(&user_b_kp, &user_b).await?;
 
     // User A creates a post
     let post = PubkyAppPost {
@@ -44,7 +44,7 @@ async fn test_delete_tagged_post_notification() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let post_id = test.create_post(&user_a_id, &post).await?;
+    let (post_id, post_path) = test.create_post(&user_a_kp, &post).await?;
 
     // User B tags User A's post
     let label = "merkle_tree";
@@ -53,14 +53,15 @@ async fn test_delete_tagged_post_notification() -> Result<()> {
         label: label.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
+    let tag_path = tag.hs_path();
     let tag_id = tag.create_id();
-    let tag_url = tag_uri_builder(user_b_id.clone(), tag_id);
+    let tag_absolute_url = tag_uri_builder(user_b_id.clone(), tag_id);
 
     // Put tag
-    test.put(&tag_url, tag).await?;
+    test.put(&user_b_kp, &tag_path, tag).await?;
 
     // User A deletes their post
-    test.cleanup_post(&user_a_id, &post_id).await?;
+    test.cleanup_post(&user_a_kp, &post_path).await?;
 
     // Verify that User B receives a notification about the deletion
     let notifications = Notification::get_by_id(&user_b_id, Pagination::default())
@@ -90,7 +91,7 @@ async fn test_delete_tagged_post_notification() -> Result<()> {
             "Notification should contain the correct deleted post URI"
         );
         assert_eq!(
-            linked_uri, &tag_url,
+            linked_uri, &tag_absolute_url,
             "Notification should contain the correct tag URI"
         );
         assert_eq!(

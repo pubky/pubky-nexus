@@ -7,8 +7,8 @@ pub mod reindex;
 
 pub use config::*;
 pub use connectors::{
-    get_neo4j_graph, get_redis_conn, Neo4jConnector, PubkyClient, RedisConnector, NEO4J_CONNECTOR,
-    REDIS_CONNECTOR,
+    get_neo4j_graph, get_redis_conn, Neo4jConnector, PubkyClientError, PubkyConnector,
+    RedisConnector, NEO4J_CONNECTOR, REDIS_CONNECTOR,
 };
 pub use errors::*;
 pub use graph::exec::*;
