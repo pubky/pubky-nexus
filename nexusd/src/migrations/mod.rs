@@ -9,7 +9,6 @@ mod utils;
 pub use builder::MigrationBuilder;
 pub use manager::MigrationManager;
 
-use crate::migrations::migrations_list::indexed_at_sync_redis_to_graph_1763650675::IndexedAtSyncRedisToGraph1763650675;
 use crate::migrations::migrations_list::users_by_pk_reindex_1751635096::UsersByPkReindex1751635096;
 /// Registers migrations with the `MigrationManager`
 ///
@@ -39,7 +38,6 @@ use crate::migrations::migrations_list::users_by_pk_reindex_1751635096::UsersByP
 pub fn import_migrations(migration_manager: &mut MigrationManager) {
     let migrations: Vec<Box<dyn Migration>> = vec![
         // Note: Add your migrations here to be picked up by the manager
-        Box::new(IndexedAtSyncRedisToGraph1763650675),
         Box::new(UsersByPkReindex1751635096),
     ];
     for migration in migrations {
