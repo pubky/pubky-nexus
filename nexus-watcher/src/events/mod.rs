@@ -103,14 +103,13 @@ impl Event {
     pub async fn handle_put_event(self, moderation: Arc<Moderation>) -> Result<(), DynError> {
         debug!("Handling PUT event for URI: {}", self.uri);
 
-        let response;
-        {
+        let response = {
             let pubky_client =
                 PubkyClient::get().map_err(|e| EventProcessorError::PubkyClientError {
                     message: e.to_string(),
                 })?;
 
-            response = match pubky_client.get(&self.uri).send().await {
+            match pubky_client.get(&self.uri).send().await {
                 Ok(response) => response,
                 Err(e) => {
                     return Err(EventProcessorError::PubkyClientError {
@@ -118,8 +117,24 @@ impl Event {
                     }
                     .into())
                 }
-            };
-        } // drop the pubky_client lock
+            }
+        }; // drop the pubky_client lock
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "<unable to read body>".to_string());
+
+            return Err(EventProcessorError::PubkyClientError {
+                message: format!(
+                    "Failed to fetch resource {}: HTTP {} - {}",
+                    self.uri, status, body
+                ),
+            }
+            .into());
+        }
 
         let blob = response.bytes().await?;
         let resource = self.parsed_uri.resource;
