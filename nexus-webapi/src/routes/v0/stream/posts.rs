@@ -11,7 +11,7 @@ use nexus_common::{
 };
 use pubky_app_specs::PubkyAppPostKind;
 use serde::{de, Deserialize, Deserializer};
-use tracing::info;
+use tracing::debug;
 use utoipa::{OpenApi, ToSchema};
 
 const MAX_TAGS: usize = 5;
@@ -112,7 +112,7 @@ Ensure that you provide the necessary parameters based on the selected `source`.
 pub async fn stream_posts_handler(
     Query(mut query): Query<PostStreamQuery>,
 ) -> AppResult<Json<PostStream>> {
-    info!("GET {STREAM_POSTS_ROUTE}");
+    debug!("GET {STREAM_POSTS_ROUTE}");
 
     query.initialize_defaults();
     query.validate_tags()?;
@@ -173,7 +173,7 @@ Ensure that you provide the necessary parameters based on the selected `source`.
 pub async fn stream_post_keys_handler(
     Query(mut query): Query<PostStreamQuery>,
 ) -> AppResult<Json<PostKeyStream>> {
-    info!("GET {STREAM_POST_KEYS_ROUTE}");
+    debug!("GET {STREAM_POST_KEYS_ROUTE}");
 
     query.initialize_defaults();
     query.validate_tags()?;
@@ -221,7 +221,7 @@ pub struct PostStreamByIdsRequest {
 pub async fn stream_posts_by_ids_handler(
     Json(request): Json<PostStreamByIdsRequest>,
 ) -> AppResult<Json<PostStream>> {
-    info!(
+    debug!(
         "POST {} post_ids size {:?}",
         STREAM_POSTS_BY_IDS_ROUTE,
         request.post_ids.len()

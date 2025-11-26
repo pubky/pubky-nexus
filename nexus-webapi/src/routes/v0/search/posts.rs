@@ -7,7 +7,7 @@ use nexus_common::models::post::search::PostsByTagSearch;
 use nexus_common::types::Pagination;
 use nexus_common::types::StreamSorting;
 use serde::Deserialize;
-use tracing::info;
+use tracing::debug;
 use utoipa::OpenApi;
 
 #[derive(Deserialize)]
@@ -44,7 +44,7 @@ pub async fn search_posts_by_tag_handler(
     let sorting = query.sorting;
     let mut pagination = query.pagination;
 
-    info!(
+    debug!(
         "GET {SEARCH_POSTS_BY_TAG_ROUTE} tag:{}, sort_by: {:?}, start: {:?}, end: {:?}, skip: {:?}, limit: {:?}",
         tag, sorting, pagination.start, pagination.end, pagination.skip, pagination.limit
     );

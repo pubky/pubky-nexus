@@ -8,7 +8,7 @@ use axum::Json;
 use nexus_common::models::user::{UserIdStream, UserStream, UserStreamInput, UserStreamSource};
 use nexus_common::types::{Pagination, StreamReach, Timeframe};
 use serde::Deserialize;
-use tracing::info;
+use tracing::debug;
 use utoipa::{OpenApi, ToSchema};
 
 #[derive(Deserialize)]
@@ -61,7 +61,7 @@ Ensure that you provide the necessary parameters based on the selected `source`.
 pub async fn stream_users_handler(
     Query(query): Query<UserStreamQuery>,
 ) -> Result<Json<UserStream>> {
-    info!(
+    debug!(
         "GET {STREAM_USERS_ROUTE} viewer_id: {:?} source: {:?}",
         query.viewer_id, query.source
     );
@@ -117,7 +117,7 @@ Ensure that you provide the necessary parameters based on the selected `source`.
 pub async fn stream_user_ids_handler(
     Query(query): Query<UserStreamQuery>,
 ) -> Result<Json<UserIdStream>> {
-    info!(
+    debug!(
         "GET {STREAM_USER_IDS_ROUTE} viewer_id: {:?} source: {:?}",
         query.viewer_id, query.source
     );
@@ -189,7 +189,7 @@ pub async fn stream_username_search_handler(
     let skip = query.pagination.skip.unwrap_or(0);
     let limit = query.pagination.limit.unwrap_or(20);
 
-    info!(
+    debug!(
         "GET {STREAM_USERS_USERNAME_SEARCH_ROUTE}?username={}",
         username
     );
@@ -240,7 +240,7 @@ pub struct UserStreamByIdsRequest {
 pub async fn stream_users_by_ids_handler(
     Json(request): Json<UserStreamByIdsRequest>,
 ) -> Result<Json<UserStream>> {
-    info!(
+    debug!(
         "POST {} user_ids: {:?}",
         STREAM_USERS_BY_IDS_ROUTE, request.user_ids
     );

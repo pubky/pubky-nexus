@@ -86,8 +86,9 @@ impl NexusWatcher {
                     break;
                 }
                 _ = interval.tick() => {
-                    info!("Indexing homeservers…");
-                    _ = ev_processor_runner.run_all()
+                    debug!("Indexing homeservers…");
+                    _ = ev_processor_runner
+                        .run_all()
                         .await
                         .inspect_err(|e| error!("Failed to start event processors run: {e}"));
                 }
