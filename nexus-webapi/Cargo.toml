@@ -9,7 +9,7 @@ license = "MIT"
 build = "build.rs"
 
 [dependencies]
-axum = "0.8.6"
+axum = "0.8.7"
 axum-server = { version = "0.7.2", features = ["tls-rustls-no-provider"] }
 chrono = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
@@ -26,7 +26,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
-tower-http = { version = "0.6.6", features = [
+tower-http = { version = "0.6.7", features = [
     "fs",
     "cors",
     "compression-full",
