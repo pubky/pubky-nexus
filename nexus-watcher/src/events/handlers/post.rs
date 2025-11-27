@@ -13,8 +13,7 @@ use nexus_common::models::post::{
 use nexus_common::models::user::UserCounts;
 use nexus_common::types::DynError;
 use pubky_app_specs::{
-    post_uri_builder, user_uri_builder, ParsedUri, PubkyAppPost, PubkyAppPostKind, PubkyId,
-    Resource,
+    post_uri_builder, ParsedUri, PubkyAppPost, PubkyAppPostKind, PubkyId, Resource,
 };
 use tracing::debug;
 
@@ -59,10 +58,8 @@ pub async fn sync_put(
                 }
             }
             if dependency_event_keys.is_empty() {
-                let author_uri = user_uri_builder(author_id.to_string());
-                if let Some(key) = RetryEvent::generate_index_key(&author_uri) {
-                    dependency_event_keys.push(key);
-                }
+                let key = RetryEvent::generate_index_key_from_uri(&author_id.to_uri());
+                dependency_event_keys.push(key);
             }
             return Err(EventProcessorError::missing_dependencies(dependency_event_keys).into());
         }

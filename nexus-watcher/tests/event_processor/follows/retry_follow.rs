@@ -3,7 +3,7 @@ use anyhow::Result;
 use nexus_watcher::events::errors::EventProcessorError;
 use nexus_watcher::events::{retry::event::RetryEvent, EventType};
 use pubky::Keypair;
-use pubky_app_specs::{follow_uri_builder, user_uri_builder, PubkyAppUser};
+use pubky_app_specs::{follow_uri_builder, PubkyAppUser, PubkyId};
 
 /// The user profile is stored in the homeserver. Missing the followee to connect with follower
 #[tokio_shared_rt::test(shared)]
@@ -12,6 +12,7 @@ async fn test_homeserver_follow_cannot_index() -> Result<()> {
 
     let followee_keypair = Keypair::random();
     let followee_id = followee_keypair.public_key().to_z32();
+    let followee_pubky_id = PubkyId::try_from(&followee_id).unwrap();
     // In that case, that user will act as a NotSyncUser or user not registered in pubky.app
     // It will not have a profile.json
     test.register_user(&followee_keypair).await?;
@@ -46,12 +47,12 @@ async fn test_homeserver_follow_cannot_index() -> Result<()> {
 
     assert_eq!(event_state.retry_count, 0);
 
-    let dependency_key = RetryEvent::generate_index_key(&user_uri_builder(followee_id.to_string()));
+    let dependency_key = RetryEvent::generate_index_key_from_uri(&followee_pubky_id.to_uri());
 
     match event_state.error_type {
         EventProcessorError::MissingDependency { dependency } => {
             assert_eq!(dependency.len(), 1);
-            assert_eq!(dependency[0], dependency_key.unwrap())
+            assert_eq!(dependency[0], dependency_key)
         }
         _ => panic!("The error type has to be MissingDependency type"),
     };

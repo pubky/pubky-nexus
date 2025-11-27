@@ -2,7 +2,7 @@ use crate::events::{errors::EventProcessorError, retry::event::RetryEvent};
 use nexus_common::db::OperationOutcome;
 use nexus_common::models::user::Muted;
 use nexus_common::types::DynError;
-use pubky_app_specs::{user_uri_builder, PubkyId};
+use pubky_app_specs::PubkyId;
 use tracing::debug;
 
 pub async fn sync_put(user_id: PubkyId, muted_id: PubkyId) -> Result<(), DynError> {
@@ -11,13 +11,9 @@ pub async fn sync_put(user_id: PubkyId, muted_id: PubkyId) -> Result<(), DynErro
     match Muted::put_to_graph(&user_id, &muted_id).await? {
         OperationOutcome::Updated => Ok(()),
         OperationOutcome::MissingDependency => {
-            match RetryEvent::generate_index_key(&user_uri_builder(muted_id.to_string())) {
-                Some(key) => {
-                    let dependency = vec![key];
-                    Err(EventProcessorError::MissingDependency { dependency }.into())
-                }
-                None => Err("Could not generate missing dependency key".into()),
-            }
+            let key = RetryEvent::generate_index_key_from_uri(&muted_id.to_uri());
+            let dependency = vec![key];
+            Err(EventProcessorError::MissingDependency { dependency }.into())
         }
         OperationOutcome::CreatedOrDeleted => {
             Muted(vec![muted_id.to_string()])
