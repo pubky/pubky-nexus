@@ -1,6 +1,7 @@
 use crate::utils::{host_url, server::TestServiceServer};
 
 use anyhow::Result;
+use axum::http::Method;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_swagger_ui() -> Result<()> {
@@ -50,9 +51,10 @@ async fn test_pkarr_endpoint() -> Result<()> {
     let test_server = TestServiceServer::get_test_server().await;
     let pubky_tls_dns_url = test_server.nexus_api.pubky_tls_dns_url();
 
-    let client = &test_server.testnet.pubky_client_builder().build()?;
-    let response = client
-        .get(format!("{pubky_tls_dns_url}/v0/info"))
+    let sdk = test_server.testnet.sdk()?;
+    let response = sdk
+        .client()
+        .request(Method::GET, &format!("{pubky_tls_dns_url}/v0/info"))
         .send()
         .await?;
 
@@ -66,10 +68,13 @@ async fn test_events_endpoint() -> Result<()> {
     let test_server = TestServiceServer::get_test_server().await;
     let pubky_tls_dns_url = test_server.nexus_api.pubky_tls_dns_url();
 
-    let client = &test_server.testnet.pubky_client_builder().build()?;
+    let client = &test_server.testnet.client_builder().build()?;
 
     let response = client
-        .get(format!("{pubky_tls_dns_url}/v0/events?limit=1000"))
+        .request(
+            Method::GET,
+            &format!("{pubky_tls_dns_url}/v0/events?limit=1000"),
+        )
         .send()
         .await?;
 
@@ -86,9 +91,10 @@ async fn test_events_endpoint() -> Result<()> {
 
     while limit * counter <= 1000 {
         let response = client
-            .get(format!(
-                "{pubky_tls_dns_url}/v0/events?{cursor}limit={limit}"
-            ))
+            .request(
+                Method::GET,
+                &format!("{pubky_tls_dns_url}/v0/events?{cursor}limit={limit}"),
+            )
             .send()
             .await?;
         assert_eq!(response.status(), 200);

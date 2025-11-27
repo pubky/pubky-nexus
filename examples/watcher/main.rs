@@ -42,6 +42,7 @@ async fn main() -> Result<(), DynError> {
                 testnet_host: "not-needed".to_string(),
                 homeserver,
                 events_limit: 100,
+                monitored_homeservers_limit: 5,
                 watcher_sleep: 5000,
                 stack,
                 moderation_id,

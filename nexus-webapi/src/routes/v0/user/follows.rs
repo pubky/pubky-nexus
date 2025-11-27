@@ -6,7 +6,7 @@ use axum::extract::{Path, Query};
 use axum::Json;
 use nexus_common::models::follow::{Followers, Following, Friends, UserFollows};
 use nexus_common::types::Pagination;
-use tracing::info;
+use tracing::debug;
 use utoipa::OpenApi;
 
 #[utoipa::path(
@@ -29,7 +29,7 @@ pub async fn user_followers_handler(
     Path(user_id): Path<String>,
     Query(query): Query<Pagination>,
 ) -> Result<Json<Followers>> {
-    info!("GET {USER_FOLLOWERS_ROUTE} user_id:{}", user_id);
+    debug!("GET {USER_FOLLOWERS_ROUTE} user_id:{}", user_id);
 
     let skip = query.skip.unwrap_or(0);
     let limit = query.limit.unwrap_or(200);
@@ -61,7 +61,7 @@ pub async fn user_following_handler(
     Path(user_id): Path<String>,
     Query(query): Query<Pagination>,
 ) -> Result<Json<Following>> {
-    info!("GET {USER_FOLLOWING_ROUTE} user_id:{}", user_id);
+    debug!("GET {USER_FOLLOWING_ROUTE} user_id:{}", user_id);
 
     let skip = query.skip.unwrap_or(0);
     let limit = query.limit.unwrap_or(200);
@@ -93,7 +93,7 @@ pub async fn user_friends_handler(
     Path(user_id): Path<String>,
     Query(query): Query<Pagination>,
 ) -> Result<Json<Friends>> {
-    info!("GET {USER_FRIENDS_ROUTE} user_id:{}", user_id);
+    debug!("GET {USER_FRIENDS_ROUTE} user_id:{}", user_id);
 
     let skip = query.skip.unwrap_or(0);
     let limit = query.limit.unwrap_or(200);

@@ -1,14 +1,14 @@
 use crate::event_processor::{
-    homeserver::utils::create_external_test_homeserver, utils::watcher::WatcherTest,
+    homeserver::utils::create_external_test_homeserver,
+    utils::watcher::{HomeserverHashIdPath, WatcherTest},
 };
 use anyhow::Result;
 use chrono::Utc;
-use nexus_common::{db::PubkyClient, models::homeserver::Homeserver};
+use nexus_common::models::homeserver::Homeserver;
 use pubky::Keypair;
 use pubky_app_specs::{
-    post_uri_builder,
-    traits::{HashId, TimestampId},
-    user_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyAppTag, PubkyAppUser, PubkyId,
+    post_uri_builder, traits::TimestampId, user_uri_builder, PubkyAppPost, PubkyAppPostKind,
+    PubkyAppTag, PubkyAppUser, PubkyId,
 };
 
 #[tokio_shared_rt::test(shared)]
@@ -24,8 +24,7 @@ async fn test_tag_post_on_unknown_homeserver() -> Result<()> {
 
     // Register the tagged post author PK in the new homeserver
     // We only need the record mapping, not necessarily the profile.json being uploaded
-    PubkyClient::get()?
-        .signup(&tagged_post_author_kp, &tagged_post_hs_pk, None)
+    test.register_user_in_hs(&tagged_post_author_kp, &tagged_post_hs_pk)
         .await?;
 
     // Create tagged post
@@ -53,7 +52,7 @@ async fn test_tag_post_on_unknown_homeserver() -> Result<()> {
         name: "Watcher:Homeserver:Tagger:User".to_string(),
         status: None,
     };
-    let tagger_author_id = test.create_user(&tagger_author_kp, &tagger_user).await?;
+    test.create_user(&tagger_author_kp, &tagger_user).await?;
 
     // Add a tag to the post
     let tag = PubkyAppTag {
@@ -62,12 +61,8 @@ async fn test_tag_post_on_unknown_homeserver() -> Result<()> {
         created_at: Utc::now().timestamp_millis(),
     };
     // PUT tag
-    let tag_url = format!(
-        "pubky://{}/pub/pubky.app/tags/{}",
-        tagger_author_id,
-        tag.create_id()
-    );
-    test.put(&tag_url, tag).await?;
+    let tag_path = tag.hs_path();
+    test.put(&tagger_author_kp, &tag_path, tag).await?;
 
     // Check if the new homeserver of the unknown tagged user was ingested
     let tagged_post_hs_id = PubkyId::try_from(&tagged_post_hs_pk.to_z32()).unwrap();
@@ -92,8 +87,7 @@ async fn test_tag_user_on_unknown_homeserver() -> Result<()> {
 
     // Register the tagged post author PK in the new homeserver
     // We only need the record mapping, not necessarily the profile.json being uploaded
-    PubkyClient::get()?
-        .signup(&tagged_user_author_kp, &tagged_user_hs_pk, None)
+    test.register_user_in_hs(&tagged_user_author_kp, &tagged_user_hs_pk)
         .await?;
 
     // Create tagger user
@@ -106,7 +100,7 @@ async fn test_tag_user_on_unknown_homeserver() -> Result<()> {
         name: "Watcher:Homeserver:Tagger:User".to_string(),
         status: None,
     };
-    let tagger_author_id = test.create_user(&tagger_author_kp, &tagger_user).await?;
+    test.create_user(&tagger_author_kp, &tagger_user).await?;
 
     let tagged_user_uri = user_uri_builder(tagged_user_author_id.clone());
 
@@ -117,12 +111,8 @@ async fn test_tag_user_on_unknown_homeserver() -> Result<()> {
         created_at: Utc::now().timestamp_millis(),
     };
     // PUT tag
-    let tag_url = format!(
-        "pubky://{}/pub/pubky.app/tags/{}",
-        tagger_author_id,
-        tag.create_id()
-    );
-    test.put(&tag_url, tag).await?;
+    let tag_path = tag.hs_path();
+    test.put(&tagger_author_kp, &tag_path, tag).await?;
 
     // Check if the new homeserver of the unknown tagged user was ingested
     let tagged_user_hs_id = PubkyId::try_from(&tagged_user_hs_pk.to_z32()).unwrap();

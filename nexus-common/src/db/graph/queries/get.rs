@@ -780,7 +780,7 @@ pub fn post_stream(
 
     // Final return statement
     cypher.push_str(&format!(
-        "RETURN author.id AS author_id, p.id AS post_id\n{order_clause}\n"
+        "RETURN author.id AS author_id, p.id AS post_id, p.indexed_at AS indexed_at\n{order_clause}\n"
     ));
 
     // Apply skip and limit

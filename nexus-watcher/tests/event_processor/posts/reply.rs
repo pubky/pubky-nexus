@@ -17,7 +17,7 @@ use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyApp
 async fn test_homeserver_post_reply() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
-    let keypair = Keypair::random();
+    let user_kp = Keypair::random();
 
     let user = PubkyAppUser {
         bio: Some("test_homeserver_post_reply".to_string()),
@@ -27,7 +27,7 @@ async fn test_homeserver_post_reply() -> Result<()> {
         status: None,
     };
 
-    let user_id = test.create_user(&keypair, &user).await?;
+    let user_id = test.create_user(&user_kp, &user).await?;
 
     let parent_post = PubkyAppPost {
         content: "Watcher:PostReply:User:Post".to_string(),
@@ -37,20 +37,20 @@ async fn test_homeserver_post_reply() -> Result<()> {
         attachments: None,
     };
 
-    let parent_post_id = test.create_post(&user_id, &parent_post).await?;
+    let (parent_post_id, parent_post_path) = test.create_post(&user_kp, &parent_post).await?;
 
     // Create reply uri
-    let parent_uri = post_uri_builder(user_id.clone(), parent_post_id.clone());
+    let parent_absolute_uri = post_uri_builder(user_id.clone(), parent_post_id.clone());
 
     let reply_post = PubkyAppPost {
         content: "Watcher:PostReply:User:Reply".to_string(),
         kind: PubkyAppPostKind::Short,
-        parent: Some(parent_uri.clone()),
+        parent: Some(parent_absolute_uri.clone()),
         embed: None,
         attachments: None,
     };
 
-    let reply_id = test.create_post(&user_id, &reply_post).await?;
+    let (reply_id, reply_path) = test.create_post(&user_kp, &reply_post).await?;
 
     // GRAPH_OP: Assert reply relationship was created
     let reply_post_details = find_post_details(&user_id, &reply_id).await.unwrap();
@@ -67,7 +67,7 @@ async fn test_homeserver_post_reply() -> Result<()> {
     let reply_parent_uri = find_reply_relationship_parent_uri(&user_id, &reply_id)
         .await
         .unwrap();
-    assert_eq!(reply_parent_uri, parent_uri);
+    assert_eq!(reply_parent_uri, parent_absolute_uri);
 
     // CACHE_OP: Check if the event writes in the index
     // ########### PARENT RELATED INDEXES ################
@@ -83,9 +83,10 @@ async fn test_homeserver_post_reply() -> Result<()> {
     )
     .await
     .unwrap();
-    assert_eq!(post_replies.len(), 1);
+    assert_eq!(post_replies.post_keys.len(), 1);
     let post_key = format!("{user_id}:{reply_id}");
-    assert_eq!(post_replies[0], post_key);
+    assert_eq!(post_replies.post_keys[0], post_key);
+    assert!(post_replies.last_post_score.is_some());
 
     // Assert the parent post has changed stats, Post:Counts:user_id:post_id
     let post_count = find_post_counts(&user_id, &parent_post_id).await;
@@ -138,7 +139,7 @@ async fn test_homeserver_post_reply() -> Result<()> {
     );
     assert_eq!(
         relationships.replied.unwrap(),
-        parent_uri,
+        parent_absolute_uri,
         "The parent URIs does not match"
     );
 
@@ -181,11 +182,11 @@ async fn test_homeserver_post_reply() -> Result<()> {
         "Replies should not be in the global total engagement sorted set"
     );
 
-    test.cleanup_post(&user_id, &reply_id).await?;
+    test.cleanup_post(&user_kp, &reply_path).await?;
 
     // Cleanup
-    test.cleanup_user(&user_id).await?;
-    test.cleanup_post(&user_id, &parent_post_id).await?;
+    test.cleanup_user(&user_kp).await?;
+    test.cleanup_post(&user_kp, &parent_post_path).await?;
 
     Ok(())
 }

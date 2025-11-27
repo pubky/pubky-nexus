@@ -14,7 +14,7 @@ async fn test_edit_reposted_post_notification() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Create User A who makes the original post
-    let keypair_a = Keypair::random();
+    let user_a_kp = Keypair::random();
     let user_a = PubkyAppUser {
         bio: Some("User A bio".to_string()),
         image: None,
@@ -22,10 +22,10 @@ async fn test_edit_reposted_post_notification() -> Result<()> {
         name: "Watcher:RepostedPostEditNotification:UserA".to_string(),
         status: None,
     };
-    let user_a_id = test.create_user(&keypair_a, &user_a).await?;
+    let user_a_id = test.create_user(&user_a_kp, &user_a).await?;
 
     // Create User B who reposts User A's post
-    let keypair_b = Keypair::random();
+    let user_b_kp = Keypair::random();
     let user_b = PubkyAppUser {
         bio: Some("User B bio".to_string()),
         image: None,
@@ -33,7 +33,7 @@ async fn test_edit_reposted_post_notification() -> Result<()> {
         name: "Watcher:RepostedPostEditNotification:UserB".to_string(),
         status: None,
     };
-    let user_b_id = test.create_user(&keypair_b, &user_b).await?;
+    let user_b_id = test.create_user(&user_b_kp, &user_b).await?;
 
     // User A creates a post
     let mut post = PubkyAppPost {
@@ -43,7 +43,7 @@ async fn test_edit_reposted_post_notification() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let post_id = test.create_post(&user_a_id, &post).await?;
+    let (post_id, post_path) = test.create_post(&user_a_kp, &post).await?;
 
     // User B reposts User A's post
     let repost = PubkyAppPost {
@@ -56,14 +56,13 @@ async fn test_edit_reposted_post_notification() -> Result<()> {
         }),
         attachments: None,
     };
-    let repost_id = test.create_post(&user_b_id, &repost).await?;
+    let (repost_id, _repost_path) = test.create_post(&user_b_kp, &repost).await?;
 
     // User A edits their post
     post.content = "Edited post by User A".to_string();
-    let edited_url = post_uri_builder(user_a_id.clone(), post_id.clone());
 
     // Overwrite existing post in the homeserver for the edited one
-    test.put(edited_url.as_str(), &post).await?;
+    test.put(&user_a_kp, &post_path, &post).await?;
 
     // Verify that User B receives a notification about the edit
     let notifications = Notification::get_by_id(&user_b_id, Pagination::default())

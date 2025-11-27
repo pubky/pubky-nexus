@@ -12,7 +12,7 @@ async fn test_delete_post_that_replied_notification() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Create a user who posts
-    let keypair = Keypair::random();
+    let poster_kp = Keypair::random();
     let user = PubkyAppUser {
         bio: Some("Test user for post deletion".to_string()),
         image: None,
@@ -20,10 +20,10 @@ async fn test_delete_post_that_replied_notification() -> Result<()> {
         name: "Watcher:PostDeleteNotification:User".to_string(),
         status: None,
     };
-    let poster_id = test.create_user(&keypair, &user).await?;
+    let poster_id = test.create_user(&poster_kp, &user).await?;
 
     // Create a user who posts
-    let keypair = Keypair::random();
+    let replier_kp = Keypair::random();
     let user = PubkyAppUser {
         bio: Some("Test user for post deletion".to_string()),
         image: None,
@@ -31,7 +31,7 @@ async fn test_delete_post_that_replied_notification() -> Result<()> {
         name: "Watcher:PostDeleteNotification:UserReplier".to_string(),
         status: None,
     };
-    let replier_id = test.create_user(&keypair, &user).await?;
+    let replier_id = test.create_user(&replier_kp, &user).await?;
 
     // Create a post without any relationships
     let post = PubkyAppPost {
@@ -41,7 +41,7 @@ async fn test_delete_post_that_replied_notification() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let post_id = test.create_post(&poster_id, &post).await?;
+    let (post_id, _post_path) = test.create_post(&poster_kp, &post).await?;
 
     // Create a reply
     let reply = PubkyAppPost {
@@ -51,10 +51,10 @@ async fn test_delete_post_that_replied_notification() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let reply_id = test.create_post(&replier_id, &reply).await?;
+    let (reply_id, reply_path) = test.create_post(&replier_kp, &reply).await?;
 
     // Delete the reply
-    test.cleanup_post(&replier_id, &reply_id).await?;
+    test.cleanup_post(&replier_kp, &reply_path).await?;
 
     // Verify that the poster gets the correct notification
     let notifications = Notification::get_by_id(&poster_id, Pagination::default())

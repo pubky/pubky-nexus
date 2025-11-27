@@ -19,8 +19,8 @@ pub enum EventProcessorError {
     #[error("InvalidEventLine: {message}")]
     InvalidEventLine { message: String },
     /// The Pubky client could not resolve the pubky
-    #[error("PubkyClientError: {message}")]
-    PubkyClientError { message: String },
+    #[error("PubkyClientError: {0}")]
+    PubkyClientError(#[from] crate::db::PubkyClientError),
 }
 
 impl EventProcessorError {
@@ -28,5 +28,9 @@ impl EventProcessorError {
         Self::MissingDependency {
             dependency: dependency_uris,
         }
+    }
+
+    pub fn client_error(message: String) -> Self {
+        crate::db::PubkyClientError::ClientError(message).into()
     }
 }

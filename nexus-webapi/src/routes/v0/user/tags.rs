@@ -9,7 +9,7 @@ use nexus_common::models::tag::user::TagUser;
 use nexus_common::models::tag::TagDetails;
 use nexus_common::types::Pagination;
 use serde::Deserialize;
-use tracing::info;
+use tracing::debug;
 use utoipa::OpenApi;
 
 #[utoipa::path(
@@ -36,7 +36,7 @@ pub async fn user_tags_handler(
     Path(user_id): Path<String>,
     Query(query): Query<TagsQuery>,
 ) -> Result<Json<Vec<TagDetails>>> {
-    info!(
+    debug!(
         "GET {USER_TAGS_ROUTE} user_id:{}, skip_tags:{:?}, limit_tags:{:?}, limit_taggers:{:?}, viewer_id:{:?}, depth:{:?}",
         user_id, query.skip_tags, query.limit_tags, query.limit_taggers, query.viewer_id, query.depth
     );
@@ -92,7 +92,7 @@ pub async fn user_taggers_handler(
         tags_query,
     }): Query<TaggersQuery>,
 ) -> Result<Json<TaggersInfoResponse>> {
-    info!(
+    debug!(
         "GET {USER_TAGGERS_ROUTE} user_id:{}, label: {}, skip:{:?}, limit:{:?}, viewer_id:{:?}, depth:{:?}",
         user_id, label, pagination.skip, pagination.limit, tags_query.viewer_id, tags_query.depth
     );

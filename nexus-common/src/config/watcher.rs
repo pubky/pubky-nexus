@@ -11,10 +11,12 @@ pub const TESTNET: bool = false;
 pub const DEFAULT_TESTNET_HOST: &str = "localhost";
 // Testnet homeserver key
 pub const HOMESERVER_PUBKY: &str = "8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo";
-// Maximum number of events to fetch at once from a homeserver
-pub const EVENTS_LIMIT: u32 = 1000;
-// Sleep between checks to homeserver
-pub const WATCHER_SLEEP: u64 = 5000;
+/// Default for [WatcherConfig::events_limit]
+pub const DEFAULT_EVENTS_LIMIT: u32 = 1_000;
+/// Default for [WatcherConfig::monitored_homeservers_limit]
+pub const DEFAULT_MONITORED_HOMESERVERS_LIMIT: usize = 50;
+/// Default for [WatcherConfig::watcher_sleep]
+pub const DEFAULT_WATCHER_SLEEP: u64 = 5_000;
 // Moderation service key
 pub const MODERATION_ID: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 // Moderation service key
@@ -33,8 +35,13 @@ pub struct WatcherConfig {
     pub name: String,
     pub testnet: bool,
     pub testnet_host: String,
+    /// Default homeserver. Other homeservers may be ingested in addition, but this one is prioritized.
     pub homeserver: PubkyId,
+    /// Maximum number of events to fetch per run from each homeserver
     pub events_limit: u32,
+    /// Maximum number of monitored homeservers
+    pub monitored_homeservers_limit: usize,
+    /// Sleep between every full run (over all monitored homeservers), in milliseconds
     pub watcher_sleep: u64,
     #[serde(default = "default_stack")]
     pub stack: StackConfig,
@@ -58,8 +65,9 @@ impl Default for WatcherConfig {
             testnet: TESTNET,
             testnet_host: DEFAULT_TESTNET_HOST.to_string(),
             homeserver,
-            events_limit: EVENTS_LIMIT,
-            watcher_sleep: WATCHER_SLEEP,
+            events_limit: DEFAULT_EVENTS_LIMIT,
+            monitored_homeservers_limit: DEFAULT_MONITORED_HOMESERVERS_LIMIT,
+            watcher_sleep: DEFAULT_WATCHER_SLEEP,
             moderation_id,
             moderated_tags: MODERATED_TAGS.iter().map(|s| s.to_string()).collect(),
         }

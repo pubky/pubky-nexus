@@ -1,21 +1,23 @@
+use nexus_common::models::event::EventProcessorError;
+
 use crate::events::retry::event::RetryEvent;
-use crate::events::{handle, Moderation};
+use crate::events::{Event, Moderation};
 use crate::service::traits::TEventProcessor;
-use nexus_common::db::PubkyClient;
-use nexus_common::models::event::{Event, EventProcessorError};
+use nexus_common::db::PubkyConnector;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
 use opentelemetry::trace::{FutureExt, Span, TraceContextExt, Tracer};
 use opentelemetry::{global, Context, KeyValue};
+use pubky::Method;
 use pubky_app_specs::PubkyId;
-use std::error::Error;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 pub struct EventProcessor {
     pub homeserver: Homeserver,
+    /// See [WatcherConfig::events_limit]
     pub limit: u32,
     pub files_path: PathBuf,
     pub tracer_name: String,
@@ -41,7 +43,7 @@ impl TEventProcessor for EventProcessor {
         };
 
         match maybe_event_lines {
-            None => info!("No new events"),
+            None => debug!("No new events"),
             Some(event_lines) => {
                 info!("Processing {} event lines", event_lines.len());
                 self.process_event_lines(event_lines).await?;
@@ -63,20 +65,18 @@ impl EventProcessor {
         debug!("Polling new events from homeserver");
 
         let response_text = {
-            let pubky_client =
-                PubkyClient::get().map_err(|e| EventProcessorError::PubkyClientError {
-                    message: e.to_string(),
-                })?;
+            let pubky = PubkyConnector::get()?;
             let url = format!(
                 "https://{}/events/?cursor={}&limit={}",
                 self.homeserver.id, self.homeserver.cursor, self.limit
             );
 
-            let response = pubky_client.get(url).send().await.map_err(|e| {
-                Box::new(EventProcessorError::PubkyClientError {
-                    message: format!("{:?}", e.source()),
-                })
-            })?;
+            let response = pubky
+                .client()
+                .request(Method::GET, &url)
+                .send()
+                .await
+                .map_err(|e| EventProcessorError::client_error(e.to_string()))?;
 
             response.text().await?
         };
@@ -109,17 +109,17 @@ impl EventProcessor {
             }
 
             if let Some(cursor) = line.strip_prefix("cursor: ") {
-                Homeserver::from_cursor(id, cursor).put_to_index().await?;
-                info!("Cursor for the next request: {cursor}");
+                info!("Received cursor for the next request: {cursor}");
+                match Homeserver::try_from_cursor(id, cursor) {
+                    Ok(hs) => hs.put_to_index().await?,
+                    Err(e) => warn!("{e}"),
+                }
             } else {
-                let event = match Event::parse_event(line, self.files_path.clone()) {
-                    Ok(event) => event,
-                    Err(e) => {
-                        error!("{}", e);
-                        None
-                    }
-                };
-                if let Some(event) = event {
+                let maybe_event = Event::parse_event(line, self.files_path.clone())
+                    .inspect_err(|e| error!("{e}"))
+                    .unwrap_or(None);
+
+                if let Some(event) = maybe_event {
                     let tracer = global::tracer(self.tracer_name.clone());
                     let mut span = tracer.start(event.parsed_uri.resource.to_string());
                     span.set_attribute(KeyValue::new("event.uri", event.uri.clone()));
@@ -146,7 +146,7 @@ impl EventProcessor {
     /// # Parameters:
     /// - `event`: The event to be processed
     async fn handle_event(&self, event: &Event) -> Result<(), DynError> {
-        if let Err(e) = handle(event, self.moderation.clone()).await {
+        if let Err(e) = event.clone().handle(self.moderation.clone()).await {
             if let Some((index_key, retry_event)) = extract_retry_event_info(event, e) {
                 error!("{}, {}", retry_event.error_type, index_key);
                 if let Err(err) = retry_event.put_to_index(index_key).await {

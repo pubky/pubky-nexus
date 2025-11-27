@@ -4,7 +4,7 @@ use axum::extract::Path;
 use axum::Json;
 use nexus_common::models::post::PostDetails;
 use pubky_app_specs::PubkyAppPostKind;
-use tracing::info;
+use tracing::debug;
 use utoipa::OpenApi;
 
 #[utoipa::path(
@@ -25,7 +25,7 @@ use utoipa::OpenApi;
 pub async fn post_details_handler(
     Path((author_id, post_id)): Path<(String, String)>,
 ) -> Result<Json<PostDetails>> {
-    info!(
+    debug!(
         "GET {POST_DETAILS_ROUTE} author_id:{}, post_id:{}",
         author_id, post_id
     );

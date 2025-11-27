@@ -4,6 +4,7 @@ pub mod author;
 pub mod author_replies;
 pub mod bookmarks;
 pub mod kind;
+pub mod post_keys;
 pub mod post_replies;
 pub mod posts;
 pub mod reach;
@@ -11,6 +12,7 @@ pub mod tags;
 pub mod utils;
 
 pub const ROOT_PATH: &str = endpoints::STREAM_POSTS_ROUTE;
+pub const KEYS_ROOT_PATH: &str = endpoints::STREAM_POST_KEYS_ROUTE;
 
 // Aldert
 pub const USER_ID: &str = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";

@@ -16,7 +16,7 @@ async fn test_homeserver_follow_cannot_index() -> Result<()> {
     // It will not have a profile.json
     test.register_user(&followee_keypair).await?;
 
-    let follower_keypair = Keypair::random();
+    let follower_kp = Keypair::random();
     let follower_user = PubkyAppUser {
         bio: Some("test_homeserver_follow_cannot_index".to_string()),
         image: None,
@@ -24,16 +24,15 @@ async fn test_homeserver_follow_cannot_index() -> Result<()> {
         name: "Watcher:IndexFail:Follower".to_string(),
         status: None,
     };
-    let follower_id = test.create_user(&follower_keypair, &follower_user).await?;
+    let follower_id = test.create_user(&follower_kp, &follower_user).await?;
 
-    test.create_follow(&follower_id, &followee_id).await?;
-
-    let follow_url = follow_uri_builder(follower_id, followee_id.clone());
+    let follow_path = test.create_follow(&follower_kp, &followee_id).await?;
+    let follow_absolute_url = follow_uri_builder(follower_id, followee_id.clone());
 
     let index_key = format!(
         "{}:{}",
         EventType::Put,
-        RetryEvent::generate_index_key(&follow_url).unwrap()
+        RetryEvent::generate_index_key(&follow_absolute_url).unwrap()
     );
     assert_eventually_exists(&index_key).await;
 
@@ -57,12 +56,12 @@ async fn test_homeserver_follow_cannot_index() -> Result<()> {
         _ => panic!("The error type has to be MissingDependency type"),
     };
 
-    test.del(&follow_url).await?;
+    test.del(&follower_kp, &follow_path).await?;
 
     let del_index_key = format!(
         "{}:{}",
         EventType::Del,
-        RetryEvent::generate_index_key(&follow_url).unwrap()
+        RetryEvent::generate_index_key(&follow_absolute_url).unwrap()
     );
 
     assert_eventually_exists(&del_index_key).await;

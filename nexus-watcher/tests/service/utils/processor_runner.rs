@@ -10,17 +10,23 @@ use tokio::sync::watch::Receiver;
 pub struct MockEventProcessorRunner {
     /// The event processors to be used by the runner
     pub event_processors: Vec<Arc<MockEventProcessor>>,
+    pub monitored_homeservers_limit: usize,
     pub shutdown_rx: Receiver<bool>,
 }
 
 impl MockEventProcessorRunner {
     /// Creates a new instance from the provided event processors
-    pub fn new(event_processors: Vec<MockEventProcessor>, shutdown_rx: Receiver<bool>) -> Self {
+    pub fn new(
+        event_processors: Vec<MockEventProcessor>,
+        monitored_homeservers_limit: usize,
+        shutdown_rx: Receiver<bool>,
+    ) -> Self {
         let arcs: Vec<Arc<MockEventProcessor>> =
             event_processors.into_iter().map(Arc::new).collect();
 
         Self {
             event_processors: arcs,
+            monitored_homeservers_limit,
             shutdown_rx,
         }
     }
@@ -40,7 +46,10 @@ impl TEventProcessorRunner for MockEventProcessorRunner {
             .unwrap_or("8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo")
     }
 
-    /// Returns homeserver IDs with the insert order of the event processors
+    fn monitored_homeservers_limit(&self) -> usize {
+        self.monitored_homeservers_limit
+    }
+
     async fn homeservers_by_priority(&self) -> Result<Vec<String>, DynError> {
         let persistedhs_ids = Homeserver::get_all_from_graph().await?;
 

@@ -11,7 +11,7 @@ use pubky_app_specs::{
 async fn test_homeserver_reply_repost() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
-    let keypair = Keypair::random();
+    let user_kp = Keypair::random();
 
     let user = PubkyAppUser {
         bio: Some("test_homeserver_reply_repost".to_string()),
@@ -21,7 +21,7 @@ async fn test_homeserver_reply_repost() -> Result<()> {
         status: None,
     };
 
-    let user_id = test.create_user(&keypair, &user).await?;
+    let user_id = test.create_user(&user_kp, &user).await?;
 
     // Create root Post
     let parent_post = PubkyAppPost {
@@ -32,20 +32,20 @@ async fn test_homeserver_reply_repost() -> Result<()> {
         attachments: None,
     };
 
-    let parent_post_id = test.create_post(&user_id, &parent_post).await?;
+    let (parent_post_id, parent_post_path) = test.create_post(&user_kp, &parent_post).await?;
 
     // Create reply
-    let parent_uri = post_uri_builder(user_id.clone(), parent_post_id.clone());
+    let parent_absolute_uri = post_uri_builder(user_id.clone(), parent_post_id.clone());
 
     let reply = PubkyAppPost {
         content: "Watcher:ReplyRepost:User:Reply".to_string(),
         kind: PubkyAppPostKind::Short,
-        parent: Some(parent_uri.clone()),
+        parent: Some(parent_absolute_uri.clone()),
         embed: None,
         attachments: None,
     };
 
-    let reply_id = test.create_post(&user_id, &reply).await?;
+    let (_reply_id, reply_path) = test.create_post(&user_kp, &reply).await?;
 
     // Create repost
     let repost = PubkyAppPost {
@@ -54,12 +54,12 @@ async fn test_homeserver_reply_repost() -> Result<()> {
         parent: None,
         embed: Some(PubkyAppPostEmbed {
             kind: PubkyAppPostKind::Short,
-            uri: parent_uri.clone(),
+            uri: parent_absolute_uri.clone(),
         }),
         attachments: None,
     };
 
-    test.create_post(&user_id, &repost).await?;
+    test.create_post(&user_kp, &repost).await?;
 
     // CACHE_OPs
 
@@ -82,11 +82,11 @@ async fn test_homeserver_reply_repost() -> Result<()> {
     assert_eq!(exist_count.posts, 3);
 
     // TODO: Impl DEL post. Assert the reply does not exist in Nexus
-    test.cleanup_post(&user_id, &reply_id).await?;
+    test.cleanup_post(&user_kp, &reply_path).await?;
 
     // Cleanup
-    test.cleanup_user(&user_id).await?;
-    test.cleanup_post(&user_id, &parent_post_id).await?;
+    test.cleanup_user(&user_kp).await?;
+    test.cleanup_post(&user_kp, &parent_post_path).await?;
 
     Ok(())
 }

@@ -3,7 +3,7 @@ use crate::{Error, Result};
 use axum::extract::Path;
 use axum::Json;
 use nexus_common::models::user::Relationship;
-use tracing::info;
+use tracing::debug;
 use utoipa::OpenApi;
 
 #[utoipa::path(
@@ -24,7 +24,7 @@ use utoipa::OpenApi;
 pub async fn user_relationship_handler(
     Path((user_id, viewer_id)): Path<(String, String)>,
 ) -> Result<Json<Relationship>> {
-    info!(
+    debug!(
         "GET {RELATIONSHIP_ROUTE} user_id:{}, viewer_id:{}",
         user_id, viewer_id
     );

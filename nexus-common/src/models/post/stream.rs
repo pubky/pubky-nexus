@@ -72,6 +72,33 @@ impl StreamSource {
     }
 }
 
+#[derive(Serialize, Deserialize, ToSchema, Debug, Default, Clone)]
+#[serde(rename_all = "snake_case")]
+pub struct PostKeyStream {
+    pub post_keys: Vec<String>,
+    pub last_post_score: Option<u64>,
+}
+
+impl PostKeyStream {
+    pub fn new(post_keys: Vec<String>, last_post_score: Option<u64>) -> Self {
+        Self {
+            post_keys,
+            last_post_score,
+        }
+    }
+
+    // Iterate over tuples of (post_key, score) to extract the post keys and capture the last score
+    pub fn from_scored_entries(entries: Vec<(String, f64)>) -> Self {
+        let last_post_score = entries.last().map(|(_, score)| score.round() as u64);
+        let post_keys = entries.into_iter().map(|(key, _)| key).collect();
+        Self::new(post_keys, last_post_score)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.post_keys.is_empty()
+    }
+}
+
 #[derive(Serialize, Deserialize, ToSchema, Debug, Default)]
 pub struct PostStream(pub Vec<PostView>);
 
@@ -90,6 +117,42 @@ impl PostStream {
         tags: Option<Vec<String>>,
         kind: Option<PubkyAppPostKind>,
     ) -> Result<Option<Self>, DynError> {
+        let post_key_stream =
+            Self::collect_post_keys(source, pagination, order, sorting, tags, kind).await?;
+
+        if post_key_stream.is_empty() {
+            return Ok(None);
+        }
+
+        Self::from_listed_post_ids(viewer_id, &post_key_stream.post_keys).await
+    }
+
+    pub async fn get_post_keys(
+        source: StreamSource,
+        pagination: Pagination,
+        order: SortOrder,
+        sorting: StreamSorting,
+        tags: Option<Vec<String>>,
+        kind: Option<PubkyAppPostKind>,
+    ) -> Result<Option<PostKeyStream>, DynError> {
+        let post_key_stream =
+            Self::collect_post_keys(source, pagination, order, sorting, tags, kind).await?;
+
+        if post_key_stream.is_empty() {
+            return Ok(None);
+        }
+
+        Ok(Some(post_key_stream))
+    }
+
+    async fn collect_post_keys(
+        source: StreamSource,
+        pagination: Pagination,
+        order: SortOrder,
+        sorting: StreamSorting,
+        tags: Option<Vec<String>>,
+        kind: Option<PubkyAppPostKind>,
+    ) -> Result<PostKeyStream, DynError> {
         // Decide whether to use index or fallback to graph query
         let use_index = Self::can_use_index(&sorting, &source, &tags, &kind);
 
@@ -98,11 +161,7 @@ impl PostStream {
             false => Self::get_from_graph(source, sorting, &tags, pagination, kind).await?,
         };
 
-        if post_keys.is_empty() {
-            return Ok(None);
-        }
-
-        Self::from_listed_post_ids(viewer_id, &post_keys).await
+        Ok(post_keys)
     }
 
     // Determine if we have a quick access sorted set for this combination
@@ -144,7 +203,7 @@ impl PostStream {
         order: SortOrder,
         tags: &Option<Vec<String>>,
         pagination: Pagination,
-    ) -> Result<Vec<String>, DynError> {
+    ) -> Result<PostKeyStream, DynError> {
         let start = pagination.start;
         let end = pagination.end;
         let skip = pagination.skip;
@@ -179,7 +238,7 @@ impl PostStream {
             (source, None) => {
                 Self::get_posts_by_source(source, order, start, end, skip, limit).await
             }
-            _ => Ok(vec![]),
+            _ => Ok(PostKeyStream::default()),
         }
     }
 
@@ -190,7 +249,7 @@ impl PostStream {
         tags: &Option<Vec<String>>,
         pagination: Pagination,
         kind: Option<PubkyAppPostKind>,
-    ) -> Result<Vec<String>, DynError> {
+    ) -> Result<PostKeyStream, DynError> {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
@@ -207,14 +266,23 @@ impl PostStream {
         }
 
         let mut post_keys = Vec::new();
+        // Track the last post's indexed_at value
+        let mut last_post_indexed_at: Option<i64> = None;
 
         while let Some(row) = result.next().await? {
             let author_id: String = row.get("author_id")?;
             let post_id: String = row.get("post_id")?;
-            post_keys.push(format!("{author_id}:{post_id}"));
+            let indexed_at: i64 = row.get("indexed_at")?;
+            let post_key = format!("{author_id}:{post_id}");
+            // Track the last post's indexed_at by overwriting on each iteration
+            last_post_indexed_at = Some(indexed_at);
+            post_keys.push(post_key);
         }
 
-        Ok(post_keys)
+        // Convert the last indexed_at to u64 for the score
+        let last_post_score = last_post_indexed_at.map(|indexed_at| indexed_at as u64);
+
+        Ok(PostKeyStream::new(post_keys, last_post_score))
     }
 
     pub async fn get_global_posts_keys(
@@ -224,7 +292,7 @@ impl PostStream {
         end: Option<f64>,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<Vec<String>, DynError> {
+    ) -> Result<PostKeyStream, DynError> {
         let sorted_set = match sorting {
             StreamSorting::TotalEngagement => {
                 Self::try_from_index_sorted_set(
@@ -251,11 +319,9 @@ impl PostStream {
                 .await?
             }
         };
-        match sorted_set {
-            Some(post_keys) => Ok(post_keys.into_iter().map(|(key, _)| key).collect()),
-            // The index does not exist
-            None => Ok(vec![]),
-        }
+        Ok(PostKeyStream::from_scored_entries(
+            sorted_set.unwrap_or_default(),
+        ))
     }
 
     pub async fn get_posts_keys_by_tag(
@@ -265,7 +331,7 @@ impl PostStream {
         end: Option<f64>,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<Vec<String>, DynError> {
+    ) -> Result<PostKeyStream, DynError> {
         let skip = skip.unwrap_or(0);
         let limit = limit.unwrap_or(10);
 
@@ -278,13 +344,20 @@ impl PostStream {
 
         let post_search_result = PostsByTagSearch::get_by_label(label, Some(sorting), pag).await?;
 
-        match post_search_result {
-            Some(post_keys) => Ok(post_keys
-                .into_iter()
-                .map(|post_score| post_score.post_key)
-                .collect()),
-            None => Ok(vec![]),
-        }
+        let stream = match post_search_result {
+            Some(post_keys) => {
+                // Iterate over PostsByTagSearch structs to extract post keys and capture the last score
+                let last_post_score = post_keys.last().map(|entry| entry.score as u64);
+                let post_keys = post_keys
+                    .into_iter()
+                    .map(|post_score| post_score.post_key)
+                    .collect();
+                PostKeyStream::new(post_keys, last_post_score)
+            }
+            None => PostKeyStream::default(),
+        };
+
+        Ok(stream)
     }
 
     pub async fn get_author_posts(
@@ -295,7 +368,7 @@ impl PostStream {
         skip: Option<usize>,
         limit: Option<usize>,
         replies: bool,
-    ) -> Result<Vec<String>, DynError> {
+    ) -> Result<PostKeyStream, DynError> {
         // Retrieve only parents or only reply posts written by the author from index
         let key_parts = match replies {
             true => POST_REPLIES_PER_USER_KEY_PARTS,
@@ -310,11 +383,11 @@ impl PostStream {
         if let Some(post_ids) = post_ids {
             let post_keys = post_ids
                 .into_iter()
-                .map(|(post_id, _)| format!("{user_id}:{post_id}"))
+                .map(|(post_id, score)| (format!("{user_id}:{post_id}"), score))
                 .collect();
-            Ok(post_keys)
+            Ok(PostKeyStream::from_scored_entries(post_keys))
         } else {
-            Ok(vec![])
+            Ok(PostKeyStream::default())
         }
     }
 
@@ -325,7 +398,7 @@ impl PostStream {
         end: Option<f64>,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<Vec<String>, DynError> {
+    ) -> Result<PostKeyStream, DynError> {
         let custom_limit = Some(200);
         let mut user_ids = match &source {
             StreamSource::Following { observer_id } => {
@@ -364,9 +437,9 @@ impl PostStream {
                 limit,
             )
             .await?;
-            Ok(post_keys)
+            Ok(PostKeyStream::from_scored_entries(post_keys))
         } else {
-            Ok(vec![])
+            Ok(PostKeyStream::default())
         }
     }
 
@@ -377,17 +450,15 @@ impl PostStream {
         end: Option<f64>,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<Vec<String>, DynError> {
+    ) -> Result<PostKeyStream, DynError> {
         let key_parts = [&BOOKMARKS_USER_KEY_PARTS[..], &[user_id]].concat();
         let post_keys =
             Self::try_from_index_sorted_set(&key_parts, start, end, skip, limit, order, None)
                 .await?;
 
-        if let Some(post_keys) = post_keys {
-            Ok(post_keys.into_iter().map(|(key, _)| key).collect())
-        } else {
-            Ok(vec![])
-        }
+        Ok(PostKeyStream::from_scored_entries(
+            post_keys.unwrap_or_default(),
+        ))
     }
 
     pub async fn get_post_replies(
@@ -398,15 +469,14 @@ impl PostStream {
         end: Option<f64>,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<Vec<String>, DynError> {
+    ) -> Result<PostKeyStream, DynError> {
         let key_parts = [&POST_REPLIES_PER_POST_KEY_PARTS[..], &[author_id, post_id]].concat();
         let post_replies =
             Self::try_from_index_sorted_set(&key_parts, start, end, skip, limit, order, None)
                 .await?;
-        let replies_keys = post_replies.map_or(Vec::new(), |post_entry| {
-            post_entry.into_iter().map(|(post_id, _)| post_id).collect()
-        });
-        Ok(replies_keys)
+        Ok(PostKeyStream::from_scored_entries(
+            post_replies.unwrap_or_default(),
+        ))
     }
 
     // Streams for followers / followings / friends are expensive.
@@ -419,7 +489,7 @@ impl PostStream {
         end: Option<f64>,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<Vec<String>, DynError> {
+    ) -> Result<Vec<(String, f64)>, DynError> {
         let mut post_keys = Vec::new();
         // Limit the number of user IDs to process to the first 200
         let max_user_ids = 200;
@@ -468,7 +538,7 @@ impl PostStream {
 
         let selected_post_keys = post_keys[start_index..end_index]
             .iter()
-            .map(|(_, post_key)| post_key.clone())
+            .map(|(score, post_key)| (post_key.clone(), *score))
             .collect();
 
         Ok(selected_post_keys)

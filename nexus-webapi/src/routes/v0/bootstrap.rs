@@ -10,7 +10,7 @@ use axum::Router;
 use nexus_common::models::bootstrap::{Bootstrap, ViewType};
 use nexus_common::models::homeserver::Homeserver;
 use pubky_app_specs::PubkyId;
-use tracing::info;
+use tracing::debug;
 use utoipa::OpenApi;
 
 #[utoipa::path(
@@ -32,7 +32,7 @@ pub async fn bootstrap_handler(
     // TODO: Might need a param like "ViewType". There might be too much data to include in the first go, especially for mobile
     //Query(query): Query<Pub>,
 ) -> Result<Json<Bootstrap>> {
-    info!("GET {BOOTSTRAP_ROUTE}, user_id:{}", user_id);
+    debug!("GET {BOOTSTRAP_ROUTE}, user_id:{}", user_id);
 
     match Bootstrap::get_by_id(&user_id, ViewType::Full).await {
         Ok(Some(result)) => Ok(Json(result)),
@@ -55,7 +55,7 @@ pub async fn bootstrap_handler(
     )
 )]
 pub async fn put_homeserver_handler(Path(user_id): Path<String>) -> Result<()> {
-    info!("PUT {PUT_HOMESERVER_ROUTE}, user_id:{user_id}");
+    debug!("PUT {PUT_HOMESERVER_ROUTE}, user_id:{user_id}");
 
     PubkyId::try_from(&user_id)
         .map_err(|e| Error::invalid_input(&format!("Invalid user PK: {e}")))?;

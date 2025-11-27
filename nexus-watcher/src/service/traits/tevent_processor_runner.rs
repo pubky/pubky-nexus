@@ -2,10 +2,9 @@ use std::{sync::Arc, time::Instant};
 
 use nexus_common::types::DynError;
 use tokio::sync::watch::Receiver;
-use tracing::{error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::service::{
-    constants::MAX_HOMESERVERS_PER_RUN,
     stats::{ProcessedStats, ProcessorRunStatus, RunAllProcessorsStats},
     traits::{tevent_processor::RunError, TEventProcessor},
 };
@@ -26,6 +25,8 @@ pub trait TEventProcessorRunner {
     /// This is used to prioritize the default homeserver when processing multiple homeservers.
     fn default_homeserver(&self) -> &str;
 
+    fn monitored_homeservers_limit(&self) -> usize;
+
     /// Returns the homeserver IDs relevant for this run, ordered by their priority.
     ///
     /// Contains all homeserver IDs from the graph, with the default homeserver prioritized at index 0.
@@ -44,14 +45,15 @@ pub trait TEventProcessorRunner {
     /// Throws a [`DynError`] if the event processor couldn't be built
     async fn build(&self, homeserver_id: String) -> Result<Arc<dyn TEventProcessor>, DynError>;
 
-    /// Decides the homeservers (which ones and in which order) from which events will be fetched and processed.
+    /// Decides the amount and order of homeservers from which events will be fetched and processed in `run_all`.
     ///
     /// # Returns
-    /// Ordered list of homeserver IDs considered for `run_all`, from highest to lowest prio.
+    /// Considers the values of [TEventProcessorRunner::homeservers_by_priority].
+    /// Depending on [TEventProcessorRunner::monitored_homeservers_limit], only a subset of this list may be returned.
     async fn pre_run_all(&self) -> Result<Vec<String>, DynError> {
         let hs_ids = self.homeservers_by_priority().await?;
-        let max = std::cmp::min(MAX_HOMESERVERS_PER_RUN, hs_ids.len());
-        Ok(hs_ids[..max].to_vec())
+        let max_index = std::cmp::min(self.monitored_homeservers_limit(), hs_ids.len());
+        Ok(hs_ids[..max_index].to_vec())
     }
 
     /// Post-processing of the run results
@@ -60,14 +62,23 @@ pub trait TEventProcessorRunner {
             let hs_id = &individual_run_stat.hs_id;
             let duration = individual_run_stat.duration;
             let status = &individual_run_stat.status;
-            info!("Event processor run for HS {hs_id}: duration {duration:?}, status {status:?}");
+            debug!("Event processor run for HS {hs_id}: duration {duration:?}, status {status:?}");
         }
 
         let count_ok = stats.count_ok();
         let count_error = stats.count_error();
         let count_panic = stats.count_panic();
         let count_timeout = stats.count_timeout();
-        info!("Run result: {count_ok} ok, {count_error} error, {count_panic} panic, {count_timeout} timeout");
+        let count_failed_to_build = stats.count_failed_to_build();
+        let had_issues = count_error + count_panic + count_timeout + count_failed_to_build > 0;
+
+        if had_issues {
+            warn!(
+                "Run result: {count_ok} ok, {count_failed_to_build} failed to build, {count_error} error, {count_panic} panic, {count_timeout} timeout"
+            );
+        } else {
+            debug!("Run result: {count_ok} ok");
+        }
 
         ProcessedStats(stats)
     }
