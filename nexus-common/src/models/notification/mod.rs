@@ -4,7 +4,7 @@ use crate::types::DynError;
 use crate::types::Pagination;
 use chrono::Utc;
 use neo4rs::Row;
-use pubky_app_specs::{bookmark_uri_builder, post_uri_builder, tag_uri_builder};
+use pubky_app_specs::{bookmark_uri_builder, post_uri_builder, tag_uri_builder, PubkyId};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -239,10 +239,10 @@ impl Notification {
     }
 
     pub async fn new_mention(
-        user_id: &str,
-        mentioned_id: &str,
+        user_id: &PubkyId,
+        mentioned_id: &PubkyId,
         post_id: &str,
-    ) -> Result<Option<String>, DynError> {
+    ) -> Result<Option<PubkyId>, DynError> {
         if user_id == mentioned_id {
             return Ok(None);
         }
@@ -253,7 +253,7 @@ impl Notification {
         let notification = Notification::new(body);
         notification.put_to_index(mentioned_id).await?;
 
-        Ok(Some(mentioned_id.to_string()))
+        Ok(Some(mentioned_id.clone()))
     }
 
     pub async fn new_repost(

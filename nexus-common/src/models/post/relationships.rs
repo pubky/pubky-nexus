@@ -1,6 +1,6 @@
 use crate::db::{fetch_row_from_graph, queries, RedisOps};
 use crate::types::DynError;
-use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppPostKind};
+use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyId};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -11,7 +11,7 @@ pub struct PostRelationships {
     /// If set, URI of the post this post is reposting
     pub reposted: Option<String>,
     /// List of user IDs mentioned in this post
-    pub mentioned: Vec<String>,
+    pub mentioned: Vec<PubkyId>,
 }
 
 impl RedisOps for PostRelationships {}
@@ -63,7 +63,7 @@ impl PostRelationships {
         let replied_author_id: Option<String> = row.get("replied_author_id").unwrap_or(None);
         let reposted_post_id: Option<String> = row.get("reposted_post_id").unwrap_or(None);
         let reposted_author_id: Option<String> = row.get("reposted_author_id").unwrap_or(None);
-        let mentioned: Vec<String> = row.get("mentioned_user_ids").unwrap_or(Vec::new());
+        let mentioned: Vec<PubkyId> = row.get("mentioned_user_ids").unwrap_or(Vec::new());
 
         let replied = match (replied_author_id, replied_post_id) {
             (Some(author_id), Some(post_id)) => Some(post_uri_builder(author_id, post_id)),
