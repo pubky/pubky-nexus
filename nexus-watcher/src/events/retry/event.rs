@@ -42,6 +42,7 @@ impl RetryEvent {
     /// in the format `"{pubkyId}:{repository_model}:{event_id}"`
     /// # Parameters
     /// - `event_uri`: A string slice representing the event URI to be processed
+    #[deprecated(since = "0.4.1", note = "Use `generate_index_key_from_uri` instead.")]
     pub fn generate_index_key(event_uri: &str) -> Option<String> {
         let parsed_uri = match ParsedUri::try_from(event_uri) {
             Ok(parsed_uri) => parsed_uri,
@@ -55,6 +56,16 @@ impl RetryEvent {
         };
 
         Some(key)
+    }
+
+    pub fn generate_index_key_from_uri(event_uri: &ParsedUri) -> String {
+        let user_id = &event_uri.user_id;
+        let event_resource = &event_uri.resource;
+
+        match event_uri.resource.id() {
+            Some(id) => format!("{user_id}:{event_resource}:{id}"),
+            None => format!("{user_id}:{event_resource}"),
+        }
     }
 
     /// Stores an event in both a sorted set and a JSON index in Redis.
