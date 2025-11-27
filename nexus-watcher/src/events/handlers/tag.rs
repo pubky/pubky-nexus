@@ -27,16 +27,22 @@ pub async fn sync_put(
     debug!("Indexing new tag: {} -> {}", tagger_id, tag_id);
 
     // Parse the embeded URI to extract author_id and post_id using parse_tagged_post_uri
-    let parsed_uri = ParsedUri::try_from(tag.uri.as_str())?;
-    let user_id = parsed_uri.user_id;
+    let tag_parsed_uri = ParsedUri::try_from(tag.uri.as_str())?;
+    let user_id = tag_parsed_uri.user_id.clone();
     let indexed_at = Utc::now().timestamp_millis();
 
-    match parsed_uri.resource {
+    match &tag_parsed_uri.resource {
         // If post_id is in the tagged URI, we place tag to a post.
         Resource::Post(post_id) => {
             // Place the tag on post
             put_sync_post(
-                tagger_id, user_id, &post_id, &tag_id, &tag.label, &tag.uri, indexed_at,
+                tagger_id,
+                user_id,
+                &post_id,
+                &tag_id,
+                &tag.label,
+                &tag_parsed_uri,
+                indexed_at,
             )
             .await
         }
@@ -64,7 +70,7 @@ async fn put_sync_post(
     post_id: &str,
     tag_id: &str,
     tag_label: &str,
-    post_uri: &str,
+    post_uri: &ParsedUri,
     indexed_at: i64,
 ) -> Result<(), DynError> {
     match TagPost::put_to_graph(
@@ -91,6 +97,7 @@ async fn put_sync_post(
             let post_key_slice: &[&str] = &[&author_id, post_id];
             let tag_label_slice = &[tag_label.to_string()];
 
+            let post_uri_str = post_uri.resource.to_string();
             let indexing_results = tokio::join!(
                 // Update user counts for tagger
                 UserCounts::update(&tagger_user_id, "tagged", JsonAction::Increment(1), None),
@@ -147,7 +154,7 @@ async fn put_sync_post(
                 // Add post to global label timeline
                 PostsByTagSearch::put_to_index(&author_id, post_id, tag_label),
                 // Save new notification
-                Notification::new_post_tag(&tagger_user_id, &author_id, tag_label, post_uri),
+                Notification::new_post_tag(&tagger_user_id, &author_id, tag_label, &post_uri_str),
                 TagSearch::put_to_index(tag_label_slice)
             );
 

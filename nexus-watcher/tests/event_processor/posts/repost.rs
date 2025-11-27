@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use super::utils::{
     check_member_global_timeline_user_post, check_member_total_engagement_user_posts,
     check_member_user_post_timeline, find_post_counts, find_post_details,
@@ -10,7 +12,7 @@ use nexus_common::{
     db::RedisOps,
     models::post::{PostDetails, PostRelationships},
 };
-use pubky::Keypair;
+use pubky::{IntoPubkyResource, Keypair, PubkyResource};
 use pubky_app_specs::{
     post_uri_builder, PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser,
 };
@@ -122,8 +124,12 @@ async fn test_homeserver_post_repost() -> Result<()> {
         relationships.reposted.is_some(),
         "Repost should have parent post URI"
     );
+
+    let a = relationships.replied.unwrap();
+    let x: PubkyResource = PubkyResource::new(a.user_id.into(), a.resource);
+
     assert_eq!(
-        relationships.reposted.unwrap(),
+        relationships.reposted.unwrap().resource.to_string(),
         parent_absolute_uri,
         "The parent URIs does not match"
     );

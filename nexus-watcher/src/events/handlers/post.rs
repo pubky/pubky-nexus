@@ -38,19 +38,15 @@ pub async fn sync_put(
         OperationOutcome::MissingDependency => {
             let mut dependency_event_keys = Vec::new();
             if let Some(replied_to_uri) = &post_relationships.replied {
-                let reply_dependency = RetryEvent::generate_index_key(replied_to_uri)
-                    // This block is unlikely to be reached, as it would typically fail during the validation process
-                    .unwrap_or_else(|| replied_to_uri.clone());
+                let reply_dependency = RetryEvent::generate_index_key_from_uri(replied_to_uri);
                 dependency_event_keys.push(reply_dependency);
 
-                if let Err(e) = Homeserver::maybe_ingest_for_post(replied_to_uri).await {
+                if let Err(e) = Homeserver::maybe_ingest_for_post(&replied_to_uri).await {
                     tracing::error!("Failed to ingest homeserver: {e}");
                 }
             }
             if let Some(reposted_uri) = &post_relationships.reposted {
-                let reply_dependency = RetryEvent::generate_index_key(reposted_uri)
-                    // This block is unlikely to be reached, as it would typically fail during the validation process
-                    .unwrap_or_else(|| reposted_uri.clone());
+                let reply_dependency = RetryEvent::generate_index_key_from_uri(reposted_uri);
                 dependency_event_keys.push(reply_dependency);
 
                 if let Err(e) = Homeserver::maybe_ingest_for_post(reposted_uri).await {
@@ -128,10 +124,8 @@ pub async fn sync_put(
 
     // PHASE 2: Process POST REPLIES indexes
     if let Some(replied_uri) = &post_relationships.replied {
-        let parsed_uri = ParsedUri::try_from(replied_uri.as_str())?;
-
-        let parent_author_id = parsed_uri.user_id;
-        let parent_post_id = match parsed_uri.resource {
+        let parent_author_id = replied_uri.user_id.clone();
+        let parent_post_id = match replied_uri.resource.clone() {
             Resource::Post(id) => id,
             _ => return Err("Replied URI is not a Post resource".into()),
         };
@@ -142,6 +136,7 @@ pub async fn sync_put(
 
         let parent_post_key_parts: &[&str; 2] = &[&parent_author_id, &parent_post_id];
 
+        let replied_uri_str = replied_uri.resource.to_string();
         let indexing_results = tokio::join!(
             PostCounts::update_index_field(
                 parent_post_key_parts,
@@ -168,7 +163,7 @@ pub async fn sync_put(
             ),
             Notification::new_post_reply(
                 &author_id,
-                replied_uri,
+                &replied_uri_str,
                 &post_details.uri,
                 &parent_author_id,
             )
@@ -184,15 +179,14 @@ pub async fn sync_put(
 
     // PHASE 3: Process POST REPOSTS indexes
     if let Some(reposted_uri) = &post_relationships.reposted {
-        let parsed_uri = ParsedUri::try_from(reposted_uri.as_str())?;
-
-        let parent_author_id = parsed_uri.user_id;
-        let parent_post_id = match parsed_uri.resource {
+        let parent_author_id = reposted_uri.user_id.clone();
+        let parent_post_id = match reposted_uri.resource.clone() {
             Resource::Post(id) => id,
             _ => return Err("Reposted uri is not a Post resource".into()),
         };
 
         let parent_post_key_parts: &[&str; 2] = &[&parent_author_id, &parent_post_id];
+        let reposted_uri_str = reposted_uri.resource.to_string();
         let indexing_results = tokio::join!(
             PostCounts::update_index_field(
                 parent_post_key_parts,
@@ -214,7 +208,7 @@ pub async fn sync_put(
             },
             Notification::new_repost(
                 &author_id,
-                reposted_uri,
+                &reposted_uri_str,
                 &post_details.uri,
                 &parent_author_id,
             )
@@ -326,7 +320,9 @@ pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), DynError> {
         OperationOutcome::Updated => {
             let existing_relationships = PostRelationships::get_by_id(&author_id, &post_id).await?;
             let parent = match existing_relationships {
-                Some(relationships) => relationships.replied,
+                Some(relationships) => relationships
+                    .replied
+                    .map(|parsed_uri| parsed_uri.resource.to_string()),
                 None => None,
             };
 
@@ -377,10 +373,9 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
     if let Some(relationships) = post_relationships {
         // PHASE 2: Process POST REPLIES indexes
         // Decrement counts for parent post if replied
-        if let Some(replied) = relationships.replied {
-            let parsed_uri = ParsedUri::try_from(replied.as_str())?;
-            let parent_user_id = parsed_uri.user_id;
-            let parent_post_id = match parsed_uri.resource {
+        if let Some(replied_uri) = relationships.replied {
+            let parent_user_id = replied_uri.user_id;
+            let parent_post_id = match replied_uri.resource.clone() {
                 Resource::Post(id) => id,
                 _ => return Err("Replied uri is not a Post resource".into()),
             };
@@ -389,6 +384,7 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
             reply_parent_post_key_wrapper =
                 Some([parent_user_id.to_string(), parent_post_id.clone()]);
 
+            let replied_uri_str = replied_uri.resource.to_string();
             let indexing_results = tokio::join!(
                 PostCounts::update_index_field(
                     &parent_post_key_parts,
@@ -411,7 +407,7 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
                 // Notification: "A reply to your post was deleted"
                 Notification::post_children_changed(
                     &author_id,
-                    &replied,
+                    &replied_uri_str,
                     &parent_user_id,
                     &deleted_uri,
                     PostChangedSource::Reply,
@@ -423,15 +419,15 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
         }
         // PHASE 3: Process POST REPOSTED indexes
         // Decrement counts for resposted post if existed
-        if let Some(reposted) = relationships.reposted {
-            let parsed_uri = ParsedUri::try_from(reposted.as_str())?;
-            let parent_post_id = match parsed_uri.resource {
+        if let Some(reposted_uri) = relationships.reposted {
+            let parent_post_id = match reposted_uri.resource.clone() {
                 Resource::Post(id) => id,
                 _ => return Err("Reposted uri is not a Post resource".into()),
             };
 
-            let parent_post_key_parts: &[&str] = &[&parsed_uri.user_id, &parent_post_id];
+            let parent_post_key_parts: &[&str] = &[&reposted_uri.user_id, &parent_post_id];
 
+            let reposted_uri_str = reposted_uri.resource.to_string();
             let indexing_results = tokio::join!(
                 PostCounts::update_index_field(
                     parent_post_key_parts,
@@ -441,7 +437,7 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
                 ),
                 async {
                     // Post replies cannot be included in the total engagement index after the repost is deleted
-                    if !post_relationships_is_reply(&parsed_uri.user_id, &parent_post_id).await? {
+                    if !post_relationships_is_reply(&reposted_uri.user_id, &parent_post_id).await? {
                         PostStream::put_score_index_sorted_set(
                             &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
                             parent_post_key_parts,
@@ -454,8 +450,8 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
                 // Notification: "A repost of your post was deleted"
                 Notification::post_children_changed(
                     &author_id,
-                    &reposted,
-                    &parsed_uri.user_id,
+                    &reposted_uri_str,
+                    &reposted_uri.user_id,
                     &deleted_uri,
                     PostChangedSource::Repost,
                     &PostChangedType::Deleted,

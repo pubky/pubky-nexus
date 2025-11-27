@@ -177,11 +177,6 @@ fn extract_retry_event_info(event: &Event, error: DynError) -> Option<(String, R
     };
 
     // Generate a compress index to save in the cache
-    let index = match RetryEvent::generate_index_key(&event.uri) {
-        Some(retry_index) => retry_index,
-        None => {
-            return None;
-        }
-    };
+    let index = RetryEvent::generate_index_key_from_uri(&event.parsed_uri);
     Some((format!("{}:{}", event.event_type, index), retry_event))
 }

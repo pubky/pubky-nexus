@@ -103,12 +103,11 @@ pub fn create_post(
 
 fn add_relationship_params(
     cypher_query: Query,
-    uri: &Option<String>,
+    parsed_uri: &Option<ParsedUri>,
     author_param: &str,
     post_param: &str,
 ) -> Result<Query, DynError> {
-    if let Some(uri) = uri {
-        let parsed_uri = ParsedUri::try_from(uri.as_str())?;
+    if let Some(parsed_uri) = parsed_uri.clone() {
         let parent_author_id = parsed_uri.user_id;
         let parent_post_id = match parsed_uri.resource {
             Resource::Post(id) => id,
