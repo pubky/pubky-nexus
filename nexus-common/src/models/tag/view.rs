@@ -1,4 +1,4 @@
-use pubky_app_specs::tag_uri_builder;
+use pubky_app_specs::{post_uri_builder, user_uri_builder};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -10,7 +10,7 @@ use crate::types::DynError;
 /// Represents a Pubky tag with uri, label, indexed at timestamp.
 #[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
 pub struct TagView {
-    pub tag_uri: String,
+    pub uri: String,
     pub label: String,
     pub indexed_at: i64,
 }
@@ -28,8 +28,25 @@ impl TagView {
             return Ok(None);
         };
 
+        let tagged_labels: Vec<String> = row.get("tagged_labels")?;
+        let tagged_id = row.get("tagged_id")?;
+        let uri = if tagged_labels.iter().any(|label| label == "Post") {
+            let Some(author_id) = row.get("author_id")? else {
+                return Err("Tagged post missing author id".into());
+            };
+            post_uri_builder(author_id, tagged_id)
+        } else if tagged_labels.iter().any(|label| label == "User") {
+            user_uri_builder(tagged_id)
+        } else {
+            return Err(format!(
+                "Tagged resource has unsupported labels: {:?}",
+                tagged_labels
+            )
+            .into());
+        };
+
         Ok(Some(Self {
-            tag_uri: tag_uri_builder(tagger_id.into(), tag_id.into()),
+            uri,
             label: row.get("label")?,
             indexed_at: row.get("indexed_at")?,
         }))
