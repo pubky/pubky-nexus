@@ -143,6 +143,6 @@ pub async fn hot_tags_handler(Query(query): Query<HotTagsQuery>) -> Result<Json<
 #[derive(OpenApi)]
 #[openapi(
     paths(hot_tags_handler, tag_taggers_handler),
-    components(schemas(HotTags, HotTag, Taggers))
+    components(schemas(HotTags, HotTag, Taggers, StreamReach, Timeframe))
 )]
 pub struct TagGlobalApiDoc;

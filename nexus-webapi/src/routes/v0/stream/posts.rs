@@ -260,6 +260,6 @@ pub async fn stream_posts_by_ids_handler(
         stream_post_keys_handler,
         stream_posts_by_ids_handler
     ),
-    components(schemas(PostKeyStream, PostStream, StreamSorting, StreamSource))
+    components(schemas(PostKeyStream, PostStream, StreamSorting, StreamSource, SortOrder))
 )]
 pub struct StreamPostsApiDocs;
