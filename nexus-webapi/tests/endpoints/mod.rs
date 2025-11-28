@@ -34,53 +34,30 @@ async fn test_openapi_schema() -> Result<()> {
 }
 
 /// Validates that all schema references in an OpenAPI spec are defined.
-/// This catches issues where parameters reference schemas that don't exist.
-fn validate_openapi_refs(spec: &Value) -> Result<(), String> {
+fn validate_openapi_refs(spec: &Value) {
     let schemas = spec
-        .get("components")
-        .and_then(|c| c.get("schemas"))
-        .cloned()
-        .unwrap_or(Value::Object(serde_json::Map::new()));
+        .pointer("/components/schemas")
+        .and_then(Value::as_object);
 
-    let mut errors = Vec::new();
+    let missing: Vec<_> = collect_refs(spec)
+        .filter(|r| r.starts_with("#/components/schemas/"))
+        .filter_map(|r| r.strip_prefix("#/components/schemas/"))
+        .filter(|name| schemas.is_none_or(|s| !s.contains_key(*name)))
+        .collect();
 
-    // Recursively find all $ref values and check they exist
-    fn find_refs(value: &Value, refs: &mut Vec<String>) {
-        match value {
-            Value::Object(map) => {
-                if let Some(Value::String(ref_path)) = map.get("$ref") {
-                    refs.push(ref_path.clone());
-                }
-                for v in map.values() {
-                    find_refs(v, refs);
-                }
-            }
-            Value::Array(arr) => {
-                for v in arr {
-                    find_refs(v, refs);
-                }
-            }
-            _ => {}
+    assert!(missing.is_empty(), "Missing schemas: {missing:?}");
+}
+
+/// Recursively collects all `$ref` values from a JSON value.
+fn collect_refs(value: &Value) -> Box<dyn Iterator<Item = &str> + '_> {
+    match value {
+        Value::Object(map) => {
+            let ref_value = map.get("$ref").and_then(Value::as_str);
+            let children = map.values().flat_map(collect_refs);
+            Box::new(ref_value.into_iter().chain(children))
         }
-    }
-
-    let mut refs = Vec::new();
-    find_refs(spec, &mut refs);
-
-    for ref_path in refs {
-        // Parse refs like "#/components/schemas/SortOrder"
-        if ref_path.starts_with("#/components/schemas/") {
-            let schema_name = ref_path.strip_prefix("#/components/schemas/").unwrap();
-            if schemas.get(schema_name).is_none() {
-                errors.push(format!("Missing schema: {}", schema_name));
-            }
-        }
-    }
-
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(errors.join("\n"))
+        Value::Array(arr) => Box::new(arr.iter().flat_map(collect_refs)),
+        _ => Box::new(std::iter::empty()),
     }
 }
 
@@ -96,9 +73,7 @@ fn test_v0_openapi_spec_valid() {
     assert!(json["paths"].is_object(), "Missing paths");
 
     // Validate all $ref references are defined
-    if let Err(e) = validate_openapi_refs(&json) {
-        panic!("v0 OpenAPI spec has invalid references:\n{}", e);
-    }
+    validate_openapi_refs(&json);
 }
 
 /// Test that the static OpenAPI spec is valid and all schema references are defined.
@@ -113,9 +88,7 @@ fn test_static_openapi_spec_valid() {
     assert!(json["paths"].is_object(), "Missing paths");
 
     // Validate all $ref references are defined
-    if let Err(e) = validate_openapi_refs(&json) {
-        panic!("static OpenAPI spec has invalid references:\n{}", e);
-    }
+    validate_openapi_refs(&json);
 }
 
 #[tokio_shared_rt::test(shared)]
