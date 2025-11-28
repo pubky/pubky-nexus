@@ -2,6 +2,8 @@ use crate::utils::{host_url, server::TestServiceServer};
 
 use anyhow::Result;
 use axum::http::Method;
+use nexus_webapi::routes::{r#static::ApiDoc as StaticApiDoc, v0::ApiDoc as V0ApiDoc};
+use serde_json::Value;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_swagger_ui() -> Result<()> {
@@ -29,6 +31,91 @@ async fn test_openapi_schema() -> Result<()> {
     assert!(body["paths"].is_object());
 
     Ok(())
+}
+
+/// Validates that all schema references in an OpenAPI spec are defined.
+/// This catches issues where parameters reference schemas that don't exist.
+fn validate_openapi_refs(spec: &Value) -> Result<(), String> {
+    let schemas = spec
+        .get("components")
+        .and_then(|c| c.get("schemas"))
+        .cloned()
+        .unwrap_or(Value::Object(serde_json::Map::new()));
+
+    let mut errors = Vec::new();
+
+    // Recursively find all $ref values and check they exist
+    fn find_refs(value: &Value, refs: &mut Vec<String>) {
+        match value {
+            Value::Object(map) => {
+                if let Some(Value::String(ref_path)) = map.get("$ref") {
+                    refs.push(ref_path.clone());
+                }
+                for v in map.values() {
+                    find_refs(v, refs);
+                }
+            }
+            Value::Array(arr) => {
+                for v in arr {
+                    find_refs(v, refs);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut refs = Vec::new();
+    find_refs(spec, &mut refs);
+
+    for ref_path in refs {
+        // Parse refs like "#/components/schemas/SortOrder"
+        if ref_path.starts_with("#/components/schemas/") {
+            let schema_name = ref_path.strip_prefix("#/components/schemas/").unwrap();
+            if schemas.get(schema_name).is_none() {
+                errors.push(format!("Missing schema: {}", schema_name));
+            }
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("\n"))
+    }
+}
+
+/// Test that the v0 OpenAPI spec is valid and all schema references are defined.
+#[test]
+fn test_v0_openapi_spec_valid() {
+    let spec = V0ApiDoc::merge_docs();
+    let json = serde_json::to_value(&spec).expect("Failed to serialize v0 OpenAPI spec");
+
+    // Basic structure checks
+    assert!(json["openapi"].is_string(), "Missing openapi version");
+    assert!(json["info"]["title"].is_string(), "Missing info.title");
+    assert!(json["paths"].is_object(), "Missing paths");
+
+    // Validate all $ref references are defined
+    if let Err(e) = validate_openapi_refs(&json) {
+        panic!("v0 OpenAPI spec has invalid references:\n{}", e);
+    }
+}
+
+/// Test that the static OpenAPI spec is valid and all schema references are defined.
+#[test]
+fn test_static_openapi_spec_valid() {
+    let spec = StaticApiDoc::merge_docs();
+    let json = serde_json::to_value(&spec).expect("Failed to serialize static OpenAPI spec");
+
+    // Basic structure checks
+    assert!(json["openapi"].is_string(), "Missing openapi version");
+    assert!(json["info"]["title"].is_string(), "Missing info.title");
+    assert!(json["paths"].is_object(), "Missing paths");
+
+    // Validate all $ref references are defined
+    if let Err(e) = validate_openapi_refs(&json) {
+        panic!("static OpenAPI spec has invalid references:\n{}", e);
+    }
 }
 
 #[tokio_shared_rt::test(shared)]
