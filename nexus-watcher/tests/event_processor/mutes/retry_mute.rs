@@ -3,7 +3,7 @@ use anyhow::Result;
 use nexus_common::models::event::{EventProcessorError, EventType};
 use nexus_watcher::events::retry::event::RetryEvent;
 use pubky::Keypair;
-use pubky_app_specs::{mute_uri_builder, user_uri_builder, PubkyAppUser};
+use pubky_app_specs::{mute_uri_builder, PubkyAppUser, PubkyId};
 /// The user profile is stored in the homeserver. Missing the mutee to connect with muter
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_mute_cannot_index() -> Result<()> {
@@ -11,6 +11,7 @@ async fn test_homeserver_mute_cannot_index() -> Result<()> {
 
     let mutee_kp = Keypair::random();
     let mutee_id = mutee_kp.public_key().to_z32();
+    let mutee_pubky_id = PubkyId::try_from(&mutee_id).unwrap();
     // In that case, that user will act as a NotSyncUser or user not registered in pubky.app
     // It will not have a profile.json
     test.register_user(&mutee_kp).await?;
@@ -48,12 +49,12 @@ async fn test_homeserver_mute_cannot_index() -> Result<()> {
 
     assert_eq!(event_state.retry_count, 0);
 
-    let dependency_key = RetryEvent::generate_index_key(&user_uri_builder(mutee_id.to_string()));
+    let dependency_key = RetryEvent::generate_index_key_from_uri(&mutee_pubky_id.to_uri());
 
     match event_state.error_type {
         EventProcessorError::MissingDependency { dependency } => {
             assert_eq!(dependency.len(), 1);
-            assert_eq!(dependency[0], dependency_key.unwrap())
+            assert_eq!(dependency[0], dependency_key)
         }
         _ => panic!("The error type has to be MissingDependency type"),
     };

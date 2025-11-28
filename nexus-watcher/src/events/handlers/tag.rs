@@ -14,7 +14,7 @@ use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::tag::user::TagUser;
 use nexus_common::models::user::UserCounts;
 use nexus_common::types::DynError;
-use pubky_app_specs::{user_uri_builder, ParsedUri, PubkyAppTag, PubkyId, Resource};
+use pubky_app_specs::{ParsedUri, PubkyAppTag, PubkyId, Resource};
 use tracing::debug;
 
 use super::utils::post_relationships_is_reply;
@@ -195,17 +195,13 @@ async fn put_sync_user(
     {
         OperationOutcome::Updated => Ok(()),
         OperationOutcome::MissingDependency => {
-            match RetryEvent::generate_index_key(&user_uri_builder(tagged_user_id.to_string())) {
-                Some(key) => {
-                    let dependency = vec![key];
-                    if let Err(e) = Homeserver::maybe_ingest_for_user(tagged_user_id.as_str()).await
-                    {
-                        tracing::error!("Failed to ingest homeserver: {e}");
-                    }
-                    Err(EventProcessorError::MissingDependency { dependency }.into())
-                }
-                None => Err("Could not generate missing dependency key".into()),
+            if let Err(e) = Homeserver::maybe_ingest_for_user(tagged_user_id.as_str()).await {
+                tracing::error!("Failed to ingest homeserver: {e}");
             }
+
+            let key = RetryEvent::generate_index_key_from_uri(&tagged_user_id.to_uri());
+            let dependency = vec![key];
+            Err(EventProcessorError::MissingDependency { dependency }.into())
         }
         OperationOutcome::CreatedOrDeleted => {
             let tag_label_slice = &[tag_label.to_string()];

@@ -9,7 +9,7 @@ use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::notification::Notification;
 use nexus_common::models::user::UserCounts;
 use nexus_common::types::DynError;
-use pubky_app_specs::{user_uri_builder, PubkyId};
+use pubky_app_specs::PubkyId;
 use tracing::debug;
 
 pub async fn sync_put(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), DynError> {
@@ -20,15 +20,13 @@ pub async fn sync_put(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), 
         // Do not duplicate the follow relationship
         OperationOutcome::Updated => return Ok(()),
         OperationOutcome::MissingDependency => {
-            if let Some(key) =
-                RetryEvent::generate_index_key(&user_uri_builder(followee_id.to_string()))
-            {
-                if let Err(e) = Homeserver::maybe_ingest_for_user(followee_id.as_str()).await {
-                    tracing::error!("Failed to ingest homeserver: {e}");
-                }
-                let dependency = vec![key];
-                return Err(EventProcessorError::MissingDependency { dependency }.into());
+            if let Err(e) = Homeserver::maybe_ingest_for_user(followee_id.as_str()).await {
+                tracing::error!("Failed to ingest homeserver: {e}");
             }
+
+            let key = RetryEvent::generate_index_key_from_uri(&followee_id.to_uri());
+            let dependency = vec![key];
+            return Err(EventProcessorError::MissingDependency { dependency }.into());
         }
         // The relationship did not exist, create all related indexes
         OperationOutcome::CreatedOrDeleted => {
