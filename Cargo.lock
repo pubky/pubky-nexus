@@ -2519,6 +2519,7 @@ name = "nexus-common"
 version = "0.4.1"
 dependencies = [
  "async-trait",
+ "blake3",
  "chrono",
  "deadpool-redis",
  "dirs",
@@ -2541,6 +2542,7 @@ dependencies = [
  "tracing",
  "tracing-log",
  "tracing-subscriber",
+ "url",
  "utoipa",
 ]
 

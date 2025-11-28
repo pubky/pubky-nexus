@@ -7,9 +7,10 @@ use async_trait::async_trait;
 use neo4rs::Query;
 use tracing::error;
 
-use crate::models::tag::{post::POST_TAGS_KEY_PARTS, user::USER_TAGS_KEY_PARTS};
-
-use crate::models::tag::TagDetails;
+use crate::models::tag::{
+    post::POST_TAGS_KEY_PARTS, user::USER_TAGS_KEY_PARTS, TagDeletion, TagDeletionTarget,
+    TagDetails,
+};
 
 const CACHE_SORTED_SET_PREFIX: &str = "Cache:Sorted";
 pub const CACHE_SET_PREFIX: &str = "Cache";
@@ -383,10 +384,7 @@ where
     /// # Errors
     ///
     /// Returns a boxed `std::error::Error` if there is any issue querying or executing the delete operation in Neo4j.
-    async fn del_from_graph(
-        user_id: &str,
-        tag_id: &str,
-    ) -> Result<Option<(Option<String>, Option<String>, Option<String>, String)>, DynError> {
+    async fn del_from_graph(user_id: &str, tag_id: &str) -> Result<Option<TagDeletion>, DynError> {
         let query = queries::del::delete_tag(user_id, tag_id);
         let maybe_row = fetch_row_from_graph(query).await?;
 
@@ -394,11 +392,35 @@ where
             return Ok(None);
         };
 
-        let user_id: Option<String> = row.get("user_id").unwrap_or(None);
-        let author_id: Option<String> = row.get("author_id").unwrap_or(None);
-        let post_id: Option<String> = row.get("post_id").unwrap_or(None);
         let label: String = row.get("label").expect("Query should return tag label");
-        Ok(Some((user_id, post_id, author_id, label)))
+
+        if let Some(link_id) = row.get::<Option<String>>("external_link_id")? {
+            return Ok(Some(TagDeletion {
+                target: TagDeletionTarget::ExternalLink { link_id },
+                label,
+            }));
+        }
+
+        if let Some(tagged_user_id) = row.get::<Option<String>>("user_id")? {
+            return Ok(Some(TagDeletion {
+                target: TagDeletionTarget::User {
+                    tagged_id: tagged_user_id,
+                },
+                label,
+            }));
+        }
+
+        if let (Some(post_id), Some(author_id)) = (
+            row.get::<Option<String>>("post_id")?,
+            row.get::<Option<String>>("author_id")?,
+        ) {
+            return Ok(Some(TagDeletion {
+                target: TagDeletionTarget::Post { post_id, author_id },
+                label,
+            }));
+        }
+
+        Ok(None)
     }
 
     /// Returns the unique key parts used to identify a tag in the Redis database

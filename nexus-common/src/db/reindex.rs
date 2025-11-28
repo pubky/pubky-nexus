@@ -2,6 +2,7 @@ use crate::db::graph::exec::fetch_all_rows_from_graph;
 use crate::models::follow::{Followers, Following, UserFollows};
 use crate::models::post::search::PostsByTagSearch;
 use crate::models::post::Bookmark;
+use crate::models::tag::external::TagExternal;
 use crate::models::tag::post::TagPost;
 use crate::models::tag::search::TagSearch;
 use crate::models::tag::stream::HotTags;
@@ -47,6 +48,18 @@ pub async fn sync() {
         });
     }
 
+    let external_link_ids = get_all_external_link_ids()
+        .await
+        .expect("Failed to get external link IDs");
+    let mut external_tasks = JoinSet::new();
+    for link_id in external_link_ids {
+        external_tasks.spawn(async move {
+            if let Err(e) = <TagExternal as TagCollection>::reindex(&link_id, None).await {
+                tracing::error!("Failed to reindex external link {}: {:?}", link_id, e);
+            }
+        });
+    }
+
     while let Some(res) = user_tasks.join_next().await {
         if let Err(e) = res {
             tracing::error!("User reindexing task failed: {:?}", e);
@@ -56,6 +69,12 @@ pub async fn sync() {
     while let Some(res) = post_tasks.join_next().await {
         if let Err(e) = res {
             tracing::error!("Post reindexing task failed: {:?}", e);
+        }
+    }
+
+    while let Some(res) = external_tasks.join_next().await {
+        if let Err(e) = res {
+            tracing::error!("External link reindexing task failed: {:?}", e);
         }
     }
 
@@ -127,4 +146,18 @@ async fn get_all_post_ids() -> Result<Vec<(String, String)>, DynError> {
     }
 
     Ok(post_ids)
+}
+
+async fn get_all_external_link_ids() -> Result<Vec<String>, DynError> {
+    let query = query("MATCH (link:ExternalLink) RETURN link.id AS link_id");
+    let rows = fetch_all_rows_from_graph(query).await?;
+
+    let mut link_ids = Vec::new();
+    for row in rows {
+        if let Some(link_id) = row.get("link_id")? {
+            link_ids.push(link_id);
+        }
+    }
+
+    Ok(link_ids)
 }

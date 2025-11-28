@@ -1,4 +1,5 @@
 pub mod details;
+pub mod external;
 pub mod global;
 pub mod post;
 pub mod search;
@@ -18,6 +19,7 @@ use utoipa::ToSchema;
 pub enum TaggedType {
     Post,
     User,
+    ExternalLink,
 }
 
 impl Display for TaggedType {
@@ -25,8 +27,22 @@ impl Display for TaggedType {
         match self {
             TaggedType::Post => write!(f, "Post"),
             TaggedType::User => write!(f, "User"),
+            TaggedType::ExternalLink => write!(f, "ExternalLink"),
         }
     }
 }
 
 pub type Taggers = Vec<String>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TagDeletionTarget {
+    User { tagged_id: String },
+    Post { post_id: String, author_id: String },
+    ExternalLink { link_id: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TagDeletion {
+    pub target: TagDeletionTarget,
+    pub label: String,
+}

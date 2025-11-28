@@ -1,5 +1,7 @@
 use crate::models::post::PostRelationships;
-use crate::models::{file::FileDetails, post::PostDetails, user::UserDetails};
+use crate::models::{
+    file::FileDetails, link::ExternalLinkDetails, post::PostDetails, user::UserDetails,
+};
 use crate::types::DynError;
 use neo4rs::{query, Query};
 use pubky_app_specs::{ParsedUri, Resource};
@@ -271,17 +273,57 @@ pub fn create_user_tag(
 ) -> Query {
     query(
         "MATCH (tagged_used:User {id: $tagged_user_id})
-        MATCH (tagger:User {id: $tagger_user_id})
-        // Check if tag already existed
-        OPTIONAL MATCH (tagger)-[existing:TAGGED {label: $label}]->(tagged_used) 
-        MERGE (tagger)-[t:TAGGED {label: $label}]->(tagged_used)
-        SET t.indexed_at = $indexed_at,
-            t.id = $tag_id
-        // Returns true if the user tag relationship already existed
-        RETURN existing IS NOT NULL AS flag;",
+         MATCH (tagger:User {id: $tagger_user_id})
+         // Check if tag already existed
+         OPTIONAL MATCH (tagger)-[existing:TAGGED {label: $label}]->(tagged_used)
+         MERGE (tagger)-[t:TAGGED {label: $label}]->(tagged_used)
+         SET t.indexed_at = $indexed_at,
+             t.id = $tag_id
+         // Returns true if the user tag relationship already existed
+         RETURN existing IS NOT NULL AS flag;",
     )
     .param("tagger_user_id", tagger_user_id)
     .param("tagged_user_id", tagged_user_id)
+    .param("tag_id", tag_id)
+    .param("label", label)
+    .param("indexed_at", indexed_at)
+}
+
+pub fn create_external_link_tag(
+    tagger_user_id: &str,
+    link: &ExternalLinkDetails,
+    tag_id: &str,
+    label: &str,
+    indexed_at: i64,
+) -> Query {
+    query(
+        "MATCH (tagger:User {id: $tagger_user_id})
+         MERGE (link:ExternalLink {id: $link_id})
+         ON CREATE SET
+             link.url = $original_url,
+             link.normalized_url = $normalized_url,
+             link.scheme = $scheme,
+             link.host = $host,
+             link.created_at = $created_at
+         ON MATCH SET
+             link.url = coalesce(link.url, $original_url),
+             link.normalized_url = coalesce(link.normalized_url, $normalized_url),
+             link.scheme = coalesce(link.scheme, $scheme),
+             link.host = coalesce(link.host, $host),
+             link.created_at = coalesce(link.created_at, $created_at)
+         OPTIONAL MATCH (tagger)-[existing:TAGGED {label: $label}]->(link)
+         MERGE (tagger)-[tag:TAGGED {label: $label}]->(link)
+         SET tag.indexed_at = $indexed_at,
+             tag.id = $tag_id
+         RETURN existing IS NOT NULL AS flag;",
+    )
+    .param("tagger_user_id", tagger_user_id)
+    .param("link_id", link.id.as_str())
+    .param("original_url", link.original_url.as_str())
+    .param("normalized_url", link.normalized_url.as_str())
+    .param("scheme", link.scheme.as_str())
+    .param("host", link.host.clone())
+    .param("created_at", link.created_at)
     .param("tag_id", tag_id)
     .param("label", label)
     .param("indexed_at", indexed_at)

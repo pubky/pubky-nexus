@@ -3,6 +3,7 @@ use utoipa::OpenApi;
 
 pub mod bootstrap;
 pub mod endpoints;
+pub mod external;
 pub mod file;
 pub mod info;
 pub mod notification;
@@ -28,6 +29,7 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
     let route_tag = tag::routes();
     let route_notification = notification::routes();
     let route_bootstrap = bootstrap::routes();
+    let route_external = external::routes();
 
     routes_post
         .merge(routes_info)
@@ -38,6 +40,7 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
         .merge(route_tag)
         .merge(route_notification)
         .merge(route_bootstrap)
+        .merge(route_external)
 }
 
 #[derive(OpenApi)]
@@ -56,6 +59,7 @@ impl ApiDoc {
         combined.merge(file::FileApiDoc::merge_docs());
         combined.merge(tag::TagApiDoc::merge_docs());
         combined.merge(notification::NotificationApiDoc::merge_docs());
+        combined.merge(external::ExternalTagApiDoc::merge_docs());
         combined
     }
 }

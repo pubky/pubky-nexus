@@ -234,6 +234,28 @@ pub fn user_tags(user_id: &str) -> neo4rs::Query {
     .param("user_id", user_id)
 }
 
+pub fn external_link_tags(link_id: &str) -> neo4rs::Query {
+    query(
+        "
+        MATCH (link:ExternalLink {id: $link_id})
+        CALL {
+            WITH link
+            MATCH (tagger:User)-[tag:TAGGED]->(link)
+            WITH tag.label AS name, collect(DISTINCT tagger.id) AS tagger_ids
+            RETURN collect({
+                label: name,
+                taggers: tagger_ids,
+                taggers_count: SIZE(tagger_ids)
+            }) AS tags
+        }
+        RETURN
+            link IS NOT NULL AS exists,
+            tags
+    ",
+    )
+    .param("link_id", link_id)
+}
+
 /// Retrieve a homeserver by ID
 pub fn get_homeserver_by_id(id: &str) -> Query {
     query(

@@ -58,6 +58,11 @@ pub const TAGS_HOT_ROUTE: &str = concatcp!(TAG_PREFIX, "/hot");
 pub const TAG_TAGGERS_ROUTE: &str = concatcp!(TAG_PREFIX, "/taggers/{label}");
 pub const TAG_ROUTE: &str = concatcp!(TAG_PREFIX, "/{tagger_id}/{tag_id}");
 
+// -- EXTERNAL endpoints --
+const EXTERNAL_PREFIX: &str = concatcp!(VERSION_ROUTE, "/external");
+pub const EXTERNAL_TAGS_ROUTE: &str = concatcp!(EXTERNAL_PREFIX, "/tags");
+pub const EXTERNAL_TAGGERS_ROUTE: &str = concatcp!(EXTERNAL_TAGS_ROUTE, "/{label}/taggers");
+
 // -- FILE endpoints --
 const FILE_PREFIX: &str = concatcp!(VERSION_ROUTE, "/files");
 pub const FILE_LIST_ROUTE: &str = concatcp!(FILE_PREFIX, "/by_ids");

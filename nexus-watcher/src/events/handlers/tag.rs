@@ -5,13 +5,16 @@ use chrono::Utc;
 use nexus_common::db::kv::{JsonAction, ScoreAction};
 use nexus_common::db::OperationOutcome;
 use nexus_common::models::homeserver::Homeserver;
+use nexus_common::models::link::ExternalLinkDetails;
 use nexus_common::models::notification::Notification;
 use nexus_common::models::post::search::PostsByTagSearch;
 use nexus_common::models::post::{PostCounts, PostStream};
+use nexus_common::models::tag::external::TagExternal;
 use nexus_common::models::tag::post::TagPost;
 use nexus_common::models::tag::search::TagSearch;
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::tag::user::TagUser;
+use nexus_common::models::tag::TagDeletionTarget;
 use nexus_common::models::user::UserCounts;
 use nexus_common::types::DynError;
 use pubky_app_specs::{user_uri_builder, ParsedUri, PubkyAppTag, PubkyId, Resource};
@@ -26,24 +29,37 @@ pub async fn sync_put(
 ) -> Result<(), DynError> {
     debug!("Indexing new tag: {} -> {}", tagger_id, tag_id);
 
-    // Parse the embeded URI to extract author_id and post_id using parse_tagged_post_uri
-    let parsed_uri = ParsedUri::try_from(tag.uri.as_str())?;
-    let user_id = parsed_uri.user_id;
     let indexed_at = Utc::now().timestamp_millis();
 
-    match parsed_uri.resource {
-        // If post_id is in the tagged URI, we place tag to a post.
-        Resource::Post(post_id) => {
-            // Place the tag on post
-            put_sync_post(
-                tagger_id, user_id, &post_id, &tag_id, &tag.label, &tag.uri, indexed_at,
+    match ParsedUri::try_from(tag.uri.as_str()) {
+        Ok(parsed_uri) => {
+            let user_id = parsed_uri.user_id;
+            match parsed_uri.resource {
+                Resource::Post(post_id) => {
+                    put_sync_post(
+                        tagger_id, user_id, &post_id, &tag_id, &tag.label, &tag.uri, indexed_at,
+                    )
+                    .await
+                }
+                Resource::User => {
+                    put_sync_user(tagger_id, user_id, &tag_id, &tag.label, indexed_at).await
+                }
+                other => Err(format!(
+                    "The tagged resource is not Post or User, instead is: {other:?}"
+                )
+                .into()),
+            }
+        }
+        Err(_) => {
+            put_sync_external(
+                tagger_id,
+                &tag_id,
+                &tag.label,
+                tag.uri.as_str(),
+                tag.created_at,
+                indexed_at,
             )
             .await
-        }
-        // If no post_id in the tagged URI, we place tag to a user.
-        Resource::User => put_sync_user(tagger_id, user_id, &tag_id, &tag.label, indexed_at).await,
-        other => {
-            Err(format!("The tagged resource is not Post or User, instead is: {other:?}").into())
         }
     }
 }
@@ -258,23 +274,81 @@ async fn put_sync_user(
     }
 }
 
+async fn put_sync_external(
+    tagger_user_id: PubkyId,
+    tag_id: &str,
+    tag_label: &str,
+    raw_url: &str,
+    created_at: i64,
+    indexed_at: i64,
+) -> Result<(), DynError> {
+    let link_details =
+        ExternalLinkDetails::from_url(raw_url, created_at).map_err(|err| -> DynError {
+            format!("Failed to normalize external link `{raw_url}`: {err}").into()
+        })?;
+    let link_id = link_details.id.clone();
+
+    link_details.upsert().await?;
+
+    match TagExternal::put_to_graph(
+        &tagger_user_id,
+        link_id.as_str(),
+        None,
+        tag_id,
+        tag_label,
+        indexed_at,
+    )
+    .await?
+    {
+        OperationOutcome::Updated => Ok(()),
+        OperationOutcome::MissingDependency => {
+            Err("External link tag is missing required dependencies".into())
+        }
+        OperationOutcome::CreatedOrDeleted => {
+            let tag_label_slice = &[tag_label.to_string()];
+            let indexing_results = tokio::join!(
+                UserCounts::update(&tagger_user_id, "tagged", JsonAction::Increment(1), None),
+                async {
+                    TagExternal::update_index_score(
+                        link_id.as_str(),
+                        None,
+                        tag_label,
+                        ScoreAction::Increment(1.0),
+                    )
+                    .await?;
+                    TagExternal::add_tagger_to_index(
+                        link_id.as_str(),
+                        None,
+                        &tagger_user_id,
+                        tag_label,
+                    )
+                    .await?;
+                    Ok::<(), DynError>(())
+                },
+                TagSearch::put_to_index(tag_label_slice)
+            );
+
+            handle_indexing_results!(indexing_results.0, indexing_results.1, indexing_results.2);
+
+            Ok(())
+        }
+    }
+}
+
 pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), DynError> {
     debug!("Deleting tag: {} -> {}", user_id, tag_id);
     let tag_details = TagUser::del_from_graph(&user_id, &tag_id).await?;
-    // CHOOSE THE EVENT TYPE
-    if let Some((tagged_user_id, post_id, author_id, label)) = tag_details {
-        match (tagged_user_id, post_id, author_id) {
-            // Delete user related indexes
-            (Some(tagged_id), None, None) => {
-                del_sync_user(user_id, &tagged_id, &label).await?;
+
+    if let Some(tag_details) = tag_details {
+        match tag_details.target {
+            TagDeletionTarget::User { tagged_id } => {
+                del_sync_user(user_id, &tagged_id, &tag_details.label).await?;
             }
-            // Delete post related indexes
-            (None, Some(post_id), Some(author_id)) => {
-                del_sync_post(user_id, &post_id, &author_id, &label).await?;
+            TagDeletionTarget::Post { post_id, author_id } => {
+                del_sync_post(user_id, &post_id, &author_id, &tag_details.label).await?;
             }
-            // Handle other unexpected cases
-            _ => {
-                debug!("DEL-Tag: Unexpected combination of tag details");
+            TagDeletionTarget::ExternalLink { link_id } => {
+                del_sync_external(user_id, &link_id, &tag_details.label).await?;
             }
         }
     } else {
@@ -398,6 +472,33 @@ async fn del_sync_post(
         indexing_results.4,
         indexing_results.5
     );
+
+    Ok(())
+}
+
+async fn del_sync_external(
+    tagger_id: PubkyId,
+    link_id: &str,
+    tag_label: &str,
+) -> Result<(), DynError> {
+    let tag_external = TagExternal(vec![tagger_id.to_string()]);
+
+    let indexing_results = tokio::join!(
+        UserCounts::update(&tagger_id, "tagged", JsonAction::Decrement(1), None),
+        async {
+            TagExternal::update_index_score(link_id, None, tag_label, ScoreAction::Decrement(1.0))
+                .await?;
+            Ok::<(), DynError>(())
+        },
+        async {
+            tag_external
+                .del_from_index(link_id, None, tag_label)
+                .await?;
+            Ok::<(), DynError>(())
+        }
+    );
+
+    handle_indexing_results!(indexing_results.0, indexing_results.1, indexing_results.2);
 
     Ok(())
 }

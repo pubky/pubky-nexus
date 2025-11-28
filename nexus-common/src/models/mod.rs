@@ -2,6 +2,7 @@ pub mod bootstrap;
 pub mod file;
 pub mod follow;
 pub mod homeserver;
+pub mod link;
 pub mod notification;
 pub mod post;
 pub mod tag;
