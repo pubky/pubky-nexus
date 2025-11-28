@@ -20,7 +20,7 @@ pub enum EventProcessorError {
     InvalidEventLine { message: String },
     /// The Pubky client could not resolve the pubky
     #[error("PubkyClientError: {0}")]
-    PubkyClientError(#[from] nexus_common::db::PubkyClientError),
+    PubkyClientError(#[from] crate::db::PubkyClientError),
 }
 
 impl EventProcessorError {
@@ -31,6 +31,6 @@ impl EventProcessorError {
     }
 
     pub fn client_error(message: String) -> Self {
-        nexus_common::db::PubkyClientError::ClientError(message).into()
+        crate::db::PubkyClientError::ClientError(message).into()
     }
 }

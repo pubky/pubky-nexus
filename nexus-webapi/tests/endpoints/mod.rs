@@ -62,3 +62,70 @@ async fn test_pkarr_endpoint() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio_shared_rt::test(shared)]
+async fn test_events_endpoint() -> Result<()> {
+    let test_server = TestServiceServer::get_test_server().await;
+    let pubky_tls_dns_url = test_server.nexus_api.pubky_tls_dns_url();
+
+    let client = &test_server.testnet.client_builder().build()?;
+
+    let response = client
+        .request(
+            Method::GET,
+            &format!("{pubky_tls_dns_url}/v0/events?limit=1000"),
+        )
+        .send()
+        .await?;
+
+    assert_eq!(response.status(), 200);
+
+    let whole_body = response.text().await?;
+    let whole_body_lines: Vec<&str> = whole_body.lines().collect();
+    let mut whole_line_index = 0usize;
+    assert!(whole_body.lines().count() - 1 <= 1000);
+
+    let limit = 10;
+    let mut cursor = String::from("");
+    let mut counter = 1;
+
+    while limit * counter <= 1000 {
+        let response = client
+            .request(
+                Method::GET,
+                &format!("{pubky_tls_dns_url}/v0/events?{cursor}limit={limit}"),
+            )
+            .send()
+            .await?;
+        assert_eq!(response.status(), 200);
+
+        let part_of_body = response.text().await?;
+        assert!(part_of_body.lines().count() - 1 <= limit);
+
+        cursor = part_of_body
+            .lines()
+            .last()
+            .and_then(|line| line.strip_prefix("cursor: "))
+            .map(|s| format!("cursor={}&", s))
+            .unwrap_or_default();
+
+        let lines: Vec<&str> = part_of_body.lines().collect();
+        let count = lines.len();
+        for &line in lines.iter().take(count - 1) {
+            assert!(
+                whole_body_lines[whole_line_index..]
+                    .iter()
+                    .position(|candidate| candidate == &line)
+                    .map(|pos| {
+                        whole_line_index += pos + 1;
+                        true
+                    })
+                    .unwrap_or(false),
+                "Line `{line}` missing or out of order in complete response"
+            );
+        }
+        counter += 1;
+    }
+
+    Ok(())
+}

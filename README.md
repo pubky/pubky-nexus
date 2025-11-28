@@ -163,9 +163,10 @@ cargo nextest run -p nexus-watcher files::create --no-fail-fast
 If you want to see the performance of the server you can run the benchmarks
 
 ```bash
+# cargo bench -p nexus-webapi [--bench <endpoint>]
 cargo bench -p nexus-webapi
 # or if you want specific endpoint
-cargo bench --bench --bench user
+cargo bench -p nexus-webapi --bench user
 ```
 
 ## ⚠️ Troubleshooting

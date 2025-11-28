@@ -2,7 +2,8 @@ use crate::event_processor::utils::watcher::{
     assert_eventually_exists, HomeserverHashIdPath, WatcherTest,
 };
 use anyhow::Result;
-use nexus_watcher::events::{errors::EventProcessorError, retry::event::RetryEvent, EventType};
+use nexus_common::models::event::{EventProcessorError, EventType};
+use nexus_watcher::events::retry::event::RetryEvent;
 use pubky::Keypair;
 use pubky_app_specs::{
     bookmark_uri_builder, post_uri_builder, traits::HashId, PubkyAppBookmark, PubkyAppUser,
