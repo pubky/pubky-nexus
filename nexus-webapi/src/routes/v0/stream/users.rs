@@ -380,6 +380,6 @@ fn build_user_stream_input(
         stream_username_search_handler,
         stream_users_by_ids_handler
     ),
-    components(schemas(UserIdStream, UserStream, UserStreamSource, UserStreamByIdsRequest))
+    components(schemas(UserIdStream, UserStream, UserStreamSource, UserStreamByIdsRequest, StreamReach, Timeframe))
 )]
 pub struct StreamUsersApiDocs;
