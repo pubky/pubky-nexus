@@ -20,10 +20,11 @@ pub async fn sync_put(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), 
         // Do not duplicate the follow relationship
         OperationOutcome::Updated => return Ok(()),
         OperationOutcome::MissingDependency => {
-            let key = RetryEvent::generate_index_key_from_uri(&followee_id.to_uri());
             if let Err(e) = Homeserver::maybe_ingest_for_user(followee_id.as_str()).await {
                 tracing::error!("Failed to ingest homeserver: {e}");
             }
+
+            let key = RetryEvent::generate_index_key_from_uri(&followee_id.to_uri());
             let dependency = vec![key];
             return Err(EventProcessorError::MissingDependency { dependency }.into());
         }
