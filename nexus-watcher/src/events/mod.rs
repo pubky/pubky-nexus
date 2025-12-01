@@ -15,7 +15,9 @@ pub async fn handle(event: &Event, moderation: Arc<Moderation>) -> Result<(), Dy
     match event.event_type {
         EventType::Put => handle_put_event(event, moderation).await,
         EventType::Del => handle_del_event(event).await,
-    }
+    }?;
+
+    event.store_event().await
 }
 
 pub async fn handle_put_event(event: &Event, moderation: Arc<Moderation>) -> Result<(), DynError> {

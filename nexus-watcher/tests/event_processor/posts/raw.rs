@@ -5,6 +5,7 @@ use super::utils::{
 use crate::event_processor::users::utils::{check_member_user_influencer, find_user_counts};
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
+use nexus_common::models::event::Event;
 use nexus_common::models::post::{PostCounts, PostDetails};
 use pubky::Keypair;
 use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
@@ -31,6 +32,7 @@ async fn test_homeserver_put_post_event() -> Result<()> {
         embed: None,
         attachments: None,
     };
+    let (_, events_in_redis_before) = Event::get_events_from_redis(None, 1000).await.unwrap();
 
     let (post_id, post_path) = test.create_post(&user_kp, &post).await?;
 
@@ -48,6 +50,8 @@ async fn test_homeserver_put_post_event() -> Result<()> {
     assert!(post_details.indexed_at > 0);
 
     // CACHE_OP: Check if the event writes in the graph
+    let (_, events_in_redis_after) = Event::get_events_from_redis(None, 1000).await.unwrap();
+    assert!(events_in_redis_after > events_in_redis_before);
 
     //User:Details:user_id:post_id
     let post_detail_cache: PostDetails = PostDetails::get_from_index(&user_id, &post_id)

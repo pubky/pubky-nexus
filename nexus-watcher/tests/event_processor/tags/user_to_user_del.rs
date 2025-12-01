@@ -5,6 +5,7 @@ use crate::event_processor::{
 };
 use anyhow::Result;
 use chrono::Utc;
+use nexus_common::models::event::Event;
 use nexus_common::models::tag::{traits::TagCollection, user::TagUser};
 use pubky::Keypair;
 use pubky_app_specs::{PubkyAppTag, PubkyAppUser};
@@ -46,6 +47,7 @@ async fn test_homeserver_del_tag_to_another_user() -> Result<()> {
     };
 
     let tag_path = tag.hs_path();
+    let (_, events_in_redis_before) = Event::get_events_from_redis(None, 1000).await.unwrap();
 
     // Put tag
     test.put(&tagger_kp, &tag_path, tag).await?;
@@ -59,6 +61,8 @@ async fn test_homeserver_del_tag_to_another_user() -> Result<()> {
     assert!(user_tag.is_none());
 
     // CACHE_OP: Check if the tag is correctly updated in the cache
+    let (_, events_in_redis_after) = Event::get_events_from_redis(None, 1000).await.unwrap();
+    assert!(events_in_redis_after > events_in_redis_before);
     let cache_user_tag =
         TagUser::get_from_index(&tagged_user_id, None, None, None, None, None, false)
             .await
