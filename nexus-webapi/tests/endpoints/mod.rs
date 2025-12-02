@@ -3,6 +3,8 @@ use crate::utils::{host_url, server::TestServiceServer};
 use anyhow::Result;
 use axum::http::Method;
 
+mod openapi;
+
 #[tokio_shared_rt::test(shared)]
 async fn test_swagger_ui() -> Result<()> {
     let client = httpc_test::new_client(host_url().await)?;

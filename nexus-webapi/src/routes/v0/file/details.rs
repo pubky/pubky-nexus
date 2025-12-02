@@ -14,7 +14,7 @@ use utoipa::OpenApi;
     description = "File details",
     tag = "File",
     params(
-        ("file_uri" = String, Path, description = "File Pubky Uri")
+        ("file_id" = String, Path, description = "File Pubky Uri")
     ),
     responses(
         (status = 200, description = "File Details", body = FileDetails),

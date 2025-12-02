@@ -158,5 +158,5 @@ pub async fn static_files_handler(
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(static_files_handler))]
+#[openapi(paths(static_files_handler), components(schemas(FileVariant)))]
 pub struct StaticFileApiDoc;
