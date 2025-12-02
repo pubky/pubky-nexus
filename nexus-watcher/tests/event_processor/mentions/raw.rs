@@ -83,7 +83,12 @@ async fn test_homeserver_mentions() -> Result<()> {
         post_relationships.is_some(),
         "Post should have relationships cached"
     );
-    let mentions = post_relationships.unwrap().mentioned;
+    let mentions: Vec<String> = post_relationships
+        .unwrap()
+        .mentioned
+        .iter()
+        .map(|pubky_id| pubky_id.to_string())
+        .collect();
     assert_eq!(mentions.len(), 2, "The post should have two mentions");
     assert!(
         mentions.contains(&mentioned_user_1_id),
