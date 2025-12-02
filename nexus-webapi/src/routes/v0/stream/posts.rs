@@ -95,7 +95,6 @@ where
     ),
     responses(
         (status = 200, description = "Posts stream", body = PostStream),
-        (status = 404, description = "Posts not found"),
         (status = 500, description = "Internal server error")
     ),
     description = r#"Stream Posts: Retrieve a stream of posts.
@@ -130,9 +129,7 @@ pub async fn stream_posts_handler(
     .await
     {
         Ok(Some(stream)) => Ok(Json(stream)),
-        Ok(None) => Err(Error::EmptyStream {
-            message: "No posts found for the given criteria".to_string(),
-        }),
+        Ok(None) => Ok(Json(PostStream::default())),
         Err(source) => Err(Error::InternalServerError { source }),
     }
 }
@@ -157,7 +154,6 @@ pub async fn stream_posts_handler(
     ),
     responses(
         (status = 200, description = "Post key stream", body = PostKeyStream),
-        (status = 404, description = "Posts not found"),
         (status = 500, description = "Internal server error")
     ),
     description = r#"Stream Post Keys: Retrieve a stream of post keys
@@ -190,9 +186,7 @@ pub async fn stream_post_keys_handler(
     .await
     {
         Ok(Some(stream)) => Ok(Json(stream)),
-        Ok(None) => Err(Error::EmptyStream {
-            message: "No posts found for the given criteria".to_string(),
-        }),
+        Ok(None) => Ok(Json(PostKeyStream::default())),
         Err(source) => Err(Error::InternalServerError { source }),
     }
 }
@@ -214,7 +208,6 @@ pub struct PostStreamByIdsRequest {
     ),
     responses(
         (status = 200, description = "Post stream", body = PostStream),
-        (status = 404, description = "Posts not found"),
         (status = 500, description = "Internal server error")
     )
 )]
@@ -243,12 +236,7 @@ pub async fn stream_posts_by_ids_handler(
 
     match PostStream::from_listed_post_ids(request.viewer_id, &request.post_ids).await {
         Ok(Some(stream)) => Ok(Json(stream)),
-        Ok(None) => Err(Error::EmptyStream {
-            message: format!(
-                "No users found for the requested stream with user ids: {:?}",
-                request.post_ids
-            ),
-        }),
+        Ok(None) => Ok(Json(PostStream::default())),
         Err(source) => Err(Error::InternalServerError { source }),
     }
 }

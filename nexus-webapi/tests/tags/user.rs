@@ -202,9 +202,12 @@ async fn test_user_tags_skip_beyond_range() -> Result<()> {
     let res = get_request(&format!("/v0/user/{user_id}/tags")).await?;
     let length = res.as_array().expect("Tag list should be an array").len();
 
-    // Beyond range query, should return 204
+    // Beyond range query, should return 200 with empty list
     let path = format!("/v0/user/{user_id}/tags?skip_tags={length}");
-    invalid_get_request(&path, StatusCode::NO_CONTENT).await?;
+    let body = get_request(&path).await?;
+
+    assert!(body.is_array());
+    assert!(body.as_array().unwrap().is_empty());
 
     Ok(())
 }
@@ -309,7 +312,10 @@ async fn test_user_specific_tag_with_full_filters() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_user_specific_tag_with_no_result() -> Result<()> {
     let path = format!("/v0/user/{PUBKY_PEER}/taggers/{PUBKY_LABEL}?skip=3&limit=1");
-    invalid_get_request(&path, StatusCode::NOT_FOUND).await?;
+    let body = get_request(&path).await?;
+
+    let taggers_info: TaggersInfoResponse = serde_json::from_value(body)?;
+    assert!(taggers_info.users.is_empty());
 
     Ok(())
 }

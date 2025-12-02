@@ -1,9 +1,8 @@
 use super::utils::test_reach_filter_with_posts;
 use crate::stream::post::TAG_LABEL_2;
 use crate::stream::post::{AMSTERDAM, BOGOTA, ROOT_PATH};
-use crate::utils::invalid_get_request;
+use crate::utils::get_request;
 use anyhow::Result;
-use axum::http::StatusCode;
 
 // ›››››› THE BELLOW REQUESTS HITS THE GRAPH ‹‹‹‹‹‹‹
 
@@ -250,7 +249,10 @@ async fn test_stream_posts_by_engagement_reach_friends_with_tag() -> Result<()> 
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_not_found_posts_by_engagement_reach_friends_with_tag() -> Result<()> {
     let path = format!("{ROOT_PATH}?sorting=total_engagement&tags=opensource&source=friends&observer_id={EIXAMPLE}&skip=2");
-    invalid_get_request(&path, StatusCode::NO_CONTENT).await?;
+    let body = get_request(&path).await?;
+
+    assert!(body.is_array());
+    assert!(body.as_array().unwrap().is_empty());
 
     Ok(())
 }

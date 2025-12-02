@@ -357,7 +357,10 @@ async fn test_stream_tag_posts_by_engagement_with_end_skip_and_limit() -> Result
 #[tokio_shared_rt::test(shared)]
 async fn test_post_specific_tag_with_no_result() -> Result<()> {
     let path = format!("{}?tags={}", ROOT_PATH, "randommm");
-    invalid_get_request(&path, StatusCode::NO_CONTENT).await?;
+    let body = get_request(&path).await?;
+
+    assert!(body.is_array());
+    assert!(body.as_array().unwrap().is_empty());
 
     Ok(())
 }
