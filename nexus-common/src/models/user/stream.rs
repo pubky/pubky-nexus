@@ -44,18 +44,15 @@ pub struct UserStreamInput {
 }
 
 #[derive(Serialize, Deserialize, ToSchema, Debug, Default, Clone)]
-pub struct UserIdStream {
-    #[serde(flatten)]
-    pub user_ids: Vec<String>,
-}
+pub struct UserIdStream(pub Vec<String>);
 
 impl UserIdStream {
     pub fn new(user_ids: Vec<String>) -> Self {
-        Self { user_ids }
+        Self(user_ids)
     }
 
     pub fn is_empty(&self) -> bool {
-        self.user_ids.is_empty()
+        self.0.is_empty()
     }
 }
 
