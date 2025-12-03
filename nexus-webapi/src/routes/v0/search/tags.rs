@@ -1,5 +1,4 @@
 use crate::routes::v0::endpoints::SEARCH_TAGS_BY_PREFIX_ROUTE;
-use crate::routes::v0::utils::json_array_or_empty;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
@@ -49,7 +48,7 @@ pub async fn search_tags_by_prefix_handler(
     );
 
     match TagSearch::get_by_label(&validated_prefix, &pagination).await {
-        Ok(Some(tags_list)) => json_array_or_empty(tags_list, "tags"),
+        Ok(Some(tags_list)) => Ok(Json(tags_list)),
         Ok(None) => Ok(Json(vec![])),
         Err(source) => Err(Error::InternalServerError { source }),
     }

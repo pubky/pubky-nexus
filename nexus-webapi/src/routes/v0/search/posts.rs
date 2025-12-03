@@ -1,5 +1,4 @@
 use crate::routes::v0::endpoints::SEARCH_POSTS_BY_TAG_ROUTE;
-use crate::routes::v0::utils::json_array_or_empty;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
@@ -55,7 +54,7 @@ pub async fn search_posts_by_tag_handler(
     pagination.limit = Some(limit);
 
     match PostsByTagSearch::get_by_label(&tag, sorting, pagination).await {
-        Ok(Some(posts_list)) => json_array_or_empty(posts_list, "posts"),
+        Ok(Some(posts_list)) => Ok(Json(posts_list)),
         Ok(None) => Ok(Json(vec![])),
         Err(source) => Err(Error::InternalServerError { source }),
     }

@@ -1,5 +1,4 @@
 use crate::routes::v0::endpoints::{USER_TAGGERS_ROUTE, USER_TAGS_ROUTE};
-use crate::routes::v0::utils::json_array_or_empty;
 use crate::routes::v0::{TaggersInfoResponse, TagsQuery};
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
@@ -51,7 +50,7 @@ pub async fn user_tags_handler(
     )
     .await
     {
-        Ok(Some(tags)) => json_array_or_empty(tags, "tags"),
+        Ok(Some(tags)) => Ok(Json(tags)),
         Ok(None) => Err(Error::UserNotFound { user_id }),
         Err(source) => Err(Error::InternalServerError { source }),
     }
