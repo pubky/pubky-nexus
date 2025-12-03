@@ -22,7 +22,7 @@ fn bench_bootstrap_user(c: &mut Criterion) {
         |b, &id| {
             b.to_async(&rt).iter(|| async {
                 let user = Bootstrap::get_by_id(id, ViewType::Full).await.unwrap();
-                std::hint::black_box(user.unwrap());
+                std::hint::black_box(user);
             });
         },
     );

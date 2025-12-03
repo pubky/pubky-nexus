@@ -55,7 +55,7 @@ impl Bootstrap {
         let mut viewer_id = None;
 
         // Boostrap guard: Early return if the user lookup fails, avoiding unnecessary work
-        if let Some(_) = UserDetails::get_by_id(user_id).await? {
+        if (UserDetails::get_by_id(user_id).await?).is_some() {
             user_ids.insert(user_id.to_string());
             viewer_id = Some(user_id);
             bootstrap.indexed = true;

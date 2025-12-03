@@ -2,9 +2,8 @@
 
 use std::collections::HashSet;
 
-use crate::utils::{get_request, invalid_get_request};
+use crate::utils::get_request;
 use anyhow::Result;
-use axum::http::StatusCode;
 use nexus_common::models::bootstrap::Bootstrap;
 
 #[tokio_shared_rt::test(shared)]
