@@ -45,6 +45,7 @@ pub struct UserStreamInput {
 
 #[derive(Serialize, Deserialize, ToSchema, Debug, Default, Clone)]
 pub struct UserIdStream {
+    #[serde(flatten)]
     pub user_ids: Vec<String>,
 }
 
