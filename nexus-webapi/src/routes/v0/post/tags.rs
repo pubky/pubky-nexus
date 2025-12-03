@@ -69,6 +69,7 @@ pub async fn post_tags_handler(
     ),
     responses(
         (status = 200, description = "Post tags", body = TaggersInfoResponse),
+        (status = 404, description = "Post not found"),
         (status = 500, description = "Internal server error")
     )
 )]
@@ -91,7 +92,7 @@ pub async fn post_taggers_handler(
     .await
     {
         Ok(Some(tags)) => Ok(Json(TaggersInfoResponse::from(tags))),
-        Ok(None) => Ok(Json(TaggersInfoResponse::from((vec![], false)))),
+        Ok(None) => Err(Error::PostNotFound { author_id, post_id }),
         Err(source) => Err(Error::InternalServerError { source }),
     }
 }
