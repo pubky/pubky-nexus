@@ -26,6 +26,7 @@ pub struct Bootstrap {
     pub users: UserStream,
     pub posts: PostStream,
     pub list: BootstrapList,
+    pub indexed: bool,
 }
 
 #[derive(Serialize, ToSchema, Deserialize, Default, Debug)]
@@ -37,8 +38,10 @@ pub struct BootstrapList {
 }
 
 impl Bootstrap {
-    /// Builds an pubky.app bootstrap summary for the specified `user_id`, fetching posts, replies,
-    /// active influencers, and personalized suggestions
+    /// Builds a pubky.app bootstrap summary for the specified `user_id`, fetching posts, replies,
+    /// active influencers, and personalized suggestions.
+    ///
+    /// Returns a populated response even if the user is not found or not indexed.
     ///
     /// # Parameters
     /// - `user_id: &str`  
@@ -46,39 +49,48 @@ impl Bootstrap {
     /// - `view_type: ViewType`  
     ///   Controls whether to fetch replies and include full stream entries (`Full`)
     ///   or only base posts (`Partial`)
-    pub async fn get_by_id(user_id: &str, view_type: ViewType) -> Result<Option<Self>, DynError> {
+    pub async fn get_by_id(user_id: &str, view_type: ViewType) -> Result<Self, DynError> {
         let mut bootstrap = Self::default();
         let mut user_ids = HashSet::new();
+        let mut viewer_id = None;
 
         // Boostrap guard: Early return if the user lookup fails, avoiding unnecessary work
-        let Some(_) = UserDetails::get_by_id(user_id).await? else {
-            return Ok(None);
-        };
-        user_ids.insert(user_id.to_string());
+        if let Some(_) = UserDetails::get_by_id(user_id).await? {
+            user_ids.insert(user_id.to_string());
+            viewer_id = Some(user_id);
+            bootstrap.indexed = true;
+        }
 
         let is_full_view_type = view_type == ViewType::Full;
 
         let post_stream_by_timeline =
-            get_post_stream_timeline(user_id, StreamSource::All, 20).await?;
+            get_post_stream_timeline(viewer_id, StreamSource::All, 20).await?;
 
         let post_replies =
             bootstrap.handle_post_stream(post_stream_by_timeline, &mut user_ids, view_type);
 
+        // Populate the user list
         bootstrap.add_influencers(&mut user_ids).await?;
-        bootstrap
-            .add_recommended_users(&mut user_ids, user_id)
-            .await?;
+
+        // User is not indexed, so cannot recommend users until it is indexed
+        if viewer_id.is_some() {
+            bootstrap
+                .add_recommended_users(&mut user_ids, user_id)
+                .await?;
+        }
+
         bootstrap.add_global_hot_tags(&mut user_ids).await?;
 
+        // Start fetching the replies of the posts
         if is_full_view_type {
             bootstrap
-                .fetch_and_handle_replies(post_replies, &mut user_ids, user_id)
+                .fetch_and_handle_replies(post_replies, &mut user_ids, viewer_id)
                 .await?;
         }
 
         // Merge all the users related with posts, post replies, influencers and recommended
         bootstrap
-            .fetch_and_merge_users(&user_ids, Some(user_id))
+            .fetch_and_merge_users(&user_ids, viewer_id)
             .await?;
 
         // UserViews has also taggers, fetch the missing users UserViews
@@ -86,11 +98,11 @@ impl Bootstrap {
             let missing_taggers = bootstrap.collect_missing_taggers(&user_ids);
             if !missing_taggers.is_empty() {
                 bootstrap
-                    .fetch_and_merge_users(&missing_taggers, Some(user_id))
+                    .fetch_and_merge_users(&missing_taggers, viewer_id)
                     .await?;
             }
         }
-        Ok(Some(bootstrap))
+        Ok(bootstrap)
     }
 
     /// Processes a stream of posts, collecting reply references, adding post taggers and populating the post stream
@@ -206,7 +218,7 @@ impl Bootstrap {
         &mut self,
         post_replies: Vec<(String, String)>,
         user_ids: &mut HashSet<String>,
-        viewer_id: &str,
+        viewer_id: Option<&str>,
     ) -> Result<(), DynError> {
         // TODO: Might consider in the future to do in all the requests in parallel
         // tokio::task::JoinSet or tokio::spawn(async move {...
@@ -249,9 +261,9 @@ impl Bootstrap {
     async fn add_recommended_users(
         &mut self,
         user_ids: &mut HashSet<String>,
-        viewer_id: &str,
+        user_id: &str,
     ) -> Result<(), DynError> {
-        if let Some(recommended_users) = UserStream::get_recommended_ids(viewer_id, None).await? {
+        if let Some(recommended_users) = UserStream::get_recommended_ids(user_id, None).await? {
             recommended_users.into_iter().for_each(|id| {
                 self.list.recommended.push(id.clone());
                 user_ids.insert(id);
@@ -284,7 +296,7 @@ impl Bootstrap {
 }
 
 async fn get_post_stream_timeline(
-    viewer_id: &str,
+    viewer_id: Option<&str>,
     source: StreamSource,
     limit: usize,
 ) -> Result<PostStream, DynError> {
@@ -299,7 +311,7 @@ async fn get_post_stream_timeline(
         pagination,
         SortOrder::default(),
         StreamSorting::Timeline,
-        Some(viewer_id.to_string()),
+        viewer_id.map(|id| id.to_string()),
         None,
         None,
     )

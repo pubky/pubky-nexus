@@ -14,6 +14,9 @@ async fn test_bootstrap_user() -> Result<()> {
     let body = get_request(&format!("/v0/bootstrap/{user_id}")).await?;
     let user_bootstrap_respose: Bootstrap = serde_json::from_value(body).unwrap();
 
+    // Assert the user is indexed
+    assert!(user_bootstrap_respose.indexed, "User should be indexed");
+
     // Assert the lists
     assert_eq!(user_bootstrap_respose.list.stream.len(), 20);
     assert_eq!(user_bootstrap_respose.list.influencers.len(), 3);
@@ -48,11 +51,28 @@ async fn test_bootstrap_user() -> Result<()> {
 }
 
 #[tokio_shared_rt::test(shared)]
-async fn test_bootstrap_user_does_not_exist() -> Result<()> {
-    let endpoint = format!(
-        "/v0/bootstrap/{}",
-        "zdbg13k5gh4tfz9qz11quohrxetgqxs7awandu8h57147xddcuhi"
+async fn test_bootstrap_user_not_indexed() -> Result<()> {
+    // Use a random pubky ID that doesn't exist in the system
+    let user_id = "zdbg13k5gh4tfz9qz11quohrxetgqxs7awandu8h57147xddcuhi";
+
+    let body = get_request(&format!("/v0/bootstrap/{user_id}")).await?;
+    let user_bootstrap_response: Bootstrap = serde_json::from_value(body).unwrap();
+
+    // Assert the user is not indexed
+    assert!(
+        !user_bootstrap_response.indexed,
+        "User should not be indexed"
     );
-    invalid_get_request(&endpoint, StatusCode::NOT_FOUND).await?;
+
+    // Even though user is not indexed, we should still get some data
+    // (influencers, hot_tags, etc.) but no recommended users
+    assert_eq!(
+        user_bootstrap_response.list.recommended.len(),
+        0,
+        "Non-indexed users should not have recommended users"
+    );
+    // Influencers and hot_tags should still be populated (global data)
+    assert!(user_bootstrap_response.list.influencers.len() <= 3);
+    assert!(user_bootstrap_response.list.hot_tags.len() <= 40);
     Ok(())
 }

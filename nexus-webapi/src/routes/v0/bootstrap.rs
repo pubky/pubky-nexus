@@ -16,14 +16,13 @@ use utoipa::OpenApi;
 #[utoipa::path(
     get,
     path = BOOTSTRAP_ROUTE,
-    description = "Initial payload for all data required to bootstrap the pubky.app application. The client app will request it while the user is performing sign-in in order to pre-populate the client DB",
+    description = "Initial payload for all data required to bootstrap the pubky.app application. The client app will request it while the user is performing sign-in/sign-up in order to pre-populate the client DB",
     tag = "Bootstrap",
     params(
         ("user_id" = String, Path, description = "User Pubky ID")
     ),
     responses(
         (status = 200, description = "Initial payload to bootstrap the client", body = Bootstrap),
-        (status = 404, description = "user_id requested for bootstrap payload not found"),
         (status = 500, description = "Internal server error")
     )
 )]
@@ -35,8 +34,7 @@ pub async fn bootstrap_handler(
     debug!("GET {BOOTSTRAP_ROUTE}, user_id:{}", user_id);
 
     match Bootstrap::get_by_id(&user_id, ViewType::Full).await {
-        Ok(Some(result)) => Ok(Json(result)),
-        Ok(None) => Err(Error::UserNotFound { user_id }),
+        Ok(result) => Ok(Json(result)),
         Err(source) => Err(Error::InternalServerError { source }),
     }
 }
