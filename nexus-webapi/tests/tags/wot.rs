@@ -1,6 +1,6 @@
 use super::utils::{analyse_tag_details_structure, compare_tag_details, TagMockup};
-use crate::utils::server::TestServiceServer;
 use crate::utils::get_request;
+use crate::utils::server::TestServiceServer;
 use anyhow::Result;
 use deadpool_redis::redis::AsyncCommands;
 use nexus_common::db::get_redis_conn;
