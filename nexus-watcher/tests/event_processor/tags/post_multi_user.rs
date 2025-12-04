@@ -224,18 +224,18 @@ async fn test_homeserver_multi_user_posts_tags() -> Result<()> {
 
     // Post:Taggers:author_id:post_id:label
     let water_label_key = vec![author_id.as_str(), post_id.as_str(), label_water];
-    let water_tag_collection =
+    let (water_taggers_result, _) =
         <TagPost as TaggersCollection>::get_from_index(water_label_key, None, None, None, None)
             .await
             .unwrap();
-    assert!(water_tag_collection.is_none());
+    assert!(water_taggers_result.is_empty());
 
     let fire_label_key = vec![author_id.as_str(), post_id.as_str(), label_fire];
-    let fire_tag_collection =
+    let (fire_taggers_result, _) =
         <TagPost as TaggersCollection>::get_from_index(fire_label_key, None, None, None, None)
             .await
             .unwrap();
-    assert!(fire_tag_collection.is_none());
+    assert!(fire_taggers_result.is_empty());
 
     // Check if post counts updated: Post:Counts:user_id:post_id
     let post_counts = find_post_counts(author_id, &post_id).await;
