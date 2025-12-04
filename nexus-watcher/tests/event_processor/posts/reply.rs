@@ -138,7 +138,7 @@ async fn test_homeserver_post_reply() -> Result<()> {
         "Reply should have parent post URI"
     );
     assert_eq!(
-        relationships.replied.unwrap(),
+        relationships.replied.unwrap().try_to_uri_str().unwrap(),
         parent_absolute_uri,
         "The parent URIs does not match"
     );
