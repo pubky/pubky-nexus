@@ -52,19 +52,19 @@ impl Bootstrap {
     pub async fn get_by_id(user_id: &str, view_type: ViewType) -> Result<Self, DynError> {
         let mut bootstrap = Self::default();
         let mut user_ids = HashSet::new();
-        let mut viewer_id = None;
+        let mut maybe_viewer_id = None;
 
         // Boostrap guard: Early return if the user lookup fails, avoiding unnecessary work
         if (UserDetails::get_by_id(user_id).await?).is_some() {
             user_ids.insert(user_id.to_string());
-            viewer_id = Some(user_id);
+            maybe_viewer_id = Some(user_id);
             bootstrap.indexed = true;
         }
 
         let is_full_view_type = view_type == ViewType::Full;
 
         let post_stream_by_timeline =
-            get_post_stream_timeline(viewer_id, StreamSource::All, 20).await?;
+            Self::get_post_stream_timeline(maybe_viewer_id, StreamSource::All, 20).await?;
 
         let post_replies =
             bootstrap.handle_post_stream(post_stream_by_timeline, &mut user_ids, view_type);
@@ -73,7 +73,7 @@ impl Bootstrap {
         bootstrap.add_influencers(&mut user_ids).await?;
 
         // User is not indexed, so cannot recommend users until it is indexed
-        if viewer_id.is_some() {
+        if maybe_viewer_id.is_some() {
             bootstrap
                 .add_recommended_users(&mut user_ids, user_id)
                 .await?;
@@ -84,13 +84,13 @@ impl Bootstrap {
         // Start fetching the replies of the posts
         if is_full_view_type {
             bootstrap
-                .fetch_and_handle_replies(post_replies, &mut user_ids, viewer_id)
+                .get_and_handle_replies(post_replies, &mut user_ids, maybe_viewer_id)
                 .await?;
         }
 
         // Merge all the users related with posts, post replies, influencers and recommended
         bootstrap
-            .fetch_and_merge_users(&user_ids, viewer_id)
+            .get_and_merge_users(&user_ids, maybe_viewer_id)
             .await?;
 
         // UserViews has also taggers, fetch the missing users UserViews
@@ -98,7 +98,7 @@ impl Bootstrap {
             let missing_taggers = bootstrap.collect_missing_taggers(&user_ids);
             if !missing_taggers.is_empty() {
                 bootstrap
-                    .fetch_and_merge_users(&missing_taggers, viewer_id)
+                    .get_and_merge_users(&missing_taggers, maybe_viewer_id)
                     .await?;
             }
         }
@@ -185,10 +185,10 @@ impl Bootstrap {
     ///   A set of unique user IDs to fetch views for
     /// - `viewer_id: Option<&str>`  
     ///   Optional context user ID for personalized view generation
-    async fn fetch_and_merge_users(
+    async fn get_and_merge_users(
         &mut self,
         user_ids: &HashSet<String>,
-        viewer_id: Option<&str>,
+        maybe_viewer_id: Option<&str>,
     ) -> Result<(), DynError> {
         if user_ids.is_empty() {
             return Ok(());
@@ -197,7 +197,7 @@ impl Bootstrap {
         // TODO: If the user list is too big, we could do in batches
         // for batch in user_ids.chunks(BATCH_SIZE) { ...
         if let Some(user_stream) =
-            UserStream::from_listed_user_ids(&user_ids_vec, viewer_id, None).await?
+            UserStream::from_listed_user_ids(&user_ids_vec, maybe_viewer_id, None).await?
         {
             self.users.extend(user_stream);
         }
@@ -212,19 +212,19 @@ impl Bootstrap {
     ///   A list of `(author_id, post_id)` tuples indicating which post replies to fetch
     /// - `user_ids: &mut HashSet<String>`  
     ///   A mutable reference to a set where each reply’s author ID (and any taggers) will be appended
-    /// - `viewer_id: &str`  
+    /// - `maybe_viewer_id: Option<&str>`  
     ///   The ID of the current viewer
-    async fn fetch_and_handle_replies(
+    async fn get_and_handle_replies(
         &mut self,
         post_replies: Vec<(String, String)>,
         user_ids: &mut HashSet<String>,
-        viewer_id: Option<&str>,
+        maybe_viewer_id: Option<&str>,
     ) -> Result<(), DynError> {
         // TODO: Might consider in the future to do in all the requests in parallel
         // tokio::task::JoinSet or tokio::spawn(async move {...
         for (author_id, post_id) in post_replies {
-            let reply_stream = get_post_stream_timeline(
-                viewer_id,
+            let reply_stream = Self::get_post_stream_timeline(
+                maybe_viewer_id,
                 StreamSource::PostReplies { author_id, post_id },
                 3,
             )
@@ -232,6 +232,39 @@ impl Bootstrap {
             self.handle_post_stream(reply_stream, user_ids, ViewType::Partial);
         }
         Ok(())
+    }
+
+    /// Fetches a post stream timeline for the given `source` and `limit`
+    ///
+    /// # Parameters
+    /// - `maybe_viewer_id: Option<&str>`  
+    ///   Optional context user ID for personalized view generation
+    /// - `source: StreamSource`  
+    ///   The source of the post stream
+    /// - `limit: usize`  
+    ///   The limit of the post stream
+    async fn get_post_stream_timeline(
+        maybe_viewer_id: Option<&str>,
+        source: StreamSource,
+        limit: usize,
+    ) -> Result<PostStream, DynError> {
+        let pagination = Pagination {
+            skip: Some(0),
+            limit: Some(limit),
+            start: None,
+            end: None,
+        };
+        Ok(PostStream::get_posts(
+            source,
+            pagination,
+            SortOrder::default(),
+            StreamSorting::Timeline,
+            maybe_viewer_id.map(|id| id.to_string()),
+            None,
+            None,
+        )
+        .await?
+        .unwrap_or_default())
     }
 
     /// Fetches today’s active influencers and appends their IDs to both the internal `influencers` list
@@ -252,12 +285,12 @@ impl Bootstrap {
         Ok(())
     }
 
-    /// Fetches recommended user IDs for the given `viewer_id` and appends them to both
+    /// Fetches recommended user IDs for the given `user_id` and appends them to both
     /// the internal `active_users` list and the provided `user_ids` set
     ///
     /// # Parameters
     /// - `user_ids: &mut HashSet<String>` A mutable reference to a set of user IDs
-    /// - `viewer_id: &str` The ID of the user for whom recommended are being generated
+    /// - `user_id: &str` The ID of the user for whom recommended are being generated
     async fn add_recommended_users(
         &mut self,
         user_ids: &mut HashSet<String>,
@@ -293,28 +326,4 @@ impl Bootstrap {
         }
         Ok(())
     }
-}
-
-async fn get_post_stream_timeline(
-    viewer_id: Option<&str>,
-    source: StreamSource,
-    limit: usize,
-) -> Result<PostStream, DynError> {
-    let pagination = Pagination {
-        skip: Some(0),
-        limit: Some(limit),
-        start: None,
-        end: None,
-    };
-    Ok(PostStream::get_posts(
-        source,
-        pagination,
-        SortOrder::default(),
-        StreamSorting::Timeline,
-        viewer_id.map(|id| id.to_string()),
-        None,
-        None,
-    )
-    .await?
-    .unwrap_or_default())
 }
