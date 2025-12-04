@@ -90,8 +90,7 @@ pub async fn post_taggers_handler(
     )
     .await
     {
-        Ok(Some(tags)) => Ok(Json(TaggersInfoResponse::from(tags))),
-        Ok(None) => Ok(Json(TaggersInfoResponse::from((vec![], false)))),
+        Ok(tags) => Ok(Json(TaggersInfoResponse::from(tags))),
         Err(source) => Err(Error::InternalServerError { source }),
     }
 }
