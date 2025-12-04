@@ -81,8 +81,10 @@ async fn put_sync_post(
         OperationOutcome::MissingDependency => {
             // Ensure that dependencies follow the same format as the RetryManager keys
             let dependency = vec![format!("{author_id}:posts:{post_id}")];
-            if let Err(e) = Homeserver::maybe_ingest_for_post(post_uri).await {
-                tracing::error!("Failed to ingest homeserver: {e}");
+            if let Ok(referenced_post_uri) = ParsedUri::try_from(post_uri) {
+                if let Err(e) = Homeserver::maybe_ingest_for_post(&referenced_post_uri).await {
+                    tracing::error!("Failed to ingest homeserver: {e}");
+                }
             }
             Err(EventProcessorError::MissingDependency { dependency }.into())
         }

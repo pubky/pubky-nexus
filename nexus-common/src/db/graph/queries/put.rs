@@ -85,7 +85,10 @@ pub fn create_post(
     // Handle "replied" relationship
     cypher_query = add_relationship_params(
         cypher_query,
-        &post_relationships.replied,
+        &post_relationships
+            .replied
+            .clone()
+            .and_then(|uri| uri.try_to_uri_str().ok()),
         "reply_parent_author_id",
         "reply_parent_post_id",
     )?;
@@ -93,7 +96,10 @@ pub fn create_post(
     // Handle "reposted" relationship
     cypher_query = add_relationship_params(
         cypher_query,
-        &post_relationships.reposted,
+        &post_relationships
+            .reposted
+            .clone()
+            .and_then(|uri| uri.try_to_uri_str().ok()),
         "repost_parent_author_id",
         "repost_parent_post_id",
     )?;

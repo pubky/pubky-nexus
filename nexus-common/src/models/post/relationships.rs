@@ -1,15 +1,19 @@
 use crate::db::{fetch_row_from_graph, queries, RedisOps};
 use crate::types::DynError;
-use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyId};
+use pubky_app_specs::{post_uri_builder, ParsedUri, PubkyAppPost, PubkyAppPostKind, PubkyId};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 #[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
 pub struct PostRelationships {
     /// If set, URI of the post this is a reply to
-    pub replied: Option<String>,
+    #[schema(value_type = Option<String>)]
+    pub replied: Option<ParsedUri>,
+
     /// If set, URI of the post this post is reposting
-    pub reposted: Option<String>,
+    #[schema(value_type = Option<String>)]
+    pub reposted: Option<ParsedUri>,
+
     /// List of user IDs mentioned in this post
     pub mentioned: Vec<PubkyId>,
 }
@@ -65,14 +69,15 @@ impl PostRelationships {
         let reposted_author_id: Option<String> = row.get("reposted_author_id").unwrap_or(None);
         let mentioned: Vec<PubkyId> = row.get("mentioned_user_ids").unwrap_or(Vec::new());
 
-        let replied = match (replied_author_id, replied_post_id) {
-            (Some(author_id), Some(post_id)) => Some(post_uri_builder(author_id, post_id)),
-            _ => None,
-        };
-        let reposted = match (reposted_author_id, reposted_post_id) {
-            (Some(author_id), Some(post_id)) => Some(post_uri_builder(author_id, post_id)),
-            _ => None,
-        };
+        let replied = replied_author_id
+            .zip(replied_post_id)
+            .map(|(author_id, post_id)| post_uri_builder(author_id, post_id))
+            .and_then(|uri| ParsedUri::try_from(uri).ok());
+        let reposted = reposted_author_id
+            .zip(reposted_post_id)
+            .map(|(author_id, post_id)| post_uri_builder(author_id, post_id))
+            .and_then(|uri| ParsedUri::try_from(uri).ok());
+
         Ok(Some(Self {
             replied,
             reposted,
@@ -85,12 +90,12 @@ impl PostRelationships {
         let mut relationship = Self::default();
 
         if let Some(parent_uri) = &post.parent {
-            relationship.replied = Some(parent_uri.to_string());
+            relationship.replied = ParsedUri::try_from(parent_uri.as_str()).ok()
         }
 
         if let Some(embed) = &post.embed {
             if let PubkyAppPostKind::Short = embed.kind {
-                relationship.reposted = Some(embed.uri.clone());
+                relationship.reposted = ParsedUri::try_from(embed.uri.as_str()).ok()
             }
         }
         relationship
