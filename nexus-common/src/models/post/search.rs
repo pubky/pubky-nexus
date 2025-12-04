@@ -144,8 +144,7 @@ impl PostsByTagSearch {
         tag_label: &str,
     ) -> Result<(), DynError> {
         let post_label_key = vec![author_id, post_id, tag_label];
-        let (taggers, _) =
-            TagPost::get_from_index(post_label_key, None, None, None, None).await?;
+        let (taggers, _) = TagPost::get_from_index(post_label_key, None, None, None, None).await?;
         // Make sure that post does not have more taggers with that tag. Post:Taggers:user_id:post_id:label
         if taggers.is_empty() {
             let key_parts = [&TAG_GLOBAL_POST_TIMELINE[..], &[tag_label]].concat();
