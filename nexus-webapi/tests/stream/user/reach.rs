@@ -1,6 +1,5 @@
-use crate::utils::{get_request, invalid_get_request};
+use crate::utils::get_request;
 use anyhow::Result;
-use axum::http::StatusCode;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_following() -> Result<()> {
@@ -45,15 +44,15 @@ async fn test_stream_following() -> Result<()> {
         );
     }
 
-    // Test non-existing user
-    invalid_get_request(
-        &format!(
-            "/v0/stream/users?user_id={}&source=following",
-            "bad_user_id"
-        ),
-        StatusCode::NO_CONTENT,
-    )
+    // Test non-existing user - should return empty stream
+    let body = get_request(&format!(
+        "/v0/stream/users?user_id={}&source=following",
+        "bad_user_id"
+    ))
     .await?;
+
+    assert!(body.is_array());
+    assert!(body.as_array().unwrap().is_empty());
 
     Ok(())
 }

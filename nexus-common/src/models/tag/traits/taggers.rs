@@ -28,11 +28,9 @@ where
     /// * `depth` - An optional depth parameter, used to determine the distance in WoT relationships.
     ///
     /// # Returns
-    /// A result containing an `Option<(Taggers, bool)>`:
-    /// - `Some((taggers, is_member))` where:
-    ///   - `taggers` is the retrieved list of taggers.
-    ///   - `is_member` is `true` if `viewer_id` is in the taggers list, otherwise `false`.
-    /// - `None` if no taggers are available.
+    /// A result containing `(Taggers, bool)`:
+    /// - `taggers` is the retrieved list of taggers (empty if no taggers are available).
+    /// - `is_member` is `true` if `viewer_id` is in the taggers list, otherwise `false`.
     /// - An error if the retrieval process fails.
     async fn get_tagger_by_id(
         user_id: &str,
@@ -41,7 +39,7 @@ where
         pagination: Pagination,
         viewer_id: Option<&str>,
         depth: Option<u8>,
-    ) -> Result<Option<TaggersTuple>, DynError> {
+    ) -> Result<TaggersTuple, DynError> {
         // Set default params for pagination
         let skip = pagination.skip.unwrap_or(0);
         let limit = pagination.limit.unwrap_or(40);
@@ -66,16 +64,14 @@ where
         skip: Option<usize>,
         limit: Option<usize>,
         prefix: Option<String>,
-    ) -> Result<Option<TaggersTuple>, DynError> {
+    ) -> Result<TaggersTuple, DynError> {
         let taggers = Self::try_from_index_set(&key_parts, skip, limit, prefix).await?;
-        if let Some(users) = taggers {
-            let is_member = match viewer_id {
-                Some(member) => Self::check_set_member(&key_parts, member).await?.1,
-                None => false,
-            };
-            return Ok(Some((users, is_member)));
-        }
-        Ok(None)
+        let is_member = match viewer_id {
+            Some(member) => Self::check_set_member(&key_parts, member).await?.1,
+            None => false,
+        };
+        let users = taggers.unwrap_or_default();
+        Ok((users, is_member))
     }
 
     /// Constructs an index key based on user key, an optional extra parameter and a tag label.

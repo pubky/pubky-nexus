@@ -28,7 +28,6 @@ pub struct SearchQuery {
     responses(
         (status = 200, description = "Search results", body = UserSearch),
         (status = 400, description = "Invalid input"),
-        (status = 404, description = "No users found"),
         (status = 500, description = "Internal server error")
     )
 )]
@@ -48,9 +47,7 @@ pub async fn search_users_by_name_handler(
 
     match UserSearch::get_by_name(&username, Some(skip), Some(limit)).await {
         Ok(Some(user_search)) => Ok(Json(user_search)),
-        Ok(None) => Err(Error::UserNotFound {
-            user_id: username.clone(),
-        }),
+        Ok(None) => Ok(Json(UserSearch::default())),
         Err(source) => Err(Error::InternalServerError { source }),
     }
 }
@@ -68,7 +65,6 @@ pub async fn search_users_by_name_handler(
     responses(
         (status = 200, description = "Search results", body = UserSearch),
         (status = 400, description = "Invalid input"),
-        (status = 404, description = "No users found"),
         (status = 500, description = "Internal server error")
     )
 )]
@@ -90,9 +86,7 @@ pub async fn search_users_by_id_handler(
 
     match UserSearch::get_by_id(&id_prefix, Some(skip), Some(limit)).await {
         Ok(Some(user_search)) => Ok(Json(user_search)),
-        Ok(None) => Err(Error::UserNotFound {
-            user_id: id_prefix.clone(),
-        }),
+        Ok(None) => Ok(Json(UserSearch::default())),
         Err(source) => Err(Error::InternalServerError { source }),
     }
 }

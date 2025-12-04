@@ -114,19 +114,11 @@ async fn test_search_non_existing_user() -> Result<()> {
     let non_existing_username = "idfjwfs8u9jfkoi"; // Username that doesn't exist
     let url_path = format_search_users_by_name_prefix(non_existing_username);
 
-    let res = invalid_get_request(&url_path, StatusCode::NOT_FOUND).await?;
+    let body = get_request(&url_path).await?;
 
-    // Assert that the status code is 404 Not Found
-    assert!(res["error"].is_string(), "Error message should be a string");
-
-    // Optional: Check that the error message contains the correct details
-    assert!(
-        res["error"]
-            .as_str()
-            .unwrap_or("")
-            .contains(non_existing_username),
-        "Error message should mention the non-existing username"
-    );
+    // Assert that it returns empty array
+    assert!(body.is_array());
+    assert!(body.as_array().unwrap().is_empty());
 
     Ok(())
 }
@@ -136,19 +128,11 @@ async fn test_search_non_existing_id() -> Result<()> {
     let non_existing_id = "abcdef"; // User ID that doesn't exist
     let url_path = format_search_users_by_id_prefix(non_existing_id);
 
-    let res = invalid_get_request(&url_path, StatusCode::NOT_FOUND).await?;
+    let body = get_request(&url_path).await?;
 
-    // Assert that the status code is 404 Not Found
-    assert!(res["error"].is_string(), "Error message should be a string");
-
-    // Optional: Check that the error message contains the correct details
-    assert!(
-        res["error"]
-            .as_str()
-            .unwrap_or("")
-            .contains(non_existing_id),
-        "Error message should mention the non-existing username"
-    );
+    // Assert that it returns empty array
+    assert!(body.is_array());
+    assert!(body.as_array().unwrap().is_empty());
 
     Ok(())
 }

@@ -1,8 +1,7 @@
 use super::utils::{analyse_tag_details_structure, compare_tag_details, TagMockup};
+use crate::utils::get_request;
 use crate::utils::server::TestServiceServer;
-use crate::utils::{get_request, invalid_get_request};
 use anyhow::Result;
-use axum::http::StatusCode;
 use deadpool_redis::redis::AsyncCommands;
 use nexus_common::db::get_redis_conn;
 use nexus_common::models::tag::TagDetails;
@@ -33,7 +32,10 @@ async fn test_wot_user_tags_endpoints() -> Result<(), DynError> {
     let path =
         format!("/v0/user/{AURELIO_USER}/taggers/{ATHENS_TAG}?viewer_id={EPICTTO_VIEWER}&depth=2");
     // If we get error here, delete the Cache:... indexes
-    invalid_get_request(&path, StatusCode::NOT_FOUND).await?;
+    // Before indexing, the taggers endpoint should return empty list
+    let body = get_request(&path).await?;
+    let taggers_info: TaggersInfoResponse = serde_json::from_value(body)?;
+    assert!(taggers_info.users.is_empty());
 
     // => Start indexing the WoT tags
     let path = format!("/v0/user/{AURELIO_USER}/tags?viewer_id={EPICTTO_VIEWER}&depth=2");

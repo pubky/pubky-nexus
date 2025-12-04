@@ -1,10 +1,9 @@
 use super::utils::test_reach_filter_with_posts;
 use crate::{
     stream::post::{AMSTERDAM, BOGOTA, ROOT_PATH, TAG_LABEL_2, USER_ID},
-    utils::{get_request, invalid_get_request},
+    utils::get_request,
 };
 use anyhow::Result;
-use axum::http::StatusCode;
 
 // User from posts.cypher mock
 const EIXAMPLE: &str = "8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy";
@@ -488,7 +487,10 @@ async fn test_stream_not_found_posts_by_timeline_reach_friends_with_tag() -> Res
     let path = format!(
         "{ROOT_PATH}?sorting=timeline&tags=opensource&source=friends&observer_id={EIXAMPLE}&skip=2"
     );
-    invalid_get_request(&path, StatusCode::NO_CONTENT).await?;
+    let body = get_request(&path).await?;
+
+    assert!(body.is_array());
+    assert!(body.as_array().unwrap().is_empty());
 
     Ok(())
 }

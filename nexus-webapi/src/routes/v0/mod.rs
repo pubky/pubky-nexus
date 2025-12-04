@@ -13,7 +13,6 @@ pub mod stream;
 pub mod tag;
 mod types;
 pub mod user;
-pub mod utils;
 
 pub use types::{TaggersInfoResponse, TagsQuery};
 

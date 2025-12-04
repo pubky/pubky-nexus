@@ -1,6 +1,5 @@
-use crate::utils::{get_request, invalid_get_request};
+use crate::utils::get_request;
 use anyhow::Result;
-use axum::http::StatusCode;
 use nexus_webapi::routes::v0::endpoints::SEARCH_TAGS_BY_PREFIX_ROUTE;
 
 pub fn format_search_tags_by_prefix(prefix: &str) -> String {
@@ -66,10 +65,10 @@ async fn test_search_tags_with_emojis_by_prefix() -> Result<()> {
 async fn test_search_non_existing_prefix() -> Result<()> {
     let non_existing_tag_prefix = "sdfsdf43fsddwt4g";
     let url_path = format_search_tags_by_prefix(non_existing_tag_prefix);
-    let res = invalid_get_request(&url_path, StatusCode::NOT_FOUND).await?;
+    let body = get_request(&url_path).await?;
 
-    assert!(res["error"].is_string(), "Error message should be a string");
-    assert!(matches!(res["error"].as_str(), Some("Tags not found")));
+    assert!(body.is_array());
+    assert!(body.as_array().unwrap().is_empty());
 
     Ok(())
 }

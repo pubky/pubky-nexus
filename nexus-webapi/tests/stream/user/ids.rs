@@ -15,8 +15,8 @@ async fn assert_user_ids_align(query_params: &str, assertion_msg: &str) -> Resul
     };
     let ids_body = get_request(&ids_path).await?;
     assert!(
-        ids_body.is_object(),
-        "User id stream response must be an object"
+        ids_body.is_array(),
+        "User id stream response must be an array"
     );
 
     let users_path = if query_params.is_empty() {
@@ -30,9 +30,9 @@ async fn assert_user_ids_align(query_params: &str, assertion_msg: &str) -> Resul
         "User stream response must be an array"
     );
 
-    let id_entries = ids_body["user_ids"]
+    let id_entries = ids_body
         .as_array()
-        .expect("User id stream should expose a user_ids array");
+        .expect("User id stream should be an array of IDs");
     let users = users_body
         .as_array()
         .expect("User stream should provide an array of user objects");

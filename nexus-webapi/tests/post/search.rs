@@ -1,12 +1,8 @@
 use anyhow::Result;
-use axum::http::StatusCode;
 use nexus_webapi::routes::v0::endpoints::SEARCH_POSTS_BY_TAG_ROUTE;
 use serde_json::Value;
 
-use crate::{
-    stream::post::TAG_LABEL_2,
-    utils::{get_request, invalid_get_request},
-};
+use crate::{stream::post::TAG_LABEL_2, utils::get_request};
 
 const POST_A: &str = "2VDW8YBDZJ02";
 const POST_B: &str = "1TDV7XBCF4M1";
@@ -99,7 +95,10 @@ async fn test_post_search_with_limit_and_skip() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_post_specific_tag_with_no_result() -> Result<()> {
     let path = format_search_posts_by_tag("randommm");
-    invalid_get_request(&path, StatusCode::NOT_FOUND).await?;
+    let body = get_request(&path).await?;
+
+    assert!(body.is_array());
+    assert!(body.as_array().unwrap().is_empty());
 
     Ok(())
 }
@@ -130,7 +129,10 @@ async fn test_post_search_skip_beyond_range() -> Result<()> {
         format_search_posts_by_tag(TAG_LABEL_2),
         length
     );
-    invalid_get_request(&path_w_skip, StatusCode::NO_CONTENT).await?;
+    let body = get_request(&path_w_skip).await?;
+
+    assert!(body.is_array());
+    assert!(body.as_array().unwrap().is_empty());
 
     Ok(())
 }

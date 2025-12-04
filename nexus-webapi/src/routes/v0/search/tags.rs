@@ -1,5 +1,4 @@
 use crate::routes::v0::endpoints::SEARCH_TAGS_BY_PREFIX_ROUTE;
-use crate::routes::v0::utils::json_array_or_no_content;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
@@ -30,7 +29,6 @@ pub struct SearchTagsQuery {
     ),
     responses(
         (status = 200, description = "Search results", body = Vec<String>),
-        (status = 404, description = "No tags with that prefix found"),
         (status = 500, description = "Internal server error")
     )
 )]
@@ -50,10 +48,8 @@ pub async fn search_tags_by_prefix_handler(
     );
 
     match TagSearch::get_by_label(&validated_prefix, &pagination).await {
-        Ok(Some(tags_list)) => json_array_or_no_content(tags_list, "tags"),
-        Ok(None) => Err(Error::TagsNotFound {
-            reach: String::from("N/A"),
-        }),
+        Ok(Some(tags_list)) => Ok(Json(tags_list)),
+        Ok(None) => Ok(Json(vec![])),
         Err(source) => Err(Error::InternalServerError { source }),
     }
 }

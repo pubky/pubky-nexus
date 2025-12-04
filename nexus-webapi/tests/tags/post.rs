@@ -277,7 +277,10 @@ async fn test_post_specific_tag_with_full_filters() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_post_specific_tag_with_no_result() -> Result<()> {
     let path = format!("/v0/post/{PEER_PUBKY}/{POST_ID}/taggers/{FREE_LABEL}?skip=3&limit=1");
-    invalid_get_request(&path, StatusCode::NOT_FOUND).await?;
+    let body = get_request(&path).await?;
+
+    let taggers_info: TaggersInfoResponse = serde_json::from_value(body)?;
+    assert!(taggers_info.users.is_empty());
 
     Ok(())
 }

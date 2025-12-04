@@ -45,7 +45,6 @@ pub struct UserStreamQuery {
     ),
     responses(
         (status = 200, description = "Users stream", body = UserStream),
-        (status = 404, description = "Users not found"),
         (status = 500, description = "Internal server error")
     ),
     description = r#"Stream Users: Retrieve a stream of users.
@@ -67,17 +66,10 @@ pub async fn stream_users_handler(
     );
 
     let (input, viewer_id, depth) = build_user_stream_input(query)?;
-    let source = input.source.clone();
-    let requested_user = input.user_id.clone();
 
     match UserStream::get_by_id(input, viewer_id, depth).await {
         Ok(Some(stream)) => Ok(Json(stream)),
-        Ok(None) => Err(Error::EmptyStream {
-            message: format!(
-                "No users found for the requested stream: {:?} {:?}",
-                source, requested_user
-            ),
-        }),
+        Ok(None) => Ok(Json(UserStream::default())),
         Err(source) => Err(Error::InternalServerError { source }),
     }
 }
@@ -101,7 +93,6 @@ pub async fn stream_users_handler(
     ),
     responses(
         (status = 200, description = "User IDs stream", body = UserIdStream),
-        (status = 404, description = "User IDs not found"),
         (status = 500, description = "Internal server error")
     ),
     description = r#"Stream User IDs: Retrieve a stream of user identifiers.
@@ -123,29 +114,13 @@ pub async fn stream_user_ids_handler(
     );
 
     let (input, _, _) = build_user_stream_input(query)?;
-    let source = input.source.clone();
-    let requested_user = input.user_id.clone();
 
     match UserStream::get_user_list_from_source(input).await {
         Ok(Some(user_ids)) => {
             let stream = UserIdStream::new(user_ids);
-            if stream.is_empty() {
-                Err(Error::EmptyStream {
-                    message: format!(
-                        "No user ids found for the requested stream: {:?} {:?}",
-                        source, requested_user
-                    ),
-                })
-            } else {
-                Ok(Json(stream))
-            }
+            Ok(Json(stream))
         }
-        Ok(None) => Err(Error::EmptyStream {
-            message: format!(
-                "No user ids found for the requested stream: {:?} {:?}",
-                source, requested_user
-            ),
-        }),
+        Ok(None) => Ok(Json(UserIdStream::default())),
         Err(source) => Err(Error::InternalServerError { source }),
     }
 }
@@ -172,7 +147,6 @@ pub struct UserStreamSearchQuery {
     responses(
         (status = 200, description = "Username search stream", body = UserStream),
         (status = 400, description = "Bad Request"),
-        (status = 404, description = "No users found"),
         (status = 500, description = "Internal server error")
     )
 )]
@@ -203,9 +177,7 @@ pub async fn stream_username_search_handler(
     .await
     {
         Ok(Some(stream)) => Ok(Json(stream)),
-        Ok(None) => Err(Error::EmptyStream {
-            message: format!("No users found for the username '{username}'"),
-        }),
+        Ok(None) => Ok(Json(UserStream::default())),
         Err(source) => Err(Error::InternalServerError { source }),
     }
 }
@@ -233,7 +205,6 @@ pub struct UserStreamByIdsRequest {
     ),
     responses(
         (status = 200, description = "Users stream", body = UserStream),
-        (status = 404, description = "Users not found"),
         (status = 500, description = "Internal server error")
     )
 )]
@@ -267,12 +238,7 @@ pub async fn stream_users_by_ids_handler(
     .await
     {
         Ok(Some(stream)) => Ok(Json(stream)),
-        Ok(None) => Err(Error::EmptyStream {
-            message: format!(
-                "No users found for the requested stream with user ids: {:?}",
-                request.user_ids
-            ),
-        }),
+        Ok(None) => Ok(Json(UserStream::default())),
         Err(source) => Err(Error::InternalServerError { source }),
     }
 }
