@@ -41,8 +41,7 @@ impl UserView {
         // doesn't exist, leading us to query the graph unnecessarily, assuming the data wasn't indexed
         let tags = match counts.tags {
             0 => Vec::new(),
-            _ => TagUser::get_by_id(user_id, None, None, None, None, viewer_id, depth)
-                .await?,
+            _ => TagUser::get_by_id(user_id, None, None, None, None, viewer_id, depth).await?,
         };
 
         Ok(Some(Self {
