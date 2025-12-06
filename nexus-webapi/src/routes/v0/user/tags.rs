@@ -1,5 +1,4 @@
 use crate::routes::v0::endpoints::{USER_TAGGERS_ROUTE, USER_TAGS_ROUTE};
-use crate::routes::v0::utils::json_array_or_no_content;
 use crate::routes::v0::{TaggersInfoResponse, TagsQuery};
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
@@ -26,8 +25,7 @@ use utoipa::OpenApi;
         ("depth" = Option<usize>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 4, will be ignored")
     ),
     responses(
-        (status = 200, description = "User tags", body = TagDetails),
-        (status = 204, description = "Tags not found"),
+        (status = 200, description = "User tags", body = Vec<TagDetails>),
         (status = 500, description = "Internal server error")
     )
 )]
@@ -51,7 +49,7 @@ pub async fn user_tags_handler(
     )
     .await
     {
-        Ok(tags) => json_array_or_no_content(tags, "tags"),
+        Ok(tags) => Ok(Json(tags)),
         Err(source) => Err(Error::InternalServerError { source }),
     }
 }

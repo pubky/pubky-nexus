@@ -198,7 +198,11 @@ async fn test_user_does_not_exist() -> Result<()> {
     let body = get_request(&endpoint).await?;
     assert!(body.is_array());
     let tags = body.as_array().expect("Tag list should be an array");
-    assert_eq!(tags.len(), 0, "Expected empty array for non-existent post author");
+    assert_eq!(
+        tags.len(),
+        0,
+        "Expected empty array for non-existent post author"
+    );
     Ok(())
 }
 

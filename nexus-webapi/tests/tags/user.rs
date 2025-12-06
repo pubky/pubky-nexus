@@ -202,9 +202,16 @@ async fn test_user_tags_skip_beyond_range() -> Result<()> {
     let res = get_request(&format!("/v0/user/{user_id}/tags")).await?;
     let length = res.as_array().expect("Tag list should be an array").len();
 
-    // Beyond range query, should return 204
+    // Beyond range query, should return 200 with empty array
     let path = format!("/v0/user/{user_id}/tags?skip_tags={length}");
-    invalid_get_request(&path, StatusCode::NO_CONTENT).await?;
+    let body = get_request(&path).await?;
+    assert!(body.is_array());
+    let tags = body.as_array().expect("Tag list should be an array");
+    assert_eq!(
+        tags.len(),
+        0,
+        "Expected empty array when skipping beyond range"
+    );
 
     Ok(())
 }
