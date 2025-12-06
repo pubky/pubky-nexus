@@ -42,8 +42,7 @@ impl UserView {
         let tags = match counts.tags {
             0 => Vec::new(),
             _ => TagUser::get_by_id(user_id, None, None, None, None, viewer_id, depth)
-                .await?
-                .unwrap_or_default(),
+                .await?,
         };
 
         Ok(Some(Self {

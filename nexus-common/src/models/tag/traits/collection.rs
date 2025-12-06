@@ -50,7 +50,7 @@ where
         limit_taggers: Option<usize>,
         viewer_id: Option<&str>,
         depth: Option<u8>,
-    ) -> Result<Option<Vec<TagDetails>>, DynError> {
+    ) -> Result<Vec<TagDetails>, DynError> {
         // Query for the tags that are in its WoT
         // Actually we just apply that search to User node
         if viewer_id.is_some() && matches!(depth, Some(1..=3)) {
@@ -65,16 +65,16 @@ where
             )
             .await?
             {
-                Some(tag_details) => return Ok(Some(tag_details)),
+                Some(tag_details) => return Ok(tag_details),
                 None => {
                     let depth = depth.unwrap_or(1);
                     let graph_response =
                         Self::get_from_graph(user_id, viewer_id, Some(depth)).await?;
                     if let Some(tag_details) = graph_response {
                         Self::put_to_index(user_id, viewer_id, &tag_details, true).await?;
-                        return Ok(Some(tag_details));
+                        return Ok(tag_details);
                     }
-                    return Ok(None);
+                    return Ok(Vec::new());
                 }
             }
         }
@@ -90,14 +90,14 @@ where
         )
         .await?
         {
-            Some(tag_details) => Ok(Some(tag_details)),
+            Some(tag_details) => Ok(tag_details),
             None => {
                 let graph_response = Self::get_from_graph(user_id, extra_param, None).await?;
                 if let Some(tag_details) = graph_response {
                     Self::put_to_index(user_id, extra_param, &tag_details, false).await?;
-                    return Ok(Some(tag_details));
+                    return Ok(tag_details);
                 }
-                Ok(None)
+                Ok(Vec::new())
             }
         }
     }

@@ -24,7 +24,6 @@ use utoipa::OpenApi;
         ("limit_taggers" = Option<usize>, Query, description = "Upper limit on the number of taggers per tag. Defaults to `5`"),
     ),
     responses(
-        (status = 404, description = "Post not found"),
         (status = 200, description = "Post tags", body = Vec<TagDetails>),
         (status = 500, description = "Internal server error")
     )
@@ -48,8 +47,7 @@ pub async fn post_tags_handler(
     )
     .await
     {
-        Ok(Some(tags)) => Ok(Json(tags)),
-        Ok(None) => Err(Error::PostNotFound { author_id, post_id }),
+        Ok(tags) => Ok(Json(tags)),
         Err(source) => Err(Error::InternalServerError { source }),
     }
 }

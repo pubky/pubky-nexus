@@ -58,7 +58,6 @@ impl PostView {
                     None, // Avoid by default WoT tags in a Post
                 )
                 .await?
-                .unwrap_or_default()
             }
         };
 

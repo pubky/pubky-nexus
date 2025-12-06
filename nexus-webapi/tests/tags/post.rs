@@ -180,8 +180,11 @@ async fn test_user_tags_full_filter_active() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_post_does_not_exist() -> Result<()> {
     let endpoint = format!("/v0/post/{}/{}/tags", PEER_PUBKY, "JTDX9ZSWPQF8");
-    // TODO: Control post not found error control
-    invalid_get_request(&endpoint, StatusCode::NOT_FOUND).await?;
+    // Should return 200 OK with empty list when post not found
+    let body = get_request(&endpoint).await?;
+    assert!(body.is_array());
+    let tags = body.as_array().expect("Tag list should be an array");
+    assert_eq!(tags.len(), 0, "Expected empty array for non-existent post");
     Ok(())
 }
 
@@ -191,8 +194,11 @@ async fn test_user_does_not_exist() -> Result<()> {
         "/v0/post/{}/{}/tags",
         "db6w58pd5h63fbhtd88y8zz7pai9rkjwqt9omg6i7dz31dynrgc4", POST_ID
     );
-    // TODO: Control post not found error control
-    invalid_get_request(&endpoint, StatusCode::NOT_FOUND).await?;
+    // Should return 200 OK with empty list when user not found
+    let body = get_request(&endpoint).await?;
+    assert!(body.is_array());
+    let tags = body.as_array().expect("Tag list should be an array");
+    assert_eq!(tags.len(), 0, "Expected empty array for non-existent user");
     Ok(())
 }
 
