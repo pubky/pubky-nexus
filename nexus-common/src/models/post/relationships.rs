@@ -1,51 +1,46 @@
 use crate::db::{fetch_row_from_graph, queries, RedisOps};
 use crate::types::DynError;
 use pubky_app_specs::{post_uri_builder, ParsedUri, PubkyAppPost, PubkyAppPostKind, PubkyId};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use utoipa::ToSchema;
+
+mod parsed_uri_option {
+    use super::*;
+
+    pub fn serialize<S>(value: &Option<ParsedUri>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        value
+            .as_ref()
+            .and_then(|v| v.try_to_uri_str().ok())
+            .serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<ParsedUri>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let opt: Option<String> = Option::deserialize(deserializer)?;
+        opt.map(|s| ParsedUri::try_from(s.as_str()).map_err(serde::de::Error::custom))
+            .transpose()
+    }
+}
 
 #[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
 pub struct PostRelationships {
     /// If set, URI of the post this is a reply to
     #[schema(value_type = Option<String>)]
-    #[serde(
-        serialize_with = "serialize_parsed_uri_option",
-        deserialize_with = "deserialize_parsed_uri_option"
-    )]
+    #[serde(with = "parsed_uri_option")]
     pub replied: Option<ParsedUri>,
 
     /// If set, URI of the post this post is reposting
     #[schema(value_type = Option<String>)]
-    #[serde(
-        serialize_with = "serialize_parsed_uri_option",
-        deserialize_with = "deserialize_parsed_uri_option"
-    )]
+    #[serde(with = "parsed_uri_option")]
     pub reposted: Option<ParsedUri>,
 
     /// List of user IDs mentioned in this post
     pub mentioned: Vec<PubkyId>,
-}
-
-fn serialize_parsed_uri_option<S>(
-    value: &Option<ParsedUri>,
-    serializer: S,
-) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    value
-        .as_ref()
-        .and_then(|v| v.try_to_uri_str().ok())
-        .serialize(serializer)
-}
-
-fn deserialize_parsed_uri_option<'de, D>(deserializer: D) -> Result<Option<ParsedUri>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let opt: Option<String> = Option::deserialize(deserializer)?;
-    opt.map(|s| ParsedUri::try_from(s.as_str()).map_err(serde::de::Error::custom))
-        .transpose()
 }
 
 impl RedisOps for PostRelationships {}
