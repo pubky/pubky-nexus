@@ -122,9 +122,8 @@ impl Homeserver {
     /// ### Arguments
     ///
     /// - `referenced_post_uri`: The parent post (if current post is a reply to it), or a reposted post (if current post is a Repost)
-    pub async fn maybe_ingest_for_post(referenced_post_uri: &str) -> Result<(), DynError> {
-        let parsed_post_uri = ParsedUri::try_from(referenced_post_uri)?;
-        let ref_post_author_id = parsed_post_uri.user_id.as_str();
+    pub async fn maybe_ingest_for_post(referenced_post_uri: &ParsedUri) -> Result<(), DynError> {
+        let ref_post_author_id = referenced_post_uri.user_id.as_str();
 
         Self::maybe_ingest_for_user(ref_post_author_id).await
     }
