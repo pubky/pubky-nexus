@@ -30,4 +30,4 @@ tempfile = { version = "3.23" }
 thiserror = "2.0.17"
 tokio = { version = "1.47.1", features = ["full"] }
 tokio-shared-rt = "0.1"
-tracing = "0.1.41"
+tracing = "0.1.43"
