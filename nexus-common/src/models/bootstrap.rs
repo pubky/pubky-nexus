@@ -23,16 +23,23 @@ pub enum ViewType {
 
 #[derive(Serialize, ToSchema, Deserialize, Default, Debug)]
 pub struct Bootstrap {
+    /// The user objects shown to the given user ID
     pub users: UserStream,
+    /// The posts objects shown to the given user ID
     pub posts: PostStream,
+    /// IDs of objects shown to this user on the right panel of the FE.
+    /// Given as IDs because the full referenced objects might already be trasferred in the streams of this Bootstrap payload.
     pub list: BootstrapList,
+    /// Whether or not this user is already indexed
     pub indexed: bool,
 }
 
 #[derive(Serialize, ToSchema, Deserialize, Default, Debug)]
 pub struct BootstrapList {
+    /// Post stream
     pub stream: Vec<String>,
     pub influencers: Vec<String>,
+    /// Recommended users for the given user ID
     pub recommended: Vec<String>,
     pub hot_tags: Vec<HotTag>,
 }
@@ -54,7 +61,6 @@ impl Bootstrap {
         let mut user_ids = HashSet::new();
         let mut maybe_viewer_id = None;
 
-        // Boostrap guard: Early return if the user lookup fails, avoiding unnecessary work
         if (UserDetails::get_by_id(user_id).await?).is_some() {
             user_ids.insert(user_id.to_string());
             maybe_viewer_id = Some(user_id);
