@@ -27,15 +27,19 @@ pub struct Bootstrap {
     pub users: UserStream,
     /// The posts objects shown to the given user ID
     pub posts: PostStream,
-    /// IDs of objects shown to this user on the right panel of the FE.
-    /// Given as IDs because the full referenced objects might already be trasferred in the streams of this Bootstrap payload.
-    pub list: BootstrapList,
+    /// IDs of objects shown to this user on the right panel of the FE
+    pub ids: BootstrapIds,
     /// Whether or not this user is already indexed
     pub indexed: bool,
 }
 
+/// IDs of objects relevant to the bootstrap payload, for example
+/// the lists shown on the right panel of the FE.
+///
+/// Given as IDs because the full referenced objects might already
+/// be trasferred in the streams of this Bootstrap payload.
 #[derive(Serialize, ToSchema, Deserialize, Default, Debug)]
-pub struct BootstrapList {
+pub struct BootstrapIds {
     /// Post stream
     pub stream: Vec<String>,
     pub influencers: Vec<String>,
@@ -140,7 +144,7 @@ impl Bootstrap {
             Self::insert_taggers_id(&post_view.tags, user_ids);
             // Include the post in the stream list
             if is_full_view_type {
-                self.list.stream.push(format!("{author_id}:{post_id}"));
+                self.ids.stream.push(format!("{author_id}:{post_id}"));
             }
         }
         // After analyse the posts, authors and tags, push the stream
@@ -284,7 +288,7 @@ impl Bootstrap {
             Influencers::get_influencers(None, None, 0, 0, Timeframe::Today, true).await?
         {
             influencers.0.into_iter().for_each(|(id, _)| {
-                self.list.influencers.push(id.clone());
+                self.ids.influencers.push(id.clone());
                 user_ids.insert(id);
             });
         }
@@ -304,7 +308,7 @@ impl Bootstrap {
     ) -> Result<(), DynError> {
         if let Some(recommended_users) = UserStream::get_recommended_ids(user_id, None).await? {
             recommended_users.into_iter().for_each(|id| {
-                self.list.recommended.push(id.clone());
+                self.ids.recommended.push(id.clone());
                 user_ids.insert(id);
             });
         }
@@ -324,7 +328,7 @@ impl Bootstrap {
         let hot_tag_filter = HotTagsInputDTO::new(Timeframe::Today, 40, 0, 20, None);
         if let Some(today_hot_tags) = HotTags::get_hot_tags(None, None, &hot_tag_filter).await? {
             today_hot_tags.iter().for_each(|tag| {
-                self.list.hot_tags.push(tag.clone());
+                self.ids.hot_tags.push(tag.clone());
                 tag.taggers_id.iter().for_each(|tagger| {
                     user_ids.insert(tagger.to_string());
                 });
