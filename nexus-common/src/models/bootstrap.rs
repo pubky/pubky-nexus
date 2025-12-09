@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use crate::db::kv::SortOrder;
 use crate::models::tag::stream::{HotTag, HotTags};
+use crate::models::user::Muted;
 use crate::types::routes::HotTagsInputDTO;
 use crate::types::{DynError, Pagination, StreamSorting, Timeframe};
 
@@ -46,6 +47,8 @@ pub struct BootstrapIds {
     /// Recommended users for the given user ID
     pub recommended: Vec<String>,
     pub hot_tags: Vec<HotTag>,
+    /// User IDs muted by the given user
+    pub muted: Vec<String>,
 }
 
 impl Bootstrap {
@@ -89,6 +92,8 @@ impl Bootstrap {
         }
 
         bootstrap.add_global_hot_tags(&mut user_ids).await?;
+
+        bootstrap.add_muted(&mut user_ids, maybe_viewer_id).await?;
 
         // Start fetching the replies of the posts
         if is_full_view_type {
@@ -281,7 +286,6 @@ impl Bootstrap {
     ///
     /// # Parameters
     /// - `user_ids: &mut HashSet<String>` A mutable reference to a set of user IDs
-    ///
     async fn add_influencers(&mut self, user_ids: &mut HashSet<String>) -> Result<(), DynError> {
         if let Some(influencers) =
             Influencers::get_influencers(None, None, 0, 0, Timeframe::Today, true).await?
@@ -291,6 +295,21 @@ impl Bootstrap {
                 user_ids.insert(id);
             });
         }
+        Ok(())
+    }
+
+    async fn add_muted(
+        &mut self,
+        user_ids: &mut HashSet<String>,
+        maybe_viewer_id: Option<&str>,
+    ) -> Result<(), DynError> {
+        if let Some(viewer_id) = maybe_viewer_id {
+            if let Ok(Some(muted_ids)) = Muted::get_by_id(viewer_id, None, None).await {
+                user_ids.extend(muted_ids.0.clone());
+                self.ids.muted = muted_ids.0;
+            }
+        }
+
         Ok(())
     }
 
