@@ -28,7 +28,7 @@ pub struct Bootstrap {
     pub users: UserStream,
     /// The posts objects shown to the given user ID
     pub posts: PostStream,
-    /// IDs of objects shown to this user on the right panel of the FE
+    /// IDs of objects shown to this user on the home page of the FE
     pub ids: BootstrapIds,
     /// Whether or not this user is already indexed
     pub indexed: bool,
