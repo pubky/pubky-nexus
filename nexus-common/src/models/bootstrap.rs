@@ -110,11 +110,9 @@ impl Bootstrap {
         // UserViews has also taggers, fetch the missing users UserViews
         if is_full_view_type {
             let missing_taggers = bootstrap.collect_missing_taggers(&user_ids);
-            if !missing_taggers.is_empty() {
-                bootstrap
-                    .get_and_merge_users(&missing_taggers, maybe_viewer_id)
-                    .await?;
-            }
+            bootstrap
+                .get_and_merge_users(&missing_taggers, maybe_viewer_id)
+                .await?;
         }
         Ok(bootstrap)
     }
