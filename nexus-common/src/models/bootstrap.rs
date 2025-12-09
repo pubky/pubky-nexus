@@ -63,13 +63,12 @@ impl Bootstrap {
     pub async fn get_by_id(user_id: &str, view_type: ViewType) -> Result<Self, DynError> {
         let mut bootstrap = Self::default();
         let mut user_ids = HashSet::new();
-        let mut maybe_viewer_id = None;
 
-        if (UserDetails::get_by_id(user_id).await?).is_some() {
+        let maybe_viewer_id = UserDetails::get_by_id(user_id).await?.map(|_| {
             user_ids.insert(user_id.to_string());
-            maybe_viewer_id = Some(user_id);
             bootstrap.indexed = true;
-        }
+            user_id
+        });
 
         let is_full_view_type = view_type == ViewType::Full;
 
