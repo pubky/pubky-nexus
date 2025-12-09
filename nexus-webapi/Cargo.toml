@@ -10,7 +10,7 @@ build = "build.rs"
 
 [dependencies]
 axum = "0.8.7"
-axum-server = { version = "0.7.2", features = ["tls-rustls-no-provider"] }
+axum-server = { version = "0.8.0", features = ["tls-rustls-no-provider"] }
 chrono = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 const_format = "0.2.35"
