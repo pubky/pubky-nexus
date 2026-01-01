@@ -110,12 +110,12 @@ impl PostDetails {
     pub async fn from_homeserver(
         homeserver_post: PubkyAppPost,
         author_id: &PubkyId,
-        post_id: &String,
+        post_id: &str,
     ) -> Result<Self, DynError> {
         Ok(PostDetails {
             uri: post_uri_builder(author_id.to_string(), post_id.into()),
             content: homeserver_post.content,
-            id: post_id.clone(),
+            id: post_id.to_string(),
             indexed_at: Utc::now().timestamp_millis(),
             author: author_id.to_string(),
             kind: homeserver_post.kind,
