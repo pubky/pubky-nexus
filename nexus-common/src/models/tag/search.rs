@@ -50,4 +50,8 @@ impl TagSearch {
         let elements: Vec<(f64, &str)> = create_zero_score_tuples(tag_labels);
         Self::put_index_sorted_set(&TAGS_LABEL, &elements, None, None).await
     }
+
+    pub async fn del_from_index(tag_label: &str) -> Result<(), DynError> {
+        Self::remove_from_index_sorted_set(None, &TAGS_LABEL, &[tag_label]).await
+    }
 }
