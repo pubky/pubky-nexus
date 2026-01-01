@@ -9,8 +9,8 @@ license = "MIT"
 build = "build.rs"
 
 [dependencies]
-axum = "0.8.7"
-axum-server = { version = "0.7.2", features = ["tls-rustls-no-provider"] }
+axum = "0.8.8"
+axum-server = { version = "0.8.0", features = ["tls-rustls-no-provider"] }
 chrono = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 const_format = "0.2.35"
@@ -26,7 +26,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
-tower-http = { version = "0.6.7", features = [
+tower-http = { version = "0.6.8", features = [
     "fs",
     "cors",
     "compression-full",
@@ -37,7 +37,7 @@ utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
 
 [dev-dependencies]
 anyhow = { workspace = true }
-criterion = { version = "0.7.0", features = ["async_tokio"] }
+criterion = { version = "0.8", features = ["async_tokio"] }
 httpc-test = "0.1.10"
 pubky-testnet = { workspace = true }
 tempfile = { workspace = true }
