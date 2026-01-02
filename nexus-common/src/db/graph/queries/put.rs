@@ -247,8 +247,8 @@ pub fn create_post_tag(
         // Check if tag already existed
         OPTIONAL MATCH (user)-[existing:TAGGED {label: $label}]->(post) 
         MERGE (user)-[t:TAGGED {label: $label}]->(post)
-        SET t.indexed_at = $indexed_at,
-            t.id = $tag_id
+        ON CREATE SET t.indexed_at = $indexed_at,
+                      t.id = $tag_id
         // Returns true if the post tag relationship already existed
         RETURN existing IS NOT NULL AS flag;",
     )
@@ -280,8 +280,8 @@ pub fn create_user_tag(
         // Check if tag already existed
         OPTIONAL MATCH (tagger)-[existing:TAGGED {label: $label}]->(tagged_used) 
         MERGE (tagger)-[t:TAGGED {label: $label}]->(tagged_used)
-        SET t.indexed_at = $indexed_at,
-            t.id = $tag_id
+        ON CREATE SET t.indexed_at = $indexed_at,
+                      t.id = $tag_id
         // Returns true if the user tag relationship already existed
         RETURN existing IS NOT NULL AS flag;",
     )
