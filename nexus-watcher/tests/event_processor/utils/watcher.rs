@@ -265,9 +265,7 @@ impl WatcherTest {
 
     pub async fn cleanup_user(&mut self, user_kp: &Keypair) -> Result<()> {
         let user_path = PubkyAppUser::hs_path();
-        self.del(user_kp, &user_path).await?;
-        self.ensure_event_processing_complete().await?;
-        Ok(())
+        self.del(user_kp, &user_path).await
     }
 
     pub async fn cleanup_post(
@@ -275,9 +273,7 @@ impl WatcherTest {
         user_kp: &Keypair,
         post_path: &ResourcePath,
     ) -> Result<()> {
-        self.del(user_kp, post_path).await?;
-        self.ensure_event_processing_complete().await?;
-        Ok(())
+        self.del(user_kp, post_path).await
     }
 
     pub async fn create_file(
@@ -311,9 +307,7 @@ impl WatcherTest {
         user_kp: &Keypair,
         file_path: &ResourcePath,
     ) -> Result<()> {
-        self.del(user_kp, &file_path).await?;
-        self.ensure_event_processing_complete().await?;
-        Ok(())
+        self.del(user_kp, &file_path).await
     }
 
     pub async fn create_follow(
