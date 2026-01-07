@@ -1,6 +1,5 @@
-use crate::event_processor::{
-    homeserver::utils::create_external_test_homeserver,
-    utils::watcher::{HomeserverHashIdPath, WatcherTest},
+use crate::event_processor::utils::watcher::{
+    create_external_test_homeserver, HomeserverHashIdPath, WatcherTest,
 };
 use anyhow::Result;
 use chrono::Utc;

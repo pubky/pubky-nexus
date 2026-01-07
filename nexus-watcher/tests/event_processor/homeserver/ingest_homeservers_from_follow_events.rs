@@ -1,6 +1,4 @@
-use crate::event_processor::{
-    homeserver::utils::create_external_test_homeserver, utils::watcher::WatcherTest,
-};
+use crate::event_processor::utils::watcher::{create_external_test_homeserver, WatcherTest};
 use anyhow::Result;
 use nexus_common::models::homeserver::Homeserver;
 use pubky::Keypair;

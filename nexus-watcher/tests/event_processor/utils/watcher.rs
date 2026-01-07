@@ -109,14 +109,7 @@ impl WatcherTest {
             .await;
 
         // Create a random homeserver and extract public key
-        let homeserver_id = {
-            let mut testnet_guard = testnet.lock().await;
-            testnet_guard
-                .create_random_homeserver()
-                .await?
-                .public_key()
-                .to_string()
-        }; // Lock automatically released here
+        let homeserver_id = create_external_test_homeserver().await?.to_string();
 
         let pubky_id = PubkyId::try_from(&homeserver_id).unwrap();
         Homeserver::persist_if_unknown(pubky_id.clone())
@@ -362,6 +355,15 @@ impl WatcherTest {
         self.ensure_event_processing_complete().await?;
         Ok(mute_path)
     }
+}
+
+pub async fn create_external_test_homeserver() -> Result<PublicKey> {
+    let testnet = SHARED_TESTNET
+        .get()
+        .ok_or(Error::msg("SHARED_TESTNET not initialized"))?;
+    let mut testnet_guard = testnet.lock().await;
+    let homeserver_id = testnet_guard.create_random_homeserver().await?.public_key();
+    Ok(homeserver_id)
 }
 
 /// Retrieves an event from the homeserver and handles it asynchronously.
