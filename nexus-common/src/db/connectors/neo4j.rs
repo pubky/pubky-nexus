@@ -1,7 +1,7 @@
 use neo4rs::{query, Graph};
-use once_cell::sync::OnceCell;
 use std::fmt;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use tokio::sync::Mutex;
 use tracing::{debug, info};
 
@@ -10,13 +10,13 @@ use crate::db::Neo4JConfig;
 use crate::types::DynError;
 
 pub struct Neo4jConnector {
-    pub graph: OnceCell<Arc<Mutex<Graph>>>,
+    pub graph: OnceLock<Arc<Mutex<Graph>>>,
 }
 
 impl Default for Neo4jConnector {
     fn default() -> Self {
         Self {
-            graph: OnceCell::new(),
+            graph: OnceLock::new(),
         }
     }
 }
@@ -104,4 +104,4 @@ pub fn get_neo4j_graph() -> Result<Arc<Mutex<Graph>>, &'static str> {
     Ok(graph.clone())
 }
 
-pub static NEO4J_CONNECTOR: OnceCell<Neo4jConnector> = OnceCell::new();
+pub static NEO4J_CONNECTOR: OnceLock<Neo4jConnector> = OnceLock::new();
