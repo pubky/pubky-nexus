@@ -8,7 +8,7 @@ use utoipa::ToSchema;
 use super::UserStream;
 
 /// Represents total counts of relationships of a user.
-#[derive(Serialize, Deserialize, ToSchema, Debug, Default)]
+#[derive(Serialize, Deserialize, ToSchema, Debug, Default, Clone)]
 pub struct UserCounts {
     // The number of tags assigned to other entities by the user (e.g. user, posts)
     pub tagged: u32,

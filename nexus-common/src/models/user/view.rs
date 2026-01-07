@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use super::{Relationship, UserCounts, UserDetails};
+use crate::db::RedisOps;
 use crate::models::tag::traits::TagCollection;
 use crate::models::tag::user::TagUser;
 use crate::models::tag::TagDetails;
@@ -52,5 +53,53 @@ impl UserView {
             relationship,
             tags,
         }))
+    }
+
+    /// Retrieves multiple users by their IDs using batch Redis operations for better performance.
+    ///
+    /// This method uses the new `mget` operation to fetch user details and counts in bulk,
+    /// significantly improving performance when retrieving multiple users.
+    pub async fn get_by_ids(
+        user_ids: &[String],
+        viewer_id: Option<&str>,
+        depth: Option<u8>,
+    ) -> Result<Vec<Option<Self>>, DynError> {
+        // Use mget to fetch all user details and counts in bulk
+        let (details_list, counts_list): (Vec<Option<UserDetails>>, Vec<Option<UserCounts>>) =
+            tokio::try_join!(UserDetails::mget(user_ids), UserCounts::mget(user_ids))?;
+
+        let mut user_views = Vec::with_capacity(user_ids.len());
+
+        for (i, user_id) in user_ids.iter().enumerate() {
+            let details = &details_list[i];
+            let counts = &counts_list[i];
+
+            let Some(details) = details else {
+                user_views.push(None);
+                continue;
+            };
+
+            let counts = counts.clone().unwrap_or_default();
+            let relationship = Relationship::get_by_id(user_id, viewer_id)
+                .await?
+                .unwrap_or_default();
+
+            // Before fetching post tags, check if the post has any tags
+            let tags = match counts.tags {
+                0 => Vec::new(),
+                _ => TagUser::get_by_id(user_id, None, None, None, None, viewer_id, depth)
+                    .await?
+                    .unwrap_or_default(),
+            };
+
+            user_views.push(Some(Self {
+                details: details.clone(),
+                counts,
+                relationship,
+                tags,
+            }));
+        }
+
+        Ok(user_views)
     }
 }
