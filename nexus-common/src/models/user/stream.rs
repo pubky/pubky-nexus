@@ -100,9 +100,9 @@ impl UserStream {
     ) -> Result<Option<Self>, DynError> {
         // Use the new mget batch operation to retrieve all user views efficiently
         let user_views_result = UserView::get_by_ids(user_ids, viewer_id, depth).await?;
-        
+
         let mut user_views = Vec::with_capacity(user_ids.len());
-        
+
         for user_view in user_views_result {
             if let Some(view) = user_view {
                 user_views.push(view);
