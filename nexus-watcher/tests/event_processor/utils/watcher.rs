@@ -32,7 +32,7 @@ use tracing::debug;
 use crate::event_processor::utils::default_moderation_tests;
 
 /// Global shared testnet instance
-static SHARED_TESTNET: OnceCell<Arc<Mutex<EphemeralTestnet>>> = OnceCell::const_new();
+pub(crate) static SHARED_TESTNET: OnceCell<Arc<Mutex<EphemeralTestnet>>> = OnceCell::const_new();
 
 /// Struct to hold the setup environment for tests
 pub struct WatcherTest {

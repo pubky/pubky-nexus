@@ -16,7 +16,7 @@ async fn test_tag_post_on_unknown_homeserver() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Create a separate homeserver for the tagged post
-    let tagged_post_hs_pk = create_external_test_homeserver(&mut test).await?;
+    let tagged_post_hs_pk = create_external_test_homeserver().await?;
 
     // Create tagged post author
     let tagged_post_author_kp = Keypair::random();
@@ -79,7 +79,7 @@ async fn test_tag_user_on_unknown_homeserver() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Create a separate homeserver for the tagged post
-    let tagged_user_hs_pk = create_external_test_homeserver(&mut test).await?;
+    let tagged_user_hs_pk = create_external_test_homeserver().await?;
 
     // Create tagged post author
     let tagged_user_author_kp = Keypair::random();
