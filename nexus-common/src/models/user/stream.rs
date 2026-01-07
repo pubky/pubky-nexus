@@ -103,10 +103,8 @@ impl UserStream {
 
         let mut user_views = Vec::with_capacity(user_ids.len());
 
-        for user_view in user_views_result {
-            if let Some(view) = user_view {
-                user_views.push(view);
-            }
+        for view in user_views_result.into_iter().flatten() {
+            user_views.push(view);
         }
 
         match user_views.is_empty() {
