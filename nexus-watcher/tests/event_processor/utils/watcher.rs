@@ -1,3 +1,4 @@
+use anyhow::Error;
 use anyhow::{anyhow, Result};
 use chrono::Utc;
 use nexus_common::db::PubkyConnector;
@@ -35,7 +36,6 @@ static SHARED_TESTNET: OnceCell<Arc<Mutex<EphemeralTestnet>>> = OnceCell::const_
 
 /// Struct to hold the setup environment for tests
 pub struct WatcherTest {
-    pub testnet: Arc<Mutex<EphemeralTestnet>>,
     /// The homeserver ID
     pub homeserver_id: String,
     /// The event processor runner
@@ -96,8 +96,9 @@ impl WatcherTest {
         // Initialize stack only once per process
         static STACK_INIT: OnceCell<()> = OnceCell::const_new();
         STACK_INIT
-            .get_or_init(|| async { NexusWatcher::builder().init_test_stack().await.unwrap() })
-            .await;
+            .get_or_try_init(|| async { NexusWatcher::builder().init_test_stack().await })
+            .await
+            .map_err(|e| Error::msg(format!("could not initialise the stack, {e:?}")))?;
 
         // Use shared testnet instance to avoid repeated initialization
         let testnet = SHARED_TESTNET
@@ -105,8 +106,7 @@ impl WatcherTest {
                 // WARNING: testnet initialization is time expensive, we only init one per process
                 Arc::new(Mutex::new(EphemeralTestnet::start_minimal().await.unwrap()))
             })
-            .await
-            .clone();
+            .await;
 
         // Create a random homeserver and extract public key
         let homeserver_id = {
@@ -134,7 +134,6 @@ impl WatcherTest {
         let event_processor_runner = Self::create_test_event_processor_runner(pubky_id);
 
         Ok(Self {
-            testnet,
             homeserver_id,
             event_processor_runner,
             ensure_event_processing: true,
