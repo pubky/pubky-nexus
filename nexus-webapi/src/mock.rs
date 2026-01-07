@@ -60,8 +60,6 @@ impl MockDb {
         // drop and run the queries again
         let drop_all_query = query("MATCH (n) DETACH DELETE n;");
         graph
-            .lock()
-            .await
             .run(drop_all_query)
             .await
             .expect("Could not drop graph nodes.");
