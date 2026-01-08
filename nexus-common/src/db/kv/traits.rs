@@ -113,6 +113,23 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         json::get_multiple(&prefix, &keys, None).await
     }
 
+    /// Retrieves multiple JSON objects from Redis using direct keys (mget operation).
+    ///
+    /// This method provides a convenient way to batch retrieve multiple objects by their direct keys
+    /// in a single Redis call, improving performance over individual get operations.
+    ///
+    /// # Arguments
+    ///
+    /// * `keys` - A slice of strings representing the direct keys to retrieve from Redis.
+    ///
+    /// # Returns
+    ///
+    /// A `Vec<Option<Self>>` containing the deserialized data if found, or `None` if a key does not exist.
+    async fn mget(keys: &[impl AsRef<str> + Send + Sync]) -> Result<Vec<Option<Self>>, DynError> {
+        let prefix = Self::prefix().await;
+        json::get_multiple(&prefix, keys, None).await
+    }
+
     /// Stores multiple key-value pairs in Redis, where each key is constructed from the provided key parts
     /// and each value is an item from the given collection.
     ///
