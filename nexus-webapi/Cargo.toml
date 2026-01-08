@@ -42,7 +42,7 @@ httpc-test = "0.1.10"
 pubky-testnet = { workspace = true }
 tempfile = { workspace = true }
 tokio-shared-rt = { workspace = true }
-url = "2.5.4"
+url = "2.5.8"
 
 [[bench]]
 name = "bootstrap"
