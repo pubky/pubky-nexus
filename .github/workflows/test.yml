@@ -36,7 +36,7 @@ jobs:
           tool: cargo-nextest
 
       - name: Build test binaries
-        run: cargo nextest build
+        run: cargo nextest run --no-run
 
       - name: Upload test artifacts
         uses: actions/upload-artifact@v6
