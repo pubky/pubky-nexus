@@ -1,5 +1,9 @@
 CREATE CONSTRAINT uniqueUserId IF NOT EXISTS FOR (u:User) REQUIRE u.id IS UNIQUE;
 CREATE CONSTRAINT uniquePostId IF NOT EXISTS FOR (p:Post) REQUIRE p.id IS UNIQUE;
+
+// Enable Neo4j Parallel Runtime before inserting data
+CYPHER runtime=parallel
+
 MERGE (u:User {id: "18a49r4bu7zgu9p8wjcfhcs7q97q7u898ogs8m7k6375y8ixp17o"}) SET u.name = "anonymous", u.bio = "", u.status = "noStatus", u.indexed_at = 1724134095000 , u.links = "[]";
 MERGE (u:User {id: "1t5fyryjggt6kfha18jcstnz3wfyqh9fycra5sg8hr5qhmot5rky"}) SET u.name = "anonymous", u.bio = "", u.status = "noStatus", u.indexed_at = 1724134095000 , u.links = "[]";
 MERGE (u:User {id: "3iwsuz58pgrf7nw4kx8mg3fib1kqyi4oxqmuqxzsau1mpn5weipo"}) SET u.name = "anonymous", u.bio = "", u.status = "noStatus", u.indexed_at = 1724134095000 , u.links = "[]";

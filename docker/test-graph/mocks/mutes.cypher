@@ -4,6 +4,9 @@
 :param charlie => '5f4e800ogmkhqeyo5ijdix3ma6rw9byj8m36yrjp78pnxxc379to';
 :param dave => 'rz6oe4yda9em9b4m7ymt8gym3r9g5gfa51su3rgdj9oszyz787n5';
 
+// Enable Neo4j Parallel Runtime before inserting data
+CYPHER runtime=parallel
+
 // ################################
 // ##### Create Users #############
 // ################################
