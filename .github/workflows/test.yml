@@ -13,7 +13,40 @@ on:
       - dev
 
 jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "test"
+          cache-on-failure: true
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - name: Build test binaries
+        run: cargo nextest build
+
+      - name: Upload test artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-binaries
+          path: target/nextest
+          retention-days: 1
+
   test:
+    needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:
@@ -35,20 +68,21 @@ jobs:
           set +a
           echo "TEST_PUBKY_CONNECTION_STRING=${TEST_PUBKY_CONNECTION_STRING}" >> $GITHUB_ENV
 
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Download test artifacts
+        uses: actions/download-artifact@v3
         with:
-          targets: x86_64-unknown-linux-gnu
+          name: test-binaries
+          path: target/nextest
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "test"
-          cache-on-failure: true
-
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-nextest
+      - name: Load environment variables from .env-sample
+        working-directory: docker
+        run: |
+          set -a
+          source .env-sample
+          set +a
+          echo "TEST_PUBKY_CONNECTION_STRING=${TEST_PUBKY_CONNECTION_STRING}" >> $GITHUB_ENV
 
       - name: Install ImageMagick
         run: |
