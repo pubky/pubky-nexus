@@ -1,7 +1,6 @@
 use neo4rs::{query, Graph};
 use once_cell::sync::OnceCell;
 use std::fmt;
-use std::sync::Arc;
 use tracing::{debug, info};
 
 use crate::db::setup::setup_graph;
@@ -9,7 +8,7 @@ use crate::db::Neo4JConfig;
 use crate::types::DynError;
 
 pub struct Neo4jConnector {
-    pub graph: OnceCell<Arc<Graph>>,
+    pub graph: OnceCell<Graph>,
 }
 
 impl Default for Neo4jConnector {
@@ -61,7 +60,7 @@ impl Neo4jConnector {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let graph = Graph::new(uri, user, password).await?;
         self.graph
-            .set(Arc::new(graph))
+            .set(graph)
             .map_err(|_| "Failed to set graph instance")?;
         Ok(())
     }
@@ -91,7 +90,7 @@ impl fmt::Debug for Neo4jConnector {
 }
 
 /// Helper to retrieve a Neo4j graph connection.
-pub fn get_neo4j_graph() -> Result<Arc<Graph>, &'static str> {
+pub fn get_neo4j_graph() -> Result<Graph, &'static str> {
     let neo4j_connector = NEO4J_CONNECTOR
         .get()
         .ok_or("Neo4jConnector not initialized")?;

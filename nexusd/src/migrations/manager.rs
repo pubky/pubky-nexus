@@ -3,7 +3,7 @@ use chrono::Utc;
 use neo4rs::{Graph, Query};
 use nexus_common::{db::get_neo4j_graph, types::DynError};
 use serde::{Deserialize, Serialize};
-use std::{any::Any, sync::Arc};
+use std::any::Any;
 use tracing::info;
 
 use crate::migrations::utils::{self, generate_template};
@@ -86,7 +86,7 @@ pub struct MigrationNode {
 const MIGRATION_PATH: &str = "nexusd/src/migrations/migrations_list/";
 
 pub struct MigrationManager {
-    graph: Arc<Graph>,
+    graph: Graph,
     migrations: Vec<Box<dyn Migration>>,
 }
 
