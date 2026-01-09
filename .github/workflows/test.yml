@@ -75,8 +75,9 @@ jobs:
       - name: Load Mock Data
         run: cargo run -p nexusd -- db mock
 
+      # These tests are very fast, so no need to partition them
       - name: Run nexus-common unit tests
-        run: cargo nextest run -p nexus-common --no-fail-fast --partition count:${{ matrix.partition }}/4
+        run: cargo nextest run -p nexus-common --no-fail-fast
 
       - name: Run API integration tests
         run: cargo nextest run -p nexus-webapi --no-fail-fast --partition count:${{ matrix.partition }}/4
