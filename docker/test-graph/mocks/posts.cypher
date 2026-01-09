@@ -11,10 +11,12 @@
 :param Fk_tag => '4k';
 :param pubky_tag => 'pubky';
 
+// Enable Neo4j Parallel Runtime before inserting data
+CYPHER runtime=parallel
+
 // ##############################
 // ##### Create users ###########
 // ##############################
-
 MERGE (u:User {id: $amsterdam}) SET u.name = "Amsterdam", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095000 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
 MERGE (u:User {id: $bogota}) SET u.name = "Bogota", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095000 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
 MERGE (u:User {id: $cairo}) SET u.name = "Cairo", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095000 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";

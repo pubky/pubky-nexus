@@ -25,6 +25,9 @@
 :param month => 'month';
 :param all => 'all';
 
+// Enable Neo4j Parallel Runtime before inserting data
+CYPHER runtime=parallel
+
 // Create users
 MERGE (u:User {id: $user1}) SET u.name = "HotTag:User1", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095000 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
 MERGE (u:User {id: $user2}) SET u.name = "HotTag:User2", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095000 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
