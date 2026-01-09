@@ -39,7 +39,7 @@ jobs:
         run: cargo nextest build
 
       - name: Upload test artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v6
         with:
           name: test-binaries
           path: target/nextest
@@ -69,7 +69,7 @@ jobs:
           echo "TEST_PUBKY_CONNECTION_STRING=${TEST_PUBKY_CONNECTION_STRING}" >> $GITHUB_ENV
 
       - name: Download test artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v7
         with:
           name: test-binaries
           path: target/nextest
