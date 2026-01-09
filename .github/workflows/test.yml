@@ -17,8 +17,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:
-      group: ${{ github.workflow }}-${{ github.ref }}
+      group: ${{ github.workflow }}-${{ github.ref }}-${{ matrix.partition }}
       cancel-in-progress: true
+    strategy:
+      matrix:
+        # Partition tests, so they're executed in parallel on 4 CI workers
+        partition: [1, 2, 3, 4]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -72,14 +76,14 @@ jobs:
         run: cargo run -p nexusd -- db mock
 
       - name: Run nexus-common unit tests
-        run: cargo nextest run -p nexus-common --no-fail-fast
+        run: cargo nextest run -p nexus-common --no-fail-fast --partition count:${{ matrix.partition }}/4
 
       - name: Run API integration tests
-        run: cargo nextest run -p nexus-webapi --no-fail-fast
+        run: cargo nextest run -p nexus-webapi --no-fail-fast --partition count:${{ matrix.partition }}/4
 
       # This test suite uses the TEST_PUBKY_CONNECTION_STRING env variable
       - name: Run WATCHER integration tests
-        run: cargo nextest run -p nexus-watcher --no-fail-fast
+        run: cargo nextest run -p nexus-watcher --no-fail-fast --partition count:${{ matrix.partition }}/4
 
       - name: Tear down Docker Compose
         if: always()
