@@ -8,11 +8,11 @@ services:
       - 7687:7687
     volumes:
       # Mount the neo4j configuration file to container    
-      - .database/neo4j/conf:/conf
+      - .database/neo4j/conf:/conf:Z
       # Mount the data to container
-      - .database/neo4j/data:/data
-      - .database/neo4j/logs:/logs
-      - ./test-graph:/test-graph
+      - .database/neo4j/data:/data:Z
+      - .database/neo4j/logs:/logs:Z
+      - ./test-graph:/test-graph:Z
     environment:
       NEO4J_initial_dbms_default__database: ${NEO4J_DB_NAME}
       # IMPORTANT: If you change the auth params and you have already created the config files, will not take effect
@@ -38,7 +38,7 @@ services:
     networks:
       - default
     volumes:
-      - .database/redis/data:/data
+      - .database/redis/data:/data:Z
     restart: always
 
 
