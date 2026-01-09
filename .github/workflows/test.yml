@@ -31,18 +31,16 @@ jobs:
           shared-key: "test"
           cache-on-failure: true
 
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-nextest
-
-      - name: Build test binaries
-        run: cargo nextest run --no-run
+      - name: Build runtime and test binaries
+        run: |
+          cargo build
+          cargo test --no-run
 
       - name: Upload test artifacts
         uses: actions/upload-artifact@v6
         with:
           name: test-binaries
-          path: target/nextest
+          path: target/debug
           retention-days: 1
 
   test:
@@ -72,7 +70,7 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           name: test-binaries
-          path: target/nextest
+          path: target/debug
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -105,6 +103,10 @@ jobs:
             'until curl -sf http://localhost:7474 > /dev/null; do sleep 2; done' \
             || (echo "Neo4j failed to start" && exit 1)
           echo "Neo4j is ready"
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
 
       - name: Load Mock Data
         run: cargo run -p nexusd -- db mock
