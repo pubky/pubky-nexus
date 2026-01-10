@@ -41,6 +41,10 @@ jobs:
         with:
           shared-key: "test"
           cache-on-failure: true
+          # Save cache on all branches (not just main) so PRs can reuse their own cache
+          save-if: true
+          # Cache all crates including external dependencies, not just workspace crates
+          cache-all-crates: true
 
       - name: Run clippy
         run: cargo clippy --no-deps -- -D warnings # Fail on clippy warnings
