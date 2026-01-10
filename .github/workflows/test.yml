@@ -43,7 +43,7 @@ jobs:
           cache-on-failure: true
 
       - name: Run clippy
-        run: cargo clippy -- -D warnings # Fail on clippy warnings
+        run: cargo clippy --no-deps -- -D warnings # Fail on clippy warnings
 
       - uses: taiki-e/install-action@v2
         with:
