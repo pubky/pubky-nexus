@@ -39,8 +39,11 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "nexus"
+          shared-key: "test"
           cache-on-failure: true
+
+      - name: Run clippy
+        run: cargo clippy -- -D warnings # Fail on clippy warnings
 
       - uses: taiki-e/install-action@v2
         with:
