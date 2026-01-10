@@ -41,6 +41,8 @@ jobs:
         with:
           shared-key: "test"
           cache-on-failure: true
+          # Cache workspace crates (members), as they are time-consuming to re-build on each PR
+          cache-workspace-crates: true
 
       - uses: taiki-e/install-action@v2
         with:
