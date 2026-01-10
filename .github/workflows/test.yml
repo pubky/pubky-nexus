@@ -39,7 +39,7 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "test"
+          shared-key: "nexus"
           cache-on-failure: true
 
       - uses: taiki-e/install-action@v2

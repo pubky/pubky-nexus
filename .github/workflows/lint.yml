@@ -32,7 +32,7 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "lint"
+          shared-key: "nexus"
           cache-on-failure: true
 
       - name: Run clippy
