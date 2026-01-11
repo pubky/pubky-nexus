@@ -49,11 +49,9 @@ async fn test_delete_pubkyapp_file() -> Result<()> {
     let (file_id, file_path) = test.create_file(&user_kp, &file).await?;
 
     // Act
-    let files_before_delete = FileDetails::get_by_ids(
-        vec![vec![user_id.as_str(), file_id.as_str()].as_slice()].as_slice(),
-    )
-    .await
-    .expect("Failed to fetch files from Nexus");
+    let files_before_delete = FileDetails::get_by_ids(&[&[&user_id, &file_id]])
+        .await
+        .expect("Failed to fetch files from Nexus");
 
     let file_before_delete = files_before_delete[0].as_ref();
     assert!(file_before_delete.is_some());
@@ -64,11 +62,9 @@ async fn test_delete_pubkyapp_file() -> Result<()> {
     test.cleanup_file(&user_kp, &file_path).await?;
 
     // Assert
-    let files = FileDetails::get_by_ids(
-        vec![vec![user_id.as_str(), file_id.as_str()].as_slice()].as_slice(),
-    )
-    .await
-    .expect("Failed to fetch files from Nexus");
+    let files = FileDetails::get_by_ids(&[&[&user_id, &file_id]])
+        .await
+        .expect("Failed to fetch files from Nexus");
 
     let result_file = files[0].as_ref();
     assert!(result_file.is_none());
