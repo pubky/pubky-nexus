@@ -37,7 +37,6 @@ pub async fn execute_graph_operation(query: Query) -> Result<OperationOutcome, D
 /// Exec a graph query without a return
 pub async fn exec_single_row(query: Query) -> Result<(), DynError> {
     let graph = get_neo4j_graph()?;
-    let graph = graph.lock().await;
     let mut result = graph.execute(query).await?;
     result.next().await?;
     Ok(())
@@ -45,7 +44,6 @@ pub async fn exec_single_row(query: Query) -> Result<(), DynError> {
 
 pub async fn fetch_row_from_graph(query: Query) -> Result<Option<Row>, DynError> {
     let graph = get_neo4j_graph()?;
-    let graph = graph.lock().await;
 
     let mut result = graph.execute(query).await?;
 
@@ -54,7 +52,6 @@ pub async fn fetch_row_from_graph(query: Query) -> Result<Option<Row>, DynError>
 
 pub async fn fetch_all_rows_from_graph(query: Query) -> Result<Vec<Row>, DynError> {
     let graph = get_neo4j_graph()?;
-    let graph = graph.lock().await;
 
     let mut result = graph.execute(query).await?;
     let mut rows = Vec::new();
