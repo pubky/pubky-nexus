@@ -1,4 +1,5 @@
-use anyhow::{anyhow, Error, Result};
+use anyhow::Error;
+use anyhow::{anyhow, Result};
 use chrono::Utc;
 use nexus_common::db::PubkyConnector;
 use nexus_common::get_files_dir_pathbuf;
@@ -25,13 +26,16 @@ use pubky_app_specs::{
 use pubky_testnet::EphemeralTestnet;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::{Mutex, OnceCell};
 use tracing::debug;
 
 use crate::event_processor::utils::default_moderation_tests;
 
+/// Global shared testnet instance
+pub(crate) static SHARED_TESTNET: OnceCell<Arc<Mutex<EphemeralTestnet>>> = OnceCell::const_new();
+
 /// Struct to hold the setup environment for tests
 pub struct WatcherTest {
-    pub testnet: EphemeralTestnet,
     /// The homeserver ID
     pub homeserver_id: String,
     /// The event processor runner
@@ -89,27 +93,31 @@ impl WatcherTest {
     /// Returns an instance of `Self` containing the configuration, homeserver,
     /// event processor, and other test setup details, including the shutdown receiver.
     pub async fn setup() -> Result<Self> {
-        if let Err(e) = NexusWatcher::builder().init_test_stack().await {
-            return Err(Error::msg(format!("could not initialise the stack, {e:?}")));
-        }
+        // Initialize stack only once per process
+        static STACK_INIT: OnceCell<()> = OnceCell::const_new();
+        STACK_INIT
+            .get_or_try_init(|| async { NexusWatcher::builder().init_test_stack().await })
+            .await
+            .map_err(|e| Error::msg(format!("could not initialise the stack, {e:?}")))?;
 
-        // WARNING: testnet initialization is time expensive, we only init one per process
-        // TODO: Maybe we should create a single testnet network (singleton and push there more homeservers)
-        let mut testnet = EphemeralTestnet::start_minimal().await?;
+        // Use shared testnet instance to avoid repeated initialization
+        let testnet = SHARED_TESTNET
+            .get_or_init(|| async {
+                // WARNING: testnet initialization is time expensive, we only init one per process
+                Arc::new(Mutex::new(EphemeralTestnet::start_minimal().await.unwrap()))
+            })
+            .await;
 
-        // Create a random homeserver with a random public key
-        let homeserver_id = testnet
-            .create_random_homeserver()
-            .await?
-            .public_key()
-            .to_string();
+        // Create a random homeserver and extract public key
+        let homeserver_id = create_external_test_homeserver().await?.to_string();
+
         let pubky_id = PubkyId::try_from(&homeserver_id).unwrap();
         Homeserver::persist_if_unknown(pubky_id.clone())
             .await
             .unwrap();
 
         // Initialize the PubkyConnector with the test homeserver client
-        let sdk = testnet.sdk().unwrap();
+        let sdk = testnet.lock().await.sdk().unwrap();
         match PubkyConnector::init_from(sdk).await {
             Ok(_) => debug!("WatcherTest: PubkyConnector initialised"),
             Err(e) => debug!("WatcherTest: {}", e),
@@ -119,7 +127,6 @@ impl WatcherTest {
         let event_processor_runner = Self::create_test_event_processor_runner(pubky_id);
 
         Ok(Self {
-            testnet,
             homeserver_id,
             event_processor_runner,
             ensure_event_processing: true,
@@ -127,6 +134,8 @@ impl WatcherTest {
     }
 
     /// Disables event processing and returns the modified instance.
+    /// This is useful for tests that don't need to wait for event processing
+    /// to complete, significantly speeding up test execution.
     pub async fn remove_event_processing(mut self) -> Self {
         self.ensure_event_processing = false;
         self
@@ -346,6 +355,15 @@ impl WatcherTest {
         self.ensure_event_processing_complete().await?;
         Ok(mute_path)
     }
+}
+
+pub async fn create_external_test_homeserver() -> Result<PublicKey> {
+    let testnet = SHARED_TESTNET
+        .get()
+        .ok_or(Error::msg("SHARED_TESTNET not initialized"))?;
+    let mut testnet_guard = testnet.lock().await;
+    let homeserver_id = testnet_guard.create_random_homeserver().await?.public_key();
+    Ok(homeserver_id)
 }
 
 /// Retrieves an event from the homeserver and handles it asynchronously.
