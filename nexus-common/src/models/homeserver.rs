@@ -18,7 +18,7 @@ pub struct Homeserver {
 
     // We persist this field only in the cache, but not in the graph.
     // Redis has regular snapshots, which ensures we get a recent state in case of RAM data loss (system crash).
-    pub cursor: String,
+    pub cursor: u32,
 }
 
 impl RedisOps for Homeserver {}
@@ -26,24 +26,32 @@ impl RedisOps for Homeserver {}
 impl Homeserver {
     /// Instantiates a new homeserver with default cursor
     pub fn new(id: PubkyId) -> Self {
-        Homeserver {
-            id,
-            cursor: "0000000000000".to_string(),
-        }
+        Homeserver { id, cursor: 0 }
     }
 
     /// Creates a new homeserver instance with the specified cursor
-    pub fn try_from_cursor<T: Into<String>>(id: PubkyId, cursor: T) -> Result<Self, DynError> {
-        let cursor = cursor.into();
-        if cursor.is_empty() {
-            return Err("Cannot create a homeserver from an empty cursor".into());
+    pub async fn try_from_cursor<T: Into<String>>(
+        id: PubkyId,
+        cursor_str: T,
+    ) -> Result<Self, DynError> {
+        let cursor_str = cursor_str.into();
+        if cursor_str.is_empty() {
+            return Err("Cannot create a HS from an empty cursor".into());
         }
+
+        let cursor = cursor_str
+            .parse()
+            .map_err(|_| format!("Cannot create a HS from a non-numeric cursor: {cursor_str}"))?;
+
+        Self::validate_cursor_change(&id, cursor).await?;
 
         Ok(Homeserver { id, cursor })
     }
 
     /// Stores this homeserver in the graph.
     pub async fn put_to_graph(&self) -> Result<(), DynError> {
+        Self::validate_cursor_change(&self.id, self.cursor).await?;
+
         let query = queries::put::create_homeserver(&self.id);
         exec_single_row(query).await
     }
@@ -67,9 +75,7 @@ impl Homeserver {
 
     /// Stores this homeserver in Redis.
     pub async fn put_to_index(&self) -> Result<(), DynError> {
-        if self.cursor.is_empty() {
-            return Err("Cannot save to index a homeserver with an empty cursor".into());
-        }
+        Self::validate_cursor_change(&self.id, self.cursor).await?;
 
         self.put_index_json(&[&self.id], None, None).await
     }
@@ -85,6 +91,17 @@ impl Homeserver {
                 None => Ok(None),
             },
         }
+    }
+
+    async fn validate_cursor_change(id: &str, new_cursor: u32) -> Result<(), DynError> {
+        // If we already indexed a value, reject cursors going below it to prevent reindexing past events
+        if let Some(hs_from_index) = Self::get_from_index(id).await? {
+            if new_cursor < hs_from_index.cursor {
+                return Err("Cursor cannot move backwards".into());
+            }
+        }
+
+        Ok(())
     }
 
     /// Verifies if homeserver exists in the graph, or persists it if missing
