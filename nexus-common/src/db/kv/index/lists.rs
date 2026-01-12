@@ -55,10 +55,24 @@ pub async fn get_range(
 
     let index_key = format!("{prefix}:{key}");
     let skip = skip.unwrap_or(0);
-    let limit = limit.unwrap_or(usize::MAX);
 
-    let start = skip as isize;
-    let end = start + (limit as isize) - 1;
+    // Cap skip at isize::MAX to prevent overflow when casting
+    let start = skip.min(isize::MAX as usize) as isize;
+
+    // Calculate end index, handling potential overflow.
+    // Redis LRANGE uses -1 to mean "to the end of the list".
+    let end = match limit {
+        Some(0) => return Ok(None),
+        Some(lim) => {
+            // Cap limit to prevent overflow when casting to isize
+            let lim_capped = lim.min(isize::MAX as usize) as isize;
+            // Use saturating arithmetic: start + (limit - 1)
+            // Subtract 1 because lrange is inclusive on both ends
+            start.saturating_add(lim_capped - 1)
+        }
+        None => -1,
+    };
+
     let result: Vec<String> = redis_conn.lrange(index_key, start, end).await?;
     match result.len() {
         0 => Ok(None),
