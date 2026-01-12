@@ -56,10 +56,11 @@ pub async fn get_range(
     let index_key = format!("{prefix}:{key}");
     let start = skip.unwrap_or(0);
 
-    // Calculate end index. Redis LRANGE uses -1 to mean "to the end of the list".
+    // Calculate end index
     let end = match limit {
         Some(0) => return Ok(None),
         Some(lim) => start.saturating_add(lim - 1),
+        // Redis LRANGE uses -1 to mean "to the end of the list"
         None => -1,
     };
 
