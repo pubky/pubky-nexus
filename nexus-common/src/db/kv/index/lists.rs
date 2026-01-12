@@ -48,28 +48,18 @@ pub async fn put(prefix: &str, key: &str, values: &[&str]) -> Result<(), DynErro
 pub async fn get_range(
     prefix: &str,
     key: &str,
-    skip: Option<usize>,
-    limit: Option<usize>,
+    skip: Option<isize>,
+    limit: Option<isize>,
 ) -> Result<Option<Vec<String>>, DynError> {
     let mut redis_conn = get_redis_conn().await?;
 
     let index_key = format!("{prefix}:{key}");
-    let skip = skip.unwrap_or(0);
+    let start = skip.unwrap_or(0);
 
-    // Cap skip at isize::MAX to prevent overflow when casting
-    let start = skip.min(isize::MAX as usize) as isize;
-
-    // Calculate end index, handling potential overflow.
-    // Redis LRANGE uses -1 to mean "to the end of the list".
+    // Calculate end index. Redis LRANGE uses -1 to mean "to the end of the list".
     let end = match limit {
         Some(0) => return Ok(None),
-        Some(lim) => {
-            // Cap limit to prevent overflow when casting to isize
-            let lim_capped = lim.min(isize::MAX as usize) as isize;
-            // Use saturating arithmetic: start + (limit - 1)
-            // Subtract 1 because lrange is inclusive on both ends
-            start.saturating_add(lim_capped - 1)
-        }
+        Some(lim) => start.saturating_add(lim - 1),
         None => -1,
     };
 
