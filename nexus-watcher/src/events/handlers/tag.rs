@@ -13,7 +13,7 @@ use nexus_common::models::tag::search::TagSearch;
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::tag::user::TagUser;
 use nexus_common::models::user::UserCounts;
-use nexus_common::types::DynError;
+use nexus_common::types::{DynError, Pagination};
 use pubky_app_specs::{ParsedUri, PubkyAppTag, PubkyId, Resource};
 use tracing::debug;
 
@@ -384,6 +384,15 @@ async fn del_sync_post(
             // NOTE: The tag search index, depends on the post taggers collection to delete
             // Delete post from global label timeline
             PostsByTagSearch::del_from_index(author_id, post_id, tag_label).await?;
+
+            let posts_by_tag =
+                PostsByTagSearch::get_by_label(tag_label, None, Pagination::default()).await?;
+            let posts_by_tag_found = posts_by_tag.is_some_and(|x| !x.is_empty());
+            if !posts_by_tag_found {
+                // If we just removed the last post using this tag, remove tag from autocomplete suggestion list
+                TagSearch::del_from_index(tag_label).await?;
+            }
+
             Ok::<(), DynError>(())
         }
     );

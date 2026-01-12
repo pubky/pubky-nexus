@@ -473,7 +473,7 @@ where
     fn create_label_index(
         user_id: &str,
         extra_param: Option<&str>,
-        label: &String,
+        label: &str,
         is_cache: bool,
     ) -> String {
         match extra_param {

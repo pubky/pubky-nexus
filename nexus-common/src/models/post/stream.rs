@@ -49,7 +49,7 @@ pub enum StreamSource {
 }
 
 impl StreamSource {
-    pub fn get_observer(&self) -> Option<&String> {
+    pub fn get_observer(&self) -> Option<&str> {
         match self {
             StreamSource::Followers { observer_id }
             | StreamSource::Following { observer_id }
@@ -59,7 +59,7 @@ impl StreamSource {
         }
     }
 
-    pub fn get_author(&self) -> Option<&String> {
+    pub fn get_author(&self) -> Option<&str> {
         match self {
             StreamSource::PostReplies {
                 author_id,

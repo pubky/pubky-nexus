@@ -24,16 +24,16 @@ impl TagSearch {
     }
 
     pub async fn get_by_label(
-        label: &str,
+        label_prefix: &str,
         pagination: &Pagination,
     ) -> Result<Option<Vec<TagSearch>>, DynError> {
-        let label_lowercase = label.to_lowercase();
-        let min_inclusive = format!("[{label_lowercase}");
+        let label_prefix_lowercase = label_prefix.to_lowercase();
+        let min_inclusive = format!("[{label_prefix_lowercase}");
 
         // We mark the end of the label prefix upper bound with the maximum possible Unicode code point
         // Any valid Unicode string will be lexicographically smaller than a string ending with this character
         let max_unicode_char = char::MAX;
-        let max_exclusive = format!("({label_lowercase}{max_unicode_char}");
+        let max_exclusive = format!("({label_prefix_lowercase}{max_unicode_char}");
 
         Self::try_from_index_sorted_set_lex(
             &TAGS_LABEL,
@@ -49,5 +49,9 @@ impl TagSearch {
     pub async fn put_to_index(tag_labels: &[String]) -> Result<(), DynError> {
         let elements: Vec<(f64, &str)> = create_zero_score_tuples(tag_labels);
         Self::put_index_sorted_set(&TAGS_LABEL, &elements, None, None).await
+    }
+
+    pub async fn del_from_index(tag_label: &str) -> Result<(), DynError> {
+        Self::remove_from_index_sorted_set(None, &TAGS_LABEL, &[tag_label]).await
     }
 }
