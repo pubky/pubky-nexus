@@ -263,7 +263,8 @@ mod tests {
         assert_eq!(hs.cursor, 0);
 
         // Also test with a non-zero string cursor
-        let json = r#"{"id":"o1gg96ewuojmopc9qcp6j3kk5rn1b81ks6hisk7jitpptgeo3dty","cursor":"12345"}"#;
+        let json =
+            r#"{"id":"o1gg96ewuojmopc9qcp6j3kk5rn1b81ks6hisk7jitpptgeo3dty","cursor":"12345"}"#;
         let hs: Homeserver = serde_json::from_str(json).expect("Failed to deserialize");
         assert_eq!(hs.cursor, 12345);
     }
@@ -276,7 +277,8 @@ mod tests {
         assert_eq!(hs.cursor, 0);
 
         // Also test with a non-zero numeric cursor
-        let json = r#"{"id":"o1gg96ewuojmopc9qcp6j3kk5rn1b81ks6hisk7jitpptgeo3dty","cursor":98765}"#;
+        let json =
+            r#"{"id":"o1gg96ewuojmopc9qcp6j3kk5rn1b81ks6hisk7jitpptgeo3dty","cursor":98765}"#;
         let hs: Homeserver = serde_json::from_str(json).expect("Failed to deserialize");
         assert_eq!(hs.cursor, 98765);
     }
