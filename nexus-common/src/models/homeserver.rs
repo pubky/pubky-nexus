@@ -8,8 +8,33 @@ use crate::types::DynError;
 use pubky::PublicKey;
 use pubky_app_specs::ParsedUri;
 use pubky_app_specs::PubkyId;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use tracing::info;
+
+/// Deserializes cursor from either a JSON string or number.
+///
+/// This handles backwards compatibility with old data where cursor was stored as a string
+/// (e.g., `"0000000000000"`), while also supporting the new numeric format.
+fn deserialize_cursor<'de, D>(deserializer: D) -> Result<u32, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error;
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum CursorValue {
+        Number(u32),
+        String(String),
+    }
+
+    match CursorValue::deserialize(deserializer)? {
+        CursorValue::Number(n) => Ok(n),
+        CursorValue::String(s) => s
+            .parse()
+            .map_err(|_| D::Error::custom(format!("Cannot parse cursor string '{s}' as u32"))),
+    }
+}
 
 /// Represents a homeserver with its public key, URL, and cursor.
 #[derive(Serialize, Deserialize, Debug)]
@@ -18,6 +43,7 @@ pub struct Homeserver {
 
     // We persist this field only in the cache, but not in the graph.
     // Redis has regular snapshots, which ensures we get a recent state in case of RAM data loss (system crash).
+    #[serde(deserialize_with = "deserialize_cursor")]
     pub cursor: u32,
 }
 
@@ -227,5 +253,31 @@ mod tests {
         assert_eq!(id, hs_from_index.id);
 
         Ok(())
+    }
+
+    #[test]
+    fn test_deserialize_cursor_from_string() {
+        // Simulates old data format where cursor was stored as a string
+        let json = r#"{"id":"o1gg96ewuojmopc9qcp6j3kk5rn1b81ks6hisk7jitpptgeo3dty","cursor":"0000000000000"}"#;
+        let hs: Homeserver = serde_json::from_str(json).expect("Failed to deserialize");
+        assert_eq!(hs.cursor, 0);
+
+        // Also test with a non-zero string cursor
+        let json = r#"{"id":"o1gg96ewuojmopc9qcp6j3kk5rn1b81ks6hisk7jitpptgeo3dty","cursor":"12345"}"#;
+        let hs: Homeserver = serde_json::from_str(json).expect("Failed to deserialize");
+        assert_eq!(hs.cursor, 12345);
+    }
+
+    #[test]
+    fn test_deserialize_cursor_from_number() {
+        // Current format where cursor is stored as a number
+        let json = r#"{"id":"o1gg96ewuojmopc9qcp6j3kk5rn1b81ks6hisk7jitpptgeo3dty","cursor":0}"#;
+        let hs: Homeserver = serde_json::from_str(json).expect("Failed to deserialize");
+        assert_eq!(hs.cursor, 0);
+
+        // Also test with a non-zero numeric cursor
+        let json = r#"{"id":"o1gg96ewuojmopc9qcp6j3kk5rn1b81ks6hisk7jitpptgeo3dty","cursor":98765}"#;
+        let hs: Homeserver = serde_json::from_str(json).expect("Failed to deserialize");
+        assert_eq!(hs.cursor, 98765);
     }
 }
