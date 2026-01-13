@@ -1,5 +1,6 @@
 use neo4rs::{query, Graph};
 use std::fmt;
+use std::sync::OnceLock;
 use tracing::{debug, info};
 
 use crate::db::setup::setup_graph;
