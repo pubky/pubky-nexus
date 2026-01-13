@@ -9,7 +9,6 @@ use crate::models::post::{PostStream, POST_REPLIES_PER_POST_KEY_PARTS};
 use crate::types::{DynError, StreamReach, Timeframe};
 
 use serde::{Deserialize, Serialize};
-use tokio::task::spawn;
 use utoipa::ToSchema;
 
 pub const USER_MOSTFOLLOWED_KEY_PARTS: [&str; 2] = ["Users", "MostFollowed"];
@@ -99,28 +98,13 @@ impl UserStream {
         viewer_id: Option<&str>,
         depth: Option<u8>,
     ) -> Result<Option<Self>, DynError> {
-        // TODO: potentially we could use a new redis_com.mget() with a single call to retrieve all
-        // user details at once and build the user profiles on the fly.
-        // But still, using tokio to create them concurrently has VERY high performance.
-        let viewer_id = viewer_id.map(|id| id.to_string());
-        let mut handles = Vec::with_capacity(user_ids.len());
-
-        for user_id in user_ids {
-            let user_id = user_id.clone();
-            let viewer_id = viewer_id.clone();
-            let handle =
-                spawn(
-                    async move { UserView::get_by_id(&user_id, viewer_id.as_deref(), depth).await },
-                );
-            handles.push(handle);
-        }
+        // Use the new mget batch operation to retrieve all user views efficiently
+        let user_views_result = UserView::get_by_ids(user_ids, viewer_id, depth).await?;
 
         let mut user_views = Vec::with_capacity(user_ids.len());
 
-        for handle in handles {
-            if let Some(user_view) = handle.await?? {
-                user_views.push(user_view);
-            }
+        for view in user_views_result.into_iter().flatten() {
+            user_views.push(view);
         }
 
         match user_views.is_empty() {

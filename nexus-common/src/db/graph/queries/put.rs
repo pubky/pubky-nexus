@@ -62,8 +62,10 @@ pub fn create_post(
 
     cypher.push_str(
         "
+        // Set indexed_at only on creation
+        ON CREATE SET
+            new_post.indexed_at = $indexed_at
         SET new_post.content = $content,
-            new_post.indexed_at = $indexed_at,
             new_post.kind = $kind,
             new_post.attachments = $attachments
         RETURN existing_post IS NOT NULL AS flag",
@@ -77,15 +79,15 @@ pub fn create_post(
         .param("content", post.content.to_string())
         .param("indexed_at", post.indexed_at)
         .param("kind", kind.trim_matches('"'))
-        .param(
-            "attachments",
-            post.attachments.clone().unwrap_or(vec![] as Vec<String>),
-        );
+        .param("attachments", post.attachments.clone().unwrap_or(vec![]));
 
     // Handle "replied" relationship
     cypher_query = add_relationship_params(
         cypher_query,
-        &post_relationships.replied,
+        &post_relationships
+            .replied
+            .clone()
+            .and_then(|uri| uri.try_to_uri_str().ok()),
         "reply_parent_author_id",
         "reply_parent_post_id",
     )?;
@@ -93,7 +95,10 @@ pub fn create_post(
     // Handle "reposted" relationship
     cypher_query = add_relationship_params(
         cypher_query,
-        &post_relationships.reposted,
+        &post_relationships
+            .reposted
+            .clone()
+            .and_then(|uri| uri.try_to_uri_str().ok()),
         "repost_parent_author_id",
         "repost_parent_post_id",
     )?;
@@ -242,8 +247,8 @@ pub fn create_post_tag(
         // Check if tag already existed
         OPTIONAL MATCH (user)-[existing:TAGGED {label: $label}]->(post) 
         MERGE (user)-[t:TAGGED {label: $label}]->(post)
-        SET t.indexed_at = $indexed_at,
-            t.id = $tag_id
+        ON CREATE SET t.indexed_at = $indexed_at,
+                      t.id = $tag_id
         // Returns true if the post tag relationship already existed
         RETURN existing IS NOT NULL AS flag;",
     )
@@ -275,8 +280,8 @@ pub fn create_user_tag(
         // Check if tag already existed
         OPTIONAL MATCH (tagger)-[existing:TAGGED {label: $label}]->(tagged_used) 
         MERGE (tagger)-[t:TAGGED {label: $label}]->(tagged_used)
-        SET t.indexed_at = $indexed_at,
-            t.id = $tag_id
+        ON CREATE SET t.indexed_at = $indexed_at,
+                      t.id = $tag_id
         // Returns true if the user tag relationship already existed
         RETURN existing IS NOT NULL AS flag;",
     )

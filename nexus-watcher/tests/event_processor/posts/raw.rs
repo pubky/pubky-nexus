@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use super::utils::find_post_details;
 use super::utils::{
     check_member_global_timeline_user_post, check_member_user_post_timeline, find_post_counts,
@@ -6,9 +8,10 @@ use crate::event_processor::users::utils::{check_member_user_influencer, find_us
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::models::event::Event;
+use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::post::{PostCounts, PostDetails};
 use pubky::Keypair;
-use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
+use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser, PubkyId};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_put_post_event() -> Result<()> {
@@ -64,6 +67,15 @@ async fn test_homeserver_put_post_event() -> Result<()> {
     assert_eq!(post_details.uri, post_detail_cache.uri);
     assert_eq!(post_details.indexed_at, post_detail_cache.indexed_at);
 
+    reindex_and_ensure_cache_and_graph_unchanged(
+        &mut test,
+        &post_details,
+        &post_detail_cache,
+        &user_id,
+        &post_id,
+    )
+    .await?;
+
     // User:Counts:user_id:post_id
     let post_counts: PostCounts = find_post_counts(&user_id, &post_id).await;
     assert_eq!(post_counts.reposts, 0);
@@ -102,6 +114,36 @@ async fn test_homeserver_put_post_event() -> Result<()> {
     //     .unwrap();
 
     // assert!(result_post.is_none(), "The post should have been deleted");
+
+    Ok(())
+}
+
+async fn reindex_and_ensure_cache_and_graph_unchanged(
+    test: &mut WatcherTest,
+    post_details_from_graph: &PostDetails,
+    post_detail_from_cache: &PostDetails,
+    user_id: &str,
+    post_id: &str,
+) -> Result<()> {
+    // Wait for a few ms, so that re-indexing determines a different indexed_at (epoch timestamp in ms)
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+    // Reset the cursor, to ensure the events are re-indexed
+    let homeserver = Homeserver::new(PubkyId::try_from(&test.homeserver_id).unwrap());
+    homeserver.put_to_graph().await.unwrap();
+    homeserver.put_to_index().await.unwrap();
+    test.ensure_event_processing_complete().await?;
+
+    // Check that nothing changed in the graph (DB)
+    let post_details_2 = find_post_details(&user_id, &post_id).await.unwrap();
+    assert_eq!(post_details_from_graph, &post_details_2);
+
+    // Check that nothing changed in the index (cache)
+    let post_detail_cache_2: PostDetails = PostDetails::get_from_index(&user_id, &post_id)
+        .await
+        .unwrap()
+        .expect("The new post detail was not served from Nexus cache");
+    assert_eq!(post_detail_from_cache, &post_detail_cache_2);
 
     Ok(())
 }

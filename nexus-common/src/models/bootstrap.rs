@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use crate::db::kv::SortOrder;
 use crate::models::tag::stream::{HotTag, HotTags};
+use crate::models::user::Muted;
 use crate::types::routes::HotTagsInputDTO;
 use crate::types::{DynError, Pagination, StreamSorting, Timeframe};
 
@@ -23,18 +24,31 @@ pub enum ViewType {
 
 #[derive(Serialize, ToSchema, Deserialize, Default, Debug)]
 pub struct Bootstrap {
+    /// The user objects shown to the given user ID
     pub users: UserStream,
+    /// The posts objects shown to the given user ID
     pub posts: PostStream,
-    pub list: BootstrapList,
+    /// IDs of objects shown to this user on the home page of the FE
+    pub ids: BootstrapIds,
+    /// Whether or not this user is already indexed
     pub indexed: bool,
 }
 
+/// IDs of objects relevant to the bootstrap payload, for example
+/// the lists shown on the right panel of the FE.
+///
+/// Given as IDs because the full referenced objects might already
+/// be trasferred in the streams of this Bootstrap payload.
 #[derive(Serialize, ToSchema, Deserialize, Default, Debug)]
-pub struct BootstrapList {
+pub struct BootstrapIds {
+    /// Post stream
     pub stream: Vec<String>,
     pub influencers: Vec<String>,
+    /// Recommended users for the given user ID
     pub recommended: Vec<String>,
     pub hot_tags: Vec<HotTag>,
+    /// User IDs muted by the given user
+    pub muted: Vec<String>,
 }
 
 impl Bootstrap {
@@ -52,14 +66,12 @@ impl Bootstrap {
     pub async fn get_by_id(user_id: &str, view_type: ViewType) -> Result<Self, DynError> {
         let mut bootstrap = Self::default();
         let mut user_ids = HashSet::new();
-        let mut maybe_viewer_id = None;
 
-        // Boostrap guard: Early return if the user lookup fails, avoiding unnecessary work
-        if (UserDetails::get_by_id(user_id).await?).is_some() {
+        let maybe_viewer_id = UserDetails::get_by_id(user_id).await?.map(|_| {
             user_ids.insert(user_id.to_string());
-            maybe_viewer_id = Some(user_id);
             bootstrap.indexed = true;
-        }
+            user_id
+        });
 
         let is_full_view_type = view_type == ViewType::Full;
 
@@ -81,6 +93,8 @@ impl Bootstrap {
 
         bootstrap.add_global_hot_tags(&mut user_ids).await?;
 
+        bootstrap.add_muted(&mut user_ids, maybe_viewer_id).await?;
+
         // Start fetching the replies of the posts
         if is_full_view_type {
             bootstrap
@@ -96,11 +110,9 @@ impl Bootstrap {
         // UserViews has also taggers, fetch the missing users UserViews
         if is_full_view_type {
             let missing_taggers = bootstrap.collect_missing_taggers(&user_ids);
-            if !missing_taggers.is_empty() {
-                bootstrap
-                    .get_and_merge_users(&missing_taggers, maybe_viewer_id)
-                    .await?;
-            }
+            bootstrap
+                .get_and_merge_users(&missing_taggers, maybe_viewer_id)
+                .await?;
         }
         Ok(bootstrap)
     }
@@ -134,7 +146,7 @@ impl Bootstrap {
             Self::insert_taggers_id(&post_view.tags, user_ids);
             // Include the post in the stream list
             if is_full_view_type {
-                self.list.stream.push(format!("{author_id}:{post_id}"));
+                self.ids.stream.push(format!("{author_id}:{post_id}"));
             }
         }
         // After analyse the posts, authors and tags, push the stream
@@ -272,16 +284,30 @@ impl Bootstrap {
     ///
     /// # Parameters
     /// - `user_ids: &mut HashSet<String>` A mutable reference to a set of user IDs
-    ///
     async fn add_influencers(&mut self, user_ids: &mut HashSet<String>) -> Result<(), DynError> {
         if let Some(influencers) =
             Influencers::get_influencers(None, None, 0, 0, Timeframe::Today, true).await?
         {
             influencers.0.into_iter().for_each(|(id, _)| {
-                self.list.influencers.push(id.clone());
+                self.ids.influencers.push(id.clone());
                 user_ids.insert(id);
             });
         }
+        Ok(())
+    }
+
+    async fn add_muted(
+        &mut self,
+        user_ids: &mut HashSet<String>,
+        maybe_viewer_id: Option<&str>,
+    ) -> Result<(), DynError> {
+        if let Some(viewer_id) = maybe_viewer_id {
+            if let Ok(Some(muted_ids)) = Muted::get_by_id(viewer_id, None, None).await {
+                user_ids.extend(muted_ids.0.clone());
+                self.ids.muted = muted_ids.0;
+            }
+        }
+
         Ok(())
     }
 
@@ -298,7 +324,7 @@ impl Bootstrap {
     ) -> Result<(), DynError> {
         if let Some(recommended_users) = UserStream::get_recommended_ids(user_id, None).await? {
             recommended_users.into_iter().for_each(|id| {
-                self.list.recommended.push(id.clone());
+                self.ids.recommended.push(id.clone());
                 user_ids.insert(id);
             });
         }
@@ -318,7 +344,7 @@ impl Bootstrap {
         let hot_tag_filter = HotTagsInputDTO::new(Timeframe::Today, 40, 0, 20, None);
         if let Some(today_hot_tags) = HotTags::get_hot_tags(None, None, &hot_tag_filter).await? {
             today_hot_tags.iter().for_each(|tag| {
-                self.list.hot_tags.push(tag.clone());
+                self.ids.hot_tags.push(tag.clone());
                 tag.taggers_id.iter().for_each(|tagger| {
                     user_ids.insert(tagger.to_string());
                 });

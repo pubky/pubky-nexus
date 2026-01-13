@@ -25,7 +25,7 @@ use utoipa::OpenApi;
         ("depth" = Option<usize>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 4, will be ignored")
     ),
     responses(
-        (status = 200, description = "User tags", body = TagDetails),
+        (status = 200, description = "User tags", body = Vec<TagDetails>),
         (status = 404, description = "User not found"),
         (status = 500, description = "Internal server error")
     )

@@ -41,19 +41,21 @@ jobs:
         with:
           shared-key: "test"
           cache-on-failure: true
+          # Cache workspace crates (members), as they are time-consuming to re-build on each PR
+          cache-workspace-crates: true
 
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
 
-      - name: Install ImageMagick
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq imagemagick
-
       - name: Set up Docker Compose
         working-directory: docker
         run: docker compose --env-file .env-sample up -d
+
+      # Install imagemagick after docker containers are started and before waiting for services to be up
+      # This ensures services are starting up during this step, saving time in the "wait for services" step
+      - name: Install ImageMagick
+        run: sudo apt-get install -y -qq imagemagick
 
       - name: Wait for services to be ready
         run: |

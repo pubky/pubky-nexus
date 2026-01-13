@@ -49,7 +49,7 @@ pub enum StreamSource {
 }
 
 impl StreamSource {
-    pub fn get_observer(&self) -> Option<&String> {
+    pub fn get_observer(&self) -> Option<&str> {
         match self {
             StreamSource::Followers { observer_id }
             | StreamSource::Following { observer_id }
@@ -59,7 +59,7 @@ impl StreamSource {
         }
     }
 
-    pub fn get_author(&self) -> Option<&String> {
+    pub fn get_author(&self) -> Option<&str> {
         match self {
             StreamSource::PostReplies {
                 author_id,
@@ -254,8 +254,6 @@ impl PostStream {
         {
             let graph = get_neo4j_graph()?;
             let query = queries::get::post_stream(source, sorting, tags, pagination, kind);
-
-            let graph = graph.lock().await;
 
             // Set a 10-second timeout for the query execution
             result = match timeout(Duration::from_secs(10), graph.execute(query)).await {

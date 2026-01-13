@@ -1,18 +1,18 @@
 services:
   neo4j:
-    image: neo4j:5.26.7-community
+    image: neo4j:5.26.19-community
     container_name: neo4j
     restart: unless-stopped
     ports:
-      - 7474:7474
-      - 7687:7687
+      - 127.0.0.1:7474:7474
+      - 127.0.0.1:7687:7687
     volumes:
       # Mount the neo4j configuration file to container    
-      - .database/neo4j/conf:/conf
+      - .database/neo4j/conf:/conf:Z
       # Mount the data to container
-      - .database/neo4j/data:/data
-      - .database/neo4j/logs:/logs
-      - ./test-graph:/test-graph
+      - .database/neo4j/data:/data:Z
+      - .database/neo4j/logs:/logs:Z
+      - ./test-graph:/test-graph:Z
     environment:
       NEO4J_initial_dbms_default__database: ${NEO4J_DB_NAME}
       # IMPORTANT: If you change the auth params and you have already created the config files, will not take effect
@@ -24,6 +24,8 @@ services:
       NEO4J_server_memory_pagecache_size: 1G
       NEO4J_server_memory_heap_initial__size: 2G
       NEO4J_server_memory_heap_max__size: 2G
+      # Disable telemetry, see https://neo4j.com/docs/operations-manual/current/configuration/configuration-settings/#config_client.allow_telemetry
+      NEO4J_client_allow__telemetry: false
       # NEO4J_apoc_uuid_enabled: false
 
 
@@ -31,23 +33,25 @@ services:
     image: redis/redis-stack:7.2.0-v11
     container_name: redis
     ports:
-      - "6379:6379"
-      - "8001:8001"
+      - "127.0.0.1:6379:6379"
+      - "127.0.0.1:8001:8001"
     networks:
       - default
     volumes:
-      - .database/redis/data:/data
+      - .database/redis/data:/data:Z
     restart: always
 
 
+  # Only used for tests that involve homeservers
   postgres:
-    image: postgres:17-alpine
+    image: postgres:18-alpine
+    container_name: postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
       interval: 5s
@@ -62,8 +66,8 @@ services:
       # This ensures the Jaeger container also listens for OTLP signals
       # COLLECTOR_OTLP_ENABLED: "true"
     # ports:
-    #   - "16686:16686"    # Jaeger UI
-    #   - "4317:4317"      # OTLP/gRPC
+    #   - "127.0.0.1:16686:16686"    # Jaeger UI
+    #   - "127.0.0.1:4317:4317"      # OTLP/gRPC
     #   - "4318:4318"      # OTLP/HTTP
     # networks:
     #   - default
