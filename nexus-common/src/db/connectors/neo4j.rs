@@ -1,6 +1,6 @@
 use neo4rs::{query, Graph};
-use once_cell::sync::OnceCell;
 use std::fmt;
+use std::sync::OnceLock;
 use tracing::{debug, info};
 
 use crate::db::setup::setup_graph;
@@ -69,4 +69,4 @@ pub fn get_neo4j_graph() -> Result<Graph, &'static str> {
         .map(|neo4j_connector| neo4j_connector.graph.clone())
 }
 
-pub static NEO4J_CONNECTOR: OnceCell<Neo4jConnector> = OnceCell::new();
+pub static NEO4J_CONNECTOR: OnceLock<Neo4jConnector> = OnceLock::new();
