@@ -2171,7 +2171,7 @@ checksum = "9171a2ea8a68358193d15dd5d70c1c10a2afc3e7e4c5bc92bc9f025cebd7359c"
 [[package]]
 name = "http-relay"
 version = "0.5.1"
-source = "git+https://github.com/pubky/pubky-core.git?rev=c6dd23a7377d5a6ade79b5216d04ea7b85e1b612#c6dd23a7377d5a6ade79b5216d04ea7b85e1b612"
+source = "git+https://github.com/ok300/pubky-core.git?branch=ok300-re-export-pkarr#c170acbd2d6d6f523c2af9989562862c46399105"
 dependencies = [
  "anyhow",
  "axum",
@@ -2919,7 +2919,7 @@ dependencies = [
  "nexus-common",
  "once_cell",
  "opentelemetry 0.31.0",
- "pkarr",
+ "pubky 0.6.0-rc.6",
  "pubky-app-specs",
  "pubky-testnet",
  "serde",
@@ -3562,7 +3562,7 @@ dependencies = [
 [[package]]
 name = "pkarr-republisher"
 version = "0.5.1"
-source = "git+https://github.com/pubky/pubky-core.git?rev=c6dd23a7377d5a6ade79b5216d04ea7b85e1b612#c6dd23a7377d5a6ade79b5216d04ea7b85e1b612"
+source = "git+https://github.com/ok300/pubky-core.git?branch=ok300-re-export-pkarr#c170acbd2d6d6f523c2af9989562862c46399105"
 dependencies = [
  "anyhow",
  "clap",
@@ -3827,7 +3827,7 @@ dependencies = [
 [[package]]
 name = "pubky"
 version = "0.6.0-rc.6"
-source = "git+https://github.com/pubky/pubky-core.git?rev=c6dd23a7377d5a6ade79b5216d04ea7b85e1b612#c6dd23a7377d5a6ade79b5216d04ea7b85e1b612"
+source = "git+https://github.com/ok300/pubky-core.git?branch=ok300-re-export-pkarr#c170acbd2d6d6f523c2af9989562862c46399105"
 dependencies = [
  "base64",
  "cookie",
@@ -3891,7 +3891,7 @@ dependencies = [
 [[package]]
 name = "pubky-common"
 version = "0.6.0-rc.6"
-source = "git+https://github.com/pubky/pubky-core.git?rev=c6dd23a7377d5a6ade79b5216d04ea7b85e1b612#c6dd23a7377d5a6ade79b5216d04ea7b85e1b612"
+source = "git+https://github.com/ok300/pubky-core.git?branch=ok300-re-export-pkarr#c170acbd2d6d6f523c2af9989562862c46399105"
 dependencies = [
  "argon2",
  "base32",
@@ -3912,7 +3912,7 @@ dependencies = [
 [[package]]
 name = "pubky-homeserver"
 version = "0.6.0-rc.6"
-source = "git+https://github.com/pubky/pubky-core.git?rev=c6dd23a7377d5a6ade79b5216d04ea7b85e1b612#c6dd23a7377d5a6ade79b5216d04ea7b85e1b612"
+source = "git+https://github.com/ok300/pubky-core.git?branch=ok300-re-export-pkarr#c170acbd2d6d6f523c2af9989562862c46399105"
 dependencies = [
  "anyhow",
  "async-dropper",
@@ -3975,7 +3975,7 @@ dependencies = [
 [[package]]
 name = "pubky-testnet"
 version = "0.6.0-rc.6"
-source = "git+https://github.com/pubky/pubky-core.git?rev=c6dd23a7377d5a6ade79b5216d04ea7b85e1b612#c6dd23a7377d5a6ade79b5216d04ea7b85e1b612"
+source = "git+https://github.com/ok300/pubky-core.git?branch=ok300-re-export-pkarr#c170acbd2d6d6f523c2af9989562862c46399105"
 dependencies = [
  "anyhow",
  "clap",
@@ -4014,7 +4014,7 @@ dependencies = [
 [[package]]
 name = "pubky_test_utils"
 version = "0.1.0"
-source = "git+https://github.com/pubky/pubky-core.git?rev=c6dd23a7377d5a6ade79b5216d04ea7b85e1b612#c6dd23a7377d5a6ade79b5216d04ea7b85e1b612"
+source = "git+https://github.com/ok300/pubky-core.git?branch=ok300-re-export-pkarr#c170acbd2d6d6f523c2af9989562862c46399105"
 dependencies = [
  "pubky_test_utils_drop_db_helper",
  "pubky_test_utils_macro",
@@ -4023,7 +4023,7 @@ dependencies = [
 [[package]]
 name = "pubky_test_utils_drop_db_helper"
 version = "0.1.0"
-source = "git+https://github.com/pubky/pubky-core.git?rev=c6dd23a7377d5a6ade79b5216d04ea7b85e1b612#c6dd23a7377d5a6ade79b5216d04ea7b85e1b612"
+source = "git+https://github.com/ok300/pubky-core.git?branch=ok300-re-export-pkarr#c170acbd2d6d6f523c2af9989562862c46399105"
 dependencies = [
  "sqlx",
 ]
@@ -4031,7 +4031,7 @@ dependencies = [
 [[package]]
 name = "pubky_test_utils_macro"
 version = "0.1.0"
-source = "git+https://github.com/pubky/pubky-core.git?rev=c6dd23a7377d5a6ade79b5216d04ea7b85e1b612#c6dd23a7377d5a6ade79b5216d04ea7b85e1b612"
+source = "git+https://github.com/ok300/pubky-core.git?branch=ok300-re-export-pkarr#c170acbd2d6d6f523c2af9989562862c46399105"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",

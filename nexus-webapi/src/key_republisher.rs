@@ -11,10 +11,10 @@
 use std::net::IpAddr;
 
 use nexus_common::types::DynError;
-use pkarr::dns::Name;
-use pkarr::errors::PublishError;
-use pkarr::Keypair;
-use pkarr::{dns::rdata::SVCB, SignedPacket};
+use pubky::pkarr::dns::Name;
+use pubky::pkarr::errors::PublishError;
+use pubky::pkarr::Keypair;
+use pubky::pkarr::{dns::rdata::SVCB, SignedPacket};
 use tokio::task::JoinHandle;
 use tokio::time::{interval, Duration};
 
@@ -23,7 +23,7 @@ pub struct KeyRepublisherContext {
     pub public_ip: IpAddr,
     pub public_pubky_tls_port: u16,
 
-    pub(crate) pkarr_client: pkarr::Client,
+    pub(crate) pkarr_client: pubky::pkarr::Client,
     pub(crate) keypair: Keypair,
 }
 
@@ -41,7 +41,7 @@ impl KeyRepublisher {
     }
 
     async fn publish_once(
-        client: &pkarr::Client,
+        client: &pubky::pkarr::Client,
         signed_packet: &SignedPacket,
     ) -> Result<(), PublishError> {
         let res = client.publish(signed_packet, None).await;
@@ -59,7 +59,7 @@ impl KeyRepublisher {
     /// - Throws an error if the initial publish fails.
     /// - Throws an error if the periodic republish task is already running.
     async fn start_periodic_republish(
-        client: pkarr::Client,
+        client: pubky::pkarr::Client,
         signed_packet: &SignedPacket,
     ) -> Result<JoinHandle<()>, DynError> {
         // Publish once to make sure the packet is published to the DHT before this

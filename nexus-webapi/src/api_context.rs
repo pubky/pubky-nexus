@@ -1,19 +1,19 @@
 use std::path::PathBuf;
 
 use nexus_common::{file::default_config_dir_path, types::DynError, ApiConfig, DaemonConfig};
-use pkarr::Keypair;
+use pubky::pkarr::Keypair;
 
 #[derive(Debug, Clone)]
 pub struct ApiContext {
     pub(crate) api_config: ApiConfig,
     pub(crate) keypair: Keypair,
-    pub(crate) pkarr_client: pkarr::Client,
+    pub(crate) pkarr_client: pubky::pkarr::Client,
 }
 
 pub struct ApiContextBuilder {
     api_config: Option<ApiConfig>,
     config_dir: PathBuf,
-    pkarr_builder: Option<pkarr::ClientBuilder>,
+    pkarr_builder: Option<pubky::pkarr::ClientBuilder>,
 }
 
 impl ApiContextBuilder {
@@ -36,7 +36,7 @@ impl ApiContextBuilder {
         self
     }
 
-    pub fn pkarr_builder(mut self, pkarr_builder: pkarr::ClientBuilder) -> Self {
+    pub fn pkarr_builder(mut self, pkarr_builder: pubky::pkarr::ClientBuilder) -> Self {
         self.pkarr_builder = Some(pkarr_builder);
 
         self
