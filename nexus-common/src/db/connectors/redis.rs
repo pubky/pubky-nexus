@@ -1,7 +1,7 @@
 use crate::types::DynError;
 use deadpool_redis::{Config, Connection, Pool, Runtime};
-use once_cell::sync::OnceCell;
 use std::fmt;
+use std::sync::OnceLock;
 use tracing::{debug, info};
 
 pub struct RedisConnector {
@@ -63,7 +63,7 @@ impl fmt::Debug for RedisConnector {
 
 /// Global RedisConnector instance.
 /// Make sure to initialize this once when your application starts.
-pub static REDIS_CONNECTOR: OnceCell<RedisConnector> = OnceCell::new();
+pub static REDIS_CONNECTOR: OnceLock<RedisConnector> = OnceLock::new();
 
 /// Retrieves a Redis connection from the pool.
 pub async fn get_redis_conn() -> Result<Connection, DynError> {
