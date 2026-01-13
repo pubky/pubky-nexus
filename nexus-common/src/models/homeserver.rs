@@ -8,8 +8,33 @@ use crate::types::DynError;
 use pubky::PublicKey;
 use pubky_app_specs::ParsedUri;
 use pubky_app_specs::PubkyId;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use tracing::info;
+
+/// Deserializes cursor from either a JSON string or number.
+///
+/// This handles backwards compatibility with old data where cursor was stored as a string
+/// (e.g., `"0000000000000"`), while also supporting the new numeric format.
+fn deserialize_cursor<'de, D>(deserializer: D) -> Result<u32, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error;
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum CursorValue {
+        Number(u32),
+        String(String),
+    }
+
+    match CursorValue::deserialize(deserializer)? {
+        CursorValue::Number(n) => Ok(n),
+        CursorValue::String(s) => s
+            .parse()
+            .map_err(|_| D::Error::custom(format!("Cannot parse cursor string '{s}' as u32"))),
+    }
+}
 
 /// Represents a homeserver with its public key, URL, and cursor.
 #[derive(Serialize, Deserialize, Debug)]
@@ -18,7 +43,8 @@ pub struct Homeserver {
 
     // We persist this field only in the cache, but not in the graph.
     // Redis has regular snapshots, which ensures we get a recent state in case of RAM data loss (system crash).
-    pub cursor: String,
+    #[serde(deserialize_with = "deserialize_cursor")]
+    pub cursor: u32,
 }
 
 impl RedisOps for Homeserver {}
@@ -26,24 +52,32 @@ impl RedisOps for Homeserver {}
 impl Homeserver {
     /// Instantiates a new homeserver with default cursor
     pub fn new(id: PubkyId) -> Self {
-        Homeserver {
-            id,
-            cursor: "0000000000000".to_string(),
-        }
+        Homeserver { id, cursor: 0 }
     }
 
     /// Creates a new homeserver instance with the specified cursor
-    pub fn try_from_cursor<T: Into<String>>(id: PubkyId, cursor: T) -> Result<Self, DynError> {
-        let cursor = cursor.into();
-        if cursor.is_empty() {
-            return Err("Cannot create a homeserver from an empty cursor".into());
+    pub async fn try_from_cursor<T: Into<String>>(
+        id: PubkyId,
+        cursor_str: T,
+    ) -> Result<Self, DynError> {
+        let cursor_str = cursor_str.into();
+        if cursor_str.is_empty() {
+            return Err("Cannot create a HS from an empty cursor".into());
         }
+
+        let cursor = cursor_str
+            .parse()
+            .map_err(|_| format!("Cannot create a HS from a non-numeric cursor: {cursor_str}"))?;
+
+        Self::validate_cursor_change(&id, cursor).await?;
 
         Ok(Homeserver { id, cursor })
     }
 
     /// Stores this homeserver in the graph.
     pub async fn put_to_graph(&self) -> Result<(), DynError> {
+        Self::validate_cursor_change(&self.id, self.cursor).await?;
+
         let query = queries::put::create_homeserver(&self.id);
         exec_single_row(query).await
     }
@@ -67,9 +101,7 @@ impl Homeserver {
 
     /// Stores this homeserver in Redis.
     pub async fn put_to_index(&self) -> Result<(), DynError> {
-        if self.cursor.is_empty() {
-            return Err("Cannot save to index a homeserver with an empty cursor".into());
-        }
+        Self::validate_cursor_change(&self.id, self.cursor).await?;
 
         self.put_index_json(&[&self.id], None, None).await
     }
@@ -85,6 +117,17 @@ impl Homeserver {
                 None => Ok(None),
             },
         }
+    }
+
+    async fn validate_cursor_change(id: &str, new_cursor: u32) -> Result<(), DynError> {
+        // If we already indexed a value, reject cursors going below it to prevent reindexing past events
+        if let Some(hs_from_index) = Self::get_from_index(id).await? {
+            if new_cursor < hs_from_index.cursor {
+                return Err("Cursor cannot move backwards".into());
+            }
+        }
+
+        Ok(())
     }
 
     /// Verifies if homeserver exists in the graph, or persists it if missing
@@ -210,5 +253,33 @@ mod tests {
         assert_eq!(id, hs_from_index.id);
 
         Ok(())
+    }
+
+    #[test]
+    fn test_deserialize_cursor_from_string() {
+        // Simulates old data format where cursor was stored as a string
+        let json = r#"{"id":"o1gg96ewuojmopc9qcp6j3kk5rn1b81ks6hisk7jitpptgeo3dty","cursor":"0000000000000"}"#;
+        let hs: Homeserver = serde_json::from_str(json).expect("Failed to deserialize");
+        assert_eq!(hs.cursor, 0);
+
+        // Also test with a non-zero string cursor
+        let json =
+            r#"{"id":"o1gg96ewuojmopc9qcp6j3kk5rn1b81ks6hisk7jitpptgeo3dty","cursor":"12345"}"#;
+        let hs: Homeserver = serde_json::from_str(json).expect("Failed to deserialize");
+        assert_eq!(hs.cursor, 12345);
+    }
+
+    #[test]
+    fn test_deserialize_cursor_from_number() {
+        // Current format where cursor is stored as a number
+        let json = r#"{"id":"o1gg96ewuojmopc9qcp6j3kk5rn1b81ks6hisk7jitpptgeo3dty","cursor":0}"#;
+        let hs: Homeserver = serde_json::from_str(json).expect("Failed to deserialize");
+        assert_eq!(hs.cursor, 0);
+
+        // Also test with a non-zero numeric cursor
+        let json =
+            r#"{"id":"o1gg96ewuojmopc9qcp6j3kk5rn1b81ks6hisk7jitpptgeo3dty","cursor":98765}"#;
+        let hs: Homeserver = serde_json::from_str(json).expect("Failed to deserialize");
+        assert_eq!(hs.cursor, 98765);
     }
 }
