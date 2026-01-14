@@ -104,11 +104,13 @@ impl Event {
     }
 
     pub async fn get_events_from_redis(
-        cursor: Option<usize>,
-        limit: usize,
-    ) -> Result<(Vec<String>, usize), DynError> {
+        cursor: Option<u32>,
+        limit: u32,
+    ) -> Result<(Vec<String>, u32), DynError> {
         let start = cursor.unwrap_or(0);
-        let result = Event::try_from_index_list(&["Events"], Some(start), Some(limit)).await;
+        let start_i = start as isize;
+        let limit_i = limit as isize;
+        let result = Event::try_from_index_list(&["Events"], Some(start_i), Some(limit_i)).await;
 
         let events = match result {
             Ok(r) => r.unwrap_or_default(),
@@ -118,7 +120,7 @@ impl Event {
             }
         };
 
-        let next_cursor = start + events.len();
+        let next_cursor = start + events.len() as u32;
 
         Ok((events, next_cursor))
     }
