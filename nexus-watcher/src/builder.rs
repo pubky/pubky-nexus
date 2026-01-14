@@ -79,8 +79,7 @@ impl NexusWatcherBuilder {
 
     /// Initializes the watcher integration test stack
     pub async fn init_test_stack(&self) -> Result<(), DynError> {
-        StackManager::setup(&self.0.name, &self.0.stack).await?;
-        Ok(())
+        StackManager::setup(&self.0.name, &self.0.stack).await
     }
 
     /// Initializes the service stack and starts the NexusWatcher event loop

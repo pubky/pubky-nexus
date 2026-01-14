@@ -1,5 +1,4 @@
-use super::utils::create_external_test_homeserver;
-use crate::event_processor::utils::watcher::WatcherTest;
+use crate::event_processor::utils::watcher::{create_external_test_homeserver, WatcherTest};
 use anyhow::Result;
 use nexus_common::models::homeserver::Homeserver;
 use pubky::Keypair;
@@ -13,7 +12,7 @@ async fn test_reply_to_post_on_unknown_homeserver() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Create a separate homeserver
-    let parent_author_hs_pk = create_external_test_homeserver(&mut test).await?;
+    let parent_author_hs_pk = create_external_test_homeserver().await?;
 
     // Create parent post author
     let parent_author_kp = Keypair::random();
@@ -75,7 +74,7 @@ async fn test_repost_of_post_on_unknown_homeserver() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Create a separate homeserver
-    let original_author_hs_pk = create_external_test_homeserver(&mut test).await?;
+    let original_author_hs_pk = create_external_test_homeserver().await?;
     let original_author_hs_id = PubkyId::try_from(&original_author_hs_pk.to_z32()).unwrap();
 
     // Create original post author
@@ -139,11 +138,11 @@ async fn test_post_and_mention_users_on_unknown_homeserver() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Create three separate homeservers for three mentioned users, each on one HS
-    let user_1_hs_pk = create_external_test_homeserver(&mut test).await?;
+    let user_1_hs_pk = create_external_test_homeserver().await?;
     let user_1_hs_id = PubkyId::try_from(&user_1_hs_pk.to_z32()).unwrap();
-    let user_2_hs_pk = create_external_test_homeserver(&mut test).await?;
+    let user_2_hs_pk = create_external_test_homeserver().await?;
     let user_2_hs_id = PubkyId::try_from(&user_2_hs_pk.to_z32()).unwrap();
-    let user_3_hs_pk = create_external_test_homeserver(&mut test).await?;
+    let user_3_hs_pk = create_external_test_homeserver().await?;
     let user_3_hs_id = PubkyId::try_from(&user_3_hs_pk.to_z32()).unwrap();
 
     // Create three users, which will be later mentioned in the test post
