@@ -552,7 +552,7 @@ impl PostStream {
 
         for post_key in post_keys {
             let Some((author_id, post_id)) = post_key.split_once(':') else {
-                warn!("Invalid post_key format (missing ':'): {}", post_key);
+                warn!("Invalid post_key format (missing ':'): {post_key}");
                 continue;
             };
             let author_id = author_id.to_string();
