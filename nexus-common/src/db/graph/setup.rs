@@ -27,7 +27,6 @@ pub async fn setup_graph() -> Result<(), DynError> {
     let queries = constraints.iter().chain(indexes.iter());
 
     let graph = get_neo4j_graph()?;
-    let graph = graph.lock().await;
 
     // Start an explicit transaction
     let txn = graph

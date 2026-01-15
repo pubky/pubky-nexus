@@ -255,8 +255,6 @@ impl PostStream {
             let graph = get_neo4j_graph()?;
             let query = queries::get::post_stream(source, sorting, tags, pagination, kind);
 
-            let graph = graph.lock().await;
-
             // Set a 10-second timeout for the query execution
             result = match timeout(Duration::from_secs(10), graph.execute(query)).await {
                 Ok(Ok(res)) => res,                    // Successfully executed within the timeout

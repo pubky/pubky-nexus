@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 use crate::{Error, Result};
 use axum::{
@@ -6,11 +7,10 @@ use axum::{
     http::{Request, StatusCode, Uri},
     response::Response,
 };
-use once_cell::sync::OnceCell;
 use tower_http::services::{fs::ServeFileSystemResponseBody, ServeDir};
 use tracing::error;
 
-static SERVE_DIR_INSTANCE: OnceCell<ServeDir> = OnceCell::new();
+static SERVE_DIR_INSTANCE: OnceLock<ServeDir> = OnceLock::new();
 
 pub struct PubkyServeDir;
 
