@@ -208,13 +208,13 @@ pub async fn stream_users_by_ids_handler(
     const MAX_USERS: usize = 100;
 
     if request.user_ids.len() > MAX_USERS {
-        return Err(Error::invalid_input(&format!(
-            "The maximum number of user IDs allowed is {MAX_USERS}"
-        )));
+        let err_msg = format!("The maximum number of user IDs allowed is {MAX_USERS}");
+        return Err(Error::invalid_input(&err_msg));
     }
 
     if request.user_ids.is_empty() {
-        return Err(Error::invalid_input("The list of user IDs provided is empty"));
+        let err_msg = "The list of user IDs provided is empty";
+        return Err(Error::invalid_input(err_msg));
     }
 
     match UserStream::from_listed_user_ids(

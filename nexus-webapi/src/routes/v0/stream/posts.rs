@@ -221,13 +221,13 @@ pub async fn stream_posts_by_ids_handler(
     const MAX_POSTS: usize = 100;
 
     if request.post_ids.len() > MAX_POSTS {
-        return Err(Error::invalid_input(&format!(
-            "The maximum number of post IDs allowed is {MAX_POSTS}"
-        )));
+        let err_msg = format!("The maximum number of post IDs allowed is {MAX_POSTS}");
+        return Err(Error::invalid_input(&err_msg));
     }
 
     if request.post_ids.is_empty() {
-        return Err(Error::invalid_input("The list of post IDs provided is empty"));
+        let err_msg = "The list of post IDs provided is empty";
+        return Err(Error::invalid_input(err_msg));
     }
 
     match PostStream::from_listed_post_ids(request.viewer_id, &request.post_ids).await? {
