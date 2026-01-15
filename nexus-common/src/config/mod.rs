@@ -1,19 +1,12 @@
 use serde::{Deserialize, Serialize};
 use std::{fmt::Debug, path::PathBuf, sync::OnceLock};
 
-pub const LOG_LEVEL: Level = Level::Info;
+use crate::db::{default_files_path, default_log_level};
 
-/// Path to the directory where static files are stored. To access this as a [PathBuf], use [get_files_dir_pathbuf].
-pub const FILES_DIR: &str = "~/.pubky-nexus/static/files";
-static FILES_DIR_PATHBUF: OnceLock<PathBuf> = OnceLock::new();
-/// See [FILES_DIR]
-pub fn get_files_dir_pathbuf() -> PathBuf {
-    FILES_DIR_PATHBUF
-        .get_or_init(|| {
-            validate_and_expand_path(PathBuf::from(FILES_DIR))
-                .expect("Hardcoded FILES_DIR should be a valid directory path")
-        })
-        .clone()
+/// Returns the default log level from `default.config.toml`.
+/// Provided for backward compatibility. Use `StackConfig::default()` when possible.
+pub fn get_default_log_level() -> Level {
+    default_log_level()
 }
 
 // All the tests run inside their own crate therefore the default directory does not apply
@@ -26,6 +19,12 @@ pub fn get_files_dir_test_pathbuf() -> PathBuf {
                 .expect("Hardcoded FILES_DIR_TEST should be a valid directory path")
         })
         .clone()
+}
+
+/// Returns the default files directory path from `default.config.toml`.
+/// See [default_files_path] for the implementation.
+pub fn get_files_dir_pathbuf() -> PathBuf {
+    default_files_path()
 }
 
 mod api;

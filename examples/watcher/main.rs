@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use nexus_common::{
-    db::DatabaseConfig, file::validate_and_expand_path, get_files_dir_pathbuf, types::DynError,
-    StackConfig, WatcherConfig, LOG_LEVEL,
+    db::DatabaseConfig, file::validate_and_expand_path, get_default_log_level,
+    get_files_dir_pathbuf, types::DynError, StackConfig, WatcherConfig,
 };
 use nexus_watcher::{service::NexusWatcher, NexusWatcherBuilder};
 use pubky_app_specs::PubkyId;
@@ -31,7 +31,7 @@ async fn main() -> Result<(), DynError> {
             let moderation_id =
                 PubkyId::try_from("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap();
             let stack = StackConfig {
-                log_level: LOG_LEVEL,
+                log_level: get_default_log_level(),
                 files_path: get_files_dir_pathbuf(),
                 otlp_endpoint: None,
                 db: DatabaseConfig::default(),
