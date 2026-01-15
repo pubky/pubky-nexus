@@ -16,7 +16,7 @@ pub enum Error {
     #[error("Post not found: {author_id} {post_id}")]
     PostNotFound { author_id: String, post_id: String },
     #[error("Internal server error: {source}")]
-    InternalServerError { source: Box<dyn std::error::Error> },
+    InternalServerError { source: DynError },
     #[error("Bookmarks not found: {user_id}")]
     BookmarksNotFound { user_id: String },
     #[error("Tags not found")]
