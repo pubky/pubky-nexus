@@ -1,7 +1,6 @@
 use crate::events::retry::event::RetryEvent;
 use crate::events::EventProcessorError;
 use crate::handle_indexing_results;
-use nexus_common::db::kv::{JsonAction, ScoreAction};
 use nexus_common::db::queries::get::post_is_safe_to_delete;
 use nexus_common::db::{exec_single_row, execute_graph_operation, OperationOutcome};
 use nexus_common::db::{queries, RedisOps};
@@ -108,10 +107,10 @@ pub async fn sync_put(
         },
         // TODO: Use SCARD on a set for unique tag count to avoid race conditions in parallel processing
         // Update user counts with the new post
-        UserCounts::update(&author_id, "posts", JsonAction::Increment(1), None),
+        UserCounts::increment(&author_id, "posts", None),
         async {
             if is_reply {
-                UserCounts::update(&author_id, "replies", JsonAction::Increment(1), None).await?;
+                UserCounts::increment(&author_id, "replies", None).await?;
             };
             Ok::<(), DynError>(())
         }
@@ -138,18 +137,12 @@ pub async fn sync_put(
         let parent_post_key_parts: &[&str; 2] = &[&parent_author_id, &parent_post_id];
 
         let indexing_results = tokio::join!(
-            PostCounts::update_index_field(
-                parent_post_key_parts,
-                "replies",
-                JsonAction::Increment(1),
-                None
-            ),
+            PostCounts::increment_index_field(parent_post_key_parts, "replies", None),
             async {
                 if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await? {
-                    PostStream::put_score_index_sorted_set(
+                    PostStream::increment_score_index_sorted_set(
                         &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
                         parent_post_key_parts,
-                        ScoreAction::Increment(1.0),
                     )
                     .await?;
                 }
@@ -188,19 +181,13 @@ pub async fn sync_put(
 
         let parent_post_key_parts: &[&str; 2] = &[&parent_author_id, &parent_post_id];
         let indexing_results = tokio::join!(
-            PostCounts::update_index_field(
-                parent_post_key_parts,
-                "reposts",
-                JsonAction::Increment(1),
-                None
-            ),
+            PostCounts::increment_index_field(parent_post_key_parts, "reposts", None),
             async {
                 // Post replies cannot be included in the total engagement index after they receive a reply
                 if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await? {
-                    PostStream::put_score_index_sorted_set(
+                    PostStream::increment_score_index_sorted_set(
                         &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
                         parent_post_key_parts,
-                        ScoreAction::Increment(1.0),
                     )
                     .await?;
                 }
@@ -353,10 +340,10 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
     // DELETE TO INDEX - PHASE 1, decrease post counts
     let indexing_results = tokio::join!(
         PostCounts::delete(&author_id, &post_id, !is_reply),
-        UserCounts::update(&author_id, "posts", JsonAction::Decrement(1), None),
+        UserCounts::decrement(&author_id, "posts", None),
         async {
             if is_reply {
-                UserCounts::update(&author_id, "replies", JsonAction::Decrement(1), None).await?;
+                UserCounts::decrement(&author_id, "replies", None).await?;
             };
             Ok::<(), DynError>(())
         }
@@ -383,19 +370,13 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
                 Some([parent_user_id.to_string(), parent_post_id.clone()]);
 
             let indexing_results = tokio::join!(
-                PostCounts::update_index_field(
-                    &parent_post_key_parts,
-                    "replies",
-                    JsonAction::Decrement(1),
-                    None
-                ),
+                PostCounts::decrement_index_field(&parent_post_key_parts, "replies", None),
                 async {
                     // Post replies cannot be included in the total engagement index after the reply is deleted
                     if !post_relationships_is_reply(&parent_user_id, &parent_post_id).await? {
-                        PostStream::put_score_index_sorted_set(
+                        PostStream::decrement_score_index_sorted_set(
                             &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
                             &parent_post_key_parts,
-                            ScoreAction::Decrement(1.0),
                         )
                         .await?;
                     }
@@ -426,19 +407,13 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
             let parent_post_key_parts: &[&str] = &[&reposted_uri.user_id, &parent_post_id];
 
             let indexing_results = tokio::join!(
-                PostCounts::update_index_field(
-                    parent_post_key_parts,
-                    "reposts",
-                    JsonAction::Decrement(1),
-                    None
-                ),
+                PostCounts::decrement_index_field(parent_post_key_parts, "reposts", None),
                 async {
                     // Post replies cannot be included in the total engagement index after the repost is deleted
                     if !post_relationships_is_reply(&reposted_uri.user_id, &parent_post_id).await? {
-                        PostStream::put_score_index_sorted_set(
+                        PostStream::decrement_score_index_sorted_set(
                             &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
                             parent_post_key_parts,
-                            ScoreAction::Decrement(1.0),
                         )
                         .await?;
                     }

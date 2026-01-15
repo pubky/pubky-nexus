@@ -593,6 +593,20 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         sorted_sets::put_score(SORTED_PREFIX, &key, &member_key, score_mutation).await
     }
 
+    async fn increment_score_index_sorted_set(
+        key_parts: &[&str],
+        member: &[&str],
+    ) -> Result<(), DynError> {
+        Self::put_score_index_sorted_set(key_parts, member, ScoreAction::Increment(1.0)).await
+    }
+
+    async fn decrement_score_index_sorted_set(
+        key_parts: &[&str],
+        member: &[&str],
+    ) -> Result<(), DynError> {
+        Self::put_score_index_sorted_set(key_parts, member, ScoreAction::Decrement(1.0)).await
+    }
+
     /// Removes elements from a Redis sorted set using the provided key parts.
     ///
     /// This method removes the specified elements from the Redis sorted set identified by the key generated

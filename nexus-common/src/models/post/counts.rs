@@ -143,4 +143,20 @@ impl PostCounts {
         }
         Ok(())
     }
+
+    pub async fn increment_index_field(
+        index_key: &[&str],
+        field: &str,
+        tag_label: Option<&str>,
+    ) -> Result<(), DynError> {
+        Self::update_index_field(index_key, field, JsonAction::Increment(1), tag_label).await
+    }
+
+    pub async fn decrement_index_field(
+        index_key: &[&str],
+        field: &str,
+        tag_label: Option<&str>,
+    ) -> Result<(), DynError> {
+        Self::update_index_field(index_key, field, JsonAction::Decrement(1), tag_label).await
+    }
 }

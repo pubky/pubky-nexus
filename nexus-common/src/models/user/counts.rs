@@ -151,4 +151,20 @@ impl UserCounts {
 
         Ok(())
     }
+
+    pub async fn increment(
+        user_id: &str,
+        field: &str,
+        tag_label: Option<&str>,
+    ) -> Result<(), DynError> {
+        Self::update(user_id, field, JsonAction::Increment(1), tag_label).await
+    }
+
+    pub async fn decrement(
+        user_id: &str,
+        field: &str,
+        tag_label: Option<&str>,
+    ) -> Result<(), DynError> {
+        Self::update(user_id, field, JsonAction::Decrement(1), tag_label).await
+    }
 }
