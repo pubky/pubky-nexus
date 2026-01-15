@@ -48,9 +48,9 @@ impl PostStreamQuery {
     pub fn validate_tags(&self) -> AppResult<()> {
         if let Some(ref tags) = self.tags {
             if tags.len() > MAX_TAGS {
-                return Err(Error::InvalidInput {
-                    message: format!("Too many tags provided; maximum allowed is {MAX_TAGS}"),
-                });
+                return Err(Error::invalid_input(&format!(
+                    "Too many tags provided; maximum allowed is {MAX_TAGS}"
+                )));
             }
         }
         Ok(())
@@ -221,15 +221,13 @@ pub async fn stream_posts_by_ids_handler(
     const MAX_POSTS: usize = 100;
 
     if request.post_ids.len() > MAX_POSTS {
-        return Err(Error::InvalidInput {
-            message: format!("The maximum number of post IDs allowed is {MAX_POSTS}"),
-        });
+        return Err(Error::invalid_input(&format!(
+            "The maximum number of post IDs allowed is {MAX_POSTS}"
+        )));
     }
 
     if request.post_ids.is_empty() {
-        return Err(Error::InvalidInput {
-            message: "The list of post IDs provided is empty".to_string(),
-        });
+        return Err(Error::invalid_input("The list of post IDs provided is empty"));
     }
 
     match PostStream::from_listed_post_ids(request.viewer_id, &request.post_ids).await? {
