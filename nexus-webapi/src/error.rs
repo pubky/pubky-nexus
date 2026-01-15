@@ -28,14 +28,16 @@ pub enum Error {
 }
 
 impl Error {
-    pub fn internal(source: DynError) -> Self {
-        Error::InternalServerError { source }
-    }
-
     pub fn invalid_input(message: &str) -> Self {
         Error::InvalidInput {
             message: message.to_string(),
         }
+    }
+}
+
+impl From<DynError> for Error {
+    fn from(source: DynError) -> Self {
+        Error::InternalServerError { source }
     }
 }
 
