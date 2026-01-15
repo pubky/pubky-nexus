@@ -253,37 +253,20 @@ fn build_user_stream_input(
 
     if user_id.is_none() {
         match source {
-            UserStreamSource::Followers => {
-                return Err(Error::invalid_input(
-                    "user_id query param must be provided for source 'followers'",
-                ))
+            UserStreamSource::Followers
+            | UserStreamSource::Following
+            | UserStreamSource::Friends
+            | UserStreamSource::Muted
+            | UserStreamSource::Recommended => {
+                return Err(Error::invalid_input(&format!(
+                    "user_id query param must be provided for source '{}'",
+                    source_name(&source)
+                )));
             }
-            UserStreamSource::Following => {
+            UserStreamSource::Influencers if reach.is_some() => {
                 return Err(Error::invalid_input(
-                    "user_id query param must be provided for source 'following'",
-                ))
-            }
-            UserStreamSource::Friends => {
-                return Err(Error::invalid_input(
-                    "user_id query param must be provided for source 'friends'",
-                ))
-            }
-            UserStreamSource::Muted => {
-                return Err(Error::invalid_input(
-                    "user_id query param must be provided for source 'muted'",
-                ))
-            }
-            UserStreamSource::Recommended => {
-                return Err(Error::invalid_input(
-                    "user_id query param must be provided for source 'recommended'",
-                ))
-            }
-            UserStreamSource::Influencers => {
-                if reach.is_some() {
-                    return Err(Error::invalid_input(
-                        "reach query param must be provided for source 'influencers' with a user_id",
-                    ));
-                }
+                    "user_id query param must be provided for source 'influencers' when reach is specified",
+                ));
             }
             UserStreamSource::PostReplies => {
                 if author_id.is_none() {
@@ -314,6 +297,20 @@ fn build_user_stream_input(
     };
 
     Ok((input, viewer_id, depth))
+}
+
+/// Returns the snake_case name of the source for error messages.
+fn source_name(source: &UserStreamSource) -> &'static str {
+    match source {
+        UserStreamSource::Followers => "followers",
+        UserStreamSource::Following => "following",
+        UserStreamSource::Friends => "friends",
+        UserStreamSource::Muted => "muted",
+        UserStreamSource::MostFollowed => "most_followed",
+        UserStreamSource::Influencers => "influencers",
+        UserStreamSource::Recommended => "recommended",
+        UserStreamSource::PostReplies => "post_replies",
+    }
 }
 
 #[derive(OpenApi)]
