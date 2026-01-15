@@ -38,10 +38,7 @@ pub async fn user_avatar_handler(
     let file_path: &PathBuf = &app_state.files_path;
 
     // 1. Get user details
-    let details = match UserDetails::get_by_id(&user_id)
-        .await
-        .map_err(|source| Error::InternalServerError { source })?
-    {
+    let details = match UserDetails::get_by_id(&user_id).await? {
         None => return Err(Error::UserNotFound { user_id }),
         Some(d) => d,
     };
@@ -61,9 +58,7 @@ pub async fn user_avatar_handler(
     let (owner_id, file_id) = (keys[0].clone(), keys[1].clone());
 
     // 4. Look up FileDetails in Redis/Neo4j using get_by_ids
-    let file_list = FileDetails::get_by_ids(&[&[&owner_id, &file_id]])
-        .await
-        .map_err(|source| Error::InternalServerError { source })?;
+    let file_list = FileDetails::get_by_ids(&[&[&owner_id, &file_id]]).await?;
 
     // We expect only one result in file_list, a Vec<Option<FileDetails>>
     let Some(file_details) = file_list.into_iter().flatten().next() else {
@@ -74,12 +69,10 @@ pub async fn user_avatar_handler(
     let small_variant_content_type =
         Blob::get_by_id(&file_details, &FileVariant::Small, file_path.clone())
             .await
-            .map_err(|err| {
+            .inspect_err(|_| {
                 error!(
-                    "Error while processing small variant for user: {} avatar with file: {}",
-                    user_id, file_id
-                );
-                Error::InternalServerError { source: err }
+            "Error while processing small variant for user: {user_id} avatar with file: {file_id}"
+        )
             })?;
 
     // serve the file using ServeDir

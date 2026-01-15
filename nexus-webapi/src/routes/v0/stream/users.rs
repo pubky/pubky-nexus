@@ -67,10 +67,9 @@ pub async fn stream_users_handler(
 
     let (input, viewer_id, depth) = build_user_stream_input(query)?;
 
-    match UserStream::get_by_id(input, viewer_id, depth).await {
-        Ok(Some(stream)) => Ok(Json(stream)),
-        Ok(None) => Ok(Json(UserStream::default())),
-        Err(source) => Err(Error::InternalServerError { source }),
+    match UserStream::get_by_id(input, viewer_id, depth).await? {
+        Some(stream) => Ok(Json(stream)),
+        None => Ok(Json(UserStream::default())),
     }
 }
 
@@ -115,13 +114,9 @@ pub async fn stream_user_ids_handler(
 
     let (input, _, _) = build_user_stream_input(query)?;
 
-    match UserStream::get_user_list_from_source(input).await {
-        Ok(Some(user_ids)) => {
-            let stream = UserIdStream::new(user_ids);
-            Ok(Json(stream))
-        }
-        Ok(None) => Ok(Json(UserIdStream::default())),
-        Err(source) => Err(Error::InternalServerError { source }),
+    match UserStream::get_user_list_from_source(input).await? {
+        Some(user_ids) => Ok(Json(UserIdStream::new(user_ids))),
+        None => Ok(Json(UserIdStream::default())),
     }
 }
 
@@ -163,10 +158,7 @@ pub async fn stream_username_search_handler(
     let skip = query.pagination.skip.unwrap_or(0);
     let limit = query.pagination.limit.unwrap_or(20);
 
-    debug!(
-        "GET {STREAM_USERS_USERNAME_SEARCH_ROUTE}?username={}",
-        username
-    );
+    debug!("GET {STREAM_USERS_USERNAME_SEARCH_ROUTE}?username={username}");
 
     match UserStream::get_from_username_search(
         username,
@@ -174,11 +166,10 @@ pub async fn stream_username_search_handler(
         Some(skip),
         Some(limit),
     )
-    .await
+    .await?
     {
-        Ok(Some(stream)) => Ok(Json(stream)),
-        Ok(None) => Ok(Json(UserStream::default())),
-        Err(source) => Err(Error::InternalServerError { source }),
+        Some(stream) => Ok(Json(stream)),
+        None => Ok(Json(UserStream::default())),
     }
 }
 
@@ -235,11 +226,10 @@ pub async fn stream_users_by_ids_handler(
         request.viewer_id.as_deref(),
         request.depth,
     )
-    .await
+    .await?
     {
-        Ok(Some(stream)) => Ok(Json(stream)),
-        Ok(None) => Ok(Json(UserStream::default())),
-        Err(source) => Err(Error::InternalServerError { source }),
+        Some(stream) => Ok(Json(stream)),
+        None => Ok(Json(UserStream::default())),
     }
 }
 

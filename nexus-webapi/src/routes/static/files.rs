@@ -77,12 +77,8 @@ pub async fn static_files_handler(
         vec![vec![owner_id.as_str(), file_id.as_str()].as_slice()].as_slice(),
     )
     .await
-    .map_err(|err| {
-        error!(
-            "Error while fetching file details for user: {} and file: {}",
-            owner_id, file_id
-        );
-        Error::InternalServerError { source: err }
+    .inspect_err(|_| {
+        error!("Error while fetching file details for user: {owner_id} and file: {file_id}")
     })?;
 
     if files.is_empty() {
@@ -105,12 +101,8 @@ pub async fn static_files_handler(
 
     let file_variant_content_type = Blob::get_by_id(&file, &variant, file_path.clone())
         .await
-        .map_err(|err| {
-            error!(
-                "Error while processing file variant for variant: {} and file: {}",
-                variant, file_id
-            );
-            Error::InternalServerError { source: err }
+        .inspect_err(|_| {
+            error!("Error while processing file variant for variant: {variant} and file: {file_id}")
         })?;
 
     let request_uri = request.uri().clone();

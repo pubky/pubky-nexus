@@ -126,11 +126,10 @@ pub async fn stream_posts_handler(
         query.tags,
         query.kind,
     )
-    .await
+    .await?
     {
-        Ok(Some(stream)) => Ok(Json(stream)),
-        Ok(None) => Ok(Json(PostStream::default())),
-        Err(source) => Err(Error::InternalServerError { source }),
+        Some(stream) => Ok(Json(stream)),
+        None => Ok(Json(PostStream::default())),
     }
 }
 
@@ -183,11 +182,10 @@ pub async fn stream_post_keys_handler(
         query.tags,
         query.kind,
     )
-    .await
+    .await?
     {
-        Ok(Some(stream)) => Ok(Json(stream)),
-        Ok(None) => Ok(Json(PostKeyStream::default())),
-        Err(source) => Err(Error::InternalServerError { source }),
+        Some(stream) => Ok(Json(stream)),
+        None => Ok(Json(PostKeyStream::default())),
     }
 }
 
@@ -234,10 +232,9 @@ pub async fn stream_posts_by_ids_handler(
         });
     }
 
-    match PostStream::from_listed_post_ids(request.viewer_id, &request.post_ids).await {
-        Ok(Some(stream)) => Ok(Json(stream)),
-        Ok(None) => Ok(Json(PostStream::default())),
-        Err(source) => Err(Error::InternalServerError { source }),
+    match PostStream::from_listed_post_ids(request.viewer_id, &request.post_ids).await? {
+        Some(stream) => Ok(Json(stream)),
+        None => Ok(Json(PostStream::default())),
     }
 }
 

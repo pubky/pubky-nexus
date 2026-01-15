@@ -53,10 +53,7 @@ pub async fn tag_taggers_handler(
     Path(label): Path<String>,
     Query(query): Query<TagTaggersQuery>,
 ) -> Result<Json<TaggersType>> {
-    debug!(
-        "GET {TAG_TAGGERS_ROUTE} label:{}, query: {:?}",
-        label, query
-    );
+    debug!("GET {TAG_TAGGERS_ROUTE} label:{label}, query: {query:?}");
 
     // Check if user_id and reach are provided together
     if query.user_id.is_some() ^ query.reach.is_some() {
@@ -77,11 +74,10 @@ pub async fn tag_taggers_handler(
         limit,
         timeframe,
     )
-    .await
+    .await?
     {
-        Ok(Some(post)) => Ok(Json(post)),
-        Ok(None) => Ok(Json(vec![])),
-        Err(source) => Err(Error::InternalServerError { source }),
+        Some(post) => Ok(Json(post)),
+        None => Ok(Json(vec![])),
     }
 }
 
