@@ -1,5 +1,4 @@
 use chrono::Utc;
-use nexus_common::db::kv::JsonAction;
 use nexus_common::db::OperationOutcome;
 use nexus_common::models::post::Bookmark;
 use nexus_common::models::user::UserCounts;
@@ -46,7 +45,7 @@ pub async fn sync_put(
         })?;
 
     if !existed {
-        UserCounts::update(&user_id, "bookmarks", JsonAction::Increment(1), None)
+        UserCounts::increment(&user_id, "bookmarks", None)
             .await
             .map_err(|e| EventProcessorError::IndexWriteFailed {
                 message: e.to_string(),
@@ -74,7 +73,7 @@ pub async fn sync_del(user_id: PubkyId, bookmark_id: String) -> Result<(), DynEr
             message: e.to_string(),
         })?;
     // Update user counts
-    UserCounts::update(&user_id, "bookmarks", JsonAction::Decrement(1), None)
+    UserCounts::decrement(&user_id, "bookmarks", None)
         .await
         .map_err(|e| EventProcessorError::IndexWriteFailed {
             message: e.to_string(),

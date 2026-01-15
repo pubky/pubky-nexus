@@ -108,10 +108,10 @@ pub async fn sync_put(
         },
         // TODO: Use SCARD on a set for unique tag count to avoid race conditions in parallel processing
         // Update user counts with the new post
-        UserCounts::update(&author_id, "posts", JsonAction::Increment(1), None),
+        UserCounts::increment(&author_id, "posts", None),
         async {
             if is_reply {
-                UserCounts::update(&author_id, "replies", JsonAction::Increment(1), None).await?;
+                UserCounts::increment(&author_id, "replies", None).await?;
             };
             Ok::<(), DynError>(())
         }
@@ -353,10 +353,10 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
     // DELETE TO INDEX - PHASE 1, decrease post counts
     let indexing_results = tokio::join!(
         PostCounts::delete(&author_id, &post_id, !is_reply),
-        UserCounts::update(&author_id, "posts", JsonAction::Decrement(1), None),
+        UserCounts::decrement(&author_id, "posts", None),
         async {
             if is_reply {
-                UserCounts::update(&author_id, "replies", JsonAction::Decrement(1), None).await?;
+                UserCounts::decrement(&author_id, "replies", None).await?;
             };
             Ok::<(), DynError>(())
         }

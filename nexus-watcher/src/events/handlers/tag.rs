@@ -95,7 +95,7 @@ async fn put_sync_post(
 
             let indexing_results = tokio::join!(
                 // Update user counts for tagger
-                UserCounts::update(&tagger_user_id, "tagged", JsonAction::Increment(1), None),
+                UserCounts::increment(&tagger_user_id, "tagged", None),
                 // Increment in one the post tags
                 PostCounts::update_index_field(
                     post_key_slice,
@@ -211,20 +211,14 @@ async fn put_sync_user(
             // SAVE TO INDEX
             let indexing_results = tokio::join!(
                 // Update user counts for the tagged user
-                UserCounts::update(&tagged_user_id, "tags", JsonAction::Increment(1), None),
+                UserCounts::increment(&tagged_user_id, "tags", None),
                 // Update user counts for the tagger user
-                UserCounts::update(&tagger_user_id, "tagged", JsonAction::Increment(1), None),
+                UserCounts::increment(&tagger_user_id, "tagged", None),
                 async {
                     // Increase unique_tags if the tag does not exist already
                     // NOTE: To update that field, it cannot exist in TagUser SORTED SET the tag. Thats why it has to be executed
                     // before TagUser operation
-                    UserCounts::update(
-                        &tagged_user_id,
-                        "unique_tags",
-                        JsonAction::Increment(1),
-                        Some(tag_label),
-                    )
-                    .await?;
+                    UserCounts::increment(&tagged_user_id, "unique_tags", Some(tag_label)).await?;
                     // Add label count to the user profile tag
                     TagUser::update_index_score(
                         &tagged_user_id,
@@ -288,22 +282,16 @@ async fn del_sync_user(
 ) -> Result<(), DynError> {
     let indexing_results = tokio::join!(
         // Update user counts in the tagged
-        UserCounts::update(tagged_id, "tags", JsonAction::Decrement(1), None),
+        UserCounts::decrement(tagged_id, "tags", None),
         // Update user counts in the tagger
-        UserCounts::update(&tagger_id, "tagged", JsonAction::Decrement(1), None),
+        UserCounts::decrement(&tagger_id, "tagged", None),
         async {
             // Decrement label count to the user profile tag
             TagUser::update_index_score(tagged_id, None, tag_label, ScoreAction::Decrement(1.0))
                 .await?;
             // Decrease unique_tags
             // NOTE: To update that field, we first need to decrement the value in the TagUser SORTED SET associated with that tag
-            UserCounts::update(
-                tagged_id,
-                "unique_tags",
-                JsonAction::Decrement(1),
-                Some(tag_label),
-            )
-            .await?;
+            UserCounts::decrement(tagged_id, "unique_tags", Some(tag_label)).await?;
             Ok::<(), DynError>(())
         },
         async {
@@ -337,7 +325,7 @@ async fn del_sync_post(
 
     let indexing_results = tokio::join!(
         // Update user counts for tagger
-        UserCounts::update(&tagger_id, "tagged", JsonAction::Decrement(1), None),
+        UserCounts::decrement(&tagger_id, "tagged", None),
         // Decrement in one the post tags
         PostCounts::update_index_field(post_key_slice, "tags", JsonAction::Decrement(1), None),
         async {
