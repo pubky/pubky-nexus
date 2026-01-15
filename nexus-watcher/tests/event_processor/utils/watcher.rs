@@ -256,7 +256,7 @@ impl WatcherTest {
     ) -> Result<(String, ResourcePath)> {
         let (post_id, post_path) = post.hs_path();
         // Write the post in the pubky.app repository
-        self.put(&user_kp, &post_path, post).await?;
+        self.put(user_kp, &post_path, post).await?;
 
         // Index to Nexus from Homeserver using the events processor
         self.ensure_event_processing_complete().await?;
@@ -286,7 +286,7 @@ impl WatcherTest {
         file: &PubkyAppFile,
     ) -> Result<(String, ResourcePath)> {
         let (file_id, file_path) = file.hs_path();
-        self.put(&user_kp, &file_path, file).await?;
+        self.put(user_kp, &file_path, file).await?;
 
         self.ensure_event_processing_complete().await?;
         Ok((file_id, file_path))
@@ -311,7 +311,7 @@ impl WatcherTest {
         user_kp: &Keypair,
         file_path: &ResourcePath,
     ) -> Result<()> {
-        self.del(user_kp, &file_path).await?;
+        self.del(user_kp, file_path).await?;
         self.ensure_event_processing_complete().await?;
         Ok(())
     }
@@ -325,7 +325,7 @@ impl WatcherTest {
             created_at: Utc::now().timestamp_millis(),
         };
         let follow_path = follow_relationship.hs_path(followee_id);
-        self.put(&follower_kp, &follow_path, follow_relationship)
+        self.put(follower_kp, &follow_path, follow_relationship)
             .await?;
         // Process the event
         self.ensure_event_processing_complete().await?;
@@ -341,7 +341,7 @@ impl WatcherTest {
             created_at: Utc::now().timestamp_millis(),
         };
         let mute_path = PubkyAppMute::hs_path(mutee_id);
-        self.put(&muter_kp, &mute_path, mute_relationship).await?;
+        self.put(muter_kp, &mute_path, mute_relationship).await?;
         // Process the event
         self.ensure_event_processing_complete().await?;
         Ok(mute_path)
