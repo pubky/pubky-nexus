@@ -45,10 +45,9 @@ pub async fn search_users_by_name_handler(
     let skip = query.pagination.skip.unwrap_or(0);
     let limit = query.pagination.limit.unwrap_or(200);
 
-    match UserSearch::get_by_name(&username, Some(skip), Some(limit)).await {
-        Ok(Some(user_search)) => Ok(Json(user_search)),
-        Ok(None) => Ok(Json(UserSearch::default())),
-        Err(source) => Err(Error::InternalServerError { source }),
+    match UserSearch::get_by_name(&username, Some(skip), Some(limit)).await? {
+        Some(user_search) => Ok(Json(user_search)),
+        None => Ok(Json(UserSearch::default())),
     }
 }
 
@@ -84,10 +83,9 @@ pub async fn search_users_by_id_handler(
     let skip = query.pagination.skip.unwrap_or(0);
     let limit = query.pagination.limit.unwrap_or(200);
 
-    match UserSearch::get_by_id(&id_prefix, Some(skip), Some(limit)).await {
-        Ok(Some(user_search)) => Ok(Json(user_search)),
-        Ok(None) => Ok(Json(UserSearch::default())),
-        Err(source) => Err(Error::InternalServerError { source }),
+    match UserSearch::get_by_id(&id_prefix, Some(skip), Some(limit)).await? {
+        Some(user_search) => Ok(Json(user_search)),
+        None => Ok(Json(UserSearch::default())),
     }
 }
 

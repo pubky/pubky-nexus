@@ -48,9 +48,9 @@ impl PostStreamQuery {
     pub fn validate_tags(&self) -> AppResult<()> {
         if let Some(ref tags) = self.tags {
             if tags.len() > MAX_TAGS {
-                return Err(Error::InvalidInput {
-                    message: format!("Too many tags provided; maximum allowed is {MAX_TAGS}"),
-                });
+                return Err(Error::invalid_input(&format!(
+                    "Too many tags provided; maximum allowed is {MAX_TAGS}"
+                )));
             }
         }
         Ok(())
@@ -126,11 +126,10 @@ pub async fn stream_posts_handler(
         query.tags,
         query.kind,
     )
-    .await
+    .await?
     {
-        Ok(Some(stream)) => Ok(Json(stream)),
-        Ok(None) => Ok(Json(PostStream::default())),
-        Err(source) => Err(Error::InternalServerError { source }),
+        Some(stream) => Ok(Json(stream)),
+        None => Ok(Json(PostStream::default())),
     }
 }
 
@@ -183,11 +182,10 @@ pub async fn stream_post_keys_handler(
         query.tags,
         query.kind,
     )
-    .await
+    .await?
     {
-        Ok(Some(stream)) => Ok(Json(stream)),
-        Ok(None) => Ok(Json(PostKeyStream::default())),
-        Err(source) => Err(Error::InternalServerError { source }),
+        Some(stream) => Ok(Json(stream)),
+        None => Ok(Json(PostKeyStream::default())),
     }
 }
 
@@ -223,21 +221,18 @@ pub async fn stream_posts_by_ids_handler(
     const MAX_POSTS: usize = 100;
 
     if request.post_ids.len() > MAX_POSTS {
-        return Err(Error::InvalidInput {
-            message: format!("The maximum number of post IDs allowed is {MAX_POSTS}"),
-        });
+        let err_msg = format!("The maximum number of post IDs allowed is {MAX_POSTS}");
+        return Err(Error::invalid_input(&err_msg));
     }
 
     if request.post_ids.is_empty() {
-        return Err(Error::InvalidInput {
-            message: "The list of post IDs provided is empty".to_string(),
-        });
+        let err_msg = "The list of post IDs provided is empty";
+        return Err(Error::invalid_input(err_msg));
     }
 
-    match PostStream::from_listed_post_ids(request.viewer_id, &request.post_ids).await {
-        Ok(Some(stream)) => Ok(Json(stream)),
-        Ok(None) => Ok(Json(PostStream::default())),
-        Err(source) => Err(Error::InternalServerError { source }),
+    match PostStream::from_listed_post_ids(request.viewer_id, &request.post_ids).await? {
+        Some(stream) => Ok(Json(stream)),
+        None => Ok(Json(PostStream::default())),
     }
 }
 

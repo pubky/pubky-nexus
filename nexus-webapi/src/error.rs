@@ -1,6 +1,9 @@
+use axum::http::header::InvalidHeaderValue;
+use axum::http::uri::InvalidUri;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use nexus_common::types::DynError;
+use std::io;
 use thiserror::Error;
 use tracing::error;
 
@@ -13,7 +16,7 @@ pub enum Error {
     #[error("Post not found: {author_id} {post_id}")]
     PostNotFound { author_id: String, post_id: String },
     #[error("Internal server error: {source}")]
-    InternalServerError { source: Box<dyn std::error::Error> },
+    InternalServerError { source: DynError },
     #[error("Bookmarks not found: {user_id}")]
     BookmarksNotFound { user_id: String },
     #[error("Tags not found")]
@@ -28,13 +31,39 @@ pub enum Error {
 }
 
 impl Error {
-    pub fn internal(source: DynError) -> Self {
-        Error::InternalServerError { source }
-    }
-
     pub fn invalid_input(message: &str) -> Self {
         Error::InvalidInput {
             message: message.to_string(),
+        }
+    }
+}
+
+impl From<DynError> for Error {
+    fn from(source: DynError) -> Self {
+        Error::InternalServerError { source }
+    }
+}
+
+impl From<InvalidHeaderValue> for Error {
+    fn from(source: InvalidHeaderValue) -> Self {
+        Error::InternalServerError {
+            source: Box::new(source),
+        }
+    }
+}
+
+impl From<InvalidUri> for Error {
+    fn from(source: InvalidUri) -> Self {
+        Error::InternalServerError {
+            source: Box::new(source),
+        }
+    }
+}
+
+impl From<io::Error> for Error {
+    fn from(source: io::Error) -> Self {
+        Error::InternalServerError {
+            source: Box::new(source),
         }
     }
 }

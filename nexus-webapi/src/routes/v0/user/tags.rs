@@ -48,11 +48,10 @@ pub async fn user_tags_handler(
         query.viewer_id.as_deref(),
         query.depth,
     )
-    .await
+    .await?
     {
-        Ok(Some(tags)) => Ok(Json(tags)),
-        Ok(None) => Err(Error::UserNotFound { user_id }),
-        Err(source) => Err(Error::InternalServerError { source }),
+        Some(tags) => Ok(Json(tags)),
+        None => Err(Error::UserNotFound { user_id }),
     }
 }
 
@@ -94,7 +93,7 @@ pub async fn user_taggers_handler(
         user_id, label, pagination.skip, pagination.limit, tags_query.viewer_id, tags_query.depth
     );
 
-    match TagUser::get_tagger_by_id(
+    let taggers = TagUser::get_tagger_by_id(
         &user_id,
         None,
         &label,
@@ -102,11 +101,8 @@ pub async fn user_taggers_handler(
         tags_query.viewer_id.as_deref(),
         tags_query.depth,
     )
-    .await
-    {
-        Ok(tags) => Ok(Json(TaggersInfoResponse::from(tags))),
-        Err(source) => Err(Error::InternalServerError { source }),
-    }
+    .await?;
+    Ok(Json(TaggersInfoResponse::from(taggers)))
 }
 
 #[derive(OpenApi)]

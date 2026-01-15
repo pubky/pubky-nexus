@@ -1,5 +1,5 @@
 use crate::routes::v0::endpoints::FILE_LIST_ROUTE;
-use crate::{Error, Result};
+use crate::Result;
 use axum::Json;
 use nexus_common::models::file::FileDetails;
 use nexus_common::models::traits::Collection;
@@ -41,15 +41,9 @@ pub async fn file_details_by_uris_handler(
 
     let slice_keys: Vec<&[&str]> = key_refs.iter().map(|arr| arr.as_slice()).collect();
 
-    let files = FileDetails::get_by_ids(&slice_keys).await;
-
-    match files {
-        Ok(value) => {
-            let data: Vec<FileDetails> = value.into_iter().flatten().collect();
-            Ok(Json(data))
-        }
-        Err(source) => Err(Error::InternalServerError { source }),
-    }
+    let files = FileDetails::get_by_ids(&slice_keys).await?;
+    let data: Vec<FileDetails> = files.into_iter().flatten().collect();
+    Ok(Json(data))
 }
 
 #[derive(OpenApi)]

@@ -1,5 +1,5 @@
 use crate::routes::v0::endpoints::NOTIFICATION_ROUTE;
-use crate::{Error, Result};
+use crate::Result;
 use axum::extract::{Path, Query};
 use axum::Json;
 use nexus_common::models::notification::{Notification, NotificationBody, PostChangedSource};
@@ -30,10 +30,7 @@ pub async fn list_notifications_handler(
 ) -> Result<Json<Vec<Notification>>> {
     debug!("GET {NOTIFICATION_ROUTE} for user_id: {}", user_id);
 
-    match Notification::get_by_id(&user_id, pagination).await {
-        Ok(notifications) => Ok(Json(notifications)),
-        Err(source) => Err(Error::InternalServerError { source }),
-    }
+    Ok(Json(Notification::get_by_id(&user_id, pagination).await?))
 }
 
 #[derive(OpenApi)]

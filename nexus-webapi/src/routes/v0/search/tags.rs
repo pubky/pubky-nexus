@@ -47,10 +47,9 @@ pub async fn search_tags_by_prefix_handler(
         validated_prefix, pagination.skip, pagination.limit
     );
 
-    match TagSearch::get_by_label(&validated_prefix, &pagination).await {
-        Ok(Some(tags_list)) => Ok(Json(tags_list)),
-        Ok(None) => Ok(Json(vec![])),
-        Err(source) => Err(Error::InternalServerError { source }),
+    match TagSearch::get_by_label(&validated_prefix, &pagination).await? {
+        Some(tags_list) => Ok(Json(tags_list)),
+        None => Ok(Json(vec![])),
     }
 }
 

@@ -53,16 +53,13 @@ pub async fn tag_taggers_handler(
     Path(label): Path<String>,
     Query(query): Query<TagTaggersQuery>,
 ) -> Result<Json<TaggersType>> {
-    debug!(
-        "GET {TAG_TAGGERS_ROUTE} label:{}, query: {:?}",
-        label, query
-    );
+    debug!("GET {TAG_TAGGERS_ROUTE} label:{label}, query: {query:?}");
 
     // Check if user_id and reach are provided together
     if query.user_id.is_some() ^ query.reach.is_some() {
-        return Err(Error::InvalidInput {
-            message: String::from("user_id and reach should be both provided together"),
-        });
+        return Err(Error::invalid_input(
+            "user_id and reach should be both provided together",
+        ));
     }
 
     let skip = query.pagination.skip.unwrap_or(0);
@@ -77,11 +74,10 @@ pub async fn tag_taggers_handler(
         limit,
         timeframe,
     )
-    .await
+    .await?
     {
-        Ok(Some(post)) => Ok(Json(post)),
-        Ok(None) => Ok(Json(vec![])),
-        Err(source) => Err(Error::InternalServerError { source }),
+        Some(post) => Ok(Json(post)),
+        None => Ok(Json(vec![])),
     }
 }
 
@@ -108,9 +104,9 @@ pub async fn hot_tags_handler(Query(query): Query<HotTagsQuery>) -> Result<Json<
 
     // Check if user_id and reach are provided together
     if query.user_id.is_some() ^ query.reach.is_some() {
-        return Err(Error::InvalidInput {
-            message: String::from("user_id and reach should be both provided together"),
-        });
+        return Err(Error::invalid_input(
+            "user_id and reach should be both provided together",
+        ));
     }
 
     let skip = query.pagination.skip.unwrap_or(0);

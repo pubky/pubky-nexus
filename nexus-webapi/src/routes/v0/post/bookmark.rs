@@ -39,10 +39,9 @@ pub async fn post_bookmark_handler(
         query.viewer_id.clone().unwrap_or_default()
     );
 
-    match Bookmark::get_by_id(&author_id, &post_id, query.viewer_id.as_deref()).await {
-        Ok(Some(post)) => Ok(Json(post)),
-        Ok(None) => Err(Error::PostNotFound { author_id, post_id }),
-        Err(source) => Err(Error::InternalServerError { source }),
+    match Bookmark::get_by_id(&author_id, &post_id, query.viewer_id.as_deref()).await? {
+        Some(post) => Ok(Json(post)),
+        None => Err(Error::PostNotFound { author_id, post_id }),
     }
 }
 
