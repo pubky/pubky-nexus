@@ -91,12 +91,10 @@ pub async fn static_files_handler(
         .ok_or(Error::FileNotFound {})?;
 
     if !VariantController::validate_variant_for_content_type(file.content_type.as_str(), &variant) {
-        return Err(Error::InvalidInput {
-            message: format!(
-                "variant {} is not valid for content type {}",
-                variant, file.content_type
-            ),
-        });
+        return Err(Error::invalid_input(&format!(
+            "variant {} is not valid for content type {}",
+            variant, file.content_type
+        )));
     }
 
     let file_variant_content_type = Blob::get_by_id(&file, &variant, file_path.clone())
