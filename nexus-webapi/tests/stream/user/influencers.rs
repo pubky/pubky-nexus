@@ -61,7 +61,7 @@ async fn test_global_influencers_preview() -> Result<()> {
         .collect();
 
     // Sleep to ensure the second request gets a different timestamp_subsec_micros() value,
-    // which determines the random skip offset for preview mode (see get_influencers()).
+    // which determines the random skip offset for preview mode (see Influencers::get_influencers()).
     sleep(Duration::from_millis(5)).await;
 
     // Make a second request to verify preview returns different results
