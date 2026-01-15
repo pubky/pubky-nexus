@@ -104,7 +104,7 @@ async fn test_multi_hs_event_processing_with_homeserver_limit_one() -> Result<()
     let runner_one = MockEventProcessorRunner::new(event_processor_list, 1, shutdown_rx);
     let hs_list = runner_one.pre_run_all().await.unwrap();
     assert_eq!(hs_list.len(), 1);
-    assert_eq!(hs_list.get(0).unwrap(), &runner_one.default_homeserver());
+    assert_eq!(hs_list.first().unwrap(), &runner_one.default_homeserver());
 
     let stats_one = runner_one.run_all().await.unwrap().0;
     assert_eq!(stats_one.count_ok(), 1); // 1 successful, due to the limit (5 HSs were available)

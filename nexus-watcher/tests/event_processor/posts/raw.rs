@@ -135,11 +135,11 @@ async fn reindex_and_ensure_cache_and_graph_unchanged(
     test.ensure_event_processing_complete().await?;
 
     // Check that nothing changed in the graph (DB)
-    let post_details_2 = find_post_details(&user_id, &post_id).await.unwrap();
+    let post_details_2 = find_post_details(user_id, post_id).await.unwrap();
     assert_eq!(post_details_from_graph, &post_details_2);
 
     // Check that nothing changed in the index (cache)
-    let post_detail_cache_2: PostDetails = PostDetails::get_from_index(&user_id, &post_id)
+    let post_detail_cache_2: PostDetails = PostDetails::get_from_index(user_id, post_id)
         .await
         .unwrap()
         .expect("The new post detail was not served from Nexus cache");

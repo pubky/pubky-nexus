@@ -57,7 +57,7 @@ impl TEventProcessorRunner for MockEventProcessorRunner {
 
         // Skip the homeserver IDs that are not part of the runner's event processors
         for mock_event_processor in self.event_processors.iter() {
-            let hs_id = mock_event_processor.homeserver_id.to_string().clone();
+            let hs_id = mock_event_processor.homeserver_id.to_string();
             if persistedhs_ids.contains(&hs_id) {
                 hs_ids.push(hs_id);
             }
