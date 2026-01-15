@@ -1,6 +1,9 @@
+use axum::http::header::InvalidHeaderValue;
+use axum::http::uri::InvalidUri;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use nexus_common::types::DynError;
+use std::io;
 use thiserror::Error;
 use tracing::error;
 
@@ -38,6 +41,30 @@ impl Error {
 impl From<DynError> for Error {
     fn from(source: DynError) -> Self {
         Error::InternalServerError { source }
+    }
+}
+
+impl From<InvalidHeaderValue> for Error {
+    fn from(source: InvalidHeaderValue) -> Self {
+        Error::InternalServerError {
+            source: Box::new(source),
+        }
+    }
+}
+
+impl From<InvalidUri> for Error {
+    fn from(source: InvalidUri) -> Self {
+        Error::InternalServerError {
+            source: Box::new(source),
+        }
+    }
+}
+
+impl From<io::Error> for Error {
+    fn from(source: io::Error) -> Self {
+        Error::InternalServerError {
+            source: Box::new(source),
+        }
     }
 }
 

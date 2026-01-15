@@ -119,12 +119,9 @@ pub async fn static_files_handler(
     response.headers_mut().remove("cache-control");
 
     // Set a new Cache-Control header to cache the file for 3600 seconds (1 hour)
-    let cache_control_header = "public, max-age=3600".parse().map_err(|err| {
-        error!("Failed to parse Cache-Control header value: {}", err);
-        Error::InternalServerError {
-            source: Box::new(err),
-        }
-    })?;
+    let cache_control_header = "public, max-age=3600"
+        .parse()
+        .inspect_err(|err| error!("Failed to parse Cache-Control header value: {}", err))?;
 
     // Insert our newly parsed Cache-Control header.
     response
@@ -135,12 +132,7 @@ pub async fn static_files_handler(
     if params.dl.is_some() {
         let content_disposition_header = format!("attachment; filename=\"{}\"", file.name)
             .parse()
-            .map_err(|err| {
-                error!("Invalid content disposition header: {}", file.name);
-                Error::InternalServerError {
-                    source: Box::new(err),
-                }
-            })?;
+            .inspect_err(|_| error!("Invalid content disposition header: {}", file.name))?;
         response
             .headers_mut()
             .insert("content-disposition", content_disposition_header);

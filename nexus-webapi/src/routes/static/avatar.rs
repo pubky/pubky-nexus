@@ -98,12 +98,9 @@ pub async fn user_avatar_handler(
     response.headers_mut().remove("cache-control");
 
     // Insert a new Cache-Control header (e.g., 1 hour)
-    let cache_control_header = "public, max-age=3600".parse().map_err(|err| {
-        error!("Failed to parse Cache-Control header value: {}", err);
-        Error::InternalServerError {
-            source: Box::new(err),
-        }
-    })?;
+    let cache_control_header = "public, max-age=3600"
+        .parse()
+        .inspect_err(|err| error!("Failed to parse Cache-Control header value: {}", err))?;
 
     response
         .headers_mut()
