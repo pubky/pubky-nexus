@@ -1,7 +1,6 @@
 use crate::events::retry::event::RetryEvent;
 use crate::events::EventProcessorError;
 use crate::handle_indexing_results;
-use nexus_common::db::kv::ScoreAction;
 use nexus_common::db::queries::get::post_is_safe_to_delete;
 use nexus_common::db::{exec_single_row, execute_graph_operation, OperationOutcome};
 use nexus_common::db::{queries, RedisOps};
@@ -141,10 +140,9 @@ pub async fn sync_put(
             PostCounts::increment_index_field(parent_post_key_parts, "replies", None),
             async {
                 if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await? {
-                    PostStream::put_score_index_sorted_set(
+                    PostStream::increment_score_index_sorted_set(
                         &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
                         parent_post_key_parts,
-                        ScoreAction::Increment(1.0),
                     )
                     .await?;
                 }
@@ -187,10 +185,9 @@ pub async fn sync_put(
             async {
                 // Post replies cannot be included in the total engagement index after they receive a reply
                 if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await? {
-                    PostStream::put_score_index_sorted_set(
+                    PostStream::increment_score_index_sorted_set(
                         &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
                         parent_post_key_parts,
-                        ScoreAction::Increment(1.0),
                     )
                     .await?;
                 }
@@ -377,10 +374,9 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
                 async {
                     // Post replies cannot be included in the total engagement index after the reply is deleted
                     if !post_relationships_is_reply(&parent_user_id, &parent_post_id).await? {
-                        PostStream::put_score_index_sorted_set(
+                        PostStream::decrement_score_index_sorted_set(
                             &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
                             &parent_post_key_parts,
-                            ScoreAction::Decrement(1.0),
                         )
                         .await?;
                     }
@@ -415,10 +411,9 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
                 async {
                     // Post replies cannot be included in the total engagement index after the repost is deleted
                     if !post_relationships_is_reply(&reposted_uri.user_id, &parent_post_id).await? {
-                        PostStream::put_score_index_sorted_set(
+                        PostStream::decrement_score_index_sorted_set(
                             &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
                             parent_post_key_parts,
-                            ScoreAction::Decrement(1.0),
                         )
                         .await?;
                     }
