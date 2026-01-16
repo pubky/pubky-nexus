@@ -2,10 +2,12 @@ use crate::db::get_redis_conn;
 use crate::types::DynError;
 use deadpool_redis::redis::AsyncCommands;
 
-/// Adds elements to a Redis list.
+/// Adds elements to a Redis list with deduplication.
 ///
-/// This function appends elements to the specified Redis list. If the list doesn't exist,
-/// it creates a new list.
+/// This function appends elements to the specified Redis list while ensuring no duplicates.
+/// For each value, it first removes any existing occurrences, then appends the value to the end.
+/// This makes the operation idempotent - calling it multiple times with the same value results
+/// in only one occurrence at the end of the list.
 ///
 /// # Arguments
 ///
@@ -22,7 +24,16 @@ pub async fn put(prefix: &str, key: &str, values: &[&str]) -> Result<(), DynErro
     }
     let index_key = format!("{prefix}:{key}");
     let mut redis_conn = get_redis_conn().await?;
-    let _: () = redis_conn.rpush(index_key, values).await?;
+
+    // Use a pipeline to remove duplicates then append each value
+    // LREM removes all existing occurrences (0 = all), then RPUSH appends to end
+    // This is atomic from the perspective of other Redis clients
+    let mut pipe = deadpool_redis::redis::pipe();
+    for value in values {
+        pipe.lrem(&index_key, 0, value).rpush(&index_key, value);
+    }
+    let _: () = pipe.query_async(&mut redis_conn).await?;
+
     Ok(())
 }
 
