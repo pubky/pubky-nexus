@@ -243,18 +243,10 @@ pub async fn stream_users_by_ids_handler(
     }
 }
 
-fn validate_required_param(
-    param: &Option<String>,
-    param_name: &str,
-    source: &str,
-) -> Result<()> {
-    if param.is_none() {
-        return Err(Error::InvalidInput {
-            message: format!(
-                "{} query param must be provided for source '{}'",
-                param_name, source
-            ),
-        });
+fn validate_req_param(maybe_param: &Option<String>, param_name: &str, source: &str) -> Result<()> {
+    if maybe_param.is_none() {
+        let err_msg = format!("{param_name} query param must be provided for source '{source}'");
+        return Err(Error::invalid_input(&err_msg));
     }
     Ok(())
 }
@@ -267,26 +259,20 @@ fn validate_source_requirements(
     reach: &Option<StreamReach>,
 ) -> Result<()> {
     match source {
-        UserStreamSource::Followers => validate_required_param(user_id, "user_id", "followers")?,
-        UserStreamSource::Following => validate_required_param(user_id, "user_id", "following")?,
-        UserStreamSource::Friends => validate_required_param(user_id, "user_id", "friends")?,
-        UserStreamSource::Muted => validate_required_param(user_id, "user_id", "muted")?,
-        UserStreamSource::Recommended => {
-            validate_required_param(user_id, "user_id", "recommended")?
-        }
-        UserStreamSource::Influencers if user_id.is_none() && reach.is_some() => {
-            return Err(Error::InvalidInput {
-                message: "reach query param requires user_id for source 'influencers'"
-                    .to_string(),
-            });
-        }
+        UserStreamSource::Followers => validate_req_param(user_id, "user_id", "followers"),
+        UserStreamSource::Following => validate_req_param(user_id, "user_id", "following"),
+        UserStreamSource::Friends => validate_req_param(user_id, "user_id", "friends"),
+        UserStreamSource::Muted => validate_req_param(user_id, "user_id", "muted"),
+        UserStreamSource::Recommended => validate_req_param(user_id, "user_id", "recommended"),
+        UserStreamSource::Influencers if user_id.is_none() && reach.is_some() => Err(
+            Error::invalid_input("reach query param requires user_id for source 'influencers'"),
+        ),
         UserStreamSource::PostReplies => {
-            validate_required_param(author_id, "author_id", "post_replies")?;
-            validate_required_param(post_id, "post_id", "post_replies")?;
+            validate_req_param(author_id, "author_id", "post_replies")?;
+            validate_req_param(post_id, "post_id", "post_replies")
         }
-        _ => (),
+        _ => Ok(()),
     }
-    Ok(())
 }
 
 fn build_user_stream_input(
