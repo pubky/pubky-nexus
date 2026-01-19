@@ -149,7 +149,7 @@ impl Homeserver {
             return Ok(());
         };
 
-        let hs_pk = PubkyId::try_from(ref_post_author_hs.to_string().as_str())?;
+        let hs_pk = PubkyId::from(ref_post_author_hs.into_inner());
         Self::persist_if_unknown(hs_pk.clone())
             .await
             .inspect(|_| tracing::info!("Ingested homeserver {hs_pk}"))

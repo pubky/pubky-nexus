@@ -12,18 +12,18 @@ members = [
 [workspace.dependencies]
 anyhow = "1.0.100"
 async-trait = "0.1.89"
-chrono = { version = "0.4.42", default-features = false, features = ["clock"] }
-clap = "4.5.53"
+chrono = { version = "0.4.43", default-features = false, features = ["clock"] }
+clap = "4.5.54"
 deadpool-redis = "0.22"
 neo4rs = "0.8.0"
 opentelemetry = "0.31"
 opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
 # pubky = "0.5.4"
-pubky = { git = "https://github.com/pubky/pubky-core.git", package = "pubky", rev = "4fc2294bfe40e4696cc27bbdf3838917cb8d11c6" }
+pubky = { git = "https://github.com/pubky/pubky-core.git", package = "pubky", rev = "0ec564d746236f46553ef56888a3aef9c1096f55" }
 # pubky-app-specs = { version = "0.4.0", features = ["openapi"] }
 pubky-app-specs = { git = "https://github.com/pubky/pubky-app-specs", rev = "8b05c5fe7ad4df9a3cb39005e5019f99a5e5036d", features = ["openapi"] }
 # pubky-testnet = "0.5.4"
-pubky-testnet = { git = "https://github.com/pubky/pubky-core.git", package = "pubky-testnet", rev = "4fc2294bfe40e4696cc27bbdf3838917cb8d11c6" }
+pubky-testnet = { git = "https://github.com/pubky/pubky-core.git", package = "pubky-testnet", rev = "0ec564d746236f46553ef56888a3aef9c1096f55" }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.145"
 tempfile = { version = "3.23" }
