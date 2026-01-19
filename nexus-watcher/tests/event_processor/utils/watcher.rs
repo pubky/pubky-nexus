@@ -95,7 +95,10 @@ impl WatcherTest {
 
         // WARNING: testnet initialization is time expensive, we only init one per process
         // TODO: Maybe we should create a single testnet network (singleton and push there more homeservers)
-        let mut testnet = EphemeralTestnet::start_minimal().await?;
+        let mut testnet = EphemeralTestnet::builder()
+            .with_http_relay()
+            .build()
+            .await?;
 
         // Create a random homeserver with a random public key
         let homeserver_id = testnet.create_random_homeserver().await?.public_key().z32();
