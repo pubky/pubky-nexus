@@ -1,6 +1,4 @@
-use crate::event_processor::{
-    homeserver::utils::create_external_test_homeserver, utils::watcher::WatcherTest,
-};
+use crate::event_processor::utils::watcher::{create_external_test_homeserver, WatcherTest};
 use anyhow::Result;
 use nexus_common::models::homeserver::Homeserver;
 use pubky::Keypair;
@@ -11,7 +9,7 @@ async fn test_follow_on_unknown_homeserver() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Create a separate homeserver for the followee
-    let followee_hs_pk = create_external_test_homeserver(&mut test).await?;
+    let followee_hs_pk = create_external_test_homeserver().await?;
     let followee_hs_id = PubkyId::try_from(&followee_hs_pk.to_z32()).unwrap();
 
     // Create followee
