@@ -1,12 +1,12 @@
 use std::path::PathBuf;
 
 use nexus_common::{file::default_config_dir_path, types::DynError, ApiConfig, DaemonConfig};
-use pkarr::Keypair;
+use pubky::pkarr::{self, Keypair};
 
 #[derive(Debug, Clone)]
 pub struct ApiContext {
     pub(crate) api_config: ApiConfig,
-    pub(crate) keypair: Keypair,
+    pub(crate) keypair: pkarr::Keypair,
     pub(crate) pkarr_client: pkarr::Client,
 }
 
