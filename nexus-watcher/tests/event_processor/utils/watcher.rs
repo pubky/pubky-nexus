@@ -98,11 +98,7 @@ impl WatcherTest {
         let mut testnet = EphemeralTestnet::start_minimal().await?;
 
         // Create a random homeserver with a random public key
-        let homeserver_id = testnet
-            .create_random_homeserver()
-            .await?
-            .public_key()
-            .to_string();
+        let homeserver_id = testnet.create_random_homeserver().await?.public_key().z32();
         let pubky_id = PubkyId::try_from(&homeserver_id).unwrap();
         Homeserver::persist_if_unknown(pubky_id.clone())
             .await
