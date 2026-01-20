@@ -47,11 +47,10 @@ pub async fn post_view_handler(
         query.limit_tags,
         query.limit_taggers,
     )
-    .await
+    .await?
     {
-        Ok(Some(post)) => Ok(Json(post)),
-        Ok(None) => Err(Error::PostNotFound { author_id, post_id }),
-        Err(source) => Err(Error::InternalServerError { source }),
+        Some(post) => Ok(Json(post)),
+        None => Err(Error::PostNotFound { author_id, post_id }),
     }
 }
 
