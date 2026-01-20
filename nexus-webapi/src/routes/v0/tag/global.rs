@@ -9,7 +9,7 @@ use nexus_common::models::tag::Taggers as TaggersType;
 use nexus_common::types::routes::HotTagsInputDTO;
 use nexus_common::types::{Pagination, StreamReach, Timeframe};
 use serde::Deserialize;
-use tracing::{debug, error};
+use tracing::debug;
 use utoipa::OpenApi;
 
 #[derive(Deserialize, Debug)]
@@ -122,13 +122,9 @@ pub async fn hot_tags_handler(Query(query): Query<HotTagsQuery>) -> Result<Json<
         tagged_type: Some(TaggedType::Post),
     };
 
-    match HotTags::get_hot_tags(query.user_id, query.reach, &input).await {
-        Ok(Some(hot_tags)) => Ok(Json(hot_tags)),
-        Ok(None) => Ok(Json(HotTags::default())),
-        Err(source) => {
-            error!("Internal Server ERROR: {:?}", source);
-            Err(Error::InternalServerError { source })
-        }
+    match HotTags::get_hot_tags(query.user_id, query.reach, &input).await? {
+        Some(hot_tags) => Ok(Json(hot_tags)),
+        None => Ok(Json(HotTags::default())),
     }
 }
 
