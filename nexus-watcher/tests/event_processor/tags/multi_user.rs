@@ -55,7 +55,7 @@ async fn test_homeserver_multi_user_tags() -> Result<()> {
         };
         let tag_path = tag.hs_path();
         // Put tag
-        test.put(&tagger_kp, &tag_path, tag).await?;
+        test.put(tagger_kp, &tag_path, tag).await?;
         tag_paths_and_tagger_kps.push((tag_path, tagger_kp))
     }
 
@@ -69,7 +69,7 @@ async fn test_homeserver_multi_user_tags() -> Result<()> {
         };
         let tag_path = tag.hs_path();
         // Put tag
-        test.put(&tagger_kp, &tag_path, tag).await?;
+        test.put(tagger_kp, &tag_path, tag).await?;
         tag_paths_and_tagger_kps.push((tag_path, tagger_kp))
     }
 
@@ -132,7 +132,7 @@ async fn test_homeserver_multi_user_tags() -> Result<()> {
 
     // Step 4: DEL tag from homeserver
     for (tag_url, tagger_kp) in tag_paths_and_tagger_kps {
-        test.del(&tagger_kp, &tag_url).await?;
+        test.del(tagger_kp, &tag_url).await?;
     }
 
     // Step 5: Assert all the DEL operations

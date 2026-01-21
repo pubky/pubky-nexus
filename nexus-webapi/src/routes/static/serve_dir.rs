@@ -1,16 +1,16 @@
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
-use crate::{Error, Result};
+use crate::Result;
 use axum::{
     body::Body,
     http::{Request, StatusCode, Uri},
     response::Response,
 };
-use once_cell::sync::OnceCell;
 use tower_http::services::{fs::ServeFileSystemResponseBody, ServeDir};
 use tracing::error;
 
-static SERVE_DIR_INSTANCE: OnceCell<ServeDir> = OnceCell::new();
+static SERVE_DIR_INSTANCE: OnceLock<ServeDir> = OnceLock::new();
 
 pub struct PubkyServeDir;
 
@@ -28,12 +28,7 @@ impl PubkyServeDir {
         content_type: String,
         file_path: PathBuf,
     ) -> Result<Response<ServeFileSystemResponseBody>> {
-        *request.uri_mut() =
-            path.as_str()
-                .parse::<Uri>()
-                .map_err(|err| Error::InternalServerError {
-                    source: Box::new(err),
-                })?;
+        *request.uri_mut() = path.as_str().parse::<Uri>()?;
 
         let response_result = Self::get_serve_dir(file_path).try_call(request).await;
 
@@ -45,19 +40,14 @@ impl PubkyServeDir {
                 response
             }
             Err(err) => {
-                return Err(Error::InternalServerError {
-                    source: Box::new(err),
-                });
+                return Err(err.into());
             }
         };
 
         // set the content type header
-        let content_type_header = content_type.parse().map_err(|err| {
-            error!("Invalid content type header: {}", content_type);
-            Error::InternalServerError {
-                source: Box::new(err),
-            }
-        })?;
+        let content_type_header = content_type
+            .parse()
+            .inspect_err(|_| error!("Invalid content type header: {}", content_type))?;
 
         response
             .headers_mut()

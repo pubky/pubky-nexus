@@ -10,6 +10,7 @@ use pubky_app_specs::PubkyAppPostKind;
 use serde::{Deserialize, Serialize};
 use tokio::task::spawn;
 use tokio::time::{timeout, Duration};
+use tracing::warn;
 use utoipa::ToSchema;
 
 pub const POST_TIMELINE_KEY_PARTS: [&str; 3] = ["Posts", "Global", "Timeline"];
@@ -254,8 +255,6 @@ impl PostStream {
         {
             let graph = get_neo4j_graph()?;
             let query = queries::get::post_stream(source, sorting, tags, pagination, kind);
-
-            let graph = graph.lock().await;
 
             // Set a 10-second timeout for the query execution
             result = match timeout(Duration::from_secs(10), graph.execute(query)).await {
@@ -552,7 +551,10 @@ impl PostStream {
         let mut handles = Vec::with_capacity(post_keys.len());
 
         for post_key in post_keys {
-            let (author_id, post_id) = post_key.split_once(':').unwrap_or_default();
+            let Some((author_id, post_id)) = post_key.split_once(':') else {
+                warn!("Invalid post_key format (missing ':'): {post_key}");
+                continue;
+            };
             let author_id = author_id.to_string();
             let viewer_id = viewer_id.clone();
             let post_id = post_id.to_string();

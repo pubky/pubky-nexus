@@ -24,15 +24,11 @@ use utoipa::OpenApi;
 pub async fn user_relationship_handler(
     Path((user_id, viewer_id)): Path<(String, String)>,
 ) -> Result<Json<Relationship>> {
-    debug!(
-        "GET {RELATIONSHIP_ROUTE} user_id:{}, viewer_id:{}",
-        user_id, viewer_id
-    );
+    debug!("GET {RELATIONSHIP_ROUTE} user_id:{user_id}, viewer_id:{viewer_id}");
 
-    match Relationship::get_by_id(&user_id, Some(&viewer_id)).await {
-        Ok(Some(relationship)) => Ok(Json(relationship)),
-        Ok(None) => Err(Error::UserNotFound { user_id }),
-        Err(source) => Err(Error::InternalServerError { source }),
+    match Relationship::get_by_id(&user_id, Some(&viewer_id)).await? {
+        Some(relationship) => Ok(Json(relationship)),
+        None => Err(Error::UserNotFound { user_id }),
     }
 }
 
