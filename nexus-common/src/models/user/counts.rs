@@ -152,6 +152,7 @@ impl UserCounts {
         Ok(())
     }
 
+    /// Increments a field in a user's counts by 1.
     pub async fn increment(
         user_id: &str,
         field: &str,
@@ -160,6 +161,7 @@ impl UserCounts {
         Self::update(user_id, field, JsonAction::Increment(1), tag_label).await
     }
 
+    /// Decrements a field in a user's counts by 1.
     pub async fn decrement(
         user_id: &str,
         field: &str,
