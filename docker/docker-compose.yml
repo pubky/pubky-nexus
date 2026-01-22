@@ -7,7 +7,7 @@ services:
       - 127.0.0.1:7474:7474
       - 127.0.0.1:7687:7687
     volumes:
-      # Mount the neo4j configuration file to container    
+      # Mount the neo4j configuration file to container
       - .database/neo4j/conf:/conf:Z
       # Mount the data to container
       - .database/neo4j/data:/data:Z
@@ -28,7 +28,6 @@ services:
       NEO4J_client_allow__telemetry: false
       # NEO4J_apoc_uuid_enabled: false
 
-
   redis:
     image: redis/redis-stack:7.2.0-v11
     container_name: redis
@@ -41,7 +40,6 @@ services:
       - .database/redis/data:/data:Z
     restart: always
 
-
   # Only used for tests that involve homeservers
   postgres:
     image: postgres:18-alpine
@@ -53,11 +51,10 @@ services:
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 5
-
 
   # jaeger:
   #   image: jaegertracing/all-in-one:1.65.0
