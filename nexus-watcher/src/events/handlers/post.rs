@@ -268,11 +268,11 @@ pub async fn put_mentioned_relationships(
     relationships: &mut PostRelationships,
 ) -> Result<(), DynError> {
     // Backwards compatibility: identify user references with "pk:" prefix
-    put_mentioned_relationships_for_prefix(&author_id, &post_id, content, relationships, "pk:")
+    put_mentioned_relationships_for_prefix(author_id, post_id, content, relationships, "pk:")
         .await?;
 
     // Support new pubkey display: identify user references with "pubky" prefix
-    put_mentioned_relationships_for_prefix(&author_id, &post_id, content, relationships, "pubky")
+    put_mentioned_relationships_for_prefix(author_id, post_id, content, relationships, "pubky")
         .await?;
 
     Ok(())
