@@ -260,14 +260,31 @@ async fn sync_edit(
     Ok(())
 }
 
-// Helper function to handle "MENTIONED" relationships on the post content
+/// Helper function to handle "MENTIONED" relationships on the post content
 pub async fn put_mentioned_relationships(
     author_id: &PubkyId,
     post_id: &str,
     content: &str,
     relationships: &mut PostRelationships,
 ) -> Result<(), DynError> {
-    let prefix = "pk:";
+    // Backwards compatibility: identify user references with "pk:" prefix
+    put_mentioned_relationships_for_prefix(&author_id, &post_id, content, relationships, "pk:")
+        .await?;
+
+    // Support new pubkey display: identify user references with "pubky" prefix
+    put_mentioned_relationships_for_prefix(&author_id, &post_id, content, relationships, "pubky")
+        .await?;
+
+    Ok(())
+}
+
+async fn put_mentioned_relationships_for_prefix(
+    author_id: &PubkyId,
+    post_id: &str,
+    content: &str,
+    relationships: &mut PostRelationships,
+    prefix: &str,
+) -> Result<(), DynError> {
     let user_id_len = 52;
 
     for (start_idx, _) in content.match_indices(prefix) {
