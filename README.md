@@ -145,11 +145,12 @@ Then to run the tests:
 
 ```bash
 cargo nextest run -p nexus-common --no-fail-fast
-cargo nextest run -p nexus-watcher --no-fail-fast
 
-# webapi tests need the Postgres Connection URL as env variable, adjust it as needed
-export TEST_PUBKY_CONNECTION_STRING=postgres://test_user:test_pass@localhost:5432/postgres?pubky-test=true
 cargo nextest run -p nexus-webapi --no-fail-fast
+
+# nexus tests need the Postgres Connection URL as env variable, adjust it as needed
+# export TEST_PUBKY_CONNECTION_STRING=postgres://test_user:test_pass@localhost:5432/postgres?pubky-test=true
+cargo nextest run -p nexus-watcher --no-fail-fast
 ```
 
 To test specific feature(s):
