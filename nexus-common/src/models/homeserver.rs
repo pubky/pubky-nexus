@@ -62,7 +62,7 @@ impl Homeserver {
 
     /// Retrieves the homeserver from Redis.
     pub async fn get_from_index(id: &str) -> Result<Option<Self>, DynError> {
-        Self::try_from_index_json(&[id], None).await
+        Ok(Self::try_from_index_json(&[id], None).await?)
     }
 
     /// Stores this homeserver in Redis.
@@ -71,7 +71,7 @@ impl Homeserver {
             return Err("Cannot save to index a homeserver with an empty cursor".into());
         }
 
-        self.put_index_json(&[&self.id], None, None).await
+        Ok(self.put_index_json(&[&self.id], None, None).await?)
     }
 
     pub async fn get_by_id(homeserver_id: PubkyId) -> Result<Option<Homeserver>, DynError> {

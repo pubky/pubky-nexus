@@ -47,7 +47,7 @@ impl Muted {
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Option<Vec<String>>, DynError> {
-        Self::try_from_index_set(&[user_id], skip, limit, None).await
+        Ok(Self::try_from_index_set(&[user_id], skip, limit, None).await?)
     }
 
     async fn get_from_graph(
@@ -76,7 +76,7 @@ impl Muted {
 
     pub async fn put_to_index(&self, user_id: &str) -> Result<(), DynError> {
         let user_list_ref: Vec<&str> = self.as_ref().iter().map(|id| id.as_str()).collect();
-        Self::put_index_set(&[user_id], &user_list_ref, None, None).await
+        Ok(Self::put_index_set(&[user_id], &user_list_ref, None, None).await?)
     }
 
     pub async fn put_to_graph(user_id: &str, muted_id: &str) -> Result<OperationOutcome, DynError> {
@@ -105,7 +105,7 @@ impl Muted {
     }
 
     pub async fn del_from_index(&self, user_id: &str) -> Result<(), DynError> {
-        self.remove_from_index_set(&[user_id]).await
+        Ok(self.remove_from_index_set(&[user_id]).await?)
     }
 
     // Checks whether a user is muted

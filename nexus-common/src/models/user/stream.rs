@@ -181,25 +181,25 @@ impl UserStream {
         count: isize,
     ) -> Result<Option<Vec<String>>, DynError> {
         let key_parts = &["Cache", "Recommended", user_id];
-        Self::try_get_random_from_index_set(
+        Ok(Self::try_get_random_from_index_set(
             key_parts,
             count,
             Some(CACHE_USER_RECOMMENDED_KEY_PARTS.join(":")),
         )
-        .await
+        .await?)
     }
 
     /// Helper method to cache recommended users in Redis with a TTL.
     async fn cache_recommended_users(user_id: &str, user_ids: &[String]) -> Result<(), DynError> {
         let values: Vec<&str> = user_ids.iter().map(|s| s.as_str()).collect();
         // Cache the result in Redis with a TTL of 12 hours
-        Self::put_index_set(
+        Ok(Self::put_index_set(
             &[user_id],
             &values,
             Some(CACHE_USER_RECOMMENDED_TTL),
             Some(CACHE_USER_RECOMMENDED_KEY_PARTS.join(":")),
         )
-        .await
+        .await?)
     }
 
     async fn get_post_replies_ids(

@@ -251,14 +251,14 @@ where
         .await?;
 
         let common_key = Self::create_set_common_key(user_id, extra_param, is_cache);
-        Self::put_multiple_set_indexes(
+        Ok(Self::put_multiple_set_indexes(
             &common_key,
             &labels,
             &taggers,
             index_params.2,
             index_params.1,
         )
-        .await
+        .await?)
     }
 
     /// Updates the score of a label in the appropriate Redis index (user or post) based on the given score action.
@@ -301,7 +301,7 @@ where
             Some(post_id) => vec![author_id, post_id, tag_label],
             None => vec![author_id, tag_label],
         };
-        Self::put_index_set(&key, &[tagger_user_id], None, None).await
+        Ok(Self::put_index_set(&key, &[tagger_user_id], None, None).await?)
     }
 
     /// Inserts a tag relationship into the graph database.

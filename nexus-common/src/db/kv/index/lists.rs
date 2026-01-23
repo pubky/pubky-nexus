@@ -1,5 +1,5 @@
-use crate::db::get_redis_conn;
-use crate::types::DynError;
+use super::get_conn;
+use crate::db::kv::error::RedisError;
 use deadpool_redis::redis::AsyncCommands;
 
 /// Adds elements to a Redis list.
@@ -16,13 +16,16 @@ use deadpool_redis::redis::AsyncCommands;
 /// # Errors
 ///
 /// Returns an error if the operation fails.
-pub async fn put(prefix: &str, key: &str, values: &[&str]) -> Result<(), DynError> {
+pub async fn put(prefix: &str, key: &str, values: &[&str]) -> Result<(), RedisError> {
     if values.is_empty() {
         return Ok(());
     }
     let index_key = format!("{prefix}:{key}");
-    let mut redis_conn = get_redis_conn().await?;
-    let _: () = redis_conn.rpush(index_key, values).await?;
+    let mut redis_conn = get_conn().await?;
+    let _: () = redis_conn
+        .rpush(index_key, values)
+        .await
+        .map_err(|e| RedisError::CommandFailed(Box::new(e)))?;
     Ok(())
 }
 
@@ -50,8 +53,8 @@ pub async fn get_range(
     key: &str,
     skip: Option<usize>,
     limit: Option<usize>,
-) -> Result<Option<Vec<String>>, DynError> {
-    let mut redis_conn = get_redis_conn().await?;
+) -> Result<Option<Vec<String>>, RedisError> {
+    let mut redis_conn = get_conn().await?;
 
     let index_key = format!("{prefix}:{key}");
     let skip = skip.unwrap_or(0);
@@ -59,7 +62,10 @@ pub async fn get_range(
 
     let start = skip as isize;
     let end = start + (limit as isize) - 1;
-    let result: Vec<String> = redis_conn.lrange(index_key, start, end).await?;
+    let result: Vec<String> = redis_conn
+        .lrange(index_key, start, end)
+        .await
+        .map_err(|e| RedisError::CommandFailed(Box::new(e)))?;
     match result.len() {
         0 => Ok(None),
         _ => Ok(Some(result)),
