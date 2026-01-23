@@ -49,6 +49,8 @@ pub struct BootstrapIds {
     pub muted: Vec<String>,
 }
 
+const MAX_USER_VIEWS: usize = 100;
+
 impl Bootstrap {
     /// Builds a pubky.app bootstrap summary for the specified `user_id`, fetching posts, replies,
     /// active influencers, and personalized suggestions.
@@ -56,15 +58,13 @@ impl Bootstrap {
     /// Returns a populated response even if the user is not found or not indexed.
     ///
     /// # Parameters
-    /// - `user_id: &str`  
+    /// - `user_id: &str`
     ///   The ID of the user whose “ImAlive” stream is being built
-    /// - `view_type: ViewType`  
+    /// - `view_type: ViewType`
     ///   Controls whether to fetch replies and include full stream entries (`Full`)
     ///   or only base posts (`Partial`)
-    const MAX_USER_VIEWS: usize = 100;
-
     pub async fn get_by_id(user_id: &str, view_type: ViewType) -> Result<Self, DynError> {
-        Self::get_by_id_with_limit(user_id, view_type, Self::MAX_USER_VIEWS).await
+        Self::get_by_id_with_limit(user_id, view_type, MAX_USER_VIEWS).await
     }
 
     pub async fn get_by_id_with_limit(
@@ -190,9 +190,9 @@ impl Bootstrap {
     /// Appends each tagger’s user ID from the given post tag details into the provided set
     ///
     /// # Parameters
-    /// - `tag_details_list: &Vec<TagDetails>`  
+    /// - `tag_details_list: &Vec<TagDetails>`
     ///   A reference to a vector of `TagDetails`, each containing a list of tagger IDs
-    /// - `users_list: &mut HashSet<String>`  
+    /// - `users_list: &mut HashSet<String>`
     ///   A mutable reference to a set of user IDs; each tagger ID will be inserted here
     fn insert_taggers_id(tag_details_list: &[TagDetails], users_list: &mut BoundedHashSet) {
         for tag_details in tag_details_list.iter() {
@@ -208,9 +208,9 @@ impl Bootstrap {
     /// Fetches and appends user views for the given set of `user_ids`
     ///
     /// # Parameters
-    /// - `user_ids: HashSet<String>`  
+    /// - `user_ids: HashSet<String>`
     ///   A set of unique user IDs to fetch views for
-    /// - `viewer_id: Option<&str>`  
+    /// - `viewer_id: Option<&str>`
     ///   Optional context user ID for personalized view generation
     async fn get_and_merge_users(
         &mut self,
@@ -233,11 +233,11 @@ impl Bootstrap {
     /// into both the internal user list
     ///
     /// # Parameters
-    /// - `post_replies: Vec<(String, String)>`  
+    /// - `post_replies: Vec<(String, String)>`
     ///   A list of `(author_id, post_id)` tuples indicating which post replies to fetch
-    /// - `user_ids: &mut HashSet<String>`  
+    /// - `user_ids: &mut HashSet<String>`
     ///   A mutable reference to a set where each reply’s author ID (and any taggers) will be appended
-    /// - `maybe_viewer_id: Option<&str>`  
+    /// - `maybe_viewer_id: Option<&str>`
     ///   The ID of the current viewer
     async fn get_and_handle_replies(
         &mut self,
@@ -262,11 +262,11 @@ impl Bootstrap {
     /// Fetches a post stream timeline for the given `source` and `limit`
     ///
     /// # Parameters
-    /// - `maybe_viewer_id: Option<&str>`  
+    /// - `maybe_viewer_id: Option<&str>`
     ///   Optional context user ID for personalized view generation
-    /// - `source: StreamSource`  
+    /// - `source: StreamSource`
     ///   The source of the post stream
-    /// - `limit: usize`  
+    /// - `limit: usize`
     ///   The limit of the post stream
     async fn get_post_stream_timeline(
         maybe_viewer_id: Option<&str>,
