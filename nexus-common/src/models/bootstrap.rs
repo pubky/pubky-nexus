@@ -49,11 +49,13 @@ pub struct BootstrapIds {
     pub muted: Vec<String>,
 }
 
-const MAX_USER_VIEWS: usize = 100;
+/// Maximum number of UserViews returned by the bootstrap API.
+pub const MAX_USER_VIEWS: usize = 100;
 
 impl Bootstrap {
     /// Builds a pubky.app bootstrap summary for the specified `user_id`, fetching posts, replies,
-    /// active influencers, and personalized suggestions.
+    /// active influencers, and personalized suggestions. Applies `MAX_USER_VIEWS` for limiting
+    /// the number of UserViews returned
     ///
     /// Returns a populated response even if the user is not found or not indexed.
     ///
@@ -67,6 +69,20 @@ impl Bootstrap {
         Self::get_by_id_with_limit(user_id, view_type, MAX_USER_VIEWS).await
     }
 
+    /// Builds a pubky.app bootstrap summary for the specified `user_id`, fetching posts, replies,
+    /// active influencers, and personalized suggestions. Applies `max_user_views` for limiting
+    /// the number of UserViews returned.
+    ///
+    /// Returns a populated response even if the user is not found or not indexed.
+    ///
+    /// # Parameters
+    /// - `user_id: &str`
+    ///   The ID of the user whose bootstrap stream is being built
+    /// - `view_type: ViewType`
+    ///   Controls whether to fetch replies and include full stream entries (`Full`)
+    ///   or only base posts (`Partial`)
+    /// - `max_user_views: usize`
+    ///   The maximum number of UserViews to return in the response
     pub async fn get_by_id_with_limit(
         user_id: &str,
         view_type: ViewType,
