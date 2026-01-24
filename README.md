@@ -133,11 +133,13 @@ The manager will automatically handle migrations in the appropriate order, progr
 
 ## 🧪 Running Tests
 
-Running tests requires setting up mock data (`docker/test-graph/mocks`) into Neo4j and Redis
+Running tests requires setting up mock data (`docker/test-graph/mocks`) into Neo4j and Redis.
 
-Use the `db` command to load the mock data
+Use the `db` command to load the mock data:
 
 ```bash
+# If you're using podman instead of docker, set this env variable before importing mock data
+# export CONTAINER_RUNTIME=podman
 cargo run -p nexusd -- db mock
 ```
 
@@ -148,7 +150,7 @@ cargo nextest run -p nexus-common --no-fail-fast
 
 cargo nextest run -p nexus-webapi --no-fail-fast
 
-# nexus tests need the Postgres Connection URL as env variable, adjust it as needed
+# nexus-watcher tests need the Postgres Connection URL as env variable, adjust it as needed
 # export TEST_PUBKY_CONNECTION_STRING=postgres://test_user:test_pass@localhost:5432/postgres?pubky-test=true
 cargo nextest run -p nexus-watcher --no-fail-fast
 ```
