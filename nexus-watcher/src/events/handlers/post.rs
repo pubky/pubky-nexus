@@ -287,23 +287,21 @@ async fn put_mentioned_relationships_for_prefix(
 ) -> Result<(), DynError> {
     let user_id_len = 52;
 
-    for (start_idx, _) in content.match_indices(prefix) {
+    let found_pubky_ids = content.match_indices(prefix).filter_map(|(start_idx, _)| {
         let user_id_start = start_idx + prefix.len();
+        content
+            .get(user_id_start..user_id_start + user_id_len)
+            .and_then(|candidate| PubkyId::try_from(candidate).ok())
+    });
 
-        // Try to extract and validate the user_id_candidate
-        if let Some(user_id_candidate) = content.get(user_id_start..user_id_start + user_id_len) {
-            if let Ok(pubky_id) = PubkyId::try_from(user_id_candidate) {
-                // Create the MENTIONED relationship in the graph
-                let query =
-                    queries::put::create_mention_relationship(author_id, post_id, &pubky_id);
-                exec_single_row(query).await?;
-                if let Some(mentioned_user_id) =
-                    Notification::new_mention(author_id, &pubky_id, post_id).await?
-                {
-                    //mention_users.push(mentioned_user_id);
-                    relationships.mentioned.push(mentioned_user_id);
-                }
-            }
+    for pubky_id in found_pubky_ids {
+        // Create the MENTIONED relationship in the graph
+        let query = queries::put::create_mention_relationship(author_id, post_id, &pubky_id);
+        exec_single_row(query).await?;
+
+        let maybe_mentioned_id = Notification::new_mention(author_id, &pubky_id, post_id).await?;
+        if let Some(mentioned_user_id) = maybe_mentioned_id {
+            relationships.mentioned.push(mentioned_user_id);
         }
     }
 
