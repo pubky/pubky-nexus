@@ -39,10 +39,7 @@ pub async fn put(
     }
 
     // Execute the pipeline
-    let _: () = pipe
-        .query_async(&mut redis_conn)
-        .await
-        .map_err(|e| RedisError::CommandFailed(Box::new(e)))?;
+    let _: () = pipe.query_async(&mut redis_conn).await?;
     Ok(())
 }
 
@@ -89,8 +86,7 @@ pub async fn get_range(
             .arg("COUNT")
             .arg(limit)
             .query_async(&mut redis_conn)
-            .await
-            .map_err(|e| RedisError::CommandFailed(Box::new(e)))?;
+            .await?;
 
         let (new_cursor, items) = result;
 
@@ -145,17 +141,11 @@ pub async fn check_member(
     let index_key = format!("{prefix}:{key}");
 
     // Check if the set exists
-    let set_exists: bool = redis_conn
-        .exists(&index_key)
-        .await
-        .map_err(|e| RedisError::CommandFailed(Box::new(e)))?;
+    let set_exists: bool = redis_conn.exists(&index_key).await?;
 
     if set_exists {
         // Check if the member exists in the set
-        let is_member: bool = redis_conn
-            .sismember(&index_key, member)
-            .await
-            .map_err(|e| RedisError::CommandFailed(Box::new(e)))?;
+        let is_member: bool = redis_conn.sismember(&index_key, member).await?;
         Ok((true, is_member))
     } else {
         Ok((false, false))
@@ -187,19 +177,13 @@ pub async fn get_size(prefix: &str, key: &str) -> Result<Option<usize>, RedisErr
     let index_key = format!("{prefix}:{key}");
 
     // Check if the set exists
-    let set_exists: bool = redis_conn
-        .exists(&index_key)
-        .await
-        .map_err(|e| RedisError::CommandFailed(Box::new(e)))?;
+    let set_exists: bool = redis_conn.exists(&index_key).await?;
     if !set_exists {
         return Ok(None);
     }
 
     // Retrieve the size of the set
-    let set_size: usize = redis_conn
-        .scard(&index_key)
-        .await
-        .map_err(|e| RedisError::CommandFailed(Box::new(e)))?;
+    let set_size: usize = redis_conn.scard(&index_key).await?;
     Ok(Some(set_size))
 }
 
@@ -237,10 +221,7 @@ pub async fn get_multiple_sets(
     }
 
     // Execute the pipeline
-    let results: Vec<Vec<String>> = pipe
-        .query_async(&mut redis_conn)
-        .await
-        .map_err(|e| RedisError::CommandFailed(Box::new(e)))?;
+    let results: Vec<Vec<String>> = pipe.query_async(&mut redis_conn).await?;
 
     let taggers_list = results
         .into_iter()
@@ -305,10 +286,7 @@ pub async fn put_multiple_sets(
     }
 
     // Execute the pipeline
-    let _: () = pipe
-        .query_async(&mut redis_conn)
-        .await
-        .map_err(|e| RedisError::CommandFailed(Box::new(e)))?;
+    let _: () = pipe.query_async(&mut redis_conn).await?;
     Ok(())
 }
 
@@ -335,10 +313,7 @@ pub async fn del(prefix: &str, key: &str, values: &[&str]) -> Result<(), RedisEr
     let mut redis_conn = get_redis_conn().await?;
 
     // Remove the elements from the set
-    let _: () = redis_conn
-        .srem(index_key, values)
-        .await
-        .map_err(|e| RedisError::CommandFailed(Box::new(e)))?;
+    let _: () = redis_conn.srem(index_key, values).await?;
     Ok(())
 }
 
@@ -373,10 +348,7 @@ pub async fn get_random_members(
     let index_key = format!("{prefix}:{key}");
 
     // Check if the set exists
-    let set_exists: bool = redis_conn
-        .exists(&index_key)
-        .await
-        .map_err(|e| RedisError::CommandFailed(Box::new(e)))?;
+    let set_exists: bool = redis_conn.exists(&index_key).await?;
     if !set_exists {
         return Ok(None);
     }
@@ -386,8 +358,7 @@ pub async fn get_random_members(
         .arg(&index_key)
         .arg(count)
         .query_async(&mut redis_conn)
-        .await
-        .map_err(|e| RedisError::CommandFailed(Box::new(e)))?;
+        .await?;
 
     Ok(Some(random_members))
 }

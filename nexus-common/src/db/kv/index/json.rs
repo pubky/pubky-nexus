@@ -50,7 +50,7 @@ pub async fn put<T: Serialize + Send + Sync>(
 ) -> Result<(), RedisError> {
     let index_key = format!("{prefix}:{key}");
 
-    match serde_json::to_value(value).map_err(|e| RedisError::SerializationFailed(Box::new(e)))? {
+    match serde_json::to_value(value).map_err(RedisError::from_serialization)? {
         serde_json::Value::Bool(boolean_value) => {
             handle_put_boolean(&index_key, boolean_value, expiration).await?;
         }
@@ -156,8 +156,7 @@ pub async fn modify_json_field(
         .arg(range.min.to_string())
         .arg(range.max.to_string())
         .invoke_async(&mut redis_conn)
-        .await
-        .map_err(|e| RedisError::CommandFailed(Box::new(e)))?;
+        .await?;
 
     Ok(())
 }
@@ -181,15 +180,9 @@ async fn handle_put_boolean(
 
     let int_value = if value { 1 } else { 0 };
     if let Some(exp) = expiration {
-        let _: () = redis_conn
-            .set_ex(key, int_value, exp as u64)
-            .await
-            .map_err(|e| RedisError::CommandFailed(Box::new(e)))?;
+        let _: () = redis_conn.set_ex(key, int_value, exp as u64).await?;
     } else {
-        let _: () = redis_conn
-            .set(key, int_value)
-            .await
-            .map_err(|e| RedisError::CommandFailed(Box::new(e)))?;
+        let _: () = redis_conn.set(key, int_value).await?;
     }
     Ok(())
 }
@@ -214,15 +207,9 @@ async fn handle_put_json<T: Serialize + Send + Sync>(
     let mut redis_conn = get_redis_conn().await?;
 
     let json_path = path.unwrap_or("$");
-    let _: () = redis_conn
-        .json_set(key, json_path, value)
-        .await
-        .map_err(|e| RedisError::CommandFailed(Box::new(e)))?;
+    let _: () = redis_conn.json_set(key, json_path, value).await?;
     if let Some(exp) = expiration {
-        let _: () = redis_conn
-            .expire(key, exp)
-            .await
-            .map_err(|e| RedisError::CommandFailed(Box::new(e)))?;
+        let _: () = redis_conn.expire(key, exp).await?;
     }
     Ok(())
 }
@@ -280,25 +267,19 @@ pub async fn put_multiple<T: Serialize>(
         let full_key = format!("{}:{}", prefix, key.as_ref());
 
         // Check if the value is boolean
-        match serde_json::to_value(value)
-            .map_err(|e| RedisError::SerializationFailed(Box::new(e)))?
-        {
+        match serde_json::to_value(value).map_err(RedisError::from_serialization)? {
             serde_json::Value::Bool(boolean_value) => {
                 let int_value = if boolean_value { 1 } else { 0 };
                 cmd.set(&full_key, int_value);
             }
             _ => {
                 // Handle other values as JSON
-                cmd.json_set(&full_key, "$", value)
-                    .map_err(|e| RedisError::CommandFailed(Box::new(e)))?;
+                cmd.json_set(&full_key, "$", value)?;
             }
         }
     }
 
-    let _: () = cmd
-        .query_async(&mut redis_conn)
-        .await
-        .map_err(|e| RedisError::CommandFailed(Box::new(e)))?;
+    let _: () = cmd.query_async(&mut redis_conn).await?;
     Ok(())
 }
 
@@ -332,8 +313,8 @@ pub async fn get<T: DeserializeOwned + Send + Sync>(
         .await
     {
         //debug!("Restored key: {} with value: {}", index_key, indexed_value);
-        let value: Vec<T> = serde_json::from_str(&indexed_value)
-            .map_err(|e| RedisError::DeserializationFailed(Box::new(e)))?;
+        let value: Vec<T> =
+            serde_json::from_str(&indexed_value).map_err(RedisError::from_deserialization)?;
         return Ok(value.into_iter().next()); // Extract the first element from the Vec
     }
 
@@ -372,10 +353,7 @@ pub async fn get_multiple<T: DeserializeOwned + Send + Sync>(
         .collect();
 
     // Fetch values as Option<String> to handle missing keys
-    let indexed_values: Vec<Option<String>> = redis_conn
-        .json_get(&full_keys, json_path)
-        .await
-        .map_err(|e| RedisError::CommandFailed(Box::new(e)))?;
+    let indexed_values: Vec<Option<String>> = redis_conn.json_get(&full_keys, json_path).await?;
 
     // Check if indexed_values is empty. That's an edge case 1 element and it was not found, redis does not return None.
     let results: Vec<Option<T>> = if indexed_values.is_empty() {
@@ -395,8 +373,8 @@ fn deserialize_values<T: DeserializeOwned>(
         .into_iter()
         .map(|value_str| match value_str {
             Some(value) => {
-                let value: Vec<T> = serde_json::from_str(&value)
-                    .map_err(|e| RedisError::DeserializationFailed(Box::new(e)))?;
+                let value: Vec<T> =
+                    serde_json::from_str(&value).map_err(RedisError::from_deserialization)?;
                 Ok(value.into_iter().next())
             }
             None => Ok(None),
@@ -460,9 +438,6 @@ pub async fn del_multiple(prefix: &str, keys: &[impl AsRef<str>]) -> Result<(), 
         .map(|key| format!("{}:{}", prefix, key.as_ref()))
         .collect();
 
-    let _: () = redis_conn
-        .del(full_keys)
-        .await
-        .map_err(|e| RedisError::CommandFailed(Box::new(e)))?;
+    let _: () = redis_conn.del(full_keys).await?;
     Ok(())
 }

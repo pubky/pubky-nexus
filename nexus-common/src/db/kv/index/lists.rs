@@ -22,10 +22,7 @@ pub async fn put(prefix: &str, key: &str, values: &[&str]) -> Result<(), RedisEr
     }
     let index_key = format!("{prefix}:{key}");
     let mut redis_conn = get_redis_conn().await?;
-    let _: () = redis_conn
-        .rpush(index_key, values)
-        .await
-        .map_err(|e| RedisError::CommandFailed(Box::new(e)))?;
+    let _: () = redis_conn.rpush(index_key, values).await?;
     Ok(())
 }
 
@@ -62,10 +59,7 @@ pub async fn get_range(
 
     let start = skip as isize;
     let end = start + (limit as isize) - 1;
-    let result: Vec<String> = redis_conn
-        .lrange(index_key, start, end)
-        .await
-        .map_err(|e| RedisError::CommandFailed(Box::new(e)))?;
+    let result: Vec<String> = redis_conn.lrange(index_key, start, end).await?;
     match result.len() {
         0 => Ok(None),
         _ => Ok(Some(result)),
