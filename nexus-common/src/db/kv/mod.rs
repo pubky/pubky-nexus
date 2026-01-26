@@ -4,7 +4,7 @@ mod index;
 mod last_save;
 mod traits;
 
-pub use error::RedisError;
+pub use error::{RedisError, RedisResult};
 pub use flush::clear_redis;
 pub use index::json::JsonAction;
 pub use index::sorted_sets::{ScoreAction, SortOrder};

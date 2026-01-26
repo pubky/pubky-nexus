@@ -1,5 +1,5 @@
 use crate::db::get_redis_conn;
-use crate::db::kv::RedisError;
+use crate::db::kv::RedisResult;
 use redis::AsyncCommands;
 use serde::Deserialize;
 use utoipa::ToSchema;
@@ -34,11 +34,7 @@ pub const SORTED_PREFIX: &str = "Sorted";
 /// # Returns
 ///
 /// Returns an `Option<isize>` containing the score of the member if it exists, or `None` if it does not.
-pub async fn check_member(
-    prefix: &str,
-    key: &str,
-    member: &str,
-) -> Result<Option<isize>, RedisError> {
+pub async fn check_member(prefix: &str, key: &str, member: &str) -> RedisResult<Option<isize>> {
     let index_key = format!("{prefix}:{key}");
     let mut redis_conn = get_redis_conn().await?;
     // Use the ZSCORE command to check if the member exists in the sorted set
@@ -66,7 +62,7 @@ pub async fn put(
     key: &str,
     items: &[(f64, &str)],
     expiration: Option<i64>,
-) -> Result<(), RedisError> {
+) -> RedisResult<()> {
     if items.is_empty() {
         return Ok(());
     }
@@ -103,7 +99,7 @@ pub async fn put_score(
     key: &str,
     member: &str,
     score_mutation: ScoreAction,
-) -> Result<(), RedisError> {
+) -> RedisResult<()> {
     let index_key = format!("{prefix}:{key}");
     let mut redis_conn = get_redis_conn().await?;
     let value = match score_mutation {
@@ -146,7 +142,7 @@ pub async fn get_range(
     skip: Option<usize>,
     limit: Option<usize>,
     sorting: SortOrder,
-) -> Result<Option<Vec<(String, f64)>>, RedisError> {
+) -> RedisResult<Option<Vec<(String, f64)>>> {
     let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{prefix}:{key}");
 
@@ -194,7 +190,7 @@ pub async fn get_lex_range(
     max: &str,
     skip: Option<usize>,
     limit: Option<usize>,
-) -> Result<Option<Vec<String>>, RedisError> {
+) -> RedisResult<Option<Vec<String>>> {
     let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{prefix}:{key}");
     let skip = skip.unwrap_or(0) as isize;
@@ -215,7 +211,7 @@ pub async fn get_lex_range(
 /// # Arguments
 ///
 /// * `items` - A slice of elements to remove.
-pub async fn _remove(prefix: &str, key: &str, items: &[&str]) -> Result<(), RedisError> {
+pub async fn _remove(prefix: &str, key: &str, items: &[&str]) -> RedisResult<()> {
     if items.is_empty() {
         return Ok(());
     }
@@ -240,7 +236,7 @@ pub async fn _remove(prefix: &str, key: &str, items: &[&str]) -> Result<(), Redi
 /// # Errors
 ///
 /// Returns an error if the operation fails.
-pub async fn del(prefix: &str, key: &str, values: &[&str]) -> Result<(), RedisError> {
+pub async fn del(prefix: &str, key: &str, values: &[&str]) -> RedisResult<()> {
     if values.is_empty() {
         return Ok(());
     }

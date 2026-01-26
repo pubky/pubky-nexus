@@ -1,6 +1,8 @@
 use crate::types::DynError;
 use thiserror::Error;
 
+pub type RedisResult<T> = std::result::Result<T, RedisError>;
+
 #[derive(Error, Debug)]
 pub enum RedisError {
     #[error("Connection unavailable: {message}")]

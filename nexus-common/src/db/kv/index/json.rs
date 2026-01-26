@@ -1,5 +1,5 @@
 use crate::db::get_redis_conn;
-use crate::db::kv::error::RedisError;
+use crate::db::kv::error::{RedisError, RedisResult};
 use deadpool_redis::redis::Script;
 use deadpool_redis::redis::{AsyncCommands, JsonAsyncCommands};
 use serde::{de::DeserializeOwned, Serialize};
@@ -47,7 +47,7 @@ pub async fn put<T: Serialize + Send + Sync>(
     value: &T,
     path: Option<&str>,
     expiration: Option<i64>,
-) -> Result<(), RedisError> {
+) -> RedisResult<()> {
     let index_key = format!("{prefix}:{key}");
 
     match serde_json::to_value(value).map_err(RedisError::from_serialization)? {
@@ -88,7 +88,7 @@ pub async fn modify_json_field(
     field: &str,
     action: JsonAction,
     range: Option<ValueRange>,
-) -> Result<(), RedisError> {
+) -> RedisResult<()> {
     let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{prefix}:{key}");
     let json_path = format!("$.{field}"); // Access the field using JSON path
@@ -171,11 +171,7 @@ pub async fn modify_json_field(
 /// * `key` - A string slice representing the Redis key.
 /// * `value` - A boolean value to store. If `true`, `1` is stored; if `false`, `0` is stored.
 /// * `expiration` - An optional expiration time in seconds. If provided, the key will expire after this duration.
-async fn handle_put_boolean(
-    key: &str,
-    value: bool,
-    expiration: Option<i64>,
-) -> Result<(), RedisError> {
+async fn handle_put_boolean(key: &str, value: bool, expiration: Option<i64>) -> RedisResult<()> {
     let mut redis_conn = get_redis_conn().await?;
 
     let int_value = if value { 1 } else { 0 };
@@ -203,7 +199,7 @@ async fn handle_put_json<T: Serialize + Send + Sync>(
     value: &T,
     path: Option<&str>,
     expiration: Option<i64>,
-) -> Result<(), RedisError> {
+) -> RedisResult<()> {
     let mut redis_conn = get_redis_conn().await?;
 
     let json_path = path.unwrap_or("$");
@@ -257,7 +253,7 @@ async fn handle_put_json<T: Serialize + Send + Sync>(
 pub async fn put_multiple<T: Serialize>(
     prefix: &str,
     data: &[(impl AsRef<str>, T)],
-) -> Result<(), RedisError> {
+) -> RedisResult<()> {
     let mut redis_conn = get_redis_conn().await?;
 
     // Create a pipeline-like command sequence
@@ -302,7 +298,7 @@ pub async fn get<T: DeserializeOwned + Send + Sync>(
     prefix: &str,
     key: &str,
     path: Option<&str>,
-) -> Result<Option<T>, RedisError> {
+) -> RedisResult<Option<T>> {
     let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{prefix}:{key}");
     let json_path = path.unwrap_or("$").to_string(); // Ensure path is a String
@@ -342,7 +338,7 @@ pub async fn get_multiple<T: DeserializeOwned + Send + Sync>(
     prefix: &str,
     keys: &[impl AsRef<str>],
     path: Option<&str>,
-) -> Result<Vec<Option<T>>, RedisError> {
+) -> RedisResult<Vec<Option<T>>> {
     let mut redis_conn = get_redis_conn().await?;
     let json_path = path.unwrap_or("$");
 
@@ -368,7 +364,7 @@ pub async fn get_multiple<T: DeserializeOwned + Send + Sync>(
 // Helper function to deserialize JSON strings to Vec<Option<T>>
 fn deserialize_values<T: DeserializeOwned>(
     values: Vec<Option<String>>,
-) -> Result<Vec<Option<T>>, RedisError> {
+) -> RedisResult<Vec<Option<T>>> {
     values
         .into_iter()
         .map(|value_str| match value_str {
@@ -396,7 +392,7 @@ fn deserialize_values<T: DeserializeOwned>(
 /// # Errors
 ///
 /// Returns an error if the operation fails.
-pub async fn _get_bool(prefix: &str, key: &str) -> Result<Option<bool>, RedisError> {
+pub async fn _get_bool(prefix: &str, key: &str) -> RedisResult<Option<bool>> {
     let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{prefix}:{key}");
 
@@ -429,7 +425,7 @@ pub async fn _get_bool(prefix: &str, key: &str) -> Result<Option<bool>, RedisErr
 /// # Errors
 ///
 /// Returns an error if the operation fails.
-pub async fn del_multiple(prefix: &str, keys: &[impl AsRef<str>]) -> Result<(), RedisError> {
+pub async fn del_multiple(prefix: &str, keys: &[impl AsRef<str>]) -> RedisResult<()> {
     let mut redis_conn = get_redis_conn().await?;
 
     // Generate full keys with prefix

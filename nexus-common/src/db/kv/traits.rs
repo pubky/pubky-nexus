@@ -1,5 +1,5 @@
 use super::index::*;
-use crate::db::kv::RedisError;
+use crate::db::kv::{RedisError, RedisResult};
 use async_trait::async_trait;
 use json::JsonAction;
 use serde::{de::DeserializeOwned, Serialize};
@@ -58,7 +58,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         key_parts: &[&str],
         prefix: Option<String>,
         expiration: Option<i64>,
-    ) -> Result<(), RedisError> {
+    ) -> RedisResult<()> {
         let prefix = prefix.unwrap_or(Self::prefix().await);
         json::put(&prefix, &key_parts.join(":"), self, None, expiration).await
     }
@@ -83,7 +83,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     async fn try_from_index_json(
         key_parts: &[&str],
         prefix: Option<String>,
-    ) -> Result<Option<Self>, RedisError> {
+    ) -> RedisResult<Option<Self>> {
         let prefix = prefix.unwrap_or(Self::prefix().await);
         json::get(&prefix, &key_parts.join(":"), None).await
     }
@@ -103,7 +103,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// A `Vec<Option<Self>>` containing the deserialized data if found, or `None` if a key does not exist.
     async fn try_from_index_multiple_json(
         key_parts_list: &[&[&str]],
-    ) -> Result<Vec<Option<Self>>, RedisError> {
+    ) -> RedisResult<Vec<Option<Self>>> {
         let prefix = Self::prefix().await;
         let keys: Vec<String> = key_parts_list
             .iter()
@@ -125,7 +125,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// # Returns
     ///
     /// A `Vec<Option<Self>>` containing the deserialized data if found, or `None` if a key does not exist.
-    async fn mget(keys: &[impl AsRef<str> + Send + Sync]) -> Result<Vec<Option<Self>>, RedisError> {
+    async fn mget(keys: &[impl AsRef<str> + Send + Sync]) -> RedisResult<Vec<Option<Self>>> {
         let prefix = Self::prefix().await;
         json::get_multiple(&prefix, keys, None).await
     }
@@ -153,7 +153,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     async fn put_multiple_json_indexes(
         key_parts_list: &[&[&str]],
         collection: Vec<Option<Self>>,
-    ) -> Result<(), RedisError> // The items in the collection must be serializable
+    ) -> RedisResult<()> // The items in the collection must be serializable
     {
         let mut data = Vec::with_capacity(key_parts_list.len());
         for (i, key_parts) in key_parts_list.iter().enumerate() {
@@ -181,7 +181,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// # Errors
     ///
     /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
-    async fn remove_from_index_multiple_json(key_parts_list: &[&[&str]]) -> Result<(), RedisError> {
+    async fn remove_from_index_multiple_json(key_parts_list: &[&[&str]]) -> RedisResult<()> {
         let prefix = Self::prefix().await;
         let keys: Vec<String> = key_parts_list
             .iter()
@@ -213,7 +213,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         key_parts: &[&str],
         field: &str,
         action: JsonAction,
-    ) -> Result<(), RedisError> {
+    ) -> RedisResult<()> {
         let prefix = Self::prefix().await;
         let key = key_parts.join(":");
         json::modify_json_field(&prefix, &key, field, action, None).await
@@ -236,7 +236,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     ///
     /// Returns an error if the operation fails, such as if the Redis connection is unavailable or
     /// if there is an issue with serialization.
-    async fn put_index_list<T>(&self, key_parts: &[&str]) -> Result<(), RedisError>
+    async fn put_index_list<T>(&self, key_parts: &[&str]) -> RedisResult<()>
     where
         Self: AsRef<[T]>,            // Self can be dereferenced into a slice of T
         T: AsRef<str> + Send + Sync, // The items must be convertible to &str
@@ -278,7 +278,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         key_parts: &[&str],
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<Option<Vec<String>>, RedisError> {
+    ) -> RedisResult<Option<Vec<String>>> {
         let prefix = Self::prefix().await;
         let key = key_parts.join(":");
         lists::get_range(&prefix, &key, skip, limit).await
@@ -308,7 +308,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         values: &[&str],
         expiration: Option<i64>,
         prefix: Option<String>,
-    ) -> Result<(), RedisError> {
+    ) -> RedisResult<()> {
         let prefix = prefix.unwrap_or(Self::prefix().await);
         let key = key_parts.join(":");
         // Store the values in the Redis set
@@ -327,7 +327,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// # Errors
     ///
     /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
-    async fn remove_from_index_set<T>(&self, key_parts: &[&str]) -> Result<(), RedisError>
+    async fn remove_from_index_set<T>(&self, key_parts: &[&str]) -> RedisResult<()>
     where
         Self: AsRef<[T]>,            // Self can be dereferenced into a slice of T
         T: AsRef<str> + Send + Sync, // The items must be convertible to &str
@@ -366,7 +366,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         skip: Option<usize>,
         limit: Option<usize>,
         prefix: Option<String>,
-    ) -> Result<Option<Vec<String>>, RedisError> {
+    ) -> RedisResult<Option<Vec<String>>> {
         let combined_prefix = match prefix {
             Some(p) => format!("{}:{}", p, Self::prefix().await),
             None => Self::prefix().await,
@@ -394,10 +394,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// # Errors
     ///
     /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
-    async fn check_set_member(
-        key_parts: &[&str],
-        member: &str,
-    ) -> Result<(bool, bool), RedisError> {
+    async fn check_set_member(key_parts: &[&str], member: &str) -> RedisResult<(bool, bool)> {
         let prefix = Self::prefix().await;
         let key = key_parts.join(":");
         sets::check_member(&prefix, &key, member).await
@@ -419,7 +416,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// # Errors
     ///
     /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
-    async fn get_set_size(key_parts: &[&str]) -> Result<Option<usize>, RedisError> {
+    async fn get_set_size(key_parts: &[&str]) -> RedisResult<Option<usize>> {
         let prefix = Self::prefix().await;
         let key = key_parts.join(":");
         sets::get_size(&prefix, &key).await
@@ -439,7 +436,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         prefix: Option<String>,
         member: Option<&str>,
         limit: Option<usize>,
-    ) -> Result<Vec<Option<(Vec<String>, usize, bool)>>, RedisError> {
+    ) -> RedisResult<Vec<Option<(Vec<String>, usize, bool)>>> {
         let combined_prefix = match prefix {
             Some(p) => format!("{}:{}", p, Self::prefix().await),
             None => Self::prefix().await,
@@ -476,7 +473,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         collections_refs: &[Vec<&str>],
         prefix: Option<String>,
         expiration: Option<i64>,
-    ) -> Result<(), RedisError> {
+    ) -> RedisResult<()> {
         // Ensure the lengths of keys_refs and collections_refs match
         if index.len() != collections_refs.len() {
             return Err(RedisError::InvalidInput(
@@ -519,7 +516,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         key_parts: &[&str],
         count: isize,
         prefix: Option<String>,
-    ) -> Result<Option<Vec<String>>, RedisError> {
+    ) -> RedisResult<Option<Vec<String>>> {
         let prefix = prefix.unwrap_or(Self::prefix().await);
         let key = key_parts.join(":");
         sets::get_random_members(&prefix, &key, count).await
@@ -542,7 +539,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         prefix: Option<&str>,
         key_parts: &[&str],
         member: &[&str],
-    ) -> Result<Option<isize>, RedisError> {
+    ) -> RedisResult<Option<isize>> {
         let prefix = prefix.unwrap_or(SORTED_PREFIX);
         let key = key_parts.join(":");
         let member_key = member.join(":");
@@ -570,7 +567,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         elements: &[(f64, &str)],
         prefix: Option<&str>,
         expiration: Option<i64>,
-    ) -> Result<(), RedisError> {
+    ) -> RedisResult<()> {
         let prefix = prefix.unwrap_or(SORTED_PREFIX);
         let key = key_parts.join(":");
         // Store the elements in the Redis sorted set
@@ -591,7 +588,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         key_parts: &[&str],
         member: &[&str],
         score_mutation: ScoreAction,
-    ) -> Result<(), RedisError> {
+    ) -> RedisResult<()> {
         let key = key_parts.join(":");
         let member_key = member.join(":");
         sorted_sets::put_score(SORTED_PREFIX, &key, &member_key, score_mutation).await
@@ -601,7 +598,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     async fn increment_score_index_sorted_set(
         key_parts: &[&str],
         member: &[&str],
-    ) -> Result<(), RedisError> {
+    ) -> RedisResult<()> {
         Self::put_score_index_sorted_set(key_parts, member, ScoreAction::Increment(1.0)).await
     }
 
@@ -609,7 +606,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     async fn decrement_score_index_sorted_set(
         key_parts: &[&str],
         member: &[&str],
-    ) -> Result<(), RedisError> {
+    ) -> RedisResult<()> {
         Self::put_score_index_sorted_set(key_parts, member, ScoreAction::Decrement(1.0)).await
     }
 
@@ -631,7 +628,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         prefix: Option<&str>,
         key_parts: &[&str],
         items: &[&str],
-    ) -> Result<(), RedisError> {
+    ) -> RedisResult<()> {
         if items.is_empty() {
             return Ok(());
         }
@@ -672,7 +669,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         limit: Option<usize>,
         sorting: SortOrder,
         prefix: Option<&str>,
-    ) -> Result<Option<Vec<(String, f64)>>, RedisError> {
+    ) -> RedisResult<Option<Vec<(String, f64)>>> {
         let key = key_parts.join(":");
         let prefix = prefix.unwrap_or("Sorted");
 
@@ -705,7 +702,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         max: &str,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<Option<Vec<String>>, RedisError> {
+    ) -> RedisResult<Option<Vec<String>>> {
         let key = key_parts.join(":");
         sorted_sets::get_lex_range("Sorted", &key, min, max, skip, limit).await
     }
