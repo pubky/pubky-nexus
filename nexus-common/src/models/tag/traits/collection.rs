@@ -280,7 +280,7 @@ where
             Some(post_id) => [&POST_TAGS_KEY_PARTS[..], &[author_id, post_id]].concat(),
             None => [&USER_TAGS_KEY_PARTS[..], &[author_id]].concat(),
         };
-        Self::put_score_index_sorted_set(&key, &[label], score_action).await
+        Ok(Self::put_score_index_sorted_set(&key, &[label], score_action).await?)
     }
 
     /// Adds a tagger (user) to the appropriate Redis index for a specified tag label.

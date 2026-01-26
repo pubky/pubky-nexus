@@ -1,5 +1,5 @@
 use crate::db::get_redis_conn;
-use crate::types::DynError;
+use crate::db::kv::RedisError;
 use redis::AsyncCommands;
 use serde::Deserialize;
 use utoipa::ToSchema;
@@ -38,11 +38,14 @@ pub async fn check_member(
     prefix: &str,
     key: &str,
     member: &str,
-) -> Result<Option<isize>, DynError> {
+) -> Result<Option<isize>, RedisError> {
     let index_key = format!("{prefix}:{key}");
     let mut redis_conn = get_redis_conn().await?;
     // Use the ZSCORE command to check if the member exists in the sorted set
-    let rank = redis_conn.zscore(index_key, member).await?;
+    let rank = redis_conn
+        .zscore(index_key, member)
+        .await
+        .map_err(|e| RedisError::CommandFailed(Box::new(e)))?;
     Ok(rank)
 }
 
@@ -66,7 +69,7 @@ pub async fn put(
     key: &str,
     items: &[(f64, &str)],
     expiration: Option<i64>,
-) -> Result<(), DynError> {
+) -> Result<(), RedisError> {
     if items.is_empty() {
         return Ok(());
     }
@@ -83,7 +86,10 @@ pub async fn put(
         pipe.expire(&index_key, ttl);
     }
 
-    let _: () = pipe.query_async(&mut redis_conn).await?;
+    let _: () = pipe
+        .query_async(&mut redis_conn)
+        .await
+        .map_err(|e| RedisError::CommandFailed(Box::new(e)))?;
     Ok(())
 }
 
@@ -103,14 +109,17 @@ pub async fn put_score(
     key: &str,
     member: &str,
     score_mutation: ScoreAction,
-) -> Result<(), DynError> {
+) -> Result<(), RedisError> {
     let index_key = format!("{prefix}:{key}");
     let mut redis_conn = get_redis_conn().await?;
     let value = match score_mutation {
         ScoreAction::Increment(val) => val,
         ScoreAction::Decrement(val) => -val,
     };
-    let _: () = redis_conn.zincr(&index_key, member, value).await?;
+    let _: () = redis_conn
+        .zincr(&index_key, member, value)
+        .await
+        .map_err(|e| RedisError::CommandFailed(Box::new(e)))?;
 
     Ok(())
 }
@@ -146,12 +155,16 @@ pub async fn get_range(
     skip: Option<usize>,
     limit: Option<usize>,
     sorting: SortOrder,
-) -> Result<Option<Vec<(String, f64)>>, DynError> {
+) -> Result<Option<Vec<(String, f64)>>, RedisError> {
     let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{prefix}:{key}");
 
     // Make sure if the key that we want to find, it is in the sorted set
-    if !redis_conn.exists(&index_key).await? {
+    let exists: bool = redis_conn
+        .exists(&index_key)
+        .await
+        .map_err(|e| RedisError::CommandFailed(Box::new(e)))?;
+    if !exists {
         return Ok(None);
     }
 
@@ -162,16 +175,14 @@ pub async fn get_range(
 
     // ZRANGE with the WITHSCORES option retrieves both: the elements and their scores
     let elements: Vec<(String, f64)> = match sorting {
-        SortOrder::Ascending => {
-            redis_conn
-                .zrangebyscore_limit_withscores(index_key, min_score, max_score, skip, limit)
-                .await?
-        }
-        SortOrder::Descending => {
-            redis_conn
-                .zrevrangebyscore_limit_withscores(index_key, max_score, min_score, skip, limit)
-                .await?
-        }
+        SortOrder::Ascending => redis_conn
+            .zrangebyscore_limit_withscores(index_key, min_score, max_score, skip, limit)
+            .await
+            .map_err(|e| RedisError::CommandFailed(Box::new(e)))?,
+        SortOrder::Descending => redis_conn
+            .zrevrangebyscore_limit_withscores(index_key, max_score, min_score, skip, limit)
+            .await
+            .map_err(|e| RedisError::CommandFailed(Box::new(e)))?,
     };
     Ok(Some(elements))
 }
@@ -193,7 +204,7 @@ pub async fn get_lex_range(
     max: &str,
     skip: Option<usize>,
     limit: Option<usize>,
-) -> Result<Option<Vec<String>>, DynError> {
+) -> Result<Option<Vec<String>>, RedisError> {
     let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{prefix}:{key}");
     let skip = skip.unwrap_or(0) as isize;
@@ -201,7 +212,8 @@ pub async fn get_lex_range(
 
     let elements: Vec<String> = redis_conn
         .zrangebylex_limit(index_key, min, max, skip, limit)
-        .await?;
+        .await
+        .map_err(|e| RedisError::CommandFailed(Box::new(e)))?;
 
     match elements.len() {
         0 => Ok(None),
@@ -214,14 +226,17 @@ pub async fn get_lex_range(
 /// # Arguments
 ///
 /// * `items` - A slice of elements to remove.
-pub async fn _remove(prefix: &str, key: &str, items: &[&str]) -> Result<(), DynError> {
+pub async fn _remove(prefix: &str, key: &str, items: &[&str]) -> Result<(), RedisError> {
     if items.is_empty() {
         return Ok(());
     }
 
     let index_key = format!("{prefix}:{key}");
     let mut redis_conn = get_redis_conn().await?;
-    let _: () = redis_conn.zrem(&index_key, items).await?;
+    let _: () = redis_conn
+        .zrem(&index_key, items)
+        .await
+        .map_err(|e| RedisError::CommandFailed(Box::new(e)))?;
     Ok(())
 }
 
@@ -239,7 +254,7 @@ pub async fn _remove(prefix: &str, key: &str, items: &[&str]) -> Result<(), DynE
 /// # Errors
 ///
 /// Returns an error if the operation fails.
-pub async fn del(prefix: &str, key: &str, values: &[&str]) -> Result<(), DynError> {
+pub async fn del(prefix: &str, key: &str, values: &[&str]) -> Result<(), RedisError> {
     if values.is_empty() {
         return Ok(());
     }
@@ -248,6 +263,9 @@ pub async fn del(prefix: &str, key: &str, values: &[&str]) -> Result<(), DynErro
     let mut redis_conn = get_redis_conn().await?;
 
     // Remove the elements from the sorted set
-    let _: () = redis_conn.zrem(index_key, values).await?;
+    let _: () = redis_conn
+        .zrem(index_key, values)
+        .await
+        .map_err(|e| RedisError::CommandFailed(Box::new(e)))?;
     Ok(())
 }

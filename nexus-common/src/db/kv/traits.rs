@@ -1,6 +1,5 @@
 use super::index::*;
 use crate::db::kv::RedisError;
-use crate::types::DynError;
 use async_trait::async_trait;
 use json::JsonAction;
 use serde::{de::DeserializeOwned, Serialize};
@@ -543,7 +542,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         prefix: Option<&str>,
         key_parts: &[&str],
         member: &[&str],
-    ) -> Result<Option<isize>, DynError> {
+    ) -> Result<Option<isize>, RedisError> {
         let prefix = prefix.unwrap_or(SORTED_PREFIX);
         let key = key_parts.join(":");
         let member_key = member.join(":");
@@ -571,7 +570,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         elements: &[(f64, &str)],
         prefix: Option<&str>,
         expiration: Option<i64>,
-    ) -> Result<(), DynError> {
+    ) -> Result<(), RedisError> {
         let prefix = prefix.unwrap_or(SORTED_PREFIX);
         let key = key_parts.join(":");
         // Store the elements in the Redis sorted set
@@ -592,7 +591,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         key_parts: &[&str],
         member: &[&str],
         score_mutation: ScoreAction,
-    ) -> Result<(), DynError> {
+    ) -> Result<(), RedisError> {
         let key = key_parts.join(":");
         let member_key = member.join(":");
         sorted_sets::put_score(SORTED_PREFIX, &key, &member_key, score_mutation).await
@@ -602,7 +601,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     async fn increment_score_index_sorted_set(
         key_parts: &[&str],
         member: &[&str],
-    ) -> Result<(), DynError> {
+    ) -> Result<(), RedisError> {
         Self::put_score_index_sorted_set(key_parts, member, ScoreAction::Increment(1.0)).await
     }
 
@@ -610,7 +609,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     async fn decrement_score_index_sorted_set(
         key_parts: &[&str],
         member: &[&str],
-    ) -> Result<(), DynError> {
+    ) -> Result<(), RedisError> {
         Self::put_score_index_sorted_set(key_parts, member, ScoreAction::Decrement(1.0)).await
     }
 
@@ -632,7 +631,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         prefix: Option<&str>,
         key_parts: &[&str],
         items: &[&str],
-    ) -> Result<(), DynError> {
+    ) -> Result<(), RedisError> {
         if items.is_empty() {
             return Ok(());
         }
@@ -673,7 +672,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         limit: Option<usize>,
         sorting: SortOrder,
         prefix: Option<&str>,
-    ) -> Result<Option<Vec<(String, f64)>>, DynError> {
+    ) -> Result<Option<Vec<(String, f64)>>, RedisError> {
         let key = key_parts.join(":");
         let prefix = prefix.unwrap_or("Sorted");
 
@@ -706,7 +705,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         max: &str,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<Option<Vec<String>>, DynError> {
+    ) -> Result<Option<Vec<String>>, RedisError> {
         let key = key_parts.join(":");
         sorted_sets::get_lex_range("Sorted", &key, min, max, skip, limit).await
     }

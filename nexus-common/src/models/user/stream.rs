@@ -118,13 +118,13 @@ impl UserStream {
         user_id: &str,
         counts: &UserCounts,
     ) -> Result<(), DynError> {
-        Self::put_index_sorted_set(
+        Ok(Self::put_index_sorted_set(
             &USER_MOSTFOLLOWED_KEY_PARTS,
             &[(counts.followers as f64, user_id)],
             None,
             None,
         )
-        .await
+        .await?)
     }
 
     /// Adds the post to a Redis sorted set using the follower counts as score.
@@ -133,8 +133,15 @@ impl UserStream {
         counts: &UserCounts,
     ) -> Result<(), DynError> {
         let score = (counts.tagged + counts.posts) as f64 * (counts.followers as f64).sqrt();
-        Self::put_index_sorted_set(&USER_INFLUENCERS_KEY_PARTS, &[(score, user_id)], None, None)
-            .await
+        Ok(
+            Self::put_index_sorted_set(
+                &USER_INFLUENCERS_KEY_PARTS,
+                &[(score, user_id)],
+                None,
+                None,
+            )
+            .await?,
+        )
     }
     /// Retrieves recommended user IDs based on the specified criteria.
     pub async fn get_recommended_ids(

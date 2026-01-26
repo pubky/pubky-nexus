@@ -35,23 +35,23 @@ impl TagSearch {
         let max_unicode_char = char::MAX;
         let max_exclusive = format!("({label_prefix_lowercase}{max_unicode_char}");
 
-        Self::try_from_index_sorted_set_lex(
+        Ok(Self::try_from_index_sorted_set_lex(
             &TAGS_LABEL,
             &min_inclusive,
             &max_exclusive,
             pagination.skip,
             pagination.limit,
         )
-        .await
-        .map(|opt| opt.map(|list| list.into_iter().map(TagSearch).collect()))
+        .await?
+        .map(|list| list.into_iter().map(TagSearch).collect()))
     }
 
     pub async fn put_to_index(tag_labels: &[String]) -> Result<(), DynError> {
         let elements: Vec<(f64, &str)> = create_zero_score_tuples(tag_labels);
-        Self::put_index_sorted_set(&TAGS_LABEL, &elements, None, None).await
+        Ok(Self::put_index_sorted_set(&TAGS_LABEL, &elements, None, None).await?)
     }
 
     pub async fn del_from_index(tag_label: &str) -> Result<(), DynError> {
-        Self::remove_from_index_sorted_set(None, &TAGS_LABEL, &[tag_label]).await
+        Ok(Self::remove_from_index_sorted_set(None, &TAGS_LABEL, &[tag_label]).await?)
     }
 }
