@@ -106,12 +106,13 @@ impl PostsByTagSearch {
     ) -> Result<(), DynError> {
         let tag_global_engagement_key_parts = [&TAG_GLOBAL_POST_ENGAGEMENT[..], &[label]].concat();
         let post_key_slice: &[&str] = &[author_id, post_id];
-        Ok(Self::put_score_index_sorted_set(
+        Self::put_score_index_sorted_set(
             &tag_global_engagement_key_parts,
             post_key_slice,
             score_action,
         )
-        .await?)
+        .await
+        .map_err(Into::into)
     }
 
     pub async fn put_to_index(

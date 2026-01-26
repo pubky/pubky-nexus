@@ -107,6 +107,6 @@ where
             Some(post_id) => vec![author_id, post_id, tag_label],
             None => vec![author_id, tag_label],
         };
-        Ok(self.remove_from_index_set(&key).await?)
+        self.remove_from_index_set(&key).await.map_err(Into::into)
     }
 }

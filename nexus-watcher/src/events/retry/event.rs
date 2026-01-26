@@ -92,12 +92,13 @@ impl RetryEvent {
     /// # Arguments
     /// * `event_index` - A `&str` representing the event index to check
     pub async fn check_uri(event_index: &str) -> Result<Option<isize>, DynError> {
-        Ok(Self::check_sorted_set_member(
+        Self::check_sorted_set_member(
             Some(RETRY_MANAGER_PREFIX),
             &RETRY_MANAGER_EVENTS_INDEX,
             &[event_index],
         )
-        .await?)
+        .await
+        .map_err(Into::into)
     }
 
     /// Retrieves an event from the JSON index in Redis based on its index
@@ -105,6 +106,8 @@ impl RetryEvent {
     /// * `event_index` - A `&str` representing the event index to retrieve
     pub async fn get_from_index(event_index: &str) -> Result<Option<Self>, DynError> {
         let index: &Vec<&str> = &[RETRY_MANAGER_STATE_INDEX, [event_index]].concat();
-        Ok(Self::try_from_index_json(index, None).await?)
+        Self::try_from_index_json(index, None)
+            .await
+            .map_err(Into::into)
     }
 }

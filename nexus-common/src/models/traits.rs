@@ -94,7 +94,9 @@ where
     }
 
     async fn get_from_index(keys: Vec<&[&str]>) -> Result<Vec<Option<Self>>, DynError> {
-        Ok(Self::try_from_index_multiple_json(&keys).await?)
+        Self::try_from_index_multiple_json(&keys)
+            .await
+            .map_err(Into::into)
     }
 
     /// Indexes collection of records in Redis for faster access in future queries.

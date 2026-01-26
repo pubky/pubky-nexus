@@ -68,12 +68,16 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
         skip: Option<usize>,
         limit: Option<usize>,
     ) -> Result<Option<Vec<String>>, DynError> {
-        Ok(Self::try_from_index_set(&[user_id], skip, limit, None).await?)
+        Self::try_from_index_set(&[user_id], skip, limit, None)
+            .await
+            .map_err(Into::into)
     }
 
     async fn put_to_index(&self, user_id: &str) -> Result<(), DynError> {
         let user_list_ref: Vec<&str> = self.as_ref().iter().map(|id| id.as_str()).collect();
-        Ok(Self::put_index_set(&[user_id], &user_list_ref, None, None).await?)
+        Self::put_index_set(&[user_id], &user_list_ref, None, None)
+            .await
+            .map_err(Into::into)
     }
 
     async fn reindex(user_id: &str) -> Result<(), DynError> {
@@ -96,7 +100,9 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
     }
 
     async fn del_from_index(&self, user_id: &str) -> Result<(), DynError> {
-        Ok(self.remove_from_index_set(&[user_id]).await?)
+        self.remove_from_index_set(&[user_id])
+            .await
+            .map_err(Into::into)
     }
 
     fn get_query(user_id: &str, skip: Option<usize>, limit: Option<usize>) -> Query;

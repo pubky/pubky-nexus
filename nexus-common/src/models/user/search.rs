@@ -62,10 +62,9 @@ impl UserSearch {
         let max = format!("({name_prefix}~"); // Exclusive range ending just after "name_prefix"
 
         // Perform the lexicographical range search
-        Ok(
-            Self::try_from_index_sorted_set_lex(&USER_NAME_KEY_PARTS, &min, &max, skip, limit)
-                .await?,
-        )
+        Self::try_from_index_sorted_set_lex(&USER_NAME_KEY_PARTS, &min, &max, skip, limit)
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn get_from_index_id(
@@ -116,7 +115,9 @@ impl UserSearch {
         let pairs_zscore_tuples = create_zero_score_tuples(&pairs);
         Self::put_index_sorted_set(&USER_NAME_KEY_PARTS, &pairs_zscore_tuples, None, None).await?;
         let ids_zscore_tuples = create_zero_score_tuples(&ids);
-        Ok(Self::put_index_sorted_set(&USER_ID_KEY_PARTS, &ids_zscore_tuples, None, None).await?)
+        Self::put_index_sorted_set(&USER_ID_KEY_PARTS, &ids_zscore_tuples, None, None)
+            .await
+            .map_err(Into::into)
     }
 
     async fn delete_existing_records(user_ids: &[&str]) -> Result<(), DynError> {

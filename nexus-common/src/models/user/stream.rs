@@ -118,13 +118,14 @@ impl UserStream {
         user_id: &str,
         counts: &UserCounts,
     ) -> Result<(), DynError> {
-        Ok(Self::put_index_sorted_set(
+        Self::put_index_sorted_set(
             &USER_MOSTFOLLOWED_KEY_PARTS,
             &[(counts.followers as f64, user_id)],
             None,
             None,
         )
-        .await?)
+        .await
+        .map_err(Into::into)
     }
 
     /// Adds the post to a Redis sorted set using the follower counts as score.
@@ -133,15 +134,9 @@ impl UserStream {
         counts: &UserCounts,
     ) -> Result<(), DynError> {
         let score = (counts.tagged + counts.posts) as f64 * (counts.followers as f64).sqrt();
-        Ok(
-            Self::put_index_sorted_set(
-                &USER_INFLUENCERS_KEY_PARTS,
-                &[(score, user_id)],
-                None,
-                None,
-            )
-            .await?,
-        )
+        Self::put_index_sorted_set(&USER_INFLUENCERS_KEY_PARTS, &[(score, user_id)], None, None)
+            .await
+            .map_err(Into::into)
     }
     /// Retrieves recommended user IDs based on the specified criteria.
     pub async fn get_recommended_ids(
@@ -188,25 +183,27 @@ impl UserStream {
         count: isize,
     ) -> Result<Option<Vec<String>>, DynError> {
         let key_parts = &["Cache", "Recommended", user_id];
-        Ok(Self::try_get_random_from_index_set(
+        Self::try_get_random_from_index_set(
             key_parts,
             count,
             Some(CACHE_USER_RECOMMENDED_KEY_PARTS.join(":")),
         )
-        .await?)
+        .await
+        .map_err(Into::into)
     }
 
     /// Helper method to cache recommended users in Redis with a TTL.
     async fn cache_recommended_users(user_id: &str, user_ids: &[String]) -> Result<(), DynError> {
         let values: Vec<&str> = user_ids.iter().map(|s| s.as_str()).collect();
         // Cache the result in Redis with a TTL of 12 hours
-        Ok(Self::put_index_set(
+        Self::put_index_set(
             &[user_id],
             &values,
             Some(CACHE_USER_RECOMMENDED_TTL),
             Some(CACHE_USER_RECOMMENDED_KEY_PARTS.join(":")),
         )
-        .await?)
+        .await
+        .map_err(Into::into)
     }
 
     async fn get_post_replies_ids(
