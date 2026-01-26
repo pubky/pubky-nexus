@@ -1,4 +1,4 @@
-use super::get_conn;
+use crate::db::get_redis_conn;
 use crate::db::kv::error::RedisError;
 use deadpool_redis::redis::Script;
 use deadpool_redis::redis::{AsyncCommands, JsonAsyncCommands};
@@ -89,7 +89,7 @@ pub async fn modify_json_field(
     action: JsonAction,
     range: Option<ValueRange>,
 ) -> Result<(), RedisError> {
-    let mut redis_conn = get_conn().await?;
+    let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{prefix}:{key}");
     let json_path = format!("$.{field}"); // Access the field using JSON path
 
@@ -177,7 +177,7 @@ async fn handle_put_boolean(
     value: bool,
     expiration: Option<i64>,
 ) -> Result<(), RedisError> {
-    let mut redis_conn = get_conn().await?;
+    let mut redis_conn = get_redis_conn().await?;
 
     let int_value = if value { 1 } else { 0 };
     if let Some(exp) = expiration {
@@ -211,7 +211,7 @@ async fn handle_put_json<T: Serialize + Send + Sync>(
     path: Option<&str>,
     expiration: Option<i64>,
 ) -> Result<(), RedisError> {
-    let mut redis_conn = get_conn().await?;
+    let mut redis_conn = get_redis_conn().await?;
 
     let json_path = path.unwrap_or("$");
     let _: () = redis_conn
@@ -271,7 +271,7 @@ pub async fn put_multiple<T: Serialize>(
     prefix: &str,
     data: &[(impl AsRef<str>, T)],
 ) -> Result<(), RedisError> {
-    let mut redis_conn = get_conn().await?;
+    let mut redis_conn = get_redis_conn().await?;
 
     // Create a pipeline-like command sequence
     let mut cmd = redis::pipe();
@@ -322,7 +322,7 @@ pub async fn get<T: DeserializeOwned + Send + Sync>(
     key: &str,
     path: Option<&str>,
 ) -> Result<Option<T>, RedisError> {
-    let mut redis_conn = get_conn().await?;
+    let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{prefix}:{key}");
     let json_path = path.unwrap_or("$").to_string(); // Ensure path is a String
 
@@ -362,7 +362,7 @@ pub async fn get_multiple<T: DeserializeOwned + Send + Sync>(
     keys: &[impl AsRef<str>],
     path: Option<&str>,
 ) -> Result<Vec<Option<T>>, RedisError> {
-    let mut redis_conn = get_conn().await?;
+    let mut redis_conn = get_redis_conn().await?;
     let json_path = path.unwrap_or("$");
 
     // Generate full keys with prefix
@@ -419,7 +419,7 @@ fn deserialize_values<T: DeserializeOwned>(
 ///
 /// Returns an error if the operation fails.
 pub async fn _get_bool(prefix: &str, key: &str) -> Result<Option<bool>, RedisError> {
-    let mut redis_conn = get_conn().await?;
+    let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{prefix}:{key}");
 
     if let Ok(indexed_value) = redis_conn.get::<_, i32>(&index_key).await {
@@ -452,7 +452,7 @@ pub async fn _get_bool(prefix: &str, key: &str) -> Result<Option<bool>, RedisErr
 ///
 /// Returns an error if the operation fails.
 pub async fn del_multiple(prefix: &str, keys: &[impl AsRef<str>]) -> Result<(), RedisError> {
-    let mut redis_conn = get_conn().await?;
+    let mut redis_conn = get_redis_conn().await?;
 
     // Generate full keys with prefix
     let full_keys: Vec<String> = keys

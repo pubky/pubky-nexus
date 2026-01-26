@@ -1,4 +1,4 @@
-use super::get_conn;
+use crate::db::get_redis_conn;
 use crate::db::kv::RedisError;
 use deadpool_redis::redis::AsyncCommands;
 
@@ -27,7 +27,7 @@ pub async fn put(
         return Ok(());
     }
     let index_key = format!("{prefix}:{key}");
-    let mut redis_conn = get_conn().await?;
+    let mut redis_conn = get_redis_conn().await?;
 
     // Create a pipeline for atomicity and efficiency
     let mut pipe = redis::pipe();
@@ -72,7 +72,7 @@ pub async fn get_range(
     skip: Option<usize>,
     limit: Option<usize>,
 ) -> Result<Option<Vec<String>>, RedisError> {
-    let mut redis_conn = get_conn().await?;
+    let mut redis_conn = get_redis_conn().await?;
 
     let index_key = format!("{prefix}:{key}");
     let mut cursor = "0".to_string();
@@ -141,7 +141,7 @@ pub async fn check_member(
     key: &str,
     member: &str,
 ) -> Result<(bool, bool), RedisError> {
-    let mut redis_conn = get_conn().await?;
+    let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{prefix}:{key}");
 
     // Check if the set exists
@@ -183,7 +183,7 @@ pub async fn check_member(
 ///
 /// Returns an error if the Redis connection or the SCARD operation fails.
 pub async fn get_size(prefix: &str, key: &str) -> Result<Option<usize>, RedisError> {
-    let mut redis_conn = get_conn().await?;
+    let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{prefix}:{key}");
 
     // Check if the set exists
@@ -225,7 +225,7 @@ pub async fn get_multiple_sets(
     member: Option<&str>,
     limit: Option<usize>,
 ) -> Result<Vec<Option<(Vec<String>, usize, bool)>>, RedisError> {
-    let mut redis_conn = get_conn().await?;
+    let mut redis_conn = get_redis_conn().await?;
 
     // Create a Redis pipeline
     let mut pipe = redis::pipe();
@@ -291,7 +291,7 @@ pub async fn put_multiple_sets(
     collections: &[&[&str]],
     expiration: Option<i64>,
 ) -> Result<(), RedisError> {
-    let mut redis_conn = get_conn().await?;
+    let mut redis_conn = get_redis_conn().await?;
     let mut pipe = redis::pipe();
 
     for (i, key) in index.iter().enumerate() {
@@ -332,7 +332,7 @@ pub async fn del(prefix: &str, key: &str, values: &[&str]) -> Result<(), RedisEr
     }
 
     let index_key = format!("{prefix}:{key}");
-    let mut redis_conn = get_conn().await?;
+    let mut redis_conn = get_redis_conn().await?;
 
     // Remove the elements from the set
     let _: () = redis_conn
@@ -369,7 +369,7 @@ pub async fn get_random_members(
     key: &str,
     count: isize,
 ) -> Result<Option<Vec<String>>, RedisError> {
-    let mut redis_conn = get_conn().await?;
+    let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{prefix}:{key}");
 
     // Check if the set exists

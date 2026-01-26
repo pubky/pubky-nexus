@@ -1,4 +1,4 @@
-use super::get_conn;
+use crate::db::get_redis_conn;
 use crate::db::kv::error::RedisError;
 use deadpool_redis::redis::AsyncCommands;
 
@@ -21,7 +21,7 @@ pub async fn put(prefix: &str, key: &str, values: &[&str]) -> Result<(), RedisEr
         return Ok(());
     }
     let index_key = format!("{prefix}:{key}");
-    let mut redis_conn = get_conn().await?;
+    let mut redis_conn = get_redis_conn().await?;
     let _: () = redis_conn
         .rpush(index_key, values)
         .await
@@ -54,7 +54,7 @@ pub async fn get_range(
     skip: Option<usize>,
     limit: Option<usize>,
 ) -> Result<Option<Vec<String>>, RedisError> {
-    let mut redis_conn = get_conn().await?;
+    let mut redis_conn = get_redis_conn().await?;
 
     let index_key = format!("{prefix}:{key}");
     let skip = skip.unwrap_or(0);
