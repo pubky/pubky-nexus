@@ -5,13 +5,10 @@ pub type RedisResult<T> = std::result::Result<T, RedisError>;
 
 #[derive(Error, Debug)]
 pub enum RedisError {
-    #[error("Connection unavailable: {message}")]
-    ConnectionUnavailable {
-        message: String,
-        recoverable: bool,
-        #[source]
-        source: Option<DynError>,
-    },
+    #[error("Connection not initialized")]
+    ConnectionNotInitialized,
+    #[error("Connection pool error")]
+    ConnectionPoolError(#[source] DynError),
     #[error("IO error: {0}")]
     IoError(#[source] DynError),
     #[error("Command failed: {0}")]
@@ -25,14 +22,6 @@ pub enum RedisError {
 }
 
 impl RedisError {
-    pub fn is_recoverable(&self) -> bool {
-        match self {
-            RedisError::ConnectionUnavailable { recoverable, .. } => *recoverable,
-            RedisError::IoError(_) => true,
-            _ => false,
-        }
-    }
-
     pub fn from_serialization(e: serde_json::Error) -> Self {
         RedisError::SerializationFailed(Box::new(e))
     }
