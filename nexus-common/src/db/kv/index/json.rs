@@ -5,6 +5,14 @@ use deadpool_redis::redis::{AsyncCommands, JsonAsyncCommands};
 use serde::{de::DeserializeOwned, Serialize};
 use tracing::{debug, trace};
 
+fn to_json_value<T: Serialize>(value: &T) -> RedisResult<serde_json::Value> {
+    serde_json::to_value(value).map_err(RedisError::from_serialization)
+}
+
+fn from_json_str<T: DeserializeOwned>(s: &str) -> RedisResult<T> {
+    serde_json::from_str(s).map_err(RedisError::from_deserialization)
+}
+
 #[derive(Clone, Debug)]
 pub enum JsonAction {
     Increment(i64),
@@ -50,7 +58,7 @@ pub async fn put<T: Serialize + Send + Sync>(
 ) -> RedisResult<()> {
     let index_key = format!("{prefix}:{key}");
 
-    match serde_json::to_value(value).map_err(RedisError::from_serialization)? {
+    match to_json_value(value)? {
         serde_json::Value::Bool(boolean_value) => {
             handle_put_boolean(&index_key, boolean_value, expiration).await?;
         }
@@ -263,7 +271,7 @@ pub async fn put_multiple<T: Serialize>(
         let full_key = format!("{}:{}", prefix, key.as_ref());
 
         // Check if the value is boolean
-        match serde_json::to_value(value).map_err(RedisError::from_serialization)? {
+        match to_json_value(value)? {
             serde_json::Value::Bool(boolean_value) => {
                 let int_value = if boolean_value { 1 } else { 0 };
                 cmd.set(&full_key, int_value);
@@ -309,8 +317,7 @@ pub async fn get<T: DeserializeOwned + Send + Sync>(
         .await
     {
         //debug!("Restored key: {} with value: {}", index_key, indexed_value);
-        let value: Vec<T> =
-            serde_json::from_str(&indexed_value).map_err(RedisError::from_deserialization)?;
+        let value: Vec<T> = from_json_str(&indexed_value)?;
         return Ok(value.into_iter().next()); // Extract the first element from the Vec
     }
 
@@ -369,8 +376,7 @@ fn deserialize_values<T: DeserializeOwned>(
         .into_iter()
         .map(|value_str| match value_str {
             Some(value) => {
-                let value: Vec<T> =
-                    serde_json::from_str(&value).map_err(RedisError::from_deserialization)?;
+                let value: Vec<T> = from_json_str(&value)?;
                 Ok(value.into_iter().next())
             }
             None => Ok(None),
