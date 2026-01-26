@@ -5,14 +5,6 @@ use deadpool_redis::redis::{AsyncCommands, JsonAsyncCommands};
 use serde::{de::DeserializeOwned, Serialize};
 use tracing::{debug, trace};
 
-fn to_json_value<T: Serialize>(value: &T) -> RedisResult<serde_json::Value> {
-    serde_json::to_value(value).map_err(RedisError::from_serialization)
-}
-
-fn from_json_str<T: DeserializeOwned>(s: &str) -> RedisResult<T> {
-    serde_json::from_str(s).map_err(RedisError::from_deserialization)
-}
-
 #[derive(Clone, Debug)]
 pub enum JsonAction {
     Increment(i64),
@@ -442,4 +434,12 @@ pub async fn del_multiple(prefix: &str, keys: &[impl AsRef<str>]) -> RedisResult
 
     let _: () = redis_conn.del(full_keys).await?;
     Ok(())
+}
+
+fn to_json_value<T: Serialize>(value: &T) -> RedisResult<serde_json::Value> {
+    serde_json::to_value(value).map_err(RedisError::from_serialization)
+}
+
+fn from_json_str<T: DeserializeOwned>(s: &str) -> RedisResult<T> {
+    serde_json::from_str(s).map_err(RedisError::from_deserialization)
 }
