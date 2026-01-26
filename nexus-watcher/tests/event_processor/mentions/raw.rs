@@ -50,8 +50,9 @@ async fn test_homeserver_mentions() -> Result<()> {
         .await?;
 
     // User 1 writes a post mentioning User 2 and User 3
+    // For backward compatibility, both pubky display formats are used (pk: and pubky prefixes)
     let post_content = format!(
-        "This is a post mentioning pk:{mentioned_user_1_id}, and also pk:{mentioned_user_2_id}"
+        "This is a post mentioning pk:{mentioned_user_1_id}, and also pubky{mentioned_user_2_id}"
     );
     let post = PubkyAppPost {
         content: post_content.clone(),
