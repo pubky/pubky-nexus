@@ -267,6 +267,7 @@ pub async fn put_mentioned_relationships(
     content: &str,
     relationships: &mut PostRelationships,
 ) -> Result<(), DynError> {
+    // TODO Deprecate, drop support for pk: support in an upcoming release
     // Backwards compatibility: identify user references with "pk:" prefix
     put_mentioned_relationships_for_prefix(author_id, post_id, content, relationships, "pk:")
         .await?;
