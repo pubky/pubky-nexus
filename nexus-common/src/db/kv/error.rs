@@ -21,16 +21,6 @@ pub enum RedisError {
     InvalidInput(String),
 }
 
-impl RedisError {
-    pub fn from_serialization(e: serde_json::Error) -> Self {
-        RedisError::SerializationFailed(Box::new(e))
-    }
-
-    pub fn from_deserialization(e: serde_json::Error) -> Self {
-        RedisError::DeserializationFailed(Box::new(e))
-    }
-}
-
 impl From<redis::RedisError> for RedisError {
     fn from(e: redis::RedisError) -> Self {
         if e.is_connection_refusal() || e.is_timeout() || e.is_io_error() {

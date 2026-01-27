@@ -437,9 +437,9 @@ pub async fn del_multiple(prefix: &str, keys: &[impl AsRef<str>]) -> RedisResult
 }
 
 fn to_json_value<T: Serialize>(value: &T) -> RedisResult<serde_json::Value> {
-    serde_json::to_value(value).map_err(RedisError::from_serialization)
+    serde_json::to_value(value).map_err(|e| RedisError::SerializationFailed(Box::new(e)))
 }
 
 fn from_json_str<T: DeserializeOwned>(s: &str) -> RedisResult<T> {
-    serde_json::from_str(s).map_err(RedisError::from_deserialization)
+    serde_json::from_str(s).map_err(|e| RedisError::DeserializationFailed(Box::new(e)))
 }
