@@ -77,10 +77,9 @@ impl UserSearch {
         let min = format!("[{id_prefix}"); // Inclusive range starting with "id_prefix"
         let max = format!("({id_prefix}~"); // Exclusive range ending just after "id_prefix"
 
-        Ok(
-            Self::try_from_index_sorted_set_lex(&USER_ID_KEY_PARTS, &min, &max, skip, limit)
-                .await?,
-        )
+        Self::try_from_index_sorted_set_lex(&USER_ID_KEY_PARTS, &min, &max, skip, limit)
+            .await
+            .map_err(Into::into)
     }
 
     /// Adds multiple `user_id`s to Redis sorted sets:
