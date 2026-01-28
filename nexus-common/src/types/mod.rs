@@ -1,7 +1,9 @@
+mod collections;
 mod pagination;
 pub mod routes;
 mod timeframe;
 
+pub use collections::BoundedHashSet;
 pub use pagination::Pagination;
 pub use timeframe::Timeframe;
 
