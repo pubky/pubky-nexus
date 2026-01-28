@@ -44,14 +44,19 @@ impl TagSearch {
         )
         .await
         .map(|opt| opt.map(|list| list.into_iter().map(TagSearch).collect()))
+        .map_err(Into::into)
     }
 
     pub async fn put_to_index(tag_labels: &[String]) -> Result<(), DynError> {
         let elements: Vec<(f64, &str)> = create_zero_score_tuples(tag_labels);
-        Self::put_index_sorted_set(&TAGS_LABEL, &elements, None, None).await
+        Self::put_index_sorted_set(&TAGS_LABEL, &elements, None, None)
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn del_from_index(tag_label: &str) -> Result<(), DynError> {
-        Self::remove_from_index_sorted_set(None, &TAGS_LABEL, &[tag_label]).await
+        Self::remove_from_index_sorted_set(None, &TAGS_LABEL, &[tag_label])
+            .await
+            .map_err(Into::into)
     }
 }

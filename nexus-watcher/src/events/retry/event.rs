@@ -98,6 +98,7 @@ impl RetryEvent {
             &[event_index],
         )
         .await
+        .map_err(Into::into)
     }
 
     /// Retrieves an event from the JSON index in Redis based on its index
@@ -105,6 +106,8 @@ impl RetryEvent {
     /// * `event_index` - A `&str` representing the event index to retrieve
     pub async fn get_from_index(event_index: &str) -> Result<Option<Self>, DynError> {
         let index: &Vec<&str> = &[RETRY_MANAGER_STATE_INDEX, [event_index]].concat();
-        Self::try_from_index_json(index, None).await
+        Self::try_from_index_json(index, None)
+            .await
+            .map_err(Into::into)
     }
 }

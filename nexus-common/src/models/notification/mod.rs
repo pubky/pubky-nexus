@@ -112,6 +112,7 @@ impl Notification {
             None,
         )
         .await
+        .map_err(Into::into)
     }
 
     /// Lists notifications from the sorted set for the user, based on skip and limit, or timestamp range.

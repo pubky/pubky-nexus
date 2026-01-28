@@ -114,7 +114,7 @@ impl Event {
             Ok(r) => r.unwrap_or_default(),
             Err(error) => {
                 error!("IndexReadFailed: Failed to read from list due to Redis error: {error}");
-                return Err(error);
+                return Err(error.into());
             }
         };
 

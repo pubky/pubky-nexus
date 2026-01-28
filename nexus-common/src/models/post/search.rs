@@ -112,6 +112,7 @@ impl PostsByTagSearch {
             score_action,
         )
         .await
+        .map_err(Into::into)
     }
 
     pub async fn put_to_index(

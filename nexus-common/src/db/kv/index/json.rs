@@ -1,5 +1,5 @@
 use crate::db::get_redis_conn;
-use crate::types::DynError;
+use crate::db::kv::error::{RedisError, RedisResult};
 use deadpool_redis::redis::Script;
 use deadpool_redis::redis::{AsyncCommands, JsonAsyncCommands};
 use serde::{de::DeserializeOwned, Serialize};
@@ -47,10 +47,10 @@ pub async fn put<T: Serialize + Send + Sync>(
     value: &T,
     path: Option<&str>,
     expiration: Option<i64>,
-) -> Result<(), DynError> {
+) -> RedisResult<()> {
     let index_key = format!("{prefix}:{key}");
 
-    match serde_json::to_value(value)? {
+    match to_json_value(value)? {
         serde_json::Value::Bool(boolean_value) => {
             handle_put_boolean(&index_key, boolean_value, expiration).await?;
         }
@@ -88,7 +88,7 @@ pub async fn modify_json_field(
     field: &str,
     action: JsonAction,
     range: Option<ValueRange>,
-) -> Result<(), DynError> {
+) -> RedisResult<()> {
     let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{prefix}:{key}");
     let json_path = format!("$.{field}"); // Access the field using JSON path
@@ -117,7 +117,7 @@ pub async fn modify_json_field(
         if current_value ~= nil then
             -- Decode the JSON string into a Lua table
             local decoded = cjson.decode(current_value)
-            
+
             if type(decoded) == 'table' then
                 -- If the decoded value is an array, extract the first element
                 if #decoded > 0 then
@@ -171,11 +171,7 @@ pub async fn modify_json_field(
 /// * `key` - A string slice representing the Redis key.
 /// * `value` - A boolean value to store. If `true`, `1` is stored; if `false`, `0` is stored.
 /// * `expiration` - An optional expiration time in seconds. If provided, the key will expire after this duration.
-async fn handle_put_boolean(
-    key: &str,
-    value: bool,
-    expiration: Option<i64>,
-) -> Result<(), DynError> {
+async fn handle_put_boolean(key: &str, value: bool, expiration: Option<i64>) -> RedisResult<()> {
     let mut redis_conn = get_redis_conn().await?;
 
     let int_value = if value { 1 } else { 0 };
@@ -203,7 +199,7 @@ async fn handle_put_json<T: Serialize + Send + Sync>(
     value: &T,
     path: Option<&str>,
     expiration: Option<i64>,
-) -> Result<(), DynError> {
+) -> RedisResult<()> {
     let mut redis_conn = get_redis_conn().await?;
 
     let json_path = path.unwrap_or("$");
@@ -257,7 +253,7 @@ async fn handle_put_json<T: Serialize + Send + Sync>(
 pub async fn put_multiple<T: Serialize>(
     prefix: &str,
     data: &[(impl AsRef<str>, T)],
-) -> Result<(), DynError> {
+) -> RedisResult<()> {
     let mut redis_conn = get_redis_conn().await?;
 
     // Create a pipeline-like command sequence
@@ -267,7 +263,7 @@ pub async fn put_multiple<T: Serialize>(
         let full_key = format!("{}:{}", prefix, key.as_ref());
 
         // Check if the value is boolean
-        match serde_json::to_value(value)? {
+        match to_json_value(value)? {
             serde_json::Value::Bool(boolean_value) => {
                 let int_value = if boolean_value { 1 } else { 0 };
                 cmd.set(&full_key, int_value);
@@ -302,7 +298,7 @@ pub async fn get<T: DeserializeOwned + Send + Sync>(
     prefix: &str,
     key: &str,
     path: Option<&str>,
-) -> Result<Option<T>, DynError> {
+) -> RedisResult<Option<T>> {
     let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{prefix}:{key}");
     let json_path = path.unwrap_or("$").to_string(); // Ensure path is a String
@@ -313,7 +309,7 @@ pub async fn get<T: DeserializeOwned + Send + Sync>(
         .await
     {
         //debug!("Restored key: {} with value: {}", index_key, indexed_value);
-        let value: Vec<T> = serde_json::from_str(&indexed_value)?;
+        let value: Vec<T> = from_json_str(&indexed_value)?;
         return Ok(value.into_iter().next()); // Extract the first element from the Vec
     }
 
@@ -341,7 +337,7 @@ pub async fn get_multiple<T: DeserializeOwned + Send + Sync>(
     prefix: &str,
     keys: &[impl AsRef<str>],
     path: Option<&str>,
-) -> Result<Vec<Option<T>>, DynError> {
+) -> RedisResult<Vec<Option<T>>> {
     let mut redis_conn = get_redis_conn().await?;
     let json_path = path.unwrap_or("$");
 
@@ -367,12 +363,12 @@ pub async fn get_multiple<T: DeserializeOwned + Send + Sync>(
 // Helper function to deserialize JSON strings to Vec<Option<T>>
 fn deserialize_values<T: DeserializeOwned>(
     values: Vec<Option<String>>,
-) -> Result<Vec<Option<T>>, DynError> {
+) -> RedisResult<Vec<Option<T>>> {
     values
         .into_iter()
         .map(|value_str| match value_str {
             Some(value) => {
-                let value: Vec<T> = serde_json::from_str(&value)?;
+                let value: Vec<T> = from_json_str(&value)?;
                 Ok(value.into_iter().next())
             }
             None => Ok(None),
@@ -394,7 +390,7 @@ fn deserialize_values<T: DeserializeOwned>(
 /// # Errors
 ///
 /// Returns an error if the operation fails.
-pub async fn _get_bool(prefix: &str, key: &str) -> Result<Option<bool>, DynError> {
+pub async fn _get_bool(prefix: &str, key: &str) -> RedisResult<Option<bool>> {
     let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{prefix}:{key}");
 
@@ -427,7 +423,7 @@ pub async fn _get_bool(prefix: &str, key: &str) -> Result<Option<bool>, DynError
 /// # Errors
 ///
 /// Returns an error if the operation fails.
-pub async fn del_multiple(prefix: &str, keys: &[impl AsRef<str>]) -> Result<(), DynError> {
+pub async fn del_multiple(prefix: &str, keys: &[impl AsRef<str>]) -> RedisResult<()> {
     let mut redis_conn = get_redis_conn().await?;
 
     // Generate full keys with prefix
@@ -438,4 +434,12 @@ pub async fn del_multiple(prefix: &str, keys: &[impl AsRef<str>]) -> Result<(), 
 
     let _: () = redis_conn.del(full_keys).await?;
     Ok(())
+}
+
+fn to_json_value<T: Serialize>(value: &T) -> RedisResult<serde_json::Value> {
+    serde_json::to_value(value).map_err(|e| RedisError::SerializationFailed(Box::new(e)))
+}
+
+fn from_json_str<T: DeserializeOwned>(s: &str) -> RedisResult<T> {
+    serde_json::from_str(s).map_err(|e| RedisError::DeserializationFailed(Box::new(e)))
 }

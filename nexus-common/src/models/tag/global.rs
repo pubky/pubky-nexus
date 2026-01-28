@@ -55,6 +55,7 @@ impl Taggers {
         let key_parts = Self::build_key_parts(timeframe);
         HotTagsTaggers::try_from_index_json(&key_parts, Some(HOT_TAGS_CACHE_PREFIX.to_string()))
             .await
+            .map_err(Into::into)
     }
 
     /// Stores taggers in the cache for a given timeframe
@@ -76,7 +77,8 @@ impl Taggers {
                 Some(HOT_TAGS_CACHE_PREFIX.to_string()),
                 Some(timeframe.to_cache_period()),
             )
-            .await
+            .await?;
+        Ok(())
     }
 
     /// Retrieves taggers for a given tag label, either globally or based on a user's reach
