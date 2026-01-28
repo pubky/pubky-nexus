@@ -77,7 +77,8 @@ cargo run -p nexusd -- api
 
 5. **Access Redis and Neo4j UIs and Swagger endpoint**:
    - Swagger UI: [http://localhost:8080/swagger-ui](http://localhost:8080/swagger-ui)
-   - Redis Insight: [http://localhost:8001/redis-stack/browser](http://localhost:8001/redis-stack/browser)
+   - Redis Insight: [http://localhost:5540/0/browser](http://localhost:5540/0/browser)
+     - Note: on first run, an error popup is shown and a TOS popup. After you accept the TOS, the link will work.
    - Neo4J Browser: [http://localhost:7474/browser/](http://localhost:7474/browser/)
 
 ## 📈 Observability
