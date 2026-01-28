@@ -82,7 +82,7 @@ MATCH (u3:User {id: $detroit}), (p3:Post {id: "M4X1P9L2J6K8"}) MERGE (u3)-[:AUTH
 MATCH (u:User {id: $amsterdam}), (p:Post {id: "M4X1P9L2J6K8"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "T5X8L1P3J4N2", indexed_at: 1724134080000}]->(p);
 MATCH (u:User {id: $bogota}), (p:Post {id: "M4X1P9L2J6K8"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "U6Q7F0M2X1J8", indexed_at: 1724134092000}]->(p);
 
-MERGE (p3:Post {id: "N7Q2F5W8J0L3"}) SET p3.content = "Open-source drives innovation forward", p3.kind = "short", p3.indexed_at = 1693822331234;
+MERGE (p3:Post {id: "N7Q2F5W8J0L3"}) SET p3.content = "Open-source drives innovation forward", p3.kind = "short", p3.indexed_at = 1693822331234, p3.attachments = ["pubky://f5tcy5gtgzshipr6pag6cn9uski3s8tjare7wd3n7enmyokgjk1o/pub/pubky.app/files/2ZK3A1B2C3D40", "pubky://f5tcy5gtgzshipr6pag6cn9uski3s8tjare7wd3n7enmyokgjk1o/pub/pubky.app/files/2ZK3E5F6G7H80"];
 MATCH (u3:User {id: $cairo}), (p3:Post {id: "N7Q2F5W8J0L3"}) MERGE (u3)-[:AUTHORED]->(p3);
 MATCH (u:User {id: $amsterdam}), (p:Post {id: "N7Q2F5W8J0L3"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "V8N1P3L9J4X0", indexed_at: 1724134080000}]->(p);
 MATCH (u:User {id: $bogota}), (p:Post {id: "N7Q2F5W8J0L3"}) MERGE (u)-[:TAGGED {label: $opensource_tag, id: "J4N8Q1W2F6J3", indexed_at: 1724134092000}]->(p);
