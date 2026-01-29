@@ -39,7 +39,7 @@ async fn test_homeserver_put_mute() -> Result<()> {
     assert!(exist, "The mute relationship was not created in the Graph");
 
     // CACHE_OP: Assert if cache has been updated
-    let muted = Muted::check(&muter_id, &mutee_id).await.unwrap();
+    let muted = Muted::check_in_index(&muter_id, &mutee_id).await.unwrap();
     assert!(
         muted,
         "Mutee should be present in the muter user's mute list"
