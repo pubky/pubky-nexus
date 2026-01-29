@@ -1,3 +1,4 @@
+use crate::db::kv::RedisResult;
 use crate::models::follow::{Followers, UserFollows};
 use crate::models::user::Muted;
 
@@ -22,7 +23,9 @@ impl Relationship {
     ) -> Result<Option<Self>, DynError> {
         match viewer_id {
             None => Ok(None),
-            Some(v_id) => Self::get_from_index(user_id, v_id).await,
+            Some(v_id) => Self::get_from_index(user_id, v_id)
+                .await
+                .map_err(Into::into),
         }
     }
 
@@ -30,7 +33,7 @@ impl Relationship {
     pub async fn get_from_index(
         user_id: &str,
         viewer_id: &str,
-    ) -> Result<Option<Relationship>, DynError> {
+    ) -> RedisResult<Option<Relationship>> {
         let user_exist = UserCounts::get_from_index(user_id).await?;
         let viewer_exist = UserCounts::get_from_index(viewer_id).await?;
 
@@ -40,9 +43,9 @@ impl Relationship {
         }
 
         let (following, followed_by, muted) = tokio::try_join!(
-            Followers::check(user_id, viewer_id),
-            Followers::check(viewer_id, user_id),
-            Muted::check(viewer_id, user_id),
+            Followers::check_in_index(user_id, viewer_id),
+            Followers::check_in_index(viewer_id, user_id),
+            Muted::check_in_index(viewer_id, user_id),
         )?;
 
         Ok(Some(Self {

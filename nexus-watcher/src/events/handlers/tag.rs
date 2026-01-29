@@ -125,7 +125,7 @@ async fn put_sync_post(
                     &author_id,
                     post_id,
                     tag_label,
-                    ScoreAction::Increment(1.0)
+                    ScoreAction::Increment(1.0),
                 ),
                 async {
                     // Post replies cannot be included in the total engagement index once they have been tagged
@@ -141,10 +141,18 @@ async fn put_sync_post(
                     Ok::<(), DynError>(())
                 },
                 // Add post to global label timeline
-                PostsByTagSearch::put_to_index(&author_id, post_id, tag_label),
+                async {
+                    PostsByTagSearch::put_to_index(&author_id, post_id, tag_label)
+                        .await
+                        .map_err(DynError::from)
+                },
                 // Save new notification
                 Notification::new_post_tag(&tagger_user_id, &author_id, tag_label, post_uri),
-                TagSearch::put_to_index(tag_label_slice)
+                async {
+                    TagSearch::put_to_index(tag_label_slice)
+                        .await
+                        .map_err(DynError::from)
+                }
             );
 
             handle_indexing_results!(
@@ -227,7 +235,11 @@ async fn put_sync_user(
                 TagUser::add_tagger_to_index(&tagged_user_id, None, &tagger_user_id, tag_label),
                 // Save new notification
                 Notification::new_user_tag(&tagger_user_id, &tagged_user_id, tag_label),
-                TagSearch::put_to_index(tag_label_slice)
+                async {
+                    TagSearch::put_to_index(tag_label_slice)
+                        .await
+                        .map_err(DynError::from)
+                }
             );
 
             handle_indexing_results!(
@@ -338,12 +350,15 @@ async fn del_sync_post(
             Ok::<(), DynError>(())
         },
         // Decrease post from label total engagement
-        PostsByTagSearch::update_index_score(
-            author_id,
-            post_id,
-            tag_label,
-            ScoreAction::Decrement(1.0)
-        ),
+        async {
+            PostsByTagSearch::update_index_score(
+                author_id,
+                post_id,
+                tag_label,
+                ScoreAction::Decrement(1.0),
+            )
+            .await
+        },
         async {
             // Post replies cannot be included in the total engagement index once the tag have been deleted
             if !post_relationships_is_reply(author_id, post_id).await? {

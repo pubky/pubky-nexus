@@ -1,3 +1,4 @@
+use crate::db::kv::RedisResult;
 use crate::db::queries::get::get_tags;
 use crate::db::{fetch_key_from_graph, RedisOps};
 use crate::models::create_zero_score_tuples;
@@ -20,7 +21,7 @@ impl TagSearch {
     pub async fn reindex() -> Result<(), DynError> {
         let tag_labels_opt = fetch_key_from_graph(get_tags(), "tag_labels").await?;
         let tag_labels: Vec<String> = tag_labels_opt.unwrap_or_default();
-        Self::put_to_index(&tag_labels).await
+        Self::put_to_index(&tag_labels).await.map_err(Into::into)
     }
 
     pub async fn get_by_label(
@@ -47,16 +48,12 @@ impl TagSearch {
         .map_err(Into::into)
     }
 
-    pub async fn put_to_index(tag_labels: &[String]) -> Result<(), DynError> {
+    pub async fn put_to_index(tag_labels: &[String]) -> RedisResult<()> {
         let elements: Vec<(f64, &str)> = create_zero_score_tuples(tag_labels);
-        Self::put_index_sorted_set(&TAGS_LABEL, &elements, None, None)
-            .await
-            .map_err(Into::into)
+        Self::put_index_sorted_set(&TAGS_LABEL, &elements, None, None).await
     }
 
-    pub async fn del_from_index(tag_label: &str) -> Result<(), DynError> {
-        Self::remove_from_index_sorted_set(None, &TAGS_LABEL, &[tag_label])
-            .await
-            .map_err(Into::into)
+    pub async fn del_from_index(tag_label: &str) -> RedisResult<()> {
+        Self::remove_from_index_sorted_set(None, &TAGS_LABEL, &[tag_label]).await
     }
 }

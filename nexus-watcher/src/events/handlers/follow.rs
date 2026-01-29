@@ -1,7 +1,6 @@
 use crate::events::retry::event::RetryEvent;
 use crate::events::EventProcessorError;
 use crate::handle_indexing_results;
-
 use nexus_common::db::kv::JsonAction;
 use nexus_common::db::OperationOutcome;
 use nexus_common::models::follow::{Followers, Following, Friends, UserFollows};
@@ -40,9 +39,19 @@ pub async fn sync_put(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), 
             // SAVE TO INDEX
             let indexing_results = tokio::join!(
                 // Add new follower to the followee index
-                followers.put_to_index(&followee_id),
+                async {
+                    followers
+                        .put_to_index(&followee_id)
+                        .await
+                        .map_err(DynError::from)
+                },
                 // Add in the Following:follower_id index a followee user
-                following.put_to_index(&follower_id),
+                async {
+                    following
+                        .put_to_index(&follower_id)
+                        .await
+                        .map_err(DynError::from)
+                },
                 update_follow_counts(
                     &follower_id,
                     &followee_id,
@@ -86,9 +95,19 @@ pub async fn sync_del(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), 
 
             let indexing_results = tokio::join!(
                 // Remove a follower to the followee index
-                followers.del_from_index(&followee_id),
+                async {
+                    followers
+                        .del_from_index(&followee_id)
+                        .await
+                        .map_err(DynError::from)
+                },
                 // Remove from the Following:follower_id index a followee user
-                following.del_from_index(&follower_id),
+                async {
+                    following
+                        .del_from_index(&follower_id)
+                        .await
+                        .map_err(DynError::from)
+                },
                 update_follow_counts(
                     &follower_id,
                     &followee_id,
@@ -132,8 +151,8 @@ pub async fn is_followee_following_follower(
     user_b_id: &str,
 ) -> Result<bool, DynError> {
     let (a_follows_b, b_follows_a) = tokio::try_join!(
-        Following::check(user_a_id, user_b_id),
-        Following::check(user_b_id, user_a_id),
+        Following::check_in_index(user_a_id, user_b_id),
+        Following::check_in_index(user_b_id, user_a_id),
     )?;
     // Cannot exist any previous relationship between A and B. If not, it would be duplicate event
     // (A)-[:FOLLOWS]->(B)

@@ -1,3 +1,4 @@
+use crate::db::kv::RedisResult;
 use crate::db::{fetch_row_from_graph, queries, RedisOps};
 use crate::types::DynError;
 use pubky_app_specs::{post_uri_builder, ParsedUri, PubkyAppPost, PubkyAppPostKind, PubkyId};
@@ -67,13 +68,8 @@ impl PostRelationships {
     pub async fn get_from_index(
         author_id: &str,
         post_id: &str,
-    ) -> Result<Option<PostRelationships>, DynError> {
-        if let Some(post_relationships) =
-            Self::try_from_index_json(&[author_id, post_id], None).await?
-        {
-            return Ok(Some(post_relationships));
-        }
-        Ok(None)
+    ) -> RedisResult<Option<PostRelationships>> {
+        Self::try_from_index_json(&[author_id, post_id], None).await
     }
 
     /// Retrieves the counts from Neo4j.
@@ -126,10 +122,8 @@ impl PostRelationships {
         relationship
     }
 
-    pub async fn put_to_index(&self, author_id: &str, post_id: &str) -> Result<(), DynError> {
-        self.put_index_json(&[author_id, post_id], None, None)
-            .await?;
-        Ok(())
+    pub async fn put_to_index(&self, author_id: &str, post_id: &str) -> RedisResult<()> {
+        self.put_index_json(&[author_id, post_id], None, None).await
     }
 
     pub async fn delete(author_id: &str, post_id: &str) -> Result<(), DynError> {

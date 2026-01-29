@@ -1,4 +1,4 @@
-use crate::db::kv::JsonAction;
+use crate::db::kv::{JsonAction, RedisResult};
 use crate::db::{fetch_row_from_graph, queries, RedisOps};
 use crate::models::tag::post::POST_TAGS_KEY_PARTS;
 use crate::types::DynError;
@@ -38,14 +38,8 @@ impl PostCounts {
         }
     }
 
-    pub async fn get_from_index(
-        author_id: &str,
-        post_id: &str,
-    ) -> Result<Option<PostCounts>, DynError> {
-        if let Some(post_counts) = Self::try_from_index_json(&[author_id, post_id], None).await? {
-            return Ok(Some(post_counts));
-        }
-        Ok(None)
+    pub async fn get_from_index(author_id: &str, post_id: &str) -> RedisResult<Option<PostCounts>> {
+        Self::try_from_index_json(&[author_id, post_id], None).await
     }
 
     /// Retrieves the counts from Neo4j.
@@ -73,7 +67,7 @@ impl PostCounts {
         author_id: &str,
         post_id: &str,
         is_reply: bool,
-    ) -> Result<(), DynError> {
+    ) -> RedisResult<()> {
         self.put_index_json(&[author_id, post_id], None, None)
             .await?;
 

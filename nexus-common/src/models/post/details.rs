@@ -1,4 +1,5 @@
 use super::{PostRelationships, PostStream};
+use crate::db::kv::RedisResult;
 use crate::db::{
     exec_single_row, execute_graph_operation, fetch_row_from_graph, queries, OperationOutcome,
     RedisOps,
@@ -47,11 +48,8 @@ impl PostDetails {
     pub async fn get_from_index(
         author_id: &str,
         post_id: &str,
-    ) -> Result<Option<PostDetails>, DynError> {
-        if let Some(post_details) = Self::try_from_index_json(&[author_id, post_id], None).await? {
-            return Ok(Some(post_details));
-        }
-        Ok(None)
+    ) -> RedisResult<Option<PostDetails>> {
+        Self::try_from_index_json(&[author_id, post_id], None).await
     }
 
     /// Retrieves the post fields from Neo4j.
@@ -80,7 +78,7 @@ impl PostDetails {
         author_id: &str,
         parent_key_wrapper: Option<(String, String)>,
         is_edit: bool,
-    ) -> Result<(), DynError> {
+    ) -> RedisResult<()> {
         self.put_index_json(&[author_id, &self.id], None, None)
             .await?;
         // When we delete a post that has ancestor, ignore other index updates

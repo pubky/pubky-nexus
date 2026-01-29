@@ -148,12 +148,16 @@ pub async fn sync_put(
                 }
                 Ok::<(), DynError>(())
             },
-            PostStream::add_to_post_reply_sorted_set(
-                parent_post_key_parts,
-                &author_id,
-                &post_id,
-                post_details.indexed_at,
-            ),
+            async {
+                PostStream::add_to_post_reply_sorted_set(
+                    parent_post_key_parts,
+                    &author_id,
+                    &post_id,
+                    post_details.indexed_at,
+                )
+                .await
+                .map_err(DynError::from)
+            },
             Notification::new_post_reply(
                 &author_id,
                 &replied_uri_str,
@@ -206,8 +210,18 @@ pub async fn sync_put(
 
     // PHASE 4: Add post related content
     let indexing_results = tokio::join!(
-        post_relationships.put_to_index(&author_id, &post_id),
-        post_details.put_to_index(&author_id, reply_parent_post_key_wrapper, false)
+        async {
+            post_relationships
+                .put_to_index(&author_id, &post_id)
+                .await
+                .map_err(DynError::from)
+        },
+        async {
+            post_details
+                .put_to_index(&author_id, reply_parent_post_key_wrapper, false)
+                .await
+                .map_err(DynError::from)
+        }
     );
 
     handle_indexing_results!(indexing_results.0, indexing_results.1);
