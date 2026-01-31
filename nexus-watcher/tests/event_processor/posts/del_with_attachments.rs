@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use super::utils::find_post_details;
+use crate::event_processor::utils::test_ids::posts::del_with_attachments as ids;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
@@ -60,7 +61,7 @@ async fn test_homeserver_del_post_with_attachments() -> Result<()> {
         attachments: Some(post_attachments.clone()),
     };
 
-    let (post_id, post_path) = test.create_post(&user_kp, &post).await?;
+    let (post_id, post_path) = test.create_post(&user_kp, &post, ids::POST).await?;
 
     let post_details = find_post_details(&user_id, &post_id).await.unwrap();
 

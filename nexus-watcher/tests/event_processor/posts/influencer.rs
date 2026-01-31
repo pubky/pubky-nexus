@@ -1,5 +1,6 @@
 use crate::{
     event_processor::users::utils::check_member_user_influencer,
+    event_processor::utils::test_ids::posts::influencer as ids,
     event_processor::utils::watcher::WatcherTest,
 };
 use anyhow::Result;
@@ -32,7 +33,9 @@ async fn test_homeserver_post_influencer() -> Result<()> {
         attachments: None,
     };
 
-    let (alice_post_id, _alice_post_path) = test.create_post(&alice_user_kp, &alice_post).await?;
+    let (alice_post_id, _alice_post_path) = test
+        .create_post(&alice_user_kp, &alice_post, ids::ALICE_POST)
+        .await?;
 
     // CACHE_OP: Assert cache has not been updated. Missing followers
     // influencers score: Sorted:Users:Influencers
@@ -71,7 +74,9 @@ async fn test_homeserver_post_influencer() -> Result<()> {
         attachments: None,
         embed: None,
     };
-    let (_reply_id, _reply_path) = test.create_post(&bob_user_kp, &reply).await?;
+    let (_reply_id, _reply_path) = test
+        .create_post(&bob_user_kp, &reply, ids::BOB_REPLY)
+        .await?;
 
     // Create repost of alice post
     let repost = PubkyAppPost {
@@ -85,7 +90,8 @@ async fn test_homeserver_post_influencer() -> Result<()> {
         attachments: None,
     };
 
-    test.create_post(&bob_user_kp, &repost).await?;
+    test.create_post(&bob_user_kp, &repost, ids::BOB_REPOST)
+        .await?;
 
     // CACHE_OP: Assert if cache has been updated
     let influencer_score = check_member_user_influencer(&bob_id).await.unwrap();

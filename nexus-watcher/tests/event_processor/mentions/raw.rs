@@ -1,4 +1,5 @@
 use super::utils::find_post_mentions;
+use crate::event_processor::utils::test_ids::mentions::raw as ids;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::{db::RedisOps, models::post::PostRelationships};
@@ -62,7 +63,7 @@ async fn test_homeserver_mentions() -> Result<()> {
         attachments: None,
     };
 
-    let (post_id, post_path) = test.create_post(&author_user_kp, &post).await?;
+    let (post_id, post_path) = test.create_post(&author_user_kp, &post, ids::POST).await?;
 
     // GRAPH_OP
     let post_mention_users = find_post_mentions(&author_user_id, &post_id).await.unwrap();

@@ -1,3 +1,4 @@
+use crate::event_processor::utils::test_ids::posts::fail_reply as ids;
 use crate::event_processor::utils::watcher::{retrieve_and_handle_event_line, WatcherTest};
 use anyhow::Result;
 use nexus_common::types::DynError;
@@ -31,7 +32,7 @@ async fn test_homeserver_post_reply_without_post_parent() -> Result<(), DynError
         attachments: None,
     };
 
-    let (post_id, _post_path) = test.create_post(&author_user_kp, &post).await?;
+    let (post_id, _post_path) = test.create_post(&author_user_kp, &post, ids::POST).await?;
 
     // Create reply
     let parent_absolute_uri = post_uri_builder(author_id.clone(), post_id);
@@ -44,7 +45,9 @@ async fn test_homeserver_post_reply_without_post_parent() -> Result<(), DynError
         attachments: None,
     };
 
-    let (reply_id, _reply_path) = test.create_post(&author_user_kp, &reply).await?;
+    let (reply_id, _reply_path) = test
+        .create_post(&author_user_kp, &reply, ids::REPLY)
+        .await?;
 
     // Create raw event line to retrieve the content from the homeserver
     let reply_absolute_uri = post_uri_builder(author_id.clone(), reply_id);

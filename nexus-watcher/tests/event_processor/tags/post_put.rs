@@ -4,6 +4,7 @@ use crate::event_processor::posts::utils::{
     check_member_total_engagement_user_posts, find_post_counts,
 };
 use crate::event_processor::users::utils::find_user_counts;
+use crate::event_processor::utils::test_ids::tags::post_put as ids;
 use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
@@ -42,7 +43,9 @@ async fn test_homeserver_put_tag_post() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let (post_id, post_path) = test.create_post(&user_kp, &post).await?;
+    let (post_id, post_path) = test
+        .create_post(&user_kp, &post, ids::TEST_POST_TAG_CREATE)
+        .await?;
 
     // Step 3: Tagger user adds a tag to the his own post
     let label = "merkle_tree";
@@ -182,7 +185,9 @@ async fn test_homeserver_put_tag_post_unique_count() -> Result<(), DynError> {
         embed: None,
         attachments: None,
     };
-    let (post_id, post_path) = test.create_post(&tagger_kp, &post).await?;
+    let (post_id, post_path) = test
+        .create_post(&tagger_kp, &post, ids::TEST_SAME_POST_TAG_TWICE)
+        .await?;
 
     let label = "tag-183";
     let tag = PubkyAppTag {

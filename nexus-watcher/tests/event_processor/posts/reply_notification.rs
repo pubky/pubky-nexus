@@ -1,4 +1,5 @@
 use super::utils::find_post_details;
+use crate::event_processor::utils::test_ids::posts::reply_notification as ids;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::models::notification::{Notification, NotificationBody};
@@ -30,7 +31,9 @@ async fn test_homeserver_post_reply_notification() -> Result<()> {
         attachments: None,
     };
 
-    let (alice_post_id, alice_post_path) = test.create_post(&alice_kp, &parent_post).await?;
+    let (alice_post_id, alice_post_path) = test
+        .create_post(&alice_kp, &parent_post, ids::ALICE_POST)
+        .await?;
 
     let parent_absolute_uri = post_uri_builder(alice_id.clone(), alice_post_id.clone());
 
@@ -42,7 +45,9 @@ async fn test_homeserver_post_reply_notification() -> Result<()> {
         attachments: None,
     };
 
-    let (_alice_reply_id, alice_reply_path) = test.create_post(&alice_kp, &reply_post).await?;
+    let (_alice_reply_id, alice_reply_path) = test
+        .create_post(&alice_kp, &reply_post, ids::ALICE_REPLY)
+        .await?;
 
     // Verify that alice does not get a REPLY notification
     let notifications = Notification::get_by_id(&alice_id, Pagination::default())
@@ -75,7 +80,9 @@ async fn test_homeserver_post_reply_notification() -> Result<()> {
         attachments: None,
     };
 
-    let (bob_reply_id, bob_reply_path) = test.create_post(&bob_kp, &reply_post).await?;
+    let (bob_reply_id, bob_reply_path) = test
+        .create_post(&bob_kp, &reply_post, ids::BOB_REPLY)
+        .await?;
 
     // Verify that alice gets a REPLY notification
     let notifications = Notification::get_by_id(&alice_id, Pagination::default())

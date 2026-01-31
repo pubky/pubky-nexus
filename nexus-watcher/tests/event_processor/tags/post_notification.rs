@@ -1,4 +1,5 @@
 use super::utils::find_post_tag;
+use crate::event_processor::utils::test_ids::tags::post_notification as ids;
 use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
@@ -46,7 +47,7 @@ async fn test_homeserver_tag_post_notification() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let (post_id, post_path) = test.create_post(&author_kp, &post).await?;
+    let (post_id, post_path) = test.create_post(&author_kp, &post, ids::POST).await?;
 
     // Tagger adds a tag to the post
     let label = "interesting";

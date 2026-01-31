@@ -1,3 +1,4 @@
+use crate::event_processor::utils::test_ids::posts::fail_repost as ids;
 use crate::event_processor::utils::watcher::{retrieve_and_handle_event_line, WatcherTest};
 use anyhow::Result;
 use nexus_common::types::DynError;
@@ -45,7 +46,9 @@ async fn test_homeserver_post_repost_without_post_parent() -> Result<(), DynErro
         attachments: None,
     };
 
-    let (post_id, _post_path) = test.create_post(&post_author_user_kp, &post).await?;
+    let (post_id, _post_path) = test
+        .create_post(&post_author_user_kp, &post, ids::POST)
+        .await?;
 
     // Create repost
     let repost = PubkyAppPost {
@@ -58,7 +61,9 @@ async fn test_homeserver_post_repost_without_post_parent() -> Result<(), DynErro
         }),
         attachments: None,
     };
-    let (repost_id, _repost_path) = test.create_post(&post_repost_author_kp, &repost).await?;
+    let (repost_id, _repost_path) = test
+        .create_post(&post_repost_author_kp, &repost, ids::REPOST)
+        .await?;
 
     // Create raw event line to retrieve the content from the homeserver
     let repost_absolute_uri = post_uri_builder(repost_author_id, repost_id);

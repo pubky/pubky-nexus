@@ -1,5 +1,6 @@
 use super::utils::{check_member_total_engagement_user_posts, find_post_counts};
 use crate::event_processor::users::utils::find_user_counts;
+use crate::event_processor::utils::test_ids::posts::reply_repost as ids;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use pubky::Keypair;
@@ -32,7 +33,9 @@ async fn test_homeserver_reply_repost() -> Result<()> {
         attachments: None,
     };
 
-    let (parent_post_id, parent_post_path) = test.create_post(&user_kp, &parent_post).await?;
+    let (parent_post_id, parent_post_path) = test
+        .create_post(&user_kp, &parent_post, ids::PARENT_POST)
+        .await?;
 
     // Create reply
     let parent_absolute_uri = post_uri_builder(user_id.clone(), parent_post_id.clone());
@@ -45,7 +48,7 @@ async fn test_homeserver_reply_repost() -> Result<()> {
         attachments: None,
     };
 
-    let (_reply_id, reply_path) = test.create_post(&user_kp, &reply).await?;
+    let (_reply_id, reply_path) = test.create_post(&user_kp, &reply, ids::REPLY).await?;
 
     // Create repost
     let repost = PubkyAppPost {
@@ -59,7 +62,7 @@ async fn test_homeserver_reply_repost() -> Result<()> {
         attachments: None,
     };
 
-    test.create_post(&user_kp, &repost).await?;
+    test.create_post(&user_kp, &repost, ids::REPOST).await?;
 
     // CACHE_OPs
 

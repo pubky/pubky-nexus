@@ -1,4 +1,5 @@
 use super::utils::find_post_details;
+use crate::event_processor::utils::test_ids::posts::attachments as ids;
 use crate::event_processor::utils::watcher::{assert_file_details, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
@@ -54,7 +55,7 @@ async fn test_homeserver_post_attachments() -> Result<()> {
         attachments: post_attachments.clone(),
     };
 
-    let (post_id, post_path) = test.create_post(&user_kp, &post).await?;
+    let (post_id, post_path) = test.create_post(&user_kp, &post, ids::POST).await?;
 
     let post_details = find_post_details(&user_id, &post_id).await.unwrap();
 

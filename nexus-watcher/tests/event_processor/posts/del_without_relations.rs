@@ -1,5 +1,6 @@
 use super::utils::check_member_post_replies;
 use crate::event_processor::users::utils::find_user_counts;
+use crate::event_processor::utils::test_ids::posts::del_without_relations as ids;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::{
@@ -42,7 +43,9 @@ async fn test_delete_post_without_relationships() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let (post_id, post_path) = test.create_post(&user_kp, &post).await?;
+    let (post_id, post_path) = test
+        .create_post(&user_kp, &post, ids::TEST_DELETE_POST)
+        .await?;
 
     // Delete the post using the event handler
     test.cleanup_post(&user_kp, &post_path).await?;
@@ -147,7 +150,9 @@ async fn test_delete_post_that_reposted() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let (post_id, _post_path) = test.create_post(&user_kp, &post).await?;
+    let (post_id, _post_path) = test
+        .create_post(&user_kp, &post, ids::TEST_DELETE_REPOST_POST)
+        .await?;
 
     // Create a repost
     let repost = PubkyAppPost {
@@ -160,7 +165,9 @@ async fn test_delete_post_that_reposted() -> Result<()> {
         }),
         attachments: None,
     };
-    let (repost_id, repost_path) = test.create_post(&user_kp, &repost).await?;
+    let (repost_id, repost_path) = test
+        .create_post(&user_kp, &repost, ids::TEST_DELETE_REPOST_REPOST)
+        .await?;
 
     // Delete the post using the event handler
     test.cleanup_post(&user_kp, &repost_path).await?;
@@ -278,7 +285,9 @@ async fn test_delete_post_that_replied() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let (post_id, _post_path) = test.create_post(&user_kp, &post).await?;
+    let (post_id, _post_path) = test
+        .create_post(&user_kp, &post, ids::TEST_DELETE_REPLY_POST)
+        .await?;
 
     // Create a reply
     let reply = PubkyAppPost {
@@ -288,7 +297,9 @@ async fn test_delete_post_that_replied() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let (reply_id, reply_path) = test.create_post(&user_kp, &reply).await?;
+    let (reply_id, reply_path) = test
+        .create_post(&user_kp, &reply, ids::TEST_DELETE_REPLY_REPLY)
+        .await?;
 
     // Delete the post using the event handler
     test.cleanup_post(&user_kp, &reply_path).await?;

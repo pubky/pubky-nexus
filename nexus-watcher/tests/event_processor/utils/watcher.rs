@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Error, Result};
+use base32::{encode, Alphabet};
 use chrono::Utc;
 use nexus_common::db::PubkyConnector;
 use nexus_common::get_files_dir_pathbuf;
@@ -28,6 +29,15 @@ use std::time::Duration;
 use tracing::debug;
 
 use crate::event_processor::utils::default_moderation_tests;
+
+/// Generate a post ID from the current timestamp plus an offset.
+/// This ensures unique IDs across parallel tests while keeping them valid.
+pub fn generate_post_id(offset_micros: i64) -> String {
+    let now = Utc::now().timestamp_micros();
+    let timestamp = now + offset_micros;
+    let bytes = timestamp.to_be_bytes();
+    encode(Alphabet::Crockford, &bytes)
+}
 
 /// Struct to hold the setup environment for tests
 pub struct WatcherTest {
@@ -111,7 +121,7 @@ impl WatcherTest {
         let sdk = testnet.sdk().unwrap();
         match PubkyConnector::init_from(sdk).await {
             Ok(_) => debug!("WatcherTest: PubkyConnector initialised"),
-            Err(e) => debug!("WatcherTest: {}", e),
+            Err(e) => panic!("WatcherTest: PubkyConnector initialization failed: {}", e),
         }
 
         // Initialize the test-scoped EventProcessorRunner; mirrors the standard processor behavior
@@ -248,12 +258,17 @@ impl WatcherTest {
         Ok(user_id.to_string())
     }
 
+    /// Creates a post with a unique ID generated from the current timestamp plus an offset.
+    /// Use unique offsets per test to avoid collisions in parallel test runs.
+    /// The offset is in microseconds and should be unique per test (use test_ids module).
     pub async fn create_post(
         &mut self,
         user_kp: &Keypair,
         post: &PubkyAppPost,
+        offset_micros: i64,
     ) -> Result<(String, ResourcePath)> {
-        let (post_id, post_path) = post.hs_path();
+        let post_id = generate_post_id(offset_micros);
+        let post_path: ResourcePath = PubkyAppPost::create_path(&post_id).parse()?;
         // Write the post in the pubky.app repository
         self.put(user_kp, &post_path, post).await?;
 
@@ -280,7 +295,8 @@ impl WatcherTest {
         user_kp: &Keypair,
         file: &PubkyAppFile,
     ) -> Result<(String, ResourcePath)> {
-        let (file_id, file_path) = file.hs_path();
+        let file_id = file.create_id();
+        let file_path: ResourcePath = PubkyAppFile::create_path(&file_id).parse()?;
         self.put(user_kp, &file_path, file).await?;
 
         self.ensure_event_processing_complete().await?;
@@ -436,15 +452,6 @@ pub trait HomeserverHashIdPath: HashId + HasIdPath {
     }
 }
 impl<T> HomeserverHashIdPath for T where T: HashId + HasIdPath {}
-
-pub trait HomeserverTimestampIdPath: TimestampId + HasIdPath {
-    fn hs_path(&self) -> (String, ResourcePath) {
-        let id = self.create_id();
-        let path = Self::create_path(&id).parse().unwrap();
-        (id, path)
-    }
-}
-impl<T> HomeserverTimestampIdPath for T where T: TimestampId + HasIdPath {}
 
 pub trait HomeserverPathForPubkyId {
     fn hs_path(&self, pubky_id: &str) -> ResourcePath;

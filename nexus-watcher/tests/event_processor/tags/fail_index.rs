@@ -1,3 +1,4 @@
+use crate::event_processor::utils::test_ids::tags::fail_index as ids;
 use crate::event_processor::utils::watcher::{
     retrieve_and_handle_event_line, HomeserverHashIdPath, WatcherTest,
 };
@@ -92,7 +93,7 @@ async fn test_homeserver_tag_cannot_add_while_index() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let (post_id, _post_path) = test.create_post(&tagged_keypair, &post).await?;
+    let (post_id, _post_path) = test.create_post(&tagged_keypair, &post, ids::POST).await?;
 
     let label = "merkle_tree";
 

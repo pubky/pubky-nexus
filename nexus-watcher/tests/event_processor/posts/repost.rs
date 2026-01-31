@@ -4,6 +4,7 @@ use super::utils::{
     find_repost_relationship_parent_uri,
 };
 use crate::event_processor::users::utils::find_user_counts;
+use crate::event_processor::utils::test_ids::posts::repost as ids;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::{
@@ -39,7 +40,9 @@ async fn test_homeserver_post_repost() -> Result<()> {
         attachments: None,
     };
 
-    let (parent_post_id, parent_post_path) = test.create_post(&user_kp, &parent_post).await?;
+    let (parent_post_id, parent_post_path) = test
+        .create_post(&user_kp, &parent_post, ids::PARENT_POST)
+        .await?;
 
     // Create repost uri
     let parent_absolute_uri = post_uri_builder(user_id.clone(), parent_post_id.clone());
@@ -55,7 +58,7 @@ async fn test_homeserver_post_repost() -> Result<()> {
         attachments: None,
     };
 
-    let (repost_id, repost_path) = test.create_post(&user_kp, &repost).await?;
+    let (repost_id, repost_path) = test.create_post(&user_kp, &repost, ids::REPOST).await?;
 
     // GRAPH_OP: Assert repost relationship was created
     let repost_post_details = find_post_details(&user_id, &repost_id).await.unwrap();

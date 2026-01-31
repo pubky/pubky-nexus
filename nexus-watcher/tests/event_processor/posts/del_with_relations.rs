@@ -1,3 +1,4 @@
+use crate::event_processor::utils::test_ids::posts::del_with_relations as ids;
 use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
@@ -30,7 +31,7 @@ async fn test_delete_post_with_relationships() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let (post_id, post_path) = test.create_post(&user_kp, &post).await?;
+    let (post_id, post_path) = test.create_post(&user_kp, &post, ids::POST).await?;
 
     // Create a tag
     let tag = PubkyAppTag {

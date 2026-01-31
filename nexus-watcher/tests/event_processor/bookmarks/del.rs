@@ -1,4 +1,5 @@
 use super::utils::find_post_bookmark;
+use crate::event_processor::utils::test_ids::bookmarks::del as ids;
 use crate::event_processor::utils::watcher::WatcherTest;
 use crate::event_processor::{
     users::utils::find_user_counts, utils::watcher::HomeserverHashIdPath,
@@ -41,7 +42,7 @@ async fn test_homeserver_unbookmark() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let (post_id, post_path) = test.create_post(&author_kp, &post).await?;
+    let (post_id, post_path) = test.create_post(&author_kp, &post, ids::POST).await?;
 
     // Step 3: Add a bookmark to the post. Before create a new user
     let bookmark = PubkyAppBookmark {

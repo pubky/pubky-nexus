@@ -1,3 +1,4 @@
+use crate::event_processor::utils::test_ids::posts::del_tagged_notification as ids;
 use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
@@ -44,7 +45,7 @@ async fn test_delete_tagged_post_notification() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let (post_id, post_path) = test.create_post(&user_a_kp, &post).await?;
+    let (post_id, post_path) = test.create_post(&user_a_kp, &post, ids::POST).await?;
 
     // User B tags User A's post
     let label = "merkle_tree";
