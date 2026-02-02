@@ -5,7 +5,6 @@ use super::utils::{
     check_member_global_timeline_user_post, check_member_user_post_timeline, find_post_counts,
 };
 use crate::event_processor::users::utils::{check_member_user_influencer, find_user_counts};
-use crate::event_processor::utils::test_ids::posts::raw as ids;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::models::event::Event;
@@ -38,7 +37,7 @@ async fn test_homeserver_put_post_event() -> Result<()> {
     };
     let (_, events_in_redis_before) = Event::get_events_from_redis(None, 1000).await.unwrap();
 
-    let (post_id, post_path) = test.create_post(&user_kp, &post, ids::POST).await?;
+    let (post_id, post_path) = test.create_post(&user_kp, &post).await?;
 
     // GRAPH_OP: Assert if the event writes the graph
     // Cannot use PostDetails::get_from_graph because it indexes also,

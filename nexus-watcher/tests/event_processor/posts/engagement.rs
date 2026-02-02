@@ -1,5 +1,4 @@
 use super::utils::check_member_total_engagement_user_posts;
-use crate::event_processor::utils::test_ids::posts::engagement as ids;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use pubky::Keypair;
@@ -31,9 +30,7 @@ async fn test_homeserver_post_engagement() -> Result<()> {
         attachments: None,
     };
 
-    let (alice_post_id, _alice_post_path) = test
-        .create_post(&alice_user_kp, &alice_post, ids::ALICE_POST)
-        .await?;
+    let (alice_post_id, _alice_post_path) = test.create_post(&alice_user_kp, &alice_post).await?;
 
     let alice_post_key: [&str; 2] = [&alice_id, &alice_post_id];
 
@@ -68,9 +65,7 @@ async fn test_homeserver_post_engagement() -> Result<()> {
         attachments: None,
     };
 
-    let (_reply_id, _reply_path) = test
-        .create_post(&bob_user_kp, &reply, ids::BOB_REPLY)
-        .await?;
+    let (_reply_id, _reply_path) = test.create_post(&bob_user_kp, &reply).await?;
 
     // Create repost of alice post
     let repost = PubkyAppPost {
@@ -84,8 +79,7 @@ async fn test_homeserver_post_engagement() -> Result<()> {
         attachments: None,
     };
 
-    test.create_post(&bob_user_kp, &repost, ids::BOB_REPOST)
-        .await?;
+    test.create_post(&bob_user_kp, &repost).await?;
 
     let total_engagement = check_member_total_engagement_user_posts(&alice_post_key)
         .await

@@ -1,4 +1,3 @@
-use crate::event_processor::utils::test_ids::bookmarks::fail_index as ids;
 use crate::event_processor::utils::watcher::{
     retrieve_and_handle_event_line, HomeserverHashIdPath, WatcherTest,
 };
@@ -32,7 +31,7 @@ async fn test_homeserver_bookmark_without_user() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let (post_id, _post_path) = test.create_post(&author_kp, &post, ids::POST).await?;
+    let (post_id, _post_path) = test.create_post(&author_kp, &post).await?;
 
     // Create a key but it would not be synchronised in nexus
     let shadow_user_kp = Keypair::random();

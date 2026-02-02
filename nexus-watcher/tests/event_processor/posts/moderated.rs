@@ -1,6 +1,5 @@
 use crate::event_processor::{
     posts::utils::find_post_details,
-    utils::test_ids::posts::moderated as ids,
     utils::watcher::{HomeserverHashIdPath, WatcherTest},
 };
 use anyhow::Result;
@@ -34,7 +33,7 @@ async fn test_moderated_post_lifecycle() -> Result<()> {
         attachments: None,
     };
 
-    let (post_id, _post_path) = test.create_post(&user_kp, &post, ids::POST).await?;
+    let (post_id, _post_path) = test.create_post(&user_kp, &post).await?;
 
     // 2. Confirm this post does exist
     let post_details = find_post_details(&user_id, &post_id).await.unwrap();

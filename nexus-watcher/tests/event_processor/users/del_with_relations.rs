@@ -1,4 +1,3 @@
-use crate::event_processor::utils::test_ids::users::del_with_relations as ids;
 use crate::{
     event_processor::users::utils::{find_user_counts, find_user_details},
     event_processor::utils::watcher::WatcherTest,
@@ -35,9 +34,7 @@ async fn test_delete_user_with_relationships() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let (_post_id, post_path) = test
-        .create_post(&user_kp, &post, ids::TEST_DELETE_USER_A_POST)
-        .await?;
+    let (_post_id, post_path) = test.create_post(&user_kp, &post).await?;
 
     // Delete the user
     test.cleanup_user(&user_kp).await?;
@@ -159,9 +156,7 @@ async fn test_delete_user_with_relationships() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let (_post_b_id, post_b_path) = test
-        .create_post(&user_with_kp, &post_b, ids::TEST_DELETE_USER_B_POST)
-        .await?;
+    let (_post_b_id, post_b_path) = test.create_post(&user_with_kp, &post_b).await?;
 
     // Delete the user
     test.cleanup_user(&user_with_kp).await?;
@@ -283,8 +278,7 @@ async fn test_delete_recommended_user() -> Result<()> {
             embed: None,
             attachments: None,
         };
-        let offset = ids::TEST_DELETE_USER_C_POST_BASE + (i as i64 * 1_000_000);
-        test.create_post(&carol_kp, &post, offset).await?;
+        test.create_post(&carol_kp, &post).await?;
     }
 
     // Check if Carol is recommended to Alice

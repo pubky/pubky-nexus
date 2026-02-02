@@ -1,7 +1,6 @@
 use super::utils::{
     check_member_global_timeline_user_post, check_member_total_engagement_user_posts,
 };
-use crate::event_processor::utils::test_ids::posts::reply_engagement as ids;
 use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
@@ -35,9 +34,7 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
         attachments: None,
     };
 
-    let (parent_post_id, _parent_post_path) = test
-        .create_post(&user_kp, &parent_post, ids::PARENT_POST)
-        .await?;
+    let (parent_post_id, _parent_post_path) = test.create_post(&user_kp, &parent_post).await?;
 
     // Create reply
     let parent_absolute_uri = post_uri_builder(author_id.clone(), parent_post_id);
@@ -50,7 +47,7 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
         attachments: None,
     };
 
-    let (reply_id, _reply_path) = test.create_post(&user_kp, &reply, ids::REPLY).await?;
+    let (reply_id, _reply_path) = test.create_post(&user_kp, &reply).await?;
 
     // Check if reply post is not in global timeline index: Sorted:Posts:Global:Timeline:user_id:post_id
     let global_timeline = check_member_global_timeline_user_post(&author_id, &reply_id)
@@ -72,9 +69,7 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
         attachments: None,
     };
 
-    let (_reply_reply_id, reply_reply_path) = test
-        .create_post(&user_kp, &reply_of_reply, ids::REPLY_OF_REPLY)
-        .await?;
+    let (_reply_reply_id, reply_reply_path) = test.create_post(&user_kp, &reply_of_reply).await?;
 
     // Check if reply post is not in total engagement index: Sorted:Posts:Global:TotalEngagement:user_id:post_id
     let total_engagement = check_member_total_engagement_user_posts(&[&author_id, &reply_id])
@@ -105,9 +100,7 @@ async fn test_homeserver_reply_engagement_control() -> Result<()> {
         attachments: None,
     };
 
-    let (reply_repost_id, reply_repost_path) = test
-        .create_post(&user_kp, &reply_repost, ids::REPLY_REPOST)
-        .await?;
+    let (reply_repost_id, reply_repost_path) = test.create_post(&user_kp, &reply_repost).await?;
 
     // Check if reply post is not in total engagement index: Sorted:Posts:Global:TotalEngagement:user_id:post_id
     let total_engagement = check_member_total_engagement_user_posts(&[&author_id, &reply_id])

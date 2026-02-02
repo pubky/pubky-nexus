@@ -1,7 +1,6 @@
 use nexus_watcher::events::Moderation;
 use pubky_app_specs::PubkyId;
 
-pub mod test_ids;
 pub mod watcher;
 
 /// Default Moderation settings for tests

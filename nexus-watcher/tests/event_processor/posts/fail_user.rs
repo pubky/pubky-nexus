@@ -1,4 +1,3 @@
-use crate::event_processor::utils::test_ids::posts::fail_user as ids;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use pubky::Keypair;
@@ -24,7 +23,7 @@ async fn test_homeserver_post_without_user() -> Result<()> {
         attachments: None,
     };
 
-    let (_post_id, post_path) = test.create_post(&user_kp, &post, ids::POST).await?;
+    let (_post_id, post_path) = test.create_post(&user_kp, &post).await?;
 
     // Delete the post using the event handler
     test.cleanup_post(&user_kp, &post_path).await?;

@@ -1,4 +1,3 @@
-use crate::event_processor::utils::test_ids::posts::edit_reply_parent_notification as ids;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::{
@@ -42,7 +41,7 @@ async fn test_edit_parent_post_notification() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let (post_id, post_path) = test.create_post(&user_a_kp, &post, ids::POST).await?;
+    let (post_id, post_path) = test.create_post(&user_a_kp, &post).await?;
 
     // User B replies to User A's post
     let reply = PubkyAppPost {
@@ -52,7 +51,7 @@ async fn test_edit_parent_post_notification() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let (reply_id, _reply_path) = test.create_post(&user_b_kp, &reply, ids::REPLY).await?;
+    let (reply_id, _reply_path) = test.create_post(&user_b_kp, &reply).await?;
 
     // User A edits their original post
     post.content = "Edited post by User A".to_string();

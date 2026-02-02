@@ -1,5 +1,4 @@
 use super::utils::find_post_bookmark;
-use crate::event_processor::utils::test_ids::bookmarks::viewer as ids;
 use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use nexus_common::models::post::PostStream;
@@ -31,7 +30,7 @@ async fn test_homeserver_viewer_bookmark() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let (post_id, post_path) = test.create_post(&user_kp, &post, ids::POST).await?;
+    let (post_id, post_path) = test.create_post(&user_kp, &post).await?;
 
     // Step 3: Add a bookmark to the post. Before create a new user
     let viewer_kp = Keypair::random();

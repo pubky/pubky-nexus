@@ -4,7 +4,6 @@ use crate::event_processor::posts::utils::{
 };
 use crate::event_processor::tags::utils::check_member_post_tag_global_timeline;
 use crate::event_processor::users::utils::find_user_counts;
-use crate::event_processor::utils::test_ids::tags::post_del as ids;
 use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
@@ -50,7 +49,7 @@ async fn test_homeserver_del_tag_post() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let (post_id, post_path) = test.create_post(&author_kp, &post, ids::POST).await?;
+    let (post_id, post_path) = test.create_post(&author_kp, &post).await?;
 
     // Step 3: Tagger user adds a tag to the his own post
     let label = "antonymous";

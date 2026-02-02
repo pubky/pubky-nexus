@@ -24,17 +24,25 @@ use pubky_app_specs::{
     PubkyAppFile, PubkyAppFollow, PubkyAppMute, PubkyAppPost, PubkyAppUser, PubkyId,
 };
 use pubky_testnet::EphemeralTestnet;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::debug;
 
 use crate::event_processor::utils::default_moderation_tests;
 
-/// Generate a post ID from the current timestamp plus an offset.
-/// This ensures unique IDs across parallel tests while keeping them valid.
-pub fn generate_post_id(offset_micros: i64) -> String {
-    let now = Utc::now().timestamp_micros();
-    let timestamp = now + offset_micros;
+static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Generate a unique post ID for tests.
+/// Uses PID-based offset for inter-process uniqueness and atomic counter
+/// for intra-process uniqueness.
+pub fn generate_post_id() -> String {
+    let now = Utc::now().timestamp_micros() as u64;
+    let pid_offset = (std::process::id() as u64) * 1000;
+    let count = COUNTER.fetch_add(1, Ordering::SeqCst);
+
+    let timestamp = now + pid_offset + count;
+
     let bytes = timestamp.to_be_bytes();
     encode(Alphabet::Crockford, &bytes)
 }
@@ -258,16 +266,14 @@ impl WatcherTest {
         Ok(user_id.to_string())
     }
 
-    /// Creates a post with a unique ID generated from the current timestamp plus an offset.
-    /// Use unique offsets per test to avoid collisions in parallel test runs.
-    /// The offset is in microseconds and should be unique per test (use test_ids module).
+    /// Creates a post with a unique ID generated from the current timestamp.
+    /// Uses atomic counter and PID offset for uniqueness across parallel test runs.
     pub async fn create_post(
         &mut self,
         user_kp: &Keypair,
         post: &PubkyAppPost,
-        offset_micros: i64,
     ) -> Result<(String, ResourcePath)> {
-        let post_id = generate_post_id(offset_micros);
+        let post_id = generate_post_id();
         let post_path: ResourcePath = PubkyAppPost::create_path(&post_id).parse()?;
         // Write the post in the pubky.app repository
         self.put(user_kp, &post_path, post).await?;

@@ -1,4 +1,3 @@
-use crate::event_processor::utils::test_ids::posts::retry_repost as ids;
 use crate::event_processor::utils::watcher::{assert_eventually_exists, WatcherTest};
 use anyhow::Result;
 use nexus_common::models::event::{EventProcessorError, EventType};
@@ -41,9 +40,7 @@ async fn test_homeserver_post_repost_cannot_index() -> Result<()> {
         attachments: None,
     };
 
-    let (repost_id, repost_path) = test
-        .create_post(&user_kp, &repost_post, ids::REPOST)
-        .await?;
+    let (repost_id, repost_path) = test.create_post(&user_kp, &repost_post).await?;
 
     let repost_absolute_url = post_uri_builder(user_id, repost_id);
 

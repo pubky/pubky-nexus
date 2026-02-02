@@ -1,4 +1,3 @@
-use crate::event_processor::utils::test_ids::posts::del_reposted_notification as ids;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::{
@@ -44,7 +43,7 @@ async fn test_delete_reposted_post_notification() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let (post_id, post_path) = test.create_post(&user_a_kp, &post, ids::POST).await?;
+    let (post_id, post_path) = test.create_post(&user_a_kp, &post).await?;
 
     // User B reposts User A's post
     let repost = PubkyAppPost {
@@ -57,7 +56,7 @@ async fn test_delete_reposted_post_notification() -> Result<()> {
         }),
         attachments: None,
     };
-    let (repost_id, _repost_path) = test.create_post(&user_b_kp, &repost, ids::REPOST).await?;
+    let (repost_id, _repost_path) = test.create_post(&user_b_kp, &repost).await?;
 
     // User A deletes their post
     test.cleanup_post(&user_a_kp, &post_path).await?;

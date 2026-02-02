@@ -1,4 +1,3 @@
-use crate::event_processor::utils::test_ids::mentions::notification as ids;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::{
@@ -62,7 +61,7 @@ async fn test_homeserver_mentions_notifications() -> Result<()> {
         attachments: None,
     };
 
-    let (post_id, post_path) = test.create_post(&author_kp, &post, ids::POST).await?;
+    let (post_id, post_path) = test.create_post(&author_kp, &post).await?;
 
     // Check if mentioned User 1 received a Mention notification
     let notifications_1 = Notification::get_by_id(&mentioned_user_1_id, Pagination::default())

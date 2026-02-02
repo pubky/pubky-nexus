@@ -1,6 +1,5 @@
 // File: ./tests/watcher/network/large_network_test.rs
 
-use crate::event_processor::utils::test_ids::network::counts as ids;
 use crate::event_processor::utils::watcher::{HomeserverHashIdPath, HomeserverIdPath, WatcherTest};
 use anyhow::{anyhow, Result};
 use nexus_common::{
@@ -77,7 +76,6 @@ async fn test_large_network_scenario_counts() -> Result<()> {
     let mut _total_unmutes = 0;
 
     // Users create posts
-    let mut post_counter: i64 = 0;
     for (i, (user_kp, user_id)) in user_kps_and_ids.iter().enumerate() {
         let num_posts = rng.random_range(1..=max_posts_per_user);
         for _ in 0..num_posts {
@@ -88,11 +86,9 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                 embed: None,
                 attachments: None,
             };
-            let offset = ids::POST_BASE + (post_counter * 1_000_000);
-            let (post_id, _post_path) = test.create_post(user_kp, &post, offset).await?;
+            let (post_id, _post_path) = test.create_post(user_kp, &post).await?;
             user_posts.get_mut(user_id).unwrap().push(post_id);
             total_posts += 1;
-            post_counter += 1;
         }
     }
 

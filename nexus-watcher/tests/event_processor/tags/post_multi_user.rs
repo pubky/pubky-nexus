@@ -1,4 +1,3 @@
-use crate::event_processor::utils::test_ids::tags::post_multi_user as ids;
 use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use crate::{
     event_processor::posts::utils::{check_member_total_engagement_user_posts, find_post_counts},
@@ -55,7 +54,7 @@ async fn test_homeserver_multi_user_posts_tags() -> Result<()> {
         attachments: None,
     };
     // Create a post for the current user
-    let (post_id, _post_path) = test.create_post(author_kp, &post, ids::POST).await?;
+    let (post_id, _post_path) = test.create_post(author_kp, &post).await?;
 
     let tagger_a_kp_id = &user_kps_and_ids[1];
     let tagger_b_kp_id = &user_kps_and_ids[2];
