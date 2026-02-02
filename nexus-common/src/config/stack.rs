@@ -1,8 +1,8 @@
-use crate::{db::DatabaseConfig, get_files_dir_pathbuf};
+use crate::db::{default_files_path, default_log_level, default_otlp_endpoint, DatabaseConfig};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::{fmt::Debug, path::PathBuf};
 
-use super::{file::validate_and_expand_path, Level, LOG_LEVEL};
+use super::{file::validate_and_expand_path, Level};
 
 fn deserialize_and_expand<'de, D>(deserializer: D) -> Result<PathBuf, D::Error>
 where
@@ -29,9 +29,9 @@ pub fn default_stack() -> StackConfig {
 impl Default for StackConfig {
     fn default() -> Self {
         Self {
-            log_level: LOG_LEVEL,
-            files_path: get_files_dir_pathbuf(),
-            otlp_endpoint: None,
+            log_level: default_log_level(),
+            files_path: default_files_path(),
+            otlp_endpoint: default_otlp_endpoint(),
             db: DatabaseConfig::default(),
         }
     }
