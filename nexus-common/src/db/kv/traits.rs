@@ -276,8 +276,8 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
     async fn try_from_index_list(
         key_parts: &[&str],
-        skip: Option<usize>,
-        limit: Option<usize>,
+        skip: Option<isize>,
+        limit: Option<isize>,
     ) -> Result<Option<Vec<String>>, DynError> {
         let prefix = Self::prefix().await;
         let key = key_parts.join(":");
