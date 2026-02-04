@@ -3019,6 +3019,7 @@ version = "0.4.1"
 dependencies = [
  "anyhow",
  "async-trait",
+ "base32",
  "chrono",
  "httpc-test",
  "neo4rs",
