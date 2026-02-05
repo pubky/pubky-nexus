@@ -20,8 +20,8 @@ impl PostViewDetailed {
         limit_taggers: Option<usize>,
         include_attachment_metadata: bool,
     ) -> Result<Option<Self>> {
-        let view = PostView::get_by_id(author_id, post_id, viewer_id, limit_tags, limit_taggers)
-            .await?;
+        let view =
+            PostView::get_by_id(author_id, post_id, viewer_id, limit_tags, limit_taggers).await?;
 
         match view {
             Some(view) => {
