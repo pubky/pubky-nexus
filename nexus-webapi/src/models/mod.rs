@@ -2,4 +2,4 @@ pub mod info;
 pub mod post;
 
 pub use info::ServerInfo;
-pub use post::Post;
+pub use post::PostViewDetailed;

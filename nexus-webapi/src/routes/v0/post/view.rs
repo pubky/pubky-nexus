@@ -1,13 +1,11 @@
-use crate::models::Post;
+use crate::models::PostViewDetailed;
 use crate::routes::v0::endpoints::POST_ROUTE;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::Json;
-use nexus_common::models::file::FileDetails;
-use nexus_common::models::post::{PostRelationships, PostView};
+use nexus_common::models::post::PostRelationships;
 use nexus_common::models::tag::post::TagPost;
 use nexus_common::models::tag::TagDetails;
-use nexus_common::models::traits::Collection;
 use serde::Deserialize;
 use tracing::debug;
 use utoipa::OpenApi;
@@ -35,7 +33,7 @@ pub struct PostViewQuery {
         ("include_attachment_metadata" = Option<bool>, Query, description = "Include file metadata for post attachments"),
     ),
     responses(
-        (status = 200, description = "Post", body = Post),
+        (status = 200, description = "Post", body = PostViewDetailed),
         (status = 404, description = "Post not found"),
         (status = 500, description = "Internal server error")
     )
@@ -43,7 +41,7 @@ pub struct PostViewQuery {
 pub async fn post_view_handler(
     Path((author_id, post_id)): Path<(String, String)>,
     Query(query): Query<PostViewQuery>,
-) -> Result<Json<Post>> {
+) -> Result<Json<PostViewDetailed>> {
     debug!(
         "GET {POST_ROUTE} author_id:{}, post_id:{}, viewer_id:{}, limit_tags:{:?}, limit_taggers:{:?}",
         author_id,
@@ -53,28 +51,17 @@ pub async fn post_view_handler(
         query.limit_taggers
     );
     // Avoid by default WoT tags in a Post. We could add as `depth` argument for that specific use case
-    match PostView::get_by_id(
+    match PostViewDetailed::get_by_id(
         &author_id,
         &post_id,
         query.viewer_id.as_deref(),
         query.limit_tags,
         query.limit_taggers,
+        query.include_attachment_metadata,
     )
     .await?
     {
-        Some(post) => {
-            let attachments_metadata = if query.include_attachment_metadata {
-                fetch_attachment_metadata(post.details.attachments.as_deref().unwrap_or(&[]))
-                    .await?
-            } else {
-                vec![]
-            };
-
-            Ok(Json(Post {
-                view: post,
-                attachments_metadata,
-            }))
-        }
+        Some(post) => Ok(Json(post)),
         None => Err(Error::PostNotFound { author_id, post_id }),
     }
 }
@@ -82,29 +69,6 @@ pub async fn post_view_handler(
 #[derive(OpenApi)]
 #[openapi(
     paths(post_view_handler),
-    components(schemas(Post, PostRelationships, TagPost, TagDetails))
+    components(schemas(PostViewDetailed, PostRelationships, TagPost, TagDetails))
 )]
 pub struct PostViewApiDoc;
-
-async fn fetch_attachment_metadata(attachments: &[String]) -> Result<Vec<FileDetails>> {
-    if attachments.is_empty() {
-        return Ok(vec![]);
-    }
-
-    let file_keys: Vec<Vec<String>> = attachments
-        .iter()
-        .map(|uri| FileDetails::file_key_from_uri(uri))
-        .collect();
-
-    let keys_refs: Vec<Vec<&str>> = file_keys
-        .iter()
-        .map(|k| k.iter().map(|s| s.as_str()).collect())
-        .collect();
-    let keys: Vec<&[&str]> = keys_refs.iter().map(|v| v.as_slice()).collect();
-
-    Ok(FileDetails::get_by_ids(&keys)
-        .await?
-        .into_iter()
-        .flatten()
-        .collect())
-}
