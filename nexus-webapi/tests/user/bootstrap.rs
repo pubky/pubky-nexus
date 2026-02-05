@@ -1,10 +1,9 @@
-//use std::collections::HashSet;
-
 use std::collections::HashSet;
 
 use crate::utils::get_request;
+use crate::utils::server::TestServiceServer;
 use anyhow::Result;
-use nexus_common::models::bootstrap::Bootstrap;
+use nexus_common::models::bootstrap::{Bootstrap, ViewType};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_bootstrap_user() -> Result<()> {
@@ -74,5 +73,25 @@ async fn test_bootstrap_user_not_indexed() -> Result<()> {
     // Influencers and hot_tags should still be populated (global data)
     assert!(user_bootstrap_response.ids.influencers.len() <= 3);
     assert!(user_bootstrap_response.ids.hot_tags.len() <= 40);
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_bootstrap_respects_user_limit() -> Result<()> {
+    // Ensure DB connections are initialized
+    let _ = TestServiceServer::get_test_server().await;
+
+    let user_id = "zdbg13k5gh4tfz9qz11quohrxetgqxs7awandu8h57147xddcuhy";
+    let max_user_views = 10;
+
+    let bootstrap = Bootstrap::get_by_id_with_limit(user_id, ViewType::Full, max_user_views)
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?;
+
+    assert_eq!(
+        bootstrap.users.0.len(),
+        max_user_views,
+        "Bootstrap should limit user views to {max_user_views}"
+    );
     Ok(())
 }
