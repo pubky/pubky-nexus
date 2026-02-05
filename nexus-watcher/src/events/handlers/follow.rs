@@ -39,19 +39,9 @@ pub async fn sync_put(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), 
             // SAVE TO INDEX
             let indexing_results = tokio::join!(
                 // Add new follower to the followee index
-                async {
-                    followers
-                        .put_to_index(&followee_id)
-                        .await
-                        .map_err(DynError::from)
-                },
+                followers.put_to_index(&followee_id),
                 // Add in the Following:follower_id index a followee user
-                async {
-                    following
-                        .put_to_index(&follower_id)
-                        .await
-                        .map_err(DynError::from)
-                },
+                following.put_to_index(&follower_id),
                 update_follow_counts(
                     &follower_id,
                     &followee_id,
@@ -63,8 +53,8 @@ pub async fn sync_put(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), 
             );
 
             handle_indexing_results!(
-                indexing_results.0,
-                indexing_results.1,
+                indexing_results.0.map_err(DynError::from),
+                indexing_results.1.map_err(DynError::from),
                 indexing_results.2,
                 indexing_results.3
             );
@@ -95,19 +85,9 @@ pub async fn sync_del(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), 
 
             let indexing_results = tokio::join!(
                 // Remove a follower to the followee index
-                async {
-                    followers
-                        .del_from_index(&followee_id)
-                        .await
-                        .map_err(DynError::from)
-                },
+                followers.del_from_index(&followee_id),
                 // Remove from the Following:follower_id index a followee user
-                async {
-                    following
-                        .del_from_index(&follower_id)
-                        .await
-                        .map_err(DynError::from)
-                },
+                following.del_from_index(&follower_id),
                 update_follow_counts(
                     &follower_id,
                     &followee_id,
@@ -118,8 +98,8 @@ pub async fn sync_del(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), 
                 Notification::lost_follow(&follower_id, &followee_id, were_friends)
             );
             handle_indexing_results!(
-                indexing_results.0,
-                indexing_results.1,
+                indexing_results.0.map_err(DynError::from),
+                indexing_results.1.map_err(DynError::from),
                 indexing_results.2,
                 indexing_results.3
             );
