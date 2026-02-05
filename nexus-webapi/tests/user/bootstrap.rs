@@ -1,5 +1,3 @@
-//use std::collections::HashSet;
-
 use std::collections::HashSet;
 
 use crate::utils::get_request;
@@ -30,7 +28,7 @@ async fn test_bootstrap_user() -> Result<()> {
         .map(|user_view| user_view.details.id.to_string())
         .collect();
 
-    // Assert all users are included in the users list
+    // Assert post authors and taggers are included in the users list
     for post in user_bootstrap_respose.posts.0 {
         let author_id = post.details.author;
         assert!(
@@ -47,6 +45,15 @@ async fn test_bootstrap_user() -> Result<()> {
                 );
             });
     }
+
+    // Assert response doesn't contain views for muted users
+    for muted_id in &user_bootstrap_respose.ids.muted {
+        assert!(
+            !user_ids.contains(muted_id),
+            "Response should not contain muted user view: {muted_id}"
+        );
+    }
+
     Ok(())
 }
 

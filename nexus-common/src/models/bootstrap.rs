@@ -93,8 +93,6 @@ impl Bootstrap {
 
         bootstrap.add_global_hot_tags(&mut user_ids).await?;
 
-        bootstrap.add_muted(&mut user_ids, maybe_viewer_id).await?;
-
         // Start fetching the replies of the posts
         if is_full_view_type {
             bootstrap
@@ -114,6 +112,10 @@ impl Bootstrap {
                 .get_and_merge_users(&missing_taggers, maybe_viewer_id)
                 .await?;
         }
+
+        // Return only ids in case of muted
+        bootstrap.add_muted(maybe_viewer_id).await?;
+
         Ok(bootstrap)
     }
 
@@ -296,18 +298,12 @@ impl Bootstrap {
         Ok(())
     }
 
-    async fn add_muted(
-        &mut self,
-        user_ids: &mut HashSet<String>,
-        maybe_viewer_id: Option<&str>,
-    ) -> Result<(), DynError> {
+    async fn add_muted(&mut self, maybe_viewer_id: Option<&str>) -> Result<(), DynError> {
         if let Some(viewer_id) = maybe_viewer_id {
             if let Ok(Some(muted_ids)) = Muted::get_by_id(viewer_id, None, None).await {
-                user_ids.extend(muted_ids.0.clone());
                 self.ids.muted = muted_ids.0;
             }
         }
-
         Ok(())
     }
 
