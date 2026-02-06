@@ -340,15 +340,12 @@ async fn del_sync_post(
             Ok::<(), DynError>(())
         },
         // Decrease post from label total engagement
-        async {
-            PostsByTagSearch::update_index_score(
-                author_id,
-                post_id,
-                tag_label,
-                ScoreAction::Decrement(1.0),
-            )
-            .await
-        },
+        PostsByTagSearch::update_index_score(
+            author_id,
+            post_id,
+            tag_label,
+            ScoreAction::Decrement(1.0),
+        ),
         async {
             // Post replies cannot be included in the total engagement index once the tag have been deleted
             if !post_relationships_is_reply(author_id, post_id).await? {
