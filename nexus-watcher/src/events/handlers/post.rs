@@ -165,7 +165,7 @@ pub async fn sync_put(
         handle_indexing_results!(
             indexing_results.0,
             indexing_results.1,
-            indexing_results.2,
+            indexing_results.2.map_err(DynError::from),
             indexing_results.3
         );
     }
@@ -210,7 +210,10 @@ pub async fn sync_put(
         post_details.put_to_index(&author_id, reply_parent_post_key_wrapper, false)
     );
 
-    handle_indexing_results!(indexing_results.0, indexing_results.1);
+    handle_indexing_results!(
+        indexing_results.0.map_err(DynError::from),
+        indexing_results.1.map_err(DynError::from)
+    );
 
     Ok(())
 }

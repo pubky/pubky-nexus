@@ -38,7 +38,9 @@ impl Migration for UsersByPkReindex1751635096 {
         }
 
         let users_details_refs = users_details.iter().collect::<Vec<&UserDetails>>();
-        UserSearch::put_to_index(&users_details_refs).await
+        UserSearch::put_to_index(&users_details_refs)
+            .await
+            .map_err(Into::into)
     }
 
     async fn cutover(&self) -> Result<(), DynError> {

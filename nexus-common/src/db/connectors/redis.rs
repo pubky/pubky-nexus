@@ -1,3 +1,4 @@
+use crate::db::kv::{RedisError, RedisResult};
 use crate::types::DynError;
 use deadpool_redis::{Config, Connection, Pool, Runtime};
 use std::fmt;
@@ -66,10 +67,14 @@ impl fmt::Debug for RedisConnector {
 pub static REDIS_CONNECTOR: OnceLock<RedisConnector> = OnceLock::new();
 
 /// Retrieves a Redis connection from the pool.
-pub async fn get_redis_conn() -> Result<Connection, DynError> {
+pub async fn get_redis_conn() -> RedisResult<Connection> {
     let connector = REDIS_CONNECTOR
         .get()
-        .ok_or("RedisConnector not initialized")?;
-    let conn = connector.pool().get().await?;
-    Ok(conn)
+        .ok_or(RedisError::ConnectionNotInitialized)?;
+
+    connector
+        .pool()
+        .get()
+        .await
+        .map_err(|e| RedisError::ConnectionPoolError(Box::new(e)))
 }

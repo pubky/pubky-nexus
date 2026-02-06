@@ -1,5 +1,5 @@
 use super::{Bookmark, PostCounts, PostDetails, PostView};
-use crate::db::kv::{ScoreAction, SortOrder};
+use crate::db::kv::{RedisResult, ScoreAction, SortOrder};
 use crate::db::{get_neo4j_graph, queries, RedisOps};
 use crate::models::{
     follow::{Followers, Following, Friends, UserFollows},
@@ -576,7 +576,7 @@ impl PostStream {
     }
 
     /// Adds the post to a Redis sorted set using the `indexed_at` timestamp as the score.
-    pub async fn add_to_timeline_sorted_set(details: &PostDetails) -> Result<(), DynError> {
+    pub async fn add_to_timeline_sorted_set(details: &PostDetails) -> RedisResult<()> {
         let element = format!("{}:{}", details.author, details.id);
         let score = details.indexed_at as f64;
         Self::put_index_sorted_set(
@@ -596,10 +596,11 @@ impl PostStream {
         let element = format!("{author_id}:{post_id}");
         Self::remove_from_index_sorted_set(None, &POST_TIMELINE_KEY_PARTS, &[element.as_str()])
             .await
+            .map_err(Into::into)
     }
 
     /// Adds the post to a Redis sorted set using the `indexed_at` timestamp as the score.
-    pub async fn add_to_per_user_sorted_set(details: &PostDetails) -> Result<(), DynError> {
+    pub async fn add_to_per_user_sorted_set(details: &PostDetails) -> RedisResult<()> {
         let key_parts = [&POST_PER_USER_KEY_PARTS[..], &[details.author.as_str()]].concat();
         let score = details.indexed_at as f64;
         Self::put_index_sorted_set(&key_parts, &[(score, details.id.as_str())], None, None).await
@@ -611,7 +612,9 @@ impl PostStream {
         post_id: &str,
     ) -> Result<(), DynError> {
         let key_parts = [&POST_PER_USER_KEY_PARTS[..], &[author_id]].concat();
-        Self::remove_from_index_sorted_set(None, &key_parts, &[post_id]).await
+        Self::remove_from_index_sorted_set(None, &key_parts, &[post_id])
+            .await
+            .map_err(Into::into)
     }
 
     /// Adds the post response to a Redis sorted set using the `indexed_at` timestamp as the score.
@@ -622,7 +625,7 @@ impl PostStream {
         author_id: &str,
         reply_id: &str,
         indexed_at: i64,
-    ) -> Result<(), DynError> {
+    ) -> RedisResult<()> {
         let key_parts = [&POST_REPLIES_PER_POST_KEY_PARTS[..], parent_post_key_parts].concat();
         let score = indexed_at as f64;
         let element = format!("{author_id}:{reply_id}");
@@ -637,11 +640,13 @@ impl PostStream {
     ) -> Result<(), DynError> {
         let key_parts = [&POST_REPLIES_PER_POST_KEY_PARTS[..], parent_post_key_parts].concat();
         let element = format!("{author_id}:{reply_id}");
-        Self::remove_from_index_sorted_set(None, &key_parts, &[element.as_str()]).await
+        Self::remove_from_index_sorted_set(None, &key_parts, &[element.as_str()])
+            .await
+            .map_err(Into::into)
     }
 
     /// Adds the post to a Redis sorted set of replies per author using the `indexed_at` timestamp as the score.
-    pub async fn add_to_replies_per_user_sorted_set(details: &PostDetails) -> Result<(), DynError> {
+    pub async fn add_to_replies_per_user_sorted_set(details: &PostDetails) -> RedisResult<()> {
         let key_parts = [
             &POST_REPLIES_PER_USER_KEY_PARTS[..],
             &[details.author.as_str()],
@@ -657,7 +662,9 @@ impl PostStream {
         post_id: &str,
     ) -> Result<(), DynError> {
         let key_parts = [&POST_REPLIES_PER_USER_KEY_PARTS[..], &[author_id]].concat();
-        Self::remove_from_index_sorted_set(None, &key_parts, &[post_id]).await
+        Self::remove_from_index_sorted_set(None, &key_parts, &[post_id])
+            .await
+            .map_err(Into::into)
     }
 
     /// Adds a bookmark to Redis sorted set using the `indexed_at` timestamp as the score.
@@ -666,7 +673,7 @@ impl PostStream {
         bookmarker_id: &str,
         post_id: &str,
         author_id: &str,
-    ) -> Result<(), DynError> {
+    ) -> RedisResult<()> {
         let key_parts = [&BOOKMARKS_USER_KEY_PARTS[..], &[bookmarker_id]].concat();
         let post_key = format!("{author_id}:{post_id}");
         let score = bookmark.indexed_at as f64;
@@ -681,7 +688,9 @@ impl PostStream {
     ) -> Result<(), DynError> {
         let key_parts = [&BOOKMARKS_USER_KEY_PARTS[..], &[bookmarker_id]].concat();
         let post_key = format!("{author_id}:{post_id}");
-        Self::remove_from_index_sorted_set(None, &key_parts, &[&post_key]).await
+        Self::remove_from_index_sorted_set(None, &key_parts, &[&post_key])
+            .await
+            .map_err(Into::into)
     }
 
     /// Adds the post to a Redis sorted set using the total engagement as the score.
@@ -689,7 +698,7 @@ impl PostStream {
         counts: &PostCounts,
         author_id: &str,
         post_id: &str,
-    ) -> Result<(), DynError> {
+    ) -> RedisResult<()> {
         let element = format!("{author_id}:{post_id}");
         let score = counts.tags + counts.replies + counts.reposts;
         let score = score as f64;
@@ -710,6 +719,7 @@ impl PostStream {
         let post_key = format!("{author_id}:{post_id}");
         Self::remove_from_index_sorted_set(None, &POST_TOTAL_ENGAGEMENT_KEY_PARTS, &[&post_key])
             .await
+            .map_err(Into::into)
     }
 
     pub async fn update_index_score(
@@ -724,5 +734,6 @@ impl PostStream {
             score_action,
         )
         .await
+        .map_err(Into::into)
     }
 }

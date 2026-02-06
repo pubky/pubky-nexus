@@ -125,7 +125,7 @@ async fn put_sync_post(
                     &author_id,
                     post_id,
                     tag_label,
-                    ScoreAction::Increment(1.0)
+                    ScoreAction::Increment(1.0),
                 ),
                 async {
                     // Post replies cannot be included in the total engagement index once they have been tagged
@@ -144,6 +144,7 @@ async fn put_sync_post(
                 PostsByTagSearch::put_to_index(&author_id, post_id, tag_label),
                 // Save new notification
                 Notification::new_post_tag(&tagger_user_id, &author_id, tag_label, post_uri),
+                // Add tag to search index
                 TagSearch::put_to_index(tag_label_slice)
             );
 
@@ -154,9 +155,9 @@ async fn put_sync_post(
                 indexing_results.3,
                 indexing_results.4,
                 indexing_results.5,
-                indexing_results.6,
+                indexing_results.6.map_err(DynError::from),
                 indexing_results.7,
-                indexing_results.8
+                indexing_results.8.map_err(DynError::from)
             );
 
             Ok(())
@@ -227,6 +228,7 @@ async fn put_sync_user(
                 TagUser::add_tagger_to_index(&tagged_user_id, None, &tagger_user_id, tag_label),
                 // Save new notification
                 Notification::new_user_tag(&tagger_user_id, &tagged_user_id, tag_label),
+                // Add tag to search index
                 TagSearch::put_to_index(tag_label_slice)
             );
 
@@ -236,7 +238,7 @@ async fn put_sync_user(
                 indexing_results.2,
                 indexing_results.3,
                 indexing_results.4,
-                indexing_results.5
+                indexing_results.5.map_err(DynError::from)
             );
 
             Ok(())
@@ -342,7 +344,7 @@ async fn del_sync_post(
             author_id,
             post_id,
             tag_label,
-            ScoreAction::Decrement(1.0)
+            ScoreAction::Decrement(1.0),
         ),
         async {
             // Post replies cannot be included in the total engagement index once the tag have been deleted

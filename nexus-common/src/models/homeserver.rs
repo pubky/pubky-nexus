@@ -1,5 +1,6 @@
 use crate::db::exec_single_row;
 use crate::db::fetch_key_from_graph;
+use crate::db::kv::RedisResult;
 use crate::db::queries;
 use crate::db::{PubkyConnector, RedisOps};
 use crate::models::user::UserDetails;
@@ -61,7 +62,7 @@ impl Homeserver {
     }
 
     /// Retrieves the homeserver from Redis.
-    pub async fn get_from_index(id: &str) -> Result<Option<Self>, DynError> {
+    pub async fn get_from_index(id: &str) -> RedisResult<Option<Self>> {
         Self::try_from_index_json(&[id], None).await
     }
 
@@ -70,8 +71,9 @@ impl Homeserver {
         if self.cursor.is_empty() {
             return Err("Cannot save to index a homeserver with an empty cursor".into());
         }
-
-        self.put_index_json(&[&self.id], None, None).await
+        self.put_index_json(&[&self.id], None, None)
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn get_by_id(homeserver_id: PubkyId) -> Result<Option<Homeserver>, DynError> {

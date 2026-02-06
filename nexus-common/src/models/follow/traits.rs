@@ -1,3 +1,4 @@
+use crate::db::kv::RedisResult;
 use crate::db::{
     execute_graph_operation, fetch_row_from_graph, queries, OperationOutcome, RedisOps,
 };
@@ -67,11 +68,11 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
         user_id: &str,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<Option<Vec<String>>, DynError> {
+    ) -> RedisResult<Option<Vec<String>>> {
         Self::try_from_index_set(&[user_id], skip, limit, None).await
     }
 
-    async fn put_to_index(&self, user_id: &str) -> Result<(), DynError> {
+    async fn put_to_index(&self, user_id: &str) -> RedisResult<()> {
         let user_list_ref: Vec<&str> = self.as_ref().iter().map(|id| id.as_str()).collect();
         Self::put_index_set(&[user_id], &user_list_ref, None, None).await
     }
@@ -95,7 +96,7 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
         execute_graph_operation(query).await
     }
 
-    async fn del_from_index(&self, user_id: &str) -> Result<(), DynError> {
+    async fn del_from_index(&self, user_id: &str) -> RedisResult<()> {
         self.remove_from_index_set(&[user_id]).await
     }
 
@@ -104,7 +105,7 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
     fn get_ids_field_name() -> &'static str;
 
     // Checks whether user_a is (following | follower) of user_b
-    async fn check(user_a_id: &str, user_b_id: &str) -> Result<bool, DynError> {
+    async fn check_in_index(user_a_id: &str, user_b_id: &str) -> RedisResult<bool> {
         let user_a_key_parts = &[user_a_id][..];
         let (_, follow) = Self::check_set_member(user_a_key_parts, user_b_id).await?;
         Ok(follow)

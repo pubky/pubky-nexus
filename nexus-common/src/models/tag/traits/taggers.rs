@@ -1,3 +1,4 @@
+use crate::db::kv::RedisResult;
 use crate::db::RedisOps;
 use crate::models::tag::Taggers;
 use crate::types::{DynError, Pagination};
@@ -55,7 +56,9 @@ where
             key_parts = Self::create_label_index(user_id, extra_param, label, false);
         }
 
-        Self::get_from_index(key_parts, viewer_id, Some(skip), Some(limit), prefix).await
+        async { Self::get_from_index(key_parts, viewer_id, Some(skip), Some(limit), prefix).await }
+            .await
+            .map_err(Into::into)
     }
 
     async fn get_from_index(
@@ -64,7 +67,7 @@ where
         skip: Option<usize>,
         limit: Option<usize>,
         prefix: Option<String>,
-    ) -> Result<TaggersTuple, DynError> {
+    ) -> RedisResult<TaggersTuple> {
         let taggers = Self::try_from_index_set(&key_parts, skip, limit, prefix).await?;
         let is_member = match viewer_id {
             Some(member) => Self::check_set_member(&key_parts, member).await?.1,
@@ -107,6 +110,6 @@ where
             Some(post_id) => vec![author_id, post_id, tag_label],
             None => vec![author_id, tag_label],
         };
-        self.remove_from_index_set(&key).await
+        self.remove_from_index_set(&key).await.map_err(Into::into)
     }
 }

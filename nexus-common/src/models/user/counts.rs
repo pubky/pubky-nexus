@@ -1,4 +1,4 @@
-use crate::db::kv::JsonAction;
+use crate::db::kv::{JsonAction, RedisResult};
 use crate::db::{fetch_row_from_graph, queries, RedisOps};
 use crate::models::tag::user::USER_TAGS_KEY_PARTS;
 use crate::types::DynError;
@@ -62,18 +62,14 @@ impl UserCounts {
         Ok(None)
     }
 
-    pub async fn get_from_index(user_id: &str) -> Result<Option<UserCounts>, DynError> {
-        if let Some(user_counts) = Self::try_from_index_json(&[user_id], None).await? {
-            return Ok(Some(user_counts));
-        }
-        Ok(None)
+    pub async fn get_from_index(user_id: &str) -> RedisResult<Option<UserCounts>> {
+        Self::try_from_index_json(&[user_id], None).await
     }
 
-    pub async fn put_to_index(&self, user_id: &str) -> Result<(), DynError> {
+    pub async fn put_to_index(&self, user_id: &str) -> RedisResult<()> {
         self.put_index_json(&[user_id], None, None).await?;
         UserStream::add_to_most_followed_sorted_set(user_id, self).await?;
-        UserStream::add_to_influencers_sorted_set(user_id, self).await?;
-        Ok(())
+        UserStream::add_to_influencers_sorted_set(user_id, self).await
     }
 
     pub async fn update_index_field(

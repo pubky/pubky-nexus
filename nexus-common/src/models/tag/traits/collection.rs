@@ -1,4 +1,4 @@
-use crate::db::kv::{ScoreAction, SortOrder};
+use crate::db::kv::{RedisResult, ScoreAction, SortOrder};
 use crate::db::{
     execute_graph_operation, fetch_row_from_graph, queries, OperationOutcome, RedisOps,
 };
@@ -122,7 +122,7 @@ where
         limit_tags: Option<usize>,
         limit_taggers: Option<usize>,
         is_cache: bool,
-    ) -> Result<Option<Vec<TagDetails>>, DynError> {
+    ) -> RedisResult<Option<Vec<TagDetails>>> {
         let limit_tags = limit_tags.unwrap_or(5);
         let skip_tags = skip_tags.unwrap_or(0);
         let limit_taggers = limit_taggers.unwrap_or(5);
@@ -229,7 +229,7 @@ where
         extra_param: Option<&str>,
         tags: &[TagDetails],
         is_cache: bool,
-    ) -> Result<(), DynError> {
+    ) -> RedisResult<()> {
         let (tag_scores, (labels, taggers)) = TagDetails::process_tag_details(tags);
 
         let index_params = match is_cache {
@@ -280,7 +280,9 @@ where
             Some(post_id) => [&POST_TAGS_KEY_PARTS[..], &[author_id, post_id]].concat(),
             None => [&USER_TAGS_KEY_PARTS[..], &[author_id]].concat(),
         };
-        Self::put_score_index_sorted_set(&key, &[label], score_action).await
+        Self::put_score_index_sorted_set(&key, &[label], score_action)
+            .await
+            .map_err(Into::into)
     }
 
     /// Adds a tagger (user) to the appropriate Redis index for a specified tag label.
@@ -301,7 +303,9 @@ where
             Some(post_id) => vec![author_id, post_id, tag_label],
             None => vec![author_id, tag_label],
         };
-        Self::put_index_set(&key, &[tagger_user_id], None, None).await
+        Self::put_index_set(&key, &[tagger_user_id], None, None)
+            .await
+            .map_err(Into::into)
     }
 
     /// Inserts a tag relationship into the graph database.

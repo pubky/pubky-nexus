@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use super::{Influencers, Muted, UserCounts, UserSearch, UserView};
 
-use crate::db::kv::SortOrder;
+use crate::db::kv::{RedisResult, SortOrder};
 use crate::db::{fetch_all_rows_from_graph, queries, RedisOps};
 use crate::models::follow::{Followers, Following, Friends, UserFollows};
 use crate::models::post::{PostStream, POST_REPLIES_PER_POST_KEY_PARTS};
@@ -117,7 +117,7 @@ impl UserStream {
     pub async fn add_to_most_followed_sorted_set(
         user_id: &str,
         counts: &UserCounts,
-    ) -> Result<(), DynError> {
+    ) -> RedisResult<()> {
         Self::put_index_sorted_set(
             &USER_MOSTFOLLOWED_KEY_PARTS,
             &[(counts.followers as f64, user_id)],
@@ -131,7 +131,7 @@ impl UserStream {
     pub async fn add_to_influencers_sorted_set(
         user_id: &str,
         counts: &UserCounts,
-    ) -> Result<(), DynError> {
+    ) -> RedisResult<()> {
         let score = (counts.tagged + counts.posts) as f64 * (counts.followers as f64).sqrt();
         Self::put_index_sorted_set(&USER_INFLUENCERS_KEY_PARTS, &[(score, user_id)], None, None)
             .await
@@ -187,6 +187,7 @@ impl UserStream {
             Some(CACHE_USER_RECOMMENDED_KEY_PARTS.join(":")),
         )
         .await
+        .map_err(Into::into)
     }
 
     /// Helper method to cache recommended users in Redis with a TTL.
@@ -200,6 +201,7 @@ impl UserStream {
             Some(CACHE_USER_RECOMMENDED_KEY_PARTS.join(":")),
         )
         .await
+        .map_err(Into::into)
     }
 
     async fn get_post_replies_ids(

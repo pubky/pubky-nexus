@@ -1,3 +1,4 @@
+use crate::db::kv::RedisResult;
 use crate::db::DbError;
 use crate::db::{exec_single_row, queries, RedisOps};
 use crate::media::FileVariant;
@@ -101,7 +102,7 @@ impl Collection<&[&str]> for FileDetails {
         queries::put::create_file(self)
     }
 
-    async fn extend_on_index_miss(_: &[std::option::Option<Self>]) -> Result<(), DynError> {
+    async fn extend_on_index_miss(_: &[std::option::Option<Self>]) -> RedisResult<()> {
         Ok(())
     }
 }

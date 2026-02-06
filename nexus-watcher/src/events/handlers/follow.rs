@@ -1,7 +1,6 @@
 use crate::events::retry::event::RetryEvent;
 use crate::events::EventProcessorError;
 use crate::handle_indexing_results;
-
 use nexus_common::db::kv::JsonAction;
 use nexus_common::db::OperationOutcome;
 use nexus_common::models::follow::{Followers, Following, Friends, UserFollows};
@@ -54,8 +53,8 @@ pub async fn sync_put(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), 
             );
 
             handle_indexing_results!(
-                indexing_results.0,
-                indexing_results.1,
+                indexing_results.0.map_err(DynError::from),
+                indexing_results.1.map_err(DynError::from),
                 indexing_results.2,
                 indexing_results.3
             );
@@ -99,8 +98,8 @@ pub async fn sync_del(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), 
                 Notification::lost_follow(&follower_id, &followee_id, were_friends)
             );
             handle_indexing_results!(
-                indexing_results.0,
-                indexing_results.1,
+                indexing_results.0.map_err(DynError::from),
+                indexing_results.1.map_err(DynError::from),
                 indexing_results.2,
                 indexing_results.3
             );
@@ -132,8 +131,8 @@ pub async fn is_followee_following_follower(
     user_b_id: &str,
 ) -> Result<bool, DynError> {
     let (a_follows_b, b_follows_a) = tokio::try_join!(
-        Following::check(user_a_id, user_b_id),
-        Following::check(user_b_id, user_a_id),
+        Following::check_in_index(user_a_id, user_b_id),
+        Following::check_in_index(user_b_id, user_a_id),
     )?;
     // Cannot exist any previous relationship between A and B. If not, it would be duplicate event
     // (A)-[:FOLLOWS]->(B)
