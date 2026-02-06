@@ -20,27 +20,23 @@ impl PostViewDetailed {
         limit_taggers: Option<usize>,
         include_attachment_metadata: bool,
     ) -> Result<Option<Self>> {
-        let view =
-            PostView::get_by_id(author_id, post_id, viewer_id, limit_tags, limit_taggers).await?;
+        let Some(view) =
+            PostView::get_by_id(author_id, post_id, viewer_id, limit_tags, limit_taggers).await?
+        else {
+            return Ok(None);
+        };
 
-        match view {
-            Some(view) => {
-                let attachments_metadata = if include_attachment_metadata {
-                    Self::fetch_attachment_metadata(
-                        view.details.attachments.as_deref().unwrap_or(&[]),
-                    )
-                    .await?
-                } else {
-                    vec![]
-                };
+        let attachments_metadata = if include_attachment_metadata {
+            let attachment_uris = view.details.attachments.as_deref().unwrap_or(&[]);
+            Self::fetch_attachment_metadata(attachment_uris).await?
+        } else {
+            vec![]
+        };
 
-                Ok(Some(Self {
-                    view,
-                    attachments_metadata,
-                }))
-            }
-            None => Ok(None),
-        }
+        Ok(Some(Self {
+            view,
+            attachments_metadata,
+        }))
     }
 
     async fn fetch_attachment_metadata(attachments: &[String]) -> Result<Vec<FileDetails>> {
