@@ -13,7 +13,7 @@ use nexus_common::models::post::PostDetails;
 use nexus_common::models::tag::post::TagPost;
 use nexus_common::models::tag::search::TagSearch;
 use nexus_common::models::tag::traits::TagCollection;
-use nexus_common::types::{DynError, Pagination};
+use nexus_common::types::Pagination;
 use pubky::Keypair;
 use pubky_app_specs::post_uri_builder;
 use pubky_app_specs::{PubkyAppPost, PubkyAppTag, PubkyAppUser};
@@ -160,7 +160,7 @@ async fn test_homeserver_put_tag_post() -> Result<()> {
 }
 
 #[tokio_shared_rt::test(shared)]
-async fn test_homeserver_put_tag_post_unique_count() -> Result<(), DynError> {
+async fn test_homeserver_put_tag_post_unique_count() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     // Create a user
@@ -206,7 +206,9 @@ async fn test_homeserver_put_tag_post_unique_count() -> Result<(), DynError> {
     assert_eq!(post_counts_after_step_2.tags, 0);
     assert_eq!(post_counts_after_step_2.unique_tags, 0);
 
-    let tag_suggestions = TagSearch::get_by_label(label, &Pagination::default()).await?;
+    let tag_suggestions = TagSearch::get_by_label(label, &Pagination::default())
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?;
     let tag_suggestions_found = tag_suggestions.is_some_and(|x| !x.is_empty());
     assert!(!tag_suggestions_found);
 

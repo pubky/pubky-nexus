@@ -1,5 +1,5 @@
 use crate::events::EventProcessorError;
-use crate::handle_indexing_results;
+
 use nexus_common::db::DbError;
 use nexus_common::db::PubkyConnector;
 use nexus_common::media::FileVariant;
@@ -9,7 +9,6 @@ use nexus_common::models::{
     file::{FileDetails, FileMeta},
     traits::Collection,
 };
-use nexus_common::types::DynError;
 use pubky_app_specs::{PubkyAppFile, PubkyAppObject, PubkyId};
 use std::path::{Path, PathBuf};
 use tokio::fs::remove_dir_all;
@@ -21,7 +20,7 @@ pub async fn sync_put(
     user_id: PubkyId,
     file_id: String,
     files_path: PathBuf,
-) -> Result<(), DynError> {
+) -> Result<(), EventProcessorError> {
     debug!("Indexing new file resource at {}/{}", user_id, file_id);
 
     let file_meta = ingest(&user_id, file_id.as_str(), &file, files_path).await?;
@@ -48,7 +47,7 @@ pub async fn sync_put(
     )
     .await;
 
-    handle_indexing_results!(indexing_result);
+    indexing_result?;
 
     Ok(())
 }
@@ -59,14 +58,17 @@ async fn ingest(
     file_id: &str,
     pubkyapp_file: &PubkyAppFile,
     files_path: PathBuf,
-) -> Result<FileMeta, DynError> {
+) -> Result<FileMeta, EventProcessorError> {
     let pubky = PubkyConnector::get()?;
     let response = pubky.public_storage().get(&pubkyapp_file.src).await?;
 
     let path = Path::new(&user_id.to_string()).join(file_id);
     let full_path = files_path.join(path.clone());
 
-    let blob = response.bytes().await?;
+    let blob = response
+        .bytes()
+        .await
+        .map_err(|e| EventProcessorError::client_error(e.to_string()))?;
     let pubky_app_object = PubkyAppObject::from_uri(&pubkyapp_file.src, &blob)?;
 
     match pubky_app_object {
@@ -84,12 +86,15 @@ async fn ingest(
                 "The file has a source uri that is not a blob path: {}",
                 pubkyapp_file.src
             ),
-        }
-        .into()),
+        }),
     }
 }
 
-pub async fn del(user_id: &PubkyId, file_id: String, files_path: PathBuf) -> Result<(), DynError> {
+pub async fn del(
+    user_id: &PubkyId,
+    file_id: String,
+    files_path: PathBuf,
+) -> Result<(), EventProcessorError> {
     debug!("Deleting File resource at {}/{}", user_id, file_id);
     let result = FileDetails::get_by_ids(&[&[user_id, &file_id]]).await?;
 
@@ -110,7 +115,9 @@ pub async fn del(user_id: &PubkyId, file_id: String, files_path: PathBuf) -> Res
         let folder_path = Path::new(&user_id.to_string()).join(&file_id);
         let full_path = files_path.join(folder_path);
 
-        remove_dir_all(full_path).await?;
+        remove_dir_all(full_path)
+            .await
+            .map_err(|e| EventProcessorError::Other(e.to_string()))?;
     }
 
     Ok(())

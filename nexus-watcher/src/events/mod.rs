@@ -1,6 +1,5 @@
 use nexus_common::db::PubkyConnector;
 use nexus_common::models::event::{Event, EventProcessorError, EventType};
-use nexus_common::types::DynError;
 use pubky_app_specs::{PubkyAppObject, Resource};
 use std::sync::Arc;
 use tracing::debug;
@@ -11,16 +10,20 @@ pub mod retry;
 
 pub use moderation::Moderation;
 
-pub async fn handle(event: &Event, moderation: Arc<Moderation>) -> Result<(), DynError> {
+pub async fn handle(event: &Event, moderation: Arc<Moderation>) -> Result<(), EventProcessorError> {
     match event.event_type {
         EventType::Put => handle_put_event(event, moderation).await,
         EventType::Del => handle_del_event(event).await,
     }?;
 
-    event.store_event().await
+    event.store_event().await?;
+    Ok(())
 }
 
-pub async fn handle_put_event(event: &Event, moderation: Arc<Moderation>) -> Result<(), DynError> {
+pub async fn handle_put_event(
+    event: &Event,
+    moderation: Arc<Moderation>,
+) -> Result<(), EventProcessorError> {
     debug!("Handling PUT event for URI: {}", event.uri);
 
     let pubky = PubkyConnector::get()?;
@@ -40,7 +43,10 @@ pub async fn handle_put_event(event: &Event, moderation: Arc<Moderation>) -> Res
         return Err(EventProcessorError::client_error(err_msg))?;
     }
 
-    let blob = response.bytes().await?;
+    let blob = response
+        .bytes()
+        .await
+        .map_err(|e| EventProcessorError::client_error(e.to_string()))?;
     let resource = event.parsed_uri.resource.clone();
 
     // Use the new importer from pubky-app-specs
@@ -87,7 +93,7 @@ pub async fn handle_put_event(event: &Event, moderation: Arc<Moderation>) -> Res
 
 /// Handles a PUT event by fetching the blob from the homeserver
 /// and using the importer to convert it to a PubkyAppObject.
-pub async fn handle_del_event(event: &Event) -> Result<(), DynError> {
+pub async fn handle_del_event(event: &Event) -> Result<(), EventProcessorError> {
     debug!("Handling DEL event for URI: {}", event.uri);
 
     let user_id = event.parsed_uri.user_id.clone();

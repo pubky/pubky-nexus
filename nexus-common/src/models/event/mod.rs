@@ -1,5 +1,6 @@
 mod errors;
 
+use crate::db::kv::RedisResult;
 use crate::db::RedisOps;
 use crate::types::DynError;
 use pubky_app_specs::{ParsedUri, Resource};
@@ -97,10 +98,8 @@ impl Event {
     }
 
     /// Stores event line in Redis as part of the events list.
-    pub async fn store_event(&self) -> Result<(), DynError> {
-        self.put_index_list(&["Events"]).await?;
-
-        Ok(())
+    pub async fn store_event(&self) -> RedisResult<()> {
+        self.put_index_list(&["Events"]).await
     }
 
     pub async fn get_events_from_redis(

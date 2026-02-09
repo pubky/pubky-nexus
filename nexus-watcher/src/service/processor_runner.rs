@@ -1,8 +1,8 @@
 use crate::events::Moderation;
 use crate::service::processor::EventProcessor;
 use crate::service::traits::{TEventProcessor, TEventProcessorRunner};
+use crate::WatcherError;
 use nexus_common::models::homeserver::Homeserver;
-use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
 use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
@@ -54,7 +54,7 @@ impl TEventProcessorRunner for EventProcessorRunner {
         self.monitored_homeservers_limit
     }
 
-    async fn homeservers_by_priority(&self) -> Result<Vec<String>, DynError> {
+    async fn homeservers_by_priority(&self) -> Result<Vec<String>, WatcherError> {
         let mut hs_ids = Homeserver::get_all_from_graph().await?;
 
         // Move default homeserver to index 0 if it exists in the array to prioritize its processing
@@ -70,7 +70,7 @@ impl TEventProcessorRunner for EventProcessorRunner {
     }
 
     /// Creates and returns a new event processor instance for the specified homeserver
-    async fn build(&self, homeserver_id: String) -> Result<Arc<dyn TEventProcessor>, DynError> {
+    async fn build(&self, homeserver_id: String) -> Result<Arc<dyn TEventProcessor>, WatcherError> {
         let homeserver_id = PubkyId::try_from(&homeserver_id)?;
         let homeserver = Homeserver::get_by_id(homeserver_id)
             .await?

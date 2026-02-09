@@ -1,12 +1,12 @@
 use crate::service::utils::{create_mock_event_processors, MockEventProcessorRunner, HS_IDS};
-use nexus_common::types::DynError;
+use anyhow::Result;
 use nexus_watcher::service::TEventProcessorRunner;
 use std::time::Duration;
 
 const TIMEOUT: Duration = Duration::from_secs(2);
 
 #[tokio_shared_rt::test(shared)]
-async fn test_mock_event_processors() -> Result<(), DynError> {
+async fn test_mock_event_processors() -> Result<()> {
     let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     let mock_processors = create_mock_event_processors(Some(TIMEOUT), shutdown_rx.clone());
     let runner = MockEventProcessorRunner::new(mock_processors, HS_IDS.len(), shutdown_rx);
