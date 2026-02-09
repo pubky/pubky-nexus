@@ -10,10 +10,12 @@ pub async fn post_relationships_is_reply(
     author_id: &str,
     post_id: &str,
 ) -> Result<bool, EventProcessorError> {
-    match PostRelationships::get_by_id(author_id, post_id).await? {
+    match PostRelationships::get_by_id(author_id, post_id)
+        .await
+        .map_err(EventProcessorError::internal_error)?
+    {
         Some(relationship) => Ok(relationship.replied.is_some()),
         // If the post does not exist, it is treated as a reply to avoid incorrect assumptions
         None => Ok(true),
     }
 }
-

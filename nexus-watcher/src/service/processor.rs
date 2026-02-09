@@ -114,7 +114,10 @@ impl EventProcessor {
             if let Some(cursor) = line.strip_prefix("cursor: ") {
                 info!("Received cursor for the next request: {cursor}");
                 match Homeserver::try_from_cursor(id, cursor) {
-                    Ok(hs) => hs.put_to_index().await?,
+                    Ok(hs) => hs
+                        .put_to_index()
+                        .await
+                        .map_err(EventProcessorError::index_write_failed)?,
                     Err(e) => warn!("{e}"),
                 }
             } else {
@@ -166,7 +169,10 @@ impl EventProcessor {
 /// # Parameters
 /// - `event`: Reference to the event for which retry information is being extracted
 /// - `error`: Determines whether the event is eligible for a retry or should be discarded
-fn extract_retry_event_info(event: &Event, error: EventProcessorError) -> Option<(String, RetryEvent)> {
+fn extract_retry_event_info(
+    event: &Event,
+    error: EventProcessorError,
+) -> Option<(String, RetryEvent)> {
     let retry_event = match error {
         EventProcessorError::InvalidEventLine { ref message } => {
             error!("{}", message);

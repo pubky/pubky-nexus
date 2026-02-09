@@ -24,13 +24,17 @@ pub async fn sync_put(
 ) -> Result<(), EventProcessorError> {
     debug!("Indexing new post: {}/{}", author_id, post_id);
     // Create PostDetails object
-    let post_details = PostDetails::from_homeserver(post.clone(), &author_id, &post_id).await?;
+    let post_details = PostDetails::from_homeserver(post.clone(), &author_id, &post_id);
     // We avoid indexing replies into global feed sorted sets
     let is_reply = post.parent.is_some();
     // PRE-INDEX operation, identify the post relationship
     let mut post_relationships = PostRelationships::from_homeserver(&post);
 
-    let existed = match post_details.put_to_graph(&post_relationships).await? {
+    let existed = match post_details
+        .put_to_graph(&post_relationships)
+        .await
+        .map_err(EventProcessorError::index_write_failed)?
+    {
         OperationOutcome::CreatedOrDeleted => false,
         OperationOutcome::Updated => true,
         OperationOutcome::MissingDependency => {
@@ -55,7 +59,9 @@ pub async fn sync_put(
                 let key = RetryEvent::generate_index_key_from_uri(&author_id.to_uri());
                 dependency_event_keys.push(key);
             }
-            return Err(EventProcessorError::missing_dependencies(dependency_event_keys));
+            return Err(EventProcessorError::missing_dependencies(
+                dependency_event_keys,
+            ));
         }
     };
 
@@ -109,14 +115,18 @@ pub async fn sync_put(
         UserCounts::increment(&author_id, "posts", None),
         async {
             if is_reply {
-                UserCounts::increment(&author_id, "replies", None).await?;
+                UserCounts::increment(&author_id, "replies", None)
+                    .await
+                    .map_err(EventProcessorError::index_write_failed)?;
             };
             Ok::<(), EventProcessorError>(())
         }
     );
 
     indexing_results.0?;
-    indexing_results.1.map_err(EventProcessorError::index_write_failed)?;
+    indexing_results
+        .1
+        .map_err(EventProcessorError::index_write_failed)?;
     indexing_results.2?;
 
     // Use that index wrapper to add a post reply
@@ -163,10 +173,14 @@ pub async fn sync_put(
             )
         );
 
-        indexing_results.0.map_err(EventProcessorError::index_write_failed)?;
+        indexing_results
+            .0
+            .map_err(EventProcessorError::index_write_failed)?;
         indexing_results.1?;
         indexing_results.2?;
-        indexing_results.3.map_err(EventProcessorError::index_write_failed)?;
+        indexing_results
+            .3
+            .map_err(EventProcessorError::index_write_failed)?;
     }
 
     // PHASE 3: Process POST REPOSTS indexes
@@ -200,9 +214,13 @@ pub async fn sync_put(
             )
         );
 
-        indexing_results.0.map_err(EventProcessorError::index_write_failed)?;
+        indexing_results
+            .0
+            .map_err(EventProcessorError::index_write_failed)?;
         indexing_results.1?;
-        indexing_results.2.map_err(EventProcessorError::index_write_failed)?;
+        indexing_results
+            .2
+            .map_err(EventProcessorError::index_write_failed)?;
     }
 
     // PHASE 4: Add post related content
@@ -238,7 +256,9 @@ async fn sync_edit(
     };
 
     // Send notifications to users who interacted with the post
-    Notification::changed_post(&author_id, &post_id, &changed_uri, &change_type).await?;
+    Notification::changed_post(&author_id, &post_id, &changed_uri, &change_type)
+        .await
+        .map_err(EventProcessorError::index_write_failed)?;
 
     // Handle "A reply to your post was edited/deleted"
     if let Some(parent) = post.parent {
@@ -251,7 +271,8 @@ async fn sync_edit(
             PostChangedSource::Reply,
             &change_type,
         )
-        .await?;
+        .await
+        .map_err(EventProcessorError::index_write_failed)?;
     };
 
     Ok(())
@@ -295,7 +316,9 @@ async fn put_mentioned_relationships_for_prefix(
     for pubky_id in found_pubky_ids {
         // Create the MENTIONED relationship in the graph
         let query = queries::put::create_mention_relationship(author_id, post_id, &pubky_id);
-        exec_single_row(query).await?;
+        exec_single_row(query)
+            .await
+            .map_err(EventProcessorError::index_write_failed)?;
 
         let maybe_mentioned_id = Notification::new_mention(author_id, &pubky_id, post_id)
             .await
@@ -317,10 +340,15 @@ pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), EventProcess
     // If there is none other relationship (OperationOutcome::CreatedOrDeleted), we delete from graph and redis.
     // But if there is any (OperationOutcome::Updated), then we simply update the post with keyword content [DELETED].
     // A deleted post is a post whose content is EXACTLY `"[DELETED]"`
-    match execute_graph_operation(query).await? {
+    match execute_graph_operation(query)
+        .await
+        .map_err(EventProcessorError::graph_query_failed)?
+    {
         OperationOutcome::CreatedOrDeleted => sync_del(author_id, post_id).await?,
         OperationOutcome::Updated => {
-            let existing_relationships = PostRelationships::get_by_id(&author_id, &post_id).await?;
+            let existing_relationships = PostRelationships::get_by_id(&author_id, &post_id)
+                .await
+                .map_err(EventProcessorError::internal_error)?;
             let parent = existing_relationships
                 .and_then(|rel| rel.replied)
                 .and_then(|replied_uri| replied_uri.try_to_uri_str().ok());
@@ -345,7 +373,9 @@ pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), EventProcess
 pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventProcessorError> {
     let deleted_uri = post_uri_builder(author_id.to_string(), post_id.clone());
 
-    let post_relationships = PostRelationships::get_by_id(&author_id, &post_id).await?;
+    let post_relationships = PostRelationships::get_by_id(&author_id, &post_id)
+        .await
+        .map_err(EventProcessorError::internal_error)?;
     // If the post is reply, cannot delete from the main feeds
     // In the main feed, we just include the root posts and reposts
     // It could be a situation that relationship would not exist and we will treat the post as a not reply
@@ -358,14 +388,20 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
         UserCounts::decrement(&author_id, "posts", None),
         async {
             if is_reply {
-                UserCounts::decrement(&author_id, "replies", None).await?;
+                UserCounts::decrement(&author_id, "replies", None)
+                    .await
+                    .map_err(EventProcessorError::index_write_failed)?;
             };
             Ok::<(), EventProcessorError>(())
         }
     );
 
-    indexing_results.0.map_err(EventProcessorError::index_write_failed)?;
-    indexing_results.1.map_err(EventProcessorError::index_write_failed)?;
+    indexing_results
+        .0
+        .map_err(EventProcessorError::index_write_failed)?;
+    indexing_results
+        .1
+        .map_err(EventProcessorError::index_write_failed)?;
     indexing_results.2?;
 
     // Use that index wrapper to delete a post reply
@@ -410,9 +446,13 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
                 )
             );
 
-            indexing_results.0.map_err(EventProcessorError::index_write_failed)?;
+            indexing_results
+                .0
+                .map_err(EventProcessorError::index_write_failed)?;
             indexing_results.1?;
-            indexing_results.2.map_err(EventProcessorError::index_write_failed)?;
+            indexing_results
+                .2
+                .map_err(EventProcessorError::index_write_failed)?;
         }
         // PHASE 3: Process POST REPOSTED indexes
         // Decrement counts for resposted post if existed
@@ -449,9 +489,13 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
                 )
             );
 
-            indexing_results.0.map_err(EventProcessorError::index_write_failed)?;
+            indexing_results
+                .0
+                .map_err(EventProcessorError::index_write_failed)?;
             indexing_results.1?;
-            indexing_results.2.map_err(EventProcessorError::index_write_failed)?;
+            indexing_results
+                .2
+                .map_err(EventProcessorError::index_write_failed)?;
         }
     }
     let indexing_results = tokio::join!(
@@ -459,8 +503,12 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
         PostRelationships::delete(&author_id, &post_id)
     );
 
-    indexing_results.0.map_err(EventProcessorError::index_write_failed)?;
-    indexing_results.1.map_err(EventProcessorError::index_write_failed)?;
+    indexing_results
+        .0
+        .map_err(EventProcessorError::index_write_failed)?;
+    indexing_results
+        .1
+        .map_err(EventProcessorError::index_write_failed)?;
 
     Ok(())
 }

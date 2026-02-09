@@ -11,9 +11,9 @@ pub use processor_runner::EventProcessorRunner;
 pub use traits::{TEventProcessor, TEventProcessorRunner};
 
 use crate::NexusWatcherBuilder;
+use crate::WatcherError;
 use nexus_common::file::ConfigLoader;
 use nexus_common::models::homeserver::Homeserver;
-use crate::WatcherError;
 use nexus_common::utils::create_shutdown_rx;
 use nexus_common::{DaemonConfig, WatcherConfig};
 use pubky_app_specs::PubkyId;

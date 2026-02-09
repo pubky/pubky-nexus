@@ -73,7 +73,9 @@ async fn ingest(
 
     match pubky_app_object {
         PubkyAppObject::Blob(blob) => {
-            Blob::put_to_static(FileVariant::Main.to_string(), full_path, &blob).await?;
+            Blob::put_to_static(FileVariant::Main.to_string(), full_path, &blob)
+                .await
+                .map_err(EventProcessorError::internal_error)?;
 
             let urls = VariantController::get_file_urls_by_content_type(
                 pubkyapp_file.content_type.as_str(),
@@ -96,7 +98,9 @@ pub async fn del(
     files_path: PathBuf,
 ) -> Result<(), EventProcessorError> {
     debug!("Deleting File resource at {}/{}", user_id, file_id);
-    let result = FileDetails::get_by_ids(&[&[user_id, &file_id]]).await?;
+    let result = FileDetails::get_by_ids(&[&[user_id, &file_id]])
+        .await
+        .map_err(EventProcessorError::internal_error)?;
 
     if !result.is_empty() {
         let file = &result[0];

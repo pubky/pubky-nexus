@@ -21,16 +21,12 @@ pub enum EventProcessorError {
     /// The Pubky client could not resolve the pubky
     #[error("PubkyClientError: {0}")]
     PubkyClientError(#[from] crate::db::PubkyClientError),
+    #[error("Internal error: {message}")]
+    InternalError { message: String },
     /// Catch-all for miscellaneous errors in the processor layer
     #[error("{0}")]
     Other(String),
 }
-
-// impl From<crate::types::DynError> for EventProcessorError {
-//     fn from(e: crate::types::DynError) -> Self {
-//         EventProcessorError::Other(e.to_string())
-//     }
-// }
 
 impl From<crate::db::kv::RedisError> for EventProcessorError {
     fn from(e: crate::db::kv::RedisError) -> Self {
@@ -77,6 +73,18 @@ impl EventProcessorError {
 
     pub fn index_write_failed(source: impl std::fmt::Display) -> Self {
         Self::IndexWriteFailed {
+            message: source.to_string(),
+        }
+    }
+
+    pub fn internal_error(source: impl std::fmt::Display) -> Self {
+        Self::InternalError {
+            message: source.to_string(),
+        }
+    }
+
+    pub fn graph_query_failed(source: impl std::fmt::Display) -> Self {
+        Self::GraphQueryFailed {
             message: source.to_string(),
         }
     }

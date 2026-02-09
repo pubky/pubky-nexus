@@ -105,12 +105,12 @@ impl PostDetails {
         Ok(())
     }
 
-    pub async fn from_homeserver(
+    pub fn from_homeserver(
         homeserver_post: PubkyAppPost,
         author_id: &PubkyId,
         post_id: &str,
-    ) -> Result<Self, DynError> {
-        Ok(PostDetails {
+    ) -> Self {
+        PostDetails {
             uri: post_uri_builder(author_id.to_string(), post_id.into()),
             content: homeserver_post.content,
             id: post_id.to_string(),
@@ -118,7 +118,7 @@ impl PostDetails {
             author: author_id.to_string(),
             kind: homeserver_post.kind,
             attachments: homeserver_post.attachments,
-        })
+        }
     }
 
     pub async fn reindex(author_id: &str, post_id: &str) -> Result<(), DynError> {

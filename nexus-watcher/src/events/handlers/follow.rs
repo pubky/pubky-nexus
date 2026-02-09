@@ -10,11 +10,17 @@ use nexus_common::models::user::UserCounts;
 use pubky_app_specs::PubkyId;
 use tracing::debug;
 
-pub async fn sync_put(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), EventProcessorError> {
+pub async fn sync_put(
+    follower_id: PubkyId,
+    followee_id: PubkyId,
+) -> Result<(), EventProcessorError> {
     debug!("Indexing new follow: {} -> {}", follower_id, followee_id);
     // SAVE TO GRAPH
     // (follower_id)-[:FOLLOWS]->(followee_id)
-    match Followers::put_to_graph(&follower_id, &followee_id).await? {
+    match Followers::put_to_graph(&follower_id, &followee_id)
+        .await
+        .map_err(EventProcessorError::index_write_failed)?
+    {
         // Do not duplicate the follow relationship
         OperationOutcome::Updated => return Ok(()),
         OperationOutcome::MissingDependency => {
@@ -54,7 +60,9 @@ pub async fn sync_put(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), 
             indexing_results.0?;
             indexing_results.1?;
             indexing_results.2?;
-            indexing_results.3.map_err(EventProcessorError::index_write_failed)?;
+            indexing_results
+                .3
+                .map_err(EventProcessorError::index_write_failed)?;
         }
     };
 
@@ -67,14 +75,22 @@ pub async fn del(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), Event
     sync_del(follower_id, followee_id).await
 }
 
-pub async fn sync_del(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), EventProcessorError> {
-    match Followers::del_from_graph(&follower_id, &followee_id).await? {
+pub async fn sync_del(
+    follower_id: PubkyId,
+    followee_id: PubkyId,
+) -> Result<(), EventProcessorError> {
+    match Followers::del_from_graph(&follower_id, &followee_id)
+        .await
+        .map_err(EventProcessorError::index_write_failed)?
+    {
         // Both users exists but they do not have that relationship
         OperationOutcome::Updated => Ok(()),
         OperationOutcome::MissingDependency => Err(EventProcessorError::SkipIndexing),
         OperationOutcome::CreatedOrDeleted => {
             // Check if the users are friends. Is this a break? :(
-            let were_friends = Friends::check(&follower_id, &followee_id).await?;
+            let were_friends = Friends::check(&follower_id, &followee_id)
+                .await
+                .map_err(EventProcessorError::internal_error)?;
 
             // REMOVE FROM INDEX
             let followers = Followers(vec![follower_id.to_string()]);
@@ -97,7 +113,9 @@ pub async fn sync_del(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), 
             indexing_results.0?;
             indexing_results.1?;
             indexing_results.2?;
-            indexing_results.3.map_err(EventProcessorError::index_write_failed)?;
+            indexing_results
+                .3
+                .map_err(EventProcessorError::index_write_failed)?;
 
             Ok(())
         }
@@ -111,12 +129,20 @@ async fn update_follow_counts(
     update_friend_relationship: bool,
 ) -> Result<(), EventProcessorError> {
     // Update UserCount related indexes
-    UserCounts::update_index_field(follower_id, "following", counter.clone()).await?;
-    UserCounts::update(followee_id, "followers", counter.clone(), None).await?;
+    UserCounts::update_index_field(follower_id, "following", counter.clone())
+        .await
+        .map_err(EventProcessorError::index_write_failed)?;
+    UserCounts::update(followee_id, "followers", counter.clone(), None)
+        .await
+        .map_err(EventProcessorError::index_write_failed)?;
 
     if update_friend_relationship {
-        UserCounts::update_index_field(follower_id, "friends", counter.clone()).await?;
-        UserCounts::update_index_field(followee_id, "friends", counter.clone()).await?;
+        UserCounts::update_index_field(follower_id, "friends", counter.clone())
+            .await
+            .map_err(EventProcessorError::index_write_failed)?;
+        UserCounts::update_index_field(followee_id, "friends", counter.clone())
+            .await
+            .map_err(EventProcessorError::index_write_failed)?;
     }
     Ok(())
 }

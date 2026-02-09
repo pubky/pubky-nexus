@@ -14,7 +14,7 @@ pub async fn sync_put(user: PubkyAppUser, user_id: PubkyId) -> Result<(), EventP
     debug!("Indexing new user profile: {}", user_id);
 
     // Step 1: Create `UserDetails` object
-    let user_details = UserDetails::from_homeserver(user, &user_id).await?;
+    let user_details = UserDetails::from_homeserver(user, &user_id);
 
     // Step 2: Save to graph
     user_details
@@ -61,12 +61,19 @@ pub async fn del(user_id: PubkyId) -> Result<(), EventProcessorError> {
     // 3. But if there is any relationship (OperationOutcome::Updated), then we simply update the user with empty profile
     // and keyword username [DELETED].
     // A deleted user is a user whose profile is empty and has username `"[DELETED]"`
-    match execute_graph_operation(query).await? {
+    match execute_graph_operation(query)
+        .await
+        .map_err(EventProcessorError::index_write_failed)?
+    {
         OperationOutcome::CreatedOrDeleted => {
             let indexing_results =
                 tokio::join!(UserDetails::delete(&user_id), UserCounts::delete(&user_id));
-            indexing_results.0.map_err(EventProcessorError::index_write_failed)?;
-            indexing_results.1.map_err(EventProcessorError::index_write_failed)?;
+            indexing_results
+                .0
+                .map_err(EventProcessorError::index_write_failed)?;
+            indexing_results
+                .1
+                .map_err(EventProcessorError::index_write_failed)?;
         }
         OperationOutcome::Updated => {
             let deleted_user = PubkyAppUser {

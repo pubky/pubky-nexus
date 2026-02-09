@@ -23,15 +23,17 @@ pub async fn sync_put(
 
     // Save new bookmark relationship to the graph, only if the bookmarked user exists
     let indexed_at = Utc::now().timestamp_millis();
-    let existed =
-        match Bookmark::put_to_graph(&author_id, &post_id, &user_id, &id, indexed_at).await? {
-            OperationOutcome::CreatedOrDeleted => false,
-            OperationOutcome::Updated => true,
-            OperationOutcome::MissingDependency => {
-                let dependency = vec![format!("{author_id}:posts:{post_id}")];
-                return Err(EventProcessorError::MissingDependency { dependency });
-            }
-        };
+    let existed = match Bookmark::put_to_graph(&author_id, &post_id, &user_id, &id, indexed_at)
+        .await
+        .map_err(EventProcessorError::index_write_failed)?
+    {
+        OperationOutcome::CreatedOrDeleted => false,
+        OperationOutcome::Updated => true,
+        OperationOutcome::MissingDependency => {
+            let dependency = vec![format!("{author_id}:posts:{post_id}")];
+            return Err(EventProcessorError::MissingDependency { dependency });
+        }
+    };
 
     // SAVE TO INDEX
     let bookmark_details = Bookmark { id, indexed_at };
@@ -54,7 +56,9 @@ pub async fn del(user_id: PubkyId, bookmark_id: String) -> Result<(), EventProce
 }
 
 pub async fn sync_del(user_id: PubkyId, bookmark_id: String) -> Result<(), EventProcessorError> {
-    let deleted_bookmark_info = Bookmark::del_from_graph(&user_id, &bookmark_id).await?;
+    let deleted_bookmark_info = Bookmark::del_from_graph(&user_id, &bookmark_id)
+        .await
+        .map_err(EventProcessorError::index_write_failed)?;
     // Ensure the bookmark exists in the graph before proceeding
     let (post_id, author_id) = match deleted_bookmark_info {
         Some(info) => info,
@@ -63,11 +67,15 @@ pub async fn sync_del(user_id: PubkyId, bookmark_id: String) -> Result<(), Event
 
     Bookmark::del_from_index(&user_id, &post_id, &author_id)
         .await
-        .map_err(|e| EventProcessorError::IndexWriteFailed { message: e.to_string() })?;
+        .map_err(|e| EventProcessorError::IndexWriteFailed {
+            message: e.to_string(),
+        })?;
     // Update user counts
     UserCounts::decrement(&user_id, "bookmarks", None)
         .await
-        .map_err(|e| EventProcessorError::IndexWriteFailed { message: e.to_string() })?;
+        .map_err(|e| EventProcessorError::IndexWriteFailed {
+            message: e.to_string(),
+        })?;
 
     Ok(())
 }

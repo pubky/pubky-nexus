@@ -1,6 +1,6 @@
 use crate::service::NexusWatcher;
-use nexus_common::db::{DatabaseConfig, PubkyConnector};
 use crate::WatcherError;
+use nexus_common::db::{DatabaseConfig, PubkyConnector};
 use nexus_common::utils::create_shutdown_rx;
 use nexus_common::{Level, StackConfig};
 use nexus_common::{StackManager, WatcherConfig};

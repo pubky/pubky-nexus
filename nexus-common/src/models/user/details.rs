@@ -85,11 +85,8 @@ impl UserDetails {
         Ok(details_collection.into_iter().flatten().next())
     }
 
-    pub async fn from_homeserver(
-        homeserver_user: PubkyAppUser,
-        user_id: &PubkyId,
-    ) -> Result<Self, DynError> {
-        Ok(UserDetails {
+    pub fn from_homeserver(homeserver_user: PubkyAppUser, user_id: &PubkyId) -> Self {
+        UserDetails {
             name: homeserver_user.name,
             bio: homeserver_user.bio,
             status: homeserver_user.status,
@@ -97,7 +94,7 @@ impl UserDetails {
             image: homeserver_user.image,
             id: user_id.clone(),
             indexed_at: Utc::now().timestamp_millis(),
-        })
+        }
     }
 
     pub async fn delete(user_id: &str) -> Result<(), DynError> {

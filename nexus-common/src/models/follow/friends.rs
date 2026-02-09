@@ -47,7 +47,7 @@ impl Friends {
         Ok(Some(Self(friends)))
     }
 
-    // Checks wjether user_a and user_b are friends
+    // Checks whether user_a and user_b are friends
     pub async fn check(user_a_id: &str, user_b_id: &str) -> Result<bool, DynError> {
         let user_a_key_parts = &[user_a_id][..];
         let user_b_key_parts = &[user_b_id][..];
