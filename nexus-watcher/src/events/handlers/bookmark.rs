@@ -40,7 +40,8 @@ pub async fn sync_put(
 
     bookmark_details
         .put_to_index(&author_id, &post_id, &user_id)
-        .await?;
+        .await
+        .map_err(EventProcessorError::index_write_failed)?;
 
     if !existed {
         UserCounts::increment(&user_id, "bookmarks", None)

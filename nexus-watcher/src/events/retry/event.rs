@@ -97,7 +97,13 @@ impl RetryEvent {
             &RETRY_MANAGER_EVENTS_INDEX,
             &[event_index],
         )
-        .await?)
+        .await
+        .map_err(|e| {
+            EventProcessorError::internal_error(format!(
+                "Could not check uri for event: {}, reason {}",
+                event_index, e
+            ))
+        })?)
     }
 
     /// Retrieves an event from the JSON index in Redis based on its index

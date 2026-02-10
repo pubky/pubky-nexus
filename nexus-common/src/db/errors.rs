@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+//todokz: remove
 #[derive(Error, Debug, Clone, Serialize, Deserialize)]
 pub enum DbError {
     /// Failed to execute query in the graph database

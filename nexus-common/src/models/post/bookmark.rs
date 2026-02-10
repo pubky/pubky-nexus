@@ -1,9 +1,9 @@
-use crate::db::kv::RedisResult;
 use crate::db::{
     execute_graph_operation, fetch_all_rows_from_graph, fetch_key_from_graph, queries,
     OperationOutcome, RedisOps,
 };
-use crate::types::DynError;
+use crate::models::error::ModelError;
+use crate::models::traits::ModelResult;
 use neo4rs::Relation;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -25,7 +25,7 @@ impl Bookmark {
         user_id: &str,
         bookmark_id: &str,
         indexed_at: i64,
-    ) -> Result<OperationOutcome, DynError> {
+    ) -> ModelResult<OperationOutcome> {
         let query = queries::put::create_post_bookmark(
             user_id,
             author_id,
@@ -34,7 +34,9 @@ impl Bookmark {
             indexed_at,
         );
 
-        execute_graph_operation(query).await
+        execute_graph_operation(query)
+            .await
+            .map_err(ModelError::from_graph_error)
     }
 
     /// Retrieves counts by user ID, first trying to get from Redis, then from Neo4j if not found.
@@ -42,7 +44,7 @@ impl Bookmark {
         author_id: &str,
         post_id: &str,
         viewer_id: Option<&str>,
-    ) -> Result<Option<Bookmark>, DynError> {
+    ) -> ModelResult<Option<Bookmark>> {
         // Return None early if no viewer_id supplied
         let viewer_id = match viewer_id {
             Some(viewer_id) => viewer_id,
@@ -65,8 +67,10 @@ impl Bookmark {
         author_id: &str,
         post_id: &str,
         viewer_id: &str,
-    ) -> RedisResult<Option<Bookmark>> {
-        Self::try_from_index_json(&[author_id, post_id, viewer_id], None).await
+    ) -> ModelResult<Option<Bookmark>> {
+        Self::try_from_index_json(&[author_id, post_id, viewer_id], None)
+            .await
+            .map_err(Into::into)
     }
 
     /// Retrieves a bookmark from Neo4j.
@@ -74,9 +78,11 @@ impl Bookmark {
         author_id: &str,
         post_id: &str,
         viewer_id: &str,
-    ) -> Result<Option<Bookmark>, DynError> {
+    ) -> ModelResult<Option<Bookmark>> {
         let query = queries::get::post_bookmark(author_id, post_id, viewer_id);
-        fetch_key_from_graph(query, "b").await
+        fetch_key_from_graph(query, "b")
+            .await
+            .map_err(ModelError::from_graph_error)
     }
 
     pub async fn put_to_index(
@@ -84,17 +90,21 @@ impl Bookmark {
         author_id: &str,
         post_id: &str,
         viewer_id: &str,
-    ) -> RedisResult<()> {
+    ) -> ModelResult<()> {
         self.put_index_json(&[author_id, post_id, viewer_id], None, None)
             .await?;
-        PostStream::add_to_bookmarks_sorted_set(self, viewer_id, post_id, author_id).await
+        PostStream::add_to_bookmarks_sorted_set(self, viewer_id, post_id, author_id)
+            .await
+            .map_err(Into::into)
     }
 
     /// Retrieves all post_keys a user bookmarked from Neo4j
     /// TODO: using in reindex, Refactor
-    pub async fn reindex(user_id: &str) -> Result<(), DynError> {
+    pub async fn reindex(user_id: &str) -> ModelResult<()> {
         let query = queries::get::user_bookmarks(user_id);
-        let rows = fetch_all_rows_from_graph(query).await?;
+        let rows = fetch_all_rows_from_graph(query)
+            .await
+            .map_err(ModelError::from_graph_error)?;
 
         for row in rows {
             if let Some(relation) = row.get::<Option<Relation>>("b")? {
@@ -113,9 +123,11 @@ impl Bookmark {
     pub async fn del_from_graph(
         user_id: &str,
         bookmark_id: &str,
-    ) -> Result<Option<(String, String)>, DynError> {
+    ) -> ModelResult<Option<(String, String)>> {
         let query = queries::del::delete_bookmark(user_id, bookmark_id);
-        let rows = fetch_all_rows_from_graph(query).await?;
+        let rows = fetch_all_rows_from_graph(query)
+            .await
+            .map_err(ModelError::from_graph_error)?;
 
         for row in rows {
             let post_id: Option<String> = row.get("post_id").unwrap_or(None);
@@ -131,7 +143,7 @@ impl Bookmark {
         bookmarker_id: &str,
         post_id: &str,
         author_id: &str,
-    ) -> Result<(), DynError> {
+    ) -> ModelResult<()> {
         Self::remove_from_index_multiple_json(&[&[author_id, post_id, bookmarker_id]]).await?;
         PostStream::remove_from_bookmarks_sorted_set(bookmarker_id, post_id, author_id).await?;
         Ok(())

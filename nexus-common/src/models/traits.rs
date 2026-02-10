@@ -1,10 +1,11 @@
-use crate::db::kv::RedisResult;
 use crate::db::{exec_single_row, fetch_all_rows_from_graph, RedisOps};
-use crate::types::DynError;
+use crate::models::error::ModelError;
 use async_trait::async_trait;
 use core::fmt;
 use neo4rs::Query;
 use std::fmt::Debug;
+
+pub type ModelResult<T> = Result<T, ModelError>;
 
 pub trait CollectionId {
     fn to_string_id(self) -> String;
@@ -40,7 +41,7 @@ where
     /// This function returns a `Result` containing a vector of `Option<Self>`. Each `Option` corresponds to
     /// a queried ID, containing `Some(record)` if the record was found in either the cache or the graph database,
     /// or `None` if it was not found in either.
-    async fn get_by_ids(ids: &[T]) -> Result<Vec<Option<Self>>, DynError> {
+    async fn get_by_ids(ids: &[T]) -> ModelResult<Vec<Option<Self>>> {
         let key_parts_list: Vec<String> = ids.iter().map(|id| id.to_string_id()).collect();
 
         let keys_refs: Vec<Vec<&str>> = key_parts_list.iter().map(|id| vec![id.as_str()]).collect();
@@ -81,9 +82,11 @@ where
     ///
     /// This function returns a `Result` containing a vector of `Option<Self>`. Each `Option` corresponds to
     /// a queried ID, containing `Some(record)` if the record was found in the graph database, or `None` if it was not found.
-    async fn get_from_graph(ids: &[T]) -> Result<Vec<Option<Self>>, DynError> {
+    async fn get_from_graph(ids: &[T]) -> ModelResult<Vec<Option<Self>>> {
         let query = Self::collection_details_graph_query(ids);
-        let rows = fetch_all_rows_from_graph(query).await?;
+        let rows = fetch_all_rows_from_graph(query)
+            .await
+            .map_err(ModelError::from_graph_error)?;
 
         let mut records = Vec::with_capacity(ids.len());
 
@@ -94,8 +97,10 @@ where
         Ok(records)
     }
 
-    async fn get_from_index(keys: Vec<&[&str]>) -> RedisResult<Vec<Option<Self>>> {
-        Self::try_from_index_multiple_json(&keys).await
+    async fn get_from_index(keys: Vec<&[&str]>) -> ModelResult<Vec<Option<Self>>> {
+        Self::try_from_index_multiple_json(&keys)
+            .await
+            .map_err(Into::into)
     }
 
     /// Indexes collection of records in Redis for faster access in future queries.
@@ -110,7 +115,7 @@ where
     ///
     /// This function returns a `Result` indicating success or failure. A successful result indicates that the
     /// records were successfully indexed in the cache.
-    async fn put_to_index(ids: &[T], records: Vec<Option<Self>>) -> RedisResult<()> {
+    async fn put_to_index(ids: &[T], records: Vec<Option<Self>>) -> ModelResult<()> {
         let mut found_records = Vec::with_capacity(records.len());
         let mut found_record_ids = Vec::with_capacity(records.len());
 
@@ -135,11 +140,13 @@ where
     }
 
     // Save new graph node
-    async fn put_to_graph(&self) -> Result<(), DynError> {
-        exec_single_row(self.put_graph_query()?).await
+    async fn put_to_graph(&self) -> ModelResult<()> {
+        exec_single_row(self.put_graph_query()?)
+            .await
+            .map_err(ModelError::from_graph_error)
     }
 
-    async fn reindex(collection_ids: &[T]) -> Result<(), DynError> {
+    async fn reindex(collection_ids: &[T]) -> ModelResult<()> {
         match Self::get_from_graph(collection_ids).await {
             Ok(collection_details_list) => {
                 if !collection_details_list.is_empty() {
@@ -156,7 +163,7 @@ where
     fn collection_details_graph_query(id_list: &[T]) -> Query;
 
     /// Returns the neo4j query to put a record into the graph.
-    fn put_graph_query(&self) -> Result<Query, DynError>;
+    fn put_graph_query(&self) -> ModelResult<Query>;
 
-    async fn extend_on_index_miss(elements: &[std::option::Option<Self>]) -> RedisResult<()>;
+    async fn extend_on_index_miss(elements: &[std::option::Option<Self>]) -> ModelResult<()>;
 }

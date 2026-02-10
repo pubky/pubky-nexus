@@ -2,9 +2,10 @@ use std::collections::HashSet;
 
 use crate::db::kv::SortOrder;
 use crate::models::tag::stream::{HotTag, HotTags};
+use crate::models::traits::ModelResult;
 use crate::models::user::Muted;
 use crate::types::routes::HotTagsInputDTO;
-use crate::types::{DynError, Pagination, StreamSorting, Timeframe};
+use crate::types::{Pagination, StreamSorting, Timeframe};
 
 use crate::models::{
     post::{PostStream, StreamSource},
@@ -58,12 +59,12 @@ impl Bootstrap {
     /// Returns a populated response even if the user is not found or not indexed.
     ///
     /// # Parameters
-    /// - `user_id: &str`  
+    /// - `user_id: &str`
     ///   The ID of the user whose “ImAlive” stream is being built
-    /// - `view_type: ViewType`  
+    /// - `view_type: ViewType`
     ///   Controls whether to fetch replies and include full stream entries (`Full`)
     ///   or only base posts (`Partial`)
-    pub async fn get_by_id(user_id: &str, view_type: ViewType) -> Result<Self, DynError> {
+    pub async fn get_by_id(user_id: &str, view_type: ViewType) -> ModelResult<Self> {
         let mut bootstrap = Self::default();
         let mut user_ids = HashSet::new();
 
@@ -180,9 +181,9 @@ impl Bootstrap {
     /// Appends each tagger’s user ID from the given post tag details into the provided set
     ///
     /// # Parameters
-    /// - `tag_details_list: &Vec<TagDetails>`  
+    /// - `tag_details_list: &Vec<TagDetails>`
     ///   A reference to a vector of `TagDetails`, each containing a list of tagger IDs
-    /// - `users_list: &mut HashSet<String>`  
+    /// - `users_list: &mut HashSet<String>`
     ///   A mutable reference to a set of user IDs; each tagger ID will be inserted here
     fn insert_taggers_id(tag_details_list: &[TagDetails], users_list: &mut HashSet<String>) {
         for tag_details in tag_details_list.iter() {
@@ -195,15 +196,15 @@ impl Bootstrap {
     /// Fetches and appends user views for the given set of `user_ids`
     ///
     /// # Parameters
-    /// - `user_ids: HashSet<String>`  
+    /// - `user_ids: HashSet<String>`
     ///   A set of unique user IDs to fetch views for
-    /// - `viewer_id: Option<&str>`  
+    /// - `viewer_id: Option<&str>`
     ///   Optional context user ID for personalized view generation
     async fn get_and_merge_users(
         &mut self,
         user_ids: &HashSet<String>,
         maybe_viewer_id: Option<&str>,
-    ) -> Result<(), DynError> {
+    ) -> ModelResult<()> {
         if user_ids.is_empty() {
             return Ok(());
         }
@@ -222,18 +223,18 @@ impl Bootstrap {
     /// into both the internal user list
     ///
     /// # Parameters
-    /// - `post_replies: Vec<(String, String)>`  
+    /// - `post_replies: Vec<(String, String)>`
     ///   A list of `(author_id, post_id)` tuples indicating which post replies to fetch
-    /// - `user_ids: &mut HashSet<String>`  
+    /// - `user_ids: &mut HashSet<String>`
     ///   A mutable reference to a set where each reply’s author ID (and any taggers) will be appended
-    /// - `maybe_viewer_id: Option<&str>`  
+    /// - `maybe_viewer_id: Option<&str>`
     ///   The ID of the current viewer
     async fn get_and_handle_replies(
         &mut self,
         post_replies: Vec<(String, String)>,
         user_ids: &mut HashSet<String>,
         maybe_viewer_id: Option<&str>,
-    ) -> Result<(), DynError> {
+    ) -> ModelResult<()> {
         // TODO: Might consider in the future to do in all the requests in parallel
         // tokio::task::JoinSet or tokio::spawn(async move {...
         for (author_id, post_id) in post_replies {
@@ -251,17 +252,17 @@ impl Bootstrap {
     /// Fetches a post stream timeline for the given `source` and `limit`
     ///
     /// # Parameters
-    /// - `maybe_viewer_id: Option<&str>`  
+    /// - `maybe_viewer_id: Option<&str>`
     ///   Optional context user ID for personalized view generation
-    /// - `source: StreamSource`  
+    /// - `source: StreamSource`
     ///   The source of the post stream
-    /// - `limit: usize`  
+    /// - `limit: usize`
     ///   The limit of the post stream
     async fn get_post_stream_timeline(
         maybe_viewer_id: Option<&str>,
         source: StreamSource,
         limit: usize,
-    ) -> Result<PostStream, DynError> {
+    ) -> ModelResult<PostStream> {
         let pagination = Pagination {
             skip: Some(0),
             limit: Some(limit),
@@ -286,7 +287,7 @@ impl Bootstrap {
     ///
     /// # Parameters
     /// - `user_ids: &mut HashSet<String>` A mutable reference to a set of user IDs
-    async fn add_influencers(&mut self, user_ids: &mut HashSet<String>) -> Result<(), DynError> {
+    async fn add_influencers(&mut self, user_ids: &mut HashSet<String>) -> ModelResult<()> {
         if let Some(influencers) =
             Influencers::get_influencers(None, None, 0, 0, Timeframe::Today, true).await?
         {
@@ -298,7 +299,7 @@ impl Bootstrap {
         Ok(())
     }
 
-    async fn add_muted(&mut self, maybe_viewer_id: Option<&str>) -> Result<(), DynError> {
+    async fn add_muted(&mut self, maybe_viewer_id: Option<&str>) -> ModelResult<()> {
         if let Some(viewer_id) = maybe_viewer_id {
             if let Ok(Some(muted_ids)) = Muted::get_by_id(viewer_id, None, None).await {
                 self.ids.muted = muted_ids.0;
@@ -317,7 +318,7 @@ impl Bootstrap {
         &mut self,
         user_ids: &mut HashSet<String>,
         user_id: &str,
-    ) -> Result<(), DynError> {
+    ) -> ModelResult<()> {
         if let Some(recommended_users) = UserStream::get_recommended_ids(user_id, None).await? {
             recommended_users.into_iter().for_each(|id| {
                 self.ids.recommended.push(id.clone());
@@ -333,10 +334,7 @@ impl Bootstrap {
     /// # Parameters
     /// - `user_ids: &mut HashSet<String>` A mutable reference to a set of user IDs
     ///
-    async fn add_global_hot_tags(
-        &mut self,
-        user_ids: &mut HashSet<String>,
-    ) -> Result<(), DynError> {
+    async fn add_global_hot_tags(&mut self, user_ids: &mut HashSet<String>) -> ModelResult<()> {
         let hot_tag_filter = HotTagsInputDTO::new(Timeframe::Today, 40, 0, 20, None);
         if let Some(today_hot_tags) = HotTags::get_hot_tags(None, None, &hot_tag_filter).await? {
             today_hot_tags.iter().for_each(|tag| {

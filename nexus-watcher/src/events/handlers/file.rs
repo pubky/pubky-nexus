@@ -1,6 +1,5 @@
 use crate::events::EventProcessorError;
 
-use nexus_common::db::DbError;
 use nexus_common::db::PubkyConnector;
 use nexus_common::media::FileVariant;
 use nexus_common::media::VariantController;
@@ -37,19 +36,15 @@ pub async fn sync_put(
             message: format!("{e:?}"),
         })?;
 
-    // SAVE TO INDEX
-    let indexing_result = FileDetails::put_to_index(
+    FileDetails::put_to_index(
         &[&[
             file_details.owner_id.clone().as_str(),
             file_details.id.clone().as_str(),
         ]],
         vec![Some(file_details)],
     )
-    .await;
-
-    indexing_result?;
-
-    Ok(())
+    .await
+    .map_err(EventProcessorError::index_write_failed)
 }
 
 // TODO: Move it into its own process, server, etc
@@ -75,7 +70,7 @@ async fn ingest(
         PubkyAppObject::Blob(blob) => {
             Blob::put_to_static(FileVariant::Main.to_string(), full_path, &blob)
                 .await
-                .map_err(EventProcessorError::internal_error)?;
+                .map_err(EventProcessorError::failed_to_save_static)?;
 
             let urls = VariantController::get_file_urls_by_content_type(
                 pubkyapp_file.content_type.as_str(),
@@ -106,14 +101,7 @@ pub async fn del(
         let file = &result[0];
 
         if let Some(file_details) = file {
-            file_details.delete().await.map_err(|e| match e {
-                DbError::GraphQueryFailed { message } => {
-                    EventProcessorError::GraphQueryFailed { message }
-                }
-                DbError::IndexOperationFailed { message } => {
-                    EventProcessorError::IndexWriteFailed { message }
-                }
-            })?;
+            file_details.delete().await?;
         }
 
         let folder_path = Path::new(&user_id.to_string()).join(&file_id);

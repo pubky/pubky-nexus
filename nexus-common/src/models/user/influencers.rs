@@ -1,5 +1,6 @@
 use crate::db::kv::SortOrder;
-use crate::types::DynError;
+use crate::models::error::ModelError;
+use crate::models::traits::ModelResult;
 use crate::types::StreamReach;
 use crate::types::Timeframe;
 use chrono::Utc;
@@ -58,7 +59,7 @@ impl Influencers {
         limit: usize,
         timeframe: Timeframe,
         preview: bool,
-    ) -> Result<Option<Influencers>, DynError> {
+    ) -> ModelResult<Option<Influencers>> {
         let (skip, limit) = if preview {
             // Generate a pseudo-random number between 0 and 97
             // We cache 100 influencers, and pick 3 starting from this number
@@ -97,14 +98,18 @@ impl Influencers {
         skip: usize,
         limit: usize,
         timeframe: &Timeframe,
-    ) -> Result<Option<Influencers>, DynError> {
-        let cached_influencers = Influencers::get_from_global_cache(skip, limit, timeframe).await?;
+    ) -> ModelResult<Option<Influencers>> {
+        let cached_influencers = Influencers::get_from_global_cache(skip, limit, timeframe)
+            .await
+            .map_err(ModelError::from_graph_error)?;
         if cached_influencers.is_some() {
             return Ok(cached_influencers);
         }
 
         let query = queries::get::get_global_influencers(0, 100, timeframe);
-        let result = fetch_key_from_graph::<Influencers>(query, "influencers").await?;
+        let result = fetch_key_from_graph::<Influencers>(query, "influencers")
+            .await
+            .map_err(ModelError::from_graph_error)?;
 
         let influencers = match result {
             Some(influencers) => influencers,
@@ -129,7 +134,7 @@ impl Influencers {
         skip: usize,
         limit: usize,
         timeframe: &Timeframe,
-    ) -> Result<Option<Influencers>, DynError> {
+    ) -> ModelResult<Option<Influencers>> {
         let ranking = match timeframe {
             // When timeframe is AllTime, we get the influencer list directly from Sorted::Users::Influencers,
             // which is dynamically updated with each user action and therefore needs no TTL.
@@ -174,10 +179,7 @@ impl Influencers {
     /// # Arguments
     /// * `result` - The list of influencers with their scores to cache
     /// * `timeframe` - The timeframe used to generate the cache key and expiry
-    async fn put_to_global_cache(
-        result: Influencers,
-        timeframe: &Timeframe,
-    ) -> Result<(), DynError> {
+    async fn put_to_global_cache(result: Influencers, timeframe: &Timeframe) -> ModelResult<()> {
         let key_parts = Influencers::get_cache_key_parts(timeframe);
         let key_parts_vector: Vec<&str> =
             key_parts.iter().map(|s| s.as_str()).collect::<Vec<&str>>();
@@ -211,9 +213,11 @@ impl Influencers {
         skip: usize,
         limit: usize,
         timeframe: &Timeframe,
-    ) -> Result<Option<Influencers>, DynError> {
+    ) -> ModelResult<Option<Influencers>> {
         let query = queries::get::get_influencers_by_reach(user_id, reach, skip, limit, timeframe);
-        fetch_key_from_graph::<Influencers>(query, "influencers").await
+        fetch_key_from_graph::<Influencers>(query, "influencers")
+            .await
+            .map_err(ModelError::from_graph_error)
     }
 
     fn get_cache_key_parts(timeframe: &Timeframe) -> Vec<String> {
@@ -222,7 +226,7 @@ impl Influencers {
 
     /// Rebuilds the global influencer cache for `AllTime` and `ThisMonth` timeframes
     ///
-    pub async fn reindex() -> Result<(), DynError> {
+    pub async fn reindex() -> ModelResult<()> {
         Influencers::get_global_influencers(0, 100, &Timeframe::AllTime).await?;
         Influencers::get_global_influencers(0, 100, &Timeframe::ThisMonth).await?;
         Ok(())

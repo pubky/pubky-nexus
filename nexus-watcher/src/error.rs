@@ -1,3 +1,4 @@
+use nexus_common::models::error::ModelError;
 use nexus_common::models::event::EventProcessorError;
 use nexus_common::types::DynError;
 
@@ -10,6 +11,13 @@ pub enum WatcherError {
     Other(String),
 }
 
+impl From<ModelError> for WatcherError {
+    fn from(e: ModelError) -> Self {
+        WatcherError::Other(e.to_string())
+    }
+}
+
+//todo: should be removed
 impl From<DynError> for WatcherError {
     fn from(e: DynError) -> Self {
         WatcherError::Other(e.to_string())

@@ -2,11 +2,13 @@ use std::collections::HashSet;
 
 use super::{Influencers, Muted, UserCounts, UserSearch, UserView};
 
-use crate::db::kv::{RedisResult, SortOrder};
+use crate::db::kv::SortOrder;
 use crate::db::{fetch_all_rows_from_graph, queries, RedisOps};
+use crate::models::error::ModelError;
 use crate::models::follow::{Followers, Following, Friends, UserFollows};
 use crate::models::post::{PostStream, POST_REPLIES_PER_POST_KEY_PARTS};
-use crate::types::{DynError, StreamReach, Timeframe};
+use crate::models::traits::ModelResult;
+use crate::types::{StreamReach, Timeframe};
 
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -69,10 +71,14 @@ impl UserStream {
         input: UserStreamInput,
         viewer_id: Option<String>,
         depth: Option<u8>,
-    ) -> Result<Option<Self>, DynError> {
-        let user_ids = Self::get_user_list_from_source(input).await?;
+    ) -> ModelResult<Option<Self>> {
+        let user_ids = Self::get_user_list_from_source(input)
+            .await
+            .map_err(ModelError::from_graph_error)?;
         match user_ids {
-            Some(users) => Self::from_listed_user_ids(&users, viewer_id.as_deref(), depth).await,
+            Some(users) => Self::from_listed_user_ids(&users, viewer_id.as_deref(), depth)
+                .await
+                .map_err(ModelError::from_graph_error),
             None => Ok(None),
         }
     }
@@ -82,7 +88,7 @@ impl UserStream {
         viewer_id: Option<&str>,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<Option<Self>, DynError> {
+    ) -> ModelResult<Option<Self>> {
         let user_ids = UserSearch::get_by_name(username, skip, limit)
             .await?
             .map(|result| result.0);
@@ -97,7 +103,7 @@ impl UserStream {
         user_ids: &[String],
         viewer_id: Option<&str>,
         depth: Option<u8>,
-    ) -> Result<Option<Self>, DynError> {
+    ) -> ModelResult<Option<Self>> {
         // Use the new mget batch operation to retrieve all user views efficiently
         let user_views_result = UserView::get_by_ids(user_ids, viewer_id, depth).await?;
 
@@ -117,7 +123,7 @@ impl UserStream {
     pub async fn add_to_most_followed_sorted_set(
         user_id: &str,
         counts: &UserCounts,
-    ) -> RedisResult<()> {
+    ) -> ModelResult<()> {
         Self::put_index_sorted_set(
             &USER_MOSTFOLLOWED_KEY_PARTS,
             &[(counts.followers as f64, user_id)],
@@ -125,22 +131,24 @@ impl UserStream {
             None,
         )
         .await
+        .map_err(Into::into)
     }
 
     /// Adds the post to a Redis sorted set using the follower counts as score.
     pub async fn add_to_influencers_sorted_set(
         user_id: &str,
         counts: &UserCounts,
-    ) -> RedisResult<()> {
+    ) -> ModelResult<()> {
         let score = (counts.tagged + counts.posts) as f64 * (counts.followers as f64).sqrt();
         Self::put_index_sorted_set(&USER_INFLUENCERS_KEY_PARTS, &[(score, user_id)], None, None)
             .await
+            .map_err(Into::into)
     }
     /// Retrieves recommended user IDs based on the specified criteria.
     pub async fn get_recommended_ids(
         user_id: &str,
         limit: Option<usize>,
-    ) -> Result<Option<Vec<String>>, DynError> {
+    ) -> ModelResult<Option<Vec<String>>> {
         let count = limit.unwrap_or(5) as isize;
 
         // Attempt to get cached data from Redis
@@ -150,7 +158,9 @@ impl UserStream {
 
         // Cache miss; proceed to query Neo4j
         let query = queries::get::recommend_users(user_id, 30);
-        let rows = fetch_all_rows_from_graph(query).await?;
+        let rows = fetch_all_rows_from_graph(query)
+            .await
+            .map_err(ModelError::from_graph_error)?;
 
         let mut user_ids = Vec::new();
 
@@ -179,7 +189,7 @@ impl UserStream {
     async fn try_get_cached_recommended(
         user_id: &str,
         count: isize,
-    ) -> Result<Option<Vec<String>>, DynError> {
+    ) -> ModelResult<Option<Vec<String>>> {
         let key_parts = &["Cache", "Recommended", user_id];
         Self::try_get_random_from_index_set(
             key_parts,
@@ -191,7 +201,7 @@ impl UserStream {
     }
 
     /// Helper method to cache recommended users in Redis with a TTL.
-    async fn cache_recommended_users(user_id: &str, user_ids: &[String]) -> Result<(), DynError> {
+    async fn cache_recommended_users(user_id: &str, user_ids: &[String]) -> ModelResult<()> {
         let values: Vec<&str> = user_ids.iter().map(|s| s.as_str()).collect();
         // Cache the result in Redis with a TTL of 12 hours
         Self::put_index_set(
@@ -207,11 +217,13 @@ impl UserStream {
     async fn get_post_replies_ids(
         post_id: Option<String>,
         author_id: Option<String>,
-    ) -> Result<Option<Vec<String>>, DynError> {
+    ) -> ModelResult<Option<Vec<String>>> {
         let post_id = post_id
-            .ok_or("Post ID should be provided for user streams with source 'post_replies'")?;
+            .ok_or("Post ID should be provided for user streams with source 'post_replies'")
+            .map_err(ModelError::from_other)?;
         let author_id = author_id
-            .ok_or("Author ID should be provided for user streams with source 'post_replies'")?;
+            .ok_or("Author ID should be provided for user streams with source 'post_replies'")
+            .map_err(ModelError::from_other)?;
         let key_parts = [
             &POST_REPLIES_PER_POST_KEY_PARTS[..],
             &[author_id.as_str(), post_id.as_str()],
@@ -246,7 +258,7 @@ impl UserStream {
     /// Get list of users based on the specified reach type
     pub async fn get_user_list_from_source(
         input: UserStreamInput,
-    ) -> Result<Option<Vec<String>>, DynError> {
+    ) -> ModelResult<Option<Vec<String>>> {
         let UserStreamInput {
             user_id,
             skip,
@@ -261,7 +273,8 @@ impl UserStream {
         let user_ids = match source {
             UserStreamSource::Followers => Followers::get_by_id(
                 user_id
-                    .ok_or("User ID should be provided for user streams with source 'followers'")?
+                    .ok_or("User ID should be provided for user streams with source 'followers'")
+                    .map_err(ModelError::from_other)?
                     .as_str(),
                 skip,
                 limit,
@@ -270,7 +283,8 @@ impl UserStream {
             .map(|u| u.0),
             UserStreamSource::Following => Following::get_by_id(
                 user_id
-                    .ok_or("User ID should be provided for user streams with source 'following'")?
+                    .ok_or("User ID should be provided for user streams with source 'following'")
+                    .map_err(ModelError::from_other)?
                     .as_str(),
                 skip,
                 limit,
@@ -279,7 +293,8 @@ impl UserStream {
             .map(|u| u.0),
             UserStreamSource::Friends => Friends::get_by_id(
                 user_id
-                    .ok_or("User ID should be provided for user streams with source 'friends'")?
+                    .ok_or("User ID should be provided for user streams with source 'friends'")
+                    .map_err(ModelError::from_other)?
                     .as_str(),
                 skip,
                 limit,
@@ -288,7 +303,8 @@ impl UserStream {
             .map(|u| u.0),
             UserStreamSource::Muted => Muted::get_by_id(
                 user_id
-                    .ok_or("User ID should be provided for user streams with source 'muted'")?
+                    .ok_or("User ID should be provided for user streams with source 'muted'")
+                    .map_err(ModelError::from_other)?
                     .as_str(),
                 skip,
                 limit,
@@ -326,7 +342,8 @@ impl UserStream {
                     user_id
                         .ok_or(
                             "User ID should be provided for user streams with source 'recommended'",
-                        )?
+                        )
+                        .map_err(ModelError::from_other)?
                         .as_str(),
                     limit,
                 )

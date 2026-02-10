@@ -1,10 +1,10 @@
 use super::{PostRelationships, PostStream};
-use crate::db::kv::RedisResult;
 use crate::db::{
     exec_single_row, execute_graph_operation, fetch_row_from_graph, queries, OperationOutcome,
     RedisOps,
 };
-use crate::types::DynError;
+use crate::models::error::ModelError;
+use crate::models::traits::ModelResult;
 use chrono::Utc;
 use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyId};
 use serde::{Deserialize, Serialize};
@@ -28,10 +28,7 @@ impl RedisOps for PostDetails {}
 
 impl PostDetails {
     /// Retrieves post details by author ID and post ID, first trying to get from Redis, then from Neo4j if not found.
-    pub async fn get_by_id(
-        author_id: &str,
-        post_id: &str,
-    ) -> Result<Option<PostDetails>, DynError> {
+    pub async fn get_by_id(author_id: &str, post_id: &str) -> ModelResult<Option<PostDetails>> {
         match Self::get_from_index(author_id, post_id).await? {
             Some(details) => Ok(Some(details)),
             None => {
@@ -48,17 +45,21 @@ impl PostDetails {
     pub async fn get_from_index(
         author_id: &str,
         post_id: &str,
-    ) -> RedisResult<Option<PostDetails>> {
-        Self::try_from_index_json(&[author_id, post_id], None).await
+    ) -> ModelResult<Option<PostDetails>> {
+        Self::try_from_index_json(&[author_id, post_id], None)
+            .await
+            .map_err(Into::into)
     }
 
     /// Retrieves the post fields from Neo4j.
     pub async fn get_from_graph(
         author_id: &str,
         post_id: &str,
-    ) -> Result<Option<(PostDetails, Option<(String, String)>)>, DynError> {
+    ) -> ModelResult<Option<(PostDetails, Option<(String, String)>)>> {
         let query = queries::get::get_post_by_id(author_id, post_id);
-        let maybe_row = fetch_row_from_graph(query).await?;
+        let maybe_row = fetch_row_from_graph(query)
+            .await
+            .map_err(ModelError::from_graph_error)?;
 
         let Some(row) = maybe_row else {
             return Ok(None);
@@ -78,7 +79,7 @@ impl PostDetails {
         author_id: &str,
         parent_key_wrapper: Option<(String, String)>,
         is_edit: bool,
-    ) -> RedisResult<()> {
+    ) -> ModelResult<()> {
         self.put_index_json(&[author_id, &self.id], None, None)
             .await?;
         // When we delete a post that has ancestor, ignore other index updates
@@ -121,7 +122,7 @@ impl PostDetails {
         }
     }
 
-    pub async fn reindex(author_id: &str, post_id: &str) -> Result<(), DynError> {
+    pub async fn reindex(author_id: &str, post_id: &str) -> ModelResult<()> {
         match Self::get_from_graph(author_id, post_id).await? {
             Some((details, reply)) => details.put_to_index(author_id, reply, false).await?,
             None => tracing::error!(
@@ -137,10 +138,14 @@ impl PostDetails {
     pub async fn put_to_graph(
         &self,
         post_relationships: &PostRelationships,
-    ) -> Result<OperationOutcome, DynError> {
+    ) -> ModelResult<OperationOutcome> {
         match queries::put::create_post(self, post_relationships) {
-            Ok(query) => execute_graph_operation(query).await,
-            Err(e) => Err(format!("QUERY: Error while creating the query: {e}").into()),
+            Ok(query) => execute_graph_operation(query)
+                .await
+                .map_err(ModelError::from_graph_error),
+            Err(e) => Err(ModelError::from_graph_error(format!(
+                "QUERY: Error while creating the query: {e}"
+            ))),
         }
     }
 
@@ -148,11 +153,13 @@ impl PostDetails {
         author_id: &str,
         post_id: &str,
         parent_post_key_wrapper: Option<[String; 2]>,
-    ) -> Result<(), DynError> {
+    ) -> ModelResult<()> {
         // Delete user_details on Redis
         Self::remove_from_index_multiple_json(&[&[author_id, post_id]]).await?;
         // Delete post graph node
-        exec_single_row(queries::del::delete_post(author_id, post_id)).await?;
+        exec_single_row(queries::del::delete_post(author_id, post_id))
+            .await
+            .map_err(ModelError::from_graph_error)?;
         // The replies are not indexed in the global feeds
         match parent_post_key_wrapper {
             None => {

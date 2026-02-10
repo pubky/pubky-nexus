@@ -4,8 +4,8 @@ use utoipa::ToSchema;
 
 use crate::db::fetch_row_from_graph;
 use crate::db::queries;
-
-use crate::types::DynError;
+use crate::models::error::ModelError;
+use crate::models::traits::ModelResult;
 
 /// Represents a Pubky tag with uri, label, indexed at timestamp.
 #[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
@@ -17,12 +17,11 @@ pub struct TagView {
 
 impl TagView {
     /// Retrieves a user by ID, checking the cache first and then the graph database.
-    pub async fn get_by_tagger_and_id(
-        tagger_id: &str,
-        tag_id: &str,
-    ) -> Result<Option<Self>, DynError> {
+    pub async fn get_by_tagger_and_id(tagger_id: &str, tag_id: &str) -> ModelResult<Option<Self>> {
         let query = queries::get::get_tag_by_tagger_and_id(tagger_id, tag_id);
-        let result = fetch_row_from_graph(query).await?;
+        let result = fetch_row_from_graph(query)
+            .await
+            .map_err(ModelError::from_graph_error)?;
 
         let Some(row) = result else {
             return Ok(None);
@@ -32,17 +31,16 @@ impl TagView {
         let tagged_id = row.get("tagged_id")?;
         let uri = if tagged_labels.iter().any(|label| label == "Post") {
             let Some(author_id) = row.get("author_id")? else {
-                return Err("Tagged post missing author id".into());
+                return Err(ModelError::from_other("Tagged post missing author id"));
             };
             post_uri_builder(author_id, tagged_id)
         } else if tagged_labels.iter().any(|label| label == "User") {
             user_uri_builder(tagged_id)
         } else {
-            return Err(format!(
+            return Err(ModelError::from_other(format!(
                 "Tagged resource has unsupported labels: {:?}",
                 tagged_labels
-            )
-            .into());
+            )));
         };
 
         Ok(Some(Self {

@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::models::error::ModelError;
+
 #[derive(Error, Debug, Clone, Serialize, Deserialize)]
 pub enum EventProcessorError {
     /// Failed to execute query in the graph database
@@ -23,15 +25,26 @@ pub enum EventProcessorError {
     PubkyClientError(#[from] crate::db::PubkyClientError),
     #[error("Internal error: {message}")]
     InternalError { message: String },
+    #[error("Failed to store event: {message}")]
+    FailedToStoreEvent { message: String },
+    #[error("Failed to save static resource {message}")]
+    FailedToSaveStatic { message: String },
     /// Catch-all for miscellaneous errors in the processor layer
     #[error("{0}")]
     Other(String),
 }
 
-impl From<crate::db::kv::RedisError> for EventProcessorError {
-    fn from(e: crate::db::kv::RedisError) -> Self {
-        EventProcessorError::IndexWriteFailed {
-            message: e.to_string(),
+impl From<ModelError> for EventProcessorError {
+    fn from(e: ModelError) -> Self {
+        match e {
+            ModelError::GraphOperationFailed { message } => {
+                EventProcessorError::GraphQueryFailed { message }
+            }
+            ModelError::KvOperationFailed { message } => {
+                EventProcessorError::IndexWriteFailed { message }
+            }
+            ModelError::FileOperationFailed { message } => EventProcessorError::Other(message),
+            ModelError::Other { message } => EventProcessorError::Other(message),
         }
     }
 }
@@ -79,6 +92,18 @@ impl EventProcessorError {
 
     pub fn internal_error(source: impl std::fmt::Display) -> Self {
         Self::InternalError {
+            message: source.to_string(),
+        }
+    }
+
+    pub fn failed_to_store_event(source: impl std::fmt::Display) -> Self {
+        Self::FailedToStoreEvent {
+            message: source.to_string(),
+        }
+    }
+
+    pub fn failed_to_save_static(source: impl std::fmt::Display) -> Self {
+        Self::FailedToSaveStatic {
             message: source.to_string(),
         }
     }
