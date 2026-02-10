@@ -67,7 +67,7 @@ async fn ingest(
         PubkyAppObject::Blob(blob) => {
             Blob::put_to_static(FileVariant::Main.to_string(), full_path, &blob)
                 .await
-                .map_err(EventProcessorError::failed_to_save_static)?;
+                .map_err(EventProcessorError::static_save_failed)?;
 
             let urls = VariantController::get_file_urls_by_content_type(
                 pubkyapp_file.content_type.as_str(),

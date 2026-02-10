@@ -16,10 +16,7 @@ pub async fn handle(event: &Event, moderation: Arc<Moderation>) -> Result<(), Ev
         EventType::Del => handle_del_event(event).await,
     }?;
 
-    event
-        .store_event()
-        .await
-        .map_err(EventProcessorError::failed_to_store_event)?;
+    event.store_event().await?;
     Ok(())
 }
 

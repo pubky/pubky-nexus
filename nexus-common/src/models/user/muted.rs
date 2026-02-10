@@ -33,9 +33,7 @@ impl Muted {
         match Self::get_from_index(user_id, skip, limit).await? {
             Some(mutes) => Ok(Some(Self::from_vec(mutes))),
             None => {
-                let graph_response = Self::get_from_graph(user_id, skip, limit)
-                    .await
-                    .map_err(ModelError::from_graph_error)?;
+                let graph_response = Self::get_from_graph(user_id, skip, limit).await?;
                 if let Some(follows) = graph_response {
                     follows.put_to_index(user_id).await?;
                     return Ok(Some(follows));

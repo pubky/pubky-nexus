@@ -25,10 +25,8 @@ pub enum EventProcessorError {
     PubkyClientError(#[from] crate::db::PubkyClientError),
     #[error("Internal error: {message}")]
     InternalError { message: String },
-    #[error("Failed to store event: {message}")]
-    FailedToStoreEvent { message: String },
-    #[error("Failed to save static resource {message}")]
-    FailedToSaveStatic { message: String },
+    #[error("StaticSaveFailed: {message}")]
+    StaticSaveFailed { message: String },
     /// Catch-all for miscellaneous errors in the processor layer
     #[error("Other error: {message}")]
     Other { message: String },
@@ -73,7 +71,7 @@ impl EventProcessorError {
     }
 
     pub fn client_error(message: String) -> Self {
-        crate::db::PubkyClientError::ClientError(message).into()
+        Self::PubkyClientError(crate::db::PubkyClientError::ClientError(message))
     }
 
     pub fn index_write_failed(source: impl std::fmt::Display) -> Self {
@@ -88,14 +86,8 @@ impl EventProcessorError {
         }
     }
 
-    pub fn failed_to_store_event(source: impl std::fmt::Display) -> Self {
-        Self::FailedToStoreEvent {
-            message: source.to_string(),
-        }
-    }
-
-    pub fn failed_to_save_static(source: impl std::fmt::Display) -> Self {
-        Self::FailedToSaveStatic {
+    pub fn static_save_failed(source: impl std::fmt::Display) -> Self {
+        Self::StaticSaveFailed {
             message: source.to_string(),
         }
     }
