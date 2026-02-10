@@ -19,9 +19,7 @@ impl Relationship {
     pub async fn get_by_id(user_id: &str, viewer_id: Option<&str>) -> ModelResult<Option<Self>> {
         match viewer_id {
             None => Ok(None),
-            Some(v_id) => Self::get_from_index(user_id, v_id)
-                .await
-                .map_err(Into::into),
+            Some(v_id) => Self::get_from_index(user_id, v_id).await,
         }
     }
 

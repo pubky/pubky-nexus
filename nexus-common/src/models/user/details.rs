@@ -29,9 +29,7 @@ impl Collection<&str> for UserDetails {
             .filter_map(|detail| detail.as_ref())
             .collect();
 
-        UserSearch::put_to_index(&user_details_refs)
-            .await
-            .map_err(Into::into)
+        UserSearch::put_to_index(&user_details_refs).await
     }
 }
 

@@ -209,10 +209,7 @@ impl Notification {
             post_uri: post_uri.to_string(),
         };
         let notification = Notification::new(body);
-        notification
-            .put_to_index(author_id)
-            .await
-            .map_err(Into::into)
+        notification.put_to_index(author_id).await
     }
 
     pub async fn new_user_tag(
@@ -228,10 +225,7 @@ impl Notification {
             tag_label: label.to_string(),
         };
         let notification = Notification::new(body);
-        notification
-            .put_to_index(tagged_user_id)
-            .await
-            .map_err(Into::into)
+        notification.put_to_index(tagged_user_id).await
     }
 
     pub async fn new_post_reply(
@@ -249,10 +243,7 @@ impl Notification {
             reply_uri: reply_uri.to_string(),
         };
         let notification = Notification::new(body);
-        notification
-            .put_to_index(parent_post_author)
-            .await
-            .map_err(Into::into)
+        notification.put_to_index(parent_post_author).await
     }
 
     pub async fn new_mention(
@@ -288,10 +279,7 @@ impl Notification {
             repost_uri: repost_uri.to_string(),
         };
         let notification = Notification::new(body);
-        notification
-            .put_to_index(embed_post_author)
-            .await
-            .map_err(Into::into)
+        notification.put_to_index(embed_post_author).await
     }
 
     pub async fn post_children_changed(
@@ -320,10 +308,7 @@ impl Notification {
             },
         };
         let notification = Notification::new(body);
-        notification
-            .put_to_index(linked_post_author)
-            .await
-            .map_err(Into::into)
+        notification.put_to_index(linked_post_author).await
     }
 
     // Delete and Edit post notifications to users who interacted

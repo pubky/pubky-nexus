@@ -92,7 +92,7 @@ impl RetryEvent {
     /// # Arguments
     /// * `event_index` - A `&str` representing the event index to check
     pub async fn check_uri(event_index: &str) -> Result<Option<isize>, EventProcessorError> {
-        Ok(Self::check_sorted_set_member(
+        Self::check_sorted_set_member(
             Some(RETRY_MANAGER_PREFIX),
             &RETRY_MANAGER_EVENTS_INDEX,
             &[event_index],
@@ -103,7 +103,7 @@ impl RetryEvent {
                 "Could not check uri for event: {}, reason {}",
                 event_index, e
             ))
-        })?)
+        })
     }
 
     /// Retrieves an event from the JSON index in Redis based on its index

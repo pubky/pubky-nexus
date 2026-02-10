@@ -93,9 +93,7 @@ impl Bookmark {
     ) -> ModelResult<()> {
         self.put_index_json(&[author_id, post_id, viewer_id], None, None)
             .await?;
-        PostStream::add_to_bookmarks_sorted_set(self, viewer_id, post_id, author_id)
-            .await
-            .map_err(Into::into)
+        PostStream::add_to_bookmarks_sorted_set(self, viewer_id, post_id, author_id).await
     }
 
     /// Retrieves all post_keys a user bookmarked from Neo4j
