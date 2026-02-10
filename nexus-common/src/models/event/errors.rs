@@ -11,9 +11,9 @@ pub enum EventProcessorError {
     /// The event could not be indexed due to missing graph dependencies
     #[error("MissingDependency: Could not be indexed")]
     MissingDependency { dependency: Vec<String> },
-    /// Failed to complete indexing due to a Redis write error
-    #[error("IndexWriteFailed: Indexing incomplete due to Redis error - {message}")]
-    IndexWriteFailed { message: String },
+    /// Failed to complete indexing due to a Redis operation error
+    #[error("IndexOperationFailed: Indexing incomplete due to Redis error - {message}")]
+    IndexOperationFailed { message: String },
     /// The event appears to be unindexed. Verify the event in the retry queue
     #[error("SkipIndexing: The PUT event appears to be unindexed, so we cannot delete an object that doesn't exist")]
     SkipIndexing,
@@ -39,7 +39,7 @@ impl From<ModelError> for EventProcessorError {
                 EventProcessorError::GraphQueryFailed { message }
             }
             ModelError::KvOperationFailed { message } => {
-                EventProcessorError::IndexWriteFailed { message }
+                EventProcessorError::IndexOperationFailed { message }
             }
             ModelError::FileOperationFailed { message } => {
                 EventProcessorError::InternalError { message }
@@ -74,8 +74,8 @@ impl EventProcessorError {
         Self::PubkyClientError(crate::db::PubkyClientError::ClientError(message))
     }
 
-    pub fn index_write_failed(source: impl std::fmt::Display) -> Self {
-        Self::IndexWriteFailed {
+    pub fn index_operation_failed(source: impl std::fmt::Display) -> Self {
+        Self::IndexOperationFailed {
             message: source.to_string(),
         }
     }

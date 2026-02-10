@@ -137,7 +137,7 @@ async fn put_sync_post(
                             ScoreAction::Increment(1.0),
                         )
                         .await
-                        .map_err(EventProcessorError::index_write_failed)?;
+                        .map_err(EventProcessorError::index_operation_failed)?;
                     }
                     Ok::<(), EventProcessorError>(())
                 },
@@ -347,7 +347,7 @@ async fn del_sync_post(
                 // Decrement in one post global engagement
                 PostStream::update_index_score(author_id, post_id, ScoreAction::Decrement(1.0))
                     .await
-                    .map_err(EventProcessorError::index_write_failed)?;
+                    .map_err(EventProcessorError::index_operation_failed)?;
             }
             Ok::<(), EventProcessorError>(())
         },
