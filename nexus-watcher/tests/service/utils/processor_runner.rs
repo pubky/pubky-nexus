@@ -75,8 +75,8 @@ impl TEventProcessorRunner for MockEventProcessorRunner {
             .iter()
             .find(|p| p.homeserver_id.to_string() == homeserver_id)
             .cloned()
-            .ok_or_else(|| -> WatcherError {
-                format!("No MockEventProcessor for HS ID: {homeserver_id}").into()
+            .ok_or_else(|| {
+                WatcherError::other(format!("No MockEventProcessor for HS ID: {homeserver_id}"))
             })?;
 
         Ok(mock_event_processor)

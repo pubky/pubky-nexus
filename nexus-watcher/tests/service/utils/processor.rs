@@ -44,7 +44,9 @@ impl TEventProcessor for MockEventProcessor {
 
         match &self.processor_status {
             MockEventProcessorResult::Success => Ok(()),
-            MockEventProcessorResult::Error(e) => Err(EventProcessorError::Other(e.clone())),
+            MockEventProcessorResult::Error(e) => {
+                Err(EventProcessorError::Other { message: e.clone() })
+            }
             MockEventProcessorResult::Panic => panic!("Event processor panicked: unknown error"),
         }
     }
