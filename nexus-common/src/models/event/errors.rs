@@ -35,13 +35,13 @@ pub enum EventProcessorError {
 impl From<ModelError> for EventProcessorError {
     fn from(e: ModelError) -> Self {
         match e {
-            ModelError::GraphOperationFailed { message } => {
+            ModelError::GraphOperationFailed { message, .. } => {
                 EventProcessorError::GraphQueryFailed { message }
             }
-            ModelError::KvOperationFailed { message } => {
+            ModelError::KvOperationFailed { message, .. } => {
                 EventProcessorError::IndexOperationFailed { message }
             }
-            ModelError::FileOperationFailed { message } => {
+            ModelError::FileOperationFailed { message, .. } => {
                 EventProcessorError::InternalError { message }
             }
             ModelError::Other { message } => EventProcessorError::Other { message },
