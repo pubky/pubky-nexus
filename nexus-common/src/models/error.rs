@@ -6,41 +6,35 @@ use crate::db::kv::RedisError;
 #[derive(Error, Debug)]
 pub enum ModelError {
     /// Failed to perform Graph Operation
-    #[error("GraphOperationFailed: {message}")]
+    #[error("GraphOperationFailed: {source}")]
     GraphOperationFailed {
-        message: String,
         #[source]
         source: Box<dyn std::error::Error + Send + Sync>,
     },
     /// Failed to perform KV Operation
-    #[error("KvOperationFailed: {message}")]
+    #[error("KvOperationFailed: {source}")]
     KvOperationFailed {
-        message: String,
         #[source]
         source: RedisError,
     },
-    #[error("FileOperationFailed: {message}")]
+    #[error("FileOperationFailed: {source}")]
     FileOperationFailed {
-        message: String,
         #[source]
         source: Box<dyn std::error::Error + Send + Sync>,
     },
-    #[error("Other: {message}")]
-    Other { message: String },
+    #[error("Other: {0}")]
+    Other(String),
 }
 
 impl From<RedisError> for ModelError {
-    fn from(e: RedisError) -> Self {
-        let message = e.to_string();
-        ModelError::KvOperationFailed { message, source: e }
+    fn from(source: RedisError) -> Self {
+        ModelError::KvOperationFailed { source }
     }
 }
 
 impl From<DeError> for ModelError {
     fn from(e: DeError) -> Self {
-        let message = e.to_string();
         ModelError::GraphOperationFailed {
-            message,
             source: Box::new(e),
         }
     }
@@ -48,9 +42,7 @@ impl From<DeError> for ModelError {
 
 impl From<std::io::Error> for ModelError {
     fn from(e: std::io::Error) -> Self {
-        let message = e.to_string();
         ModelError::FileOperationFailed {
-            message,
             source: Box::new(e),
         }
     }
@@ -58,9 +50,7 @@ impl From<std::io::Error> for ModelError {
 
 impl From<neo4rs::Error> for ModelError {
     fn from(e: neo4rs::Error) -> Self {
-        let message = e.to_string();
         ModelError::GraphOperationFailed {
-            message,
             source: Box::new(e),
         }
     }
@@ -68,22 +58,20 @@ impl From<neo4rs::Error> for ModelError {
 
 impl ModelError {
     pub fn from_graph_error(source: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
-        let source = source.into();
-        let message = source.to_string();
-        Self::GraphOperationFailed { message, source }
+        Self::GraphOperationFailed {
+            source: source.into(),
+        }
     }
 
     pub fn from_file_operation(
         source: impl Into<Box<dyn std::error::Error + Send + Sync>>,
     ) -> Self {
-        let source = source.into();
-        let message = source.to_string();
-        Self::FileOperationFailed { message, source }
+        Self::FileOperationFailed {
+            source: source.into(),
+        }
     }
 
     pub fn from_other(source: impl std::fmt::Display) -> Self {
-        Self::Other {
-            message: source.to_string(),
-        }
+        Self::Other(source.to_string())
     }
 }
