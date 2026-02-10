@@ -29,12 +29,7 @@ pub async fn sync_put(
         FileDetails::from_homeserver(&file, uri, user_id.to_string(), file_id, file_meta);
 
     // SAVE TO GRAPH
-    file_details
-        .put_to_graph()
-        .await
-        .map_err(|e| EventProcessorError::GraphQueryFailed {
-            message: format!("{e:?}"),
-        })?;
+    file_details.put_to_graph().await?;
 
     FileDetails::put_to_index(
         &[&[
@@ -43,8 +38,9 @@ pub async fn sync_put(
         ]],
         vec![Some(file_details)],
     )
-    .await
-    .map_err(EventProcessorError::index_write_failed)
+    .await?;
+
+    Ok(())
 }
 
 // TODO: Move it into its own process, server, etc

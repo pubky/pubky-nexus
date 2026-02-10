@@ -75,8 +75,7 @@ async fn put_sync_post(
         tag_label,
         indexed_at,
     )
-    .await
-    .map_err(EventProcessorError::index_write_failed)?
+    .await?
     {
         OperationOutcome::Updated => Ok(()),
         OperationOutcome::MissingDependency => {
@@ -108,8 +107,7 @@ async fn put_sync_post(
                         "unique_tags",
                         Some(tag_label),
                     )
-                    .await
-                    .map_err(EventProcessorError::index_write_failed)?;
+                    .await?;
                     // Increment the label count to post
                     TagPost::update_index_score(
                         &author_id,
@@ -117,8 +115,7 @@ async fn put_sync_post(
                         tag_label,
                         ScoreAction::Increment(1.0),
                     )
-                    .await
-                    .map_err(EventProcessorError::index_write_failed)?;
+                    .await?;
                     Ok::<(), EventProcessorError>(())
                 },
                 // Add user tag in post
@@ -152,24 +149,14 @@ async fn put_sync_post(
                 TagSearch::put_to_index(tag_label_slice)
             );
 
-            indexing_results
-                .0
-                .map_err(EventProcessorError::index_write_failed)?;
-            indexing_results
-                .1
-                .map_err(EventProcessorError::index_write_failed)?;
+            indexing_results.0?;
+            indexing_results.1?;
             indexing_results.2?;
-            indexing_results
-                .3
-                .map_err(EventProcessorError::index_write_failed)?;
-            indexing_results
-                .4
-                .map_err(EventProcessorError::index_write_failed)?;
+            indexing_results.3?;
+            indexing_results.4?;
             indexing_results.5?;
             indexing_results.6?;
-            indexing_results
-                .7
-                .map_err(EventProcessorError::index_write_failed)?;
+            indexing_results.7?;
             indexing_results.8?;
 
             Ok(())
@@ -200,8 +187,7 @@ async fn put_sync_user(
         tag_label,
         indexed_at,
     )
-    .await
-    .map_err(EventProcessorError::index_write_failed)?
+    .await?
     {
         OperationOutcome::Updated => Ok(()),
         OperationOutcome::MissingDependency => {
@@ -226,9 +212,7 @@ async fn put_sync_user(
                     // Increase unique_tags if the tag does not exist already
                     // NOTE: To update that field, it cannot exist in TagUser SORTED SET the tag. Thats why it has to be executed
                     // before TagUser operation
-                    UserCounts::increment(&tagged_user_id, "unique_tags", Some(tag_label))
-                        .await
-                        .map_err(EventProcessorError::index_write_failed)?;
+                    UserCounts::increment(&tagged_user_id, "unique_tags", Some(tag_label)).await?;
                     // Add label count to the user profile tag
                     TagUser::update_index_score(
                         &tagged_user_id,
@@ -236,8 +220,7 @@ async fn put_sync_user(
                         tag_label,
                         ScoreAction::Increment(1.0),
                     )
-                    .await
-                    .map_err(EventProcessorError::index_write_failed)?;
+                    .await?;
                     Ok::<(), EventProcessorError>(())
                 },
                 // Add tagger to the user taggers list
@@ -248,19 +231,11 @@ async fn put_sync_user(
                 TagSearch::put_to_index(tag_label_slice)
             );
 
-            indexing_results
-                .0
-                .map_err(EventProcessorError::index_write_failed)?;
-            indexing_results
-                .1
-                .map_err(EventProcessorError::index_write_failed)?;
+            indexing_results.0?;
+            indexing_results.1?;
             indexing_results.2?;
-            indexing_results
-                .3
-                .map_err(EventProcessorError::index_write_failed)?;
-            indexing_results
-                .4
-                .map_err(EventProcessorError::index_write_failed)?;
+            indexing_results.3?;
+            indexing_results.4?;
             indexing_results.5?;
 
             Ok(())
@@ -270,9 +245,7 @@ async fn put_sync_user(
 
 pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), EventProcessorError> {
     debug!("Deleting tag: {} -> {}", user_id, tag_id);
-    let tag_details = TagUser::del_from_graph(&user_id, &tag_id)
-        .await
-        .map_err(EventProcessorError::index_write_failed)?;
+    let tag_details = TagUser::del_from_graph(&user_id, &tag_id).await?;
     // CHOOSE THE EVENT TYPE
     if let Some((tagged_user_id, post_id, author_id, label)) = tag_details {
         match (tagged_user_id, post_id, author_id) {
@@ -308,31 +281,23 @@ async fn del_sync_user(
         async {
             // Decrement label count to the user profile tag
             TagUser::update_index_score(tagged_id, None, tag_label, ScoreAction::Decrement(1.0))
-                .await
-                .map_err(EventProcessorError::index_write_failed)?;
+                .await?;
             // Decrease unique_tags
             // NOTE: To update that field, we first need to decrement the value in the TagUser SORTED SET associated with that tag
-            UserCounts::decrement(tagged_id, "unique_tags", Some(tag_label))
-                .await
-                .map_err(EventProcessorError::index_write_failed)?;
+            UserCounts::decrement(tagged_id, "unique_tags", Some(tag_label)).await?;
             Ok::<(), EventProcessorError>(())
         },
         async {
             // Remove tagger to the user taggers list
             TagUser(vec![tagger_id.to_string()])
                 .del_from_index(tagged_id, None, tag_label)
-                .await
-                .map_err(EventProcessorError::index_write_failed)?;
+                .await?;
             Ok::<(), EventProcessorError>(())
         }
     );
 
-    indexing_results
-        .0
-        .map_err(EventProcessorError::index_write_failed)?;
-    indexing_results
-        .1
-        .map_err(EventProcessorError::index_write_failed)?;
+    indexing_results.0?;
+    indexing_results.1?;
     indexing_results.2?;
     indexing_results.3?;
 
@@ -362,13 +327,11 @@ async fn del_sync_post(
                 tag_label,
                 ScoreAction::Decrement(1.0),
             )
-            .await
-            .map_err(EventProcessorError::index_write_failed)?;
+            .await?;
             // Decrease unique_tag
             // NOTE: To update that field, we first need to decrement the value in the SORTED SET associated with that tag
             PostCounts::decrement_index_field(post_key_slice, "unique_tags", Some(tag_label))
-                .await
-                .map_err(EventProcessorError::index_write_failed)?;
+                .await?;
             Ok::<(), EventProcessorError>(())
         },
         // Decrease post from label total engagement
@@ -392,16 +355,13 @@ async fn del_sync_post(
             // Delete the tagger from the tag list
             tag_post
                 .del_from_index(author_id, Some(post_id), tag_label)
-                .await
-                .map_err(EventProcessorError::index_write_failed)?;
+                .await?;
             // NOTE: The tag search index, depends on the post taggers collection to delete
             // Delete post from global label timeline
             PostsByTagSearch::del_from_index(author_id, post_id, tag_label).await?;
 
             let posts_by_tag =
-                PostsByTagSearch::get_by_label(tag_label, None, Pagination::default())
-                    .await
-                    .map_err(EventProcessorError::index_write_failed)?;
+                PostsByTagSearch::get_by_label(tag_label, None, Pagination::default()).await?;
             let posts_by_tag_found = posts_by_tag.is_some_and(|x| !x.is_empty());
             if !posts_by_tag_found {
                 // If we just removed the last post using this tag, remove tag from autocomplete suggestion list
@@ -412,16 +372,10 @@ async fn del_sync_post(
         }
     );
 
-    indexing_results
-        .0
-        .map_err(EventProcessorError::index_write_failed)?;
-    indexing_results
-        .1
-        .map_err(EventProcessorError::index_write_failed)?;
+    indexing_results.0?;
+    indexing_results.1?;
     indexing_results.2?;
-    indexing_results
-        .3
-        .map_err(EventProcessorError::index_write_failed)?;
+    indexing_results.3?;
     indexing_results.4?;
     indexing_results.5?;
 

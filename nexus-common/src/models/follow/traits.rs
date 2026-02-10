@@ -82,7 +82,7 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
             .map_err(Into::into)
     }
 
-    async fn reindex(user_id: &str) -> Result<(), ModelError> {
+    async fn reindex(user_id: &str) -> ModelResult<()> {
         match Self::get_from_graph(user_id, None, None).await? {
             Some(follow) => follow.put_to_index(user_id).await?,
             None => tracing::error!(
@@ -96,7 +96,7 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
     async fn del_from_graph(
         follower_id: &str,
         followee_id: &str,
-    ) -> Result<OperationOutcome, ModelError> {
+    ) -> ModelResult<OperationOutcome> {
         let query = queries::del::delete_follow(follower_id, followee_id);
         execute_graph_operation(query)
             .await
@@ -114,7 +114,7 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
     fn get_ids_field_name() -> &'static str;
 
     // Checks whether user_a is (following | follower) of user_b
-    async fn check_in_index(user_a_id: &str, user_b_id: &str) -> Result<bool, ModelError> {
+    async fn check_in_index(user_a_id: &str, user_b_id: &str) -> ModelResult<bool> {
         let user_a_key_parts = &[user_a_id][..];
         let (_, follow) = Self::check_set_member(user_a_key_parts, user_b_id).await?;
         Ok(follow)

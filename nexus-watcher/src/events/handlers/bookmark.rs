@@ -24,8 +24,7 @@ pub async fn sync_put(
     // Save new bookmark relationship to the graph, only if the bookmarked user exists
     let indexed_at = Utc::now().timestamp_millis();
     let existed = match Bookmark::put_to_graph(&author_id, &post_id, &user_id, &id, indexed_at)
-        .await
-        .map_err(EventProcessorError::index_write_failed)?
+        .await?
     {
         OperationOutcome::CreatedOrDeleted => false,
         OperationOutcome::Updated => true,
@@ -40,13 +39,10 @@ pub async fn sync_put(
 
     bookmark_details
         .put_to_index(&author_id, &post_id, &user_id)
-        .await
-        .map_err(EventProcessorError::index_write_failed)?;
+        .await?;
 
     if !existed {
-        UserCounts::increment(&user_id, "bookmarks", None)
-            .await
-            .map_err(EventProcessorError::index_write_failed)?;
+        UserCounts::increment(&user_id, "bookmarks", None).await?;
     }
     Ok(())
 }
@@ -57,26 +53,16 @@ pub async fn del(user_id: PubkyId, bookmark_id: String) -> Result<(), EventProce
 }
 
 pub async fn sync_del(user_id: PubkyId, bookmark_id: String) -> Result<(), EventProcessorError> {
-    let deleted_bookmark_info = Bookmark::del_from_graph(&user_id, &bookmark_id)
-        .await
-        .map_err(EventProcessorError::index_write_failed)?;
+    let deleted_bookmark_info = Bookmark::del_from_graph(&user_id, &bookmark_id).await?;
     // Ensure the bookmark exists in the graph before proceeding
     let (post_id, author_id) = match deleted_bookmark_info {
         Some(info) => info,
         None => return Err(EventProcessorError::SkipIndexing),
     };
 
-    Bookmark::del_from_index(&user_id, &post_id, &author_id)
-        .await
-        .map_err(|e| EventProcessorError::IndexWriteFailed {
-            message: e.to_string(),
-        })?;
+    Bookmark::del_from_index(&user_id, &post_id, &author_id).await?;
     // Update user counts
-    UserCounts::decrement(&user_id, "bookmarks", None)
-        .await
-        .map_err(|e| EventProcessorError::IndexWriteFailed {
-            message: e.to_string(),
-        })?;
+    UserCounts::decrement(&user_id, "bookmarks", None).await?;
 
     Ok(())
 }

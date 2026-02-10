@@ -114,10 +114,7 @@ impl EventProcessor {
             if let Some(cursor) = line.strip_prefix("cursor: ") {
                 info!("Received cursor for the next request: {cursor}");
                 match Homeserver::try_from_cursor(id, cursor) {
-                    Ok(hs) => hs
-                        .put_to_index()
-                        .await
-                        .map_err(EventProcessorError::index_write_failed)?,
+                    Ok(hs) => hs.put_to_index().await?,
                     Err(e) => warn!("{e}"),
                 }
             } else {
@@ -182,6 +179,13 @@ fn extract_retry_event_info(
             error!(
                 "Non-retryable processor error for URI: {}, {}",
                 event.uri, msg
+            );
+            return None;
+        }
+        EventProcessorError::FailedToStoreEvent { ref message } => {
+            error!(
+                "Failed to store event for URI: {}, {}",
+                event.uri, message
             );
             return None;
         }

@@ -17,9 +17,7 @@ pub async fn sync_put(
     debug!("Indexing new follow: {} -> {}", follower_id, followee_id);
     // SAVE TO GRAPH
     // (follower_id)-[:FOLLOWS]->(followee_id)
-    match Followers::put_to_graph(&follower_id, &followee_id)
-        .await
-        .map_err(EventProcessorError::index_write_failed)?
+    match Followers::put_to_graph(&follower_id, &followee_id).await?
     {
         // Do not duplicate the follow relationship
         OperationOutcome::Updated => return Ok(()),
@@ -60,9 +58,7 @@ pub async fn sync_put(
             indexing_results.0?;
             indexing_results.1?;
             indexing_results.2?;
-            indexing_results
-                .3
-                .map_err(EventProcessorError::index_write_failed)?;
+            indexing_results.3?;
         }
     };
 
@@ -79,9 +75,7 @@ pub async fn sync_del(
     follower_id: PubkyId,
     followee_id: PubkyId,
 ) -> Result<(), EventProcessorError> {
-    match Followers::del_from_graph(&follower_id, &followee_id)
-        .await
-        .map_err(EventProcessorError::index_write_failed)?
+    match Followers::del_from_graph(&follower_id, &followee_id).await?
     {
         // Both users exists but they do not have that relationship
         OperationOutcome::Updated => Ok(()),
@@ -113,9 +107,7 @@ pub async fn sync_del(
             indexing_results.0?;
             indexing_results.1?;
             indexing_results.2?;
-            indexing_results
-                .3
-                .map_err(EventProcessorError::index_write_failed)?;
+            indexing_results.3?;
 
             Ok(())
         }
@@ -129,20 +121,12 @@ async fn update_follow_counts(
     update_friend_relationship: bool,
 ) -> Result<(), EventProcessorError> {
     // Update UserCount related indexes
-    UserCounts::update_index_field(follower_id, "following", counter.clone())
-        .await
-        .map_err(EventProcessorError::index_write_failed)?;
-    UserCounts::update(followee_id, "followers", counter.clone(), None)
-        .await
-        .map_err(EventProcessorError::index_write_failed)?;
+    UserCounts::update_index_field(follower_id, "following", counter.clone()).await?;
+    UserCounts::update(followee_id, "followers", counter.clone(), None).await?;
 
     if update_friend_relationship {
-        UserCounts::update_index_field(follower_id, "friends", counter.clone())
-            .await
-            .map_err(EventProcessorError::index_write_failed)?;
-        UserCounts::update_index_field(followee_id, "friends", counter.clone())
-            .await
-            .map_err(EventProcessorError::index_write_failed)?;
+        UserCounts::update_index_field(follower_id, "friends", counter.clone()).await?;
+        UserCounts::update_index_field(followee_id, "friends", counter.clone()).await?;
     }
     Ok(())
 }

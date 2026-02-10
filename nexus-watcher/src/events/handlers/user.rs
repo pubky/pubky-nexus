@@ -17,12 +17,7 @@ pub async fn sync_put(user: PubkyAppUser, user_id: PubkyId) -> Result<(), EventP
     let user_details = UserDetails::from_homeserver(user, &user_id);
 
     // Step 2: Save to graph
-    user_details
-        .put_to_graph()
-        .await
-        .map_err(|e| EventProcessorError::GraphQueryFailed {
-            message: format!("{e:?}"),
-        })?;
+    user_details.put_to_graph().await?;
 
     // Step 3: Run in parallel the cache process: SAVE TO INDEX
     let indexing_results = tokio::join!(
@@ -63,17 +58,13 @@ pub async fn del(user_id: PubkyId) -> Result<(), EventProcessorError> {
     // A deleted user is a user whose profile is empty and has username `"[DELETED]"`
     match execute_graph_operation(query)
         .await
-        .map_err(EventProcessorError::index_write_failed)?
+        .map_err(EventProcessorError::graph_query_failed)?
     {
         OperationOutcome::CreatedOrDeleted => {
             let indexing_results =
                 tokio::join!(UserDetails::delete(&user_id), UserCounts::delete(&user_id));
-            indexing_results
-                .0
-                .map_err(EventProcessorError::index_write_failed)?;
-            indexing_results
-                .1
-                .map_err(EventProcessorError::index_write_failed)?;
+            indexing_results.0?;
+            indexing_results.1?;
         }
         OperationOutcome::Updated => {
             let deleted_user = PubkyAppUser {
