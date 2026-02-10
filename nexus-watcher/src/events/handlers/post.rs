@@ -30,10 +30,7 @@ pub async fn sync_put(
     // PRE-INDEX operation, identify the post relationship
     let mut post_relationships = PostRelationships::from_homeserver(&post);
 
-    let existed = match post_details
-        .put_to_graph(&post_relationships)
-        .await?
-    {
+    let existed = match post_details.put_to_graph(&post_relationships).await? {
         OperationOutcome::CreatedOrDeleted => false,
         OperationOutcome::Updated => true,
         OperationOutcome::MissingDependency => {
@@ -68,7 +65,8 @@ pub async fn sync_put(
         // If the post existed, let's confirm this is an edit. Is the content different?
         let existing_details = PostDetails::get_from_index(&author_id, &post_id)
             .await?
-            .ok_or("An existing post in graph, could not be retrieved from index")?;
+            .ok_or("An existing post in graph, could not be retrieved from index")
+            .map_err(EventProcessorError::other)?;
         if existing_details.content != post_details.content {
             sync_edit(post, author_id, post_id, post_details).await?;
         }
@@ -132,9 +130,15 @@ pub async fn sync_put(
         let parent_author_id = replied_uri.user_id.clone();
         let parent_post_id = match replied_uri.resource.clone() {
             Resource::Post(id) => id,
-            _ => return Err("Replied URI is not a Post resource".into()),
+            _ => {
+                return Err(EventProcessorError::other(
+                    "Replied URI is not a Post resource",
+                ))
+            }
         };
-        let replied_uri_str = replied_uri.try_to_uri_str()?;
+        let replied_uri_str = replied_uri
+            .try_to_uri_str()
+            .map_err(EventProcessorError::other)?;
 
         // Define the reply parent key to index the reply later
         reply_parent_post_key_wrapper =
@@ -180,9 +184,15 @@ pub async fn sync_put(
         let parent_author_id = reposted_uri.user_id.clone();
         let parent_post_id = match reposted_uri.resource.clone() {
             Resource::Post(id) => id,
-            _ => return Err("Reposted uri is not a Post resource".into()),
+            _ => {
+                return Err(EventProcessorError::other(
+                    "Reposted uri is not a Post resource",
+                ))
+            }
         };
-        let reposted_uri_str = reposted_uri.try_to_uri_str()?;
+        let reposted_uri_str = reposted_uri
+            .try_to_uri_str()
+            .map_err(EventProcessorError::other)?;
 
         let parent_post_key_parts: &[&str; 2] = &[&parent_author_id, &parent_post_id];
         let indexing_results = tokio::join!(
@@ -249,7 +259,8 @@ async fn sync_edit(
 
     // Handle "A reply to your post was edited/deleted"
     if let Some(parent) = post.parent {
-        let parsed_parent = ParsedUri::try_from(parent.as_str())?;
+        let parsed_parent =
+            ParsedUri::try_from(parent.as_str()).map_err(EventProcessorError::other)?;
         Notification::post_children_changed(
             &author_id,
             &parent,
@@ -330,9 +341,7 @@ pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), EventProcess
     {
         OperationOutcome::CreatedOrDeleted => sync_del(author_id, post_id).await?,
         OperationOutcome::Updated => {
-            let existing_relationships = PostRelationships::get_by_id(&author_id, &post_id)
-                .await
-                .map_err(EventProcessorError::internal_error)?;
+            let existing_relationships = PostRelationships::get_by_id(&author_id, &post_id).await?;
             let parent = existing_relationships
                 .and_then(|rel| rel.replied)
                 .and_then(|replied_uri| replied_uri.try_to_uri_str().ok());
@@ -357,9 +366,7 @@ pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), EventProcess
 pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventProcessorError> {
     let deleted_uri = post_uri_builder(author_id.to_string(), post_id.clone());
 
-    let post_relationships = PostRelationships::get_by_id(&author_id, &post_id)
-        .await
-        .map_err(EventProcessorError::internal_error)?;
+    let post_relationships = PostRelationships::get_by_id(&author_id, &post_id).await?;
     // If the post is reply, cannot delete from the main feeds
     // In the main feed, we just include the root posts and reposts
     // It could be a situation that relationship would not exist and we will treat the post as a not reply
@@ -392,9 +399,15 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
             let parent_user_id = replied_uri.user_id.clone();
             let parent_post_id = match replied_uri.resource.clone() {
                 Resource::Post(id) => id,
-                _ => return Err("Replied uri is not a Post resource".into()),
+                _ => {
+                    return Err(EventProcessorError::other(
+                        "Replied uri is not a Post resource",
+                    ))
+                }
             };
-            let replied_uri_str = replied_uri.try_to_uri_str()?;
+            let replied_uri_str = replied_uri
+                .try_to_uri_str()
+                .map_err(EventProcessorError::other)?;
 
             let parent_post_key_parts: [&str; 2] = [&parent_user_id, &parent_post_id];
             reply_parent_post_key_wrapper =
@@ -434,9 +447,15 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
         if let Some(reposted_uri) = relationships.reposted {
             let parent_post_id = match reposted_uri.resource.clone() {
                 Resource::Post(id) => id,
-                _ => return Err("Reposted uri is not a Post resource".into()),
+                _ => {
+                    return Err(EventProcessorError::other(
+                        "Reposted uri is not a Post resource",
+                    ))
+                }
             };
-            let reposted_uri_str = reposted_uri.try_to_uri_str()?;
+            let reposted_uri_str = reposted_uri
+                .try_to_uri_str()
+                .map_err(EventProcessorError::other)?;
 
             let parent_post_key_parts: &[&str] = &[&reposted_uri.user_id, &parent_post_id];
 

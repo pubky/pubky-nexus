@@ -72,13 +72,9 @@ impl UserStream {
         viewer_id: Option<String>,
         depth: Option<u8>,
     ) -> ModelResult<Option<Self>> {
-        let user_ids = Self::get_user_list_from_source(input)
-            .await
-            .map_err(ModelError::from_graph_error)?;
+        let user_ids = Self::get_user_list_from_source(input).await?;
         match user_ids {
-            Some(users) => Self::from_listed_user_ids(&users, viewer_id.as_deref(), depth)
-                .await
-                .map_err(ModelError::from_graph_error),
+            Some(users) => Self::from_listed_user_ids(&users, viewer_id.as_deref(), depth).await,
             None => Ok(None),
         }
     }

@@ -17,8 +17,7 @@ pub async fn sync_put(
     debug!("Indexing new follow: {} -> {}", follower_id, followee_id);
     // SAVE TO GRAPH
     // (follower_id)-[:FOLLOWS]->(followee_id)
-    match Followers::put_to_graph(&follower_id, &followee_id).await?
-    {
+    match Followers::put_to_graph(&follower_id, &followee_id).await? {
         // Do not duplicate the follow relationship
         OperationOutcome::Updated => return Ok(()),
         OperationOutcome::MissingDependency => {
@@ -75,16 +74,13 @@ pub async fn sync_del(
     follower_id: PubkyId,
     followee_id: PubkyId,
 ) -> Result<(), EventProcessorError> {
-    match Followers::del_from_graph(&follower_id, &followee_id).await?
-    {
+    match Followers::del_from_graph(&follower_id, &followee_id).await? {
         // Both users exists but they do not have that relationship
         OperationOutcome::Updated => Ok(()),
         OperationOutcome::MissingDependency => Err(EventProcessorError::SkipIndexing),
         OperationOutcome::CreatedOrDeleted => {
             // Check if the users are friends. Is this a break? :(
-            let were_friends = Friends::check(&follower_id, &followee_id)
-                .await
-                .map_err(EventProcessorError::internal_error)?;
+            let were_friends = Friends::check(&follower_id, &followee_id).await?;
 
             // REMOVE FROM INDEX
             let followers = Followers(vec![follower_id.to_string()]);

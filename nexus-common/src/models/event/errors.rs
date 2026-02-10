@@ -30,8 +30,8 @@ pub enum EventProcessorError {
     #[error("Failed to save static resource {message}")]
     FailedToSaveStatic { message: String },
     /// Catch-all for miscellaneous errors in the processor layer
-    #[error("{0}")]
-    Other(String),
+    #[error("Other error: {message}")]
+    Other { message: String },
 }
 
 impl From<ModelError> for EventProcessorError {
@@ -43,8 +43,10 @@ impl From<ModelError> for EventProcessorError {
             ModelError::KvOperationFailed { message } => {
                 EventProcessorError::IndexWriteFailed { message }
             }
-            ModelError::FileOperationFailed { message } => EventProcessorError::Other(message),
-            ModelError::Other { message } => EventProcessorError::Other(message),
+            ModelError::FileOperationFailed { message } => {
+                EventProcessorError::InternalError { message }
+            }
+            ModelError::Other { message } => EventProcessorError::Other { message },
         }
     }
 }
@@ -57,19 +59,9 @@ impl From<pubky::Error> for EventProcessorError {
 
 impl From<std::io::Error> for EventProcessorError {
     fn from(e: std::io::Error) -> Self {
-        EventProcessorError::Other(e.to_string())
-    }
-}
-
-impl From<String> for EventProcessorError {
-    fn from(s: String) -> Self {
-        EventProcessorError::Other(s)
-    }
-}
-
-impl From<&str> for EventProcessorError {
-    fn from(s: &str) -> Self {
-        EventProcessorError::Other(s.to_string())
+        EventProcessorError::InternalError {
+            message: e.to_string(),
+        }
     }
 }
 
@@ -110,6 +102,12 @@ impl EventProcessorError {
 
     pub fn graph_query_failed(source: impl std::fmt::Display) -> Self {
         Self::GraphQueryFailed {
+            message: source.to_string(),
+        }
+    }
+
+    pub fn other(source: impl std::fmt::Display) -> Self {
+        Self::Other {
             message: source.to_string(),
         }
     }

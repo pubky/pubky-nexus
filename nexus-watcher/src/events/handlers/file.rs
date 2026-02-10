@@ -60,7 +60,8 @@ async fn ingest(
         .bytes()
         .await
         .map_err(|e| EventProcessorError::client_error(e.to_string()))?;
-    let pubky_app_object = PubkyAppObject::from_uri(&pubkyapp_file.src, &blob)?;
+    let pubky_app_object =
+        PubkyAppObject::from_uri(&pubkyapp_file.src, &blob).map_err(EventProcessorError::other)?;
 
     match pubky_app_object {
         PubkyAppObject::Blob(blob) => {
@@ -89,9 +90,7 @@ pub async fn del(
     files_path: PathBuf,
 ) -> Result<(), EventProcessorError> {
     debug!("Deleting File resource at {}/{}", user_id, file_id);
-    let result = FileDetails::get_by_ids(&[&[user_id, &file_id]])
-        .await
-        .map_err(EventProcessorError::internal_error)?;
+    let result = FileDetails::get_by_ids(&[&[user_id, &file_id]]).await?;
 
     if !result.is_empty() {
         let file = &result[0];
@@ -103,9 +102,7 @@ pub async fn del(
         let folder_path = Path::new(&user_id.to_string()).join(&file_id);
         let full_path = files_path.join(folder_path);
 
-        remove_dir_all(full_path)
-            .await
-            .map_err(|e| EventProcessorError::Other(e.to_string()))?;
+        remove_dir_all(full_path).await?;
     }
 
     Ok(())

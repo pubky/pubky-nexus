@@ -1,8 +1,7 @@
 mod errors;
 
-use crate::db::kv::RedisResult;
 use crate::db::RedisOps;
-use crate::types::DynError;
+use crate::models::traits::ModelResult;
 use pubky_app_specs::{ParsedUri, Resource};
 use serde::{Deserialize, Serialize};
 use std::{fmt, path::PathBuf};
@@ -47,14 +46,16 @@ impl Event {
     /// Parse event based on event line returned by homeservers' /events endpoint.
     /// - line - event line string
     /// - files_path - path to the directory where files are stored on nexus
-    pub fn parse_event(line: &str, files_path: PathBuf) -> Result<Option<Self>, DynError> {
+    pub fn parse_event(
+        line: &str,
+        files_path: PathBuf,
+    ) -> Result<Option<Self>, EventProcessorError> {
         debug!("New event: {}", line);
         let parts: Vec<&str> = line.split(' ').collect();
         if parts.len() != 2 {
             return Err(EventProcessorError::InvalidEventLine {
                 message: format!("Malformed event line, {line}"),
-            }
-            .into());
+            });
         }
 
         let event_type = match parts[0] {
@@ -78,8 +79,7 @@ impl Event {
             Resource::Unknown => {
                 return Err(EventProcessorError::InvalidEventLine {
                     message: format!("Unknown resource in URI: {uri}"),
-                }
-                .into())
+                })
             }
             // Known resources not handled by Nexus
             Resource::LastRead | Resource::Feed(_) | Resource::Blob(_) => return Ok(None),
@@ -98,14 +98,14 @@ impl Event {
     }
 
     /// Stores event line in Redis as part of the events list.
-    pub async fn store_event(&self) -> RedisResult<()> {
-        self.put_index_list(&["Events"]).await
+    pub async fn store_event(&self) -> ModelResult<()> {
+        self.put_index_list(&["Events"]).await.map_err(Into::into)
     }
 
     pub async fn get_events_from_redis(
         cursor: Option<usize>,
         limit: usize,
-    ) -> Result<(Vec<String>, usize), DynError> {
+    ) -> ModelResult<(Vec<String>, usize)> {
         let start = cursor.unwrap_or(0);
         let result = Event::try_from_index_list(&["Events"], Some(start), Some(limit)).await;
 

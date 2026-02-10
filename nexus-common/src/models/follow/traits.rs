@@ -93,10 +93,7 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
         Ok(())
     }
 
-    async fn del_from_graph(
-        follower_id: &str,
-        followee_id: &str,
-    ) -> ModelResult<OperationOutcome> {
+    async fn del_from_graph(follower_id: &str, followee_id: &str) -> ModelResult<OperationOutcome> {
         let query = queries::del::delete_follow(follower_id, followee_id);
         execute_graph_operation(query)
             .await

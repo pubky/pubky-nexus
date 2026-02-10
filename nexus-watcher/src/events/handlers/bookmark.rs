@@ -14,25 +14,29 @@ pub async fn sync_put(
 ) -> Result<(), EventProcessorError> {
     debug!("Indexing new bookmark: {} -> {}", user_id, id);
     // Parse the URI to extract author_id and post_id using the updated parse_post_uri
-    let parsed_uri = ParsedUri::try_from(bookmark.uri.as_str())?;
+    let parsed_uri =
+        ParsedUri::try_from(bookmark.uri.as_str()).map_err(EventProcessorError::other)?;
     let author_id = parsed_uri.user_id;
     let post_id = match parsed_uri.resource {
         Resource::Post(id) => id,
-        _ => return Err("Bookmarked uri is not a Post resource".into()),
+        _ => {
+            return Err(EventProcessorError::other(
+                "Bookmarked uri is not a Post resource",
+            ))
+        }
     };
 
     // Save new bookmark relationship to the graph, only if the bookmarked user exists
     let indexed_at = Utc::now().timestamp_millis();
-    let existed = match Bookmark::put_to_graph(&author_id, &post_id, &user_id, &id, indexed_at)
-        .await?
-    {
-        OperationOutcome::CreatedOrDeleted => false,
-        OperationOutcome::Updated => true,
-        OperationOutcome::MissingDependency => {
-            let dependency = vec![format!("{author_id}:posts:{post_id}")];
-            return Err(EventProcessorError::MissingDependency { dependency });
-        }
-    };
+    let existed =
+        match Bookmark::put_to_graph(&author_id, &post_id, &user_id, &id, indexed_at).await? {
+            OperationOutcome::CreatedOrDeleted => false,
+            OperationOutcome::Updated => true,
+            OperationOutcome::MissingDependency => {
+                let dependency = vec![format!("{author_id}:posts:{post_id}")];
+                return Err(EventProcessorError::MissingDependency { dependency });
+            }
+        };
 
     // SAVE TO INDEX
     let bookmark_details = Bookmark { id, indexed_at };

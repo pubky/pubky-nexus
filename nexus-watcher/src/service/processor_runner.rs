@@ -71,10 +71,11 @@ impl TEventProcessorRunner for EventProcessorRunner {
 
     /// Creates and returns a new event processor instance for the specified homeserver
     async fn build(&self, homeserver_id: String) -> Result<Arc<dyn TEventProcessor>, WatcherError> {
-        let homeserver_id = PubkyId::try_from(&homeserver_id)?;
+        let homeserver_id = PubkyId::try_from(&homeserver_id).map_err(WatcherError::other)?;
         let homeserver = Homeserver::get_by_id(homeserver_id)
             .await?
-            .ok_or("Homeserver not found")?;
+            .ok_or("Homeserver not found")
+            .map_err(WatcherError::other)?;
 
         // Create a new event processor instance with the specified homeserver
         Ok(Arc::new(EventProcessor {

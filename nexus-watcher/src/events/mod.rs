@@ -53,7 +53,8 @@ pub async fn handle_put_event(
     let resource = event.parsed_uri.resource.clone();
 
     // Use the new importer from pubky-app-specs
-    let pubky_object = PubkyAppObject::from_resource(&resource, &blob)?;
+    let pubky_object =
+        PubkyAppObject::from_resource(&resource, &blob).map_err(EventProcessorError::other)?;
 
     let user_id = event.parsed_uri.user_id.clone();
     match (pubky_object, resource) {

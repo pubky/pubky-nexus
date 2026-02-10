@@ -33,9 +33,7 @@ impl UserCounts {
         match Self::get_from_index(user_id).await? {
             Some(counts) => Ok(Some(counts)),
             None => {
-                let graph_response = Self::get_from_graph(user_id)
-                    .await
-                    .map_err(ModelError::from_graph_error)?;
+                let graph_response = Self::get_from_graph(user_id).await?;
                 if let Some(user_counts) = graph_response {
                     user_counts.put_to_index(user_id).await?;
                     return Ok(Some(user_counts));
@@ -141,10 +139,7 @@ impl UserCounts {
     }
 
     pub async fn reindex(author_id: &str) -> ModelResult<()> {
-        match Self::get_from_graph(author_id)
-            .await
-            .map_err(ModelError::from_graph_error)?
-        {
+        match Self::get_from_graph(author_id).await? {
             Some(counts) => counts.put_to_index(author_id).await?,
             None => tracing::error!("{}: Could not found user counts in the graph", author_id),
         }

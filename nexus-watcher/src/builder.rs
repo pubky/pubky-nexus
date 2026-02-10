@@ -67,7 +67,9 @@ impl NexusWatcherBuilder {
 
     /// Opens ddbb connections and initialises tracing layer (if provided in config)
     pub async fn init_stack(&self) -> Result<(), WatcherError> {
-        StackManager::setup(&self.0.name, &self.0.stack).await?;
+        StackManager::setup(&self.0.name, &self.0.stack)
+            .await
+            .map_err(WatcherError::other)?;
         let testnet_host = if self.0.testnet {
             Some(self.0.testnet_host.as_str())
         } else {
@@ -79,7 +81,9 @@ impl NexusWatcherBuilder {
 
     /// Initializes the watcher integration test stack
     pub async fn init_test_stack(&self) -> Result<(), WatcherError> {
-        StackManager::setup(&self.0.name, &self.0.stack).await?;
+        StackManager::setup(&self.0.name, &self.0.stack)
+            .await
+            .map_err(WatcherError::other)?;
         Ok(())
     }
 

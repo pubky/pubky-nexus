@@ -99,9 +99,7 @@ impl Influencers {
         limit: usize,
         timeframe: &Timeframe,
     ) -> ModelResult<Option<Influencers>> {
-        let cached_influencers = Influencers::get_from_global_cache(skip, limit, timeframe)
-            .await
-            .map_err(ModelError::from_graph_error)?;
+        let cached_influencers = Influencers::get_from_global_cache(skip, limit, timeframe).await?;
         if cached_influencers.is_some() {
             return Ok(cached_influencers);
         }

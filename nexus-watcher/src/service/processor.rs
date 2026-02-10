@@ -175,16 +175,9 @@ fn extract_retry_event_info(
             error!("{}", message);
             return None;
         }
-        EventProcessorError::Other(ref msg) => {
+        EventProcessorError::Other { ref message } => {
             error!(
                 "Non-retryable processor error for URI: {}, {}",
-                event.uri, msg
-            );
-            return None;
-        }
-        EventProcessorError::FailedToStoreEvent { ref message } => {
-            error!(
-                "Failed to store event for URI: {}, {}",
                 event.uri, message
             );
             return None;
