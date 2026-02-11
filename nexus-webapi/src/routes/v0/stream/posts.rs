@@ -1,3 +1,4 @@
+use crate::models::PostStreamDetailed;
 use crate::routes::v0::endpoints::{
     STREAM_POSTS_BY_IDS_ROUTE, STREAM_POSTS_ROUTE, STREAM_POST_KEYS_ROUTE,
 };
@@ -28,6 +29,8 @@ pub struct PostStreamQuery {
     #[serde(default, deserialize_with = "deserialize_comma_separated")]
     pub tags: Option<Vec<String>>,
     pub kind: Option<PubkyAppPostKind>,
+    #[serde(default)]
+    pub include_attachment_metadata: bool,
 }
 
 impl PostStreamQuery {
@@ -92,9 +95,10 @@ where
         ("limit" = Option<usize>, Query, description = "Retrieve N posts"),
         ("start" = Option<usize>, Query, description = "The start of the stream timeframe or score. Posts with a timestamp/score greater than this value will be excluded from the results"),
         ("end" = Option<usize>, Query, description = "The end of the stream timeframe or score. Posts with a timestamp/score less than this value will be excluded from the results"),
+        ("include_attachment_metadata" = Option<bool>, Query, description = "Include file metadata for post attachments"),
     ),
     responses(
-        (status = 200, description = "Posts stream", body = PostStream),
+        (status = 200, description = "Posts stream", body = PostStreamDetailed),
         (status = 500, description = "Internal server error")
     ),
     description = r#"Stream Posts: Retrieve a stream of posts.
@@ -110,12 +114,13 @@ Ensure that you provide the necessary parameters based on the selected `source`.
 )]
 pub async fn stream_posts_handler(
     Query(mut query): Query<PostStreamQuery>,
-) -> AppResult<Json<PostStream>> {
+) -> AppResult<Json<PostStreamDetailed>> {
     debug!("GET {STREAM_POSTS_ROUTE}");
 
     query.initialize_defaults();
     query.validate_tags()?;
     let (source, sorting, order) = query.extract_stream_params();
+    let include_attachment_metadata = query.include_attachment_metadata;
 
     match PostStream::get_posts(
         source,
@@ -128,8 +133,10 @@ pub async fn stream_posts_handler(
     )
     .await?
     {
-        Some(stream) => Ok(Json(stream)),
-        None => Ok(Json(PostStream::default())),
+        Some(stream) => Ok(Json(
+            PostStreamDetailed::from_post_views(stream.0, include_attachment_metadata).await?,
+        )),
+        None => Ok(Json(PostStreamDetailed::default())),
     }
 }
 
@@ -193,6 +200,8 @@ pub async fn stream_post_keys_handler(
 pub struct PostStreamByIdsRequest {
     pub post_ids: Vec<String>,
     pub viewer_id: Option<String>,
+    #[serde(default)]
+    pub include_attachment_metadata: bool,
 }
 #[utoipa::path(
     post,
@@ -205,13 +214,13 @@ pub struct PostStreamByIdsRequest {
         ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID")
     ),
     responses(
-        (status = 200, description = "Post stream", body = PostStream),
+        (status = 200, description = "Post stream", body = PostStreamDetailed),
         (status = 500, description = "Internal server error")
     )
 )]
 pub async fn stream_posts_by_ids_handler(
     Json(request): Json<PostStreamByIdsRequest>,
-) -> AppResult<Json<PostStream>> {
+) -> AppResult<Json<PostStreamDetailed>> {
     debug!(
         "POST {} post_ids size {:?}",
         STREAM_POSTS_BY_IDS_ROUTE,
@@ -231,8 +240,11 @@ pub async fn stream_posts_by_ids_handler(
     }
 
     match PostStream::from_listed_post_ids(request.viewer_id, &request.post_ids).await? {
-        Some(stream) => Ok(Json(stream)),
-        None => Ok(Json(PostStream::default())),
+        Some(stream) => Ok(Json(
+            PostStreamDetailed::from_post_views(stream.0, request.include_attachment_metadata)
+                .await?,
+        )),
+        None => Ok(Json(PostStreamDetailed::default())),
     }
 }
 
@@ -243,6 +255,6 @@ pub async fn stream_posts_by_ids_handler(
         stream_post_keys_handler,
         stream_posts_by_ids_handler
     ),
-    components(schemas(PostKeyStream, PostStream, StreamSorting, StreamSource, SortOrder))
+    components(schemas(PostKeyStream, PostStreamDetailed, StreamSorting, StreamSource, SortOrder))
 )]
 pub struct StreamPostsApiDocs;
