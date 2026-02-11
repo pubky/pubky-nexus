@@ -130,8 +130,11 @@ impl FileDetails {
     pub async fn delete(&self) -> ModelResult<()> {
         exec_single_row(queries::del::delete_file(&self.owner_id, &self.id))
             .await
+            .inspect_err(|e| tracing::error!("Graph file deletion, {}: {:?}", self.id, e))
             .map_err(ModelError::from_graph_error)?;
-        Self::remove_from_index_multiple_json(&[&[&self.owner_id, &self.id]]).await?;
+        Self::remove_from_index_multiple_json(&[&[&self.owner_id, &self.id]])
+            .await
+            .inspect_err(|e| tracing::error!("Index file deletion, {}: {:?}", self.id, e))?;
         Ok(())
     }
 

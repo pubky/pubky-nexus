@@ -49,7 +49,11 @@ impl Blob {
                 file, variant,
             ))
         } else {
-            Self::put_variant(file, variant, file_path).await
+            Self::put_variant(file, variant, file_path)
+                .await
+                .inspect_err(|e| {
+                    tracing::error!("Creating variant failed for file: {file:?} with error: {e}")
+                })
         }
     }
 
