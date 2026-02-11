@@ -31,13 +31,13 @@ impl TagView {
         let tagged_id = row.get("tagged_id")?;
         let uri = if tagged_labels.iter().any(|label| label == "Post") {
             let Some(author_id) = row.get("author_id")? else {
-                return Err(ModelError::from_other("Tagged post missing author id"));
+                return Err(ModelError::from_generic("Tagged post missing author id"));
             };
             post_uri_builder(author_id, tagged_id)
         } else if tagged_labels.iter().any(|label| label == "User") {
             user_uri_builder(tagged_id)
         } else {
-            return Err(ModelError::from_other(format!(
+            return Err(ModelError::from_generic(format!(
                 "Tagged resource has unsupported labels: {:?}",
                 tagged_labels
             )));

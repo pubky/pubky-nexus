@@ -216,10 +216,10 @@ impl UserStream {
     ) -> ModelResult<Option<Vec<String>>> {
         let post_id = post_id
             .ok_or("Post ID should be provided for user streams with source 'post_replies'")
-            .map_err(ModelError::from_other)?;
+            .map_err(ModelError::from_generic)?;
         let author_id = author_id
             .ok_or("Author ID should be provided for user streams with source 'post_replies'")
-            .map_err(ModelError::from_other)?;
+            .map_err(ModelError::from_generic)?;
         let key_parts = [
             &POST_REPLIES_PER_POST_KEY_PARTS[..],
             &[author_id.as_str(), post_id.as_str()],
@@ -270,7 +270,7 @@ impl UserStream {
             UserStreamSource::Followers => Followers::get_by_id(
                 user_id
                     .ok_or("User ID should be provided for user streams with source 'followers'")
-                    .map_err(ModelError::from_other)?
+                    .map_err(ModelError::from_generic)?
                     .as_str(),
                 skip,
                 limit,
@@ -280,7 +280,7 @@ impl UserStream {
             UserStreamSource::Following => Following::get_by_id(
                 user_id
                     .ok_or("User ID should be provided for user streams with source 'following'")
-                    .map_err(ModelError::from_other)?
+                    .map_err(ModelError::from_generic)?
                     .as_str(),
                 skip,
                 limit,
@@ -290,7 +290,7 @@ impl UserStream {
             UserStreamSource::Friends => Friends::get_by_id(
                 user_id
                     .ok_or("User ID should be provided for user streams with source 'friends'")
-                    .map_err(ModelError::from_other)?
+                    .map_err(ModelError::from_generic)?
                     .as_str(),
                 skip,
                 limit,
@@ -300,7 +300,7 @@ impl UserStream {
             UserStreamSource::Muted => Muted::get_by_id(
                 user_id
                     .ok_or("User ID should be provided for user streams with source 'muted'")
-                    .map_err(ModelError::from_other)?
+                    .map_err(ModelError::from_generic)?
                     .as_str(),
                 skip,
                 limit,
@@ -339,7 +339,7 @@ impl UserStream {
                         .ok_or(
                             "User ID should be provided for user streams with source 'recommended'",
                         )
-                        .map_err(ModelError::from_other)?
+                        .map_err(ModelError::from_generic)?
                         .as_str(),
                     limit,
                 )

@@ -28,7 +28,7 @@ pub enum EventProcessorError {
     #[error("StaticSaveFailed: {message}")]
     StaticSaveFailed { message: String },
     /// Catch-all for miscellaneous errors in the processor layer
-    #[error("Other error: {message}")]
+    #[error("Generic error: {message}")]
     Generic { message: String },
 }
 
@@ -44,7 +44,7 @@ impl From<ModelError> for EventProcessorError {
             ModelError::FileOperationFailed { source } => EventProcessorError::InternalError {
                 message: source.to_string(),
             },
-            ModelError::Other(message) => EventProcessorError::Generic { message },
+            ModelError::Generic(message) => EventProcessorError::Generic { message },
         }
     }
 }
@@ -98,7 +98,7 @@ impl EventProcessorError {
         }
     }
 
-    pub fn other(source: impl std::fmt::Display) -> Self {
+    pub fn generic(source: impl std::fmt::Display) -> Self {
         Self::Generic {
             message: source.to_string(),
         }

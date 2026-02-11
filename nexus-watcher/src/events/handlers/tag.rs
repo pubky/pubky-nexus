@@ -27,7 +27,7 @@ pub async fn sync_put(
     debug!("Indexing new tag: {} -> {}", tagger_id, tag_id);
 
     // Parse the embeded URI to extract author_id and post_id using parse_tagged_post_uri
-    let parsed_uri = ParsedUri::try_from(tag.uri.as_str()).map_err(EventProcessorError::other)?;
+    let parsed_uri = ParsedUri::try_from(tag.uri.as_str()).map_err(EventProcessorError::generic)?;
     let user_id = parsed_uri.user_id;
     let indexed_at = Utc::now().timestamp_millis();
 
@@ -42,7 +42,7 @@ pub async fn sync_put(
         }
         // If no post_id in the tagged URI, we place tag to a user.
         Resource::User => put_sync_user(tagger_id, user_id, &tag_id, &tag.label, indexed_at).await,
-        other => Err(EventProcessorError::other(format!(
+        other => Err(EventProcessorError::generic(format!(
             "The tagged resource is not Post or User, instead is: {other:?}"
         ))),
     }

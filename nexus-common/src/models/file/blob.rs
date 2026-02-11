@@ -73,7 +73,7 @@ impl Blob {
                     .await
                     .map_err(ModelError::from_file_operation)
             }
-            _ => Err(ModelError::from_other(format!(
+            _ => Err(ModelError::from_generic(format!(
                 "Unsupported content type: {}",
                 file.content_type
             ))),

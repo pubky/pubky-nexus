@@ -37,7 +37,7 @@ impl Homeserver {
     pub fn try_from_cursor<T: Into<String>>(id: PubkyId, cursor: T) -> ModelResult<Self> {
         let cursor = cursor.into();
         if cursor.is_empty() {
-            return Err(ModelError::from_other(
+            return Err(ModelError::from_generic(
                 "Cannot create a homeserver from an empty cursor",
             ));
         }
@@ -77,7 +77,7 @@ impl Homeserver {
     /// Stores this homeserver in Redis.
     pub async fn put_to_index(&self) -> ModelResult<()> {
         if self.cursor.is_empty() {
-            return Err(ModelError::from_other(
+            return Err(ModelError::from_generic(
                 "Cannot save to index a homeserver with an empty cursor",
             ));
         }
@@ -126,7 +126,7 @@ impl Homeserver {
         let hs_ids: Vec<String> = maybe_hs_ids.unwrap_or_default();
 
         match hs_ids.is_empty() {
-            true => Err(ModelError::from_other("No homeservers found in graph")),
+            true => Err(ModelError::from_generic("No homeservers found in graph")),
             false => Ok(hs_ids),
         }
     }
@@ -148,7 +148,7 @@ impl Homeserver {
     ///
     /// - `referenced_user_id`: The URI of the referenced user
     pub async fn maybe_ingest_for_user(referenced_user_id: &str) -> ModelResult<()> {
-        let pubky = PubkyConnector::get().map_err(ModelError::from_other)?;
+        let pubky = PubkyConnector::get().map_err(ModelError::from_generic)?;
 
         if UserDetails::get_by_id(referenced_user_id).await?.is_some() {
             tracing::debug!(
@@ -159,7 +159,7 @@ impl Homeserver {
 
         let ref_post_author_pk = referenced_user_id
             .parse::<PublicKey>()
-            .map_err(ModelError::from_other)?;
+            .map_err(ModelError::from_generic)?;
         let Some(ref_post_author_hs) = pubky.get_homeserver_of(&ref_post_author_pk).await else {
             tracing::warn!("Skipping homeserver ingestion: author {ref_post_author_pk} has no published homeserver");
             return Ok(());

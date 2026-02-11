@@ -22,8 +22,8 @@ impl Moderation {
         files_path: PathBuf,
     ) -> Result<(), EventProcessorError> {
         // Parse the embeded URI to extract author_id and post_id using parse_tagged_post_uri
-        let parsed_uri =
-            ParsedUri::try_from(moderator_tag.uri.as_str()).map_err(EventProcessorError::other)?;
+        let parsed_uri = ParsedUri::try_from(moderator_tag.uri.as_str())
+            .map_err(EventProcessorError::generic)?;
         let user_id = parsed_uri.user_id;
 
         match parsed_uri.resource {

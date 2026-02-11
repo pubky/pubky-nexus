@@ -569,7 +569,7 @@ impl PostStream {
         let mut post_views = Vec::with_capacity(post_keys.len());
 
         for handle in handles {
-            if let Some(post_view) = handle.await.map_err(ModelError::from_other)?? {
+            if let Some(post_view) = handle.await.map_err(ModelError::from_generic)?? {
                 post_views.push(post_view);
             }
         }

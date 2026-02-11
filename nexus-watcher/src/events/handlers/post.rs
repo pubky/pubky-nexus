@@ -66,7 +66,7 @@ pub async fn sync_put(
         let existing_details = PostDetails::get_from_index(&author_id, &post_id)
             .await?
             .ok_or("An existing post in graph, could not be retrieved from index")
-            .map_err(EventProcessorError::other)?;
+            .map_err(EventProcessorError::generic)?;
         if existing_details.content != post_details.content {
             sync_edit(post, author_id, post_id, post_details).await?;
         }
@@ -131,14 +131,14 @@ pub async fn sync_put(
         let parent_post_id = match replied_uri.resource.clone() {
             Resource::Post(id) => id,
             _ => {
-                return Err(EventProcessorError::other(
+                return Err(EventProcessorError::generic(
                     "Replied URI is not a Post resource",
                 ))
             }
         };
         let replied_uri_str = replied_uri
             .try_to_uri_str()
-            .map_err(EventProcessorError::other)?;
+            .map_err(EventProcessorError::generic)?;
 
         // Define the reply parent key to index the reply later
         reply_parent_post_key_wrapper =
@@ -185,14 +185,14 @@ pub async fn sync_put(
         let parent_post_id = match reposted_uri.resource.clone() {
             Resource::Post(id) => id,
             _ => {
-                return Err(EventProcessorError::other(
+                return Err(EventProcessorError::generic(
                     "Reposted uri is not a Post resource",
                 ))
             }
         };
         let reposted_uri_str = reposted_uri
             .try_to_uri_str()
-            .map_err(EventProcessorError::other)?;
+            .map_err(EventProcessorError::generic)?;
 
         let parent_post_key_parts: &[&str; 2] = &[&parent_author_id, &parent_post_id];
         let indexing_results = tokio::join!(
@@ -260,7 +260,7 @@ async fn sync_edit(
     // Handle "A reply to your post was edited/deleted"
     if let Some(parent) = post.parent {
         let parsed_parent =
-            ParsedUri::try_from(parent.as_str()).map_err(EventProcessorError::other)?;
+            ParsedUri::try_from(parent.as_str()).map_err(EventProcessorError::generic)?;
         Notification::post_children_changed(
             &author_id,
             &parent,
@@ -400,14 +400,14 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
             let parent_post_id = match replied_uri.resource.clone() {
                 Resource::Post(id) => id,
                 _ => {
-                    return Err(EventProcessorError::other(
+                    return Err(EventProcessorError::generic(
                         "Replied uri is not a Post resource",
                     ))
                 }
             };
             let replied_uri_str = replied_uri
                 .try_to_uri_str()
-                .map_err(EventProcessorError::other)?;
+                .map_err(EventProcessorError::generic)?;
 
             let parent_post_key_parts: [&str; 2] = [&parent_user_id, &parent_post_id];
             reply_parent_post_key_wrapper =
@@ -448,14 +448,14 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
             let parent_post_id = match reposted_uri.resource.clone() {
                 Resource::Post(id) => id,
                 _ => {
-                    return Err(EventProcessorError::other(
+                    return Err(EventProcessorError::generic(
                         "Reposted uri is not a Post resource",
                     ))
                 }
             };
             let reposted_uri_str = reposted_uri
                 .try_to_uri_str()
-                .map_err(EventProcessorError::other)?;
+                .map_err(EventProcessorError::generic)?;
 
             let parent_post_key_parts: &[&str] = &[&reposted_uri.user_id, &parent_post_id];
 

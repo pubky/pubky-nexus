@@ -15,12 +15,12 @@ pub async fn sync_put(
     debug!("Indexing new bookmark: {} -> {}", user_id, id);
     // Parse the URI to extract author_id and post_id using the updated parse_post_uri
     let parsed_uri =
-        ParsedUri::try_from(bookmark.uri.as_str()).map_err(EventProcessorError::other)?;
+        ParsedUri::try_from(bookmark.uri.as_str()).map_err(EventProcessorError::generic)?;
     let author_id = parsed_uri.user_id;
     let post_id = match parsed_uri.resource {
         Resource::Post(id) => id,
         _ => {
-            return Err(EventProcessorError::other(
+            return Err(EventProcessorError::generic(
                 "Bookmarked uri is not a Post resource",
             ))
         }

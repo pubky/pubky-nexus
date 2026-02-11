@@ -60,8 +60,8 @@ async fn ingest(
         .bytes()
         .await
         .map_err(|e| EventProcessorError::client_error(e.to_string()))?;
-    let pubky_app_object =
-        PubkyAppObject::from_uri(&pubkyapp_file.src, &blob).map_err(EventProcessorError::other)?;
+    let pubky_app_object = PubkyAppObject::from_uri(&pubkyapp_file.src, &blob)
+        .map_err(EventProcessorError::generic)?;
 
     match pubky_app_object {
         PubkyAppObject::Blob(blob) => {

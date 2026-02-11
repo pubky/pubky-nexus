@@ -22,8 +22,8 @@ pub enum ModelError {
         #[source]
         source: Box<dyn std::error::Error + Send + Sync>,
     },
-    #[error("Other: {0}")]
-    Other(String),
+    #[error("Generic: {0}")]
+    Generic(String),
 }
 
 impl From<RedisError> for ModelError {
@@ -71,7 +71,7 @@ impl ModelError {
         }
     }
 
-    pub fn from_other(source: impl std::fmt::Display) -> Self {
-        Self::Other(source.to_string())
+    pub fn from_generic(source: impl std::fmt::Display) -> Self {
+        Self::Generic(source.to_string())
     }
 }
