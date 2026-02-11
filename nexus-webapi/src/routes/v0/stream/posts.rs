@@ -209,10 +209,6 @@ pub struct PostStreamByIdsRequest {
     tag = "Stream",
     description = "Stream post by ID. This is a POST request because we're passing a potentially large list of post IDs in the request body",
     request_body = PostStreamByIdsRequest,
-    params(
-        ("post_ids" = Vec<String>, Path, description = "Post ID array"),
-        ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID")
-    ),
     responses(
         (status = 200, description = "Post stream", body = PostStreamDetailed),
         (status = 500, description = "Internal server error")
