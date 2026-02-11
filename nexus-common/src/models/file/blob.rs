@@ -26,19 +26,12 @@ impl Blob {
             .await
             .is_ok_and(|metadata| metadata.is_dir())
         {
-            fs::create_dir_all(&files_path)
-                .await
-                .map_err(ModelError::from_file_operation)?;
+            fs::create_dir_all(&files_path).await?;
         };
 
         let file_path = files_path.join(name);
-        let mut static_file = File::create_new(file_path)
-            .await
-            .map_err(ModelError::from_file_operation)?;
-        static_file
-            .write_all(&blob.0)
-            .await
-            .map_err(ModelError::from_file_operation)?;
+        let mut static_file = File::create_new(file_path).await?;
+        static_file.write_all(&blob.0).await?;
 
         Ok(())
     }
