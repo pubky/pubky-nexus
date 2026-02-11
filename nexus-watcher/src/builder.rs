@@ -69,7 +69,7 @@ impl NexusWatcherBuilder {
     pub async fn init_stack(&self) -> Result<(), WatcherError> {
         StackManager::setup(&self.0.name, &self.0.stack)
             .await
-            .map_err(WatcherError::other)?;
+            .map_err(WatcherError::generic)?;
         let testnet_host = if self.0.testnet {
             Some(self.0.testnet_host.as_str())
         } else {
@@ -83,7 +83,7 @@ impl NexusWatcherBuilder {
     pub async fn init_test_stack(&self) -> Result<(), WatcherError> {
         StackManager::setup(&self.0.name, &self.0.stack)
             .await
-            .map_err(WatcherError::other)?;
+            .map_err(WatcherError::generic)?;
         Ok(())
     }
 

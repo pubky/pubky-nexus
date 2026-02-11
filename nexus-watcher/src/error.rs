@@ -7,20 +7,20 @@ pub enum WatcherError {
     #[error("EventProcessorError: {0}")]
     EventProcessor(#[from] EventProcessorError),
     #[error("Other: {message}")]
-    Other { message: String },
+    Generic { message: String },
 }
 
 impl From<ModelError> for WatcherError {
     fn from(e: ModelError) -> Self {
-        WatcherError::Other {
+        WatcherError::Generic {
             message: e.to_string(),
         }
     }
 }
 
 impl WatcherError {
-    pub fn other(source: impl std::fmt::Display) -> Self {
-        Self::Other {
+    pub fn generic(source: impl std::fmt::Display) -> Self {
+        Self::Generic {
             message: source.to_string(),
         }
     }

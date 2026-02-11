@@ -64,7 +64,7 @@ impl NexusWatcher {
     ) -> Result<(), WatcherError> {
         let daemon_config = DaemonConfig::read_or_create_config_file(config_dir)
             .await
-            .map_err(WatcherError::other)?;
+            .map_err(WatcherError::generic)?;
         let watcher_config = WatcherConfig::from(daemon_config);
         NexusWatcherBuilder(watcher_config).start(shutdown_rx).await
     }
@@ -76,7 +76,7 @@ impl NexusWatcher {
         debug!(?config, "Running NexusWatcher with ");
 
         let config_hs =
-            PubkyId::try_from(config.homeserver.as_str()).map_err(WatcherError::other)?;
+            PubkyId::try_from(config.homeserver.as_str()).map_err(WatcherError::generic)?;
         Homeserver::persist_if_unknown(config_hs).await?;
 
         let mut interval = tokio::time::interval(Duration::from_millis(config.watcher_sleep));
