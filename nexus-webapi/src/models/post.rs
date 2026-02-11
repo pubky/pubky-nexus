@@ -72,15 +72,16 @@ impl PostStreamDetailed {
             .cloned()
             .collect();
 
-        // Single batched fetch, then build a lookup by URI
-        let metadata_by_uri: HashMap<String, FileDetails> =
+        // Single batched fetch, then build a lookup by database key (owner_id, file_id)
+        // This is more robust than URI string matching as it's immune to normalization differences
+        let metadata_by_key: HashMap<(String, String), FileDetails> =
             fetch_attachment_metadata(&all_uris)
                 .await?
                 .into_iter()
-                .map(|fd| (fd.uri.clone(), fd))
+                .map(|fd| ((fd.owner_id.clone(), fd.id.clone()), fd))
                 .collect();
 
-        // Distribute results back to each post by looking up their URIs
+        // Distribute results back to each post by parsing URIs to database keys
         let detailed = views
             .into_iter()
             .map(|view| {
@@ -91,11 +92,15 @@ impl PostStreamDetailed {
                     .unwrap_or(&[])
                     .iter()
                     .filter_map(|uri| {
-                        let result = metadata_by_uri.get(uri).cloned();
-                        if result.is_none() {
-                            warn!("Attachment metadata not found for URI: {}", uri);
+                        let file_key = FileDetails::file_key_from_uri(uri);
+                        if file_key.len() == 2 {
+                            metadata_by_key
+                                .get(&(file_key[0].clone(), file_key[1].clone()))
+                                .cloned()
+                        } else {
+                            warn!("Invalid file URI format, cannot extract key: {}", uri);
+                            None
                         }
-                        result
                     })
                     .collect();
                 PostViewDetailed {

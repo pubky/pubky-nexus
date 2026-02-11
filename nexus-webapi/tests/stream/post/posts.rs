@@ -317,9 +317,8 @@ async fn test_stream_posts_with_attachment_metadata() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_without_attachment_metadata() -> Result<()> {
     // Without the flag, posts should not have attachments_metadata
-    let path = format!(
-        "{ROOT_PATH}?author_id={CAIRO_USER}&source=author&sorting=timeline&limit=20"
-    );
+    let path =
+        format!("{ROOT_PATH}?author_id={CAIRO_USER}&source=author&sorting=timeline&limit=20");
     let body = get_request(&path).await?;
 
     assert!(body.is_array());
