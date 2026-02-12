@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use super::{Influencers, Muted, UserCounts, UserSearch, UserView};
+use super::{Influencers, Muted, UserCounts, UserDetails, UserSearch, UserView};
 
 use crate::db::kv::{RedisResult, SortOrder};
 use crate::db::{fetch_all_rows_from_graph, queries, RedisOps};
@@ -144,8 +144,20 @@ impl UserStream {
         let count = limit.unwrap_or(5) as isize;
 
         // Attempt to get cached data from Redis
-        if let Some(cached_data) = Self::try_get_cached_recommended(user_id, count).await? {
-            return Ok(Some(cached_data));
+        if let Some(cached_ids) = Self::try_get_cached_recommended(user_id, count).await? {
+            // Filter out deleted users from cached IDs
+            let details_list = UserDetails::mget(&cached_ids).await?;
+            let filtered_ids: Vec<String> = cached_ids
+                .into_iter()
+                .zip(details_list.into_iter())
+                .filter_map(|(id, details)| details.filter(|d| d.name != "[DELETED]").map(|_| id))
+                .collect();
+
+            return Ok(if filtered_ids.is_empty() {
+                None
+            } else {
+                Some(filtered_ids)
+            });
         }
 
         // Cache miss; proceed to query Neo4j
@@ -180,7 +192,7 @@ impl UserStream {
         user_id: &str,
         count: isize,
     ) -> Result<Option<Vec<String>>, DynError> {
-        let key_parts = &["Cache", "Recommended", user_id];
+        let key_parts = &[user_id];
         Self::try_get_random_from_index_set(
             key_parts,
             count,
