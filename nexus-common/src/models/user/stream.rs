@@ -13,9 +13,6 @@ use utoipa::ToSchema;
 
 pub const USER_MOSTFOLLOWED_KEY_PARTS: [&str; 2] = ["Users", "MostFollowed"];
 pub const USER_INFLUENCERS_KEY_PARTS: [&str; 2] = ["Users", "Influencers"];
-pub const CACHE_USER_RECOMMENDED_KEY_PARTS: [&str; 3] = ["Cache", "Users", "Recommended"];
-// TTL, 12HR
-pub const CACHE_USER_RECOMMENDED_TTL: i64 = 12 * 60 * 60;
 
 #[derive(Deserialize, ToSchema, Debug, Clone, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -141,14 +138,6 @@ impl UserStream {
         user_id: &str,
         limit: Option<usize>,
     ) -> Result<Option<Vec<String>>, DynError> {
-        let count = limit.unwrap_or(5) as isize;
-
-        // Attempt to get cached data from Redis
-        if let Some(cached_data) = Self::try_get_cached_recommended(user_id, count).await? {
-            return Ok(Some(cached_data));
-        }
-
-        // Cache miss; proceed to query Neo4j
         let query = queries::get::recommend_users(user_id, 30);
         let rows = fetch_all_rows_from_graph(query).await?;
 
@@ -168,40 +157,11 @@ impl UserStream {
         if user_ids.is_empty() {
             Ok(None)
         } else {
-            Self::cache_recommended_users(user_id, &user_ids).await?;
             if let Some(limit) = limit {
                 user_ids.truncate(limit);
             };
             Ok(Some(user_ids))
         }
-    }
-
-    async fn try_get_cached_recommended(
-        user_id: &str,
-        count: isize,
-    ) -> Result<Option<Vec<String>>, DynError> {
-        let key_parts = &["Cache", "Recommended", user_id];
-        Self::try_get_random_from_index_set(
-            key_parts,
-            count,
-            Some(CACHE_USER_RECOMMENDED_KEY_PARTS.join(":")),
-        )
-        .await
-        .map_err(Into::into)
-    }
-
-    /// Helper method to cache recommended users in Redis with a TTL.
-    async fn cache_recommended_users(user_id: &str, user_ids: &[String]) -> Result<(), DynError> {
-        let values: Vec<&str> = user_ids.iter().map(|s| s.as_str()).collect();
-        // Cache the result in Redis with a TTL of 12 hours
-        Self::put_index_set(
-            &[user_id],
-            &values,
-            Some(CACHE_USER_RECOMMENDED_TTL),
-            Some(CACHE_USER_RECOMMENDED_KEY_PARTS.join(":")),
-        )
-        .await
-        .map_err(Into::into)
     }
 
     async fn get_post_replies_ids(

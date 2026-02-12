@@ -494,34 +494,6 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         sets::put_multiple_sets(&combined_prefix, common_key, index, slice, expiration).await
     }
 
-    /// Retrieves random elements from a Redis set using the provided key parts.
-    ///
-    /// This method fetches random elements from a Redis set stored under the key generated from the provided `key_parts`.
-    /// The number of elements retrieved is defined by the `count` parameter.
-    /// # Arguments
-    ///
-    /// * `key_parts` - Components of the key under which the set is stored.
-    /// * `count` - The number of random elements to retrieve.
-    /// * `prefix` - An optional string representing the prefix for the Redis keys. If `Some(String)`, the prefix will be used
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(Some(Vec<String>))` if the set exists and random elements are retrieved.
-    /// Returns `Ok(None)` if the set does not exist.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the Redis operation fails.
-    async fn try_get_random_from_index_set(
-        key_parts: &[&str],
-        count: isize,
-        prefix: Option<String>,
-    ) -> RedisResult<Option<Vec<String>>> {
-        let prefix = prefix.unwrap_or(Self::prefix().await);
-        let key = key_parts.join(":");
-        sets::get_random_members(&prefix, &key, count).await
-    }
-
     // ############################################################
     // ########### SORTED SET related functions ###################
     // ############################################################
