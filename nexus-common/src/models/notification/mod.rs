@@ -147,9 +147,7 @@ impl Notification {
                     }
                     Err(e) => {
                         tracing::warn!(
-                            "Failed to deserialize notification, body: {}, reason: {}",
-                            notification_body_str,
-                            e
+                            "Failed to deserialize notification, body: {notification_body_str}, reason: {e}"
                         );
                     }
                 }
