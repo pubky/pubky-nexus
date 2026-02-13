@@ -171,11 +171,11 @@ fn extract_retry_event_info(
     error: EventProcessorError,
 ) -> Option<(String, RetryEvent)> {
     let retry_event = match error {
-        EventProcessorError::InvalidEventLine { ref message } => {
+        EventProcessorError::InvalidEventLine(ref message) => {
             error!("{}", message);
             return None;
         }
-        EventProcessorError::Generic { ref message } => {
+        EventProcessorError::Generic(ref message) => {
             error!(
                 "Non-retryable processor error for URI: {}, {}",
                 event.uri, message

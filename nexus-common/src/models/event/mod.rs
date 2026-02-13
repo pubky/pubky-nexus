@@ -53,33 +53,31 @@ impl Event {
         debug!("New event: {}", line);
         let parts: Vec<&str> = line.split(' ').collect();
         if parts.len() != 2 {
-            return Err(EventProcessorError::InvalidEventLine {
-                message: format!("Malformed event line, {line}"),
-            });
+            return Err(EventProcessorError::InvalidEventLine(format!(
+                "Malformed event line, {line}"
+            )));
         }
 
         let event_type = match parts[0] {
             "PUT" => Ok(EventType::Put),
             "DEL" => Ok(EventType::Del),
-            other => Err(EventProcessorError::InvalidEventLine {
-                message: format!("Unknown event type: {other}"),
-            }),
+            other => Err(EventProcessorError::InvalidEventLine(format!(
+                "Unknown event type: {other}"
+            ))),
         }?;
 
         // Validate and parse the URI using pubky-app-specs
         let uri = parts[1].to_string();
         let parsed_uri = ParsedUri::try_from(uri.as_str()).map_err(|e| {
-            EventProcessorError::InvalidEventLine {
-                message: format!("Cannot parse event URI: {e}"),
-            }
+            EventProcessorError::InvalidEventLine(format!("Cannot parse event URI: {e}"))
         })?;
 
         match parsed_uri.resource {
             // Unknown resource
             Resource::Unknown => {
-                return Err(EventProcessorError::InvalidEventLine {
-                    message: format!("Unknown resource in URI: {uri}"),
-                })
+                return Err(EventProcessorError::InvalidEventLine(format!(
+                    "Unknown resource in URI: {uri}"
+                )))
             }
             // Known resources not handled by Nexus
             Resource::LastRead | Resource::Feed(_) | Resource::Blob(_) => return Ok(None),

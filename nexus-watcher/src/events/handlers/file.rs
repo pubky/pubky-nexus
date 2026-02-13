@@ -75,12 +75,10 @@ async fn ingest(
             );
             Ok(FileMeta { urls })
         }
-        _ => Err(EventProcessorError::InvalidEventLine {
-            message: format!(
-                "The file has a source uri that is not a blob path: {}",
-                pubkyapp_file.src
-            ),
-        }),
+        _ => Err(EventProcessorError::InvalidEventLine(format!(
+            "The file has a source uri that is not a blob path: {}",
+            pubkyapp_file.src
+        ))),
     }
 }
 
