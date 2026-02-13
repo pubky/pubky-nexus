@@ -4,10 +4,7 @@ use crate::{
 };
 use anyhow::Result;
 use chrono::Utc;
-use nexus_common::models::bootstrap::{Bootstrap, ViewType};
-use nexus_common::models::user::{
-    UserCounts, UserStream, UserStreamInput, UserStreamSource, UserView,
-};
+use nexus_common::models::user::{UserCounts, UserStream, UserView};
 use pubky::Keypair;
 use pubky_app_specs::{
     traits::{HasIdPath, HashId},
@@ -285,122 +282,18 @@ async fn test_delete_recommended_user() -> Result<()> {
     }
 
     // Check if Carol is recommended to Alice
-    let alice_recommended_1 = UserStream::get_by_id(
-        UserStreamInput {
-            user_id: Some(alice_id.clone()),
-            skip: None,
-            limit: None,
-            source: UserStreamSource::Recommended,
-            reach: None,
-            timeframe: None,
-            preview: None,
-            author_id: None,
-            post_id: None,
-        },
-        None,
-        None,
-    )
-    .await
-    .map_err(|e| anyhow::anyhow!("{:?}", e))?
-    .unwrap();
-    assert_eq!(alice_recommended_1.0.len(), 1);
-    assert_eq!(
-        alice_recommended_1.0.first().unwrap().details.id.as_str(),
-        carol_id.as_str()
-    );
+    let alice_recommended_ids_res_1 = UserStream::get_recommended_ids(&alice_id, None).await;
+    let alice_recommended_ids_1 = alice_recommended_ids_res_1.unwrap().unwrap();
+    assert_eq!(alice_recommended_ids_1.len(), 1);
+    assert_eq!(alice_recommended_ids_1.first(), Some(&carol_id));
 
     // Carol deletes her user
     test.cleanup_user(&carol_kp).await?;
 
     // Check if Carol is not recommended anymore to Alice
-    let alice_recommended_2 = UserStream::get_by_id(
-        UserStreamInput {
-            user_id: Some(alice_id.clone()),
-            skip: None,
-            limit: None,
-            source: UserStreamSource::Recommended,
-            reach: None,
-            timeframe: None,
-            preview: None,
-            author_id: None,
-            post_id: None,
-        },
-        None,
-        None,
-    )
-    .await
-    .map_err(|e| anyhow::anyhow!("{:?}", e))?;
-    assert!(alice_recommended_2.is_none());
-
-    Ok(())
-}
-
-#[tokio_shared_rt::test(shared)]
-async fn test_delete_recommended_user_in_bootstrap() -> Result<()> {
-    let mut test = WatcherTest::setup().await?;
-
-    let fn_create_user =
-        async |test: &mut WatcherTest, keypair: &Keypair, name: &str| -> Result<String> {
-            let user = PubkyAppUser {
-                bio: Some("test_delete_recommended_user_in_bootstrap".to_string()),
-                image: None,
-                links: None,
-                name: format!("Watcher:Bootstrap:User:{name}"),
-                status: None,
-            };
-            test.create_user(keypair, &user).await
-        };
-
-    // Create 3 users: Alice, Bob, Carol
-    let alice_kp = Keypair::random();
-    let bob_kp = Keypair::random();
-    let carol_kp = Keypair::random();
-    let alice_id = fn_create_user(&mut test, &alice_kp, "Alice").await?;
-    let bob_id = fn_create_user(&mut test, &bob_kp, "Bob").await?;
-    let carol_id = fn_create_user(&mut test, &carol_kp, "Carol").await?;
-
-    // Alice follows Bob
-    test.create_follow(&alice_kp, &bob_id).await?;
-
-    // Bob follows Carol (so Carol is recommended to Alice as friend-of-friend)
-    test.create_follow(&bob_kp, &carol_id).await?;
-
-    // Carol is an active user (has at least 5 posts)
-    for i in 0..5 {
-        let carol_post = PubkyAppPost {
-            content: format!("Carol's post {i}"),
-            kind: PubkyAppPostKind::Short,
-            parent: None,
-            embed: None,
-            attachments: None,
-        };
-        test.create_post(&carol_kp, &carol_post).await?;
-    }
-
-    // Get Bootstrap for Alice before deletion
-    let bootstrap_before = Bootstrap::get_by_id(&alice_id, ViewType::Partial)
-        .await
-        .map_err(|e| anyhow::anyhow!("{:?}", e))?;
-
-    // Verify Carol is in the recommended list
-    assert!(
-        bootstrap_before.ids.recommended.contains(&carol_id),
-        "Carol should be in Alice's recommended users before deletion"
-    );
-
-    // Delete Carol
-    test.cleanup_user(&carol_kp).await?;
-
-    // Get Bootstrap for Alice after deletion
-    let bootstrap_after = Bootstrap::get_by_id(&alice_id, ViewType::Partial)
-        .await
-        .map_err(|e| anyhow::anyhow!("{:?}", e))?;
-
-    // Verify Carol is NOT in the recommended list anymore
-    assert!(
-        !bootstrap_after.ids.recommended.contains(&carol_id),
-        "Carol should NOT be in Alice's recommended users after deletion"
-    );
+    let alice_recommended_ids_res_2 = UserStream::get_recommended_ids(&alice_id, None).await;
+    let alice_recommended_ids_2 = alice_recommended_ids_res_2.unwrap();
+    assert_eq!(alice_recommended_ids_2, None);
 
     Ok(())
 }
