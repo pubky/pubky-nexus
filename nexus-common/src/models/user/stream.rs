@@ -1,8 +1,10 @@
 use std::collections::HashSet;
 
-use super::{Influencers, Muted, UserCounts, UserDetails, UserSearch, UserView};
+use super::{
+    Influencers, Muted, UserCounts, UserDetails, UserSearch, UserView, USER_DELETED_SENTINEL,
+};
 
-use crate::db::kv::{RedisResult, SortOrder};
+use crate::db::kv::{sets, RedisResult, SortOrder};
 use crate::db::{fetch_all_rows_from_graph, queries, RedisOps};
 use crate::models::follow::{Followers, Following, Friends, UserFollows};
 use crate::models::post::{PostStream, POST_REPLIES_PER_POST_KEY_PARTS};
@@ -147,11 +149,20 @@ impl UserStream {
         if let Some(cached_ids) = Self::try_get_cached_recommended(user_id, count).await? {
             // Filter out deleted users from cached IDs
             let details_list = UserDetails::mget(&cached_ids).await?;
-            let filtered_ids: Vec<String> = cached_ids
-                .into_iter()
-                .zip(details_list.into_iter())
-                .filter_map(|(id, details)| details.filter(|d| d.name != "[DELETED]").map(|_| id))
-                .collect();
+
+            // Collect both filtered IDs and deleted IDs in one pass
+            let mut filtered_ids: Vec<String> = Vec::new();
+            let mut deleted_ids: Vec<String> = Vec::new();
+
+            for (id, details) in cached_ids.into_iter().zip(details_list.into_iter()) {
+                match details {
+                    Some(ref d) if d.name != USER_DELETED_SENTINEL => filtered_ids.push(id),
+                    _ => deleted_ids.push(id),
+                }
+            }
+
+            // Remove deleted users from the cache set to improve cache quality
+            Self::remove_from_cached_recommended(user_id, &deleted_ids).await;
 
             return Ok(if filtered_ids.is_empty() {
                 None
@@ -171,7 +182,7 @@ impl UserStream {
             let maybe_rec_user_name = row.get::<Option<String>>("recommended_user_name")?;
 
             if let (Some(user_id), Some(user_name)) = (maybe_rec_user_id, maybe_rec_user_name) {
-                if user_name != "[DELETED]" {
+                if user_name != USER_DELETED_SENTINEL {
                     user_ids.push(user_id);
                 }
             }
@@ -214,6 +225,19 @@ impl UserStream {
         )
         .await
         .map_err(Into::into)
+    }
+
+    /// Helper method to remove deleted users from the cached recommendations.
+    /// This improves cache quality by evicting stale entries instead of just filtering them at read time.
+    async fn remove_from_cached_recommended(user_id: &str, deleted_ids: &[String]) {
+        if deleted_ids.is_empty() {
+            return;
+        }
+
+        let prefix = CACHE_USER_RECOMMENDED_KEY_PARTS.join(":");
+        let deleted_refs: Vec<&str> = deleted_ids.iter().map(|s| s.as_str()).collect();
+
+        let _ = sets::del(&prefix, user_id, &deleted_refs).await;
     }
 
     async fn get_post_replies_ids(
