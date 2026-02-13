@@ -66,12 +66,12 @@ impl Blob {
             content_type if content_type.starts_with("image/") => {
                 ImageProcessor::create_variant(file, variant, file_path)
                     .await
-                    .map_err(ModelError::from_file_operation)
+                    .map_err(Into::into)
             }
             content_type if content_type.starts_with("video/") => {
                 VideoProcessor::create_variant(file, variant, file_path)
                     .await
-                    .map_err(ModelError::from_file_operation)
+                    .map_err(Into::into)
             }
             _ => Err(ModelError::from_generic(format!(
                 "Unsupported content type: {}",

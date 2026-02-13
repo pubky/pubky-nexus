@@ -1,7 +1,7 @@
 use neo4rs::DeError;
 use thiserror::Error;
 
-use crate::db::kv::RedisError;
+use crate::{db::kv::RedisError, media::processors::MediaProcessorError};
 
 #[derive(Error, Debug)]
 pub enum ModelError {
@@ -16,6 +16,11 @@ pub enum ModelError {
     KvOperationFailed {
         #[source]
         source: RedisError,
+    },
+    #[error("MediaProcessorError: {source}")]
+    MediaProcessorError {
+        #[source]
+        source: MediaProcessorError,
     },
     #[error("FileOperationFailed: {source}")]
     FileOperationFailed {
@@ -56,17 +61,15 @@ impl From<neo4rs::Error> for ModelError {
     }
 }
 
+impl From<MediaProcessorError> for ModelError {
+    fn from(e: MediaProcessorError) -> Self {
+        ModelError::MediaProcessorError { source: e }
+    }
+}
+
 impl ModelError {
     pub fn from_graph_error(source: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
         Self::GraphOperationFailed {
-            source: source.into(),
-        }
-    }
-
-    pub fn from_file_operation(
-        source: impl Into<Box<dyn std::error::Error + Send + Sync>>,
-    ) -> Self {
-        Self::FileOperationFailed {
             source: source.into(),
         }
     }

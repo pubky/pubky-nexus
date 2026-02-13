@@ -6,7 +6,7 @@ use nexus_common::models::event::EventProcessorError;
 pub enum WatcherError {
     #[error("EventProcessorError: {0}")]
     EventProcessor(#[from] EventProcessorError),
-    #[error("Other: {message}")]
+    #[error("Generic: {message}")]
     Generic { message: String },
 }
 

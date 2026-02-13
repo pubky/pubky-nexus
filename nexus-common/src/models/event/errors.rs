@@ -23,6 +23,8 @@ pub enum EventProcessorError {
     /// The Pubky client could not resolve the pubky
     #[error("PubkyClientError: {0}")]
     PubkyClientError(#[from] crate::db::PubkyClientError),
+    #[error("MediaProcessor: {0}")]
+    MediaProcessorError(String),
     #[error("Internal error: {0}")]
     InternalError(String),
     #[error("StaticSaveFailed: {0}")]
@@ -40,6 +42,9 @@ impl From<ModelError> for EventProcessorError {
             }
             ModelError::KvOperationFailed { source } => {
                 EventProcessorError::IndexOperationFailed(source.to_string())
+            }
+            ModelError::MediaProcessorError { source } => {
+                EventProcessorError::MediaProcessorError(source.to_string())
             }
             ModelError::FileOperationFailed { source } => {
                 EventProcessorError::InternalError(source.to_string())
