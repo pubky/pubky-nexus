@@ -1,4 +1,5 @@
 use super::UserSearch;
+use crate::db::kv::RedisResult;
 use crate::db::{exec_single_row, queries, RedisOps};
 use crate::models::error::{ModelError, ModelResult};
 use crate::models::traits::Collection;
@@ -23,7 +24,7 @@ impl Collection<&str> for UserDetails {
         queries::put::create_user(self).map_err(ModelError::from_graph_error)
     }
 
-    async fn extend_on_index_miss(details: &[std::option::Option<Self>]) -> ModelResult<()> {
+    async fn extend_on_index_miss(details: &[std::option::Option<Self>]) -> RedisResult<()> {
         let user_details_refs: Vec<&UserDetails> = details
             .iter()
             .filter_map(|detail| detail.as_ref())

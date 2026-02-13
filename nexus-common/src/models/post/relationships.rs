@@ -1,3 +1,4 @@
+use crate::db::kv::RedisResult;
 use crate::db::{fetch_row_from_graph, queries, RedisOps};
 use crate::models::error::ModelError;
 use crate::models::error::ModelResult;
@@ -68,10 +69,8 @@ impl PostRelationships {
     pub async fn get_from_index(
         author_id: &str,
         post_id: &str,
-    ) -> ModelResult<Option<PostRelationships>> {
-        Self::try_from_index_json(&[author_id, post_id], None)
-            .await
-            .map_err(Into::into)
+    ) -> RedisResult<Option<PostRelationships>> {
+        Self::try_from_index_json(&[author_id, post_id], None).await
     }
 
     /// Retrieves the counts from Neo4j.
@@ -126,10 +125,8 @@ impl PostRelationships {
         relationship
     }
 
-    pub async fn put_to_index(&self, author_id: &str, post_id: &str) -> ModelResult<()> {
-        self.put_index_json(&[author_id, post_id], None, None)
-            .await
-            .map_err(Into::into)
+    pub async fn put_to_index(&self, author_id: &str, post_id: &str) -> RedisResult<()> {
+        self.put_index_json(&[author_id, post_id], None, None).await
     }
 
     pub async fn delete(author_id: &str, post_id: &str) -> ModelResult<()> {

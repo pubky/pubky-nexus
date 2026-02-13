@@ -2,7 +2,7 @@ use super::{
     stream::{HOT_TAGS_CACHE_PREFIX, POST_HOT_TAGS},
     Taggers as TaggersType,
 };
-use crate::db::{fetch_key_from_graph, queries, RedisOps};
+use crate::db::{fetch_key_from_graph, kv::RedisResult, queries, RedisOps};
 use crate::models::error::{ModelError, ModelResult};
 use crate::types::StreamReach;
 use crate::types::Timeframe;
@@ -52,11 +52,10 @@ impl Taggers {
     ///
     /// # Arguments
     /// * `timeframe` - A string representing the timeframe for which to retrieve taggers
-    pub async fn get_from_index(timeframe: &str) -> ModelResult<Option<HotTagsTaggers>> {
+    pub async fn get_from_index(timeframe: &str) -> RedisResult<Option<HotTagsTaggers>> {
         let key_parts = Self::build_key_parts(timeframe);
         HotTagsTaggers::try_from_index_json(&key_parts, Some(HOT_TAGS_CACHE_PREFIX.to_string()))
             .await
-            .map_err(Into::into)
     }
 
     /// Stores taggers in the cache for a given timeframe
@@ -64,7 +63,7 @@ impl Taggers {
     /// # Arguments
     /// * `taggers` - The collection of taggers to be stored
     /// * `timeframe` - The timeframe for which the taggers are indexed, determining the cache key and expiration period
-    pub async fn put_to_index(taggers: HotTagsTaggers, timeframe: &Timeframe) -> ModelResult<()> {
+    pub async fn put_to_index(taggers: HotTagsTaggers, timeframe: &Timeframe) -> RedisResult<()> {
         let timeframe_str = timeframe.to_string();
         let key_parts = Self::build_key_parts(&timeframe_str);
 
@@ -76,7 +75,6 @@ impl Taggers {
                 Some(timeframe.to_cache_period()),
             )
             .await
-            .map_err(Into::into)
     }
 
     /// Retrieves taggers for a given tag label, either globally or based on a user's reach

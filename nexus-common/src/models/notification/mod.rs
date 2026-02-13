@@ -1,4 +1,4 @@
-use crate::db::kv::{RedisError, SortOrder};
+use crate::db::kv::{RedisError, RedisResult, SortOrder};
 use crate::db::{fetch_all_rows_from_graph, queries, RedisOps};
 use crate::models::error::ModelError;
 use crate::models::error::ModelResult;
@@ -102,7 +102,7 @@ impl Notification {
     }
 
     /// Stores the `NotificationBody` in the sorted set for the user using the timestamp as the score.
-    async fn put_to_index(&self, user_id: &str) -> ModelResult<()> {
+    async fn put_to_index(&self, user_id: &str) -> RedisResult<()> {
         let notification_body_json = serde_json::to_string(&self.body)
             .map_err(|e| RedisError::SerializationFailed(Box::new(e)))?;
         let score = self.timestamp as f64;
@@ -114,7 +114,6 @@ impl Notification {
             None,
         )
         .await
-        .map_err(Into::into)
     }
 
     /// Lists notifications from the sorted set for the user, based on skip and limit, or timestamp range.
@@ -209,7 +208,10 @@ impl Notification {
             post_uri: post_uri.to_string(),
         };
         let notification = Notification::new(body);
-        notification.put_to_index(author_id).await
+        notification
+            .put_to_index(author_id)
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn new_user_tag(
@@ -225,7 +227,10 @@ impl Notification {
             tag_label: label.to_string(),
         };
         let notification = Notification::new(body);
-        notification.put_to_index(tagged_user_id).await
+        notification
+            .put_to_index(tagged_user_id)
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn new_post_reply(
@@ -243,7 +248,10 @@ impl Notification {
             reply_uri: reply_uri.to_string(),
         };
         let notification = Notification::new(body);
-        notification.put_to_index(parent_post_author).await
+        notification
+            .put_to_index(parent_post_author)
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn new_mention(
@@ -279,7 +287,10 @@ impl Notification {
             repost_uri: repost_uri.to_string(),
         };
         let notification = Notification::new(body);
-        notification.put_to_index(embed_post_author).await
+        notification
+            .put_to_index(embed_post_author)
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn post_children_changed(
@@ -308,7 +319,10 @@ impl Notification {
             },
         };
         let notification = Notification::new(body);
-        notification.put_to_index(linked_post_author).await
+        notification
+            .put_to_index(linked_post_author)
+            .await
+            .map_err(Into::into)
     }
 
     // Delete and Edit post notifications to users who interacted

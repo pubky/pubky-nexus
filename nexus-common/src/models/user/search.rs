@@ -1,5 +1,5 @@
 use super::UserDetails;
-use crate::db::RedisOps;
+use crate::db::{kv::RedisResult, RedisOps};
 use crate::models::create_zero_score_tuples;
 use crate::models::error::ModelResult;
 use crate::models::traits::Collection;
@@ -55,7 +55,7 @@ impl UserSearch {
         name_prefix: &str,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> ModelResult<Option<Vec<String>>> {
+    ) -> RedisResult<Option<Vec<String>>> {
         // Convert the username to lowercase to ensure case-insensitive search
         let name_prefix = name_prefix.to_lowercase();
 
@@ -63,24 +63,20 @@ impl UserSearch {
         let max = format!("({name_prefix}~"); // Exclusive range ending just after "name_prefix"
 
         // Perform the lexicographical range search
-        Self::try_from_index_sorted_set_lex(&USER_NAME_KEY_PARTS, &min, &max, skip, limit)
-            .await
-            .map_err(Into::into)
+        Self::try_from_index_sorted_set_lex(&USER_NAME_KEY_PARTS, &min, &max, skip, limit).await
     }
 
     pub async fn get_from_index_id(
         id_prefix: &str,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> ModelResult<Option<Vec<String>>> {
+    ) -> RedisResult<Option<Vec<String>>> {
         let id_prefix = id_prefix.to_lowercase();
 
         let min = format!("[{id_prefix}"); // Inclusive range starting with "id_prefix"
         let max = format!("({id_prefix}~"); // Exclusive range ending just after "id_prefix"
 
-        Self::try_from_index_sorted_set_lex(&USER_ID_KEY_PARTS, &min, &max, skip, limit)
-            .await
-            .map_err(Into::into)
+        Self::try_from_index_sorted_set_lex(&USER_ID_KEY_PARTS, &min, &max, skip, limit).await
     }
 
     /// Adds multiple `user_id`s to Redis sorted sets:
@@ -88,7 +84,7 @@ impl UserSearch {
     /// - using the user ID as index
     ///
     /// This method takes a list of `UserDetails` and adds them all to the sorted set at once.
-    pub async fn put_to_index(details_list: &[&UserDetails]) -> ModelResult<()> {
+    pub async fn put_to_index(details_list: &[&UserDetails]) -> RedisResult<()> {
         // ensure existing records are deleted
         Self::delete_existing_records(
             details_list
@@ -115,12 +111,10 @@ impl UserSearch {
         let pairs_zscore_tuples = create_zero_score_tuples(&pairs);
         Self::put_index_sorted_set(&USER_NAME_KEY_PARTS, &pairs_zscore_tuples, None, None).await?;
         let ids_zscore_tuples = create_zero_score_tuples(&ids);
-        Self::put_index_sorted_set(&USER_ID_KEY_PARTS, &ids_zscore_tuples, None, None)
-            .await
-            .map_err(Into::into)
+        Self::put_index_sorted_set(&USER_ID_KEY_PARTS, &ids_zscore_tuples, None, None).await
     }
 
-    async fn delete_existing_records(user_ids: &[&str]) -> ModelResult<()> {
+    async fn delete_existing_records(user_ids: &[&str]) -> RedisResult<()> {
         if user_ids.is_empty() {
             return Ok(());
         }

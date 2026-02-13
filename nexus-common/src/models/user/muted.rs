@@ -1,3 +1,4 @@
+use crate::db::kv::RedisResult;
 use crate::db::{
     execute_graph_operation, fetch_row_from_graph, queries, OperationOutcome, RedisOps,
 };
@@ -47,10 +48,8 @@ impl Muted {
         user_id: &str,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> ModelResult<Option<Vec<String>>> {
-        Self::try_from_index_set(&[user_id], skip, limit, None)
-            .await
-            .map_err(Into::into)
+    ) -> RedisResult<Option<Vec<String>>> {
+        Self::try_from_index_set(&[user_id], skip, limit, None).await
     }
 
     async fn get_from_graph(
@@ -79,11 +78,9 @@ impl Muted {
         }
     }
 
-    pub async fn put_to_index(&self, user_id: &str) -> ModelResult<()> {
+    pub async fn put_to_index(&self, user_id: &str) -> RedisResult<()> {
         let user_list_ref: Vec<&str> = self.as_ref().iter().map(|id| id.as_str()).collect();
-        Self::put_index_set(&[user_id], &user_list_ref, None, None)
-            .await
-            .map_err(Into::into)
+        Self::put_index_set(&[user_id], &user_list_ref, None, None).await
     }
 
     pub async fn put_to_graph(user_id: &str, muted_id: &str) -> ModelResult<OperationOutcome> {
@@ -112,14 +109,12 @@ impl Muted {
             .map_err(ModelError::from_graph_error)
     }
 
-    pub async fn del_from_index(&self, user_id: &str) -> ModelResult<()> {
-        self.remove_from_index_set(&[user_id])
-            .await
-            .map_err(Into::into)
+    pub async fn del_from_index(&self, user_id: &str) -> RedisResult<()> {
+        self.remove_from_index_set(&[user_id]).await
     }
 
     // Checks whether a user is muted
-    pub async fn check_in_index(user_id: &str, muted_id: &str) -> ModelResult<bool> {
+    pub async fn check_in_index(user_id: &str, muted_id: &str) -> RedisResult<bool> {
         let user_key_parts = &[user_id][..];
         let (_, muted) = Self::check_set_member(user_key_parts, muted_id).await?;
         Ok(muted)

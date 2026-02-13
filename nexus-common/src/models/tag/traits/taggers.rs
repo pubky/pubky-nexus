@@ -1,3 +1,4 @@
+use crate::db::kv::RedisResult;
 use crate::db::RedisOps;
 use crate::models::error::ModelResult;
 use crate::models::tag::Taggers;
@@ -58,6 +59,7 @@ where
 
         async { Self::get_from_index(key_parts, viewer_id, Some(skip), Some(limit), prefix).await }
             .await
+            .map_err(Into::into)
     }
 
     async fn get_from_index(
@@ -66,7 +68,7 @@ where
         skip: Option<usize>,
         limit: Option<usize>,
         prefix: Option<String>,
-    ) -> ModelResult<TaggersTuple> {
+    ) -> RedisResult<TaggersTuple> {
         let taggers = Self::try_from_index_set(&key_parts, skip, limit, prefix).await?;
         let is_member = match viewer_id {
             Some(member) => Self::check_set_member(&key_parts, member).await?.1,

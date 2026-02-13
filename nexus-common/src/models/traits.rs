@@ -1,3 +1,4 @@
+use crate::db::kv::RedisResult;
 use crate::db::{exec_single_row, fetch_all_rows_from_graph, RedisOps};
 use crate::models::error::{ModelError, ModelResult};
 use async_trait::async_trait;
@@ -95,10 +96,8 @@ where
         Ok(records)
     }
 
-    async fn get_from_index(keys: Vec<&[&str]>) -> ModelResult<Vec<Option<Self>>> {
-        Self::try_from_index_multiple_json(&keys)
-            .await
-            .map_err(Into::into)
+    async fn get_from_index(keys: Vec<&[&str]>) -> RedisResult<Vec<Option<Self>>> {
+        Self::try_from_index_multiple_json(&keys).await
     }
 
     /// Indexes collection of records in Redis for faster access in future queries.
@@ -113,7 +112,7 @@ where
     ///
     /// This function returns a `Result` indicating success or failure. A successful result indicates that the
     /// records were successfully indexed in the cache.
-    async fn put_to_index(ids: &[T], records: Vec<Option<Self>>) -> ModelResult<()> {
+    async fn put_to_index(ids: &[T], records: Vec<Option<Self>>) -> RedisResult<()> {
         let mut found_records = Vec::with_capacity(records.len());
         let mut found_record_ids = Vec::with_capacity(records.len());
 
@@ -159,5 +158,5 @@ where
     /// Returns the neo4j query to put a record into the graph.
     fn put_graph_query(&self) -> ModelResult<Query>;
 
-    async fn extend_on_index_miss(elements: &[std::option::Option<Self>]) -> ModelResult<()>;
+    async fn extend_on_index_miss(elements: &[std::option::Option<Self>]) -> RedisResult<()>;
 }

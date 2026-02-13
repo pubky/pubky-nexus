@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::models::error::ModelError;
+use crate::{db::kv::RedisError, models::error::ModelError};
 
 #[derive(Error, Debug, Clone, Serialize, Deserialize)]
 pub enum EventProcessorError {
@@ -58,6 +58,14 @@ impl From<pubky::Error> for EventProcessorError {
 impl From<std::io::Error> for EventProcessorError {
     fn from(e: std::io::Error) -> Self {
         EventProcessorError::InternalError {
+            message: e.to_string(),
+        }
+    }
+}
+
+impl From<RedisError> for EventProcessorError {
+    fn from(e: RedisError) -> Self {
+        EventProcessorError::IndexOperationFailed {
             message: e.to_string(),
         }
     }

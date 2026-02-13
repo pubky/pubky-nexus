@@ -1,4 +1,4 @@
-use crate::db::kv::{ScoreAction, SortOrder};
+use crate::db::kv::{RedisResult, ScoreAction, SortOrder};
 use crate::db::queries::get::{global_tags_by_post, global_tags_by_post_engagement};
 use crate::db::{fetch_all_rows_from_graph, RedisOps};
 use crate::models::error::ModelError;
@@ -118,7 +118,7 @@ impl PostsByTagSearch {
         .map_err(Into::into)
     }
 
-    pub async fn put_to_index(author_id: &str, post_id: &str, tag_label: &str) -> ModelResult<()> {
+    pub async fn put_to_index(author_id: &str, post_id: &str, tag_label: &str) -> RedisResult<()> {
         let post_key_slice: &[&str] = &[author_id, post_id];
         let key_parts = [&TAG_GLOBAL_POST_TIMELINE[..], &[tag_label]].concat();
         let tag_search = Self::check_sorted_set_member(None, &key_parts, post_key_slice).await?;
@@ -142,7 +142,7 @@ impl PostsByTagSearch {
         author_id: &str,
         post_id: &str,
         tag_label: &str,
-    ) -> ModelResult<()> {
+    ) -> RedisResult<()> {
         let post_label_key = vec![author_id, post_id, tag_label];
         let (taggers, _) = TagPost::get_from_index(post_label_key, None, None, None, None).await?;
         // Make sure that post does not have more taggers with that tag. Post:Taggers:user_id:post_id:label

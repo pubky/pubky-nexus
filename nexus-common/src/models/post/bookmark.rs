@@ -1,3 +1,4 @@
+use crate::db::kv::RedisResult;
 use crate::db::{
     execute_graph_operation, fetch_all_rows_from_graph, fetch_key_from_graph, queries,
     OperationOutcome, RedisOps,
@@ -90,7 +91,7 @@ impl Bookmark {
         author_id: &str,
         post_id: &str,
         viewer_id: &str,
-    ) -> ModelResult<()> {
+    ) -> RedisResult<()> {
         self.put_index_json(&[author_id, post_id, viewer_id], None, None)
             .await?;
         PostStream::add_to_bookmarks_sorted_set(self, viewer_id, post_id, author_id).await

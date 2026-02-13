@@ -1,5 +1,6 @@
 use crate::db::exec_single_row;
 use crate::db::fetch_key_from_graph;
+use crate::db::kv::RedisResult;
 use crate::db::queries;
 use crate::db::{PubkyConnector, RedisOps};
 use crate::models::error::ModelError;
@@ -68,10 +69,8 @@ impl Homeserver {
     }
 
     /// Retrieves the homeserver from Redis.
-    pub async fn get_from_index(id: &str) -> ModelResult<Option<Self>> {
-        Self::try_from_index_json(&[id], None)
-            .await
-            .map_err(Into::into)
+    pub async fn get_from_index(id: &str) -> RedisResult<Option<Self>> {
+        Self::try_from_index_json(&[id], None).await
     }
 
     /// Stores this homeserver in Redis.
