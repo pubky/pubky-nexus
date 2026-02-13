@@ -144,9 +144,13 @@ where
     }
 
     async fn reindex(collection_ids: &[T]) -> ModelResult<()> {
-        let collection_details_list = Self::get_from_graph(collection_ids).await?;
-        if !collection_details_list.is_empty() {
-            Self::put_to_index(collection_ids, collection_details_list).await?;
+        match Self::get_from_graph(collection_ids).await {
+            Ok(collection_details_list) => {
+                if !collection_details_list.is_empty() {
+                    Self::put_to_index(collection_ids, collection_details_list).await?;
+                }
+            }
+            Err(e) => tracing::error!("Error: Could not find any element of the collection: {}", e),
         }
         Ok(())
     }
