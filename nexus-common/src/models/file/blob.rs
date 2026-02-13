@@ -3,7 +3,7 @@ use crate::{
         processors::{ImageProcessor, VariantProcessor, VideoProcessor},
         FileVariant, VariantController,
     },
-    models::{error::ModelError, traits::ModelResult},
+    models::error::{ModelError, ModelResult},
 };
 use pubky_app_specs::PubkyAppBlob;
 use std::path::PathBuf;

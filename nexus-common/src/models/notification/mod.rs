@@ -1,7 +1,7 @@
 use crate::db::kv::{RedisError, SortOrder};
 use crate::db::{fetch_all_rows_from_graph, queries, RedisOps};
 use crate::models::error::ModelError;
-use crate::models::traits::ModelResult;
+use crate::models::error::ModelResult;
 use crate::types::Pagination;
 use chrono::Utc;
 use neo4rs::Row;

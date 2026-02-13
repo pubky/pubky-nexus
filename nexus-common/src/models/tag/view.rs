@@ -5,7 +5,7 @@ use utoipa::ToSchema;
 use crate::db::fetch_row_from_graph;
 use crate::db::queries;
 use crate::models::error::ModelError;
-use crate::models::traits::ModelResult;
+use crate::models::error::ModelResult;
 
 /// Represents a Pubky tag with uri, label, indexed at timestamp.
 #[derive(Serialize, Deserialize, ToSchema, Default, Debug)]

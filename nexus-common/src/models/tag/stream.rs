@@ -1,7 +1,7 @@
 use crate::db::kv::SortOrder;
 use crate::db::{fetch_key_from_graph, queries, RedisOps};
 use crate::models::error::ModelError;
-use crate::models::traits::ModelResult;
+use crate::models::error::ModelResult;
 use crate::types::routes::HotTagsInputDTO;
 use crate::types::{StreamReach, Timeframe};
 use serde::{Deserialize, Serialize};

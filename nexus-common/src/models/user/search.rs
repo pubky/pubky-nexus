@@ -1,8 +1,8 @@
 use super::UserDetails;
 use crate::db::RedisOps;
 use crate::models::create_zero_score_tuples;
+use crate::models::error::ModelResult;
 use crate::models::traits::Collection;
-use crate::models::traits::ModelResult;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 

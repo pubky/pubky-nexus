@@ -1,6 +1,6 @@
 use crate::db::RedisOps;
+use crate::models::error::ModelResult;
 use crate::models::tag::Taggers;
-use crate::models::traits::ModelResult;
 use crate::types::Pagination;
 use async_trait::async_trait;
 

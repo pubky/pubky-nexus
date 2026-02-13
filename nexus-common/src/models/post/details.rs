@@ -4,7 +4,7 @@ use crate::db::{
     RedisOps,
 };
 use crate::models::error::ModelError;
-use crate::models::traits::ModelResult;
+use crate::models::error::ModelResult;
 use chrono::Utc;
 use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyId};
 use serde::{Deserialize, Serialize};

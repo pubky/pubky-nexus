@@ -1,11 +1,9 @@
 use crate::db::{exec_single_row, fetch_all_rows_from_graph, RedisOps};
-use crate::models::error::ModelError;
+use crate::models::error::{ModelError, ModelResult};
 use async_trait::async_trait;
 use core::fmt;
 use neo4rs::Query;
 use std::fmt::Debug;
-
-pub type ModelResult<T> = Result<T, ModelError>;
 
 pub trait CollectionId {
     fn to_string_id(self) -> String;

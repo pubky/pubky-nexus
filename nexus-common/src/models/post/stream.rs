@@ -2,7 +2,7 @@ use super::{Bookmark, PostCounts, PostDetails, PostView};
 use crate::db::kv::{ScoreAction, SortOrder};
 use crate::db::{get_neo4j_graph, queries, RedisOps};
 use crate::models::error::ModelError;
-use crate::models::traits::ModelResult;
+use crate::models::error::ModelResult;
 use crate::models::{
     follow::{Followers, Following, Friends, UserFollows},
     post::search::PostsByTagSearch,

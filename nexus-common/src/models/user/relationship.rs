@@ -1,5 +1,5 @@
+use crate::models::error::ModelResult;
 use crate::models::follow::{Followers, UserFollows};
-use crate::models::traits::ModelResult;
 use crate::models::user::Muted;
 
 use super::UserCounts;

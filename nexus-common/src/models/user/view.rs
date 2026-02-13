@@ -3,10 +3,10 @@ use utoipa::ToSchema;
 
 use super::{Relationship, UserCounts, UserDetails};
 use crate::db::RedisOps;
+use crate::models::error::ModelResult;
 use crate::models::tag::traits::TagCollection;
 use crate::models::tag::user::TagUser;
 use crate::models::tag::TagDetails;
-use crate::models::traits::ModelResult;
 
 /// Represents a Pubky user with relational data including tags, counts, bookmark and relationship with other posts.
 #[derive(Serialize, Deserialize, ToSchema, Default, Debug)]

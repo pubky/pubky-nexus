@@ -2,7 +2,7 @@ use crate::db::queries::get::get_tags;
 use crate::db::{fetch_key_from_graph, RedisOps};
 use crate::models::create_zero_score_tuples;
 use crate::models::error::ModelError;
-use crate::models::traits::ModelResult;
+use crate::models::error::ModelResult;
 use crate::types::Pagination;
 
 use serde::{Deserialize, Serialize};

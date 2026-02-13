@@ -2,7 +2,7 @@ use crate::db::{
     execute_graph_operation, fetch_row_from_graph, queries, OperationOutcome, RedisOps,
 };
 use crate::models::error::ModelError;
-use crate::models::traits::ModelResult;
+use crate::models::error::ModelResult;
 use async_trait::async_trait;
 use chrono::Utc;
 use neo4rs::Query;

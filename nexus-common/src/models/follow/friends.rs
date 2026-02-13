@@ -1,5 +1,5 @@
 use crate::db::RedisOps;
-use crate::models::traits::ModelResult;
+use crate::models::error::ModelResult;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 

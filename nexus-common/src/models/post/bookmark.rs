@@ -3,7 +3,7 @@ use crate::db::{
     OperationOutcome, RedisOps,
 };
 use crate::models::error::ModelError;
-use crate::models::traits::ModelResult;
+use crate::models::error::ModelResult;
 use neo4rs::Relation;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;

@@ -3,7 +3,7 @@ use super::{
     Taggers as TaggersType,
 };
 use crate::db::{fetch_key_from_graph, queries, RedisOps};
-use crate::models::{error::ModelError, traits::ModelResult};
+use crate::models::error::{ModelError, ModelResult};
 use crate::types::StreamReach;
 use crate::types::Timeframe;
 use async_trait::async_trait;

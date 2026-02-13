@@ -1,7 +1,7 @@
 use super::UserSearch;
 use crate::db::{exec_single_row, queries, RedisOps};
-use crate::models::error::ModelError;
-use crate::models::traits::{Collection, ModelResult};
+use crate::models::error::{ModelError, ModelResult};
+use crate::models::traits::Collection;
 use async_trait::async_trait;
 use chrono::Utc;
 use neo4rs::Query;

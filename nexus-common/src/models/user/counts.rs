@@ -1,8 +1,8 @@
 use crate::db::kv::JsonAction;
 use crate::db::{fetch_row_from_graph, queries, RedisOps};
 use crate::models::error::ModelError;
+use crate::models::error::ModelResult;
 use crate::models::tag::user::USER_TAGS_KEY_PARTS;
-use crate::models::traits::ModelResult;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 

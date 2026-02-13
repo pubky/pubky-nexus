@@ -3,7 +3,7 @@ use crate::db::fetch_key_from_graph;
 use crate::db::queries;
 use crate::db::{PubkyConnector, RedisOps};
 use crate::models::error::ModelError;
-use crate::models::traits::ModelResult;
+use crate::models::error::ModelResult;
 use crate::models::user::UserDetails;
 
 use pubky::PublicKey;

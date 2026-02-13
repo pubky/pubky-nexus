@@ -1,7 +1,7 @@
 mod errors;
 
 use crate::db::RedisOps;
-use crate::models::traits::ModelResult;
+use crate::models::error::ModelResult;
 use pubky_app_specs::{ParsedUri, Resource};
 use serde::{Deserialize, Serialize};
 use std::{fmt, path::PathBuf};

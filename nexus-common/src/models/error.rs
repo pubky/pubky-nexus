@@ -75,3 +75,5 @@ impl ModelError {
         Self::Generic(source.to_string())
     }
 }
+
+pub type ModelResult<T> = Result<T, ModelError>;

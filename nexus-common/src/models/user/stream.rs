@@ -5,9 +5,9 @@ use super::{Influencers, Muted, UserCounts, UserSearch, UserView};
 use crate::db::kv::SortOrder;
 use crate::db::{fetch_all_rows_from_graph, queries, RedisOps};
 use crate::models::error::ModelError;
+use crate::models::error::ModelResult;
 use crate::models::follow::{Followers, Following, Friends, UserFollows};
 use crate::models::post::{PostStream, POST_REPLIES_PER_POST_KEY_PARTS};
-use crate::models::traits::ModelResult;
 use crate::types::{StreamReach, Timeframe};
 
 use serde::{Deserialize, Serialize};

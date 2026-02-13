@@ -1,6 +1,6 @@
 use crate::db::kv::SortOrder;
 use crate::models::error::ModelError;
-use crate::models::traits::ModelResult;
+use crate::models::error::ModelResult;
 use crate::types::StreamReach;
 use crate::types::Timeframe;
 use chrono::Utc;

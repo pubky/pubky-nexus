@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 
 use crate::db::kv::SortOrder;
+use crate::models::error::ModelResult;
 use crate::models::tag::stream::{HotTag, HotTags};
-use crate::models::traits::ModelResult;
 use crate::models::user::Muted;
 use crate::types::routes::HotTagsInputDTO;
 use crate::types::{Pagination, StreamSorting, Timeframe};
