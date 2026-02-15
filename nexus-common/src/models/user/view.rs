@@ -3,10 +3,10 @@ use utoipa::ToSchema;
 
 use super::{Relationship, UserCounts, UserDetails};
 use crate::db::RedisOps;
+use crate::models::error::ModelResult;
 use crate::models::tag::traits::TagCollection;
 use crate::models::tag::user::TagUser;
 use crate::models::tag::TagDetails;
-use crate::types::DynError;
 
 /// Represents a Pubky user with relational data including tags, counts, bookmark and relationship with other posts.
 #[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
@@ -23,7 +23,7 @@ impl UserView {
         user_id: &str,
         viewer_id: Option<&str>,
         depth: Option<u8>,
-    ) -> Result<Option<Self>, DynError> {
+    ) -> ModelResult<Option<Self>> {
         // Perform all operations concurrently
         let (details, counts, relationship) = tokio::try_join!(
             UserDetails::get_by_id(user_id),
@@ -63,7 +63,7 @@ impl UserView {
         user_ids: &[String],
         viewer_id: Option<&str>,
         depth: Option<u8>,
-    ) -> Result<Vec<Option<Self>>, DynError> {
+    ) -> ModelResult<Vec<Option<Self>>> {
         // Use mget to fetch all user details and counts in bulk
         let (details_list, counts_list): (Vec<Option<UserDetails>>, Vec<Option<UserCounts>>) =
             tokio::try_join!(UserDetails::mget(user_ids), UserCounts::mget(user_ids))?;

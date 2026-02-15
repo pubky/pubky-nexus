@@ -11,9 +11,9 @@ pub use processor_runner::EventProcessorRunner;
 pub use traits::{TEventProcessor, TEventProcessorRunner};
 
 use crate::NexusWatcherBuilder;
+use crate::WatcherError;
 use nexus_common::file::ConfigLoader;
 use nexus_common::models::homeserver::Homeserver;
-use nexus_common::types::DynError;
 use nexus_common::utils::create_shutdown_rx;
 use nexus_common::{DaemonConfig, WatcherConfig};
 use pubky_app_specs::PubkyId;
@@ -41,7 +41,7 @@ impl NexusWatcher {
     pub async fn start_from_path(
         config_dir: PathBuf,
         shutdown_rx: Option<Receiver<bool>>,
-    ) -> Result<(), DynError> {
+    ) -> Result<(), WatcherError> {
         let shutdown_rx = shutdown_rx.unwrap_or_else(create_shutdown_rx);
 
         match WatcherConfig::load(config_dir.join(WATCHER_CONFIG_FILE_NAME)).await {
@@ -61,8 +61,10 @@ impl NexusWatcher {
     pub async fn start_from_daemon(
         config_dir: PathBuf,
         shutdown_rx: Option<Receiver<bool>>,
-    ) -> Result<(), DynError> {
-        let daemon_config = DaemonConfig::read_or_create_config_file(config_dir).await?;
+    ) -> Result<(), WatcherError> {
+        let daemon_config = DaemonConfig::read_or_create_config_file(config_dir)
+            .await
+            .map_err(WatcherError::generic)?;
         let watcher_config = WatcherConfig::from(daemon_config);
         NexusWatcherBuilder(watcher_config).start(shutdown_rx).await
     }
@@ -70,10 +72,11 @@ impl NexusWatcher {
     pub async fn start(
         mut shutdown_rx: Receiver<bool>,
         config: WatcherConfig,
-    ) -> Result<(), DynError> {
+    ) -> Result<(), WatcherError> {
         debug!(?config, "Running NexusWatcher with ");
 
-        let config_hs = PubkyId::try_from(config.homeserver.as_str())?;
+        let config_hs =
+            PubkyId::try_from(config.homeserver.as_str()).map_err(WatcherError::generic)?;
         Homeserver::persist_if_unknown(config_hs).await?;
 
         let mut interval = tokio::time::interval(Duration::from_millis(config.watcher_sleep));

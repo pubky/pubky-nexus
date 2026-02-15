@@ -2,10 +2,10 @@ use super::{
     stream::{HOT_TAGS_CACHE_PREFIX, POST_HOT_TAGS},
     Taggers as TaggersType,
 };
-use crate::db::kv::RedisResult;
-use crate::db::{fetch_key_from_graph, queries, RedisOps};
+use crate::db::{fetch_key_from_graph, kv::RedisResult, queries, RedisOps};
+use crate::models::error::{ModelError, ModelResult};
 use crate::types::StreamReach;
-use crate::types::{DynError, Timeframe};
+use crate::types::Timeframe;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, ops::Deref};
@@ -93,7 +93,7 @@ impl Taggers {
         skip: usize,
         limit: usize,
         timeframe: Timeframe,
-    ) -> Result<Option<TaggersType>, DynError> {
+    ) -> ModelResult<Option<TaggersType>> {
         match user_id {
             None => Self::get_from_global_timeline(&label, skip, limit, timeframe).await,
             Some(id) => {
@@ -121,7 +121,7 @@ impl Taggers {
         skip: usize,
         limit: usize,
         timeframe: Timeframe,
-    ) -> Result<Option<TaggersType>, DynError> {
+    ) -> ModelResult<Option<TaggersType>> {
         let timeframe_str = timeframe.to_string();
         let taggers_by_timeframe = Self::get_from_index(&timeframe_str).await?;
 
@@ -167,9 +167,11 @@ impl Taggers {
         reach: StreamReach,
         skip: usize,
         limit: usize,
-    ) -> Result<Option<TaggersType>, DynError> {
+    ) -> ModelResult<Option<TaggersType>> {
         let query = queries::get::get_tag_taggers_by_reach(label, user_id, reach, skip, limit);
-        fetch_key_from_graph::<TaggersType>(query, "tagger_ids").await
+        fetch_key_from_graph::<TaggersType>(query, "tagger_ids")
+            .await
+            .map_err(ModelError::from_graph_error)
     }
 
     /// Builds key parts for hot tag taggers based on the given timeframe

@@ -1,6 +1,7 @@
 use crate::db::kv::{RedisError, RedisResult, SortOrder};
 use crate::db::{fetch_all_rows_from_graph, queries, RedisOps};
-use crate::types::DynError;
+use crate::models::error::ModelError;
+use crate::models::error::ModelResult;
 use crate::types::Pagination;
 use chrono::Utc;
 use neo4rs::Row;
@@ -116,7 +117,7 @@ impl Notification {
     }
 
     /// Lists notifications from the sorted set for the user, based on skip and limit, or timestamp range.
-    pub async fn get_by_id(user_id: &str, pagination: Pagination) -> Result<Vec<Self>, DynError> {
+    pub async fn get_by_id(user_id: &str, pagination: Pagination) -> ModelResult<Vec<Self>> {
         // Set the default params for pagination
         let skip = pagination.skip.unwrap_or(0);
         let limit = pagination.limit.unwrap_or(20);
@@ -136,12 +137,19 @@ impl Notification {
 
         if let Some(notifications) = notifications {
             for (notification_body_str, score) in notifications {
-                if let Ok(body) = serde_json::from_str::<NotificationBody>(&notification_body_str) {
-                    let notification = Notification {
-                        timestamp: score as i64,
-                        body,
-                    };
-                    result.push(notification);
+                match serde_json::from_str::<NotificationBody>(&notification_body_str) {
+                    Ok(body) => {
+                        let notification = Notification {
+                            timestamp: score as i64,
+                            body,
+                        };
+                        result.push(notification);
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to deserialize notification, body: {notification_body_str}, reason: {e}"
+                        );
+                    }
                 }
             }
         }
@@ -149,11 +157,7 @@ impl Notification {
         Ok(result)
     }
 
-    pub async fn new_follow(
-        user_id: &str,
-        followee_id: &str,
-        new_friend: bool,
-    ) -> Result<(), DynError> {
+    pub async fn new_follow(user_id: &str, followee_id: &str, new_friend: bool) -> ModelResult<()> {
         let body = match new_friend {
             true => NotificationBody::NewFriend {
                 followed_by: user_id.to_string(),
@@ -173,7 +177,7 @@ impl Notification {
         user_id: &str,
         followee_id: &str,
         were_friends: bool,
-    ) -> Result<(), DynError> {
+    ) -> ModelResult<()> {
         if !were_friends {
             return Ok(());
         }
@@ -192,7 +196,7 @@ impl Notification {
         author_id: &str,
         label: &str,
         post_uri: &str,
-    ) -> Result<(), DynError> {
+    ) -> ModelResult<()> {
         if user_id == author_id {
             return Ok(());
         }
@@ -212,7 +216,7 @@ impl Notification {
         tagger_user_id: &str,
         tagged_user_id: &str,
         label: &str,
-    ) -> Result<(), DynError> {
+    ) -> ModelResult<()> {
         if tagger_user_id == tagged_user_id {
             return Ok(());
         }
@@ -232,7 +236,7 @@ impl Notification {
         parent_uri: &str,
         reply_uri: &str,
         parent_post_author: &str,
-    ) -> Result<(), DynError> {
+    ) -> ModelResult<()> {
         if user_id == parent_post_author {
             return Ok(());
         }
@@ -252,7 +256,7 @@ impl Notification {
         user_id: &PubkyId,
         mentioned_id: &PubkyId,
         post_id: &str,
-    ) -> Result<Option<PubkyId>, DynError> {
+    ) -> ModelResult<Option<PubkyId>> {
         if user_id == mentioned_id {
             return Ok(None);
         }
@@ -271,7 +275,7 @@ impl Notification {
         embed_uri: &str,
         repost_uri: &str,
         embed_post_author: &str,
-    ) -> Result<(), DynError> {
+    ) -> ModelResult<()> {
         if user_id == embed_post_author {
             return Ok(());
         }
@@ -294,7 +298,7 @@ impl Notification {
         changed_uri: &str,
         change_source: PostChangedSource,
         changed_type: &PostChangedType,
-    ) -> Result<(), DynError> {
+    ) -> ModelResult<()> {
         if user_id == linked_post_author {
             return Ok(());
         }
@@ -327,7 +331,7 @@ impl Notification {
         post_id: &str,
         changed_uri: &str,
         changed_type: &PostChangedType,
-    ) -> Result<(), DynError> {
+    ) -> ModelResult<()> {
         // Define the notification types and associated data
         let notification_types: Vec<(QueryFunction, PostChangedSource, ExtractFunction)> = vec![
             (
@@ -374,7 +378,9 @@ impl Notification {
 
         for (query_fn, post_changed_source, extract_fn) in notification_types {
             let query = query_fn(author_id, post_id);
-            let rows = fetch_all_rows_from_graph(query).await?;
+            let rows = fetch_all_rows_from_graph(query)
+                .await
+                .map_err(ModelError::from_graph_error)?;
 
             for row in rows {
                 let (user_id, linked_uri) = extract_fn(&row);

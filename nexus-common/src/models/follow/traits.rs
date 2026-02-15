@@ -2,7 +2,8 @@ use crate::db::kv::RedisResult;
 use crate::db::{
     execute_graph_operation, fetch_row_from_graph, queries, OperationOutcome, RedisOps,
 };
-use crate::types::DynError;
+use crate::models::error::ModelError;
+use crate::models::error::ModelResult;
 use async_trait::async_trait;
 use chrono::Utc;
 use neo4rs::Query;
@@ -11,20 +12,19 @@ use neo4rs::Query;
 pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
     fn from_vec(vec: Vec<String>) -> Self;
 
-    async fn put_to_graph(
-        follower_id: &str,
-        followee_id: &str,
-    ) -> Result<OperationOutcome, DynError> {
+    async fn put_to_graph(follower_id: &str, followee_id: &str) -> ModelResult<OperationOutcome> {
         let indexed_at = Utc::now().timestamp_millis();
         let query = queries::put::create_follow(follower_id, followee_id, indexed_at);
-        execute_graph_operation(query).await
+        execute_graph_operation(query)
+            .await
+            .map_err(ModelError::from_graph_error)
     }
 
     async fn get_by_id(
         user_id: &str,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<Option<Self>, DynError> {
+    ) -> ModelResult<Option<Self>> {
         match Self::get_from_index(user_id, skip, limit).await? {
             Some(connections) => Ok(Some(Self::from_vec(connections))),
             None => {
@@ -42,9 +42,11 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
         user_id: &str,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<Option<Self>, DynError> {
+    ) -> ModelResult<Option<Self>> {
         let query = Self::get_query(user_id, skip, limit);
-        let maybe_row = fetch_row_from_graph(query).await?;
+        let maybe_row = fetch_row_from_graph(query)
+            .await
+            .map_err(ModelError::from_graph_error)?;
 
         let Some(row) = maybe_row else {
             return Ok(None);
@@ -77,7 +79,7 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
         Self::put_index_set(&[user_id], &user_list_ref, None, None).await
     }
 
-    async fn reindex(user_id: &str) -> Result<(), DynError> {
+    async fn reindex(user_id: &str) -> ModelResult<()> {
         match Self::get_from_graph(user_id, None, None).await? {
             Some(follow) => follow.put_to_index(user_id).await?,
             None => tracing::error!(
@@ -88,12 +90,11 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
         Ok(())
     }
 
-    async fn del_from_graph(
-        follower_id: &str,
-        followee_id: &str,
-    ) -> Result<OperationOutcome, DynError> {
+    async fn del_from_graph(follower_id: &str, followee_id: &str) -> ModelResult<OperationOutcome> {
         let query = queries::del::delete_follow(follower_id, followee_id);
-        execute_graph_operation(query).await
+        execute_graph_operation(query)
+            .await
+            .map_err(ModelError::from_graph_error)
     }
 
     async fn del_from_index(&self, user_id: &str) -> RedisResult<()> {

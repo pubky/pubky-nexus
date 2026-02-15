@@ -1,7 +1,8 @@
 use crate::db::kv::RedisResult;
 use crate::db::RedisOps;
+use crate::models::error::ModelResult;
 use crate::models::tag::Taggers;
-use crate::types::{DynError, Pagination};
+use crate::types::Pagination;
 use async_trait::async_trait;
 
 use super::collection::CACHE_SET_PREFIX;
@@ -40,7 +41,7 @@ where
         pagination: Pagination,
         viewer_id: Option<&str>,
         depth: Option<u8>,
-    ) -> Result<TaggersTuple, DynError> {
+    ) -> ModelResult<TaggersTuple> {
         // Set default params for pagination
         let skip = pagination.skip.unwrap_or(0);
         let limit = pagination.limit.unwrap_or(40);
@@ -105,7 +106,7 @@ where
         author_id: &str,
         extra_param: Option<&str>,
         tag_label: &str,
-    ) -> Result<(), DynError> {
+    ) -> ModelResult<()> {
         let key = match extra_param {
             Some(post_id) => vec![author_id, post_id, tag_label],
             None => vec![author_id, tag_label],

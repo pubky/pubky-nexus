@@ -1,8 +1,8 @@
 use super::UserDetails;
-use crate::db::kv::RedisResult;
-use crate::db::RedisOps;
+use crate::db::{kv::RedisResult, RedisOps};
 use crate::models::create_zero_score_tuples;
-use crate::{models::traits::Collection, types::DynError};
+use crate::models::error::ModelResult;
+use crate::models::traits::Collection;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -20,7 +20,7 @@ impl UserSearch {
         name_prefix: &str,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<Option<Self>, DynError> {
+    ) -> ModelResult<Option<Self>> {
         // Perform the lexicographical range search
         let elements = Self::get_from_index_name(name_prefix, skip, limit).await?;
 
@@ -44,7 +44,7 @@ impl UserSearch {
         id_prefix: &str,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<Option<Self>, DynError> {
+    ) -> ModelResult<Option<Self>> {
         // Perform the lexicographical range search
         let elements = Self::get_from_index_id(id_prefix, skip, limit).await?;
 
@@ -149,71 +149,3 @@ impl UserSearch {
         Ok(())
     }
 }
-
-// #[cfg(test)]
-// mod tests {
-//     use crate::{
-//         models::{
-//             traits::Collection,
-//             user::{UserDetails, UserSearch},
-//         },
-//         types::DynError,
-//         RedisOps,
-//         _service::NexusApi,
-//     };
-//     use chrono::Utc;
-//     use pubky_app_specs::PubkyId;
-
-//     #[tokio_shared_rt::test(shared)]
-//     async fn test_put_to_index_no_duplicates() -> Result<(), DynError> {
-//         NexusApi::builder().init_stack().await;
-//         // Test that the `put_to_index` method does not add duplicate records to the index
-//         // when called with the same `UserDetails` multiple times.
-
-//         // Create a `UserDetails` object
-//         let user_id = "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo";
-//         let user_name = "Test User Duplicate";
-//         let user_details = UserDetails {
-//             id: PubkyId::try_from(user_id).expect("valid pubky id"),
-//             name: user_name.to_string(),
-//             bio: None,
-//             status: None,
-//             links: None,
-//             image: None,
-//             indexed_at: Utc::now().timestamp_millis(),
-//         };
-
-//         user_details.put_to_graph().await?;
-//         user_details
-//             .put_index_json(vec![user_id].as_slice(), None, None)
-//             .await?;
-
-//         // Call `put_to_index` with the same `UserDetails` object
-//         UserSearch::put_to_index(&[&user_details]).await?;
-
-//         // Check that the index contains only one record for the user
-//         let search_result = UserSearch::get_by_name(&user_name, None, None).await?;
-//         assert_eq!(search_result.unwrap().0, vec![user_id.to_string()]);
-
-//         let new_user_name = "Some Other User Name";
-//         let new_user_details = UserDetails {
-//             id: PubkyId::try_from(user_id).expect("valid pubky id"),
-//             name: new_user_name.to_string(),
-//             bio: None,
-//             status: None,
-//             links: None,
-//             image: None,
-//             indexed_at: Utc::now().timestamp_millis(),
-//         };
-
-//         // Call `put_to_index` with new user details
-//         UserSearch::put_to_index(&[&new_user_details]).await?;
-
-//         // Check the previous record is deleted
-//         // Check that the index contains only one record for the user
-//         let search_result = UserSearch::get_by_name(&user_name, None, None).await?;
-//         assert_eq!(search_result.is_none(), true);
-
-//         Ok(())
-//     }
-//}

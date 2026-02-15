@@ -2,7 +2,8 @@ use crate::db::kv::RedisResult;
 use crate::db::{
     execute_graph_operation, fetch_row_from_graph, queries, OperationOutcome, RedisOps,
 };
-use crate::types::DynError;
+use crate::models::error::ModelError;
+use crate::models::error::ModelResult;
 use async_trait::async_trait;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -29,7 +30,7 @@ impl Muted {
         user_id: &str,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<Option<Self>, DynError> {
+    ) -> ModelResult<Option<Self>> {
         match Self::get_from_index(user_id, skip, limit).await? {
             Some(mutes) => Ok(Some(Self::from_vec(mutes))),
             None => {
@@ -55,9 +56,11 @@ impl Muted {
         user_id: &str,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<Option<Self>, DynError> {
+    ) -> ModelResult<Option<Self>> {
         let query = queries::get::get_user_muted(user_id, skip, limit);
-        let maybe_row = fetch_row_from_graph(query).await?;
+        let maybe_row = fetch_row_from_graph(query)
+            .await
+            .map_err(ModelError::from_graph_error)?;
 
         let Some(row) = maybe_row else {
             return Ok(None);
@@ -80,13 +83,15 @@ impl Muted {
         Self::put_index_set(&[user_id], &user_list_ref, None, None).await
     }
 
-    pub async fn put_to_graph(user_id: &str, muted_id: &str) -> Result<OperationOutcome, DynError> {
+    pub async fn put_to_graph(user_id: &str, muted_id: &str) -> ModelResult<OperationOutcome> {
         let indexed_at = Utc::now().timestamp_millis();
         let query = queries::put::create_mute(user_id, muted_id, indexed_at);
-        execute_graph_operation(query).await
+        execute_graph_operation(query)
+            .await
+            .map_err(ModelError::from_graph_error)
     }
 
-    pub async fn reindex(user_id: &str) -> Result<(), DynError> {
+    pub async fn reindex(user_id: &str) -> ModelResult<()> {
         match Self::get_from_graph(user_id, None, None).await? {
             Some(muted) => muted.put_to_index(user_id).await?,
             None => tracing::error!(
@@ -97,12 +102,11 @@ impl Muted {
         Ok(())
     }
 
-    pub async fn del_from_graph(
-        user_id: &str,
-        muted_id: &str,
-    ) -> Result<OperationOutcome, DynError> {
+    pub async fn del_from_graph(user_id: &str, muted_id: &str) -> ModelResult<OperationOutcome> {
         let query = queries::del::delete_mute(user_id, muted_id);
-        execute_graph_operation(query).await
+        execute_graph_operation(query)
+            .await
+            .map_err(ModelError::from_graph_error)
     }
 
     pub async fn del_from_index(&self, user_id: &str) -> RedisResult<()> {
