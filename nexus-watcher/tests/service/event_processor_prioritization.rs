@@ -32,7 +32,7 @@ async fn test_event_processor_runner_default_homeserver_excluded() -> Result<(),
     }
 
     // The default homeserver should be excluded from the list
-    let hs_ids = runner.homeservers_by_priority().await?;
+    let hs_ids = runner.external_homeservers_by_priority().await?;
     assert!(
         !hs_ids.contains(&HS_IDS[3].to_string()),
         "Default homeserver should be excluded from homeservers_by_priority"
@@ -64,7 +64,7 @@ async fn test_mock_event_processor_runner_default_homeserver_excluded() -> Resul
     }
 
     // The default homeserver (HS_IDS[0]) should be excluded from the list
-    let hs_ids = runner.homeservers_by_priority().await?;
+    let hs_ids = runner.external_homeservers_by_priority().await?;
     assert!(
         !hs_ids.contains(&HS_IDS[0].to_string()),
         "Default homeserver should be excluded from homeservers_by_priority"

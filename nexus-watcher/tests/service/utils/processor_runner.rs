@@ -50,7 +50,7 @@ impl TEventProcessorRunner for MockEventProcessorRunner {
         self.monitored_homeservers_limit
     }
 
-    async fn homeservers_by_priority(&self) -> Result<Vec<String>, DynError> {
+    async fn external_homeservers_by_priority(&self) -> Result<Vec<String>, DynError> {
         let persistedhs_ids = Homeserver::get_all_from_graph().await?;
 
         let mut hs_ids = vec![];

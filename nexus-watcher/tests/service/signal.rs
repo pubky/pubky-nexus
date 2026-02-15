@@ -14,7 +14,7 @@ async fn test_shutdown_signal() -> Result<()> {
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
     // Create 3 random homeservers with timeout limit
-    // Index 0: 0s sleep (default, excluded from run_all)
+    // Index 0: 0s sleep (default, excluded from run_external_homeservers)
     // Index 1: 2s sleep
     // Index 2: 4s sleep
     for index in 0..3 {
@@ -40,9 +40,9 @@ async fn test_shutdown_signal() -> Result<()> {
         }
     });
 
-    let stats = runner.run_all().await.unwrap().0;
+    let stats = runner.run_external_homeservers().await.unwrap().0;
 
-    // run_all excludes the default HS (0s sleep).
+    // run_external_homeservers excludes the default HS (0s sleep).
     // Of the remaining 2 (2s, 4s sleep), the shutdown signal fires after 1s.
     // The 2s HS starts running, detects shutdown and exits early with Ok.
     // The 4s HS doesn't start because shutdown is detected before it begins.

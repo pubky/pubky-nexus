@@ -71,7 +71,7 @@ impl NexusWatcher {
     /// Starts the Nexus Watcher with 3 parallel loops:
     ///
     /// 1. **Default homeserver loop**: Processes events from the default homeserver defined in [`WatcherConfig`].
-    /// 2. **Other homeservers loop**: Processes events from all other monitored homeservers, excluding the default.
+    /// 2. **External homeservers loop**: Processes events from all external monitored homeservers, excluding the default.
     /// 3. **Reserved loop**: Placeholder for future use.
     ///
     /// All loops share the same tick interval ([`WatcherConfig::watcher_sleep`]) and listen for
@@ -110,8 +110,8 @@ impl NexusWatcher {
             })
         };
 
-        // Thread 2: Other homeservers processing
-        let other_hs_handle = {
+        // Thread 2: External homeservers processing
+        let external_hss_handle = {
             let runner = ev_processor_runner.clone();
             let mut shutdown = shutdown_rx.clone();
             tokio::spawn(async move {
@@ -125,7 +125,7 @@ impl NexusWatcher {
                         _ = interval.tick() => {
                             debug!("Indexing other homeservers…");
                             _ = runner
-                                .run_all()
+                                .run_external_homeservers()
                                 .await
                                 .inspect_err(|e| error!("Failed to start event processors run: {e}"));
                         }
@@ -144,7 +144,7 @@ impl NexusWatcher {
             })
         };
 
-        let _ = tokio::try_join!(default_hs_handle, other_hs_handle, reserved_handle);
+        let _ = tokio::try_join!(default_hs_handle, external_hss_handle, reserved_handle);
         info!("Nexus Watcher shut down gracefully");
         Ok(())
     }
