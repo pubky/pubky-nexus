@@ -17,7 +17,7 @@ use crate::service::{
 /// - Implementors should ensure that created processors are properly isolated and
 ///   don't share mutable state unless explicitly intended
 #[async_trait::async_trait]
-pub trait TEventProcessorRunner {
+pub trait TEventProcessorRunner: Send + Sync {
     /// Returns the shutdown signal receiver
     fn shutdown_rx(&self) -> Receiver<bool>;
 
@@ -29,7 +29,8 @@ pub trait TEventProcessorRunner {
 
     /// Returns the homeserver IDs relevant for this run, ordered by their priority.
     ///
-    /// Contains all homeserver IDs from the graph, with the default homeserver prioritized at index 0.
+    /// The default homeserver is excluded from this list, as it is processed separately
+    /// via [`TEventProcessorRunner::run_default_homeserver`].
     async fn homeservers_by_priority(&self) -> Result<Vec<String>, DynError>;
 
     /// Creates and returns a new event processor instance for the specified homeserver.
@@ -83,7 +84,39 @@ pub trait TEventProcessorRunner {
         ProcessedStats(stats)
     }
 
+    /// Builds and runs a single event processor for the default homeserver.
+    ///
+    /// # Returns
+    /// Statistics about the event processor run result, summarized as [`RunAllProcessorsStats`]
+    async fn run_default_homeserver(&self) -> Result<ProcessedStats, DynError> {
+        let hs_id = self.default_homeserver().to_string();
+        let mut run_stats = RunAllProcessorsStats::default();
+
+        let t0 = Instant::now();
+        let status = match self.build(hs_id.clone()).await {
+            Ok(event_processor) => match event_processor.run().await {
+                Ok(_) => ProcessorRunStatus::Ok,
+                Err(RunError::Internal(_)) => ProcessorRunStatus::Error,
+                Err(RunError::Panicked) => ProcessorRunStatus::Panic,
+                Err(RunError::TimedOut) => ProcessorRunStatus::Timeout,
+            },
+            Err(e) => {
+                error!("Failed to build event processor for default homeserver: {hs_id}: {e}");
+                ProcessorRunStatus::FailedToBuild
+            }
+        };
+        let duration = Instant::now().duration_since(t0);
+
+        run_stats.add_run_result(hs_id, duration, status);
+
+        let processed_stats = self.post_run_all(run_stats).await;
+        Ok(processed_stats)
+    }
+
     /// Runs event processors for all homeservers relevant for this run, with timeout protection.
+    ///
+    /// Does not include the default homeserver, which is processed separately
+    /// via [`TEventProcessorRunner::run_default_homeserver`].
     ///
     /// # Returns
     /// Statistics about the event processor run results, summarized as [`RunAllProcessorsStats`]

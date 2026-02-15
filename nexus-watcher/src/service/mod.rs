@@ -18,6 +18,7 @@ use nexus_common::utils::create_shutdown_rx;
 use nexus_common::{DaemonConfig, WatcherConfig};
 use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::sync::watch::Receiver;
 use tokio::time::Duration;
 use tracing::{debug, error, info};
@@ -67,33 +68,83 @@ impl NexusWatcher {
         NexusWatcherBuilder(watcher_config).start(shutdown_rx).await
     }
 
-    pub async fn start(
-        mut shutdown_rx: Receiver<bool>,
-        config: WatcherConfig,
-    ) -> Result<(), DynError> {
+    /// Starts the Nexus Watcher with 3 parallel loops:
+    ///
+    /// 1. **Default homeserver loop**: Processes events from the default homeserver defined in [`WatcherConfig`].
+    /// 2. **Other homeservers loop**: Processes events from all other monitored homeservers, excluding the default.
+    /// 3. **Reserved loop**: Placeholder for future use.
+    ///
+    /// All loops share the same tick interval ([`WatcherConfig::watcher_sleep`]) and listen for
+    /// the shutdown signal to exit gracefully.
+    pub async fn start(shutdown_rx: Receiver<bool>, config: WatcherConfig) -> Result<(), DynError> {
         debug!(?config, "Running NexusWatcher with ");
 
         let config_hs = PubkyId::try_from(config.homeserver.as_str())?;
         Homeserver::persist_if_unknown(config_hs).await?;
 
-        let mut interval = tokio::time::interval(Duration::from_millis(config.watcher_sleep));
+        let watcher_sleep = config.watcher_sleep;
         let ev_processor_runner = EventProcessorRunner::from_config(&config, shutdown_rx.clone());
+        let ev_processor_runner = Arc::new(ev_processor_runner);
 
-        loop {
-            tokio::select! {
-                _ = shutdown_rx.changed() => {
-                    info!("SIGINT received, exiting Nexus Watcher loop");
-                    break;
+        // Thread 1: Default homeserver processing
+        let default_hs_handle = {
+            let runner = ev_processor_runner.clone();
+            let mut shutdown = shutdown_rx.clone();
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(Duration::from_millis(watcher_sleep));
+                loop {
+                    tokio::select! {
+                        _ = shutdown.changed() => {
+                            info!("SIGINT received, exiting default homeserver loop");
+                            break;
+                        }
+                        _ = interval.tick() => {
+                            debug!("Indexing default homeserver…");
+                            _ = runner
+                                .run_default_homeserver()
+                                .await
+                                .inspect_err(|e| error!("Failed to run default homeserver event processor: {e}"));
+                        }
+                    }
                 }
-                _ = interval.tick() => {
-                    debug!("Indexing homeservers…");
-                    _ = ev_processor_runner
-                        .run_all()
-                        .await
-                        .inspect_err(|e| error!("Failed to start event processors run: {e}"));
+            })
+        };
+
+        // Thread 2: Other homeservers processing
+        let other_hs_handle = {
+            let runner = ev_processor_runner.clone();
+            let mut shutdown = shutdown_rx.clone();
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(Duration::from_millis(watcher_sleep));
+                loop {
+                    tokio::select! {
+                        _ = shutdown.changed() => {
+                            info!("SIGINT received, exiting other homeservers loop");
+                            break;
+                        }
+                        _ = interval.tick() => {
+                            debug!("Indexing other homeservers…");
+                            _ = runner
+                                .run_all()
+                                .await
+                                .inspect_err(|e| error!("Failed to start event processors run: {e}"));
+                        }
+                    }
                 }
-            }
-        }
+            })
+        };
+
+        // Thread 3: Reserved for future use
+        let reserved_handle = {
+            let mut shutdown = shutdown_rx.clone();
+            tokio::spawn(async move {
+                // TODO: Reserved for future use
+                let _ = shutdown.changed().await;
+                info!("SIGINT received, exiting reserved loop");
+            })
+        };
+
+        let _ = tokio::try_join!(default_hs_handle, other_hs_handle, reserved_handle);
         info!("Nexus Watcher shut down gracefully");
         Ok(())
     }
