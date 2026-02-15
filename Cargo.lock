@@ -2328,7 +2328,7 @@ checksum = "9171a2ea8a68358193d15dd5d70c1c10a2afc3e7e4c5bc92bc9f025cebd7359c"
 [[package]]
 name = "http-relay"
 version = "0.5.1"
-source = "git+https://github.com/pubky/pubky-core.git?rev=0ec564d746236f46553ef56888a3aef9c1096f55#0ec564d746236f46553ef56888a3aef9c1096f55"
+source = "git+https://github.com/pubky/pubky-core.git?branch=sdk_evemts_for_homeserver#92870dc8600ece9c1d87f590f8a88a714aaf41f4"
 dependencies = [
  "anyhow",
  "axum",
@@ -3052,7 +3052,7 @@ dependencies = [
  "opentelemetry-appender-tracing",
  "opentelemetry-otlp",
  "opentelemetry_sdk 0.31.0",
- "pubky 0.6.0",
+ "pubky 0.7.0-rc.1",
  "pubky-app-specs",
  "redis",
  "serde",
@@ -3092,7 +3092,7 @@ dependencies = [
  "neo4rs",
  "nexus-common",
  "opentelemetry 0.31.0",
- "pubky 0.6.0",
+ "pubky 0.7.0-rc.1",
  "pubky-app-specs",
  "pubky-testnet",
  "rand 0.10.0",
@@ -3121,7 +3121,7 @@ dependencies = [
  "neo4rs",
  "nexus-common",
  "opentelemetry 0.31.0",
- "pubky 0.6.0",
+ "pubky 0.7.0-rc.1",
  "pubky-app-specs",
  "pubky-testnet",
  "serde",
@@ -3812,7 +3812,7 @@ dependencies = [
 [[package]]
 name = "pkarr-republisher"
 version = "0.5.1"
-source = "git+https://github.com/pubky/pubky-core.git?rev=0ec564d746236f46553ef56888a3aef9c1096f55#0ec564d746236f46553ef56888a3aef9c1096f55"
+source = "git+https://github.com/pubky/pubky-core.git?branch=sdk_evemts_for_homeserver#92870dc8600ece9c1d87f590f8a88a714aaf41f4"
 dependencies = [
  "anyhow",
  "clap",
@@ -4096,8 +4096,8 @@ dependencies = [
 
 [[package]]
 name = "pubky"
-version = "0.6.0"
-source = "git+https://github.com/pubky/pubky-core.git?rev=0ec564d746236f46553ef56888a3aef9c1096f55#0ec564d746236f46553ef56888a3aef9c1096f55"
+version = "0.7.0-rc.1"
+source = "git+https://github.com/pubky/pubky-core.git?branch=sdk_evemts_for_homeserver#92870dc8600ece9c1d87f590f8a88a714aaf41f4"
 dependencies = [
  "base64",
  "cookie",
@@ -4108,7 +4108,7 @@ dependencies = [
  "httpdate",
  "log",
  "pkarr 3.10.0",
- "pubky-common 0.6.0",
+ "pubky-common 0.7.0-rc.1",
  "reqwest",
  "serde",
  "thiserror 2.0.18",
@@ -4161,8 +4161,8 @@ dependencies = [
 
 [[package]]
 name = "pubky-common"
-version = "0.6.0"
-source = "git+https://github.com/pubky/pubky-core.git?rev=0ec564d746236f46553ef56888a3aef9c1096f55#0ec564d746236f46553ef56888a3aef9c1096f55"
+version = "0.7.0-rc.1"
+source = "git+https://github.com/pubky/pubky-core.git?branch=sdk_evemts_for_homeserver#92870dc8600ece9c1d87f590f8a88a714aaf41f4"
 dependencies = [
  "argon2",
  "base32",
@@ -4182,8 +4182,8 @@ dependencies = [
 
 [[package]]
 name = "pubky-homeserver"
-version = "0.6.0"
-source = "git+https://github.com/pubky/pubky-core.git?rev=0ec564d746236f46553ef56888a3aef9c1096f55#0ec564d746236f46553ef56888a3aef9c1096f55"
+version = "0.7.0-rc.1"
+source = "git+https://github.com/pubky/pubky-core.git?branch=sdk_evemts_for_homeserver#92870dc8600ece9c1d87f590f8a88a714aaf41f4"
 dependencies = [
  "anyhow",
  "async-dropper",
@@ -4221,7 +4221,7 @@ dependencies = [
  "pkarr-republisher",
  "postcard",
  "prometheus",
- "pubky-common 0.6.0",
+ "pubky-common 0.7.0-rc.1",
  "pubky_test_utils",
  "reqwest",
  "sea-query",
@@ -4245,8 +4245,8 @@ dependencies = [
 
 [[package]]
 name = "pubky-testnet"
-version = "0.6.0"
-source = "git+https://github.com/pubky/pubky-core.git?rev=0ec564d746236f46553ef56888a3aef9c1096f55#0ec564d746236f46553ef56888a3aef9c1096f55"
+version = "0.7.0-rc.1"
+source = "git+https://github.com/pubky/pubky-core.git?branch=sdk_evemts_for_homeserver#92870dc8600ece9c1d87f590f8a88a714aaf41f4"
 dependencies = [
  "anyhow",
  "clap",
@@ -4256,8 +4256,8 @@ dependencies = [
  "once_cell",
  "pkarr 3.10.0",
  "pkarr-relay",
- "pubky 0.6.0",
- "pubky-common 0.6.0",
+ "pubky 0.7.0-rc.1",
+ "pubky-common 0.7.0-rc.1",
  "pubky-homeserver",
  "pubky_test_utils",
  "tempfile",
@@ -4285,7 +4285,7 @@ dependencies = [
 [[package]]
 name = "pubky_test_utils"
 version = "0.1.0"
-source = "git+https://github.com/pubky/pubky-core.git?rev=0ec564d746236f46553ef56888a3aef9c1096f55#0ec564d746236f46553ef56888a3aef9c1096f55"
+source = "git+https://github.com/pubky/pubky-core.git?branch=sdk_evemts_for_homeserver#92870dc8600ece9c1d87f590f8a88a714aaf41f4"
 dependencies = [
  "pubky_test_utils_drop_db_helper",
  "pubky_test_utils_macro",
@@ -4294,7 +4294,7 @@ dependencies = [
 [[package]]
 name = "pubky_test_utils_drop_db_helper"
 version = "0.1.0"
-source = "git+https://github.com/pubky/pubky-core.git?rev=0ec564d746236f46553ef56888a3aef9c1096f55#0ec564d746236f46553ef56888a3aef9c1096f55"
+source = "git+https://github.com/pubky/pubky-core.git?branch=sdk_evemts_for_homeserver#92870dc8600ece9c1d87f590f8a88a714aaf41f4"
 dependencies = [
  "sqlx",
 ]
@@ -4302,7 +4302,7 @@ dependencies = [
 [[package]]
 name = "pubky_test_utils_macro"
 version = "0.1.0"
-source = "git+https://github.com/pubky/pubky-core.git?rev=0ec564d746236f46553ef56888a3aef9c1096f55#0ec564d746236f46553ef56888a3aef9c1096f55"
+source = "git+https://github.com/pubky/pubky-core.git?branch=sdk_evemts_for_homeserver#92870dc8600ece9c1d87f590f8a88a714aaf41f4"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
