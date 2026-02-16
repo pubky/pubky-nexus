@@ -1,6 +1,5 @@
 use crate::db::kv::{RedisError, RedisResult, SortOrder};
 use crate::db::{fetch_all_rows_from_graph, queries, RedisOps};
-use crate::models::error::ModelError;
 use crate::models::error::ModelResult;
 use crate::types::Pagination;
 use chrono::Utc;
@@ -378,9 +377,7 @@ impl Notification {
 
         for (query_fn, post_changed_source, extract_fn) in notification_types {
             let query = query_fn(author_id, post_id);
-            let rows = fetch_all_rows_from_graph(query)
-                .await
-                .map_err(ModelError::from_graph_error)?;
+            let rows = fetch_all_rows_from_graph(query).await?;
 
             for row in rows {
                 let (user_id, linked_uri) = extract_fn(&row);

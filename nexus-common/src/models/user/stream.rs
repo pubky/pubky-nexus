@@ -152,9 +152,7 @@ impl UserStream {
 
         // Cache miss; proceed to query Neo4j
         let query = queries::get::recommend_users(user_id, 30);
-        let rows = fetch_all_rows_from_graph(query)
-            .await
-            .map_err(ModelError::from_graph_error)?;
+        let rows = fetch_all_rows_from_graph(query).await?;
 
         let mut user_ids = Vec::new();
 

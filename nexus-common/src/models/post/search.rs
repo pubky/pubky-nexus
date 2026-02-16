@@ -1,7 +1,6 @@
 use crate::db::kv::{RedisResult, ScoreAction, SortOrder};
 use crate::db::queries::get::{global_tags_by_post, global_tags_by_post_engagement};
 use crate::db::{fetch_all_rows_from_graph, RedisOps};
-use crate::models::error::ModelError;
 use crate::models::error::ModelResult;
 use crate::models::post::PostDetails;
 use crate::models::tag::post::TagPost;
@@ -47,9 +46,7 @@ impl PostsByTagSearch {
     /// Retrieves post tags from a Neo4j graph and updates global sorted sets
     /// for both timeline and engagement-based metrics.
     async fn add_to_global_sorted_set(query: Query, index_key: [&str; 4]) -> ModelResult<()> {
-        let rows = fetch_all_rows_from_graph(query)
-            .await
-            .map_err(ModelError::from_graph_error)?;
+        let rows = fetch_all_rows_from_graph(query).await?;
 
         for row in rows {
             let label: &str = row.get("label").unwrap_or("");

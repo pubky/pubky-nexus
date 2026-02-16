@@ -19,9 +19,7 @@ impl TagView {
     /// Retrieves a user by ID, checking the cache first and then the graph database.
     pub async fn get_by_tagger_and_id(tagger_id: &str, tag_id: &str) -> ModelResult<Option<Self>> {
         let query = queries::get::get_tag_by_tagger_and_id(tagger_id, tag_id);
-        let result = fetch_row_from_graph(query)
-            .await
-            .map_err(ModelError::from_graph_error)?;
+        let result = fetch_row_from_graph(query).await?;
 
         let Some(row) = result else {
             return Ok(None);

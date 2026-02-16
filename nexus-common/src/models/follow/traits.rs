@@ -2,7 +2,6 @@ use crate::db::kv::RedisResult;
 use crate::db::{
     execute_graph_operation, fetch_row_from_graph, queries, OperationOutcome, RedisOps,
 };
-use crate::models::error::ModelError;
 use crate::models::error::ModelResult;
 use async_trait::async_trait;
 use chrono::Utc;
@@ -15,9 +14,7 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
     async fn put_to_graph(follower_id: &str, followee_id: &str) -> ModelResult<OperationOutcome> {
         let indexed_at = Utc::now().timestamp_millis();
         let query = queries::put::create_follow(follower_id, followee_id, indexed_at);
-        execute_graph_operation(query)
-            .await
-            .map_err(ModelError::from_graph_error)
+        execute_graph_operation(query).await.map_err(Into::into)
     }
 
     async fn get_by_id(
@@ -44,9 +41,7 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
         limit: Option<usize>,
     ) -> ModelResult<Option<Self>> {
         let query = Self::get_query(user_id, skip, limit);
-        let maybe_row = fetch_row_from_graph(query)
-            .await
-            .map_err(ModelError::from_graph_error)?;
+        let maybe_row = fetch_row_from_graph(query).await?;
 
         let Some(row) = maybe_row else {
             return Ok(None);
@@ -92,9 +87,7 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
 
     async fn del_from_graph(follower_id: &str, followee_id: &str) -> ModelResult<OperationOutcome> {
         let query = queries::del::delete_follow(follower_id, followee_id);
-        execute_graph_operation(query)
-            .await
-            .map_err(ModelError::from_graph_error)
+        execute_graph_operation(query).await.map_err(Into::into)
     }
 
     async fn del_from_index(&self, user_id: &str) -> RedisResult<()> {

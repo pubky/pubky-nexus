@@ -1,7 +1,7 @@
 use super::UserSearch;
 use crate::db::kv::RedisResult;
-use crate::db::{exec_single_row, queries, RedisOps};
-use crate::models::error::{ModelError, ModelResult};
+use crate::db::{exec_single_row, queries, GraphResult, RedisOps};
+use crate::models::error::ModelResult;
 use crate::models::traits::Collection;
 use async_trait::async_trait;
 use chrono::Utc;
@@ -20,8 +20,8 @@ impl Collection<&str> for UserDetails {
         queries::get::get_users_details_by_ids(id_list)
     }
 
-    fn put_graph_query(&self) -> ModelResult<Query> {
-        queries::put::create_user(self).map_err(ModelError::from_graph_error)
+    fn put_graph_query(&self) -> GraphResult<Query> {
+        queries::put::create_user(self)
     }
 
     async fn extend_on_index_miss(details: &[std::option::Option<Self>]) -> RedisResult<()> {
@@ -101,9 +101,7 @@ impl UserDetails {
         // Delete user_details on Redis
         Self::remove_from_index_multiple_json(&[&[user_id]]).await?;
         // Delete user graph node;
-        exec_single_row(queries::del::delete_user(user_id))
-            .await
-            .map_err(ModelError::from_graph_error)?;
+        exec_single_row(queries::del::delete_user(user_id)).await?;
 
         Ok(())
     }

@@ -1,6 +1,6 @@
 use super::{Bookmark, PostCounts, PostDetails, PostView};
 use crate::db::kv::{RedisResult, ScoreAction, SortOrder};
-use crate::db::{get_neo4j_graph, queries, RedisOps};
+use crate::db::{get_neo4j_graph, queries, GraphError, RedisOps};
 use crate::models::error::ModelError;
 use crate::models::error::ModelResult;
 use crate::models::{
@@ -255,14 +255,22 @@ impl PostStream {
     ) -> ModelResult<PostKeyStream> {
         let mut result;
         {
-            let graph = get_neo4j_graph().map_err(ModelError::from_graph_error)?;
+            let graph = get_neo4j_graph()?;
             let query = queries::get::post_stream(source, sorting, tags, pagination, kind);
 
             // Set a 10-second timeout for the query execution
             result = match timeout(Duration::from_secs(10), graph.execute(query)).await {
                 Ok(Ok(res)) => res, // Successfully executed within the timeout
-                Ok(Err(e)) => return Err(ModelError::from_graph_error(e)), // Query failed
-                Err(_) => return Err(ModelError::from_graph_error("Query timed out")), // Timeout error
+                Ok(Err(e)) => {
+                    return Err(ModelError::GraphOperationFailed {
+                        source: GraphError::QueryFailed(e.into()),
+                    })
+                } // Query failed
+                Err(_) => {
+                    return Err(ModelError::GraphOperationFailed {
+                        source: GraphError::QueryTimeout,
+                    })
+                } // Timeout error
             };
         }
 
@@ -270,7 +278,11 @@ impl PostStream {
         // Track the last post's indexed_at value
         let mut last_post_indexed_at: Option<i64> = None;
 
-        while let Some(row) = result.next().await.map_err(ModelError::from_graph_error)? {
+        while let Some(row) = result
+            .next()
+            .await
+            .map_err(|e| GraphError::QueryFailed(e.into()))?
+        {
             let author_id: String = row.get("author_id")?;
             let post_id: String = row.get("post_id")?;
             let indexed_at: i64 = row.get("indexed_at")?;

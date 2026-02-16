@@ -1,7 +1,8 @@
+use crate::db::graph::GraphResult;
 use crate::db::kv::RedisResult;
 use crate::db::{exec_single_row, queries, RedisOps};
 use crate::media::FileVariant;
-use crate::models::error::{ModelError, ModelResult};
+use crate::models::error::ModelResult;
 use crate::models::traits::Collection;
 use async_trait::async_trait;
 use chrono::Utc;
@@ -96,8 +97,8 @@ impl Collection<&[&str]> for FileDetails {
         queries::get::get_files_by_ids(id_list)
     }
 
-    fn put_graph_query(&self) -> ModelResult<Query> {
-        queries::put::create_file(self).map_err(ModelError::from_graph_error)
+    fn put_graph_query(&self) -> GraphResult<Query> {
+        queries::put::create_file(self)
     }
 
     async fn extend_on_index_miss(_: &[std::option::Option<Self>]) -> RedisResult<()> {
@@ -131,8 +132,7 @@ impl FileDetails {
     pub async fn delete(&self) -> ModelResult<()> {
         exec_single_row(queries::del::delete_file(&self.owner_id, &self.id))
             .await
-            .inspect_err(|e| tracing::error!("Graph file deletion, {}: {:?}", self.id, e))
-            .map_err(ModelError::from_graph_error)?;
+            .inspect_err(|e| tracing::error!("Graph file deletion, {}: {:?}", self.id, e))?;
         Self::remove_from_index_multiple_json(&[&[&self.owner_id, &self.id]])
             .await
             .inspect_err(|e| tracing::error!("Index file deletion, {}: {:?}", self.id, e))?;

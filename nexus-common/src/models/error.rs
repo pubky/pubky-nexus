@@ -1,28 +1,30 @@
-use neo4rs::DeError;
 use thiserror::Error;
 
-use crate::{db::kv::RedisError, media::processors::MediaProcessorError};
+use crate::{
+    db::{kv::RedisError, GraphError},
+    media::processors::MediaProcessorError,
+};
 
 #[derive(Error, Debug)]
 pub enum ModelError {
     /// Failed to perform Graph Operation
-    #[error("GraphOperationFailed: {source}")]
+    #[error("GraphOperationFailed")]
     GraphOperationFailed {
         #[source]
-        source: Box<dyn std::error::Error + Send + Sync>,
+        source: GraphError,
     },
     /// Failed to perform KV Operation
-    #[error("KvOperationFailed: {source}")]
+    #[error("KvOperationFailed")]
     KvOperationFailed {
         #[source]
         source: RedisError,
     },
-    #[error("MediaProcessorError: {source}")]
+    #[error("MediaProcessorError")]
     MediaProcessorError {
         #[source]
         source: MediaProcessorError,
     },
-    #[error("FileOperationFailed: {source}")]
+    #[error("FileOperationFailed")]
     FileOperationFailed {
         #[source]
         source: Box<dyn std::error::Error + Send + Sync>,
@@ -37,25 +39,9 @@ impl From<RedisError> for ModelError {
     }
 }
 
-impl From<DeError> for ModelError {
-    fn from(e: DeError) -> Self {
-        ModelError::GraphOperationFailed {
-            source: Box::new(e),
-        }
-    }
-}
-
 impl From<std::io::Error> for ModelError {
     fn from(e: std::io::Error) -> Self {
         ModelError::FileOperationFailed {
-            source: Box::new(e),
-        }
-    }
-}
-
-impl From<neo4rs::Error> for ModelError {
-    fn from(e: neo4rs::Error) -> Self {
-        ModelError::GraphOperationFailed {
             source: Box::new(e),
         }
     }
@@ -67,13 +53,22 @@ impl From<MediaProcessorError> for ModelError {
     }
 }
 
-impl ModelError {
-    pub fn from_graph_error(source: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
-        Self::GraphOperationFailed {
-            source: source.into(),
+impl From<GraphError> for ModelError {
+    fn from(e: GraphError) -> Self {
+        ModelError::GraphOperationFailed { source: e }
+    }
+}
+
+impl From<neo4rs::DeError> for ModelError {
+    fn from(e: neo4rs::DeError) -> Self {
+        // Convert through GraphError to maintain error hierarchy
+        ModelError::GraphOperationFailed {
+            source: GraphError::from(e),
         }
     }
+}
 
+impl ModelError {
     pub fn from_generic(source: impl std::fmt::Display) -> Self {
         Self::Generic(source.to_string())
     }

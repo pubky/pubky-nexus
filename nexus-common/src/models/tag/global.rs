@@ -3,7 +3,7 @@ use super::{
     Taggers as TaggersType,
 };
 use crate::db::{fetch_key_from_graph, kv::RedisResult, queries, RedisOps};
-use crate::models::error::{ModelError, ModelResult};
+use crate::models::error::ModelResult;
 use crate::types::StreamReach;
 use crate::types::Timeframe;
 use async_trait::async_trait;
@@ -171,7 +171,7 @@ impl Taggers {
         let query = queries::get::get_tag_taggers_by_reach(label, user_id, reach, skip, limit);
         fetch_key_from_graph::<TaggersType>(query, "tagger_ids")
             .await
-            .map_err(ModelError::from_graph_error)
+            .map_err(Into::into)
     }
 
     /// Builds key parts for hot tag taggers based on the given timeframe

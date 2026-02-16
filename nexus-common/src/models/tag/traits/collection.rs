@@ -2,7 +2,6 @@ use crate::db::kv::{RedisResult, ScoreAction, SortOrder};
 use crate::db::{
     execute_graph_operation, fetch_row_from_graph, queries, OperationOutcome, RedisOps,
 };
-use crate::models::error::ModelError;
 use crate::models::error::ModelResult;
 use async_trait::async_trait;
 use neo4rs::Query;
@@ -204,9 +203,7 @@ where
             None => Self::read_graph_query(user_id, extra_param),
         };
 
-        let maybe_row = fetch_row_from_graph(query)
-            .await
-            .map_err(ModelError::from_graph_error)?;
+        let maybe_row = fetch_row_from_graph(query).await?;
         if let Some(row) = maybe_row {
             let user_exists: bool = row.get("exists").unwrap_or(false);
             if user_exists {
@@ -349,9 +346,7 @@ where
                 indexed_at,
             ),
         };
-        execute_graph_operation(query)
-            .await
-            .map_err(ModelError::from_graph_error)
+        execute_graph_operation(query).await.map_err(Into::into)
     }
 
     /// Reindexes tags for a given author by retrieving data from the graph database and updating the index.
@@ -397,9 +392,7 @@ where
         tag_id: &str,
     ) -> ModelResult<Option<(Option<String>, Option<String>, Option<String>, String)>> {
         let query = queries::del::delete_tag(user_id, tag_id);
-        let maybe_row = fetch_row_from_graph(query)
-            .await
-            .map_err(ModelError::from_graph_error)?;
+        let maybe_row = fetch_row_from_graph(query).await?;
 
         let Some(row) = maybe_row else {
             return Ok(None);

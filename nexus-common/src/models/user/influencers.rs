@@ -1,5 +1,4 @@
 use crate::db::kv::SortOrder;
-use crate::models::error::ModelError;
 use crate::models::error::ModelResult;
 use crate::types::StreamReach;
 use crate::types::Timeframe;
@@ -105,9 +104,7 @@ impl Influencers {
         }
 
         let query = queries::get::get_global_influencers(0, 100, timeframe);
-        let result = fetch_key_from_graph::<Influencers>(query, "influencers")
-            .await
-            .map_err(ModelError::from_graph_error)?;
+        let result = fetch_key_from_graph::<Influencers>(query, "influencers").await?;
 
         let influencers = match result {
             Some(influencers) => influencers,
@@ -215,7 +212,7 @@ impl Influencers {
         let query = queries::get::get_influencers_by_reach(user_id, reach, skip, limit, timeframe);
         fetch_key_from_graph::<Influencers>(query, "influencers")
             .await
-            .map_err(ModelError::from_graph_error)
+            .map_err(Into::into)
     }
 
     fn get_cache_key_parts(timeframe: &Timeframe) -> Vec<String> {

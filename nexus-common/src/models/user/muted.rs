@@ -2,7 +2,6 @@ use crate::db::kv::RedisResult;
 use crate::db::{
     execute_graph_operation, fetch_row_from_graph, queries, OperationOutcome, RedisOps,
 };
-use crate::models::error::ModelError;
 use crate::models::error::ModelResult;
 use async_trait::async_trait;
 use chrono::Utc;
@@ -58,9 +57,7 @@ impl Muted {
         limit: Option<usize>,
     ) -> ModelResult<Option<Self>> {
         let query = queries::get::get_user_muted(user_id, skip, limit);
-        let maybe_row = fetch_row_from_graph(query)
-            .await
-            .map_err(ModelError::from_graph_error)?;
+        let maybe_row = fetch_row_from_graph(query).await?;
 
         let Some(row) = maybe_row else {
             return Ok(None);
@@ -86,9 +83,7 @@ impl Muted {
     pub async fn put_to_graph(user_id: &str, muted_id: &str) -> ModelResult<OperationOutcome> {
         let indexed_at = Utc::now().timestamp_millis();
         let query = queries::put::create_mute(user_id, muted_id, indexed_at);
-        execute_graph_operation(query)
-            .await
-            .map_err(ModelError::from_graph_error)
+        execute_graph_operation(query).await.map_err(Into::into)
     }
 
     pub async fn reindex(user_id: &str) -> ModelResult<()> {
@@ -104,9 +99,7 @@ impl Muted {
 
     pub async fn del_from_graph(user_id: &str, muted_id: &str) -> ModelResult<OperationOutcome> {
         let query = queries::del::delete_mute(user_id, muted_id);
-        execute_graph_operation(query)
-            .await
-            .map_err(ModelError::from_graph_error)
+        execute_graph_operation(query).await.map_err(Into::into)
     }
 
     pub async fn del_from_index(&self, user_id: &str) -> RedisResult<()> {

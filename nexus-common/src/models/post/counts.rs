@@ -1,6 +1,5 @@
 use crate::db::kv::{JsonAction, RedisResult};
 use crate::db::{fetch_row_from_graph, queries, RedisOps};
-use crate::models::error::ModelError;
 use crate::models::error::ModelResult;
 use crate::models::tag::post::POST_TAGS_KEY_PARTS;
 use serde::{Deserialize, Serialize};
@@ -49,9 +48,7 @@ impl PostCounts {
         post_id: &str,
     ) -> ModelResult<Option<(PostCounts, bool)>> {
         let query = queries::get::post_counts(author_id, post_id);
-        let maybe_row = fetch_row_from_graph(query)
-            .await
-            .map_err(ModelError::from_graph_error)?;
+        let maybe_row = fetch_row_from_graph(query).await?;
 
         if let Some(row) = maybe_row {
             let post_exists: bool = row.get("exists").unwrap_or(false);

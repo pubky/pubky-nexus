@@ -1,6 +1,5 @@
 use crate::db::kv::{JsonAction, RedisResult};
 use crate::db::{fetch_row_from_graph, queries, RedisOps};
-use crate::models::error::ModelError;
 use crate::models::error::ModelResult;
 use crate::models::tag::user::USER_TAGS_KEY_PARTS;
 use serde::{Deserialize, Serialize};
@@ -46,9 +45,7 @@ impl UserCounts {
     /// Retrieves the counts from Neo4j.
     pub async fn get_from_graph(user_id: &str) -> ModelResult<Option<UserCounts>> {
         let query = queries::get::user_counts(user_id);
-        let maybe_row = fetch_row_from_graph(query)
-            .await
-            .map_err(ModelError::from_graph_error)?;
+        let maybe_row = fetch_row_from_graph(query).await?;
 
         if let Some(row) = maybe_row {
             let user_exists: bool = row.get("exists").unwrap_or(false);

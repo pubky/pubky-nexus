@@ -49,9 +49,7 @@ impl Homeserver {
     /// Stores this homeserver in the graph.
     pub async fn put_to_graph(&self) -> ModelResult<()> {
         let query = queries::put::create_homeserver(&self.id);
-        exec_single_row(query)
-            .await
-            .map_err(ModelError::from_graph_error)
+        exec_single_row(query).await.map_err(Into::into)
     }
 
     /// Retrieves a homeserver from Neo4j.
@@ -60,9 +58,7 @@ impl Homeserver {
     pub async fn get_from_graph(id: &str) -> ModelResult<Option<Homeserver>> {
         let query = queries::get::get_homeserver_by_id(id);
 
-        let maybe_id = fetch_key_from_graph(query, "id")
-            .await
-            .map_err(ModelError::from_graph_error)?;
+        let maybe_id = fetch_key_from_graph(query, "id").await?;
         let maybe_hs = maybe_id.map(Homeserver::new);
 
         Ok(maybe_hs)
@@ -119,9 +115,7 @@ impl Homeserver {
     /// Throws an error if no homeservers are found.
     pub async fn get_all_from_graph() -> ModelResult<Vec<String>> {
         let query = queries::get::get_all_homeservers();
-        let maybe_hs_ids = fetch_key_from_graph(query, "homeservers_list")
-            .await
-            .map_err(ModelError::from_graph_error)?;
+        let maybe_hs_ids = fetch_key_from_graph(query, "homeservers_list").await?;
         let hs_ids: Vec<String> = maybe_hs_ids.unwrap_or_default();
 
         match hs_ids.is_empty() {

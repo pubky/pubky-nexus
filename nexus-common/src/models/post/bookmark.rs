@@ -3,7 +3,6 @@ use crate::db::{
     execute_graph_operation, fetch_all_rows_from_graph, fetch_key_from_graph, queries,
     OperationOutcome, RedisOps,
 };
-use crate::models::error::ModelError;
 use crate::models::error::ModelResult;
 use neo4rs::Relation;
 use serde::{Deserialize, Serialize};
@@ -35,9 +34,7 @@ impl Bookmark {
             indexed_at,
         );
 
-        execute_graph_operation(query)
-            .await
-            .map_err(ModelError::from_graph_error)
+        execute_graph_operation(query).await.map_err(Into::into)
     }
 
     /// Retrieves counts by user ID, first trying to get from Redis, then from Neo4j if not found.
@@ -81,9 +78,7 @@ impl Bookmark {
         viewer_id: &str,
     ) -> ModelResult<Option<Bookmark>> {
         let query = queries::get::post_bookmark(author_id, post_id, viewer_id);
-        fetch_key_from_graph(query, "b")
-            .await
-            .map_err(ModelError::from_graph_error)
+        fetch_key_from_graph(query, "b").await.map_err(Into::into)
     }
 
     pub async fn put_to_index(
@@ -101,9 +96,7 @@ impl Bookmark {
     /// TODO: using in reindex, Refactor
     pub async fn reindex(user_id: &str) -> ModelResult<()> {
         let query = queries::get::user_bookmarks(user_id);
-        let rows = fetch_all_rows_from_graph(query)
-            .await
-            .map_err(ModelError::from_graph_error)?;
+        let rows = fetch_all_rows_from_graph(query).await?;
 
         for row in rows {
             if let Some(relation) = row.get::<Option<Relation>>("b")? {
@@ -124,9 +117,7 @@ impl Bookmark {
         bookmark_id: &str,
     ) -> ModelResult<Option<(String, String)>> {
         let query = queries::del::delete_bookmark(user_id, bookmark_id);
-        let rows = fetch_all_rows_from_graph(query)
-            .await
-            .map_err(ModelError::from_graph_error)?;
+        let rows = fetch_all_rows_from_graph(query).await?;
 
         for row in rows {
             let post_id: Option<String> = row.get("post_id").unwrap_or(None);

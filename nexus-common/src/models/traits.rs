@@ -1,6 +1,6 @@
 use crate::db::kv::RedisResult;
-use crate::db::{exec_single_row, fetch_all_rows_from_graph, RedisOps};
-use crate::models::error::{ModelError, ModelResult};
+use crate::db::{exec_single_row, fetch_all_rows_from_graph, GraphResult, RedisOps};
+use crate::models::error::ModelResult;
 use async_trait::async_trait;
 use core::fmt;
 use neo4rs::Query;
@@ -81,11 +81,9 @@ where
     ///
     /// This function returns a `Result` containing a vector of `Option<Self>`. Each `Option` corresponds to
     /// a queried ID, containing `Some(record)` if the record was found in the graph database, or `None` if it was not found.
-    async fn get_from_graph(ids: &[T]) -> ModelResult<Vec<Option<Self>>> {
+    async fn get_from_graph(ids: &[T]) -> GraphResult<Vec<Option<Self>>> {
         let query = Self::collection_details_graph_query(ids);
-        let rows = fetch_all_rows_from_graph(query)
-            .await
-            .map_err(ModelError::from_graph_error)?;
+        let rows = fetch_all_rows_from_graph(query).await?;
 
         let mut records = Vec::with_capacity(ids.len());
 
@@ -137,10 +135,8 @@ where
     }
 
     // Save new graph node
-    async fn put_to_graph(&self) -> ModelResult<()> {
-        exec_single_row(self.put_graph_query()?)
-            .await
-            .map_err(ModelError::from_graph_error)
+    async fn put_to_graph(&self) -> GraphResult<()> {
+        exec_single_row(self.put_graph_query()?).await
     }
 
     async fn reindex(collection_ids: &[T]) -> ModelResult<()> {
@@ -160,7 +156,7 @@ where
     fn collection_details_graph_query(id_list: &[T]) -> Query;
 
     /// Returns the neo4j query to put a record into the graph.
-    fn put_graph_query(&self) -> ModelResult<Query>;
+    fn put_graph_query(&self) -> GraphResult<Query>;
 
     async fn extend_on_index_miss(elements: &[std::option::Option<Self>]) -> RedisResult<()>;
 }

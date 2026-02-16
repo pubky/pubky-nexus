@@ -1,10 +1,9 @@
 use super::{PostRelationships, PostStream};
 use crate::db::kv::RedisResult;
 use crate::db::{
-    exec_single_row, execute_graph_operation, fetch_row_from_graph, queries, OperationOutcome,
-    RedisOps,
+    exec_single_row, execute_graph_operation, fetch_row_from_graph, queries,
+    OperationOutcome, RedisOps,
 };
-use crate::models::error::ModelError;
 use crate::models::error::ModelResult;
 use chrono::Utc;
 use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyId};
@@ -56,9 +55,7 @@ impl PostDetails {
         post_id: &str,
     ) -> ModelResult<Option<(PostDetails, Option<(String, String)>)>> {
         let query = queries::get::get_post_by_id(author_id, post_id);
-        let maybe_row = fetch_row_from_graph(query)
-            .await
-            .map_err(ModelError::from_graph_error)?;
+        let maybe_row = fetch_row_from_graph(query).await?;
 
         let Some(row) = maybe_row else {
             return Ok(None);
@@ -138,14 +135,8 @@ impl PostDetails {
         &self,
         post_relationships: &PostRelationships,
     ) -> ModelResult<OperationOutcome> {
-        match queries::put::create_post(self, post_relationships) {
-            Ok(query) => execute_graph_operation(query)
-                .await
-                .map_err(ModelError::from_graph_error),
-            Err(e) => Err(ModelError::from_graph_error(format!(
-                "QUERY: Error while creating the query: {e}"
-            ))),
-        }
+        let query = queries::put::create_post(self, post_relationships)?;
+        execute_graph_operation(query).await.map_err(Into::into)
     }
 
     pub async fn delete(
@@ -156,9 +147,7 @@ impl PostDetails {
         // Delete user_details on Redis
         Self::remove_from_index_multiple_json(&[&[author_id, post_id]]).await?;
         // Delete post graph node
-        exec_single_row(queries::del::delete_post(author_id, post_id))
-            .await
-            .map_err(ModelError::from_graph_error)?;
+        exec_single_row(queries::del::delete_post(author_id, post_id)).await?;
         // The replies are not indexed in the global feeds
         match parent_post_key_wrapper {
             None => {

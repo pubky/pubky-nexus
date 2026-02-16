@@ -1,6 +1,5 @@
 use crate::db::kv::RedisResult;
 use crate::db::{fetch_row_from_graph, queries, RedisOps};
-use crate::models::error::ModelError;
 use crate::models::error::ModelResult;
 use pubky_app_specs::{post_uri_builder, ParsedUri, PubkyAppPost, PubkyAppPostKind, PubkyId};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -79,9 +78,7 @@ impl PostRelationships {
         post_id: &str,
     ) -> ModelResult<Option<PostRelationships>> {
         let query = queries::get::post_relationships(author_id, post_id);
-        let maybe_row = fetch_row_from_graph(query)
-            .await
-            .map_err(ModelError::from_graph_error)?;
+        let maybe_row = fetch_row_from_graph(query).await?;
 
         let Some(row) = maybe_row else {
             return Ok(None);
