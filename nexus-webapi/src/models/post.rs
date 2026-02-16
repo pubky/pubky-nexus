@@ -15,6 +15,13 @@ pub struct PostViewDetailed {
 }
 
 impl PostViewDetailed {
+    pub fn from(view: PostView, attachments_metadata: Vec<FileDetails>) -> Self {
+        Self {
+            view,
+            attachments_metadata,
+        }
+    }
+
     pub async fn get_by_id(
         author_id: &str,
         post_id: &str,
@@ -52,15 +59,11 @@ impl PostStreamDetailed {
         include_attachment_metadata: bool,
     ) -> Result<Self> {
         if !include_attachment_metadata {
-            return Ok(Self(
-                views
-                    .into_iter()
-                    .map(|view| PostViewDetailed {
-                        view,
-                        attachments_metadata: vec![],
-                    })
-                    .collect(),
-            ));
+            let views_detailed = views
+                .into_iter()
+                .map(|view| PostViewDetailed::from(view, vec![]))
+                .collect();
+            return Ok(Self(views_detailed));
         }
 
         // Collect unique attachment URIs across all posts for a single batched fetch
@@ -103,10 +106,7 @@ impl PostStreamDetailed {
                         }
                     })
                     .collect();
-                PostViewDetailed {
-                    view,
-                    attachments_metadata,
-                }
+                PostViewDetailed::from(view, attachments_metadata)
             })
             .collect();
 
