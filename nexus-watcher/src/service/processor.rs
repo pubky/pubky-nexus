@@ -174,14 +174,7 @@ fn extract_retry_event_info(
         EventProcessorError::InvalidEventLine(ref message) => {
             error!("{}", message);
             return None;
-        }
-        EventProcessorError::Generic(ref message) => {
-            error!(
-                "Non-retryable processor error for URI: {}, {}",
-                event.uri, message
-            );
-            return None;
-        }
+        },
         _ => RetryEvent::new(error),
     };
 
