@@ -4,7 +4,7 @@ use crate::{
 };
 use anyhow::Result;
 use chrono::Utc;
-use nexus_common::models::user::{UserCounts, UserStream, UserView};
+use nexus_common::models::user::{UserCounts, UserStream, UserView, USER_DELETED_SENTINEL};
 use pubky::Keypair;
 use pubky_app_specs::{
     traits::{HasIdPath, HashId},
@@ -42,7 +42,7 @@ async fn test_delete_user_with_relationships() -> Result<()> {
     // Fetch user details; should be updated to "[DELETED]"
     let user_details = find_user_details(&user_id).await?;
     assert_eq!(
-        user_details.name, "[DELETED]",
+        user_details.name, USER_DELETED_SENTINEL,
         "User name should be '[DELETED]' after deletion"
     );
     assert_eq!(
@@ -73,7 +73,7 @@ async fn test_delete_user_with_relationships() -> Result<()> {
     );
     let user_view = user_view.unwrap();
     assert_eq!(
-        user_view.details.name, "[DELETED]",
+        user_view.details.name, USER_DELETED_SENTINEL,
         "User view name should be '[DELETED]' after deletion"
     );
 
@@ -164,7 +164,7 @@ async fn test_delete_user_with_relationships() -> Result<()> {
     // Fetch user details; should be updated to "[DELETED]"
     let user_details = find_user_details(&user_with_id).await?;
     assert_eq!(
-        user_details.name, "[DELETED]",
+        user_details.name, USER_DELETED_SENTINEL,
         "User name should be '[DELETED]' after deletion"
     );
     assert_eq!(
@@ -197,7 +197,7 @@ async fn test_delete_user_with_relationships() -> Result<()> {
     );
     let user_view = user_view.unwrap();
     assert_eq!(
-        user_view.details.name, "[DELETED]",
+        user_view.details.name, USER_DELETED_SENTINEL,
         "User view name should be '[DELETED]' after deletion"
     );
 
