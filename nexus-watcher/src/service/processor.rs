@@ -174,7 +174,7 @@ fn extract_retry_event_info(
         EventProcessorError::InvalidEventLine(ref message) => {
             error!("{}", message);
             return None;
-        },
+        }
         _ => RetryEvent::new(error),
     };
 
