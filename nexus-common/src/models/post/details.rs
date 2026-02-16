@@ -1,8 +1,8 @@
 use super::{PostRelationships, PostStream};
 use crate::db::kv::RedisResult;
 use crate::db::{
-    exec_single_row, execute_graph_operation, fetch_row_from_graph, queries,
-    OperationOutcome, RedisOps,
+    exec_single_row, execute_graph_operation, fetch_row_from_graph, queries, OperationOutcome,
+    RedisOps,
 };
 use crate::models::error::ModelResult;
 use chrono::Utc;
