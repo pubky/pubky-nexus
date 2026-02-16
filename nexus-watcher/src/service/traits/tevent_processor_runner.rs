@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Instant};
 
-use crate::WatcherError;
+use nexus_common::types::DynError;
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info, warn};
 
@@ -30,7 +30,7 @@ pub trait TEventProcessorRunner {
     /// Returns the homeserver IDs relevant for this run, ordered by their priority.
     ///
     /// Contains all homeserver IDs from the graph, with the default homeserver prioritized at index 0.
-    async fn homeservers_by_priority(&self) -> Result<Vec<String>, WatcherError>;
+    async fn homeservers_by_priority(&self) -> Result<Vec<String>, DynError>;
 
     /// Creates and returns a new event processor instance for the specified homeserver.
     ///
@@ -43,14 +43,14 @@ pub trait TEventProcessorRunner {
     ///
     /// # Errors
     /// Throws a [`WatcherError`] if the event processor couldn't be built
-    async fn build(&self, homeserver_id: String) -> Result<Arc<dyn TEventProcessor>, WatcherError>;
+    async fn build(&self, homeserver_id: String) -> Result<Arc<dyn TEventProcessor>, DynError>;
 
     /// Decides the amount and order of homeservers from which events will be fetched and processed in `run_all`.
     ///
     /// # Returns
     /// Considers the values of [TEventProcessorRunner::homeservers_by_priority].
     /// Depending on [TEventProcessorRunner::monitored_homeservers_limit], only a subset of this list may be returned.
-    async fn pre_run_all(&self) -> Result<Vec<String>, WatcherError> {
+    async fn pre_run_all(&self) -> Result<Vec<String>, DynError> {
         let hs_ids = self.homeservers_by_priority().await?;
         let max_index = std::cmp::min(self.monitored_homeservers_limit(), hs_ids.len());
         Ok(hs_ids[..max_index].to_vec())
@@ -87,7 +87,7 @@ pub trait TEventProcessorRunner {
     ///
     /// # Returns
     /// Statistics about the event processor run results, summarized as [`RunAllProcessorsStats`]
-    async fn run_all(&self) -> Result<ProcessedStats, WatcherError> {
+    async fn run_all(&self) -> Result<ProcessedStats, DynError> {
         let hs_ids = self.pre_run_all().await?;
 
         let mut run_stats = RunAllProcessorsStats::default();

@@ -3,6 +3,7 @@ use crate::service::utils::HS_IDS;
 use crate::service::utils::{create_mock_event_processors, setup, MockEventProcessorRunner};
 use anyhow::Result;
 use nexus_common::models::homeserver::Homeserver;
+use nexus_common::types::DynError;
 use nexus_watcher::service::EventProcessorRunner;
 use nexus_watcher::service::TEventProcessorRunner;
 use pubky_app_specs::PubkyId;
@@ -10,7 +11,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 #[tokio_shared_rt::test(shared)]
-async fn test_event_processor_runner_default_homeserver_prioritization() -> Result<()> {
+async fn test_event_processor_runner_default_homeserver_prioritization() -> Result<(), DynError> {
     // Initialize the test
     setup().await?;
 
@@ -38,7 +39,8 @@ async fn test_event_processor_runner_default_homeserver_prioritization() -> Resu
 }
 
 #[tokio_shared_rt::test(shared)]
-async fn test_mock_event_processor_runner_default_homeserver_prioritization() -> Result<()> {
+async fn test_mock_event_processor_runner_default_homeserver_prioritization() -> Result<(), DynError>
+{
     // Initialize the test
     setup().await?;
 

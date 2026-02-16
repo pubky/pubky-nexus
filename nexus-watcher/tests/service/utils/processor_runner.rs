@@ -1,7 +1,7 @@
 use crate::service::utils::processor::MockEventProcessor;
 use nexus_common::models::homeserver::Homeserver;
+use nexus_common::types::DynError;
 use nexus_watcher::service::{TEventProcessor, TEventProcessorRunner};
-use nexus_watcher::WatcherError;
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
 
@@ -50,7 +50,7 @@ impl TEventProcessorRunner for MockEventProcessorRunner {
         self.monitored_homeservers_limit
     }
 
-    async fn homeservers_by_priority(&self) -> Result<Vec<String>, WatcherError> {
+    async fn homeservers_by_priority(&self) -> Result<Vec<String>, DynError> {
         let persistedhs_ids = Homeserver::get_all_from_graph().await?;
 
         let mut hs_ids = vec![];
@@ -69,15 +69,13 @@ impl TEventProcessorRunner for MockEventProcessorRunner {
     /// Returns the event processor for the specified homeserver.
     ///
     /// The mock event processor was pre-built and given to the mock runner on initialization, so this returns a reference to it.
-    async fn build(&self, homeserver_id: String) -> Result<Arc<dyn TEventProcessor>, WatcherError> {
+    async fn build(&self, homeserver_id: String) -> Result<Arc<dyn TEventProcessor>, DynError> {
         let mock_event_processor = self
             .event_processors
             .iter()
             .find(|p| p.homeserver_id.to_string() == homeserver_id)
             .cloned()
-            .ok_or_else(|| {
-                WatcherError::generic(format!("No MockEventProcessor for HS ID: {homeserver_id}"))
-            })?;
+            .ok_or(format!("No MockEventProcessor for HS ID: {homeserver_id}"))?;
 
         Ok(mock_event_processor)
     }

@@ -1,6 +1,6 @@
 use crate::service::NexusWatcher;
-use crate::WatcherError;
 use nexus_common::db::{DatabaseConfig, PubkyConnector};
+use nexus_common::types::DynError;
 use nexus_common::utils::create_shutdown_rx;
 use nexus_common::{Level, StackConfig};
 use nexus_common::{StackManager, WatcherConfig};
@@ -66,10 +66,8 @@ impl NexusWatcherBuilder {
     }
 
     /// Opens ddbb connections and initialises tracing layer (if provided in config)
-    pub async fn init_stack(&self) -> Result<(), WatcherError> {
-        StackManager::setup(&self.0.name, &self.0.stack)
-            .await
-            .map_err(WatcherError::generic)?;
+    pub async fn init_stack(&self) -> Result<(), DynError> {
+        StackManager::setup(&self.0.name, &self.0.stack).await?;
         let testnet_host = if self.0.testnet {
             Some(self.0.testnet_host.as_str())
         } else {
@@ -80,10 +78,8 @@ impl NexusWatcherBuilder {
     }
 
     /// Initializes the watcher integration test stack
-    pub async fn init_test_stack(&self) -> Result<(), WatcherError> {
-        StackManager::setup(&self.0.name, &self.0.stack)
-            .await
-            .map_err(WatcherError::generic)?;
+    pub async fn init_test_stack(&self) -> Result<(), DynError> {
+        StackManager::setup(&self.0.name, &self.0.stack).await?;
         Ok(())
     }
 
@@ -92,7 +88,7 @@ impl NexusWatcherBuilder {
     /// ### Arguments
     ///
     /// - `shutdown_rx`: optional shutdown signal. If none is provided, a default one will be created, listening for Ctrl-C.
-    pub async fn start(self, shutdown_rx: Option<Receiver<bool>>) -> Result<(), WatcherError> {
+    pub async fn start(self, shutdown_rx: Option<Receiver<bool>>) -> Result<(), DynError> {
         let shutdown_rx = shutdown_rx.unwrap_or_else(create_shutdown_rx);
 
         self.init_stack().await?;

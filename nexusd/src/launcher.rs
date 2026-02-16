@@ -37,12 +37,7 @@ impl DaemonLauncher {
 
         try_join!(
             nexus_webapi_builder.start(Some(shutdown_rx.clone())),
-            async {
-                nexus_watcher_builder
-                    .start(Some(shutdown_rx))
-                    .await
-                    .map_err(|e| -> DynError { Box::new(e) })
-            }
+            nexus_watcher_builder.start(Some(shutdown_rx))
         )?;
         Ok(())
     }
