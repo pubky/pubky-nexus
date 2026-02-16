@@ -12,7 +12,6 @@ pub use processor_runner::EventProcessorRunner;
 pub use traits::{TEventProcessor, TEventProcessorRunner};
 
 use crate::NexusWatcherBuilder;
-use crate::WatcherError;
 use nexus_common::file::ConfigLoader;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::utils::create_shutdown_rx;
@@ -63,9 +62,7 @@ impl NexusWatcher {
         config_dir: PathBuf,
         shutdown_rx: Option<Receiver<bool>>,
     ) -> Result<(), DynError> {
-        let daemon_config = DaemonConfig::read_or_create_config_file(config_dir)
-            .await
-            .map_err(WatcherError::generic)?;
+        let daemon_config = DaemonConfig::read_or_create_config_file(config_dir).await?;
         let watcher_config = WatcherConfig::from(daemon_config);
         NexusWatcherBuilder(watcher_config).start(shutdown_rx).await
     }
