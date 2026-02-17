@@ -15,7 +15,7 @@ pub struct PostViewDetailed {
 }
 
 impl PostViewDetailed {
-    pub fn from(view: PostView, attachments_metadata: Vec<FileDetails>) -> Self {
+    pub fn new(view: PostView, attachments_metadata: Vec<FileDetails>) -> Self {
         Self {
             view,
             attachments_metadata,
@@ -61,7 +61,7 @@ impl PostStreamDetailed {
         if !include_attachment_metadata {
             let views_detailed = views
                 .into_iter()
-                .map(|view| PostViewDetailed::from(view, vec![]))
+                .map(|view| PostViewDetailed::new(view, vec![]))
                 .collect();
             return Ok(Self(views_detailed));
         }
@@ -106,7 +106,7 @@ impl PostStreamDetailed {
                         }
                     })
                     .collect();
-                PostViewDetailed::from(view, attachments_metadata)
+                PostViewDetailed::new(view, attachments_metadata)
             })
             .collect();
 
