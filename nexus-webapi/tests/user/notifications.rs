@@ -47,7 +47,11 @@ async fn test_get_notifications_with_limit() -> Result<()> {
 
     // Fetch all notifications (default limit=20) — expect exactly 3.
     let all = get_request(&format!("/v0/user/{TEST_USER}/notifications")).await?;
-    assert_eq!(all.as_array().unwrap().len(), 3, "Expected exactly 3 seeded notifications");
+    assert_eq!(
+        all.as_array().unwrap().len(),
+        3,
+        "Expected exactly 3 seeded notifications"
+    );
 
     // Fetch with limit=2 — must return the 2 newest (C, B) newest-first.
     let limited = get_request(&format!("/v0/user/{TEST_USER}/notifications?limit=2")).await?;
@@ -80,7 +84,11 @@ async fn test_get_notifications_with_limit_zero() -> Result<()> {
     seed_follow(TEST_USER, FOLLOWER_C, 3000).await?;
 
     let res = get_request(&format!("/v0/user/{TEST_USER}/notifications?limit=0")).await?;
-    assert_eq!(res.as_array().unwrap().len(), 0, "limit=0 should return empty array");
+    assert_eq!(
+        res.as_array().unwrap().len(),
+        0,
+        "limit=0 should return empty array"
+    );
 
     Ok(())
 }
@@ -108,7 +116,11 @@ async fn test_get_notifications_with_skip() -> Result<()> {
 
     // Fetch all — expect exactly 5.
     let all = get_request(&format!("/v0/user/{TEST_USER}/notifications")).await?;
-    assert_eq!(all.as_array().unwrap().len(), 5, "Expected exactly 5 seeded notifications");
+    assert_eq!(
+        all.as_array().unwrap().len(),
+        5,
+        "Expected exactly 5 seeded notifications"
+    );
 
     // Fetch with skip=3 — must skip the 3 newest (E, D, C) and return B then A.
     let skipped_res = get_request(&format!("/v0/user/{TEST_USER}/notifications?skip=3")).await?;
@@ -260,7 +272,11 @@ async fn test_get_notifications_with_limit_and_skip() -> Result<()> {
 
     // Fetch all — expect exactly 5.
     let all = get_request(&format!("/v0/user/{TEST_USER}/notifications")).await?;
-    assert_eq!(all.as_array().unwrap().len(), 5, "Expected exactly 5 seeded notifications");
+    assert_eq!(
+        all.as_array().unwrap().len(),
+        5,
+        "Expected exactly 5 seeded notifications"
+    );
 
     // limit=2&skip=1 — skips E(5000), returns D(4000) and C(3000).
     let res = get_request(&format!(
