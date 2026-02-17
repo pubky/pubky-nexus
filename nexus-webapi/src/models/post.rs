@@ -117,11 +117,11 @@ async fn fetch_attachment_metadata(attachments: &[String]) -> Result<Vec<FileDet
     let valid_keys: Vec<((String, String), &String)> = attachments
         .iter()
         .filter_map(|uri| {
-            let key = FileDetails::file_key_from_uri(uri).or_else(|| {
-                warn!("Malformed attachment URI, skipping: {}", uri);
-                None
-            })?;
-            Some((key, uri))
+            let key = FileDetails::file_key_from_uri(uri);
+            if key.is_none() {
+                warn!("Skipping invalid file URI: {}", uri);
+            }
+            Some((key?, uri))
         })
         .collect();
 

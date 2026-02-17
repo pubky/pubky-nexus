@@ -18,6 +18,7 @@ use utoipa::OpenApi;
     ),
     responses(
         (status = 200, description = "File Details", body = FileDetails),
+        (status = 400, description = "Malformed file URI"),
         (status = 404, description = "File not found"),
         (status = 500, description = "Internal server error")
     )
@@ -25,8 +26,8 @@ use utoipa::OpenApi;
 pub async fn file_details_handler(Path(file_uri): Path<String>) -> Result<Json<FileDetails>> {
     debug!("GET {FILE_ROUTE} file_uri:{}", file_uri);
 
-    let (owner_id, file_id) =
-        FileDetails::file_key_from_uri(&file_uri).ok_or(Error::FileNotFound {})?;
+    let (owner_id, file_id) = FileDetails::file_key_from_uri(&file_uri)
+        .ok_or(Error::invalid_input("Malformed file URI"))?;
     let files = FileDetails::get_by_ids(&[&[&owner_id, &file_id]]).await?;
 
     let file = &files[0];
