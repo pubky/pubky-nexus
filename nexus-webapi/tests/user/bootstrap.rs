@@ -19,11 +19,6 @@ async fn test_bootstrap_user() -> Result<()> {
     assert_eq!(user_bootstrap_respose.ids.influencers.len(), 3);
     assert_eq!(user_bootstrap_respose.ids.recommended.len(), 5);
     assert!(user_bootstrap_respose.ids.hot_tags.len() <= 40);
-    // Muted is deprecated and always empty - managed client-side now
-    #[allow(deprecated)]
-    {
-        assert_eq!(user_bootstrap_respose.ids.muted.len(), 0);
-    }
 
     let user_ids: HashSet<String> = user_bootstrap_respose
         .users
