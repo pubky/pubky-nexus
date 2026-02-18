@@ -8,6 +8,7 @@ use std::ops::Deref;
 use tracing::debug;
 use utoipa::ToSchema;
 
+use super::{UserDetails, USER_DELETED_SENTINEL, USER_INFLUENCERS_KEY_PARTS};
 use crate::db::{fetch_key_from_graph, queries, RedisOps};
 
 const GLOBAL_INFLUENCERS_PREFIX: &str = "Cache:Influencers";
@@ -99,8 +100,8 @@ impl Influencers {
         timeframe: &Timeframe,
     ) -> Result<Option<Influencers>, DynError> {
         let cached_influencers = Influencers::get_from_global_cache(skip, limit, timeframe).await?;
-        if cached_influencers.is_some() {
-            return Ok(cached_influencers);
+        if let Some(cached) = cached_influencers {
+            return Influencers::filter_deleted(cached, Some(timeframe)).await;
         }
 
         let query = queries::get::get_global_influencers(0, 100, timeframe);
@@ -115,7 +116,10 @@ impl Influencers {
             Influencers::put_to_global_cache(influencers.clone(), timeframe).await?;
         }
 
-        Influencers::get_from_global_cache(skip, limit, timeframe).await
+        match Influencers::get_from_global_cache(skip, limit, timeframe).await? {
+            Some(cached) => Influencers::filter_deleted(cached, Some(timeframe)).await,
+            None => Ok(None),
+        }
     }
 
     /// Retrieves a paginated list of global influencers from the cache for the given timeframe
@@ -213,7 +217,69 @@ impl Influencers {
         timeframe: &Timeframe,
     ) -> Result<Option<Influencers>, DynError> {
         let query = queries::get::get_influencers_by_reach(user_id, reach, skip, limit, timeframe);
-        fetch_key_from_graph::<Influencers>(query, "influencers").await
+        match fetch_key_from_graph::<Influencers>(query, "influencers").await? {
+            Some(influencers) => Influencers::filter_deleted(influencers, None).await,
+            None => Ok(None),
+        }
+    }
+
+    /// Filters out deleted users from an `Influencers` list.
+    /// Optionally cleans deleted entries from the global cache for the given timeframe.
+    async fn filter_deleted(
+        influencers: Influencers,
+        timeframe: Option<&Timeframe>,
+    ) -> Result<Option<Influencers>, DynError> {
+        let ids: Vec<String> = influencers.iter().map(|(id, _)| id.clone()).collect();
+        let details_list = UserDetails::mget(&ids).await?;
+
+        let mut kept = Vec::new();
+        let mut deleted_ids = Vec::new();
+
+        for ((id, score), details) in influencers.0.into_iter().zip(details_list.into_iter()) {
+            match details {
+                Some(ref d) if d.name != USER_DELETED_SENTINEL => kept.push((id, score)),
+                _ => deleted_ids.push(id),
+            }
+        }
+
+        if let Some(tf) = timeframe {
+            Influencers::remove_deleted_from_global_cache(&deleted_ids, tf).await;
+        }
+
+        Ok(if kept.is_empty() {
+            None
+        } else {
+            Some(Influencers(kept))
+        })
+    }
+
+    /// Removes deleted user IDs from the global influencer sorted sets in Redis.
+    async fn remove_deleted_from_global_cache(deleted_ids: &[String], timeframe: &Timeframe) {
+        if deleted_ids.is_empty() {
+            return;
+        }
+        let refs: Vec<&str> = deleted_ids.iter().map(|s| s.as_str()).collect();
+
+        match timeframe {
+            Timeframe::AllTime => {
+                let _ = Influencers::remove_from_index_sorted_set(
+                    None,
+                    USER_INFLUENCERS_KEY_PARTS.as_slice(),
+                    &refs,
+                )
+                .await;
+            }
+            _ => {
+                let key_parts = Influencers::get_cache_key_parts(timeframe);
+                let key_parts_refs: Vec<&str> = key_parts.iter().map(|s| s.as_str()).collect();
+                let _ = Influencers::remove_from_index_sorted_set(
+                    Some(GLOBAL_INFLUENCERS_PREFIX),
+                    &key_parts_refs,
+                    &refs,
+                )
+                .await;
+            }
+        }
     }
 
     fn get_cache_key_parts(timeframe: &Timeframe) -> Vec<String> {
