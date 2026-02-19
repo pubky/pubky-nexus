@@ -4,6 +4,7 @@ use crate::utils::get_request;
 use anyhow::Result;
 use nexus_common::models::bootstrap::Bootstrap;
 use nexus_common::models::notification::Notification;
+use nexus_common::models::notification::NotificationBody;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_bootstrap_user() -> Result<()> {
@@ -38,13 +39,31 @@ async fn test_bootstrap_user() -> Result<()> {
         .collect();
 
     // Assert post authors are included in the users list
-    for post in user_bootstrap_respose.posts.0 {
-        let author_id = post.details.author;
+    for post in &user_bootstrap_respose.posts.0 {
+        let author_id = &post.details.author;
         assert!(
-            user_ids.contains(&author_id),
+            user_ids.contains(author_id),
             "user_ids is missing author `{author_id}`"
         );
     }
+
+    // MLOW1TGL5BKH4 has 2 attachments pointing to Cairo's files
+    assert!(
+        !user_bootstrap_respose.files.is_empty(),
+        "Bootstrap should contain file metadata for post attachments"
+    );
+    assert_eq!(
+        user_bootstrap_respose.files.len(),
+        2,
+        "Expected 2 file details from MLOW1TGL5BKH4 attachments"
+    );
+    let file_ids: HashSet<String> = user_bootstrap_respose
+        .files
+        .iter()
+        .map(|f| f.id.clone())
+        .collect();
+    assert!(file_ids.contains("2ZK3A1B2C3D40"));
+    assert!(file_ids.contains("2ZK3E5F6G7H80"));
 
     // Assert notifications count for indexed user
     assert_eq!(
@@ -56,7 +75,7 @@ async fn test_bootstrap_user() -> Result<()> {
     // Verify the notification is a follow notification
     if let Some(notification) = user_bootstrap_respose.notifications.first() {
         match &notification.body {
-            nexus_common::models::notification::NotificationBody::Follow { followed_by } => {
+            NotificationBody::Follow { followed_by } => {
                 assert_eq!(
                     followed_by, follower_id,
                     "Follow notification should be from the correct user"
@@ -99,6 +118,21 @@ async fn test_bootstrap_user_not_indexed() -> Result<()> {
         user_bootstrap_response.notifications.len(),
         0,
         "Non-indexed users should not have notifications"
+    );
+
+    // Files count should match the unique attachment URIs found in the post stream
+    let expected_uris: HashSet<String> = user_bootstrap_response
+        .posts
+        .0
+        .iter()
+        .filter_map(|p| p.details.attachments.as_ref())
+        .flatten()
+        .cloned()
+        .collect();
+    assert_eq!(
+        user_bootstrap_response.files.len(),
+        expected_uris.len(),
+        "Files count should match the number of unique attachment URIs in posts"
     );
 
     Ok(())
