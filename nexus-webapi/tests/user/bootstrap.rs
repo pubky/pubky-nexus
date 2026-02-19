@@ -10,6 +10,9 @@ async fn test_bootstrap_user() -> Result<()> {
     let user_id = "zdbg13k5gh4tfz9qz11quohrxetgqxs7awandu8h57147xddcuhy";
     let follower_id = "pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy";
 
+    // init
+    crate::utils::server::TestServiceServer::get_test_server().await;
+
     // Create test notifications for the user
     Notification::new_follow(follower_id, user_id, false)
         .await
