@@ -26,7 +26,6 @@ async fn test_bootstrap_user() -> Result<()> {
     assert_eq!(user_bootstrap_respose.ids.influencers.len(), 3);
     assert_eq!(user_bootstrap_respose.ids.recommended.len(), 5);
     assert!(user_bootstrap_respose.ids.hot_tags.len() <= 40);
-    assert_eq!(user_bootstrap_respose.ids.muted.len(), 1);
 
     let user_ids: HashSet<String> = user_bootstrap_respose
         .users
@@ -51,14 +50,6 @@ async fn test_bootstrap_user() -> Result<()> {
                     "user_ids is missing tagger `{tagger}`"
                 );
             });
-    }
-
-    // Assert response doesn't contain views for muted users
-    for muted_id in &user_bootstrap_respose.ids.muted {
-        assert!(
-            !user_ids.contains(muted_id),
-            "Response should not contain muted user view: {muted_id}"
-        );
     }
 
     // Assert notifications count for indexed user

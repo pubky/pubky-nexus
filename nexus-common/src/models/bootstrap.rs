@@ -3,7 +3,6 @@ use std::collections::HashSet;
 use crate::db::kv::SortOrder;
 use crate::models::notification::Notification;
 use crate::models::tag::stream::{HotTag, HotTags};
-use crate::models::user::Muted;
 use crate::types::routes::HotTagsInputDTO;
 use crate::types::{DynError, Pagination, StreamSorting, Timeframe};
 
@@ -52,8 +51,6 @@ pub struct BootstrapIds {
     /// Recommended users for the given user ID
     pub recommended: Vec<String>,
     pub hot_tags: Vec<HotTag>,
-    /// User IDs muted by the given user
-    pub muted: Vec<String>,
 }
 
 impl Bootstrap {
@@ -120,9 +117,6 @@ impl Bootstrap {
 
         // Add user's notifications
         bootstrap.add_notifications(maybe_viewer_id).await?;
-
-        // Return only ids in case of muted
-        bootstrap.add_muted(maybe_viewer_id).await?;
 
         Ok(bootstrap)
     }
@@ -316,15 +310,6 @@ impl Bootstrap {
                 },
             )
             .await?;
-        }
-        Ok(())
-    }
-
-    async fn add_muted(&mut self, maybe_viewer_id: Option<&str>) -> Result<(), DynError> {
-        if let Some(viewer_id) = maybe_viewer_id {
-            if let Ok(Some(muted_ids)) = Muted::get_by_id(viewer_id, None, None).await {
-                self.ids.muted = muted_ids.0;
-            }
         }
         Ok(())
     }

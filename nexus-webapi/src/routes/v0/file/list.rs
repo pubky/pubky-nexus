@@ -4,7 +4,7 @@ use axum::Json;
 use nexus_common::models::file::FileDetails;
 use nexus_common::models::traits::Collection;
 use serde::Deserialize;
-use tracing::debug;
+use tracing::{debug, warn};
 use utoipa::{OpenApi, ToSchema};
 
 #[derive(Deserialize, ToSchema)]
@@ -28,15 +28,21 @@ pub async fn file_details_by_uris_handler(
 ) -> Result<Json<Vec<FileDetails>>> {
     debug!("GET {FILE_LIST_ROUTE} uris:{:?}", body.uris);
 
-    let keys: Vec<Vec<String>> = body
+    let keys: Vec<(String, String)> = body
         .uris
-        .into_iter()
-        .map(|uri| FileDetails::file_key_from_uri(uri.as_str()))
+        .iter()
+        .filter_map(|uri| {
+            let key = FileDetails::file_key_from_uri(uri.as_str());
+            if key.is_none() {
+                warn!("Skipping invalid file URI: {}", uri);
+            }
+            key
+        })
         .collect();
 
-    let key_refs: Vec<Vec<&str>> = keys
+    let key_refs: Vec<[&str; 2]> = keys
         .iter()
-        .map(|vec| vec.iter().map(|s| s.as_str()).collect())
+        .map(|(owner, id)| [owner.as_str(), id.as_str()])
         .collect();
 
     let slice_keys: Vec<&[&str]> = key_refs.iter().map(|arr| arr.as_slice()).collect();
