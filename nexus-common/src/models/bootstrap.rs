@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use crate::db::kv::SortOrder;
+use crate::models::notification::Notification;
 use crate::models::tag::stream::{HotTag, HotTags};
 use crate::types::routes::HotTagsInputDTO;
 use crate::types::{DynError, Pagination, StreamSorting, Timeframe};
@@ -14,6 +15,8 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use super::user::UserDetails;
+
+const BOOTSTRAP_NOTIFICATIONS_LIMIT: usize = 30;
 
 #[derive(PartialEq, Deserialize)]
 pub enum ViewType {
@@ -31,6 +34,8 @@ pub struct Bootstrap {
     pub ids: BootstrapIds,
     /// Whether or not this user is already indexed
     pub indexed: bool,
+    /// Latest notifications
+    pub notifications: Vec<Notification>,
 }
 
 /// IDs of objects relevant to the bootstrap payload, for example
@@ -109,6 +114,9 @@ impl Bootstrap {
                 .get_and_merge_users(&missing_taggers, maybe_viewer_id)
                 .await?;
         }
+
+        // Add user's notifications
+        bootstrap.add_notifications(maybe_viewer_id).await?;
 
         Ok(bootstrap)
     }
@@ -288,6 +296,20 @@ impl Bootstrap {
                 self.ids.influencers.push(id.clone());
                 user_ids.insert(id);
             });
+        }
+        Ok(())
+    }
+
+    async fn add_notifications(&mut self, maybe_viewer_id: Option<&str>) -> Result<(), DynError> {
+        if let Some(viewer_id) = maybe_viewer_id {
+            self.notifications = Notification::get_by_id(
+                viewer_id,
+                Pagination {
+                    limit: Some(BOOTSTRAP_NOTIFICATIONS_LIMIT),
+                    ..Default::default()
+                },
+            )
+            .await?;
         }
         Ok(())
     }
