@@ -29,7 +29,7 @@ impl Blob {
         };
 
         let file_path = files_path.join(name);
-        let mut static_file = File::create_new(file_path).await?;
+        let mut static_file = File::create(file_path).await?;
         static_file.write_all(&blob.0).await?;
 
         Ok(())
