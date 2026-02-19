@@ -17,6 +17,8 @@ use utoipa::ToSchema;
 
 use super::user::UserDetails;
 
+const BOOTSTRAP_NOTIFICATIONS_LIMIT: usize = 30;
+
 #[derive(PartialEq, Deserialize)]
 pub enum ViewType {
     Full,
@@ -306,7 +308,14 @@ impl Bootstrap {
 
     async fn add_notifications(&mut self, maybe_viewer_id: Option<&str>) -> Result<(), DynError> {
         if let Some(viewer_id) = maybe_viewer_id {
-            self.notifications = Notification::get_by_id(viewer_id, Default::default()).await?;
+            self.notifications = Notification::get_by_id(
+                viewer_id,
+                Pagination {
+                    limit: Some(BOOTSTRAP_NOTIFICATIONS_LIMIT),
+                    ..Default::default()
+                },
+            )
+            .await?;
         }
         Ok(())
     }
