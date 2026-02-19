@@ -1,4 +1,4 @@
-use crate::models::PostStreamDetailed;
+use nexus_common::models::post::PostStreamDetailed;
 use crate::routes::v0::endpoints::{
     STREAM_POSTS_BY_IDS_ROUTE, STREAM_POSTS_ROUTE, STREAM_POST_KEYS_ROUTE,
 };

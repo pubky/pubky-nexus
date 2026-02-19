@@ -1,7 +1,7 @@
 use crate::utils::server::TestServiceServer;
 use anyhow::Result;
 use nexus_common::models::post::PostView;
-use nexus_webapi::models::PostStreamDetailed;
+use nexus_common::models::post::PostStreamDetailed;
 
 // Cairo user and post N7Q2F5W8J0L3 from posts.cypher
 const CAIRO_USER: &str = super::CAIRO_USER;

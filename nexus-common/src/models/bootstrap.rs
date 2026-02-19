@@ -7,7 +7,7 @@ use crate::types::routes::HotTagsInputDTO;
 use crate::types::{DynError, Pagination, StreamSorting, Timeframe};
 
 use crate::models::{
-    post::{PostStream, StreamSource},
+    post::{PostStream, PostStreamDetailed, StreamSource},
     tag::TagDetails,
     user::{Influencers, UserStream},
 };
@@ -27,7 +27,7 @@ pub struct Bootstrap {
     /// The user objects shown to the given user ID
     pub users: UserStream,
     /// The posts objects shown to the given user ID
-    pub posts: PostStream,
+    pub posts: PostStreamDetailed,
     /// IDs of objects shown to this user on the home page of the FE
     pub ids: BootstrapIds,
     /// Whether or not this user is already indexed
@@ -59,11 +59,17 @@ impl Bootstrap {
     ///
     /// # Parameters
     /// - `user_id: &str`  
-    ///   The ID of the user whose “ImAlive” stream is being built
+    ///   The ID of the user whose "ImAlive" stream is being built
     /// - `view_type: ViewType`  
     ///   Controls whether to fetch replies and include full stream entries (`Full`)
     ///   or only base posts (`Partial`)
-    pub async fn get_by_id(user_id: &str, view_type: ViewType) -> Result<Self, DynError> {
+    /// - `include_attachment_metadata: bool`
+    ///   When true, fetches file metadata for post attachments
+    pub async fn get_by_id(
+        user_id: &str,
+        view_type: ViewType,
+        include_attachment_metadata: bool,
+    ) -> Result<Self, DynError> {
         let mut bootstrap = Self::default();
         let mut user_ids = HashSet::new();
 
@@ -75,8 +81,13 @@ impl Bootstrap {
 
         let is_full_view_type = view_type == ViewType::Full;
 
-        let post_stream_by_timeline =
-            Self::get_post_stream_timeline(maybe_viewer_id, StreamSource::All, 20).await?;
+        let post_stream_by_timeline = Self::get_post_stream_timeline_detailed(
+            maybe_viewer_id,
+            StreamSource::All,
+            20,
+            include_attachment_metadata,
+        )
+        .await?;
 
         let post_replies =
             bootstrap.handle_post_stream(post_stream_by_timeline, &mut user_ids, view_type);
@@ -96,7 +107,12 @@ impl Bootstrap {
         // Start fetching the replies of the posts
         if is_full_view_type {
             bootstrap
-                .get_and_handle_replies(post_replies, &mut user_ids, maybe_viewer_id)
+                .get_and_handle_replies(
+                    post_replies,
+                    &mut user_ids,
+                    maybe_viewer_id,
+                    include_attachment_metadata,
+                )
                 .await?;
         }
 
@@ -123,12 +139,12 @@ impl Bootstrap {
     /// in the response object
     ///
     /// # Parameters
-    /// - `post_stream`: The `PostStream` whose contained posts will be processed
+    /// - `post_stream`: The `PostStreamDetailed` whose contained posts will be processed
     /// - `user_ids`: A mutable set of user IDs; authors and taggers encountered will be inserted
     /// - `view_type`: Indicates whether to operate in `Full` mode (recording stream entries and replies)
     fn handle_post_stream(
         &mut self,
-        post_stream: PostStream,
+        post_stream: PostStreamDetailed,
         user_ids: &mut HashSet<String>,
         view_type: ViewType,
     ) -> Vec<(String, String)> {
@@ -136,16 +152,16 @@ impl Bootstrap {
         let mut post_replies = Vec::with_capacity(post_stream.0.len());
 
         for post_view in post_stream.0.iter() {
-            let author_id = post_view.details.author.clone();
-            let post_id = post_view.details.id.clone();
+            let author_id = post_view.view.details.author.clone();
+            let post_id = post_view.view.details.id.clone();
 
-            if is_full_view_type && post_view.counts.replies > 0 {
+            if is_full_view_type && post_view.view.counts.replies > 0 {
                 post_replies.push((author_id.clone(), post_id.clone()))
             }
             // Add the author of the post
             user_ids.insert(author_id.clone());
             // Get all the taggers related with the post
-            Self::insert_taggers_id(&post_view.tags, user_ids);
+            Self::insert_taggers_id(&post_view.view.tags, user_ids);
             // Include the post in the stream list
             if is_full_view_type {
                 self.ids.stream.push(format!("{author_id}:{post_id}"));
@@ -177,7 +193,7 @@ impl Bootstrap {
         missing_taggers
     }
 
-    /// Appends each tagger’s user ID from the given post tag details into the provided set
+    /// Appends each tagger's user ID from the given post tag details into the provided set
     ///
     /// # Parameters
     /// - `tag_details_list: &Vec<TagDetails>`  
@@ -225,22 +241,26 @@ impl Bootstrap {
     /// - `post_replies: Vec<(String, String)>`  
     ///   A list of `(author_id, post_id)` tuples indicating which post replies to fetch
     /// - `user_ids: &mut HashSet<String>`  
-    ///   A mutable reference to a set where each reply’s author ID (and any taggers) will be appended
+    ///   A mutable reference to a set where each reply's author ID (and any taggers) will be appended
     /// - `maybe_viewer_id: Option<&str>`  
     ///   The ID of the current viewer
+    /// - `include_attachment_metadata: bool`
+    ///   When true, fetches file metadata for reply attachments
     async fn get_and_handle_replies(
         &mut self,
         post_replies: Vec<(String, String)>,
         user_ids: &mut HashSet<String>,
         maybe_viewer_id: Option<&str>,
+        include_attachment_metadata: bool,
     ) -> Result<(), DynError> {
         // TODO: Might consider in the future to do in all the requests in parallel
         // tokio::task::JoinSet or tokio::spawn(async move {...
         for (author_id, post_id) in post_replies {
-            let reply_stream = Self::get_post_stream_timeline(
+            let reply_stream = Self::get_post_stream_timeline_detailed(
                 maybe_viewer_id,
                 StreamSource::PostReplies { author_id, post_id },
                 3,
+                include_attachment_metadata,
             )
             .await?;
             self.handle_post_stream(reply_stream, user_ids, ViewType::Partial);
@@ -281,7 +301,24 @@ impl Bootstrap {
         .unwrap_or_default())
     }
 
-    /// Fetches today’s active influencers and appends their IDs to both the internal `influencers` list
+    /// Fetches a post stream timeline and enriches it with optional attachment metadata.
+    ///
+    /// # Parameters
+    /// - `maybe_viewer_id: Option<&str>` -- Optional viewer for personalized views
+    /// - `source: StreamSource` -- The source of the post stream
+    /// - `limit: usize` -- Maximum number of posts to fetch
+    /// - `include_attachment_metadata: bool` -- When true, fetches file metadata for attachments
+    async fn get_post_stream_timeline_detailed(
+        maybe_viewer_id: Option<&str>,
+        source: StreamSource,
+        limit: usize,
+        include_attachment_metadata: bool,
+    ) -> Result<PostStreamDetailed, DynError> {
+        let post_stream = Self::get_post_stream_timeline(maybe_viewer_id, source, limit).await?;
+        Ok(PostStreamDetailed::from_post_views(post_stream.0, include_attachment_metadata).await?)
+    }
+
+    /// Fetches active influencers and appends their IDs to both the internal `influencers` list
     /// and the provided `user_ids` set
     ///
     /// # Parameters
@@ -327,12 +364,11 @@ impl Bootstrap {
         Ok(())
     }
 
-    /// Fetches today’s global hot tags and appends their IDs to both
+    /// Fetches global hot tags and appends their IDs to both
     /// the internal `hot_tags` list and the provided `user_ids` set
     ///
     /// # Parameters
     /// - `user_ids: &mut HashSet<String>` A mutable reference to a set of user IDs
-    ///
     async fn add_global_hot_tags(
         &mut self,
         user_ids: &mut HashSet<String>,

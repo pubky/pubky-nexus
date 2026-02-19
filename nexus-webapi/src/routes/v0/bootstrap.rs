@@ -33,7 +33,7 @@ pub async fn bootstrap_handler(
 ) -> Result<Json<Bootstrap>> {
     debug!("GET {BOOTSTRAP_ROUTE}, user_id:{}", user_id);
 
-    Ok(Json(Bootstrap::get_by_id(&user_id, ViewType::Full).await?))
+    Ok(Json(Bootstrap::get_by_id(&user_id, ViewType::Full, true).await?))
 }
 
 #[utoipa::path(

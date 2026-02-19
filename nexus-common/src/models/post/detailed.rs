@@ -1,16 +1,19 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::Result;
-use nexus_common::models::{file::FileDetails, post::PostView, traits::Collection};
+use crate::models::file::FileDetails;
+use crate::models::traits::Collection;
+use crate::types::DynError;
+
+use super::PostView;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 use utoipa::ToSchema;
 
-#[derive(Deserialize, Serialize, ToSchema)]
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct PostViewDetailed {
     #[serde(flatten)]
     pub view: PostView,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attachments_metadata: Vec<FileDetails>,
 }
 
@@ -29,7 +32,7 @@ impl PostViewDetailed {
         limit_tags: Option<usize>,
         limit_taggers: Option<usize>,
         include_attachment_metadata: bool,
-    ) -> Result<Option<Self>> {
+    ) -> Result<Option<Self>, DynError> {
         let Some(view) =
             PostView::get_by_id(author_id, post_id, viewer_id, limit_tags, limit_taggers).await?
         else {
@@ -50,14 +53,18 @@ impl PostViewDetailed {
     }
 }
 
-#[derive(Deserialize, Serialize, ToSchema, Default)]
+#[derive(Debug, Deserialize, Serialize, ToSchema, Default)]
 pub struct PostStreamDetailed(pub Vec<PostViewDetailed>);
 
 impl PostStreamDetailed {
+    pub fn extend(&mut self, other: PostStreamDetailed) {
+        self.0.extend(other.0);
+    }
+
     pub async fn from_post_views(
         views: Vec<PostView>,
         include_attachment_metadata: bool,
-    ) -> Result<Self> {
+    ) -> Result<Self, DynError> {
         if !include_attachment_metadata {
             let views_detailed = views
                 .into_iter()
@@ -108,7 +115,7 @@ impl PostStreamDetailed {
 
 /// Fetches file metadata for a list of attachment URIs in a single batched DB call.
 /// Malformed URIs and missing entries are logged and skipped gracefully.
-async fn fetch_attachment_metadata(attachments: &[String]) -> Result<Vec<FileDetails>> {
+async fn fetch_attachment_metadata(attachments: &[String]) -> Result<Vec<FileDetails>, DynError> {
     if attachments.is_empty() {
         return Ok(vec![]);
     }

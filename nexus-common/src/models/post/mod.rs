@@ -1,5 +1,6 @@
 mod bookmark;
 mod counts;
+mod detailed;
 mod details;
 mod relationships;
 pub mod search;
@@ -8,6 +9,7 @@ mod view;
 
 pub use bookmark::Bookmark;
 pub use counts::PostCounts;
+pub use detailed::{PostStreamDetailed, PostViewDetailed};
 pub use details::PostDetails;
 pub use relationships::PostRelationships;
 pub use stream::{

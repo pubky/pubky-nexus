@@ -1,4 +1,4 @@
-use crate::models::PostViewDetailed;
+use nexus_common::models::post::PostViewDetailed;
 use crate::routes::v0::endpoints::POST_ROUTE;
 use crate::{Error, Result};
 use axum::extract::{Path, Query};

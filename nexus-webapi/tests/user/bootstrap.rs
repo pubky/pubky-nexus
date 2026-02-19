@@ -30,12 +30,12 @@ async fn test_bootstrap_user() -> Result<()> {
 
     // Assert post authors and taggers are included in the users list
     for post in user_bootstrap_respose.posts.0 {
-        let author_id = post.details.author;
+        let author_id = post.view.details.author;
         assert!(
             user_ids.contains(&author_id),
             "user_ids is missing author `{author_id}`"
         );
-        post.tags
+        post.view.tags
             .iter()
             .flat_map(|tags| tags.taggers.iter())
             .for_each(|tagger| {
