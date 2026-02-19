@@ -90,7 +90,7 @@ impl Bootstrap {
                 .await?;
         }
 
-        bootstrap.add_global_hot_tags().await?;
+        bootstrap.add_global_hot_tags(&mut user_ids).await?;
 
         // Start fetching the replies of the posts
         if is_full_view_type {
@@ -99,7 +99,7 @@ impl Bootstrap {
                 .await?;
         }
 
-        // Merge all the users related with posts, post replies, influencers and recommended
+        // Merge all the users related with posts, post replies, influencers, recommended, hot tags
         bootstrap
             .get_and_merge_users(&user_ids, maybe_viewer_id)
             .await?;
@@ -282,11 +282,17 @@ impl Bootstrap {
 
     /// Fetches today's global hot tags and appends them to the internal `hot_tags` list
     ///
-    async fn add_global_hot_tags(&mut self) -> Result<(), DynError> {
-        let hot_tag_filter = HotTagsInputDTO::new(Timeframe::Today, 40, 0, 20, None);
+    async fn add_global_hot_tags(
+        &mut self,
+        user_ids: &mut HashSet<String>,
+    ) -> Result<(), DynError> {
+        let hot_tag_filter = HotTagsInputDTO::new(Timeframe::Today, 5, 0, 5, None);
         if let Some(today_hot_tags) = HotTags::get_hot_tags(None, None, &hot_tag_filter).await? {
             today_hot_tags.iter().for_each(|tag| {
                 self.ids.hot_tags.push(tag.clone());
+                tag.taggers_id.iter().for_each(|tagger| {
+                    user_ids.insert(tagger.to_string());
+                });
             });
         }
         Ok(())
