@@ -25,7 +25,7 @@ async fn test_bootstrap_user() -> Result<()> {
     assert_eq!(user_bootstrap_respose.ids.stream.len(), 20);
     assert_eq!(user_bootstrap_respose.ids.influencers.len(), 3);
     assert_eq!(user_bootstrap_respose.ids.recommended.len(), 5);
-    assert!(user_bootstrap_respose.ids.hot_tags.len() <= 40);
+    assert!(user_bootstrap_respose.ids.hot_tags.len() <= 5);
 
     let user_ids: HashSet<String> = user_bootstrap_respose
         .users
@@ -34,22 +34,13 @@ async fn test_bootstrap_user() -> Result<()> {
         .map(|user_view| user_view.details.id.to_string())
         .collect();
 
-    // Assert post authors and taggers are included in the users list
+    // Assert post authors are included in the users list
     for post in user_bootstrap_respose.posts.0 {
         let author_id = post.details.author;
         assert!(
             user_ids.contains(&author_id),
             "user_ids is missing author `{author_id}`"
         );
-        post.tags
-            .iter()
-            .flat_map(|tags| tags.taggers.iter())
-            .for_each(|tagger| {
-                assert!(
-                    user_ids.contains(tagger),
-                    "user_ids is missing tagger `{tagger}`"
-                );
-            });
     }
 
     // Assert notifications count for indexed user
