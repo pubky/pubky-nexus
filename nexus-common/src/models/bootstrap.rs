@@ -8,7 +8,6 @@ use crate::types::{DynError, Pagination, StreamSorting, Timeframe};
 
 use crate::models::{
     post::{PostStream, StreamSource},
-    tag::TagDetails,
     user::{Influencers, UserStream},
 };
 use serde::{Deserialize, Serialize};
@@ -102,18 +101,10 @@ impl Bootstrap {
                 .await?;
         }
 
-        // Merge all the users related with posts, post replies, influencers and recommended
+        // Merge all the users related with posts, post replies, influencers, recommended, hot tags
         bootstrap
             .get_and_merge_users(&user_ids, maybe_viewer_id)
             .await?;
-
-        // UserViews has also taggers, fetch the missing users UserViews
-        if is_full_view_type {
-            let missing_taggers = bootstrap.collect_missing_taggers(&user_ids);
-            bootstrap
-                .get_and_merge_users(&missing_taggers, maybe_viewer_id)
-                .await?;
-        }
 
         // Add user's notifications
         bootstrap.add_notifications(maybe_viewer_id).await?;
@@ -121,12 +112,12 @@ impl Bootstrap {
         Ok(bootstrap)
     }
 
-    /// Processes a stream of posts, collecting reply references, adding post taggers and populating the post stream
+    /// Processes a stream of posts, collecting reply references and populating the post stream
     /// in the response object
     ///
     /// # Parameters
     /// - `post_stream`: The `PostStream` whose contained posts will be processed
-    /// - `user_ids`: A mutable set of user IDs; authors and taggers encountered will be inserted
+    /// - `user_ids`: A mutable set of user IDs; authors encountered will be inserted
     /// - `view_type`: Indicates whether to operate in `Full` mode (recording stream entries and replies)
     fn handle_post_stream(
         &mut self,
@@ -146,52 +137,14 @@ impl Bootstrap {
             }
             // Add the author of the post
             user_ids.insert(author_id.clone());
-            // Get all the taggers related with the post
-            Self::insert_taggers_id(&post_view.tags, user_ids);
             // Include the post in the stream list
             if is_full_view_type {
                 self.ids.stream.push(format!("{author_id}:{post_id}"));
             }
         }
-        // After analyse the posts, authors and tags, push the stream
+        // After processing the posts and authors, push the stream
         self.posts.extend(post_stream);
         post_replies
-    }
-
-    /// Collects all tagger IDs from the current `users` view that are not yet present
-    /// in the given `user_ids` set
-    ///
-    /// # Parameters
-    ///
-    /// - `user_ids`: A set of user IDs that have already been fetched or seen
-    fn collect_missing_taggers(&self, user_ids: &HashSet<String>) -> HashSet<String> {
-        let mut missing_taggers = HashSet::new();
-        for user in self.users.0.iter() {
-            user.tags
-                .iter()
-                .flat_map(|tags| tags.taggers.iter())
-                .for_each(|tagger| {
-                    if !user_ids.contains(tagger) {
-                        missing_taggers.insert(tagger.clone());
-                    }
-                });
-        }
-        missing_taggers
-    }
-
-    /// Appends each tagger’s user ID from the given post tag details into the provided set
-    ///
-    /// # Parameters
-    /// - `tag_details_list: &Vec<TagDetails>`
-    ///   A reference to a vector of `TagDetails`, each containing a list of tagger IDs
-    /// - `users_list: &mut HashSet<String>`
-    ///   A mutable reference to a set of user IDs; each tagger ID will be inserted here
-    fn insert_taggers_id(tag_details_list: &[TagDetails], users_list: &mut HashSet<String>) {
-        for tag_details in tag_details_list.iter() {
-            for tagger_pk in tag_details.taggers.iter() {
-                users_list.insert(tagger_pk.to_string());
-            }
-        }
     }
 
     /// Fetches and appends user views for the given set of `user_ids`
@@ -220,14 +173,14 @@ impl Bootstrap {
         Ok(())
     }
 
-    /// Fetches up to three replies for each post in `post_replies` and integrates their authors (and any taggers)
+    /// Fetches up to three replies for each post in `post_replies` and integrates their authors
     /// into both the internal user list
     ///
     /// # Parameters
     /// - `post_replies: Vec<(String, String)>`
     ///   A list of `(author_id, post_id)` tuples indicating which post replies to fetch
     /// - `user_ids: &mut HashSet<String>`
-    ///   A mutable reference to a set where each reply’s author ID (and any taggers) will be appended
+    ///   A mutable reference to a set where each reply's author ID will be appended
     /// - `maybe_viewer_id: Option<&str>`
     ///   The ID of the current viewer
     async fn get_and_handle_replies(
@@ -339,12 +292,11 @@ impl Bootstrap {
     ///
     /// # Parameters
     /// - `user_ids: &mut HashSet<String>` A mutable reference to a set of user IDs
-    ///
     async fn add_global_hot_tags(
         &mut self,
         user_ids: &mut HashSet<String>,
     ) -> Result<(), DynError> {
-        let hot_tag_filter = HotTagsInputDTO::new(Timeframe::Today, 40, 0, 20, None);
+        let hot_tag_filter = HotTagsInputDTO::new(Timeframe::Today, 5, 0, 5, None);
         if let Some(today_hot_tags) = HotTags::get_hot_tags(None, None, &hot_tag_filter).await? {
             today_hot_tags.iter().for_each(|tag| {
                 self.ids.hot_tags.push(tag.clone());
