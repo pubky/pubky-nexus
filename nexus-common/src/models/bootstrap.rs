@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 
 use crate::db::kv::SortOrder;
+use crate::models::notification::Notification;
 use crate::models::tag::stream::{HotTag, HotTags};
-use crate::models::user::Muted;
 use crate::types::routes::HotTagsInputDTO;
 use crate::types::{DynError, Pagination, StreamSorting, Timeframe};
 
@@ -14,6 +14,8 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use super::user::UserDetails;
+
+const BOOTSTRAP_NOTIFICATIONS_LIMIT: usize = 30;
 
 #[derive(PartialEq, Deserialize)]
 pub enum ViewType {
@@ -31,6 +33,8 @@ pub struct Bootstrap {
     pub ids: BootstrapIds,
     /// Whether or not this user is already indexed
     pub indexed: bool,
+    /// Latest notifications
+    pub notifications: Vec<Notification>,
 }
 
 /// IDs of objects relevant to the bootstrap payload, for example
@@ -46,8 +50,6 @@ pub struct BootstrapIds {
     /// Recommended users for the given user ID
     pub recommended: Vec<String>,
     pub hot_tags: Vec<HotTag>,
-    /// User IDs muted by the given user
-    pub muted: Vec<String>,
 }
 
 impl Bootstrap {
@@ -104,8 +106,8 @@ impl Bootstrap {
             .get_and_merge_users(&user_ids, maybe_viewer_id)
             .await?;
 
-        // Return only ids in case of muted
-        bootstrap.add_muted(maybe_viewer_id).await?;
+        // Add user's notifications
+        bootstrap.add_notifications(maybe_viewer_id).await?;
 
         Ok(bootstrap)
     }
@@ -251,11 +253,16 @@ impl Bootstrap {
         Ok(())
     }
 
-    async fn add_muted(&mut self, maybe_viewer_id: Option<&str>) -> Result<(), DynError> {
+    async fn add_notifications(&mut self, maybe_viewer_id: Option<&str>) -> Result<(), DynError> {
         if let Some(viewer_id) = maybe_viewer_id {
-            if let Ok(Some(muted_ids)) = Muted::get_by_id(viewer_id, None, None).await {
-                self.ids.muted = muted_ids.0;
-            }
+            self.notifications = Notification::get_by_id(
+                viewer_id,
+                Pagination {
+                    limit: Some(BOOTSTRAP_NOTIFICATIONS_LIMIT),
+                    ..Default::default()
+                },
+            )
+            .await?;
         }
         Ok(())
     }

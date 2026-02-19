@@ -49,13 +49,10 @@ pub async fn user_avatar_handler(
     };
 
     // 3. Parse user_id + file_id from the "pubky://owner_id/file_id" style URI
-    let keys = FileDetails::file_key_from_uri(&image_uri);
-    if keys.len() != 2 {
-        return Err(Error::InternalServerError {
+    let (owner_id, file_id) =
+        FileDetails::file_key_from_uri(&image_uri).ok_or(Error::InternalServerError {
             source: format!("Invalid file URI: {image_uri}").into(),
-        });
-    }
-    let (owner_id, file_id) = (keys[0].clone(), keys[1].clone());
+        })?;
 
     // 4. Look up FileDetails in Redis/Neo4j using get_by_ids
     let file_list = FileDetails::get_by_ids(&[&[&owner_id, &file_id]]).await?;
