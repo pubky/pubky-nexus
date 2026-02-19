@@ -287,8 +287,11 @@ impl Bootstrap {
         Ok(())
     }
 
-    /// Fetches today's global hot tags and appends them to the internal `hot_tags` list
+    /// Fetches today’s global hot tags and appends their IDs to both
+    /// the internal `hot_tags` list and the provided `user_ids` set
     ///
+    /// # Parameters
+    /// - `user_ids: &mut HashSet<String>` A mutable reference to a set of user IDs
     async fn add_global_hot_tags(
         &mut self,
         user_ids: &mut HashSet<String>,
