@@ -174,7 +174,7 @@ MERGE (p:Post {id: "MLOW1TGL5BKH2"}) SET p.content = "VIDEO post, mkv B", p.kind
 MATCH (u:User {id: $cairo}), (p:Post {id: "MLOW1TGL5BKH2"}) MERGE (u)-[:AUTHORED]->(p);
 MERGE (p:Post {id: "MLOW1TGL5BKH3"}) SET p.content = "VIDEO post, mkv C", p.kind = "video", p.indexed_at = 1980477299310;
 MATCH (u:User {id: $cairo}), (p:Post {id: "MLOW1TGL5BKH3"}) MERGE (u)-[:AUTHORED]->(p);
-MERGE (p:Post {id: "MLOW1TGL5BKH4"}) SET p.content = "VIDEO post, mkv D", p.kind = "video", p.indexed_at = 1980477299320;
+MERGE (p:Post {id: "MLOW1TGL5BKH4"}) SET p.content = "VIDEO post, mkv D", p.kind = "video", p.indexed_at = 1980477299320, p.attachments = ["pubky://f5tcy5gtgzshipr6pag6cn9uski3s8tjare7wd3n7enmyokgjk1o/pub/pubky.app/files/2ZK3A1B2C3D40", "pubky://f5tcy5gtgzshipr6pag6cn9uski3s8tjare7wd3n7enmyokgjk1o/pub/pubky.app/files/2ZK3E5F6G7H80"];
 MATCH (u:User {id: $bogota}), (p:Post {id: "MLOW1TGL5BKH4"}) MERGE (u)-[:AUTHORED]->(p);
 MERGE (p:Post {id: "MLOW1TGL5BKH5"}) SET p.content = "VIDEO post, mkv E", p.kind = "video", p.indexed_at = 1980477299330;
 MATCH (u:User {id: $cairo}), (p:Post {id: "MLOW1TGL5BKH5"}) MERGE (u)-[:AUTHORED]->(p);
