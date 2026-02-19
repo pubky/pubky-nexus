@@ -2,7 +2,6 @@ use std::collections::HashSet;
 
 use crate::db::kv::SortOrder;
 use crate::models::tag::stream::{HotTag, HotTags};
-use crate::models::user::Muted;
 use crate::types::routes::HotTagsInputDTO;
 use crate::types::{DynError, Pagination, StreamSorting, Timeframe};
 
@@ -47,8 +46,6 @@ pub struct BootstrapIds {
     /// Recommended users for the given user ID
     pub recommended: Vec<String>,
     pub hot_tags: Vec<HotTag>,
-    /// User IDs muted by the given user
-    pub muted: Vec<String>,
 }
 
 impl Bootstrap {
@@ -58,9 +55,9 @@ impl Bootstrap {
     /// Returns a populated response even if the user is not found or not indexed.
     ///
     /// # Parameters
-    /// - `user_id: &str`  
+    /// - `user_id: &str`
     ///   The ID of the user whose “ImAlive” stream is being built
-    /// - `view_type: ViewType`  
+    /// - `view_type: ViewType`
     ///   Controls whether to fetch replies and include full stream entries (`Full`)
     ///   or only base posts (`Partial`)
     pub async fn get_by_id(user_id: &str, view_type: ViewType) -> Result<Self, DynError> {
@@ -112,9 +109,6 @@ impl Bootstrap {
                 .get_and_merge_users(&missing_taggers, maybe_viewer_id)
                 .await?;
         }
-
-        // Return only ids in case of muted
-        bootstrap.add_muted(maybe_viewer_id).await?;
 
         Ok(bootstrap)
     }
@@ -180,9 +174,9 @@ impl Bootstrap {
     /// Appends each tagger’s user ID from the given post tag details into the provided set
     ///
     /// # Parameters
-    /// - `tag_details_list: &Vec<TagDetails>`  
+    /// - `tag_details_list: &Vec<TagDetails>`
     ///   A reference to a vector of `TagDetails`, each containing a list of tagger IDs
-    /// - `users_list: &mut HashSet<String>`  
+    /// - `users_list: &mut HashSet<String>`
     ///   A mutable reference to a set of user IDs; each tagger ID will be inserted here
     fn insert_taggers_id(tag_details_list: &[TagDetails], users_list: &mut HashSet<String>) {
         for tag_details in tag_details_list.iter() {
@@ -195,9 +189,9 @@ impl Bootstrap {
     /// Fetches and appends user views for the given set of `user_ids`
     ///
     /// # Parameters
-    /// - `user_ids: HashSet<String>`  
+    /// - `user_ids: HashSet<String>`
     ///   A set of unique user IDs to fetch views for
-    /// - `viewer_id: Option<&str>`  
+    /// - `viewer_id: Option<&str>`
     ///   Optional context user ID for personalized view generation
     async fn get_and_merge_users(
         &mut self,
@@ -222,11 +216,11 @@ impl Bootstrap {
     /// into both the internal user list
     ///
     /// # Parameters
-    /// - `post_replies: Vec<(String, String)>`  
+    /// - `post_replies: Vec<(String, String)>`
     ///   A list of `(author_id, post_id)` tuples indicating which post replies to fetch
-    /// - `user_ids: &mut HashSet<String>`  
+    /// - `user_ids: &mut HashSet<String>`
     ///   A mutable reference to a set where each reply’s author ID (and any taggers) will be appended
-    /// - `maybe_viewer_id: Option<&str>`  
+    /// - `maybe_viewer_id: Option<&str>`
     ///   The ID of the current viewer
     async fn get_and_handle_replies(
         &mut self,
@@ -251,11 +245,11 @@ impl Bootstrap {
     /// Fetches a post stream timeline for the given `source` and `limit`
     ///
     /// # Parameters
-    /// - `maybe_viewer_id: Option<&str>`  
+    /// - `maybe_viewer_id: Option<&str>`
     ///   Optional context user ID for personalized view generation
-    /// - `source: StreamSource`  
+    /// - `source: StreamSource`
     ///   The source of the post stream
-    /// - `limit: usize`  
+    /// - `limit: usize`
     ///   The limit of the post stream
     async fn get_post_stream_timeline(
         maybe_viewer_id: Option<&str>,
@@ -294,15 +288,6 @@ impl Bootstrap {
                 self.ids.influencers.push(id.clone());
                 user_ids.insert(id);
             });
-        }
-        Ok(())
-    }
-
-    async fn add_muted(&mut self, maybe_viewer_id: Option<&str>) -> Result<(), DynError> {
-        if let Some(viewer_id) = maybe_viewer_id {
-            if let Ok(Some(muted_ids)) = Muted::get_by_id(viewer_id, None, None).await {
-                self.ids.muted = muted_ids.0;
-            }
         }
         Ok(())
     }
