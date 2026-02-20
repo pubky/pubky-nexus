@@ -1,6 +1,6 @@
 use std::{fmt::Display, sync::Arc, time::Duration};
 
-use nexus_common::types::DynError;
+use nexus_common::models::event::EventProcessorError;
 use pubky_app_specs::PubkyId;
 use tracing::error;
 
@@ -9,7 +9,7 @@ use crate::service::PROCESSING_TIMEOUT_SECS;
 /// Possible error types of an event processor run
 #[derive(Debug)]
 pub enum RunError {
-    Internal(DynError),
+    Internal(EventProcessorError),
     Panicked,
     TimedOut,
 }
@@ -42,7 +42,7 @@ impl Display for RunError {
 /// # Implementation Notes
 /// - Implementors should regularly check the `shutdown_rx` channel for shutdown signals
 ///   and terminate gracefully when received
-/// - The method returns a `DynError` to allow for flexible error handling across
+/// - The method returns an `EventProcessorError` to allow for typed error handling across
 ///   different processor implementations
 #[async_trait::async_trait]
 pub trait TEventProcessor: Send + Sync + 'static {
@@ -79,8 +79,8 @@ pub trait TEventProcessor: Send + Sync + 'static {
 
     /// Runs the event processor asynchronously.
     ///
-    /// Returns `Ok(())` on a clean exit, or `Err(DynError)` on failure.
-    async fn run_internal(self: Arc<Self>) -> Result<(), DynError>;
+    /// Returns `Ok(())` on a clean exit, or `Err(EventProcessorError)` on failure.
+    async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError>;
 
     /// Optional custom timeout for this event processor.
     ///

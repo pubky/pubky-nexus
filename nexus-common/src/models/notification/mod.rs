@@ -1,6 +1,6 @@
 use crate::db::kv::{RedisError, RedisResult, SortOrder};
 use crate::db::{fetch_all_rows_from_graph, queries, RedisOps};
-use crate::types::DynError;
+use crate::models::error::ModelResult;
 use crate::types::Pagination;
 use chrono::Utc;
 use neo4rs::Row;
@@ -116,7 +116,7 @@ impl Notification {
     }
 
     /// Lists notifications from the sorted set for the user, based on skip and limit, or timestamp range.
-    pub async fn get_by_id(user_id: &str, pagination: Pagination) -> Result<Vec<Self>, DynError> {
+    pub async fn get_by_id(user_id: &str, pagination: Pagination) -> RedisResult<Vec<Self>> {
         // Set the default params for pagination
         let skip = pagination.skip.unwrap_or(0);
         let limit = pagination.limit.unwrap_or(20);
@@ -136,12 +136,19 @@ impl Notification {
 
         if let Some(notifications) = notifications {
             for (notification_body_str, score) in notifications {
-                if let Ok(body) = serde_json::from_str::<NotificationBody>(&notification_body_str) {
-                    let notification = Notification {
-                        timestamp: score as i64,
-                        body,
-                    };
-                    result.push(notification);
+                match serde_json::from_str::<NotificationBody>(&notification_body_str) {
+                    Ok(body) => {
+                        let notification = Notification {
+                            timestamp: score as i64,
+                            body,
+                        };
+                        result.push(notification);
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to deserialize notification, body: {notification_body_str}, reason: {e}"
+                        );
+                    }
                 }
             }
         }
@@ -149,11 +156,7 @@ impl Notification {
         Ok(result)
     }
 
-    pub async fn new_follow(
-        user_id: &str,
-        followee_id: &str,
-        new_friend: bool,
-    ) -> Result<(), DynError> {
+    pub async fn new_follow(user_id: &str, followee_id: &str, new_friend: bool) -> RedisResult<()> {
         let body = match new_friend {
             true => NotificationBody::NewFriend {
                 followed_by: user_id.to_string(),
@@ -164,16 +167,14 @@ impl Notification {
         };
 
         let notification = Notification::new(body);
-        notification.put_to_index(followee_id).await?;
-
-        Ok(())
+        notification.put_to_index(followee_id).await
     }
 
     pub async fn lost_follow(
         user_id: &str,
         followee_id: &str,
         were_friends: bool,
-    ) -> Result<(), DynError> {
+    ) -> RedisResult<()> {
         if !were_friends {
             return Ok(());
         }
@@ -182,9 +183,7 @@ impl Notification {
             unfollowed_by: user_id.to_string(),
         };
         let notification = Notification::new(body);
-        notification.put_to_index(followee_id).await?;
-
-        Ok(())
+        notification.put_to_index(followee_id).await
     }
 
     pub async fn new_post_tag(
@@ -192,7 +191,7 @@ impl Notification {
         author_id: &str,
         label: &str,
         post_uri: &str,
-    ) -> Result<(), DynError> {
+    ) -> RedisResult<()> {
         if user_id == author_id {
             return Ok(());
         }
@@ -202,17 +201,14 @@ impl Notification {
             post_uri: post_uri.to_string(),
         };
         let notification = Notification::new(body);
-        notification
-            .put_to_index(author_id)
-            .await
-            .map_err(Into::into)
+        notification.put_to_index(author_id).await
     }
 
     pub async fn new_user_tag(
         tagger_user_id: &str,
         tagged_user_id: &str,
         label: &str,
-    ) -> Result<(), DynError> {
+    ) -> RedisResult<()> {
         if tagger_user_id == tagged_user_id {
             return Ok(());
         }
@@ -221,10 +217,7 @@ impl Notification {
             tag_label: label.to_string(),
         };
         let notification = Notification::new(body);
-        notification
-            .put_to_index(tagged_user_id)
-            .await
-            .map_err(Into::into)
+        notification.put_to_index(tagged_user_id).await
     }
 
     pub async fn new_post_reply(
@@ -232,7 +225,7 @@ impl Notification {
         parent_uri: &str,
         reply_uri: &str,
         parent_post_author: &str,
-    ) -> Result<(), DynError> {
+    ) -> RedisResult<()> {
         if user_id == parent_post_author {
             return Ok(());
         }
@@ -242,17 +235,14 @@ impl Notification {
             reply_uri: reply_uri.to_string(),
         };
         let notification = Notification::new(body);
-        notification
-            .put_to_index(parent_post_author)
-            .await
-            .map_err(Into::into)
+        notification.put_to_index(parent_post_author).await
     }
 
     pub async fn new_mention(
         user_id: &PubkyId,
         mentioned_id: &PubkyId,
         post_id: &str,
-    ) -> Result<Option<PubkyId>, DynError> {
+    ) -> RedisResult<Option<PubkyId>> {
         if user_id == mentioned_id {
             return Ok(None);
         }
@@ -271,7 +261,7 @@ impl Notification {
         embed_uri: &str,
         repost_uri: &str,
         embed_post_author: &str,
-    ) -> Result<(), DynError> {
+    ) -> RedisResult<()> {
         if user_id == embed_post_author {
             return Ok(());
         }
@@ -281,10 +271,7 @@ impl Notification {
             repost_uri: repost_uri.to_string(),
         };
         let notification = Notification::new(body);
-        notification
-            .put_to_index(embed_post_author)
-            .await
-            .map_err(Into::into)
+        notification.put_to_index(embed_post_author).await
     }
 
     pub async fn post_children_changed(
@@ -294,7 +281,7 @@ impl Notification {
         changed_uri: &str,
         change_source: PostChangedSource,
         changed_type: &PostChangedType,
-    ) -> Result<(), DynError> {
+    ) -> RedisResult<()> {
         if user_id == linked_post_author {
             return Ok(());
         }
@@ -313,10 +300,7 @@ impl Notification {
             },
         };
         let notification = Notification::new(body);
-        notification
-            .put_to_index(linked_post_author)
-            .await
-            .map_err(Into::into)
+        notification.put_to_index(linked_post_author).await
     }
 
     // Delete and Edit post notifications to users who interacted
@@ -327,7 +311,7 @@ impl Notification {
         post_id: &str,
         changed_uri: &str,
         changed_type: &PostChangedType,
-    ) -> Result<(), DynError> {
+    ) -> ModelResult<()> {
         // Define the notification types and associated data
         let notification_types: Vec<(QueryFunction, PostChangedSource, ExtractFunction)> = vec![
             (

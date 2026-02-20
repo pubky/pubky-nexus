@@ -1,11 +1,13 @@
 use super::{Bookmark, PostCounts, PostDetails, PostView};
 use crate::db::kv::{RedisResult, ScoreAction, SortOrder};
-use crate::db::{get_neo4j_graph, queries, RedisOps};
+use crate::db::{get_neo4j_graph, queries, GraphError, GraphResult, RedisOps};
+use crate::models::error::ModelError;
+use crate::models::error::ModelResult;
 use crate::models::{
     follow::{Followers, Following, Friends, UserFollows},
     post::search::PostsByTagSearch,
 };
-use crate::types::{DynError, Pagination, StreamSorting};
+use crate::types::{Pagination, StreamSorting};
 use pubky_app_specs::PubkyAppPostKind;
 use serde::{Deserialize, Serialize};
 use tokio::task::spawn;
@@ -117,7 +119,7 @@ impl PostStream {
         viewer_id: Option<String>,
         tags: Option<Vec<String>>,
         kind: Option<PubkyAppPostKind>,
-    ) -> Result<Option<Self>, DynError> {
+    ) -> ModelResult<Option<Self>> {
         let post_key_stream =
             Self::collect_post_keys(source, pagination, order, sorting, tags, kind).await?;
 
@@ -135,7 +137,7 @@ impl PostStream {
         sorting: StreamSorting,
         tags: Option<Vec<String>>,
         kind: Option<PubkyAppPostKind>,
-    ) -> Result<Option<PostKeyStream>, DynError> {
+    ) -> ModelResult<Option<PostKeyStream>> {
         let post_key_stream =
             Self::collect_post_keys(source, pagination, order, sorting, tags, kind).await?;
 
@@ -153,7 +155,7 @@ impl PostStream {
         sorting: StreamSorting,
         tags: Option<Vec<String>>,
         kind: Option<PubkyAppPostKind>,
-    ) -> Result<PostKeyStream, DynError> {
+    ) -> ModelResult<PostKeyStream> {
         // Decide whether to use index or fallback to graph query
         let use_index = Self::can_use_index(&sorting, &source, &tags, &kind);
 
@@ -204,43 +206,44 @@ impl PostStream {
         order: SortOrder,
         tags: &Option<Vec<String>>,
         pagination: Pagination,
-    ) -> Result<PostKeyStream, DynError> {
+    ) -> ModelResult<PostKeyStream> {
         let start = pagination.start;
         let end = pagination.end;
         let skip = pagination.skip;
         let limit = pagination.limit;
 
-        match (source, tags) {
+        let result = match (source, tags) {
             // Global post streams
             (StreamSource::All, None) => {
-                Self::get_global_posts_keys(sorting, order, start, end, skip, limit).await
+                Self::get_global_posts_keys(sorting, order, start, end, skip, limit).await?
             }
             // Streams by tags
             (StreamSource::All, Some(tags)) if tags.len() == 1 => {
-                Self::get_posts_keys_by_tag(&tags[0], sorting, start, end, skip, limit).await
+                Self::get_posts_keys_by_tag(&tags[0], sorting, start, end, skip, limit).await?
             }
             // Bookmark streams
             (StreamSource::Bookmarks { observer_id }, None) => {
-                Self::get_bookmarked_posts(&observer_id, order, start, end, skip, limit).await
+                Self::get_bookmarked_posts(&observer_id, order, start, end, skip, limit).await?
             }
             // Stream of replies to specific a post
             (StreamSource::PostReplies { author_id, post_id }, None) => {
-                Self::get_post_replies(&author_id, &post_id, order, start, end, skip, limit).await
+                Self::get_post_replies(&author_id, &post_id, order, start, end, skip, limit).await?
             }
             // Stream of parent post from a given author
             (StreamSource::Author { author_id }, None) => {
-                Self::get_author_posts(&author_id, order, start, end, skip, limit, false).await
+                Self::get_author_posts(&author_id, order, start, end, skip, limit, false).await?
             }
             // Streams of replies from a given author
             (StreamSource::AuthorReplies { author_id }, None) => {
-                Self::get_author_posts(&author_id, order, start, end, skip, limit, true).await
+                Self::get_author_posts(&author_id, order, start, end, skip, limit, true).await?
             }
             // Streams by simple source/reach: Following, Followers, Friends
             (source, None) => {
-                Self::get_posts_by_source(source, order, start, end, skip, limit).await
+                Self::get_posts_by_source(source, order, start, end, skip, limit).await?
             }
-            _ => Ok(PostKeyStream::default()),
-        }
+            _ => PostKeyStream::default(),
+        };
+        Ok(result)
     }
 
     // Fetch posts from index
@@ -250,7 +253,7 @@ impl PostStream {
         tags: &Option<Vec<String>>,
         pagination: Pagination,
         kind: Option<PubkyAppPostKind>,
-    ) -> Result<PostKeyStream, DynError> {
+    ) -> GraphResult<PostKeyStream> {
         let mut result;
         {
             let graph = get_neo4j_graph()?;
@@ -258,9 +261,9 @@ impl PostStream {
 
             // Set a 10-second timeout for the query execution
             result = match timeout(Duration::from_secs(10), graph.execute(query)).await {
-                Ok(Ok(res)) => res,                    // Successfully executed within the timeout
-                Ok(Err(e)) => return Err(Box::new(e)), // Query failed
-                Err(_) => return Err("Query timed out".into()), // Timeout error
+                Ok(Ok(res)) => res, // Successfully executed within the timeout
+                Ok(Err(e)) => return Err(GraphError::QueryFailed(e.into())), // Query failed
+                Err(_) => return Err(GraphError::QueryTimeout), // Timeout error
             };
         }
 
@@ -268,7 +271,11 @@ impl PostStream {
         // Track the last post's indexed_at value
         let mut last_post_indexed_at: Option<i64> = None;
 
-        while let Some(row) = result.next().await? {
+        while let Some(row) = result
+            .next()
+            .await
+            .map_err(|e| GraphError::QueryFailed(e.into()))?
+        {
             let author_id: String = row.get("author_id")?;
             let post_id: String = row.get("post_id")?;
             let indexed_at: i64 = row.get("indexed_at")?;
@@ -291,7 +298,7 @@ impl PostStream {
         end: Option<f64>,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<PostKeyStream, DynError> {
+    ) -> RedisResult<PostKeyStream> {
         let sorted_set = match sorting {
             StreamSorting::TotalEngagement => {
                 Self::try_from_index_sorted_set(
@@ -330,7 +337,7 @@ impl PostStream {
         end: Option<f64>,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<PostKeyStream, DynError> {
+    ) -> RedisResult<PostKeyStream> {
         let skip = skip.unwrap_or(0);
         let limit = limit.unwrap_or(10);
 
@@ -367,7 +374,7 @@ impl PostStream {
         skip: Option<usize>,
         limit: Option<usize>,
         replies: bool,
-    ) -> Result<PostKeyStream, DynError> {
+    ) -> RedisResult<PostKeyStream> {
         // Retrieve only parents or only reply posts written by the author from index
         let key_parts = match replies {
             true => POST_REPLIES_PER_USER_KEY_PARTS,
@@ -397,7 +404,7 @@ impl PostStream {
         end: Option<f64>,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<PostKeyStream, DynError> {
+    ) -> ModelResult<PostKeyStream> {
         let custom_limit = Some(200);
         let mut user_ids = match &source {
             StreamSource::Following { observer_id } => {
@@ -449,7 +456,7 @@ impl PostStream {
         end: Option<f64>,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<PostKeyStream, DynError> {
+    ) -> RedisResult<PostKeyStream> {
         let key_parts = [&BOOKMARKS_USER_KEY_PARTS[..], &[user_id]].concat();
         let post_keys =
             Self::try_from_index_sorted_set(&key_parts, start, end, skip, limit, order, None)
@@ -468,7 +475,7 @@ impl PostStream {
         end: Option<f64>,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<PostKeyStream, DynError> {
+    ) -> RedisResult<PostKeyStream> {
         let key_parts = [&POST_REPLIES_PER_POST_KEY_PARTS[..], &[author_id, post_id]].concat();
         let post_replies =
             Self::try_from_index_sorted_set(&key_parts, start, end, skip, limit, order, None)
@@ -488,7 +495,7 @@ impl PostStream {
         end: Option<f64>,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<Vec<(String, f64)>, DynError> {
+    ) -> ModelResult<Vec<(String, f64)>> {
         let mut post_keys = Vec::new();
         // Limit the number of user IDs to process to the first 200
         let max_user_ids = 200;
@@ -546,7 +553,7 @@ impl PostStream {
     pub async fn from_listed_post_ids(
         viewer_id: Option<String>,
         post_keys: &[String],
-    ) -> Result<Option<Self>, DynError> {
+    ) -> ModelResult<Option<Self>> {
         let viewer_id = viewer_id.map(|id| id.to_string());
         let mut handles = Vec::with_capacity(post_keys.len());
 
@@ -567,7 +574,7 @@ impl PostStream {
         let mut post_views = Vec::with_capacity(post_keys.len());
 
         for handle in handles {
-            if let Some(post_view) = handle.await?? {
+            if let Some(post_view) = handle.await.map_err(ModelError::from_generic)?? {
                 post_views.push(post_view);
             }
         }
@@ -592,11 +599,10 @@ impl PostStream {
     pub async fn remove_from_timeline_sorted_set(
         author_id: &str,
         post_id: &str,
-    ) -> Result<(), DynError> {
+    ) -> RedisResult<()> {
         let element = format!("{author_id}:{post_id}");
         Self::remove_from_index_sorted_set(None, &POST_TIMELINE_KEY_PARTS, &[element.as_str()])
             .await
-            .map_err(Into::into)
     }
 
     /// Adds the post to a Redis sorted set using the `indexed_at` timestamp as the score.
@@ -610,11 +616,9 @@ impl PostStream {
     pub async fn remove_from_per_user_sorted_set(
         author_id: &str,
         post_id: &str,
-    ) -> Result<(), DynError> {
+    ) -> RedisResult<()> {
         let key_parts = [&POST_PER_USER_KEY_PARTS[..], &[author_id]].concat();
-        Self::remove_from_index_sorted_set(None, &key_parts, &[post_id])
-            .await
-            .map_err(Into::into)
+        Self::remove_from_index_sorted_set(None, &key_parts, &[post_id]).await
     }
 
     /// Adds the post response to a Redis sorted set using the `indexed_at` timestamp as the score.
@@ -637,12 +641,10 @@ impl PostStream {
         parent_post_key_parts: &[&str; 2],
         author_id: &str,
         reply_id: &str,
-    ) -> Result<(), DynError> {
+    ) -> RedisResult<()> {
         let key_parts = [&POST_REPLIES_PER_POST_KEY_PARTS[..], parent_post_key_parts].concat();
         let element = format!("{author_id}:{reply_id}");
-        Self::remove_from_index_sorted_set(None, &key_parts, &[element.as_str()])
-            .await
-            .map_err(Into::into)
+        Self::remove_from_index_sorted_set(None, &key_parts, &[element.as_str()]).await
     }
 
     /// Adds the post to a Redis sorted set of replies per author using the `indexed_at` timestamp as the score.
@@ -660,11 +662,9 @@ impl PostStream {
     pub async fn remove_from_replies_per_user_sorted_set(
         author_id: &str,
         post_id: &str,
-    ) -> Result<(), DynError> {
+    ) -> RedisResult<()> {
         let key_parts = [&POST_REPLIES_PER_USER_KEY_PARTS[..], &[author_id]].concat();
-        Self::remove_from_index_sorted_set(None, &key_parts, &[post_id])
-            .await
-            .map_err(Into::into)
+        Self::remove_from_index_sorted_set(None, &key_parts, &[post_id]).await
     }
 
     /// Adds a bookmark to Redis sorted set using the `indexed_at` timestamp as the score.
@@ -685,12 +685,10 @@ impl PostStream {
         bookmarker_id: &str,
         post_id: &str,
         author_id: &str,
-    ) -> Result<(), DynError> {
+    ) -> RedisResult<()> {
         let key_parts = [&BOOKMARKS_USER_KEY_PARTS[..], &[bookmarker_id]].concat();
         let post_key = format!("{author_id}:{post_id}");
-        Self::remove_from_index_sorted_set(None, &key_parts, &[&post_key])
-            .await
-            .map_err(Into::into)
+        Self::remove_from_index_sorted_set(None, &key_parts, &[&post_key]).await
     }
 
     /// Adds the post to a Redis sorted set using the total engagement as the score.
@@ -715,18 +713,17 @@ impl PostStream {
     pub async fn delete_from_engagement_sorted_set(
         author_id: &str,
         post_id: &str,
-    ) -> Result<(), DynError> {
+    ) -> RedisResult<()> {
         let post_key = format!("{author_id}:{post_id}");
         Self::remove_from_index_sorted_set(None, &POST_TOTAL_ENGAGEMENT_KEY_PARTS, &[&post_key])
             .await
-            .map_err(Into::into)
     }
 
     pub async fn update_index_score(
         author_id: &str,
         post_id: &str,
         score_action: ScoreAction,
-    ) -> Result<(), DynError> {
+    ) -> RedisResult<()> {
         let post_key_slice = &[author_id, post_id];
         Self::put_score_index_sorted_set(
             &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
@@ -734,6 +731,5 @@ impl PostStream {
             score_action,
         )
         .await
-        .map_err(Into::into)
     }
 }

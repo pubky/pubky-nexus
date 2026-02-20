@@ -1,13 +1,12 @@
 use crate::event_processor::utils::watcher::{retrieve_and_handle_event_line, WatcherTest};
 use anyhow::Result;
-use nexus_common::types::DynError;
 use pubky::Keypair;
 use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 use tracing::error;
 
 /// The user profile is stored in the homeserver and synched in the graph, but the posts just exist in the homeserver
 #[tokio_shared_rt::test(shared)]
-async fn test_homeserver_post_reply_without_post_parent() -> Result<(), DynError> {
+async fn test_homeserver_post_reply_without_post_parent() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
     let author_user_kp = Keypair::random();

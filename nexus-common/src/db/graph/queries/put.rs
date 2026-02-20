@@ -1,12 +1,13 @@
+use crate::db::graph::error::{GraphError, GraphResult};
 use crate::models::post::PostRelationships;
 use crate::models::{file::FileDetails, post::PostDetails, user::UserDetails};
-use crate::types::DynError;
 use neo4rs::{query, Query};
 use pubky_app_specs::{ParsedUri, Resource};
 
 /// Create a user node
-pub fn create_user(user: &UserDetails) -> Result<Query, DynError> {
-    let links = serde_json::to_string(&user.links)?;
+pub fn create_user(user: &UserDetails) -> GraphResult<Query> {
+    let links = serde_json::to_string(&user.links)
+        .map_err(|e| GraphError::SerializationFailed(Box::new(e)))?;
 
     let query = query(
         "MERGE (u:User {id: $id})
@@ -31,7 +32,7 @@ pub fn create_user(user: &UserDetails) -> Result<Query, DynError> {
 pub fn create_post(
     post: &PostDetails,
     post_relationships: &PostRelationships,
-) -> Result<Query, DynError> {
+) -> GraphResult<Query> {
     let mut cypher = String::new();
     let mut new_relationships = Vec::new();
 
@@ -71,7 +72,8 @@ pub fn create_post(
         RETURN existing_post IS NOT NULL AS flag",
     );
 
-    let kind = serde_json::to_string(&post.kind)?;
+    let kind = serde_json::to_string(&post.kind)
+        .map_err(|e| GraphError::SerializationFailed(Box::new(e)))?;
 
     let mut cypher_query = query(&cypher)
         .param("author_id", post.author.to_string())
@@ -111,13 +113,17 @@ fn add_relationship_params(
     uri: &Option<String>,
     author_param: &str,
     post_param: &str,
-) -> Result<Query, DynError> {
+) -> GraphResult<Query> {
     if let Some(uri) = uri {
-        let parsed_uri = ParsedUri::try_from(uri.as_str())?;
+        let parsed_uri = ParsedUri::try_from(uri.as_str()).map_err(GraphError::UriParseError)?;
         let parent_author_id = parsed_uri.user_id;
         let parent_post_id = match parsed_uri.resource {
             Resource::Post(id) => id,
-            _ => return Err("Reposted uri is not a Post resource".into()),
+            _ => {
+                return Err(GraphError::InvalidResourceType(
+                    "Reposted uri is not a Post resource".into(),
+                ))
+            }
         };
 
         return Ok(cypher_query
@@ -178,7 +184,7 @@ pub fn create_mute(user_id: &str, muted_id: &str, indexed_at: i64) -> Query {
     query(
         "MATCH (user:User {id: $user_id}), (muted:User {id: $muted_id})
         // Check if follow already existed
-        OPTIONAL MATCH (user)-[existing:MUTED]->(muted) 
+        OPTIONAL MATCH (user)-[existing:MUTED]->(muted)
         MERGE (user)-[r:MUTED]->(muted)
         SET r.indexed_at = $indexed_at
          // Returns true if the mute relationship already existed
@@ -208,7 +214,7 @@ pub fn create_post_bookmark(
         // We assume these nodes are already created. If not we would not be able to add a bookmark
         MATCH (author:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
         // Check if bookmark already existed
-        OPTIONAL MATCH (u)-[existing:BOOKMARKED]->(p) 
+        OPTIONAL MATCH (u)-[existing:BOOKMARKED]->(p)
         MERGE (u)-[b:BOOKMARKED]->(p)
         SET b.indexed_at = $indexed_at,
             b.id = $bookmark_id
@@ -245,7 +251,7 @@ pub fn create_post_tag(
         // We assume these nodes are already created. If not we would not be able to add a tag
         MATCH (author:User {id: $author_id})-[:AUTHORED]->(post:Post {id: $post_id})
         // Check if tag already existed
-        OPTIONAL MATCH (user)-[existing:TAGGED {label: $label}]->(post) 
+        OPTIONAL MATCH (user)-[existing:TAGGED {label: $label}]->(post)
         MERGE (user)-[t:TAGGED {label: $label}]->(post)
         ON CREATE SET t.indexed_at = $indexed_at,
                       t.id = $tag_id
@@ -278,7 +284,7 @@ pub fn create_user_tag(
         "MATCH (tagged_used:User {id: $tagged_user_id})
         MATCH (tagger:User {id: $tagger_user_id})
         // Check if tag already existed
-        OPTIONAL MATCH (tagger)-[existing:TAGGED {label: $label}]->(tagged_used) 
+        OPTIONAL MATCH (tagger)-[existing:TAGGED {label: $label}]->(tagged_used)
         MERGE (tagger)-[t:TAGGED {label: $label}]->(tagged_used)
         ON CREATE SET t.indexed_at = $indexed_at,
                       t.id = $tag_id
@@ -293,8 +299,9 @@ pub fn create_user_tag(
 }
 
 /// Create a file node
-pub fn create_file(file: &FileDetails) -> Result<Query, DynError> {
-    let urls = serde_json::to_string(&file.urls)?;
+pub fn create_file(file: &FileDetails) -> GraphResult<Query> {
+    let urls = serde_json::to_string(&file.urls)
+        .map_err(|e| GraphError::SerializationFailed(Box::new(e)))?;
 
     let query = query(
         "MERGE (f:File {id: $id, owner_id: $owner_id})

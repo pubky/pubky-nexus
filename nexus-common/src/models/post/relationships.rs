@@ -1,6 +1,6 @@
 use crate::db::kv::RedisResult;
-use crate::db::{fetch_row_from_graph, queries, RedisOps};
-use crate::types::DynError;
+use crate::db::{fetch_row_from_graph, queries, GraphResult, RedisOps};
+use crate::models::error::ModelResult;
 use pubky_app_specs::{post_uri_builder, ParsedUri, PubkyAppPost, PubkyAppPostKind, PubkyId};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use utoipa::ToSchema;
@@ -51,7 +51,7 @@ impl PostRelationships {
     pub async fn get_by_id(
         author_id: &str,
         post_id: &str,
-    ) -> Result<Option<PostRelationships>, DynError> {
+    ) -> ModelResult<Option<PostRelationships>> {
         match Self::get_from_index(author_id, post_id).await? {
             Some(counts) => Ok(Some(counts)),
             None => {
@@ -76,7 +76,7 @@ impl PostRelationships {
     pub async fn get_from_graph(
         author_id: &str,
         post_id: &str,
-    ) -> Result<Option<PostRelationships>, DynError> {
+    ) -> GraphResult<Option<PostRelationships>> {
         let query = queries::get::post_relationships(author_id, post_id);
         let maybe_row = fetch_row_from_graph(query).await?;
 
@@ -126,12 +126,11 @@ impl PostRelationships {
         self.put_index_json(&[author_id, post_id], None, None).await
     }
 
-    pub async fn delete(author_id: &str, post_id: &str) -> Result<(), DynError> {
-        Self::remove_from_index_multiple_json(&[&[author_id, post_id]]).await?;
-        Ok(())
+    pub async fn delete(author_id: &str, post_id: &str) -> RedisResult<()> {
+        Self::remove_from_index_multiple_json(&[&[author_id, post_id]]).await
     }
 
-    pub async fn reindex(author_id: &str, post_id: &str) -> Result<(), DynError> {
+    pub async fn reindex(author_id: &str, post_id: &str) -> ModelResult<()> {
         match Self::get_from_graph(author_id, post_id).await? {
             Some(relationships) => relationships.put_to_index(author_id, post_id).await?,
             None => tracing::error!(

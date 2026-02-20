@@ -5,10 +5,10 @@ use nexus_common::db::PubkyConnector;
 use nexus_common::get_files_dir_pathbuf;
 use nexus_common::get_files_dir_test_pathbuf;
 use nexus_common::models::event::Event;
+use nexus_common::models::event::EventProcessorError;
 use nexus_common::models::file::FileDetails;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::traits::Collection;
-use nexus_common::types::DynError;
 use nexus_watcher::events::retry::event::RetryEvent;
 use nexus_watcher::events::{handle, Moderation};
 use nexus_watcher::service::EventProcessorRunner;
@@ -373,7 +373,7 @@ impl WatcherTest {
 pub async fn retrieve_and_handle_event_line(
     event_line: &str,
     moderation: Arc<Moderation>,
-) -> Result<(), DynError> {
+) -> Result<(), EventProcessorError> {
     match Event::parse_event(event_line, get_files_dir_pathbuf())? {
         Some(event) => handle(&event, moderation).await,
         None => Ok(()),
