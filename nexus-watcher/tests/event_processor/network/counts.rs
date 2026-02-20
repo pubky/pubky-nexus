@@ -12,7 +12,7 @@ use pubky_app_specs::{
     post_uri_builder, PubkyAppBookmark, PubkyAppFollow, PubkyAppMute, PubkyAppPost,
     PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
 };
-use rand::{rngs::StdRng, Rng, SeedableRng};
+use rand::{rngs::StdRng, RngExt, SeedableRng};
 use std::collections::{HashMap, HashSet};
 use tracing::info;
 

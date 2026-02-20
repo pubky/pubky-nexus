@@ -5,7 +5,7 @@ use nexus_common::db::{execute_graph_operation, OperationOutcome};
 use nexus_common::models::user::UserSearch;
 use nexus_common::models::{
     traits::Collection,
-    user::{UserCounts, UserDetails},
+    user::{UserCounts, UserDetails, USER_DELETED_SENTINEL},
 };
 use pubky_app_specs::{PubkyAppUser, PubkyId};
 use tracing::debug;
@@ -68,7 +68,7 @@ pub async fn del(user_id: PubkyId) -> Result<(), EventProcessorError> {
         }
         OperationOutcome::Updated => {
             let deleted_user = PubkyAppUser {
-                name: "[DELETED]".to_string(),
+                name: USER_DELETED_SENTINEL.to_string(),
                 bio: None,
                 status: None,
                 links: None,

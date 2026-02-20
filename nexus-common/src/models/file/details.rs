@@ -139,12 +139,12 @@ impl FileDetails {
         Ok(())
     }
 
-    pub fn file_key_from_uri(uri: &str) -> Vec<String> {
-        let parsed_uri = ParsedUri::try_from(uri).unwrap_or_default();
+    pub fn file_key_from_uri(uri: &str) -> Option<(String, String)> {
+        let parsed_uri = ParsedUri::try_from(uri).ok()?;
         if let Resource::File(file_id) = parsed_uri.resource {
-            vec![parsed_uri.user_id.to_string(), file_id]
+            Some((parsed_uri.user_id.to_string(), file_id))
         } else {
-            vec![parsed_uri.user_id.to_string(), String::default()]
+            None
         }
     }
 }
