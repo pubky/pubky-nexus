@@ -27,7 +27,7 @@ impl TagSearch {
     pub async fn get_by_label(
         label_prefix: &str,
         pagination: &Pagination,
-    ) -> ModelResult<Option<Vec<TagSearch>>> {
+    ) -> RedisResult<Option<Vec<TagSearch>>> {
         let label_prefix_lowercase = label_prefix.to_lowercase();
         let min_inclusive = format!("[{label_prefix_lowercase}");
 
@@ -45,7 +45,6 @@ impl TagSearch {
         )
         .await
         .map(|opt| opt.map(|list| list.into_iter().map(TagSearch).collect()))
-        .map_err(Into::into)
     }
 
     pub async fn put_to_index(tag_labels: &[String]) -> RedisResult<()> {

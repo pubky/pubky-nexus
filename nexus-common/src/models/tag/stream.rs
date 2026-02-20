@@ -1,4 +1,4 @@
-use crate::db::kv::SortOrder;
+use crate::db::kv::{RedisResult, SortOrder};
 use crate::db::{fetch_key_from_graph, queries, RedisOps};
 use crate::models::error::ModelResult;
 use crate::types::routes::HotTagsInputDTO;
@@ -126,7 +126,9 @@ impl HotTags {
             HotTags::set_to_global_cache(hot_tags.clone(), hot_tags_input).await?;
         }
 
-        HotTags::get_from_global_cache(hot_tags_input).await
+        HotTags::get_from_global_cache(hot_tags_input)
+            .await
+            .map_err(Into::into)
     }
 
     /// Retrieves hot tags from the global cache
@@ -140,7 +142,7 @@ impl HotTags {
     /// * `hot_tags_input` - The input parameters received from the API endpoint
     async fn get_from_global_cache(
         hot_tags_input: &HotTagsInputDTO,
-    ) -> ModelResult<Option<HotTags>> {
+    ) -> RedisResult<Option<HotTags>> {
         let timeframe = hot_tags_input.timeframe.to_string();
         let hot_tag_key_parts = Self::build_hot_tags_key_parts(&timeframe);
 
@@ -198,7 +200,7 @@ impl HotTags {
     async fn set_to_global_cache(
         hot_tags_list: HotTags,
         hot_tags_input: &HotTagsInputDTO,
-    ) -> ModelResult<()> {
+    ) -> RedisResult<()> {
         let timeframe = hot_tags_input.timeframe.to_string();
         let hot_tag_key_parts = Self::build_hot_tags_key_parts(&timeframe);
 
@@ -221,8 +223,7 @@ impl HotTags {
             Some(HOT_TAGS_CACHE_PREFIX),
             Some(hot_tags_input.timeframe.to_cache_period()),
         )
-        .await?;
-        Ok(())
+        .await
     }
 
     /// Builds key parts for hot tags based on the given timeframe

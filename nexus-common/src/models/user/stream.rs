@@ -4,7 +4,7 @@ use super::{
     Influencers, Muted, UserCounts, UserDetails, UserSearch, UserView, USER_DELETED_SENTINEL,
 };
 
-use crate::db::kv::{sets, RedisResult, SortOrder};
+use crate::db::kv::{sets, RedisError, RedisResult, SortOrder};
 use crate::db::{fetch_all_rows_from_graph, queries, RedisOps};
 use crate::models::error::ModelError;
 use crate::models::error::ModelResult;
@@ -215,7 +215,7 @@ impl UserStream {
     }
 
     /// Helper method to cache recommended users in Redis with a TTL.
-    async fn cache_recommended_users(user_id: &str, user_ids: &[String]) -> ModelResult<()> {
+    async fn cache_recommended_users(user_id: &str, user_ids: &[String]) -> RedisResult<()> {
         let values: Vec<&str> = user_ids.iter().map(|s| s.as_str()).collect();
         // Cache the result in Redis with a TTL of 12 hours
         Self::put_index_set(
@@ -225,7 +225,6 @@ impl UserStream {
             Some(CACHE_USER_RECOMMENDED_KEY_PARTS.join(":")),
         )
         .await
-        .map_err(Into::into)
     }
 
     /// Helper method to remove deleted users from the cached recommendations.
@@ -244,13 +243,13 @@ impl UserStream {
     async fn get_post_replies_ids(
         post_id: Option<String>,
         author_id: Option<String>,
-    ) -> ModelResult<Option<Vec<String>>> {
+    ) -> RedisResult<Option<Vec<String>>> {
         let post_id = post_id
             .ok_or("Post ID should be provided for user streams with source 'post_replies'")
-            .map_err(ModelError::from_generic)?;
+            .map_err(|e| RedisError::InvalidInput(e.to_string()))?;
         let author_id = author_id
             .ok_or("Author ID should be provided for user streams with source 'post_replies'")
-            .map_err(ModelError::from_generic)?;
+            .map_err(|e| RedisError::InvalidInput(e.to_string()))?;
         let key_parts = [
             &POST_REPLIES_PER_POST_KEY_PARTS[..],
             &[author_id.as_str(), post_id.as_str()],

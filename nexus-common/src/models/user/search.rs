@@ -2,7 +2,6 @@ use super::{UserDetails, USER_DELETED_SENTINEL};
 use crate::db::kv::RedisResult;
 use crate::db::RedisOps;
 use crate::models::create_zero_score_tuples;
-use crate::models::error::ModelResult;
 use crate::models::traits::Collection;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -21,7 +20,7 @@ impl UserSearch {
         name_prefix: &str,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> ModelResult<Option<Self>> {
+    ) -> RedisResult<Option<Self>> {
         // Perform the lexicographical range search
         let elements = Self::get_from_index_name(name_prefix, skip, limit).await?;
 
@@ -45,7 +44,7 @@ impl UserSearch {
         id_prefix: &str,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> ModelResult<Option<Self>> {
+    ) -> RedisResult<Option<Self>> {
         // Perform the lexicographical range search
         let elements = Self::get_from_index_id(id_prefix, skip, limit).await?;
 
@@ -149,7 +148,6 @@ impl UserSearch {
                 .collect::<Vec<&str>>(),
         )
         .await?;
-        Self::remove_from_index_sorted_set(None, &USER_ID_KEY_PARTS, user_ids).await?;
-        Ok(())
+        Self::remove_from_index_sorted_set(None, &USER_ID_KEY_PARTS, user_ids).await
     }
 }

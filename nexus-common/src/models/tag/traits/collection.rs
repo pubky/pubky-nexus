@@ -1,6 +1,6 @@
 use crate::db::kv::{RedisResult, ScoreAction, SortOrder};
 use crate::db::{
-    execute_graph_operation, fetch_row_from_graph, queries, OperationOutcome, RedisOps,
+    execute_graph_operation, fetch_row_from_graph, queries, GraphResult, OperationOutcome, RedisOps,
 };
 use crate::models::error::ModelResult;
 use async_trait::async_trait;
@@ -192,7 +192,7 @@ where
         user_id: &str,
         extra_param: Option<&str>,
         depth: Option<u8>,
-    ) -> ModelResult<Option<Vec<TagDetails>>> {
+    ) -> GraphResult<Option<Vec<TagDetails>>> {
         // We cannot use LIMIT clause because we need all data related
         let query = match depth {
             Some(distance) => queries::get::get_viewer_trusted_network_tags(
@@ -275,14 +275,12 @@ where
         extra_param: Option<&str>,
         label: &str,
         score_action: ScoreAction,
-    ) -> ModelResult<()> {
+    ) -> RedisResult<()> {
         let key: Vec<&str> = match extra_param {
             Some(post_id) => [&POST_TAGS_KEY_PARTS[..], &[author_id, post_id]].concat(),
             None => [&USER_TAGS_KEY_PARTS[..], &[author_id]].concat(),
         };
-        Self::put_score_index_sorted_set(&key, &[label], score_action)
-            .await
-            .map_err(Into::into)
+        Self::put_score_index_sorted_set(&key, &[label], score_action).await
     }
 
     /// Adds a tagger (user) to the appropriate Redis index for a specified tag label.
@@ -298,14 +296,12 @@ where
         extra_param: Option<&str>,
         tagger_user_id: &str,
         tag_label: &str,
-    ) -> ModelResult<()> {
+    ) -> RedisResult<()> {
         let key = match extra_param {
             Some(post_id) => vec![author_id, post_id, tag_label],
             None => vec![author_id, tag_label],
         };
-        Self::put_index_set(&key, &[tagger_user_id], None, None)
-            .await
-            .map_err(Into::into)
+        Self::put_index_set(&key, &[tagger_user_id], None, None).await
     }
 
     /// Inserts a tag relationship into the graph database.
@@ -328,7 +324,7 @@ where
         tag_id: &str,
         label: &str,
         indexed_at: i64,
-    ) -> ModelResult<OperationOutcome> {
+    ) -> GraphResult<OperationOutcome> {
         let query = match extra_param {
             Some(post_id) => queries::put::create_post_tag(
                 tagger_user_id,
@@ -346,7 +342,7 @@ where
                 indexed_at,
             ),
         };
-        execute_graph_operation(query).await.map_err(Into::into)
+        execute_graph_operation(query).await
     }
 
     /// Reindexes tags for a given author by retrieving data from the graph database and updating the index.
@@ -390,7 +386,7 @@ where
     async fn del_from_graph(
         user_id: &str,
         tag_id: &str,
-    ) -> ModelResult<Option<(Option<String>, Option<String>, Option<String>, String)>> {
+    ) -> GraphResult<Option<(Option<String>, Option<String>, Option<String>, String)>> {
         let query = queries::del::delete_tag(user_id, tag_id);
         let maybe_row = fetch_row_from_graph(query).await?;
 

@@ -35,12 +35,8 @@ impl PostsByTagSearch {
     /// Indexes post tags into global sorted sets for timeline and engagement metrics.
     pub async fn reindex() -> ModelResult<()> {
         Self::add_to_global_sorted_set(global_tags_by_post(), TAG_GLOBAL_POST_TIMELINE).await?;
-        Self::add_to_global_sorted_set(
-            global_tags_by_post_engagement(),
-            TAG_GLOBAL_POST_ENGAGEMENT,
-        )
-        .await?;
-        Ok(())
+        Self::add_to_global_sorted_set(global_tags_by_post_engagement(), TAG_GLOBAL_POST_ENGAGEMENT)
+            .await
     }
 
     /// Retrieves post tags from a Neo4j graph and updates global sorted sets
@@ -63,7 +59,7 @@ impl PostsByTagSearch {
         label: &str,
         sort_by: Option<StreamSorting>,
         pagination: Pagination,
-    ) -> ModelResult<Option<Vec<PostsByTagSearch>>> {
+    ) -> RedisResult<Option<Vec<PostsByTagSearch>>> {
         let post_score_list = match sort_by {
             Some(StreamSorting::TotalEngagement) => {
                 Self::try_from_index_sorted_set(
@@ -103,7 +99,7 @@ impl PostsByTagSearch {
         post_id: &str,
         label: &str,
         score_action: ScoreAction,
-    ) -> ModelResult<()> {
+    ) -> RedisResult<()> {
         let tag_global_engagement_key_parts = [&TAG_GLOBAL_POST_ENGAGEMENT[..], &[label]].concat();
         let post_key_slice: &[&str] = &[author_id, post_id];
         Self::put_score_index_sorted_set(
@@ -112,7 +108,6 @@ impl PostsByTagSearch {
             score_action,
         )
         .await
-        .map_err(Into::into)
     }
 
     pub async fn put_to_index(author_id: &str, post_id: &str, tag_label: &str) -> RedisResult<()> {

@@ -1,7 +1,6 @@
 mod errors;
 
-use crate::db::RedisOps;
-use crate::models::error::ModelResult;
+use crate::db::{kv::RedisResult, RedisOps};
 use pubky_app_specs::{ParsedUri, Resource};
 use serde::{Deserialize, Serialize};
 use std::{fmt, path::PathBuf};
@@ -96,14 +95,14 @@ impl Event {
     }
 
     /// Stores event line in Redis as part of the events list.
-    pub async fn store_event(&self) -> ModelResult<()> {
-        self.put_index_list(&["Events"]).await.map_err(Into::into)
+    pub async fn store_event(&self) -> RedisResult<()> {
+        self.put_index_list(&["Events"]).await
     }
 
     pub async fn get_events_from_redis(
         cursor: Option<usize>,
         limit: usize,
-    ) -> ModelResult<(Vec<String>, usize)> {
+    ) -> RedisResult<(Vec<String>, usize)> {
         let start = cursor.unwrap_or(0);
         let result = Event::try_from_index_list(&["Events"], Some(start), Some(limit)).await;
 

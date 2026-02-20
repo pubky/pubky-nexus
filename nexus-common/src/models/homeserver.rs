@@ -1,7 +1,10 @@
 use crate::db::exec_single_row;
 use crate::db::fetch_key_from_graph;
+use crate::db::kv::RedisError;
 use crate::db::kv::RedisResult;
 use crate::db::queries;
+use crate::db::GraphError;
+use crate::db::GraphResult;
 use crate::db::{PubkyConnector, RedisOps};
 use crate::models::error::ModelError;
 use crate::models::error::ModelResult;
@@ -47,15 +50,15 @@ impl Homeserver {
     }
 
     /// Stores this homeserver in the graph.
-    pub async fn put_to_graph(&self) -> ModelResult<()> {
+    pub async fn put_to_graph(&self) -> GraphResult<()> {
         let query = queries::put::create_homeserver(&self.id);
-        exec_single_row(query).await.map_err(Into::into)
+        exec_single_row(query).await
     }
 
     /// Retrieves a homeserver from Neo4j.
     ///
     /// Note that the cursor in the returned homeserver will have the default value, as it is not persisted in the graph.
-    pub async fn get_from_graph(id: &str) -> ModelResult<Option<Homeserver>> {
+    pub async fn get_from_graph(id: &str) -> GraphResult<Option<Homeserver>> {
         let query = queries::get::get_homeserver_by_id(id);
 
         let maybe_id = fetch_key_from_graph(query, "id").await?;
@@ -70,15 +73,13 @@ impl Homeserver {
     }
 
     /// Stores this homeserver in Redis.
-    pub async fn put_to_index(&self) -> ModelResult<()> {
+    pub async fn put_to_index(&self) -> RedisResult<()> {
         if self.cursor.is_empty() {
-            return Err(ModelError::from_generic(
-                "Cannot save to index a homeserver with an empty cursor",
+            return Err(RedisError::InvalidInput(
+                "Cannot save to index a homeserver with an empty cursor".into(),
             ));
         }
-        self.put_index_json(&[&self.id], None, None)
-            .await
-            .map_err(Into::into)
+        self.put_index_json(&[&self.id], None, None).await
     }
 
     pub async fn get_by_id(homeserver_id: PubkyId) -> ModelResult<Option<Homeserver>> {
@@ -113,13 +114,13 @@ impl Homeserver {
     ///
     /// # Errors
     /// Throws an error if no homeservers are found.
-    pub async fn get_all_from_graph() -> ModelResult<Vec<String>> {
+    pub async fn get_all_from_graph() -> GraphResult<Vec<String>> {
         let query = queries::get::get_all_homeservers();
         let maybe_hs_ids = fetch_key_from_graph(query, "homeservers_list").await?;
         let hs_ids: Vec<String> = maybe_hs_ids.unwrap_or_default();
 
         match hs_ids.is_empty() {
-            true => Err(ModelError::from_generic("No homeservers found in graph")),
+            true => Err(GraphError::Generic("No homeservers found in graph".into())),
             false => Ok(hs_ids),
         }
     }

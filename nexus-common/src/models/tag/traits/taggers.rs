@@ -1,6 +1,5 @@
 use crate::db::kv::RedisResult;
 use crate::db::RedisOps;
-use crate::models::error::ModelResult;
 use crate::models::tag::Taggers;
 use crate::types::Pagination;
 use async_trait::async_trait;
@@ -41,7 +40,7 @@ where
         pagination: Pagination,
         viewer_id: Option<&str>,
         depth: Option<u8>,
-    ) -> ModelResult<TaggersTuple> {
+    ) -> RedisResult<TaggersTuple> {
         // Set default params for pagination
         let skip = pagination.skip.unwrap_or(0);
         let limit = pagination.limit.unwrap_or(40);
@@ -57,9 +56,7 @@ where
             key_parts = Self::create_label_index(user_id, extra_param, label, false);
         }
 
-        async { Self::get_from_index(key_parts, viewer_id, Some(skip), Some(limit), prefix).await }
-            .await
-            .map_err(Into::into)
+        Self::get_from_index(key_parts, viewer_id, Some(skip), Some(limit), prefix).await
     }
 
     async fn get_from_index(
@@ -106,11 +103,11 @@ where
         author_id: &str,
         extra_param: Option<&str>,
         tag_label: &str,
-    ) -> ModelResult<()> {
+    ) -> RedisResult<()> {
         let key = match extra_param {
             Some(post_id) => vec![author_id, post_id, tag_label],
             None => vec![author_id, tag_label],
         };
-        self.remove_from_index_set(&key).await.map_err(Into::into)
+        self.remove_from_index_set(&key).await
     }
 }
