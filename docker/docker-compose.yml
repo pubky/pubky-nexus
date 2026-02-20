@@ -40,7 +40,7 @@ services:
     restart: always
 
   redisinsight:
-    image: redis/redisinsight:3.0
+    image: redis/redisinsight:3.0.3
     container_name: redisinsight
     ports:
       - 127.0.0.1:5540:5540
