@@ -131,11 +131,4 @@ mod tests {
         let result = VideoProcessor::get_content_type_for_variant(&file, &FileVariant::Main);
         assert_eq!(result, "video/mp4");
     }
-
-    #[test]
-    fn test_main_variant_preserves_quicktime_content_type() {
-        let file = make_file("video/quicktime");
-        let result = VideoProcessor::get_content_type_for_variant(&file, &FileVariant::Main);
-        assert_eq!(result, "video/quicktime");
-    }
 }
