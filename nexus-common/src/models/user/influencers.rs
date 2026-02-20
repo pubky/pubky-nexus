@@ -100,8 +100,8 @@ impl Influencers {
         timeframe: &Timeframe,
     ) -> Result<Option<Influencers>, DynError> {
         let cached_influencers = Influencers::get_from_global_cache(skip, limit, timeframe).await?;
-        if let Some(cached) = cached_influencers {
-            return Influencers::filter_deleted(cached, Some(timeframe)).await;
+        if cached_influencers.is_some() {
+            return Ok(cached_influencers);
         }
 
         let query = queries::get::get_global_influencers(0, 100, timeframe);
@@ -116,13 +116,11 @@ impl Influencers {
             Influencers::put_to_global_cache(influencers.clone(), timeframe).await?;
         }
 
-        match Influencers::get_from_global_cache(skip, limit, timeframe).await? {
-            Some(cached) => Influencers::filter_deleted(cached, Some(timeframe)).await,
-            None => Ok(None),
-        }
+        Influencers::get_from_global_cache(skip, limit, timeframe).await
     }
 
-    /// Retrieves a paginated list of global influencers from the cache for the given timeframe
+    /// Retrieves a paginated list of global influencers from the cache for the given timeframe,
+    /// filtering out deleted users and removing them from the cache.
     ///
     /// # Arguments
     ///
@@ -170,7 +168,10 @@ impl Influencers {
             }
         };
 
-        Ok(ranking.map(Influencers))
+        match ranking {
+            Some(r) => Influencers::filter_deleted(Influencers(r), Some(timeframe)).await,
+            None => Ok(None),
+        }
     }
 
     /// Stores a list of global influencers in the cache as a sorted set for the given timeframe
