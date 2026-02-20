@@ -1,6 +1,6 @@
 use crate::db::kv::RedisResult;
 use crate::db::{
-    execute_graph_operation, fetch_row_from_graph, queries, OperationOutcome, RedisOps,
+    execute_graph_operation, fetch_row_from_graph, queries, GraphResult, OperationOutcome, RedisOps,
 };
 use crate::models::error::ModelResult;
 use async_trait::async_trait;
@@ -11,10 +11,10 @@ use neo4rs::Query;
 pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
     fn from_vec(vec: Vec<String>) -> Self;
 
-    async fn put_to_graph(follower_id: &str, followee_id: &str) -> ModelResult<OperationOutcome> {
+    async fn put_to_graph(follower_id: &str, followee_id: &str) -> GraphResult<OperationOutcome> {
         let indexed_at = Utc::now().timestamp_millis();
         let query = queries::put::create_follow(follower_id, followee_id, indexed_at);
-        execute_graph_operation(query).await.map_err(Into::into)
+        execute_graph_operation(query).await
     }
 
     async fn get_by_id(
@@ -39,7 +39,7 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
         user_id: &str,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> ModelResult<Option<Self>> {
+    ) -> GraphResult<Option<Self>> {
         let query = Self::get_query(user_id, skip, limit);
         let maybe_row = fetch_row_from_graph(query).await?;
 
@@ -85,9 +85,9 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
         Ok(())
     }
 
-    async fn del_from_graph(follower_id: &str, followee_id: &str) -> ModelResult<OperationOutcome> {
+    async fn del_from_graph(follower_id: &str, followee_id: &str) -> GraphResult<OperationOutcome> {
         let query = queries::del::delete_follow(follower_id, followee_id);
-        execute_graph_operation(query).await.map_err(Into::into)
+        execute_graph_operation(query).await
     }
 
     async fn del_from_index(&self, user_id: &str) -> RedisResult<()> {

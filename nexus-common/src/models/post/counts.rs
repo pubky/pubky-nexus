@@ -1,5 +1,5 @@
 use crate::db::kv::{JsonAction, RedisResult};
-use crate::db::{fetch_row_from_graph, queries, RedisOps};
+use crate::db::{fetch_row_from_graph, queries, GraphResult, RedisOps};
 use crate::models::error::ModelResult;
 use crate::models::tag::post::POST_TAGS_KEY_PARTS;
 use serde::{Deserialize, Serialize};
@@ -46,7 +46,7 @@ impl PostCounts {
     pub async fn get_from_graph(
         author_id: &str,
         post_id: &str,
-    ) -> ModelResult<Option<(PostCounts, bool)>> {
+    ) -> GraphResult<Option<(PostCounts, bool)>> {
         let query = queries::get::post_counts(author_id, post_id);
         let maybe_row = fetch_row_from_graph(query).await?;
 
@@ -67,7 +67,7 @@ impl PostCounts {
         author_id: &str,
         post_id: &str,
         is_reply: bool,
-    ) -> ModelResult<()> {
+    ) -> RedisResult<()> {
         self.put_index_json(&[author_id, post_id], None, None)
             .await?;
 
@@ -91,7 +91,7 @@ impl PostCounts {
         field: &str,
         action: JsonAction,
         tag_label: Option<&str>,
-    ) -> ModelResult<()> {
+    ) -> RedisResult<()> {
         // This condition applies only when updating `unique_tags`
         if let Some(label) = tag_label {
             let index_parts = [&POST_TAGS_KEY_PARTS[..], index_key].concat();
@@ -108,8 +108,7 @@ impl PostCounts {
             }
         }
 
-        Self::modify_json_field(index_key, field, action).await?;
-        Ok(())
+        Self::modify_json_field(index_key, field, action).await
     }
 
     pub async fn reindex(author_id: &str, post_id: &str) -> ModelResult<()> {
@@ -128,7 +127,7 @@ impl PostCounts {
         author_id: &str,
         post_id: &str,
         remove_from_feeds: bool,
-    ) -> ModelResult<()> {
+    ) -> RedisResult<()> {
         // Delete user_details on Redis
         Self::remove_from_index_multiple_json(&[&[author_id, post_id]]).await?;
         // Delete the posts that does not have any relationship as might be replies and reposts. Just root posts
@@ -143,7 +142,7 @@ impl PostCounts {
         index_key: &[&str],
         field: &str,
         tag_label: Option<&str>,
-    ) -> ModelResult<()> {
+    ) -> RedisResult<()> {
         Self::update_index_field(index_key, field, JsonAction::Increment(1), tag_label).await
     }
 
@@ -152,7 +151,7 @@ impl PostCounts {
         index_key: &[&str],
         field: &str,
         tag_label: Option<&str>,
-    ) -> ModelResult<()> {
+    ) -> RedisResult<()> {
         Self::update_index_field(index_key, field, JsonAction::Decrement(1), tag_label).await
     }
 }

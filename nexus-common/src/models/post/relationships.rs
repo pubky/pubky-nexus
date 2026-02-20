@@ -1,5 +1,5 @@
 use crate::db::kv::RedisResult;
-use crate::db::{fetch_row_from_graph, queries, RedisOps};
+use crate::db::{fetch_row_from_graph, queries, GraphResult, RedisOps};
 use crate::models::error::ModelResult;
 use pubky_app_specs::{post_uri_builder, ParsedUri, PubkyAppPost, PubkyAppPostKind, PubkyId};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -76,7 +76,7 @@ impl PostRelationships {
     pub async fn get_from_graph(
         author_id: &str,
         post_id: &str,
-    ) -> ModelResult<Option<PostRelationships>> {
+    ) -> GraphResult<Option<PostRelationships>> {
         let query = queries::get::post_relationships(author_id, post_id);
         let maybe_row = fetch_row_from_graph(query).await?;
 
@@ -126,9 +126,8 @@ impl PostRelationships {
         self.put_index_json(&[author_id, post_id], None, None).await
     }
 
-    pub async fn delete(author_id: &str, post_id: &str) -> ModelResult<()> {
-        Self::remove_from_index_multiple_json(&[&[author_id, post_id]]).await?;
-        Ok(())
+    pub async fn delete(author_id: &str, post_id: &str) -> RedisResult<()> {
+        Self::remove_from_index_multiple_json(&[&[author_id, post_id]]).await
     }
 
     pub async fn reindex(author_id: &str, post_id: &str) -> ModelResult<()> {

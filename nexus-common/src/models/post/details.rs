@@ -1,8 +1,8 @@
 use super::{PostRelationships, PostStream};
 use crate::db::kv::RedisResult;
 use crate::db::{
-    exec_single_row, execute_graph_operation, fetch_row_from_graph, queries, OperationOutcome,
-    RedisOps,
+    exec_single_row, execute_graph_operation, fetch_row_from_graph, queries, GraphResult,
+    OperationOutcome, RedisOps,
 };
 use crate::models::error::ModelResult;
 use chrono::Utc;
@@ -53,7 +53,7 @@ impl PostDetails {
     pub async fn get_from_graph(
         author_id: &str,
         post_id: &str,
-    ) -> ModelResult<Option<(PostDetails, Option<(String, String)>)>> {
+    ) -> GraphResult<Option<(PostDetails, Option<(String, String)>)>> {
         let query = queries::get::get_post_by_id(author_id, post_id);
         let maybe_row = fetch_row_from_graph(query).await?;
 
@@ -121,11 +121,9 @@ impl PostDetails {
     pub async fn reindex(author_id: &str, post_id: &str) -> ModelResult<()> {
         match Self::get_from_graph(author_id, post_id).await? {
             Some((details, reply)) => details.put_to_index(author_id, reply, false).await?,
-            None => tracing::error!(
-                "{}:{} Could not found post counts in the graph",
-                author_id,
-                post_id
-            ),
+            None => {
+                tracing::error!("{author_id}:{post_id} Could not find post counts in the graph")
+            }
         }
         Ok(())
     }
@@ -134,9 +132,9 @@ impl PostDetails {
     pub async fn put_to_graph(
         &self,
         post_relationships: &PostRelationships,
-    ) -> ModelResult<OperationOutcome> {
+    ) -> GraphResult<OperationOutcome> {
         let query = queries::put::create_post(self, post_relationships)?;
-        execute_graph_operation(query).await.map_err(Into::into)
+        execute_graph_operation(query).await
     }
 
     pub async fn delete(

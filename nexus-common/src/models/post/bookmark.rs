@@ -1,6 +1,6 @@
 use crate::db::kv::RedisResult;
 use crate::db::{
-    execute_graph_operation, fetch_all_rows_from_graph, fetch_key_from_graph, queries,
+    execute_graph_operation, fetch_all_rows_from_graph, fetch_key_from_graph, queries, GraphResult,
     OperationOutcome, RedisOps,
 };
 use crate::models::error::ModelResult;
@@ -25,7 +25,7 @@ impl Bookmark {
         user_id: &str,
         bookmark_id: &str,
         indexed_at: i64,
-    ) -> ModelResult<OperationOutcome> {
+    ) -> GraphResult<OperationOutcome> {
         let query = queries::put::create_post_bookmark(
             user_id,
             author_id,
@@ -34,7 +34,7 @@ impl Bookmark {
             indexed_at,
         );
 
-        execute_graph_operation(query).await.map_err(Into::into)
+        execute_graph_operation(query).await
     }
 
     /// Retrieves counts by user ID, first trying to get from Redis, then from Neo4j if not found.
@@ -65,10 +65,8 @@ impl Bookmark {
         author_id: &str,
         post_id: &str,
         viewer_id: &str,
-    ) -> ModelResult<Option<Bookmark>> {
-        Self::try_from_index_json(&[author_id, post_id, viewer_id], None)
-            .await
-            .map_err(Into::into)
+    ) -> RedisResult<Option<Bookmark>> {
+        Self::try_from_index_json(&[author_id, post_id, viewer_id], None).await
     }
 
     /// Retrieves a bookmark from Neo4j.
@@ -76,9 +74,9 @@ impl Bookmark {
         author_id: &str,
         post_id: &str,
         viewer_id: &str,
-    ) -> ModelResult<Option<Bookmark>> {
+    ) -> GraphResult<Option<Bookmark>> {
         let query = queries::get::post_bookmark(author_id, post_id, viewer_id);
-        fetch_key_from_graph(query, "b").await.map_err(Into::into)
+        fetch_key_from_graph(query, "b").await
     }
 
     pub async fn put_to_index(
@@ -115,7 +113,7 @@ impl Bookmark {
     pub async fn del_from_graph(
         user_id: &str,
         bookmark_id: &str,
-    ) -> ModelResult<Option<(String, String)>> {
+    ) -> GraphResult<Option<(String, String)>> {
         let query = queries::del::delete_bookmark(user_id, bookmark_id);
         let rows = fetch_all_rows_from_graph(query).await?;
 
@@ -133,9 +131,8 @@ impl Bookmark {
         bookmarker_id: &str,
         post_id: &str,
         author_id: &str,
-    ) -> ModelResult<()> {
+    ) -> RedisResult<()> {
         Self::remove_from_index_multiple_json(&[&[author_id, post_id, bookmarker_id]]).await?;
-        PostStream::remove_from_bookmarks_sorted_set(bookmarker_id, post_id, author_id).await?;
-        Ok(())
+        PostStream::remove_from_bookmarks_sorted_set(bookmarker_id, post_id, author_id).await
     }
 }

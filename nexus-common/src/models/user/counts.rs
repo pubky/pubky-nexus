@@ -1,5 +1,5 @@
 use crate::db::kv::{JsonAction, RedisResult};
-use crate::db::{fetch_row_from_graph, queries, RedisOps};
+use crate::db::{fetch_row_from_graph, queries, GraphResult, RedisOps};
 use crate::models::error::ModelResult;
 use crate::models::tag::user::USER_TAGS_KEY_PARTS;
 use serde::{Deserialize, Serialize};
@@ -43,7 +43,7 @@ impl UserCounts {
     }
 
     /// Retrieves the counts from Neo4j.
-    pub async fn get_from_graph(user_id: &str) -> ModelResult<Option<UserCounts>> {
+    pub async fn get_from_graph(user_id: &str) -> GraphResult<Option<UserCounts>> {
         let query = queries::get::user_counts(user_id);
         let maybe_row = fetch_row_from_graph(query).await?;
 
@@ -76,9 +76,8 @@ impl UserCounts {
         author_id: &str,
         field: &str,
         action: JsonAction,
-    ) -> ModelResult<()> {
-        Self::modify_json_field(&[author_id], field, action).await?;
-        Ok(())
+    ) -> RedisResult<()> {
+        Self::modify_json_field(&[author_id], field, action).await
     }
 
     /// Updates a user's counts index field and conditionally updates ranking sets
@@ -141,11 +140,9 @@ impl UserCounts {
         Ok(())
     }
 
-    pub async fn delete(user_id: &str) -> ModelResult<()> {
+    pub async fn delete(user_id: &str) -> RedisResult<()> {
         // Delete user_details on Redis
-        Self::remove_from_index_multiple_json(&[&[user_id]]).await?;
-
-        Ok(())
+        Self::remove_from_index_multiple_json(&[&[user_id]]).await
     }
 
     /// Increments a field in a user's counts by 1.
