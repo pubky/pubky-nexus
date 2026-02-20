@@ -29,7 +29,10 @@ impl VariantProcessor for VideoProcessor {
         vec![FileVariant::Main]
     }
 
-    fn get_content_type_for_variant(_file: &FileDetails, _variant: &FileVariant) -> String {
+    fn get_content_type_for_variant(file: &FileDetails, variant: &FileVariant) -> String {
+        if variant.eq(&FileVariant::Main) {
+            return file.content_type.clone();
+        }
         String::from("video/mp4")
     }
 
@@ -82,7 +85,7 @@ impl VariantProcessor for VideoProcessor {
 }
 
 impl VideoProcessor {
-    // function to get the format of the video
+    /// Returns the format of the video
     async fn get_format(input: &str) -> Result<String, DynError> {
         let child_output = Command::new("ffmpeg")
             .arg("-i")
@@ -101,5 +104,38 @@ impl VideoProcessor {
             )
             .into())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_file(content_type: &str) -> FileDetails {
+        FileDetails {
+            content_type: content_type.to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_main_variant_preserves_original_content_type() {
+        let file = make_file("video/webm");
+        let result = VideoProcessor::get_content_type_for_variant(&file, &FileVariant::Main);
+        assert_eq!(result, "video/webm");
+    }
+
+    #[test]
+    fn test_main_variant_preserves_mp4_content_type() {
+        let file = make_file("video/mp4");
+        let result = VideoProcessor::get_content_type_for_variant(&file, &FileVariant::Main);
+        assert_eq!(result, "video/mp4");
+    }
+
+    #[test]
+    fn test_main_variant_preserves_quicktime_content_type() {
+        let file = make_file("video/quicktime");
+        let result = VideoProcessor::get_content_type_for_variant(&file, &FileVariant::Main);
+        assert_eq!(result, "video/quicktime");
     }
 }

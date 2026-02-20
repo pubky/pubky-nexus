@@ -4,7 +4,7 @@ use std::sync::OnceLock;
 use crate::Result;
 use axum::{
     body::Body,
-    http::{Request, StatusCode, Uri},
+    http::{Request, Uri},
     response::Response,
 };
 use tower_http::services::{fs::ServeFileSystemResponseBody, ServeDir};
@@ -34,7 +34,7 @@ impl PubkyServeDir {
 
         let mut response = match response_result {
             Ok(response) => {
-                if response.status() != StatusCode::OK {
+                if !response.status().is_success() {
                     return Ok(response);
                 }
                 response
