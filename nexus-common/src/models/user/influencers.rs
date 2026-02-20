@@ -218,10 +218,7 @@ impl Influencers {
         timeframe: &Timeframe,
     ) -> Result<Option<Influencers>, DynError> {
         let query = queries::get::get_influencers_by_reach(user_id, reach, skip, limit, timeframe);
-        match fetch_key_from_graph::<Influencers>(query, "influencers").await? {
-            Some(influencers) => Influencers::filter_deleted(influencers, None).await,
-            None => Ok(None),
-        }
+        fetch_key_from_graph::<Influencers>(query, "influencers").await
     }
 
     /// Filters out deleted users from an `Influencers` list.
