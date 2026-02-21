@@ -4,7 +4,7 @@ use std::sync::OnceLock;
 use crate::Result;
 use axum::{
     body::Body,
-    http::{Request, StatusCode, Uri},
+    http::{Request, Uri},
     response::Response,
 };
 use tower_http::services::{fs::ServeFileSystemResponseBody, ServeDir};
@@ -33,15 +33,14 @@ impl PubkyServeDir {
         let response_result = Self::get_serve_dir(file_path).try_call(request).await;
 
         let mut response = match response_result {
-            Ok(response) => {
-                if response.status() != StatusCode::OK {
-                    return Ok(response);
-                }
-                response
-            }
-            Err(err) => {
-                return Err(err.into());
-            }
+            // In case of success, extract the response for content-type header injection
+            // is_success() checks for all success codes: 200 OK, but also 206 Partial Content
+            // 206 is used for video streaming
+            Ok(response) if response.status().is_success() => response,
+
+            // In all other cases, return right away and skip content-type header injection
+            Ok(response) => return Ok(response),
+            Err(err) => return Err(err.into()),
         };
 
         // set the content type header
