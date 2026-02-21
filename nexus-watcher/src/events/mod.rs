@@ -57,8 +57,8 @@ pub async fn handle_put_event(event: &Event, moderation: Arc<Moderation>) -> Res
         (PubkyAppObject::Follow(_follow), Resource::Follow(followee_id)) => {
             handlers::follow::sync_put(user_id, followee_id).await?
         }
-        (PubkyAppObject::Mute(_mute), Resource::Mute(muted_id)) => {
-            handlers::mute::sync_put(user_id, muted_id).await?
+        (PubkyAppObject::Mute(_), Resource::Mute(_)) => {
+            debug!("Mute events are no longer handled by nexus");
         }
         (PubkyAppObject::Bookmark(bookmark), Resource::Bookmark(bookmark_id)) => {
             handlers::bookmark::sync_put(user_id, bookmark, bookmark_id).await?
@@ -97,7 +97,9 @@ pub async fn handle_del_event(event: &Event) -> Result<(), DynError> {
         Resource::Follow(followee_id) => {
             handlers::follow::del(user_id, followee_id.clone()).await?
         }
-        Resource::Mute(muted_id) => handlers::mute::del(user_id, muted_id.clone()).await?,
+        Resource::Mute(_) => {
+            debug!("Mute events are no longer handled by nexus");
+        }
         Resource::Bookmark(bookmark_id) => {
             handlers::bookmark::del(user_id, bookmark_id.clone()).await?
         }

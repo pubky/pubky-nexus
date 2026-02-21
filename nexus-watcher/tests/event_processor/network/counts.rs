@@ -9,7 +9,7 @@ use nexus_common::{
 use nexus_watcher::service::TEventProcessorRunner;
 use pubky::Keypair;
 use pubky_app_specs::{
-    post_uri_builder, PubkyAppBookmark, PubkyAppFollow, PubkyAppMute, PubkyAppPost,
+    post_uri_builder, PubkyAppBookmark, PubkyAppFollow, PubkyAppPost,
     PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
 };
 use rand::{rngs::StdRng, RngExt, SeedableRng};
@@ -40,7 +40,6 @@ async fn test_large_network_scenario_counts() -> Result<()> {
     let max_posts_per_user = 10;
     let max_tags_per_user = 15;
     let max_follows_per_user = 20;
-    let max_mutes_per_user = 5;
     let max_bookmarks_per_user = 15;
 
     // Containers to hold user data
@@ -72,8 +71,6 @@ async fn test_large_network_scenario_counts() -> Result<()> {
     let mut total_follows = 0;
     let mut total_unfollows = 0;
     let mut total_tag_deletions = 0;
-    let mut _total_mutes = 0;
-    let mut _total_unmutes = 0;
 
     // Users create posts
     for (i, (user_kp, user_id)) in user_kps_and_ids.iter().enumerate() {
@@ -109,33 +106,6 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                 if follow_set.insert(target_user_id.clone()) {
                     test.create_follow(user_kp, target_user_id).await?;
                     total_follows += 1;
-                }
-            }
-        }
-    }
-
-    // Users mute other users
-    let mut user_mutes: HashMap<String, HashSet<String>> = HashMap::new(); // Map user_id to set of muted user_ids
-
-    for (_user_kp, user_id) in user_kps_and_ids.iter() {
-        user_mutes.insert(user_id.clone(), HashSet::new());
-    }
-
-    for (i, (user_kp, user_id)) in user_kps_and_ids.iter().enumerate() {
-        let num_mutes = rng.random_range(0..=max_mutes_per_user.min(NUM_USERS - 1));
-        let mute_set = &mut user_mutes.get_mut(user_id).unwrap();
-        while mute_set.len() < num_mutes {
-            let target_index = rng.random_range(0..NUM_USERS);
-            if target_index != i {
-                let (_target_user_kp, target_user_id) = &user_kps_and_ids[target_index];
-                if mute_set.insert(target_user_id.clone()) {
-                    // Create mute
-                    let mute = PubkyAppMute {
-                        created_at: chrono::Utc::now().timestamp_millis(),
-                    };
-                    let mute_path = PubkyAppMute::hs_path(target_user_id);
-                    test.put(user_kp, &mute_path, mute).await?;
-                    _total_mutes += 1;
                 }
             }
         }
@@ -224,31 +194,6 @@ async fn test_large_network_scenario_counts() -> Result<()> {
         }
     }
 
-    // Users unmute other users
-    for (user_kp, user_id) in user_kps_and_ids.iter() {
-        // Get list of users this user has muted
-        let mute_set = &mut user_mutes.get_mut(user_id).unwrap();
-        let muted: Vec<String> = mute_set.iter().cloned().collect();
-
-        let num_unmutes = rng.random_range(0..=muted.len());
-        let mut unmuted = HashSet::new();
-
-        for _ in 0..num_unmutes {
-            if muted.is_empty() || unmuted.len() == muted.len() {
-                break;
-            }
-
-            let target_index = rng.random_range(0..muted.len());
-            let target_user_id = &muted[target_index];
-            if unmuted.insert(target_user_id.clone()) {
-                let mute_path = PubkyAppMute::hs_path(target_user_id);
-                test.del(user_kp, &mute_path).await?;
-                mute_set.remove(target_user_id);
-                _total_unmutes += 1;
-            }
-        }
-    }
-
     if !PROCESS_EVENTS_ONE_BY_ONE {
         for _ in 1..=100 {
             // Run the event processor
@@ -317,7 +262,6 @@ async fn test_large_network_scenario_counts() -> Result<()> {
             "Unique tag counts mismatch for user {user_id} between cache and graph"
         );
 
-        // TODO: mute counts
     }
 
     // Compare PostCounts for each post

@@ -169,26 +169,6 @@ pub fn create_follow(follower_id: &str, followee_id: &str, indexed_at: i64) -> Q
     .param("indexed_at", indexed_at)
 }
 
-/// Creates  a `MUTED` relationship between a user and another user they wish to mute
-/// # Arguments
-/// * `user_id` - The unique identifier of the user initiating the mute action.
-/// * `muted_id` - The unique identifier of the user to be muted.
-/// * `indexed_at` - A timestamp indicating when the relationship was created or last updated.
-pub fn create_mute(user_id: &str, muted_id: &str, indexed_at: i64) -> Query {
-    query(
-        "MATCH (user:User {id: $user_id}), (muted:User {id: $muted_id})
-        // Check if follow already existed
-        OPTIONAL MATCH (user)-[existing:MUTED]->(muted) 
-        MERGE (user)-[r:MUTED]->(muted)
-        SET r.indexed_at = $indexed_at
-         // Returns true if the mute relationship already existed
-        RETURN existing IS NOT NULL AS flag;",
-    )
-    .param("user_id", user_id.to_string())
-    .param("muted_id", muted_id.to_string())
-    .param("indexed_at", indexed_at)
-}
-
 /// Creates a "BOOKMARKED" relationship between a user and a post authored by another user
 /// # Arguments
 /// * `user_id` - The unique identifier of the user bookmarking the post.

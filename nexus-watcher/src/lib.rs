@@ -7,7 +7,7 @@
 //! Key responsibilities include:
 //!
 //! - Listening to a homeserver’s events stream.
-//! - Processing various event types (posts, bookmarks, follows, mutes, tags, user updates, etc.).
+//! - Processing various event types (posts, bookmarks, follows, tags, user updates, etc.).
 //! - Applying retry logic for events that fail to index.
 //! - Updating both the graph database and Redis indexes based on incoming events.
 //!

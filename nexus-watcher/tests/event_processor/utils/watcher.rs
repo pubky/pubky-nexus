@@ -21,7 +21,7 @@ use pubky_app_specs::file_uri_builder;
 use pubky_app_specs::traits::HashId;
 use pubky_app_specs::{
     traits::{HasIdPath, HasPath, TimestampId},
-    PubkyAppFile, PubkyAppFollow, PubkyAppMute, PubkyAppPost, PubkyAppUser, PubkyId,
+    PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser, PubkyId,
 };
 use pubky_testnet::EphemeralTestnet;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -347,20 +347,6 @@ impl WatcherTest {
         Ok(follow_path)
     }
 
-    pub async fn create_mute(
-        &mut self,
-        muter_kp: &Keypair,
-        mutee_id: &str,
-    ) -> Result<ResourcePath> {
-        let mute_relationship = PubkyAppMute {
-            created_at: Utc::now().timestamp_millis(),
-        };
-        let mute_path = PubkyAppMute::hs_path(mutee_id);
-        self.put(muter_kp, &mute_path, mute_relationship).await?;
-        // Process the event
-        self.ensure_event_processing_complete().await?;
-        Ok(mute_path)
-    }
 }
 
 /// Retrieves an event from the homeserver and handles it asynchronously.

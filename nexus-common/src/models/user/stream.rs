@@ -1,8 +1,6 @@
 use std::collections::HashSet;
 
-use super::{
-    Influencers, Muted, UserCounts, UserDetails, UserSearch, UserView, USER_DELETED_SENTINEL,
-};
+use super::{Influencers, UserCounts, UserDetails, UserSearch, UserView, USER_DELETED_SENTINEL};
 
 use crate::db::kv::{sets, RedisResult, SortOrder};
 use crate::db::{fetch_all_rows_from_graph, queries, RedisOps};
@@ -25,7 +23,6 @@ pub enum UserStreamSource {
     Followers,
     Following,
     Friends,
-    Muted,
     MostFollowed,
     Influencers,
     Recommended,
@@ -316,15 +313,6 @@ impl UserStream {
             UserStreamSource::Friends => Friends::get_by_id(
                 user_id
                     .ok_or("User ID should be provided for user streams with source 'friends'")?
-                    .as_str(),
-                skip,
-                limit,
-            )
-            .await?
-            .map(|u| u.0),
-            UserStreamSource::Muted => Muted::get_by_id(
-                user_id
-                    .ok_or("User ID should be provided for user streams with source 'muted'")?
                     .as_str(),
                 skip,
                 limit,
