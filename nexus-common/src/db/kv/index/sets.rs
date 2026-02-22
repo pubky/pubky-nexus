@@ -205,6 +205,10 @@ pub async fn get_multiple_sets(
     member: Option<&str>,
     limit: Option<usize>,
 ) -> RedisResult<Vec<Option<(Vec<String>, usize, bool)>>> {
+    if keys.is_empty() {
+        return Ok(vec![]);
+    }
+
     let mut redis_conn = get_redis_conn().await?;
 
     // Create a Redis pipeline
