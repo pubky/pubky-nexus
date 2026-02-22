@@ -348,7 +348,7 @@ pub async fn get_multiple<T: DeserializeOwned + Send + Sync>(
         .collect();
 
     // Fetch values as Option<String> to handle missing keys
-    let indexed_values: Vec<Option<String>> = redis_conn.json_get(&full_keys, json_path).await?;
+    let indexed_values: Vec<Option<String>> = redis_conn.json_mget(&full_keys, json_path).await?;
 
     // Check if indexed_values is empty. That's an edge case 1 element and it was not found, redis does not return None.
     let results: Vec<Option<T>> = if indexed_values.is_empty() {
