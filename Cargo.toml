@@ -16,6 +16,7 @@ chrono = { version = "0.4.43", default-features = false, features = ["clock"] }
 clap = "4.5.60"
 deadpool-redis = "0.23"
 neo4rs = "0.8.0"
+redis = "1.0.4"
 opentelemetry = "0.31"
 opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
 # pubky = "0.5.4"

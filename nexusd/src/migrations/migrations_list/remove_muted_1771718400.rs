@@ -1,10 +1,7 @@
 use async_trait::async_trait;
 
-use crate::migrations::manager::Migration;
-use nexus_common::{
-    db::{get_neo4j_graph, kv::delete_keys_by_pattern},
-    types::DynError,
-};
+use crate::migrations::{manager::Migration, utils::delete_keys_by_pattern};
+use nexus_common::{db::get_neo4j_graph, types::DynError};
 use tracing::info;
 
 pub struct RemoveMuted1771718400;
