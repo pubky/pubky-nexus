@@ -7,12 +7,12 @@ use nexus_common::{
 };
 use tracing::info;
 
-pub struct RemoveMuted1740182400;
+pub struct RemoveMuted1771718400;
 
 #[async_trait]
-impl Migration for RemoveMuted1740182400 {
+impl Migration for RemoveMuted1771718400 {
     fn id(&self) -> &'static str {
-        "RemoveMuted1740182400"
+        "RemoveMuted1771718400"
     }
 
     fn is_multi_staged(&self) -> bool {
