@@ -24,7 +24,11 @@ services:
       NEO4J_server_memory_pagecache_size: 1G
       NEO4J_server_memory_heap_initial__size: 2G
       NEO4J_server_memory_heap_max__size: 2G
-      # Disable telemetry, see https://neo4j.com/docs/operations-manual/current/configuration/configuration-settings/#config_client.allow_telemetry
+      # Disable telemetry (server-side)
+      # https://neo4j.com/docs/operations-manual/current/configuration/configuration-settings/#config_dbms.usage_report.enabled
+      NEO4J_dbms_usage__report_enabled: false
+      # Disable telemetry (client-side)
+      # https://neo4j.com/docs/operations-manual/current/configuration/configuration-settings/#config_client.allow_telemetry
       NEO4J_client_allow__telemetry: false
       # NEO4J_apoc_uuid_enabled: false
 

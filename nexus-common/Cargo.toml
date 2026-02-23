@@ -18,13 +18,13 @@ opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic"] }
 opentelemetry_sdk = { workspace = true }
 pubky = { workspace = true }
 pubky-app-specs = { workspace = true }
-redis = { version = "0.32", features = ["tokio-comp", "json"] }
+redis = { version = "1.0.4", features = ["tokio-comp", "json"] }
 deadpool-redis = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
-toml = "1.0.1"
+toml = "1.0.3"
 tracing = { workspace = true }
 tracing-log = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
