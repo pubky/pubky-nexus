@@ -155,4 +155,3 @@ async fn test_get_details() -> Result<()> {
 
     Ok(())
 }
-

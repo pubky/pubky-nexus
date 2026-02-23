@@ -9,8 +9,8 @@ use nexus_common::{
 use nexus_watcher::service::TEventProcessorRunner;
 use pubky::Keypair;
 use pubky_app_specs::{
-    post_uri_builder, PubkyAppBookmark, PubkyAppFollow, PubkyAppPost,
-    PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
+    post_uri_builder, PubkyAppBookmark, PubkyAppFollow, PubkyAppPost, PubkyAppPostKind,
+    PubkyAppTag, PubkyAppUser,
 };
 use rand::{rngs::StdRng, RngExt, SeedableRng};
 use std::collections::{HashMap, HashSet};
@@ -261,7 +261,6 @@ async fn test_large_network_scenario_counts() -> Result<()> {
             counts_cache.unique_tags, counts_graph.unique_tags,
             "Unique tag counts mismatch for user {user_id} between cache and graph"
         );
-
     }
 
     // Compare PostCounts for each post

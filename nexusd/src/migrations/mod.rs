@@ -9,8 +9,8 @@ mod utils;
 pub use builder::MigrationBuilder;
 pub use manager::MigrationManager;
 
-use crate::migrations::migrations_list::users_by_pk_reindex_1751635096::UsersByPkReindex1751635096;
 use crate::migrations::migrations_list::remove_muted_1771718400::RemoveMuted1771718400;
+use crate::migrations::migrations_list::users_by_pk_reindex_1751635096::UsersByPkReindex1751635096;
 /// Registers migrations with the `MigrationManager`
 ///
 /// # Description

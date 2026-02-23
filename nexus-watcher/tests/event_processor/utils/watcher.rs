@@ -346,7 +346,6 @@ impl WatcherTest {
         self.ensure_event_processing_complete().await?;
         Ok(follow_path)
     }
-
 }
 
 /// Retrieves an event from the homeserver and handles it asynchronously.
