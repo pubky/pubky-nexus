@@ -12,7 +12,7 @@ pub use index::sorted_sets::{ScoreAction, SortOrder};
 pub use last_save::get_last_rdb_save_time;
 pub use traits::RedisOps;
 
-/// Deletes all Redis keys matching the given pattern (e.g. `"Muted:*"`).
+/// Deletes all Redis keys matching the given pattern (e.g. `"Prefix:*"`).
 /// Uses SCAN to avoid blocking Redis on large keyspaces.
 pub async fn delete_keys_by_pattern(pattern: &str) -> RedisResult<usize> {
     use crate::db::get_redis_conn;
