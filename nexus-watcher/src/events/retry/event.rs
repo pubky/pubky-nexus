@@ -100,8 +100,7 @@ impl RetryEvent {
         .await
         .map_err(|e| {
             EventProcessorError::InternalError(format!(
-                "Could not check uri for event: {}, reason {}",
-                event_index, e
+                "Could not check uri for event: {event_index}, reason {e}"
             ))
         })
     }
