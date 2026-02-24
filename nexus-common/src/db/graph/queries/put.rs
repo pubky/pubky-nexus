@@ -6,8 +6,7 @@ use pubky_app_specs::{ParsedUri, Resource};
 
 /// Create a user node
 pub fn create_user(user: &UserDetails) -> GraphResult<Query> {
-    let links = serde_json::to_string(&user.links)
-        .map_err(|e| GraphError::SerializationFailed(Box::new(e)))?;
+    let links = serde_json::to_string(&user.links)?;
 
     let query = query(
         "MERGE (u:User {id: $id})
@@ -72,8 +71,7 @@ pub fn create_post(
         RETURN existing_post IS NOT NULL AS flag",
     );
 
-    let kind = serde_json::to_string(&post.kind)
-        .map_err(|e| GraphError::SerializationFailed(Box::new(e)))?;
+    let kind = serde_json::to_string(&post.kind)?;
 
     let mut cypher_query = query(&cypher)
         .param("author_id", post.author.to_string())
@@ -300,8 +298,7 @@ pub fn create_user_tag(
 
 /// Create a file node
 pub fn create_file(file: &FileDetails) -> GraphResult<Query> {
-    let urls = serde_json::to_string(&file.urls)
-        .map_err(|e| GraphError::SerializationFailed(Box::new(e)))?;
+    let urls = serde_json::to_string(&file.urls)?;
 
     let query = query(
         "MERGE (f:File {id: $id, owner_id: $owner_id})
