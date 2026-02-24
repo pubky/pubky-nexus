@@ -11,27 +11,36 @@ pub enum EventProcessorError {
     /// Failed to execute query in the graph database
     #[error("GraphQueryFailed: {0}")]
     GraphQueryFailed(String),
+
     /// The event could not be indexed due to missing graph dependencies
     #[error("MissingDependency: Could not be indexed")]
     MissingDependency { dependency: Vec<String> },
+
     /// Failed to complete indexing due to a Redis operation error
     #[error("IndexOperationFailed: Indexing incomplete due to Redis error - {0}")]
     IndexOperationFailed(String),
+
     /// The event appears to be unindexed. Verify the event in the retry queue
     #[error("SkipIndexing: The PUT event appears to be unindexed, so we cannot delete an object that doesn't exist")]
     SkipIndexing,
+
     /// The event could not be parsed from a line
     #[error("InvalidEventLine: {0}")]
     InvalidEventLine(String),
+
     /// The Pubky client could not resolve the pubky
     #[error("PubkyClientError: {0}")]
     PubkyClientError(#[from] crate::db::PubkyClientError),
+
     #[error("MediaProcessor: {0}")]
     MediaProcessorError(String),
+
     #[error("Internal error: {0}")]
     InternalError(String),
+
     #[error("StaticSaveFailed: {0}")]
     StaticSaveFailed(String),
+
     /// Catch-all for miscellaneous errors in the processor layer
     #[error("Generic error: {0}")]
     Generic(String),
