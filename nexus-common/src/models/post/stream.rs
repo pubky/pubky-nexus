@@ -271,11 +271,7 @@ impl PostStream {
         // Track the last post's indexed_at value
         let mut last_post_indexed_at: Option<i64> = None;
 
-        while let Some(row) = result
-            .next()
-            .await
-            .map_err(|e| GraphError::QueryFailed(e.into()))?
-        {
+        while let Some(row) = result.next().await? {
             let author_id: String = row.get("author_id")?;
             let post_id: String = row.get("post_id")?;
             let indexed_at: i64 = row.get("indexed_at")?;
