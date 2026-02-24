@@ -9,62 +9,26 @@ use crate::{
 pub enum ModelError {
     /// Failed to perform Graph Operation
     #[error("GraphOperationFailed")]
-    GraphOperationFailed {
-        #[source]
-        source: GraphError,
-    },
+    GraphOperationFailed(#[from] GraphError),
+
     /// Failed to perform KV Operation
     #[error("KvOperationFailed")]
-    KvOperationFailed {
-        #[source]
-        source: RedisError,
-    },
+    KvOperationFailed(#[from] RedisError),
+
     #[error("MediaProcessorError")]
-    MediaProcessorError {
-        #[source]
-        source: MediaProcessorError,
-    },
+    MediaProcessorError(#[from] MediaProcessorError),
+
     #[error("FileOperationFailed")]
-    FileOperationFailed {
-        #[source]
-        source: Box<dyn std::error::Error + Send + Sync>,
-    },
+    FileOperationFailed(#[from] std::io::Error),
+
     #[error("Generic: {0}")]
     Generic(String),
-}
-
-impl From<RedisError> for ModelError {
-    fn from(source: RedisError) -> Self {
-        ModelError::KvOperationFailed { source }
-    }
-}
-
-impl From<std::io::Error> for ModelError {
-    fn from(e: std::io::Error) -> Self {
-        ModelError::FileOperationFailed {
-            source: Box::new(e),
-        }
-    }
-}
-
-impl From<MediaProcessorError> for ModelError {
-    fn from(e: MediaProcessorError) -> Self {
-        ModelError::MediaProcessorError { source: e }
-    }
-}
-
-impl From<GraphError> for ModelError {
-    fn from(e: GraphError) -> Self {
-        ModelError::GraphOperationFailed { source: e }
-    }
 }
 
 impl From<neo4rs::DeError> for ModelError {
     fn from(e: neo4rs::DeError) -> Self {
         // Convert through GraphError to maintain error hierarchy
-        ModelError::GraphOperationFailed {
-            source: GraphError::from(e),
-        }
+        ModelError::GraphOperationFailed(GraphError::from(e))
     }
 }
 

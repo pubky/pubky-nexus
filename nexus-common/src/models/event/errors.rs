@@ -49,16 +49,16 @@ pub enum EventProcessorError {
 impl From<ModelError> for EventProcessorError {
     fn from(e: ModelError) -> Self {
         match e {
-            ModelError::GraphOperationFailed { source } => {
+            ModelError::GraphOperationFailed(source) => {
                 EventProcessorError::GraphQueryFailed(source.to_string())
             }
-            ModelError::KvOperationFailed { source } => {
+            ModelError::KvOperationFailed(source) => {
                 EventProcessorError::IndexOperationFailed(source.to_string())
             }
-            ModelError::MediaProcessorError { source } => {
+            ModelError::MediaProcessorError(source) => {
                 EventProcessorError::MediaProcessorError(source.to_string())
             }
-            ModelError::FileOperationFailed { source } => {
+            ModelError::FileOperationFailed(source) => {
                 EventProcessorError::InternalError(source.to_string())
             }
             ModelError::Generic(message) => EventProcessorError::Generic(message),
