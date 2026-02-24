@@ -88,16 +88,7 @@ where
         let mut records = Vec::with_capacity(ids.len());
 
         for row in rows {
-            let record: Option<Self> = match row.get("record") {
-                Ok(val) => val,
-                Err(e) => {
-                    tracing::error!(
-                        "Failed to deserialize {} from graph: {e}\nRow: {row:?}",
-                        std::any::type_name::<Self>(),
-                    );
-                    None
-                }
-            };
+            let record: Option<Self> = row.get("record").ok();
             records.push(record);
         }
         Ok(records)
