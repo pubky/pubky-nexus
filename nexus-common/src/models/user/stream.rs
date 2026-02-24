@@ -237,6 +237,53 @@ impl UserStream {
         let _ = sets::del(&prefix, user_id, &deleted_refs).await;
     }
 
+    /// Retrieves most-followed user IDs from the sorted set, filtering out deleted users
+    /// and cleaning them from the cache.
+    async fn get_most_followed(
+        skip: Option<usize>,
+        limit: Option<usize>,
+    ) -> Result<Option<Vec<String>>, DynError> {
+        let result = Self::try_from_index_sorted_set(
+            &USER_MOSTFOLLOWED_KEY_PARTS,
+            None,
+            None,
+            skip,
+            limit,
+            SortOrder::Descending,
+            None,
+        )
+        .await?;
+
+        let Some(set) = result else {
+            return Ok(None);
+        };
+
+        let ids: Vec<String> = set.iter().map(|(id, _)| id.clone()).collect();
+        let details_list = UserDetails::mget(&ids).await?;
+
+        let mut filtered_ids = Vec::new();
+        let mut deleted_ids = Vec::new();
+
+        for ((id, _score), details) in set.into_iter().zip(details_list.into_iter()) {
+            match details {
+                Some(ref d) if d.name != USER_DELETED_SENTINEL => filtered_ids.push(id),
+                _ => deleted_ids.push(id),
+            }
+        }
+
+        if !deleted_ids.is_empty() {
+            let refs: Vec<&str> = deleted_ids.iter().map(|s| s.as_str()).collect();
+            let _ =
+                Self::remove_from_index_sorted_set(None, &USER_MOSTFOLLOWED_KEY_PARTS, &refs).await;
+        }
+
+        Ok(if filtered_ids.is_empty() {
+            None
+        } else {
+            Some(filtered_ids)
+        })
+    }
+
     async fn get_post_replies_ids(
         post_id: Option<String>,
         author_id: Option<String>,
@@ -319,17 +366,7 @@ impl UserStream {
             )
             .await?
             .map(|u| u.0),
-            UserStreamSource::MostFollowed => Self::try_from_index_sorted_set(
-                &USER_MOSTFOLLOWED_KEY_PARTS,
-                None,
-                None,
-                skip,
-                limit,
-                SortOrder::Descending,
-                None,
-            )
-            .await?
-            .map(|set| set.into_iter().map(|(user_id, _score)| user_id).collect()),
+            UserStreamSource::MostFollowed => Self::get_most_followed(skip, limit).await?,
             UserStreamSource::Influencers => Influencers::get_influencers(
                 user_id.as_deref(),
                 Some(reach.unwrap_or(StreamReach::Wot(3))),

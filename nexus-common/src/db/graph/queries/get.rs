@@ -537,8 +537,9 @@ pub fn get_influencers_by_reach(
         format!(
             "
         {}
-        WHERE user.id = $user_id  
+        WHERE user.id = $user_id
         WITH DISTINCT reach
+        WHERE reach.name <> '[DELETED]'
 
         CALL (reach) {{
             MATCH (others:User)-[follow:FOLLOWS]->(reach)
@@ -581,6 +582,7 @@ pub fn get_global_influencers(skip: usize, limit: usize, timeframe: &Timeframe) 
     query(
         "
         MATCH (user:User)
+        WHERE user.name <> '[DELETED]'
         WITH DISTINCT user
 
         OPTIONAL MATCH (others:User)-[follow:FOLLOWS]->(user)
