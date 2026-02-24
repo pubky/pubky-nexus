@@ -1,6 +1,6 @@
-use crate::db::{get_neo4j_graph, graph::error::GraphResult};
+use crate::db::{get_neo4j_graph, graph::error::GraphResult, GraphError};
 use neo4rs::query;
-use tracing::{error, info};
+use tracing::info;
 
 /// Ensure the Neo4j graph has the required constraints and indexes
 pub async fn setup_graph() -> GraphResult<()> {
@@ -32,18 +32,19 @@ pub async fn setup_graph() -> GraphResult<()> {
     let txn = graph
         .start_txn()
         .await
-        .inspect_err(|e| error!("Failed to start transaction: {e}"))?;
+        .map_err(|e| GraphError::Generic(format!("Failed to start transaction: {e}")))?;
 
     for &ddl in queries {
-        graph
-            .run(query(ddl))
-            .await
-            .inspect_err(|e| error!("Failed to apply graph constraint/index '{ddl}': {e}"))?;
+        graph.run(query(ddl)).await.map_err(|e| {
+            GraphError::Generic(format!(
+                "Failed to apply graph constraint/index '{ddl}': {e}"
+            ))
+        })?;
     }
     // Commit everything in one go
     txn.commit()
         .await
-        .inspect_err(|e| error!("Failed to commit transaction: {e}"))?;
+        .map_err(|e| GraphError::Generic(format!("Failed to commit transaction: {e}")))?;
 
     info!("Neo4j graph constraints and indexes have been applied successfully");
 
