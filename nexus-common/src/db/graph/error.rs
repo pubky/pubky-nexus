@@ -1,5 +1,7 @@
 use thiserror::Error;
 
+use crate::types::DynError;
+
 pub type GraphResult<T> = std::result::Result<T, GraphError>;
 
 #[derive(Error, Debug)]
@@ -17,7 +19,7 @@ pub enum GraphError {
     QueryBuildError(String),
 
     #[error("Serialization failed: {0}")]
-    SerializationFailed(#[from] serde_json::Error),
+    SerializationFailed(#[source] DynError),
 
     #[error("Deserialization failed: {0}")]
     DeserializationFailed(#[from] neo4rs::DeError),
