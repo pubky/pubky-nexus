@@ -22,7 +22,7 @@ pub enum GraphError {
     SerializationFailed(#[source] DynError),
 
     #[error("Deserialization failed: {0}")]
-    DeserializationFailed(#[from] neo4rs::DeError),
+    DeserializationFailed(#[source] DynError),
 
     #[error("URI parse error: {0}")]
     UriParseError(String),
@@ -32,4 +32,10 @@ pub enum GraphError {
 
     #[error("Generic: {0}")]
     Generic(String),
+}
+
+impl From<neo4rs::DeError> for GraphError {
+    fn from(e: neo4rs::DeError) -> Self {
+        GraphError::DeserializationFailed(Box::new(e))
+    }
 }
