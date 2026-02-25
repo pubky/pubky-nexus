@@ -1,3 +1,4 @@
+use crate::db::kv::RedisResult;
 use crate::db::kv::SortOrder;
 use crate::models::error::ModelResult;
 use crate::types::StreamReach;
@@ -116,7 +117,9 @@ impl Influencers {
             Influencers::put_to_global_cache(influencers.clone(), timeframe).await?;
         }
 
-        Influencers::get_from_global_cache(skip, limit, timeframe).await
+        Influencers::get_from_global_cache(skip, limit, timeframe)
+            .await
+            .map_err(Into::into)
     }
 
     /// Retrieves a paginated list of global influencers from the cache for the given timeframe,
@@ -131,7 +134,7 @@ impl Influencers {
         skip: usize,
         limit: usize,
         timeframe: &Timeframe,
-    ) -> ModelResult<Option<Influencers>> {
+    ) -> RedisResult<Option<Influencers>> {
         let ranking = match timeframe {
             // When timeframe is AllTime, we get the influencer list directly from Sorted::Users::Influencers,
             // which is dynamically updated with each user action and therefore needs no TTL.
@@ -225,7 +228,7 @@ impl Influencers {
     async fn filter_deleted(
         influencers: Influencers,
         timeframe: Option<&Timeframe>,
-    ) -> Result<Option<Influencers>, DynError> {
+    ) -> RedisResult<Option<Influencers>> {
         let ids: Vec<String> = influencers.iter().map(|(id, _)| id.clone()).collect();
         let details_list = UserDetails::mget(&ids).await?;
 

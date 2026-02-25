@@ -245,7 +245,7 @@ impl UserStream {
     async fn get_most_followed(
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<Option<Vec<String>>, DynError> {
+    ) -> RedisResult<Option<Vec<String>>> {
         let result = Self::try_from_index_sorted_set(
             &USER_MOSTFOLLOWED_KEY_PARTS,
             None,
