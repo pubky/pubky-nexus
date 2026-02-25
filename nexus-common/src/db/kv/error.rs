@@ -7,16 +7,22 @@ pub type RedisResult<T> = std::result::Result<T, RedisError>;
 pub enum RedisError {
     #[error("Connection not initialized")]
     ConnectionNotInitialized,
+
     #[error("Connection pool error")]
     ConnectionPoolError(#[source] DynError),
+
     #[error("IO error: {0}")]
     IoError(#[source] DynError),
+
     #[error("Command failed: {0}")]
     CommandFailed(#[source] DynError),
+
     #[error("Serialization failed: {0}")]
     SerializationFailed(#[source] DynError),
+
     #[error("Deserialization failed: {0}")]
     DeserializationFailed(#[source] DynError),
+
     #[error("Invalid input: {0}")]
     InvalidInput(String),
 }

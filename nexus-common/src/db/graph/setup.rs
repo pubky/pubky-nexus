@@ -1,9 +1,9 @@
-use crate::{db::get_neo4j_graph, types::DynError};
+use crate::db::{get_neo4j_graph, graph::error::GraphResult, GraphError};
 use neo4rs::query;
 use tracing::info;
 
 /// Ensure the Neo4j graph has the required constraints and indexes
-pub async fn setup_graph() -> Result<(), DynError> {
+pub async fn setup_graph() -> GraphResult<()> {
     // Define unique constraints
     let constraints = [
         "CREATE CONSTRAINT uniqueUserId IF NOT EXISTS FOR (u:User) REQUIRE u.id IS UNIQUE",
@@ -32,17 +32,19 @@ pub async fn setup_graph() -> Result<(), DynError> {
     let txn = graph
         .start_txn()
         .await
-        .map_err(|e| format!("Failed to start transaction: {e}"))?;
+        .map_err(|e| GraphError::Generic(format!("Failed to start transaction: {e}")))?;
 
     for &ddl in queries {
-        if let Err(err) = graph.run(query(ddl)).await {
-            return Err(format!("Failed to apply graph constraints/indexes: {err}").into());
-        }
+        graph.run(query(ddl)).await.map_err(|e| {
+            GraphError::Generic(format!(
+                "Failed to apply graph constraint/index '{ddl}': {e}"
+            ))
+        })?;
     }
     // Commit everything in one go
     txn.commit()
         .await
-        .map_err(|e| format!("Failed to commit the transaction: {e}"))?;
+        .map_err(|e| GraphError::Generic(format!("Failed to commit transaction: {e}")))?;
 
     info!("Neo4j graph constraints and indexes have been applied successfully");
 

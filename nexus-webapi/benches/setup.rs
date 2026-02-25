@@ -8,8 +8,10 @@ pub fn run_setup() {
     INIT.call_once(|| {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
-            let mut config = StackConfig::default();
-            config.log_level = Level::Error;
+            let config = StackConfig {
+                log_level: Level::Error,
+                ..Default::default()
+            };
             let _ = StackManager::setup("benchmark", &config).await;
         });
     });

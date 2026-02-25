@@ -1,9 +1,9 @@
 use crate::db::kv::RedisResult;
+use crate::models::error::ModelResult;
 use crate::models::follow::{Followers, UserFollows};
 use crate::models::user::Muted;
 
 use super::UserCounts;
-use crate::types::DynError;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -17,10 +17,7 @@ pub struct Relationship {
 
 impl Relationship {
     // Retrieves user-viewer relationship
-    pub async fn get_by_id(
-        user_id: &str,
-        viewer_id: Option<&str>,
-    ) -> Result<Option<Self>, DynError> {
+    pub async fn get_by_id(user_id: &str, viewer_id: Option<&str>) -> ModelResult<Option<Self>> {
         match viewer_id {
             None => Ok(None),
             Some(v_id) => Self::get_from_index(user_id, v_id)
