@@ -1,7 +1,7 @@
+use crate::db::graph::query::{query, Query};
 use crate::models::post::PostRelationships;
 use crate::models::{file::FileDetails, post::PostDetails, user::UserDetails};
 use crate::types::DynError;
-use neo4rs::{query, Query};
 use pubky_app_specs::{ParsedUri, Resource};
 
 /// Create a user node

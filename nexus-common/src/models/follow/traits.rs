@@ -1,3 +1,4 @@
+use crate::db::graph::Query;
 use crate::db::kv::RedisResult;
 use crate::db::{
     execute_graph_operation, fetch_row_from_graph, queries, OperationOutcome, RedisOps,
@@ -5,7 +6,6 @@ use crate::db::{
 use crate::types::DynError;
 use async_trait::async_trait;
 use chrono::Utc;
-use neo4rs::Query;
 
 #[async_trait]
 pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {

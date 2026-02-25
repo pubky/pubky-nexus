@@ -79,7 +79,7 @@ pub enum NotificationBody {
     },
 }
 
-type QueryFunction = fn(&str, &str) -> neo4rs::Query;
+type QueryFunction = fn(&str, &str) -> crate::db::graph::Query;
 type ExtractFunction = Box<dyn Fn(&Row) -> (String, String) + Send>;
 
 impl Default for NotificationBody {

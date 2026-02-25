@@ -1,10 +1,10 @@
+use crate::db::graph::query::{query, Query};
 use crate::models::post::StreamSource;
 use crate::types::routes::HotTagsInputDTO;
 use crate::types::Pagination;
 use crate::types::StreamReach;
 use crate::types::StreamSorting;
 use crate::types::Timeframe;
-use neo4rs::{query, Query};
 use pubky_app_specs::PubkyAppPostKind;
 
 // Retrieve post node by post id and author id
@@ -152,7 +152,7 @@ pub fn get_users_details_by_ids(user_ids: &[&str]) -> Query {
 }
 
 /// Retrieves unique global tags for posts, returning a list of `post_ids` and `timestamp` pairs for each tag label.
-pub fn global_tags_by_post() -> neo4rs::Query {
+pub fn global_tags_by_post() -> Query {
     query(
         "
         MATCH (tagger:User)-[t:TAGGED]->(post:Post)<-[:AUTHORED]-(author:User)
@@ -168,7 +168,7 @@ pub fn global_tags_by_post() -> neo4rs::Query {
 /// Retrieves unique global tags for posts, calculating an engagement score based on tag counts,
 /// replies, reposts and mentions. The query returns a `key` by combining author's ID
 /// and post's ID, along with a sorted set of engagement scores for each tag label.
-pub fn global_tags_by_post_engagement() -> neo4rs::Query {
+pub fn global_tags_by_post_engagement() -> Query {
     query(
         "
         MATCH (author:User)-[:AUTHORED]->(post:Post)<-[tag:TAGGED]-(tagger:User)
@@ -188,7 +188,7 @@ pub fn global_tags_by_post_engagement() -> neo4rs::Query {
 }
 
 // Retrieve all the tags of the post
-pub fn post_tags(user_id: &str, post_id: &str) -> neo4rs::Query {
+pub fn post_tags(user_id: &str, post_id: &str) -> Query {
     query(
         "
         MATCH (u:User {id: $user_id})-[:AUTHORED]->(p:Post {id: $post_id})
@@ -212,7 +212,7 @@ pub fn post_tags(user_id: &str, post_id: &str) -> neo4rs::Query {
 }
 
 // Retrieve all the tags of the user
-pub fn user_tags(user_id: &str) -> neo4rs::Query {
+pub fn user_tags(user_id: &str) -> Query {
     query(
         "
         MATCH (u:User {id: $user_id})
@@ -274,7 +274,7 @@ pub fn get_all_homeservers() -> Query {
 ///       - `label`: The tag label.
 ///       - `taggers`: A list of tagger user IDs who applied the tag.
 ///       - `taggers_count`: The number of taggers who applied the tag.
-pub fn get_viewer_trusted_network_tags(user_id: &str, viewer_id: &str, depth: u8) -> neo4rs::Query {
+pub fn get_viewer_trusted_network_tags(user_id: &str, viewer_id: &str, depth: u8) -> Query {
     let graph_query = format!(
         "
         MATCH (viewer:User {{id: $viewer_id}})
@@ -302,7 +302,7 @@ pub fn get_viewer_trusted_network_tags(user_id: &str, viewer_id: &str, depth: u8
         .param("viewer_id", viewer_id)
 }
 
-pub fn user_counts(user_id: &str) -> neo4rs::Query {
+pub fn user_counts(user_id: &str) -> Query {
     query(
         "
         MATCH (u:User {id: $user_id})        
@@ -911,7 +911,7 @@ pub fn post_is_safe_to_delete(author_id: &str, post_id: &str) -> Query {
 
 /// Find user recommendations: active users (with 5+ posts) who are 1-3 degrees of separation away
 /// from the given user, but not directly followed by them
-pub fn recommend_users(user_id: &str, limit: usize) -> neo4rs::Query {
+pub fn recommend_users(user_id: &str, limit: usize) -> Query {
     query(
         "
         MATCH (user:User {id: $user_id})
@@ -931,7 +931,7 @@ pub fn recommend_users(user_id: &str, limit: usize) -> neo4rs::Query {
 }
 
 /// Retrieve specific tag created by the user
-pub fn get_tag_by_tagger_and_id(tagger_id: &str, tag_id: &str) -> neo4rs::Query {
+pub fn get_tag_by_tagger_and_id(tagger_id: &str, tag_id: &str) -> Query {
     query(
         "
         MATCH (tagger:User { id: $tagger_id})-[tag:TAGGED {id: $tag_id }]->(tagged)

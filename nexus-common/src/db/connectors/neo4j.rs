@@ -1,25 +1,24 @@
-use neo4rs::{query, Graph};
+use neo4rs::Graph;
+
+use crate::db::graph::query::query;
 use std::fmt;
 use std::sync::OnceLock;
+use std::time::Duration;
 use tracing::{debug, info};
 
+use crate::db::graph::{GraphExec, TracedGraph};
 use crate::db::setup::setup_graph;
 use crate::db::Neo4JConfig;
 use crate::types::DynError;
 
 pub struct Neo4jConnector {
-    pub graph: Graph,
+    graph: TracedGraph,
 }
 
 impl Neo4jConnector {
     /// Initialize and register the global Neo4j connector and verify connectivity
     pub async fn init(neo4j_config: &Neo4JConfig) -> Result<(), DynError> {
-        let neo4j_connector = Neo4jConnector::new_connection(
-            &neo4j_config.uri,
-            &neo4j_config.user,
-            &neo4j_config.password,
-        )
-        .await?;
+        let neo4j_connector = Neo4jConnector::new_connection(neo4j_config).await?;
 
         neo4j_connector.ping(&neo4j_config.uri).await?;
 
@@ -34,9 +33,12 @@ impl Neo4jConnector {
     }
 
     /// Create and return a new connector after defining a database connection
-    async fn new_connection(uri: &str, user: &str, password: &str) -> Result<Self, DynError> {
-        let graph = Graph::new(uri, user, password).await?;
-        let neo4j_connector = Neo4jConnector { graph };
+    async fn new_connection(config: &Neo4JConfig) -> Result<Self, DynError> {
+        let graph = Graph::new(&config.uri, &config.user, &config.password).await?;
+        let threshold = Duration::from_millis(config.slow_query_threshold_ms);
+        let neo4j_connector = Neo4jConnector {
+            graph: TracedGraph::new(graph).with_slow_query_threshold(threshold),
+        };
         info!("Created Neo4j connector");
 
         Ok(neo4j_connector)
@@ -44,7 +46,7 @@ impl Neo4jConnector {
 
     /// Perform a health-check PING over the Bolt protocol to the Neo4j server
     async fn ping(&self, neo4j_uri: &str) -> Result<(), DynError> {
-        if let Err(neo4j_err) = self.graph.execute(query("RETURN 1")).await {
+        if let Err(neo4j_err) = self.graph.run(query("RETURN 1")).await {
             return Err(format!("Failed to PING to Neo4j at {neo4j_uri}, {neo4j_err}").into());
         }
 
@@ -56,13 +58,13 @@ impl Neo4jConnector {
 impl fmt::Debug for Neo4jConnector {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Neo4jConnector")
-            .field("graph", &"Graph instance")
+            .field("graph", &"TracedGraph instance")
             .finish()
     }
 }
 
 /// Helper to retrieve a Neo4j graph connection.
-pub fn get_neo4j_graph() -> Result<Graph, &'static str> {
+pub fn get_neo4j_graph() -> Result<TracedGraph, &'static str> {
     NEO4J_CONNECTOR
         .get()
         .ok_or("Neo4jConnector not initialized")

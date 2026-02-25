@@ -1,7 +1,10 @@
 use async_trait::async_trait;
 use chrono::Utc;
-use neo4rs::{Graph, Query};
-use nexus_common::{db::get_neo4j_graph, types::DynError};
+use futures::TryStreamExt;
+use nexus_common::{
+    db::{get_neo4j_graph, graph::Query, GraphExec, TracedGraph},
+    types::DynError,
+};
 use serde::{Deserialize, Serialize};
 use std::any::Any;
 use tracing::info;
@@ -86,7 +89,7 @@ pub struct MigrationNode {
 const MIGRATION_PATH: &str = "nexusd/src/migrations/migrations_list/";
 
 pub struct MigrationManager {
-    graph: Graph,
+    graph: TracedGraph,
     migrations: Vec<Box<dyn Migration>>,
 }
 
@@ -218,7 +221,7 @@ impl MigrationManager {
         let query = Query::new("MATCH (m:Migration) RETURN COLLECT(m) as migrations".to_string());
         let mut result = self.graph.execute(query).await.map_err(|e| e.to_string())?;
 
-        match result.next().await {
+        match result.try_next().await {
             Ok(row) => match row {
                 Some(row) => match row.get::<Vec<MigrationNode>>("migrations") {
                     Ok(migrations) => Ok(migrations),

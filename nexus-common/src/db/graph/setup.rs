@@ -1,5 +1,8 @@
-use crate::{db::get_neo4j_graph, types::DynError};
-use neo4rs::query;
+use crate::db::graph::query::query;
+use crate::{
+    db::{get_neo4j_graph, GraphExec},
+    types::DynError,
+};
 use tracing::info;
 
 /// Ensure the Neo4j graph has the required constraints and indexes

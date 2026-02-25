@@ -1,11 +1,12 @@
 use super::{Bookmark, PostCounts, PostDetails, PostView};
 use crate::db::kv::{RedisResult, ScoreAction, SortOrder};
-use crate::db::{get_neo4j_graph, queries, RedisOps};
+use crate::db::{get_neo4j_graph, queries, GraphExec, RedisOps};
 use crate::models::{
     follow::{Followers, Following, Friends, UserFollows},
     post::search::PostsByTagSearch,
 };
 use crate::types::{DynError, Pagination, StreamSorting};
+use futures::TryStreamExt;
 use pubky_app_specs::PubkyAppPostKind;
 use serde::{Deserialize, Serialize};
 use tokio::task::spawn;
@@ -268,7 +269,7 @@ impl PostStream {
         // Track the last post's indexed_at value
         let mut last_post_indexed_at: Option<i64> = None;
 
-        while let Some(row) = result.next().await? {
+        while let Some(row) = result.try_next().await? {
             let author_id: String = row.get("author_id")?;
             let post_id: String = row.get("post_id")?;
             let indexed_at: i64 = row.get("indexed_at")?;

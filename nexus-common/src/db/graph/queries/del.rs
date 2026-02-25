@@ -1,4 +1,4 @@
-use neo4rs::{query, Query};
+use crate::db::graph::query::{query, Query};
 
 /// Deletes a user node and all its relationships
 /// # Arguments

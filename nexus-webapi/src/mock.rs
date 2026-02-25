@@ -1,8 +1,7 @@
 use crate::{api_context::ApiContextBuilder, NexusApiBuilder};
 use clap::ValueEnum;
-use neo4rs::query;
 use nexus_common::{
-    db::{get_neo4j_graph, get_redis_conn, reindex},
+    db::{get_neo4j_graph, get_redis_conn, graph::query::query, reindex, GraphExec},
     ApiConfig,
 };
 use std::process::Stdio;

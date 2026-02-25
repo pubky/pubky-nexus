@@ -1,10 +1,10 @@
+use crate::db::graph::Query;
 use crate::db::kv::{RedisResult, ScoreAction, SortOrder};
 use crate::db::{
     execute_graph_operation, fetch_row_from_graph, queries, OperationOutcome, RedisOps,
 };
 use crate::types::DynError;
 use async_trait::async_trait;
-use neo4rs::Query;
 use tracing::error;
 
 use crate::models::tag::{post::POST_TAGS_KEY_PARTS, user::USER_TAGS_KEY_PARTS};

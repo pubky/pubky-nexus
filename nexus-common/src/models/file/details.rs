@@ -1,3 +1,4 @@
+use crate::db::graph::Query;
 use crate::db::kv::RedisResult;
 use crate::db::DbError;
 use crate::db::{exec_single_row, queries, RedisOps};
@@ -6,7 +7,6 @@ use crate::models::traits::Collection;
 use crate::types::DynError;
 use async_trait::async_trait;
 use chrono::Utc;
-use neo4rs::Query;
 use pubky_app_specs::{ParsedUri, PubkyAppFile, Resource};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

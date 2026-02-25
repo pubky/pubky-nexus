@@ -1,4 +1,5 @@
 use crate::db::graph::exec::fetch_all_rows_from_graph;
+use crate::db::graph::query::query;
 use crate::models::follow::{Followers, Following, UserFollows};
 use crate::models::post::search::PostsByTagSearch;
 use crate::models::post::Bookmark;
@@ -14,7 +15,6 @@ use crate::{
     models::post::{PostCounts, PostDetails, PostRelationships},
     models::user::UserCounts,
 };
-use neo4rs::query;
 use tokio::task::JoinSet;
 use tracing::info;
 

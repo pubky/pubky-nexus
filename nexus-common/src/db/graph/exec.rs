@@ -1,6 +1,8 @@
-use crate::db::get_neo4j_graph;
+use super::query::Query;
+use crate::db::{get_neo4j_graph, GraphExec};
 use crate::types::DynError;
-use neo4rs::{Query, Row};
+use futures::TryStreamExt;
+use neo4rs::Row;
 use serde::de::DeserializeOwned;
 
 /// Represents the outcome of a mutation-like query in the graph database.
@@ -38,7 +40,7 @@ pub async fn execute_graph_operation(query: Query) -> Result<OperationOutcome, D
 pub async fn exec_single_row(query: Query) -> Result<(), DynError> {
     let graph = get_neo4j_graph()?;
     let mut result = graph.execute(query).await?;
-    result.next().await?;
+    result.try_next().await?;
     Ok(())
 }
 
@@ -47,20 +49,15 @@ pub async fn fetch_row_from_graph(query: Query) -> Result<Option<Row>, DynError>
 
     let mut result = graph.execute(query).await?;
 
-    result.next().await.map_err(Into::into)
+    result.try_next().await.map_err(Into::into)
 }
 
 pub async fn fetch_all_rows_from_graph(query: Query) -> Result<Vec<Row>, DynError> {
     let graph = get_neo4j_graph()?;
 
-    let mut result = graph.execute(query).await?;
-    let mut rows = Vec::new();
+    let result = graph.execute(query).await?;
 
-    while let Some(row) = result.next().await? {
-        rows.push(row);
-    }
-
-    Ok(rows)
+    result.try_collect().await.map_err(Into::into)
 }
 
 /// Fetch the value of type T mapped to a specific key from the first row of a graph query's result

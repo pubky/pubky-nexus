@@ -1,7 +1,7 @@
 mod config;
 mod connectors;
 mod errors;
-mod graph;
+pub mod graph;
 pub mod kv;
 pub mod reindex;
 
@@ -14,4 +14,5 @@ pub use errors::*;
 pub use graph::exec::*;
 pub use graph::queries;
 pub use graph::setup;
+pub use graph::{GraphExec, TracedGraph};
 pub use kv::RedisOps;
