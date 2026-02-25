@@ -1,20 +1,23 @@
 use std::collections::HashSet;
 
 use crate::db::kv::SortOrder;
+use crate::models::notification::Notification;
 use crate::models::tag::stream::{HotTag, HotTags};
-use crate::models::user::Muted;
 use crate::types::routes::HotTagsInputDTO;
 use crate::types::{DynError, Pagination, StreamSorting, Timeframe};
 
 use crate::models::{
+    file::FileDetails,
     post::{PostStream, StreamSource},
-    tag::TagDetails,
+    traits::Collection,
     user::{Influencers, UserStream},
 };
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use super::user::UserDetails;
+
+const BOOTSTRAP_NOTIFICATIONS_LIMIT: usize = 30;
 
 #[derive(PartialEq, Deserialize)]
 pub enum ViewType {
@@ -28,10 +31,14 @@ pub struct Bootstrap {
     pub users: UserStream,
     /// The posts objects shown to the given user ID
     pub posts: PostStream,
+    /// File metadata for all attachments referenced in posts and replies
+    pub files: Vec<FileDetails>,
     /// IDs of objects shown to this user on the home page of the FE
     pub ids: BootstrapIds,
     /// Whether or not this user is already indexed
     pub indexed: bool,
+    /// Latest notifications
+    pub notifications: Vec<Notification>,
 }
 
 /// IDs of objects relevant to the bootstrap payload, for example
@@ -47,8 +54,6 @@ pub struct BootstrapIds {
     /// Recommended users for the given user ID
     pub recommended: Vec<String>,
     pub hot_tags: Vec<HotTag>,
-    /// User IDs muted by the given user
-    pub muted: Vec<String>,
 }
 
 impl Bootstrap {
@@ -58,14 +63,15 @@ impl Bootstrap {
     /// Returns a populated response even if the user is not found or not indexed.
     ///
     /// # Parameters
-    /// - `user_id: &str`  
+    /// - `user_id: &str`
     ///   The ID of the user whose “ImAlive” stream is being built
-    /// - `view_type: ViewType`  
+    /// - `view_type: ViewType`
     ///   Controls whether to fetch replies and include full stream entries (`Full`)
     ///   or only base posts (`Partial`)
     pub async fn get_by_id(user_id: &str, view_type: ViewType) -> Result<Self, DynError> {
         let mut bootstrap = Self::default();
         let mut user_ids = HashSet::new();
+        let mut attachment_uris = HashSet::new();
 
         let maybe_viewer_id = UserDetails::get_by_id(user_id).await?.map(|_| {
             user_ids.insert(user_id.to_string());
@@ -78,8 +84,12 @@ impl Bootstrap {
         let post_stream_by_timeline =
             Self::get_post_stream_timeline(maybe_viewer_id, StreamSource::All, 20).await?;
 
-        let post_replies =
-            bootstrap.handle_post_stream(post_stream_by_timeline, &mut user_ids, view_type);
+        let post_replies = bootstrap.handle_post_stream(
+            post_stream_by_timeline,
+            &mut user_ids,
+            &mut attachment_uris,
+            view_type,
+        );
 
         // Populate the user list
         bootstrap.add_influencers(&mut user_ids).await?;
@@ -96,40 +106,42 @@ impl Bootstrap {
         // Start fetching the replies of the posts
         if is_full_view_type {
             bootstrap
-                .get_and_handle_replies(post_replies, &mut user_ids, maybe_viewer_id)
+                .get_and_handle_replies(
+                    post_replies,
+                    &mut user_ids,
+                    &mut attachment_uris,
+                    maybe_viewer_id,
+                )
                 .await?;
         }
 
-        // Merge all the users related with posts, post replies, influencers and recommended
+        // Fetch file metadata for all collected attachments
+        bootstrap.fetch_file_details(&attachment_uris).await?;
+
+        // Merge all the users related with posts, post replies, influencers, recommended, hot tags
         bootstrap
             .get_and_merge_users(&user_ids, maybe_viewer_id)
             .await?;
 
-        // UserViews has also taggers, fetch the missing users UserViews
-        if is_full_view_type {
-            let missing_taggers = bootstrap.collect_missing_taggers(&user_ids);
-            bootstrap
-                .get_and_merge_users(&missing_taggers, maybe_viewer_id)
-                .await?;
-        }
-
-        // Return only ids in case of muted
-        bootstrap.add_muted(maybe_viewer_id).await?;
+        // Add user's notifications
+        bootstrap.add_notifications(maybe_viewer_id).await?;
 
         Ok(bootstrap)
     }
 
-    /// Processes a stream of posts, collecting reply references, adding post taggers and populating the post stream
+    /// Processes a stream of posts, collecting reply references and populating the post stream
     /// in the response object
     ///
     /// # Parameters
     /// - `post_stream`: The `PostStream` whose contained posts will be processed
-    /// - `user_ids`: A mutable set of user IDs; authors and taggers encountered will be inserted
+    /// - `user_ids`: A mutable set of user IDs; authors encountered will be inserted
+    /// - `attachment_uris`: A mutable set of file URIs; post attachments will be inserted
     /// - `view_type`: Indicates whether to operate in `Full` mode (recording stream entries and replies)
     fn handle_post_stream(
         &mut self,
         post_stream: PostStream,
         user_ids: &mut HashSet<String>,
+        attachment_uris: &mut HashSet<String>,
         view_type: ViewType,
     ) -> Vec<(String, String)> {
         let is_full_view_type = view_type == ViewType::Full;
@@ -144,60 +156,28 @@ impl Bootstrap {
             }
             // Add the author of the post
             user_ids.insert(author_id.clone());
-            // Get all the taggers related with the post
-            Self::insert_taggers_id(&post_view.tags, user_ids);
+            // Collect attachment URIs for file metadata fetching
+            if let Some(attachments) = &post_view.details.attachments {
+                for uri in attachments {
+                    attachment_uris.insert(uri.clone());
+                }
+            }
             // Include the post in the stream list
             if is_full_view_type {
                 self.ids.stream.push(format!("{author_id}:{post_id}"));
             }
         }
-        // After analyse the posts, authors and tags, push the stream
+        // After processing the posts and authors, push the stream
         self.posts.extend(post_stream);
         post_replies
-    }
-
-    /// Collects all tagger IDs from the current `users` view that are not yet present
-    /// in the given `user_ids` set
-    ///
-    /// # Parameters
-    ///
-    /// - `user_ids`: A set of user IDs that have already been fetched or seen
-    fn collect_missing_taggers(&self, user_ids: &HashSet<String>) -> HashSet<String> {
-        let mut missing_taggers = HashSet::new();
-        for user in self.users.0.iter() {
-            user.tags
-                .iter()
-                .flat_map(|tags| tags.taggers.iter())
-                .for_each(|tagger| {
-                    if !user_ids.contains(tagger) {
-                        missing_taggers.insert(tagger.clone());
-                    }
-                });
-        }
-        missing_taggers
-    }
-
-    /// Appends each tagger’s user ID from the given post tag details into the provided set
-    ///
-    /// # Parameters
-    /// - `tag_details_list: &Vec<TagDetails>`  
-    ///   A reference to a vector of `TagDetails`, each containing a list of tagger IDs
-    /// - `users_list: &mut HashSet<String>`  
-    ///   A mutable reference to a set of user IDs; each tagger ID will be inserted here
-    fn insert_taggers_id(tag_details_list: &[TagDetails], users_list: &mut HashSet<String>) {
-        for tag_details in tag_details_list.iter() {
-            for tagger_pk in tag_details.taggers.iter() {
-                users_list.insert(tagger_pk.to_string());
-            }
-        }
     }
 
     /// Fetches and appends user views for the given set of `user_ids`
     ///
     /// # Parameters
-    /// - `user_ids: HashSet<String>`  
+    /// - `user_ids: HashSet<String>`
     ///   A set of unique user IDs to fetch views for
-    /// - `viewer_id: Option<&str>`  
+    /// - `viewer_id: Option<&str>`
     ///   Optional context user ID for personalized view generation
     async fn get_and_merge_users(
         &mut self,
@@ -218,20 +198,23 @@ impl Bootstrap {
         Ok(())
     }
 
-    /// Fetches up to three replies for each post in `post_replies` and integrates their authors (and any taggers)
+    /// Fetches up to three replies for each post in `post_replies` and integrates their authors
     /// into both the internal user list
     ///
     /// # Parameters
-    /// - `post_replies: Vec<(String, String)>`  
+    /// - `post_replies: Vec<(String, String)>`
     ///   A list of `(author_id, post_id)` tuples indicating which post replies to fetch
-    /// - `user_ids: &mut HashSet<String>`  
-    ///   A mutable reference to a set where each reply’s author ID (and any taggers) will be appended
-    /// - `maybe_viewer_id: Option<&str>`  
+    /// - `user_ids: &mut HashSet<String>`
+    ///   A mutable reference to a set where each reply's author ID will be appended
+    /// - `attachment_uris: &mut HashSet<String>`
+    ///   A mutable set of file URIs; reply attachments will be inserted
+    /// - `maybe_viewer_id: Option<&str>`
     ///   The ID of the current viewer
     async fn get_and_handle_replies(
         &mut self,
         post_replies: Vec<(String, String)>,
         user_ids: &mut HashSet<String>,
+        attachment_uris: &mut HashSet<String>,
         maybe_viewer_id: Option<&str>,
     ) -> Result<(), DynError> {
         // TODO: Might consider in the future to do in all the requests in parallel
@@ -243,7 +226,7 @@ impl Bootstrap {
                 3,
             )
             .await?;
-            self.handle_post_stream(reply_stream, user_ids, ViewType::Partial);
+            self.handle_post_stream(reply_stream, user_ids, attachment_uris, ViewType::Partial);
         }
         Ok(())
     }
@@ -251,11 +234,11 @@ impl Bootstrap {
     /// Fetches a post stream timeline for the given `source` and `limit`
     ///
     /// # Parameters
-    /// - `maybe_viewer_id: Option<&str>`  
+    /// - `maybe_viewer_id: Option<&str>`
     ///   Optional context user ID for personalized view generation
-    /// - `source: StreamSource`  
+    /// - `source: StreamSource`
     ///   The source of the post stream
-    /// - `limit: usize`  
+    /// - `limit: usize`
     ///   The limit of the post stream
     async fn get_post_stream_timeline(
         maybe_viewer_id: Option<&str>,
@@ -298,11 +281,16 @@ impl Bootstrap {
         Ok(())
     }
 
-    async fn add_muted(&mut self, maybe_viewer_id: Option<&str>) -> Result<(), DynError> {
+    async fn add_notifications(&mut self, maybe_viewer_id: Option<&str>) -> Result<(), DynError> {
         if let Some(viewer_id) = maybe_viewer_id {
-            if let Ok(Some(muted_ids)) = Muted::get_by_id(viewer_id, None, None).await {
-                self.ids.muted = muted_ids.0;
-            }
+            self.notifications = Notification::get_by_id(
+                viewer_id,
+                Pagination {
+                    limit: Some(BOOTSTRAP_NOTIFICATIONS_LIMIT),
+                    ..Default::default()
+                },
+            )
+            .await?;
         }
         Ok(())
     }
@@ -332,12 +320,11 @@ impl Bootstrap {
     ///
     /// # Parameters
     /// - `user_ids: &mut HashSet<String>` A mutable reference to a set of user IDs
-    ///
     async fn add_global_hot_tags(
         &mut self,
         user_ids: &mut HashSet<String>,
     ) -> Result<(), DynError> {
-        let hot_tag_filter = HotTagsInputDTO::new(Timeframe::Today, 40, 0, 20, None);
+        let hot_tag_filter = HotTagsInputDTO::new(Timeframe::Today, 5, 0, 5, None);
         if let Some(today_hot_tags) = HotTags::get_hot_tags(None, None, &hot_tag_filter).await? {
             today_hot_tags.iter().for_each(|tag| {
                 self.ids.hot_tags.push(tag.clone());
@@ -346,6 +333,40 @@ impl Bootstrap {
                 });
             });
         }
+        Ok(())
+    }
+
+    /// Fetches `FileDetails` for all collected attachment URIs and stores them
+    /// in the bootstrap payload
+    ///
+    /// # Parameters
+    /// - `attachment_uris: &HashSet<String>` A set of file URIs collected from posts and replies
+    async fn fetch_file_details(
+        &mut self,
+        attachment_uris: &HashSet<String>,
+    ) -> Result<(), DynError> {
+        if attachment_uris.is_empty() {
+            return Ok(());
+        }
+
+        let file_keys: Vec<(String, String)> = attachment_uris
+            .iter()
+            .filter_map(|uri| FileDetails::file_key_from_uri(uri))
+            .collect();
+
+        if file_keys.is_empty() {
+            return Ok(());
+        }
+
+        let key_arrays: Vec<[&str; 2]> = file_keys
+            .iter()
+            .map(|(owner, fid)| [owner.as_str(), fid.as_str()])
+            .collect();
+        let key_slices: Vec<&[&str]> = key_arrays.iter().map(|a| a.as_slice()).collect();
+
+        let results = FileDetails::get_by_ids(&key_slices).await?;
+        self.files = results.into_iter().flatten().collect();
+
         Ok(())
     }
 }

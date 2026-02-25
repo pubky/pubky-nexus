@@ -79,7 +79,7 @@ pub fn create_post(
         .param("content", post.content.to_string())
         .param("indexed_at", post.indexed_at)
         .param("kind", kind.trim_matches('"'))
-        .param("attachments", post.attachments.clone().unwrap_or(vec![]));
+        .param("attachments", post.attachments.clone().unwrap_or_default());
 
     // Handle "replied" relationship
     cypher_query = add_relationship_params(
