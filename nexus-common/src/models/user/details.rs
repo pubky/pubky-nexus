@@ -53,10 +53,15 @@ fn deserialize_user_links<'de, D>(
 where
     D: Deserializer<'de>,
 {
-    // Deserialize into serde_json::Value first
-    let value = serde_json::Value::deserialize(deserializer)?;
+    // Deserialize as Option to handle missing properties in neo4rs.
+    // Neo4j drops null properties from nodes, so when a node lacks the links
+    // property, neo4rs provides a fallback deserializer that only handles
+    // deserialize_option (returning None), not deserialize_any.
+    let value = match Option::<serde_json::Value>::deserialize(deserializer)? {
+        Some(v) => v,
+        None => return Ok(None),
+    };
 
-    // Handle both cases
     match value {
         serde_json::Value::String(s) => {
             // If it's a string, parse the string as JSON
@@ -104,5 +109,37 @@ impl UserDetails {
         exec_single_row(queries::del::delete_user(user_id)).await?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use neo4rs::{BoltInteger, BoltList, BoltMap, BoltNode, BoltString, BoltType, Node};
+
+    /// Deserializing a UserDetails from a BoltNode without the links property
+    /// should succeed with links: None. Neo4j drops null properties from nodes,
+    /// so this is the expected shape after a roundtrip with links: None.
+    #[test]
+    fn deserialize_from_node_without_links() {
+        let mut props = BoltMap::new();
+        props.put(BoltString::from("name"), BoltType::from("Dave"));
+        props.put(BoltString::from("id"), BoltType::from("rz6oe4yda9em"));
+        props.put(
+            BoltString::from("indexed_at"),
+            BoltType::from(1724134095000_i64),
+        );
+
+        let node = Node::new(BoltNode::new(
+            BoltInteger::new(1),
+            BoltList::from(vec![BoltType::from("User")]),
+            props,
+        ));
+
+        let details: UserDetails = node
+            .to()
+            .expect("should deserialize without links property (Neo4j drops null properties)");
+        assert_eq!(details.name, "Dave");
+        assert!(details.links.is_none());
     }
 }
