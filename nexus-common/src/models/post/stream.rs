@@ -262,7 +262,7 @@ impl PostStream {
             // Set a 10-second timeout for the query execution
             result = match timeout(Duration::from_secs(10), graph.execute(query)).await {
                 Ok(Ok(res)) => res, // Successfully executed within the timeout
-                Ok(Err(e)) => return Err(GraphError::QueryFailed(e.into())), // Query failed
+                Ok(Err(e)) => return Err(GraphError::QueryFailed(e)), // Query failed
                 Err(_) => return Err(GraphError::QueryTimeout), // Timeout error
             };
         }
