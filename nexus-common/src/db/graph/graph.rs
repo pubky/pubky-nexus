@@ -92,6 +92,9 @@ impl GraphExec for TracedGraph {
         query: Query,
     ) -> neo4rs::Result<BoxStream<'static, Result<Row, neo4rs::Error>>> {
         let label = query.label().map(str::to_owned);
+        // Measures pool-acquire + Bolt RUN round-trip (query planning & start
+        // of execution on the server). Does NOT include row fetching — that is
+        // tracked separately by TracedStream.
         let start = Instant::now();
         let result = self.inner.execute(query.into()).await;
         let elapsed = start.elapsed();
