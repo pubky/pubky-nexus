@@ -27,10 +27,13 @@ pub trait GraphExec: Send + Sync {
     async fn start_txn(&self) -> neo4rs::Result<Txn>;
 }
 
-/// A stream wrapper that counts rows and logs slow fetch times when dropped.
+/// A stream wrapper that measures total query time and logs slow queries when dropped.
 struct TracedStream {
     inner: BoxStream<'static, Result<Row, neo4rs::Error>>,
     label: Option<String>,
+    /// Pool-acquire + Bolt RUN round-trip (query planning & start of execution).
+    execute_duration: Duration,
+    /// Cumulative time spent inside poll_next (row fetching).
     fetch_duration: Duration,
     row_count: usize,
     threshold: Duration,
@@ -53,12 +56,15 @@ impl Stream for TracedStream {
 impl Drop for TracedStream {
     fn drop(&mut self) {
         if let Some(label) = &self.label {
-            if self.fetch_duration > self.threshold {
+            let total = self.execute_duration + self.fetch_duration;
+            if total > self.threshold {
                 warn!(
-                    elapsed_ms = self.fetch_duration.as_millis(),
+                    total_ms = total.as_millis(),
+                    execute_ms = self.execute_duration.as_millis(),
+                    fetch_ms = self.fetch_duration.as_millis(),
                     rows = self.row_count,
                     query = %label,
-                    "Slow Neo4j stream fetch"
+                    "Slow Neo4j query"
                 );
             }
         }
@@ -92,23 +98,15 @@ impl GraphExec for TracedGraph {
         query: Query,
     ) -> neo4rs::Result<BoxStream<'static, Result<Row, neo4rs::Error>>> {
         let label = query.label().map(str::to_owned);
-        // Measures pool-acquire + Bolt RUN round-trip (query planning & start
-        // of execution on the server). Does NOT include row fetching — that is
-        // tracked separately by TracedStream.
         let start = Instant::now();
         let result = self.inner.execute(query.into()).await;
-        let elapsed = start.elapsed();
-
-        if let Some(label) = &label {
-            if elapsed > self.slow_query_threshold {
-                warn!(elapsed_ms = elapsed.as_millis(), query = %label, "Slow Neo4j execute");
-            }
-        }
+        let execute_duration = start.elapsed();
 
         let stream = result?.into_stream().map_err(Into::into).boxed();
         let traced = TracedStream {
             inner: stream,
             label,
+            execute_duration,
             fetch_duration: Duration::ZERO,
             row_count: 0,
             threshold: self.slow_query_threshold,
