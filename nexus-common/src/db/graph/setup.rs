@@ -1,4 +1,4 @@
-use crate::db::graph::query::query;
+use crate::db::graph::query::Query;
 use crate::{
     db::{get_neo4j_graph, GraphExec},
     types::DynError,
@@ -38,7 +38,7 @@ pub async fn setup_graph() -> Result<(), DynError> {
         .map_err(|e| format!("Failed to start transaction: {e}"))?;
 
     for &ddl in queries {
-        if let Err(err) = graph.run(query(ddl)).await {
+        if let Err(err) = graph.run(Query::new("setup_ddl", ddl)).await {
             return Err(format!("Failed to apply graph constraints/indexes: {err}").into());
         }
     }

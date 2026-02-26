@@ -5,7 +5,7 @@ use neo4rs::{Graph, Row, Txn};
 use std::time::{Duration, Instant};
 use tracing::warn;
 
-use super::query::{populate_cypher, Query};
+use super::query::Query;
 use crate::db::config::DEFAULT_SLOW_QUERY_THRESHOLD_MS;
 
 /// Abstraction over graph database operations.
@@ -51,28 +51,30 @@ impl GraphExec for TracedGraph {
         &self,
         query: Query,
     ) -> neo4rs::Result<BoxStream<'static, Result<Row, neo4rs::Error>>> {
-        let cypher = query.cypher().to_owned();
-        let params = query.params_map().clone();
+        let label = query.label().map(str::to_owned);
         let start = Instant::now();
         let result = self.inner.execute(query.into()).await;
         let elapsed = start.elapsed();
 
-        if elapsed > self.slow_query_threshold {
-            warn!(elapsed_ms = elapsed.as_millis(), query = %populate_cypher(&cypher, &params), "Slow Neo4j query");
+        if let Some(label) = &label {
+            if elapsed > self.slow_query_threshold {
+                warn!(elapsed_ms = elapsed.as_millis(), query = %label, "Slow Neo4j query");
+            }
         }
 
         Ok(result?.into_stream().map_err(Into::into).boxed())
     }
 
     async fn run(&self, query: Query) -> neo4rs::Result<()> {
-        let cypher = query.cypher().to_owned();
-        let params = query.params_map().clone();
+        let label = query.label().map(str::to_owned);
         let start = Instant::now();
         let result = self.inner.run(query.into()).await;
         let elapsed = start.elapsed();
 
-        if elapsed > self.slow_query_threshold {
-            warn!(elapsed_ms = elapsed.as_millis(), query = %populate_cypher(&cypher, &params), "Slow Neo4j query");
+        if let Some(label) = &label {
+            if elapsed > self.slow_query_threshold {
+                warn!(elapsed_ms = elapsed.as_millis(), query = %label, "Slow Neo4j query");
+            }
         }
 
         result

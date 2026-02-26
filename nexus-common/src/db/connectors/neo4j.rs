@@ -1,6 +1,6 @@
 use neo4rs::Graph;
 
-use crate::db::graph::query::query;
+use crate::db::graph::query::Query;
 use std::fmt;
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -46,7 +46,7 @@ impl Neo4jConnector {
 
     /// Perform a health-check PING over the Bolt protocol to the Neo4j server
     async fn ping(&self, neo4j_uri: &str) -> Result<(), DynError> {
-        if let Err(neo4j_err) = self.graph.run(query("RETURN 1")).await {
+        if let Err(neo4j_err) = self.graph.run(Query::new("ping", "RETURN 1")).await {
             return Err(format!("Failed to PING to Neo4j at {neo4j_uri}, {neo4j_err}").into());
         }
 

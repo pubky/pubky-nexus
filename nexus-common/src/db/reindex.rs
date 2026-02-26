@@ -1,5 +1,5 @@
 use crate::db::graph::exec::fetch_all_rows_from_graph;
-use crate::db::graph::query::query;
+use crate::db::graph::query::Query;
 use crate::models::follow::{Followers, Following, UserFollows};
 use crate::models::post::search::PostsByTagSearch;
 use crate::models::post::Bookmark;
@@ -101,7 +101,7 @@ pub async fn reindex_post(author_id: &str, post_id: &str) -> Result<(), DynError
 }
 
 pub async fn get_all_user_ids() -> Result<Vec<String>, DynError> {
-    let query = query("MATCH (u:User) RETURN u.id AS id");
+    let query = Query::new("get_all_user_ids", "MATCH (u:User) RETURN u.id AS id");
     let rows = fetch_all_rows_from_graph(query).await?;
 
     let mut user_ids = Vec::new();
@@ -115,8 +115,10 @@ pub async fn get_all_user_ids() -> Result<Vec<String>, DynError> {
 }
 
 async fn get_all_post_ids() -> Result<Vec<(String, String)>, DynError> {
-    let query =
-        query("MATCH (u:User)-[:AUTHORED]->(p:Post) RETURN u.id AS author_id, p.id AS post_id");
+    let query = Query::new(
+        "get_all_post_ids",
+        "MATCH (u:User)-[:AUTHORED]->(p:Post) RETURN u.id AS author_id, p.id AS post_id",
+    );
     let rows = fetch_all_rows_from_graph(query).await?;
 
     let mut post_ids = Vec::new();

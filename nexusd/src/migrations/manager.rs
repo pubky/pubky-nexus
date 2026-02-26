@@ -218,7 +218,10 @@ impl MigrationManager {
     }
 
     async fn get_migrations(&self) -> Result<Vec<MigrationNode>, DynError> {
-        let query = Query::new("MATCH (m:Migration) RETURN COLLECT(m) as migrations".to_string());
+        let query = Query::new(
+            "get_migrations",
+            "MATCH (m:Migration) RETURN COLLECT(m) as migrations".to_string(),
+        );
         let mut result = self.graph.execute(query).await.map_err(|e| e.to_string())?;
 
         match result.try_next().await {
@@ -239,6 +242,7 @@ impl MigrationManager {
             false => MigrationPhase::Backfill,
         };
         let query = Query::new(
+            "store_migration",
             "MERGE (m:Migration {id: $id, phase: $phase, created_at: timestamp(), updated_at: 0})"
                 .to_string(),
         )
@@ -255,6 +259,7 @@ impl MigrationManager {
         phase: &MigrationPhase,
     ) -> Result<(), DynError> {
         let query = Query::new(
+            "update_migration_phase",
             "MERGE (m:Migration {id: $id}) SET m.phase = $phase, m.updated_at = timestamp()"
                 .to_string(),
         )

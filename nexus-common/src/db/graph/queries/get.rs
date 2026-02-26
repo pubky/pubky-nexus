@@ -1,4 +1,4 @@
-use crate::db::graph::query::{query, Query};
+use crate::db::graph::query::Query;
 use crate::models::post::StreamSource;
 use crate::types::routes::HotTagsInputDTO;
 use crate::types::Pagination;
@@ -9,7 +9,8 @@ use pubky_app_specs::PubkyAppPostKind;
 
 // Retrieve post node by post id and author id
 pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
-    query(
+    Query::new(
+        "get_post_by_id",
         "
             MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
             OPTIONAL MATCH (p)-[replied:REPLIED]->(parent_post:Post)<-[:AUTHORED]-(author:User)
@@ -34,7 +35,8 @@ pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
 }
 
 pub fn post_counts(author_id: &str, post_id: &str) -> Query {
-    query(
+    Query::new(
+        "post_counts",
         "
         MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})  
         WITH p  
@@ -56,7 +58,8 @@ pub fn post_counts(author_id: &str, post_id: &str) -> Query {
 
 // Check if the viewer_id has a bookmark in the post
 pub fn post_bookmark(author_id: &str, post_id: &str, viewer_id: &str) -> Query {
-    query(
+    Query::new(
+        "post_bookmark",
         "MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
          MATCH (viewer:User {id: $viewer_id})-[b:BOOKMARKED]->(p)
          RETURN b",
@@ -68,7 +71,8 @@ pub fn post_bookmark(author_id: &str, post_id: &str, viewer_id: &str) -> Query {
 
 // Check all the bookmarks that user creates
 pub fn user_bookmarks(user_id: &str) -> Query {
-    query(
+    Query::new(
+        "user_bookmarks",
         "MATCH (u:User {id: $user_id})-[b:BOOKMARKED]->(p:Post)<-[:AUTHORED]-(author:User)
          RETURN b, p.id AS post_id, author.id AS author_id",
     )
@@ -77,7 +81,7 @@ pub fn user_bookmarks(user_id: &str) -> Query {
 
 // Get all the bookmarks that a post has received (used for edit/delete notifications)
 pub fn get_post_bookmarks(author_id: &str, post_id: &str) -> Query {
-    query(
+    Query::new("get_post_bookmarks",
         "MATCH (bookmarker:User)-[b:BOOKMARKED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
          RETURN b.id AS bookmark_id, bookmarker.id AS bookmarker_id",
     )
@@ -87,7 +91,7 @@ pub fn get_post_bookmarks(author_id: &str, post_id: &str) -> Query {
 
 // Get all the reposts that a post has received (used for edit/delete notifications)
 pub fn get_post_reposts(author_id: &str, post_id: &str) -> Query {
-    query(
+    Query::new("get_post_reposts",
         "MATCH (reposter:User)-[:AUTHORED]->(repost:Post)-[:REPOSTED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
          RETURN reposter.id AS reposter_id, repost.id AS repost_id",
     )
@@ -97,7 +101,7 @@ pub fn get_post_reposts(author_id: &str, post_id: &str) -> Query {
 
 // Get all the replies that a post has received (used for edit/delete notifications)
 pub fn get_post_replies(author_id: &str, post_id: &str) -> Query {
-    query(
+    Query::new("get_post_replies",
         "MATCH (replier:User)-[:AUTHORED]->(reply:Post)-[:REPLIED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
          RETURN replier.id AS replier_id, reply.id AS reply_id",
     )
@@ -107,7 +111,7 @@ pub fn get_post_replies(author_id: &str, post_id: &str) -> Query {
 
 // Get all the tags/taggers that a post has received (used for edit/delete notifications)
 pub fn get_post_tags(author_id: &str, post_id: &str) -> Query {
-    query(
+    Query::new("get_post_tags",
         "MATCH (tagger:User)-[t:TAGGED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
          RETURN tagger.id AS tagger_id, t.id AS tag_id",
     )
@@ -116,7 +120,8 @@ pub fn get_post_tags(author_id: &str, post_id: &str) -> Query {
 }
 
 pub fn post_relationships(author_id: &str, post_id: &str) -> Query {
-    query(
+    Query::new(
+        "post_relationships",
         "MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
         OPTIONAL MATCH (p)-[:REPLIED]->(replied_post:Post)<-[:AUTHORED]-(replied_author:User)
         OPTIONAL MATCH (p)-[:REPOSTED]->(reposted_post:Post)<-[:AUTHORED]-(reposted_author:User)
@@ -135,7 +140,8 @@ pub fn post_relationships(author_id: &str, post_id: &str) -> Query {
 // Retrieve many users by id
 // We return also id if not we will not get not found users
 pub fn get_users_details_by_ids(user_ids: &[&str]) -> Query {
-    query(
+    Query::new(
+        "get_users_details_by_ids",
         "
         UNWIND $ids AS id
         OPTIONAL MATCH (record:User {id: id})
@@ -153,7 +159,8 @@ pub fn get_users_details_by_ids(user_ids: &[&str]) -> Query {
 
 /// Retrieves unique global tags for posts, returning a list of `post_ids` and `timestamp` pairs for each tag label.
 pub fn global_tags_by_post() -> Query {
-    query(
+    Query::new(
+        "global_tags_by_post",
         "
         MATCH (tagger:User)-[t:TAGGED]->(post:Post)<-[:AUTHORED]-(author:User)
         WITH t.label AS label, author.id + ':' + post.id AS post_id, post.indexed_at AS score
@@ -169,7 +176,7 @@ pub fn global_tags_by_post() -> Query {
 /// replies, reposts and mentions. The query returns a `key` by combining author's ID
 /// and post's ID, along with a sorted set of engagement scores for each tag label.
 pub fn global_tags_by_post_engagement() -> Query {
-    query(
+    Query::new("global_tags_by_post_engagement",
         "
         MATCH (author:User)-[:AUTHORED]->(post:Post)<-[tag:TAGGED]-(tagger:User)
         WITH post, COUNT(tag) AS tags_count, tag.label AS label, author.id + ':' + post.id AS key
@@ -189,7 +196,8 @@ pub fn global_tags_by_post_engagement() -> Query {
 
 // Retrieve all the tags of the post
 pub fn post_tags(user_id: &str, post_id: &str) -> Query {
-    query(
+    Query::new(
+        "post_tags",
         "
         MATCH (u:User {id: $user_id})-[:AUTHORED]->(p:Post {id: $post_id})
         CALL {
@@ -213,7 +221,8 @@ pub fn post_tags(user_id: &str, post_id: &str) -> Query {
 
 // Retrieve all the tags of the user
 pub fn user_tags(user_id: &str) -> Query {
-    query(
+    Query::new(
+        "user_tags",
         "
         MATCH (u:User {id: $user_id})
         CALL {
@@ -236,7 +245,8 @@ pub fn user_tags(user_id: &str) -> Query {
 
 /// Retrieve a homeserver by ID
 pub fn get_homeserver_by_id(id: &str) -> Query {
-    query(
+    Query::new(
+        "get_homeserver_by_id",
         "MATCH (hs:Homeserver {id: $id})
         WITH hs.id AS id
         RETURN id",
@@ -246,7 +256,8 @@ pub fn get_homeserver_by_id(id: &str) -> Query {
 
 /// Retrieves all homeserver IDs
 pub fn get_all_homeservers() -> Query {
-    query(
+    Query::new(
+        "get_all_homeservers",
         "MATCH (hs:Homeserver)
         WITH collect(hs.id) AS homeservers_list
         RETURN homeservers_list",
@@ -297,13 +308,14 @@ pub fn get_viewer_trusted_network_tags(user_id: &str, viewer_id: &str, depth: u8
     );
 
     // Add to the query the params
-    query(graph_query.as_str())
+    Query::new("get_viewer_trusted_network_tags", graph_query.as_str())
         .param("user_id", user_id)
         .param("viewer_id", viewer_id)
 }
 
 pub fn user_counts(user_id: &str) -> Query {
-    query(
+    Query::new(
+        "user_counts",
         "
         MATCH (u:User {id: $user_id})        
         // tags that reference this user
@@ -356,7 +368,7 @@ pub fn get_user_followers(user_id: &str, skip: Option<usize>, limit: Option<usiz
     if let Some(limit_value) = limit {
         query_string.push_str(&format!(" LIMIT {limit_value}"));
     }
-    query(&query_string).param("user_id", user_id)
+    Query::new("get_user_followers", &query_string).param("user_id", user_id)
 }
 
 pub fn get_user_following(user_id: &str, skip: Option<usize>, limit: Option<usize>) -> Query {
@@ -372,7 +384,7 @@ pub fn get_user_following(user_id: &str, skip: Option<usize>, limit: Option<usiz
     if let Some(limit_value) = limit {
         query_string.push_str(&format!(" LIMIT {limit_value}"));
     }
-    query(&query_string).param("user_id", user_id)
+    Query::new("get_user_following", &query_string).param("user_id", user_id)
 }
 
 pub fn get_user_muted(user_id: &str, skip: Option<usize>, limit: Option<usize>) -> Query {
@@ -388,7 +400,7 @@ pub fn get_user_muted(user_id: &str, skip: Option<usize>, limit: Option<usize>) 
     if let Some(limit_value) = limit {
         query_string.push_str(&format!(" LIMIT {limit_value}"));
     }
-    query(&query_string).param("user_id", user_id)
+    Query::new("get_user_muted", &query_string).param("user_id", user_id)
 }
 
 fn stream_reach_to_graph_subquery(reach: &StreamReach) -> String {
@@ -405,7 +417,8 @@ fn stream_reach_to_graph_subquery(reach: &StreamReach) -> String {
 }
 
 pub fn get_tags_by_label_prefix(label_prefix: &str) -> Query {
-    query(
+    Query::new(
+        "get_tags_by_label_prefix",
         "
         MATCH ()-[t:TAGGED]->()
         WHERE t.label STARTS WITH $label_prefix
@@ -416,7 +429,8 @@ pub fn get_tags_by_label_prefix(label_prefix: &str) -> Query {
 }
 
 pub fn get_tags() -> Query {
-    query(
+    Query::new(
+        "get_tags",
         "
         MATCH ()-[t:TAGGED]->()
         RETURN COLLECT(DISTINCT t.label) AS tag_labels
@@ -431,7 +445,8 @@ pub fn get_tag_taggers_by_reach(
     skip: usize,
     limit: usize,
 ) -> Query {
-    query(
+    Query::new(
+        "get_tag_taggers_by_reach",
         format!(
             "
             {}
@@ -471,7 +486,8 @@ pub fn get_hot_tags_by_reach(
     };
 
     let (from, to) = tags_query.timeframe.to_timestamp_range();
-    query(
+    Query::new(
+        "get_hot_tags_by_reach",
         format!(
             "
         {}
@@ -511,7 +527,8 @@ pub fn get_global_hot_tags(tags_query: &HotTagsInputDTO) -> Query {
         None => String::from("Post|User"),
     };
     let (from, to) = tags_query.timeframe.to_timestamp_range();
-    query(
+    Query::new(
+        "get_global_hot_tags",
         format!(
             "
         MATCH (user: User)-[tag:TAGGED]->(tagged:{}) 
@@ -549,7 +566,8 @@ pub fn get_influencers_by_reach(
     timeframe: &Timeframe,
 ) -> Query {
     let (from, to) = timeframe.to_timestamp_range();
-    query(
+    Query::new(
+        "get_influencers_by_reach",
         format!(
             "
         {}
@@ -595,7 +613,8 @@ pub fn get_influencers_by_reach(
 
 pub fn get_global_influencers(skip: usize, limit: usize, timeframe: &Timeframe) -> Query {
     let (from, to) = timeframe.to_timestamp_range();
-    query(
+    Query::new(
+        "get_global_influencers",
         "
         MATCH (user:User)
         WHERE user.name <> '[DELETED]'
@@ -631,7 +650,8 @@ pub fn get_global_influencers(skip: usize, limit: usize, timeframe: &Timeframe) 
 }
 
 pub fn get_files_by_ids(key_pair: &[&[&str]]) -> Query {
-    query(
+    Query::new(
+        "get_files_by_ids",
         "
         UNWIND $pairs AS pair
         OPTIONAL MATCH (record:File {owner_id: pair[0], id: pair[1]})
@@ -835,7 +855,7 @@ fn build_query_with_params(
     kind: Option<PubkyAppPostKind>,
     pagination: &Pagination,
 ) -> Query {
-    let mut query = query(cypher);
+    let mut query = Query::new("post_stream", cypher);
 
     if let Some(observer_id) = source.get_observer() {
         query = query.param("observer_id", observer_id.to_string());
@@ -863,7 +883,8 @@ fn build_query_with_params(
 /// # Arguments
 /// * `user_id` - The unique identifier of the user
 pub fn user_is_safe_to_delete(user_id: &str) -> Query {
-    query(
+    Query::new(
+        "user_is_safe_to_delete",
         "
         MATCH (u:User {id: $user_id})
         // Ensures all relationships to the user (u) are checked, counting as 0 if none exist
@@ -884,7 +905,8 @@ pub fn user_is_safe_to_delete(user_id: &str) -> Query {
 /// * `author_id` - The unique identifier of the user who authored the post
 /// * `post_id` - The unique identifier of the post
 pub fn post_is_safe_to_delete(author_id: &str, post_id: &str) -> Query {
-    query(
+    Query::new(
+        "post_is_safe_to_delete",
         "
         MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
         // Ensures all relationships to the post (p) are checked, counting as 0 if none exist
@@ -912,7 +934,8 @@ pub fn post_is_safe_to_delete(author_id: &str, post_id: &str) -> Query {
 /// Find user recommendations: active users (with 5+ posts) who are 1-3 degrees of separation away
 /// from the given user, but not directly followed by them
 pub fn recommend_users(user_id: &str, limit: usize) -> Query {
-    query(
+    Query::new(
+        "recommend_users",
         "
         MATCH (user:User {id: $user_id})
         MATCH (user)-[:FOLLOWS*1..3]->(potential:User)
@@ -932,7 +955,8 @@ pub fn recommend_users(user_id: &str, limit: usize) -> Query {
 
 /// Retrieve specific tag created by the user
 pub fn get_tag_by_tagger_and_id(tagger_id: &str, tag_id: &str) -> Query {
-    query(
+    Query::new(
+        "get_tag_by_tagger_and_id",
         "
         MATCH (tagger:User { id: $tagger_id})-[tag:TAGGED {id: $tag_id }]->(tagged)
         OPTIONAL MATCH (author:User)-[:AUTHORED]->(tagged)
