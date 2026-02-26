@@ -45,18 +45,23 @@ impl Query {
     /// Returns the cypher string with `$param` placeholders replaced by their
     /// literal values, ready to copy-paste into a Neo4j browser.
     pub fn to_cypher_populated(&self) -> String {
-        let mut out = self.cypher.clone();
-        // Sort keys by length descending so `$skip` is replaced before a
-        // hypothetical `$s`, avoiding partial substitutions.
-        let mut entries: Vec<_> = self.params.value.iter().collect();
-        entries.sort_by(|a, b| b.0.value.len().cmp(&a.0.value.len()));
-        for (k, v) in entries {
-            let placeholder = format!("${}", k.value);
-            let literal = bolt_to_cypher_literal(v);
-            out = out.replace(&placeholder, &literal);
-        }
-        out
+        populate_cypher(&self.cypher, &self.params)
     }
+}
+
+/// Replaces `$param` placeholders in `cypher` with literal values from `params`.
+pub fn populate_cypher(cypher: &str, params: &BoltMap) -> String {
+    let mut out = cypher.to_owned();
+    // Sort keys by length descending so `$skip` is replaced before a
+    // hypothetical `$s`, avoiding partial substitutions.
+    let mut entries: Vec<_> = params.value.iter().collect();
+    entries.sort_by(|a, b| b.0.value.len().cmp(&a.0.value.len()));
+    for (k, v) in entries {
+        let placeholder = format!("${}", k.value);
+        let literal = bolt_to_cypher_literal(v);
+        out = out.replace(&placeholder, &literal);
+    }
+    out
 }
 
 /// Format a `BoltType` value as a Neo4j cypher literal.

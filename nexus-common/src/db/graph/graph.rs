@@ -3,9 +3,9 @@ use futures::stream::BoxStream;
 use futures::{StreamExt, TryStreamExt};
 use neo4rs::{Graph, Row, Txn};
 use std::time::{Duration, Instant};
-use tracing::{debug, error, warn};
+use tracing::warn;
 
-use super::query::Query;
+use super::query::{populate_cypher, Query};
 use crate::db::config::DEFAULT_SLOW_QUERY_THRESHOLD_MS;
 
 /// Abstraction over graph database operations.
@@ -51,42 +51,28 @@ impl GraphExec for TracedGraph {
         &self,
         query: Query,
     ) -> neo4rs::Result<BoxStream<'static, Result<Row, neo4rs::Error>>> {
+        let cypher = query.cypher().to_owned();
+        let params = query.params_map().clone();
         let start = Instant::now();
-        let populated_cypher = query.to_cypher_populated();
         let result = self.inner.execute(query.into()).await;
         let elapsed = start.elapsed();
 
-        match &result {
-            Ok(_) if elapsed > self.slow_query_threshold => {
-                warn!(elapsed_ms = elapsed.as_millis(), query = %populated_cypher, "Slow Neo4j query");
-            }
-            Ok(_) => {
-                debug!(elapsed_ms = elapsed.as_millis(), query = %populated_cypher, "Neo4j query");
-            }
-            Err(e) => {
-                error!(elapsed_ms = elapsed.as_millis(), query = %populated_cypher, error = %e, "Neo4j query failed");
-            }
+        if elapsed > self.slow_query_threshold {
+            warn!(elapsed_ms = elapsed.as_millis(), query = %populate_cypher(&cypher, &params), "Slow Neo4j query");
         }
 
         Ok(result?.into_stream().map_err(Into::into).boxed())
     }
 
     async fn run(&self, query: Query) -> neo4rs::Result<()> {
+        let cypher = query.cypher().to_owned();
+        let params = query.params_map().clone();
         let start = Instant::now();
-        let populated_cypher = query.to_cypher_populated();
         let result = self.inner.run(query.into()).await;
         let elapsed = start.elapsed();
 
-        match &result {
-            Ok(()) if elapsed > self.slow_query_threshold => {
-                warn!(elapsed_ms = elapsed.as_millis(), query = %populated_cypher, "Slow Neo4j run");
-            }
-            Ok(()) => {
-                debug!(elapsed_ms = elapsed.as_millis(), query = %populated_cypher, "Neo4j run");
-            }
-            Err(e) => {
-                error!(elapsed_ms = elapsed.as_millis(), query = %populated_cypher, error = %e, "Neo4j run failed");
-            }
+        if elapsed > self.slow_query_threshold {
+            warn!(elapsed_ms = elapsed.as_millis(), query = %populate_cypher(&cypher, &params), "Slow Neo4j query");
         }
 
         result
