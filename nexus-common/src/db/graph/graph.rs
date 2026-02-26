@@ -1,7 +1,9 @@
 use async_trait::async_trait;
 use futures::stream::BoxStream;
-use futures::{StreamExt, TryStreamExt};
+use futures::{Stream, StreamExt, TryStreamExt};
 use neo4rs::{Graph, Row, Txn};
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 use tracing::warn;
 
@@ -23,6 +25,44 @@ pub trait GraphExec: Send + Sync {
 
     /// Start a transaction.
     async fn start_txn(&self) -> neo4rs::Result<Txn>;
+}
+
+/// A stream wrapper that counts rows and logs slow fetch times when dropped.
+struct TracedStream {
+    inner: BoxStream<'static, Result<Row, neo4rs::Error>>,
+    label: Option<String>,
+    fetch_duration: Duration,
+    row_count: usize,
+    threshold: Duration,
+}
+
+impl Stream for TracedStream {
+    type Item = Result<Row, neo4rs::Error>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let poll_start = Instant::now();
+        let result = Pin::new(&mut self.inner).poll_next(cx);
+        self.fetch_duration += poll_start.elapsed();
+        if let Poll::Ready(Some(Ok(_))) = &result {
+            self.row_count += 1;
+        }
+        result
+    }
+}
+
+impl Drop for TracedStream {
+    fn drop(&mut self) {
+        if let Some(label) = &self.label {
+            if self.fetch_duration > self.threshold {
+                warn!(
+                    elapsed_ms = self.fetch_duration.as_millis(),
+                    rows = self.row_count,
+                    query = %label,
+                    "Slow Neo4j stream fetch"
+                );
+            }
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -58,11 +98,19 @@ impl GraphExec for TracedGraph {
 
         if let Some(label) = &label {
             if elapsed > self.slow_query_threshold {
-                warn!(elapsed_ms = elapsed.as_millis(), query = %label, "Slow Neo4j query");
+                warn!(elapsed_ms = elapsed.as_millis(), query = %label, "Slow Neo4j execute");
             }
         }
 
-        Ok(result?.into_stream().map_err(Into::into).boxed())
+        let stream = result?.into_stream().map_err(Into::into).boxed();
+        let traced = TracedStream {
+            inner: stream,
+            label,
+            fetch_duration: Duration::ZERO,
+            row_count: 0,
+            threshold: self.slow_query_threshold,
+        };
+        Ok(traced.boxed())
     }
 
     async fn run(&self, query: Query) -> neo4rs::Result<()> {
