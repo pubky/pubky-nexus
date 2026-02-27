@@ -85,7 +85,11 @@ impl NexusApiBuilder {
 
     /// Opens ddbb connections and initialises tracing layer (if provided in config)
     pub async fn init_stack(&self) -> Result<(), DynError> {
-        StackManager::setup(&self.api_context.api_config.name, &self.api_context.api_config.stack).await
+        StackManager::setup(
+            &self.api_context.api_config.name,
+            &self.api_context.api_config.stack,
+        )
+        .await
     }
 
     /// Creates and starts a [NexusApi] instance.
@@ -175,7 +179,9 @@ impl NexusApi {
             .try_build()
             .await?;
 
-        NexusApiBuilder::new(api_context).start(Some(shutdown_rx)).await
+        NexusApiBuilder::new(api_context)
+            .start(Some(shutdown_rx))
+            .await
     }
 
     /// It sets up the necessary routes, binds to the specified address, and starts the Axum server
