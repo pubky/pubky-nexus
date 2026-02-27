@@ -1,9 +1,9 @@
+use crate::db::graph::GraphResult;
 use crate::db::kv::RedisResult;
-use crate::db::DbError;
 use crate::db::{exec_single_row, queries, RedisOps};
 use crate::media::FileVariant;
+use crate::models::error::ModelResult;
 use crate::models::traits::Collection;
-use crate::types::DynError;
 use async_trait::async_trait;
 use chrono::Utc;
 use neo4rs::Query;
@@ -11,7 +11,6 @@ use pubky_app_specs::{ParsedUri, PubkyAppFile, Resource};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
-use tracing::error;
 use utoipa::ToSchema;
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema, Default)]
@@ -98,7 +97,7 @@ impl Collection<&[&str]> for FileDetails {
         queries::get::get_files_by_ids(id_list)
     }
 
-    fn put_graph_query(&self) -> Result<Query, DynError> {
+    fn put_graph_query(&self) -> GraphResult<Query> {
         queries::put::create_file(self)
     }
 
@@ -130,28 +129,13 @@ impl FileDetails {
         }
     }
 
-    pub async fn delete(&self) -> Result<(), DbError> {
-        // Delete graph node
-        match exec_single_row(queries::del::delete_file(&self.owner_id, &self.id)).await {
-            Ok(_) => {
-                // Delete on Redis
-                match Self::remove_from_index_multiple_json(&[&[&self.owner_id, &self.id]]).await {
-                    Ok(()) => (),
-                    Err(e) => {
-                        error!("Index file deletion, {}: {:?}", self.id, e);
-                        return Err(DbError::IndexOperationFailed {
-                            message: format!("Could not delete the index, {e:?}"),
-                        });
-                    }
-                }
-            }
-            Err(e) => {
-                error!("Graph file deletion, {}: {:?}", self.id, e);
-                return Err(DbError::GraphQueryFailed {
-                    message: format!("Could not delete the file, {e:?}"),
-                });
-            }
-        };
+    pub async fn delete(&self) -> ModelResult<()> {
+        exec_single_row(queries::del::delete_file(&self.owner_id, &self.id))
+            .await
+            .inspect_err(|e| tracing::error!("Graph file deletion, {}: {:?}", self.id, e))?;
+        Self::remove_from_index_multiple_json(&[&[&self.owner_id, &self.id]])
+            .await
+            .inspect_err(|e| tracing::error!("Index file deletion, {}: {:?}", self.id, e))?;
         Ok(())
     }
 

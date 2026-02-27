@@ -43,7 +43,7 @@ pub trait TEventProcessorRunner: Send + Sync {
     /// A reference to the event processor instance, ready to be executed with its `run` method.
     ///
     /// # Errors
-    /// Throws a [`DynError`] if the event processor couldn't be built
+    /// Throws a [`WatcherError`] if the event processor couldn't be built
     async fn build(&self, homeserver_id: String) -> Result<Arc<dyn TEventProcessor>, DynError>;
 
     /// Decides the amount and order of homeservers from which events will be fetched and processed in `run_external_homeservers`.

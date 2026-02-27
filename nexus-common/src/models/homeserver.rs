@@ -1,10 +1,14 @@
 use crate::db::exec_single_row;
 use crate::db::fetch_key_from_graph;
+use crate::db::kv::RedisError;
 use crate::db::kv::RedisResult;
 use crate::db::queries;
+use crate::db::GraphError;
+use crate::db::GraphResult;
 use crate::db::{PubkyConnector, RedisOps};
+use crate::models::error::ModelError;
+use crate::models::error::ModelResult;
 use crate::models::user::UserDetails;
-use crate::types::DynError;
 
 use pubky::PublicKey;
 use pubky_app_specs::ParsedUri;
@@ -34,17 +38,19 @@ impl Homeserver {
     }
 
     /// Creates a new homeserver instance with the specified cursor
-    pub fn try_from_cursor<T: Into<String>>(id: PubkyId, cursor: T) -> Result<Self, DynError> {
+    pub fn try_from_cursor<T: Into<String>>(id: PubkyId, cursor: T) -> ModelResult<Self> {
         let cursor = cursor.into();
         if cursor.is_empty() {
-            return Err("Cannot create a homeserver from an empty cursor".into());
+            return Err(ModelError::from_generic(
+                "Cannot create a homeserver from an empty cursor",
+            ));
         }
 
         Ok(Homeserver { id, cursor })
     }
 
     /// Stores this homeserver in the graph.
-    pub async fn put_to_graph(&self) -> Result<(), DynError> {
+    pub async fn put_to_graph(&self) -> GraphResult<()> {
         let query = queries::put::create_homeserver(&self.id);
         exec_single_row(query).await
     }
@@ -52,7 +58,7 @@ impl Homeserver {
     /// Retrieves a homeserver from Neo4j.
     ///
     /// Note that the cursor in the returned homeserver will have the default value, as it is not persisted in the graph.
-    pub async fn get_from_graph(id: &str) -> Result<Option<Homeserver>, DynError> {
+    pub async fn get_from_graph(id: &str) -> GraphResult<Option<Homeserver>> {
         let query = queries::get::get_homeserver_by_id(id);
 
         let maybe_id = fetch_key_from_graph(query, "id").await?;
@@ -67,16 +73,16 @@ impl Homeserver {
     }
 
     /// Stores this homeserver in Redis.
-    pub async fn put_to_index(&self) -> Result<(), DynError> {
+    pub async fn put_to_index(&self) -> RedisResult<()> {
         if self.cursor.is_empty() {
-            return Err("Cannot save to index a homeserver with an empty cursor".into());
+            return Err(RedisError::InvalidInput(
+                "Cannot save to index a homeserver with an empty cursor".into(),
+            ));
         }
-        self.put_index_json(&[&self.id], None, None)
-            .await
-            .map_err(Into::into)
+        self.put_index_json(&[&self.id], None, None).await
     }
 
-    pub async fn get_by_id(homeserver_id: PubkyId) -> Result<Option<Homeserver>, DynError> {
+    pub async fn get_by_id(homeserver_id: PubkyId) -> ModelResult<Option<Homeserver>> {
         match Homeserver::get_from_index(&homeserver_id).await? {
             Some(hs) => Ok(Some(hs)),
             None => match Self::get_from_graph(&homeserver_id).await? {
@@ -90,7 +96,7 @@ impl Homeserver {
     }
 
     /// Verifies if homeserver exists in the graph, or persists it if missing
-    pub async fn persist_if_unknown(homeserver_id: PubkyId) -> Result<(), DynError> {
+    pub async fn persist_if_unknown(homeserver_id: PubkyId) -> ModelResult<()> {
         if Self::get_from_graph(&homeserver_id).await?.is_none() {
             info!("Persisting new homeserver: {homeserver_id}");
             let homeserver = Homeserver::new(homeserver_id);
@@ -108,13 +114,13 @@ impl Homeserver {
     ///
     /// # Errors
     /// Throws an error if no homeservers are found.
-    pub async fn get_all_from_graph() -> Result<Vec<String>, DynError> {
+    pub async fn get_all_from_graph() -> GraphResult<Vec<String>> {
         let query = queries::get::get_all_homeservers();
         let maybe_hs_ids = fetch_key_from_graph(query, "homeservers_list").await?;
         let hs_ids: Vec<String> = maybe_hs_ids.unwrap_or_default();
 
         match hs_ids.is_empty() {
-            true => Err("No homeservers found in graph".into()),
+            true => Err(GraphError::Generic("No homeservers found in graph".into())),
             false => Ok(hs_ids),
         }
     }
@@ -124,7 +130,7 @@ impl Homeserver {
     /// ### Arguments
     ///
     /// - `referenced_post_uri`: The parent post (if current post is a reply to it), or a reposted post (if current post is a Repost)
-    pub async fn maybe_ingest_for_post(referenced_post_uri: &ParsedUri) -> Result<(), DynError> {
+    pub async fn maybe_ingest_for_post(referenced_post_uri: &ParsedUri) -> ModelResult<()> {
         let ref_post_author_id = referenced_post_uri.user_id.as_str();
 
         Self::maybe_ingest_for_user(ref_post_author_id).await
@@ -135,8 +141,8 @@ impl Homeserver {
     /// ### Arguments
     ///
     /// - `referenced_user_id`: The URI of the referenced user
-    pub async fn maybe_ingest_for_user(referenced_user_id: &str) -> Result<(), DynError> {
-        let pubky = PubkyConnector::get()?;
+    pub async fn maybe_ingest_for_user(referenced_user_id: &str) -> ModelResult<()> {
+        let pubky = PubkyConnector::get().map_err(ModelError::from_generic)?;
 
         if UserDetails::get_by_id(referenced_user_id).await?.is_some() {
             tracing::debug!(
@@ -145,7 +151,9 @@ impl Homeserver {
             return Ok(());
         }
 
-        let ref_post_author_pk = referenced_user_id.parse::<PublicKey>()?;
+        let ref_post_author_pk = referenced_user_id
+            .parse::<PublicKey>()
+            .map_err(ModelError::from_generic)?;
         let Some(ref_post_author_hs) = pubky.get_homeserver_of(&ref_post_author_pk).await else {
             tracing::warn!("Skipping homeserver ingestion: author {ref_post_author_pk} has no published homeserver");
             return Ok(());

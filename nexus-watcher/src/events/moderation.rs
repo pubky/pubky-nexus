@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use crate::events::handlers;
-use nexus_common::types::DynError;
+use nexus_common::models::event::EventProcessorError;
 use pubky_app_specs::{ParsedUri, PubkyAppTag, PubkyId, Resource};
 use tracing::info;
 
@@ -20,9 +20,10 @@ impl Moderation {
     pub async fn apply_moderation(
         moderator_tag: PubkyAppTag,
         files_path: PathBuf,
-    ) -> Result<(), DynError> {
+    ) -> Result<(), EventProcessorError> {
         // Parse the embeded URI to extract author_id and post_id using parse_tagged_post_uri
-        let parsed_uri = ParsedUri::try_from(moderator_tag.uri.as_str())?;
+        let parsed_uri = ParsedUri::try_from(moderator_tag.uri.as_str())
+            .map_err(EventProcessorError::generic)?;
         let user_id = parsed_uri.user_id;
 
         match parsed_uri.resource {

@@ -3,6 +3,7 @@ use std::fmt;
 use std::sync::OnceLock;
 use tracing::{debug, info};
 
+use crate::db::graph::error::{GraphError, GraphResult};
 use crate::db::setup::setup_graph;
 use crate::db::Neo4JConfig;
 use crate::types::DynError;
@@ -34,7 +35,7 @@ impl Neo4jConnector {
     }
 
     /// Create and return a new connector after defining a database connection
-    async fn new_connection(uri: &str, user: &str, password: &str) -> Result<Self, DynError> {
+    async fn new_connection(uri: &str, user: &str, password: &str) -> GraphResult<Self> {
         let graph = Graph::new(uri, user, password).await?;
         let neo4j_connector = Neo4jConnector { graph };
         info!("Created Neo4j connector");
@@ -62,10 +63,10 @@ impl fmt::Debug for Neo4jConnector {
 }
 
 /// Helper to retrieve a Neo4j graph connection.
-pub fn get_neo4j_graph() -> Result<Graph, &'static str> {
+pub fn get_neo4j_graph() -> GraphResult<Graph> {
     NEO4J_CONNECTOR
         .get()
-        .ok_or("Neo4jConnector not initialized")
+        .ok_or(GraphError::ConnectionNotInitialized)
         .map(|neo4j_connector| neo4j_connector.graph.clone())
 }
 

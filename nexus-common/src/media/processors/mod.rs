@@ -1,6 +1,7 @@
-use crate::{media::FileVariant, models::file::FileDetails, types::DynError};
+use crate::{media::FileVariant, models::file::FileDetails};
 use async_trait::async_trait;
 use std::path::PathBuf;
+use thiserror::Error;
 
 mod image;
 mod video;
@@ -10,6 +11,31 @@ pub use video::*;
 
 pub trait BaseProcessingOptions: Send + Sync {
     fn content_type(&self) -> String;
+}
+
+#[derive(Error, Debug)]
+pub enum MediaProcessorError {
+    #[error("CommandFailed: {source}")]
+    CommandFailed {
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+    #[error("NotImplemented")]
+    NotImplemented,
+    #[error("UnsupportedContentType: {0}")]
+    UnsupportedContentType(String),
+    #[error("UnsupportedFileVariant")]
+    UnsupportedFileVariant,
+    #[error("InvalidFilePath: {0}")]
+    InvalidFilePath(String),
+}
+
+impl MediaProcessorError {
+    pub fn command_failed(source: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
+        Self::CommandFailed {
+            source: source.into(),
+        }
+    }
 }
 
 #[async_trait]
@@ -28,7 +54,7 @@ pub trait VariantProcessor {
     fn get_options_for_variant(
         file: &FileDetails,
         variant: &FileVariant,
-    ) -> Result<Self::ProcessingOptions, DynError>;
+    ) -> Result<Self::ProcessingOptions, MediaProcessorError>;
 
     /// Processes the origin file and saves the output to the output_file_path based on the passed options
     /// Returns the content type of the processed file or the original content type if no processing was done
@@ -36,7 +62,7 @@ pub trait VariantProcessor {
         origin_file_path: &str,
         output_file_path: &str,
         options: &Self::ProcessingOptions,
-    ) -> Result<String, DynError>;
+    ) -> Result<String, MediaProcessorError>;
 
     /// Creates a variant for the given file
     /// If there are no options for this variant, return with the original content type
@@ -44,7 +70,7 @@ pub trait VariantProcessor {
         file: &FileDetails,
         variant: &FileVariant,
         file_path: PathBuf,
-    ) -> Result<String, DynError> {
+    ) -> Result<String, MediaProcessorError> {
         // if there are no options for this variant, return with the original content type
         let options = match Self::get_options_for_variant(file, variant) {
             Ok(options) => options,
@@ -57,15 +83,17 @@ pub trait VariantProcessor {
 
         let origin_file = origin_path.join(FileVariant::Main.to_string());
 
-        let origin_file_path = match origin_file.to_str() {
-            Some(path) => path,
-            None => return Err("Invalid original file path".into()),
+        let Some(origin_file_path) = origin_file.to_str() else {
+            return Err(MediaProcessorError::InvalidFilePath(
+                "Original file".to_string(),
+            ));
         };
 
         let output = origin_path.join(variant.to_string());
-        let output_path = match output.to_str() {
-            Some(path) => path,
-            None => return Err("Invalid output path".into()),
+        let Some(output_path) = output.to_str() else {
+            return Err(MediaProcessorError::InvalidFilePath(
+                "Output file".to_string(),
+            ));
         };
 
         Self::process(origin_file_path, output_path, &options).await?;

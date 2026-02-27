@@ -1,8 +1,8 @@
 use super::UserSearch;
 use crate::db::kv::RedisResult;
-use crate::db::{exec_single_row, queries, RedisOps};
+use crate::db::{exec_single_row, queries, GraphResult, RedisOps};
+use crate::models::error::ModelResult;
 use crate::models::traits::Collection;
-use crate::types::DynError;
 use async_trait::async_trait;
 use chrono::Utc;
 use neo4rs::Query;
@@ -20,7 +20,7 @@ impl Collection<&str> for UserDetails {
         queries::get::get_users_details_by_ids(id_list)
     }
 
-    fn put_graph_query(&self) -> Result<Query, DynError> {
+    fn put_graph_query(&self) -> GraphResult<Query> {
         queries::put::create_user(self)
     }
 
@@ -84,17 +84,14 @@ where
 
 impl UserDetails {
     /// Retrieves details by user ID, first trying to get from Redis, then from Neo4j if not found.
-    pub async fn get_by_id(user_id: &str) -> Result<Option<Self>, DynError> {
+    pub async fn get_by_id(user_id: &str) -> ModelResult<Option<Self>> {
         // Delegate to UserDetailsCollection::get_by_ids for single item retrieval
         let details_collection = Self::get_by_ids(&[user_id]).await?;
         Ok(details_collection.into_iter().flatten().next())
     }
 
-    pub async fn from_homeserver(
-        homeserver_user: PubkyAppUser,
-        user_id: &PubkyId,
-    ) -> Result<Self, DynError> {
-        Ok(UserDetails {
+    pub fn from_homeserver(homeserver_user: PubkyAppUser, user_id: &PubkyId) -> Self {
+        UserDetails {
             name: homeserver_user.name,
             bio: homeserver_user.bio,
             status: homeserver_user.status,
@@ -102,10 +99,10 @@ impl UserDetails {
             image: homeserver_user.image,
             id: user_id.clone(),
             indexed_at: Utc::now().timestamp_millis(),
-        })
+        }
     }
 
-    pub async fn delete(user_id: &str) -> Result<(), DynError> {
+    pub async fn delete(user_id: &str) -> ModelResult<()> {
         // Delete user_details on Redis
         Self::remove_from_index_multiple_json(&[&[user_id]]).await?;
         // Delete user graph node;

@@ -1,6 +1,6 @@
 use crate::events::retry::event::RetryEvent;
 use crate::events::EventProcessorError;
-use crate::handle_indexing_results;
+
 use chrono::Utc;
 use nexus_common::db::kv::ScoreAction;
 use nexus_common::db::OperationOutcome;
@@ -13,7 +13,7 @@ use nexus_common::models::tag::search::TagSearch;
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::tag::user::TagUser;
 use nexus_common::models::user::UserCounts;
-use nexus_common::types::{DynError, Pagination};
+use nexus_common::types::Pagination;
 use pubky_app_specs::{ParsedUri, PubkyAppTag, PubkyId, Resource};
 use tracing::debug;
 
@@ -23,11 +23,11 @@ pub async fn sync_put(
     tag: PubkyAppTag,
     tagger_id: PubkyId,
     tag_id: String,
-) -> Result<(), DynError> {
+) -> Result<(), EventProcessorError> {
     debug!("Indexing new tag: {} -> {}", tagger_id, tag_id);
 
     // Parse the embeded URI to extract author_id and post_id using parse_tagged_post_uri
-    let parsed_uri = ParsedUri::try_from(tag.uri.as_str())?;
+    let parsed_uri = ParsedUri::try_from(tag.uri.as_str()).map_err(EventProcessorError::generic)?;
     let user_id = parsed_uri.user_id;
     let indexed_at = Utc::now().timestamp_millis();
 
@@ -42,9 +42,9 @@ pub async fn sync_put(
         }
         // If no post_id in the tagged URI, we place tag to a user.
         Resource::User => put_sync_user(tagger_id, user_id, &tag_id, &tag.label, indexed_at).await,
-        other => {
-            Err(format!("The tagged resource is not Post or User, instead is: {other:?}").into())
-        }
+        other => Err(EventProcessorError::generic(format!(
+            "The tagged resource is not Post or User, instead is: {other:?}"
+        ))),
     }
 }
 
@@ -66,7 +66,7 @@ async fn put_sync_post(
     tag_label: &str,
     post_uri: &str,
     indexed_at: i64,
-) -> Result<(), DynError> {
+) -> Result<(), EventProcessorError> {
     match TagPost::put_to_graph(
         &tagger_user_id,
         &author_id,
@@ -86,7 +86,7 @@ async fn put_sync_post(
                     tracing::error!("Failed to ingest homeserver: {e}");
                 }
             }
-            Err(EventProcessorError::MissingDependency { dependency }.into())
+            Err(EventProcessorError::MissingDependency { dependency })
         }
         OperationOutcome::CreatedOrDeleted => {
             // SAVE TO INDEXES
@@ -116,7 +116,7 @@ async fn put_sync_post(
                         ScoreAction::Increment(1.0),
                     )
                     .await?;
-                    Ok::<(), DynError>(())
+                    Ok::<(), EventProcessorError>(())
                 },
                 // Add user tag in post
                 TagPost::add_tagger_to_index(&author_id, Some(post_id), &tagger_user_id, tag_label),
@@ -136,9 +136,10 @@ async fn put_sync_post(
                             post_id,
                             ScoreAction::Increment(1.0),
                         )
-                        .await?;
+                        .await
+                        .map_err(EventProcessorError::index_operation_failed)?;
                     }
-                    Ok::<(), DynError>(())
+                    Ok::<(), EventProcessorError>(())
                 },
                 // Add post to global label timeline
                 PostsByTagSearch::put_to_index(&author_id, post_id, tag_label),
@@ -148,17 +149,15 @@ async fn put_sync_post(
                 TagSearch::put_to_index(tag_label_slice)
             );
 
-            handle_indexing_results!(
-                indexing_results.0,
-                indexing_results.1,
-                indexing_results.2,
-                indexing_results.3,
-                indexing_results.4,
-                indexing_results.5,
-                indexing_results.6.map_err(DynError::from),
-                indexing_results.7,
-                indexing_results.8.map_err(DynError::from)
-            );
+            indexing_results.0?;
+            indexing_results.1?;
+            indexing_results.2?;
+            indexing_results.3?;
+            indexing_results.4?;
+            indexing_results.5?;
+            indexing_results.6?;
+            indexing_results.7?;
+            indexing_results.8?;
 
             Ok(())
         }
@@ -179,7 +178,7 @@ async fn put_sync_user(
     tag_id: &str,
     tag_label: &str,
     indexed_at: i64,
-) -> Result<(), DynError> {
+) -> Result<(), EventProcessorError> {
     match TagUser::put_to_graph(
         &tagger_user_id,
         &tagged_user_id,
@@ -198,7 +197,7 @@ async fn put_sync_user(
 
             let key = RetryEvent::generate_index_key_from_uri(&tagged_user_id.to_uri());
             let dependency = vec![key];
-            Err(EventProcessorError::MissingDependency { dependency }.into())
+            Err(EventProcessorError::MissingDependency { dependency })
         }
         OperationOutcome::CreatedOrDeleted => {
             let tag_label_slice = &[tag_label.to_string()];
@@ -222,7 +221,7 @@ async fn put_sync_user(
                         ScoreAction::Increment(1.0),
                     )
                     .await?;
-                    Ok::<(), DynError>(())
+                    Ok::<(), EventProcessorError>(())
                 },
                 // Add tagger to the user taggers list
                 TagUser::add_tagger_to_index(&tagged_user_id, None, &tagger_user_id, tag_label),
@@ -232,21 +231,19 @@ async fn put_sync_user(
                 TagSearch::put_to_index(tag_label_slice)
             );
 
-            handle_indexing_results!(
-                indexing_results.0,
-                indexing_results.1,
-                indexing_results.2,
-                indexing_results.3,
-                indexing_results.4,
-                indexing_results.5.map_err(DynError::from)
-            );
+            indexing_results.0?;
+            indexing_results.1?;
+            indexing_results.2?;
+            indexing_results.3?;
+            indexing_results.4?;
+            indexing_results.5?;
 
             Ok(())
         }
     }
 }
 
-pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), DynError> {
+pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), EventProcessorError> {
     debug!("Deleting tag: {} -> {}", user_id, tag_id);
     let tag_details = TagUser::del_from_graph(&user_id, &tag_id).await?;
     // CHOOSE THE EVENT TYPE
@@ -266,7 +263,7 @@ pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), DynError> {
             }
         }
     } else {
-        return Err(EventProcessorError::SkipIndexing.into());
+        return Err(EventProcessorError::SkipIndexing);
     }
     Ok(())
 }
@@ -275,7 +272,7 @@ async fn del_sync_user(
     tagger_id: PubkyId,
     tagged_id: &str,
     tag_label: &str,
-) -> Result<(), DynError> {
+) -> Result<(), EventProcessorError> {
     let indexing_results = tokio::join!(
         // Update user counts in the tagged
         UserCounts::decrement(tagged_id, "tags", None),
@@ -288,23 +285,21 @@ async fn del_sync_user(
             // Decrease unique_tags
             // NOTE: To update that field, we first need to decrement the value in the TagUser SORTED SET associated with that tag
             UserCounts::decrement(tagged_id, "unique_tags", Some(tag_label)).await?;
-            Ok::<(), DynError>(())
+            Ok::<(), EventProcessorError>(())
         },
         async {
             // Remove tagger to the user taggers list
             TagUser(vec![tagger_id.to_string()])
                 .del_from_index(tagged_id, None, tag_label)
                 .await?;
-            Ok::<(), DynError>(())
+            Ok::<(), EventProcessorError>(())
         }
     );
 
-    handle_indexing_results!(
-        indexing_results.0,
-        indexing_results.1,
-        indexing_results.2,
-        indexing_results.3
-    );
+    indexing_results.0?;
+    indexing_results.1?;
+    indexing_results.2?;
+    indexing_results.3?;
 
     Ok(())
 }
@@ -314,7 +309,7 @@ async fn del_sync_post(
     post_id: &str,
     author_id: &str,
     tag_label: &str,
-) -> Result<(), DynError> {
+) -> Result<(), EventProcessorError> {
     // SAVE TO INDEXES
     let post_key_slice: &[&str] = &[author_id, post_id];
     let tag_post = TagPost(vec![tagger_id.to_string()]);
@@ -337,7 +332,7 @@ async fn del_sync_post(
             // NOTE: To update that field, we first need to decrement the value in the SORTED SET associated with that tag
             PostCounts::decrement_index_field(post_key_slice, "unique_tags", Some(tag_label))
                 .await?;
-            Ok::<(), DynError>(())
+            Ok::<(), EventProcessorError>(())
         },
         // Decrease post from label total engagement
         PostsByTagSearch::update_index_score(
@@ -351,9 +346,10 @@ async fn del_sync_post(
             if !post_relationships_is_reply(author_id, post_id).await? {
                 // Decrement in one post global engagement
                 PostStream::update_index_score(author_id, post_id, ScoreAction::Decrement(1.0))
-                    .await?;
+                    .await
+                    .map_err(EventProcessorError::index_operation_failed)?;
             }
-            Ok::<(), DynError>(())
+            Ok::<(), EventProcessorError>(())
         },
         async {
             // Delete the tagger from the tag list
@@ -372,18 +368,16 @@ async fn del_sync_post(
                 TagSearch::del_from_index(tag_label).await?;
             }
 
-            Ok::<(), DynError>(())
+            Ok::<(), EventProcessorError>(())
         }
     );
 
-    handle_indexing_results!(
-        indexing_results.0,
-        indexing_results.1,
-        indexing_results.2,
-        indexing_results.3,
-        indexing_results.4,
-        indexing_results.5
-    );
+    indexing_results.0?;
+    indexing_results.1?;
+    indexing_results.2?;
+    indexing_results.3?;
+    indexing_results.4?;
+    indexing_results.5?;
 
     Ok(())
 }

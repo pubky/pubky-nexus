@@ -1,7 +1,6 @@
 mod errors;
 
-use crate::db::RedisOps;
-use crate::types::DynError;
+use crate::db::{kv::RedisResult, RedisOps};
 use pubky_app_specs::{ParsedUri, Resource};
 use serde::{Deserialize, Serialize};
 use std::{fmt, path::PathBuf};
@@ -46,39 +45,38 @@ impl Event {
     /// Parse event based on event line returned by homeservers' /events endpoint.
     /// - line - event line string
     /// - files_path - path to the directory where files are stored on nexus
-    pub fn parse_event(line: &str, files_path: PathBuf) -> Result<Option<Self>, DynError> {
+    pub fn parse_event(
+        line: &str,
+        files_path: PathBuf,
+    ) -> Result<Option<Self>, EventProcessorError> {
         debug!("New event: {}", line);
         let parts: Vec<&str> = line.split(' ').collect();
         if parts.len() != 2 {
-            return Err(EventProcessorError::InvalidEventLine {
-                message: format!("Malformed event line, {line}"),
-            }
-            .into());
+            return Err(EventProcessorError::InvalidEventLine(format!(
+                "Malformed event line, {line}"
+            )));
         }
 
         let event_type = match parts[0] {
             "PUT" => Ok(EventType::Put),
             "DEL" => Ok(EventType::Del),
-            other => Err(EventProcessorError::InvalidEventLine {
-                message: format!("Unknown event type: {other}"),
-            }),
+            other => Err(EventProcessorError::InvalidEventLine(format!(
+                "Unknown event type: {other}"
+            ))),
         }?;
 
         // Validate and parse the URI using pubky-app-specs
         let uri = parts[1].to_string();
         let parsed_uri = ParsedUri::try_from(uri.as_str()).map_err(|e| {
-            EventProcessorError::InvalidEventLine {
-                message: format!("Cannot parse event URI: {e}"),
-            }
+            EventProcessorError::InvalidEventLine(format!("Cannot parse event URI: {e}"))
         })?;
 
         match parsed_uri.resource {
             // Unknown resource
             Resource::Unknown => {
-                return Err(EventProcessorError::InvalidEventLine {
-                    message: format!("Unknown resource in URI: {uri}"),
-                }
-                .into())
+                return Err(EventProcessorError::InvalidEventLine(format!(
+                    "Unknown resource in URI: {uri}"
+                )))
             }
             // Known resources not handled by Nexus
             Resource::LastRead | Resource::Feed(_) | Resource::Blob(_) => return Ok(None),
@@ -97,16 +95,14 @@ impl Event {
     }
 
     /// Stores event line in Redis as part of the events list.
-    pub async fn store_event(&self) -> Result<(), DynError> {
-        self.put_index_list(&["Events"]).await?;
-
-        Ok(())
+    pub async fn store_event(&self) -> RedisResult<()> {
+        self.put_index_list(&["Events"]).await
     }
 
     pub async fn get_events_from_redis(
         cursor: Option<usize>,
         limit: usize,
-    ) -> Result<(Vec<String>, usize), DynError> {
+    ) -> RedisResult<(Vec<String>, usize)> {
         let start = cursor.unwrap_or(0);
         let result = Event::try_from_index_list(&["Events"], Some(start), Some(limit)).await;
 
@@ -114,7 +110,7 @@ impl Event {
             Ok(r) => r.unwrap_or_default(),
             Err(error) => {
                 error!("IndexReadFailed: Failed to read from list due to Redis error: {error}");
-                return Err(error.into());
+                return Err(error);
             }
         };
 

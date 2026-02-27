@@ -1,5 +1,5 @@
 use crate::db::RedisOps;
-use crate::types::DynError;
+use crate::models::error::ModelResult;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -15,7 +15,7 @@ impl Friends {
         user_id: &str,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<Option<Self>, DynError> {
+    ) -> ModelResult<Option<Self>> {
         // Fetch following and followers, limit to 10K
         let following = Following::get_by_id(user_id, None, Some(10000))
             .await?
@@ -47,8 +47,8 @@ impl Friends {
         Ok(Some(Self(friends)))
     }
 
-    // Checks wjether user_a and user_b are friends
-    pub async fn check(user_a_id: &str, user_b_id: &str) -> Result<bool, DynError> {
+    // Checks whether user_a and user_b are friends
+    pub async fn check(user_a_id: &str, user_b_id: &str) -> ModelResult<bool> {
         let user_a_key_parts = &[user_a_id][..];
         let user_b_key_parts = &[user_b_id][..];
 

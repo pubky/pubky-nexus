@@ -5,7 +5,6 @@ use pubky_app_specs::ParsedUri;
 use serde::{Deserialize, Serialize};
 
 use nexus_common::db::RedisOps;
-use nexus_common::types::DynError;
 
 use crate::events::EventProcessorError;
 
@@ -92,14 +91,18 @@ impl RetryEvent {
     /// Checks if a specific event exists in the Redis sorted set
     /// # Arguments
     /// * `event_index` - A `&str` representing the event index to check
-    pub async fn check_uri(event_index: &str) -> Result<Option<isize>, DynError> {
+    pub async fn check_uri(event_index: &str) -> Result<Option<isize>, EventProcessorError> {
         Self::check_sorted_set_member(
             Some(RETRY_MANAGER_PREFIX),
             &RETRY_MANAGER_EVENTS_INDEX,
             &[event_index],
         )
         .await
-        .map_err(Into::into)
+        .map_err(|e| {
+            EventProcessorError::InternalError(format!(
+                "Could not check uri for event: {event_index}, reason {e}"
+            ))
+        })
     }
 
     /// Retrieves an event from the JSON index in Redis based on its index
