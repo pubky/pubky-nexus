@@ -26,47 +26,66 @@ pub const API_CONFIG_FILE_NAME: &str = "api-config.toml";
 type ServerHandle = Handle<SocketAddr>;
 
 #[derive(Debug)]
-pub struct NexusApiBuilder(pub ApiContext);
+pub struct NexusApiBuilder {
+    api_context: ApiContext,
+    enable_key_republisher: bool,
+}
 
 impl NexusApiBuilder {
+    pub fn new(api_context: ApiContext) -> Self {
+        Self {
+            api_context,
+            enable_key_republisher: true,
+        }
+    }
+
+    /// Enables or disables the [KeyRepublisher].
+    ///
+    /// When enabled (default), [NexusApi] will publish its pkarr packet to the DHT on startup
+    /// and periodically republish it every hour. When disabled, no publishing occurs.
+    pub fn enable_key_republisher(mut self, enable: bool) -> Self {
+        self.enable_key_republisher = enable;
+        self
+    }
+
     /// Sets the service name for observability (tracing, logging, monitoring)
     pub fn name(mut self, name: String) -> Self {
-        self.0.api_config.name = name;
+        self.api_context.api_config.name = name;
 
         self
     }
 
     /// Configures the logging level for the service, determining verbosity and log output
     pub fn log_level(mut self, log_level: Level) -> Self {
-        self.0.api_config.stack.log_level = log_level;
+        self.api_context.api_config.stack.log_level = log_level;
 
         self
     }
 
     /// Sets the directory for storing static files on the server
     pub fn files_path(mut self, files_path: PathBuf) -> Self {
-        self.0.api_config.stack.files_path = files_path;
+        self.api_context.api_config.stack.files_path = files_path;
 
         self
     }
 
     /// Sets the OpenTelemetry endpoint for tracing and monitoring
     pub fn otlp_endpoint(mut self, otlp_endpoint: Option<String>) -> Self {
-        self.0.api_config.stack.otlp_endpoint = otlp_endpoint;
+        self.api_context.api_config.stack.otlp_endpoint = otlp_endpoint;
 
         self
     }
 
     /// Sets the database configuration, including graph database and Redis settings
     pub fn db(mut self, db: DatabaseConfig) -> Self {
-        self.0.api_config.stack.db = db;
+        self.api_context.api_config.stack.db = db;
 
         self
     }
 
     /// Opens ddbb connections and initialises tracing layer (if provided in config)
     pub async fn init_stack(&self) -> Result<(), DynError> {
-        StackManager::setup(&self.0.api_config.name, &self.0.api_config.stack).await
+        StackManager::setup(&self.api_context.api_config.name, &self.api_context.api_config.stack).await
     }
 
     /// Creates and starts a [NexusApi] instance.
@@ -83,7 +102,7 @@ impl NexusApiBuilder {
             .await
             .inspect_err(|e| error!("Failed to initialize stack: {e}"))?;
 
-        let nexus_api = NexusApi::start(self.0)
+        let nexus_api = NexusApi::start(self.api_context, self.enable_key_republisher)
             .await
             .inspect_err(|e| error!("Failed to start Nexus API: {e}"))?;
 
@@ -110,8 +129,8 @@ pub struct NexusApi {
     pubky_tls_handle: ServerHandle,
 
     #[allow(dead_code)]
-    // Keep this alive. Republishing is stopped when the instance is dropped.
-    key_republisher: KeyRepublisher,
+    // Keep this alive if present. Republishing is stopped when the instance is dropped.
+    key_republisher: Option<KeyRepublisher>,
 }
 
 impl NexusApi {
@@ -134,7 +153,7 @@ impl NexusApi {
                     .try_build()
                     .await?;
 
-                NexusApiBuilder(api_context).start(shutdown_rx).await
+                NexusApiBuilder::new(api_context).start(shutdown_rx).await
             }
             Err(_) => NexusApi::start_from_daemon(config_dir, shutdown_rx).await,
         }
@@ -156,11 +175,11 @@ impl NexusApi {
             .try_build()
             .await?;
 
-        NexusApiBuilder(api_context).start(Some(shutdown_rx)).await
+        NexusApiBuilder::new(api_context).start(Some(shutdown_rx)).await
     }
 
     /// It sets up the necessary routes, binds to the specified address, and starts the Axum server
-    pub async fn start(ctx: ApiContext) -> Result<Self, DynError> {
+    pub async fn start(ctx: ApiContext, enable_key_republisher: bool) -> Result<Self, DynError> {
         // Create all the routes of the API
         let router = routes::routes(ctx.api_config.stack.files_path.clone());
         debug!(?ctx.api_config, "Running NexusAPI with config");
@@ -171,8 +190,12 @@ impl NexusApi {
         let (pubky_tls_handle, pubky_tls_socket) =
             Self::start_pubky_tls_server(&ctx, router).await?;
 
-        let ks_ctx = derive_key_publisher_context(&ctx, pubky_tls_socket.port());
-        let key_republisher = KeyRepublisher::start(&ks_ctx).await?;
+        let key_republisher = if enable_key_republisher {
+            let ks_ctx = derive_key_publisher_context(&ctx, pubky_tls_socket.port());
+            Some(KeyRepublisher::start(&ks_ctx).await?)
+        } else {
+            None
+        };
 
         Ok(NexusApi {
             ctx,
