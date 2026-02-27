@@ -1,15 +1,16 @@
-use crate::media::{
-    processors::{ImageProcessor, VariantProcessor, VideoProcessor},
-    FileVariant, VariantController,
+use crate::{
+    media::{
+        processors::{ImageProcessor, VariantProcessor, VideoProcessor},
+        FileVariant, VariantController,
+    },
+    models::error::{ModelError, ModelResult},
 };
-use crate::types::DynError;
 use pubky_app_specs::PubkyAppBlob;
 use std::path::PathBuf;
 use tokio::{
     fs::{self, File},
     io::AsyncWriteExt,
 };
-use tracing::error;
 
 use super::FileDetails;
 
@@ -20,7 +21,7 @@ impl Blob {
         name: String,
         files_path: PathBuf,
         blob: &PubkyAppBlob,
-    ) -> Result<(), DynError> {
+    ) -> ModelResult<()> {
         if !fs::metadata(&files_path)
             .await
             .is_ok_and(|metadata| metadata.is_dir())
@@ -39,7 +40,7 @@ impl Blob {
         file: &FileDetails,
         variant: &FileVariant,
         file_path: PathBuf,
-    ) -> Result<String, DynError> {
+    ) -> ModelResult<String> {
         let file_variant_exists =
             VariantController::check_variant_exists(file, variant.clone(), file_path.clone()).await;
 
@@ -48,16 +49,11 @@ impl Blob {
                 file, variant,
             ))
         } else {
-            match Self::put_variant(file, variant, file_path).await {
-                Ok(content_type) => Ok(content_type),
-                Err(err) => {
-                    error!(
-                        "Creating variant failed for file: {:?} with error: {}",
-                        file, err
-                    );
-                    Err(err)
-                }
-            }
+            Self::put_variant(file, variant, file_path)
+                .await
+                .inspect_err(|e| {
+                    tracing::error!("Creating variant failed for file: {file:?} with error: {e}")
+                })
         }
     }
 
@@ -65,15 +61,22 @@ impl Blob {
         file: &FileDetails,
         variant: &FileVariant,
         file_path: PathBuf,
-    ) -> Result<String, DynError> {
+    ) -> ModelResult<String> {
         match &file.content_type {
             content_type if content_type.starts_with("image/") => {
-                ImageProcessor::create_variant(file, variant, file_path).await
+                ImageProcessor::create_variant(file, variant, file_path)
+                    .await
+                    .map_err(Into::into)
             }
             content_type if content_type.starts_with("video/") => {
-                VideoProcessor::create_variant(file, variant, file_path).await
+                VideoProcessor::create_variant(file, variant, file_path)
+                    .await
+                    .map_err(Into::into)
             }
-            _ => Err(format!("Unsupported content type: {}", file.content_type).into()),
+            _ => Err(ModelError::from_generic(format!(
+                "Unsupported content type: {}",
+                file.content_type
+            ))),
         }
     }
 }

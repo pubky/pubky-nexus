@@ -33,7 +33,7 @@ services:
       # NEO4J_apoc_uuid_enabled: false
 
   redis:
-    image: redis:8.0.5-alpine
+    image: redis:8.0.6-alpine
     container_name: redis
     ports:
       - 127.0.0.1:6379:6379

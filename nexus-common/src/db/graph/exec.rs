@@ -1,5 +1,4 @@
-use crate::db::get_neo4j_graph;
-use crate::types::DynError;
+use crate::db::{get_neo4j_graph, graph::error::GraphResult};
 use neo4rs::{Query, Row};
 use serde::de::DeserializeOwned;
 
@@ -24,7 +23,7 @@ pub enum OperationOutcome {
 ///
 /// If no rows are returned, this function returns [`OperationOutcome::MissingDependency`], typically
 /// indicating a missing dependency or an unmatched query condition.
-pub async fn execute_graph_operation(query: Query) -> Result<OperationOutcome, DynError> {
+pub async fn execute_graph_operation(query: Query) -> GraphResult<OperationOutcome> {
     // The "flag" field indicates a specific condition in the query
     let maybe_flag = fetch_key_from_graph(query, "flag").await?;
     match maybe_flag {
@@ -35,14 +34,14 @@ pub async fn execute_graph_operation(query: Query) -> Result<OperationOutcome, D
 }
 
 /// Exec a graph query without a return
-pub async fn exec_single_row(query: Query) -> Result<(), DynError> {
+pub async fn exec_single_row(query: Query) -> GraphResult<()> {
     let graph = get_neo4j_graph()?;
     let mut result = graph.execute(query).await?;
     result.next().await?;
     Ok(())
 }
 
-pub async fn fetch_row_from_graph(query: Query) -> Result<Option<Row>, DynError> {
+pub async fn fetch_row_from_graph(query: Query) -> GraphResult<Option<Row>> {
     let graph = get_neo4j_graph()?;
 
     let mut result = graph.execute(query).await?;
@@ -50,7 +49,7 @@ pub async fn fetch_row_from_graph(query: Query) -> Result<Option<Row>, DynError>
     result.next().await.map_err(Into::into)
 }
 
-pub async fn fetch_all_rows_from_graph(query: Query) -> Result<Vec<Row>, DynError> {
+pub async fn fetch_all_rows_from_graph(query: Query) -> GraphResult<Vec<Row>> {
     let graph = get_neo4j_graph()?;
 
     let mut result = graph.execute(query).await?;
@@ -64,7 +63,7 @@ pub async fn fetch_all_rows_from_graph(query: Query) -> Result<Vec<Row>, DynErro
 }
 
 /// Fetch the value of type T mapped to a specific key from the first row of a graph query's result
-pub async fn fetch_key_from_graph<T>(query: Query, key: &str) -> Result<Option<T>, DynError>
+pub async fn fetch_key_from_graph<T>(query: Query, key: &str) -> GraphResult<Option<T>>
 where
     // Key point: DeserializeOwned ensures we can deserialize into any type that implements it
     T: DeserializeOwned + Send + Sync,

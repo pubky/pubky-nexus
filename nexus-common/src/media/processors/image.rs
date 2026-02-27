@@ -1,7 +1,10 @@
 use async_trait::async_trait;
 use tokio::process::Command;
 
-use crate::{media::FileVariant, models::file::FileDetails, types::DynError};
+use crate::{
+    media::{processors::MediaProcessorError, FileVariant},
+    models::file::FileDetails,
+};
 
 use super::{BaseProcessingOptions, VariantProcessor};
 
@@ -41,11 +44,11 @@ impl VariantProcessor for ImageProcessor {
     fn get_options_for_variant(
         file: &FileDetails,
         variant: &FileVariant,
-    ) -> Result<ImageOptions, DynError> {
+    ) -> Result<ImageOptions, MediaProcessorError> {
         let width = match variant {
             FileVariant::Small => String::from(SMALL_IMAGE_WIDTH),
             FileVariant::Feed => String::from(FEED_IMAGE_WIDTH),
-            _ => return Err("Unsupported image variant".into()),
+            _ => return Err(MediaProcessorError::UnsupportedFileVariant),
         };
         let content_type = Self::get_content_type_for_variant(file, variant);
         Ok(ImageOptions {
@@ -59,7 +62,7 @@ impl VariantProcessor for ImageProcessor {
         origin_file_path: &str,
         output_file_path: &str,
         options: &ImageOptions,
-    ) -> Result<String, DynError> {
+    ) -> Result<String, MediaProcessorError> {
         let origin_file_format = ImageProcessor::get_format(origin_file_path)
             .await?
             .to_lowercase();
@@ -76,42 +79,38 @@ impl VariantProcessor for ImageProcessor {
             .arg("-auto-orient") // https://github.com/ImageMagick/ImageMagick/issues/6396
             .arg(output)
             .output() // Automatically pipes stdout and stderr
-            .await?;
+            .await
+            .map_err(MediaProcessorError::command_failed)?;
 
         if child_output.status.success() {
             Ok(String::from_utf8_lossy(&child_output.stdout).to_string())
         } else {
-            Err(format!(
+            Err(MediaProcessorError::command_failed(format!(
                 "ImageMagick command failed: {}",
                 String::from_utf8_lossy(&child_output.stdout)
-            )
-            .into())
+            )))
         }
     }
 }
 
 impl ImageProcessor {
     // function to get image format
-    async fn get_format(file_path: &str) -> Result<String, DynError> {
-        let child_output = match Command::new("identify")
+    async fn get_format(file_path: &str) -> Result<String, MediaProcessorError> {
+        let child_output = Command::new("identify")
             .arg("-format")
             .arg("%m")
             .arg(file_path)
             .output() // Automatically pipes stdout and stderr
             .await
-        {
-            Ok(output) => output,
-            Err(err) => return Err(err.into()),
-        };
+            .map_err(MediaProcessorError::command_failed)?;
 
         if child_output.status.success() {
             Ok(String::from_utf8_lossy(&child_output.stdout).to_string())
         } else {
-            Err(format!(
+            Err(MediaProcessorError::command_failed(format!(
                 "ImageMagick format extraction failed: {}",
                 String::from_utf8_lossy(&child_output.stderr)
-            )
-            .into())
+            )))
         }
     }
 }

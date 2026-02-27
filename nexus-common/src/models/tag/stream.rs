@@ -1,7 +1,8 @@
-use crate::db::kv::SortOrder;
+use crate::db::kv::{RedisResult, SortOrder};
 use crate::db::{fetch_key_from_graph, queries, RedisOps};
+use crate::models::error::ModelResult;
 use crate::types::routes::HotTagsInputDTO;
-use crate::types::{DynError, StreamReach, Timeframe};
+use crate::types::{StreamReach, Timeframe};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ops::Deref;
@@ -56,7 +57,7 @@ impl HotTags {
         user_id: Option<String>,
         reach: Option<StreamReach>,
         hot_tags_input: &HotTagsInputDTO,
-    ) -> Result<Option<HotTags>, DynError> {
+    ) -> ModelResult<Option<HotTags>> {
         match user_id {
             Some(user_id) => {
                 HotTags::get_hot_tags_by_reach(
@@ -82,9 +83,11 @@ impl HotTags {
         user_id: String,
         reach: StreamReach,
         hot_tags_input: &HotTagsInputDTO,
-    ) -> Result<Option<HotTags>, DynError> {
+    ) -> ModelResult<Option<HotTags>> {
         let query = queries::get::get_hot_tags_by_reach(user_id.as_str(), reach, hot_tags_input);
-        fetch_key_from_graph::<HotTags>(query, "hot_tags").await
+        fetch_key_from_graph::<HotTags>(query, "hot_tags")
+            .await
+            .map_err(Into::into)
     }
 
     /// Retrieves global hot tags, checking the cache first before querying the database.
@@ -95,9 +98,7 @@ impl HotTags {
     /// # Arguments
     ///
     /// * `hot_tags_input` - The input parameters received from the API endpoint
-    async fn get_global_hot_tags(
-        hot_tags_input: &HotTagsInputDTO,
-    ) -> Result<Option<HotTags>, DynError> {
+    async fn get_global_hot_tags(hot_tags_input: &HotTagsInputDTO) -> ModelResult<Option<HotTags>> {
         let cached_hot_tags = HotTags::get_from_global_cache(hot_tags_input).await?;
 
         if let Some(hot_tags) = &cached_hot_tags {
@@ -125,7 +126,9 @@ impl HotTags {
             HotTags::set_to_global_cache(hot_tags.clone(), hot_tags_input).await?;
         }
 
-        HotTags::get_from_global_cache(hot_tags_input).await
+        HotTags::get_from_global_cache(hot_tags_input)
+            .await
+            .map_err(Into::into)
     }
 
     /// Retrieves hot tags from the global cache
@@ -139,7 +142,7 @@ impl HotTags {
     /// * `hot_tags_input` - The input parameters received from the API endpoint
     async fn get_from_global_cache(
         hot_tags_input: &HotTagsInputDTO,
-    ) -> Result<Option<HotTags>, DynError> {
+    ) -> RedisResult<Option<HotTags>> {
         let timeframe = hot_tags_input.timeframe.to_string();
         let hot_tag_key_parts = Self::build_hot_tags_key_parts(&timeframe);
 
@@ -197,7 +200,7 @@ impl HotTags {
     async fn set_to_global_cache(
         hot_tags_list: HotTags,
         hot_tags_input: &HotTagsInputDTO,
-    ) -> Result<(), DynError> {
+    ) -> RedisResult<()> {
         let timeframe = hot_tags_input.timeframe.to_string();
         let hot_tag_key_parts = Self::build_hot_tags_key_parts(&timeframe);
 
@@ -220,8 +223,7 @@ impl HotTags {
             Some(HOT_TAGS_CACHE_PREFIX),
             Some(hot_tags_input.timeframe.to_cache_period()),
         )
-        .await?;
-        Ok(())
+        .await
     }
 
     /// Builds key parts for hot tags based on the given timeframe
@@ -235,7 +237,7 @@ impl HotTags {
     /// Reindexes global hot tags
     /// Retrieves and updates global hot tags for different timeframes. It fetches the top 100 hot tags
     ///  with a taggers limit of 20 for both "all-time" and "this month" timeframes
-    pub async fn reindex() -> Result<(), DynError> {
+    pub async fn reindex() -> ModelResult<()> {
         let all_timeframe_input =
             HotTagsInputDTO::new(Timeframe::AllTime, 100, 0, 20, Some(TaggedType::Post));
         HotTags::get_global_hot_tags(&all_timeframe_input).await?;

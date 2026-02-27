@@ -6,7 +6,6 @@ use crate::events::Moderation;
 use crate::service::traits::TEventProcessor;
 use nexus_common::db::PubkyConnector;
 use nexus_common::models::homeserver::Homeserver;
-use nexus_common::types::DynError;
 use opentelemetry::trace::{FutureExt, Span, TraceContextExt, Tracer};
 use opentelemetry::{global, Context, KeyValue};
 use pubky::Method;
@@ -32,7 +31,7 @@ impl TEventProcessor for EventProcessor {
         self.homeserver.id.clone()
     }
 
-    async fn run_internal(self: Arc<Self>) -> Result<(), DynError> {
+    async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {
         let maybe_event_lines = {
             let tracer = global::tracer(self.tracer_name.clone());
             let span = tracer.start("Polling Events");
@@ -62,7 +61,7 @@ impl EventProcessor {
     /// using the current cursor and a specified limit. It retrieves new event
     /// URIs in a newline-separated format, processes it into a vector of strings,
     /// and returns the result.
-    async fn poll_events(&self) -> Result<Option<Vec<String>>, DynError> {
+    async fn poll_events(&self) -> Result<Option<Vec<String>>, EventProcessorError> {
         debug!("Polling new events from homeserver");
 
         let response_text = {
@@ -79,7 +78,10 @@ impl EventProcessor {
                 .await
                 .map_err(|e| EventProcessorError::client_error(e.to_string()))?;
 
-            response.text().await?
+            response
+                .text()
+                .await
+                .map_err(|e| EventProcessorError::client_error(e.to_string()))?
         };
 
         let lines: Vec<String> = response_text.trim().lines().map(String::from).collect();
@@ -100,7 +102,7 @@ impl EventProcessor {
     ///
     /// # Parameters
     /// - `lines`: A vector of strings representing event lines retrieved from the homeserver.
-    pub async fn process_event_lines(&self, lines: Vec<String>) -> Result<(), DynError> {
+    pub async fn process_event_lines(&self, lines: Vec<String>) -> Result<(), EventProcessorError> {
         for line in &lines {
             let id = self.homeserver.id.clone();
 
@@ -146,7 +148,7 @@ impl EventProcessor {
     /// Processes an event and track the fail event it if necessary
     /// # Parameters:
     /// - `event`: The event to be processed
-    async fn handle_event(&self, event: &Event) -> Result<(), DynError> {
+    async fn handle_event(&self, event: &Event) -> Result<(), EventProcessorError> {
         if let Err(e) = handle(event, self.moderation.clone()).await {
             if let Some((index_key, retry_event)) = extract_retry_event_info(event, e) {
                 error!("{}, {}", retry_event.error_type, index_key);
@@ -164,18 +166,16 @@ impl EventProcessor {
 /// # Parameters
 /// - `event`: Reference to the event for which retry information is being extracted
 /// - `error`: Determines whether the event is eligible for a retry or should be discarded
-fn extract_retry_event_info(event: &Event, error: DynError) -> Option<(String, RetryEvent)> {
-    let retry_event = match error.downcast_ref::<EventProcessorError>() {
-        Some(EventProcessorError::InvalidEventLine { message }) => {
+fn extract_retry_event_info(
+    event: &Event,
+    error: EventProcessorError,
+) -> Option<(String, RetryEvent)> {
+    let retry_event = match error {
+        EventProcessorError::InvalidEventLine(ref message) => {
             error!("{}", message);
             return None;
         }
-        Some(event_processor_error) => RetryEvent::new(event_processor_error.clone()),
-        // Others errors must be logged at least for now
-        None => {
-            error!("Unhandled error type for URI: {}, {:?}", event.uri, error);
-            return None;
-        }
+        _ => RetryEvent::new(error),
     };
 
     // Generate a compress index to save in the cache
