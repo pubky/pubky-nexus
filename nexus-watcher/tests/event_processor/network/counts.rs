@@ -12,7 +12,7 @@ use pubky_app_specs::{
     post_uri_builder, PubkyAppBookmark, PubkyAppFollow, PubkyAppMute, PubkyAppPost,
     PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
 };
-use rand::{rngs::StdRng, Rng, SeedableRng};
+use rand::{rngs::StdRng, RngExt, SeedableRng};
 use std::collections::{HashMap, HashSet};
 use tracing::info;
 
@@ -133,7 +133,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
                     let mute = PubkyAppMute {
                         created_at: chrono::Utc::now().timestamp_millis(),
                     };
-                    let mute_path = PubkyAppMute::hs_path(&target_user_id);
+                    let mute_path = PubkyAppMute::hs_path(target_user_id);
                     test.put(user_kp, &mute_path, mute).await?;
                     _total_mutes += 1;
                 }
@@ -241,7 +241,7 @@ async fn test_large_network_scenario_counts() -> Result<()> {
             let target_index = rng.random_range(0..muted.len());
             let target_user_id = &muted[target_index];
             if unmuted.insert(target_user_id.clone()) {
-                let mute_path = PubkyAppMute::hs_path(&target_user_id);
+                let mute_path = PubkyAppMute::hs_path(target_user_id);
                 test.del(user_kp, &mute_path).await?;
                 mute_set.remove(target_user_id);
                 _total_unmutes += 1;

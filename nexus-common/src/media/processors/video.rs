@@ -1,7 +1,10 @@
 use async_trait::async_trait;
 use tokio::process::Command;
 
-use crate::{media::FileVariant, models::file::FileDetails, types::DynError};
+use crate::{
+    media::{processors::MediaProcessorError, FileVariant},
+    models::file::FileDetails,
+};
 
 use super::{BaseProcessingOptions, VariantProcessor};
 
@@ -29,24 +32,27 @@ impl VariantProcessor for VideoProcessor {
         vec![FileVariant::Main]
     }
 
-    fn get_content_type_for_variant(_file: &FileDetails, _variant: &FileVariant) -> String {
+    fn get_content_type_for_variant(file: &FileDetails, variant: &FileVariant) -> String {
+        if variant.eq(&FileVariant::Main) {
+            return file.content_type.clone();
+        }
         String::from("video/mp4")
     }
 
     fn get_options_for_variant(
         _file: &FileDetails,
         _variant: &FileVariant,
-    ) -> Result<VideoOptions, DynError> {
+    ) -> Result<VideoOptions, MediaProcessorError> {
         // Return Err until we have a real implementation
         // TODO: Add real implementation for videos
-        Err("Not implemented".into())
+        Err(MediaProcessorError::NotImplemented)
     }
 
     async fn process(
         origin_file_path: &str,
         output_file_path: &str,
         options: &VideoOptions,
-    ) -> Result<String, DynError> {
+    ) -> Result<String, MediaProcessorError> {
         let origin_file_format = VideoProcessor::get_format(origin_file_path).await?;
 
         let output = match origin_file_format == options.format {
@@ -54,7 +60,7 @@ impl VariantProcessor for VideoProcessor {
             false => format!("{}.{}", output_file_path, options.format),
         };
 
-        let child_output = match Command::new("ffmpeg")
+        let child_output = Command::new("ffmpeg")
             .arg("-i")
             .arg(origin_file_path)
             .arg("-vf")
@@ -64,42 +70,64 @@ impl VariantProcessor for VideoProcessor {
             .arg(output)
             .output() // Automatically pipes stdout and stderr
             .await
-        {
-            Ok(output) => output,
-            Err(err) => return Err(err.into()),
-        };
+            .map_err(MediaProcessorError::command_failed)?;
 
         if child_output.status.success() {
             Ok(String::from_utf8_lossy(&child_output.stdout).to_string())
         } else {
-            Err(format!(
+            Err(MediaProcessorError::command_failed(format!(
                 "FFmpeg command failed: {}",
                 String::from_utf8_lossy(&child_output.stderr)
-            )
-            .into())
+            )))
         }
     }
 }
 
 impl VideoProcessor {
-    // function to get the format of the video
-    async fn get_format(input: &str) -> Result<String, DynError> {
+    /// Returns the format of the video
+    async fn get_format(input: &str) -> Result<String, MediaProcessorError> {
         let child_output = Command::new("ffmpeg")
             .arg("-i")
             .arg(input)
             .arg("-f")
             .arg("null")
             .output() // Automatically pipes stdout and stderr
-            .await?;
+            .await
+            .map_err(MediaProcessorError::command_failed)?;
 
         if child_output.status.success() {
             Ok(String::from_utf8_lossy(&child_output.stdout).to_string())
         } else {
-            Err(format!(
+            Err(MediaProcessorError::command_failed(format!(
                 "FFmpeg metadata extraction failed: {}",
                 String::from_utf8_lossy(&child_output.stderr)
-            )
-            .into())
+            )))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_file(content_type: &str) -> FileDetails {
+        FileDetails {
+            content_type: content_type.to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_main_variant_preserves_original_content_type() {
+        let file = make_file("video/webm");
+        let result = VideoProcessor::get_content_type_for_variant(&file, &FileVariant::Main);
+        assert_eq!(result, "video/webm");
+    }
+
+    #[test]
+    fn test_main_variant_preserves_mp4_content_type() {
+        let file = make_file("video/mp4");
+        let result = VideoProcessor::get_content_type_for_variant(&file, &FileVariant::Main);
+        assert_eq!(result, "video/mp4");
     }
 }

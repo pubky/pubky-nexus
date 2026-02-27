@@ -45,7 +45,7 @@ async fn test_homeserver_del_mute() -> Result<()> {
     );
 
     // CACHE_OP: Assert if cache has been updated
-    let muted = Muted::check(&muter_id, &mutee_id).await.unwrap();
+    let muted = Muted::check_in_index(&muter_id, &mutee_id).await.unwrap();
     assert!(
         !muted,
         "Mutee should not be present in the muter user's mute list"

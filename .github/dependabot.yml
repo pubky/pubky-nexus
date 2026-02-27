@@ -5,8 +5,11 @@ updates:
     schedule:
       interval: "weekly"
       time: "08:00"
-      day: "tuesday"
+      day: "sunday"
     commit-message:
       prefix: "deps"
-    open-pull-requests-limit: 10
     rebase-strategy: "auto"
+    groups:
+      cargo-dependencies:
+        patterns:
+          - "*"

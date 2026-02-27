@@ -1,5 +1,3 @@
-//use std::collections::HashSet;
-
 use std::collections::HashSet;
 
 use crate::utils::get_request;
@@ -17,10 +15,11 @@ async fn test_bootstrap_user() -> Result<()> {
     assert!(user_bootstrap_respose.indexed, "User should be indexed");
 
     // Assert the lists
-    assert_eq!(user_bootstrap_respose.list.stream.len(), 20);
-    assert_eq!(user_bootstrap_respose.list.influencers.len(), 3);
-    assert_eq!(user_bootstrap_respose.list.recommended.len(), 5);
-    assert!(user_bootstrap_respose.list.hot_tags.len() <= 40);
+    assert_eq!(user_bootstrap_respose.ids.stream.len(), 20);
+    assert_eq!(user_bootstrap_respose.ids.influencers.len(), 3);
+    assert_eq!(user_bootstrap_respose.ids.recommended.len(), 5);
+    assert!(user_bootstrap_respose.ids.hot_tags.len() <= 40);
+    assert_eq!(user_bootstrap_respose.ids.muted.len(), 1);
 
     let user_ids: HashSet<String> = user_bootstrap_respose
         .users
@@ -29,7 +28,7 @@ async fn test_bootstrap_user() -> Result<()> {
         .map(|user_view| user_view.details.id.to_string())
         .collect();
 
-    // Assert all users are included in the users list
+    // Assert post authors and taggers are included in the users list
     for post in user_bootstrap_respose.posts.0 {
         let author_id = post.details.author;
         assert!(
@@ -46,6 +45,15 @@ async fn test_bootstrap_user() -> Result<()> {
                 );
             });
     }
+
+    // Assert response doesn't contain views for muted users
+    for muted_id in &user_bootstrap_respose.ids.muted {
+        assert!(
+            !user_ids.contains(muted_id),
+            "Response should not contain muted user view: {muted_id}"
+        );
+    }
+
     Ok(())
 }
 
@@ -66,12 +74,12 @@ async fn test_bootstrap_user_not_indexed() -> Result<()> {
     // Even though user is not indexed, we should still get some data
     // (influencers, hot_tags, etc.) but no recommended users
     assert_eq!(
-        user_bootstrap_response.list.recommended.len(),
+        user_bootstrap_response.ids.recommended.len(),
         0,
         "Non-indexed users should not have recommended users"
     );
     // Influencers and hot_tags should still be populated (global data)
-    assert!(user_bootstrap_response.list.influencers.len() <= 3);
-    assert!(user_bootstrap_response.list.hot_tags.len() <= 40);
+    assert!(user_bootstrap_response.ids.influencers.len() <= 3);
+    assert!(user_bootstrap_response.ids.hot_tags.len() <= 40);
     Ok(())
 }

@@ -1,14 +1,14 @@
-use crate::db::kv::JsonAction;
-use crate::db::{fetch_row_from_graph, queries, RedisOps};
+use crate::db::kv::{JsonAction, RedisResult};
+use crate::db::{fetch_row_from_graph, queries, GraphResult, RedisOps};
+use crate::models::error::ModelResult;
 use crate::models::tag::user::USER_TAGS_KEY_PARTS;
-use crate::types::DynError;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use super::UserStream;
 
 /// Represents total counts of relationships of a user.
-#[derive(Serialize, Deserialize, ToSchema, Debug, Default)]
+#[derive(Serialize, Deserialize, ToSchema, Debug, Default, Clone)]
 pub struct UserCounts {
     // The number of tags assigned to other entities by the user (e.g. user, posts)
     pub tagged: u32,
@@ -28,7 +28,7 @@ impl RedisOps for UserCounts {}
 
 impl UserCounts {
     /// Retrieves counts by user ID, first trying to get from Redis, then from Neo4j if not found.
-    pub async fn get_by_id(user_id: &str) -> Result<Option<UserCounts>, DynError> {
+    pub async fn get_by_id(user_id: &str) -> ModelResult<Option<UserCounts>> {
         match Self::get_from_index(user_id).await? {
             Some(counts) => Ok(Some(counts)),
             None => {
@@ -43,7 +43,7 @@ impl UserCounts {
     }
 
     /// Retrieves the counts from Neo4j.
-    pub async fn get_from_graph(user_id: &str) -> Result<Option<UserCounts>, DynError> {
+    pub async fn get_from_graph(user_id: &str) -> GraphResult<Option<UserCounts>> {
         let query = queries::get::user_counts(user_id);
         let maybe_row = fetch_row_from_graph(query).await?;
 
@@ -62,27 +62,22 @@ impl UserCounts {
         Ok(None)
     }
 
-    pub async fn get_from_index(user_id: &str) -> Result<Option<UserCounts>, DynError> {
-        if let Some(user_counts) = Self::try_from_index_json(&[user_id], None).await? {
-            return Ok(Some(user_counts));
-        }
-        Ok(None)
+    pub async fn get_from_index(user_id: &str) -> RedisResult<Option<UserCounts>> {
+        Self::try_from_index_json(&[user_id], None).await
     }
 
-    pub async fn put_to_index(&self, user_id: &str) -> Result<(), DynError> {
+    pub async fn put_to_index(&self, user_id: &str) -> RedisResult<()> {
         self.put_index_json(&[user_id], None, None).await?;
         UserStream::add_to_most_followed_sorted_set(user_id, self).await?;
-        UserStream::add_to_influencers_sorted_set(user_id, self).await?;
-        Ok(())
+        UserStream::add_to_influencers_sorted_set(user_id, self).await
     }
 
     pub async fn update_index_field(
         author_id: &str,
         field: &str,
         action: JsonAction,
-    ) -> Result<(), DynError> {
-        Self::modify_json_field(&[author_id], field, action).await?;
-        Ok(())
+    ) -> RedisResult<()> {
+        Self::modify_json_field(&[author_id], field, action).await
     }
 
     /// Updates a user's counts index field and conditionally updates ranking sets
@@ -105,7 +100,7 @@ impl UserCounts {
         field: &str,
         action: JsonAction,
         tag_label: Option<&str>,
-    ) -> Result<(), DynError> {
+    ) -> ModelResult<()> {
         // This condition applies only when updating `unique_tags`
         if let Some(label) = tag_label {
             let index_parts = [&USER_TAGS_KEY_PARTS[..], &[user_id]].concat();
@@ -137,7 +132,7 @@ impl UserCounts {
         Ok(())
     }
 
-    pub async fn reindex(author_id: &str) -> Result<(), DynError> {
+    pub async fn reindex(author_id: &str) -> ModelResult<()> {
         match Self::get_from_graph(author_id).await? {
             Some(counts) => counts.put_to_index(author_id).await?,
             None => tracing::error!("{}: Could not found user counts in the graph", author_id),
@@ -145,10 +140,18 @@ impl UserCounts {
         Ok(())
     }
 
-    pub async fn delete(user_id: &str) -> Result<(), DynError> {
+    pub async fn delete(user_id: &str) -> RedisResult<()> {
         // Delete user_details on Redis
-        Self::remove_from_index_multiple_json(&[&[user_id]]).await?;
+        Self::remove_from_index_multiple_json(&[&[user_id]]).await
+    }
 
-        Ok(())
+    /// Increments a field in a user's counts by 1.
+    pub async fn increment(user_id: &str, field: &str, tag_label: Option<&str>) -> ModelResult<()> {
+        Self::update(user_id, field, JsonAction::Increment(1), tag_label).await
+    }
+
+    /// Decrements a field in a user's counts by 1.
+    pub async fn decrement(user_id: &str, field: &str, tag_label: Option<&str>) -> ModelResult<()> {
+        Self::update(user_id, field, JsonAction::Decrement(1), tag_label).await
     }
 }

@@ -1,6 +1,7 @@
+use crate::db::kv::RedisResult;
 use crate::db::RedisOps;
 use crate::models::tag::Taggers;
-use crate::types::{DynError, Pagination};
+use crate::types::Pagination;
 use async_trait::async_trait;
 
 use super::collection::CACHE_SET_PREFIX;
@@ -39,7 +40,7 @@ where
         pagination: Pagination,
         viewer_id: Option<&str>,
         depth: Option<u8>,
-    ) -> Result<TaggersTuple, DynError> {
+    ) -> RedisResult<TaggersTuple> {
         // Set default params for pagination
         let skip = pagination.skip.unwrap_or(0);
         let limit = pagination.limit.unwrap_or(40);
@@ -64,7 +65,7 @@ where
         skip: Option<usize>,
         limit: Option<usize>,
         prefix: Option<String>,
-    ) -> Result<TaggersTuple, DynError> {
+    ) -> RedisResult<TaggersTuple> {
         let taggers = Self::try_from_index_set(&key_parts, skip, limit, prefix).await?;
         let is_member = match viewer_id {
             Some(member) => Self::check_set_member(&key_parts, member).await?.1,
@@ -102,7 +103,7 @@ where
         author_id: &str,
         extra_param: Option<&str>,
         tag_label: &str,
-    ) -> Result<(), DynError> {
+    ) -> RedisResult<()> {
         let key = match extra_param {
             Some(post_id) => vec![author_id, post_id, tag_label],
             None => vec![author_id, tag_label],

@@ -153,6 +153,7 @@ MERGE (u:User {id: "yq9bapr1e981yx8intz88a9oeistye1oe5tucqf9swq59m56497o"}) SET 
 MERGE (u:User {id: "ywng83zf5paobxptt8ipkdgq5karppe3edxy1kigb7kgwai56uxo"}) SET u.name = "Blablablaa", u.bio = "blablabla", u.status = "noStatus", u.indexed_at = 1724134095000 , u.links = "[]";
 MERGE (u:User {id: "z88bknbxf3q8rxcaehp5strbjgqmyt84yskd4cw7t56rpmakwa8o"}) SET u.name = "anonymous", u.bio = "", u.status = "noStatus", u.indexed_at = 1724134095000 , u.links = "[]";
 MERGE (u:User {id: "zdbg13k5gh4tfz9qz11quohrxetgqxs7awandu8h57147xddcuhy"}) SET u.name = "Charlene Medhurst", u.bio = "Degero clamo pauper iusto explicabo defetiscor ademptio pecus.", u.status = "undefined", u.indexed_at = 1724134095000 , u.links = "[{\"url\":\"https://clear-literate.biz/\",\"title\":\"website\"}]";
+MATCH (u1:User {id: "zdbg13k5gh4tfz9qz11quohrxetgqxs7awandu8h57147xddcuhy"}), (u2:User {id: "ywng83zf5paobxptt8ipkdgq5karppe3edxy1kigb7kgwai56uxo"}) MERGE (u1)-[:MUTED {indexed_at: 1719913603944, id: "Z532ZZTG4ER8W"}]->(u2);
 MERGE (u:User {id: "ze86rtgp6x1qdyno4uzp8gexbb887dtemmonoh4j3iisbzitcppo"}) SET u.name = "Matt 2", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095000 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
 MERGE (u:User {id: "zhf4kyfkt87m4cajm3bjikt4k3jjb3ene7rbxehgi1wz1a77t9co"}) SET u.name = "Jay Uncensored", u.bio = "", u.status = "noStatus", u.indexed_at = 1724134095000 , u.links = "[]";
 MERGE (u:User {id: "zj7ao1ohiysupjmqbny5gqwiou6afcs1xr5giodsj49aqot7u4jo"}) SET u.name = "anonymous", u.bio = "", u.status = "noStatus", u.indexed_at = 1724134095000 , u.links = "[]";
@@ -559,7 +560,7 @@ MERGE (p:Post {id: "2Z25B7X03Q700"}) SET p.content = "i'm in", p.kind = "short",
 MATCH (u:User {id: "fy3ekk5mfm8nje69nwqb7yhou79kjhm41qp35px8o6zcbqc51k5y"}), (p:Post {id: "2Z25B7X03Q700"}) MERGE (u)-[:AUTHORED]->(p);
 MERGE (p:Post {id: "2Z29ACD50BQ00"}) SET p.content = "First weekly dev call after Pubky demo!", p.kind = "short", p.indexed_at = 1712657798761;
 MATCH (u:User {id: "pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy"}), (p:Post {id: "2Z29ACD50BQ00"}) MERGE (u)-[:AUTHORED]->(p);
-MERGE (p:Post {id: "2Z2R1H784JD00"}) SET p.content = "Posting from my hosted frontend hooked to pkarr.org relay and pk:4unkz8qto4xec6jhw9mie9oepgcurirebdx8axyq3o36fanooxxy server.", p.kind = "short", p.indexed_at = 1712916816481;
+MERGE (p:Post {id: "2Z2R1H784JD00"}) SET p.content = "Posting from my hosted frontend hooked to pkarr.org relay and pubky4unkz8qto4xec6jhw9mie9oepgcurirebdx8axyq3o36fanooxxy server.", p.kind = "short", p.indexed_at = 1712916816481;
 MATCH (u:User {id: "wyr5x8m3jtrih6di5jwfjgu865t8hg57yo8me3q74mnnpg5gs9yo"}), (p:Post {id: "2Z2R1H784JD00"}) MERGE (u)-[:AUTHORED]->(p);
 MATCH (u:User {id: "4unkz8qto4xec6jhw9mie9oepgcurirebdx8axyq3o36fanooxxy"}), (p:Post {id: "2Z2R1H784JD00"}) MERGE (p)-[:MENTIONED]->(u);
 MERGE (p:Post {id: "2Z3D64GPYF4G0"}) SET p.content = "This website is growing on me.
@@ -648,7 +649,7 @@ MERGE (p:Post {id: "2Z96K6P2RASG0"}) SET p.content = "test tagging from posting"
 MATCH (u:User {id: "gxk8itzrnikrpshfsudgsgtxrz59ojp4iwmp4w9iff3ess6zfr4y"}), (p:Post {id: "2Z96K6P2RASG0"}) MERGE (u)-[:AUTHORED]->(p);
 MERGE (p:Post {id: "2Z96KAC1CX5G0"}) SET p.content = "#testtag test embedded tags", p.kind = "short", p.indexed_at = 1716550584723;
 MATCH (u:User {id: "gxk8itzrnikrpshfsudgsgtxrz59ojp4iwmp4w9iff3ess6zfr4y"}), (p:Post {id: "2Z96KAC1CX5G0"}) MERGE (u)-[:AUTHORED]->(p);
-MERGE (p:Post {id: "2Z97SZCC7PHG0"}) SET p.content = "I owe pk:y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy One US dollar.", p.kind = "short", p.indexed_at = 1716571836403;
+MERGE (p:Post {id: "2Z97SZCC7PHG0"}) SET p.content = "I owe pubkyy4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy One US dollar.", p.kind = "short", p.indexed_at = 1716571836403;
 MATCH (u:User {id: "pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy"}), (p:Post {id: "2Z97SZCC7PHG0"}) MERGE (u)-[:AUTHORED]->(p);
 MATCH (u:User {id: "y4euc58gnmxun9wo87gwmanu6kztt9pgw1zz1yp1azp7trrsjamy"}), (p:Post {id: "2Z97SZCC7PHG0"}) MERGE (p)-[:MENTIONED]->(u);
 MERGE (p:Post {id: "2Z9D4393GKJG0"}) SET p.content = "https://miguelmedeiros.dev", p.kind = "link", p.indexed_at = 1716665361853;
@@ -2334,7 +2335,7 @@ MATCH (u:User {id: "h3fghnb3x59oh7r53x8y6a5x38oatqyjym9b31ybss17zqdnhcoy"}), (p:
 MERGE (p:Post {id: "2ZECRNM66G900"}) SET p.content = "🇮🇹👀
 https://x.com/paoloardoino/status/1805349838533570754", p.kind = "short", p.indexed_at = 1719473829739;
 MATCH (u:User {id: "h3fghnb3x59oh7r53x8y6a5x38oatqyjym9b31ybss17zqdnhcoy"}), (p:Post {id: "2ZECRNM66G900"}) MERGE (u)-[:AUTHORED]->(p);
-MERGE (p:Post {id: "2ZECXVXHZBE00"}) SET p.content = "@Sev Number 3 pk:kt1ujy3zxs1tpxsxrqkdpmon5co959paiknw1s4r1rf1gsnqxnao
+MERGE (p:Post {id: "2ZECXVXHZBE00"}) SET p.content = "@Sev Number 3 pubkykt1ujy3zxs1tpxsxrqkdpmon5co959paiknw1s4r1rf1gsnqxnao
 
 Saturday 29/06/2023, 18:00
 🇨🇭 Swiss VS 🇮🇹 Italy", p.kind = "short", p.indexed_at = 1719476686627;
@@ -2471,7 +2472,7 @@ MATCH (p1:Post {id: "2ZJHCZNTJDWG0"}), (p2:Post {id: "2ZJJ2V6A73Z00"}) MERGE (p2
 MERGE (p:Post {id: "2ZJJ97BDER400"}) SET p.content = "France is the most tourist country of the world for decades but only accounts for 7% of GDP. Same % as the automotive sector.", p.kind = "short", p.indexed_at = 1721822691104;
 MATCH (u:User {id: "ywng83zf5paobxptt8ipkdgq5karppe3edxy1kigb7kgwai56uxo"}), (p:Post {id: "2ZJJ97BDER400"}) MERGE (u)-[:AUTHORED]->(p);
 MATCH (p1:Post {id: "2ZJJ2V6A73Z00"}), (p2:Post {id: "2ZJJ97BDER400"}) MERGE (p2)-[:REPLIED]->(p1);
-MERGE (p:Post {id: "2ZJJJW6THBXG0"}) SET p.content = "I can mention you pk:kt1ujy3zxs1tpxsxrqkdpmon5co959paiknw1s4r1rf1gsnqxnao and you should be notified
+MERGE (p:Post {id: "2ZJJJW6THBXG0"}) SET p.content = "I can mention you pubkykt1ujy3zxs1tpxsxrqkdpmon5co959paiknw1s4r1rf1gsnqxnao and you should be notified
 
 SearchByName is enabled, but ONLY for new accounts. So on the search bar I can write a name, or when I create a post I can write @name and the results will appear if something was found", p.kind = "short", p.indexed_at = 1721827997218;
 MATCH (u:User {id: "h3fghnb3x59oh7r53x8y6a5x38oatqyjym9b31ybss17zqdnhcoy"}), (p:Post {id: "2ZJJJW6THBXG0"}) MERGE (u)-[:AUTHORED]->(p);
@@ -2491,7 +2492,7 @@ MERGE (p:Post {id: "2ZJP0XMP3NMG0"}) SET p.content = "I dont see this in my noti
 https://cln.sh/cTrf5zdV", p.kind = "short", p.indexed_at = 1721888494980;
 MATCH (u:User {id: "kt1ujy3zxs1tpxsxrqkdpmon5co959paiknw1s4r1rf1gsnqxnao"}), (p:Post {id: "2ZJP0XMP3NMG0"}) MERGE (u)-[:AUTHORED]->(p);
 MATCH (p1:Post {id: "2ZJJJW6THBXG0"}), (p2:Post {id: "2ZJP0XMP3NMG0"}) MERGE (p2)-[:REPLIED]->(p1);
-MERGE (p:Post {id: "2ZJP575MCRTG0"}) SET p.content = "pk:h3fghnb3x59oh7r53x8y6a5x38oatqyjym9b31ybss17zqdnhcoy", p.kind = "short", p.indexed_at = 1721890857720;
+MERGE (p:Post {id: "2ZJP575MCRTG0"}) SET p.content = "pubkyh3fghnb3x59oh7r53x8y6a5x38oatqyjym9b31ybss17zqdnhcoy", p.kind = "short", p.indexed_at = 1721890857720;
 MATCH (u:User {id: "jbutqpwpcez6a4mxudcfjyw67dsk3uo3nh8qm1k1m4go1nnjn5ao"}), (p:Post {id: "2ZJP575MCRTG0"}) MERGE (u)-[:AUTHORED]->(p);
 MATCH (u:User {id: "h3fghnb3x59oh7r53x8y6a5x38oatqyjym9b31ybss17zqdnhcoy"}), (p:Post {id: "2ZJP575MCRTG0"}) MERGE (p)-[:MENTIONED]->(u);
 MERGE (p:Post {id: "2ZJP6HQZKJM00"}) SET p.content = "I checked in dev branch and for some reason the code is not there, even though there is a merged PR, strange 

@@ -77,12 +77,8 @@ pub async fn static_files_handler(
         vec![vec![owner_id.as_str(), file_id.as_str()].as_slice()].as_slice(),
     )
     .await
-    .map_err(|err| {
-        error!(
-            "Error while fetching file details for user: {} and file: {}",
-            owner_id, file_id
-        );
-        Error::InternalServerError { source: err }
+    .inspect_err(|_| {
+        error!("Error while fetching file details for user: {owner_id} and file: {file_id}")
     })?;
 
     if files.is_empty() {
@@ -95,22 +91,16 @@ pub async fn static_files_handler(
         .ok_or(Error::FileNotFound {})?;
 
     if !VariantController::validate_variant_for_content_type(file.content_type.as_str(), &variant) {
-        return Err(Error::InvalidInput {
-            message: format!(
-                "variant {} is not valid for content type {}",
-                variant, file.content_type
-            ),
-        });
+        return Err(Error::invalid_input(&format!(
+            "variant {} is not valid for content type {}",
+            variant, file.content_type
+        )));
     }
 
     let file_variant_content_type = Blob::get_by_id(&file, &variant, file_path.clone())
         .await
-        .map_err(|err| {
-            error!(
-                "Error while processing file variant for variant: {} and file: {}",
-                variant, file_id
-            );
-            Error::InternalServerError { source: err }
+        .inspect_err(|_| {
+            error!("Error while processing file variant for variant: {variant} and file: {file_id}")
         })?;
 
     let request_uri = request.uri().clone();
@@ -127,12 +117,9 @@ pub async fn static_files_handler(
     response.headers_mut().remove("cache-control");
 
     // Set a new Cache-Control header to cache the file for 3600 seconds (1 hour)
-    let cache_control_header = "public, max-age=3600".parse().map_err(|err| {
-        error!("Failed to parse Cache-Control header value: {}", err);
-        Error::InternalServerError {
-            source: Box::new(err),
-        }
-    })?;
+    let cache_control_header = "public, max-age=3600"
+        .parse()
+        .inspect_err(|err| error!("Failed to parse Cache-Control header value: {}", err))?;
 
     // Insert our newly parsed Cache-Control header.
     response
@@ -143,12 +130,7 @@ pub async fn static_files_handler(
     if params.dl.is_some() {
         let content_disposition_header = format!("attachment; filename=\"{}\"", file.name)
             .parse()
-            .map_err(|err| {
-                error!("Invalid content disposition header: {}", file.name);
-                Error::InternalServerError {
-                    source: Box::new(err),
-                }
-            })?;
+            .inspect_err(|_| error!("Invalid content disposition header: {}", file.name))?;
         response
             .headers_mut()
             .insert("content-disposition", content_disposition_header);

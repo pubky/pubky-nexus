@@ -17,11 +17,13 @@ use nexus_common::types::DynError;
 use nexus_common::utils::create_shutdown_rx;
 use nexus_common::Level;
 use nexus_common::{ApiConfig, StackManager};
-use pkarr::{Keypair, PublicKey};
+use pubky::pkarr::{Keypair, PublicKey};
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info};
 
 pub const API_CONFIG_FILE_NAME: &str = "api-config.toml";
+
+type ServerHandle = Handle<SocketAddr>;
 
 #[derive(Debug)]
 pub struct NexusApiBuilder(pub ApiContext);
@@ -101,11 +103,11 @@ pub struct NexusApi {
 
     /// Local socket address used for the interface exposed via ICANN DNS
     icann_http_socket: SocketAddr,
-    icann_http_handle: Handle,
+    icann_http_handle: ServerHandle,
 
     /// Local socket address used for the interface exposed via Pubky PKDNS
     pubky_tls_socket: SocketAddr,
-    pubky_tls_handle: Handle,
+    pubky_tls_handle: ServerHandle,
 
     #[allow(dead_code)]
     // Keep this alive. Republishing is stopped when the instance is dropped.
@@ -185,17 +187,24 @@ impl NexusApi {
     async fn start_icann_http_server(
         ctx: &ApiContext,
         router: Router,
-    ) -> Result<(Handle, SocketAddr), DynError> {
+    ) -> Result<(ServerHandle, SocketAddr), DynError> {
         let public_addr = ctx.api_config.public_addr;
         let listener = TcpListener::bind(public_addr)
             .inspect_err(|e| error!("Failed to bind to {public_addr:?}: {e}"))?;
+        listener
+            .set_nonblocking(true)
+            .inspect_err(|e| error!("Failed to set {public_addr:?} listener non-blocking: {e}"))?;
         let local_addr = listener
             .local_addr()
             .inspect_err(|e| error!("Failed to get local address after binding: {e})"))?;
-        let handle = Handle::new();
+        let handle = ServerHandle::new();
+
+        let icann_server = axum_server::from_tcp(listener).inspect_err(|e| {
+            error!("Failed to create ICANN server from TCP listener: {e}");
+        })?;
 
         tokio::spawn(
-            axum_server::from_tcp(listener)
+            icann_server
                 .handle(handle.clone())
                 .serve(router.into_make_service())
                 .inspect_err(|e| error!("Nexus API ICANN DNS endpoint error: {e}")),
@@ -207,17 +216,24 @@ impl NexusApi {
     async fn start_pubky_tls_server(
         ctx: &ApiContext,
         router: Router,
-    ) -> Result<(Handle, SocketAddr), DynError> {
+    ) -> Result<(ServerHandle, SocketAddr), DynError> {
         let pubky_socket = ctx.api_config.pubky_listen_socket;
         let pubky_listener = TcpListener::bind(pubky_socket)
             .inspect_err(|e| error!("Failed to bind to Pubky socket {pubky_socket:?}: {e}"))?;
+        pubky_listener.set_nonblocking(true).inspect_err(|e| {
+            error!("Failed to set Pubky listener {pubky_socket:?} non-blocking: {e}")
+        })?;
         let pubky_local_addr = pubky_listener
             .local_addr()
             .inspect_err(|e| error!("Failed to get local address after binding: {e})"))?;
-        let pubky_handle = Handle::new();
+        let pubky_handle = ServerHandle::new();
+
+        let tls_server = axum_server::from_tcp(pubky_listener).inspect_err(|e| {
+            error!("Failed to create TLS server from TCP listener: {e}");
+        })?;
 
         tokio::spawn(
-            axum_server::from_tcp(pubky_listener)
+            tls_server
                 .acceptor(Self::create_pubky_tls_acceptor(&ctx.keypair))
                 .handle(pubky_handle.clone())
                 .serve(router.into_make_service())

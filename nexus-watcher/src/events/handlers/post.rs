@@ -1,7 +1,6 @@
 use crate::events::retry::event::RetryEvent;
 use crate::events::EventProcessorError;
-use crate::handle_indexing_results;
-use nexus_common::db::kv::{JsonAction, ScoreAction};
+
 use nexus_common::db::queries::get::post_is_safe_to_delete;
 use nexus_common::db::{exec_single_row, execute_graph_operation, OperationOutcome};
 use nexus_common::db::{queries, RedisOps};
@@ -11,7 +10,6 @@ use nexus_common::models::post::{
     PostCounts, PostDetails, PostRelationships, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS,
 };
 use nexus_common::models::user::UserCounts;
-use nexus_common::types::DynError;
 use pubky_app_specs::{
     post_uri_builder, ParsedUri, PubkyAppPost, PubkyAppPostKind, PubkyId, Resource,
 };
@@ -23,10 +21,10 @@ pub async fn sync_put(
     post: PubkyAppPost,
     author_id: PubkyId,
     post_id: String,
-) -> Result<(), DynError> {
+) -> Result<(), EventProcessorError> {
     debug!("Indexing new post: {}/{}", author_id, post_id);
     // Create PostDetails object
-    let post_details = PostDetails::from_homeserver(post.clone(), &author_id, &post_id).await?;
+    let post_details = PostDetails::from_homeserver(post.clone(), &author_id, &post_id);
     // We avoid indexing replies into global feed sorted sets
     let is_reply = post.parent.is_some();
     // PRE-INDEX operation, identify the post relationship
@@ -38,9 +36,7 @@ pub async fn sync_put(
         OperationOutcome::MissingDependency => {
             let mut dependency_event_keys = Vec::new();
             if let Some(replied_to_uri) = &post_relationships.replied {
-                let reply_dependency = RetryEvent::generate_index_key(replied_to_uri)
-                    // This block is unlikely to be reached, as it would typically fail during the validation process
-                    .unwrap_or_else(|| replied_to_uri.clone());
+                let reply_dependency = RetryEvent::generate_index_key_from_uri(replied_to_uri);
                 dependency_event_keys.push(reply_dependency);
 
                 if let Err(e) = Homeserver::maybe_ingest_for_post(replied_to_uri).await {
@@ -48,9 +44,7 @@ pub async fn sync_put(
                 }
             }
             if let Some(reposted_uri) = &post_relationships.reposted {
-                let reply_dependency = RetryEvent::generate_index_key(reposted_uri)
-                    // This block is unlikely to be reached, as it would typically fail during the validation process
-                    .unwrap_or_else(|| reposted_uri.clone());
+                let reply_dependency = RetryEvent::generate_index_key_from_uri(reposted_uri);
                 dependency_event_keys.push(reply_dependency);
 
                 if let Err(e) = Homeserver::maybe_ingest_for_post(reposted_uri).await {
@@ -61,7 +55,9 @@ pub async fn sync_put(
                 let key = RetryEvent::generate_index_key_from_uri(&author_id.to_uri());
                 dependency_event_keys.push(key);
             }
-            return Err(EventProcessorError::missing_dependencies(dependency_event_keys).into());
+            return Err(EventProcessorError::missing_dependencies(
+                dependency_event_keys,
+            ));
         }
     };
 
@@ -69,7 +65,8 @@ pub async fn sync_put(
         // If the post existed, let's confirm this is an edit. Is the content different?
         let existing_details = PostDetails::get_from_index(&author_id, &post_id)
             .await?
-            .ok_or("An existing post in graph, could not be retrieved from index")?;
+            .ok_or("An existing post in graph, could not be retrieved from index")
+            .map_err(EventProcessorError::generic)?;
         if existing_details.content != post_details.content {
             sync_edit(post, author_id, post_id, post_details).await?;
         }
@@ -108,33 +105,40 @@ pub async fn sync_put(
                     .put_to_index(&author_id, &post_id, is_reply)
                     .await?
             }
-            Ok::<(), DynError>(())
+            Ok::<(), EventProcessorError>(())
         },
         // TODO: Use SCARD on a set for unique tag count to avoid race conditions in parallel processing
         // Update user counts with the new post
-        UserCounts::update(&author_id, "posts", JsonAction::Increment(1), None),
+        UserCounts::increment(&author_id, "posts", None),
         async {
             if is_reply {
-                UserCounts::update(&author_id, "replies", JsonAction::Increment(1), None).await?;
+                UserCounts::increment(&author_id, "replies", None).await?;
             };
-            Ok::<(), DynError>(())
+            Ok::<(), EventProcessorError>(())
         }
     );
 
-    handle_indexing_results!(indexing_results.0, indexing_results.1, indexing_results.2);
+    indexing_results.0?;
+    indexing_results.1?;
+    indexing_results.2?;
 
     // Use that index wrapper to add a post reply
     let mut reply_parent_post_key_wrapper: Option<(String, String)> = None;
 
     // PHASE 2: Process POST REPLIES indexes
     if let Some(replied_uri) = &post_relationships.replied {
-        let parsed_uri = ParsedUri::try_from(replied_uri.as_str())?;
-
-        let parent_author_id = parsed_uri.user_id;
-        let parent_post_id = match parsed_uri.resource {
+        let parent_author_id = replied_uri.user_id.clone();
+        let parent_post_id = match replied_uri.resource.clone() {
             Resource::Post(id) => id,
-            _ => return Err("Replied URI is not a Post resource".into()),
+            _ => {
+                return Err(EventProcessorError::generic(
+                    "Replied URI is not a Post resource",
+                ))
+            }
         };
+        let replied_uri_str = replied_uri
+            .try_to_uri_str()
+            .map_err(EventProcessorError::generic)?;
 
         // Define the reply parent key to index the reply later
         reply_parent_post_key_wrapper =
@@ -143,22 +147,17 @@ pub async fn sync_put(
         let parent_post_key_parts: &[&str; 2] = &[&parent_author_id, &parent_post_id];
 
         let indexing_results = tokio::join!(
-            PostCounts::update_index_field(
-                parent_post_key_parts,
-                "replies",
-                JsonAction::Increment(1),
-                None
-            ),
+            PostCounts::increment_index_field(parent_post_key_parts, "replies", None),
             async {
                 if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await? {
-                    PostStream::put_score_index_sorted_set(
+                    PostStream::increment_score_index_sorted_set(
                         &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
                         parent_post_key_parts,
-                        ScoreAction::Increment(1.0),
                     )
-                    .await?;
+                    .await
+                    .map_err(EventProcessorError::index_operation_failed)?;
                 }
-                Ok::<(), DynError>(())
+                Ok::<(), EventProcessorError>(())
             },
             PostStream::add_to_post_reply_sorted_set(
                 parent_post_key_parts,
@@ -168,59 +167,59 @@ pub async fn sync_put(
             ),
             Notification::new_post_reply(
                 &author_id,
-                replied_uri,
+                &replied_uri_str,
                 &post_details.uri,
                 &parent_author_id,
             )
         );
 
-        handle_indexing_results!(
-            indexing_results.0,
-            indexing_results.1,
-            indexing_results.2,
-            indexing_results.3
-        );
+        indexing_results.0?;
+        indexing_results.1?;
+        indexing_results.2?;
+        indexing_results.3?;
     }
 
     // PHASE 3: Process POST REPOSTS indexes
     if let Some(reposted_uri) = &post_relationships.reposted {
-        let parsed_uri = ParsedUri::try_from(reposted_uri.as_str())?;
-
-        let parent_author_id = parsed_uri.user_id;
-        let parent_post_id = match parsed_uri.resource {
+        let parent_author_id = reposted_uri.user_id.clone();
+        let parent_post_id = match reposted_uri.resource.clone() {
             Resource::Post(id) => id,
-            _ => return Err("Reposted uri is not a Post resource".into()),
+            _ => {
+                return Err(EventProcessorError::generic(
+                    "Reposted uri is not a Post resource",
+                ))
+            }
         };
+        let reposted_uri_str = reposted_uri
+            .try_to_uri_str()
+            .map_err(EventProcessorError::generic)?;
 
         let parent_post_key_parts: &[&str; 2] = &[&parent_author_id, &parent_post_id];
         let indexing_results = tokio::join!(
-            PostCounts::update_index_field(
-                parent_post_key_parts,
-                "reposts",
-                JsonAction::Increment(1),
-                None
-            ),
+            PostCounts::increment_index_field(parent_post_key_parts, "reposts", None),
             async {
                 // Post replies cannot be included in the total engagement index after they receive a reply
                 if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await? {
-                    PostStream::put_score_index_sorted_set(
+                    PostStream::increment_score_index_sorted_set(
                         &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
                         parent_post_key_parts,
-                        ScoreAction::Increment(1.0),
                     )
-                    .await?;
+                    .await
+                    .map_err(EventProcessorError::index_operation_failed)?;
                 }
-                Ok::<(), DynError>(())
+                Ok::<(), EventProcessorError>(())
             },
             Notification::new_repost(
                 &author_id,
-                reposted_uri,
+                &reposted_uri_str,
                 &post_details.uri,
                 &parent_author_id,
             )
         );
 
-        handle_indexing_results!(indexing_results.0, indexing_results.1, indexing_results.2);
+        indexing_results.0?;
+        indexing_results.1?;
+        indexing_results.2?;
     }
 
     // PHASE 4: Add post related content
@@ -229,7 +228,8 @@ pub async fn sync_put(
         post_details.put_to_index(&author_id, reply_parent_post_key_wrapper, false)
     );
 
-    handle_indexing_results!(indexing_results.0, indexing_results.1);
+    indexing_results.0?;
+    indexing_results.1?;
 
     Ok(())
 }
@@ -239,17 +239,12 @@ async fn sync_edit(
     author_id: PubkyId,
     post_id: String,
     post_details: PostDetails,
-) -> Result<(), DynError> {
+) -> Result<(), EventProcessorError> {
     // Construct the URI of the post that changed
     let changed_uri = post_uri_builder(author_id.to_string(), post_id.clone());
 
     // Update content of PostDetails!
-    if let Err(e) = post_details.put_to_index(&author_id, None, true).await {
-        return Err(EventProcessorError::IndexWriteFailed {
-            message: format!("post edit failed - {:?}", e.to_string()),
-        }
-        .into());
-    };
+    post_details.put_to_index(&author_id, None, true).await?;
 
     // Notifications
     // Determine the change type
@@ -264,7 +259,8 @@ async fn sync_edit(
 
     // Handle "A reply to your post was edited/deleted"
     if let Some(parent) = post.parent {
-        let parsed_parent = ParsedUri::try_from(parent.as_str())?;
+        let parsed_parent =
+            ParsedUri::try_from(parent.as_str()).map_err(EventProcessorError::generic)?;
         Notification::post_children_changed(
             &author_id,
             &parent,
@@ -279,40 +275,58 @@ async fn sync_edit(
     Ok(())
 }
 
-// Helper function to handle "MENTIONED" relationships on the post content
+/// Helper function to handle "MENTIONED" relationships on the post content
 pub async fn put_mentioned_relationships(
     author_id: &PubkyId,
     post_id: &str,
     content: &str,
     relationships: &mut PostRelationships,
-) -> Result<(), DynError> {
-    let prefix = "pk:";
+) -> Result<(), EventProcessorError> {
+    // TODO Deprecate, drop support for pk: support in an upcoming release
+    // Backwards compatibility: identify user references with "pk:" prefix
+    put_mentioned_relationships_for_prefix(author_id, post_id, content, relationships, "pk:")
+        .await?;
+
+    // Support new pubkey display: identify user references with "pubky" prefix
+    put_mentioned_relationships_for_prefix(author_id, post_id, content, relationships, "pubky")
+        .await?;
+
+    Ok(())
+}
+
+async fn put_mentioned_relationships_for_prefix(
+    author_id: &PubkyId,
+    post_id: &str,
+    content: &str,
+    relationships: &mut PostRelationships,
+    prefix: &str,
+) -> Result<(), EventProcessorError> {
     let user_id_len = 52;
 
-    for (start_idx, _) in content.match_indices(prefix) {
+    let found_pubky_ids = content.match_indices(prefix).filter_map(|(start_idx, _)| {
         let user_id_start = start_idx + prefix.len();
+        content
+            .get(user_id_start..user_id_start + user_id_len)
+            .and_then(|candidate| PubkyId::try_from(candidate).ok())
+    });
 
-        // Try to extract and validate the user_id_candidate
-        if let Some(user_id_candidate) = content.get(user_id_start..user_id_start + user_id_len) {
-            if let Ok(pubky_id) = PubkyId::try_from(user_id_candidate) {
-                // Create the MENTIONED relationship in the graph
-                let query =
-                    queries::put::create_mention_relationship(author_id, post_id, &pubky_id);
-                exec_single_row(query).await?;
-                if let Some(mentioned_user_id) =
-                    Notification::new_mention(author_id, &pubky_id, post_id).await?
-                {
-                    //mention_users.push(mentioned_user_id);
-                    relationships.mentioned.push(mentioned_user_id);
-                }
-            }
+    for pubky_id in found_pubky_ids {
+        // Create the MENTIONED relationship in the graph
+        let query = queries::put::create_mention_relationship(author_id, post_id, &pubky_id);
+        exec_single_row(query)
+            .await
+            .map_err(EventProcessorError::graph_query_failed)?;
+
+        let maybe_mentioned_id = Notification::new_mention(author_id, &pubky_id, post_id).await?;
+        if let Some(mentioned_user_id) = maybe_mentioned_id {
+            relationships.mentioned.push(mentioned_user_id);
         }
     }
 
     Ok(())
 }
 
-pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), DynError> {
+pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), EventProcessorError> {
     debug!("Deleting post: {}/{}", author_id, post_id);
 
     // Graph query to check if there is any edge at all to this post other than AUTHORED, is a reply or is a repost.
@@ -321,14 +335,16 @@ pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), DynError> {
     // If there is none other relationship (OperationOutcome::CreatedOrDeleted), we delete from graph and redis.
     // But if there is any (OperationOutcome::Updated), then we simply update the post with keyword content [DELETED].
     // A deleted post is a post whose content is EXACTLY `"[DELETED]"`
-    match execute_graph_operation(query).await? {
+    match execute_graph_operation(query)
+        .await
+        .map_err(EventProcessorError::graph_query_failed)?
+    {
         OperationOutcome::CreatedOrDeleted => sync_del(author_id, post_id).await?,
         OperationOutcome::Updated => {
             let existing_relationships = PostRelationships::get_by_id(&author_id, &post_id).await?;
-            let parent = match existing_relationships {
-                Some(relationships) => relationships.replied,
-                None => None,
-            };
+            let parent = existing_relationships
+                .and_then(|rel| rel.replied)
+                .and_then(|replied_uri| replied_uri.try_to_uri_str().ok());
 
             // We store a dummy that is still a reply if it was one already.
             let dummy_deleted_post = PubkyAppPost {
@@ -341,13 +357,13 @@ pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), DynError> {
 
             sync_put(dummy_deleted_post, author_id, post_id).await?;
         }
-        OperationOutcome::MissingDependency => return Err(EventProcessorError::SkipIndexing.into()),
+        OperationOutcome::MissingDependency => return Err(EventProcessorError::SkipIndexing),
     };
 
     Ok(())
 }
 
-pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynError> {
+pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventProcessorError> {
     let deleted_uri = post_uri_builder(author_id.to_string(), post_id.clone());
 
     let post_relationships = PostRelationships::get_by_id(&author_id, &post_id).await?;
@@ -360,16 +376,18 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
     // DELETE TO INDEX - PHASE 1, decrease post counts
     let indexing_results = tokio::join!(
         PostCounts::delete(&author_id, &post_id, !is_reply),
-        UserCounts::update(&author_id, "posts", JsonAction::Decrement(1), None),
+        UserCounts::decrement(&author_id, "posts", None),
         async {
             if is_reply {
-                UserCounts::update(&author_id, "replies", JsonAction::Decrement(1), None).await?;
+                UserCounts::decrement(&author_id, "replies", None).await?;
             };
-            Ok::<(), DynError>(())
+            Ok::<(), EventProcessorError>(())
         }
     );
 
-    handle_indexing_results!(indexing_results.0, indexing_results.1, indexing_results.2);
+    indexing_results.0?;
+    indexing_results.1?;
+    indexing_results.2?;
 
     // Use that index wrapper to delete a post reply
     let mut reply_parent_post_key_wrapper: Option<[String; 2]> = None;
@@ -377,41 +395,42 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
     if let Some(relationships) = post_relationships {
         // PHASE 2: Process POST REPLIES indexes
         // Decrement counts for parent post if replied
-        if let Some(replied) = relationships.replied {
-            let parsed_uri = ParsedUri::try_from(replied.as_str())?;
-            let parent_user_id = parsed_uri.user_id;
-            let parent_post_id = match parsed_uri.resource {
+        if let Some(replied_uri) = relationships.replied {
+            let parent_user_id = replied_uri.user_id.clone();
+            let parent_post_id = match replied_uri.resource.clone() {
                 Resource::Post(id) => id,
-                _ => return Err("Replied uri is not a Post resource".into()),
+                _ => {
+                    return Err(EventProcessorError::generic(
+                        "Replied uri is not a Post resource",
+                    ))
+                }
             };
+            let replied_uri_str = replied_uri
+                .try_to_uri_str()
+                .map_err(EventProcessorError::generic)?;
 
             let parent_post_key_parts: [&str; 2] = [&parent_user_id, &parent_post_id];
             reply_parent_post_key_wrapper =
                 Some([parent_user_id.to_string(), parent_post_id.clone()]);
 
             let indexing_results = tokio::join!(
-                PostCounts::update_index_field(
-                    &parent_post_key_parts,
-                    "replies",
-                    JsonAction::Decrement(1),
-                    None
-                ),
+                PostCounts::decrement_index_field(&parent_post_key_parts, "replies", None),
                 async {
                     // Post replies cannot be included in the total engagement index after the reply is deleted
                     if !post_relationships_is_reply(&parent_user_id, &parent_post_id).await? {
-                        PostStream::put_score_index_sorted_set(
+                        PostStream::decrement_score_index_sorted_set(
                             &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
                             &parent_post_key_parts,
-                            ScoreAction::Decrement(1.0),
                         )
-                        .await?;
+                        .await
+                        .map_err(EventProcessorError::index_operation_failed)?;
                     }
-                    Ok::<(), DynError>(())
+                    Ok::<(), EventProcessorError>(())
                 },
                 // Notification: "A reply to your post was deleted"
                 Notification::post_children_changed(
                     &author_id,
-                    &replied,
+                    &replied_uri_str,
                     &parent_user_id,
                     &deleted_uri,
                     PostChangedSource::Reply,
@@ -419,50 +438,55 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
                 )
             );
 
-            handle_indexing_results!(indexing_results.0, indexing_results.1, indexing_results.2);
+            indexing_results.0?;
+            indexing_results.1?;
+            indexing_results.2?;
         }
         // PHASE 3: Process POST REPOSTED indexes
         // Decrement counts for resposted post if existed
-        if let Some(reposted) = relationships.reposted {
-            let parsed_uri = ParsedUri::try_from(reposted.as_str())?;
-            let parent_post_id = match parsed_uri.resource {
+        if let Some(reposted_uri) = relationships.reposted {
+            let parent_post_id = match reposted_uri.resource.clone() {
                 Resource::Post(id) => id,
-                _ => return Err("Reposted uri is not a Post resource".into()),
+                _ => {
+                    return Err(EventProcessorError::generic(
+                        "Reposted uri is not a Post resource",
+                    ))
+                }
             };
+            let reposted_uri_str = reposted_uri
+                .try_to_uri_str()
+                .map_err(EventProcessorError::generic)?;
 
-            let parent_post_key_parts: &[&str] = &[&parsed_uri.user_id, &parent_post_id];
+            let parent_post_key_parts: &[&str] = &[&reposted_uri.user_id, &parent_post_id];
 
             let indexing_results = tokio::join!(
-                PostCounts::update_index_field(
-                    parent_post_key_parts,
-                    "reposts",
-                    JsonAction::Decrement(1),
-                    None
-                ),
+                PostCounts::decrement_index_field(parent_post_key_parts, "reposts", None),
                 async {
                     // Post replies cannot be included in the total engagement index after the repost is deleted
-                    if !post_relationships_is_reply(&parsed_uri.user_id, &parent_post_id).await? {
-                        PostStream::put_score_index_sorted_set(
+                    if !post_relationships_is_reply(&reposted_uri.user_id, &parent_post_id).await? {
+                        PostStream::decrement_score_index_sorted_set(
                             &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
                             parent_post_key_parts,
-                            ScoreAction::Decrement(1.0),
                         )
-                        .await?;
+                        .await
+                        .map_err(EventProcessorError::index_operation_failed)?;
                     }
-                    Ok::<(), DynError>(())
+                    Ok::<(), EventProcessorError>(())
                 },
                 // Notification: "A repost of your post was deleted"
                 Notification::post_children_changed(
                     &author_id,
-                    &reposted,
-                    &parsed_uri.user_id,
+                    &reposted_uri_str,
+                    &reposted_uri.user_id,
                     &deleted_uri,
                     PostChangedSource::Repost,
                     &PostChangedType::Deleted,
                 )
             );
 
-            handle_indexing_results!(indexing_results.0, indexing_results.1, indexing_results.2);
+            indexing_results.0?;
+            indexing_results.1?;
+            indexing_results.2?;
         }
     }
     let indexing_results = tokio::join!(
@@ -470,7 +494,8 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), DynErro
         PostRelationships::delete(&author_id, &post_id)
     );
 
-    handle_indexing_results!(indexing_results.0, indexing_results.1);
+    indexing_results.0?;
+    indexing_results.1?;
 
     Ok(())
 }

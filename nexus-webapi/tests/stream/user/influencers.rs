@@ -1,5 +1,8 @@
+use std::time::Duration;
+
 use anyhow::Result;
 use axum::http::StatusCode;
+use tokio::time::sleep;
 use tracing::debug;
 
 use crate::{
@@ -52,12 +55,16 @@ async fn test_global_influencers_preview() -> Result<()> {
     assert!(influencers.len() <= 3);
     debug!("Influencers length: {:?}", influencers.len());
 
-    let first_influencer_ids = influencers
+    let first_influencer_ids: Vec<&str> = influencers
         .iter()
         .map(|f| f["details"]["id"].as_str().unwrap())
-        .collect::<Vec<&str>>();
+        .collect();
 
-    // make the request a second time to ensure the preview is generating different results
+    // Sleep to ensure the second request gets a different timestamp_subsec_micros() value,
+    // which determines the random skip offset for preview mode (see Influencers::get_influencers()).
+    sleep(Duration::from_millis(5)).await;
+
+    // Make a second request to verify preview returns different results
     let body = get_request("/v0/stream/users?source=influencers&preview=true").await?;
     assert!(body.is_array());
 
@@ -67,12 +74,11 @@ async fn test_global_influencers_preview() -> Result<()> {
 
     assert!(!influencers.is_empty(), "Influencers should not be empty");
     assert!(influencers.len() <= 3);
-    debug!("Influencers length: {:?}", influencers.len());
 
-    let second_influencer_ids = influencers
+    let second_influencer_ids: Vec<&str> = influencers
         .iter()
         .map(|f| f["details"]["id"].as_str().unwrap())
-        .collect::<Vec<&str>>();
+        .collect();
 
     assert!(first_influencer_ids != second_influencer_ids);
 

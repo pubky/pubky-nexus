@@ -1,5 +1,5 @@
 use crate::db::get_redis_conn;
-use crate::types::DynError;
+use crate::db::kv::RedisResult;
 use deadpool_redis::redis::AsyncCommands;
 
 /// Adds elements to a Redis set.
@@ -22,7 +22,7 @@ pub async fn put(
     key: &str,
     values: &[&str],
     expiration: Option<i64>,
-) -> Result<(), DynError> {
+) -> RedisResult<()> {
     if values.is_empty() {
         return Ok(());
     }
@@ -68,7 +68,7 @@ pub async fn get_range(
     key: &str,
     skip: Option<usize>,
     limit: Option<usize>,
-) -> Result<Option<Vec<String>>, DynError> {
+) -> RedisResult<Option<Vec<String>>> {
     let mut redis_conn = get_redis_conn().await?;
 
     let index_key = format!("{prefix}:{key}");
@@ -132,7 +132,7 @@ pub async fn get_range(
 /// `Ok((false, false))` if the set does not exist.
 ///
 /// Returns an error if the operation fails, such as if the Redis connection is unavailable.
-pub async fn check_member(prefix: &str, key: &str, member: &str) -> Result<(bool, bool), DynError> {
+pub async fn check_member(prefix: &str, key: &str, member: &str) -> RedisResult<(bool, bool)> {
     let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{prefix}:{key}");
 
@@ -168,7 +168,7 @@ pub async fn check_member(prefix: &str, key: &str, member: &str) -> Result<(bool
 /// # Errors
 ///
 /// Returns an error if the Redis connection or the SCARD operation fails.
-pub async fn get_size(prefix: &str, key: &str) -> Result<Option<usize>, DynError> {
+pub async fn get_size(prefix: &str, key: &str) -> RedisResult<Option<usize>> {
     let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{prefix}:{key}");
 
@@ -204,7 +204,11 @@ pub async fn get_multiple_sets(
     keys: &[&str],
     member: Option<&str>,
     limit: Option<usize>,
-) -> Result<Vec<Option<(Vec<String>, usize, bool)>>, DynError> {
+) -> RedisResult<Vec<Option<(Vec<String>, usize, bool)>>> {
+    if keys.is_empty() {
+        return Ok(vec![]);
+    }
+
     let mut redis_conn = get_redis_conn().await?;
 
     // Create a Redis pipeline
@@ -267,9 +271,13 @@ pub async fn put_multiple_sets(
     index: &[&str],
     collections: &[&[&str]],
     expiration: Option<i64>,
-) -> Result<(), DynError> {
+) -> RedisResult<()> {
+    if index.is_empty() {
+        return Ok(());
+    }
     let mut redis_conn = get_redis_conn().await?;
     let mut pipe = redis::pipe();
+    let mut has_commands = false;
 
     for (i, key) in index.iter().enumerate() {
         let full_index = format!("{}:{}:{}", &prefix, common_key.join(":"), key);
@@ -278,7 +286,12 @@ pub async fn put_multiple_sets(
             if let Some(ttl) = expiration {
                 pipe.expire(&full_index, ttl);
             }
+            has_commands = true;
         }
+    }
+
+    if !has_commands {
+        return Ok(());
     }
 
     // Execute the pipeline
@@ -300,7 +313,7 @@ pub async fn put_multiple_sets(
 /// # Errors
 ///
 /// Returns an error if the operation fails.
-pub async fn del(prefix: &str, key: &str, values: &[&str]) -> Result<(), DynError> {
+pub async fn del(prefix: &str, key: &str, values: &[&str]) -> RedisResult<()> {
     if values.is_empty() {
         return Ok(());
     }
@@ -339,7 +352,7 @@ pub async fn get_random_members(
     prefix: &str,
     key: &str,
     count: isize,
-) -> Result<Option<Vec<String>>, DynError> {
+) -> RedisResult<Option<Vec<String>>> {
     let mut redis_conn = get_redis_conn().await?;
     let index_key = format!("{prefix}:{key}");
 
