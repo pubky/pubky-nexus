@@ -19,7 +19,7 @@ impl TestServiceServer {
     pub async fn get_test_server() -> &'static TestServiceServer {
         TEST_SERVER
             .get_or_init(|| async {
-                let testnet = pubky_testnet::Testnet::new().await.unwrap();
+                let testnet = pubky_testnet::Testnet::new_unseeded().await.unwrap();
                 let nexus_api = Self::start_server(&testnet).await.unwrap();
                 TestServiceServer { nexus_api, testnet }
             })
