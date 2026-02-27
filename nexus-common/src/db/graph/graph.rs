@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use futures::stream::BoxStream;
 use futures::{Stream, StreamExt, TryStreamExt};
-use neo4rs::{Graph, Row, Txn};
+use neo4rs::{Graph, Row};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
@@ -22,9 +22,6 @@ pub trait GraphExec: Send + Sync {
 
     /// Fire-and-forget query execution.
     async fn run(&self, query: Query) -> neo4rs::Result<()>;
-
-    /// Start a transaction.
-    async fn start_txn(&self) -> neo4rs::Result<Txn>;
 }
 
 /// A stream wrapper that measures total query time and logs slow queries when dropped.
@@ -127,9 +124,5 @@ impl GraphExec for TracedGraph {
         }
 
         result
-    }
-
-    async fn start_txn(&self) -> neo4rs::Result<Txn> {
-        self.inner.start_txn().await
     }
 }

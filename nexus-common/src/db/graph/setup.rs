@@ -31,21 +31,11 @@ pub async fn setup_graph() -> Result<(), DynError> {
 
     let graph = get_neo4j_graph()?;
 
-    // Start an explicit transaction
-    let txn = graph
-        .start_txn()
-        .await
-        .map_err(|e| format!("Failed to start transaction: {e}"))?;
-
     for &ddl in queries {
         if let Err(err) = graph.run(Query::new("setup_ddl", ddl)).await {
             return Err(format!("Failed to apply graph constraints/indexes: {err}").into());
         }
     }
-    // Commit everything in one go
-    txn.commit()
-        .await
-        .map_err(|e| format!("Failed to commit the transaction: {e}"))?;
 
     info!("Neo4j graph constraints and indexes have been applied successfully");
 
