@@ -1,4 +1,4 @@
-use crate::db::graph::query::Query;
+use crate::db::graph::Query;
 
 /// Deletes a user node and all its relationships
 /// # Arguments

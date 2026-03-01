@@ -1,6 +1,6 @@
 use neo4rs::Graph;
 
-use crate::db::graph::query::Query;
+use crate::db::graph::Query;
 use std::fmt;
 use std::sync::OnceLock;
 use std::time::Duration;

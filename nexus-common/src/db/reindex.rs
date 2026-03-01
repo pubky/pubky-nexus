@@ -1,5 +1,5 @@
 use crate::db::graph::exec::fetch_all_rows_from_graph;
-use crate::db::graph::query::Query;
+use crate::db::graph::Query;
 use crate::models::follow::{Followers, Following, UserFollows};
 use crate::models::post::search::PostsByTagSearch;
 use crate::models::post::Bookmark;

@@ -1,5 +1,5 @@
 use crate::db::graph::error::{GraphError, GraphResult};
-use crate::db::graph::query::Query;
+use crate::db::graph::Query;
 use crate::models::post::PostRelationships;
 use crate::models::{file::FileDetails, post::PostDetails, user::UserDetails};
 use pubky_app_specs::{ParsedUri, Resource};

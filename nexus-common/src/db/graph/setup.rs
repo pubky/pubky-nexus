@@ -1,7 +1,7 @@
 use crate::db::get_neo4j_graph;
 use crate::db::graph::error::{GraphError, GraphResult};
-use crate::db::graph::query::Query;
 use crate::db::graph::GraphExec;
+use crate::db::graph::Query;
 use tracing::info;
 
 /// Ensure the Neo4j graph has the required constraints and indexes

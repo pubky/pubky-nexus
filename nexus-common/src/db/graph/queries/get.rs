@@ -1,4 +1,4 @@
-use crate::db::graph::query::Query;
+use crate::db::graph::Query;
 use crate::models::post::StreamSource;
 use crate::types::routes::HotTagsInputDTO;
 use crate::types::Pagination;
