@@ -51,4 +51,5 @@ uri = "bolt://localhost:7687"
 # Not needed in the Community Edition the profile username, just the password
 #user = "neo4j"
 password = "12345678"
+# Queries taking longer than this (ms) will be logged as warnings
 slow_query_threshold_ms = 100
