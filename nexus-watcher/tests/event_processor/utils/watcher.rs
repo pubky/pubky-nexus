@@ -242,8 +242,6 @@ impl WatcherTest {
         let user_path = PubkyAppUser::hs_path();
         self.put(user_kp, &user_path, &user).await?;
 
-        // Index to Nexus from Homeserver using the events processor
-        self.ensure_event_processing_complete().await?;
         Ok(user_id)
     }
 
@@ -261,8 +259,6 @@ impl WatcherTest {
         let user_path = PubkyAppUser::hs_path();
         self.put(user_kp, &user_path, &user).await?;
 
-        // Index to Nexus from Homeserver using the events processor
-        self.ensure_event_processing_complete().await?;
         Ok(user_id.to_string())
     }
 
@@ -278,8 +274,6 @@ impl WatcherTest {
         // Write the post in the pubky.app repository
         self.put(user_kp, &post_path, post).await?;
 
-        // Index to Nexus from Homeserver using the events processor
-        self.ensure_event_processing_complete().await?;
         Ok((post_id, post_path))
     }
 
@@ -305,7 +299,6 @@ impl WatcherTest {
         let file_path: ResourcePath = PubkyAppFile::create_path(&file_id).parse()?;
         self.put(user_kp, &file_path, file).await?;
 
-        self.ensure_event_processing_complete().await?;
         Ok((file_id, file_path))
     }
 
@@ -342,8 +335,6 @@ impl WatcherTest {
         let follow_path = follow_relationship.hs_path(followee_id);
         self.put(follower_kp, &follow_path, follow_relationship)
             .await?;
-        // Process the event
-        self.ensure_event_processing_complete().await?;
         Ok(follow_path)
     }
 }
