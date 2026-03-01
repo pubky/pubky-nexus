@@ -12,7 +12,7 @@ members = [
 [workspace.dependencies]
 anyhow = "1.0.102"
 async-trait = "0.1.89"
-chrono = { version = "0.4.43", default-features = false, features = ["clock"] }
+chrono = { version = "0.4.44", default-features = false, features = ["clock"] }
 clap = "4.5.60"
 deadpool-redis = "0.23"
 neo4rs = "0.8.0"
