@@ -19,4 +19,4 @@ uri = "bolt://localhost:7687"
 # Not needed in the Community Edition
 #user = "neo4j"
 password = "12345678"
-slow_query_threshold_ms=100
+slow_query_threshold_ms = 100
