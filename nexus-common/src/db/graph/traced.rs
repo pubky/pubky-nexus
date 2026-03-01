@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use futures::stream::BoxStream;
-use futures::{Stream, StreamExt, TryStreamExt};
+use futures::{Stream, StreamExt};
 use neo4rs::{Graph, Row};
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -99,7 +99,7 @@ impl GraphExec for TracedGraph {
         let result = self.inner.execute(query.into()).await;
         let execute_duration = start.elapsed();
 
-        let stream = result?.into_stream().map_err(Into::into).boxed();
+        let stream = result?.into_stream().boxed();
         let traced = TracedStream {
             inner: stream,
             label,
