@@ -220,7 +220,7 @@ impl MigrationManager {
     async fn get_migrations(&self) -> Result<Vec<MigrationNode>, DynError> {
         let query = Query::new(
             "get_migrations",
-            "MATCH (m:Migration) RETURN COLLECT(m) as migrations".to_string(),
+            "MATCH (m:Migration) RETURN COLLECT(m) as migrations",
         );
         let mut result = self.graph.execute(query).await.map_err(|e| e.to_string())?;
 
@@ -243,8 +243,7 @@ impl MigrationManager {
         };
         let query = Query::new(
             "store_migration",
-            "MERGE (m:Migration {id: $id, phase: $phase, created_at: timestamp(), updated_at: 0})"
-                .to_string(),
+            "MERGE (m:Migration {id: $id, phase: $phase, created_at: timestamp(), updated_at: 0})",
         )
         .param("id", id)
         .param("phase", initial_phase.to_string());
@@ -260,8 +259,7 @@ impl MigrationManager {
     ) -> Result<(), DynError> {
         let query = Query::new(
             "update_migration_phase",
-            "MERGE (m:Migration {id: $id}) SET m.phase = $phase, m.updated_at = timestamp()"
-                .to_string(),
+            "MERGE (m:Migration {id: $id}) SET m.phase = $phase, m.updated_at = timestamp()",
         )
         .param("id", id)
         .param("phase", phase.to_string());
