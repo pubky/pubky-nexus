@@ -1,7 +1,10 @@
 use async_trait::async_trait;
 use tokio::process::Command;
 
-use crate::{media::FileVariant, models::file::FileDetails, types::DynError};
+use crate::{
+    media::{processors::MediaProcessorError, FileVariant},
+    models::file::FileDetails,
+};
 
 use super::{BaseProcessingOptions, VariantProcessor};
 
@@ -39,17 +42,17 @@ impl VariantProcessor for VideoProcessor {
     fn get_options_for_variant(
         _file: &FileDetails,
         _variant: &FileVariant,
-    ) -> Result<VideoOptions, DynError> {
+    ) -> Result<VideoOptions, MediaProcessorError> {
         // Return Err until we have a real implementation
         // TODO: Add real implementation for videos
-        Err("Not implemented".into())
+        Err(MediaProcessorError::NotImplemented)
     }
 
     async fn process(
         origin_file_path: &str,
         output_file_path: &str,
         options: &VideoOptions,
-    ) -> Result<String, DynError> {
+    ) -> Result<String, MediaProcessorError> {
         let origin_file_format = VideoProcessor::get_format(origin_file_path).await?;
 
         let output = match origin_file_format == options.format {
@@ -57,7 +60,7 @@ impl VariantProcessor for VideoProcessor {
             false => format!("{}.{}", output_file_path, options.format),
         };
 
-        let child_output = match Command::new("ffmpeg")
+        let child_output = Command::new("ffmpeg")
             .arg("-i")
             .arg(origin_file_path)
             .arg("-vf")
@@ -67,42 +70,38 @@ impl VariantProcessor for VideoProcessor {
             .arg(output)
             .output() // Automatically pipes stdout and stderr
             .await
-        {
-            Ok(output) => output,
-            Err(err) => return Err(err.into()),
-        };
+            .map_err(MediaProcessorError::command_failed)?;
 
         if child_output.status.success() {
             Ok(String::from_utf8_lossy(&child_output.stdout).to_string())
         } else {
-            Err(format!(
+            Err(MediaProcessorError::command_failed(format!(
                 "FFmpeg command failed: {}",
                 String::from_utf8_lossy(&child_output.stderr)
-            )
-            .into())
+            )))
         }
     }
 }
 
 impl VideoProcessor {
     /// Returns the format of the video
-    async fn get_format(input: &str) -> Result<String, DynError> {
+    async fn get_format(input: &str) -> Result<String, MediaProcessorError> {
         let child_output = Command::new("ffmpeg")
             .arg("-i")
             .arg(input)
             .arg("-f")
             .arg("null")
             .output() // Automatically pipes stdout and stderr
-            .await?;
+            .await
+            .map_err(MediaProcessorError::command_failed)?;
 
         if child_output.status.success() {
             Ok(String::from_utf8_lossy(&child_output.stdout).to_string())
         } else {
-            Err(format!(
+            Err(MediaProcessorError::command_failed(format!(
                 "FFmpeg metadata extraction failed: {}",
                 String::from_utf8_lossy(&child_output.stderr)
-            )
-            .into())
+            )))
         }
     }
 }

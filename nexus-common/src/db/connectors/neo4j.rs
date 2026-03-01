@@ -6,6 +6,7 @@ use std::sync::OnceLock;
 use std::time::Duration;
 use tracing::{debug, info};
 
+use crate::db::graph::error::{GraphError, GraphResult};
 use crate::db::graph::{GraphExec, TracedGraph};
 use crate::db::setup::setup_graph;
 use crate::db::Neo4JConfig;
@@ -33,7 +34,7 @@ impl Neo4jConnector {
     }
 
     /// Create and return a new connector after defining a database connection
-    async fn new_connection(config: &Neo4JConfig) -> Result<Self, DynError> {
+    async fn new_connection(config: &Neo4JConfig) -> GraphResult<Self> {
         let graph = Graph::new(&config.uri, &config.user, &config.password).await?;
         let threshold = Duration::from_millis(config.slow_query_threshold_ms);
         let neo4j_connector = Neo4jConnector {
@@ -64,10 +65,10 @@ impl fmt::Debug for Neo4jConnector {
 }
 
 /// Helper to retrieve a Neo4j graph connection.
-pub fn get_neo4j_graph() -> Result<TracedGraph, &'static str> {
+pub fn get_neo4j_graph() -> GraphResult<TracedGraph> {
     NEO4J_CONNECTOR
         .get()
-        .ok_or("Neo4jConnector not initialized")
+        .ok_or(GraphError::ConnectionNotInitialized)
         .map(|neo4j_connector| neo4j_connector.graph.clone())
 }
 

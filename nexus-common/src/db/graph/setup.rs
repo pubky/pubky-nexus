@@ -1,12 +1,11 @@
+use crate::db::get_neo4j_graph;
+use crate::db::graph::error::{GraphError, GraphResult};
 use crate::db::graph::query::Query;
-use crate::{
-    db::{get_neo4j_graph, GraphExec},
-    types::DynError,
-};
+use crate::db::graph::GraphExec;
 use tracing::info;
 
 /// Ensure the Neo4j graph has the required constraints and indexes
-pub async fn setup_graph() -> Result<(), DynError> {
+pub async fn setup_graph() -> GraphResult<()> {
     // Define unique constraints
     let constraints = [
         "CREATE CONSTRAINT uniqueUserId IF NOT EXISTS FOR (u:User) REQUIRE u.id IS UNIQUE",
@@ -32,9 +31,11 @@ pub async fn setup_graph() -> Result<(), DynError> {
     let graph = get_neo4j_graph()?;
 
     for &ddl in queries {
-        if let Err(err) = graph.run(Query::new("setup_ddl", ddl)).await {
-            return Err(format!("Failed to apply graph constraints/indexes: {err}").into());
-        }
+        graph.run(Query::new("setup_ddl", ddl)).await.map_err(|e| {
+            GraphError::Generic(format!(
+                "Failed to apply graph constraint/index '{ddl}': {e}"
+            ))
+        })?;
     }
 
     info!("Neo4j graph constraints and indexes have been applied successfully");
