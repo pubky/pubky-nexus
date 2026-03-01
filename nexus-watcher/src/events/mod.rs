@@ -104,9 +104,7 @@ pub async fn handle_del_event(event: &Event) -> Result<(), EventProcessorError> 
         Resource::Follow(followee_id) => {
             handlers::follow::del(user_id, followee_id.clone()).await?
         }
-        Resource::Mute(_) => {
-            debug!("Mute events are no longer handled by nexus");
-        }
+        Resource::Mute(_) => debug!("Mute events are no longer handled by nexus"),
         Resource::Bookmark(bookmark_id) => {
             handlers::bookmark::del(user_id, bookmark_id.clone()).await?
         }
