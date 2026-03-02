@@ -6,22 +6,22 @@ use neo4rs::{BoltList, BoltMap, BoltString, BoltType};
 /// `cypher()` and `params_map()` for logging and tracing.
 #[derive(Clone)]
 pub struct Query {
-    label: Option<String>,
+    label: Option<&'static str>,
     cypher: String,
     params: BoltMap,
 }
 
 impl Query {
-    pub fn new(label: impl Into<String>, cypher: impl Into<String>) -> Self {
+    pub fn new(label: &'static str, cypher: impl Into<String>) -> Self {
         Self {
-            label: Some(label.into()),
+            label: Some(label),
             cypher: cypher.into(),
             params: BoltMap::default(),
         }
     }
 
-    pub fn label(&self) -> Option<&str> {
-        self.label.as_deref()
+    pub fn label(&self) -> Option<&'static str> {
+        self.label
     }
 
     pub fn param<T: Into<BoltType>>(mut self, key: &str, value: T) -> Self {

@@ -60,7 +60,7 @@ impl GraphExec for Graph {
 /// A stream wrapper that measures total query time and logs slow queries when dropped.
 struct TracedStream {
     inner: BoxStream<'static, Result<Row, neo4rs::Error>>,
-    label: Option<String>,
+    label: Option<&'static str>,
     /// Pool-acquire + Bolt RUN round-trip (query planning & start of execution).
     execute_duration: Duration,
     /// Cumulative time spent inside poll_next (row fetching).
@@ -128,7 +128,7 @@ impl GraphExec for TracedGraph {
         &self,
         query: Query,
     ) -> neo4rs::Result<BoxStream<'static, Result<Row, neo4rs::Error>>> {
-        let label = query.label().map(str::to_owned);
+        let label = query.label();
         let start = Instant::now();
         let stream = self.inner.execute(query).await?;
         let execute_duration = start.elapsed();
@@ -145,7 +145,7 @@ impl GraphExec for TracedGraph {
     }
 
     async fn run(&self, query: Query) -> neo4rs::Result<()> {
-        let label = query.label().map(str::to_owned);
+        let label = query.label();
         let start = Instant::now();
         let result = self.inner.run(query).await;
         let elapsed = start.elapsed();
