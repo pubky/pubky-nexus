@@ -1,6 +1,6 @@
 use anyhow::Result;
 use nexus_common::db::fetch_key_from_graph;
-use nexus_common::db::graph::query::{query, Query};
+use nexus_common::db::graph::{query, Query};
 
 pub async fn find_post_mentions(follower: &str, followee: &str) -> Result<Vec<String>> {
     let query = post_mention_query(follower, followee);

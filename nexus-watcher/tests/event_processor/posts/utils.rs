@@ -1,5 +1,5 @@
 use anyhow::Result;
-use nexus_common::db::graph::query::{query, Query};
+use nexus_common::db::graph::{query, Query};
 use nexus_common::{
     db::{fetch_key_from_graph, RedisOps},
     models::post::{

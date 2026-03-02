@@ -1,7 +1,7 @@
 pub mod error;
 pub mod exec;
 pub mod queries;
-pub mod query;
+mod query;
 pub mod setup;
 mod traced;
 

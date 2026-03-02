@@ -1,6 +1,6 @@
 use anyhow::Result;
 use nexus_common::db::fetch_key_from_graph;
-use nexus_common::db::graph::query::{query, Query};
+use nexus_common::db::graph::{query, Query};
 
 pub async fn find_follow_relationship(follower: &str, followee: &str) -> Result<bool> {
     let query = user_following_query(follower, followee);
