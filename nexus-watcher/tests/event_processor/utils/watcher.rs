@@ -101,7 +101,6 @@ impl WatcherTest {
     /// 4. Creates and starts a test homeserver instance with a random public key.
     /// 5. Initializes the PubkyConnector with the test homeserver client.
     /// 6. Creates and configures the event processor with the test homeserver URL.
-    /// 7. Creates a channel to signal the event processor to shutdown.
     ///
     /// # Returns
     /// Returns an instance of `Self` containing the configuration, homeserver,
