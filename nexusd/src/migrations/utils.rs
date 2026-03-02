@@ -1,3 +1,42 @@
+/// Deletes all Redis keys matching the given pattern (e.g. `"Prefix:*"`).
+/// Uses SCAN to avoid blocking Redis on large keyspaces.
+pub async fn delete_keys_by_pattern(
+    pattern: &str,
+) -> Result<usize, nexus_common::db::kv::RedisError> {
+    use nexus_common::db::get_redis_conn;
+
+    let mut redis_conn = get_redis_conn().await?;
+    let mut cursor: u64 = 0;
+    let mut total_deleted = 0;
+
+    loop {
+        let (next_cursor, keys): (u64, Vec<String>) = redis::cmd("SCAN")
+            .arg(cursor)
+            .arg("MATCH")
+            .arg(pattern)
+            .arg("COUNT")
+            .arg(100)
+            .query_async(&mut redis_conn)
+            .await?;
+
+        if !keys.is_empty() {
+            let count = keys.len();
+            redis::cmd("DEL")
+                .arg(&keys)
+                .query_async::<()>(&mut redis_conn)
+                .await?;
+            total_deleted += count;
+        }
+
+        cursor = next_cursor;
+        if cursor == 0 {
+            break;
+        }
+    }
+
+    Ok(total_deleted)
+}
+
 pub fn to_snake_case(input: &str) -> String {
     let mut result = String::new();
     let mut prev_was_upper = false;

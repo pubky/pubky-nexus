@@ -375,22 +375,6 @@ pub fn get_user_following(user_id: &str, skip: Option<usize>, limit: Option<usiz
     query(&query_string).param("user_id", user_id)
 }
 
-pub fn get_user_muted(user_id: &str, skip: Option<usize>, limit: Option<usize>) -> Query {
-    let mut query_string = String::from(
-        "MATCH (u:User {id: $user_id}) 
-         OPTIONAL MATCH (u)-[:MUTED]->(muted:User)
-         RETURN COUNT(u) > 0 AS user_exists, 
-                COLLECT(muted.id) AS muted_ids",
-    );
-    if let Some(skip_value) = skip {
-        query_string.push_str(&format!(" SKIP {skip_value}"));
-    }
-    if let Some(limit_value) = limit {
-        query_string.push_str(&format!(" LIMIT {limit_value}"));
-    }
-    query(&query_string).param("user_id", user_id)
-}
-
 fn stream_reach_to_graph_subquery(reach: &StreamReach) -> String {
     match reach {
         StreamReach::Followers => "MATCH (user:User)<-[:FOLLOWS]-(reach:User)".to_string(),

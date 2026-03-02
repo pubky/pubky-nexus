@@ -8,7 +8,7 @@ use crate::models::tag::stream::HotTags;
 use crate::models::tag::traits::TagCollection;
 use crate::models::tag::user::TagUser;
 use crate::models::traits::Collection;
-use crate::models::user::{Influencers, Muted, UserDetails};
+use crate::models::user::{Influencers, UserDetails};
 use crate::types::DynError;
 use crate::{
     models::post::{PostCounts, PostDetails, PostRelationships},
@@ -84,7 +84,6 @@ pub async fn reindex_user(user_id: &str) -> Result<(), DynError> {
         UserCounts::reindex(user_id),
         Followers::reindex(user_id),
         Following::reindex(user_id),
-        Muted::reindex(user_id),
         TagUser::reindex(user_id, None)
     )?;
     Ok(())

@@ -15,6 +15,7 @@ clap = { workspace = true, features = ["derive"] }
 neo4rs = { workspace = true }
 nexus-webapi = { version = "0.4.1", path = "../nexus-webapi" }
 nexus-common = { version = "0.4.1", path = "../nexus-common" }
+redis = { workspace = true, features = ["tokio-comp"] }
 nexus-watcher = { version = "0.4.1", path = "../nexus-watcher" }
 serde = { workspace = true }
 tracing = { workspace = true }

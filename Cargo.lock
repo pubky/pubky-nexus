@@ -3159,6 +3159,7 @@ dependencies = [
  "nexus-common",
  "nexus-watcher",
  "nexus-webapi",
+ "redis",
  "serde",
  "tokio",
  "tokio-shared-rt",

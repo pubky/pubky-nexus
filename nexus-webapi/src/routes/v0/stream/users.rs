@@ -31,8 +31,8 @@ pub struct UserStreamQuery {
     path = STREAM_USERS_ROUTE,
     tag = "Stream",
     params(
-        ("source" = Option<UserStreamSource>, Query, description = "Source of users for streams (followers, following, friends, muted, most_followed, influencers, recommended, post_replies)"),
-        ("user_id" = Option<String>, Query, description = "User ID to use for streams with source 'following', 'followers', 'friends', 'muted', 'influencers' and 'recommended'"),
+        ("source" = Option<UserStreamSource>, Query, description = "Source of users for streams (followers, following, friends, most_followed, influencers, recommended, post_replies)"),
+        ("user_id" = Option<String>, Query, description = "User ID to use for streams with source 'following', 'followers', 'friends', 'influencers' and 'recommended'"),
         ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
         ("author_id" = Option<String>, Query, description = "Author ID when source is 'post_replies'"),
         ("post_id" = Option<String>, Query, description = "Post ID when source is 'post_replies'"),
@@ -50,7 +50,7 @@ pub struct UserStreamQuery {
     description = r#"Stream Users: Retrieve a stream of users.
 
 The `source` parameter determines the type of stream. Depending on the `source`, certain parameters are required:
-- *following*, *followers*, *friends*, *muted*, *recommended*: Requires **user_id**.
+- *following*, *followers*, *friends*, *recommended*: Requires **user_id**.
 - *influencers*: When **user_id** is provided with a **timeframe** (not 'all_time'), **reach** determines the network scope for finding influencers.The **reach** parameter can be: 'followers', 'following', 'friends', 'wot' (defaults to depth 3), or 'wot_1', 'wot_2', 'wot_3'. Defaults to 'wot_3' if not specified. If **user_id** is not provided, returns global influencers.
 - *post_replies*: Requires **author_id** and **post_id** to filter replies to a specific post.
 - *most_followed*: Does not require **user_id**.
@@ -78,8 +78,8 @@ pub async fn stream_users_handler(
     path = STREAM_USER_IDS_ROUTE,
     tag = "Stream",
     params(
-        ("source" = Option<UserStreamSource>, Query, description = "Source of users for streams (followers, following, friends, muted, most_followed, influencers, recommended, post_replies)"),
-        ("user_id" = Option<String>, Query, description = "User ID to use for streams with source 'following', 'followers', 'friends', 'muted', 'influencers' and 'recommended'"),
+        ("source" = Option<UserStreamSource>, Query, description = "Source of users for streams (followers, following, friends, most_followed, influencers, recommended, post_replies)"),
+        ("user_id" = Option<String>, Query, description = "User ID to use for streams with source 'following', 'followers', 'friends', 'influencers' and 'recommended'"),
         ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
         ("author_id" = Option<String>, Query, description = "Author ID when source is 'post_replies'"),
         ("post_id" = Option<String>, Query, description = "Post ID when source is 'post_replies'"),
@@ -97,7 +97,7 @@ pub async fn stream_users_handler(
     description = r#"Stream User IDs: Retrieve a stream of user identifiers.
 
 The `source` parameter determines the type of stream. Depending on the `source`, certain parameters are required:
-- *following*, *followers*, *friends*, *muted*, *recommended*: Requires **user_id**.
+- *following*, *followers*, *friends*, *recommended*: Requires **user_id**.
 - *influencers*: When **user_id** is provided with a **timeframe** (not 'all_time'), **reach** determines the network scope for finding influencers.The **reach** parameter can be: 'followers', 'following', 'friends', 'wot' (defaults to depth 3), or 'wot_1', 'wot_2', 'wot_3'. Defaults to 'wot_3' if not specified. If **user_id** is not provided, returns global influencers.
 - *post_replies*: Requires **author_id** and **post_id** to filter replies to a specific post.
 - *most_followed*: Does not require **user_id**.
@@ -256,7 +256,6 @@ fn build_user_stream_input(
             UserStreamSource::Followers
             | UserStreamSource::Following
             | UserStreamSource::Friends
-            | UserStreamSource::Muted
             | UserStreamSource::Recommended => {
                 return Err(Error::invalid_input(&format!(
                     "user_id query param must be provided for source '{}'",
@@ -305,7 +304,6 @@ fn source_name(source: &UserStreamSource) -> &'static str {
         UserStreamSource::Followers => "followers",
         UserStreamSource::Following => "following",
         UserStreamSource::Friends => "friends",
-        UserStreamSource::Muted => "muted",
         UserStreamSource::MostFollowed => "most_followed",
         UserStreamSource::Influencers => "influencers",
         UserStreamSource::Recommended => "recommended",
