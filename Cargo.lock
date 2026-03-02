@@ -2363,7 +2363,7 @@ checksum = "9171a2ea8a68358193d15dd5d70c1c10a2afc3e7e4c5bc92bc9f025cebd7359c"
 [[package]]
 name = "http-relay"
 version = "0.5.1"
-source = "git+https://github.com/pubky/pubky-core.git?branch=sdk_version_0.7.0#6a88576f7bf654ce62fa764ac5d336fa37db4634"
+source = "git+https://github.com/pubky/pubky-core.git?tag=v0.7.0-rc.2#9bd80c23ab2d1ddf3b9a35e5645a4f468be8cbcf"
 dependencies = [
  "anyhow",
  "axum",
@@ -3869,7 +3869,7 @@ dependencies = [
 [[package]]
 name = "pkarr-republisher"
 version = "0.5.1"
-source = "git+https://github.com/pubky/pubky-core.git?branch=sdk_version_0.7.0#6a88576f7bf654ce62fa764ac5d336fa37db4634"
+source = "git+https://github.com/pubky/pubky-core.git?tag=v0.7.0-rc.2#9bd80c23ab2d1ddf3b9a35e5645a4f468be8cbcf"
 dependencies = [
  "anyhow",
  "clap",
@@ -4154,7 +4154,7 @@ dependencies = [
 [[package]]
 name = "pubky"
 version = "0.7.0-rc.1"
-source = "git+https://github.com/pubky/pubky-core.git?branch=sdk_version_0.7.0#6a88576f7bf654ce62fa764ac5d336fa37db4634"
+source = "git+https://github.com/pubky/pubky-core.git?tag=v0.7.0-rc.2#9bd80c23ab2d1ddf3b9a35e5645a4f468be8cbcf"
 dependencies = [
  "base64",
  "cookie",
@@ -4165,7 +4165,7 @@ dependencies = [
  "httpdate",
  "log",
  "pkarr 5.0.3",
- "pubky-common 0.7.0-rc.1",
+ "pubky-common 0.6.0",
  "reqwest 0.13.2",
  "serde",
  "thiserror 2.0.18",
@@ -4218,8 +4218,8 @@ dependencies = [
 
 [[package]]
 name = "pubky-common"
-version = "0.7.0-rc.1"
-source = "git+https://github.com/pubky/pubky-core.git?branch=sdk_version_0.7.0#6a88576f7bf654ce62fa764ac5d336fa37db4634"
+version = "0.6.0"
+source = "git+https://github.com/pubky/pubky-core.git?tag=v0.7.0-rc.2#9bd80c23ab2d1ddf3b9a35e5645a4f468be8cbcf"
 dependencies = [
  "argon2",
  "base32",
@@ -4239,8 +4239,8 @@ dependencies = [
 
 [[package]]
 name = "pubky-homeserver"
-version = "0.7.0-rc.1"
-source = "git+https://github.com/pubky/pubky-core.git?branch=sdk_version_0.7.0#6a88576f7bf654ce62fa764ac5d336fa37db4634"
+version = "0.6.0"
+source = "git+https://github.com/pubky/pubky-core.git?tag=v0.7.0-rc.2#9bd80c23ab2d1ddf3b9a35e5645a4f468be8cbcf"
 dependencies = [
  "anyhow",
  "async-dropper",
@@ -4278,7 +4278,7 @@ dependencies = [
  "pkarr-republisher",
  "postcard",
  "prometheus",
- "pubky-common 0.7.0-rc.1",
+ "pubky-common 0.6.0",
  "pubky_test_utils",
  "reqwest 0.13.2",
  "sea-query",
@@ -4302,8 +4302,8 @@ dependencies = [
 
 [[package]]
 name = "pubky-testnet"
-version = "0.7.0-rc.1"
-source = "git+https://github.com/pubky/pubky-core.git?branch=sdk_version_0.7.0#6a88576f7bf654ce62fa764ac5d336fa37db4634"
+version = "0.7.2"
+source = "git+https://github.com/pubky/pubky-core.git?tag=v0.7.0-rc.2#9bd80c23ab2d1ddf3b9a35e5645a4f468be8cbcf"
 dependencies = [
  "anyhow",
  "clap",
@@ -4314,7 +4314,7 @@ dependencies = [
  "pkarr 5.0.3",
  "pkarr-relay",
  "pubky 0.7.0-rc.1",
- "pubky-common 0.7.0-rc.1",
+ "pubky-common 0.6.0",
  "pubky-homeserver",
  "pubky_test_utils",
  "tempfile",
@@ -4342,7 +4342,7 @@ dependencies = [
 [[package]]
 name = "pubky_test_utils"
 version = "0.1.0"
-source = "git+https://github.com/pubky/pubky-core.git?branch=sdk_version_0.7.0#6a88576f7bf654ce62fa764ac5d336fa37db4634"
+source = "git+https://github.com/pubky/pubky-core.git?tag=v0.7.0-rc.2#9bd80c23ab2d1ddf3b9a35e5645a4f468be8cbcf"
 dependencies = [
  "pubky_test_utils_drop_db_helper",
  "pubky_test_utils_macro",
@@ -4351,7 +4351,7 @@ dependencies = [
 [[package]]
 name = "pubky_test_utils_drop_db_helper"
 version = "0.1.0"
-source = "git+https://github.com/pubky/pubky-core.git?branch=sdk_version_0.7.0#6a88576f7bf654ce62fa764ac5d336fa37db4634"
+source = "git+https://github.com/pubky/pubky-core.git?tag=v0.7.0-rc.2#9bd80c23ab2d1ddf3b9a35e5645a4f468be8cbcf"
 dependencies = [
  "sqlx",
 ]
@@ -4359,7 +4359,7 @@ dependencies = [
 [[package]]
 name = "pubky_test_utils_macro"
 version = "0.1.0"
-source = "git+https://github.com/pubky/pubky-core.git?branch=sdk_version_0.7.0#6a88576f7bf654ce62fa764ac5d336fa37db4634"
+source = "git+https://github.com/pubky/pubky-core.git?tag=v0.7.0-rc.2#9bd80c23ab2d1ddf3b9a35e5645a4f468be8cbcf"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
