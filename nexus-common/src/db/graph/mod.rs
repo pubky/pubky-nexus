@@ -7,4 +7,5 @@ mod traced;
 
 pub use error::{GraphError, GraphResult};
 pub use query::{query, Query};
-pub use traced::{Graph, GraphExec, TracedGraph};
+pub use traced::GraphExec;
+pub(crate) use traced::{Graph, TracedGraph};
