@@ -1,19 +1,17 @@
-use neo4rs::Graph;
-
 use crate::db::graph::Query;
 use std::fmt;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use tracing::{debug, info};
 
 use crate::db::graph::error::{GraphError, GraphResult};
-use crate::db::graph::{GraphExec, TracedGraph};
+use crate::db::graph::{Graph, GraphExec, TracedGraph};
 use crate::db::setup::setup_graph;
 use crate::db::Neo4JConfig;
 use crate::types::DynError;
 
 pub struct Neo4jConnector {
-    graph: TracedGraph,
+    graph: Arc<dyn GraphExec>,
 }
 
 impl Neo4jConnector {
@@ -35,14 +33,18 @@ impl Neo4jConnector {
 
     /// Create and return a new connector after defining a database connection
     async fn new_connection(config: &Neo4JConfig) -> GraphResult<Self> {
-        let graph = Graph::new(&config.uri, &config.user, &config.password).await?;
-        let threshold = Duration::from_millis(config.slow_query_threshold_ms);
-        let neo4j_connector = Neo4jConnector {
-            graph: TracedGraph::new(graph).with_slow_query_threshold(threshold),
-        };
-        info!("Created Neo4j connector");
+        let neo4j_graph = neo4rs::Graph::new(&config.uri, &config.user, &config.password).await?;
+        let graph = Graph::new(neo4j_graph);
 
-        Ok(neo4j_connector)
+        let graph: Arc<dyn GraphExec> = if config.slow_query_logging {
+            let threshold = Duration::from_millis(config.slow_query_threshold_ms);
+            Arc::new(TracedGraph::new(graph).with_slow_query_threshold(threshold))
+        } else {
+            Arc::new(graph)
+        };
+
+        info!("Created Neo4j connector");
+        Ok(Neo4jConnector { graph })
     }
 
     /// Perform a health-check PING over the Bolt protocol to the Neo4j server
@@ -59,13 +61,13 @@ impl Neo4jConnector {
 impl fmt::Debug for Neo4jConnector {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Neo4jConnector")
-            .field("graph", &"TracedGraph instance")
+            .field("graph", &"GraphExec instance")
             .finish()
     }
 }
 
 /// Helper to retrieve a Neo4j graph connection.
-pub fn get_neo4j_graph() -> GraphResult<TracedGraph> {
+pub fn get_neo4j_graph() -> GraphResult<Arc<dyn GraphExec>> {
     NEO4J_CONNECTOR
         .get()
         .ok_or(GraphError::ConnectionNotInitialized)

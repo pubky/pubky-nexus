@@ -1,6 +1,5 @@
 use crate::db::get_neo4j_graph;
 use crate::db::graph::error::{GraphError, GraphResult};
-use crate::db::graph::GraphExec;
 use crate::db::graph::Query;
 use tracing::info;
 

@@ -1,5 +1,5 @@
 use super::query::Query;
-use crate::db::{get_neo4j_graph, graph::error::GraphResult, GraphExec};
+use crate::db::{get_neo4j_graph, graph::error::GraphResult};
 use futures::TryStreamExt;
 use neo4rs::Row;
 use serde::de::DeserializeOwned;

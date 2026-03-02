@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use futures::stream::BoxStream;
 use futures::{Stream, StreamExt, TryStreamExt};
-use neo4rs::{Graph, Row};
+use neo4rs::Row;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
@@ -11,7 +11,7 @@ use super::query::Query;
 use crate::db::config::DEFAULT_SLOW_QUERY_THRESHOLD_MS;
 
 /// Abstraction over graph database operations.
-/// Callers depend on this trait, not the concrete TracedGraph.
+/// Callers depend on this trait, not the concrete implementations.
 #[async_trait]
 pub trait GraphExec: Send + Sync {
     /// Execute query, return boxed row stream.
@@ -22,6 +22,39 @@ pub trait GraphExec: Send + Sync {
 
     /// Fire-and-forget query execution.
     async fn run(&self, query: Query) -> neo4rs::Result<()>;
+}
+
+/// Thin wrapper around `neo4rs::Graph` implementing `GraphExec` without tracing.
+#[derive(Clone)]
+pub struct Graph {
+    inner: neo4rs::Graph,
+}
+
+impl Graph {
+    pub fn new(graph: neo4rs::Graph) -> Self {
+        Self { inner: graph }
+    }
+}
+
+#[async_trait]
+impl GraphExec for Graph {
+    async fn execute(
+        &self,
+        query: Query,
+    ) -> neo4rs::Result<BoxStream<'static, Result<Row, neo4rs::Error>>> {
+        let stream = self
+            .inner
+            .execute(query.into())
+            .await?
+            .into_stream()
+            .map_err(Into::into)
+            .boxed();
+        Ok(stream)
+    }
+
+    async fn run(&self, query: Query) -> neo4rs::Result<()> {
+        self.inner.run(query.into()).await
+    }
 }
 
 /// A stream wrapper that measures total query time and logs slow queries when dropped.
@@ -68,6 +101,7 @@ impl Drop for TracedStream {
     }
 }
 
+/// Decorator around `Graph` that logs slow queries.
 #[derive(Clone)]
 pub struct TracedGraph {
     inner: Graph,
@@ -96,10 +130,9 @@ impl GraphExec for TracedGraph {
     ) -> neo4rs::Result<BoxStream<'static, Result<Row, neo4rs::Error>>> {
         let label = query.label().map(str::to_owned);
         let start = Instant::now();
-        let result = self.inner.execute(query.into()).await;
+        let stream = self.inner.execute(query).await?;
         let execute_duration = start.elapsed();
 
-        let stream = result?.into_stream().map_err(Into::into).boxed();
         let traced = TracedStream {
             inner: stream,
             label,
@@ -114,7 +147,7 @@ impl GraphExec for TracedGraph {
     async fn run(&self, query: Query) -> neo4rs::Result<()> {
         let label = query.label().map(str::to_owned);
         let start = Instant::now();
-        let result = self.inner.run(query.into()).await;
+        let result = self.inner.run(query).await;
         let elapsed = start.elapsed();
 
         if let Some(label) = &label {

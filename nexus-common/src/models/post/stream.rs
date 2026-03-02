@@ -1,6 +1,6 @@
 use super::{Bookmark, PostCounts, PostDetails, PostView};
 use crate::db::kv::{RedisResult, ScoreAction, SortOrder};
-use crate::db::{get_neo4j_graph, queries, GraphError, GraphExec, GraphResult, RedisOps};
+use crate::db::{get_neo4j_graph, queries, GraphError, GraphResult, RedisOps};
 use crate::models::error::ModelError;
 use crate::models::error::ModelResult;
 use crate::models::{

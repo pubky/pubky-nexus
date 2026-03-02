@@ -2,11 +2,12 @@ use async_trait::async_trait;
 use chrono::Utc;
 use futures::TryStreamExt;
 use nexus_common::{
-    db::{get_neo4j_graph, graph::Query, GraphExec, TracedGraph},
+    db::{get_neo4j_graph, graph::Query, GraphExec},
     types::DynError,
 };
 use serde::{Deserialize, Serialize};
 use std::any::Any;
+use std::sync::Arc;
 use tracing::info;
 
 use crate::migrations::utils::{self, generate_template};
@@ -89,18 +90,18 @@ pub struct MigrationNode {
 const MIGRATION_PATH: &str = "nexusd/src/migrations/migrations_list/";
 
 pub struct MigrationManager {
-    graph: TracedGraph,
+    graph: Arc<dyn GraphExec>,
     migrations: Vec<Box<dyn Migration>>,
 }
 
 impl Default for MigrationManager {
     fn default() -> Self {
-        let graph_connection = match get_neo4j_graph() {
-            Ok(connection) => connection,
+        let graph = match get_neo4j_graph() {
+            Ok(graph) => graph,
             Err(e) => panic!("Could not initialise migration manager: {e:?}"),
         };
         Self {
-            graph: graph_connection,
+            graph,
             migrations: Vec::new(),
         }
     }
