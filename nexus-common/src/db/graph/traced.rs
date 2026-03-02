@@ -63,8 +63,8 @@ struct TracedStream {
     label: Option<&'static str>,
     /// Pool-acquire + Bolt RUN round-trip (query planning & start of execution).
     execute_duration: Duration,
-    /// Cumulative time spent inside poll_next (row fetching).
-    fetch_duration: Duration,
+    /// Wall-clock time from stream creation to drop (row fetching & consumption).
+    stream_start: Instant,
     row_count: usize,
     threshold: Duration,
 }
@@ -73,9 +73,7 @@ impl Stream for TracedStream {
     type Item = Result<Row, neo4rs::Error>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let poll_start = Instant::now();
         let result = Pin::new(&mut self.inner).poll_next(cx);
-        self.fetch_duration += poll_start.elapsed();
         if let Poll::Ready(Some(Ok(_))) = &result {
             self.row_count += 1;
         }
@@ -86,12 +84,13 @@ impl Stream for TracedStream {
 impl Drop for TracedStream {
     fn drop(&mut self) {
         if let Some(label) = &self.label {
-            let total = self.execute_duration + self.fetch_duration;
+            let fetch_duration = self.stream_start.elapsed();
+            let total = self.execute_duration + fetch_duration;
             if total > self.threshold {
                 warn!(
                     total_ms = total.as_millis(),
                     execute_ms = self.execute_duration.as_millis(),
-                    fetch_ms = self.fetch_duration.as_millis(),
+                    fetch_ms = fetch_duration.as_millis(),
                     rows = self.row_count,
                     query = %label,
                     "Slow Neo4j query"
@@ -137,7 +136,7 @@ impl GraphExec for TracedGraph {
             inner: stream,
             label,
             execute_duration,
-            fetch_duration: Duration::ZERO,
+            stream_start: Instant::now(),
             row_count: 0,
             threshold: self.slow_query_threshold,
         };
