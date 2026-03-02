@@ -50,15 +50,16 @@ impl TEventProcessorRunner for MockEventProcessorRunner {
         self.monitored_homeservers_limit
     }
 
-    async fn homeservers_by_priority(&self) -> Result<Vec<String>, DynError> {
+    async fn external_homeservers_by_priority(&self) -> Result<Vec<String>, DynError> {
         let persistedhs_ids = Homeserver::get_all_from_graph().await?;
 
         let mut hs_ids = vec![];
 
         // Skip the homeserver IDs that are not part of the runner's event processors
+        // and exclude the default homeserver, which is processed separately
         for mock_event_processor in self.event_processors.iter() {
             let hs_id = mock_event_processor.homeserver_id.to_string();
-            if persistedhs_ids.contains(&hs_id) {
+            if persistedhs_ids.contains(&hs_id) && hs_id != self.default_homeserver() {
                 hs_ids.push(hs_id);
             }
         }

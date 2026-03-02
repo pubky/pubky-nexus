@@ -159,7 +159,10 @@ impl Homeserver {
             return Ok(());
         };
 
-        let hs_pk = PubkyId::from(ref_post_author_hs.into_inner());
+        // TODO This conversion can use from() instad of try_from() once pubky-app-specs bumps pubky to 0.7.x
+        // let hs_pk = PubkyId::from(ref_post_author_hs.into_inner());
+        let hs_pk = PubkyId::try_from(&ref_post_author_hs.into_inner().to_z32())
+            .map_err(ModelError::from_generic)?;
         Self::persist_if_unknown(hs_pk.clone())
             .await
             .inspect(|_| tracing::info!("Ingested homeserver {hs_pk}"))
