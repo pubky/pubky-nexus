@@ -113,7 +113,7 @@ impl WatcherTest {
         // WARNING: testnet initialization is time expensive, we only init one per process
         // TODO: Maybe we should create a single testnet network (singleton and push there more homeservers)
         // This can be further sped up by using Testnet::new_unseeded() with pubky-testnet 0.7.x
-        let mut testnet = pubky_testnet::Testnet::new().await?;
+        let mut testnet = Testnet::new().await?;
         testnet.create_http_relay().await?;
 
         // Create a random homeserver with a random public key
