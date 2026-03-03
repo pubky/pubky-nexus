@@ -23,7 +23,7 @@ use pubky_app_specs::{
     traits::{HasIdPath, HasPath, TimestampId},
     PubkyAppFile, PubkyAppFollow, PubkyAppMute, PubkyAppPost, PubkyAppUser, PubkyId,
 };
-use pubky_testnet::EphemeralTestnet;
+use pubky_testnet::Testnet;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -49,7 +49,7 @@ pub fn generate_post_id() -> String {
 
 /// Struct to hold the setup environment for tests
 pub struct WatcherTest {
-    pub testnet: EphemeralTestnet,
+    pub testnet: Testnet,
     /// The homeserver ID
     pub homeserver_id: String,
     /// The event processor runner
@@ -101,7 +101,6 @@ impl WatcherTest {
     /// 4. Creates and starts a test homeserver instance with a random public key.
     /// 5. Initializes the PubkyConnector with the test homeserver client.
     /// 6. Creates and configures the event processor with the test homeserver URL.
-    /// 7. Creates a channel to signal the event processor to shutdown.
     ///
     /// # Returns
     /// Returns an instance of `Self` containing the configuration, homeserver,
@@ -113,10 +112,9 @@ impl WatcherTest {
 
         // WARNING: testnet initialization is time expensive, we only init one per process
         // TODO: Maybe we should create a single testnet network (singleton and push there more homeservers)
-        let mut testnet = EphemeralTestnet::builder()
-            .with_http_relay()
-            .build()
-            .await?;
+        // This can be further sped up by using Testnet::new_unseeded() with pubky-testnet 0.7.x
+        let mut testnet = Testnet::new().await?;
+        testnet.create_http_relay().await?;
 
         // Create a random homeserver with a random public key
         let homeserver_id = testnet.create_random_homeserver().await?.public_key().z32();
