@@ -2,6 +2,7 @@
 /// Uses SCAN to avoid blocking Redis on large keyspaces.
 pub async fn delete_keys_by_pattern(
     pattern: &str,
+    count: usize,
 ) -> Result<usize, nexus_common::db::kv::RedisError> {
     use nexus_common::db::get_redis_conn;
 
@@ -15,7 +16,7 @@ pub async fn delete_keys_by_pattern(
             .arg("MATCH")
             .arg(pattern)
             .arg("COUNT")
-            .arg(100)
+            .arg(count)
             .query_async(&mut redis_conn)
             .await?;
 

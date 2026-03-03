@@ -54,7 +54,7 @@ impl Migration for RemoveMuted1771718400 {
         );
 
         // 2. Remove all Muted:* keys from Redis
-        let deleted = delete_keys_by_pattern("Muted:*").await?;
+        let deleted = delete_keys_by_pattern("Muted:*", 100).await?;
         info!(
             "RemoveMuted migration: deleted {} Muted keys from Redis",
             deleted
