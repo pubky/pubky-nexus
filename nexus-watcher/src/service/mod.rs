@@ -20,21 +20,9 @@ use nexus_common::{DaemonConfig, WatcherConfig};
 use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::watch::{Receiver, Sender};
+use tokio::sync::watch::Receiver;
 use tokio::time::Duration;
 use tracing::{debug, error, info};
-
-/// Sends a shutdown signal when dropped. Attach to each spawned task so that if any task
-/// exits (normally or via panic), the remaining tasks are notified to stop gracefully.
-struct ShutdownGuard(Option<Sender<bool>>);
-
-impl Drop for ShutdownGuard {
-    fn drop(&mut self) {
-        if let Some(tx) = self.0.take() {
-            let _ = tx.send(true);
-        }
-    }
-}
 
 pub struct NexusWatcher {}
 
@@ -92,15 +80,15 @@ impl NexusWatcher {
         Self::run_tasks(shutdown_rx, Arc::new(runner), config.watcher_sleep).await
     }
 
-    /// Spawns processing tasks with [`ShutdownGuard`] protection and waits for completion.
+    /// Spawns processing tasks and waits for completion using a [`tokio::task::JoinSet`].
     ///
     /// Three parallel tasks are spawned:
     /// 1. **Default homeserver task**: calls [`TEventProcessorRunner::run_default_homeserver`] each tick.
     /// 2. **External homeservers task**: calls [`TEventProcessorRunner::run_external_homeservers`] each tick.
     /// 3. **Shutdown forwarder task**: bridges the external `shutdown_rx` (e.g. SIGINT) into an internal channel.
     ///
-    /// Each task holds a [`ShutdownGuard`]. If any task exits or panics, the guard drops and
-    /// signals all remaining tasks to shut down gracefully via the internal channel.
+    /// When any task exits (normally or via panic), `JoinSet::join_next` returns and the
+    /// remaining tasks are signalled to shut down gracefully via the internal channel.
     ///
     /// Separated from [`Self::start`] to allow injection of mock runners in tests.
     pub async fn run_tasks(
@@ -108,17 +96,14 @@ impl NexusWatcher {
         runner: Arc<dyn TEventProcessorRunner>,
         watcher_sleep: u64,
     ) -> Result<(), DynError> {
-        // Internal channel: tasks signal each other via ShutdownGuard on exit/panic.
-        // The forwarder bridges the external SIGINT into this channel.
         let (internal_shutdown_tx, internal_shutdown_rx) = tokio::sync::watch::channel(false);
+        let mut set = tokio::task::JoinSet::new();
 
         // Task 1: Default homeserver processing
-        let default_hs_handle = {
+        {
             let runner = runner.clone();
             let mut shutdown = internal_shutdown_rx.clone();
-            let guard = ShutdownGuard(Some(internal_shutdown_tx.clone()));
-            tokio::spawn(async move {
-                let _guard = guard;
+            set.spawn(async move {
                 let mut interval = tokio::time::interval(Duration::from_millis(watcher_sleep));
                 loop {
                     tokio::select! {
@@ -135,16 +120,14 @@ impl NexusWatcher {
                         }
                     }
                 }
-            })
-        };
+            });
+        }
 
         // Task 2: External homeservers processing
-        let external_hss_handle = {
+        {
             let runner = runner.clone();
             let mut shutdown = internal_shutdown_rx.clone();
-            let guard = ShutdownGuard(Some(internal_shutdown_tx.clone()));
-            tokio::spawn(async move {
-                let _guard = guard;
+            set.spawn(async move {
                 let mut interval = tokio::time::interval(Duration::from_millis(watcher_sleep));
                 loop {
                     tokio::select! {
@@ -161,17 +144,14 @@ impl NexusWatcher {
                         }
                     }
                 }
-            })
-        };
+            });
+        }
 
-        // Forwarder: bridges external SIGINT into the internal shutdown channel.
-        // Also listens to the internal channel so it exits when a sibling task crashes.
-        let forwarder_handle = {
+        // Task 3: Forwarder — bridges external SIGINT into the internal shutdown channel
+        {
             let mut external = shutdown_rx;
             let mut internal = internal_shutdown_rx.clone();
-            let guard = ShutdownGuard(Some(internal_shutdown_tx.clone()));
-            tokio::spawn(async move {
-                let _guard = guard;
+            set.spawn(async move {
                 tokio::select! {
                     _ = external.changed() => {
                         info!("SIGINT received, forwarding shutdown to watcher tasks");
@@ -180,25 +160,30 @@ impl NexusWatcher {
                         info!("Internal shutdown received in forwarder, exiting");
                     }
                 }
-            })
-        };
-
-        // Drop the original sender so only task guards and the forwarder hold senders
-        drop(internal_shutdown_tx);
-
-        let (r1, r2, r3) = tokio::join!(default_hs_handle, external_hss_handle, forwarder_handle);
-
-        if let Err(ref e) = r1 {
-            error!("Default homeserver task failed: {e}");
-        }
-        if let Err(ref e) = r2 {
-            error!("External homeservers task failed: {e}");
-        }
-        if let Err(ref e) = r3 {
-            error!("Shutdown forwarder task failed: {e}");
+            });
         }
 
-        if r1.is_err() || r2.is_err() || r3.is_err() {
+        // Block until the first task exits for any reason
+        let first = set.join_next().await;
+        let mut had_error = false;
+
+        if let Some(Err(ref e)) = first {
+            error!("Task failed: {e}");
+            had_error = true;
+        }
+
+        // Signal the remaining tasks to stop gracefully
+        let _ = internal_shutdown_tx.send(true);
+
+        // Drain remaining tasks
+        while let Some(result) = set.join_next().await {
+            if let Err(ref e) = result {
+                error!("Task failed: {e}");
+                had_error = true;
+            }
+        }
+
+        if had_error {
             return Err("Nexus Watcher stopped: one or more tasks failed".into());
         }
 
