@@ -38,7 +38,11 @@ impl Neo4jConnector {
 
         let graph: Arc<dyn GraphExec> = if config.slow_query_logging {
             let threshold = Duration::from_millis(config.slow_query_threshold_ms);
-            Arc::new(TracedGraph::new(graph).with_slow_query_threshold(threshold))
+            Arc::new(
+                TracedGraph::new(graph)
+                    .with_slow_query_threshold(threshold)
+                    .with_log_cypher(config.log_slow_query_cypher),
+            )
         } else {
             Arc::new(graph)
         };

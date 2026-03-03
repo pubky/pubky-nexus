@@ -20,6 +20,10 @@ pub struct Neo4JConfig {
     /// Set to false for CLI/admin commands where tracing overhead is unnecessary.
     #[serde(default = "default_slow_query_logging")]
     pub slow_query_logging: bool,
+    /// Include the full cypher (with interpolated params) in slow-query warnings.
+    /// Useful for debugging but verbose. Defaults to false.
+    #[serde(default)]
+    pub log_slow_query_cypher: bool,
 }
 
 fn default_neo4j_user() -> String {
@@ -42,6 +46,7 @@ impl Default for Neo4JConfig {
             password: String::from(NEO4J_PASS),
             slow_query_threshold_ms: DEFAULT_SLOW_QUERY_THRESHOLD_MS,
             slow_query_logging: true,
+            log_slow_query_cypher: false,
         }
     }
 }

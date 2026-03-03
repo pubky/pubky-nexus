@@ -61,6 +61,8 @@ impl GraphExec for Graph {
 struct TracedStream {
     inner: BoxStream<'static, Result<Row, neo4rs::Error>>,
     label: Option<&'static str>,
+    /// Populated cypher text for debug logging (only set when `log_slow_query_cypher` is enabled).
+    cypher: Option<String>,
     /// Pool-acquire + Bolt RUN round-trip (query planning & start of execution).
     execute_duration: Duration,
     /// Wall-clock time from stream creation to drop (row fetching & consumption).
@@ -87,14 +89,26 @@ impl Drop for TracedStream {
             let fetch_duration = self.stream_start.elapsed();
             let total = self.execute_duration + fetch_duration;
             if total > self.threshold {
-                warn!(
-                    total_ms = total.as_millis(),
-                    execute_ms = self.execute_duration.as_millis(),
-                    fetch_ms = fetch_duration.as_millis(),
-                    rows = self.row_count,
-                    query = %label,
-                    "Slow Neo4j query"
-                );
+                if let Some(cypher) = &self.cypher {
+                    warn!(
+                        total_ms = total.as_millis(),
+                        execute_ms = self.execute_duration.as_millis(),
+                        fetch_ms = fetch_duration.as_millis(),
+                        rows = self.row_count,
+                        query = %label,
+                        cypher = %cypher,
+                        "Slow Neo4j query"
+                    );
+                } else {
+                    warn!(
+                        total_ms = total.as_millis(),
+                        execute_ms = self.execute_duration.as_millis(),
+                        fetch_ms = fetch_duration.as_millis(),
+                        rows = self.row_count,
+                        query = %label,
+                        "Slow Neo4j query"
+                    );
+                }
             }
         }
     }
@@ -105,6 +119,7 @@ impl Drop for TracedStream {
 pub struct TracedGraph {
     inner: Graph,
     slow_query_threshold: Duration,
+    log_cypher: bool,
 }
 
 impl TracedGraph {
@@ -112,11 +127,17 @@ impl TracedGraph {
         Self {
             inner: graph,
             slow_query_threshold: Duration::from_millis(DEFAULT_SLOW_QUERY_THRESHOLD_MS),
+            log_cypher: false,
         }
     }
 
     pub fn with_slow_query_threshold(mut self, threshold: Duration) -> Self {
         self.slow_query_threshold = threshold;
+        self
+    }
+
+    pub fn with_log_cypher(mut self, enabled: bool) -> Self {
+        self.log_cypher = enabled;
         self
     }
 }
@@ -128,6 +149,11 @@ impl GraphExec for TracedGraph {
         query: Query,
     ) -> neo4rs::Result<BoxStream<'static, Result<Row, neo4rs::Error>>> {
         let label = query.label();
+        let cypher = if self.log_cypher {
+            Some(query.to_cypher_populated())
+        } else {
+            None
+        };
         let start = Instant::now();
         let stream = self.inner.execute(query).await?;
         let execute_duration = start.elapsed();
@@ -135,6 +161,7 @@ impl GraphExec for TracedGraph {
         let traced = TracedStream {
             inner: stream,
             label,
+            cypher,
             execute_duration,
             stream_start: Instant::now(),
             row_count: 0,
@@ -145,13 +172,22 @@ impl GraphExec for TracedGraph {
 
     async fn run(&self, query: Query) -> neo4rs::Result<()> {
         let label = query.label();
+        let cypher = if self.log_cypher {
+            Some(query.to_cypher_populated())
+        } else {
+            None
+        };
         let start = Instant::now();
         let result = self.inner.run(query).await;
         let elapsed = start.elapsed();
 
         if let Some(label) = &label {
             if elapsed > self.slow_query_threshold {
-                warn!(elapsed_ms = elapsed.as_millis(), query = %label, "Slow Neo4j query");
+                if let Some(cypher) = &cypher {
+                    warn!(elapsed_ms = elapsed.as_millis(), query = %label, cypher = %cypher, "Slow Neo4j query");
+                } else {
+                    warn!(elapsed_ms = elapsed.as_millis(), query = %label, "Slow Neo4j query");
+                }
             }
         }
 

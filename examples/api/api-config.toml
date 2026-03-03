@@ -21,3 +21,5 @@ uri = "bolt://localhost:7687"
 password = "12345678"
 # Queries taking longer than this (ms) will be logged as warnings
 slow_query_threshold_ms = 100
+# Include the full cypher (with interpolated params) in slow-query warnings
+#log_slow_query_cypher = false
