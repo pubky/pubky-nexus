@@ -180,8 +180,8 @@ mod tests {
 
     #[test]
     fn literal_float() {
-        let val = BoltType::Float(neo4rs::BoltFloat::new(3.14));
-        assert_eq!(bolt_to_cypher_literal(&val), "3.14");
+        let val = BoltType::Float(neo4rs::BoltFloat::new(3.01));
+        assert_eq!(bolt_to_cypher_literal(&val), "3.01");
     }
 
     #[test]
