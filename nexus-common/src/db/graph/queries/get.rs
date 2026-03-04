@@ -787,7 +787,18 @@ pub fn post_stream(
     }
 
     // Build the query and apply parameters using `param` method
-    build_query_with_params(&cypher, &source, tags, kind, &pagination)
+    let label = match &source {
+        StreamSource::Following { .. } => "post_stream_following",
+        StreamSource::Followers { .. } => "post_stream_followers",
+        StreamSource::Friends { .. } => "post_stream_friends",
+        StreamSource::Bookmarks { .. } => "post_stream_bookmarks",
+        StreamSource::Author { .. } => "post_stream_author",
+        StreamSource::AuthorReplies { .. } => "post_stream_author_replies",
+        StreamSource::PostReplies { .. } => "post_stream_post_replies",
+        StreamSource::All => "post_stream_all",
+    };
+    let query = Query::new(label, &cypher);
+    build_query_with_params(query, &source, tags, kind, &pagination)
 }
 
 /// Appends a condition to the Cypher query, using `WHERE` if no `WHERE` clause
@@ -808,29 +819,22 @@ fn append_condition(cypher: &mut String, condition: &str, where_clause_applied: 
     }
 }
 
-/// Builds a `Query` object by applying the necessary parameters to the Cypher query string.
-///
-/// This function takes the constructed Cypher query string and applies all the relevant parameters
-/// based on the provided `source`, `tags`, `kind`, and `pagination`. It ensures that all parameters
-/// used in the query are properly set with their corresponding values.
+/// Applies the necessary parameters to an already-constructed `Query`.
 ///
 /// # Arguments
 ///
-/// * `cypher` - The Cypher query string that has been constructed.
+/// * `query` - A `Query` already constructed with its label and cypher string.
 /// * `source` - The `StreamSource` specifying the origin of the posts (e.g., Following, Followers).
 /// * `tags` - An optional list of tag labels to filter the posts.
 /// * `kind` - An optional `PubkyAppPostKind` to filter the posts by their kind.
 /// * `pagination` - The `Pagination` object containing pagination parameters like `start`, `end`, `skip`, and `limit`.
 fn build_query_with_params(
-    cypher: &str,
+    mut query: Query,
     source: &StreamSource,
     tags: &Option<Vec<String>>,
     kind: Option<PubkyAppPostKind>,
     pagination: &Pagination,
 ) -> Query {
-    let label = "post_stream";
-    let mut query = Query::new(label, cypher);
-
     if let Some(observer_id) = source.get_observer() {
         query = query.param("observer_id", observer_id.to_string());
     }
