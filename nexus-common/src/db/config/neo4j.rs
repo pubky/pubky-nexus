@@ -9,17 +9,22 @@ pub const DEFAULT_SLOW_QUERY_THRESHOLD_MS: u64 = 100;
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct Neo4JConfig {
     pub uri: String,
+
     #[serde(default = "default_neo4j_user")]
     pub user: String,
+
     pub password: String,
+
     /// Queries exceeding this threshold (in milliseconds) are logged as warnings.
     /// Only used when `slow_query_logging` is enabled.
     #[serde(default = "default_slow_query_threshold_ms")]
     pub slow_query_threshold_ms: u64,
+
     /// Enable slow-query logging. Defaults to true.
     /// Set to false for CLI/admin commands where tracing overhead is unnecessary.
     #[serde(default = "default_slow_query_logging")]
     pub slow_query_logging: bool,
+
     /// Include the full cypher (with interpolated params) in slow-query warnings.
     /// Useful for debugging but verbose. Defaults to false.
     #[serde(default)]
