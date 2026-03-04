@@ -135,10 +135,9 @@ impl NexusWatcher {
         });
 
         // Block until the first task exits for any reason
-        let first = set.join_next().await;
         let mut had_error = false;
 
-        match &first {
+        match set.join_next().await {
             Some(Ok(label)) => info!("First task to exit: {label}"),
             Some(Err(e)) => {
                 error!("Task failed (panic/cancel): {e}");
