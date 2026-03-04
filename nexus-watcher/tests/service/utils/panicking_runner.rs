@@ -5,8 +5,8 @@ use std::sync::Arc;
 use tokio::sync::watch::Receiver;
 
 /// Wraps a [`MockEventProcessorRunner`] but panics in `run_default_homeserver()`.
-/// Used to test that a panic in the default HS task propagates via ShutdownGuard
-/// and causes the external HS task to stop.
+/// Used to test that a panic in the default HS task is detected by the `JoinSet`
+/// and causes the external HS task to stop via the internal shutdown channel.
 pub struct PanickingDefaultHsRunner {
     pub inner: MockEventProcessorRunner,
 }
@@ -39,8 +39,8 @@ impl TEventProcessorRunner for PanickingDefaultHsRunner {
 }
 
 /// Wraps a [`MockEventProcessorRunner`] but panics in `run_external_homeservers()`.
-/// Used to test that a panic in the external HS task propagates via ShutdownGuard
-/// and causes the default HS task to stop.
+/// Used to test that a panic in the external HS task is detected by the `JoinSet`
+/// and causes the default HS task to stop via the internal shutdown channel.
 pub struct PanickingExternalHsRunner {
     pub inner: MockEventProcessorRunner,
 }

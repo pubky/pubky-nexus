@@ -42,8 +42,9 @@ async fn test_run_tasks_clean_shutdown_via_external_signal() -> Result<()> {
 }
 
 /// Test B: A panic in `run_default_homeserver` causes the spawned task to crash.
-/// The ShutdownGuard drops, signaling the external HS task and forwarder to stop.
-/// `run_tasks` returns `Err` because `tokio::join!` collects the panicked JoinHandle.
+/// `JoinSet::join_next` surfaces the panic, then the remaining tasks are signalled
+/// to stop via the internal shutdown channel.
+/// `run_tasks` returns `Err` because the panicked `JoinError` is observed during drain.
 #[tokio_shared_rt::test(shared)]
 async fn test_run_tasks_default_hs_panic_propagates_via_guard() -> Result<()> {
     let mut event_processor_list = setup().await?;
@@ -73,8 +74,9 @@ async fn test_run_tasks_default_hs_panic_propagates_via_guard() -> Result<()> {
 }
 
 /// Test C: A panic in `run_external_homeservers` causes the spawned task to crash.
-/// The ShutdownGuard drops, signaling the default HS task and forwarder to stop.
-/// `run_tasks` returns `Err` because `tokio::join!` collects the panicked JoinHandle.
+/// `JoinSet::join_next` surfaces the panic, then the remaining tasks are signalled
+/// to stop via the internal shutdown channel.
+/// `run_tasks` returns `Err` because the panicked `JoinError` is observed during drain.
 #[tokio_shared_rt::test(shared)]
 async fn test_run_tasks_external_hs_panic_propagates_via_guard() -> Result<()> {
     let mut event_processor_list = setup().await?;
