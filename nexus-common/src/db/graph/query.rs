@@ -132,9 +132,8 @@ impl From<Query> for neo4rs::Query {
     }
 }
 
-/// Convenience constructor – creates a `Query` without a label.
-/// Production code should prefer `Query::new(label, cypher)` for explicit labels.
-pub fn query(cypher: impl Into<String>) -> Query {
+#[cfg(test)]
+fn query(cypher: impl Into<String>) -> Query {
     Query {
         label: None,
         cypher: cypher.into(),

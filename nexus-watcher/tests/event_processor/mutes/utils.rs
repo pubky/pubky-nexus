@@ -1,12 +1,13 @@
 use anyhow::Result;
 use nexus_common::db::fetch_key_from_graph;
-use nexus_common::db::graph::query;
+use nexus_common::db::graph::Query;
 
 pub async fn find_mute_relationship(muter: &str, mutee: &str) -> Result<bool> {
-    let query =
-        query("RETURN EXISTS((:User {id: $muter})-[:MUTED]->(:User {id: $mutee})) AS exist")
-            .param("muter", muter)
-            .param("mutee", mutee);
+    let label = "find_mute_relationship";
+    let cypher = "RETURN EXISTS((:User {id: $muter})-[:MUTED]->(:User {id: $mutee})) AS exist";
+    let query = Query::new(label, cypher)
+        .param("muter", muter)
+        .param("mutee", mutee);
 
     let maybe_exists = fetch_key_from_graph(query, "exist").await.unwrap();
 

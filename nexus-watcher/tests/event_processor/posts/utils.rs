@@ -1,5 +1,5 @@
 use anyhow::Result;
-use nexus_common::db::graph::{query, Query};
+use nexus_common::db::graph::Query;
 use nexus_common::{
     db::{fetch_key_from_graph, RedisOps},
     models::post::{
@@ -119,33 +119,33 @@ pub async fn find_repost_relationship_parent_uri(user_id: &str, post_id: &str) -
 }
 
 pub fn post_reply_relationships(author_id: &str, post_id: &str) -> Query {
-    query(
-        "MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+    let label = "post_reply_relationships";
+    let cypher = "MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
         OPTIONAL MATCH (p)-[:REPLIED]->(reply:Post)<-[:AUTHORED]-(reply_author:User)
         RETURN COLLECT([
             reply_author.id,
-            reply.id ]) as details",
-    )
-    .param("author_id", author_id)
-    .param("post_id", post_id)
+            reply.id ]) as details";
+    Query::new(label, cypher)
+        .param("author_id", author_id)
+        .param("post_id", post_id)
 }
 
 pub fn post_repost_relationships(author_id: &str, post_id: &str) -> Query {
-    query(
-        "MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+    let label = "post_repost_relationships";
+    let cypher = "MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
         OPTIONAL MATCH (p)-[:REPOSTED]->(repost:Post)<-[:AUTHORED]-(repost_author:User)
         RETURN collect([
           repost_author.id,
-          repost.id]) as details",
-    )
-    .param("author_id", author_id)
-    .param("post_id", post_id)
+          repost.id]) as details";
+    Query::new(label, cypher)
+        .param("author_id", author_id)
+        .param("post_id", post_id)
 }
 
 // Retrieve a post by id
 pub fn get_post_details_by_id(user_id: &str, post_id: &str) -> Query {
-    query(
-        "
+    let label = "get_post_details_by_id";
+    let cypher = "
         MATCH (user:User {id: $user_id})-[:AUTHORED]->(post:Post {id: $post_id})
         RETURN {
             id: post.id,
@@ -156,8 +156,8 @@ pub fn get_post_details_by_id(user_id: &str, post_id: &str) -> Query {
             author: user.id,
             attachments: post.attachments
         } AS details
-        ",
-    )
-    .param("user_id", user_id)
-    .param("post_id", post_id)
+        ";
+    Query::new(label, cypher)
+        .param("user_id", user_id)
+        .param("post_id", post_id)
 }

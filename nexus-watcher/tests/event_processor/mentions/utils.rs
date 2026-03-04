@@ -1,6 +1,6 @@
 use anyhow::Result;
 use nexus_common::db::fetch_key_from_graph;
-use nexus_common::db::graph::{query, Query};
+use nexus_common::db::graph::Query;
 
 pub async fn find_post_mentions(follower: &str, followee: &str) -> Result<Vec<String>> {
     let query = post_mention_query(follower, followee);
@@ -13,15 +13,15 @@ pub async fn find_post_mentions(follower: &str, followee: &str) -> Result<Vec<St
 }
 
 fn post_mention_query(user_id: &str, post_id: &str) -> Query {
-    query(
-        "
+    let label = "post_mention_query";
+    let cypher = "
         MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
         OPTIONAL MATCH (p)-[:MENTIONED]->(mentioned_user:User)
         RETURN COLLECT(
             mentioned_user.id
         ) as mentioned_list
-        ",
-    )
-    .param("author_id", user_id)
-    .param("post_id", post_id)
+        ";
+    Query::new(label, cypher)
+        .param("author_id", user_id)
+        .param("post_id", post_id)
 }

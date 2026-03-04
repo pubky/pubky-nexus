@@ -1,5 +1,5 @@
 use anyhow::Result;
-use nexus_common::db::graph::{query, Query};
+use nexus_common::db::graph::Query;
 use nexus_common::{
     db::{fetch_key_from_graph, RedisOps},
     models::{
@@ -56,8 +56,8 @@ pub async fn check_member_post_tag_global_timeline(
 
 // Retrieve post related tag
 fn post_tag_query(user_id: &str, post_id: &str, tag_name: &str) -> Query {
-    query(
-        "
+    let label = "post_tag_query";
+    let cypher = "
         MATCH (u:User {id: $user_id})-[:AUTHORED]->(p:Post {id: $post_id})<-[t:TAGGED {label: $tag_name}]-(tagger:User)
         WITH COUNT(tagger) as count, COLLECT(tagger.id) as list, t.label as label
         RETURN {
@@ -65,17 +65,17 @@ fn post_tag_query(user_id: &str, post_id: &str, tag_name: &str) -> Query {
             taggers: list,
             label: label
         } AS tag_details
-        ",
-    )
-    .param("user_id", user_id)
-    .param("post_id", post_id)
-    .param("tag_name", tag_name)
+        ";
+    Query::new(label, cypher)
+        .param("user_id", user_id)
+        .param("post_id", post_id)
+        .param("tag_name", tag_name)
 }
 
 // Retrieve post related tag
 fn user_tag_query(tagged_user_id: &str, tag_name: &str) -> Query {
-    query(
-        "
+    let label = "user_tag_query";
+    let cypher = "
         MATCH (u:User {id: $tagged_user_id})<-[t:TAGGED {label: $tag_name}]-(tagger:User)
         WITH COUNT(tagger) as count, COLLECT(tagger.id) as list, t.label as label
         RETURN {
@@ -83,8 +83,8 @@ fn user_tag_query(tagged_user_id: &str, tag_name: &str) -> Query {
             taggers: list,
             label: label
         } AS tag_details
-        ",
-    )
-    .param("tagged_user_id", tagged_user_id)
-    .param("tag_name", tag_name)
+        ";
+    Query::new(label, cypher)
+        .param("tagged_user_id", tagged_user_id)
+        .param("tag_name", tag_name)
 }
