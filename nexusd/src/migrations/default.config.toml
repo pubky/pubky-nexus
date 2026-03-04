@@ -24,3 +24,5 @@ password = "12345678"
 slow_query_logging_threshold_ms = 100
 # Disable slow query logging for CLI migration commands
 slow_query_logging_enabled = false
+# Include the Cypher query text in slow query log entries
+#slow_query_logging_include_cypher = false
