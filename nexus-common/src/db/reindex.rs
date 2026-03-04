@@ -101,7 +101,9 @@ pub async fn reindex_post(author_id: &str, post_id: &str) -> Result<(), DynError
 }
 
 pub async fn get_all_user_ids() -> Result<Vec<String>, DynError> {
-    let query = Query::new("get_all_user_ids", "MATCH (u:User) RETURN u.id AS id");
+    let label = "get_all_user_ids";
+    let cypher = "MATCH (u:User) RETURN u.id AS id";
+    let query = Query::new(label, cypher);
     let rows = fetch_all_rows_from_graph(query).await?;
 
     let mut user_ids = Vec::new();
@@ -115,10 +117,9 @@ pub async fn get_all_user_ids() -> Result<Vec<String>, DynError> {
 }
 
 async fn get_all_post_ids() -> Result<Vec<(String, String)>, DynError> {
-    let query = Query::new(
-        "get_all_post_ids",
-        "MATCH (u:User)-[:AUTHORED]->(p:Post) RETURN u.id AS author_id, p.id AS post_id",
-    );
+    let label = "get_all_post_ids";
+    let cypher = "MATCH (u:User)-[:AUTHORED]->(p:Post) RETURN u.id AS author_id, p.id AS post_id";
+    let query = Query::new(label, cypher);
     let rows = fetch_all_rows_from_graph(query).await?;
 
     let mut post_ids = Vec::new();

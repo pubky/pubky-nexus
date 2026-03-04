@@ -30,7 +30,8 @@ pub async fn setup_graph() -> GraphResult<()> {
     let graph = get_neo4j_graph()?;
 
     for &ddl in queries {
-        graph.run(Query::new("setup_ddl", ddl)).await.map_err(|e| {
+        let label = "setup_ddl";
+        graph.run(Query::new(label, ddl)).await.map_err(|e| {
             GraphError::Generic(format!(
                 "Failed to apply graph constraint/index '{ddl}': {e}"
             ))
