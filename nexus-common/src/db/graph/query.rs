@@ -60,6 +60,12 @@ pub fn populate_cypher(cypher: &str, params: &BoltMap) -> String {
     let mut out = cypher.to_owned();
     // Sort keys by length descending so `$skip` is replaced before a
     // hypothetical `$s`, avoiding partial substitutions.
+    //
+    // NOTE: There is still a potential issue with this approach: if a
+    // parameter *value* happens to contain text matching another parameter
+    // name (e.g. param "a" has value "$b"), a later replacement pass will
+    // substitute inside the already-replaced value. A proper fix would
+    // require single-pass replacement or placeholder-based substitution.
     let mut entries: Vec<_> = params.value.iter().collect();
     entries.sort_by(|a, b| b.0.value.len().cmp(&a.0.value.len()));
     for (k, v) in entries {
