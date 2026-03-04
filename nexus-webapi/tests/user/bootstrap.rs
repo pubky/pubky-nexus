@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use crate::utils::get_request;
 use anyhow::Result;
-use nexus_common::models::bootstrap::Bootstrap;
+use nexus_common::models::bootstrap::{Bootstrap, BOOTSTRAP_HOT_TAGS_LIMIT};
 use nexus_common::models::notification::Notification;
 use nexus_common::models::notification::NotificationBody;
 
@@ -29,7 +29,7 @@ async fn test_bootstrap_user() -> Result<()> {
     assert_eq!(user_bootstrap_respose.ids.stream.len(), 20);
     assert_eq!(user_bootstrap_respose.ids.influencers.len(), 3);
     assert_eq!(user_bootstrap_respose.ids.recommended.len(), 5);
-    assert!(user_bootstrap_respose.ids.hot_tags.len() <= 5);
+    assert!(user_bootstrap_respose.ids.hot_tags.len() <= BOOTSTRAP_HOT_TAGS_LIMIT);
 
     let user_ids: HashSet<String> = user_bootstrap_respose
         .users
@@ -65,25 +65,24 @@ async fn test_bootstrap_user() -> Result<()> {
     assert!(file_ids.contains("2ZK3A1B2C3D40"));
     assert!(file_ids.contains("2ZK3E5F6G7H80"));
 
-    // Assert notifications count for indexed user
-    assert_eq!(
-        user_bootstrap_respose.notifications.len(),
-        1,
-        "Expected 1 follow notification"
+    // Assert at least one notification exists (>= 1 because shared Redis may accumulate
+    // notifications across test runs)
+    assert!(
+        !user_bootstrap_respose.notifications.is_empty(),
+        "Indexed user should have at least one notification"
     );
 
-    // Verify the notification is a follow notification
-    if let Some(notification) = user_bootstrap_respose.notifications.first() {
-        match &notification.body {
-            NotificationBody::Follow { followed_by } => {
-                assert_eq!(
-                    followed_by, follower_id,
-                    "Follow notification should be from the correct user"
-                );
-            }
-            _ => panic!("Expected a Follow notification"),
-        }
-    }
+    // Verify our follow notification is present
+    let has_follow_notification = user_bootstrap_respose.notifications.iter().any(|n| {
+        matches!(
+            &n.body,
+            NotificationBody::Follow { followed_by } if followed_by == follower_id
+        )
+    });
+    assert!(
+        has_follow_notification,
+        "Expected a Follow notification from {follower_id}"
+    );
 
     Ok(())
 }
@@ -111,7 +110,7 @@ async fn test_bootstrap_user_not_indexed() -> Result<()> {
     );
     // Influencers and hot_tags should still be populated (global data)
     assert!(user_bootstrap_response.ids.influencers.len() <= 3);
-    assert!(user_bootstrap_response.ids.hot_tags.len() <= 40);
+    assert!(user_bootstrap_response.ids.hot_tags.len() <= BOOTSTRAP_HOT_TAGS_LIMIT);
 
     // Notifications should be empty for non-indexed users
     assert_eq!(

@@ -18,6 +18,7 @@ use utoipa::ToSchema;
 use super::user::UserDetails;
 
 const BOOTSTRAP_NOTIFICATIONS_LIMIT: usize = 30;
+pub const BOOTSTRAP_HOT_TAGS_LIMIT: usize = 5;
 
 #[derive(PartialEq, Deserialize)]
 pub enum ViewType {
@@ -156,12 +157,7 @@ impl Bootstrap {
             }
             // Add the author of the post
             user_ids.insert(author_id.clone());
-            // Collect attachment URIs for file metadata fetching
-            if let Some(attachments) = &post_view.details.attachments {
-                for uri in attachments {
-                    attachment_uris.insert(uri.clone());
-                }
-            }
+            attachment_uris.extend(post_view.details.attachments.iter().flatten().cloned());
             // Include the post in the stream list
             if is_full_view_type {
                 self.ids.stream.push(format!("{author_id}:{post_id}"));
@@ -324,7 +320,8 @@ impl Bootstrap {
         &mut self,
         user_ids: &mut HashSet<String>,
     ) -> Result<(), DynError> {
-        let hot_tag_filter = HotTagsInputDTO::new(Timeframe::Today, 5, 0, 5, None);
+        let hot_tag_filter =
+            HotTagsInputDTO::new(Timeframe::Today, BOOTSTRAP_HOT_TAGS_LIMIT, 0, 5, None);
         if let Some(today_hot_tags) = HotTags::get_hot_tags(None, None, &hot_tag_filter).await? {
             today_hot_tags.iter().for_each(|tag| {
                 self.ids.hot_tags.push(tag.clone());
@@ -345,10 +342,6 @@ impl Bootstrap {
         &mut self,
         attachment_uris: &HashSet<String>,
     ) -> Result<(), DynError> {
-        if attachment_uris.is_empty() {
-            return Ok(());
-        }
-
         let file_keys: Vec<(String, String)> = attachment_uris
             .iter()
             .filter_map(|uri| FileDetails::file_key_from_uri(uri))
