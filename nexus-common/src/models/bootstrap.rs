@@ -1,6 +1,6 @@
 use std::collections::HashSet;
+
 use crate::db::kv::SortOrder;
-use crate::models::error::ModelResult;
 use crate::models::notification::Notification;
 use crate::models::tag::stream::{HotTag, HotTags};
 use crate::types::routes::HotTagsInputDTO;
@@ -68,7 +68,7 @@ impl Bootstrap {
     /// - `view_type: ViewType`
     ///   Controls whether to fetch replies and include full stream entries (`Full`)
     ///   or only base posts (`Partial`)
-    pub async fn get_by_id(user_id: &str, view_type: ViewType) -> ModelResult<Self> {
+    pub async fn get_by_id(user_id: &str, view_type: ViewType) -> Result<Self, DynError> {
         let mut bootstrap = Self::default();
         let mut user_ids = HashSet::new();
         let mut attachment_uris = HashSet::new();
@@ -183,7 +183,7 @@ impl Bootstrap {
         &mut self,
         user_ids: &HashSet<String>,
         maybe_viewer_id: Option<&str>,
-    ) -> ModelResult<()> {
+    ) -> Result<(), DynError> {
         if user_ids.is_empty() {
             return Ok(());
         }
@@ -216,7 +216,7 @@ impl Bootstrap {
         user_ids: &mut HashSet<String>,
         attachment_uris: &mut HashSet<String>,
         maybe_viewer_id: Option<&str>,
-    ) -> ModelResult<()> {
+    ) -> Result<(), DynError> {
         // TODO: Might consider in the future to do in all the requests in parallel
         // tokio::task::JoinSet or tokio::spawn(async move {...
         for (author_id, post_id) in post_replies {
@@ -244,7 +244,7 @@ impl Bootstrap {
         maybe_viewer_id: Option<&str>,
         source: StreamSource,
         limit: usize,
-    ) -> ModelResult<PostStream> {
+    ) -> Result<PostStream, DynError> {
         let pagination = Pagination {
             skip: Some(0),
             limit: Some(limit),
@@ -269,7 +269,7 @@ impl Bootstrap {
     ///
     /// # Parameters
     /// - `user_ids: &mut HashSet<String>` A mutable reference to a set of user IDs
-    async fn add_influencers(&mut self, user_ids: &mut HashSet<String>) -> ModelResult<()> {
+    async fn add_influencers(&mut self, user_ids: &mut HashSet<String>) -> Result<(), DynError> {
         if let Some(influencers) =
             Influencers::get_influencers(None, None, 0, 0, Timeframe::Today, true).await?
         {
@@ -305,7 +305,7 @@ impl Bootstrap {
         &mut self,
         user_ids: &mut HashSet<String>,
         user_id: &str,
-    ) -> ModelResult<()> {
+    ) -> Result<(), DynError> {
         if let Some(recommended_users) = UserStream::get_recommended_ids(user_id, None).await? {
             recommended_users.into_iter().for_each(|id| {
                 self.ids.recommended.push(id.clone());
