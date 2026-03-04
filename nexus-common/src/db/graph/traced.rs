@@ -89,26 +89,15 @@ impl Drop for TracedStream {
             let fetch_duration = self.stream_start.elapsed();
             let total = self.execute_duration + fetch_duration;
             if total > self.threshold {
-                if let Some(cypher) = &self.cypher {
-                    warn!(
-                        total_ms = total.as_millis(),
-                        execute_ms = self.execute_duration.as_millis(),
-                        fetch_ms = fetch_duration.as_millis(),
-                        rows = self.row_count,
-                        query = %label,
-                        cypher = %cypher,
-                        "Slow Neo4j query"
-                    );
-                } else {
-                    warn!(
-                        total_ms = total.as_millis(),
-                        execute_ms = self.execute_duration.as_millis(),
-                        fetch_ms = fetch_duration.as_millis(),
-                        rows = self.row_count,
-                        query = %label,
-                        "Slow Neo4j query"
-                    );
-                }
+                warn!(
+                    total_ms = total.as_millis(),
+                    execute_ms = self.execute_duration.as_millis(),
+                    fetch_ms = fetch_duration.as_millis(),
+                    rows = self.row_count,
+                    query = %label,
+                    cypher = self.cypher.as_deref().unwrap_or(""),
+                    "Slow Neo4j query"
+                );
             }
         }
     }
@@ -183,11 +172,7 @@ impl GraphOps for TracedGraph {
 
         if let Some(label) = &label {
             if elapsed > self.slow_query_threshold {
-                if let Some(cypher) = &cypher {
-                    warn!(elapsed_ms = elapsed.as_millis(), query = %label, cypher = %cypher, "Slow Neo4j query");
-                } else {
-                    warn!(elapsed_ms = elapsed.as_millis(), query = %label, "Slow Neo4j query");
-                }
+                warn!(elapsed_ms = elapsed.as_millis(), query = %label, cypher = cypher.as_deref().unwrap_or(""), "Slow Neo4j query");
             }
         }
 
