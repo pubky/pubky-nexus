@@ -36,12 +36,12 @@ impl Neo4jConnector {
         let neo4j_graph = neo4rs::Graph::new(&config.uri, &config.user, &config.password).await?;
         let graph = Graph::new(neo4j_graph);
 
-        let graph: Arc<dyn GraphOps> = if config.slow_query_logging {
-            let threshold = Duration::from_millis(config.slow_query_threshold_ms);
+        let graph: Arc<dyn GraphOps> = if config.slow_query_logging_enabled {
+            let threshold = Duration::from_millis(config.slow_query_logging_threshold_ms);
             Arc::new(
                 TracedGraph::new(graph)
                     .with_slow_query_threshold(threshold)
-                    .with_log_cypher(config.log_slow_query_cypher),
+                    .with_log_cypher(config.slow_query_logging_include_cypher),
             )
         } else {
             Arc::new(graph)

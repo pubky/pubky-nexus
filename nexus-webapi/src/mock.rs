@@ -21,7 +21,7 @@ impl MockDb {
     /// Initialize the database stack for CLI db commands (no slow-query logging).
     async fn init_stack() {
         let mut api_config = ApiConfig::default();
-        api_config.stack.db.neo4j.slow_query_logging = false;
+        api_config.stack.db.neo4j.slow_query_logging_enabled = false;
         let api_context = ApiContextBuilder::from_default_config_dir()
             .api_config(api_config)
             .try_build()

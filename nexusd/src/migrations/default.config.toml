@@ -21,6 +21,6 @@ uri = "bolt://localhost:7687"
 #user = "neo4j"
 password = "12345678"
 # Queries taking longer than this (ms) will be logged as warnings
-slow_query_threshold_ms = 100
+slow_query_logging_threshold_ms = 100
 # Disable slow query logging for CLI migration commands
-slow_query_logging = false
+slow_query_logging_enabled = false

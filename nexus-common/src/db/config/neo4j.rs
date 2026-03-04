@@ -16,30 +16,30 @@ pub struct Neo4JConfig {
     pub password: String,
 
     /// Queries exceeding this threshold (in milliseconds) are logged as warnings.
-    /// Only used when `slow_query_logging` is enabled.
-    #[serde(default = "default_slow_query_threshold_ms")]
-    pub slow_query_threshold_ms: u64,
+    /// Only used when `slow_query_logging_enabled` is true.
+    #[serde(default = "default_slow_query_logging_threshold_ms")]
+    pub slow_query_logging_threshold_ms: u64,
 
     /// Enable slow-query logging. Defaults to true.
     /// Set to false for CLI/admin commands where tracing overhead is unnecessary.
-    #[serde(default = "default_slow_query_logging")]
-    pub slow_query_logging: bool,
+    #[serde(default = "default_slow_query_logging_enabled")]
+    pub slow_query_logging_enabled: bool,
 
     /// Include the full cypher (with interpolated params) in slow-query warnings.
     /// Useful for debugging but verbose. Defaults to false.
     #[serde(default)]
-    pub log_slow_query_cypher: bool,
+    pub slow_query_logging_include_cypher: bool,
 }
 
 fn default_neo4j_user() -> String {
     String::from("neo4j")
 }
 
-fn default_slow_query_threshold_ms() -> u64 {
+fn default_slow_query_logging_threshold_ms() -> u64 {
     DEFAULT_SLOW_QUERY_THRESHOLD_MS
 }
 
-fn default_slow_query_logging() -> bool {
+fn default_slow_query_logging_enabled() -> bool {
     true
 }
 
@@ -49,9 +49,9 @@ impl Default for Neo4JConfig {
             uri: String::from(NEO4J_URI),
             user: String::from(NEO4J_USER),
             password: String::from(NEO4J_PASS),
-            slow_query_threshold_ms: DEFAULT_SLOW_QUERY_THRESHOLD_MS,
-            slow_query_logging: true,
-            log_slow_query_cypher: false,
+            slow_query_logging_threshold_ms: DEFAULT_SLOW_QUERY_THRESHOLD_MS,
+            slow_query_logging_enabled: true,
+            slow_query_logging_include_cypher: false,
         }
     }
 }

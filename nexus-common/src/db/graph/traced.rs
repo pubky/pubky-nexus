@@ -61,7 +61,7 @@ impl GraphOps for Graph {
 struct TracedStream {
     inner: BoxStream<'static, Result<Row, neo4rs::Error>>,
     label: Option<&'static str>,
-    /// Populated cypher text for debug logging (only set when `log_slow_query_cypher` is enabled).
+    /// Populated cypher text for debug logging (only set when `slow_query_logging_include_cypher` is enabled).
     cypher: Option<String>,
     /// Pool-acquire + Bolt RUN round-trip (query planning & start of execution).
     execute_duration: Duration,
