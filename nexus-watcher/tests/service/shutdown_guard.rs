@@ -36,7 +36,10 @@ async fn test_run_tasks_clean_shutdown_via_external_signal() -> Result<()> {
     });
 
     let result = NexusWatcher::run_tasks(shutdown_rx, runner, 100).await;
-    assert!(result.is_ok(), "run_tasks should return Ok on clean shutdown");
+    assert!(
+        result.is_ok(),
+        "run_tasks should return Ok on clean shutdown"
+    );
 
     Ok(())
 }

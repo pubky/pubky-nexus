@@ -70,10 +70,7 @@ impl TEventProcessorRunner for VariableDelayRunner {
     /// default homeserver loop. By collecting these timestamps we can assert that
     /// calls stay spaced out (Skip) instead of clustering in burst catch-up mode.
     async fn build(&self, _homeserver_id: String) -> Result<Arc<dyn TEventProcessor>, DynError> {
-        self.build_timestamps
-            .lock()
-            .unwrap()
-            .push(Instant::now());
+        self.build_timestamps.lock().unwrap().push(Instant::now());
         Ok(self.processor.clone())
     }
 }
@@ -124,7 +121,7 @@ async fn test_no_burst_after_slow_processing_round() -> Result<()> {
     // but any "burst catch-up" would produce near-zero gaps. Keep a conservative
     // floor that catches burst behavior without being CI-fragile.
     let min_expected_non_burst_gap = Duration::from_millis(30);
-    
+
     for i in 1..timestamps.len() {
         let gap = timestamps[i].duration_since(timestamps[i - 1]);
         assert!(
