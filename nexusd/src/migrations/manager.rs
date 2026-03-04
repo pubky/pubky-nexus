@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use futures::TryStreamExt;
 use nexus_common::{
-    db::{get_neo4j_graph, graph::Query, GraphExec},
+    db::{get_neo4j_graph, graph::Query, GraphOps},
     types::DynError,
 };
 use serde::{Deserialize, Serialize};
@@ -90,7 +90,7 @@ pub struct MigrationNode {
 const MIGRATION_PATH: &str = "nexusd/src/migrations/migrations_list/";
 
 pub struct MigrationManager {
-    graph: Arc<dyn GraphExec>,
+    graph: Arc<dyn GraphOps>,
     migrations: Vec<Box<dyn Migration>>,
 }
 

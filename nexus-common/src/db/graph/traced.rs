@@ -13,7 +13,7 @@ use crate::db::config::DEFAULT_SLOW_QUERY_THRESHOLD_MS;
 /// Abstraction over graph database operations.
 /// Callers depend on this trait, not the concrete implementations.
 #[async_trait]
-pub trait GraphExec: Send + Sync {
+pub trait GraphOps: Send + Sync {
     /// Execute query, return boxed row stream.
     async fn execute(
         &self,
@@ -24,7 +24,7 @@ pub trait GraphExec: Send + Sync {
     async fn run(&self, query: Query) -> neo4rs::Result<()>;
 }
 
-/// Thin wrapper around `neo4rs::Graph` implementing `GraphExec` without tracing.
+/// Thin wrapper around `neo4rs::Graph` implementing `GraphOps` without tracing.
 #[derive(Clone)]
 pub struct Graph {
     inner: neo4rs::Graph,
@@ -37,7 +37,7 @@ impl Graph {
 }
 
 #[async_trait]
-impl GraphExec for Graph {
+impl GraphOps for Graph {
     async fn execute(
         &self,
         query: Query,
@@ -143,7 +143,7 @@ impl TracedGraph {
 }
 
 #[async_trait]
-impl GraphExec for TracedGraph {
+impl GraphOps for TracedGraph {
     async fn execute(
         &self,
         query: Query,

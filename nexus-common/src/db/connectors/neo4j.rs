@@ -5,13 +5,13 @@ use std::time::Duration;
 use tracing::{debug, info};
 
 use crate::db::graph::error::{GraphError, GraphResult};
-use crate::db::graph::{Graph, GraphExec, TracedGraph};
+use crate::db::graph::{Graph, GraphOps, TracedGraph};
 use crate::db::setup::setup_graph;
 use crate::db::Neo4JConfig;
 use crate::types::DynError;
 
 pub struct Neo4jConnector {
-    graph: Arc<dyn GraphExec>,
+    graph: Arc<dyn GraphOps>,
 }
 
 impl Neo4jConnector {
@@ -36,7 +36,7 @@ impl Neo4jConnector {
         let neo4j_graph = neo4rs::Graph::new(&config.uri, &config.user, &config.password).await?;
         let graph = Graph::new(neo4j_graph);
 
-        let graph: Arc<dyn GraphExec> = if config.slow_query_logging {
+        let graph: Arc<dyn GraphOps> = if config.slow_query_logging {
             let threshold = Duration::from_millis(config.slow_query_threshold_ms);
             Arc::new(
                 TracedGraph::new(graph)
@@ -67,13 +67,13 @@ impl Neo4jConnector {
 impl fmt::Debug for Neo4jConnector {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Neo4jConnector")
-            .field("graph", &"GraphExec instance")
+            .field("graph", &"GraphOps instance")
             .finish()
     }
 }
 
 /// Helper to retrieve a Neo4j graph connection.
-pub fn get_neo4j_graph() -> GraphResult<Arc<dyn GraphExec>> {
+pub fn get_neo4j_graph() -> GraphResult<Arc<dyn GraphOps>> {
     NEO4J_CONNECTOR
         .get()
         .ok_or(GraphError::ConnectionNotInitialized)
