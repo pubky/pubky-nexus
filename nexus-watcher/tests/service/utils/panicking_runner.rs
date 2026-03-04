@@ -1,18 +1,23 @@
-use crate::service::utils::MockEventProcessorRunner;
 use nexus_common::types::DynError;
 use nexus_watcher::service::{ProcessedStats, TEventProcessor, TEventProcessorRunner};
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
 
-/// Wraps a [`MockEventProcessorRunner`] but panics in `run_default_homeserver()`.
-/// Used to test that a panic in the default HS task is detected by the `JoinSet`
-/// and causes the external HS task to stop via the internal shutdown channel.
-pub struct PanickingDefaultHsRunner {
-    pub inner: MockEventProcessorRunner,
+/// Controls which processing loop should panic in [`PanickingRunner`].
+///
+/// This lets tests reuse one runner implementation for both panic paths.
+pub enum PanicTarget {
+    DefaultHs,
+    ExternalHs,
+}
+
+pub struct PanickingRunner {
+    pub panic_target: PanicTarget,
+    pub inner: Arc<dyn TEventProcessorRunner>,
 }
 
 #[async_trait::async_trait]
-impl TEventProcessorRunner for PanickingDefaultHsRunner {
+impl TEventProcessorRunner for PanickingRunner {
     fn shutdown_rx(&self) -> Receiver<bool> {
         self.inner.shutdown_rx()
     }
@@ -34,40 +39,16 @@ impl TEventProcessorRunner for PanickingDefaultHsRunner {
     }
 
     async fn run_default_homeserver(&self) -> Result<ProcessedStats, DynError> {
-        panic!("simulated default HS task crash");
-    }
-}
-
-/// Wraps a [`MockEventProcessorRunner`] but panics in `run_external_homeservers()`.
-/// Used to test that a panic in the external HS task is detected by the `JoinSet`
-/// and causes the default HS task to stop via the internal shutdown channel.
-pub struct PanickingExternalHsRunner {
-    pub inner: MockEventProcessorRunner,
-}
-
-#[async_trait::async_trait]
-impl TEventProcessorRunner for PanickingExternalHsRunner {
-    fn shutdown_rx(&self) -> Receiver<bool> {
-        self.inner.shutdown_rx()
-    }
-
-    fn default_homeserver(&self) -> &str {
-        self.inner.default_homeserver()
-    }
-
-    fn monitored_homeservers_limit(&self) -> usize {
-        self.inner.monitored_homeservers_limit()
-    }
-
-    async fn external_homeservers_by_priority(&self) -> Result<Vec<String>, DynError> {
-        self.inner.external_homeservers_by_priority().await
-    }
-
-    async fn build(&self, homeserver_id: String) -> Result<Arc<dyn TEventProcessor>, DynError> {
-        self.inner.build(homeserver_id).await
+        if matches!(self.panic_target, PanicTarget::DefaultHs) {
+            panic!("simulated default HS task crash");
+        }
+        self.inner.run_default_homeserver().await
     }
 
     async fn run_external_homeservers(&self) -> Result<ProcessedStats, DynError> {
-        panic!("simulated external HS task crash");
+        if matches!(self.panic_target, PanicTarget::ExternalHs) {
+            panic!("simulated external HS task crash");
+        }
+        self.inner.run_external_homeservers().await
     }
 }

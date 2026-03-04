@@ -17,7 +17,6 @@ use nexus_common::models::homeserver::Homeserver;
 use nexus_common::utils::create_shutdown_rx;
 use nexus_common::{DaemonConfig, WatcherConfig};
 use pubky_app_specs::PubkyId;
-use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
@@ -85,10 +84,9 @@ impl NexusWatcher {
     /// Three parallel tasks are spawned:
     /// 1. **Default homeserver task**: calls [`TEventProcessorRunner::run_default_homeserver`] each tick.
     /// 2. **External homeservers task**: calls [`TEventProcessorRunner::run_external_homeservers`] each tick.
-    /// 3. **Shutdown forwarder task**: bridges the external `shutdown_rx` (e.g. SIGINT) into an internal channel.
     ///
     /// When any task exits (normally or via panic), `JoinSet::join_next` returns and the
-    /// remaining tasks are signalled to shut down gracefully via the internal channel.
+    /// remaining task is aborted if needed.
     ///
     /// Separated from [`Self::start`] to allow injection of mock runners in tests.
     pub async fn run_tasks(
@@ -96,42 +94,57 @@ impl NexusWatcher {
         runner: Arc<dyn TEventProcessorRunner>,
         watcher_sleep: u64,
     ) -> Result<(), DynError> {
-        let (internal_shutdown_tx, internal_shutdown_rx) = tokio::sync::watch::channel(false);
         let mut set: tokio::task::JoinSet<&'static str> = tokio::task::JoinSet::new();
 
         // Task 1: Default homeserver processing
-        Self::spawn_processing_loop(
-            &mut set,
-            runner.clone(),
-            internal_shutdown_rx.clone(),
-            watcher_sleep,
-            "default homeserver",
-            |runner| async move { runner.run_default_homeserver().await },
-        );
-
-        // Task 2: External homeservers processing
-        Self::spawn_processing_loop(
-            &mut set,
-            runner.clone(),
-            internal_shutdown_rx.clone(),
-            watcher_sleep,
-            "external homeservers",
-            |runner| async move { runner.run_external_homeservers().await },
-        );
-
-        // Task 3: Forwarder — bridges external SIGINT into the internal shutdown channel
+        let shutdown_rx_default = shutdown_rx.clone();
+        let runner_default = runner.clone();
         set.spawn(async move {
-            let mut shutdown_rx = shutdown_rx;
-            let mut internal_shutdown_rx = internal_shutdown_rx;
-            tokio::select! {
-                _ = shutdown_rx.changed() => {
-                    info!("SIGINT received, forwarding shutdown to watcher tasks");
-                }
-                _ = internal_shutdown_rx.changed() => {
-                    info!("Internal shutdown received in forwarder, exiting");
+            let mut shutdown_rx = shutdown_rx_default;
+            let mut interval = tokio::time::interval(Duration::from_millis(watcher_sleep));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+            loop {
+                tokio::select! {
+                    _ = shutdown_rx.changed() => {
+                        info!("Shutdown received, exiting default homeserver loop");
+                        break;
+                    }
+                    _ = interval.tick() => {
+                        debug!("Indexing default homeserver…");
+                        _ = runner_default
+                            .run_default_homeserver()
+                            .await
+                            .inspect_err(|e| error!("Failed to run default homeserver event processor: {e}"));
+                    }
                 }
             }
-            "shutdown forwarder"
+            "default homeserver"
+        });
+
+        // Task 2: External homeservers processing
+        let runner_external = runner;
+        set.spawn(async move {
+            let mut shutdown_rx = shutdown_rx;
+            let mut interval = tokio::time::interval(Duration::from_millis(watcher_sleep));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+            loop {
+                tokio::select! {
+                    _ = shutdown_rx.changed() => {
+                        info!("Shutdown received, exiting external homeservers loop");
+                        break;
+                    }
+                    _ = interval.tick() => {
+                        debug!("Indexing external homeservers…");
+                        _ = runner_external
+                            .run_external_homeservers()
+                            .await
+                            .inspect_err(|e| error!("Failed to run external homeservers event processor: {e}"));
+                    }
+                }
+            }
+            "external homeservers"
         });
 
         // Block until the first task exits for any reason
@@ -143,11 +156,12 @@ impl NexusWatcher {
                 error!("Task failed (panic/cancel): {e}");
                 had_error = true;
             }
-            None => unreachable!("JoinSet is non-empty"),
+            None => unreachable!("Expected at least one task in JoinSet"),
         }
 
-        // Signal the remaining tasks to stop gracefully
-        let _ = internal_shutdown_tx.send(true);
+        if had_error {
+            set.abort_all();
+        }
 
         // Drain remaining tasks
         while let Some(result) = set.join_next().await {
@@ -166,38 +180,5 @@ impl NexusWatcher {
 
         info!("Nexus Watcher shut down gracefully");
         Ok(())
-    }
-
-    fn spawn_processing_loop<F, Fut>(
-        set: &mut tokio::task::JoinSet<&'static str>,
-        runner: Arc<dyn TEventProcessorRunner>,
-        mut shutdown: Receiver<bool>,
-        watcher_sleep: u64,
-        label: &'static str,
-        process: F,
-    ) where
-        F: Fn(Arc<dyn TEventProcessorRunner>) -> Fut + Send + 'static,
-        Fut: Future<Output = Result<ProcessedStats, DynError>> + Send,
-    {
-        set.spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_millis(watcher_sleep));
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-
-            loop {
-                tokio::select! {
-                    _ = shutdown.changed() => {
-                        info!("Shutdown received, exiting {label} loop");
-                        break;
-                    }
-                    _ = interval.tick() => {
-                        debug!("Indexing {label}…");
-                        _ = process(runner.clone())
-                            .await
-                            .inspect_err(|e| error!("Failed to run {label} event processor: {e}"));
-                    }
-                }
-            }
-            label
-        });
     }
 }

@@ -1,6 +1,6 @@
 use crate::service::utils::{
     create_random_homeservers_and_persist, setup, MockEventProcessorResult,
-    MockEventProcessorRunner, PanickingDefaultHsRunner, PanickingExternalHsRunner,
+    MockEventProcessorRunner, PanicTarget, PanickingRunner,
 };
 use anyhow::Result;
 use nexus_watcher::service::NexusWatcher;
@@ -9,8 +9,7 @@ use std::time::Duration;
 use tokio::time::sleep;
 
 /// Test A: Sending an external shutdown signal causes `run_tasks` to return `Ok`.
-/// Verifies the forwarder task bridges the external signal into the internal channel,
-/// causing all processing tasks to exit gracefully.
+/// Verifies processing tasks exit gracefully when the shared shutdown signal changes.
 #[tokio_shared_rt::test(shared)]
 async fn test_run_tasks_clean_shutdown_via_external_signal() -> Result<()> {
     let mut event_processor_list = setup().await?;
@@ -45,8 +44,7 @@ async fn test_run_tasks_clean_shutdown_via_external_signal() -> Result<()> {
 }
 
 /// Test B: A panic in `run_default_homeserver` causes the spawned task to crash.
-/// `JoinSet::join_next` surfaces the panic, then the remaining tasks are signalled
-/// to stop via the internal shutdown channel.
+/// `JoinSet::join_next` surfaces the panic and remaining tasks are aborted.
 /// `run_tasks` returns `Err` because the panicked `JoinError` is observed during drain.
 #[tokio_shared_rt::test(shared)]
 async fn test_run_tasks_default_hs_panic_propagates_via_guard() -> Result<()> {
@@ -65,7 +63,10 @@ async fn test_run_tasks_default_hs_panic_propagates_via_guard() -> Result<()> {
     }
 
     let inner = MockEventProcessorRunner::new(event_processor_list, 3, shutdown_rx.clone());
-    let runner = Arc::new(PanickingDefaultHsRunner { inner });
+    let runner = Arc::new(PanickingRunner {
+        panic_target: PanicTarget::DefaultHs,
+        inner: Arc::new(inner),
+    });
 
     let result = NexusWatcher::run_tasks(shutdown_rx, runner, 100).await;
     assert!(
@@ -77,8 +78,7 @@ async fn test_run_tasks_default_hs_panic_propagates_via_guard() -> Result<()> {
 }
 
 /// Test C: A panic in `run_external_homeservers` causes the spawned task to crash.
-/// `JoinSet::join_next` surfaces the panic, then the remaining tasks are signalled
-/// to stop via the internal shutdown channel.
+/// `JoinSet::join_next` surfaces the panic and remaining tasks are aborted.
 /// `run_tasks` returns `Err` because the panicked `JoinError` is observed during drain.
 #[tokio_shared_rt::test(shared)]
 async fn test_run_tasks_external_hs_panic_propagates_via_guard() -> Result<()> {
@@ -97,7 +97,10 @@ async fn test_run_tasks_external_hs_panic_propagates_via_guard() -> Result<()> {
     }
 
     let inner = MockEventProcessorRunner::new(event_processor_list, 3, shutdown_rx.clone());
-    let runner = Arc::new(PanickingExternalHsRunner { inner });
+    let runner = Arc::new(PanickingRunner {
+        panic_target: PanicTarget::ExternalHs,
+        inner: Arc::new(inner),
+    });
 
     let result = NexusWatcher::run_tasks(shutdown_rx, runner, 100).await;
     assert!(

@@ -4,7 +4,7 @@ mod processor_runner;
 mod result;
 mod setup;
 
-pub use panicking_runner::{PanickingDefaultHsRunner, PanickingExternalHsRunner};
+pub use panicking_runner::{PanicTarget, PanickingRunner};
 pub use processor::{
     create_mock_event_processors, create_random_homeservers_and_persist, MockEventProcessor,
 };
