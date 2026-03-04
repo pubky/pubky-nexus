@@ -181,6 +181,7 @@ async fn test_no_burst_after_slow_processing_round() -> Result<()> {
     Ok(())
 }
 
+/// Ensures `run_tasks` returns promptly with `Err` if the default-HS task panics.
 #[tokio_shared_rt::test(shared)]
 async fn test_panicking_task_does_not_hang_run_tasks() -> Result<()> {
     let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
@@ -207,6 +208,7 @@ async fn test_panicking_task_does_not_hang_run_tasks() -> Result<()> {
     Ok(())
 }
 
+/// Ensures `run_tasks` returns promptly with `Err` if the external-HS task panics.
 #[tokio_shared_rt::test(shared)]
 async fn test_panicking_external_task_does_not_hang_run_tasks() -> Result<()> {
     let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
