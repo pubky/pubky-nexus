@@ -105,6 +105,7 @@ impl NexusWatcher {
             let mut shutdown = internal_shutdown_rx.clone();
             set.spawn(async move {
                 let mut interval = tokio::time::interval(Duration::from_millis(watcher_sleep));
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 loop {
                     tokio::select! {
                         _ = shutdown.changed() => {
@@ -129,6 +130,7 @@ impl NexusWatcher {
             let mut shutdown = internal_shutdown_rx.clone();
             set.spawn(async move {
                 let mut interval = tokio::time::interval(Duration::from_millis(watcher_sleep));
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 loop {
                     tokio::select! {
                         _ = shutdown.changed() => {
