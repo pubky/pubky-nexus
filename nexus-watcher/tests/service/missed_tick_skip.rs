@@ -49,15 +49,6 @@ struct VariableDelayRunner {
     shutdown_rx: Receiver<bool>,
 }
 
-/// Minimal runner that sleeps in both processing loops.
-///
-/// Used as a non-panicking inner runner for [`PanickingRunner`] so each test can
-/// force a panic on exactly one task while the other task keeps running long
-/// enough to validate that `run_tasks` does not hang.
-struct SleepingRunner {
-    shutdown_rx: Receiver<bool>,
-}
-
 #[async_trait::async_trait]
 impl TEventProcessorRunner for VariableDelayRunner {
     fn shutdown_rx(&self) -> Receiver<bool> {
@@ -85,6 +76,15 @@ impl TEventProcessorRunner for VariableDelayRunner {
         self.build_timestamps.lock().unwrap().push(Instant::now());
         Ok(self.processor.clone())
     }
+}
+
+/// Minimal runner that sleeps in both processing loops.
+///
+/// Used as a non-panicking inner runner for [`PanickingRunner`] so each test can
+/// force a panic on exactly one task while the other task keeps running long
+/// enough to validate that `run_tasks` does not hang.
+struct SleepingRunner {
+    shutdown_rx: Receiver<bool>,
 }
 
 #[async_trait::async_trait]
