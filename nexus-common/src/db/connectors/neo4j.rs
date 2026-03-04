@@ -53,9 +53,7 @@ impl Neo4jConnector {
 
     /// Perform a health-check PING over the Bolt protocol to the Neo4j server
     async fn ping(&self, neo4j_uri: &str) -> Result<(), DynError> {
-        let label = "ping";
-        let cypher = "RETURN 1";
-        if let Err(neo4j_err) = self.graph.run(Query::new(label, cypher)).await {
+        if let Err(neo4j_err) = self.graph.run(Query::new("ping", "RETURN 1")).await {
             return Err(format!("Failed to PING to Neo4j at {neo4j_uri}, {neo4j_err}").into());
         }
 

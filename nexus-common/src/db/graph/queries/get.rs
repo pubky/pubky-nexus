@@ -9,8 +9,9 @@ use pubky_app_specs::PubkyAppPostKind;
 
 // Retrieve post node by post id and author id
 pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
-    let label = "get_post_by_id";
-    let cypher = "
+    Query::new(
+        "get_post_by_id",
+        "
             MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
             OPTIONAL MATCH (p)-[replied:REPLIED]->(parent_post:Post)<-[:AUTHORED]-(author:User)
             WITH u, p, parent_post, author
@@ -27,15 +28,16 @@ pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
             } as details,
             COLLECT([author.id, parent_post.id]) AS reply
 
-        ";
-    Query::new(label, cypher)
-        .param("author_id", author_id)
-        .param("post_id", post_id)
+        ",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
 }
 
 pub fn post_counts(author_id: &str, post_id: &str) -> Query {
-    let label = "post_counts";
-    let cypher = "
+    Query::new(
+        "post_counts",
+        "
         MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
         WITH p
         OPTIONAL MATCH (p)<-[t:TAGGED]-()
@@ -48,75 +50,83 @@ pub fn post_counts(author_id: &str, post_id: &str) -> Query {
                 reposts: COUNT { (p)<-[:REPOSTED]-() }
             } AS counts,
             EXISTS { (p)-[:REPLIED]->(:Post) } AS is_reply
-    ";
-    Query::new(label, cypher)
-        .param("author_id", author_id)
-        .param("post_id", post_id)
+    ",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
 }
 
 // Check if the viewer_id has a bookmark in the post
 pub fn post_bookmark(author_id: &str, post_id: &str, viewer_id: &str) -> Query {
-    let label = "post_bookmark";
-    let cypher = "MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+    Query::new(
+        "post_bookmark",
+        "MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
          MATCH (viewer:User {id: $viewer_id})-[b:BOOKMARKED]->(p)
-         RETURN b";
-    Query::new(label, cypher)
-        .param("author_id", author_id)
-        .param("post_id", post_id)
-        .param("viewer_id", viewer_id)
+         RETURN b",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
+    .param("viewer_id", viewer_id)
 }
 
 // Check all the bookmarks that user creates
 pub fn user_bookmarks(user_id: &str) -> Query {
-    let label = "user_bookmarks";
-    let cypher = "MATCH (u:User {id: $user_id})-[b:BOOKMARKED]->(p:Post)<-[:AUTHORED]-(author:User)
-         RETURN b, p.id AS post_id, author.id AS author_id";
-    Query::new(label, cypher).param("user_id", user_id)
+    Query::new(
+        "user_bookmarks",
+        "MATCH (u:User {id: $user_id})-[b:BOOKMARKED]->(p:Post)<-[:AUTHORED]-(author:User)
+         RETURN b, p.id AS post_id, author.id AS author_id",
+    )
+    .param("user_id", user_id)
 }
 
 // Get all the bookmarks that a post has received (used for edit/delete notifications)
 pub fn get_post_bookmarks(author_id: &str, post_id: &str) -> Query {
-    let label = "get_post_bookmarks";
-    let cypher = "MATCH (bookmarker:User)-[b:BOOKMARKED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
-         RETURN b.id AS bookmark_id, bookmarker.id AS bookmarker_id";
-    Query::new(label, cypher)
+    Query::new(
+        "get_post_bookmarks",
+        "MATCH (bookmarker:User)-[b:BOOKMARKED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
+         RETURN b.id AS bookmark_id, bookmarker.id AS bookmarker_id",
+    )
         .param("author_id", author_id)
         .param("post_id", post_id)
 }
 
 // Get all the reposts that a post has received (used for edit/delete notifications)
 pub fn get_post_reposts(author_id: &str, post_id: &str) -> Query {
-    let label = "get_post_reposts";
-    let cypher = "MATCH (reposter:User)-[:AUTHORED]->(repost:Post)-[:REPOSTED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
-         RETURN reposter.id AS reposter_id, repost.id AS repost_id";
-    Query::new(label, cypher)
+    Query::new(
+        "get_post_reposts",
+        "MATCH (reposter:User)-[:AUTHORED]->(repost:Post)-[:REPOSTED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
+         RETURN reposter.id AS reposter_id, repost.id AS repost_id",
+    )
         .param("author_id", author_id)
         .param("post_id", post_id)
 }
 
 // Get all the replies that a post has received (used for edit/delete notifications)
 pub fn get_post_replies(author_id: &str, post_id: &str) -> Query {
-    let label = "get_post_replies";
-    let cypher = "MATCH (replier:User)-[:AUTHORED]->(reply:Post)-[:REPLIED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
-         RETURN replier.id AS replier_id, reply.id AS reply_id";
-    Query::new(label, cypher)
+    Query::new(
+        "get_post_replies",
+        "MATCH (replier:User)-[:AUTHORED]->(reply:Post)-[:REPLIED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
+         RETURN replier.id AS replier_id, reply.id AS reply_id",
+    )
         .param("author_id", author_id)
         .param("post_id", post_id)
 }
 
 // Get all the tags/taggers that a post has received (used for edit/delete notifications)
 pub fn get_post_tags(author_id: &str, post_id: &str) -> Query {
-    let label = "get_post_tags";
-    let cypher = "MATCH (tagger:User)-[t:TAGGED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
-         RETURN tagger.id AS tagger_id, t.id AS tag_id";
-    Query::new(label, cypher)
+    Query::new(
+        "get_post_tags",
+        "MATCH (tagger:User)-[t:TAGGED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
+         RETURN tagger.id AS tagger_id, t.id AS tag_id",
+    )
         .param("author_id", author_id)
         .param("post_id", post_id)
 }
 
 pub fn post_relationships(author_id: &str, post_id: &str) -> Query {
-    let label = "post_relationships";
-    let cypher = "MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+    Query::new(
+        "post_relationships",
+        "MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
         OPTIONAL MATCH (p)-[:REPLIED]->(replied_post:Post)<-[:AUTHORED]-(replied_author:User)
         OPTIONAL MATCH (p)-[:REPOSTED]->(reposted_post:Post)<-[:AUTHORED]-(reposted_author:User)
         OPTIONAL MATCH (p)-[:MENTIONED]->(mentioned_user:User)
@@ -125,17 +135,18 @@ pub fn post_relationships(author_id: &str, post_id: &str) -> Query {
           replied_author.id AS replied_author_id,
           reposted_post.id AS reposted_post_id,
           reposted_author.id AS reposted_author_id,
-          COLLECT(mentioned_user.id) AS mentioned_user_ids";
-    Query::new(label, cypher)
-        .param("author_id", author_id)
-        .param("post_id", post_id)
+          COLLECT(mentioned_user.id) AS mentioned_user_ids",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
 }
 
 // Retrieve many users by id
 // We return also id if not we will not get not found users
 pub fn get_users_details_by_ids(user_ids: &[&str]) -> Query {
-    let label = "get_users_details_by_ids";
-    let cypher = "
+    Query::new(
+        "get_users_details_by_ids",
+        "
         UNWIND $ids AS id
         OPTIONAL MATCH (record:User {id: id})
         RETURN
@@ -145,21 +156,23 @@ pub fn get_users_details_by_ids(user_ids: &[&str]) -> Query {
                     THEN record
                     ELSE null
                 END AS record
-        ";
-    Query::new(label, cypher).param("ids", user_ids)
+        ",
+    )
+    .param("ids", user_ids)
 }
 
 /// Retrieves unique global tags for posts, returning a list of `post_ids` and `timestamp` pairs for each tag label.
 pub fn global_tags_by_post() -> Query {
-    let label = "global_tags_by_post";
-    let cypher = "
+    Query::new(
+        "global_tags_by_post",
+        "
         MATCH (tagger:User)-[t:TAGGED]->(post:Post)<-[:AUTHORED]-(author:User)
         WITH t.label AS label, author.id + ':' + post.id AS post_id, post.indexed_at AS score
         WITH DISTINCT post_id, label, score
         WITH label, COLLECT([toFloat(score), post_id ]) AS sorted_set
         RETURN label, sorted_set
-        ";
-    Query::new(label, cypher)
+        ",
+    )
 }
 
 // TODO: Do not traverse all the graph again to get the engagement score. Rethink how to share that info in the indexer
@@ -167,8 +180,9 @@ pub fn global_tags_by_post() -> Query {
 /// replies, reposts and mentions. The query returns a `key` by combining author's ID
 /// and post's ID, along with a sorted set of engagement scores for each tag label.
 pub fn global_tags_by_post_engagement() -> Query {
-    let label = "global_tags_by_post_engagement";
-    let cypher = "
+    Query::new(
+        "global_tags_by_post_engagement",
+        "
         MATCH (author:User)-[:AUTHORED]->(post:Post)<-[tag:TAGGED]-(tagger:User)
         WITH post, COUNT(tag) AS tags_count, tag.label AS label, author.id + ':' + post.id AS key
         WITH DISTINCT key, label, post, tags_count
@@ -181,14 +195,15 @@ pub fn global_tags_by_post_engagement() -> Query {
         WITH label, COLLECT([toFloat(taggers + replies_count + reposts_count + mention_count), key ]) AS sorted_set
         RETURN label, sorted_set
         order by label
-        ";
-    Query::new(label, cypher)
+        ",
+    )
 }
 
 // Retrieve all the tags of the post
 pub fn post_tags(user_id: &str, post_id: &str) -> Query {
-    let label = "post_tags";
-    let cypher = "
+    Query::new(
+        "post_tags",
+        "
         MATCH (u:User {id: $user_id})-[:AUTHORED]->(p:Post {id: $post_id})
         CALL {
             WITH p
@@ -203,16 +218,17 @@ pub fn post_tags(user_id: &str, post_id: &str) -> Query {
         RETURN
             u IS NOT NULL AS exists,
             tags
-    ";
-    Query::new(label, cypher)
-        .param("user_id", user_id)
-        .param("post_id", post_id)
+    ",
+    )
+    .param("user_id", user_id)
+    .param("post_id", post_id)
 }
 
 // Retrieve all the tags of the user
 pub fn user_tags(user_id: &str) -> Query {
-    let label = "user_tags";
-    let cypher = "
+    Query::new(
+        "user_tags",
+        "
         MATCH (u:User {id: $user_id})
         CALL {
             WITH u
@@ -227,26 +243,30 @@ pub fn user_tags(user_id: &str) -> Query {
         RETURN
             u IS NOT NULL AS exists,
             tags
-    ";
-    Query::new(label, cypher).param("user_id", user_id)
+    ",
+    )
+    .param("user_id", user_id)
 }
 
 /// Retrieve a homeserver by ID
 pub fn get_homeserver_by_id(id: &str) -> Query {
-    let label = "get_homeserver_by_id";
-    let cypher = "MATCH (hs:Homeserver {id: $id})
+    Query::new(
+        "get_homeserver_by_id",
+        "MATCH (hs:Homeserver {id: $id})
         WITH hs.id AS id
-        RETURN id";
-    Query::new(label, cypher).param("id", id)
+        RETURN id",
+    )
+    .param("id", id)
 }
 
 /// Retrieves all homeserver IDs
 pub fn get_all_homeservers() -> Query {
-    let label = "get_all_homeservers";
-    let cypher = "MATCH (hs:Homeserver)
+    Query::new(
+        "get_all_homeservers",
+        "MATCH (hs:Homeserver)
         WITH collect(hs.id) AS homeservers_list
-        RETURN homeservers_list";
-    Query::new(label, cypher)
+        RETURN homeservers_list",
+    )
 }
 
 /// Retrieve tags for a user within the viewer's trusted network
@@ -293,15 +313,15 @@ pub fn get_viewer_trusted_network_tags(user_id: &str, viewer_id: &str, depth: u8
     );
 
     // Add to the query the params
-    let label = "get_viewer_trusted_network_tags";
-    Query::new(label, graph_query.as_str())
+    Query::new("get_viewer_trusted_network_tags", graph_query.as_str())
         .param("user_id", user_id)
         .param("viewer_id", viewer_id)
 }
 
 pub fn user_counts(user_id: &str) -> Query {
-    let label = "user_counts";
-    let cypher = "
+    Query::new(
+        "user_counts",
+        "
         MATCH (u:User {id: $user_id})
         // tags that reference this user
         OPTIONAL MATCH (u)<-[t:TAGGED]-(:User)
@@ -335,8 +355,9 @@ pub fn user_counts(user_id: &str) -> Query {
                 unique_tags: unique_tags,
                 bookmarks: bookmarks
             } AS counts;
-        ";
-    Query::new(label, cypher).param("user_id", user_id)
+        ",
+    )
+    .param("user_id", user_id)
 }
 
 pub fn get_user_followers(user_id: &str, skip: Option<usize>, limit: Option<usize>) -> Query {
@@ -352,8 +373,7 @@ pub fn get_user_followers(user_id: &str, skip: Option<usize>, limit: Option<usiz
     if let Some(limit_value) = limit {
         query_string.push_str(&format!(" LIMIT {limit_value}"));
     }
-    let label = "get_user_followers";
-    Query::new(label, &query_string).param("user_id", user_id)
+    Query::new("get_user_followers", &query_string).param("user_id", user_id)
 }
 
 pub fn get_user_following(user_id: &str, skip: Option<usize>, limit: Option<usize>) -> Query {
@@ -369,8 +389,7 @@ pub fn get_user_following(user_id: &str, skip: Option<usize>, limit: Option<usiz
     if let Some(limit_value) = limit {
         query_string.push_str(&format!(" LIMIT {limit_value}"));
     }
-    let label = "get_user_following";
-    Query::new(label, &query_string).param("user_id", user_id)
+    Query::new("get_user_following", &query_string).param("user_id", user_id)
 }
 
 pub fn get_user_muted(user_id: &str, skip: Option<usize>, limit: Option<usize>) -> Query {
@@ -386,8 +405,7 @@ pub fn get_user_muted(user_id: &str, skip: Option<usize>, limit: Option<usize>) 
     if let Some(limit_value) = limit {
         query_string.push_str(&format!(" LIMIT {limit_value}"));
     }
-    let label = "get_user_muted";
-    Query::new(label, &query_string).param("user_id", user_id)
+    Query::new("get_user_muted", &query_string).param("user_id", user_id)
 }
 
 fn stream_reach_to_graph_subquery(reach: &StreamReach) -> String {
@@ -404,22 +422,25 @@ fn stream_reach_to_graph_subquery(reach: &StreamReach) -> String {
 }
 
 pub fn get_tags_by_label_prefix(label_prefix: &str) -> Query {
-    let label = "get_tags_by_label_prefix";
-    let cypher = "
+    Query::new(
+        "get_tags_by_label_prefix",
+        "
         MATCH ()-[t:TAGGED]->()
         WHERE t.label STARTS WITH $label_prefix
         RETURN COLLECT(DISTINCT t.label) AS tag_labels
-        ";
-    Query::new(label, cypher).param("label_prefix", label_prefix)
+        ",
+    )
+    .param("label_prefix", label_prefix)
 }
 
 pub fn get_tags() -> Query {
-    let label = "get_tags";
-    let cypher = "
+    Query::new(
+        "get_tags",
+        "
         MATCH ()-[t:TAGGED]->()
         RETURN COLLECT(DISTINCT t.label) AS tag_labels
-        ";
-    Query::new(label, cypher)
+        ",
+    )
 }
 
 pub fn get_tag_taggers_by_reach(
@@ -429,7 +450,6 @@ pub fn get_tag_taggers_by_reach(
     skip: usize,
     limit: usize,
 ) -> Query {
-    let query_label = "get_tag_taggers_by_reach";
     let cypher = format!(
         "
             {}
@@ -450,7 +470,7 @@ pub fn get_tag_taggers_by_reach(
             ",
         stream_reach_to_graph_subquery(&reach)
     );
-    Query::new(query_label, &cypher)
+    Query::new("get_tag_taggers_by_reach", &cypher)
         .param("label", label)
         .param("user_id", user_id)
         .param("skip", skip as i64)
@@ -468,7 +488,6 @@ pub fn get_hot_tags_by_reach(
     };
 
     let (from, to) = tags_query.timeframe.to_timestamp_range();
-    let query_label = "get_hot_tags_by_reach";
     let cypher = format!(
         "
         {}
@@ -493,7 +512,7 @@ pub fn get_hot_tags_by_reach(
         input_tagged_type,
         tags_query.taggers_limit
     );
-    Query::new(query_label, &cypher)
+    Query::new("get_hot_tags_by_reach", &cypher)
         .param("user_id", user_id)
         .param("skip", tags_query.skip as i64)
         .param("limit", tags_query.limit as i64)
@@ -507,7 +526,6 @@ pub fn get_global_hot_tags(tags_query: &HotTagsInputDTO) -> Query {
         None => String::from("Post|User"),
     };
     let (from, to) = tags_query.timeframe.to_timestamp_range();
-    let label = "get_global_hot_tags";
     let cypher = format!(
         "
         MATCH (user: User)-[tag:TAGGED]->(tagged:{})
@@ -529,7 +547,7 @@ pub fn get_global_hot_tags(tags_query: &HotTagsInputDTO) -> Query {
     ",
         input_tagged_type, tags_query.taggers_limit
     );
-    Query::new(label, &cypher)
+    Query::new("get_global_hot_tags", &cypher)
         .param("skip", tags_query.skip as i64)
         .param("limit", tags_query.limit as i64)
         .param("from", from)
@@ -544,7 +562,6 @@ pub fn get_influencers_by_reach(
     timeframe: &Timeframe,
 ) -> Query {
     let (from, to) = timeframe.to_timestamp_range();
-    let label = "get_influencers_by_reach";
     let cypher = format!(
         "
         {}
@@ -579,7 +596,7 @@ pub fn get_influencers_by_reach(
     ",
         stream_reach_to_graph_subquery(&reach),
     );
-    Query::new(label, &cypher)
+    Query::new("get_influencers_by_reach", &cypher)
         .param("user_id", user_id)
         .param("skip", skip as i64)
         .param("limit", limit as i64)
@@ -589,8 +606,9 @@ pub fn get_influencers_by_reach(
 
 pub fn get_global_influencers(skip: usize, limit: usize, timeframe: &Timeframe) -> Query {
     let (from, to) = timeframe.to_timestamp_range();
-    let label = "get_global_influencers";
-    let cypher = "
+    Query::new(
+        "get_global_influencers",
+        "
         MATCH (user:User)
         WHERE user.name <> '[DELETED]'
         WITH DISTINCT user
@@ -616,22 +634,24 @@ pub fn get_global_influencers(skip: usize, limit: usize, timeframe: &Timeframe) 
         SKIP $skip
         LIMIT $limit
         RETURN COLLECT([influencer.id, influencer.score]) as influencers
-    ";
-    Query::new(label, cypher)
-        .param("skip", skip as i64)
-        .param("limit", limit as i64)
-        .param("from", from)
-        .param("to", to)
+    ",
+    )
+    .param("skip", skip as i64)
+    .param("limit", limit as i64)
+    .param("from", from)
+    .param("to", to)
 }
 
 pub fn get_files_by_ids(key_pair: &[&[&str]]) -> Query {
-    let label = "get_files_by_ids";
-    let cypher = "
+    Query::new(
+        "get_files_by_ids",
+        "
         UNWIND $pairs AS pair
         OPTIONAL MATCH (record:File {owner_id: pair[0], id: pair[1]})
         RETURN record
-        ";
-    Query::new(label, cypher).param("pairs", key_pair)
+        ",
+    )
+    .param("pairs", key_pair)
 }
 
 // Build the graph query based on parameters
@@ -787,17 +807,19 @@ pub fn post_stream(
     }
 
     // Build the query and apply parameters using `param` method
-    let label = match &source {
-        StreamSource::Following { .. } => "post_stream_following",
-        StreamSource::Followers { .. } => "post_stream_followers",
-        StreamSource::Friends { .. } => "post_stream_friends",
-        StreamSource::Bookmarks { .. } => "post_stream_bookmarks",
-        StreamSource::Author { .. } => "post_stream_author",
-        StreamSource::AuthorReplies { .. } => "post_stream_author_replies",
-        StreamSource::PostReplies { .. } => "post_stream_post_replies",
-        StreamSource::All => "post_stream_all",
-    };
-    let query = Query::new(label, &cypher);
+    let query = Query::new(
+        match &source {
+            StreamSource::Following { .. } => "post_stream_following",
+            StreamSource::Followers { .. } => "post_stream_followers",
+            StreamSource::Friends { .. } => "post_stream_friends",
+            StreamSource::Bookmarks { .. } => "post_stream_bookmarks",
+            StreamSource::Author { .. } => "post_stream_author",
+            StreamSource::AuthorReplies { .. } => "post_stream_author_replies",
+            StreamSource::PostReplies { .. } => "post_stream_post_replies",
+            StreamSource::All => "post_stream_all",
+        },
+        &cypher,
+    );
     build_query_with_params(query, &source, tags, kind, &pagination)
 }
 
@@ -861,16 +883,18 @@ fn build_query_with_params(
 /// # Arguments
 /// * `user_id` - The unique identifier of the user
 pub fn user_is_safe_to_delete(user_id: &str) -> Query {
-    let label = "user_is_safe_to_delete";
-    let cypher = "
+    Query::new(
+        "user_is_safe_to_delete",
+        "
         MATCH (u:User {id: $user_id})
         // Ensures all relationships to the user (u) are checked, counting as 0 if none exist
         OPTIONAL MATCH (u)-[r]-()
         // Checks if the user has any relationships
-        WITH u, NOT (COUNT(r) = 0) AS flag
+        With u, NOT (COUNT(r) = 0) AS flag
         RETURN flag
-        ";
-    Query::new(label, cypher).param("user_id", user_id)
+        ",
+    )
+    .param("user_id", user_id)
 }
 
 /// Checks if a post has any relationships that aren't in the set of allowed
@@ -881,8 +905,9 @@ pub fn user_is_safe_to_delete(user_id: &str) -> Query {
 /// * `author_id` - The unique identifier of the user who authored the post
 /// * `post_id` - The unique identifier of the post
 pub fn post_is_safe_to_delete(author_id: &str, post_id: &str) -> Query {
-    let label = "post_is_safe_to_delete";
-    let cypher = "
+    Query::new(
+        "post_is_safe_to_delete",
+        "
         MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
         // Ensures all relationships to the post (p) are checked, counting as 0 if none exist
         OPTIONAL MATCH (p)-[r]-()
@@ -898,19 +923,20 @@ pub fn post_is_safe_to_delete(author_id: &str, post_id: &str) -> Query {
             (type(r) = 'REPLIED' AND startNode(r) = p)
         )
         // Checks if any disallowed relationships exist for the post
-        WITH p, NOT (COUNT(r) = 0) AS flag
+        With p, NOT (COUNT(r) = 0) AS flag
         RETURN flag
-        ";
-    Query::new(label, cypher)
-        .param("author_id", author_id)
-        .param("post_id", post_id)
+        ",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
 }
 
 /// Find user recommendations: active users (with 5+ posts) who are 1-3 degrees of separation away
 /// from the given user, but not directly followed by them
 pub fn recommend_users(user_id: &str, limit: usize) -> Query {
-    let label = "recommend_users";
-    let cypher = "
+    Query::new(
+        "recommend_users",
+        "
         MATCH (user:User {id: $user_id})
         MATCH (user)-[:FOLLOWS*1..3]->(potential:User)
         WHERE NOT (user)-[:FOLLOWS]->(potential)
@@ -921,16 +947,17 @@ pub fn recommend_users(user_id: &str, limit: usize) -> Query {
         WHERE post_count >= 5
         RETURN potential.id AS recommended_user_id, potential.name AS recommended_user_name
         LIMIT $limit
-    ";
-    Query::new(label, cypher)
-        .param("user_id", user_id.to_string())
-        .param("limit", limit as i64)
+    ",
+    )
+    .param("user_id", user_id.to_string())
+    .param("limit", limit as i64)
 }
 
 /// Retrieve specific tag created by the user
 pub fn get_tag_by_tagger_and_id(tagger_id: &str, tag_id: &str) -> Query {
-    let label = "get_tag_by_tagger_and_id";
-    let cypher = "
+    Query::new(
+        "get_tag_by_tagger_and_id",
+        "
         MATCH (tagger:User { id: $tagger_id})-[tag:TAGGED {id: $tag_id }]->(tagged)
         OPTIONAL MATCH (author:User)-[:AUTHORED]->(tagged)
         RETURN
@@ -940,8 +967,8 @@ pub fn get_tag_by_tagger_and_id(tagger_id: &str, tag_id: &str) -> Query {
             tag.id as id,
             tag.indexed_at as indexed_at,
             tag.label as label
-        ";
-    Query::new(label, cypher)
-        .param("tagger_id", tagger_id)
-        .param("tag_id", tag_id)
+        ",
+    )
+    .param("tagger_id", tagger_id)
+    .param("tag_id", tag_id)
 }

@@ -56,9 +56,7 @@ impl MockDb {
         let graph = get_neo4j_graph().expect("Failed to get Neo4j graph connection");
 
         // drop and run the queries again
-        let label = "drop_graph";
-        let cypher = "MATCH (n) DETACH DELETE n;";
-        let drop_all_query = Query::new(label, cypher);
+        let drop_all_query = Query::new("drop_graph", "MATCH (n) DETACH DELETE n;");
         graph
             .run(drop_all_query)
             .await

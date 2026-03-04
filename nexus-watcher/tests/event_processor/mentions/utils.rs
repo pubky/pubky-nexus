@@ -13,15 +13,16 @@ pub async fn find_post_mentions(follower: &str, followee: &str) -> Result<Vec<St
 }
 
 fn post_mention_query(user_id: &str, post_id: &str) -> Query {
-    let label = "post_mention_query";
-    let cypher = "
+    Query::new(
+        "post_mention_query",
+        "
         MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
         OPTIONAL MATCH (p)-[:MENTIONED]->(mentioned_user:User)
         RETURN COLLECT(
             mentioned_user.id
         ) as mentioned_list
-        ";
-    Query::new(label, cypher)
-        .param("author_id", user_id)
-        .param("post_id", post_id)
+        ",
+    )
+    .param("author_id", user_id)
+    .param("post_id", post_id)
 }
