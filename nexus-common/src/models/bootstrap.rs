@@ -4,7 +4,9 @@ use crate::db::kv::SortOrder;
 use crate::models::notification::Notification;
 use crate::models::tag::stream::{HotTag, HotTags};
 use crate::types::routes::HotTagsInputDTO;
-use crate::types::{DynError, Pagination, StreamSorting, Timeframe};
+use crate::types::{Pagination, StreamSorting, Timeframe};
+
+use super::error::ModelResult;
 
 use crate::models::{
     file::FileDetails,
@@ -69,7 +71,7 @@ impl Bootstrap {
     /// - `view_type: ViewType`
     ///   Controls whether to fetch replies and include full stream entries (`Full`)
     ///   or only base posts (`Partial`)
-    pub async fn get_by_id(user_id: &str, view_type: ViewType) -> Result<Self, DynError> {
+    pub async fn get_by_id(user_id: &str, view_type: ViewType) -> ModelResult<Self> {
         let mut bootstrap = Self::default();
         let mut user_ids = HashSet::new();
         let mut attachment_uris = HashSet::new();
@@ -179,7 +181,7 @@ impl Bootstrap {
         &mut self,
         user_ids: &HashSet<String>,
         maybe_viewer_id: Option<&str>,
-    ) -> Result<(), DynError> {
+    ) -> ModelResult<()> {
         if user_ids.is_empty() {
             return Ok(());
         }
@@ -212,7 +214,7 @@ impl Bootstrap {
         user_ids: &mut HashSet<String>,
         attachment_uris: &mut HashSet<String>,
         maybe_viewer_id: Option<&str>,
-    ) -> Result<(), DynError> {
+    ) -> ModelResult<()> {
         // TODO: Might consider in the future to do in all the requests in parallel
         // tokio::task::JoinSet or tokio::spawn(async move {...
         for (author_id, post_id) in post_replies {
@@ -240,7 +242,7 @@ impl Bootstrap {
         maybe_viewer_id: Option<&str>,
         source: StreamSource,
         limit: usize,
-    ) -> Result<PostStream, DynError> {
+    ) -> ModelResult<PostStream> {
         let pagination = Pagination {
             skip: Some(0),
             limit: Some(limit),
@@ -265,7 +267,7 @@ impl Bootstrap {
     ///
     /// # Parameters
     /// - `user_ids: &mut HashSet<String>` A mutable reference to a set of user IDs
-    async fn add_influencers(&mut self, user_ids: &mut HashSet<String>) -> Result<(), DynError> {
+    async fn add_influencers(&mut self, user_ids: &mut HashSet<String>) -> ModelResult<()> {
         if let Some(influencers) =
             Influencers::get_influencers(None, None, 0, 0, Timeframe::Today, true).await?
         {
@@ -277,7 +279,7 @@ impl Bootstrap {
         Ok(())
     }
 
-    async fn add_notifications(&mut self, maybe_viewer_id: Option<&str>) -> Result<(), DynError> {
+    async fn add_notifications(&mut self, maybe_viewer_id: Option<&str>) -> ModelResult<()> {
         if let Some(viewer_id) = maybe_viewer_id {
             self.notifications = Notification::get_by_id(
                 viewer_id,
@@ -301,7 +303,7 @@ impl Bootstrap {
         &mut self,
         user_ids: &mut HashSet<String>,
         user_id: &str,
-    ) -> Result<(), DynError> {
+    ) -> ModelResult<()> {
         if let Some(recommended_users) = UserStream::get_recommended_ids(user_id, None).await? {
             recommended_users.into_iter().for_each(|id| {
                 self.ids.recommended.push(id.clone());
@@ -316,10 +318,7 @@ impl Bootstrap {
     ///
     /// # Parameters
     /// - `user_ids: &mut HashSet<String>` A mutable reference to a set of user IDs
-    async fn add_global_hot_tags(
-        &mut self,
-        user_ids: &mut HashSet<String>,
-    ) -> Result<(), DynError> {
+    async fn add_global_hot_tags(&mut self, user_ids: &mut HashSet<String>) -> ModelResult<()> {
         let hot_tag_filter =
             HotTagsInputDTO::new(Timeframe::Today, BOOTSTRAP_HOT_TAGS_LIMIT, 0, 5, None);
         if let Some(today_hot_tags) = HotTags::get_hot_tags(None, None, &hot_tag_filter).await? {
@@ -338,10 +337,7 @@ impl Bootstrap {
     ///
     /// # Parameters
     /// - `attachment_uris: &HashSet<String>` A set of file URIs collected from posts and replies
-    async fn fetch_file_details(
-        &mut self,
-        attachment_uris: &HashSet<String>,
-    ) -> Result<(), DynError> {
+    async fn fetch_file_details(&mut self, attachment_uris: &HashSet<String>) -> ModelResult<()> {
         let file_keys: Vec<(String, String)> = attachment_uris
             .iter()
             .filter_map(|uri| FileDetails::file_key_from_uri(uri))
