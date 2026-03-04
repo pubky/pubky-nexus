@@ -163,7 +163,7 @@ impl GraphOps for TracedGraph {
             label,
             cypher,
             execute_duration,
-            stream_start: Instant::now(),
+            stream_start: start,
             row_count: 0,
             threshold: self.slow_query_threshold,
         };
