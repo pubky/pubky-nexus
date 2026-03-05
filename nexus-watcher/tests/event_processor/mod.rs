@@ -3,7 +3,6 @@ mod files;
 mod follows;
 mod homeserver;
 mod mentions;
-mod mutes;
 mod network;
 mod posts;
 mod tags;
