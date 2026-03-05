@@ -82,7 +82,7 @@ pub fn create_post(
         .param("content", post.content.to_string())
         .param("indexed_at", post.indexed_at)
         .param("kind", kind.trim_matches('"'))
-        .param("attachments", post.attachments.clone().unwrap_or(vec![]));
+        .param("attachments", post.attachments.clone().unwrap_or_default());
 
     // Handle "replied" relationship
     cypher_query = add_relationship_params(
@@ -175,27 +175,6 @@ pub fn create_follow(follower_id: &str, followee_id: &str, indexed_at: i64) -> Q
     )
     .param("follower_id", follower_id.to_string())
     .param("followee_id", followee_id.to_string())
-    .param("indexed_at", indexed_at)
-}
-
-/// Creates  a `MUTED` relationship between a user and another user they wish to mute
-/// # Arguments
-/// * `user_id` - The unique identifier of the user initiating the mute action.
-/// * `muted_id` - The unique identifier of the user to be muted.
-/// * `indexed_at` - A timestamp indicating when the relationship was created or last updated.
-pub fn create_mute(user_id: &str, muted_id: &str, indexed_at: i64) -> Query {
-    Query::new(
-        "create_mute",
-        "MATCH (user:User {id: $user_id}), (muted:User {id: $muted_id})
-        // Check if follow already existed
-        OPTIONAL MATCH (user)-[existing:MUTED]->(muted)
-        MERGE (user)-[r:MUTED]->(muted)
-        SET r.indexed_at = $indexed_at
-         // Returns true if the mute relationship already existed
-        RETURN existing IS NOT NULL AS flag;",
-    )
-    .param("user_id", user_id.to_string())
-    .param("muted_id", muted_id.to_string())
     .param("indexed_at", indexed_at)
 }
 
