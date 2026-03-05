@@ -34,3 +34,4 @@ utoipa = "5.4.0"
 [dev-dependencies]
 tempfile = { workspace = true }
 tokio-shared-rt = { workspace = true }
+tracing-test = { workspace = true }

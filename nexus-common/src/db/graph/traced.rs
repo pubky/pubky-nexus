@@ -103,16 +103,16 @@ impl Drop for TracedStream {
     }
 }
 
-/// Decorator around `Graph` that logs slow queries.
+/// Decorator around a [`GraphOps`] implementation that logs slow queries.
 #[derive(Clone)]
-pub struct TracedGraph {
-    inner: Graph,
+pub struct TracedGraph<G = Graph> {
+    inner: G,
     slow_query_threshold: Duration,
     log_cypher: bool,
 }
 
-impl TracedGraph {
-    pub fn new(graph: Graph) -> Self {
+impl<G: GraphOps> TracedGraph<G> {
+    pub fn new(graph: G) -> Self {
         Self {
             inner: graph,
             slow_query_threshold: Duration::from_millis(DEFAULT_SLOW_QUERY_THRESHOLD_MS),
@@ -132,7 +132,7 @@ impl TracedGraph {
 }
 
 #[async_trait]
-impl GraphOps for TracedGraph {
+impl<G: GraphOps> GraphOps for TracedGraph<G> {
     async fn execute(
         &self,
         query: Query,
@@ -177,5 +177,187 @@ impl GraphOps for TracedGraph {
         }
 
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures::stream;
+    use neo4rs::{BoltList, BoltType};
+    use tracing_test::traced_test;
+
+    /// Create a dummy `Row` with a single string field.
+    fn dummy_row() -> Row {
+        let fields = BoltList::from(vec![BoltType::String("n".into())]);
+        let data = BoltList::from(vec![BoltType::String("value".into())]);
+        Row::new(fields, data)
+    }
+
+    fn make_traced_stream(
+        inner: BoxStream<'static, Result<Row, neo4rs::Error>>,
+        label: Option<&'static str>,
+        threshold: Duration,
+    ) -> TracedStream {
+        TracedStream {
+            inner,
+            label,
+            cypher: None,
+            execute_duration: Duration::ZERO,
+            stream_start: Instant::now(),
+            row_count: 0,
+            threshold,
+        }
+    }
+
+    // ── TracedStream row counting ──────────────────────────────────
+
+    #[tokio::test]
+    async fn counts_rows_from_inner_stream() {
+        let rows = vec![Ok(dummy_row()), Ok(dummy_row()), Ok(dummy_row())];
+        let inner = stream::iter(rows).boxed();
+        let mut ts = make_traced_stream(inner, Some("test"), Duration::from_secs(100));
+
+        while ts.next().await.is_some() {}
+        assert_eq!(ts.row_count, 3);
+    }
+
+    #[tokio::test]
+    async fn empty_stream_yields_none_and_zero_rows() {
+        let inner = stream::empty().boxed();
+        let mut ts = make_traced_stream(inner, Some("test"), Duration::from_secs(100));
+        assert!(ts.next().await.is_none());
+        assert_eq!(ts.row_count, 0);
+    }
+
+    // ── Slow-path doesn't abort the stream ─────────────────────────
+
+    #[tokio::test]
+    async fn slow_query_still_yields_all_rows() {
+        // Threshold is 0ms — every query is "slow", but all rows must still be returned.
+        let rows = vec![Ok(dummy_row()), Ok(dummy_row())];
+        let inner = stream::iter(rows).boxed();
+        let mut ts = make_traced_stream(inner, Some("slow_q"), Duration::ZERO);
+
+        let mut collected = Vec::new();
+        while let Some(item) = ts.next().await {
+            collected.push(item.expect("row should be Ok"));
+        }
+        assert_eq!(collected.len(), 2);
+        assert_eq!(ts.row_count, 2);
+    }
+
+    // ── warn! emission ─────────────────────────────────────────────
+
+    #[tokio::test]
+    #[traced_test]
+    async fn emits_warning_when_threshold_exceeded() {
+        let inner = stream::iter(vec![Ok(dummy_row())]).boxed();
+        // threshold = 0 → always slow
+        let mut ts = make_traced_stream(inner, Some("slow_label"), Duration::ZERO);
+        while ts.next().await.is_some() {}
+        drop(ts);
+
+        assert!(logs_contain("Slow Neo4j query"));
+        assert!(logs_contain("slow_label"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn no_warning_when_under_threshold() {
+        let inner = stream::empty().boxed();
+        let ts = make_traced_stream(inner, Some("fast_q"), Duration::from_secs(600));
+        drop(ts);
+
+        assert!(!logs_contain("Slow Neo4j query"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn no_warning_when_label_is_none() {
+        let inner = stream::empty().boxed();
+        // threshold = 0 but no label → drop skips logging entirely
+        let ts = make_traced_stream(inner, None, Duration::ZERO);
+        drop(ts);
+
+        assert!(!logs_contain("Slow Neo4j query"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn warning_includes_cypher_when_set() {
+        let ts = TracedStream {
+            inner: stream::empty().boxed(),
+            label: Some("cypher_q"),
+            cypher: Some("MATCH (n) RETURN n".into()),
+            execute_duration: Duration::ZERO,
+            stream_start: Instant::now(),
+            row_count: 0,
+            threshold: Duration::ZERO,
+        };
+        drop(ts);
+
+        assert!(logs_contain("MATCH (n) RETURN n"));
+    }
+
+    // ── TracedGraph ────────────────────────────────────────────────
+
+    /// Mock `GraphOps` for testing `TracedGraph` without a real Neo4j connection.
+    #[derive(Clone)]
+    struct MockGraph {
+        row_count: usize,
+    }
+
+    #[async_trait]
+    impl GraphOps for MockGraph {
+        async fn execute(
+            &self,
+            _query: Query,
+        ) -> neo4rs::Result<BoxStream<'static, Result<Row, neo4rs::Error>>> {
+            let rows: Vec<Result<Row, neo4rs::Error>> =
+                (0..self.row_count).map(|_| Ok(dummy_row())).collect();
+            Ok(stream::iter(rows).boxed())
+        }
+
+        async fn run(&self, _query: Query) -> neo4rs::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn test_query() -> Query {
+        Query::new("test_label", "MATCH (n) RETURN n")
+    }
+
+    #[tokio::test]
+    async fn traced_graph_execute_returns_all_rows() {
+        let tg = TracedGraph::new(MockGraph { row_count: 3 });
+        let mut stream = tg.execute(test_query()).await.unwrap();
+
+        let mut count = 0;
+        while stream.next().await.is_some() {
+            count += 1;
+        }
+        assert_eq!(count, 3);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn traced_graph_run_warns_on_slow_query() {
+        let tg =
+            TracedGraph::new(MockGraph { row_count: 0 }).with_slow_query_threshold(Duration::ZERO);
+        tg.run(test_query()).await.unwrap();
+
+        assert!(logs_contain("Slow Neo4j query"));
+        assert!(logs_contain("test_label"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn traced_graph_run_no_warning_under_threshold() {
+        let tg = TracedGraph::new(MockGraph { row_count: 0 })
+            .with_slow_query_threshold(Duration::from_secs(600));
+        tg.run(test_query()).await.unwrap();
+
+        assert!(!logs_contain("Slow Neo4j query"));
     }
 }
