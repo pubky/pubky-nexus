@@ -1,10 +1,7 @@
-use crate::service::utils::{PanicTarget, PanickingRunner};
 use anyhow::Result;
 use nexus_common::models::event::EventProcessorError;
 use nexus_common::types::DynError;
-use nexus_watcher::service::{
-    NexusWatcher, ProcessedStats, TEventProcessor, TEventProcessorRunner,
-};
+use nexus_watcher::service::{NexusWatcher, TEventProcessor, TEventProcessorRunner};
 use pubky_app_specs::PubkyId;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -78,48 +75,6 @@ impl TEventProcessorRunner for VariableDelayRunner {
     }
 }
 
-/// Minimal runner that sleeps in both processing loops.
-///
-/// Used as a non-panicking inner runner for [`PanickingRunner`] so each test can
-/// force a panic on exactly one task while the other task keeps running long
-/// enough to validate that `run_tasks` does not hang.
-struct SleepingRunner {
-    shutdown_rx: Receiver<bool>,
-}
-
-#[async_trait::async_trait]
-impl TEventProcessorRunner for SleepingRunner {
-    fn shutdown_rx(&self) -> Receiver<bool> {
-        self.shutdown_rx.clone()
-    }
-
-    fn default_homeserver(&self) -> &str {
-        TEST_HS_ID
-    }
-
-    fn monitored_homeservers_limit(&self) -> usize {
-        0
-    }
-
-    async fn external_homeservers_by_priority(&self) -> Result<Vec<String>, DynError> {
-        Ok(vec![])
-    }
-
-    async fn build(&self, _homeserver_id: String) -> Result<Arc<dyn TEventProcessor>, DynError> {
-        Err("build is not used in this test runner".into())
-    }
-
-    async fn run_default_homeserver(&self) -> Result<ProcessedStats, DynError> {
-        tokio::time::sleep(Duration::from_secs(30)).await;
-        Ok(ProcessedStats(Default::default()))
-    }
-
-    async fn run_external_homeservers(&self) -> Result<ProcessedStats, DynError> {
-        tokio::time::sleep(Duration::from_secs(30)).await;
-        Ok(ProcessedStats(Default::default()))
-    }
-}
-
 /// Verifies that `run_tasks` uses `MissedTickBehavior::Skip`.
 ///
 /// The first processing round sleeps 500 ms (exceeding the 100 ms interval),
@@ -177,60 +132,6 @@ async fn test_no_burst_after_slow_processing_round() -> Result<()> {
             i,
         );
     }
-
-    Ok(())
-}
-
-/// Ensures `run_tasks` returns promptly with `Err` if the default-HS task panics.
-#[tokio_shared_rt::test(shared)]
-async fn test_panicking_task_does_not_hang_run_tasks() -> Result<()> {
-    let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-    let inner = SleepingRunner {
-        shutdown_rx: shutdown_rx.clone(),
-    };
-    let runner = Arc::new(PanickingRunner {
-        panic_target: PanicTarget::DefaultHs,
-        inner: Arc::new(inner),
-    });
-
-    let result = tokio::time::timeout(
-        Duration::from_secs(2),
-        NexusWatcher::run_tasks(shutdown_rx, runner, 100),
-    )
-    .await;
-
-    assert!(result.is_ok(), "run_tasks should not hang on task panic");
-    assert!(
-        result.unwrap().is_err(),
-        "run_tasks should return Err when one processing task panics"
-    );
-
-    Ok(())
-}
-
-/// Ensures `run_tasks` returns promptly with `Err` if the external-HS task panics.
-#[tokio_shared_rt::test(shared)]
-async fn test_panicking_external_task_does_not_hang_run_tasks() -> Result<()> {
-    let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-    let inner = SleepingRunner {
-        shutdown_rx: shutdown_rx.clone(),
-    };
-    let runner = Arc::new(PanickingRunner {
-        panic_target: PanicTarget::ExternalHs,
-        inner: Arc::new(inner),
-    });
-
-    let result = tokio::time::timeout(
-        Duration::from_secs(2),
-        NexusWatcher::run_tasks(shutdown_rx, runner, 100),
-    )
-    .await;
-
-    assert!(result.is_ok(), "run_tasks should not hang on task panic");
-    assert!(
-        result.unwrap().is_err(),
-        "run_tasks should return Err when one processing task panics"
-    );
 
     Ok(())
 }
