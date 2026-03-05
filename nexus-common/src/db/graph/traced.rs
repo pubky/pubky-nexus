@@ -2,6 +2,8 @@ use async_trait::async_trait;
 use futures::stream::BoxStream;
 use futures::{Stream, StreamExt, TryStreamExt};
 use neo4rs::Row;
+use opentelemetry::metrics::{Counter, Histogram};
+use opentelemetry::{global, KeyValue};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
@@ -9,6 +11,12 @@ use tracing::warn;
 
 use super::query::Query;
 use crate::db::config::DEFAULT_SLOW_QUERY_THRESHOLD_MS;
+
+/// The OpenTelemetry meter name used by all Neo4j graph metrics.
+///
+/// Instruments created under this meter are exported via the global
+/// `SdkMeterProvider` configured in [`crate::stack::StackManager::setup_metrics`].
+const METER_NAME: &str = "neo4j";
 
 /// Abstraction over graph database operations.
 /// Callers depend on this trait, not the concrete implementations.
@@ -57,7 +65,100 @@ impl GraphOps for Graph {
     }
 }
 
-/// A stream wrapper that measures total query time and logs slow queries when dropped.
+/// Shared OpenTelemetry metric instruments for Neo4j query monitoring.
+///
+/// Created once per [`TracedGraph`] instance and cloned into each
+/// [`TracedStream`]. All instruments are safe to clone (internally Arc'd).
+///
+/// # Emitted Metrics
+///
+/// | Metric name                   | Type      | Unit | Description |
+/// |-------------------------------|-----------|------|-------------|
+/// | `neo4j.query.duration_ms`     | Histogram | ms   | Total wall-clock time for a query (execute + fetch). Use percentiles (p50/p95/p99) to detect latency degradation over time. |
+/// | `neo4j.query.execute_ms`      | Histogram | ms   | Time spent in the Bolt RUN phase (pool acquire + query planning + start of execution). A spike here with stable fetch times indicates connection-pool starvation or query-plan regression. |
+/// | `neo4j.query.rows`            | Histogram | rows | Number of rows returned per query. Detects cardinality explosions — a query that normally returns 10 rows suddenly returning 10k will show up here before latency spikes. |
+/// | `neo4j.query.errors_total`    | Counter   | —    | Total number of failed query executions. Useful for error-rate alerting (rate > 0 sustained). |
+/// | `neo4j.query.slow_total`      | Counter   | —    | Total number of queries exceeding the configured slow-query threshold. A rising rate signals degradation without needing to compute percentiles. |
+///
+/// All metrics carry a `query` attribute set to the query's static label
+/// (e.g. `"get_user_by_id"`), enabling per-query-type filtering and grouping.
+///
+/// # Alerting Examples
+///
+/// | Alert                     | Metric                        | Condition                               |
+/// |---------------------------|-------------------------------|-----------------------------------------|
+/// | Latency degradation       | `neo4j.query.duration_ms` p95 | > 2x rolling baseline                   |
+/// | Cardinality explosion     | `neo4j.query.rows` p99        | sudden spike vs. historical range       |
+/// | Error rate                | `neo4j.query.errors_total`    | rate > 0 sustained                      |
+/// | Slow query storm          | `neo4j.query.slow_total`      | rate > N/min                            |
+/// | Pool starvation           | `neo4j.query.execute_ms` p95  | spike while fetch time stays flat       |
+#[derive(Clone)]
+struct GraphMetrics {
+    /// Total wall-clock duration of a query (execute + stream consumption).
+    duration: Histogram<f64>,
+    /// Duration of the Bolt RUN phase only (pool acquire + planning).
+    execute_duration: Histogram<f64>,
+    /// Number of rows returned by a query.
+    rows: Histogram<u64>,
+    /// Incremented on every failed `execute()` or `run()` call.
+    errors: Counter<u64>,
+    /// Incremented when a query's total duration exceeds the slow-query threshold.
+    slow: Counter<u64>,
+}
+
+impl GraphMetrics {
+    /// Create all instruments from the global OpenTelemetry meter provider.
+    ///
+    /// This should be called once per [`TracedGraph`] construction. The
+    /// instruments are no-ops if no meter provider has been registered
+    /// (i.e. when OTLP is not configured), so there is zero overhead in
+    /// that case.
+    fn new() -> Self {
+        let meter = global::meter(METER_NAME);
+        Self {
+            duration: meter
+                .f64_histogram("neo4j.query.duration_ms")
+                .with_description(
+                    "Total wall-clock time for a Neo4j query (execute + fetch), in milliseconds",
+                )
+                .with_unit("ms")
+                .build(),
+            execute_duration: meter
+                .f64_histogram("neo4j.query.execute_ms")
+                .with_description(
+                    "Time spent in the Bolt RUN phase (pool acquire + query planning), in milliseconds",
+                )
+                .with_unit("ms")
+                .build(),
+            rows: meter
+                .u64_histogram("neo4j.query.rows")
+                .with_description("Number of rows returned per Neo4j query")
+                .with_unit("rows")
+                .build(),
+            errors: meter
+                .u64_counter("neo4j.query.errors_total")
+                .with_description("Total number of failed Neo4j query executions")
+                .build(),
+            slow: meter
+                .u64_counter("neo4j.query.slow_total")
+                .with_description(
+                    "Total number of Neo4j queries exceeding the slow-query threshold",
+                )
+                .build(),
+        }
+    }
+}
+
+/// A stream wrapper that measures total query time, logs slow queries, and
+/// records OpenTelemetry metrics when dropped.
+///
+/// Created by [`TracedGraph::execute`] to wrap the underlying row stream.
+/// On drop it:
+/// 1. Records `neo4j.query.duration_ms`, `neo4j.query.execute_ms`, and
+///    `neo4j.query.rows` histograms.
+/// 2. Increments `neo4j.query.slow_total` if the total duration exceeds the
+///    threshold.
+/// 3. Emits a `tracing::warn` log for slow queries (with optional cypher text).
 struct TracedStream {
     inner: BoxStream<'static, Result<Row, neo4rs::Error>>,
     label: Option<&'static str>,
@@ -69,6 +170,7 @@ struct TracedStream {
     stream_start: Instant,
     row_count: usize,
     threshold: Duration,
+    metrics: GraphMetrics,
 }
 
 impl Stream for TracedStream {
@@ -85,10 +187,24 @@ impl Stream for TracedStream {
 
 impl Drop for TracedStream {
     fn drop(&mut self) {
-        if let Some(label) = &self.label {
-            let fetch_duration = self.stream_start.elapsed();
-            let total = self.execute_duration + fetch_duration;
-            if total > self.threshold {
+        let fetch_duration = self.stream_start.elapsed();
+        let total = self.execute_duration + fetch_duration;
+
+        let attrs: &[KeyValue] = &[KeyValue::new("query", self.label.unwrap_or("unknown"))];
+
+        // Always record metrics (no-op when OTLP is not configured).
+        self.metrics
+            .duration
+            .record(total.as_secs_f64() * 1000.0, attrs);
+        self.metrics
+            .execute_duration
+            .record(self.execute_duration.as_secs_f64() * 1000.0, attrs);
+        self.metrics.rows.record(self.row_count as u64, attrs);
+
+        if total > self.threshold {
+            self.metrics.slow.add(1, attrs);
+
+            if let Some(label) = &self.label {
                 warn!(
                     total_ms = total.as_millis(),
                     execute_ms = self.execute_duration.as_millis(),
@@ -103,12 +219,33 @@ impl Drop for TracedStream {
     }
 }
 
-/// Decorator around a [`GraphOps`] implementation that logs slow queries.
+/// Decorator around [`GraphOps`] that provides slow-query logging and
+/// OpenTelemetry metrics for every Neo4j query.
+///
+/// Wrap a plain [`Graph`] with `TracedGraph::new(graph)` to gain
+/// automatic observability. When the global OTLP meter provider is not
+/// configured, the metric instruments are no-ops with negligible overhead.
+///
+/// # Configuration
+///
+/// | Method                         | Default   | Description |
+/// |--------------------------------|-----------|-------------|
+/// | [`with_slow_query_threshold`]  | 500 ms    | Duration above which a query is considered slow and triggers a `tracing::warn` log + `slow_total` counter increment. |
+/// | [`with_log_cypher`]            | `false`   | When `true`, the fully-populated Cypher string is included in slow-query log messages. Useful for debugging but can be verbose. |
+///
+/// # Metrics
+///
+/// See [`GraphMetrics`] for a full description of all emitted instruments,
+/// their types, units, and recommended alerting strategies.
+///
+/// [`with_slow_query_threshold`]: TracedGraph::with_slow_query_threshold
+/// [`with_log_cypher`]: TracedGraph::with_log_cypher
 #[derive(Clone)]
 pub struct TracedGraph<G = Graph> {
     inner: G,
     slow_query_threshold: Duration,
     log_cypher: bool,
+    metrics: GraphMetrics,
 }
 
 impl<G: GraphOps> TracedGraph<G> {
@@ -117,6 +254,7 @@ impl<G: GraphOps> TracedGraph<G> {
             inner: graph,
             slow_query_threshold: Duration::from_millis(DEFAULT_SLOW_QUERY_THRESHOLD_MS),
             log_cypher: false,
+            metrics: GraphMetrics::new(),
         }
     }
 
@@ -143,32 +281,42 @@ impl<G: GraphOps> GraphOps for TracedGraph<G> {
         } else {
             None
         };
+
         let start = Instant::now();
-        let stream = self.inner.execute(query).await;
+        let result = self.inner.execute(query).await;
         let execute_duration = start.elapsed();
 
-        // Log slow queries that fail — TracedStream::drop won't fire for errored executes.
-        if stream.is_err() && execute_duration > self.slow_query_threshold {
-            if let Some(lbl) = &label {
-                warn!(
-                    execute_ms = execute_duration.as_millis(),
-                    query = %lbl,
-                    cypher = cypher.as_deref().unwrap_or(""),
-                    "Slow Neo4j query (execute failed)"
-                );
+        match result {
+            Ok(stream) => {
+                let traced = TracedStream {
+                    inner: stream,
+                    label,
+                    cypher,
+                    execute_duration,
+                    stream_start: start,
+                    row_count: 0,
+                    threshold: self.slow_query_threshold,
+                    metrics: self.metrics.clone(),
+                };
+                Ok(traced.boxed())
+            }
+            Err(e) => {
+                if execute_duration > self.slow_query_threshold {
+                    if let Some(lbl) = &label {
+                        warn!(
+                            execute_ms = execute_duration.as_millis(),
+                            query = %lbl,
+                            cypher = cypher.as_deref().unwrap_or(""),
+                            "Slow Neo4j query (execute failed)"
+                        );
+                    }
+                }
+
+                let attrs: &[KeyValue] = &[KeyValue::new("query", label.unwrap_or("unknown"))];
+                self.metrics.errors.add(1, attrs);
+                Err(e)
             }
         }
-
-        let traced = TracedStream {
-            inner: stream?,
-            label,
-            cypher,
-            execute_duration,
-            stream_start: Instant::now(), // Timestamp after execute(), so it only tracks the fetch phase
-            row_count: 0,
-            threshold: self.slow_query_threshold,
-        };
-        Ok(traced.boxed())
     }
 
     async fn run(&self, query: Query) -> neo4rs::Result<()> {
@@ -178,13 +326,37 @@ impl<G: GraphOps> GraphOps for TracedGraph<G> {
         } else {
             None
         };
+
         let start = Instant::now();
         let result = self.inner.run(query).await;
         let elapsed = start.elapsed();
 
-        if let Some(label) = &label {
-            if elapsed > self.slow_query_threshold {
-                warn!(elapsed_ms = elapsed.as_millis(), query = %label, cypher = cypher.as_deref().unwrap_or(""), "Slow Neo4j query");
+        let attrs: &[KeyValue] = &[KeyValue::new("query", label.unwrap_or("unknown"))];
+
+        match &result {
+            Ok(()) => {
+                self.metrics
+                    .duration
+                    .record(elapsed.as_secs_f64() * 1000.0, attrs);
+                self.metrics
+                    .execute_duration
+                    .record(elapsed.as_secs_f64() * 1000.0, attrs);
+
+                if elapsed > self.slow_query_threshold {
+                    self.metrics.slow.add(1, attrs);
+
+                    if let Some(label) = &label {
+                        warn!(
+                            elapsed_ms = elapsed.as_millis(),
+                            query = %label,
+                            cypher = cypher.as_deref().unwrap_or(""),
+                            "Slow Neo4j query"
+                        );
+                    }
+                }
+            }
+            Err(_) => {
+                self.metrics.errors.add(1, attrs);
             }
         }
 
@@ -219,6 +391,7 @@ mod tests {
             stream_start: Instant::now(),
             row_count: 0,
             threshold,
+            metrics: GraphMetrics::new(),
         }
     }
 
@@ -306,6 +479,7 @@ mod tests {
             stream_start: Instant::now(),
             row_count: 0,
             threshold: Duration::ZERO,
+            metrics: GraphMetrics::new(),
         };
         drop(ts);
 
