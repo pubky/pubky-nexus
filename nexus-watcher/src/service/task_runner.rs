@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use tokio::sync::watch::{self, Receiver};
 use tokio::task::JoinSet;
-use tokio::time::Duration;
+use tokio::time::{Duration, MissedTickBehavior};
 use tracing::{debug, error, info};
 
 use nexus_common::types::DynError;
@@ -81,6 +81,7 @@ pub async fn run_periodic_tasks(
 
         join_set.spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_millis(interval_ms));
+            interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
             loop {
                 tokio::select! {
                     _ = shutdown.changed() => {
@@ -248,5 +249,83 @@ mod tests {
         // Both should have ticked multiple times
         assert!(error_counter.load(Ordering::SeqCst) >= 2);
         assert!(healthy_counter.load(Ordering::SeqCst) >= 2);
+    }
+
+    /// A slow task (one whose execution time exceeds the tick interval) should
+    /// NOT queue up several back-to-back invocations.  With `MissedTickBehavior::Skip`
+    /// the missed ticks are simply dropped, so the task runs roughly once per
+    /// `max(interval, task_duration)` rather than bursting.
+    #[tokio::test]
+    async fn test_slow_task_skips_missed_ticks() {
+        let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+
+        let counter = Arc::new(AtomicU32::new(0));
+        let c = counter.clone();
+
+        // Interval is 50 ms but the task sleeps for 150 ms,
+        // so without Skip the counter would burst to catch up.
+        let tasks = vec![PeriodicTask::new("slow-task", 50, move || {
+            let c = c.clone();
+            async move {
+                c.fetch_add(1, Ordering::SeqCst);
+                tokio::time::sleep(Duration::from_millis(150)).await;
+                Ok(())
+            }
+        })];
+
+        // Let the task run for ~500 ms – enough for ~3 slow iterations.
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            let _ = shutdown_tx.send(true);
+        });
+
+        let results = run_periodic_tasks(tasks, shutdown_rx).await;
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].outcome, TaskOutcome::Completed);
+
+        let ticks = counter.load(Ordering::SeqCst);
+        // With Skip behaviour and a 150 ms task on a 50 ms interval the task
+        // should execute roughly every 150 ms.  Over 500 ms that is about 3–4
+        // invocations.  Without Skip (Burst, the default) the counter would
+        // race ahead to ~10.  We assert a reasonable upper bound.
+        assert!(
+            ticks <= 5,
+            "expected at most 5 ticks (skip behaviour), but got {ticks}"
+        );
+        assert!(ticks >= 1, "task should have ticked at least once");
+    }
+
+    /// Verify that a fast task whose execution time is well below the
+    /// interval still ticks at the expected cadence (Skip doesn't
+    /// interfere with normal operation).
+    #[tokio::test]
+    async fn test_fast_task_ticks_normally_with_skip() {
+        let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+
+        let counter = Arc::new(AtomicU32::new(0));
+        let c = counter.clone();
+
+        let tasks = vec![PeriodicTask::new("fast-task", 50, move || {
+            c.fetch_add(1, Ordering::SeqCst);
+            async { Ok(()) }
+        })];
+
+        // Run for ~250 ms ⇒ expect ~5 ticks (including the immediate first tick).
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(250)).await;
+            let _ = shutdown_tx.send(true);
+        });
+
+        let results = run_periodic_tasks(tasks, shutdown_rx).await;
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].outcome, TaskOutcome::Completed);
+
+        let ticks = counter.load(Ordering::SeqCst);
+        assert!(
+            ticks >= 3,
+            "expected at least 3 ticks for a fast 50 ms task over 250 ms, got {ticks}"
+        );
     }
 }
