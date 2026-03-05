@@ -68,9 +68,9 @@ fn post_tag_query(user_id: &str, post_id: &str, tag_name: &str) -> Query {
         } AS tag_details
         ",
     )
-        .param("user_id", user_id)
-        .param("post_id", post_id)
-        .param("tag_name", tag_name)
+    .param("user_id", user_id)
+    .param("post_id", post_id)
+    .param("tag_name", tag_name)
 }
 
 // Retrieve post related tag
