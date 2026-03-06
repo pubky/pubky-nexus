@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -71,6 +72,7 @@ pub(crate) async fn run_periodic_tasks(
 ) -> Vec<TaskResult> {
     let (cancel_tx, cancel_rx) = watch::channel(false);
     let mut join_set = JoinSet::new();
+    let mut name_map: HashMap<tokio::task::Id, String> = HashMap::new();
 
     for task in tasks {
         let mut shutdown = shutdown_rx.clone();
@@ -79,7 +81,7 @@ pub(crate) async fn run_periodic_tasks(
         let task_fn = task.task_fn;
         let interval_ms = task.interval_ms;
 
-        join_set.spawn(async move {
+        let handle = join_set.spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_millis(interval_ms));
             interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
             loop {
@@ -100,27 +102,31 @@ pub(crate) async fn run_periodic_tasks(
                     }
                 }
             }
-            name
         });
+        name_map.insert(handle.id(), task.name);
     }
 
     // Drain the JoinSet. Each completed task is checked for panics;
     // a panic sends the cancellation signal so surviving siblings exit promptly.
     let mut results = Vec::with_capacity(join_set.len());
-    while let Some(join_result) = join_set.join_next().await {
+    while let Some(join_result) = join_set.join_next_with_id().await {
+        let mut get_task_name_fn = |id| {
+            name_map
+                .remove(&id)
+                .unwrap_or_else(|| format!("<unknown id: {id}"))
+        };
+
         match join_result {
-            Ok(name) => results.push(TaskResult {
-                name,
-                outcome: TaskOutcome::Completed,
-            }),
+            Ok((id, ())) => {
+                let name = get_task_name_fn(id);
+                results.push(TaskResult::completed(&name));
+            }
             Err(join_error) => {
-                let name = format!("{join_error}");
+                let id = join_error.id();
+                let name = get_task_name_fn(id);
                 error!("Task panicked: {name}");
                 let _ = cancel_tx.send(true);
-                results.push(TaskResult {
-                    name,
-                    outcome: TaskOutcome::Panicked,
-                });
+                results.push(TaskResult::panicked(&name));
             }
         }
     }
@@ -144,8 +150,25 @@ pub(crate) struct TaskResult {
     pub outcome: TaskOutcome,
 }
 
+impl TaskResult {
+    fn completed(name: &str) -> Self {
+        TaskResult {
+            name: name.into(),
+            outcome: TaskOutcome::Completed,
+        }
+    }
+
+    fn panicked(name: &str) -> Self {
+        TaskResult {
+            name: name.into(),
+            outcome: TaskOutcome::Panicked,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+
     use super::*;
     use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -194,11 +217,13 @@ mod tests {
         let healthy_counter = Arc::new(AtomicU32::new(0));
         let hc = healthy_counter.clone();
 
+        let panicking_task_name = "panicking-task";
+        let completed_task_name = "healthy-task";
         let tasks = vec![
-            PeriodicTask::new("panicking-task", 50, || async {
+            PeriodicTask::new(panicking_task_name, 50, || async {
                 panic!("intentional test panic");
             }),
-            PeriodicTask::new("healthy-task", 50, move || {
+            PeriodicTask::new(completed_task_name, 50, move || {
                 hc.fetch_add(1, Ordering::SeqCst);
                 async { Ok(()) }
             }),
@@ -206,17 +231,20 @@ mod tests {
 
         let results = run_periodic_tasks(tasks, shutdown_rx).await;
 
-        let panicked_count = results
+        let panicked: Vec<_> = results
             .iter()
             .filter(|r| r.outcome == TaskOutcome::Panicked)
-            .count();
-        let completed_count = results
+            .collect();
+        let completed: Vec<_> = results
             .iter()
             .filter(|r| r.outcome == TaskOutcome::Completed)
-            .count();
+            .collect();
 
-        assert_eq!(panicked_count, 1);
-        assert_eq!(completed_count, 1);
+        assert_eq!(panicked.len(), 1);
+        assert_eq!(completed.len(), 1);
+
+        assert_eq!(panicked[0].name, panicking_task_name);
+        assert_eq!(completed[0].name, completed_task_name);
     }
 
     #[tokio::test]
