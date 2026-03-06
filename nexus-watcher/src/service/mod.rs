@@ -2,7 +2,7 @@ mod constants;
 mod processor;
 mod processor_runner;
 mod stats;
-pub mod task_runner;
+mod task_runner;
 mod traits;
 
 /// Module exports
