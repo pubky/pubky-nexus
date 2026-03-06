@@ -146,8 +146,8 @@ pub(crate) enum TaskOutcome {
 /// Result of running a single periodic task.
 #[derive(Debug, Clone)]
 pub(crate) struct TaskResult {
-    pub name: String,
-    pub outcome: TaskOutcome,
+    name: String,
+    outcome: TaskOutcome,
 }
 
 impl TaskResult {
@@ -163,6 +163,20 @@ impl TaskResult {
             name: name.into(),
             outcome: TaskOutcome::Panicked,
         }
+    }
+}
+
+/// Converts a list of task results into a `Result`, returning `Err` if any task panicked.
+pub(crate) fn task_results_into_result(results: Vec<TaskResult>) -> Result<(), DynError> {
+    let panicked: Vec<String> = results
+        .into_iter()
+        .filter(|r| r.outcome == TaskOutcome::Panicked)
+        .map(|r| r.name)
+        .collect();
+
+    match panicked.is_empty() {
+        true => Ok(()),
+        false => Err(format!("Task(s) panicked: {}", panicked.join(", ")).into()),
     }
 }
 
@@ -328,6 +342,36 @@ mod tests {
             "expected at most 5 ticks (skip behaviour), but got {ticks}"
         );
         assert!(ticks >= 1, "task should have ticked at least once");
+    }
+
+    #[test]
+    fn test_task_results_into_result_no_panics() {
+        let results = vec![
+            TaskResult::completed("task-a"),
+            TaskResult::completed("task-b"),
+        ];
+        assert!(task_results_into_result(results).is_ok());
+    }
+
+    #[test]
+    fn test_task_results_into_result_with_panic() {
+        let results = vec![
+            TaskResult::panicked("task-a"),
+            TaskResult::completed("task-b"),
+        ];
+        let err = task_results_into_result(results).unwrap_err();
+        assert!(err.to_string().contains("task-a"));
+    }
+
+    #[test]
+    fn test_task_results_into_result_all_panicked() {
+        let results = vec![
+            TaskResult::panicked("task-a"),
+            TaskResult::panicked("task-b"),
+        ];
+        let err = task_results_into_result(results).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("task-a") && msg.contains("task-b"));
     }
 
     /// Verify that a fast task whose execution time is well below the

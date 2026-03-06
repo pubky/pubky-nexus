@@ -12,6 +12,7 @@ pub use processor_runner::EventProcessorRunner;
 pub(crate) use task_runner::{run_periodic_tasks, PeriodicTask};
 pub use traits::{TEventProcessor, TEventProcessorRunner};
 
+use crate::service::task_runner::task_results_into_result;
 use crate::NexusWatcherBuilder;
 use nexus_common::file::ConfigLoader;
 use nexus_common::models::homeserver::Homeserver;
@@ -103,11 +104,8 @@ impl NexusWatcher {
         ];
 
         let task_results = run_periodic_tasks(tasks, shutdown_rx).await;
-        for task_result in task_results {
-            info!(task = task_result.name, outcome = ?task_result.outcome, "Task exited");
-        }
 
         info!("Nexus Watcher shut down gracefully");
-        Ok(())
+        task_results_into_result(task_results)
     }
 }
