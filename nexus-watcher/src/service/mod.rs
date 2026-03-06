@@ -88,16 +88,16 @@ impl NexusWatcher {
         let ev_processor_runner = EventProcessorRunner::from_config(&config, shutdown_rx.clone());
         let ev_processor_runner = Arc::new(ev_processor_runner);
 
-        let runner = ev_processor_runner.clone();
         let default_hs_runner = ev_processor_runner.clone();
+        let external_hs_runner = ev_processor_runner.clone();
 
         let tasks = vec![
             PeriodicTask::new("default-homeserver", watcher_sleep, move || {
-                let runner = runner.clone();
+                let runner = default_hs_runner.clone();
                 async move { runner.run_default_homeserver().await.map(|_| ()) }
             }),
             PeriodicTask::new("external-homeservers", watcher_sleep, move || {
-                let runner = default_hs_runner.clone();
+                let runner = external_hs_runner.clone();
                 async move { runner.run_external_homeservers().await.map(|_| ()) }
             }),
         ];
