@@ -206,8 +206,14 @@ mod tests {
 
         let results = run_periodic_tasks(tasks, shutdown_rx).await;
 
-        let panicked_count = results.iter().filter(|r| r.outcome == TaskOutcome::Panicked).count();
-        let completed_count = results.iter().filter(|r| r.outcome == TaskOutcome::Completed).count();
+        let panicked_count = results
+            .iter()
+            .filter(|r| r.outcome == TaskOutcome::Panicked)
+            .count();
+        let completed_count = results
+            .iter()
+            .filter(|r| r.outcome == TaskOutcome::Completed)
+            .count();
 
         assert_eq!(panicked_count, 1);
         assert_eq!(completed_count, 1);
