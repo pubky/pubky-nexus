@@ -102,7 +102,10 @@ impl NexusWatcher {
             }),
         ];
 
-        run_periodic_tasks(tasks, shutdown_rx).await;
+        let task_results = run_periodic_tasks(tasks, shutdown_rx).await;
+        for task_result in task_results {
+            info!(task = task_result.name, outcome = ?task_result.outcome, "Task exited");
+        }
 
         info!("Nexus Watcher shut down gracefully");
         Ok(())
