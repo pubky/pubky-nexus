@@ -19,10 +19,10 @@ pub type TaskFn =
 ///
 /// Each task has a name (for logging), an interval in milliseconds, and an
 /// async function that will be called on every tick of its interval timer.
-pub struct PeriodicTask {
-    pub name: String,
-    pub interval_ms: u64,
-    pub task_fn: TaskFn,
+pub(crate) struct PeriodicTask {
+    name: String,
+    interval_ms: u64,
+    task_fn: TaskFn,
 }
 
 impl PeriodicTask {
@@ -65,7 +65,7 @@ impl PeriodicTask {
 /// # Returns
 ///
 /// A `Vec<TaskResult>` with one entry per task, indicating how it finished.
-pub async fn run_periodic_tasks(
+pub(crate) async fn run_periodic_tasks(
     tasks: Vec<PeriodicTask>,
     shutdown_rx: Receiver<bool>,
 ) -> Vec<TaskResult> {
@@ -130,7 +130,7 @@ pub async fn run_periodic_tasks(
 
 /// The outcome of a single periodic task.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TaskOutcome {
+pub(crate) enum TaskOutcome {
     /// The task exited its loop normally (shutdown or cancellation signal).
     Completed,
     /// The task panicked, which triggered cancellation of siblings.
@@ -139,7 +139,7 @@ pub enum TaskOutcome {
 
 /// Result of running a single periodic task.
 #[derive(Debug, Clone)]
-pub struct TaskResult {
+pub(crate) struct TaskResult {
     pub name: String,
     pub outcome: TaskOutcome,
 }
