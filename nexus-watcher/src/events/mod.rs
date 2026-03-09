@@ -1,6 +1,6 @@
 use nexus_common::db::PubkyConnector;
 use nexus_common::models::event::{Event, EventProcessorError, EventType};
-use opentelemetry::trace::FutureExt as _;
+use opentelemetry::trace::{FutureExt as _, Status, TraceContextExt};
 use pubky_app_specs::{PubkyAppObject, Resource};
 use std::sync::Arc;
 use tracing::debug;
@@ -34,7 +34,7 @@ pub async fn handle_put_event(
 
     let blob = {
         let cx = crate::start_span(tracer_name, "homeserver.fetch");
-        async {
+        let result = async {
             let pubky = PubkyConnector::get()?;
             let response = pubky.public_storage().get(&event.uri).await?;
 
@@ -57,8 +57,12 @@ pub async fn handle_put_event(
                 .await
                 .map_err(|e| EventProcessorError::client_error(e.to_string()))
         }
-        .with_context(cx)
-        .await?
+        .with_context(cx.clone())
+        .await;
+        if let Err(ref e) = result {
+            cx.span().set_status(Status::error(e.to_string()));
+        }
+        result?
     };
     let resource = event.parsed_uri.resource.clone();
 
