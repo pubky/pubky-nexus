@@ -3,7 +3,8 @@ use futures::stream::BoxStream;
 use futures::{Stream, StreamExt, TryStreamExt};
 use neo4rs::Row;
 use opentelemetry::metrics::{Counter, Histogram};
-use opentelemetry::{global, KeyValue};
+use opentelemetry::trace::{Span, SpanKind, TraceContextExt, Tracer};
+use opentelemetry::{global, Context as OtelContext, KeyValue};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
@@ -171,6 +172,9 @@ struct TracedStream {
     row_count: usize,
     threshold: Duration,
     metrics: GraphMetrics,
+    /// OTel span context for this query. The span is ended in [`Drop`]
+    /// so it covers execute + full stream consumption.
+    otel_cx: Option<OtelContext>,
 }
 
 impl Stream for TracedStream {
@@ -201,7 +205,9 @@ impl Drop for TracedStream {
             .record(self.execute_duration.as_secs_f64() * 1000.0, attrs);
         self.metrics.rows.record(self.row_count as u64, attrs);
 
-        if total > self.threshold {
+        let is_slow = total > self.threshold;
+
+        if is_slow {
             self.metrics.slow.add(1, attrs);
 
             if let Some(label) = &self.label {
@@ -215,6 +221,24 @@ impl Drop for TracedStream {
                     "Slow Neo4j query"
                 );
             }
+        }
+
+        // End the OTel span with query timing attributes
+        if let Some(cx) = self.otel_cx.take() {
+            let span = cx.span();
+            span.set_attribute(KeyValue::new("db.neo4j.rows", self.row_count as i64));
+            span.set_attribute(KeyValue::new(
+                "db.neo4j.duration_ms",
+                total.as_secs_f64() * 1000.0,
+            ));
+            span.set_attribute(KeyValue::new(
+                "db.neo4j.execute_ms",
+                self.execute_duration.as_secs_f64() * 1000.0,
+            ));
+            if is_slow {
+                span.set_attribute(KeyValue::new("db.neo4j.slow", true));
+            }
+            span.end();
         }
     }
 }
@@ -276,11 +300,20 @@ impl<G: GraphOps> GraphOps for TracedGraph<G> {
         query: Query,
     ) -> neo4rs::Result<BoxStream<'static, Result<Row, neo4rs::Error>>> {
         let label = query.label();
+        let span_name = label.unwrap_or("neo4j.query");
         let cypher = if self.log_cypher {
             Some(query.to_cypher_populated())
         } else {
             None
         };
+
+        // Create an OTel span for this query (child of the current context).
+        let tracer = global::tracer(METER_NAME);
+        let mut span = tracer
+            .span_builder(span_name.to_string())
+            .with_kind(SpanKind::Client)
+            .start(&tracer);
+        span.set_attribute(KeyValue::new("db.system", "neo4j"));
 
         let start = Instant::now();
         let result = self.inner.execute(query).await;
@@ -288,6 +321,9 @@ impl<G: GraphOps> GraphOps for TracedGraph<G> {
 
         match result {
             Ok(stream) => {
+                // Store the span context in TracedStream; it will be ended on drop
+                // after all rows are consumed.
+                let otel_cx = Some(OtelContext::current_with_span(span));
                 let traced = TracedStream {
                     inner: stream,
                     label,
@@ -297,12 +333,14 @@ impl<G: GraphOps> GraphOps for TracedGraph<G> {
                     row_count: 0,
                     threshold: self.slow_query_threshold,
                     metrics: self.metrics.clone(),
+                    otel_cx,
                 };
                 Ok(traced.boxed())
             }
             Err(e) => {
                 let attrs: &[KeyValue] = &[KeyValue::new("query", label.unwrap_or("unknown"))];
                 self.metrics.errors.add(1, attrs);
+                span.end();
                 Err(e)
             }
         }
@@ -310,11 +348,19 @@ impl<G: GraphOps> GraphOps for TracedGraph<G> {
 
     async fn run(&self, query: Query) -> neo4rs::Result<()> {
         let label = query.label();
+        let span_name = label.unwrap_or("neo4j.query");
         let cypher = if self.log_cypher {
             Some(query.to_cypher_populated())
         } else {
             None
         };
+
+        let tracer = global::tracer(METER_NAME);
+        let mut span = tracer
+            .span_builder(span_name)
+            .with_kind(SpanKind::Client)
+            .start(&tracer);
+        span.set_attribute(KeyValue::new("db.system", "neo4j"));
 
         let start = Instant::now();
         let result = self.inner.run(query).await;
@@ -331,8 +377,14 @@ impl<G: GraphOps> GraphOps for TracedGraph<G> {
                     .execute_duration
                     .record(elapsed.as_secs_f64() * 1000.0, attrs);
 
+                span.set_attribute(KeyValue::new(
+                    "db.neo4j.duration_ms",
+                    elapsed.as_secs_f64() * 1000.0,
+                ));
+
                 if elapsed > self.slow_query_threshold {
                     self.metrics.slow.add(1, attrs);
+                    span.set_attribute(KeyValue::new("db.neo4j.slow", true));
 
                     if let Some(label) = &label {
                         warn!(
@@ -349,6 +401,7 @@ impl<G: GraphOps> GraphOps for TracedGraph<G> {
             }
         }
 
+        span.end();
         result
     }
 }
@@ -381,6 +434,7 @@ mod tests {
             row_count: 0,
             threshold,
             metrics: GraphMetrics::new(),
+            otel_cx: None,
         }
     }
 
@@ -469,6 +523,7 @@ mod tests {
             row_count: 0,
             threshold: Duration::ZERO,
             metrics: GraphMetrics::new(),
+            otel_cx: None,
         };
         drop(ts);
 

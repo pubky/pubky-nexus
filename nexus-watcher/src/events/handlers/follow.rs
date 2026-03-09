@@ -7,10 +7,21 @@ use nexus_common::models::follow::{Followers, Following, Friends, UserFollows};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::notification::Notification;
 use nexus_common::models::user::UserCounts;
+use opentelemetry::trace::FutureExt as _;
 use pubky_app_specs::PubkyId;
 use tracing::debug;
 
 pub async fn sync_put(
+    follower_id: PubkyId,
+    followee_id: PubkyId,
+) -> Result<(), EventProcessorError> {
+    let cx = crate::start_span("follow.put");
+    sync_put_inner(follower_id, followee_id)
+        .with_context(cx)
+        .await
+}
+
+async fn sync_put_inner(
     follower_id: PubkyId,
     followee_id: PubkyId,
 ) -> Result<(), EventProcessorError> {
@@ -65,6 +76,11 @@ pub async fn sync_put(
 }
 
 pub async fn del(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), EventProcessorError> {
+    let cx = crate::start_span("follow.del");
+    del_inner(follower_id, followee_id).with_context(cx).await
+}
+
+async fn del_inner(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), EventProcessorError> {
     debug!("Deleting follow: {} -> {}", follower_id, followee_id);
     // Maybe we could do it here but lets follow the naming convention
     sync_del(follower_id, followee_id).await

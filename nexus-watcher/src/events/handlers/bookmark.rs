@@ -2,12 +2,22 @@ use chrono::Utc;
 use nexus_common::db::OperationOutcome;
 use nexus_common::models::post::Bookmark;
 use nexus_common::models::user::UserCounts;
+use opentelemetry::trace::FutureExt as _;
 use pubky_app_specs::{ParsedUri, PubkyAppBookmark, PubkyId, Resource};
 use tracing::debug;
 
 use crate::events::EventProcessorError;
 
 pub async fn sync_put(
+    user_id: PubkyId,
+    bookmark: PubkyAppBookmark,
+    id: String,
+) -> Result<(), EventProcessorError> {
+    let cx = crate::start_span("bookmark.put");
+    sync_put_inner(user_id, bookmark, id).with_context(cx).await
+}
+
+async fn sync_put_inner(
     user_id: PubkyId,
     bookmark: PubkyAppBookmark,
     id: String,
@@ -52,6 +62,11 @@ pub async fn sync_put(
 }
 
 pub async fn del(user_id: PubkyId, bookmark_id: String) -> Result<(), EventProcessorError> {
+    let cx = crate::start_span("bookmark.del");
+    del_inner(user_id, bookmark_id).with_context(cx).await
+}
+
+async fn del_inner(user_id: PubkyId, bookmark_id: String) -> Result<(), EventProcessorError> {
     debug!("Deleting bookmark: {} -> {}", user_id, bookmark_id);
     sync_del(user_id, bookmark_id).await
 }

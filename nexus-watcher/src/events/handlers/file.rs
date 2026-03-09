@@ -8,12 +8,26 @@ use nexus_common::models::{
     file::{FileDetails, FileMeta},
     traits::Collection,
 };
+use opentelemetry::trace::FutureExt as _;
 use pubky_app_specs::{PubkyAppFile, PubkyAppObject, PubkyId};
 use std::path::{Path, PathBuf};
 use tokio::fs::remove_dir_all;
 use tracing::debug;
 
 pub async fn sync_put(
+    file: PubkyAppFile,
+    uri: String,
+    user_id: PubkyId,
+    file_id: String,
+    files_path: PathBuf,
+) -> Result<(), EventProcessorError> {
+    let cx = crate::start_span("file.put");
+    sync_put_inner(file, uri, user_id, file_id, files_path)
+        .with_context(cx)
+        .await
+}
+
+async fn sync_put_inner(
     file: PubkyAppFile,
     uri: String,
     user_id: PubkyId,
@@ -83,6 +97,17 @@ async fn ingest(
 }
 
 pub async fn del(
+    user_id: &PubkyId,
+    file_id: String,
+    files_path: PathBuf,
+) -> Result<(), EventProcessorError> {
+    let cx = crate::start_span("file.del");
+    del_inner(user_id, file_id, files_path)
+        .with_context(cx)
+        .await
+}
+
+async fn del_inner(
     user_id: &PubkyId,
     file_id: String,
     files_path: PathBuf,

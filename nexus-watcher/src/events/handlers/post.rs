@@ -10,6 +10,7 @@ use nexus_common::models::post::{
     PostCounts, PostDetails, PostRelationships, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS,
 };
 use nexus_common::models::user::UserCounts;
+use opentelemetry::trace::FutureExt as _;
 use pubky_app_specs::{
     post_uri_builder, ParsedUri, PubkyAppPost, PubkyAppPostKind, PubkyId, Resource,
 };
@@ -18,6 +19,17 @@ use tracing::debug;
 use super::utils::post_relationships_is_reply;
 
 pub async fn sync_put(
+    post: PubkyAppPost,
+    author_id: PubkyId,
+    post_id: String,
+) -> Result<(), EventProcessorError> {
+    let cx = crate::start_span("post.put");
+    sync_put_inner(post, author_id, post_id)
+        .with_context(cx)
+        .await
+}
+
+async fn sync_put_inner(
     post: PubkyAppPost,
     author_id: PubkyId,
     post_id: String,
@@ -327,6 +339,11 @@ async fn put_mentioned_relationships_for_prefix(
 }
 
 pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), EventProcessorError> {
+    let cx = crate::start_span("post.del");
+    del_inner(author_id, post_id).with_context(cx).await
+}
+
+async fn del_inner(author_id: PubkyId, post_id: String) -> Result<(), EventProcessorError> {
     debug!("Deleting post: {}/{}", author_id, post_id);
 
     // Graph query to check if there is any edge at all to this post other than AUTHORED, is a reply or is a repost.

@@ -14,12 +14,24 @@ use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::tag::user::TagUser;
 use nexus_common::models::user::UserCounts;
 use nexus_common::types::Pagination;
+use opentelemetry::trace::FutureExt as _;
 use pubky_app_specs::{ParsedUri, PubkyAppTag, PubkyId, Resource};
 use tracing::debug;
 
 use super::utils::post_relationships_is_reply;
 
 pub async fn sync_put(
+    tag: PubkyAppTag,
+    tagger_id: PubkyId,
+    tag_id: String,
+) -> Result<(), EventProcessorError> {
+    let cx = crate::start_span("tag.put");
+    sync_put_inner(tag, tagger_id, tag_id)
+        .with_context(cx)
+        .await
+}
+
+async fn sync_put_inner(
     tag: PubkyAppTag,
     tagger_id: PubkyId,
     tag_id: String,
@@ -244,6 +256,11 @@ async fn put_sync_user(
 }
 
 pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), EventProcessorError> {
+    let cx = crate::start_span("tag.del");
+    del_inner(user_id, tag_id).with_context(cx).await
+}
+
+async fn del_inner(user_id: PubkyId, tag_id: String) -> Result<(), EventProcessorError> {
     debug!("Deleting tag: {} -> {}", user_id, tag_id);
     let tag_details = TagUser::del_from_graph(&user_id, &tag_id).await?;
     // CHOOSE THE EVENT TYPE
