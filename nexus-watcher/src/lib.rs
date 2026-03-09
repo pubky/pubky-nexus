@@ -20,10 +20,8 @@ pub mod service;
 
 pub use builder::NexusWatcherBuilder;
 
-pub const TRACER_NAME: &str = "nexus-watcher";
-
-pub fn start_span(name: &'static str) -> opentelemetry::Context {
+pub(crate) fn start_span(tracer_name: &str, name: &'static str) -> opentelemetry::Context {
     use opentelemetry::trace::{TraceContextExt, Tracer};
-    let span = opentelemetry::global::tracer(TRACER_NAME).start(name);
+    let span = opentelemetry::global::tracer(tracer_name.to_string()).start(name);
     opentelemetry::Context::current_with_span(span)
 }

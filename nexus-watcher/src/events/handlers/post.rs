@@ -22,8 +22,9 @@ pub async fn sync_put(
     post: PubkyAppPost,
     author_id: PubkyId,
     post_id: String,
+    tracer_name: &str,
 ) -> Result<(), EventProcessorError> {
-    let cx = crate::start_span("post.put");
+    let cx = crate::start_span(tracer_name, "post.put");
     sync_put_inner(post, author_id, post_id)
         .with_context(cx)
         .await
@@ -338,12 +339,22 @@ async fn put_mentioned_relationships_for_prefix(
     Ok(())
 }
 
-pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), EventProcessorError> {
-    let cx = crate::start_span("post.del");
-    del_inner(author_id, post_id).with_context(cx).await
+pub async fn del(
+    author_id: PubkyId,
+    post_id: String,
+    tracer_name: &str,
+) -> Result<(), EventProcessorError> {
+    let cx = crate::start_span(tracer_name, "post.del");
+    del_inner(author_id, post_id, tracer_name)
+        .with_context(cx)
+        .await
 }
 
-async fn del_inner(author_id: PubkyId, post_id: String) -> Result<(), EventProcessorError> {
+async fn del_inner(
+    author_id: PubkyId,
+    post_id: String,
+    tracer_name: &str,
+) -> Result<(), EventProcessorError> {
     debug!("Deleting post: {}/{}", author_id, post_id);
 
     // Graph query to check if there is any edge at all to this post other than AUTHORED, is a reply or is a repost.
@@ -372,7 +383,7 @@ async fn del_inner(author_id: PubkyId, post_id: String) -> Result<(), EventProce
                 attachments: None,
             };
 
-            sync_put(dummy_deleted_post, author_id, post_id).await?;
+            sync_put(dummy_deleted_post, author_id, post_id, tracer_name).await?;
         }
         OperationOutcome::MissingDependency => return Err(EventProcessorError::SkipIndexing),
     };

@@ -14,8 +14,9 @@ use tracing::debug;
 pub async fn sync_put(
     follower_id: PubkyId,
     followee_id: PubkyId,
+    tracer_name: &str,
 ) -> Result<(), EventProcessorError> {
-    let cx = crate::start_span("follow.put");
+    let cx = crate::start_span(tracer_name, "follow.put");
     sync_put_inner(follower_id, followee_id)
         .with_context(cx)
         .await
@@ -75,8 +76,12 @@ async fn sync_put_inner(
     Ok(())
 }
 
-pub async fn del(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), EventProcessorError> {
-    let cx = crate::start_span("follow.del");
+pub async fn del(
+    follower_id: PubkyId,
+    followee_id: PubkyId,
+    tracer_name: &str,
+) -> Result<(), EventProcessorError> {
+    let cx = crate::start_span(tracer_name, "follow.del");
     del_inner(follower_id, followee_id).with_context(cx).await
 }
 

@@ -12,8 +12,9 @@ pub async fn sync_put(
     user_id: PubkyId,
     bookmark: PubkyAppBookmark,
     id: String,
+    tracer_name: &str,
 ) -> Result<(), EventProcessorError> {
-    let cx = crate::start_span("bookmark.put");
+    let cx = crate::start_span(tracer_name, "bookmark.put");
     sync_put_inner(user_id, bookmark, id).with_context(cx).await
 }
 
@@ -61,8 +62,12 @@ async fn sync_put_inner(
     Ok(())
 }
 
-pub async fn del(user_id: PubkyId, bookmark_id: String) -> Result<(), EventProcessorError> {
-    let cx = crate::start_span("bookmark.del");
+pub async fn del(
+    user_id: PubkyId,
+    bookmark_id: String,
+    tracer_name: &str,
+) -> Result<(), EventProcessorError> {
+    let cx = crate::start_span(tracer_name, "bookmark.del");
     del_inner(user_id, bookmark_id).with_context(cx).await
 }
 

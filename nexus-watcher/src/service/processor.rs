@@ -149,7 +149,7 @@ impl EventProcessor {
     /// # Parameters:
     /// - `event`: The event to be processed
     async fn handle_event(&self, event: &Event) -> Result<(), EventProcessorError> {
-        if let Err(e) = handle(event, self.moderation.clone()).await {
+        if let Err(e) = handle(event, self.moderation.clone(), &self.tracer_name).await {
             if let Some((index_key, retry_event)) = extract_retry_event_info(event, e) {
                 error!("{}, {}", retry_event.error_type, index_key);
                 if let Err(err) = retry_event.put_to_index(index_key).await {

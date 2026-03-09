@@ -349,7 +349,14 @@ pub async fn retrieve_and_handle_event_line(
     moderation: Arc<Moderation>,
 ) -> Result<(), EventProcessorError> {
     match Event::parse_event(event_line, get_files_dir_pathbuf())? {
-        Some(event) => handle(&event, moderation).await,
+        Some(event) => {
+            handle(
+                &event,
+                moderation,
+                nexus_common::WatcherConfig::default().name.as_str(),
+            )
+            .await
+        }
         None => Ok(()),
     }
 }

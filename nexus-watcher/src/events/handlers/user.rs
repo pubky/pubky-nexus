@@ -11,8 +11,12 @@ use opentelemetry::trace::FutureExt as _;
 use pubky_app_specs::{PubkyAppUser, PubkyId};
 use tracing::debug;
 
-pub async fn sync_put(user: PubkyAppUser, user_id: PubkyId) -> Result<(), EventProcessorError> {
-    let cx = crate::start_span("user.put");
+pub async fn sync_put(
+    user: PubkyAppUser,
+    user_id: PubkyId,
+    tracer_name: &str,
+) -> Result<(), EventProcessorError> {
+    let cx = crate::start_span(tracer_name, "user.put");
     sync_put_inner(user, user_id).with_context(cx).await
 }
 
@@ -52,12 +56,12 @@ async fn sync_put_inner(user: PubkyAppUser, user_id: PubkyId) -> Result<(), Even
     Ok(())
 }
 
-pub async fn del(user_id: PubkyId) -> Result<(), EventProcessorError> {
-    let cx = crate::start_span("user.del");
-    del_inner(user_id).with_context(cx).await
+pub async fn del(user_id: PubkyId, tracer_name: &str) -> Result<(), EventProcessorError> {
+    let cx = crate::start_span(tracer_name, "user.del");
+    del_inner(user_id, tracer_name).with_context(cx).await
 }
 
-async fn del_inner(user_id: PubkyId) -> Result<(), EventProcessorError> {
+async fn del_inner(user_id: PubkyId, tracer_name: &str) -> Result<(), EventProcessorError> {
     debug!("Deleting user profile:  {}", user_id);
 
     // 1. Graph query to check if there is any edge at all to this user.
@@ -86,7 +90,7 @@ async fn del_inner(user_id: PubkyId) -> Result<(), EventProcessorError> {
                 image: None,
             };
 
-            sync_put(deleted_user, user_id).await?;
+            sync_put(deleted_user, user_id, tracer_name).await?;
         }
         OperationOutcome::MissingDependency => return Err(EventProcessorError::SkipIndexing),
     }

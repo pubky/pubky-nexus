@@ -24,8 +24,9 @@ pub async fn sync_put(
     tag: PubkyAppTag,
     tagger_id: PubkyId,
     tag_id: String,
+    tracer_name: &str,
 ) -> Result<(), EventProcessorError> {
-    let cx = crate::start_span("tag.put");
+    let cx = crate::start_span(tracer_name, "tag.put");
     sync_put_inner(tag, tagger_id, tag_id)
         .with_context(cx)
         .await
@@ -255,8 +256,12 @@ async fn put_sync_user(
     }
 }
 
-pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), EventProcessorError> {
-    let cx = crate::start_span("tag.del");
+pub async fn del(
+    user_id: PubkyId,
+    tag_id: String,
+    tracer_name: &str,
+) -> Result<(), EventProcessorError> {
+    let cx = crate::start_span(tracer_name, "tag.del");
     del_inner(user_id, tag_id).with_context(cx).await
 }
 

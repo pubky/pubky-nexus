@@ -20,8 +20,9 @@ pub async fn sync_put(
     user_id: PubkyId,
     file_id: String,
     files_path: PathBuf,
+    tracer_name: &str,
 ) -> Result<(), EventProcessorError> {
-    let cx = crate::start_span("file.put");
+    let cx = crate::start_span(tracer_name, "file.put");
     sync_put_inner(file, uri, user_id, file_id, files_path)
         .with_context(cx)
         .await
@@ -100,8 +101,9 @@ pub async fn del(
     user_id: &PubkyId,
     file_id: String,
     files_path: PathBuf,
+    tracer_name: &str,
 ) -> Result<(), EventProcessorError> {
-    let cx = crate::start_span("file.del");
+    let cx = crate::start_span(tracer_name, "file.del");
     del_inner(user_id, file_id, files_path)
         .with_context(cx)
         .await
