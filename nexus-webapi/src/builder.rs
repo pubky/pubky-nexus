@@ -185,7 +185,12 @@ impl NexusApi {
     }
 
     /// It sets up the necessary routes, binds to the specified address, and starts the Axum server
-    pub async fn start(ctx: ApiContext, enable_key_republisher: bool) -> Result<Self, DynError> {
+    ///
+    /// This method has limited visibility, to force external callers to use [NexusApiBuilder].
+    pub(crate) async fn start(
+        ctx: ApiContext,
+        enable_key_republisher: bool,
+    ) -> Result<Self, DynError> {
         // Create all the routes of the API
         let router = routes::routes(ctx.api_config.stack.files_path.clone());
         debug!(?ctx.api_config, "Running NexusAPI with config");
