@@ -35,7 +35,7 @@ impl TEventProcessor for EventProcessor {
         let maybe_event_lines = {
             let tracer = global::tracer(self.tracer_name.clone());
             let span = tracer.start("Polling Events");
-            let cx = Context::new().with_span(span);
+            let cx = Context::current_with_span(span);
             self.poll_events()
                 .with_context(cx)
                 .await
@@ -135,7 +135,7 @@ impl EventProcessor {
                         "event.resource_id",
                         event.parsed_uri.resource.id().unwrap_or("".to_string()),
                     ));
-                    let cx = Context::new().with_span(span);
+                    let cx = Context::current_with_span(span);
                     debug!("Processing event: {:?}", event);
                     self.handle_event(&event).with_context(cx).await?;
                 }
