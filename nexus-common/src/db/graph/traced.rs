@@ -3,7 +3,7 @@ use futures::stream::BoxStream;
 use futures::{Stream, StreamExt, TryStreamExt};
 use neo4rs::Row;
 use opentelemetry::metrics::{Counter, Histogram};
-use opentelemetry::trace::{Span, SpanKind, TraceContextExt, Tracer};
+use opentelemetry::trace::{Span, SpanKind, Status, TraceContextExt, Tracer};
 use opentelemetry::{global, Context as OtelContext, KeyValue};
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -340,6 +340,7 @@ impl<G: GraphOps> GraphOps for TracedGraph<G> {
             Err(e) => {
                 let attrs: &[KeyValue] = &[KeyValue::new("query", label.unwrap_or("unknown"))];
                 self.metrics.errors.add(1, attrs);
+                span.set_status(Status::error(e.to_string()));
                 span.end();
                 Err(e)
             }
@@ -396,8 +397,9 @@ impl<G: GraphOps> GraphOps for TracedGraph<G> {
                     }
                 }
             }
-            Err(_) => {
+            Err(e) => {
                 self.metrics.errors.add(1, attrs);
+                span.set_status(Status::error(e.to_string()));
             }
         }
 
