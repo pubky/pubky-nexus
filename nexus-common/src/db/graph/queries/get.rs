@@ -874,7 +874,7 @@ pub fn user_is_safe_to_delete(user_id: &str) -> Query {
         // Ensures all relationships to the user (u) are checked, counting as 0 if none exist
         OPTIONAL MATCH (u)-[r]-()
         // Checks if the user has any relationships
-        With u, NOT (COUNT(r) = 0) AS flag
+        WITH u, NOT (COUNT(r) = 0) AS flag
         RETURN flag
         ",
     )
@@ -907,7 +907,7 @@ pub fn post_is_safe_to_delete(author_id: &str, post_id: &str) -> Query {
             (type(r) = 'REPLIED' AND startNode(r) = p)
         )
         // Checks if any disallowed relationships exist for the post
-        With p, NOT (COUNT(r) = 0) AS flag
+        WITH p, NOT (COUNT(r) = 0) AS flag
         RETURN flag
         ",
     )
