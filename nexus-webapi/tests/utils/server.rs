@@ -13,10 +13,13 @@ pub struct TestServiceServer {
     pub testnet: pubky_testnet::Testnet,
 }
 
+/// [TestServiceServer] with no key republisher
 static TEST_SERVER: OnceCell<TestServiceServer> = OnceCell::const_new();
+/// [TestServiceServer] where the [NexusApi] is initialized with a key republisher
 static TEST_SERVER_WITH_KEY_REPUBLISHER: OnceCell<TestServiceServer> = OnceCell::const_new();
 
 impl TestServiceServer {
+    /// Returns a test server with no [KeyRepublisher]. This is the default setup used in most tests.
     pub async fn get_test_server() -> &'static TestServiceServer {
         TEST_SERVER
             .get_or_init(|| async {
@@ -27,7 +30,7 @@ impl TestServiceServer {
             .await
     }
 
-    /// Returns a test server with the [KeyRepublisher] enabled.
+    /// Returns a test server with the [KeyRepublisher] enabled, for the few tests that need it
     ///
     /// Use this in tests that access the API via the Pubky TLS DNS URL, which requires
     /// the server's pkarr packet to be published to the DHT.
