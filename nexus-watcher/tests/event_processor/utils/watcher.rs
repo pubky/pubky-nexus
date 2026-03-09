@@ -21,9 +21,9 @@ use pubky_app_specs::file_uri_builder;
 use pubky_app_specs::traits::HashId;
 use pubky_app_specs::{
     traits::{HasIdPath, HasPath, TimestampId},
-    PubkyAppFile, PubkyAppFollow, PubkyAppMute, PubkyAppPost, PubkyAppUser, PubkyId,
+    PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser, PubkyId,
 };
-use pubky_testnet::EphemeralTestnet;
+use pubky_testnet::Testnet;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -49,7 +49,7 @@ pub fn generate_post_id() -> String {
 
 /// Struct to hold the setup environment for tests
 pub struct WatcherTest {
-    pub testnet: EphemeralTestnet,
+    pub testnet: Testnet,
     /// The homeserver ID
     pub homeserver_id: String,
     /// The event processor runner
@@ -101,7 +101,6 @@ impl WatcherTest {
     /// 4. Creates and starts a test homeserver instance with a random public key.
     /// 5. Initializes the PubkyConnector with the test homeserver client.
     /// 6. Creates and configures the event processor with the test homeserver URL.
-    /// 7. Creates a channel to signal the event processor to shutdown.
     ///
     /// # Returns
     /// Returns an instance of `Self` containing the configuration, homeserver,
@@ -113,10 +112,9 @@ impl WatcherTest {
 
         // WARNING: testnet initialization is time expensive, we only init one per process
         // TODO: Maybe we should create a single testnet network (singleton and push there more homeservers)
-        let mut testnet = EphemeralTestnet::builder()
-            .with_http_relay()
-            .build()
-            .await?;
+        // This can be further sped up by using Testnet::new_unseeded() with pubky-testnet 0.7.x
+        let mut testnet = Testnet::new().await?;
+        testnet.create_http_relay().await?;
 
         // Create a random homeserver with a random public key
         let homeserver_id = testnet.create_random_homeserver().await?.public_key().z32();
@@ -242,8 +240,6 @@ impl WatcherTest {
         let user_path = PubkyAppUser::hs_path();
         self.put(user_kp, &user_path, &user).await?;
 
-        // Index to Nexus from Homeserver using the events processor
-        self.ensure_event_processing_complete().await?;
         Ok(user_id)
     }
 
@@ -261,8 +257,6 @@ impl WatcherTest {
         let user_path = PubkyAppUser::hs_path();
         self.put(user_kp, &user_path, &user).await?;
 
-        // Index to Nexus from Homeserver using the events processor
-        self.ensure_event_processing_complete().await?;
         Ok(user_id.to_string())
     }
 
@@ -278,8 +272,6 @@ impl WatcherTest {
         // Write the post in the pubky.app repository
         self.put(user_kp, &post_path, post).await?;
 
-        // Index to Nexus from Homeserver using the events processor
-        self.ensure_event_processing_complete().await?;
         Ok((post_id, post_path))
     }
 
@@ -305,7 +297,6 @@ impl WatcherTest {
         let file_path: ResourcePath = PubkyAppFile::create_path(&file_id).parse()?;
         self.put(user_kp, &file_path, file).await?;
 
-        self.ensure_event_processing_complete().await?;
         Ok((file_id, file_path))
     }
 
@@ -342,24 +333,7 @@ impl WatcherTest {
         let follow_path = follow_relationship.hs_path(followee_id);
         self.put(follower_kp, &follow_path, follow_relationship)
             .await?;
-        // Process the event
-        self.ensure_event_processing_complete().await?;
         Ok(follow_path)
-    }
-
-    pub async fn create_mute(
-        &mut self,
-        muter_kp: &Keypair,
-        mutee_id: &str,
-    ) -> Result<ResourcePath> {
-        let mute_relationship = PubkyAppMute {
-            created_at: Utc::now().timestamp_millis(),
-        };
-        let mute_path = PubkyAppMute::hs_path(mutee_id);
-        self.put(muter_kp, &mute_path, mute_relationship).await?;
-        // Process the event
-        self.ensure_event_processing_complete().await?;
-        Ok(mute_path)
     }
 }
 
