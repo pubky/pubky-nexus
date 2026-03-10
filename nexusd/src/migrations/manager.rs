@@ -1,9 +1,13 @@
 use async_trait::async_trait;
 use chrono::Utc;
-use neo4rs::{Graph, Query};
-use nexus_common::{db::get_neo4j_graph, types::DynError};
+use futures::TryStreamExt;
+use nexus_common::{
+    db::{get_neo4j_graph, graph::Query, GraphOps},
+    types::DynError,
+};
 use serde::{Deserialize, Serialize};
 use std::any::Any;
+use std::sync::Arc;
 use tracing::info;
 
 use crate::migrations::utils::{self, generate_template};
@@ -86,18 +90,18 @@ pub struct MigrationNode {
 const MIGRATION_PATH: &str = "nexusd/src/migrations/migrations_list/";
 
 pub struct MigrationManager {
-    graph: Graph,
+    graph: Arc<dyn GraphOps>,
     migrations: Vec<Box<dyn Migration>>,
 }
 
 impl Default for MigrationManager {
     fn default() -> Self {
-        let graph_connection = match get_neo4j_graph() {
-            Ok(connection) => connection,
+        let graph = match get_neo4j_graph() {
+            Ok(graph) => graph,
             Err(e) => panic!("Could not initialise migration manager: {e:?}"),
         };
         Self {
-            graph: graph_connection,
+            graph,
             migrations: Vec::new(),
         }
     }
@@ -215,10 +219,13 @@ impl MigrationManager {
     }
 
     async fn get_migrations(&self) -> Result<Vec<MigrationNode>, DynError> {
-        let query = Query::new("MATCH (m:Migration) RETURN COLLECT(m) as migrations".to_string());
+        let query = Query::new(
+            "get_migrations",
+            "MATCH (m:Migration) RETURN COLLECT(m) as migrations",
+        );
         let mut result = self.graph.execute(query).await.map_err(|e| e.to_string())?;
 
-        match result.next().await {
+        match result.try_next().await {
             Ok(row) => match row {
                 Some(row) => match row.get::<Vec<MigrationNode>>("migrations") {
                     Ok(migrations) => Ok(migrations),
@@ -236,8 +243,8 @@ impl MigrationManager {
             false => MigrationPhase::Backfill,
         };
         let query = Query::new(
-            "MERGE (m:Migration {id: $id, phase: $phase, created_at: timestamp(), updated_at: 0})"
-                .to_string(),
+            "store_migration",
+            "MERGE (m:Migration {id: $id, phase: $phase, created_at: timestamp(), updated_at: 0})",
         )
         .param("id", id)
         .param("phase", initial_phase.to_string());
@@ -252,8 +259,8 @@ impl MigrationManager {
         phase: &MigrationPhase,
     ) -> Result<(), DynError> {
         let query = Query::new(
-            "MERGE (m:Migration {id: $id}) SET m.phase = $phase, m.updated_at = timestamp()"
-                .to_string(),
+            "update_migration_phase",
+            "MERGE (m:Migration {id: $id}) SET m.phase = $phase, m.updated_at = timestamp()",
         )
         .param("id", id)
         .param("phase", phase.to_string());

@@ -1,6 +1,6 @@
+use crate::db::graph::Query;
 use crate::db::{queries, RedisOps};
 use async_trait::async_trait;
-use neo4rs::Query;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 

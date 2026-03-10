@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
 mod neo4j;
-pub use neo4j::Neo4JConfig;
+pub use neo4j::{Neo4JConfig, DEFAULT_SLOW_QUERY_THRESHOLD_MS};
 
 pub const REDIS_URI: &str = "redis://localhost:6379";
 
