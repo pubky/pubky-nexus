@@ -47,7 +47,12 @@ impl Neo4jConnector {
             Arc::new(graph)
         };
 
-        info!("Created Neo4j connector");
+        info!(
+            slow_query_logging_enabled = config.slow_query_logging_enabled,
+            slow_query_logging_threshold_ms = config.slow_query_logging_threshold_ms,
+            slow_query_logging_include_cypher = config.slow_query_logging_include_cypher,
+            "Created Neo4j connector"
+        );
         Ok(Neo4jConnector { graph })
     }
 
