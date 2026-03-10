@@ -26,10 +26,9 @@ pub async fn tag_view_handler(
 ) -> Result<Json<TagView>> {
     debug!("GET {TAG_ROUTE} tagger_id:{}, tag_id:{}", tagger_id, tag_id);
 
-    match TagView::get_by_tagger_and_id(&tagger_id, &tag_id).await {
-        Ok(Some(tag)) => Ok(Json(tag)),
-        Ok(None) => Err(Error::TagNotFound { tag_id, tagger_id }),
-        Err(source) => Err(Error::InternalServerError { source }),
+    match TagView::get_by_tagger_and_id(&tagger_id, &tag_id).await? {
+        Some(tag) => Ok(Json(tag)),
+        None => Err(Error::TagNotFound { tag_id, tagger_id }),
     }
 }
 

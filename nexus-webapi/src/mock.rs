@@ -60,8 +60,6 @@ impl MockDb {
         // drop and run the queries again
         let drop_all_query = query("MATCH (n) DETACH DELETE n;");
         graph
-            .lock()
-            .await
             .run(drop_all_query)
             .await
             .expect("Could not drop graph nodes.");
@@ -88,8 +86,12 @@ impl MockDb {
 
     async fn sync_graph() {
         Self::drop_graph().await;
-        // Run the run-queries.sh script on the Docker host using docker exec
-        tokio::process::Command::new("docker")
+
+        // Allow other runtimes like podman, but default to docker
+        let container_runtime = std::env::var("CONTAINER_RUNTIME").unwrap_or("docker".to_string());
+
+        // Run the run-queries.sh script inside the neo4j container using docker exec
+        tokio::process::Command::new(&container_runtime)
             .args(["exec", "neo4j", "bash", "/test-graph/run-queries.sh"])
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())

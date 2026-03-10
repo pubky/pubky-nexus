@@ -55,7 +55,9 @@ jobs:
       # Install imagemagick after docker containers are started and before waiting for services to be up
       # This ensures services are starting up during this step, saving time in the "wait for services" step
       - name: Install ImageMagick
-        run: sudo apt-get install -y -qq imagemagick
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y -qq imagemagick
 
       - name: Wait for services to be ready
         run: |

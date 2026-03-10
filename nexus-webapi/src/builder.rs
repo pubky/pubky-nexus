@@ -17,7 +17,7 @@ use nexus_common::types::DynError;
 use nexus_common::utils::create_shutdown_rx;
 use nexus_common::Level;
 use nexus_common::{ApiConfig, StackManager};
-use pkarr::{Keypair, PublicKey};
+use pubky::pkarr::{Keypair, PublicKey};
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info};
 

@@ -1,10 +1,10 @@
 use async_trait::async_trait;
 use chrono::Utc;
+use nexus_common::db::kv::RedisResult;
 use pubky_app_specs::ParsedUri;
 use serde::{Deserialize, Serialize};
 
 use nexus_common::db::RedisOps;
-use nexus_common::types::DynError;
 
 use crate::events::EventProcessorError;
 
@@ -72,7 +72,7 @@ impl RetryEvent {
     /// and also stores the event details in a separate JSON index for retrieval.
     /// # Arguments
     /// * `event_line` - A `String` representing the event line to be indexed.
-    pub async fn put_to_index(&self, event_line: String) -> Result<(), DynError> {
+    pub async fn put_to_index(&self, event_line: String) -> RedisResult<()> {
         Self::put_index_sorted_set(
             &RETRY_MANAGER_EVENTS_INDEX,
             // NOTE: Don't know if we should use now timestamp or the event timestamp
@@ -91,19 +91,24 @@ impl RetryEvent {
     /// Checks if a specific event exists in the Redis sorted set
     /// # Arguments
     /// * `event_index` - A `&str` representing the event index to check
-    pub async fn check_uri(event_index: &str) -> Result<Option<isize>, DynError> {
+    pub async fn check_uri(event_index: &str) -> Result<Option<isize>, EventProcessorError> {
         Self::check_sorted_set_member(
             Some(RETRY_MANAGER_PREFIX),
             &RETRY_MANAGER_EVENTS_INDEX,
             &[event_index],
         )
         .await
+        .map_err(|e| {
+            EventProcessorError::InternalError(format!(
+                "Could not check uri for event: {event_index}, reason {e}"
+            ))
+        })
     }
 
     /// Retrieves an event from the JSON index in Redis based on its index
     /// # Arguments
     /// * `event_index` - A `&str` representing the event index to retrieve
-    pub async fn get_from_index(event_index: &str) -> Result<Option<Self>, DynError> {
+    pub async fn get_from_index(event_index: &str) -> RedisResult<Option<Self>> {
         let index: &Vec<&str> = &[RETRY_MANAGER_STATE_INDEX, [event_index]].concat();
         Self::try_from_index_json(index, None).await
     }

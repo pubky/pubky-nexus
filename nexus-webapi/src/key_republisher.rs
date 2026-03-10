@@ -11,10 +11,10 @@
 use std::net::IpAddr;
 
 use nexus_common::types::DynError;
-use pkarr::dns::Name;
-use pkarr::errors::PublishError;
-use pkarr::Keypair;
-use pkarr::{dns::rdata::SVCB, SignedPacket};
+use pubky::pkarr::dns::Name;
+use pubky::pkarr::errors::PublishError;
+use pubky::pkarr::Keypair;
+use pubky::pkarr::{self, dns::rdata::SVCB, SignedPacket};
 use tokio::task::JoinHandle;
 use tokio::time::{interval, Duration};
 

@@ -1,12 +1,15 @@
-use crate::utils::{get_request, invalid_get_request};
+use crate::utils::{get_request, invalid_get_request, post_request};
 use anyhow::Result;
 use axum::http::StatusCode;
 use nexus_common::models::post::PostStream;
+use serde_json::json;
 
 use super::utils::{search_tag_in_post, verify_post_list, verify_timeline_post_list};
 use super::{POST_A, POST_B, POST_C, POST_F, POST_G, POST_H};
 use super::{ROOT_PATH, USER_ID};
 use super::{TAG_LABEL_1, TAG_LABEL_2};
+
+const CAIRO_USER: &str = "f5tcy5gtgzshipr6pag6cn9uski3s8tjare7wd3n7enmyokgjk1o";
 
 // Post order by timeline
 pub const POST_TA: &str = "2ZKB76Q194T00";
@@ -272,6 +275,90 @@ async fn test_stream_invalid_sorting() -> Result<()> {
     // Invalid sorting option should fail
     let endpoint = "/v0/stream/posts?sorting=invalid";
     invalid_get_request(endpoint, StatusCode::BAD_REQUEST).await?;
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_stream_posts_with_attachment_metadata() -> Result<()> {
+    // Stream Cairo user's posts with attachment metadata
+    let path = format!(
+        "{ROOT_PATH}?author_id={CAIRO_USER}&source=author&sorting=timeline&include_attachment_metadata=true&limit=20"
+    );
+    let body = get_request(&path).await?;
+
+    assert!(body.is_array());
+    let posts = body.as_array().expect("Post stream should be an array");
+
+    // Find the post with attachments (POST_H)
+    let post_with_attachments = posts
+        .iter()
+        .find(|p| p["details"]["id"] == POST_H)
+        .expect("POST_H should be in the stream");
+
+    let attachments_metadata = post_with_attachments["attachments_metadata"]
+        .as_array()
+        .expect("Post attachments_metadata should be an array");
+    assert_eq!(attachments_metadata.len(), 2);
+
+    assert_eq!(attachments_metadata[0]["id"], "2ZK3A1B2C3D40");
+    assert_eq!(attachments_metadata[0]["owner_id"], CAIRO_USER);
+    assert_eq!(attachments_metadata[0]["name"], "cairo_file1");
+    assert_eq!(attachments_metadata[0]["content_type"], "image/png");
+
+    assert_eq!(attachments_metadata[1]["id"], "2ZK3E5F6G7H80");
+    assert_eq!(attachments_metadata[1]["owner_id"], CAIRO_USER);
+    assert_eq!(attachments_metadata[1]["name"], "cairo_file2");
+    assert_eq!(attachments_metadata[1]["content_type"], "image/jpeg");
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_stream_posts_without_attachment_metadata() -> Result<()> {
+    // Without the flag, posts should not have attachments_metadata
+    let path =
+        format!("{ROOT_PATH}?author_id={CAIRO_USER}&source=author&sorting=timeline&limit=20");
+    let body = get_request(&path).await?;
+
+    assert!(body.is_array());
+    let posts = body.as_array().expect("Post stream should be an array");
+
+    let post_with_attachments = posts
+        .iter()
+        .find(|p| p["details"]["id"] == POST_H)
+        .expect("POST_H should be in the stream");
+
+    // attachments_metadata should be absent (skipped via skip_serializing_if when empty)
+    assert!(
+        post_with_attachments.get("attachments_metadata").is_none(),
+        "attachments_metadata should be absent when flag is not set"
+    );
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_stream_posts_by_ids_with_attachment_metadata() -> Result<()> {
+    let post_key = format!("{CAIRO_USER}:{POST_H}");
+    let request_body = json!({
+        "post_ids": [post_key],
+        "include_attachment_metadata": true
+    });
+
+    let body = post_request("/v0/stream/posts/by_ids", request_body).await?;
+
+    assert!(body.is_array());
+    let posts = body.as_array().expect("Post stream should be an array");
+    assert_eq!(posts.len(), 1);
+
+    let attachments_metadata = posts[0]["attachments_metadata"]
+        .as_array()
+        .expect("Post attachments_metadata should be an array");
+    assert_eq!(attachments_metadata.len(), 2);
+
+    assert_eq!(attachments_metadata[0]["id"], "2ZK3A1B2C3D40");
+    assert_eq!(attachments_metadata[1]["id"], "2ZK3E5F6G7H80");
 
     Ok(())
 }

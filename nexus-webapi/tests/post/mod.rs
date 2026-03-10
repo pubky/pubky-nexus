@@ -1,5 +1,6 @@
 use nexus_webapi::routes::v0::endpoints;
 
+pub mod from_post_views;
 pub mod search;
 pub mod view;
 

@@ -6,7 +6,7 @@ It polls for events from the `/events` endpoint of a homeserver and processes th
 ## Features
 
 - **Event Processing:**  
-  Processes various types of events such as posts, bookmarks, follows, mutes, tags, and user profile updates using [`pubky-app-specs`](https://github.com/pubky/pubky-app-specs) object builder.
+  Processes various types of events such as posts, bookmarks, follows, tags, and user profile updates using [`pubky-app-specs`](https://github.com/pubky/pubky-app-specs) object builder.
 
 - **Retry Mechanism:**  
   Supports retry logic for events that fail to index due to missing dependencies or other transient errors
