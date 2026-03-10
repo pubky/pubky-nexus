@@ -102,7 +102,7 @@ impl Event {
     pub async fn get_events_from_redis(
         cursor: Option<u32>,
         limit: u32,
-    ) -> Result<(Vec<String>, u32), DynError> {
+    ) -> RedisResult<(Vec<String>, u32)> {
         let start = cursor.unwrap_or(0);
         let start_u = start as usize;
         let limit_u = limit as usize;
