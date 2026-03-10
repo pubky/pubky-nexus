@@ -25,15 +25,11 @@ use utoipa::OpenApi;
 pub async fn post_details_handler(
     Path((author_id, post_id)): Path<(String, String)>,
 ) -> Result<Json<PostDetails>> {
-    debug!(
-        "GET {POST_DETAILS_ROUTE} author_id:{}, post_id:{}",
-        author_id, post_id
-    );
+    debug!("GET {POST_DETAILS_ROUTE} author_id:{author_id}, post_id:{post_id}");
 
-    match PostDetails::get_by_id(&author_id, &post_id).await {
-        Ok(Some(post)) => Ok(Json(post)),
-        Ok(None) => Err(Error::PostNotFound { author_id, post_id }),
-        Err(source) => Err(Error::InternalServerError { source }),
+    match PostDetails::get_by_id(&author_id, &post_id).await? {
+        Some(post) => Ok(Json(post)),
+        None => Err(Error::PostNotFound { author_id, post_id }),
     }
 }
 

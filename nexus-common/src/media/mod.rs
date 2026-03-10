@@ -1,4 +1,5 @@
 use crate::{
+    media::processors::MediaProcessorError,
     models::file::{FileDetails, FileUrls},
     types::DynError,
 };
@@ -53,7 +54,7 @@ impl VariantController {
         file: &FileDetails,
         variant: &FileVariant,
         file_path: PathBuf,
-    ) -> Result<String, DynError> {
+    ) -> Result<String, MediaProcessorError> {
         match &file.content_type {
             content_type if content_type.starts_with("image/") => {
                 ImageProcessor::create_variant(file, variant, file_path).await
@@ -61,7 +62,9 @@ impl VariantController {
             content_type if content_type.starts_with("video/") => {
                 VideoProcessor::create_variant(file, variant, file_path).await
             }
-            _ => Err(format!("Unsupported content type: {}", file.content_type).into()),
+            _ => Err(MediaProcessorError::UnsupportedContentType(
+                file.content_type.clone(),
+            )),
         }
     }
 

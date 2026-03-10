@@ -42,23 +42,6 @@ pub fn delete_follow(follower_id: &str, followee_id: &str) -> Query {
     .param("followee_id", followee_id.to_string())
 }
 
-/// Deletes a "muted" relationship between two users
-/// # Arguments
-/// * `user_id` - The unique identifier of the user who muted another user
-/// * `muted_id` - The unique identifier of the user who was muted
-pub fn delete_mute(user_id: &str, muted_id: &str) -> Query {
-    query(
-        "// Important that MATCH to check if both users are in the graph
-        MATCH (user:User {id: $user_id}), (muted:User {id: $muted_id})
-        OPTIONAL MATCH (user)-[existing:MUTED]->(muted)
-        DELETE existing
-        // Returns true if the relationship does not exist as 'flag'
-        RETURN existing IS NULL AS flag;",
-    )
-    .param("user_id", user_id.to_string())
-    .param("muted_id", muted_id.to_string())
-}
-
 /// Deletes a bookmark relationship between a user and a post
 /// # Arguments
 /// * `user_id` - The unique identifier of the user who created the bookmark.

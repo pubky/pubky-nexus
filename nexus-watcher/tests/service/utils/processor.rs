@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use crate::service::utils::{MockEventProcessorResult, HS_IDS};
+use nexus_common::models::event::EventProcessorError;
 use nexus_common::models::homeserver::Homeserver;
-use nexus_common::types::DynError;
 use nexus_watcher::service::TEventProcessor;
 use pubky::Keypair;
 use pubky_app_specs::PubkyId;
@@ -29,7 +29,7 @@ impl TEventProcessor for MockEventProcessor {
         self.custom_timeout
     }
 
-    async fn run_internal(self: Arc<Self>) -> Result<(), DynError> {
+    async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {
         // Simulate a long-running task if needed, but be responsive to shutdown
         // This simulates the processing of event lines, which can take a while but can be interrupted by the shutdown signal
         if let Some(sleep_duration) = self.sleep_duration {
@@ -44,7 +44,7 @@ impl TEventProcessor for MockEventProcessor {
 
         match &self.processor_status {
             MockEventProcessorResult::Success => Ok(()),
-            MockEventProcessorResult::Error(e) => Err(format!("{e}").into()),
+            MockEventProcessorResult::Error(e) => Err(EventProcessorError::Generic(e.clone())),
             MockEventProcessorResult::Panic => panic!("Event processor panicked: unknown error"),
         }
     }

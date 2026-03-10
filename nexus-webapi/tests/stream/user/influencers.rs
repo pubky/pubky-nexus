@@ -1,5 +1,8 @@
+use std::time::Duration;
+
 use anyhow::Result;
 use axum::http::StatusCode;
+use tokio::time::sleep;
 use tracing::debug;
 
 use crate::{
@@ -52,12 +55,16 @@ async fn test_global_influencers_preview() -> Result<()> {
     assert!(influencers.len() <= 3);
     debug!("Influencers length: {:?}", influencers.len());
 
-    let first_influencer_ids = influencers
+    let first_influencer_ids: Vec<&str> = influencers
         .iter()
         .map(|f| f["details"]["id"].as_str().unwrap())
-        .collect::<Vec<&str>>();
+        .collect();
 
-    // make the request a second time to ensure the preview is generating different results
+    // Sleep to ensure the second request gets a different timestamp_subsec_micros() value,
+    // which determines the random skip offset for preview mode (see Influencers::get_influencers()).
+    sleep(Duration::from_millis(5)).await;
+
+    // Make a second request to verify preview returns different results
     let body = get_request("/v0/stream/users?source=influencers&preview=true").await?;
     assert!(body.is_array());
 
@@ -67,12 +74,11 @@ async fn test_global_influencers_preview() -> Result<()> {
 
     assert!(!influencers.is_empty(), "Influencers should not be empty");
     assert!(influencers.len() <= 3);
-    debug!("Influencers length: {:?}", influencers.len());
 
-    let second_influencer_ids = influencers
+    let second_influencer_ids: Vec<&str> = influencers
         .iter()
         .map(|f| f["details"]["id"].as_str().unwrap())
-        .collect::<Vec<&str>>();
+        .collect();
 
     assert!(first_influencer_ids != second_influencer_ids);
 
@@ -125,10 +131,10 @@ async fn test_global_influencers_with_today_timeframe() -> Result<()> {
 
     // List of expected user IDs
     let expected_user_ids = vec![
+        "phh5aqdfwkmydr1d6b48xa3tcbiipy8wpcmougyed7otitx69kco",
+        "pcckx7sercfy1u8rrr8cc4gkdnce93f6jarngcdsfu5enty51aiy",
+        "otn147ixg3i4sorqupuzptnx9gtiku4y77i8fdo35m7yug1d8zio",
         "omynbjw4ksjc4at5gretyoatw1g5h53tkee5z55fh69sng1d3jpy",
-        "oh8ku6csenwcyec6oaacz6xumydqjdaagh4ekr8jsm44rrdssjqo",
-        "o5ikmnpqa13brs9x38nyt76ojufaje6dtrb6mii5ycekb9tuxsno",
-        "o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo",
     ];
 
     // Verify that each expected user ID is present in the response
@@ -158,11 +164,11 @@ async fn test_global_influencers_with_this_month_timeframe() -> Result<()> {
 
     // List of expected user IDs
     let expected_user_ids = vec![
-        "nkmnt9uzjbwzusxjjnrzd4uwd79nhnywitqhj11pannyo7e5aory",
+        "phh5aqdfwkmydr1d6b48xa3tcbiipy8wpcmougyed7otitx69kco",
+        "pcckx7sercfy1u8rrr8cc4gkdnce93f6jarngcdsfu5enty51aiy",
+        "otn147ixg3i4sorqupuzptnx9gtiku4y77i8fdo35m7yug1d8zio",
         "omynbjw4ksjc4at5gretyoatw1g5h53tkee5z55fh69sng1d3jpy",
         "oh8ku6csenwcyec6oaacz6xumydqjdaagh4ekr8jsm44rrdssjqo",
-        "o5ikmnpqa13brs9x38nyt76ojufaje6dtrb6mii5ycekb9tuxsno",
-        "o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo",
     ];
 
     // Verify that each expected user ID is present in the response

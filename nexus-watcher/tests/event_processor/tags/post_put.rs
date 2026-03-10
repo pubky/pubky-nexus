@@ -11,6 +11,7 @@ use nexus_common::models::event::Event;
 use nexus_common::models::notification::Notification;
 use nexus_common::models::post::PostDetails;
 use nexus_common::models::tag::post::TagPost;
+use nexus_common::models::tag::search::TagSearch;
 use nexus_common::models::tag::traits::TagCollection;
 use nexus_common::types::Pagination;
 use pubky::Keypair;
@@ -204,6 +205,10 @@ async fn test_homeserver_put_tag_post_unique_count() -> Result<()> {
     let post_counts_after_step_2 = find_post_counts(&tagger_user_id, &post_id).await;
     assert_eq!(post_counts_after_step_2.tags, 0);
     assert_eq!(post_counts_after_step_2.unique_tags, 0);
+
+    let tag_suggestions = TagSearch::get_by_label(label, &Pagination::default()).await?;
+    let tag_suggestions_found = tag_suggestions.is_some_and(|x| !x.is_empty());
+    assert!(!tag_suggestions_found);
 
     // Step 3: Re-add tag
     test.put(&tagger_kp, &tag_path, tag).await?;

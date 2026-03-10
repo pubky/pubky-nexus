@@ -1,13 +1,14 @@
 use anyhow::{anyhow, Error, Result};
+use base32::{encode, Alphabet};
 use chrono::Utc;
 use nexus_common::db::PubkyConnector;
 use nexus_common::get_files_dir_pathbuf;
 use nexus_common::get_files_dir_test_pathbuf;
 use nexus_common::models::event::Event;
+use nexus_common::models::event::EventProcessorError;
 use nexus_common::models::file::FileDetails;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::traits::Collection;
-use nexus_common::types::DynError;
 use nexus_watcher::events::retry::event::RetryEvent;
 use nexus_watcher::events::{handle, Moderation};
 use nexus_watcher::service::EventProcessorRunner;
@@ -20,18 +21,35 @@ use pubky_app_specs::file_uri_builder;
 use pubky_app_specs::traits::HashId;
 use pubky_app_specs::{
     traits::{HasIdPath, HasPath, TimestampId},
-    PubkyAppFile, PubkyAppFollow, PubkyAppMute, PubkyAppPost, PubkyAppUser, PubkyId,
+    PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser, PubkyId,
 };
-use pubky_testnet::EphemeralTestnet;
+use pubky_testnet::Testnet;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::debug;
 
 use crate::event_processor::utils::default_moderation_tests;
 
+static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Generate a unique post ID for tests.
+/// Uses PID-based offset for inter-process uniqueness and atomic counter
+/// for intra-process uniqueness.
+pub fn generate_post_id() -> String {
+    let now = Utc::now().timestamp_micros() as u64;
+    let pid_offset = (std::process::id() as u64) * 1000;
+    let count = COUNTER.fetch_add(1, Ordering::SeqCst);
+
+    let timestamp = now + pid_offset + count;
+
+    let bytes = timestamp.to_be_bytes();
+    encode(Alphabet::Crockford, &bytes)
+}
+
 /// Struct to hold the setup environment for tests
 pub struct WatcherTest {
-    pub testnet: EphemeralTestnet,
+    pub testnet: Testnet,
     /// The homeserver ID
     pub homeserver_id: String,
     /// The event processor runner
@@ -83,7 +101,6 @@ impl WatcherTest {
     /// 4. Creates and starts a test homeserver instance with a random public key.
     /// 5. Initializes the PubkyConnector with the test homeserver client.
     /// 6. Creates and configures the event processor with the test homeserver URL.
-    /// 7. Creates a channel to signal the event processor to shutdown.
     ///
     /// # Returns
     /// Returns an instance of `Self` containing the configuration, homeserver,
@@ -95,14 +112,12 @@ impl WatcherTest {
 
         // WARNING: testnet initialization is time expensive, we only init one per process
         // TODO: Maybe we should create a single testnet network (singleton and push there more homeservers)
-        let mut testnet = EphemeralTestnet::start_minimal().await?;
+        // This can be further sped up by using Testnet::new_unseeded() with pubky-testnet 0.7.x
+        let mut testnet = Testnet::new().await?;
+        testnet.create_http_relay().await?;
 
         // Create a random homeserver with a random public key
-        let homeserver_id = testnet
-            .create_random_homeserver()
-            .await?
-            .public_key()
-            .to_string();
+        let homeserver_id = testnet.create_random_homeserver().await?.public_key().z32();
         let pubky_id = PubkyId::try_from(&homeserver_id).unwrap();
         Homeserver::persist_if_unknown(pubky_id.clone())
             .await
@@ -112,7 +127,7 @@ impl WatcherTest {
         let sdk = testnet.sdk().unwrap();
         match PubkyConnector::init_from(sdk).await {
             Ok(_) => debug!("WatcherTest: PubkyConnector initialised"),
-            Err(e) => debug!("WatcherTest: {}", e),
+            Err(e) => panic!("WatcherTest: PubkyConnector initialization failed: {}", e),
         }
 
         // Initialize the test-scoped EventProcessorRunner; mirrors the standard processor behavior
@@ -225,8 +240,6 @@ impl WatcherTest {
         let user_path = PubkyAppUser::hs_path();
         self.put(user_kp, &user_path, &user).await?;
 
-        // Index to Nexus from Homeserver using the events processor
-        self.ensure_event_processing_complete().await?;
         Ok(user_id)
     }
 
@@ -244,30 +257,27 @@ impl WatcherTest {
         let user_path = PubkyAppUser::hs_path();
         self.put(user_kp, &user_path, &user).await?;
 
-        // Index to Nexus from Homeserver using the events processor
-        self.ensure_event_processing_complete().await?;
         Ok(user_id.to_string())
     }
 
+    /// Creates a post with a unique ID generated from the current timestamp.
+    /// Uses atomic counter and PID offset for uniqueness across parallel test runs.
     pub async fn create_post(
         &mut self,
         user_kp: &Keypair,
         post: &PubkyAppPost,
     ) -> Result<(String, ResourcePath)> {
-        let (post_id, post_path) = post.hs_path();
+        let post_id = generate_post_id();
+        let post_path: ResourcePath = PubkyAppPost::create_path(&post_id).parse()?;
         // Write the post in the pubky.app repository
-        self.put(&user_kp, &post_path, post).await?;
+        self.put(user_kp, &post_path, post).await?;
 
-        // Index to Nexus from Homeserver using the events processor
-        self.ensure_event_processing_complete().await?;
         Ok((post_id, post_path))
     }
 
     pub async fn cleanup_user(&mut self, user_kp: &Keypair) -> Result<()> {
         let user_path = PubkyAppUser::hs_path();
-        self.del(user_kp, &user_path).await?;
-        self.ensure_event_processing_complete().await?;
-        Ok(())
+        self.del(user_kp, &user_path).await
     }
 
     pub async fn cleanup_post(
@@ -275,9 +285,7 @@ impl WatcherTest {
         user_kp: &Keypair,
         post_path: &ResourcePath,
     ) -> Result<()> {
-        self.del(user_kp, post_path).await?;
-        self.ensure_event_processing_complete().await?;
-        Ok(())
+        self.del(user_kp, post_path).await
     }
 
     pub async fn create_file(
@@ -285,10 +293,10 @@ impl WatcherTest {
         user_kp: &Keypair,
         file: &PubkyAppFile,
     ) -> Result<(String, ResourcePath)> {
-        let (file_id, file_path) = file.hs_path();
-        self.put(&user_kp, &file_path, file).await?;
+        let file_id = file.create_id();
+        let file_path: ResourcePath = PubkyAppFile::create_path(&file_id).parse()?;
+        self.put(user_kp, &file_path, file).await?;
 
-        self.ensure_event_processing_complete().await?;
         Ok((file_id, file_path))
     }
 
@@ -311,9 +319,7 @@ impl WatcherTest {
         user_kp: &Keypair,
         file_path: &ResourcePath,
     ) -> Result<()> {
-        self.del(user_kp, &file_path).await?;
-        self.ensure_event_processing_complete().await?;
-        Ok(())
+        self.del(user_kp, file_path).await
     }
 
     pub async fn create_follow(
@@ -325,26 +331,9 @@ impl WatcherTest {
             created_at: Utc::now().timestamp_millis(),
         };
         let follow_path = follow_relationship.hs_path(followee_id);
-        self.put(&follower_kp, &follow_path, follow_relationship)
+        self.put(follower_kp, &follow_path, follow_relationship)
             .await?;
-        // Process the event
-        self.ensure_event_processing_complete().await?;
         Ok(follow_path)
-    }
-
-    pub async fn create_mute(
-        &mut self,
-        muter_kp: &Keypair,
-        mutee_id: &str,
-    ) -> Result<ResourcePath> {
-        let mute_relationship = PubkyAppMute {
-            created_at: Utc::now().timestamp_millis(),
-        };
-        let mute_path = PubkyAppMute::hs_path(mutee_id);
-        self.put(&muter_kp, &mute_path, mute_relationship).await?;
-        // Process the event
-        self.ensure_event_processing_complete().await?;
-        Ok(mute_path)
     }
 }
 
@@ -358,7 +347,7 @@ impl WatcherTest {
 pub async fn retrieve_and_handle_event_line(
     event_line: &str,
     moderation: Arc<Moderation>,
-) -> Result<(), DynError> {
+) -> Result<(), EventProcessorError> {
     match Event::parse_event(event_line, get_files_dir_pathbuf())? {
         Some(event) => handle(&event, moderation).await,
         None => Ok(()),
@@ -443,15 +432,6 @@ pub trait HomeserverHashIdPath: HashId + HasIdPath {
     }
 }
 impl<T> HomeserverHashIdPath for T where T: HashId + HasIdPath {}
-
-pub trait HomeserverTimestampIdPath: TimestampId + HasIdPath {
-    fn hs_path(&self) -> (String, ResourcePath) {
-        let id = self.create_id();
-        let path = Self::create_path(&id).parse().unwrap();
-        (id, path)
-    }
-}
-impl<T> HomeserverTimestampIdPath for T where T: TimestampId + HasIdPath {}
 
 pub trait HomeserverPathForPubkyId {
     fn hs_path(&self, pubky_id: &str) -> ResourcePath;

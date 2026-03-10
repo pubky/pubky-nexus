@@ -1,10 +1,10 @@
-use crate::db::kv::{ScoreAction, SortOrder};
+use crate::db::kv::{RedisResult, ScoreAction, SortOrder};
 use crate::db::queries::get::{global_tags_by_post, global_tags_by_post_engagement};
 use crate::db::{fetch_all_rows_from_graph, RedisOps};
+use crate::models::error::ModelResult;
 use crate::models::post::PostDetails;
 use crate::models::tag::post::TagPost;
 use crate::models::tag::traits::TaggersCollection;
-use crate::types::DynError;
 use crate::types::{Pagination, StreamSorting};
 use neo4rs::Query;
 use serde::{Deserialize, Serialize};
@@ -33,19 +33,15 @@ impl RedisOps for PostsByTagSearch {}
 
 impl PostsByTagSearch {
     /// Indexes post tags into global sorted sets for timeline and engagement metrics.
-    pub async fn reindex() -> Result<(), DynError> {
+    pub async fn reindex() -> ModelResult<()> {
         Self::add_to_global_sorted_set(global_tags_by_post(), TAG_GLOBAL_POST_TIMELINE).await?;
-        Self::add_to_global_sorted_set(
-            global_tags_by_post_engagement(),
-            TAG_GLOBAL_POST_ENGAGEMENT,
-        )
-        .await?;
-        Ok(())
+        Self::add_to_global_sorted_set(global_tags_by_post_engagement(), TAG_GLOBAL_POST_ENGAGEMENT)
+            .await
     }
 
     /// Retrieves post tags from a Neo4j graph and updates global sorted sets
     /// for both timeline and engagement-based metrics.
-    async fn add_to_global_sorted_set(query: Query, index_key: [&str; 4]) -> Result<(), DynError> {
+    async fn add_to_global_sorted_set(query: Query, index_key: [&str; 4]) -> ModelResult<()> {
         let rows = fetch_all_rows_from_graph(query).await?;
 
         for row in rows {
@@ -63,7 +59,7 @@ impl PostsByTagSearch {
         label: &str,
         sort_by: Option<StreamSorting>,
         pagination: Pagination,
-    ) -> Result<Option<Vec<PostsByTagSearch>>, DynError> {
+    ) -> RedisResult<Option<Vec<PostsByTagSearch>>> {
         let post_score_list = match sort_by {
             Some(StreamSorting::TotalEngagement) => {
                 Self::try_from_index_sorted_set(
@@ -103,7 +99,7 @@ impl PostsByTagSearch {
         post_id: &str,
         label: &str,
         score_action: ScoreAction,
-    ) -> Result<(), DynError> {
+    ) -> RedisResult<()> {
         let tag_global_engagement_key_parts = [&TAG_GLOBAL_POST_ENGAGEMENT[..], &[label]].concat();
         let post_key_slice: &[&str] = &[author_id, post_id];
         Self::put_score_index_sorted_set(
@@ -114,11 +110,7 @@ impl PostsByTagSearch {
         .await
     }
 
-    pub async fn put_to_index(
-        author_id: &str,
-        post_id: &str,
-        tag_label: &str,
-    ) -> Result<(), DynError> {
+    pub async fn put_to_index(author_id: &str, post_id: &str, tag_label: &str) -> RedisResult<()> {
         let post_key_slice: &[&str] = &[author_id, post_id];
         let key_parts = [&TAG_GLOBAL_POST_TIMELINE[..], &[tag_label]].concat();
         let tag_search = Self::check_sorted_set_member(None, &key_parts, post_key_slice).await?;
@@ -142,7 +134,7 @@ impl PostsByTagSearch {
         author_id: &str,
         post_id: &str,
         tag_label: &str,
-    ) -> Result<(), DynError> {
+    ) -> RedisResult<()> {
         let post_label_key = vec![author_id, post_id, tag_label];
         let (taggers, _) = TagPost::get_from_index(post_label_key, None, None, None, None).await?;
         // Make sure that post does not have more taggers with that tag. Post:Taggers:user_id:post_id:label

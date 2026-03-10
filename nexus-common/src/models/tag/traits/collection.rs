@@ -1,8 +1,8 @@
-use crate::db::kv::{ScoreAction, SortOrder};
+use crate::db::kv::{RedisResult, ScoreAction, SortOrder};
 use crate::db::{
-    execute_graph_operation, fetch_row_from_graph, queries, OperationOutcome, RedisOps,
+    execute_graph_operation, fetch_row_from_graph, queries, GraphResult, OperationOutcome, RedisOps,
 };
-use crate::types::DynError;
+use crate::models::error::ModelResult;
 use async_trait::async_trait;
 use neo4rs::Query;
 use tracing::error;
@@ -50,7 +50,7 @@ where
         limit_taggers: Option<usize>,
         viewer_id: Option<&str>,
         depth: Option<u8>,
-    ) -> Result<Option<Vec<TagDetails>>, DynError> {
+    ) -> ModelResult<Option<Vec<TagDetails>>> {
         // Query for the tags that are in its WoT
         // Actually we just apply that search to User node
         if viewer_id.is_some() && matches!(depth, Some(1..=3)) {
@@ -122,7 +122,7 @@ where
         limit_tags: Option<usize>,
         limit_taggers: Option<usize>,
         is_cache: bool,
-    ) -> Result<Option<Vec<TagDetails>>, DynError> {
+    ) -> RedisResult<Option<Vec<TagDetails>>> {
         let limit_tags = limit_tags.unwrap_or(5);
         let skip_tags = skip_tags.unwrap_or(0);
         let limit_taggers = limit_taggers.unwrap_or(5);
@@ -192,7 +192,7 @@ where
         user_id: &str,
         extra_param: Option<&str>,
         depth: Option<u8>,
-    ) -> Result<Option<Vec<TagDetails>>, DynError> {
+    ) -> GraphResult<Option<Vec<TagDetails>>> {
         // We cannot use LIMIT clause because we need all data related
         let query = match depth {
             Some(distance) => queries::get::get_viewer_trusted_network_tags(
@@ -229,7 +229,7 @@ where
         extra_param: Option<&str>,
         tags: &[TagDetails],
         is_cache: bool,
-    ) -> Result<(), DynError> {
+    ) -> RedisResult<()> {
         let (tag_scores, (labels, taggers)) = TagDetails::process_tag_details(tags);
 
         let index_params = match is_cache {
@@ -275,7 +275,7 @@ where
         extra_param: Option<&str>,
         label: &str,
         score_action: ScoreAction,
-    ) -> Result<(), DynError> {
+    ) -> RedisResult<()> {
         let key: Vec<&str> = match extra_param {
             Some(post_id) => [&POST_TAGS_KEY_PARTS[..], &[author_id, post_id]].concat(),
             None => [&USER_TAGS_KEY_PARTS[..], &[author_id]].concat(),
@@ -296,7 +296,7 @@ where
         extra_param: Option<&str>,
         tagger_user_id: &str,
         tag_label: &str,
-    ) -> Result<(), DynError> {
+    ) -> RedisResult<()> {
         let key = match extra_param {
             Some(post_id) => vec![author_id, post_id, tag_label],
             None => vec![author_id, tag_label],
@@ -324,7 +324,7 @@ where
         tag_id: &str,
         label: &str,
         indexed_at: i64,
-    ) -> Result<OperationOutcome, DynError> {
+    ) -> GraphResult<OperationOutcome> {
         let query = match extra_param {
             Some(post_id) => queries::put::create_post_tag(
                 tagger_user_id,
@@ -353,7 +353,7 @@ where
     /// - `extra_param` - An optional parameter for additional context, such as a post ID.
     ///   If `Some`, the function retrieves and reindexes tags specific to the post;
     ///   if `None`, it reindexes tags globally for the author.
-    async fn reindex(author_id: &str, extra_param: Option<&str>) -> Result<(), DynError> {
+    async fn reindex(author_id: &str, extra_param: Option<&str>) -> ModelResult<()> {
         match Self::get_from_graph(author_id, extra_param, None).await? {
             Some(tag_user) => Self::put_to_index(author_id, extra_param, &tag_user, false).await?,
             None => error!(
@@ -386,7 +386,7 @@ where
     async fn del_from_graph(
         user_id: &str,
         tag_id: &str,
-    ) -> Result<Option<(Option<String>, Option<String>, Option<String>, String)>, DynError> {
+    ) -> GraphResult<Option<(Option<String>, Option<String>, Option<String>, String)>> {
         let query = queries::del::delete_tag(user_id, tag_id);
         let maybe_row = fetch_row_from_graph(query).await?;
 
@@ -473,7 +473,7 @@ where
     fn create_label_index(
         user_id: &str,
         extra_param: Option<&str>,
-        label: &String,
+        label: &str,
         is_cache: bool,
     ) -> String {
         match extra_param {

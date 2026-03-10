@@ -32,10 +32,7 @@ impl StackManager {
             None => Self::setup_local_logging(log_level),
             Some(endpoint) => {
                 match Self::setup_otlp_logging(service_name, endpoint, log_level).await {
-                    Ok(()) => info!(
-                        "OpenTelemetry Logging initialized for {} service",
-                        service_name
-                    ),
+                    Ok(()) => info!("OpenTelemetry Logging initialized for {service_name} service"),
                     Err(e) => error!("Failed to initialize OpenTelemetry Logging: {:?}", e),
                 }
             }
@@ -63,14 +60,14 @@ impl StackManager {
 
     async fn setup_otlp_logging(
         service_name: &str,
-        otel_endpoint: &String,
+        otel_endpoint: &str,
         log_level: Level,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // TODO: Add local tracer, https://github.com/pubky/pubky-nexus/issues/356
         // Set up OpenTelemetry Tracer (Spans)
         let tracing_exporter = SpanExporter::builder()
             .with_tonic()
-            .with_endpoint(otel_endpoint.clone())
+            .with_endpoint(otel_endpoint.to_string())
             .with_timeout(Duration::from_secs(3))
             .build()
             .map_err(|e| format!("OTLP Tracing Exporter Error: {e}"))?;
@@ -88,7 +85,7 @@ impl StackManager {
         // Set up OpenTelemetry Logging
         let logging_exporter = LogExporter::builder()
             .with_tonic()
-            .with_endpoint(otel_endpoint.clone())
+            .with_endpoint(otel_endpoint.to_string())
             .with_timeout(Duration::from_secs(3))
             .build()
             .map_err(|e| format!("OTLP Logging Exporter Error: {e}"))?;

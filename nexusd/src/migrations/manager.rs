@@ -3,8 +3,7 @@ use chrono::Utc;
 use neo4rs::{Graph, Query};
 use nexus_common::{db::get_neo4j_graph, types::DynError};
 use serde::{Deserialize, Serialize};
-use std::{any::Any, sync::Arc};
-use tokio::sync::Mutex;
+use std::any::Any;
 use tracing::info;
 
 use crate::migrations::utils::{self, generate_template};
@@ -87,7 +86,7 @@ pub struct MigrationNode {
 const MIGRATION_PATH: &str = "nexusd/src/migrations/migrations_list/";
 
 pub struct MigrationManager {
-    graph: Arc<Mutex<Graph>>,
+    graph: Graph,
     migrations: Vec<Box<dyn Migration>>,
 }
 
@@ -217,13 +216,7 @@ impl MigrationManager {
 
     async fn get_migrations(&self) -> Result<Vec<MigrationNode>, DynError> {
         let query = Query::new("MATCH (m:Migration) RETURN COLLECT(m) as migrations".to_string());
-        let mut result = self
-            .graph
-            .lock()
-            .await
-            .execute(query)
-            .await
-            .map_err(|e| e.to_string())?;
+        let mut result = self.graph.execute(query).await.map_err(|e| e.to_string())?;
 
         match result.next().await {
             Ok(row) => match row {
@@ -249,7 +242,7 @@ impl MigrationManager {
         .param("id", id)
         .param("phase", initial_phase.to_string());
 
-        self.graph.lock().await.run(query).await?;
+        self.graph.run(query).await?;
         Ok(())
     }
 
@@ -265,7 +258,7 @@ impl MigrationManager {
         .param("id", id)
         .param("phase", phase.to_string());
 
-        self.graph.lock().await.run(query).await?;
+        self.graph.run(query).await?;
         Ok(())
     }
 }
