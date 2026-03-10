@@ -48,8 +48,8 @@ pub async fn put(prefix: &str, key: &str, values: &[&str]) -> Result<(), DynErro
 pub async fn get_range(
     prefix: &str,
     key: &str,
-    skip: Option<isize>,
-    limit: Option<isize>,
+    skip: Option<usize>,
+    limit: Option<usize>,
 ) -> Result<Option<Vec<String>>, DynError> {
     let mut redis_conn = get_redis_conn().await?;
 
@@ -57,14 +57,14 @@ pub async fn get_range(
     let start = skip.unwrap_or(0);
 
     // Calculate end index
-    let end = match limit {
+    let end: isize = match limit {
         Some(0) => return Ok(None),
-        Some(lim) => start.saturating_add(lim - 1),
+        Some(lim) => start.saturating_add(lim - 1) as isize,
         // Redis LRANGE uses -1 to mean "to the end of the list"
         None => -1,
     };
 
-    let result: Vec<String> = redis_conn.lrange(index_key, start, end).await?;
+    let result: Vec<String> = redis_conn.lrange(index_key, start as isize, end).await?;
     match result.len() {
         0 => Ok(None),
         _ => Ok(Some(result)),

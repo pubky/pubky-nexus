@@ -108,9 +108,9 @@ impl Event {
         limit: u32,
     ) -> Result<(Vec<String>, u32), DynError> {
         let start = cursor.unwrap_or(0);
-        let start_i = start as isize;
-        let limit_i = limit as isize;
-        let result = Event::try_from_index_list(&["Events"], Some(start_i), Some(limit_i)).await;
+        let start_u = start as usize;
+        let limit_u = limit as usize;
+        let result = Event::try_from_index_list(&["Events"], Some(start_u), Some(limit_u)).await;
 
         let events = match result {
             Ok(r) => r.unwrap_or_default(),
