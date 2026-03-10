@@ -105,8 +105,7 @@ impl Event {
     ) -> RedisResult<(Vec<String>, u64)> {
         let start = cursor.unwrap_or(0);
         let start_u = start as usize;
-        let limit_u = limit as usize;
-        let result = Event::try_from_index_list(&["Events"], Some(start_u), Some(limit_u)).await;
+        let result = Event::try_from_index_list(&["Events"], Some(start_u), Some(limit)).await;
 
         let events = match result {
             Ok(r) => r.unwrap_or_default(),
