@@ -16,7 +16,7 @@ pub fn get_files_dir_test_pathbuf() -> PathBuf {
 mod api;
 mod daemon;
 pub mod file;
-pub(crate) mod stack;
+mod stack;
 mod watcher;
 
 pub use api::ApiConfig;
