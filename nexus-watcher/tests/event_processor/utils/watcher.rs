@@ -8,7 +8,6 @@ use nexus_common::models::event::EventProcessorError;
 use nexus_common::models::file::FileDetails;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::traits::Collection;
-use nexus_common::StackConfig;
 use nexus_watcher::events::retry::event::RetryEvent;
 use nexus_watcher::events::{handle, Moderation};
 use nexus_watcher::service::EventProcessorRunner;
@@ -348,7 +347,7 @@ pub async fn retrieve_and_handle_event_line(
     event_line: &str,
     moderation: Arc<Moderation>,
 ) -> Result<(), EventProcessorError> {
-    match Event::parse_event(event_line, StackConfig::default().files_path)? {
+    match Event::parse_event(event_line, get_files_dir_test_pathbuf())? {
         Some(event) => handle(&event, moderation).await,
         None => Ok(()),
     }
