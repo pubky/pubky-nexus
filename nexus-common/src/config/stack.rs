@@ -1,8 +1,15 @@
-use crate::db::{default_files_path, default_log_level, default_otlp_endpoint, DatabaseConfig};
+use crate::{db::DatabaseConfig, file::reader::DEFAULT_CONFIG_TOML};
 use serde::{Deserialize, Deserializer, Serialize};
-use std::{fmt::Debug, path::PathBuf};
+use std::{fmt::Debug, path::PathBuf, sync::OnceLock};
 
 use super::{file::validate_and_expand_path, Level};
+
+static DEFAULT_STACK_CONFIG: OnceLock<StackConfig> = OnceLock::new();
+
+#[derive(Deserialize)]
+struct DefaultConfig {
+    stack: StackConfig,
+}
 
 fn deserialize_and_expand<'de, D>(deserializer: D) -> Result<PathBuf, D::Error>
 where
@@ -21,18 +28,17 @@ pub struct StackConfig {
     pub db: DatabaseConfig,
 }
 
-/// Utility function
-pub fn default_stack() -> StackConfig {
-    StackConfig::default()
+/// Returns the default stack config parsed from `default.config.toml`
+pub(crate) fn get_default_stack_config() -> &'static StackConfig {
+    DEFAULT_STACK_CONFIG.get_or_init(|| {
+        let config: DefaultConfig = toml::from_str(DEFAULT_CONFIG_TOML)
+            .expect("embedded default.config.toml should be valid TOML");
+        config.stack
+    })
 }
 
 impl Default for StackConfig {
     fn default() -> Self {
-        Self {
-            log_level: default_log_level(),
-            files_path: default_files_path(),
-            otlp_endpoint: default_otlp_endpoint(),
-            db: DatabaseConfig::default(),
-        }
+        get_default_stack_config().clone()
     }
 }
