@@ -100,9 +100,9 @@ impl Event {
     }
 
     pub async fn get_events_from_redis(
-        cursor: Option<u32>,
-        limit: u32,
-    ) -> RedisResult<(Vec<String>, u32)> {
+        cursor: Option<u64>,
+        limit: usize,
+    ) -> RedisResult<(Vec<String>, u64)> {
         let start = cursor.unwrap_or(0);
         let start_u = start as usize;
         let limit_u = limit as usize;
@@ -116,7 +116,7 @@ impl Event {
             }
         };
 
-        let next_cursor = start + events.len() as u32;
+        let next_cursor = start + events.len() as u64;
 
         Ok((events, next_cursor))
     }
