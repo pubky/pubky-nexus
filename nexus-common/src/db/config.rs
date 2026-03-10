@@ -17,7 +17,7 @@ pub struct Neo4JConfig {
 
 impl Default for Neo4JConfig {
     fn default() -> Self {
-        DatabaseConfig::default().neo4j.clone()
+        DatabaseConfig::default().neo4j
     }
 }
 
@@ -29,6 +29,6 @@ pub struct DatabaseConfig {
 
 impl Default for DatabaseConfig {
     fn default() -> Self {
-        StackConfig::default().db.clone()
+        StackConfig::default().db
     }
 }
