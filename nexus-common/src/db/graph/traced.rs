@@ -144,11 +144,23 @@ impl<G: GraphOps> GraphOps for TracedGraph<G> {
             None
         };
         let start = Instant::now();
-        let stream = self.inner.execute(query).await?;
+        let stream = self.inner.execute(query).await;
         let execute_duration = start.elapsed();
 
+        // Log slow queries that fail — TracedStream::drop won't fire for errored executes.
+        if stream.is_err() && execute_duration > self.slow_query_threshold {
+            if let Some(lbl) = &label {
+                warn!(
+                    execute_ms = execute_duration.as_millis(),
+                    query = %lbl,
+                    cypher = cypher.as_deref().unwrap_or(""),
+                    "Slow Neo4j query (execute failed)"
+                );
+            }
+        }
+
         let traced = TracedStream {
-            inner: stream,
+            inner: stream?,
             label,
             cypher,
             execute_duration,
