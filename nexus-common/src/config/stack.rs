@@ -6,6 +6,10 @@ use super::{file::validate_and_expand_path, Level};
 
 static DEFAULT_STACK_CONFIG: OnceLock<StackConfig> = OnceLock::new();
 
+/// Intermediary struct used in deserializing [StackConfig] from `default.config.toml`
+///
+/// This is done because we don't know the full structure of the config.toml , but we
+/// do know it contains a `[stack]` section with [StackConfig].
 #[derive(Deserialize)]
 struct DefaultConfig {
     stack: StackConfig,
@@ -38,6 +42,7 @@ pub(crate) fn get_default_stack_config() -> &'static StackConfig {
 }
 
 impl Default for StackConfig {
+    /// Extracted from `default.config.toml`
     fn default() -> Self {
         get_default_stack_config().clone()
     }

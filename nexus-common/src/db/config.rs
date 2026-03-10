@@ -16,6 +16,7 @@ pub struct Neo4JConfig {
 }
 
 impl Default for Neo4JConfig {
+    /// Extracted from `default.config.toml` via [StackConfig] > [DatabaseConfig] > [Neo4JConfig]
     fn default() -> Self {
         DatabaseConfig::default().neo4j
     }
@@ -28,6 +29,7 @@ pub struct DatabaseConfig {
 }
 
 impl Default for DatabaseConfig {
+    /// Extracted from `default.config.toml` via [StackConfig] > [DatabaseConfig]
     fn default() -> Self {
         StackConfig::default().db
     }
