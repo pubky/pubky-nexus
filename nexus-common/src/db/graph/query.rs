@@ -40,14 +40,6 @@ impl Query {
         self
     }
 
-    pub fn cypher(&self) -> &str {
-        &self.cypher
-    }
-
-    pub fn params_map(&self) -> &BoltMap {
-        &self.params
-    }
-
     /// Returns the cypher string with `$param` placeholders replaced by their
     /// literal values, ready to copy-paste into a Neo4j browser.
     pub fn to_cypher_populated(&self) -> String {

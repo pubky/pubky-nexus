@@ -38,7 +38,7 @@ async fn main() -> Result<(), DynError> {
                 .try_build()
                 .await?;
 
-            NexusApiBuilder(api_context).start(None).await?
+            NexusApiBuilder::new(api_context).start(None).await?
         }
     };
 

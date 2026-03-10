@@ -27,7 +27,7 @@ impl MockDb {
             .try_build()
             .await
             .expect("Failed to create ApiContext");
-        NexusApiBuilder(api_context)
+        NexusApiBuilder::new(api_context)
             .init_stack()
             .await
             .expect("Failed to initialize stack");

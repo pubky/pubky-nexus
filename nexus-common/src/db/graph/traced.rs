@@ -301,6 +301,21 @@ impl<G: GraphOps> GraphOps for TracedGraph<G> {
                 Ok(traced.boxed())
             }
             Err(e) => {
+
+
+                // Log slow queries that fail — TracedStream::drop won't fire for errored executes.
+                if execute_duration > self.slow_query_threshold {
+                    if let Some(lbl) = &label {
+                        warn!(
+                    execute_ms = execute_duration.as_millis(),
+                    query = %lbl,
+                    cypher = cypher.as_deref().unwrap_or(""),
+                    "Slow Neo4j query (execute failed)"
+                );
+                    }
+                }
+
+
                 let attrs: &[KeyValue] = &[KeyValue::new("query", label.unwrap_or("unknown"))];
                 self.metrics.errors.add(1, attrs);
                 Err(e)
