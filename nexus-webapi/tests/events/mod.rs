@@ -15,7 +15,7 @@ async fn test_events_huge_cursor() -> Result<()> {
         .await?;
     assert_eq!(res.status(), 200);
     let body = res.text_body()?;
-    assert!(body.contains("cursor:"), "response must contain a cursor line");
+    assert!(body.contains("cursor:"), "response must have a cursor line");
 
     Ok(())
 }
@@ -48,7 +48,7 @@ async fn test_events_large_cursor_with_limit() -> Result<()> {
         .await?;
     assert_eq!(res.status(), 200);
     let body = res.text_body()?;
-    assert!(body.contains("cursor:"), "response must contain a cursor line");
+    assert!(body.contains("cursor:"), "response must have a cursor line");
 
     Ok(())
 }
