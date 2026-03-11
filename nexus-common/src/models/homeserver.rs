@@ -109,6 +109,8 @@ impl Homeserver {
             Some(hs) => Ok(Some(hs)),
             None => match Self::get_from_graph(&homeserver_id).await? {
                 Some(hs_from_graph) => {
+                    // This assumes the index and the graph are in-sync
+                    // If they are not (e.g. Redis lost a HS entry but graph still has it), put_to_index will persist with cursor = 0
                     hs_from_graph.put_to_index().await?;
                     Ok(Some(hs_from_graph))
                 }
