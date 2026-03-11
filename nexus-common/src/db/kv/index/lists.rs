@@ -59,12 +59,19 @@ pub async fn get_range(
     // Calculate end index
     let end: isize = match limit {
         Some(0) => return Ok(None),
-        Some(lim) => start.saturating_add(lim - 1) as isize,
+        Some(lim) => {
+            let end_usize = start.saturating_add(lim - 1);
+            // Clamp to isize::MAX: Redis lists cannot realistically reach this size,
+            // and an out-of-range index simply yields an empty result.
+            isize::try_from(end_usize).unwrap_or(isize::MAX)
+        }
         // Redis LRANGE uses -1 to mean "to the end of the list"
         None => -1,
     };
 
-    let result: Vec<String> = redis_conn.lrange(index_key, start as isize, end).await?;
+    // Clamp start to isize::MAX for the same reason as end above.
+    let start_isize = isize::try_from(start).unwrap_or(isize::MAX);
+    let result: Vec<String> = redis_conn.lrange(index_key, start_isize, end).await?;
     match result.len() {
         0 => Ok(None),
         _ => Ok(Some(result)),
