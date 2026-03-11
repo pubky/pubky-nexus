@@ -274,6 +274,28 @@ impl<G: GraphOps> TracedGraph<G> {
         self.log_cypher = enabled;
         self
     }
+
+    fn warn_if_slow(
+        &self,
+        elapsed: Duration,
+        attrs: &[KeyValue],
+        label: Option<&'static str>,
+        cypher: Option<&str>,
+        suffix: &'static str,
+    ) {
+        if elapsed > self.slow_query_threshold {
+            self.metrics.slow.add(1, attrs);
+            if let Some(lbl) = label {
+                warn!(
+                    elapsed_ms = elapsed.as_millis(),
+                    query = %lbl,
+                    cypher = cypher.unwrap_or(""),
+                    "Slow Neo4j query{}",
+                    suffix
+                );
+            }
+        }
+    }
 }
 
 #[async_trait]
@@ -347,39 +369,13 @@ impl<G: GraphOps> GraphOps for TracedGraph<G> {
         let elapsed = start.elapsed();
 
         let attrs: &[KeyValue] = &query_attrs(label);
+        self.metrics.duration.record(elapsed.as_secs_f64(), attrs);
 
         match &result {
-            Ok(()) => {
-                self.metrics.duration.record(elapsed.as_secs_f64(), attrs);
-
-                if elapsed > self.slow_query_threshold {
-                    self.metrics.slow.add(1, attrs);
-
-                    if let Some(label) = &label {
-                        warn!(
-                            elapsed_ms = elapsed.as_millis(),
-                            query = %label,
-                            cypher = cypher.as_deref().unwrap_or(""),
-                            "Slow Neo4j query"
-                        );
-                    }
-                }
-            }
+            Ok(()) => self.warn_if_slow(elapsed, attrs, label, cypher.as_deref(), ""),
             Err(_) => {
-                self.metrics.duration.record(elapsed.as_secs_f64(), attrs);
                 self.metrics.errors.add(1, attrs);
-
-                if elapsed > self.slow_query_threshold {
-                    self.metrics.slow.add(1, attrs);
-                    if let Some(label) = &label {
-                        warn!(
-                            elapsed_ms = elapsed.as_millis(),
-                            query = %label,
-                            cypher = cypher.as_deref().unwrap_or(""),
-                            "Slow Neo4j query (failed)"
-                        );
-                    }
-                }
+                self.warn_if_slow(elapsed, attrs, label, cypher.as_deref(), " (failed)");
             }
         }
 
