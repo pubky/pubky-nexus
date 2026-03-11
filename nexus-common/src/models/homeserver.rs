@@ -37,7 +37,7 @@ where
         CursorValue::Number(n) => Ok(n),
         CursorValue::String(s) => s
             .parse()
-            .map_err(|_| D::Error::custom(format!("Cannot parse cursor string '{s}' as u32"))),
+            .map_err(|_| D::Error::custom(format!("Cannot parse cursor string '{s}' as u64"))),
     }
 }
 
