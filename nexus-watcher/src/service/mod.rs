@@ -4,6 +4,7 @@ mod processor_runner;
 mod stats;
 mod task_runner;
 mod traits;
+pub mod user_hs_resolver;
 
 /// Module exports
 pub use constants::{PROCESSING_TIMEOUT_SECS, WATCHER_CONFIG_FILE_NAME};
@@ -72,13 +73,16 @@ impl NexusWatcher {
 
     /// Starts the Nexus Watcher with parallel periodic task loops.
     ///
-    /// Currently runs two tasks:
+    /// Currently runs three tasks:
     /// 1. **Default homeserver**: Processes events from the default homeserver defined in [`WatcherConfig`].
     /// 2. **External homeservers**: Processes events from all external monitored homeservers, excluding the default.
+    /// 3. **User HS resolver**: Resolves each user's homeserver and persists `HOSTED_BY` relationships.
     ///
-    /// All tasks share the same tick interval ([`WatcherConfig::watcher_sleep`]) and listen for
-    /// the shutdown signal to exit gracefully. If any task panics, an internal cancellation
-    /// signal is sent so that sibling tasks can finish their current iteration and exit.
+    /// The event-processing tasks share the same tick interval ([`WatcherConfig::watcher_sleep`]),
+    /// while the HS resolver uses its own interval (`hs_resolver_sleep`, default 10 s).
+    /// All tasks listen for the shutdown signal to exit gracefully. If any task panics,
+    /// an internal cancellation signal is sent so that sibling tasks can finish their
+    /// current iteration and exit.
     pub async fn start(shutdown_rx: Receiver<bool>, config: WatcherConfig) -> Result<(), DynError> {
         debug!(?config, "Running NexusWatcher with ");
 
@@ -86,6 +90,7 @@ impl NexusWatcher {
         Homeserver::persist_if_unknown(config_hs).await?;
 
         let watcher_sleep = config.watcher_sleep;
+        let hs_resolver_sleep: u64 = 10_000;
         let ev_processor_runner = EventProcessorRunner::from_config(&config, shutdown_rx.clone());
         let ev_processor_runner = Arc::new(ev_processor_runner);
 
@@ -100,6 +105,13 @@ impl NexusWatcher {
             PeriodicTask::new("external-homeservers", watcher_sleep, move || {
                 let runner = external_hs_runner.clone();
                 async move { runner.run_external_homeservers().await.map(|_| ()) }
+            }),
+            PeriodicTask::new("user-hs-resolver", hs_resolver_sleep, {
+                let default_hs = config.homeserver.to_string();
+                move || {
+                    let default_hs = default_hs.clone();
+                    async move { user_hs_resolver::run(&default_hs).await }
+                }
             }),
         ];
 

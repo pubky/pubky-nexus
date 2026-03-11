@@ -253,6 +253,32 @@ pub fn get_all_homeservers() -> Query {
     )
 }
 
+/// Retrieves all user IDs from the graph
+pub fn get_all_user_ids() -> Query {
+    query("MATCH (u:User) RETURN collect(u.id) AS user_ids")
+}
+
+/// Retrieves all user IDs hosted on a given homeserver.
+pub fn get_users_by_homeserver(hs_id: &str) -> Query {
+    query(
+        "MATCH (u:User)-[:HOSTED_BY]->(:Homeserver {id: $hs_id})
+         RETURN collect(u.id) AS user_ids",
+    )
+    .param("hs_id", hs_id.to_string())
+}
+
+/// Retrieves orphan homeservers (no incoming HOSTED_BY relationships),
+/// excluding the given homeserver ID.
+pub fn get_orphan_homeservers(exclude_id: &str) -> Query {
+    query(
+        "MATCH (hs:Homeserver)
+         WHERE NOT EXISTS { MATCH (:User)-[:HOSTED_BY]->(hs) }
+           AND hs.id <> $exclude_id
+         RETURN collect(hs.id) AS orphan_ids",
+    )
+    .param("exclude_id", exclude_id.to_string())
+}
+
 /// Retrieve tags for a user within the viewer's trusted network
 /// # Arguments
 ///

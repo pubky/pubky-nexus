@@ -1,0 +1,432 @@
+//! # User Homeserver Resolver
+//!
+//! Periodic task that resolves each user's homeserver and persists
+//! the `(:User)-[:HOSTED_BY]->(:Homeserver)` relationship in Neo4j.
+//!
+//! On resolution failure the task increments a per-user
+//! `consecutive_failed_hs_lookups` counter in Redis and skips to the next user.
+//! Users with more failures are processed last so that healthy users are
+//! resolved first.
+//!
+//! After all users have been processed, orphan homeserver nodes (those with no
+//! remaining `HOSTED_BY` relationships) are cleaned up from both Neo4j and Redis.
+
+use nexus_common::db::kv::RedisResult;
+use nexus_common::db::{exec_single_row, fetch_key_from_graph, queries, PubkyConnector, RedisOps};
+use nexus_common::models::homeserver::Homeserver;
+use nexus_common::types::DynError;
+
+use pubky::PublicKey;
+use pubky_app_specs::PubkyId;
+use serde::{Deserialize, Serialize};
+use tracing::{debug, error, info, warn};
+
+// ---------------------------------------------------------------------------
+// Redis model for the per-user failure counter
+// ---------------------------------------------------------------------------
+
+/// Tracks consecutive failed homeserver lookups for a user.
+#[derive(Serialize, Deserialize, Debug, Default)]
+pub struct UserHsFailures {
+    pub consecutive_failed_hs_lookups: u64,
+}
+
+impl RedisOps for UserHsFailures {}
+
+impl UserHsFailures {
+    /// Reads the failure count for a user (returns 0 when absent).
+    async fn get(user_id: &str) -> Result<u64, DynError> {
+        let maybe: Option<Self> = Self::try_from_index_json(&[user_id], None).await?;
+        Ok(maybe.map_or(0, |f| f.consecutive_failed_hs_lookups))
+    }
+
+    /// Increments the failure counter by 1.
+    async fn increment(user_id: &str) -> Result<(), DynError> {
+        let current = Self::get(user_id).await?;
+        let updated = UserHsFailures {
+            consecutive_failed_hs_lookups: current + 1,
+        };
+        updated.put_index_json(&[user_id], None, None).await?;
+        Ok(())
+    }
+
+    /// Removes the failure counter (called on success).
+    async fn remove(user_id: &str) -> RedisResult<()> {
+        Self::remove_from_index_multiple_json(&[&[user_id]]).await
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Core resolver logic
+// ---------------------------------------------------------------------------
+
+/// Fetches all user IDs from the graph.
+async fn get_all_user_ids() -> Result<Vec<String>, DynError> {
+    let query = queries::get::get_all_user_ids();
+    let maybe_user_ids = fetch_key_from_graph(query, "user_ids").await?;
+    Ok(maybe_user_ids.unwrap_or_default())
+}
+
+/// Sorts user IDs by their failure count (ascending — fewest failures first).
+/// Uses a single batched Redis call to fetch all failure counts.
+async fn sort_by_failures(user_ids: Vec<String>) -> Result<Vec<String>, DynError> {
+    let key_parts: Vec<[&str; 1]> = user_ids.iter().map(|id| [id.as_str()]).collect();
+    let key_parts_refs: Vec<&[&str]> = key_parts.iter().map(|k| k.as_slice()).collect();
+    let failures = UserHsFailures::try_from_index_multiple_json(&key_parts_refs).await?;
+
+    let mut pairs: Vec<_> = user_ids.into_iter().zip(failures).collect();
+    pairs.sort_by_key(|(_, f)| f.as_ref().map_or(0, |f| f.consecutive_failed_hs_lookups));
+    Ok(pairs.into_iter().map(|(id, _)| id).collect())
+}
+
+/// Resolves a single user's homeserver and persists the HOSTED_BY relationship.
+async fn resolve_user(user_id: &str) -> Result<(), DynError> {
+    let pubky = PubkyConnector::get()?;
+
+    let user_pk = user_id.parse::<PublicKey>()?;
+    let Some(hs_pk) = pubky.get_homeserver_of(&user_pk).await else {
+        return Err(format!("User {user_id} has no published homeserver").into());
+    };
+
+    let hs_id =
+        PubkyId::try_from(&hs_pk.into_inner().to_z32()).map_err(|e| -> DynError { e.into() })?;
+
+    let query = queries::put::set_user_homeserver(user_id, &hs_id);
+    exec_single_row(query).await?;
+
+    debug!("User {user_id} -> homeserver {hs_id}");
+    Ok(())
+}
+
+/// Returns all user IDs hosted on a given homeserver.
+/// TODO Should be used in [EventProcessor::poll_events]
+pub async fn get_user_ids_by_homeserver(hs_id: &str) -> Result<Vec<String>, DynError> {
+    let query = queries::get::get_users_by_homeserver(hs_id);
+    let maybe_user_ids = fetch_key_from_graph(query, "user_ids").await?;
+    Ok(maybe_user_ids.unwrap_or_default())
+}
+
+/// Returns IDs of homeservers that have no incoming HOSTED_BY relationships,
+/// excluding the given homeserver ID.
+async fn get_orphan_homeserver_ids(exclude_id: &str) -> Result<Vec<String>, DynError> {
+    let query = queries::get::get_orphan_homeservers(exclude_id);
+    let maybe_ids = fetch_key_from_graph(query, "orphan_ids").await?;
+    Ok(maybe_ids.unwrap_or_default())
+}
+
+/// Deletes orphan homeservers (no HOSTED_BY relationships) from graph and index.
+/// The default homeserver is excluded from cleanup.
+async fn cleanup_orphan_homeservers(default_hs_id: &str) -> Result<(), DynError> {
+    let orphan_ids = get_orphan_homeserver_ids(default_hs_id).await?;
+    if orphan_ids.is_empty() {
+        return Ok(());
+    }
+
+    // Single Neo4j call to delete all orphan homeservers
+    let del_query = queries::del::delete_homeservers(&orphan_ids);
+    exec_single_row(del_query).await?;
+
+    // Single Redis call to remove all orphan homeserver indexes
+    let key_parts: Vec<Vec<&str>> = orphan_ids.iter().map(|id| vec![id.as_str()]).collect();
+    let key_parts_refs: Vec<&[&str]> = key_parts.iter().map(|v| v.as_slice()).collect();
+    Homeserver::remove_from_index_multiple_json(&key_parts_refs).await?;
+
+    for hs_id in &orphan_ids {
+        info!("Cleaned up orphan homeserver {hs_id}");
+    }
+
+    Ok(())
+}
+
+/// Main entry point for one cycle of the periodic task.
+/// `default_hs_id` is excluded from orphan cleanup.
+pub async fn run(default_hs_id: &str) -> Result<(), DynError> {
+    let user_ids = get_all_user_ids().await?;
+    if user_ids.is_empty() {
+        debug!("No users to resolve homeservers for");
+        return Ok(());
+    }
+
+    let user_ids = sort_by_failures(user_ids).await?;
+    debug!("Resolving homeservers for {} users", user_ids.len());
+
+    for user_id in &user_ids {
+        match resolve_user(user_id).await {
+            Ok(_) => {
+                UserHsFailures::remove(user_id).await.ok();
+            }
+            Err(e) => {
+                warn!("Failed to resolve homeserver for user {user_id}: {e}");
+                if let Err(incr_err) = UserHsFailures::increment(user_id).await {
+                    error!("Failed to increment failure counter for {user_id}: {incr_err}");
+                }
+            }
+        }
+    }
+
+    // Cleanup orphan homeservers
+    if let Err(e) = cleanup_orphan_homeservers(default_hs_id).await {
+        error!("Homeserver cleanup failed: {e}");
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nexus_common::db::exec_single_row;
+    use nexus_common::types::DynError;
+    use nexus_common::{StackConfig, StackManager};
+    use pubky::Keypair;
+
+    async fn setup() -> Result<(), DynError> {
+        StackManager::setup("unit-hs-resolver-test", &StackConfig::default()).await?;
+        Ok(())
+    }
+
+    fn random_pubky_id() -> PubkyId {
+        PubkyId::try_from(Keypair::random().public_key().to_z32().as_str()).unwrap()
+    }
+
+    /// Helper: create a User node in the graph
+    async fn create_test_user(user_id: &str) -> Result<(), DynError> {
+        let query = neo4rs::query(
+            "MERGE (u:User {id: $id})
+             SET u.name = 'test', u.indexed_at = 0
+             RETURN u;",
+        )
+        .param("id", user_id);
+        exec_single_row(query).await?;
+        Ok(())
+    }
+
+    /// Helper: clean up test data
+    async fn cleanup_test_user(user_id: &str) -> Result<(), DynError> {
+        let query = queries::del::delete_user(user_id);
+        exec_single_row(query).await?;
+        Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn test_user_hs_failures_increment_and_remove() -> Result<(), DynError> {
+        setup().await?;
+
+        let user_id = "test_hs_failures_user_001";
+
+        // Initially zero
+        assert_eq!(UserHsFailures::get(user_id).await?, 0);
+
+        // Increment twice
+        UserHsFailures::increment(user_id).await?;
+        assert_eq!(UserHsFailures::get(user_id).await?, 1);
+        UserHsFailures::increment(user_id).await?;
+        assert_eq!(UserHsFailures::get(user_id).await?, 2);
+
+        // Remove
+        UserHsFailures::remove(user_id).await?;
+        assert_eq!(UserHsFailures::get(user_id).await?, 0);
+
+        Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn test_sort_by_failures() -> Result<(), DynError> {
+        setup().await?;
+
+        let ids = vec![
+            "sort_test_user_a".to_string(),
+            "sort_test_user_b".to_string(),
+            "sort_test_user_c".to_string(),
+        ];
+
+        // Set different failure counts
+        // b=3, a=1, c=0
+        UserHsFailures::increment("sort_test_user_a").await?;
+        UserHsFailures::increment("sort_test_user_b").await?;
+        UserHsFailures::increment("sort_test_user_b").await?;
+        UserHsFailures::increment("sort_test_user_b").await?;
+
+        let sorted = sort_by_failures(ids).await?;
+        assert_eq!(sorted[0], "sort_test_user_c"); // 0 failures
+        assert_eq!(sorted[1], "sort_test_user_a"); // 1 failure
+        assert_eq!(sorted[2], "sort_test_user_b"); // 3 failures
+
+        // Cleanup
+        UserHsFailures::remove("sort_test_user_a").await?;
+        UserHsFailures::remove("sort_test_user_b").await?;
+
+        Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn test_set_user_homeserver_graph_query() -> Result<(), DynError> {
+        setup().await?;
+
+        let user_id = "hs_resolver_test_user_001";
+        let hs_id_a = "hs_resolver_test_hs_aaa";
+        let hs_id_b = "hs_resolver_test_hs_bbb";
+
+        create_test_user(user_id).await?;
+
+        // Set initial homeserver
+        let query = queries::put::set_user_homeserver(user_id, hs_id_a);
+        exec_single_row(query).await?;
+
+        // Switch to a different homeserver
+        let query = queries::put::set_user_homeserver(user_id, hs_id_b);
+        exec_single_row(query).await?;
+
+        // Verify orphan detection: hs_a should now be orphaned
+        let orphan_ids = get_orphan_homeserver_ids("").await?;
+        assert!(
+            orphan_ids.contains(&hs_id_a.to_string()),
+            "Old HS should be orphaned"
+        );
+
+        // Cleanup
+        cleanup_test_user(user_id).await?;
+        exec_single_row(queries::del::delete_homeserver(hs_id_a)).await?;
+        exec_single_row(queries::del::delete_homeserver(hs_id_b)).await?;
+
+        Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn test_set_user_homeserver_idempotent() -> Result<(), DynError> {
+        setup().await?;
+
+        let user_id = "hs_resolver_test_user_noop";
+        let hs_id = "hs_resolver_test_hs_noop";
+
+        create_test_user(user_id).await?;
+
+        // Set homeserver for the first time
+        let query = queries::put::set_user_homeserver(user_id, hs_id);
+        exec_single_row(query).await?;
+
+        // Set same homeserver again (should reuse HS, e.g. not create any orphan HS)
+        let query = queries::put::set_user_homeserver(user_id, hs_id);
+        exec_single_row(query).await?;
+
+        // The homeserver must NOT be orphaned (relationship still intact)
+        let orphan_ids = get_orphan_homeserver_ids("").await?;
+        assert!(
+            !orphan_ids.contains(&hs_id.to_string()),
+            "HS must not be orphaned when set_user_homeserver is called with the same HS"
+        );
+
+        // Cleanup
+        cleanup_test_user(user_id).await?;
+        exec_single_row(queries::del::delete_homeserver(hs_id)).await?;
+
+        Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn test_get_user_ids_by_homeserver() -> Result<(), DynError> {
+        setup().await?;
+
+        let user_a = "hs_users_test_user_aaa";
+        let user_b = "hs_users_test_user_bbb";
+        let user_c = "hs_users_test_user_ccc";
+        let hs_one = "hs_users_test_hs_one";
+        let hs_two = "hs_users_test_hs_two";
+
+        create_test_user(user_a).await?;
+        create_test_user(user_b).await?;
+        create_test_user(user_c).await?;
+
+        // Host user_a and user_b on hs_one, user_c on hs_two
+        exec_single_row(queries::put::set_user_homeserver(user_a, hs_one)).await?;
+        exec_single_row(queries::put::set_user_homeserver(user_b, hs_one)).await?;
+        exec_single_row(queries::put::set_user_homeserver(user_c, hs_two)).await?;
+
+        // Query users on hs_one
+        let mut users = get_user_ids_by_homeserver(hs_one).await?;
+        users.sort();
+        assert_eq!(users, vec![user_a, user_b]);
+
+        // Query users on hs_two
+        let users = get_user_ids_by_homeserver(hs_two).await?;
+        assert_eq!(users, vec![user_c]);
+
+        // Query unknown HS returns empty
+        let users = get_user_ids_by_homeserver("nonexistent_hs").await?;
+        assert!(users.is_empty());
+
+        // Cleanup
+        cleanup_test_user(user_a).await?;
+        cleanup_test_user(user_b).await?;
+        cleanup_test_user(user_c).await?;
+        exec_single_row(queries::del::delete_homeserver(hs_one)).await?;
+        exec_single_row(queries::del::delete_homeserver(hs_two)).await?;
+
+        Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn test_get_orphan_homeserver_ids_excludes_default() -> Result<(), DynError> {
+        setup().await?;
+
+        let default_hs_id = random_pubky_id();
+        let other_hs_id = random_pubky_id();
+
+        // Persist two orphan homeserver nodes (no users hosted)
+        Homeserver::persist_if_unknown(default_hs_id.clone()).await?;
+        Homeserver::persist_if_unknown(other_hs_id.clone()).await?;
+
+        let default_hs = default_hs_id.as_str();
+        let other_hs = other_hs_id.as_str();
+
+        // Without exclusion, both appear as orphans
+        let orphans = get_orphan_homeserver_ids("").await?;
+        assert!(orphans.contains(&default_hs.to_string()));
+        assert!(orphans.contains(&other_hs.to_string()));
+
+        // With the default excluded, only the other one appears
+        let orphans = get_orphan_homeserver_ids(default_hs).await?;
+        assert!(
+            !orphans.contains(&default_hs.to_string()),
+            "Default HS must be excluded from orphans"
+        );
+        assert!(orphans.contains(&other_hs.to_string()));
+
+        // Cleanup
+        exec_single_row(queries::del::delete_homeserver(default_hs)).await?;
+        exec_single_row(queries::del::delete_homeserver(other_hs)).await?;
+
+        Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn test_cleanup_orphan_homeservers_preserves_default() -> Result<(), DynError> {
+        setup().await?;
+
+        let default_hs_id = random_pubky_id();
+        let orphan_hs_id = random_pubky_id();
+
+        // Persist two orphan homeserver nodes
+        Homeserver::persist_if_unknown(default_hs_id.clone()).await?;
+        Homeserver::persist_if_unknown(orphan_hs_id.clone()).await?;
+
+        let default_hs = default_hs_id.as_str();
+        let orphan_hs = orphan_hs_id.as_str();
+
+        // Run cleanup with default_hs excluded
+        cleanup_orphan_homeservers(default_hs).await?;
+
+        // Verify default HS still exists in the graph
+        let remaining = Homeserver::get_from_graph(default_hs).await?;
+        assert!(remaining.is_some(), "Default HS must survive cleanup");
+
+        // Verify orphan HS was deleted
+        let deleted = Homeserver::get_from_graph(orphan_hs).await?;
+        assert!(deleted.is_none(), "Orphan HS must be deleted by cleanup");
+
+        // Cleanup default HS
+        exec_single_row(queries::del::delete_homeserver(default_hs)).await?;
+
+        Ok(())
+    }
+}
