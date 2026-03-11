@@ -293,7 +293,7 @@ impl<G: GraphOps> GraphOps for TracedGraph<G> {
                     label,
                     cypher,
                     execute_duration,
-                    stream_start: start,
+                    stream_start: Instant::now(), // Timestamp after execute(), so it only tracks the fetch phase,
                     row_count: 0,
                     threshold: self.slow_query_threshold,
                     metrics: self.metrics.clone(),
