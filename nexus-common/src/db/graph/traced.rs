@@ -299,7 +299,17 @@ impl<G: GraphOps> GraphOps for TracedGraph<G> {
                 Ok(traced.boxed())
             }
             Err(e) => {
+                let attrs: &[KeyValue] = &[KeyValue::new("query", label.unwrap_or("unknown"))];
+                self.metrics
+                    .duration
+                    .record(execute_duration.as_secs_f64(), attrs);
+                self.metrics
+                    .execute_duration
+                    .record(execute_duration.as_secs_f64(), attrs);
+                self.metrics.errors.add(1, attrs);
+
                 if execute_duration > self.slow_query_threshold {
+                    self.metrics.slow.add(1, attrs);
                     if let Some(lbl) = &label {
                         warn!(
                             execute_ms = execute_duration.as_millis(),
@@ -310,8 +320,6 @@ impl<G: GraphOps> GraphOps for TracedGraph<G> {
                     }
                 }
 
-                let attrs: &[KeyValue] = &[KeyValue::new("query", label.unwrap_or("unknown"))];
-                self.metrics.errors.add(1, attrs);
                 Err(e)
             }
         }
@@ -352,7 +360,23 @@ impl<G: GraphOps> GraphOps for TracedGraph<G> {
                 }
             }
             Err(_) => {
+                self.metrics.duration.record(elapsed.as_secs_f64(), attrs);
+                self.metrics
+                    .execute_duration
+                    .record(elapsed.as_secs_f64(), attrs);
                 self.metrics.errors.add(1, attrs);
+
+                if elapsed > self.slow_query_threshold {
+                    self.metrics.slow.add(1, attrs);
+                    if let Some(label) = &label {
+                        warn!(
+                            elapsed_ms = elapsed.as_millis(),
+                            query = %label,
+                            cypher = cypher.as_deref().unwrap_or(""),
+                            "Slow Neo4j query (failed)"
+                        );
+                    }
+                }
             }
         }
 
