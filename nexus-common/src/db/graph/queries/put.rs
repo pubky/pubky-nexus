@@ -1,7 +1,7 @@
 use crate::db::graph::error::{GraphError, GraphResult};
+use crate::db::graph::Query;
 use crate::models::post::PostRelationships;
 use crate::models::{file::FileDetails, post::PostDetails, user::UserDetails};
-use neo4rs::{query, Query};
 use pubky_app_specs::{ParsedUri, Resource};
 
 /// Create a user node
@@ -9,7 +9,8 @@ pub fn create_user(user: &UserDetails) -> GraphResult<Query> {
     let links = serde_json::to_string(&user.links)
         .map_err(|e| GraphError::SerializationFailed(Box::new(e)))?;
 
-    let query = query(
+    let query = Query::new(
+        "create_user",
         "MERGE (u:User {id: $id})
          SET u.name = $name, u.bio = $bio, u.status = $status, u.links = $links, u.image = $image, u.indexed_at = $indexed_at;",
     )
@@ -75,7 +76,7 @@ pub fn create_post(
     let kind = serde_json::to_string(&post.kind)
         .map_err(|e| GraphError::SerializationFailed(Box::new(e)))?;
 
-    let mut cypher_query = query(&cypher)
+    let mut cypher_query = Query::new("create_post", &cypher)
         .param("author_id", post.author.to_string())
         .param("post_id", post.id.to_string())
         .param("content", post.content.to_string())
@@ -143,7 +144,8 @@ pub fn create_mention_relationship(
     post_id: &str,
     mentioned_user_id: &str,
 ) -> Query {
-    query(
+    Query::new(
+        "create_mention_relationship",
         "MATCH (author:User {id: $author_id})-[:AUTHORED]->(post:Post {id: $post_id}),
               (mentioned_user:User {id: $mentioned_user_id})
          MERGE (post)-[:MENTIONED]->(mentioned_user)",
@@ -161,7 +163,8 @@ pub fn create_mention_relationship(
 /// * `followee_id` - The unique identifier of the user to be followed.
 /// * `indexed_at` - A timestamp representing when the relationship was indexed or updated.
 pub fn create_follow(follower_id: &str, followee_id: &str, indexed_at: i64) -> Query {
-    query(
+    Query::new(
+        "create_follow",
         "MATCH (follower:User {id: $follower_id}), (followee:User {id: $followee_id})
          // Check if follow already existed
          OPTIONAL MATCH (follower)-[existing:FOLLOWS]->(followee)
@@ -189,7 +192,8 @@ pub fn create_post_bookmark(
     bookmark_id: &str,
     indexed_at: i64,
 ) -> Query {
-    query(
+    Query::new(
+        "create_post_bookmark",
         "MATCH (u:User {id: $user_id})
         // We assume these nodes are already created. If not we would not be able to add a bookmark
         MATCH (author:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
@@ -226,7 +230,8 @@ pub fn create_post_tag(
     label: &str,
     indexed_at: i64,
 ) -> Query {
-    query(
+    Query::new(
+        "create_post_tag",
         "MATCH (user:User {id: $user_id})
         // We assume these nodes are already created. If not we would not be able to add a tag
         MATCH (author:User {id: $author_id})-[:AUTHORED]->(post:Post {id: $post_id})
@@ -260,7 +265,8 @@ pub fn create_user_tag(
     label: &str,
     indexed_at: i64,
 ) -> Query {
-    query(
+    Query::new(
+        "create_user_tag",
         "MATCH (tagged_used:User {id: $tagged_user_id})
         MATCH (tagger:User {id: $tagger_user_id})
         // Check if tag already existed
@@ -283,7 +289,8 @@ pub fn create_file(file: &FileDetails) -> GraphResult<Query> {
     let urls = serde_json::to_string(&file.urls)
         .map_err(|e| GraphError::SerializationFailed(Box::new(e)))?;
 
-    let query = query(
+    let query = Query::new(
+        "create_file",
         "MERGE (f:File {id: $id, owner_id: $owner_id})
          SET f.uri = $uri, f.indexed_at = $indexed_at, f.created_at = $created_at, f.size = $size,
             f.src = $src, f.name = $name, f.content_type = $content_type, f.urls = $urls;",
@@ -304,7 +311,8 @@ pub fn create_file(file: &FileDetails) -> GraphResult<Query> {
 
 /// Create a homeserver
 pub fn create_homeserver(homeserver_id: &str) -> Query {
-    query(
+    Query::new(
+        "create_homeserver",
         "MERGE (hs:Homeserver {
           id: $id
         })

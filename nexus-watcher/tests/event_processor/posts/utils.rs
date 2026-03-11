@@ -1,5 +1,5 @@
 use anyhow::Result;
-use neo4rs::{query, Query};
+use nexus_common::db::graph::Query;
 use nexus_common::{
     db::{fetch_key_from_graph, RedisOps},
     models::post::{
@@ -119,7 +119,8 @@ pub async fn find_repost_relationship_parent_uri(user_id: &str, post_id: &str) -
 }
 
 pub fn post_reply_relationships(author_id: &str, post_id: &str) -> Query {
-    query(
+    Query::new(
+        "post_reply_relationships",
         "MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
         OPTIONAL MATCH (p)-[:REPLIED]->(reply:Post)<-[:AUTHORED]-(reply_author:User)
         RETURN COLLECT([
@@ -131,7 +132,8 @@ pub fn post_reply_relationships(author_id: &str, post_id: &str) -> Query {
 }
 
 pub fn post_repost_relationships(author_id: &str, post_id: &str) -> Query {
-    query(
+    Query::new(
+        "post_repost_relationships",
         "MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
         OPTIONAL MATCH (p)-[:REPOSTED]->(repost:Post)<-[:AUTHORED]-(repost_author:User)
         RETURN collect([
@@ -144,7 +146,8 @@ pub fn post_repost_relationships(author_id: &str, post_id: &str) -> Query {
 
 // Retrieve a post by id
 pub fn get_post_details_by_id(user_id: &str, post_id: &str) -> Query {
-    query(
+    Query::new(
+        "get_post_details_by_id",
         "
         MATCH (user:User {id: $user_id})-[:AUTHORED]->(post:Post {id: $post_id})
         RETURN {

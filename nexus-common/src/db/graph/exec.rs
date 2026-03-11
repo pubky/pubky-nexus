@@ -1,5 +1,7 @@
+use super::query::Query;
 use crate::db::{get_neo4j_graph, graph::error::GraphResult};
-use neo4rs::{Query, Row};
+use futures::TryStreamExt;
+use neo4rs::Row;
 use serde::de::DeserializeOwned;
 
 /// Represents the outcome of a mutation-like query in the graph database.
@@ -33,12 +35,10 @@ pub async fn execute_graph_operation(query: Query) -> GraphResult<OperationOutco
     }
 }
 
-/// Exec a graph query without a return
+/// Exec a fire-and-forget graph query (no rows needed).
 pub async fn exec_single_row(query: Query) -> GraphResult<()> {
     let graph = get_neo4j_graph()?;
-    let mut result = graph.execute(query).await?;
-    result.next().await?;
-    Ok(())
+    graph.run(query).await.map_err(Into::into)
 }
 
 pub async fn fetch_row_from_graph(query: Query) -> GraphResult<Option<Row>> {
@@ -46,20 +46,15 @@ pub async fn fetch_row_from_graph(query: Query) -> GraphResult<Option<Row>> {
 
     let mut result = graph.execute(query).await?;
 
-    result.next().await.map_err(Into::into)
+    result.try_next().await.map_err(Into::into)
 }
 
 pub async fn fetch_all_rows_from_graph(query: Query) -> GraphResult<Vec<Row>> {
     let graph = get_neo4j_graph()?;
 
-    let mut result = graph.execute(query).await?;
-    let mut rows = Vec::new();
+    let result = graph.execute(query).await?;
 
-    while let Some(row) = result.next().await? {
-        rows.push(row);
-    }
-
-    Ok(rows)
+    result.try_collect().await.map_err(Into::into)
 }
 
 /// Fetch the value of type T mapped to a specific key from the first row of a graph query's result
