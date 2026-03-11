@@ -178,8 +178,13 @@ impl Stream for TracedStream {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let result = Pin::new(&mut self.inner).poll_next(cx);
-        if let Poll::Ready(Some(Ok(_))) = &result {
-            self.row_count += 1;
+        match &result {
+            Poll::Ready(Some(Ok(_))) => self.row_count += 1,
+            Poll::Ready(Some(Err(_))) => {
+                let attrs: &[KeyValue] = &[KeyValue::new("query", self.label.unwrap_or("unknown"))];
+                self.metrics.errors.add(1, attrs);
+            }
+            _ => {}
         }
         result
     }
