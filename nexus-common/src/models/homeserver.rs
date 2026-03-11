@@ -70,7 +70,9 @@ impl Homeserver {
         }
 
         let cursor = cursor_str.parse().map_err(|_| {
-            ModelError::from_generic("Cannot create a HS from a non-numeric cursor: {cursor_str}")
+            ModelError::from_generic(format!(
+                "Cannot create a HS from a non-numeric cursor: {cursor_str}"
+            ))
         })?;
 
         Self::validate_cursor_change(&id, cursor).await?;
