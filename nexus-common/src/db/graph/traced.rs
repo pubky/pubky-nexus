@@ -74,8 +74,8 @@ impl GraphOps for Graph {
 ///
 /// | Metric name                   | Type      | Unit | Description |
 /// |-------------------------------|-----------|------|-------------|
-/// | `neo4j.query.duration_ms`     | Histogram | ms   | Total wall-clock time for a query (execute + fetch). Use percentiles (p50/p95/p99) to detect latency degradation over time. |
-/// | `neo4j.query.execute_ms`      | Histogram | ms   | Time spent in the Bolt RUN phase (pool acquire + query planning + start of execution). A spike here with stable fetch times indicates connection-pool starvation or query-plan regression. |
+/// | `neo4j.query.duration`         | Histogram | ms   | Total wall-clock time for a query (execute + fetch). Use percentiles (p50/p95/p99) to detect latency degradation over time. |
+/// | `neo4j.query.execute_duration` | Histogram | ms   | Time spent in the Bolt RUN phase (pool acquire + query planning + start of execution). A spike here with stable fetch times indicates connection-pool starvation or query-plan regression. |
 /// | `neo4j.query.rows`            | Histogram | rows | Number of rows returned per query. Detects cardinality explosions — a query that normally returns 10 rows suddenly returning 10k will show up here before latency spikes. |
 /// | `neo4j.query.errors_total`    | Counter   | —    | Total number of failed query executions. Useful for error-rate alerting (rate > 0 sustained). |
 /// | `neo4j.query.slow_total`      | Counter   | —    | Total number of queries exceeding the configured slow-query threshold. A rising rate signals degradation without needing to compute percentiles. |
@@ -87,11 +87,11 @@ impl GraphOps for Graph {
 ///
 /// | Alert                     | Metric                        | Condition                               |
 /// |---------------------------|-------------------------------|-----------------------------------------|
-/// | Latency degradation       | `neo4j.query.duration_ms` p95 | > 2x rolling baseline                   |
+/// | Latency degradation       | `neo4j.query.duration` p95    | > 2x rolling baseline                   |
 /// | Cardinality explosion     | `neo4j.query.rows` p99        | sudden spike vs. historical range       |
 /// | Error rate                | `neo4j.query.errors_total`    | rate > 0 sustained                      |
 /// | Slow query storm          | `neo4j.query.slow_total`      | rate > N/min                            |
-/// | Pool starvation           | `neo4j.query.execute_ms` p95  | spike while fetch time stays flat       |
+/// | Pool starvation           | `neo4j.query.execute_duration` p95 | spike while fetch time stays flat  |
 #[derive(Clone)]
 struct GraphMetrics {
     /// Total wall-clock duration of a query (execute + stream consumption).
@@ -117,14 +117,14 @@ impl GraphMetrics {
         let meter = global::meter(METER_NAME);
         Self {
             duration: meter
-                .f64_histogram("neo4j.query.duration_ms")
+                .f64_histogram("neo4j.query.duration")
                 .with_description(
                     "Total wall-clock time for a Neo4j query (execute + fetch), in milliseconds",
                 )
                 .with_unit("ms")
                 .build(),
             execute_duration: meter
-                .f64_histogram("neo4j.query.execute_ms")
+                .f64_histogram("neo4j.query.execute_duration")
                 .with_description(
                     "Time spent in the Bolt RUN phase (pool acquire + query planning), in milliseconds",
                 )
@@ -154,9 +154,9 @@ impl GraphMetrics {
 ///
 /// Created by [`TracedGraph::execute`] to wrap the underlying row stream.
 /// On drop it:
-/// 1. Records `neo4j.query.duration_ms`, `neo4j.query.execute_ms`, and
+/// 1. Records `neo4j.query.duration`, `neo4j.query.execute_duration`, and
 ///    `neo4j.query.rows` histograms.
-/// 2. Increments `neo4j.query.slow_total` if the total duration exceeds the
+/// 2. Increments `neo4j.query.slow` if the total duration exceeds the
 ///    threshold.
 /// 3. Emits a `tracing::warn` log for slow queries (with optional cypher text).
 struct TracedStream {
