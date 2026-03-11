@@ -257,6 +257,139 @@ mod tests {
         Ok(())
     }
 
+    #[tokio_shared_rt::test(shared)]
+    async fn test_cursor_forwards_accepted() -> Result<(), DynError> {
+        StackManager::setup("unit-hs-test", &StackConfig::default()).await?;
+
+        let keys = Keypair::random();
+        let id = PubkyId::try_from(&keys.public_key().to_z32())?;
+
+        // Store cursor at 100
+        let hs = Homeserver {
+            id: id.clone(),
+            cursor: 100,
+        };
+        hs.put_to_index()
+            .await
+            .expect("Failed to put initial cursor");
+
+        // Moving cursor forward to 200 must succeed
+        let hs2 = Homeserver {
+            id: id.clone(),
+            cursor: 200,
+        };
+        hs2.put_to_index()
+            .await
+            .expect("Forward cursor update should be accepted");
+
+        let stored = Homeserver::get_from_index(&id)
+            .await
+            .unwrap()
+            .expect("Homeserver not found in index");
+        assert_eq!(stored.cursor, 200);
+
+        Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn test_cursor_backwards_rejected_by_put_to_index() -> Result<(), DynError> {
+        StackManager::setup("unit-hs-test", &StackConfig::default()).await?;
+
+        let keys = Keypair::random();
+        let id = PubkyId::try_from(&keys.public_key().to_z32())?;
+
+        // Store cursor at 500
+        let hs = Homeserver {
+            id: id.clone(),
+            cursor: 500,
+        };
+        hs.put_to_index()
+            .await
+            .expect("Failed to put initial cursor");
+
+        // Attempting to move cursor backwards to 100 must be rejected
+        let hs2 = Homeserver {
+            id: id.clone(),
+            cursor: 100,
+        };
+        let result = hs2.put_to_index().await;
+        assert!(
+            result.is_err(),
+            "Backwards cursor update should be rejected"
+        );
+
+        // The stored cursor must remain at 500
+        let stored = Homeserver::get_from_index(&id)
+            .await
+            .unwrap()
+            .expect("Homeserver not found in index");
+        assert_eq!(stored.cursor, 500);
+
+        Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn test_cursor_backwards_rejected_by_try_from_cursor() -> Result<(), DynError> {
+        StackManager::setup("unit-hs-test", &StackConfig::default()).await?;
+
+        let keys = Keypair::random();
+        let id = PubkyId::try_from(&keys.public_key().to_z32())?;
+
+        // Store cursor at 300
+        let hs = Homeserver {
+            id: id.clone(),
+            cursor: 300,
+        };
+        hs.put_to_index()
+            .await
+            .expect("Failed to put initial cursor");
+
+        // try_from_cursor with a lower value must fail
+        let result = Homeserver::try_from_cursor(id.clone(), "50").await;
+        assert!(
+            result.is_err(),
+            "try_from_cursor with backwards cursor should be rejected"
+        );
+
+        // try_from_cursor with a higher value must succeed
+        let result = Homeserver::try_from_cursor(id.clone(), "400").await;
+        assert!(
+            result.is_ok(),
+            "try_from_cursor with forward cursor should be accepted"
+        );
+        assert_eq!(result.unwrap().cursor, 400);
+
+        Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn test_cursor_equal_value_accepted() -> Result<(), DynError> {
+        StackManager::setup("unit-hs-test", &StackConfig::default()).await?;
+
+        let keys = Keypair::random();
+        let id = PubkyId::try_from(&keys.public_key().to_z32())?;
+
+        // Store cursor at 200
+        let hs = Homeserver {
+            id: id.clone(),
+            cursor: 200,
+        };
+        hs.put_to_index()
+            .await
+            .expect("Failed to put initial cursor");
+
+        // Writing the same cursor value (not backwards) must succeed
+        let hs2 = Homeserver {
+            id: id.clone(),
+            cursor: 200,
+        };
+        hs2.put_to_index()
+            .await
+            .expect("Same cursor value should be accepted");
+
+        Ok(())
+    }
+
     #[test]
     fn test_deserialize_cursor_from_string() {
         // Simulates old data format where cursor was stored as a string
