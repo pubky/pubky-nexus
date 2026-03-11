@@ -20,7 +20,7 @@ use tracing::info;
 ///
 /// This handles backwards compatibility with old data where cursor was stored as a string
 /// (e.g., `"0000000000000"`), while also supporting the new numeric format.
-fn deserialize_cursor<'de, D>(deserializer: D) -> Result<u32, D::Error>
+fn deserialize_cursor<'de, D>(deserializer: D) -> Result<u64, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -29,7 +29,7 @@ where
     #[derive(Deserialize)]
     #[serde(untagged)]
     enum CursorValue {
-        Number(u32),
+        Number(u64),
         String(String),
     }
 
@@ -49,7 +49,7 @@ pub struct Homeserver {
     // We persist this field only in the cache, but not in the graph.
     // Redis has regular snapshots, which ensures we get a recent state in case of RAM data loss (system crash).
     #[serde(deserialize_with = "deserialize_cursor")]
-    pub cursor: u32,
+    pub cursor: u64,
 }
 
 impl RedisOps for Homeserver {}
@@ -123,7 +123,7 @@ impl Homeserver {
         }
     }
 
-    async fn validate_cursor_change(id: &str, new_cursor: u32) -> RedisResult<()> {
+    async fn validate_cursor_change(id: &str, new_cursor: u64) -> RedisResult<()> {
         // If we already indexed a value, reject cursors going below it to prevent reindexing past events
         if let Some(hs_from_index) = Self::get_from_index(id).await? {
             if new_cursor < hs_from_index.cursor {
