@@ -106,6 +106,11 @@ struct GraphMetrics {
     slow: Counter<u64>,
 }
 
+/// Returns the single-element attribute slice used for all Neo4j metric recordings.
+fn query_attrs(label: Option<&'static str>) -> [KeyValue; 1] {
+    [KeyValue::new("query", label.unwrap_or("unknown"))]
+}
+
 impl GraphMetrics {
     /// Create all instruments from the global OpenTelemetry meter provider.
     ///
@@ -181,8 +186,7 @@ impl Stream for TracedStream {
         match &result {
             Poll::Ready(Some(Ok(_))) => self.row_count += 1,
             Poll::Ready(Some(Err(_))) => {
-                let attrs: &[KeyValue] = &[KeyValue::new("query", self.label.unwrap_or("unknown"))];
-                self.metrics.errors.add(1, attrs);
+                self.metrics.errors.add(1, &query_attrs(self.label));
             }
             _ => {}
         }
@@ -195,7 +199,7 @@ impl Drop for TracedStream {
         let fetch_duration = self.stream_start.elapsed();
         let total = self.execute_duration + fetch_duration;
 
-        let attrs: &[KeyValue] = &[KeyValue::new("query", self.label.unwrap_or("unknown"))];
+        let attrs: &[KeyValue] = &query_attrs(self.label);
 
         // Always record metrics (no-op when OTLP is not configured).
         self.metrics.duration.record(total.as_secs_f64(), attrs);
@@ -304,7 +308,7 @@ impl<G: GraphOps> GraphOps for TracedGraph<G> {
                 Ok(traced.boxed())
             }
             Err(e) => {
-                let attrs: &[KeyValue] = &[KeyValue::new("query", label.unwrap_or("unknown"))];
+                let attrs: &[KeyValue] = &query_attrs(label);
                 self.metrics
                     .duration
                     .record(execute_duration.as_secs_f64(), attrs);
@@ -342,7 +346,7 @@ impl<G: GraphOps> GraphOps for TracedGraph<G> {
         let result = self.inner.run(query).await;
         let elapsed = start.elapsed();
 
-        let attrs: &[KeyValue] = &[KeyValue::new("query", label.unwrap_or("unknown"))];
+        let attrs: &[KeyValue] = &query_attrs(label);
 
         match &result {
             Ok(()) => {
