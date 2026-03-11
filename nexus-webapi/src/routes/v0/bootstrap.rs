@@ -33,10 +33,7 @@ pub async fn bootstrap_handler(
 ) -> Result<Json<Bootstrap>> {
     debug!("GET {BOOTSTRAP_ROUTE}, user_id:{}", user_id);
 
-    match Bootstrap::get_by_id(&user_id, ViewType::Full).await {
-        Ok(result) => Ok(Json(result)),
-        Err(source) => Err(Error::InternalServerError { source }),
-    }
+    Ok(Json(Bootstrap::get_by_id(&user_id, ViewType::Full).await?))
 }
 
 #[utoipa::path(
@@ -58,9 +55,8 @@ pub async fn put_homeserver_handler(Path(user_id): Path<String>) -> Result<()> {
     PubkyId::try_from(&user_id)
         .map_err(|e| Error::invalid_input(&format!("Invalid user PK: {e}")))?;
 
-    Homeserver::maybe_ingest_for_user(&user_id)
-        .await
-        .map_err(Error::internal)
+    Homeserver::maybe_ingest_for_user(&user_id).await?;
+    Ok(())
 }
 
 #[derive(OpenApi)]

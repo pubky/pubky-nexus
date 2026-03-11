@@ -1,6 +1,6 @@
 use anyhow::Result;
-use neo4rs::{query, Query};
 use nexus_common::db::fetch_key_from_graph;
+use nexus_common::db::graph::Query;
 
 pub async fn find_follow_relationship(follower: &str, followee: &str) -> Result<bool> {
     let query = user_following_query(follower, followee);
@@ -14,7 +14,10 @@ pub async fn find_follow_relationship(follower: &str, followee: &str) -> Result<
 }
 
 fn user_following_query(follower: &str, followee: &str) -> Query {
-    query(" RETURN EXISTS((:User {id: $follower})-[:FOLLOWS]->(:User {id: $followee})) AS exist")
-        .param("followee", followee)
-        .param("follower", follower)
+    Query::new(
+        "user_following_query",
+        "RETURN EXISTS((:User {id: $follower})-[:FOLLOWS]->(:User {id: $followee})) AS exist",
+    )
+    .param("followee", followee)
+    .param("follower", follower)
 }

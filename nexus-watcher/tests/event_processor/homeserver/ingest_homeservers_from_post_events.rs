@@ -173,7 +173,7 @@ async fn test_post_and_mention_users_on_unknown_homeserver() -> Result<()> {
 
     let post = PubkyAppPost {
         // The post content references the PKs of the external users
-        content: format!("Hey pk:{user_1_id}, pk:{user_2_id} and pk:{user_3_id}!"),
+        content: format!("Hey pubky{user_1_id}, pubky{user_2_id} and pubky{user_3_id}!"),
         kind: PubkyAppPostKind::Short,
         parent: None,
         embed: None,

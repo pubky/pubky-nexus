@@ -39,10 +39,15 @@ impl ServerInfo {
     }
 
     async fn get_index_snapshot() -> String {
-        let last_index_snapshot_in_secs = get_last_rdb_save_time().await.unwrap_or_default();
+        let last_index_snapshot_in_secs: i64 = get_last_rdb_save_time()
+            .await
+            .ok()
+            .flatten()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or_default();
         // Convert the seconds in milliseconds
         let datetime: DateTime<Utc> = Utc
-            .timestamp_millis_opt(last_index_snapshot_in_secs as i64 * 1000)
+            .timestamp_millis_opt(last_index_snapshot_in_secs * 1000)
             .single()
             .expect("Invalid timestamp");
         datetime.format("%Y-%m-%d %H:%M:%S").to_string()

@@ -1,5 +1,5 @@
 use crate::db::get_redis_conn;
-use crate::types::DynError;
+use crate::db::kv::error::RedisResult;
 use deadpool_redis::redis::AsyncCommands;
 
 /// Adds elements to a Redis list.
@@ -16,7 +16,7 @@ use deadpool_redis::redis::AsyncCommands;
 /// # Errors
 ///
 /// Returns an error if the operation fails.
-pub async fn put(prefix: &str, key: &str, values: &[&str]) -> Result<(), DynError> {
+pub async fn put(prefix: &str, key: &str, values: &[&str]) -> RedisResult<()> {
     if values.is_empty() {
         return Ok(());
     }
@@ -50,7 +50,7 @@ pub async fn get_range(
     key: &str,
     skip: Option<usize>,
     limit: Option<usize>,
-) -> Result<Option<Vec<String>>, DynError> {
+) -> RedisResult<Option<Vec<String>>> {
     let mut redis_conn = get_redis_conn().await?;
 
     let index_key = format!("{prefix}:{key}");

@@ -1,35 +1,23 @@
-use neo4rs::{query, Graph};
-use once_cell::sync::OnceCell;
+use crate::db::graph::Query;
 use std::fmt;
-use std::sync::Arc;
-use tokio::sync::Mutex;
+use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 use tracing::{debug, info};
 
+use crate::db::graph::error::{GraphError, GraphResult};
+use crate::db::graph::{Graph, GraphOps, TracedGraph};
 use crate::db::setup::setup_graph;
 use crate::db::Neo4JConfig;
 use crate::types::DynError;
 
 pub struct Neo4jConnector {
-    pub graph: OnceCell<Arc<Mutex<Graph>>>,
-}
-
-impl Default for Neo4jConnector {
-    fn default() -> Self {
-        Self {
-            graph: OnceCell::new(),
-        }
-    }
+    graph: Arc<dyn GraphOps>,
 }
 
 impl Neo4jConnector {
     /// Initialize and register the global Neo4j connector and verify connectivity
     pub async fn init(neo4j_config: &Neo4JConfig) -> Result<(), DynError> {
-        let neo4j_connector = Neo4jConnector::new_connection(
-            &neo4j_config.uri,
-            &neo4j_config.user,
-            &neo4j_config.password,
-        )
-        .await?;
+        let neo4j_connector = Neo4jConnector::new_connection(neo4j_config).await?;
 
         neo4j_connector.ping(&neo4j_config.uri).await?;
 
@@ -44,42 +32,37 @@ impl Neo4jConnector {
     }
 
     /// Create and return a new connector after defining a database connection
-    async fn new_connection(uri: &str, user: &str, password: &str) -> Result<Self, DynError> {
-        let neo4j_connector = Neo4jConnector::default();
-        match neo4j_connector.connect(uri, user, password).await {
-            Ok(_) => info!("Created Neo4j connector"),
-            Err(e) => return Err(format!("Could not create Neo4J connector: {e}").into()),
-        }
-        Ok(neo4j_connector)
-    }
+    async fn new_connection(config: &Neo4JConfig) -> GraphResult<Self> {
+        let neo4j_graph = neo4rs::Graph::new(&config.uri, &config.user, &config.password).await?;
+        let graph = Graph::new(neo4j_graph);
 
-    /// Dewfine a connection to the Neo4j database and store the graph instance
-    async fn connect(
-        &self,
-        uri: &str,
-        user: &str,
-        password: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let graph = Graph::new(uri, user, password).await?;
-        self.graph
-            .set(Arc::new(Mutex::new(graph)))
-            .map_err(|_| "Failed to set graph instance")?;
-        Ok(())
+        let graph: Arc<dyn GraphOps> = if config.slow_query_logging_enabled {
+            let threshold = Duration::from_millis(config.slow_query_logging_threshold_ms);
+            Arc::new(
+                TracedGraph::new(graph)
+                    .with_slow_query_threshold(threshold)
+                    .with_log_cypher(config.slow_query_logging_include_cypher),
+            )
+        } else {
+            Arc::new(graph)
+        };
+
+        info!(
+            slow_query_logging_enabled = config.slow_query_logging_enabled,
+            slow_query_logging_threshold_ms = config.slow_query_logging_threshold_ms,
+            slow_query_logging_include_cypher = config.slow_query_logging_include_cypher,
+            "Created Neo4j connector"
+        );
+        Ok(Neo4jConnector { graph })
     }
 
     /// Perform a health-check PING over the Bolt protocol to the Neo4j server
     async fn ping(&self, neo4j_uri: &str) -> Result<(), DynError> {
-        let graph = self.graph.get().ok_or("Neo4jConnector not initialized")?;
-        let graph = graph.lock().await;
-        match graph.execute(query("RETURN 1")).await {
-            Ok(_) => info!(
-                "Bolt protocol health-check PING to Neo4j succeeded; server is responsive at {}",
-                neo4j_uri
-            ),
-            Err(neo4j_err) => {
-                return Err(format!("Failed to PING to Neo4j at {neo4j_uri}, {neo4j_err}").into())
-            }
-        };
+        if let Err(neo4j_err) = self.graph.run(Query::new("ping", "RETURN 1")).await {
+            return Err(format!("Failed to PING to Neo4j at {neo4j_uri}, {neo4j_err}").into());
+        }
+
+        info!("Bolt protocol health-check PING to Neo4j succeeded; server is responsive at {neo4j_uri}");
         Ok(())
     }
 }
@@ -87,21 +70,17 @@ impl Neo4jConnector {
 impl fmt::Debug for Neo4jConnector {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Neo4jConnector")
-            .field("graph", &"Graph instance")
+            .field("graph", &"GraphOps instance")
             .finish()
     }
 }
 
 /// Helper to retrieve a Neo4j graph connection.
-pub fn get_neo4j_graph() -> Result<Arc<Mutex<Graph>>, &'static str> {
-    let neo4j_connector = NEO4J_CONNECTOR
+pub fn get_neo4j_graph() -> GraphResult<Arc<dyn GraphOps>> {
+    NEO4J_CONNECTOR
         .get()
-        .ok_or("Neo4jConnector not initialized")?;
-    let graph = neo4j_connector
-        .graph
-        .get()
-        .ok_or("Not connected to Neo4j")?;
-    Ok(graph.clone())
+        .ok_or(GraphError::ConnectionNotInitialized)
+        .map(|neo4j_connector| neo4j_connector.graph.clone())
 }
 
-pub static NEO4J_CONNECTOR: OnceCell<Neo4jConnector> = OnceCell::new();
+pub static NEO4J_CONNECTOR: OnceLock<Neo4jConnector> = OnceLock::new();

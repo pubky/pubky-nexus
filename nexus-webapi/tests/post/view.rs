@@ -154,6 +154,65 @@ async fn test_get_post_view_with_limit_tags_and_taggers() -> Result<()> {
 }
 
 #[tokio_shared_rt::test(shared)]
+async fn test_get_post_view_with_attachment_metadata() -> Result<()> {
+    let path = format!("{ROOT_PATH}/{CAIRO_USER}/{POST_H}?include_attachment_metadata=true");
+
+    let body = get_request(&path).await?;
+    assert!(body.is_object());
+
+    let attachments_metadata = body["attachments_metadata"]
+        .as_array()
+        .expect("Post attachments_metadata should be an array");
+    assert_eq!(attachments_metadata.len(), 2);
+
+    // First attachment
+    assert_eq!(attachments_metadata[0]["id"], "2ZK3A1B2C3D40");
+    assert_eq!(attachments_metadata[0]["owner_id"], CAIRO_USER);
+    assert_eq!(attachments_metadata[0]["name"], "cairo_file1");
+    assert_eq!(attachments_metadata[0]["content_type"], "image/png");
+
+    // Second attachment
+    assert_eq!(attachments_metadata[1]["id"], "2ZK3E5F6G7H80");
+    assert_eq!(attachments_metadata[1]["owner_id"], CAIRO_USER);
+    assert_eq!(attachments_metadata[1]["name"], "cairo_file2");
+    assert_eq!(attachments_metadata[1]["content_type"], "image/jpeg");
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_get_post_view_with_limit_tags_and_taggers_and_attachment_metadata() -> Result<()> {
+    let path = format!(
+        "{ROOT_PATH}/{CAIRO_USER}/{POST_H}?limit_tags=1&limit_taggers=2&include_attachment_metadata=true"
+    );
+
+    let body = get_request(&path).await?;
+    assert!(body.is_object());
+
+    // Check tags with limits
+    let tags = body["tags"]
+        .as_array()
+        .expect("Post tags should be an array");
+    assert_eq!(tags.len(), 1);
+    assert_eq!(tags[0]["label"], TAG_LABEL_2);
+    assert_eq!(tags[0]["taggers_count"], 4);
+    let taggers = tags[0]["taggers"]
+        .as_array()
+        .expect("Tag taggers should be an array");
+    assert_eq!(taggers.len(), 2);
+
+    // Check attachments metadata
+    let attachments_metadata = body["attachments_metadata"]
+        .as_array()
+        .expect("Post attachments_metadata should be an array");
+    assert_eq!(attachments_metadata.len(), 2);
+    assert_eq!(attachments_metadata[0]["id"], "2ZK3A1B2C3D40");
+    assert_eq!(attachments_metadata[1]["id"], "2ZK3E5F6G7H80");
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
 async fn test_get_post_view_with_viewer() -> Result<()> {
     let path = format!("{ROOT_PATH}/{CAIRO_USER}/{POST_H}?viewer_id={DETROIT}");
 

@@ -1,3 +1,4 @@
+use crate::models::PostStreamDetailed;
 use crate::routes::v0::endpoints::{
     STREAM_POSTS_BY_IDS_ROUTE, STREAM_POSTS_ROUTE, STREAM_POST_KEYS_ROUTE,
 };
@@ -28,6 +29,8 @@ pub struct PostStreamQuery {
     #[serde(default, deserialize_with = "deserialize_comma_separated")]
     pub tags: Option<Vec<String>>,
     pub kind: Option<PubkyAppPostKind>,
+    #[serde(default)]
+    pub include_attachment_metadata: bool,
 }
 
 impl PostStreamQuery {
@@ -48,9 +51,9 @@ impl PostStreamQuery {
     pub fn validate_tags(&self) -> AppResult<()> {
         if let Some(ref tags) = self.tags {
             if tags.len() > MAX_TAGS {
-                return Err(Error::InvalidInput {
-                    message: format!("Too many tags provided; maximum allowed is {MAX_TAGS}"),
-                });
+                return Err(Error::invalid_input(&format!(
+                    "Too many tags provided; maximum allowed is {MAX_TAGS}"
+                )));
             }
         }
         Ok(())
@@ -92,9 +95,10 @@ where
         ("limit" = Option<usize>, Query, description = "Retrieve N posts"),
         ("start" = Option<usize>, Query, description = "The start of the stream timeframe or score. Posts with a timestamp/score greater than this value will be excluded from the results"),
         ("end" = Option<usize>, Query, description = "The end of the stream timeframe or score. Posts with a timestamp/score less than this value will be excluded from the results"),
+        ("include_attachment_metadata" = Option<bool>, Query, description = "Include file metadata for post attachments"),
     ),
     responses(
-        (status = 200, description = "Posts stream", body = PostStream),
+        (status = 200, description = "Posts stream", body = PostStreamDetailed),
         (status = 500, description = "Internal server error")
     ),
     description = r#"Stream Posts: Retrieve a stream of posts.
@@ -110,12 +114,13 @@ Ensure that you provide the necessary parameters based on the selected `source`.
 )]
 pub async fn stream_posts_handler(
     Query(mut query): Query<PostStreamQuery>,
-) -> AppResult<Json<PostStream>> {
+) -> AppResult<Json<PostStreamDetailed>> {
     debug!("GET {STREAM_POSTS_ROUTE}");
 
     query.initialize_defaults();
     query.validate_tags()?;
     let (source, sorting, order) = query.extract_stream_params();
+    let include_attachment_metadata = query.include_attachment_metadata;
 
     match PostStream::get_posts(
         source,
@@ -126,11 +131,12 @@ pub async fn stream_posts_handler(
         query.tags,
         query.kind,
     )
-    .await
+    .await?
     {
-        Ok(Some(stream)) => Ok(Json(stream)),
-        Ok(None) => Ok(Json(PostStream::default())),
-        Err(source) => Err(Error::InternalServerError { source }),
+        Some(stream) => Ok(Json(
+            PostStreamDetailed::from_post_views(stream.0, include_attachment_metadata).await?,
+        )),
+        None => Ok(Json(PostStreamDetailed::default())),
     }
 }
 
@@ -183,11 +189,10 @@ pub async fn stream_post_keys_handler(
         query.tags,
         query.kind,
     )
-    .await
+    .await?
     {
-        Ok(Some(stream)) => Ok(Json(stream)),
-        Ok(None) => Ok(Json(PostKeyStream::default())),
-        Err(source) => Err(Error::InternalServerError { source }),
+        Some(stream) => Ok(Json(stream)),
+        None => Ok(Json(PostKeyStream::default())),
     }
 }
 
@@ -195,6 +200,8 @@ pub async fn stream_post_keys_handler(
 pub struct PostStreamByIdsRequest {
     pub post_ids: Vec<String>,
     pub viewer_id: Option<String>,
+    #[serde(default)]
+    pub include_attachment_metadata: bool,
 }
 #[utoipa::path(
     post,
@@ -202,18 +209,14 @@ pub struct PostStreamByIdsRequest {
     tag = "Stream",
     description = "Stream post by ID. This is a POST request because we're passing a potentially large list of post IDs in the request body",
     request_body = PostStreamByIdsRequest,
-    params(
-        ("post_ids" = Vec<String>, Path, description = "Post ID array"),
-        ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID")
-    ),
     responses(
-        (status = 200, description = "Post stream", body = PostStream),
+        (status = 200, description = "Post stream", body = PostStreamDetailed),
         (status = 500, description = "Internal server error")
     )
 )]
 pub async fn stream_posts_by_ids_handler(
     Json(request): Json<PostStreamByIdsRequest>,
-) -> AppResult<Json<PostStream>> {
+) -> AppResult<Json<PostStreamDetailed>> {
     debug!(
         "POST {} post_ids size {:?}",
         STREAM_POSTS_BY_IDS_ROUTE,
@@ -223,21 +226,21 @@ pub async fn stream_posts_by_ids_handler(
     const MAX_POSTS: usize = 100;
 
     if request.post_ids.len() > MAX_POSTS {
-        return Err(Error::InvalidInput {
-            message: format!("The maximum number of post IDs allowed is {MAX_POSTS}"),
-        });
+        let err_msg = format!("The maximum number of post IDs allowed is {MAX_POSTS}");
+        return Err(Error::invalid_input(&err_msg));
     }
 
     if request.post_ids.is_empty() {
-        return Err(Error::InvalidInput {
-            message: "The list of post IDs provided is empty".to_string(),
-        });
+        let err_msg = "The list of post IDs provided is empty";
+        return Err(Error::invalid_input(err_msg));
     }
 
-    match PostStream::from_listed_post_ids(request.viewer_id, &request.post_ids).await {
-        Ok(Some(stream)) => Ok(Json(stream)),
-        Ok(None) => Ok(Json(PostStream::default())),
-        Err(source) => Err(Error::InternalServerError { source }),
+    match PostStream::from_listed_post_ids(request.viewer_id, &request.post_ids).await? {
+        Some(stream) => Ok(Json(
+            PostStreamDetailed::from_post_views(stream.0, request.include_attachment_metadata)
+                .await?,
+        )),
+        None => Ok(Json(PostStreamDetailed::default())),
     }
 }
 
@@ -248,6 +251,12 @@ pub async fn stream_posts_by_ids_handler(
         stream_post_keys_handler,
         stream_posts_by_ids_handler
     ),
-    components(schemas(PostKeyStream, PostStream, StreamSorting, StreamSource, SortOrder))
+    components(schemas(
+        PostKeyStream,
+        PostStreamDetailed,
+        StreamSorting,
+        StreamSource,
+        SortOrder
+    ))
 )]
 pub struct StreamPostsApiDocs;

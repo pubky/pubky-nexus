@@ -46,11 +46,10 @@ pub async fn post_tags_handler(
         query.viewer_id.as_deref(),
         None, // Avoid by default WoT tags in a Post
     )
-    .await
+    .await?
     {
-        Ok(Some(tags)) => Ok(Json(tags)),
-        Ok(None) => Err(Error::PostNotFound { author_id, post_id }),
-        Err(source) => Err(Error::InternalServerError { source }),
+        Some(tags) => Ok(Json(tags)),
+        None => Err(Error::PostNotFound { author_id, post_id }),
     }
 }
 
@@ -80,7 +79,7 @@ pub async fn post_taggers_handler(
         "GET {POST_TAGGERS_ROUTE} author_id:{}, post_id: {}, label: {}, viewer_id:{:?}, skip:{:?}, limit:{:?}",
         author_id, post_id, label, taggers_query.tags_query.viewer_id, taggers_query.pagination.skip, taggers_query.pagination.limit
     );
-    match TagPost::get_tagger_by_id(
+    let taggers = TagPost::get_tagger_by_id(
         &author_id,
         Some(&post_id),
         &label,
@@ -88,11 +87,8 @@ pub async fn post_taggers_handler(
         taggers_query.tags_query.viewer_id.as_deref(),
         None,
     )
-    .await
-    {
-        Ok(tags) => Ok(Json(TaggersInfoResponse::from(tags))),
-        Err(source) => Err(Error::InternalServerError { source }),
-    }
+    .await?;
+    Ok(Json(TaggersInfoResponse::from(taggers)))
 }
 
 #[derive(OpenApi)]

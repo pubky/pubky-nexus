@@ -1,12 +1,14 @@
 use std::collections::HashSet;
 
-use super::{Influencers, Muted, UserCounts, UserSearch, UserView};
+use super::{Influencers, UserCounts, UserDetails, UserSearch, UserView, USER_DELETED_SENTINEL};
 
-use crate::db::kv::SortOrder;
+use crate::db::kv::{sets, RedisError, RedisResult, SortOrder};
 use crate::db::{fetch_all_rows_from_graph, queries, RedisOps};
+use crate::models::error::ModelError;
+use crate::models::error::ModelResult;
 use crate::models::follow::{Followers, Following, Friends, UserFollows};
 use crate::models::post::{PostStream, POST_REPLIES_PER_POST_KEY_PARTS};
-use crate::types::{DynError, StreamReach, Timeframe};
+use crate::types::{StreamReach, Timeframe};
 
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -23,7 +25,6 @@ pub enum UserStreamSource {
     Followers,
     Following,
     Friends,
-    Muted,
     MostFollowed,
     Influencers,
     Recommended,
@@ -69,7 +70,7 @@ impl UserStream {
         input: UserStreamInput,
         viewer_id: Option<String>,
         depth: Option<u8>,
-    ) -> Result<Option<Self>, DynError> {
+    ) -> ModelResult<Option<Self>> {
         let user_ids = Self::get_user_list_from_source(input).await?;
         match user_ids {
             Some(users) => Self::from_listed_user_ids(&users, viewer_id.as_deref(), depth).await,
@@ -82,7 +83,7 @@ impl UserStream {
         viewer_id: Option<&str>,
         skip: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<Option<Self>, DynError> {
+    ) -> ModelResult<Option<Self>> {
         let user_ids = UserSearch::get_by_name(username, skip, limit)
             .await?
             .map(|result| result.0);
@@ -97,7 +98,7 @@ impl UserStream {
         user_ids: &[String],
         viewer_id: Option<&str>,
         depth: Option<u8>,
-    ) -> Result<Option<Self>, DynError> {
+    ) -> ModelResult<Option<Self>> {
         // Use the new mget batch operation to retrieve all user views efficiently
         let user_views_result = UserView::get_by_ids(user_ids, viewer_id, depth).await?;
 
@@ -117,7 +118,7 @@ impl UserStream {
     pub async fn add_to_most_followed_sorted_set(
         user_id: &str,
         counts: &UserCounts,
-    ) -> Result<(), DynError> {
+    ) -> RedisResult<()> {
         Self::put_index_sorted_set(
             &USER_MOSTFOLLOWED_KEY_PARTS,
             &[(counts.followers as f64, user_id)],
@@ -131,7 +132,7 @@ impl UserStream {
     pub async fn add_to_influencers_sorted_set(
         user_id: &str,
         counts: &UserCounts,
-    ) -> Result<(), DynError> {
+    ) -> RedisResult<()> {
         let score = (counts.tagged + counts.posts) as f64 * (counts.followers as f64).sqrt();
         Self::put_index_sorted_set(&USER_INFLUENCERS_KEY_PARTS, &[(score, user_id)], None, None)
             .await
@@ -140,12 +141,33 @@ impl UserStream {
     pub async fn get_recommended_ids(
         user_id: &str,
         limit: Option<usize>,
-    ) -> Result<Option<Vec<String>>, DynError> {
+    ) -> ModelResult<Option<Vec<String>>> {
         let count = limit.unwrap_or(5) as isize;
 
         // Attempt to get cached data from Redis
-        if let Some(cached_data) = Self::try_get_cached_recommended(user_id, count).await? {
-            return Ok(Some(cached_data));
+        if let Some(cached_ids) = Self::try_get_cached_recommended(user_id, count).await? {
+            // Filter out deleted users from cached IDs
+            let details_list = UserDetails::mget(&cached_ids).await?;
+
+            // Collect both filtered IDs and deleted IDs in one pass
+            let mut filtered_ids: Vec<String> = Vec::new();
+            let mut deleted_ids: Vec<String> = Vec::new();
+
+            for (id, details) in cached_ids.into_iter().zip(details_list.into_iter()) {
+                match details {
+                    Some(ref d) if d.name != USER_DELETED_SENTINEL => filtered_ids.push(id),
+                    _ => deleted_ids.push(id),
+                }
+            }
+
+            // Remove deleted users from the cache set to improve cache quality
+            Self::remove_from_cached_recommended(user_id, &deleted_ids).await;
+
+            return Ok(if filtered_ids.is_empty() {
+                None
+            } else {
+                Some(filtered_ids)
+            });
         }
 
         // Cache miss; proceed to query Neo4j
@@ -159,7 +181,7 @@ impl UserStream {
             let maybe_rec_user_name = row.get::<Option<String>>("recommended_user_name")?;
 
             if let (Some(user_id), Some(user_name)) = (maybe_rec_user_id, maybe_rec_user_name) {
-                if user_name != "[DELETED]" {
+                if user_name != USER_DELETED_SENTINEL {
                     user_ids.push(user_id);
                 }
             }
@@ -179,8 +201,8 @@ impl UserStream {
     async fn try_get_cached_recommended(
         user_id: &str,
         count: isize,
-    ) -> Result<Option<Vec<String>>, DynError> {
-        let key_parts = &["Cache", "Recommended", user_id];
+    ) -> RedisResult<Option<Vec<String>>> {
+        let key_parts = &[user_id];
         Self::try_get_random_from_index_set(
             key_parts,
             count,
@@ -190,7 +212,7 @@ impl UserStream {
     }
 
     /// Helper method to cache recommended users in Redis with a TTL.
-    async fn cache_recommended_users(user_id: &str, user_ids: &[String]) -> Result<(), DynError> {
+    async fn cache_recommended_users(user_id: &str, user_ids: &[String]) -> RedisResult<()> {
         let values: Vec<&str> = user_ids.iter().map(|s| s.as_str()).collect();
         // Cache the result in Redis with a TTL of 12 hours
         Self::put_index_set(
@@ -202,14 +224,76 @@ impl UserStream {
         .await
     }
 
+    /// Helper method to remove deleted users from the cached recommendations.
+    /// This improves cache quality by evicting stale entries instead of just filtering them at read time.
+    async fn remove_from_cached_recommended(user_id: &str, deleted_ids: &[String]) {
+        if deleted_ids.is_empty() {
+            return;
+        }
+
+        let prefix = CACHE_USER_RECOMMENDED_KEY_PARTS.join(":");
+        let deleted_refs: Vec<&str> = deleted_ids.iter().map(|s| s.as_str()).collect();
+
+        let _ = sets::del(&prefix, user_id, &deleted_refs).await;
+    }
+
+    /// Retrieves most-followed user IDs from the sorted set, filtering out deleted users
+    /// and cleaning them from the cache.
+    async fn get_most_followed(
+        skip: Option<usize>,
+        limit: Option<usize>,
+    ) -> RedisResult<Option<Vec<String>>> {
+        let result = Self::try_from_index_sorted_set(
+            &USER_MOSTFOLLOWED_KEY_PARTS,
+            None,
+            None,
+            skip,
+            limit,
+            SortOrder::Descending,
+            None,
+        )
+        .await?;
+
+        let Some(set) = result else {
+            return Ok(None);
+        };
+
+        let ids: Vec<String> = set.iter().map(|(id, _)| id.clone()).collect();
+        let details_list = UserDetails::mget(&ids).await?;
+
+        let mut filtered_ids = Vec::new();
+        let mut deleted_ids = Vec::new();
+
+        for ((id, _score), details) in set.into_iter().zip(details_list.into_iter()) {
+            match details {
+                Some(ref d) if d.name != USER_DELETED_SENTINEL => filtered_ids.push(id),
+                _ => deleted_ids.push(id),
+            }
+        }
+
+        if !deleted_ids.is_empty() {
+            let refs: Vec<&str> = deleted_ids.iter().map(|s| s.as_str()).collect();
+            let _ =
+                Self::remove_from_index_sorted_set(None, &USER_MOSTFOLLOWED_KEY_PARTS, &refs).await;
+        }
+
+        Ok(if filtered_ids.is_empty() {
+            None
+        } else {
+            Some(filtered_ids)
+        })
+    }
+
     async fn get_post_replies_ids(
         post_id: Option<String>,
         author_id: Option<String>,
-    ) -> Result<Option<Vec<String>>, DynError> {
+    ) -> RedisResult<Option<Vec<String>>> {
         let post_id = post_id
-            .ok_or("Post ID should be provided for user streams with source 'post_replies'")?;
+            .ok_or("Post ID should be provided for user streams with source 'post_replies'")
+            .map_err(|e| RedisError::InvalidInput(e.to_string()))?;
         let author_id = author_id
-            .ok_or("Author ID should be provided for user streams with source 'post_replies'")?;
+            .ok_or("Author ID should be provided for user streams with source 'post_replies'")
+            .map_err(|e| RedisError::InvalidInput(e.to_string()))?;
         let key_parts = [
             &POST_REPLIES_PER_POST_KEY_PARTS[..],
             &[author_id.as_str(), post_id.as_str()],
@@ -244,7 +328,7 @@ impl UserStream {
     /// Get list of users based on the specified reach type
     pub async fn get_user_list_from_source(
         input: UserStreamInput,
-    ) -> Result<Option<Vec<String>>, DynError> {
+    ) -> ModelResult<Option<Vec<String>>> {
         let UserStreamInput {
             user_id,
             skip,
@@ -259,7 +343,8 @@ impl UserStream {
         let user_ids = match source {
             UserStreamSource::Followers => Followers::get_by_id(
                 user_id
-                    .ok_or("User ID should be provided for user streams with source 'followers'")?
+                    .ok_or("User ID should be provided for user streams with source 'followers'")
+                    .map_err(ModelError::from_generic)?
                     .as_str(),
                 skip,
                 limit,
@@ -268,7 +353,8 @@ impl UserStream {
             .map(|u| u.0),
             UserStreamSource::Following => Following::get_by_id(
                 user_id
-                    .ok_or("User ID should be provided for user streams with source 'following'")?
+                    .ok_or("User ID should be provided for user streams with source 'following'")
+                    .map_err(ModelError::from_generic)?
                     .as_str(),
                 skip,
                 limit,
@@ -277,33 +363,15 @@ impl UserStream {
             .map(|u| u.0),
             UserStreamSource::Friends => Friends::get_by_id(
                 user_id
-                    .ok_or("User ID should be provided for user streams with source 'friends'")?
+                    .ok_or("User ID should be provided for user streams with source 'friends'")
+                    .map_err(ModelError::from_generic)?
                     .as_str(),
                 skip,
                 limit,
             )
             .await?
             .map(|u| u.0),
-            UserStreamSource::Muted => Muted::get_by_id(
-                user_id
-                    .ok_or("User ID should be provided for user streams with source 'muted'")?
-                    .as_str(),
-                skip,
-                limit,
-            )
-            .await?
-            .map(|u| u.0),
-            UserStreamSource::MostFollowed => Self::try_from_index_sorted_set(
-                &USER_MOSTFOLLOWED_KEY_PARTS,
-                None,
-                None,
-                skip,
-                limit,
-                SortOrder::Descending,
-                None,
-            )
-            .await?
-            .map(|set| set.into_iter().map(|(user_id, _score)| user_id).collect()),
+            UserStreamSource::MostFollowed => Self::get_most_followed(skip, limit).await?,
             UserStreamSource::Influencers => Influencers::get_influencers(
                 user_id.as_deref(),
                 Some(reach.unwrap_or(StreamReach::Wot(3))),
@@ -324,7 +392,8 @@ impl UserStream {
                     user_id
                         .ok_or(
                             "User ID should be provided for user streams with source 'recommended'",
-                        )?
+                        )
+                        .map_err(ModelError::from_generic)?
                         .as_str(),
                     limit,
                 )
