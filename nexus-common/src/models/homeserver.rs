@@ -63,12 +63,6 @@ impl Homeserver {
     /// Creates a new homeserver instance with the specified cursor
     pub async fn try_from_cursor<T: Into<String>>(id: PubkyId, cursor: T) -> ModelResult<Self> {
         let cursor_str = cursor.into();
-        if cursor_str.is_empty() {
-            return Err(ModelError::from_generic(
-                "Cannot create a homeserver from an empty cursor",
-            ));
-        }
-
         let cursor = cursor_str.parse().map_err(|_| {
             ModelError::from_generic(format!(
                 "Cannot create a HS from a non-numeric cursor: {cursor_str}"
