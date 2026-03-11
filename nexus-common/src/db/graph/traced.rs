@@ -342,9 +342,6 @@ impl<G: GraphOps> GraphOps for TracedGraph<G> {
         match &result {
             Ok(()) => {
                 self.metrics.duration.record(elapsed.as_secs_f64(), attrs);
-                self.metrics
-                    .execute_duration
-                    .record(elapsed.as_secs_f64(), attrs);
 
                 if elapsed > self.slow_query_threshold {
                     self.metrics.slow.add(1, attrs);
@@ -361,9 +358,6 @@ impl<G: GraphOps> GraphOps for TracedGraph<G> {
             }
             Err(_) => {
                 self.metrics.duration.record(elapsed.as_secs_f64(), attrs);
-                self.metrics
-                    .execute_duration
-                    .record(elapsed.as_secs_f64(), attrs);
                 self.metrics.errors.add(1, attrs);
 
                 if elapsed > self.slow_query_threshold {
