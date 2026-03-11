@@ -13,8 +13,33 @@ use crate::models::user::UserDetails;
 use pubky::PublicKey;
 use pubky_app_specs::ParsedUri;
 use pubky_app_specs::PubkyId;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use tracing::info;
+
+/// Deserializes cursor from either a JSON string or number.
+///
+/// This handles backwards compatibility with old data where cursor was stored as a string
+/// (e.g., `"0000000000000"`), while also supporting the new numeric format.
+fn deserialize_cursor<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error;
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum CursorValue {
+        Number(u64),
+        String(String),
+    }
+
+    match CursorValue::deserialize(deserializer)? {
+        CursorValue::Number(n) => Ok(n),
+        CursorValue::String(s) => s
+            .parse()
+            .map_err(|_| D::Error::custom(format!("Cannot parse cursor string '{s}' as u64"))),
+    }
+}
 
 /// Represents a homeserver with its public key, URL, and cursor.
 #[derive(Serialize, Deserialize, Debug)]
@@ -23,7 +48,8 @@ pub struct Homeserver {
 
     // We persist this field only in the cache, but not in the graph.
     // Redis has regular snapshots, which ensures we get a recent state in case of RAM data loss (system crash).
-    pub cursor: String,
+    #[serde(deserialize_with = "deserialize_cursor")]
+    pub cursor: u64,
 }
 
 impl RedisOps for Homeserver {}
@@ -31,28 +57,27 @@ impl RedisOps for Homeserver {}
 impl Homeserver {
     /// Instantiates a new homeserver with default cursor
     pub fn new(id: PubkyId) -> Self {
-        Homeserver {
-            id,
-            cursor: "0000000000000".to_string(),
-        }
+        Homeserver { id, cursor: 0 }
     }
 
     /// Creates a new homeserver instance with the specified cursor
-    pub fn try_from_cursor<T: Into<String>>(id: PubkyId, cursor: T) -> ModelResult<Self> {
-        let cursor = cursor.into();
-        if cursor.is_empty() {
-            return Err(ModelError::from_generic(
-                "Cannot create a homeserver from an empty cursor",
-            ));
-        }
+    pub async fn try_from_cursor<T: Into<String>>(id: PubkyId, cursor: T) -> ModelResult<Self> {
+        let cursor_str = cursor.into();
+        let cursor = cursor_str.parse().map_err(|_| {
+            ModelError::from_generic(format!(
+                "Cannot create a HS from a non-numeric cursor: {cursor_str}"
+            ))
+        })?;
+
+        Self::validate_cursor_change(&id, cursor).await?;
 
         Ok(Homeserver { id, cursor })
     }
 
     /// Stores this homeserver in the graph.
-    pub async fn put_to_graph(&self) -> GraphResult<()> {
+    pub async fn put_to_graph(&self) -> ModelResult<()> {
         let query = queries::put::create_homeserver(&self.id);
-        exec_single_row(query).await
+        exec_single_row(query).await.map_err(Into::into)
     }
 
     /// Retrieves a homeserver from Neo4j.
@@ -74,11 +99,8 @@ impl Homeserver {
 
     /// Stores this homeserver in Redis.
     pub async fn put_to_index(&self) -> RedisResult<()> {
-        if self.cursor.is_empty() {
-            return Err(RedisError::InvalidInput(
-                "Cannot save to index a homeserver with an empty cursor".into(),
-            ));
-        }
+        Self::validate_cursor_change(&self.id, self.cursor).await?;
+
         self.put_index_json(&[&self.id], None, None).await
     }
 
@@ -87,12 +109,27 @@ impl Homeserver {
             Some(hs) => Ok(Some(hs)),
             None => match Self::get_from_graph(&homeserver_id).await? {
                 Some(hs_from_graph) => {
+                    // This assumes the index and the graph are in-sync
+                    // If they are not (e.g. Redis lost a HS entry but graph still has it), put_to_index will persist with cursor = 0
                     hs_from_graph.put_to_index().await?;
                     Ok(Some(hs_from_graph))
                 }
                 None => Ok(None),
             },
         }
+    }
+
+    async fn validate_cursor_change(id: &str, new_cursor: u64) -> RedisResult<()> {
+        // If we already indexed a value, reject cursors going below it to prevent reindexing past events
+        if let Some(hs_from_index) = Self::get_from_index(id).await? {
+            if new_cursor < hs_from_index.cursor {
+                return Err(RedisError::InvalidInput(
+                    "Cursor cannot move backwards".into(),
+                ));
+            }
+        }
+
+        Ok(())
     }
 
     /// Verifies if homeserver exists in the graph, or persists it if missing
@@ -220,5 +257,166 @@ mod tests {
         assert_eq!(id, hs_from_index.id);
 
         Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn test_cursor_forwards_accepted() -> Result<(), DynError> {
+        StackManager::setup("unit-hs-test", &StackConfig::default()).await?;
+
+        let keys = Keypair::random();
+        let id = PubkyId::try_from(&keys.public_key().to_z32())?;
+
+        // Store cursor at 100
+        let hs = Homeserver {
+            id: id.clone(),
+            cursor: 100,
+        };
+        hs.put_to_index()
+            .await
+            .expect("Failed to put initial cursor");
+
+        // Moving cursor forward to 200 must succeed
+        let hs2 = Homeserver {
+            id: id.clone(),
+            cursor: 200,
+        };
+        hs2.put_to_index()
+            .await
+            .expect("Forward cursor update should be accepted");
+
+        let stored = Homeserver::get_from_index(&id)
+            .await
+            .unwrap()
+            .expect("Homeserver not found in index");
+        assert_eq!(stored.cursor, 200);
+
+        Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn test_cursor_backwards_rejected_by_put_to_index() -> Result<(), DynError> {
+        StackManager::setup("unit-hs-test", &StackConfig::default()).await?;
+
+        let keys = Keypair::random();
+        let id = PubkyId::try_from(&keys.public_key().to_z32())?;
+
+        // Store cursor at 500
+        let hs = Homeserver {
+            id: id.clone(),
+            cursor: 500,
+        };
+        hs.put_to_index()
+            .await
+            .expect("Failed to put initial cursor");
+
+        // Attempting to move cursor backwards to 100 must be rejected
+        let hs2 = Homeserver {
+            id: id.clone(),
+            cursor: 100,
+        };
+        let result = hs2.put_to_index().await;
+        assert!(
+            result.is_err(),
+            "Backwards cursor update should be rejected"
+        );
+
+        // The stored cursor must remain at 500
+        let stored = Homeserver::get_from_index(&id)
+            .await
+            .unwrap()
+            .expect("Homeserver not found in index");
+        assert_eq!(stored.cursor, 500);
+
+        Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn test_cursor_backwards_rejected_by_try_from_cursor() -> Result<(), DynError> {
+        StackManager::setup("unit-hs-test", &StackConfig::default()).await?;
+
+        let keys = Keypair::random();
+        let id = PubkyId::try_from(&keys.public_key().to_z32())?;
+
+        // Store cursor at 300
+        let hs = Homeserver {
+            id: id.clone(),
+            cursor: 300,
+        };
+        hs.put_to_index()
+            .await
+            .expect("Failed to put initial cursor");
+
+        // try_from_cursor with a lower value must fail
+        let result = Homeserver::try_from_cursor(id.clone(), "50").await;
+        assert!(
+            result.is_err(),
+            "try_from_cursor with backwards cursor should be rejected"
+        );
+
+        // try_from_cursor with a higher value must succeed
+        let result = Homeserver::try_from_cursor(id.clone(), "400").await;
+        assert!(
+            result.is_ok(),
+            "try_from_cursor with forward cursor should be accepted"
+        );
+        assert_eq!(result.unwrap().cursor, 400);
+
+        Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn test_cursor_equal_value_accepted() -> Result<(), DynError> {
+        StackManager::setup("unit-hs-test", &StackConfig::default()).await?;
+
+        let keys = Keypair::random();
+        let id = PubkyId::try_from(&keys.public_key().to_z32())?;
+
+        // Store cursor at 200
+        let hs = Homeserver {
+            id: id.clone(),
+            cursor: 200,
+        };
+        hs.put_to_index()
+            .await
+            .expect("Failed to put initial cursor");
+
+        // Writing the same cursor value (not backwards) must succeed
+        let hs2 = Homeserver {
+            id: id.clone(),
+            cursor: 200,
+        };
+        hs2.put_to_index()
+            .await
+            .expect("Same cursor value should be accepted");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_deserialize_cursor_from_string() {
+        // Simulates old data format where cursor was stored as a string
+        let json = r#"{"id":"o1gg96ewuojmopc9qcp6j3kk5rn1b81ks6hisk7jitpptgeo3dty","cursor":"0000000000000"}"#;
+        let hs: Homeserver = serde_json::from_str(json).expect("Failed to deserialize");
+        assert_eq!(hs.cursor, 0);
+
+        // Also test with a non-zero string cursor
+        let json =
+            r#"{"id":"o1gg96ewuojmopc9qcp6j3kk5rn1b81ks6hisk7jitpptgeo3dty","cursor":"12345"}"#;
+        let hs: Homeserver = serde_json::from_str(json).expect("Failed to deserialize");
+        assert_eq!(hs.cursor, 12345);
+    }
+
+    #[test]
+    fn test_deserialize_cursor_from_number() {
+        // Current format where cursor is stored as a number
+        let json = r#"{"id":"o1gg96ewuojmopc9qcp6j3kk5rn1b81ks6hisk7jitpptgeo3dty","cursor":0}"#;
+        let hs: Homeserver = serde_json::from_str(json).expect("Failed to deserialize");
+        assert_eq!(hs.cursor, 0);
+
+        // Also test with a non-zero numeric cursor
+        let json =
+            r#"{"id":"o1gg96ewuojmopc9qcp6j3kk5rn1b81ks6hisk7jitpptgeo3dty","cursor":98765}"#;
+        let hs: Homeserver = serde_json::from_str(json).expect("Failed to deserialize");
+        assert_eq!(hs.cursor, 98765);
     }
 }
