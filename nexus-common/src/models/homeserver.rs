@@ -76,8 +76,6 @@ impl Homeserver {
 
     /// Stores this homeserver in the graph.
     pub async fn put_to_graph(&self) -> ModelResult<()> {
-        Self::validate_cursor_change(&self.id, self.cursor).await?;
-
         let query = queries::put::create_homeserver(&self.id);
         exec_single_row(query).await.map_err(Into::into)
     }
