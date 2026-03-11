@@ -3,8 +3,19 @@ use std::fmt::Debug;
 
 use crate::StackConfig;
 
+// TODO Does this need to be pub? Isn't this only relevant for default deser where JSOn field isn't set?
+pub const DEFAULT_SLOW_QUERY_THRESHOLD_MS: u64 = 100;
+
 fn default_neo4j_user() -> String {
     String::from("neo4j")
+}
+
+fn default_slow_query_logging_threshold_ms() -> u64 {
+    DEFAULT_SLOW_QUERY_THRESHOLD_MS
+}
+
+fn default_slow_query_logging_enabled() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -50,14 +61,4 @@ impl Default for DatabaseConfig {
     fn default() -> Self {
         StackConfig::default().db
     }
-}
-
-pub const DEFAULT_SLOW_QUERY_THRESHOLD_MS: u64 = 100;
-
-fn default_slow_query_logging_threshold_ms() -> u64 {
-    DEFAULT_SLOW_QUERY_THRESHOLD_MS
-}
-
-fn default_slow_query_logging_enabled() -> bool {
-    true
 }
