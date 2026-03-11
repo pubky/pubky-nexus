@@ -228,7 +228,7 @@ impl Drop for TracedStream {
 ///
 /// | Method                         | Default   | Description |
 /// |--------------------------------|-----------|-------------|
-/// | [`with_slow_query_threshold`]  | 500 ms    | Duration above which a query is considered slow and triggers a `tracing::warn` log + `slow_total` counter increment. |
+/// | [`with_slow_query_threshold`]  | 100 ms    | Duration above which a query is considered slow and triggers a `tracing::warn` log + `neo4j.query.slow` counter increment. |
 /// | [`with_log_cypher`]            | `false`   | When `true`, the fully-populated Cypher string is included in slow-query log messages. Useful for debugging but can be verbose. |
 ///
 /// # Metrics
