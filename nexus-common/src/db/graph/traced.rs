@@ -76,7 +76,7 @@ impl GraphOps for Graph {
 /// |-------------------------------|-----------|------|-------------|
 /// | `neo4j.query.duration`         | Histogram | s    | Total wall-clock time for a query (execute + fetch). Use percentiles (p50/p95/p99) to detect latency degradation over time. |
 /// | `neo4j.query.execute_duration` | Histogram | s    | Time spent in the Bolt RUN phase (pool acquire + query planning + start of execution). A spike here with stable fetch times indicates connection-pool starvation or query-plan regression. |
-/// | `neo4j.query.rows`            | Histogram | rows | Number of rows returned per query. Detects cardinality explosions — a query that normally returns 10 rows suddenly returning 10k will show up here before latency spikes. |
+/// | `neo4j.query.rows`            | Histogram | {row} | Number of rows returned per query. Detects cardinality explosions — a query that normally returns 10 rows suddenly returning 10k will show up here before latency spikes. |
 /// | `neo4j.query.errors_total`    | Counter   | —    | Total number of failed query executions. Useful for error-rate alerting (rate > 0 sustained). |
 /// | `neo4j.query.slow_total`      | Counter   | —    | Total number of queries exceeding the configured slow-query threshold. A rising rate signals degradation without needing to compute percentiles. |
 ///
@@ -133,7 +133,7 @@ impl GraphMetrics {
             rows: meter
                 .u64_histogram("neo4j.query.rows")
                 .with_description("Number of rows returned per Neo4j query")
-                .with_unit("rows")
+                .with_unit("{row}")
                 .build(),
             errors: meter
                 .u64_counter("neo4j.query.errors_total")
