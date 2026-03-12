@@ -1,5 +1,5 @@
 use super::file::ConfigLoader;
-use super::{default_stack, DaemonConfig, StackConfig};
+use super::{DaemonConfig, StackConfig};
 use async_trait::async_trait;
 use pubky_app_specs::PubkyId;
 use serde::{Deserialize, Serialize};
@@ -43,7 +43,7 @@ pub struct WatcherConfig {
     pub monitored_homeservers_limit: usize,
     /// Sleep between every full run (over all monitored homeservers), in milliseconds
     pub watcher_sleep: u64,
-    #[serde(default = "default_stack")]
+    #[serde(default)]
     pub stack: StackConfig,
     // Moderation
     pub moderation_id: PubkyId,
