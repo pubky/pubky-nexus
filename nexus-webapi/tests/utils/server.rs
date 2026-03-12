@@ -23,7 +23,7 @@ impl TestServiceServer {
     pub async fn get_test_server() -> &'static TestServiceServer {
         TEST_SERVER
             .get_or_init(|| async {
-                let testnet = pubky_testnet::Testnet::new().await.unwrap();
+                let testnet = pubky_testnet::Testnet::new_unseeded().await.unwrap();
                 let nexus_api = Self::start_server(&testnet, false).await.unwrap();
                 TestServiceServer { nexus_api, testnet }
             })
@@ -37,7 +37,7 @@ impl TestServiceServer {
     pub async fn get_test_server_with_key_republisher() -> &'static TestServiceServer {
         TEST_SERVER_WITH_KEY_REPUBLISHER
             .get_or_init(|| async {
-                let testnet = pubky_testnet::Testnet::new().await.unwrap();
+                let testnet = pubky_testnet::Testnet::new_unseeded().await.unwrap();
                 let nexus_api = Self::start_server(&testnet, true).await.unwrap();
                 TestServiceServer { nexus_api, testnet }
             })
