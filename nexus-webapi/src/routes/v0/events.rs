@@ -14,7 +14,7 @@ use utoipa::OpenApi;
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, utoipa::ToResponse)]
 #[schema(as = String)]
 pub struct EventsList {
-    cursor: usize,
+    cursor: u64,
     events: Vec<String>,
 }
 
@@ -29,7 +29,7 @@ impl std::fmt::Display for EventsList {
 
 #[derive(Deserialize)]
 pub struct EventsQuery {
-    cursor: Option<usize>,
+    cursor: Option<u64>,
     limit: Option<usize>,
 }
 
@@ -68,7 +68,7 @@ pub async fn get_events_handler(Query(q): Query<EventsQuery>) -> Result<Response
     Ok(response)
 }
 
-fn parse_query(q: &EventsQuery) -> Result<(usize, Option<usize>), Error> {
+fn parse_query(q: &EventsQuery) -> Result<(usize, Option<u64>), Error> {
     let limit = q.limit.unwrap_or(500).min(1000);
     let cursor = q.cursor;
 

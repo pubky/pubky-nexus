@@ -100,11 +100,14 @@ impl Event {
     }
 
     pub async fn get_events_from_redis(
-        cursor: Option<usize>,
+        cursor: Option<u64>,
         limit: usize,
-    ) -> RedisResult<(Vec<String>, usize)> {
+    ) -> RedisResult<(Vec<String>, u64)> {
         let start = cursor.unwrap_or(0);
-        let result = Event::try_from_index_list(&["Events"], Some(start), Some(limit)).await;
+        // Clamp to usize::MAX: on 32-bit targets u64 can exceed usize; the LRANGE
+        // would return empty results for such a large index either way.
+        let start_u = usize::try_from(start).unwrap_or(usize::MAX);
+        let result = Event::try_from_index_list(&["Events"], Some(start_u), Some(limit)).await;
 
         let events = match result {
             Ok(r) => r.unwrap_or_default(),
@@ -114,7 +117,7 @@ impl Event {
             }
         };
 
-        let next_cursor = start + events.len();
+        let next_cursor = start + events.len() as u64;
 
         Ok((events, next_cursor))
     }
