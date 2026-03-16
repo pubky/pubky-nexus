@@ -338,18 +338,13 @@ impl<G: GraphOps> GraphOps for TracedGraph<G> {
                     .execute_duration
                     .record(execute_duration.as_secs_f64(), attrs);
                 self.metrics.errors.add(1, attrs);
-
-                if execute_duration > self.slow_query_threshold {
-                    self.metrics.slow.add(1, attrs);
-                    if let Some(lbl) = &label {
-                        warn!(
-                            execute_ms = execute_duration.as_millis(),
-                            query = %lbl,
-                            cypher = cypher.as_deref().unwrap_or(""),
-                            "Slow Neo4j query (execute failed)"
-                        );
-                    }
-                }
+                self.warn_if_slow(
+                    execute_duration,
+                    attrs,
+                    label,
+                    cypher.as_deref(),
+                    " (execute failed)",
+                );
 
                 Err(e)
             }
