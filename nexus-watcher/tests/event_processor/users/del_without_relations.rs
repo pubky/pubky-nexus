@@ -25,12 +25,12 @@ async fn test_delete_user_without_relationships() -> Result<()> {
     // Sanity check: user appears in both search indexes after creation
     let by_name_before = UserSearch::get_by_name(username, None, None).await?;
     assert!(
-        by_name_before.map_or(false, |s| s.0.contains(&user_id)),
+        by_name_before.is_some_and(|s| s.0.contains(&user_id)),
         "User should be findable by name in search index before deletion"
     );
     let by_id_before = UserSearch::get_by_id(&user_id, None, None).await?;
     assert!(
-        by_id_before.map_or(false, |s| !s.0.is_empty()),
+        by_id_before.is_some_and(|s| !s.0.is_empty()),
         "User should be findable by ID in search index before deletion"
     );
 
@@ -61,13 +61,13 @@ async fn test_delete_user_without_relationships() -> Result<()> {
     // Search indexes should be cleared after deletion
     let by_id_after = UserSearch::get_by_id(&user_id, None, None).await?;
     assert!(
-        by_id_after.map_or(true, |s| s.0.is_empty()),
+        by_id_after.is_none_or(|s| s.0.is_empty()),
         "User should NOT be findable by ID in search index after deletion"
     );
 
     let by_name_after = UserSearch::get_by_name(username, None, None).await?;
     assert!(
-        by_name_after.map_or(true, |s| s.0.is_empty()),
+        by_name_after.is_none_or(|s| s.0.is_empty()),
         "User should NOT be findable by name in search index after deletion"
     );
 
