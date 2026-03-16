@@ -100,7 +100,11 @@ pub async fn del(
         let folder_path = Path::new(&user_id.to_string()).join(&file_id);
         let full_path = files_path.join(folder_path);
 
-        remove_dir_all(full_path).await?;
+        if let Err(e) = remove_dir_all(full_path).await {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                return Err(e.into());
+            }
+        }
     }
 
     Ok(())
