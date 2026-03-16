@@ -74,8 +74,8 @@ impl GraphOps for Graph {
 ///
 /// | Metric name                   | Type      | Unit | Description |
 /// |-------------------------------|-----------|------|-------------|
-/// | `neo4j.query.duration`         | Histogram | s    | Total wall-clock time for a query (execute + fetch). Use percentiles (p50/p95/p99) to detect latency degradation over time. |
-/// | `neo4j.query.execute_duration` | Histogram | s    | Time spent in the Bolt RUN phase (pool acquire + query planning + start of execution). A spike here with stable fetch times indicates connection-pool starvation or query-plan regression. |
+/// | `neo4j.query.duration`         | Histogram | ms   | Total wall-clock time for a query (execute + fetch). Use percentiles (p50/p95/p99) to detect latency degradation over time. |
+/// | `neo4j.query.execute_duration` | Histogram | ms   | Time spent in the Bolt RUN phase (pool acquire + query planning + start of execution). A spike here with stable fetch times indicates connection-pool starvation or query-plan regression. |
 /// | `neo4j.query.rows`            | Histogram | {row} | Number of rows returned per query. Detects cardinality explosions — a query that normally returns 10 rows suddenly returning 10k will show up here before latency spikes. |
 /// | `neo4j.query.errors`          | Counter   | —    | Total number of failed query executions. Useful for error-rate alerting (rate > 0 sustained). |
 /// | `neo4j.query.slow`            | Counter   | —    | Total number of queries exceeding the configured slow-query threshold. A rising rate signals degradation without needing to compute percentiles. |
@@ -124,16 +124,16 @@ impl GraphMetrics {
             duration: meter
                 .f64_histogram("neo4j.query.duration")
                 .with_description(
-                    "Total wall-clock time for a Neo4j query (execute + fetch), in seconds",
+                    "Total wall-clock time for a Neo4j query (execute + fetch), in milliseconds",
                 )
-                .with_unit("s")
+                .with_unit("ms")
                 .build(),
             execute_duration: meter
                 .f64_histogram("neo4j.query.execute_duration")
                 .with_description(
-                    "Time spent in the Bolt RUN phase (pool acquire + query planning), in seconds",
+                    "Time spent in the Bolt RUN phase (pool acquire + query planning), in milliseconds",
                 )
-                .with_unit("s")
+                .with_unit("ms")
                 .build(),
             rows: meter
                 .u64_histogram("neo4j.query.rows")
@@ -202,10 +202,12 @@ impl Drop for TracedStream {
         let attrs: &[KeyValue] = &query_attrs(self.label);
 
         // Always record metrics (no-op when OTLP is not configured).
-        self.metrics.duration.record(total.as_secs_f64(), attrs);
+        self.metrics
+            .duration
+            .record(total.as_millis() as f64, attrs);
         self.metrics
             .execute_duration
-            .record(self.execute_duration.as_secs_f64(), attrs);
+            .record(self.execute_duration.as_millis() as f64, attrs);
         self.metrics.rows.record(self.row_count as u64, attrs);
 
         if total > self.threshold {
@@ -333,10 +335,10 @@ impl<G: GraphOps> GraphOps for TracedGraph<G> {
                 let attrs: &[KeyValue] = &query_attrs(label);
                 self.metrics
                     .duration
-                    .record(execute_duration.as_secs_f64(), attrs);
+                    .record(execute_duration.as_millis() as f64, attrs);
                 self.metrics
                     .execute_duration
-                    .record(execute_duration.as_secs_f64(), attrs);
+                    .record(execute_duration.as_millis() as f64, attrs);
                 self.metrics.errors.add(1, attrs);
                 self.warn_if_slow(
                     execute_duration,
@@ -364,7 +366,7 @@ impl<G: GraphOps> GraphOps for TracedGraph<G> {
         let elapsed = start.elapsed();
 
         let attrs: &[KeyValue] = &query_attrs(label);
-        self.metrics.duration.record(elapsed.as_secs_f64(), attrs);
+        self.metrics.duration.record(elapsed.as_millis() as f64, attrs);
 
         match &result {
             Ok(()) => self.warn_if_slow(elapsed, attrs, label, cypher.as_deref(), ""),
