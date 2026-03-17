@@ -1,3 +1,4 @@
+use crate::db::graph::Query;
 use crate::db::kv::{RedisResult, ScoreAction, SortOrder};
 use crate::db::queries::get::{global_tags_by_post, global_tags_by_post_engagement};
 use crate::db::{fetch_all_rows_from_graph, RedisOps};
@@ -6,7 +7,6 @@ use crate::models::post::PostDetails;
 use crate::models::tag::post::TagPost;
 use crate::models::tag::traits::TaggersCollection;
 use crate::types::{Pagination, StreamSorting};
-use neo4rs::Query;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 

@@ -1,8 +1,7 @@
 use crate::{api_context::ApiContextBuilder, NexusApiBuilder};
 use clap::ValueEnum;
-use neo4rs::query;
 use nexus_common::{
-    db::{get_neo4j_graph, get_redis_conn, reindex},
+    db::{get_neo4j_graph, get_redis_conn, graph::Query, reindex},
     ApiConfig,
 };
 use std::process::Stdio;
@@ -19,9 +18,12 @@ pub enum MockType {
 pub struct MockDb {}
 
 impl MockDb {
-    pub async fn clear_database() {
+    /// Initialize the database stack for CLI db commands (no slow-query logging).
+    async fn init_stack() {
+        let mut api_config = ApiConfig::default();
+        api_config.stack.db.neo4j.slow_query_logging_enabled = false;
         let api_context = ApiContextBuilder::from_default_config_dir()
-            .api_config(ApiConfig::default())
+            .api_config(api_config)
             .try_build()
             .await
             .expect("Failed to create ApiContext");
@@ -29,6 +31,10 @@ impl MockDb {
             .init_stack()
             .await
             .expect("Failed to initialize stack");
+    }
+
+    pub async fn clear_database() {
+        Self::init_stack().await;
 
         Self::drop_cache().await;
         Self::drop_graph().await;
@@ -36,15 +42,7 @@ impl MockDb {
     }
 
     pub async fn run(mock_type: Option<MockType>) {
-        let api_context = ApiContextBuilder::from_default_config_dir()
-            .api_config(ApiConfig::default())
-            .try_build()
-            .await
-            .expect("Failed to create ApiContext");
-        NexusApiBuilder::new(api_context)
-            .init_stack()
-            .await
-            .expect("Failed to initialize stack");
+        Self::init_stack().await;
 
         match mock_type {
             Some(MockType::Redis) => Self::sync_redis().await,
@@ -58,7 +56,7 @@ impl MockDb {
         let graph = get_neo4j_graph().expect("Failed to get Neo4j graph connection");
 
         // drop and run the queries again
-        let drop_all_query = query("MATCH (n) DETACH DELETE n;");
+        let drop_all_query = Query::new("drop_graph", "MATCH (n) DETACH DELETE n;");
         graph
             .run(drop_all_query)
             .await

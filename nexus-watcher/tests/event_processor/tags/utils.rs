@@ -1,5 +1,5 @@
 use anyhow::Result;
-use neo4rs::{query, Query};
+use nexus_common::db::graph::Query;
 use nexus_common::{
     db::{fetch_key_from_graph, RedisOps},
     models::{
@@ -56,7 +56,8 @@ pub async fn check_member_post_tag_global_timeline(
 
 // Retrieve post related tag
 fn post_tag_query(user_id: &str, post_id: &str, tag_name: &str) -> Query {
-    query(
+    Query::new(
+        "post_tag_query",
         "
         MATCH (u:User {id: $user_id})-[:AUTHORED]->(p:Post {id: $post_id})<-[t:TAGGED {label: $tag_name}]-(tagger:User)
         WITH COUNT(tagger) as count, COLLECT(tagger.id) as list, t.label as label
@@ -74,7 +75,8 @@ fn post_tag_query(user_id: &str, post_id: &str, tag_name: &str) -> Query {
 
 // Retrieve post related tag
 fn user_tag_query(tagged_user_id: &str, tag_name: &str) -> Query {
-    query(
+    Query::new(
+        "user_tag_query",
         "
         MATCH (u:User {id: $tagged_user_id})<-[t:TAGGED {label: $tag_name}]-(tagger:User)
         WITH COUNT(tagger) as count, COLLECT(tagger.id) as list, t.label as label

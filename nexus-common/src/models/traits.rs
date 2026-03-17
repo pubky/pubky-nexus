@@ -1,9 +1,9 @@
+use crate::db::graph::Query;
 use crate::db::kv::RedisResult;
 use crate::db::{exec_single_row, fetch_all_rows_from_graph, GraphResult, RedisOps};
 use crate::models::error::ModelResult;
 use async_trait::async_trait;
 use core::fmt;
-use neo4rs::Query;
 use std::fmt::Debug;
 
 pub trait CollectionId {

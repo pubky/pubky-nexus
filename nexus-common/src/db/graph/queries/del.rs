@@ -1,10 +1,11 @@
-use neo4rs::{query, Query};
+use crate::db::graph::Query;
 
 /// Deletes a user node and all its relationships
 /// # Arguments
 /// * `user_id` - The unique identifier of the user to be deleted
 pub fn delete_user(user_id: &str) -> Query {
-    query(
+    Query::new(
+        "delete_user",
         "MATCH (u:User {id: $id})
          DETACH DELETE u;",
     )
@@ -16,7 +17,8 @@ pub fn delete_user(user_id: &str) -> Query {
 /// * `author_id` - The unique identifier of the user who authored the post.
 /// * `post_id` - The unique identifier of the post to be deleted.
 pub fn delete_post(author_id: &str, post_id: &str) -> Query {
-    query(
+    Query::new(
+        "delete_post",
         "MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
          DETACH DELETE p;",
     )
@@ -29,11 +31,12 @@ pub fn delete_post(author_id: &str, post_id: &str) -> Query {
 /// * `follower_id` - The unique identifier of the user who is following another user.
 /// * `followee_id` - The unique identifier of the user being followed
 pub fn delete_follow(follower_id: &str, followee_id: &str) -> Query {
-    query(
+    Query::new(
+        "delete_follow",
         "// Important that MATCH to check if both users are in the graph
         MATCH (follower:User {id: $follower_id}), (followee:User {id: $followee_id})
         // Check if follow already exist
-        OPTIONAL MATCH (follower)-[existing:FOLLOWS]->(followee) 
+        OPTIONAL MATCH (follower)-[existing:FOLLOWS]->(followee)
         DELETE existing
         // Returns true if the relationship does not exist as 'flag'
         RETURN existing IS NULL AS flag;",
@@ -47,7 +50,8 @@ pub fn delete_follow(follower_id: &str, followee_id: &str) -> Query {
 /// * `user_id` - The unique identifier of the user who created the bookmark.
 /// * `bookmark_id` - The unique identifier of the bookmark relationship to be deleted.
 pub fn delete_bookmark(user_id: &str, bookmark_id: &str) -> Query {
-    query(
+    Query::new(
+        "delete_bookmark",
         "MATCH (u:User {id: $user_id})-[b:BOOKMARKED {id: $bookmark_id}]->(post:Post)<-[:AUTHORED]-(author:User)
          WITH post.id as post_id, author.id as author_id, b
          DELETE b
@@ -62,7 +66,8 @@ pub fn delete_bookmark(user_id: &str, bookmark_id: &str) -> Query {
 /// * `user_id` - The unique identifier of the user who created the tag.
 /// * `tag_id` - The unique identifier of the `TAGGED` relationship to be deleted.
 pub fn delete_tag(user_id: &str, tag_id: &str) -> Query {
-    query(
+    Query::new(
+        "delete_tag",
         "MATCH (user:User {id: $user_id})-[tag:TAGGED {id: $tag_id}]->(target)
          OPTIONAL MATCH (target)<-[:AUTHORED]-(author:User)
          WITH CASE WHEN target:User THEN target.id ELSE null END AS user_id,
@@ -82,7 +87,8 @@ pub fn delete_tag(user_id: &str, tag_id: &str) -> Query {
 /// * `owner_id` - The unique identifier of the user who owns the file
 /// * `file_id` - The unique identifier of the file to be deleted
 pub fn delete_file(owner_id: &str, file_id: &str) -> Query {
-    query(
+    Query::new(
+        "delete_file",
         "MATCH (f:File {id: $id, owner_id: $owner_id})
          DETACH DELETE f;",
     )

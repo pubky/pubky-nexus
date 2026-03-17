@@ -1,7 +1,8 @@
 use async_trait::async_trait;
+use futures::StreamExt;
 
 use crate::migrations::{manager::Migration, utils::delete_keys_by_pattern};
-use nexus_common::{db::get_neo4j_graph, types::DynError};
+use nexus_common::{db::get_neo4j_graph, db::graph::Query, types::DynError};
 use tracing::info;
 
 pub struct RemoveMuted1771718400;
@@ -26,13 +27,15 @@ impl Migration for RemoveMuted1771718400 {
         let mut total_deleted: i64 = 0;
 
         loop {
-            let query = neo4rs::query(
+            let query = Query::new(
+                "remove_muted_batch",
                 "MATCH ()-[r:MUTED]->() WITH r LIMIT 10000 DELETE r RETURN count(r) AS deleted",
             );
             let mut result = graph.execute(query).await?;
 
-            let deleted: i64 = match result.next().await? {
-                Some(row) => row.get("deleted").unwrap_or(0),
+            let deleted: i64 = match result.next().await {
+                Some(Ok(row)) => row.get::<i64>("deleted").unwrap_or(0),
+                Some(Err(e)) => return Err(e.into()),
                 None => 0,
             };
 
