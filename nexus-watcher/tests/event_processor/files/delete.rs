@@ -120,7 +120,7 @@ async fn test_delete_pubkyapp_file_is_idempotent() -> Result<()> {
     let files = FileDetails::get_by_ids(&[&[&user_id, &file_id]]).await?;
     assert!(files[0].is_none(), "File should be gone after first delete");
 
-    // Simulate a replay: call the DEL handler again directly (e.g. crash before store_event)
+    // Simulate a replay: call the DEL handler again directly (e.g. crash between FS delete and store_event)
     let user_pubky_id = PubkyId::try_from(user_id.as_str()).map_err(anyhow::Error::msg)?;
     let result = handlers::file::del(&user_pubky_id, file_id, get_files_dir_test_pathbuf()).await;
 
