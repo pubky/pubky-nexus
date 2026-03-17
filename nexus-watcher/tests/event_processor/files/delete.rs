@@ -1,13 +1,15 @@
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use chrono::Utc;
+use nexus_common::get_files_dir_test_pathbuf;
 use nexus_common::models::event::Event;
 use nexus_common::models::{file::FileDetails, traits::Collection};
+use nexus_watcher::events::handlers;
 use pubky::Keypair;
 use pubky_app_specs::{
     blob_uri_builder,
     traits::{HasIdPath, HashId},
-    PubkyAppBlob, PubkyAppFile, PubkyAppUser,
+    PubkyAppBlob, PubkyAppFile, PubkyAppUser, PubkyId,
 };
 use std::path::Path;
 
@@ -74,6 +76,57 @@ async fn test_delete_pubkyapp_file() -> Result<()> {
     assert!(
         !Path::new(&blob_static_path).exists(),
         "File cannot exist after DEL event"
+    );
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_delete_pubkyapp_file_is_idempotent() -> Result<()> {
+    // Arrange: create a user and file
+    let mut test = WatcherTest::setup().await?;
+
+    let user_kp = Keypair::random();
+    let user = PubkyAppUser {
+        bio: None,
+        image: None,
+        links: None,
+        name: "Test User Idempotent Delete".to_string(),
+        status: None,
+    };
+    let user_id = test.create_user(&user_kp, &user).await?;
+
+    let blob_data = "Idempotent delete test".to_string();
+    let blob = PubkyAppBlob::new(blob_data.as_bytes().to_vec());
+    let blob_id = blob.create_id();
+    let blob_relative_url = PubkyAppBlob::create_path(&blob_id);
+    let blob_absolute_url = blob_uri_builder(user_id.clone(), blob_id);
+
+    test.create_file_from_body(&user_kp, blob_relative_url.as_str(), blob.0.clone())
+        .await?;
+
+    let file = PubkyAppFile {
+        name: "idempotent".to_string(),
+        content_type: "text/plain".to_string(),
+        src: blob_absolute_url.clone(),
+        size: blob_data.len(),
+        created_at: Utc::now().timestamp_millis(),
+    };
+    let (file_id, file_path) = test.create_file(&user_kp, &file).await?;
+
+    // First deletion via the normal event path
+    test.cleanup_file(&user_kp, &file_path).await?;
+
+    let files = FileDetails::get_by_ids(&[&[&user_id, &file_id]]).await?;
+    assert!(files[0].is_none(), "File should be gone after first delete");
+
+    // Simulate a replay: call the DEL handler again directly (e.g. crash between FS delete and store_event)
+    let user_pubky_id = PubkyId::try_from(user_id.as_str()).map_err(anyhow::Error::msg)?;
+    let result = handlers::file::del(&user_pubky_id, file_id, get_files_dir_test_pathbuf()).await;
+
+    assert!(
+        result.is_ok(),
+        "Second DEL call should be idempotent (NotFound on disk must not propagate): {result:?}"
     );
 
     Ok(())
