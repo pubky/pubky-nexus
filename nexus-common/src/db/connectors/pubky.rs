@@ -34,6 +34,7 @@ impl PubkyConnector {
                 let client = match testnet_host {
                     Some(host) => PubkyHttpClient::builder()
                         .testnet_with_host(host)
+                        // Force pkarr/mainline DHT to bind an ephemeral local port instead of default behavior
                         .pkarr(|p| p.dht(|d| d.port(0)))
                         .build(),
                     None => PubkyHttpClient::new(),
