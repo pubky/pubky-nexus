@@ -5,7 +5,7 @@ use std::time::Duration;
 use tracing::{debug, info};
 
 use crate::db::graph::error::{GraphError, GraphResult};
-use crate::db::graph::{Graph, GraphOps, TracedGraph};
+use crate::db::graph::{Graph, GraphOps, InstrumentedGraph};
 use crate::db::setup::setup_graph;
 use crate::db::Neo4JConfig;
 use crate::types::DynError;
@@ -39,7 +39,7 @@ impl Neo4jConnector {
         let graph: Arc<dyn GraphOps> = if config.slow_query_logging_enabled {
             let threshold = Duration::from_millis(config.slow_query_logging_threshold_ms);
             Arc::new(
-                TracedGraph::new(graph)
+                InstrumentedGraph::new(graph)
                     .with_slow_query_threshold(threshold)
                     .with_log_cypher(config.slow_query_logging_include_cypher),
             )
