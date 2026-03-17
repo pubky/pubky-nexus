@@ -34,10 +34,7 @@ impl PubkyConnector {
                 let client = match testnet_host {
                     Some(host) => PubkyHttpClient::builder()
                         .testnet_with_host(host)
-                        .pkarr(|p| {
-                            p.no_dht();
-                            p.relays(&["http://localhost:15411"]).unwrap()
-                        })
+                        .pkarr(|p| p.dht(|d| d.port(0)))
                         .build(),
                     None => PubkyHttpClient::new(),
                 }
