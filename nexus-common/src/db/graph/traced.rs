@@ -366,7 +366,9 @@ impl<G: GraphOps> GraphOps for TracedGraph<G> {
         let elapsed = start.elapsed();
 
         let attrs: &[KeyValue] = &query_attrs(label);
-        self.metrics.duration.record(elapsed.as_millis() as f64, attrs);
+        self.metrics
+            .duration
+            .record(elapsed.as_millis() as f64, attrs);
 
         match &result {
             Ok(()) => self.warn_if_slow(elapsed, attrs, label, cypher.as_deref(), ""),
