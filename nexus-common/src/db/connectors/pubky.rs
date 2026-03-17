@@ -32,7 +32,13 @@ impl PubkyConnector {
                 debug!("Initialising Pubky singleton in {mode} mode");
 
                 let client = match testnet_host {
-                    Some(host) => PubkyHttpClient::builder().testnet_with_host(host).build(),
+                    Some(host) => PubkyHttpClient::builder()
+                        .testnet_with_host(host)
+                        .pkarr(|p| {
+                            p.no_dht();
+                            p.relays(&["http://localhost:15411"]).unwrap()
+                        })
+                        .build(),
                     None => PubkyHttpClient::new(),
                 }
                 .map_err(|e| PubkyClientError::ClientError(e.to_string()))?;
