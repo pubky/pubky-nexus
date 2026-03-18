@@ -261,11 +261,7 @@ impl<G: GraphOps> GraphOps for InstrumentedGraph<G> {
         query: Query,
     ) -> neo4rs::Result<BoxStream<'static, Result<Row, neo4rs::Error>>> {
         let label = query.label();
-        let cypher = if self.log_cypher {
-            Some(query.to_cypher_populated())
-        } else {
-            None
-        };
+        let cypher = self.log_cypher.then(|| query.to_cypher_populated());
 
         let start = Instant::now();
         let result = self.inner.execute(query).await;
