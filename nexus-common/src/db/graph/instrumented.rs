@@ -22,29 +22,6 @@ const METER_NAME: &str = "neo4j";
 ///
 /// Created once per [`InstrumentedGraph`] instance and cloned into each
 /// [`InstrumentedStream`]. All instruments are safe to clone (internally Arc'd).
-///
-/// # Emitted Metrics
-///
-/// | Metric name                   | Type      | Unit | Description |
-/// |-------------------------------|-----------|------|-------------|
-/// | `neo4j.query.duration`         | Histogram | ms   | Total wall-clock time for a query (execute + fetch). Use percentiles (p50/p95/p99) to detect latency degradation over time. |
-/// | `neo4j.query.execute_duration` | Histogram | ms   | Time spent in the Bolt RUN phase (pool acquire + query planning + start of execution). A spike here with stable fetch times indicates connection-pool starvation or query-plan regression. |
-/// | `neo4j.query.rows`            | Histogram | {row} | Number of rows returned per query. Detects cardinality explosions — a query that normally returns 10 rows suddenly returning 10k will show up here before latency spikes. |
-/// | `neo4j.query.errors`          | Counter   | —    | Total number of failed query executions. Useful for error-rate alerting (rate > 0 sustained). |
-/// | `neo4j.query.slow`            | Counter   | —    | Total number of queries exceeding the configured slow-query threshold. A rising rate signals degradation without needing to compute percentiles. |
-///
-/// All metrics carry a `query` attribute set to the query's static label
-/// (e.g. `"get_user_by_id"`), enabling per-query-type filtering and grouping.
-///
-/// # Alerting Examples
-///
-/// | Alert                     | Metric                        | Condition                               |
-/// |---------------------------|-------------------------------|-----------------------------------------|
-/// | Latency degradation       | `neo4j.query.duration` p95    | > 2x rolling baseline                   |
-/// | Cardinality explosion     | `neo4j.query.rows` p99        | sudden spike vs. historical range       |
-/// | Error rate                | `neo4j.query.errors`          | rate > 0 sustained                      |
-/// | Slow query storm          | `neo4j.query.slow`            | rate > N/min                            |
-/// | Pool starvation           | `neo4j.query.execute_duration` p95 | spike while fetch time stays flat  |
 #[derive(Clone)]
 struct GraphMetrics {
     /// Total wall-clock duration of a query (execute + stream consumption).
@@ -109,14 +86,6 @@ impl GraphMetrics {
 
 /// A stream wrapper that measures total query time, logs slow queries, and
 /// records OpenTelemetry metrics when dropped.
-///
-/// Created by [`InstrumentedGraph::execute`] to wrap the underlying row stream.
-/// On drop it:
-/// 1. Records `neo4j.query.duration`, `neo4j.query.execute_duration`, and
-///    `neo4j.query.rows` histograms.
-/// 2. Increments `neo4j.query.slow` counter if the total duration exceeds the
-///    threshold.
-/// 3. Emits a `tracing::warn` log for slow queries (with optional cypher text).
 struct InstrumentedStream {
     inner: BoxStream<'static, Result<Row, neo4rs::Error>>,
     label: Option<&'static str>,
@@ -214,21 +183,6 @@ impl Drop for InstrumentedStream {
 /// Wrap a plain [`Graph`] with `InstrumentedGraph::new(graph)` to gain
 /// automatic observability. When the global OTLP meter provider is not
 /// configured, the metric instruments are no-ops with negligible overhead.
-///
-/// # Configuration
-///
-/// | Method                         | Default   | Description |
-/// |--------------------------------|-----------|-------------|
-/// | [`with_slow_query_threshold`]  | disabled  | Duration above which a query is considered slow and triggers a `tracing::warn` log + `neo4j.query.slow` counter increment. |
-/// | [`with_log_cypher`]            | `false`   | When `true`, the fully-populated Cypher string is included in slow-query log messages. Useful for debugging but can be verbose. |
-///
-/// # Metrics
-///
-/// See [`GraphMetrics`] for a full description of all emitted instruments,
-/// their types, units, and recommended alerting strategies.
-///
-/// [`with_slow_query_threshold`]: InstrumentedGraph::with_slow_query_threshold
-/// [`with_log_cypher`]: InstrumentedGraph::with_log_cypher
 #[derive(Clone)]
 pub struct InstrumentedGraph<G = Graph> {
     inner: G,
