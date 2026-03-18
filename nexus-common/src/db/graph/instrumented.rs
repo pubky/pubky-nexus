@@ -127,8 +127,32 @@ struct InstrumentedStream {
     /// Wall-clock time from stream creation to drop (row fetching & consumption).
     stream_start: Instant,
     row_count: usize,
+    had_error: bool,
     threshold: Option<Duration>,
     metrics: GraphMetrics,
+}
+
+impl InstrumentedStream {
+    fn new(
+        inner: BoxStream<'static, Result<Row, neo4rs::Error>>,
+        label: Option<&'static str>,
+        cypher: Option<String>,
+        execute_duration: Duration,
+        threshold: Option<Duration>,
+        metrics: GraphMetrics,
+    ) -> Self {
+        Self {
+            inner,
+            label,
+            cypher,
+            execute_duration,
+            stream_start: Instant::now(),
+            row_count: 0,
+            had_error: false,
+            threshold,
+            metrics,
+        }
+    }
 }
 
 impl Stream for InstrumentedStream {
@@ -139,7 +163,7 @@ impl Stream for InstrumentedStream {
         if let Poll::Ready(Some(result)) = &result {
             match result {
                 Ok(_) => self.row_count += 1,
-                Err(_) => self.metrics.errors.add(1, &query_attrs(self.label)),
+                Err(_) => self.had_error = true,
             }
         }
         result
@@ -159,6 +183,10 @@ impl Drop for InstrumentedStream {
             .execute_duration
             .record(ms(self.execute_duration), attrs);
         self.metrics.rows.record(self.row_count as u64, attrs);
+
+        if self.had_error {
+            self.metrics.errors.add(1, attrs);
+        }
 
         if let Some(threshold) = self.threshold {
             if total > threshold {
@@ -269,16 +297,14 @@ impl<G: GraphOps> GraphOps for InstrumentedGraph<G> {
 
         match result {
             Ok(stream) => {
-                let instrumented = InstrumentedStream {
-                    inner: stream,
+                let instrumented = InstrumentedStream::new(
+                    stream,
                     label,
                     cypher,
                     execute_duration,
-                    stream_start: Instant::now(), // Timestamp after execute(), so it only tracks the fetch phase,
-                    row_count: 0,
-                    threshold: self.slow_query_threshold,
-                    metrics: self.metrics.clone(),
-                };
+                    self.slow_query_threshold,
+                    self.metrics.clone(),
+                );
                 Ok(instrumented.boxed())
             }
             Err(e) => {
@@ -349,16 +375,14 @@ mod tests {
         label: Option<&'static str>,
         threshold: Option<Duration>,
     ) -> InstrumentedStream {
-        InstrumentedStream {
+        InstrumentedStream::new(
             inner,
             label,
-            cypher: None,
-            execute_duration: Duration::ZERO,
-            stream_start: Instant::now(),
-            row_count: 0,
+            None,
+            Duration::ZERO,
             threshold,
-            metrics: GraphMetrics::new(),
-        }
+            GraphMetrics::new(),
+        )
     }
 
     // ── InstrumentedStream row counting ───────────────────────────
@@ -437,16 +461,14 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn warning_includes_cypher_when_set() {
-        let ts = InstrumentedStream {
-            inner: stream::empty().boxed(),
-            label: Some("cypher_q"),
-            cypher: Some("MATCH (n) RETURN n".into()),
-            execute_duration: Duration::ZERO,
-            stream_start: Instant::now(),
-            row_count: 0,
-            threshold: Some(Duration::ZERO),
-            metrics: GraphMetrics::new(),
-        };
+        let ts = InstrumentedStream::new(
+            stream::empty().boxed(),
+            Some("cypher_q"),
+            Some("MATCH (n) RETURN n".into()),
+            Duration::ZERO,
+            Some(Duration::ZERO),
+            GraphMetrics::new(),
+        );
         drop(ts);
 
         assert!(logs_contain("MATCH (n) RETURN n"));
