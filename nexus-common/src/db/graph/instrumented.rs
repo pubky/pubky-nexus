@@ -137,12 +137,11 @@ impl Stream for InstrumentedStream {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let result = Pin::new(&mut self.inner).poll_next(cx);
-        match &result {
-            Poll::Ready(Some(Ok(_))) => self.row_count += 1,
-            Poll::Ready(Some(Err(_))) => {
-                self.metrics.errors.add(1, &query_attrs(self.label));
+        if let Poll::Ready(Some(result)) = &result {
+            match result {
+                Ok(_) => self.row_count += 1,
+                Err(_) => self.metrics.errors.add(1, &query_attrs(self.label)),
             }
-            _ => {}
         }
         result
     }
