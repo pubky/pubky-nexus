@@ -11,7 +11,6 @@ use tracing::warn;
 
 use super::ops::{Graph, GraphOps};
 use super::query::Query;
-use crate::db::config::DEFAULT_SLOW_QUERY_THRESHOLD_MS;
 
 /// The OpenTelemetry meter name used by all Neo4j graph metrics.
 ///
@@ -128,7 +127,7 @@ struct InstrumentedStream {
     /// Wall-clock time from stream creation to drop (row fetching & consumption).
     stream_start: Instant,
     row_count: usize,
-    threshold: Duration,
+    threshold: Option<Duration>,
     metrics: GraphMetrics,
 }
 
@@ -161,19 +160,21 @@ impl Drop for InstrumentedStream {
             .record(ms(self.execute_duration), attrs);
         self.metrics.rows.record(self.row_count as u64, attrs);
 
-        if total > self.threshold {
-            self.metrics.slow.add(1, attrs);
+        if let Some(threshold) = self.threshold {
+            if total > threshold {
+                self.metrics.slow.add(1, attrs);
 
-            if let Some(label) = &self.label {
-                warn!(
-                    total_ms = total.as_millis(),
-                    execute_ms = self.execute_duration.as_millis(),
-                    fetch_ms = fetch_duration.as_millis(),
-                    rows = self.row_count,
-                    query = %label,
-                    cypher = self.cypher.as_deref().unwrap_or(""),
-                    "Slow Neo4j query"
-                );
+                if let Some(label) = &self.label {
+                    warn!(
+                        total_ms = total.as_millis(),
+                        execute_ms = self.execute_duration.as_millis(),
+                        fetch_ms = fetch_duration.as_millis(),
+                        rows = self.row_count,
+                        query = %label,
+                        cypher = self.cypher.as_deref().unwrap_or(""),
+                        "Slow Neo4j query"
+                    );
+                }
             }
         }
     }
@@ -190,7 +191,7 @@ impl Drop for InstrumentedStream {
 ///
 /// | Method                         | Default   | Description |
 /// |--------------------------------|-----------|-------------|
-/// | [`with_slow_query_threshold`]  | 100 ms    | Duration above which a query is considered slow and triggers a `tracing::warn` log + `neo4j.query.slow` counter increment. |
+/// | [`with_slow_query_threshold`]  | disabled  | Duration above which a query is considered slow and triggers a `tracing::warn` log + `neo4j.query.slow` counter increment. |
 /// | [`with_log_cypher`]            | `false`   | When `true`, the fully-populated Cypher string is included in slow-query log messages. Useful for debugging but can be verbose. |
 ///
 /// # Metrics
@@ -203,7 +204,7 @@ impl Drop for InstrumentedStream {
 #[derive(Clone)]
 pub struct InstrumentedGraph<G = Graph> {
     inner: G,
-    slow_query_threshold: Duration,
+    slow_query_threshold: Option<Duration>,
     log_cypher: bool,
     metrics: GraphMetrics,
 }
@@ -212,13 +213,13 @@ impl<G: GraphOps> InstrumentedGraph<G> {
     pub fn new(graph: G) -> Self {
         Self {
             inner: graph,
-            slow_query_threshold: Duration::from_millis(DEFAULT_SLOW_QUERY_THRESHOLD_MS),
+            slow_query_threshold: None,
             log_cypher: false,
             metrics: GraphMetrics::new(),
         }
     }
 
-    pub fn with_slow_query_threshold(mut self, threshold: Duration) -> Self {
+    pub fn with_slow_query_threshold(mut self, threshold: Option<Duration>) -> Self {
         self.slow_query_threshold = threshold;
         self
     }
@@ -236,16 +237,18 @@ impl<G: GraphOps> InstrumentedGraph<G> {
         cypher: Option<&str>,
         suffix: &'static str,
     ) {
-        if elapsed > self.slow_query_threshold {
-            self.metrics.slow.add(1, attrs);
-            if let Some(lbl) = label {
-                warn!(
-                    elapsed_ms = elapsed.as_millis(),
-                    query = %lbl,
-                    cypher = cypher.unwrap_or(""),
-                    "Slow Neo4j query{}",
-                    suffix
-                );
+        if let Some(threshold) = self.slow_query_threshold {
+            if elapsed > threshold {
+                self.metrics.slow.add(1, attrs);
+                if let Some(lbl) = label {
+                    warn!(
+                        elapsed_ms = elapsed.as_millis(),
+                        query = %lbl,
+                        cypher = cypher.unwrap_or(""),
+                        "Slow Neo4j query{}",
+                        suffix
+                    );
+                }
             }
         }
     }
@@ -344,7 +347,7 @@ mod tests {
     fn make_instrumented_stream(
         inner: BoxStream<'static, Result<Row, neo4rs::Error>>,
         label: Option<&'static str>,
-        threshold: Duration,
+        threshold: Option<Duration>,
     ) -> InstrumentedStream {
         InstrumentedStream {
             inner,
@@ -364,7 +367,7 @@ mod tests {
     async fn counts_rows_from_inner_stream() {
         let rows = vec![Ok(dummy_row()), Ok(dummy_row()), Ok(dummy_row())];
         let inner = stream::iter(rows).boxed();
-        let mut ts = make_instrumented_stream(inner, Some("test"), Duration::from_secs(100));
+        let mut ts = make_instrumented_stream(inner, Some("test"), Some(Duration::from_secs(100)));
 
         while ts.next().await.is_some() {}
         assert_eq!(ts.row_count, 3);
@@ -373,7 +376,7 @@ mod tests {
     #[tokio::test]
     async fn empty_stream_yields_none_and_zero_rows() {
         let inner = stream::empty().boxed();
-        let mut ts = make_instrumented_stream(inner, Some("test"), Duration::from_secs(100));
+        let mut ts = make_instrumented_stream(inner, Some("test"), Some(Duration::from_secs(100)));
         assert!(ts.next().await.is_none());
         assert_eq!(ts.row_count, 0);
     }
@@ -385,7 +388,7 @@ mod tests {
         // Threshold is 0ms — every query is "slow", but all rows must still be returned.
         let rows = vec![Ok(dummy_row()), Ok(dummy_row())];
         let inner = stream::iter(rows).boxed();
-        let mut ts = make_instrumented_stream(inner, Some("slow_q"), Duration::ZERO);
+        let mut ts = make_instrumented_stream(inner, Some("slow_q"), Some(Duration::ZERO));
 
         let mut collected = Vec::new();
         while let Some(item) = ts.next().await {
@@ -402,7 +405,7 @@ mod tests {
     async fn emits_warning_when_threshold_exceeded() {
         let inner = stream::iter(vec![Ok(dummy_row())]).boxed();
         // threshold = 0 → always slow
-        let mut ts = make_instrumented_stream(inner, Some("slow_label"), Duration::ZERO);
+        let mut ts = make_instrumented_stream(inner, Some("slow_label"), Some(Duration::ZERO));
         while ts.next().await.is_some() {}
         drop(ts);
 
@@ -414,7 +417,7 @@ mod tests {
     #[traced_test]
     async fn no_warning_when_under_threshold() {
         let inner = stream::empty().boxed();
-        let ts = make_instrumented_stream(inner, Some("fast_q"), Duration::from_secs(600));
+        let ts = make_instrumented_stream(inner, Some("fast_q"), Some(Duration::from_secs(600)));
         drop(ts);
 
         assert!(!logs_contain("Slow Neo4j query"));
@@ -425,7 +428,7 @@ mod tests {
     async fn no_warning_when_label_is_none() {
         let inner = stream::empty().boxed();
         // threshold = 0 but no label → drop skips logging entirely
-        let ts = make_instrumented_stream(inner, None, Duration::ZERO);
+        let ts = make_instrumented_stream(inner, None, Some(Duration::ZERO));
         drop(ts);
 
         assert!(!logs_contain("Slow Neo4j query"));
@@ -441,7 +444,7 @@ mod tests {
             execute_duration: Duration::ZERO,
             stream_start: Instant::now(),
             row_count: 0,
-            threshold: Duration::ZERO,
+            threshold: Some(Duration::ZERO),
             metrics: GraphMetrics::new(),
         };
         drop(ts);
@@ -493,7 +496,7 @@ mod tests {
     #[traced_test]
     async fn instrumented_graph_run_warns_on_slow_query() {
         let ig = InstrumentedGraph::new(MockGraph { row_count: 0 })
-            .with_slow_query_threshold(Duration::ZERO);
+            .with_slow_query_threshold(Some(Duration::ZERO));
         ig.run(test_query()).await.unwrap();
 
         assert!(logs_contain("Slow Neo4j query"));
@@ -504,7 +507,7 @@ mod tests {
     #[traced_test]
     async fn instrumented_graph_run_no_warning_under_threshold() {
         let ig = InstrumentedGraph::new(MockGraph { row_count: 0 })
-            .with_slow_query_threshold(Duration::from_secs(600));
+            .with_slow_query_threshold(Some(Duration::from_secs(600)));
         ig.run(test_query()).await.unwrap();
 
         assert!(!logs_contain("Slow Neo4j query"));

@@ -36,20 +36,20 @@ impl Neo4jConnector {
         let neo4j_graph = neo4rs::Graph::new(&config.uri, &config.user, &config.password).await?;
         let graph = Graph::new(neo4j_graph);
 
-        let graph: Arc<dyn GraphOps> = if config.slow_query_logging_enabled {
-            let threshold = Duration::from_millis(config.slow_query_logging_threshold_ms);
-            Arc::new(
-                InstrumentedGraph::new(graph)
-                    .with_slow_query_threshold(threshold)
-                    .with_log_cypher(config.slow_query_logging_include_cypher),
-            )
-        } else {
-            Arc::new(graph)
-        };
+        // Always wrap with InstrumentedGraph to collect OpenTelemetry metrics.
+        // slow_query_threshold is None when slow-query logging is disabled.
+        let graph: Arc<dyn GraphOps> = Arc::new(
+            InstrumentedGraph::new(graph)
+                .with_slow_query_threshold(
+                    config
+                        .slow_query_logging_threshold_ms
+                        .map(Duration::from_millis),
+                )
+                .with_log_cypher(config.slow_query_logging_include_cypher),
+        );
 
         info!(
-            slow_query_logging_enabled = config.slow_query_logging_enabled,
-            slow_query_logging_threshold_ms = config.slow_query_logging_threshold_ms,
+            slow_query_logging_threshold_ms = ?config.slow_query_logging_threshold_ms,
             slow_query_logging_include_cypher = config.slow_query_logging_include_cypher,
             "Created Neo4j connector"
         );
