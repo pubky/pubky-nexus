@@ -329,6 +329,10 @@ impl<G: GraphOps> GraphOps for InstrumentedGraph<G> {
     }
 }
 
+fn ms(d: Duration) -> f64 {
+    d.as_secs_f64() * 1000.0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -512,8 +516,4 @@ mod tests {
 
         assert!(!logs_contain("Slow Neo4j query"));
     }
-}
-
-fn ms(d: Duration) -> f64 {
-    d.as_secs_f64() * 1000.0
 }
