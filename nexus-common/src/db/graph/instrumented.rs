@@ -304,11 +304,7 @@ impl<G: GraphOps> GraphOps for InstrumentedGraph<G> {
 
     async fn run(&self, query: Query) -> neo4rs::Result<()> {
         let label = query.label();
-        let cypher = if self.log_cypher {
-            Some(query.to_cypher_populated())
-        } else {
-            None
-        };
+        let cypher = self.log_cypher.then(|| query.to_cypher_populated());
 
         let start = Instant::now();
         let result = self.inner.run(query).await;
