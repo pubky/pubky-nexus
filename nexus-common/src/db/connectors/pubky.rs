@@ -35,6 +35,7 @@ impl PubkyConnector {
                     Some(host) => PubkyHttpClient::builder()
                         .testnet_with_host(host)
                         // Force pkarr/mainline DHT to bind an ephemeral local port instead of default behavior
+                        // We do this to prevent the client DHT from competing with `StaticTestnet` for port 6881
                         .pkarr(|p| p.dht(|d| d.port(0)))
                         .build(),
                     None => PubkyHttpClient::new(),
