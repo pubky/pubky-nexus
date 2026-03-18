@@ -156,12 +156,10 @@ impl Drop for InstrumentedStream {
         let attrs: &[KeyValue] = &query_attrs(self.label);
 
         // Always record metrics (no-op when OTLP is not configured).
-        self.metrics
-            .duration
-            .record(total.as_millis() as f64, attrs);
+        self.metrics.duration.record(ms(total), attrs);
         self.metrics
             .execute_duration
-            .record(self.execute_duration.as_millis() as f64, attrs);
+            .record(ms(self.execute_duration), attrs);
         self.metrics.rows.record(self.row_count as u64, attrs);
 
         if total > self.threshold {
@@ -287,12 +285,10 @@ impl<G: GraphOps> GraphOps for InstrumentedGraph<G> {
             }
             Err(e) => {
                 let attrs: &[KeyValue] = &query_attrs(label);
-                self.metrics
-                    .duration
-                    .record(execute_duration.as_millis() as f64, attrs);
+                self.metrics.duration.record(ms(execute_duration), attrs);
                 self.metrics
                     .execute_duration
-                    .record(execute_duration.as_millis() as f64, attrs);
+                    .record(ms(execute_duration), attrs);
                 self.metrics.errors.add(1, attrs);
                 self.warn_if_slow(
                     execute_duration,
@@ -320,12 +316,8 @@ impl<G: GraphOps> GraphOps for InstrumentedGraph<G> {
         let elapsed = start.elapsed();
 
         let attrs: &[KeyValue] = &query_attrs(label);
-        self.metrics
-            .duration
-            .record(elapsed.as_millis() as f64, attrs);
-        self.metrics
-            .execute_duration
-            .record(elapsed.as_millis() as f64, attrs);
+        self.metrics.duration.record(ms(elapsed), attrs);
+        self.metrics.execute_duration.record(ms(elapsed), attrs);
 
         match &result {
             Ok(()) => self.warn_if_slow(elapsed, attrs, label, cypher.as_deref(), ""),
@@ -522,4 +514,8 @@ mod tests {
 
         assert!(!logs_contain("Slow Neo4j query"));
     }
+}
+
+fn ms(d: Duration) -> f64 {
+    d.as_secs_f64() * 1000.0
 }
