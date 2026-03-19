@@ -75,9 +75,9 @@ impl Homeserver {
     }
 
     /// Stores this homeserver in the graph.
-    pub async fn put_to_graph(&self) -> ModelResult<()> {
+    pub async fn put_to_graph(&self) -> GraphResult<()> {
         let query = queries::put::create_homeserver(&self.id);
-        exec_single_row(query).await.map_err(Into::into)
+        exec_single_row(query).await
     }
 
     /// Retrieves a homeserver from Neo4j.
