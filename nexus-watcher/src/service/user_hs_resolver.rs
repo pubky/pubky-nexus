@@ -7,19 +7,15 @@
 //! `consecutive_failed_hs_lookups` counter in Redis and skips to the next user.
 //! Users with more failures are processed last so that healthy users are
 //! resolved first.
-//!
-//! After all users have been processed, orphan homeserver nodes (those with no
-//! remaining `HOSTED_BY` relationships) are cleaned up from both Neo4j and Redis.
 
 use nexus_common::db::kv::RedisResult;
 use nexus_common::db::{exec_single_row, fetch_key_from_graph, queries, PubkyConnector, RedisOps};
-use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
 
 use pubky::PublicKey;
 use pubky_app_specs::PubkyId;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, warn};
 
 // ---------------------------------------------------------------------------
 // Redis model for the per-user failure counter
@@ -106,41 +102,8 @@ pub async fn get_user_ids_by_homeserver(hs_id: &str) -> Result<Vec<String>, DynE
     Ok(maybe_user_ids.unwrap_or_default())
 }
 
-/// Returns IDs of homeservers that have no incoming HOSTED_BY relationships,
-/// excluding the given homeserver ID.
-async fn get_orphan_homeserver_ids(exclude_id: &str) -> Result<Vec<String>, DynError> {
-    let query = queries::get::get_orphan_homeservers(exclude_id);
-    let maybe_ids = fetch_key_from_graph(query, "orphan_ids").await?;
-    Ok(maybe_ids.unwrap_or_default())
-}
-
-/// Deletes orphan homeservers (no HOSTED_BY relationships) from graph and index.
-/// The default homeserver is excluded from cleanup.
-async fn cleanup_orphan_homeservers(default_hs_id: &str) -> Result<(), DynError> {
-    let orphan_ids = get_orphan_homeserver_ids(default_hs_id).await?;
-    if orphan_ids.is_empty() {
-        return Ok(());
-    }
-
-    // Single Neo4j call to delete all orphan homeservers
-    let del_query = queries::del::delete_homeservers(&orphan_ids);
-    exec_single_row(del_query).await?;
-
-    // Single Redis call to remove all orphan homeserver indexes
-    let key_parts: Vec<Vec<&str>> = orphan_ids.iter().map(|id| vec![id.as_str()]).collect();
-    let key_parts_refs: Vec<&[&str]> = key_parts.iter().map(|v| v.as_slice()).collect();
-    Homeserver::remove_from_index_multiple_json(&key_parts_refs).await?;
-
-    for hs_id in &orphan_ids {
-        info!("Cleaned up orphan homeserver {hs_id}");
-    }
-
-    Ok(())
-}
-
 /// Main entry point for one cycle of the periodic task.
-/// `default_hs_id` is excluded from orphan cleanup.
-pub async fn run(default_hs_id: &str) -> Result<(), DynError> {
+pub async fn run() -> Result<(), DynError> {
     let user_ids = get_all_user_ids().await?;
     if user_ids.is_empty() {
         debug!("No users to resolve homeservers for");
@@ -164,11 +127,6 @@ pub async fn run(default_hs_id: &str) -> Result<(), DynError> {
         }
     }
 
-    // Cleanup orphan homeservers
-    if let Err(e) = cleanup_orphan_homeservers(default_hs_id).await {
-        error!("Homeserver cleanup failed: {e}");
-    }
-
     Ok(())
 }
 
@@ -178,15 +136,10 @@ mod tests {
     use nexus_common::db::exec_single_row;
     use nexus_common::types::DynError;
     use nexus_common::{StackConfig, StackManager};
-    use pubky::Keypair;
 
     async fn setup() -> Result<(), DynError> {
         StackManager::setup("unit-hs-resolver-test", &StackConfig::default()).await?;
         Ok(())
-    }
-
-    fn random_pubky_id() -> PubkyId {
-        PubkyId::try_from(Keypair::random().public_key().to_z32().as_str()).unwrap()
     }
 
     /// Helper: create a User node in the graph
@@ -277,17 +230,8 @@ mod tests {
         let query = queries::put::set_user_homeserver(user_id, hs_id_b);
         exec_single_row(query).await?;
 
-        // Verify orphan detection: hs_a should now be orphaned
-        let orphan_ids = get_orphan_homeserver_ids("").await?;
-        assert!(
-            orphan_ids.contains(&hs_id_a.to_string()),
-            "Old HS should be orphaned"
-        );
-
         // Cleanup
         cleanup_test_user(user_id).await?;
-        exec_single_row(queries::del::delete_homeserver(hs_id_a)).await?;
-        exec_single_row(queries::del::delete_homeserver(hs_id_b)).await?;
 
         Ok(())
     }
@@ -309,16 +253,8 @@ mod tests {
         let query = queries::put::set_user_homeserver(user_id, hs_id);
         exec_single_row(query).await?;
 
-        // The homeserver must NOT be orphaned (relationship still intact)
-        let orphan_ids = get_orphan_homeserver_ids("").await?;
-        assert!(
-            !orphan_ids.contains(&hs_id.to_string()),
-            "HS must not be orphaned when set_user_homeserver is called with the same HS"
-        );
-
         // Cleanup
         cleanup_test_user(user_id).await?;
-        exec_single_row(queries::del::delete_homeserver(hs_id)).await?;
 
         Ok(())
     }
@@ -359,73 +295,6 @@ mod tests {
         cleanup_test_user(user_a).await?;
         cleanup_test_user(user_b).await?;
         cleanup_test_user(user_c).await?;
-        exec_single_row(queries::del::delete_homeserver(hs_one)).await?;
-        exec_single_row(queries::del::delete_homeserver(hs_two)).await?;
-
-        Ok(())
-    }
-
-    #[tokio_shared_rt::test(shared)]
-    async fn test_get_orphan_homeserver_ids_excludes_default() -> Result<(), DynError> {
-        setup().await?;
-
-        let default_hs_id = random_pubky_id();
-        let other_hs_id = random_pubky_id();
-
-        // Persist two orphan homeserver nodes (no users hosted)
-        Homeserver::persist_if_unknown(default_hs_id.clone()).await?;
-        Homeserver::persist_if_unknown(other_hs_id.clone()).await?;
-
-        let default_hs = default_hs_id.as_str();
-        let other_hs = other_hs_id.as_str();
-
-        // Without exclusion, both appear as orphans
-        let orphans = get_orphan_homeserver_ids("").await?;
-        assert!(orphans.contains(&default_hs.to_string()));
-        assert!(orphans.contains(&other_hs.to_string()));
-
-        // With the default excluded, only the other one appears
-        let orphans = get_orphan_homeserver_ids(default_hs).await?;
-        assert!(
-            !orphans.contains(&default_hs.to_string()),
-            "Default HS must be excluded from orphans"
-        );
-        assert!(orphans.contains(&other_hs.to_string()));
-
-        // Cleanup
-        exec_single_row(queries::del::delete_homeserver(default_hs)).await?;
-        exec_single_row(queries::del::delete_homeserver(other_hs)).await?;
-
-        Ok(())
-    }
-
-    #[tokio_shared_rt::test(shared)]
-    async fn test_cleanup_orphan_homeservers_preserves_default() -> Result<(), DynError> {
-        setup().await?;
-
-        let default_hs_id = random_pubky_id();
-        let orphan_hs_id = random_pubky_id();
-
-        // Persist two orphan homeserver nodes
-        Homeserver::persist_if_unknown(default_hs_id.clone()).await?;
-        Homeserver::persist_if_unknown(orphan_hs_id.clone()).await?;
-
-        let default_hs = default_hs_id.as_str();
-        let orphan_hs = orphan_hs_id.as_str();
-
-        // Run cleanup with default_hs excluded
-        cleanup_orphan_homeservers(default_hs).await?;
-
-        // Verify default HS still exists in the graph
-        let remaining = Homeserver::get_from_graph(default_hs).await?;
-        assert!(remaining.is_some(), "Default HS must survive cleanup");
-
-        // Verify orphan HS was deleted
-        let deleted = Homeserver::get_from_graph(orphan_hs).await?;
-        assert!(deleted.is_none(), "Orphan HS must be deleted by cleanup");
-
-        // Cleanup default HS
-        exec_single_row(queries::del::delete_homeserver(default_hs)).await?;
 
         Ok(())
     }

@@ -106,12 +106,8 @@ impl NexusWatcher {
                 let runner = external_hs_runner.clone();
                 async move { runner.run_external_homeservers().await.map(|_| ()) }
             }),
-            PeriodicTask::new("user-hs-resolver", hs_resolver_sleep, {
-                let default_hs = config.homeserver.to_string();
-                move || {
-                    let default_hs = default_hs.clone();
-                    async move { user_hs_resolver::run(&default_hs).await }
-                }
+            PeriodicTask::new("user-hs-resolver", hs_resolver_sleep, || {
+                async move { user_hs_resolver::run().await }
             }),
         ];
 

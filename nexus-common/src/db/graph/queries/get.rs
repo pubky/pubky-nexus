@@ -267,18 +267,6 @@ pub fn get_users_by_homeserver(hs_id: &str) -> Query {
     .param("hs_id", hs_id.to_string())
 }
 
-/// Retrieves orphan homeservers (no incoming HOSTED_BY relationships),
-/// excluding the given homeserver ID.
-pub fn get_orphan_homeservers(exclude_id: &str) -> Query {
-    query(
-        "MATCH (hs:Homeserver)
-         WHERE NOT EXISTS { MATCH (:User)-[:HOSTED_BY]->(hs) }
-           AND hs.id <> $exclude_id
-         RETURN collect(hs.id) AS orphan_ids",
-    )
-    .param("exclude_id", exclude_id.to_string())
-}
-
 /// Retrieve tags for a user within the viewer's trusted network
 /// # Arguments
 ///

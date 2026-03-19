@@ -90,21 +90,3 @@ pub fn delete_file(owner_id: &str, file_id: &str) -> Query {
     .param("owner_id", owner_id.to_string())
 }
 
-/// Deletes a homeserver node
-pub fn delete_homeserver(homeserver_id: &str) -> Query {
-    query(
-        "MATCH (hs:Homeserver {id: $id})
-         DETACH DELETE hs;",
-    )
-    .param("id", homeserver_id.to_string())
-}
-
-/// Deletes multiple homeserver nodes by their IDs in a single query.
-pub fn delete_homeservers(homeserver_ids: &[String]) -> Query {
-    query(
-        "MATCH (hs:Homeserver)
-         WHERE hs.id IN $ids
-         DETACH DELETE hs;",
-    )
-    .param("ids", homeserver_ids.to_vec())
-}
