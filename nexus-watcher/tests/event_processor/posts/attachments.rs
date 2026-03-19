@@ -4,7 +4,7 @@ use anyhow::Result;
 use chrono::Utc;
 use pubky::Keypair;
 use pubky_app_specs::{
-    blob_uri_builder,
+    blob_uri_builder, file_uri_builder,
     traits::{HasIdPath, HashId},
     PubkyAppBlob, PubkyAppFile, PubkyAppPost, PubkyAppPostKind, PubkyAppUser,
 };
@@ -41,11 +41,11 @@ async fn test_homeserver_post_attachments() -> Result<()> {
         size: blob.0.len(),
         created_at: Utc::now().timestamp_millis(),
     };
-    let (file_id, file_path) = test.create_file(&user_kp, &file).await?;
+    let (file_id, _file_path) = test.create_file(&user_kp, &file).await?;
 
     assert_file_details(&user_id, &file_id, &blob_absolute_url, &file).await;
 
-    let post_attachments = Some(vec![file_path.to_string()]);
+    let post_attachments = Some(vec![file_uri_builder(user_id.clone(), file_id.clone())]);
     let post = PubkyAppPost {
         content: "Watcher:PostEvent:Post".to_string(),
         kind: PubkyAppPostKind::Short,
