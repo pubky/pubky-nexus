@@ -2,7 +2,6 @@ use anyhow::{anyhow, Error, Result};
 use base32::{encode, Alphabet};
 use chrono::Utc;
 use nexus_common::db::PubkyConnector;
-use nexus_common::get_files_dir_pathbuf;
 use nexus_common::get_files_dir_test_pathbuf;
 use nexus_common::models::event::Event;
 use nexus_common::models::event::EventProcessorError;
@@ -348,7 +347,7 @@ pub async fn retrieve_and_handle_event_line(
     event_line: &str,
     moderation: Arc<Moderation>,
 ) -> Result<(), EventProcessorError> {
-    match Event::parse_event(event_line, get_files_dir_pathbuf())? {
+    match Event::parse_event(event_line, get_files_dir_test_pathbuf())? {
         Some(event) => handle(&event, moderation).await,
         None => Ok(()),
     }

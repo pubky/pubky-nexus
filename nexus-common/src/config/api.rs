@@ -2,7 +2,7 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::{fmt::Debug, net::SocketAddr};
 
 use super::file::ConfigLoader;
-use super::{default_stack, DaemonConfig, StackConfig};
+use super::{DaemonConfig, StackConfig};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -20,7 +20,7 @@ pub struct ApiConfig {
     pub public_ip: IpAddr,
     pub public_addr: SocketAddr,
     pub pubky_listen_socket: SocketAddr,
-    #[serde(default = "default_stack")]
+    #[serde(default)]
     pub stack: StackConfig,
 }
 

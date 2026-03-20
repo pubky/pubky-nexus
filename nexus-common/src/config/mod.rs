@@ -1,21 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::{fmt::Debug, path::PathBuf, sync::OnceLock};
 
-pub const LOG_LEVEL: Level = Level::Info;
-
-/// Path to the directory where static files are stored. To access this as a [PathBuf], use [get_files_dir_pathbuf].
-pub const FILES_DIR: &str = "~/.pubky-nexus/static/files";
-static FILES_DIR_PATHBUF: OnceLock<PathBuf> = OnceLock::new();
-/// See [FILES_DIR]
-pub fn get_files_dir_pathbuf() -> PathBuf {
-    FILES_DIR_PATHBUF
-        .get_or_init(|| {
-            validate_and_expand_path(PathBuf::from(FILES_DIR))
-                .expect("Hardcoded FILES_DIR should be a valid directory path")
-        })
-        .clone()
-}
-
 // All the tests run inside their own crate therefore the default directory does not apply
 pub const FILES_DIR_TEST: &str = "./static/files";
 static FILES_DIR_TEST_PATHBUF: OnceLock<PathBuf> = OnceLock::new();
@@ -36,7 +21,7 @@ mod watcher;
 
 pub use api::ApiConfig;
 pub use daemon::DaemonConfig;
-pub use stack::{default_stack, StackConfig};
+pub use stack::StackConfig;
 pub use watcher::WatcherConfig;
 
 use crate::file::validate_and_expand_path;
