@@ -133,10 +133,9 @@ pub async fn run() -> Result<(), DynError> {
         debug!("No users to resolve homeservers for");
         return Ok(());
     }
+    debug!("Resolving homeservers for {} users", user_ids.len());
 
     let users_and_failures = sort_by_failures(user_ids).await?;
-    debug!("Resolving HSs for {} users", users_and_failures.len());
-
     for (user_id, failures) in &users_and_failures {
         match resolve_user(user_id).await {
             Ok(_) => {
