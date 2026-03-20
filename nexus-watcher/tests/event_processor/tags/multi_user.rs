@@ -191,8 +191,8 @@ async fn test_homeserver_multi_user_tags() -> Result<()> {
         .unwrap();
     assert_eq!(
         notifications.len(),
-        5,
-        "Taggerd user should have 5 notification"
+        10,
+        "Taggerd user should have 10 notification"
     );
 
     Ok(())
