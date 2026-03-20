@@ -89,4 +89,3 @@ pub fn delete_file(owner_id: &str, file_id: &str) -> Query {
     .param("id", file_id.to_string())
     .param("owner_id", owner_id.to_string())
 }
-

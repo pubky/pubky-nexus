@@ -3,13 +3,18 @@
 //! Periodic task that resolves each user's homeserver and persists
 //! the `(:User)-[:HOSTED_BY]->(:Homeserver)` relationship in Neo4j.
 //!
-//! On resolution failure the task increments a per-user
-//! `consecutive_failed_hs_lookups` counter in Redis and skips to the next user.
+//! On resolution failure the task increments a per-user failure counter
+//! (stored as a score in the `Sorted:Users:HsResolutionFailures` Redis
+//! Sorted Set) and skips to the next user.
 //! Users with more failures are processed last so that healthy users are
 //! resolved first.
 
-use nexus_common::db::kv::RedisResult;
-use nexus_common::db::{exec_single_row, fetch_key_from_graph, queries, PubkyConnector, RedisOps};
+use std::collections::HashMap;
+
+use nexus_common::db::kv::{RedisResult, SortOrder};
+use nexus_common::db::{
+    exec_single_row, fetch_key_from_graph, queries, GraphResult, PubkyConnector, RedisOps,
+};
 use nexus_common::types::DynError;
 
 use pubky::PublicKey;
@@ -18,37 +23,51 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, error, warn};
 
 // ---------------------------------------------------------------------------
-// Redis model for the per-user failure counter
+// Redis Sorted Set for the per-user failure counter
 // ---------------------------------------------------------------------------
 
-/// Tracks consecutive failed homeserver lookups for a user.
-#[derive(Serialize, Deserialize, Debug, Default)]
-pub struct UserHsFailures {
-    pub consecutive_failed_hs_lookups: u64,
-}
+/// Key parts for the Sorted Set holding user PK as a member and the failure count as the score.
+const USER_HS_FAILURES_KEY_PARTS: [&str; 2] = ["Users", "HsResolutionFailures"];
+
+/// Tracks consecutive failed homeserver lookups for users via a Redis Sorted Set.
+#[derive(Serialize, Deserialize)]
+pub struct UserHsFailures;
 
 impl RedisOps for UserHsFailures {}
 
 impl UserHsFailures {
     /// Reads the failure count for a user (returns 0 when absent).
-    async fn get(user_id: &str) -> Result<u64, DynError> {
-        let maybe: Option<Self> = Self::try_from_index_json(&[user_id], None).await?;
-        Ok(maybe.map_or(0, |f| f.consecutive_failed_hs_lookups))
+    #[allow(dead_code)]
+    async fn get(user_id: &str) -> RedisResult<u64> {
+        let score =
+            Self::check_sorted_set_member(None, &USER_HS_FAILURES_KEY_PARTS, &[user_id]).await?;
+        Ok(score.map_or(0, |s| s as u64))
+    }
+
+    /// Returns all failure counters as a map of user_id → failure_count.
+    async fn get_all() -> RedisResult<HashMap<String, f64>> {
+        let entries = Self::try_from_index_sorted_set(
+            &USER_HS_FAILURES_KEY_PARTS,
+            None,
+            None,
+            None,
+            None,
+            SortOrder::Ascending,
+            None,
+        )
+        .await?;
+
+        Ok(entries.unwrap_or_default().into_iter().collect())
     }
 
     /// Increments the failure counter by 1.
-    async fn increment(user_id: &str) -> Result<(), DynError> {
-        let current = Self::get(user_id).await?;
-        let updated = UserHsFailures {
-            consecutive_failed_hs_lookups: current + 1,
-        };
-        updated.put_index_json(&[user_id], None, None).await?;
-        Ok(())
+    async fn increment(user_id: &str) -> RedisResult<()> {
+        Self::increment_score_index_sorted_set(&USER_HS_FAILURES_KEY_PARTS, &[user_id]).await
     }
 
     /// Removes the failure counter (called on success).
     async fn remove(user_id: &str) -> RedisResult<()> {
-        Self::remove_from_index_multiple_json(&[&[user_id]]).await
+        Self::remove_from_index_sorted_set(None, &USER_HS_FAILURES_KEY_PARTS, &[user_id]).await
     }
 }
 
@@ -57,22 +76,28 @@ impl UserHsFailures {
 // ---------------------------------------------------------------------------
 
 /// Fetches all user IDs from the graph.
-async fn get_all_user_ids() -> Result<Vec<String>, DynError> {
+async fn get_all_user_ids() -> GraphResult<Vec<String>> {
     let query = queries::get::get_all_user_ids();
     let maybe_user_ids = fetch_key_from_graph(query, "user_ids").await?;
     Ok(maybe_user_ids.unwrap_or_default())
 }
 
 /// Sorts user IDs by their failure count (ascending — fewest failures first).
-/// Uses a single batched Redis call to fetch all failure counts.
-async fn sort_by_failures(user_ids: Vec<String>) -> Result<Vec<String>, DynError> {
-    let key_parts: Vec<[&str; 1]> = user_ids.iter().map(|id| [id.as_str()]).collect();
-    let key_parts_refs: Vec<&[&str]> = key_parts.iter().map(|k| k.as_slice()).collect();
-    let failures = UserHsFailures::try_from_index_multiple_json(&key_parts_refs).await?;
+/// Ties are broken by `user_id` ascending for deterministic ordering.
+/// Returns `(user_id, failure_score)` pairs.
+async fn sort_by_failures(user_ids: Vec<String>) -> RedisResult<Vec<(String, f64)>> {
+    let failure_map = UserHsFailures::get_all().await?;
 
-    let mut pairs: Vec<_> = user_ids.into_iter().zip(failures).collect();
-    pairs.sort_by_key(|(_, f)| f.as_ref().map_or(0, |f| f.consecutive_failed_hs_lookups));
-    Ok(pairs.into_iter().map(|(id, _)| id).collect())
+    let mut sorted_users_and_failures = user_ids
+        .into_iter()
+        .map(|id| (id.clone(), failure_map.get(&id).copied().unwrap_or(0.0)))
+        .collect::<Vec<_>>();
+
+    sorted_users_and_failures.sort_by(|(a_id, a_score), (b_id, b_score)| {
+        a_score.total_cmp(b_score).then_with(|| a_id.cmp(b_id))
+    });
+
+    Ok(sorted_users_and_failures)
 }
 
 /// Resolves a single user's homeserver and persists the HOSTED_BY relationship.
@@ -84,8 +109,7 @@ async fn resolve_user(user_id: &str) -> Result<(), DynError> {
         return Err(format!("User {user_id} has no published homeserver").into());
     };
 
-    let hs_id =
-        PubkyId::try_from(&hs_pk.into_inner().to_z32()).map_err(|e| -> DynError { e.into() })?;
+    let hs_id = PubkyId::try_from(&hs_pk.into_inner().to_z32())?;
 
     let query = queries::put::set_user_homeserver(user_id, &hs_id);
     exec_single_row(query).await?;
@@ -96,7 +120,7 @@ async fn resolve_user(user_id: &str) -> Result<(), DynError> {
 
 /// Returns all user IDs hosted on a given homeserver.
 /// TODO Should be used in [EventProcessor::poll_events]
-pub async fn get_user_ids_by_homeserver(hs_id: &str) -> Result<Vec<String>, DynError> {
+pub async fn get_user_ids_by_homeserver(hs_id: &str) -> GraphResult<Vec<String>> {
     let query = queries::get::get_users_by_homeserver(hs_id);
     let maybe_user_ids = fetch_key_from_graph(query, "user_ids").await?;
     Ok(maybe_user_ids.unwrap_or_default())
@@ -110,13 +134,15 @@ pub async fn run() -> Result<(), DynError> {
         return Ok(());
     }
 
-    let user_ids = sort_by_failures(user_ids).await?;
-    debug!("Resolving homeservers for {} users", user_ids.len());
+    let users_and_failures = sort_by_failures(user_ids).await?;
+    debug!("Resolving HSs for {} users", users_and_failures.len());
 
-    for user_id in &user_ids {
+    for (user_id, failures) in &users_and_failures {
         match resolve_user(user_id).await {
             Ok(_) => {
-                UserHsFailures::remove(user_id).await.ok();
+                if *failures > 0.0 {
+                    UserHsFailures::remove(user_id).await.ok();
+                }
             }
             Err(e) => {
                 warn!("Failed to resolve homeserver for user {user_id}: {e}");
@@ -143,22 +169,20 @@ mod tests {
     }
 
     /// Helper: create a User node in the graph
-    async fn create_test_user(user_id: &str) -> Result<(), DynError> {
+    async fn create_test_user(user_id: &str) -> GraphResult<()> {
         let query = neo4rs::query(
             "MERGE (u:User {id: $id})
              SET u.name = 'test', u.indexed_at = 0
              RETURN u;",
         )
         .param("id", user_id);
-        exec_single_row(query).await?;
-        Ok(())
+        exec_single_row(query).await
     }
 
     /// Helper: clean up test data
-    async fn cleanup_test_user(user_id: &str) -> Result<(), DynError> {
+    async fn cleanup_test_user(user_id: &str) -> GraphResult<()> {
         let query = queries::del::delete_user(user_id);
-        exec_single_row(query).await?;
-        Ok(())
+        exec_single_row(query).await
     }
 
     #[tokio_shared_rt::test(shared)]
@@ -167,7 +191,7 @@ mod tests {
 
         let user_id = "test_hs_failures_user_001";
 
-        // Initially zero
+        // Initially absent from the map
         assert_eq!(UserHsFailures::get(user_id).await?, 0);
 
         // Increment twice
@@ -201,9 +225,9 @@ mod tests {
         UserHsFailures::increment("sort_test_user_b").await?;
 
         let sorted = sort_by_failures(ids).await?;
-        assert_eq!(sorted[0], "sort_test_user_c"); // 0 failures
-        assert_eq!(sorted[1], "sort_test_user_a"); // 1 failure
-        assert_eq!(sorted[2], "sort_test_user_b"); // 3 failures
+        assert_eq!(sorted[0], ("sort_test_user_c".to_string(), 0.0)); // 0 failures
+        assert_eq!(sorted[1], ("sort_test_user_a".to_string(), 1.0)); // 1 failure
+        assert_eq!(sorted[2], ("sort_test_user_b".to_string(), 3.0)); // 3 failures
 
         // Cleanup
         UserHsFailures::remove("sort_test_user_a").await?;
