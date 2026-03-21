@@ -86,6 +86,10 @@ pub(crate) async fn run_periodic_tasks(
             interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
             loop {
                 tokio::select! {
+                    // Enforce polling of branches from top to bottom
+                    // This ensures shutdown / cancel signals are always checked first on every iteration
+                    biased;
+
                     _ = shutdown.changed() => {
                         info!("Shutdown received, exiting '{name}' loop");
                         break;
