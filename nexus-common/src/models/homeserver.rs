@@ -107,20 +107,23 @@ impl Homeserver {
         Ok(())
     }
 
-    /// Retrieves all homeservers from the graph.
+    /// Retrieves all active (non-orphan) homeservers from the graph.
+    ///
+    /// An active homeserver is one that has at least one inbound `HOSTED_BY`
+    /// edge from a user.
     ///
     /// # Returns
-    /// A list of all known homeserver IDs.
+    /// A list of all active homeserver IDs.
     ///
     /// # Errors
-    /// Throws an error if no homeservers are found.
-    pub async fn get_all_from_graph() -> GraphResult<Vec<String>> {
-        let query = queries::get::get_all_homeservers();
+    /// Throws an error if no active homeservers are found.
+    pub async fn get_all_active_from_graph() -> GraphResult<Vec<String>> {
+        let query = queries::get::get_all_active_homeservers();
         let maybe_hs_ids = fetch_key_from_graph(query, "homeservers_list").await?;
         let hs_ids: Vec<String> = maybe_hs_ids.unwrap_or_default();
 
         match hs_ids.is_empty() {
-            true => Err(GraphError::Generic("No homeservers found in graph".into())),
+            true => Err(GraphError::Generic("No active HSs found in graph".into())),
             false => Ok(hs_ids),
         }
     }

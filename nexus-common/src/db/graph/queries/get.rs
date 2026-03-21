@@ -244,11 +244,12 @@ pub fn get_homeserver_by_id(id: &str) -> Query {
     .param("id", id)
 }
 
-/// Retrieves all homeserver IDs
-pub fn get_all_homeservers() -> Query {
+/// Retrieves all active (non-orphan) homeserver IDs, i.e. those with at least
+/// one inbound `HOSTED_BY` edge from a user.
+pub fn get_all_active_homeservers() -> Query {
     query(
-        "MATCH (hs:Homeserver)
-        WITH collect(hs.id) AS homeservers_list
+        "MATCH (:User)-[:HOSTED_BY]->(hs:Homeserver)
+        WITH collect(DISTINCT hs.id) AS homeservers_list
         RETURN homeservers_list",
     )
 }
