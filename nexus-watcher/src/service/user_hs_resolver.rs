@@ -135,6 +135,7 @@ pub async fn run() -> Result<(), DynError> {
     }
     debug!("Resolving homeservers for {} users", user_ids.len());
 
+    // Sort users by HS resolution failures. Users with working HS mapping are prioritized.
     let users_and_failures = sort_by_failures(user_ids).await?;
     for (user_id, user_failures) in &users_and_failures {
         match resolve_user(user_id).await {
