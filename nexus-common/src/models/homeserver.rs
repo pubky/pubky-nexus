@@ -1,4 +1,5 @@
 use crate::db::exec_single_row;
+use crate::db::fetch_all_rows_from_graph;
 use crate::db::fetch_key_from_graph;
 use crate::db::kv::RedisError;
 use crate::db::kv::RedisResult;
@@ -27,6 +28,13 @@ pub struct Homeserver {
 }
 
 impl RedisOps for Homeserver {}
+
+/// A homeserver entry with its ID and the count of active users hosted by it.
+#[derive(Debug, Clone)]
+pub struct HomeserverEntry {
+    pub id: String,
+    pub active_users: i64,
+}
 
 impl Homeserver {
     /// Instantiates a new homeserver with default cursor
@@ -107,25 +115,36 @@ impl Homeserver {
         Ok(())
     }
 
-    /// Retrieves all active (non-orphan) homeservers from the graph.
+    /// Retrieves all homeservers from the graph, along with their active user
+    /// counts (number of incoming `HOSTED_BY` edges from `User` nodes).
     ///
-    /// An active homeserver is one that has at least one inbound `HOSTED_BY`
-    /// edge from a user.
+    /// The returned list is sorted by the number of active users in descending
+    /// order.
     ///
     /// # Returns
-    /// A list of all active homeserver IDs.
+    /// A list of [`HomeserverEntry`] items containing the homeserver ID and the
+    /// active user count.
     ///
     /// # Errors
-    /// Throws an error if no active homeservers are found.
-    pub async fn get_all_active_from_graph() -> GraphResult<Vec<String>> {
-        let query = queries::get::get_all_active_homeservers();
-        let maybe_hs_ids = fetch_key_from_graph(query, "homeservers_list").await?;
-        let hs_ids: Vec<String> = maybe_hs_ids.unwrap_or_default();
+    /// Returns an error if no homeservers are found.
+    pub async fn get_all_from_graph() -> GraphResult<Vec<HomeserverEntry>> {
+        let query = queries::get::get_all_homeservers();
+        let rows = fetch_all_rows_from_graph(query).await?;
 
-        match hs_ids.is_empty() {
-            true => Err(GraphError::Generic("No active HSs found in graph".into())),
-            false => Ok(hs_ids),
+        if rows.is_empty() {
+            return Err(GraphError::Generic("No homeservers found in graph".into()));
         }
+
+        let entries = rows
+            .into_iter()
+            .map(|row| {
+                let id: String = row.get("id").map_err(GraphError::from)?;
+                let active_users: i64 = row.get("active_users").map_err(GraphError::from)?;
+                Ok(HomeserverEntry { id, active_users })
+            })
+            .collect::<GraphResult<Vec<_>>>()?;
+
+        Ok(entries)
     }
 
     /// If a referenced post is hosted on a new, unknown homeserver, this method triggers ingestion of that homeserver.

@@ -259,14 +259,19 @@ pub fn get_homeserver_by_id(id: &str) -> Query {
     .param("id", id)
 }
 
-/// Retrieves all active (non-orphan) homeserver IDs, i.e. those with at least
-/// one inbound `HOSTED_BY` edge from a user.
-pub fn get_all_active_homeservers() -> Query {
+/// Retrieves all homeserver IDs along with the number of active users
+/// (incoming `HOSTED_BY` relationships from `User` nodes) for each homeserver.
+///
+/// The results are sorted by the number of active users in descending order.
+/// Each returned row contains an `id` and an `active_users` column.
+pub fn get_all_homeservers() -> Query {
     Query::new(
-        "get_all_active_homeservers",
-        "MATCH (:User)-[:HOSTED_BY]->(hs:Homeserver)
-        WITH collect(DISTINCT hs.id) AS homeservers_list
-        RETURN homeservers_list",
+        "get_all_homeservers",
+        "MATCH (hs:Homeserver)
+        OPTIONAL MATCH (u:User)-[:HOSTED_BY]->(hs)
+        WITH hs.id AS id, count(u) AS active_users
+        ORDER BY active_users DESC
+        RETURN id, active_users",
     )
 }
 
