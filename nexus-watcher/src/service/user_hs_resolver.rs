@@ -156,10 +156,12 @@ pub async fn run() -> Result<(), DynError> {
     Ok(())
 }
 
+// TODO Move tests to separate module? (switch to WatcherTest::setup())
 #[cfg(test)]
 mod tests {
     use super::*;
     use nexus_common::db::exec_single_row;
+    use nexus_common::db::graph::Query;
     use nexus_common::types::DynError;
     use nexus_common::{StackConfig, StackManager};
 
@@ -170,7 +172,8 @@ mod tests {
 
     /// Helper: create a User node in the graph
     async fn create_test_user(user_id: &str) -> GraphResult<()> {
-        let query = neo4rs::query(
+        let query = Query::new(
+            "create_test_user",
             "MERGE (u:User {id: $id})
              SET u.name = 'test', u.indexed_at = 0
              RETURN u;",

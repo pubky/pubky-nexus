@@ -90,18 +90,21 @@ pub async fn del(
     debug!("Deleting File resource at {}/{}", user_id, file_id);
     let result = FileDetails::get_by_ids(&[&[user_id, &file_id]]).await?;
 
-    if !result.is_empty() {
-        let file = &result[0];
-
-        if let Some(file_details) = file {
-            file_details.delete().await?;
-        }
-
-        let folder_path = Path::new(&user_id.to_string()).join(&file_id);
-        let full_path = files_path.join(folder_path);
-
-        remove_dir_all(full_path).await?;
+    if result.is_empty() {
+        return Ok(());
     }
 
-    Ok(())
+    let file = &result[0];
+    if let Some(file_details) = file {
+        file_details.delete().await?;
+    }
+
+    let folder_path = Path::new(&user_id.to_string()).join(&file_id);
+    let full_path = files_path.join(folder_path);
+
+    match remove_dir_all(full_path.as_path()).await {
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e.into()),
+    }
 }

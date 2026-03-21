@@ -13,4 +13,5 @@ pub use graph::error::{GraphError, GraphResult};
 pub use graph::exec::*;
 pub use graph::queries;
 pub use graph::setup;
+pub use graph::GraphOps;
 pub use kv::RedisOps;

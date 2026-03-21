@@ -2,10 +2,9 @@ use crate::events::EventProcessorError;
 
 use nexus_common::db::queries::get::user_is_safe_to_delete;
 use nexus_common::db::{execute_graph_operation, OperationOutcome};
-use nexus_common::models::user::UserSearch;
 use nexus_common::models::{
     traits::Collection,
-    user::{UserCounts, UserDetails, USER_DELETED_SENTINEL},
+    user::{UserCounts, UserDetails, UserSearch, USER_DELETED_SENTINEL},
 };
 use pubky_app_specs::{PubkyAppUser, PubkyId};
 use tracing::debug;
@@ -61,6 +60,9 @@ pub async fn del(user_id: PubkyId) -> Result<(), EventProcessorError> {
         .map_err(EventProcessorError::graph_query_failed)?
     {
         OperationOutcome::CreatedOrDeleted => {
+            // UserSearch::delete reads UserDetails from the index to find the username,
+            // so it must complete before UserDetails::delete runs.
+            UserSearch::delete(&user_id).await?;
             let indexing_results =
                 tokio::join!(UserDetails::delete(&user_id), UserCounts::delete(&user_id));
             indexing_results.0?;
