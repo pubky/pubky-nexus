@@ -274,14 +274,6 @@ pub fn get_all_homeservers_with_active_users() -> Query {
     )
 }
 
-/// Retrieves all user IDs from the graph
-pub fn get_all_user_ids() -> Query {
-    Query::new(
-        "get_all_user_ids",
-        "MATCH (u:User) RETURN collect(u.id) AS user_ids",
-    )
-}
-
 /// Retrieves user IDs whose homeserver mapping is stale or missing.
 ///
 /// Returns users that either:
