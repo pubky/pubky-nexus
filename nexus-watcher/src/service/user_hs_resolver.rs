@@ -75,9 +75,12 @@ impl UserHsFailures {
 // Core resolver logic
 // ---------------------------------------------------------------------------
 
-/// Fetches all user IDs from the graph.
-async fn get_all_user_ids() -> GraphResult<Vec<String>> {
-    let query = queries::get::get_all_user_ids();
+/// Fetches user IDs whose homeserver mapping is stale or missing.
+///
+/// A mapping is considered stale when its `resolved_at` timestamp is older
+/// than `ttl_ms` milliseconds ago.
+async fn get_users_needing_resolution(ttl_ms: u64) -> GraphResult<Vec<String>> {
+    let query = queries::get::get_users_needing_hs_resolution(ttl_ms);
     let maybe_user_ids = fetch_key_from_graph(query, "user_ids").await?;
     Ok(maybe_user_ids.unwrap_or_default())
 }
@@ -127,10 +130,13 @@ pub async fn get_user_ids_by_homeserver(hs_id: &str) -> GraphResult<Vec<String>>
 }
 
 /// Main entry point for one cycle of the periodic task.
-pub async fn run() -> Result<(), DynError> {
-    let user_ids = get_all_user_ids().await?;
+///
+/// `ttl_ms` controls the minimum time before a user's mapping is re-resolved.
+/// Users whose `HOSTED_BY.resolved_at` is newer than `ttl_ms` are skipped.
+pub async fn run(ttl_ms: u64) -> Result<(), DynError> {
+    let user_ids = get_users_needing_resolution(ttl_ms).await?;
     if user_ids.is_empty() {
-        debug!("No users to resolve homeservers for");
+        debug!("No users need homeserver resolution");
         return Ok(());
     }
     debug!("Resolving homeservers for {} users", user_ids.len());
@@ -282,6 +288,61 @@ mod tests {
 
         // Cleanup
         cleanup_test_user(user_id).await?;
+
+        Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn test_get_users_needing_resolution_ttl() -> Result<(), DynError> {
+        setup().await?;
+
+        let user_fresh = "ttl_test_user_fresh";
+        let user_stale = "ttl_test_user_stale";
+        let user_no_hs = "ttl_test_user_no_hs";
+        let hs_id = "ttl_test_hs";
+
+        create_test_user(user_fresh).await?;
+        create_test_user(user_stale).await?;
+        create_test_user(user_no_hs).await?;
+
+        // Give user_fresh a recently resolved mapping
+        exec_single_row(queries::put::set_user_homeserver(user_fresh, hs_id)).await?;
+
+        // Give user_stale a mapping with an old resolved_at (1 hour ago)
+        let stale_query = Query::new(
+            "set_stale_hs",
+            "MATCH (u:User {id: $user_id})
+             MERGE (hs:Homeserver {id: $hs_id})
+             MERGE (u)-[r:HOSTED_BY]->(hs)
+             SET r.resolved_at = timestamp() - 7200000",
+        )
+        .param("user_id", user_stale)
+        .param("hs_id", hs_id);
+        exec_single_row(stale_query).await?;
+
+        // user_no_hs has no HOSTED_BY at all
+
+        // With a 1-hour TTL: user_fresh should be skipped, user_stale and user_no_hs returned
+        let mut needing = get_users_needing_resolution(3_600_000).await?;
+        needing.sort();
+
+        assert!(
+            !needing.contains(&user_fresh.to_string()),
+            "Recently resolved user should be skipped"
+        );
+        assert!(
+            needing.contains(&user_stale.to_string()),
+            "Stale user should need resolution"
+        );
+        assert!(
+            needing.contains(&user_no_hs.to_string()),
+            "User without HOSTED_BY should need resolution"
+        );
+
+        // Cleanup
+        cleanup_test_user(user_fresh).await?;
+        cleanup_test_user(user_stale).await?;
+        cleanup_test_user(user_no_hs).await?;
 
         Ok(())
     }

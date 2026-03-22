@@ -23,6 +23,8 @@ events_limit = 50
 # Maximum number of monitored homeservers. If set to 1, only the default homeserver is monitored.
 monitored_homeservers_limit = 50
 watcher_sleep = 5000
+# Minimum time (ms) before a user's homeserver mapping is re-resolved (default: 1 hour)
+hs_resolver_ttl = 3600000
 # User public key to trust for moderating content
 moderation_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 # Tags on content to de-index when placed by the trusted moderator above

@@ -91,6 +91,7 @@ impl NexusWatcher {
 
         let watcher_sleep = config.watcher_sleep;
         let hs_resolver_sleep: u64 = 10_000;
+        let hs_resolver_ttl = config.hs_resolver_ttl;
         let ev_processor_runner = EventProcessorRunner::from_config(&config, shutdown_rx.clone());
         let ev_processor_runner = Arc::new(ev_processor_runner);
 
@@ -106,8 +107,8 @@ impl NexusWatcher {
                 let runner = external_hs_runner.clone();
                 async move { runner.run_external_homeservers().await.map(|_| ()) }
             }),
-            PeriodicTask::new("user-hs-resolver", hs_resolver_sleep, || {
-                async move { user_hs_resolver::run().await }
+            PeriodicTask::new("user-hs-resolver", hs_resolver_sleep, move || {
+                async move { user_hs_resolver::run(hs_resolver_ttl).await }
             }),
         ];
 

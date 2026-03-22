@@ -17,6 +17,8 @@ pub const DEFAULT_EVENTS_LIMIT: u32 = 1_000;
 pub const DEFAULT_MONITORED_HOMESERVERS_LIMIT: usize = 50;
 /// Default for [WatcherConfig::watcher_sleep]
 pub const DEFAULT_WATCHER_SLEEP: u64 = 5_000;
+/// Default for [WatcherConfig::hs_resolver_ttl]: 1 hour in milliseconds
+pub const DEFAULT_HS_RESOLVER_TTL: u64 = 3_600_000;
 // Moderation service key
 pub const MODERATION_ID: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 // Moderation service key
@@ -43,6 +45,10 @@ pub struct WatcherConfig {
     pub monitored_homeservers_limit: usize,
     /// Sleep between every full run (over all monitored homeservers), in milliseconds
     pub watcher_sleep: u64,
+    /// Minimum time (ms) before a user's homeserver mapping is re-resolved.
+    /// Users whose `HOSTED_BY.resolved_at` is newer than this TTL are skipped.
+    #[serde(default = "default_hs_resolver_ttl")]
+    pub hs_resolver_ttl: u64,
     #[serde(default = "default_stack")]
     pub stack: StackConfig,
     // Moderation
@@ -68,10 +74,15 @@ impl Default for WatcherConfig {
             events_limit: DEFAULT_EVENTS_LIMIT,
             monitored_homeservers_limit: DEFAULT_MONITORED_HOMESERVERS_LIMIT,
             watcher_sleep: DEFAULT_WATCHER_SLEEP,
+            hs_resolver_ttl: DEFAULT_HS_RESOLVER_TTL,
             moderation_id,
             moderated_tags: MODERATED_TAGS.iter().map(|s| s.to_string()).collect(),
         }
     }
+}
+
+fn default_hs_resolver_ttl() -> u64 {
+    DEFAULT_HS_RESOLVER_TTL
 }
 
 /// Converts a [`DaemonConfig`] into an [`WatcherConfig`], extracting only the Watcher-related settings

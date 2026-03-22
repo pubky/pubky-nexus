@@ -283,6 +283,26 @@ pub fn get_all_user_ids() -> Query {
     )
 }
 
+/// Retrieves user IDs whose homeserver mapping is stale or missing.
+///
+/// Returns users that either:
+/// - Have no `HOSTED_BY` relationship at all, or
+/// - Have a `HOSTED_BY` relationship with `resolved_at` older than `ttl_ms`
+///   milliseconds ago (or `resolved_at` is absent).
+pub fn get_users_needing_hs_resolution(ttl_ms: u64) -> Query {
+    Query::new(
+        "get_users_needing_hs_resolution",
+        "MATCH (u:User)
+         OPTIONAL MATCH (u)-[r:HOSTED_BY]->(:Homeserver)
+         WITH u, r
+         WHERE r IS NULL
+            OR r.resolved_at IS NULL
+            OR r.resolved_at < (timestamp() - $ttl_ms)
+         RETURN collect(u.id) AS user_ids",
+    )
+    .param("ttl_ms", ttl_ms as i64)
+}
+
 /// Retrieves all user IDs hosted on a given homeserver.
 pub fn get_users_by_homeserver(hs_id: &str) -> Query {
     Query::new(
