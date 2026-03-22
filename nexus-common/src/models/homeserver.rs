@@ -128,7 +128,7 @@ impl Homeserver {
     /// # Errors
     /// Returns an error if no homeservers are found.
     pub async fn get_all_from_graph() -> GraphResult<Vec<HomeserverEntry>> {
-        let query = queries::get::get_all_homeservers();
+        let query = queries::get::get_all_homeservers_and_active_users();
         let rows = fetch_all_rows_from_graph(query).await?;
 
         if rows.is_empty() {

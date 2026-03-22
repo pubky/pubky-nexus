@@ -264,9 +264,9 @@ pub fn get_homeserver_by_id(id: &str) -> Query {
 ///
 /// The results are sorted by the number of active users in descending order.
 /// Each returned row contains an `id` and an `active_users` column.
-pub fn get_all_homeservers() -> Query {
+pub fn get_all_homeservers_and_active_users() -> Query {
     Query::new(
-        "get_all_homeservers",
+        "get_all_homeservers_and_active_users",
         "MATCH (hs:Homeserver)
         OPTIONAL MATCH (u:User)-[:HOSTED_BY]->(hs)
         WITH hs.id AS id, count(u) AS active_users
