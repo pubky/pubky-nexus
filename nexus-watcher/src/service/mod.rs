@@ -79,7 +79,7 @@ impl NexusWatcher {
     /// 3. **User HS resolver**: Resolves each user's homeserver and persists `HOSTED_BY` relationships.
     ///
     /// The event-processing tasks share the same tick interval ([`WatcherConfig::watcher_sleep`]),
-    /// while the HS resolver uses its own interval (`hs_resolver_sleep`, default 10 s).
+    /// while the HS resolver uses its own interval ([`WatcherConfig::hs_resolver_sleep`]).
     /// All tasks listen for the shutdown signal to exit gracefully. If any task panics,
     /// an internal cancellation signal is sent so that sibling tasks can finish their
     /// current iteration and exit.
@@ -90,7 +90,7 @@ impl NexusWatcher {
         Homeserver::persist_if_unknown(config_hs).await?;
 
         let watcher_sleep = config.watcher_sleep;
-        let hs_resolver_sleep: u64 = 10_000;
+        let hs_resolver_sleep = config.hs_resolver_sleep;
         let hs_resolver_ttl = config.hs_resolver_ttl;
         let ev_processor_runner = EventProcessorRunner::from_config(&config, shutdown_rx.clone());
         let ev_processor_runner = Arc::new(ev_processor_runner);
