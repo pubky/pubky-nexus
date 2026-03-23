@@ -107,9 +107,7 @@ impl Homeserver {
         Ok(())
     }
 
-    /// Retrieves all homeservers with at least one active user from the graph.
-    ///
-    /// The returned list is sorted by the number of active users in descending order.
+    /// Returns all HS IDs with at least one active user, sorted by user count descending.  
     ///
     /// # Returns
     /// A list of active homeserver IDs.
