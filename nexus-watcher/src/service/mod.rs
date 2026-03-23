@@ -2,25 +2,28 @@ mod constants;
 mod processor;
 mod processor_runner;
 mod stats;
+mod task_runner;
 mod traits;
 
 /// Module exports
 pub use constants::{PROCESSING_TIMEOUT_SECS, WATCHER_CONFIG_FILE_NAME};
-use nexus_common::types::DynError;
 pub use processor::EventProcessor;
 pub use processor_runner::EventProcessorRunner;
+pub(crate) use task_runner::{run_periodic_tasks, PeriodicTask};
 pub use traits::{TEventProcessor, TEventProcessorRunner};
 
+use crate::service::task_runner::task_results_into_result;
 use crate::NexusWatcherBuilder;
 use nexus_common::file::ConfigLoader;
 use nexus_common::models::homeserver::Homeserver;
+use nexus_common::types::DynError;
 use nexus_common::utils::create_shutdown_rx;
 use nexus_common::{DaemonConfig, WatcherConfig};
 use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::sync::watch::Receiver;
-use tokio::time::Duration;
-use tracing::{debug, error, info};
+use tracing::{debug, info};
 
 pub struct NexusWatcher {}
 
@@ -67,34 +70,42 @@ impl NexusWatcher {
         NexusWatcherBuilder(watcher_config).start(shutdown_rx).await
     }
 
-    pub async fn start(
-        mut shutdown_rx: Receiver<bool>,
-        config: WatcherConfig,
-    ) -> Result<(), DynError> {
+    /// Starts the Nexus Watcher with parallel periodic task loops.
+    ///
+    /// Currently runs two tasks:
+    /// 1. **Default homeserver**: Processes events from the default homeserver defined in [`WatcherConfig`].
+    /// 2. **External homeservers**: Processes events from all external monitored homeservers, excluding the default.
+    ///
+    /// All tasks share the same tick interval ([`WatcherConfig::watcher_sleep`]) and listen for
+    /// the shutdown signal to exit gracefully. If any task panics, an internal cancellation
+    /// signal is sent so that sibling tasks can finish their current iteration and exit.
+    pub async fn start(shutdown_rx: Receiver<bool>, config: WatcherConfig) -> Result<(), DynError> {
         debug!(?config, "Running NexusWatcher with ");
 
         let config_hs = PubkyId::try_from(config.homeserver.as_str())?;
         Homeserver::persist_if_unknown(config_hs).await?;
 
-        let mut interval = tokio::time::interval(Duration::from_millis(config.watcher_sleep));
+        let watcher_sleep = config.watcher_sleep;
         let ev_processor_runner = EventProcessorRunner::from_config(&config, shutdown_rx.clone());
+        let ev_processor_runner = Arc::new(ev_processor_runner);
 
-        loop {
-            tokio::select! {
-                _ = shutdown_rx.changed() => {
-                    info!("SIGINT received, exiting Nexus Watcher loop");
-                    break;
-                }
-                _ = interval.tick() => {
-                    debug!("Indexing homeservers…");
-                    _ = ev_processor_runner
-                        .run_all()
-                        .await
-                        .inspect_err(|e| error!("Failed to start event processors run: {e}"));
-                }
-            }
-        }
+        let default_hs_runner = ev_processor_runner.clone();
+        let external_hs_runner = ev_processor_runner.clone();
+
+        let tasks = vec![
+            PeriodicTask::new("default-homeserver", watcher_sleep, move || {
+                let runner = default_hs_runner.clone();
+                async move { runner.run_default_homeserver().await.map(|_| ()) }
+            }),
+            PeriodicTask::new("external-homeservers", watcher_sleep, move || {
+                let runner = external_hs_runner.clone();
+                async move { runner.run_external_homeservers().await.map(|_| ()) }
+            }),
+        ];
+
+        let task_results = run_periodic_tasks(tasks, shutdown_rx).await;
+
         info!("Nexus Watcher shut down gracefully");
-        Ok(())
+        task_results_into_result(task_results)
     }
 }

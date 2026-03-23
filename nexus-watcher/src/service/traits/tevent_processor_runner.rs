@@ -17,7 +17,7 @@ use crate::service::{
 /// - Implementors should ensure that created processors are properly isolated and
 ///   don't share mutable state unless explicitly intended
 #[async_trait::async_trait]
-pub trait TEventProcessorRunner {
+pub trait TEventProcessorRunner: Send + Sync {
     /// Returns the shutdown signal receiver
     fn shutdown_rx(&self) -> Receiver<bool>;
 
@@ -29,8 +29,9 @@ pub trait TEventProcessorRunner {
 
     /// Returns the homeserver IDs relevant for this run, ordered by their priority.
     ///
-    /// Contains all homeserver IDs from the graph, with the default homeserver prioritized at index 0.
-    async fn homeservers_by_priority(&self) -> Result<Vec<String>, DynError>;
+    /// The default homeserver is excluded from this list, as it is processed separately
+    /// via [`TEventProcessorRunner::run_default_homeserver`].
+    async fn external_homeservers_by_priority(&self) -> Result<Vec<String>, DynError>;
 
     /// Creates and returns a new event processor instance for the specified homeserver.
     ///
@@ -45,19 +46,19 @@ pub trait TEventProcessorRunner {
     /// Throws a [`WatcherError`] if the event processor couldn't be built
     async fn build(&self, homeserver_id: String) -> Result<Arc<dyn TEventProcessor>, DynError>;
 
-    /// Decides the amount and order of homeservers from which events will be fetched and processed in `run_all`.
+    /// Decides the amount and order of homeservers from which events will be fetched and processed in `run_external_homeservers`.
     ///
     /// # Returns
     /// Considers the values of [TEventProcessorRunner::homeservers_by_priority].
     /// Depending on [TEventProcessorRunner::monitored_homeservers_limit], only a subset of this list may be returned.
-    async fn pre_run_all(&self) -> Result<Vec<String>, DynError> {
-        let hs_ids = self.homeservers_by_priority().await?;
+    async fn pre_run_external_homeservers(&self) -> Result<Vec<String>, DynError> {
+        let hs_ids = self.external_homeservers_by_priority().await?;
         let max_index = std::cmp::min(self.monitored_homeservers_limit(), hs_ids.len());
         Ok(hs_ids[..max_index].to_vec())
     }
 
     /// Post-processing of the run results
-    async fn post_run_all(&self, stats: RunAllProcessorsStats) -> ProcessedStats {
+    async fn post_run_external_homeservers(&self, stats: RunAllProcessorsStats) -> ProcessedStats {
         for individual_run_stat in &stats.stats {
             let hs_id = &individual_run_stat.hs_id;
             let duration = individual_run_stat.duration;
@@ -83,18 +84,50 @@ pub trait TEventProcessorRunner {
         ProcessedStats(stats)
     }
 
-    /// Runs event processors for all homeservers relevant for this run, with timeout protection.
+    /// Builds and runs a single event processor for the default homeserver.
+    ///
+    /// # Returns
+    /// Statistics about the event processor run result, summarized as [`RunAllProcessorsStats`]
+    async fn run_default_homeserver(&self) -> Result<ProcessedStats, DynError> {
+        let hs_id = self.default_homeserver().to_string();
+        let mut run_stats = RunAllProcessorsStats::default();
+
+        let t0 = Instant::now();
+        let status = match self.build(hs_id.clone()).await {
+            Ok(event_processor) => match event_processor.run().await {
+                Ok(_) => ProcessorRunStatus::Ok,
+                Err(RunError::Internal(_)) => ProcessorRunStatus::Error,
+                Err(RunError::Panicked) => ProcessorRunStatus::Panic,
+                Err(RunError::TimedOut) => ProcessorRunStatus::Timeout,
+            },
+            Err(e) => {
+                error!("Failed to build event processor for default homeserver: {hs_id}: {e}");
+                ProcessorRunStatus::FailedToBuild
+            }
+        };
+        let duration = Instant::now().duration_since(t0);
+
+        run_stats.add_run_result(hs_id, duration, status);
+
+        let processed_stats = self.post_run_external_homeservers(run_stats).await;
+        Ok(processed_stats)
+    }
+
+    /// Runs event processors for all external homeservers relevant for this run, with timeout protection.
+    ///
+    /// Does not include the default homeserver, which is processed separately
+    /// via [`TEventProcessorRunner::run_default_homeserver`].
     ///
     /// # Returns
     /// Statistics about the event processor run results, summarized as [`RunAllProcessorsStats`]
-    async fn run_all(&self) -> Result<ProcessedStats, DynError> {
-        let hs_ids = self.pre_run_all().await?;
+    async fn run_external_homeservers(&self) -> Result<ProcessedStats, DynError> {
+        let hs_ids = self.pre_run_external_homeservers().await?;
 
         let mut run_stats = RunAllProcessorsStats::default();
 
         for hs_id in hs_ids {
             if *self.shutdown_rx().borrow() {
-                info!("Shutdown detected in homeserver {hs_id}, exiting run_all loop");
+                info!("Shutdown detected in homeserver {hs_id}, exiting run_external_homeservers loop");
                 break; // Exit loop
             }
 
@@ -116,7 +149,7 @@ pub trait TEventProcessorRunner {
             run_stats.add_run_result(hs_id, duration, status);
         }
 
-        let processed_stats = self.post_run_all(run_stats).await;
+        let processed_stats = self.post_run_external_homeservers(run_stats).await;
         Ok(processed_stats)
     }
 }
