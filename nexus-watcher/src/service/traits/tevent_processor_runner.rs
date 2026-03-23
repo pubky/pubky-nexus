@@ -1,5 +1,6 @@
 use std::{sync::Arc, time::Instant};
 
+use nexus_common::models::circuit_breaker::HomeserverCircuitBreaker;
 use nexus_common::types::DynError;
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info, warn};
@@ -145,6 +146,20 @@ pub trait TEventProcessorRunner: Send + Sync {
                 }
             };
             let duration = Instant::now().duration_since(t0);
+
+            // Update circuit breaker based on run outcome
+            match status {
+                ProcessorRunStatus::Ok => {
+                    if let Err(e) = HomeserverCircuitBreaker::record_success(&hs_id).await {
+                        warn!("Failed to record circuit breaker success for {hs_id}: {e}");
+                    }
+                }
+                _ => {
+                    if let Err(e) = HomeserverCircuitBreaker::record_failure(&hs_id).await {
+                        warn!("Failed to record circuit breaker failure for {hs_id}: {e}");
+                    }
+                }
+            }
 
             run_stats.add_run_result(hs_id, duration, status);
         }

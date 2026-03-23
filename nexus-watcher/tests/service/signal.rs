@@ -25,6 +25,7 @@ async fn test_shutdown_signal() -> Result<()> {
             processor_status,
             None,
             shutdown_rx.clone(),
+            Some(1),
         )
         .await;
     }

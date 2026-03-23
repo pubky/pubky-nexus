@@ -37,7 +37,7 @@ mod watcher;
 pub use api::ApiConfig;
 pub use daemon::DaemonConfig;
 pub use stack::{default_stack, StackConfig};
-pub use watcher::WatcherConfig;
+pub use watcher::{WatcherConfig, DEFAULT_HS_RESOLVER_TTL};
 
 use crate::file::validate_and_expand_path;
 

@@ -320,3 +320,32 @@ pub fn create_homeserver(homeserver_id: &str) -> Query {
     )
     .param("id", homeserver_id)
 }
+
+/// Sets the HOSTED_BY relationship between a user and a homeserver.
+///
+/// No-ops when the user is already hosted by the target homeserver.
+/// Otherwise deletes the old relationship, MERGEs the target homeserver
+/// node, and creates the new HOSTED_BY edge.
+///
+/// The relationship carries a `resolved_at` timestamp (epoch ms) so that
+/// the periodic resolver can skip users whose mapping was recently resolved.
+pub fn set_user_homeserver(user_id: &str, homeserver_id: &str) -> Query {
+    Query::new(
+        "set_user_homeserver",
+        "MATCH (u:User {id: $user_id})
+
+         // Remove existing HOSTED_BY only if homeserver changed
+         OPTIONAL MATCH (u)-[old:HOSTED_BY]->(old_hs:Homeserver)
+         WHERE old_hs.id <> $hs_id
+         DELETE old
+
+         WITH u
+
+         // Ensure target homeserver and relationship exist
+         MERGE (hs:Homeserver {id: $hs_id})
+         MERGE (u)-[r:HOSTED_BY]->(hs)
+         SET r.resolved_at = timestamp()",
+    )
+    .param("user_id", user_id.to_string())
+    .param("hs_id", homeserver_id.to_string())
+}
