@@ -1,11 +1,15 @@
 mod fail_index;
 mod multi_user;
 mod post_del;
+mod post_del_notification;
+mod post_del_self_notification;
 mod post_multi_user;
 mod post_notification;
 mod post_put;
 mod retry_post_tag;
 mod retry_user_tag;
+mod user_del_notification;
+mod user_del_self_notification;
 mod user_notification;
 mod user_to_self_put;
 mod user_to_user_del;
