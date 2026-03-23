@@ -12,9 +12,26 @@ use pubky::PublicKey;
 use pubky_app_specs::PubkyId;
 use tracing::{debug, warn};
 
-// ---------------------------------------------------------------------------
-// Core resolver logic
-// ---------------------------------------------------------------------------
+/// Main entry point for one cycle of the periodic task.
+///
+/// `ttl_ms` controls the minimum time before a user's mapping is re-resolved.
+/// Users whose `HOSTED_BY.resolved_at` is newer than `ttl_ms` are skipped.
+pub async fn run(ttl_ms: u64) -> Result<(), DynError> {
+    let user_ids = get_users_needing_resolution(ttl_ms).await?;
+    if user_ids.is_empty() {
+        debug!("No users need homeserver resolution");
+        return Ok(());
+    }
+    debug!("Resolving homeservers for {} users", user_ids.len());
+
+    for user_id in &user_ids {
+        if let Err(e) = resolve_user(user_id).await {
+            warn!("Failed to resolve homeserver for user {user_id}: {e}");
+        }
+    }
+
+    Ok(())
+}
 
 /// Fetches user IDs whose homeserver mapping is stale or missing.
 ///
@@ -50,27 +67,6 @@ pub async fn get_user_ids_by_homeserver(hs_id: &str) -> GraphResult<Vec<String>>
     let query = queries::get::get_users_by_homeserver(hs_id);
     let maybe_user_ids = fetch_key_from_graph(query, "user_ids").await?;
     Ok(maybe_user_ids.unwrap_or_default())
-}
-
-/// Main entry point for one cycle of the periodic task.
-///
-/// `ttl_ms` controls the minimum time before a user's mapping is re-resolved.
-/// Users whose `HOSTED_BY.resolved_at` is newer than `ttl_ms` are skipped.
-pub async fn run(ttl_ms: u64) -> Result<(), DynError> {
-    let user_ids = get_users_needing_resolution(ttl_ms).await?;
-    if user_ids.is_empty() {
-        debug!("No users need homeserver resolution");
-        return Ok(());
-    }
-    debug!("Resolving homeservers for {} users", user_ids.len());
-
-    for user_id in &user_ids {
-        if let Err(e) = resolve_user(user_id).await {
-            warn!("Failed to resolve homeserver for user {user_id}: {e}");
-        }
-    }
-
-    Ok(())
 }
 
 // TODO Move tests to separate module? (switch to WatcherTest::setup())
