@@ -51,9 +51,7 @@ uri = "bolt://localhost:7687"
 # Not needed in the Community Edition the profile username, just the password
 #user = "neo4j"
 password = "12345678"
-# Queries taking longer than this (ms) will be logged as warnings
+# Queries taking longer than this (ms) will be logged as warnings. Remove or comment out this line to disable.
 slow_query_logging_threshold_ms = 100
-# Enable or disable slow query logging
-slow_query_logging_enabled = true
 # Include the Cypher query text in slow query log entries
 #slow_query_logging_include_cypher = false
