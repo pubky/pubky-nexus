@@ -37,7 +37,7 @@ impl RedisOps for UserHsFailures {}
 
 impl UserHsFailures {
     /// Reads the failure count for a user (returns 0 when absent).
-    #[allow(dead_code)]
+    #[cfg(test)]
     async fn get(user_id: &str) -> RedisResult<u64> {
         let score =
             Self::check_sorted_set_member(None, &USER_HS_FAILURES_KEY_PARTS, &[user_id]).await?;
