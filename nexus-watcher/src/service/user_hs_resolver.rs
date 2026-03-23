@@ -86,17 +86,20 @@ async fn get_users_needing_resolution(ttl_ms: u64) -> GraphResult<Vec<String>> {
 }
 
 /// Sorts user IDs by their failure count (ascending — fewest failures first).
-/// Ties are broken by `user_id` ascending for deterministic ordering.
 /// Returns `(user_id, failure_score)` pairs.
 async fn sort_by_failures(user_ids: Vec<String>) -> RedisResult<Vec<(String, f64)>> {
     let failure_map = UserHsFailures::get_all().await?;
 
     let mut sorted_users_and_failures = user_ids
         .into_iter()
-        .map(|id| (id.clone(), failure_map.get(&id).copied().unwrap_or(0.0)))
+        .map(|id| {
+            let score = failure_map.get(&id).copied().unwrap_or(0.0);
+            (id, score)
+        })
         .collect::<Vec<_>>();
 
     sorted_users_and_failures.sort_by(|(a_id, a_score), (b_id, b_score)| {
+        // Ties are broken by `user_id` ascending for deterministic ordering
         a_score.total_cmp(b_score).then_with(|| a_id.cmp(b_id))
     });
 
