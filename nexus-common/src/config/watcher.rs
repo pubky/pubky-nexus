@@ -39,22 +39,31 @@ pub struct WatcherConfig {
     pub name: String,
     pub testnet: bool,
     pub testnet_host: String,
+
     /// Default homeserver. Other homeservers may be ingested in addition, but this one is prioritized.
     pub homeserver: PubkyId,
+
     /// Maximum number of events to fetch per run from each homeserver
     pub events_limit: u32,
+
     /// Maximum number of monitored homeservers
     pub monitored_homeservers_limit: usize,
+
     /// Sleep between every full run (over all monitored homeservers), in milliseconds
     pub watcher_sleep: u64,
+
     /// Sleep between every run of the user HS resolver periodic task, in milliseconds
+    #[serde(default = "default_hs_resolver_sleep")]
     pub hs_resolver_sleep: u64,
+
     /// Minimum time (ms) before a user's homeserver mapping is re-resolved.
     /// Users whose `HOSTED_BY.resolved_at` is newer than this TTL are skipped.
     #[serde(default = "default_hs_resolver_ttl")]
     pub hs_resolver_ttl: u64,
+
     #[serde(default = "default_stack")]
     pub stack: StackConfig,
+
     // Moderation
     pub moderation_id: PubkyId,
     pub moderated_tags: Vec<String>,
@@ -84,6 +93,10 @@ impl Default for WatcherConfig {
             moderated_tags: MODERATED_TAGS.iter().map(|s| s.to_string()).collect(),
         }
     }
+}
+
+fn default_hs_resolver_sleep() -> u64 {
+    DEFAULT_HS_RESOLVER_SLEEP
 }
 
 fn default_hs_resolver_ttl() -> u64 {
