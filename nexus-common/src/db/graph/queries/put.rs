@@ -333,10 +333,14 @@ pub fn set_user_homeserver(user_id: &str, homeserver_id: &str) -> Query {
     Query::new(
         "set_user_homeserver",
         "MATCH (u:User {id: $user_id})
-         // Remove existing HOSTED_BY (no-op when none exists)
-         OPTIONAL MATCH (u)-[old:HOSTED_BY]->(:Homeserver)
+
+         // Remove existing HOSTED_BY only if homeserver changed
+         OPTIONAL MATCH (u)-[old:HOSTED_BY]->(old_hs:Homeserver)
+         WHERE old_hs.id <> $hs_id
          DELETE old
+
          WITH u
+
          // Ensure target homeserver and relationship exist
          MERGE (hs:Homeserver {id: $hs_id})
          MERGE (u)-[r:HOSTED_BY]->(hs)
