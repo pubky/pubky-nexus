@@ -1,5 +1,4 @@
 use crate::event_processor::utils::watcher::WatcherTest;
-use anyhow::Result;
 use nexus_common::db::exec_single_row;
 use nexus_common::db::queries;
 use nexus_common::models::homeserver::Homeserver;
@@ -27,151 +26,90 @@ async fn create_orphan_hs() -> Result<PubkyId, DynError> {
     Ok(id)
 }
 
-/// Orphan homeservers (no users) must all be excluded from the active list.
+/// Active homeserver listing: orphan exclusion, sort order, and stability after user reassignment.
 #[tokio_shared_rt::test(shared)]
-async fn test_get_all_homeservers_excludes_orphans() -> Result<(), DynError> {
+async fn test_get_all_active_homeservers() -> Result<(), DynError> {
     let mut test = WatcherTest::setup().await?;
 
-    // Create several orphan homeservers (no users hosted on them)
-    let orphan_ids: Vec<PubkyId> = {
-        let mut ids = Vec::new();
-        for _ in 0..3 {
-            ids.push(create_orphan_hs().await?);
-        }
-        ids
-    };
+    // -- Orphan HSs (no users) must be excluded --
+    let orphan1 = create_orphan_hs().await?;
+    let orphan2 = create_orphan_hs().await?;
 
-    // Create one active user on the default homeserver so the query returns at least one HS
-    let user_kp = Keypair::random();
-    let user_id = test
-        .create_user(&user_kp, &make_test_user("Orphan:User"))
+    // -- HS-A: 1 user --
+    let hs_a = create_orphan_hs().await?;
+    let kp_a1 = Keypair::random();
+    let id_a1 = test
+        .create_user(&kp_a1, &make_test_user("Watcher:ActiveHS:A1"))
         .await?;
-    let default_id = test.homeserver_id.clone();
-    exec_single_row(queries::put::set_user_homeserver(&user_id, &default_id)).await?;
+    exec_single_row(queries::put::set_user_homeserver(&id_a1, &hs_a)).await?;
+
+    // -- HS-B: 2 users --
+    let hs_b = create_orphan_hs().await?;
+    let kp_b1 = Keypair::random();
+    let id_b1 = test
+        .create_user(&kp_b1, &make_test_user("Watcher:ActiveHS:B1"))
+        .await?;
+    exec_single_row(queries::put::set_user_homeserver(&id_b1, &hs_b)).await?;
+
+    let kp_b2 = Keypair::random();
+    let id_b2 = test
+        .create_user(&kp_b2, &make_test_user("Watcher:ActiveHS:B2"))
+        .await?;
+    exec_single_row(queries::put::set_user_homeserver(&id_b2, &hs_b)).await?;
 
     let hs_ids = Homeserver::get_all_active_from_graph().await?;
 
-    // The active homeserver must be present
+    // Orphans excluded
     assert!(
-        hs_ids.contains(&default_id.to_string()),
-        "Active HS should be included"
-    );
-
-    // All orphan homeservers must be excluded
-    for orphan_id in &orphan_ids {
-        assert!(
-            !hs_ids.contains(&orphan_id.to_string()),
-            "Orphan HS {orphan_id} should be excluded"
-        );
-    }
-
-    test.cleanup_user(&user_kp).await?;
-    Ok(())
-}
-
-/// Multiple active homeservers with different user counts are all returned,
-/// and sorted by user count descending.
-#[tokio_shared_rt::test(shared)]
-async fn test_get_all_homeservers_returns_multiple_active_sorted() -> Result<(), DynError> {
-    let mut test = WatcherTest::setup().await?;
-
-    // --- HS-A: 1 user ---
-    let hs_a_id = create_orphan_hs().await?;
-    let user_a1_kp = Keypair::random();
-    let user_a1_id = test
-        .create_user(&user_a1_kp, &make_test_user("SortA1"))
-        .await?;
-    exec_single_row(queries::put::set_user_homeserver(&user_a1_id, &hs_a_id)).await?;
-
-    // --- HS-B: 2 users ---
-    let hs_b_id = create_orphan_hs().await?;
-    let user_b1_kp = Keypair::random();
-    let user_b1_id = test
-        .create_user(&user_b1_kp, &make_test_user("SortB1"))
-        .await?;
-    exec_single_row(queries::put::set_user_homeserver(&user_b1_id, &hs_b_id)).await?;
-
-    let user_b2_kp = Keypair::random();
-    let user_b2_id = test
-        .create_user(&user_b2_kp, &make_test_user("SortB2"))
-        .await?;
-    exec_single_row(queries::put::set_user_homeserver(&user_b2_id, &hs_b_id)).await?;
-
-    let hs_ids = Homeserver::get_all_active_from_graph().await?;
-
-    // Both must appear
-    assert!(
-        hs_ids.contains(&hs_a_id.to_string()),
-        "HS-A (1 user) should be included"
+        !hs_ids.contains(&orphan1.to_string()),
+        "orphan1 should be excluded"
     );
     assert!(
-        hs_ids.contains(&hs_b_id.to_string()),
-        "HS-B (2 users) should be included"
+        !hs_ids.contains(&orphan2.to_string()),
+        "orphan2 should be excluded"
     );
 
-    // HS-B (2 users) must appear before HS-A (1 user) because the query sorts DESC
+    // Both active HSs included, HS-B (2 users) before HS-A (1 user)
     let pos_a = hs_ids
         .iter()
-        .position(|id| id == &hs_a_id.to_string())
+        .position(|id| id == &hs_a.to_string())
+        .expect("HS-A missing");
+    let pos_b = hs_ids
+        .iter()
+        .position(|id| id == &hs_b.to_string())
+        .expect("HS-B missing");
+    assert!(pos_b < pos_a, "HS-B (2 users) should precede HS-A (1 user)");
+
+    // -- Reassign one user from HS-B to HS-A; both HSs must stay active --
+    exec_single_row(queries::put::set_user_homeserver(&id_b2, &hs_a)).await?;
+
+    let hs_ids = Homeserver::get_all_active_from_graph().await?;
+    assert!(
+        hs_ids.contains(&hs_a.to_string()),
+        "HS-A should still be active"
+    );
+    assert!(
+        hs_ids.contains(&hs_b.to_string()),
+        "HS-B should still be active after partial removal"
+    );
+
+    // Now HS-A has 2 users, HS-B has 1 — order should flip
+    let pos_a = hs_ids
+        .iter()
+        .position(|id| id == &hs_a.to_string())
         .unwrap();
     let pos_b = hs_ids
         .iter()
-        .position(|id| id == &hs_b_id.to_string())
+        .position(|id| id == &hs_b.to_string())
         .unwrap();
     assert!(
-        pos_b < pos_a,
-        "HS-B (2 users) should be listed before HS-A (1 user)"
+        pos_a < pos_b,
+        "HS-A (2 users) should now precede HS-B (1 user)"
     );
 
     // Cleanup
-    test.cleanup_user(&user_a1_kp).await?;
-    test.cleanup_user(&user_b1_kp).await?;
-    test.cleanup_user(&user_b2_kp).await?;
-
-    Ok(())
-}
-
-/// A homeserver with multiple users stays active after one user is removed.
-#[tokio_shared_rt::test(shared)]
-async fn test_homeserver_stays_active_after_partial_user_removal() -> Result<(), DynError> {
-    let mut test = WatcherTest::setup().await?;
-
-    let hs_id_1 = create_orphan_hs().await?;
-    let hs_id_2 = create_orphan_hs().await?;
-
-    // Create two users on the same HS
-    let user1_kp = Keypair::random();
-    let user1_id = test
-        .create_user(&user1_kp, &make_test_user("Partial:User1"))
-        .await?;
-    exec_single_row(queries::put::set_user_homeserver(&user1_id, &hs_id_1)).await?;
-
-    let user2_kp = Keypair::random();
-    let user2_id = test
-        .create_user(&user2_kp, &make_test_user("Partial:User2"))
-        .await?;
-    exec_single_row(queries::put::set_user_homeserver(&user2_id, &hs_id_1)).await?;
-
-    // Both users present — HS 1 is active
-    let hs_ids = Homeserver::get_all_active_from_graph().await?;
-    assert!(
-        hs_ids.contains(&hs_id_1.to_string()),
-        "HS 1 with two users should be active"
-    );
-
-    // User 2 switches to HS 2
-    exec_single_row(queries::put::set_user_homeserver(&user2_id, &hs_id_2)).await?;
-
-    // HS 1 should still be active with the remaining user
-    let hs_ids_after = Homeserver::get_all_active_from_graph().await?;
-    assert!(
-        hs_ids_after.contains(&hs_id_1.to_string()),
-        "HS 1 should stay active after removing one of two users"
-    );
-
-    // Cleanup
-    test.cleanup_user(&user1_kp).await?;
-    test.cleanup_user(&user2_kp).await?;
-
+    test.cleanup_user(&kp_a1).await?;
+    test.cleanup_user(&kp_b1).await?;
+    test.cleanup_user(&kp_b2).await?;
     Ok(())
 }
