@@ -5,6 +5,7 @@ use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info, warn};
 
 use crate::service::{
+    backoff::HomeserverBackoff,
     stats::{ProcessedStats, ProcessorRunStatus, RunAllProcessorsStats},
     traits::{tevent_processor::RunError, TEventProcessor},
 };
@@ -26,6 +27,12 @@ pub trait TEventProcessorRunner {
     fn default_homeserver(&self) -> &str;
 
     fn monitored_homeservers_limit(&self) -> usize;
+
+    /// Returns the optional backoff tracker for skipping unresponsive homeservers.
+    /// Default: `None` (no backoff). Override to enable.
+    fn backoff(&self) -> Option<&HomeserverBackoff> {
+        None
+    }
 
     /// Returns the homeserver IDs relevant for this run, ordered by their priority.
     ///
@@ -70,11 +77,12 @@ pub trait TEventProcessorRunner {
         let count_panic = stats.count_panic();
         let count_timeout = stats.count_timeout();
         let count_failed_to_build = stats.count_failed_to_build();
+        let count_skipped = stats.count_skipped();
         let had_issues = count_error + count_panic + count_timeout + count_failed_to_build > 0;
 
-        if had_issues {
+        if had_issues || count_skipped > 0 {
             warn!(
-                "Run result: {count_ok} ok, {count_failed_to_build} failed to build, {count_error} error, {count_panic} panic, {count_timeout} timeout"
+                "Run result: {count_ok} ok, {count_skipped} skipped (backoff), {count_failed_to_build} failed to build, {count_error} error, {count_panic} panic, {count_timeout} timeout"
             );
         } else {
             debug!("Run result: {count_ok} ok");
@@ -92,10 +100,25 @@ pub trait TEventProcessorRunner {
 
         let mut run_stats = RunAllProcessorsStats::default();
 
+        let backoff = self.backoff();
+
         for hs_id in hs_ids {
             if *self.shutdown_rx().borrow() {
                 info!("Shutdown detected in homeserver {hs_id}, exiting run_all loop");
                 break; // Exit loop
+            }
+
+            // Skip homeservers that are in a backoff window
+            if let Some(b) = backoff {
+                if b.should_skip(&hs_id) {
+                    debug!("Skipping homeserver {hs_id} (in backoff)");
+                    run_stats.add_run_result(
+                        hs_id,
+                        std::time::Duration::ZERO,
+                        ProcessorRunStatus::Skipped,
+                    );
+                    continue;
+                }
             }
 
             let t0 = Instant::now();
@@ -111,7 +134,16 @@ pub trait TEventProcessorRunner {
                     ProcessorRunStatus::FailedToBuild
                 }
             };
-            let duration = Instant::now().duration_since(t0);
+            let duration = t0.elapsed();
+
+            // Update backoff state based on run outcome
+            if let Some(b) = backoff {
+                if status == ProcessorRunStatus::Ok {
+                    b.record_success(&hs_id);
+                } else {
+                    b.record_failure(&hs_id);
+                }
+            }
 
             run_stats.add_run_result(hs_id, duration, status);
         }
