@@ -5,7 +5,7 @@ use std::time::Duration;
 use tracing::{debug, info};
 
 use crate::db::graph::error::{GraphError, GraphResult};
-use crate::db::graph::{Graph, GraphOps, TracedGraph};
+use crate::db::graph::{Graph, GraphOps, InstrumentedGraph};
 use crate::db::setup::setup_graph;
 use crate::db::Neo4JConfig;
 use crate::types::DynError;
@@ -36,18 +36,23 @@ impl Neo4jConnector {
         let neo4j_graph = neo4rs::Graph::new(&config.uri, &config.user, &config.password).await?;
         let graph = Graph::new(neo4j_graph);
 
-        let graph: Arc<dyn GraphOps> = if config.slow_query_logging_enabled {
-            let threshold = Duration::from_millis(config.slow_query_logging_threshold_ms);
-            Arc::new(
-                TracedGraph::new(graph)
-                    .with_slow_query_threshold(threshold)
-                    .with_log_cypher(config.slow_query_logging_include_cypher),
-            )
-        } else {
-            Arc::new(graph)
-        };
+        // Always wrap with InstrumentedGraph to collect OpenTelemetry metrics.
+        // slow_query_threshold is None when slow-query logging is disabled.
+        let graph: Arc<dyn GraphOps> = Arc::new(
+            InstrumentedGraph::new(graph)
+                .with_slow_query_threshold(
+                    config
+                        .slow_query_logging_threshold_ms
+                        .map(Duration::from_millis),
+                )
+                .with_log_cypher(config.slow_query_logging_include_cypher),
+        );
 
-        info!("Created Neo4j connector");
+        info!(
+            slow_query_logging_threshold_ms = ?config.slow_query_logging_threshold_ms,
+            slow_query_logging_include_cypher = config.slow_query_logging_include_cypher,
+            "Created Neo4j connector"
+        );
         Ok(Neo4jConnector { graph })
     }
 

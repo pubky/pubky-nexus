@@ -30,7 +30,7 @@ impl DaemonLauncher {
         let api_context = ApiContextBuilder::from_config_dir(config_dir.clone())
             .try_build()
             .await?;
-        let nexus_webapi_builder = NexusApiBuilder(api_context);
+        let nexus_webapi_builder = NexusApiBuilder::new(api_context);
 
         let config = DaemonConfig::read_or_create_config_file(config_dir).await?;
         let nexus_watcher_builder = NexusWatcherBuilder::with_stack(config.watcher, &config.stack);

@@ -273,8 +273,8 @@ async fn test_homeserver_multi_user_posts_tags() -> Result<()> {
         .unwrap();
     assert_eq!(
         notifications.len(),
-        5,
-        "Post author should have 5 notification"
+        10,
+        "Post author should have 10 notification"
     );
 
     Ok(())

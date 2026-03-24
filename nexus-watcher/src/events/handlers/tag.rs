@@ -14,8 +14,8 @@ use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::tag::user::TagUser;
 use nexus_common::models::user::UserCounts;
 use nexus_common::types::Pagination;
-use opentelemetry::trace::FutureExt as _;
-use pubky_app_specs::{ParsedUri, PubkyAppTag, PubkyId, Resource};
+use opentelemetry::context::FutureExt as _;
+use pubky_app_specs::{post_uri_builder, ParsedUri, PubkyAppTag, PubkyId, Resource};
 use tracing::debug;
 
 use super::utils::post_relationships_is_reply;
@@ -315,13 +315,16 @@ async fn del_sync_user(
                 .del_from_index(tagged_id, None, tag_label)
                 .await?;
             Ok::<(), EventProcessorError>(())
-        }
+        },
+        // Save new notification
+        Notification::new_user_untag(&tagger_id, tagged_id, tag_label)
     );
 
     indexing_results.0?;
     indexing_results.1?;
     indexing_results.2?;
     indexing_results.3?;
+    indexing_results.4?;
 
     Ok(())
 }
@@ -335,6 +338,7 @@ async fn del_sync_post(
     // SAVE TO INDEXES
     let post_key_slice: &[&str] = &[author_id, post_id];
     let tag_post = TagPost(vec![tagger_id.to_string()]);
+    let post_uri = post_uri_builder(author_id.to_string(), post_id.to_string());
 
     let indexing_results = tokio::join!(
         // Update user counts for tagger
@@ -391,7 +395,9 @@ async fn del_sync_post(
             }
 
             Ok::<(), EventProcessorError>(())
-        }
+        },
+        // Save new notification
+        Notification::new_post_untag(&tagger_id, author_id, tag_label, &post_uri)
     );
 
     indexing_results.0?;
@@ -400,6 +406,7 @@ async fn del_sync_post(
     indexing_results.3?;
     indexing_results.4?;
     indexing_results.5?;
+    indexing_results.6?;
 
     Ok(())
 }

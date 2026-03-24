@@ -117,6 +117,10 @@ impl UserSearch {
         Self::put_index_sorted_set(&USER_ID_KEY_PARTS, &ids_zscore_tuples, None, None).await
     }
 
+    pub async fn delete(user_id: &str) -> RedisResult<()> {
+        Self::delete_existing_records(&[user_id]).await
+    }
+
     async fn delete_existing_records(user_ids: &[&str]) -> RedisResult<()> {
         if user_ids.is_empty() {
             return Ok(());

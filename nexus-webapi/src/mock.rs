@@ -1,5 +1,6 @@
 use crate::{api_context::ApiContextBuilder, NexusApiBuilder};
 use clap::ValueEnum;
+use neo4rs::query;
 use nexus_common::{
     db::{get_neo4j_graph, get_redis_conn, graph::Query, reindex},
     ApiConfig,
@@ -18,16 +19,14 @@ pub enum MockType {
 pub struct MockDb {}
 
 impl MockDb {
-    /// Initialize the database stack for CLI db commands (no slow-query logging).
     async fn init_stack() {
-        let mut api_config = ApiConfig::default();
-        api_config.stack.db.neo4j.slow_query_logging_enabled = false;
+        let api_config = ApiConfig::default();
         let api_context = ApiContextBuilder::from_default_config_dir()
             .api_config(api_config)
             .try_build()
             .await
             .expect("Failed to create ApiContext");
-        NexusApiBuilder(api_context)
+        NexusApiBuilder::new(api_context)
             .init_stack()
             .await
             .expect("Failed to initialize stack");

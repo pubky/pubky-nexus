@@ -35,12 +35,10 @@ pub async fn execute_graph_operation(query: Query) -> GraphResult<OperationOutco
     }
 }
 
-/// Exec a graph query without a return
+/// Exec a fire-and-forget graph query (no rows needed).
 pub async fn exec_single_row(query: Query) -> GraphResult<()> {
     let graph = get_neo4j_graph()?;
-    let mut result = graph.execute(query).await?;
-    result.try_next().await?;
-    Ok(())
+    graph.run(query).await.map_err(Into::into)
 }
 
 pub async fn fetch_row_from_graph(query: Query) -> GraphResult<Option<Row>> {
