@@ -27,51 +27,12 @@ async fn create_orphan_hs() -> Result<PubkyId, DynError> {
     Ok(id)
 }
 
+/// Orphan homeservers (no users) must all be excluded from the active list.
 #[tokio_shared_rt::test(shared)]
-async fn test_get_all_homeservers_excludes_orphan() -> Result<(), DynError> {
+async fn test_get_all_homeservers_excludes_orphans() -> Result<(), DynError> {
     let mut test = WatcherTest::setup().await?;
 
-    // Create an orphan homeserver (no users hosted on it)
-    let orphan_id = create_orphan_hs().await?;
-
-    // Create a user via WatcherTest, which persists the user in the graph
-    let user_kp = Keypair::random();
-    let user_id = test
-        .create_user(&user_kp, &make_test_user("Watcher:AllHS:User"))
-        .await?;
-
-    // Link the user to the test homeserver via HOSTED_BY
-    let default_id = test.homeserver_id.clone();
-    let link_query = queries::put::set_user_homeserver(&user_id, &default_id);
-    exec_single_row(link_query).await?;
-
-    // Query all active homeservers
-    let hs_ids = Homeserver::get_all_active_from_graph().await?;
-
-    // The active homeserver must be present
-    assert!(
-        hs_ids.contains(&default_id.to_string()),
-        "Active HS should be included"
-    );
-
-    // The orphan homeserver must NOT be present (no active users)
-    assert!(
-        !hs_ids.contains(&orphan_id.to_string()),
-        "Orphan HS should be excluded"
-    );
-
-    // Cleanup
-    test.cleanup_user(&user_kp).await?;
-
-    Ok(())
-}
-
-/// Multiple orphan homeservers must all be excluded from the active list.
-#[tokio_shared_rt::test(shared)]
-async fn test_get_all_homeservers_excludes_multiple_orphans() -> Result<(), DynError> {
-    let mut test = WatcherTest::setup().await?;
-
-    // Create several orphan homeservers
+    // Create several orphan homeservers (no users hosted on them)
     let orphan_ids: Vec<PubkyId> = {
         let mut ids = Vec::new();
         for _ in 0..3 {
@@ -83,17 +44,20 @@ async fn test_get_all_homeservers_excludes_multiple_orphans() -> Result<(), DynE
     // Create one active user on the default homeserver so the query returns at least one HS
     let user_kp = Keypair::random();
     let user_id = test
-        .create_user(&user_kp, &make_test_user("MultiOrphan:User"))
+        .create_user(&user_kp, &make_test_user("Orphan:User"))
         .await?;
     let default_id = test.homeserver_id.clone();
     exec_single_row(queries::put::set_user_homeserver(&user_id, &default_id)).await?;
 
     let hs_ids = Homeserver::get_all_active_from_graph().await?;
 
+    // The active homeserver must be present
     assert!(
         hs_ids.contains(&default_id.to_string()),
         "Active HS should be included"
     );
+
+    // All orphan homeservers must be excluded
     for orphan_id in &orphan_ids {
         assert!(
             !hs_ids.contains(&orphan_id.to_string()),
