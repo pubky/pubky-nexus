@@ -1,5 +1,4 @@
 pub mod bootstrap;
-pub mod circuit_breaker;
 pub mod error;
 pub mod event;
 pub mod file;

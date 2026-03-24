@@ -1,7 +1,6 @@
 use crate::events::Moderation;
 use crate::service::processor::EventProcessor;
 use crate::service::traits::{TEventProcessor, TEventProcessorRunner};
-use nexus_common::models::circuit_breaker::HomeserverCircuitBreaker;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
@@ -64,9 +63,6 @@ impl TEventProcessorRunner for EventProcessorRunner {
             .into_iter()
             .filter(|hs_id| hs_id != self.default_homeserver())
             .collect();
-
-        // Filter out homeservers whose circuit breaker is Open (offline/unresponsive)
-        let hs_ids = HomeserverCircuitBreaker::filter_available(hs_ids).await?;
 
         Ok(hs_ids)
     }
