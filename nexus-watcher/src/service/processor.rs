@@ -122,6 +122,40 @@ impl EventProcessor {
                     .inspect_err(|e| error!("{e}"))
                     .unwrap_or(None);
 
+                // Second-chance: try handling as universal tag at app-specific path
+                if maybe_event.is_none() {
+                    if let Some(result) = crate::events::handlers::universal_tag::try_handle(
+                        line,
+                        &self.files_path,
+                        &self.moderation,
+                    )
+                    .await
+                    {
+                        if let Err(e) = result {
+                            // Route through retry pipeline (mirrors handle_event error path).
+                            // Can't use RetryEvent::generate_index_key since ParsedUri
+                            // fails for non-pubky.app URIs — build key from raw line.
+                            match e {
+                                EventProcessorError::InvalidEventLine(ref msg) => {
+                                    error!("Universal tag non-retryable: {msg}");
+                                }
+                                _ => {
+                                    let event_type =
+                                        line.split_once(' ').map(|(t, _)| t).unwrap_or("PUT");
+                                    let uri = line.split_once(' ').map(|(_, u)| u).unwrap_or(line);
+                                    let index_key = format!("{event_type}:universal_tag:{uri}");
+                                    let retry_event = RetryEvent::new(e);
+                                    error!("{}, {}", retry_event.error_type, index_key);
+                                    if let Err(err) = retry_event.put_to_index(index_key).await {
+                                        error!("Failed to enqueue universal tag retry: {err}");
+                                    }
+                                }
+                            }
+                        }
+                        continue;
+                    }
+                }
+
                 if let Some(event) = maybe_event {
                     let tracer = global::tracer(self.tracer_name.clone());
                     let mut span = tracer.start(event.parsed_uri.resource.to_string());

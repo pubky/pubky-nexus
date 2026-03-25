@@ -248,6 +248,89 @@ pub fn user_tags(user_id: &str) -> Query {
     .param("user_id", user_id)
 }
 
+/// Retrieve Resource node details by ID
+pub fn get_resource_by_id(resource_id: &str) -> Query {
+    Query::new(
+        "get_resource_by_id",
+        "
+        MATCH (r:Resource {id: $resource_id})
+        RETURN r.id AS id, r.uri AS uri, r.scheme AS scheme, r.indexed_at AS indexed_at
+    ",
+    )
+    .param("resource_id", resource_id)
+}
+
+/// Retrieve all tags on a Resource node
+pub fn resource_tags(resource_id: &str) -> Query {
+    Query::new(
+        "resource_tags",
+        "
+        OPTIONAL MATCH (r:Resource {id: $resource_id})
+        CALL {
+            WITH r
+            MATCH (tagger:User)-[tag:TAGGED]->(r)
+            WITH tag.label AS name, collect(DISTINCT tagger.id) AS tagger_ids
+            RETURN collect({
+                label: name,
+                taggers: tagger_ids,
+                taggers_count: SIZE(tagger_ids)
+            }) AS tags
+        }
+        RETURN
+            r IS NOT NULL AS exists,
+            tags
+    ",
+    )
+    .param("resource_id", resource_id)
+}
+
+/// Query a stream of Resources with optional app and tag filters.
+/// Falls back to this when Redis sorted sets can't satisfy the query.
+pub fn resource_stream(
+    app: Option<&str>,
+    labels: Option<&[&str]>,
+    sorting_field: &str,
+    order_direction: &str,
+    skip: usize,
+    limit: usize,
+) -> Query {
+    let mut cypher = String::from("MATCH (tagger:User)-[t:TAGGED]->(r:Resource)\n");
+
+    let mut where_clauses = Vec::new();
+    if app.is_some() {
+        where_clauses.push("t.app = $app");
+    }
+    if labels.is_some() {
+        where_clauses.push("t.label IN $labels");
+    }
+    if !where_clauses.is_empty() {
+        cypher.push_str("WHERE ");
+        cypher.push_str(&where_clauses.join(" AND "));
+        cypher.push('\n');
+    }
+
+    cypher.push_str(&format!(
+        "WITH DISTINCT r, COUNT(DISTINCT tagger) AS taggers_count
+         ORDER BY {sorting_field} {order_direction}
+         SKIP $skip LIMIT $limit
+         RETURN r.id AS resource_id, r.indexed_at AS indexed_at, taggers_count"
+    ));
+
+    let mut query = Query::new("resource_stream", &cypher)
+        .param("skip", skip as i64)
+        .param("limit", limit as i64);
+
+    if let Some(a) = app {
+        query = query.param("app", a);
+    }
+    if let Some(l) = labels {
+        let label_strings: Vec<String> = l.iter().map(|s| s.to_string()).collect();
+        query = query.param("labels", label_strings);
+    }
+
+    query
+}
+
 /// Retrieve a homeserver by ID
 pub fn get_homeserver_by_id(id: &str) -> Query {
     Query::new(
