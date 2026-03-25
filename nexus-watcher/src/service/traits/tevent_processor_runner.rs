@@ -74,10 +74,10 @@ pub trait TEventProcessorRunner {
         let count_skipped = stats.count_skipped();
         let had_issues = count_error + count_panic + count_timeout + count_failed_to_build > 0;
 
-        if had_issues || count_skipped > 0 {
-            warn!(
-                "Run result: {count_ok} ok, {count_skipped} skipped (backoff), {count_failed_to_build} failed to build, {count_error} error, {count_panic} panic, {count_timeout} timeout"
-            );
+        if had_issues {
+            warn!( "Run result: {count_ok} ok, {count_skipped} skipped (backoff), {count_failed_to_build} failed to build, {count_error} error, {count_panic} panic, {count_timeout} timeout");
+        } else if count_skipped > 0 {
+            info!("Run result: {count_ok} ok, {count_skipped} skipped (backoff)");
         } else {
             debug!("Run result: {count_ok} ok");
         }
