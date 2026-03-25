@@ -6,8 +6,6 @@ use crate::events::Moderation;
 use crate::service::traits::TEventProcessor;
 use nexus_common::db::PubkyConnector;
 use nexus_common::models::homeserver::Homeserver;
-use opentelemetry::trace::{FutureExt, Span, TraceContextExt, Tracer};
-use opentelemetry::{global, Context, KeyValue};
 use pubky::Method;
 use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
@@ -20,7 +18,6 @@ pub struct EventProcessor {
     /// See [WatcherConfig::events_limit]
     pub limit: u32,
     pub files_path: PathBuf,
-    pub tracer_name: String,
     pub moderation: Arc<Moderation>,
     pub shutdown_rx: Receiver<bool>,
 }
@@ -32,15 +29,10 @@ impl TEventProcessor for EventProcessor {
     }
 
     async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {
-        let maybe_event_lines = {
-            let tracer = global::tracer(self.tracer_name.clone());
-            let span = tracer.start("Polling Events");
-            let cx = Context::current_with_span(span);
-            self.poll_events()
-                .with_context(cx)
-                .await
-                .inspect_err(|e| error!("Error polling events: {e:?}"))?
-        };
+        let maybe_event_lines = self
+            .poll_events()
+            .await
+            .inspect_err(|e| error!("Error polling events: {e:?}"))?;
 
         match maybe_event_lines {
             None => debug!("No new events"),
@@ -61,6 +53,7 @@ impl EventProcessor {
     /// using the current cursor and a specified limit. It retrieves new event
     /// URIs in a newline-separated format, processes it into a vector of strings,
     /// and returns the result.
+    #[tracing::instrument(name = "events.poll", skip_all, fields(homeserver = %self.homeserver.id))]
     async fn poll_events(&self) -> Result<Option<Vec<String>>, EventProcessorError> {
         debug!("Polling new events from homeserver");
 
@@ -102,6 +95,7 @@ impl EventProcessor {
     ///
     /// # Parameters
     /// - `lines`: A vector of strings representing event lines retrieved from the homeserver.
+    #[tracing::instrument(name = "event_batch.process", skip_all, fields(batch.size = lines.len()))]
     pub async fn process_event_lines(&self, lines: Vec<String>) -> Result<(), EventProcessorError> {
         for line in &lines {
             let id = self.homeserver.id.clone();
@@ -123,21 +117,8 @@ impl EventProcessor {
                     .unwrap_or(None);
 
                 if let Some(event) = maybe_event {
-                    let tracer = global::tracer(self.tracer_name.clone());
-                    let mut span = tracer.start(event.parsed_uri.resource.to_string());
-                    span.set_attribute(KeyValue::new("event.uri", event.uri.clone()));
-                    span.set_attribute(KeyValue::new("event.type", event.event_type.to_string()));
-                    span.set_attribute(KeyValue::new(
-                        "event.user_id",
-                        event.parsed_uri.user_id.to_string(),
-                    ));
-                    span.set_attribute(KeyValue::new(
-                        "event.resource_id",
-                        event.parsed_uri.resource.id().unwrap_or("".to_string()),
-                    ));
-                    let cx = Context::current_with_span(span);
                     debug!("Processing event: {:?}", event);
-                    self.handle_event(&event).with_context(cx).await?;
+                    self.handle_event(&event).await?;
                 }
             }
         }
@@ -148,8 +129,26 @@ impl EventProcessor {
     /// Processes an event and track the fail event it if necessary
     /// # Parameters:
     /// - `event`: The event to be processed
+    #[tracing::instrument(
+        name = "event.process",
+        skip_all,
+        fields(
+            event.resource = %event.parsed_uri.resource,
+            event.uri = %event.uri,
+            event.r#type = %event.event_type,
+            event.user_id = %event.parsed_uri.user_id,
+            event.resource_id = event.parsed_uri.resource.id().unwrap_or_default(),
+            homeserver = %self.homeserver.id,
+            otel.status_code = tracing::field::Empty,
+            otel.status_message = tracing::field::Empty,
+        )
+    )]
     async fn handle_event(&self, event: &Event) -> Result<(), EventProcessorError> {
-        if let Err(e) = handle(event, self.moderation.clone(), &self.tracer_name).await {
+        if let Err(e) = handle(event, self.moderation.clone()).await {
+            let span = tracing::Span::current();
+            span.record("otel.status_code", "ERROR");
+            span.record("otel.status_message", tracing::field::display(&e));
+
             if let Some((index_key, retry_event)) = extract_retry_event_info(event, e) {
                 error!("{}, {}", retry_event.error_type, index_key);
                 if let Err(err) = retry_event.put_to_index(index_key).await {

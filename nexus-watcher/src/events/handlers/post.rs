@@ -10,27 +10,15 @@ use nexus_common::models::post::{
     PostCounts, PostDetails, PostRelationships, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS,
 };
 use nexus_common::models::user::UserCounts;
-use opentelemetry::trace::FutureExt as _;
 use pubky_app_specs::{
     post_uri_builder, ParsedUri, PubkyAppPost, PubkyAppPostKind, PubkyId, Resource,
 };
-use tracing::debug;
+use tracing::{debug, Instrument};
 
 use super::utils::post_relationships_is_reply;
 
+#[tracing::instrument(name = "post.put", skip_all, fields(user_id = %author_id, post_id = %post_id))]
 pub async fn sync_put(
-    post: PubkyAppPost,
-    author_id: PubkyId,
-    post_id: String,
-    tracer_name: &str,
-) -> Result<(), EventProcessorError> {
-    let cx = crate::start_span(tracer_name, "post.put");
-    sync_put_inner(post, author_id, post_id)
-        .with_context(cx)
-        .await
-}
-
-async fn sync_put_inner(
     post: PubkyAppPost,
     author_id: PubkyId,
     post_id: String,
@@ -105,31 +93,35 @@ async fn sync_put_inner(
     }
 
     // SAVE TO INDEX - PHASE 1, update post counts
-    let indexing_results = tokio::join!(
-        // TODO: Use SCARD on a set for unique tag count to avoid race conditions in parallel processing
-        async {
-            // Create post counts index
-            // If new post (no existing counts) save a new PostCounts.
-            if PostCounts::get_from_index(&author_id, &post_id)
-                .await?
-                .is_none()
-            {
-                PostCounts::default()
-                    .put_to_index(&author_id, &post_id, is_reply)
+    let indexing_results = async {
+        tokio::join!(
+            // TODO: Use SCARD on a set for unique tag count to avoid race conditions in parallel processing
+            async {
+                // Create post counts index
+                // If new post (no existing counts) save a new PostCounts.
+                if PostCounts::get_from_index(&author_id, &post_id)
                     .await?
+                    .is_none()
+                {
+                    PostCounts::default()
+                        .put_to_index(&author_id, &post_id, is_reply)
+                        .await?
+                }
+                Ok::<(), EventProcessorError>(())
+            },
+            // TODO: Use SCARD on a set for unique tag count to avoid race conditions in parallel processing
+            // Update user counts with the new post
+            UserCounts::increment(&author_id, "posts", None),
+            async {
+                if is_reply {
+                    UserCounts::increment(&author_id, "replies", None).await?;
+                };
+                Ok::<(), EventProcessorError>(())
             }
-            Ok::<(), EventProcessorError>(())
-        },
-        // TODO: Use SCARD on a set for unique tag count to avoid race conditions in parallel processing
-        // Update user counts with the new post
-        UserCounts::increment(&author_id, "posts", None),
-        async {
-            if is_reply {
-                UserCounts::increment(&author_id, "replies", None).await?;
-            };
-            Ok::<(), EventProcessorError>(())
-        }
-    );
+        )
+    }
+    .instrument(tracing::info_span!("index.write"))
+    .await;
 
     indexing_results.0?;
     indexing_results.1?;
@@ -159,32 +151,36 @@ async fn sync_put_inner(
 
         let parent_post_key_parts: &[&str; 2] = &[&parent_author_id, &parent_post_id];
 
-        let indexing_results = tokio::join!(
-            PostCounts::increment_index_field(parent_post_key_parts, "replies", None),
-            async {
-                if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await? {
-                    PostStream::increment_score_index_sorted_set(
-                        &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
-                        parent_post_key_parts,
-                    )
-                    .await
-                    .map_err(EventProcessorError::index_operation_failed)?;
-                }
-                Ok::<(), EventProcessorError>(())
-            },
-            PostStream::add_to_post_reply_sorted_set(
-                parent_post_key_parts,
-                &author_id,
-                &post_id,
-                post_details.indexed_at,
-            ),
-            Notification::new_post_reply(
-                &author_id,
-                &replied_uri_str,
-                &post_details.uri,
-                &parent_author_id,
+        let indexing_results = async {
+            tokio::join!(
+                PostCounts::increment_index_field(parent_post_key_parts, "replies", None),
+                async {
+                    if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await? {
+                        PostStream::increment_score_index_sorted_set(
+                            &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
+                            parent_post_key_parts,
+                        )
+                        .await
+                        .map_err(EventProcessorError::index_operation_failed)?;
+                    }
+                    Ok::<(), EventProcessorError>(())
+                },
+                PostStream::add_to_post_reply_sorted_set(
+                    parent_post_key_parts,
+                    &author_id,
+                    &post_id,
+                    post_details.indexed_at,
+                ),
+                Notification::new_post_reply(
+                    &author_id,
+                    &replied_uri_str,
+                    &post_details.uri,
+                    &parent_author_id,
+                )
             )
-        );
+        }
+        .instrument(tracing::info_span!("index.write"))
+        .await;
 
         indexing_results.0?;
         indexing_results.1?;
@@ -208,27 +204,31 @@ async fn sync_put_inner(
             .map_err(EventProcessorError::generic)?;
 
         let parent_post_key_parts: &[&str; 2] = &[&parent_author_id, &parent_post_id];
-        let indexing_results = tokio::join!(
-            PostCounts::increment_index_field(parent_post_key_parts, "reposts", None),
-            async {
-                // Post replies cannot be included in the total engagement index after they receive a reply
-                if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await? {
-                    PostStream::increment_score_index_sorted_set(
-                        &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
-                        parent_post_key_parts,
-                    )
-                    .await
-                    .map_err(EventProcessorError::index_operation_failed)?;
-                }
-                Ok::<(), EventProcessorError>(())
-            },
-            Notification::new_repost(
-                &author_id,
-                &reposted_uri_str,
-                &post_details.uri,
-                &parent_author_id,
+        let indexing_results = async {
+            tokio::join!(
+                PostCounts::increment_index_field(parent_post_key_parts, "reposts", None),
+                async {
+                    // Post replies cannot be included in the total engagement index after they receive a reply
+                    if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await? {
+                        PostStream::increment_score_index_sorted_set(
+                            &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
+                            parent_post_key_parts,
+                        )
+                        .await
+                        .map_err(EventProcessorError::index_operation_failed)?;
+                    }
+                    Ok::<(), EventProcessorError>(())
+                },
+                Notification::new_repost(
+                    &author_id,
+                    &reposted_uri_str,
+                    &post_details.uri,
+                    &parent_author_id,
+                )
             )
-        );
+        }
+        .instrument(tracing::info_span!("index.write"))
+        .await;
 
         indexing_results.0?;
         indexing_results.1?;
@@ -236,10 +236,14 @@ async fn sync_put_inner(
     }
 
     // PHASE 4: Add post related content
-    let indexing_results = tokio::join!(
-        post_relationships.put_to_index(&author_id, &post_id),
-        post_details.put_to_index(&author_id, reply_parent_post_key_wrapper, false)
-    );
+    let indexing_results = async {
+        tokio::join!(
+            post_relationships.put_to_index(&author_id, &post_id),
+            post_details.put_to_index(&author_id, reply_parent_post_key_wrapper, false)
+        )
+    }
+    .instrument(tracing::info_span!("index.write"))
+    .await;
 
     indexing_results.0?;
     indexing_results.1?;
@@ -339,22 +343,8 @@ async fn put_mentioned_relationships_for_prefix(
     Ok(())
 }
 
-pub async fn del(
-    author_id: PubkyId,
-    post_id: String,
-    tracer_name: &str,
-) -> Result<(), EventProcessorError> {
-    let cx = crate::start_span(tracer_name, "post.del");
-    del_inner(author_id, post_id, tracer_name)
-        .with_context(cx)
-        .await
-}
-
-async fn del_inner(
-    author_id: PubkyId,
-    post_id: String,
-    tracer_name: &str,
-) -> Result<(), EventProcessorError> {
+#[tracing::instrument(name = "post.del", skip_all, fields(user_id = %author_id, post_id = %post_id))]
+pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), EventProcessorError> {
     debug!("Deleting post: {}/{}", author_id, post_id);
 
     // Graph query to check if there is any edge at all to this post other than AUTHORED, is a reply or is a repost.
@@ -383,7 +373,7 @@ async fn del_inner(
                 attachments: None,
             };
 
-            sync_put(dummy_deleted_post, author_id, post_id, tracer_name).await?;
+            sync_put(dummy_deleted_post, author_id, post_id).await?;
         }
         OperationOutcome::MissingDependency => return Err(EventProcessorError::SkipIndexing),
     };
@@ -402,16 +392,20 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
         matches!(&post_relationships, Some(relationship) if relationship.replied.is_some());
 
     // DELETE TO INDEX - PHASE 1, decrease post counts
-    let indexing_results = tokio::join!(
-        PostCounts::delete(&author_id, &post_id, !is_reply),
-        UserCounts::decrement(&author_id, "posts", None),
-        async {
-            if is_reply {
-                UserCounts::decrement(&author_id, "replies", None).await?;
-            };
-            Ok::<(), EventProcessorError>(())
-        }
-    );
+    let indexing_results = async {
+        tokio::join!(
+            PostCounts::delete(&author_id, &post_id, !is_reply),
+            UserCounts::decrement(&author_id, "posts", None),
+            async {
+                if is_reply {
+                    UserCounts::decrement(&author_id, "replies", None).await?;
+                };
+                Ok::<(), EventProcessorError>(())
+            }
+        )
+    }
+    .instrument(tracing::info_span!("index.delete"))
+    .await;
 
     indexing_results.0?;
     indexing_results.1?;
@@ -441,30 +435,34 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
             reply_parent_post_key_wrapper =
                 Some([parent_user_id.to_string(), parent_post_id.clone()]);
 
-            let indexing_results = tokio::join!(
-                PostCounts::decrement_index_field(&parent_post_key_parts, "replies", None),
-                async {
-                    // Post replies cannot be included in the total engagement index after the reply is deleted
-                    if !post_relationships_is_reply(&parent_user_id, &parent_post_id).await? {
-                        PostStream::decrement_score_index_sorted_set(
-                            &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
-                            &parent_post_key_parts,
-                        )
-                        .await
-                        .map_err(EventProcessorError::index_operation_failed)?;
-                    }
-                    Ok::<(), EventProcessorError>(())
-                },
-                // Notification: "A reply to your post was deleted"
-                Notification::post_children_changed(
-                    &author_id,
-                    &replied_uri_str,
-                    &parent_user_id,
-                    &deleted_uri,
-                    PostChangedSource::Reply,
-                    &PostChangedType::Deleted,
+            let indexing_results = async {
+                tokio::join!(
+                    PostCounts::decrement_index_field(&parent_post_key_parts, "replies", None),
+                    async {
+                        // Post replies cannot be included in the total engagement index after the reply is deleted
+                        if !post_relationships_is_reply(&parent_user_id, &parent_post_id).await? {
+                            PostStream::decrement_score_index_sorted_set(
+                                &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
+                                &parent_post_key_parts,
+                            )
+                            .await
+                            .map_err(EventProcessorError::index_operation_failed)?;
+                        }
+                        Ok::<(), EventProcessorError>(())
+                    },
+                    // Notification: "A reply to your post was deleted"
+                    Notification::post_children_changed(
+                        &author_id,
+                        &replied_uri_str,
+                        &parent_user_id,
+                        &deleted_uri,
+                        PostChangedSource::Reply,
+                        &PostChangedType::Deleted,
+                    )
                 )
-            );
+            }
+            .instrument(tracing::info_span!("index.delete"))
+            .await;
 
             indexing_results.0?;
             indexing_results.1?;
@@ -487,40 +485,50 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
 
             let parent_post_key_parts: &[&str] = &[&reposted_uri.user_id, &parent_post_id];
 
-            let indexing_results = tokio::join!(
-                PostCounts::decrement_index_field(parent_post_key_parts, "reposts", None),
-                async {
-                    // Post replies cannot be included in the total engagement index after the repost is deleted
-                    if !post_relationships_is_reply(&reposted_uri.user_id, &parent_post_id).await? {
-                        PostStream::decrement_score_index_sorted_set(
-                            &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
-                            parent_post_key_parts,
-                        )
-                        .await
-                        .map_err(EventProcessorError::index_operation_failed)?;
-                    }
-                    Ok::<(), EventProcessorError>(())
-                },
-                // Notification: "A repost of your post was deleted"
-                Notification::post_children_changed(
-                    &author_id,
-                    &reposted_uri_str,
-                    &reposted_uri.user_id,
-                    &deleted_uri,
-                    PostChangedSource::Repost,
-                    &PostChangedType::Deleted,
+            let indexing_results = async {
+                tokio::join!(
+                    PostCounts::decrement_index_field(parent_post_key_parts, "reposts", None),
+                    async {
+                        // Post replies cannot be included in the total engagement index after the repost is deleted
+                        if !post_relationships_is_reply(&reposted_uri.user_id, &parent_post_id)
+                            .await?
+                        {
+                            PostStream::decrement_score_index_sorted_set(
+                                &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
+                                parent_post_key_parts,
+                            )
+                            .await
+                            .map_err(EventProcessorError::index_operation_failed)?;
+                        }
+                        Ok::<(), EventProcessorError>(())
+                    },
+                    // Notification: "A repost of your post was deleted"
+                    Notification::post_children_changed(
+                        &author_id,
+                        &reposted_uri_str,
+                        &reposted_uri.user_id,
+                        &deleted_uri,
+                        PostChangedSource::Repost,
+                        &PostChangedType::Deleted,
+                    )
                 )
-            );
+            }
+            .instrument(tracing::info_span!("index.delete"))
+            .await;
 
             indexing_results.0?;
             indexing_results.1?;
             indexing_results.2?;
         }
     }
-    let indexing_results = tokio::join!(
-        PostDetails::delete(&author_id, &post_id, reply_parent_post_key_wrapper),
-        PostRelationships::delete(&author_id, &post_id)
-    );
+    let indexing_results = async {
+        tokio::join!(
+            PostDetails::delete(&author_id, &post_id, reply_parent_post_key_wrapper),
+            PostRelationships::delete(&author_id, &post_id)
+        )
+    }
+    .instrument(tracing::info_span!("index.delete"))
+    .await;
 
     indexing_results.0?;
     indexing_results.1?;

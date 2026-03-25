@@ -7,22 +7,11 @@ use nexus_common::models::follow::{Followers, Following, Friends, UserFollows};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::notification::Notification;
 use nexus_common::models::user::UserCounts;
-use opentelemetry::trace::FutureExt as _;
 use pubky_app_specs::PubkyId;
-use tracing::debug;
+use tracing::{debug, Instrument};
 
+#[tracing::instrument(name = "follow.put", skip_all, fields(follower_id = %follower_id, followee_id = %followee_id))]
 pub async fn sync_put(
-    follower_id: PubkyId,
-    followee_id: PubkyId,
-    tracer_name: &str,
-) -> Result<(), EventProcessorError> {
-    let cx = crate::start_span(tracer_name, "follow.put");
-    sync_put_inner(follower_id, followee_id)
-        .with_context(cx)
-        .await
-}
-
-async fn sync_put_inner(
     follower_id: PubkyId,
     followee_id: PubkyId,
 ) -> Result<(), EventProcessorError> {
@@ -51,20 +40,24 @@ async fn sync_put_inner(
             let following = Following(vec![followee_id.to_string()]);
 
             // SAVE TO INDEX
-            let indexing_results = tokio::join!(
-                // Add new follower to the followee index
-                followers.put_to_index(&followee_id),
-                // Add in the Following:follower_id index a followee user
-                following.put_to_index(&follower_id),
-                update_follow_counts(
-                    &follower_id,
-                    &followee_id,
-                    JsonAction::Increment(1),
-                    will_be_friends
-                ),
-                // Notify the followee
-                Notification::new_follow(&follower_id, &followee_id, will_be_friends)
-            );
+            let indexing_results = async {
+                tokio::join!(
+                    // Add new follower to the followee index
+                    followers.put_to_index(&followee_id),
+                    // Add in the Following:follower_id index a followee user
+                    following.put_to_index(&follower_id),
+                    update_follow_counts(
+                        &follower_id,
+                        &followee_id,
+                        JsonAction::Increment(1),
+                        will_be_friends
+                    ),
+                    // Notify the followee
+                    Notification::new_follow(&follower_id, &followee_id, will_be_friends)
+                )
+            }
+            .instrument(tracing::info_span!("index.write"))
+            .await;
 
             indexing_results.0?;
             indexing_results.1?;
@@ -76,16 +69,8 @@ async fn sync_put_inner(
     Ok(())
 }
 
-pub async fn del(
-    follower_id: PubkyId,
-    followee_id: PubkyId,
-    tracer_name: &str,
-) -> Result<(), EventProcessorError> {
-    let cx = crate::start_span(tracer_name, "follow.del");
-    del_inner(follower_id, followee_id).with_context(cx).await
-}
-
-async fn del_inner(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), EventProcessorError> {
+#[tracing::instrument(name = "follow.del", skip_all, fields(follower_id = %follower_id, followee_id = %followee_id))]
+pub async fn del(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), EventProcessorError> {
     debug!("Deleting follow: {} -> {}", follower_id, followee_id);
     // Maybe we could do it here but lets follow the naming convention
     sync_del(follower_id, followee_id).await
@@ -107,20 +92,24 @@ pub async fn sync_del(
             let followers = Followers(vec![follower_id.to_string()]);
             let following = Following(vec![followee_id.to_string()]);
 
-            let indexing_results = tokio::join!(
-                // Remove a follower to the followee index
-                followers.del_from_index(&followee_id),
-                // Remove from the Following:follower_id index a followee user
-                following.del_from_index(&follower_id),
-                update_follow_counts(
-                    &follower_id,
-                    &followee_id,
-                    JsonAction::Decrement(1),
-                    were_friends,
-                ),
-                // Notify the followee
-                Notification::lost_follow(&follower_id, &followee_id, were_friends)
-            );
+            let indexing_results = async {
+                tokio::join!(
+                    // Remove a follower to the followee index
+                    followers.del_from_index(&followee_id),
+                    // Remove from the Following:follower_id index a followee user
+                    following.del_from_index(&follower_id),
+                    update_follow_counts(
+                        &follower_id,
+                        &followee_id,
+                        JsonAction::Decrement(1),
+                        were_friends,
+                    ),
+                    // Notify the followee
+                    Notification::lost_follow(&follower_id, &followee_id, were_friends)
+                )
+            }
+            .instrument(tracing::info_span!("index.delete"))
+            .await;
             indexing_results.0?;
             indexing_results.1?;
             indexing_results.2?;

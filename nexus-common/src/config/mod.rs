@@ -37,7 +37,7 @@ mod watcher;
 pub use api::ApiConfig;
 pub use daemon::DaemonConfig;
 pub use stack::{default_stack, StackConfig};
-pub use watcher::{WatcherConfig, NAME as WATCHER_NAME};
+pub use watcher::WatcherConfig;
 
 use crate::file::validate_and_expand_path;
 

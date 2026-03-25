@@ -14,13 +14,13 @@ pub fn create_user(user: &UserDetails) -> GraphResult<Query> {
         "MERGE (u:User {id: $id})
          SET u.name = $name, u.bio = $bio, u.status = $status, u.links = $links, u.image = $image, u.indexed_at = $indexed_at;",
     )
-        .param("id", user.id.to_string())
-        .param("name", user.name.clone())
-        .param("bio", user.bio.clone())
-        .param("status", user.status.clone())
-        .param("links", links)
-        .param("image", user.image.clone())
-        .param("indexed_at", user.indexed_at);
+    .param("id", user.id.to_string())
+    .param("name", user.name.clone())
+    .param("bio", user.bio.clone())
+    .param("status", user.status.clone())
+    .param("links", links)
+    .param("image", user.image.clone())
+    .param("indexed_at", user.indexed_at);
 
     Ok(query)
 }

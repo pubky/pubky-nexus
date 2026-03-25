@@ -141,6 +141,7 @@ impl Homeserver {
     /// ### Arguments
     ///
     /// - `referenced_user_id`: The URI of the referenced user
+    #[tracing::instrument(name = "homeserver.ingest", skip_all)]
     pub async fn maybe_ingest_for_user(referenced_user_id: &str) -> ModelResult<()> {
         let pubky = PubkyConnector::get().map_err(ModelError::from_generic)?;
 

@@ -1,6 +1,7 @@
 use crate::db::{Neo4jConnector, RedisConnector};
 use crate::types::DynError;
 use crate::{Level, StackConfig};
+use opentelemetry::trace::TracerProvider;
 use opentelemetry::{global, KeyValue};
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_otlp::{LogExporter, MetricExporter, SpanExporter, WithExportConfig};
@@ -10,6 +11,7 @@ use opentelemetry_sdk::trace::SdkTracerProvider;
 use opentelemetry_sdk::Resource;
 use std::time::Duration;
 use tracing::{error, info};
+use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::{fmt, EnvFilter, Layer};
 use tracing_subscriber::{layer::SubscriberExt, Registry};
 
@@ -114,8 +116,17 @@ impl StackManager {
                 .add_directive("mainline=info".parse().unwrap()),
         );
 
+        // Bridge tracing spans into OpenTelemetry trace spans.
+        // This allows #[instrument] and info_span!() to produce OTel spans
+        // that are exported alongside manually-created OTel spans.
+        let otel_trace_layer =
+            OpenTelemetryLayer::new(tracer_provider.tracer(service_name.to_string()));
+
         // Creates a tracing subscriber
-        let subscriber = Registry::default().with(stdout_layer).with(otlp_layer);
+        let subscriber = Registry::default()
+            .with(stdout_layer)
+            .with(otlp_layer)
+            .with(otel_trace_layer);
 
         // Registers a global tracing subscriber that captures logs
         // TODO: If multiple services run in the same process, only the first call to

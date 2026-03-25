@@ -85,7 +85,6 @@ impl WatcherTest {
             limit: 1000,
             monitored_homeservers_limit: 100,
             files_path: get_files_dir_test_pathbuf(),
-            tracer_name: String::from("watcher.test"),
             moderation,
             shutdown_rx,
             default_homeserver,
@@ -349,7 +348,7 @@ pub async fn retrieve_and_handle_event_line(
     moderation: Arc<Moderation>,
 ) -> Result<(), EventProcessorError> {
     match Event::parse_event(event_line, get_files_dir_pathbuf())? {
-        Some(event) => handle(&event, moderation, nexus_common::WATCHER_NAME).await,
+        Some(event) => handle(&event, moderation).await,
         None => Ok(()),
     }
 }

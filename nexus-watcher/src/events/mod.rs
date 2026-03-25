@@ -1,6 +1,5 @@
 use nexus_common::db::PubkyConnector;
 use nexus_common::models::event::{Event, EventProcessorError, EventType};
-use opentelemetry::trace::{FutureExt as _, Status, TraceContextExt};
 use pubky_app_specs::{PubkyAppObject, Resource};
 use std::sync::Arc;
 use tracing::debug;
@@ -11,14 +10,10 @@ pub mod retry;
 
 pub use moderation::Moderation;
 
-pub async fn handle(
-    event: &Event,
-    moderation: Arc<Moderation>,
-    tracer_name: &str,
-) -> Result<(), EventProcessorError> {
+pub async fn handle(event: &Event, moderation: Arc<Moderation>) -> Result<(), EventProcessorError> {
     match event.event_type {
-        EventType::Put => handle_put_event(event, moderation, tracer_name).await,
-        EventType::Del => handle_del_event(event, tracer_name).await,
+        EventType::Put => handle_put_event(event, moderation).await,
+        EventType::Del => handle_del_event(event).await,
     }?;
 
     event.store_event().await?;
@@ -28,42 +23,30 @@ pub async fn handle(
 pub async fn handle_put_event(
     event: &Event,
     moderation: Arc<Moderation>,
-    tracer_name: &str,
 ) -> Result<(), EventProcessorError> {
     debug!("Handling PUT event for URI: {}", event.uri);
 
-    let blob = {
-        let cx = crate::start_span(tracer_name, "homeserver.fetch");
-        let result = async {
-            let pubky = PubkyConnector::get()?;
-            let response = pubky.public_storage().get(&event.uri).await?;
+    let pubky = PubkyConnector::get()?;
+    let response = pubky.public_storage().get(&event.uri).await?;
 
-            if !response.status().is_success() {
-                let status = response.status();
-                let body = response
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| "<unable to read body>".to_string());
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "<unable to read body>".to_string());
 
-                let err_msg = format!(
-                    "Fetch resource failed {}: HTTP {status} - {body}",
-                    event.uri
-                );
-                return Err(EventProcessorError::client_error(err_msg));
-            }
+        let err_msg = format!(
+            "Fetch resource failed {}: HTTP {status} - {body}",
+            event.uri
+        );
+        return Err(EventProcessorError::client_error(err_msg))?;
+    }
 
-            response
-                .bytes()
-                .await
-                .map_err(|e| EventProcessorError::client_error(e.to_string()))
-        }
-        .with_context(cx.clone())
-        .await;
-        if let Err(ref e) = result {
-            cx.span().set_status(Status::error(e.to_string()));
-        }
-        result?
-    };
+    let blob = response
+        .bytes()
+        .await
+        .map_err(|e| EventProcessorError::client_error(e.to_string()))?;
     let resource = event.parsed_uri.resource.clone();
 
     // Use the new importer from pubky-app-specs
@@ -73,25 +56,25 @@ pub async fn handle_put_event(
     let user_id = event.parsed_uri.user_id.clone();
     match (pubky_object, resource) {
         (PubkyAppObject::User(user), Resource::User) => {
-            handlers::user::sync_put(user, user_id, tracer_name).await?
+            handlers::user::sync_put(user, user_id).await?
         }
         (PubkyAppObject::Post(post), Resource::Post(post_id)) => {
-            handlers::post::sync_put(post, user_id, post_id, tracer_name).await?
+            handlers::post::sync_put(post, user_id, post_id).await?
         }
         (PubkyAppObject::Follow(_follow), Resource::Follow(followee_id)) => {
-            handlers::follow::sync_put(user_id, followee_id, tracer_name).await?
+            handlers::follow::sync_put(user_id, followee_id).await?
         }
         (PubkyAppObject::Mute(_), Resource::Mute(_)) => {
             debug!("Mute events are no longer handled by nexus");
         }
         (PubkyAppObject::Bookmark(bookmark), Resource::Bookmark(bookmark_id)) => {
-            handlers::bookmark::sync_put(user_id, bookmark, bookmark_id, tracer_name).await?
+            handlers::bookmark::sync_put(user_id, bookmark, bookmark_id).await?
         }
         (PubkyAppObject::Tag(tag), Resource::Tag(tag_id)) => {
             if moderation.should_delete(&tag, user_id.clone()).await {
-                Moderation::apply_moderation(tag, event.files_path.clone(), tracer_name).await?
+                Moderation::apply_moderation(tag, event.files_path.clone()).await?
             } else {
-                handlers::tag::sync_put(tag, user_id, tag_id, tracer_name).await?
+                handlers::tag::sync_put(tag, user_id, tag_id).await?
             }
         }
         (PubkyAppObject::File(file), Resource::File(file_id)) => {
@@ -101,7 +84,6 @@ pub async fn handle_put_event(
                 user_id,
                 file_id,
                 event.files_path.clone(),
-                tracer_name,
             )
             .await?
         }
@@ -110,33 +92,24 @@ pub async fn handle_put_event(
     Ok(())
 }
 
-/// Handles a PUT event by fetching the blob from the homeserver
-/// and using the importer to convert it to a PubkyAppObject.
-pub async fn handle_del_event(event: &Event, tracer_name: &str) -> Result<(), EventProcessorError> {
+/// Handles a DEL event by dispatching to the appropriate handler.
+pub async fn handle_del_event(event: &Event) -> Result<(), EventProcessorError> {
     debug!("Handling DEL event for URI: {}", event.uri);
 
     let user_id = event.parsed_uri.user_id.clone();
     match &event.parsed_uri.resource {
-        Resource::User => handlers::user::del(user_id, tracer_name).await?,
-        Resource::Post(post_id) => {
-            handlers::post::del(user_id, post_id.clone(), tracer_name).await?
-        }
+        Resource::User => handlers::user::del(user_id).await?,
+        Resource::Post(post_id) => handlers::post::del(user_id, post_id.clone()).await?,
         Resource::Follow(followee_id) => {
-            handlers::follow::del(user_id, followee_id.clone(), tracer_name).await?
+            handlers::follow::del(user_id, followee_id.clone()).await?
         }
         Resource::Mute(_) => debug!("Mute events are no longer handled by nexus"),
         Resource::Bookmark(bookmark_id) => {
-            handlers::bookmark::del(user_id, bookmark_id.clone(), tracer_name).await?
+            handlers::bookmark::del(user_id, bookmark_id.clone()).await?
         }
-        Resource::Tag(tag_id) => handlers::tag::del(user_id, tag_id.clone(), tracer_name).await?,
+        Resource::Tag(tag_id) => handlers::tag::del(user_id, tag_id.clone()).await?,
         Resource::File(file_id) => {
-            handlers::file::del(
-                &user_id,
-                file_id.clone(),
-                event.files_path.clone(),
-                tracer_name,
-            )
-            .await?
+            handlers::file::del(&user_id, file_id.clone(), event.files_path.clone()).await?
         }
         other => debug!("DEL event type not handled for resource: {other:?}"),
     }

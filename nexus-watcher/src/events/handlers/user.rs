@@ -6,20 +6,11 @@ use nexus_common::models::{
     traits::Collection,
     user::{UserCounts, UserDetails, UserSearch, USER_DELETED_SENTINEL},
 };
-use opentelemetry::trace::FutureExt as _;
 use pubky_app_specs::{PubkyAppUser, PubkyId};
-use tracing::debug;
+use tracing::{debug, Instrument};
 
-pub async fn sync_put(
-    user: PubkyAppUser,
-    user_id: PubkyId,
-    tracer_name: &str,
-) -> Result<(), EventProcessorError> {
-    let cx = crate::start_span(tracer_name, "user.put");
-    sync_put_inner(user, user_id).with_context(cx).await
-}
-
-async fn sync_put_inner(user: PubkyAppUser, user_id: PubkyId) -> Result<(), EventProcessorError> {
+#[tracing::instrument(name = "user.put", skip_all, fields(user_id = %user_id))]
+pub async fn sync_put(user: PubkyAppUser, user_id: PubkyId) -> Result<(), EventProcessorError> {
     debug!("Indexing new user profile: {}", user_id);
 
     // Step 1: Create `UserDetails` object
@@ -29,25 +20,29 @@ async fn sync_put_inner(user: PubkyAppUser, user_id: PubkyId) -> Result<(), Even
     user_details.put_to_graph().await?;
 
     // Step 3: Run in parallel the cache process: SAVE TO INDEX
-    let indexing_results = tokio::join!(
-        async {
-            UserSearch::put_to_index(&[&user_details]).await?;
-            Ok::<(), EventProcessorError>(())
-        },
-        async {
-            // TODO: Use SCARD on a set for unique tag count to avoid race conditions in parallel processing
-            // If new user (no existing counts), save a new `UserCounts`
-            if UserCounts::get_from_index(&user_id).await?.is_none() {
-                UserCounts::default().put_to_index(&user_id).await?;
+    let indexing_results = async {
+        tokio::join!(
+            async {
+                UserSearch::put_to_index(&[&user_details]).await?;
+                Ok::<(), EventProcessorError>(())
+            },
+            async {
+                // TODO: Use SCARD on a set for unique tag count to avoid race conditions in parallel processing
+                // If new user (no existing counts), save a new `UserCounts`
+                if UserCounts::get_from_index(&user_id).await?.is_none() {
+                    UserCounts::default().put_to_index(&user_id).await?;
+                }
+                Ok::<(), EventProcessorError>(())
+            },
+            async {
+                UserDetails::put_to_index(&[&user_details.id], vec![Some(user_details.clone())])
+                    .await?;
+                Ok::<(), EventProcessorError>(())
             }
-            Ok::<(), EventProcessorError>(())
-        },
-        async {
-            UserDetails::put_to_index(&[&user_details.id], vec![Some(user_details.clone())])
-                .await?;
-            Ok::<(), EventProcessorError>(())
-        }
-    );
+        )
+    }
+    .instrument(tracing::info_span!("index.write"))
+    .await;
 
     indexing_results.0?;
     indexing_results.1?;
@@ -55,12 +50,8 @@ async fn sync_put_inner(user: PubkyAppUser, user_id: PubkyId) -> Result<(), Even
     Ok(())
 }
 
-pub async fn del(user_id: PubkyId, tracer_name: &str) -> Result<(), EventProcessorError> {
-    let cx = crate::start_span(tracer_name, "user.del");
-    del_inner(user_id, tracer_name).with_context(cx).await
-}
-
-async fn del_inner(user_id: PubkyId, tracer_name: &str) -> Result<(), EventProcessorError> {
+#[tracing::instrument(name = "user.del", skip_all, fields(user_id = %user_id))]
+pub async fn del(user_id: PubkyId) -> Result<(), EventProcessorError> {
     debug!("Deleting user profile:  {}", user_id);
 
     // 1. Graph query to check if there is any edge at all to this user.
@@ -79,7 +70,9 @@ async fn del_inner(user_id: PubkyId, tracer_name: &str) -> Result<(), EventProce
             // so it must complete before UserDetails::delete runs.
             UserSearch::delete(&user_id).await?;
             let indexing_results =
-                tokio::join!(UserDetails::delete(&user_id), UserCounts::delete(&user_id));
+                async { tokio::join!(UserDetails::delete(&user_id), UserCounts::delete(&user_id)) }
+                    .instrument(tracing::info_span!("index.delete"))
+                    .await;
             indexing_results.0?;
             indexing_results.1?;
         }
@@ -92,7 +85,7 @@ async fn del_inner(user_id: PubkyId, tracer_name: &str) -> Result<(), EventProce
                 image: None,
             };
 
-            sync_put(deleted_user, user_id, tracer_name).await?;
+            sync_put(deleted_user, user_id).await?;
         }
         OperationOutcome::MissingDependency => return Err(EventProcessorError::SkipIndexing),
     }

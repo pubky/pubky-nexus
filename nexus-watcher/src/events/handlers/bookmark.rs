@@ -2,23 +2,13 @@ use chrono::Utc;
 use nexus_common::db::OperationOutcome;
 use nexus_common::models::post::Bookmark;
 use nexus_common::models::user::UserCounts;
-use opentelemetry::trace::FutureExt as _;
 use pubky_app_specs::{ParsedUri, PubkyAppBookmark, PubkyId, Resource};
 use tracing::debug;
 
 use crate::events::EventProcessorError;
 
+#[tracing::instrument(name = "bookmark.put", skip_all, fields(user_id = %user_id, bookmark_id = %id))]
 pub async fn sync_put(
-    user_id: PubkyId,
-    bookmark: PubkyAppBookmark,
-    id: String,
-    tracer_name: &str,
-) -> Result<(), EventProcessorError> {
-    let cx = crate::start_span(tracer_name, "bookmark.put");
-    sync_put_inner(user_id, bookmark, id).with_context(cx).await
-}
-
-async fn sync_put_inner(
     user_id: PubkyId,
     bookmark: PubkyAppBookmark,
     id: String,
@@ -62,16 +52,8 @@ async fn sync_put_inner(
     Ok(())
 }
 
-pub async fn del(
-    user_id: PubkyId,
-    bookmark_id: String,
-    tracer_name: &str,
-) -> Result<(), EventProcessorError> {
-    let cx = crate::start_span(tracer_name, "bookmark.del");
-    del_inner(user_id, bookmark_id).with_context(cx).await
-}
-
-async fn del_inner(user_id: PubkyId, bookmark_id: String) -> Result<(), EventProcessorError> {
+#[tracing::instrument(name = "bookmark.del", skip_all, fields(user_id = %user_id, bookmark_id = %bookmark_id))]
+pub async fn del(user_id: PubkyId, bookmark_id: String) -> Result<(), EventProcessorError> {
     debug!("Deleting bookmark: {} -> {}", user_id, bookmark_id);
     sync_del(user_id, bookmark_id).await
 }

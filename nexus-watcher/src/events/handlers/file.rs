@@ -8,27 +8,13 @@ use nexus_common::models::{
     file::{FileDetails, FileMeta},
     traits::Collection,
 };
-use opentelemetry::trace::FutureExt as _;
 use pubky_app_specs::{PubkyAppFile, PubkyAppObject, PubkyId};
 use std::path::{Path, PathBuf};
 use tokio::fs::remove_dir_all;
 use tracing::debug;
 
+#[tracing::instrument(name = "file.put", skip_all, fields(user_id = %user_id, file_id = %file_id))]
 pub async fn sync_put(
-    file: PubkyAppFile,
-    uri: String,
-    user_id: PubkyId,
-    file_id: String,
-    files_path: PathBuf,
-    tracer_name: &str,
-) -> Result<(), EventProcessorError> {
-    let cx = crate::start_span(tracer_name, "file.put");
-    sync_put_inner(file, uri, user_id, file_id, files_path)
-        .with_context(cx)
-        .await
-}
-
-async fn sync_put_inner(
     file: PubkyAppFile,
     uri: String,
     user_id: PubkyId,
@@ -59,6 +45,7 @@ async fn sync_put_inner(
 }
 
 // TODO: Move it into its own process, server, etc
+#[tracing::instrument(name = "file.ingest", skip_all, fields(user_id = %user_id, file_id = %file_id))]
 async fn ingest(
     user_id: &PubkyId,
     file_id: &str,
@@ -97,19 +84,8 @@ async fn ingest(
     }
 }
 
+#[tracing::instrument(name = "file.del", skip_all, fields(user_id = %user_id, file_id = %file_id))]
 pub async fn del(
-    user_id: &PubkyId,
-    file_id: String,
-    files_path: PathBuf,
-    tracer_name: &str,
-) -> Result<(), EventProcessorError> {
-    let cx = crate::start_span(tracer_name, "file.del");
-    del_inner(user_id, file_id, files_path)
-        .with_context(cx)
-        .await
-}
-
-async fn del_inner(
     user_id: &PubkyId,
     file_id: String,
     files_path: PathBuf,

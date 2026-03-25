@@ -21,7 +21,6 @@ async fn test_event_processor_runner_default_homeserver_prioritization() -> Resu
         limit: 1000,
         monitored_homeservers_limit: HS_IDS.len(),
         files_path: PathBuf::from("/tmp/nexus-watcher-test"),
-        tracer_name: String::from("unit-test-hs-list-test"),
         moderation: Arc::new(default_moderation_tests()),
     };
 
