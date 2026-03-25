@@ -11,7 +11,6 @@ use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::traits::Collection;
 use nexus_watcher::events::retry::event::RetryEvent;
 use nexus_watcher::events::{handle, Moderation};
-use nexus_watcher::service::backoff::HomeserverBackoff;
 use nexus_watcher::service::EventProcessorRunner;
 use nexus_watcher::service::NexusWatcher;
 use nexus_watcher::service::TEventProcessorRunner;
@@ -90,7 +89,6 @@ impl WatcherTest {
             moderation,
             shutdown_rx,
             default_homeserver,
-            backoff: HomeserverBackoff::default(),
         }
     }
 

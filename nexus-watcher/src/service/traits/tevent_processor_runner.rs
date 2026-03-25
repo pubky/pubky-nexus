@@ -28,12 +28,6 @@ pub trait TEventProcessorRunner {
 
     fn monitored_homeservers_limit(&self) -> usize;
 
-    /// Returns the optional backoff tracker for skipping unresponsive homeservers.
-    /// Default: `None` (no backoff). Override to enable.
-    fn backoff(&self) -> Option<&HomeserverBackoff> {
-        None
-    }
-
     /// Returns the homeserver IDs relevant for this run, ordered by their priority.
     ///
     /// Contains all homeserver IDs from the graph, with the default homeserver prioritized at index 0.
@@ -93,14 +87,16 @@ pub trait TEventProcessorRunner {
 
     /// Runs event processors for all homeservers relevant for this run, with timeout protection.
     ///
+    /// # Parameters
+    /// * `backoff` - Tracks per-homeserver exponential backoff; homeservers in an active backoff
+    ///   window are skipped and their state is updated after each run.
+    ///
     /// # Returns
     /// Statistics about the event processor run results, summarized as [`RunAllProcessorsStats`]
-    async fn run_all(&self) -> Result<ProcessedStats, DynError> {
+    async fn run_all(&self, backoff: &mut HomeserverBackoff) -> Result<ProcessedStats, DynError> {
         let hs_ids = self.pre_run_all().await?;
 
         let mut run_stats = RunAllProcessorsStats::default();
-
-        let backoff = self.backoff();
 
         for hs_id in hs_ids {
             if *self.shutdown_rx().borrow() {
@@ -109,16 +105,14 @@ pub trait TEventProcessorRunner {
             }
 
             // Skip homeservers that are in a backoff window
-            if let Some(b) = backoff {
-                if b.should_skip(&hs_id) {
-                    debug!("Skipping homeserver {hs_id} (in backoff)");
-                    run_stats.add_run_result(
-                        hs_id,
-                        std::time::Duration::ZERO,
-                        ProcessorRunStatus::Skipped,
-                    );
-                    continue;
-                }
+            if backoff.should_skip(&hs_id) {
+                debug!("Skipping homeserver {hs_id} (in backoff)");
+                run_stats.add_run_result(
+                    hs_id,
+                    std::time::Duration::ZERO,
+                    ProcessorRunStatus::Skipped,
+                );
+                continue;
             }
 
             let t0 = Instant::now();
@@ -136,13 +130,10 @@ pub trait TEventProcessorRunner {
             };
             let duration = t0.elapsed();
 
-            // Update backoff state based on run outcome
-            if let Some(b) = backoff {
-                if status == ProcessorRunStatus::Ok {
-                    b.record_success(&hs_id);
-                } else {
-                    b.record_failure(&hs_id);
-                }
+            if status == ProcessorRunStatus::Ok {
+                backoff.record_success(&hs_id);
+            } else {
+                backoff.record_failure(&hs_id);
             }
 
             run_stats.add_run_result(hs_id, duration, status);

@@ -1,5 +1,4 @@
 use crate::events::Moderation;
-use crate::service::backoff::HomeserverBackoff;
 use crate::service::processor::EventProcessor;
 use crate::service::traits::{TEventProcessor, TEventProcessorRunner};
 use nexus_common::models::homeserver::Homeserver;
@@ -21,8 +20,6 @@ pub struct EventProcessorRunner {
     pub shutdown_rx: Receiver<bool>,
     /// See [WatcherConfig::homeserver]
     pub default_homeserver: PubkyId,
-    /// Tracks exponential backoff for unresponsive homeservers
-    pub backoff: HomeserverBackoff,
 }
 
 impl EventProcessorRunner {
@@ -39,7 +36,6 @@ impl EventProcessorRunner {
             }),
             shutdown_rx,
             default_homeserver: config.homeserver.clone(),
-            backoff: HomeserverBackoff::default(),
         }
     }
 }
@@ -56,10 +52,6 @@ impl TEventProcessorRunner for EventProcessorRunner {
 
     fn monitored_homeservers_limit(&self) -> usize {
         self.monitored_homeservers_limit
-    }
-
-    fn backoff(&self) -> Option<&HomeserverBackoff> {
-        Some(&self.backoff)
     }
 
     async fn homeservers_by_priority(&self) -> Result<Vec<String>, DynError> {
