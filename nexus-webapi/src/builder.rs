@@ -16,7 +16,7 @@ use nexus_common::file::ConfigLoader;
 use nexus_common::types::DynError;
 use nexus_common::utils::create_shutdown_rx;
 use nexus_common::Level;
-use nexus_common::{ApiConfig, StackManager};
+use nexus_common::{ApiConfig, DaemonConfig, StackManager};
 use pubky::pkarr::{Keypair, PublicKey};
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info};
@@ -48,13 +48,6 @@ impl NexusApiBuilder {
         self
     }
 
-    /// Sets the service name for observability (tracing, logging, monitoring)
-    pub fn name(mut self, name: String) -> Self {
-        self.api_context.api_config.name = name;
-
-        self
-    }
-
     /// Configures the logging level for the service, determining verbosity and log output
     pub fn log_level(mut self, log_level: Level) -> Self {
         self.api_context.api_config.stack.log_level = log_level;
@@ -71,7 +64,7 @@ impl NexusApiBuilder {
 
     /// Sets the OpenTelemetry endpoint for tracing and monitoring
     pub fn otlp_endpoint(mut self, otlp_endpoint: Option<String>) -> Self {
-        self.api_context.api_config.stack.otlp_endpoint = otlp_endpoint;
+        self.api_context.api_config.stack.otlp.endpoint = otlp_endpoint;
 
         self
     }
@@ -83,28 +76,22 @@ impl NexusApiBuilder {
         self
     }
 
-    /// Opens ddbb connections and initialises tracing layer (if provided in config)
-    pub async fn init_stack(&self) -> Result<(), DynError> {
-        StackManager::setup(
-            &self.api_context.api_config.name,
-            &self.api_context.api_config.stack,
-        )
-        .await
-    }
-
     /// Creates and starts a [NexusApi] instance.
+    ///
+    /// Requires a [`StackManager`] instance, obtained from [`StackManager::setup`].
     ///
     /// This method is blocking and only returns after the shutdown signal is received and the [NexusApi] shut down.
     ///
     /// ### Arguments
     ///
+    /// - `_stack`: proof that [`StackManager::setup`] has been called.
     /// - `shutdown_rx`: optional shutdown signal. If none is provided, a default one will be created, listening for Ctrl-C.
-    pub async fn start(self, shutdown_rx: Option<Receiver<bool>>) -> Result<NexusApi, DynError> {
+    pub async fn start(
+        self,
+        _stack: &StackManager,
+        shutdown_rx: Option<Receiver<bool>>,
+    ) -> Result<NexusApi, DynError> {
         let mut shutdown_rx = shutdown_rx.unwrap_or_else(create_shutdown_rx);
-
-        self.init_stack()
-            .await
-            .inspect_err(|e| error!("Failed to initialize stack: {e}"))?;
 
         let nexus_api = NexusApi::start(self.api_context, self.enable_key_republisher)
             .await
@@ -152,12 +139,16 @@ impl NexusApi {
     ) -> Result<Self, DynError> {
         match ApiConfig::load(config_dir.join(API_CONFIG_FILE_NAME)).await {
             Ok(api_config) => {
+                let stack = StackManager::setup(&api_config.stack).await?;
+
                 let api_context = ApiContextBuilder::from_config_dir(config_dir)
                     .api_config(api_config)
                     .try_build()
                     .await?;
 
-                NexusApiBuilder::new(api_context).start(shutdown_rx).await
+                NexusApiBuilder::new(api_context)
+                    .start(&stack, shutdown_rx)
+                    .await
             }
             Err(_) => NexusApi::start_from_daemon(config_dir, shutdown_rx).await,
         }
@@ -175,12 +166,15 @@ impl NexusApi {
     ) -> Result<Self, DynError> {
         let shutdown_rx = shutdown_rx.unwrap_or_else(create_shutdown_rx);
 
+        let daemon_config = DaemonConfig::read_or_create_config_file(config_dir.clone()).await?;
+        let stack = StackManager::setup(&daemon_config.stack).await?;
+
         let api_context = ApiContextBuilder::from_config_dir(config_dir)
             .try_build()
             .await?;
 
         NexusApiBuilder::new(api_context)
-            .start(Some(shutdown_rx))
+            .start(&stack, Some(shutdown_rx))
             .await
     }
 

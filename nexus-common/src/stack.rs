@@ -13,18 +13,20 @@ use tracing::{error, info};
 use tracing_subscriber::{fmt, EnvFilter, Layer};
 use tracing_subscriber::{layer::SubscriberExt, Registry};
 
-pub struct StackManager {}
+pub struct StackManager {
+    _private: (),
+}
 
 impl StackManager {
-    pub async fn setup(name: &str, config: &StackConfig) -> Result<(), DynError> {
+    pub async fn setup(config: &StackConfig) -> Result<Self, DynError> {
         // Initialize logging and metrics
-        Self::setup_logging(name, &config.otlp_endpoint, config.log_level).await;
-        Self::setup_metrics(name, &config.otlp_endpoint).await;
+        Self::setup_logging(&config.otlp.name, &config.otlp.endpoint, config.log_level).await;
+        Self::setup_metrics(&config.otlp.name, &config.otlp.endpoint).await;
 
         // Initialize Redis and Neo4j
         RedisConnector::init(&config.db.redis).await?;
         Neo4jConnector::init(&config.db.neo4j).await?;
-        Ok(())
+        Ok(Self { _private: () })
     }
 
     async fn setup_logging(service_name: &str, otel_endpoint: &Option<String>, log_level: Level) {
@@ -118,12 +120,6 @@ impl StackManager {
         let subscriber = Registry::default().with(stdout_layer).with(otlp_layer);
 
         // Registers a global tracing subscriber that captures logs
-        // TODO: If multiple services run in the same process, only the first call to
-        // `tracing::subscriber::set_global_default(...)` succeeds. That means the logs from
-        // all services will be emitted under the first service's `service_name`
-        // This happens because tracing subscribers and OTEL logger providers are global.
-        // To fix this, use per-task `Dispatch` with isolated subscribers, or run services
-        // in separate processes.
         if tracing::subscriber::set_global_default(subscriber).is_ok() {
             info!(
                 "OpenTelemetry endpoint listening on (OTLP_ENDPOINT={})",

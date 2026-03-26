@@ -1,10 +1,7 @@
 use std::path::PathBuf;
 
 use clap::Parser;
-use nexus_common::{
-    db::DatabaseConfig, file::validate_and_expand_path, get_files_dir_pathbuf, types::DynError,
-    StackConfig, WatcherConfig, LOG_LEVEL,
-};
+use nexus_common::{file::validate_and_expand_path, types::DynError, StackManager, WatcherConfig};
 use nexus_watcher::{service::NexusWatcher, NexusWatcherBuilder};
 use pubky_app_specs::PubkyId;
 
@@ -30,25 +27,19 @@ async fn main() -> Result<(), DynError> {
                 PubkyId::try_from("8um71us3fyw6h8wbcxb5ar3rwusy1a6u49956ikzojg3gcwd1dty").unwrap();
             let moderation_id =
                 PubkyId::try_from("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap();
-            let stack = StackConfig {
-                log_level: LOG_LEVEL,
-                files_path: get_files_dir_pathbuf(),
-                otlp_endpoint: None,
-                db: DatabaseConfig::default(),
-            };
             let config = WatcherConfig {
-                name: String::from("nexusd.watcher"),
                 testnet: false,
                 testnet_host: "not-needed".to_string(),
                 homeserver,
                 events_limit: 100,
                 monitored_homeservers_limit: 5,
                 watcher_sleep: 5000,
-                stack,
                 moderation_id,
                 moderated_tags: Vec::new(),
+                ..Default::default()
             };
-            NexusWatcherBuilder(config).start(None).await?;
+            let stack = StackManager::setup(&config.stack).await?;
+            NexusWatcherBuilder(config).start(&stack, None).await?;
         }
     }
 

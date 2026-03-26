@@ -5,8 +5,6 @@ use pubky_app_specs::PubkyId;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
-pub const NAME: &str = "nexus.watcher";
-
 pub const TESTNET: bool = false;
 pub const DEFAULT_TESTNET_HOST: &str = "localhost";
 // Testnet homeserver key
@@ -32,7 +30,6 @@ pub const MODERATED_TAGS: [&str; 6] = [
 /// Configuration settings for the Nexus Watcher service
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct WatcherConfig {
-    pub name: String,
     pub testnet: bool,
     pub testnet_host: String,
     /// Default homeserver. Other homeservers may be ingested in addition, but this one is prioritized.
@@ -60,7 +57,6 @@ impl Default for WatcherConfig {
         let moderation_id = PubkyId::try_from(MODERATION_ID)
             .expect("Hardcoded moderation should be a valid pubky id");
         Self {
-            name: NAME.to_string(),
             stack: StackConfig::default(),
             testnet: TESTNET,
             testnet_host: DEFAULT_TESTNET_HOST.to_string(),

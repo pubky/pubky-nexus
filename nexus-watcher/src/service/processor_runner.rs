@@ -29,7 +29,7 @@ impl EventProcessorRunner {
             limit: config.events_limit,
             monitored_homeservers_limit: config.monitored_homeservers_limit,
             files_path: config.stack.files_path.clone(),
-            tracer_name: config.name.clone(),
+            tracer_name: config.stack.otlp.name.clone(),
             moderation: Arc::new(Moderation {
                 id: config.moderation_id.clone(),
                 tags: config.moderated_tags.clone(),

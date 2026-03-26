@@ -1,5 +1,3 @@
-# Service name used for tracing, logging, and metrics in OpenTelemetry
-name = "nexusd.migration"
 # List migrations that are in the "backfill_ready" state and should be processed.
 # Add migration IDs here when they are ready for backfilling. Example
 #backfill_ready = ["Xakala1741101644"]
@@ -9,8 +7,12 @@ backfill_ready = []
 # Logging, options: error, warn, info, debug and trace
 log_level = "debug"
 files_path = "./static/files"
-# OTLP_ENDPOINT is set to empty by default. If you want to enable tracing, set it to the OpenTelemetry Collector endpoint
-#otlp_endpoint=""
+
+[stack.otlp]
+# Service name used for tracing, logging, and metrics in OpenTelemetry
+name = "nexusd.migration"
+# OTLP endpoint is not set by default. If you want to enable tracing, set it to the OpenTelemetry Collector endpoint
+#endpoint = "http://localhost:4317"
 
 [stack.db]
 redis = "redis://localhost:6379"

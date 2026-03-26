@@ -1,7 +1,7 @@
 use std::{fmt::Debug, path::PathBuf};
 
 use nexus_common::DaemonConfig;
-use nexus_common::{types::DynError, utils::create_shutdown_rx};
+use nexus_common::{types::DynError, utils::create_shutdown_rx, StackManager};
 use nexus_watcher::NexusWatcherBuilder;
 use nexus_webapi::{api_context::ApiContextBuilder, NexusApiBuilder};
 use serde::{Deserialize, Serialize};
@@ -27,17 +27,19 @@ impl DaemonLauncher {
     ) -> Result<(), DynError> {
         let shutdown_rx = shutdown_rx.unwrap_or_else(create_shutdown_rx);
 
-        let api_context = ApiContextBuilder::from_config_dir(config_dir.clone())
+        let config = DaemonConfig::read_or_create_config_file(config_dir.clone()).await?;
+        let stack = StackManager::setup(&config.stack).await?;
+
+        let api_context = ApiContextBuilder::from_config_dir(config_dir)
             .try_build()
             .await?;
         let nexus_webapi_builder = NexusApiBuilder::new(api_context);
 
-        let config = DaemonConfig::read_or_create_config_file(config_dir).await?;
         let nexus_watcher_builder = NexusWatcherBuilder::with_stack(config.watcher, &config.stack);
 
         try_join!(
-            nexus_webapi_builder.start(Some(shutdown_rx.clone())),
-            nexus_watcher_builder.start(Some(shutdown_rx))
+            nexus_webapi_builder.start(&stack, Some(shutdown_rx.clone())),
+            nexus_watcher_builder.start(&stack, Some(shutdown_rx))
         )?;
         Ok(())
     }

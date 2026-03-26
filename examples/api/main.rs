@@ -4,7 +4,7 @@ use std::{
 };
 
 use clap::Parser;
-use nexus_common::{file::validate_and_expand_path, types::DynError, ApiConfig, StackConfig};
+use nexus_common::{file::validate_and_expand_path, types::DynError, ApiConfig, StackManager};
 use nexus_webapi::{api_context::ApiContextBuilder, NexusApi, NexusApiBuilder};
 
 #[derive(Parser)]
@@ -26,19 +26,21 @@ async fn main() -> Result<(), DynError> {
         }
         None => {
             let api_config = ApiConfig {
-                name: String::from("nexusd.api"),
                 public_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
                 public_addr: SocketAddr::from(([127, 0, 0, 1], 8081)),
                 pubky_listen_socket: SocketAddr::from(([127, 0, 0, 1], 8082)),
-                stack: StackConfig::default(),
+                ..Default::default()
             };
+
+            let stack = StackManager::setup(&api_config.stack).await?;
 
             let api_context = ApiContextBuilder::from_default_config_dir()
                 .api_config(api_config)
                 .try_build()
                 .await?;
-
-            NexusApiBuilder::new(api_context).start(None).await?
+            NexusApiBuilder::new(api_context)
+                .start(&stack, None)
+                .await?
         }
     };
 

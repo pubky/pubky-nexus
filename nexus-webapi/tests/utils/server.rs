@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 
 use anyhow::Result;
-use nexus_common::{get_files_dir_test_pathbuf, ApiConfig};
+use nexus_common::{get_files_dir_test_pathbuf, ApiConfig, StackManager};
 use nexus_webapi::{api_context::ApiContextBuilder, NexusApi, NexusApiBuilder};
 use tokio::sync::OnceCell;
 
@@ -55,6 +55,10 @@ impl TestServiceServer {
             ..Default::default()
         };
 
+        let stack = StackManager::setup(&test_api_config.stack)
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+
         // Every time we start a test server, use a new temp config dir, which is automatically removed after the tests
         let temp_config_dir = tempfile::TempDir::new_in(".")?;
         let api_context = ApiContextBuilder::from_config_dir(temp_config_dir.path().to_path_buf())
@@ -69,7 +73,10 @@ impl TestServiceServer {
 
         let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
         let _ = shutdown_tx.send(true); // We want the test server to return right away after start()
-        let nexus_api = nexus_builder.start(Some(shutdown_rx)).await.unwrap();
+        let nexus_api = nexus_builder
+            .start(&stack, Some(shutdown_rx))
+            .await
+            .unwrap();
 
         Ok(nexus_api)
     }
