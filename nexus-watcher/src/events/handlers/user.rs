@@ -7,8 +7,9 @@ use nexus_common::models::{
     user::{UserCounts, UserDetails, UserSearch, USER_DELETED_SENTINEL},
 };
 use pubky_app_specs::{PubkyAppUser, PubkyId};
-use tracing::debug;
+use tracing::{debug, Instrument};
 
+#[tracing::instrument(name = "user.put", skip_all, fields(user_id = %user_id))]
 pub async fn sync_put(user: PubkyAppUser, user_id: PubkyId) -> Result<(), EventProcessorError> {
     debug!("Indexing new user profile: {}", user_id);
 
@@ -19,25 +20,29 @@ pub async fn sync_put(user: PubkyAppUser, user_id: PubkyId) -> Result<(), EventP
     user_details.put_to_graph().await?;
 
     // Step 3: Run in parallel the cache process: SAVE TO INDEX
-    let indexing_results = tokio::join!(
-        async {
-            UserSearch::put_to_index(&[&user_details]).await?;
-            Ok::<(), EventProcessorError>(())
-        },
-        async {
-            // TODO: Use SCARD on a set for unique tag count to avoid race conditions in parallel processing
-            // If new user (no existing counts), save a new `UserCounts`
-            if UserCounts::get_from_index(&user_id).await?.is_none() {
-                UserCounts::default().put_to_index(&user_id).await?;
+    let indexing_results = async {
+        tokio::join!(
+            async {
+                UserSearch::put_to_index(&[&user_details]).await?;
+                Ok::<(), EventProcessorError>(())
+            },
+            async {
+                // TODO: Use SCARD on a set for unique tag count to avoid race conditions in parallel processing
+                // If new user (no existing counts), save a new `UserCounts`
+                if UserCounts::get_from_index(&user_id).await?.is_none() {
+                    UserCounts::default().put_to_index(&user_id).await?;
+                }
+                Ok::<(), EventProcessorError>(())
+            },
+            async {
+                UserDetails::put_to_index(&[&user_details.id], vec![Some(user_details.clone())])
+                    .await?;
+                Ok::<(), EventProcessorError>(())
             }
-            Ok::<(), EventProcessorError>(())
-        },
-        async {
-            UserDetails::put_to_index(&[&user_details.id], vec![Some(user_details.clone())])
-                .await?;
-            Ok::<(), EventProcessorError>(())
-        }
-    );
+        )
+    }
+    .instrument(tracing::info_span!("index.write"))
+    .await;
 
     indexing_results.0?;
     indexing_results.1?;
@@ -45,6 +50,7 @@ pub async fn sync_put(user: PubkyAppUser, user_id: PubkyId) -> Result<(), EventP
     Ok(())
 }
 
+#[tracing::instrument(name = "user.del", skip_all, fields(user_id = %user_id))]
 pub async fn del(user_id: PubkyId) -> Result<(), EventProcessorError> {
     debug!("Deleting user profile:  {}", user_id);
 
@@ -64,7 +70,9 @@ pub async fn del(user_id: PubkyId) -> Result<(), EventProcessorError> {
             // so it must complete before UserDetails::delete runs.
             UserSearch::delete(&user_id).await?;
             let indexing_results =
-                tokio::join!(UserDetails::delete(&user_id), UserCounts::delete(&user_id));
+                async { tokio::join!(UserDetails::delete(&user_id), UserCounts::delete(&user_id)) }
+                    .instrument(tracing::info_span!("index.delete"))
+                    .await;
             indexing_results.0?;
             indexing_results.1?;
         }

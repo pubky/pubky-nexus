@@ -3075,6 +3075,7 @@ dependencies = [
  "toml 1.0.7+spec-1.1.0",
  "tracing",
  "tracing-log",
+ "tracing-opentelemetry",
  "tracing-subscriber",
  "tracing-test",
  "utoipa",
@@ -3103,7 +3104,6 @@ dependencies = [
  "httpc-test",
  "neo4rs",
  "nexus-common",
- "opentelemetry 0.31.0",
  "pubky 0.6.0",
  "pubky-app-specs",
  "pubky-testnet",
@@ -3132,7 +3132,6 @@ dependencies = [
  "httpc-test",
  "neo4rs",
  "nexus-common",
- "opentelemetry 0.31.0",
  "pubky 0.6.0",
  "pubky-app-specs",
  "pubky-testnet",
@@ -6153,6 +6152,22 @@ dependencies = [
  "log",
  "once_cell",
  "tracing-core",
+]
+
+[[package]]
+name = "tracing-opentelemetry"
+version = "0.32.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ac28f2d093c6c477eaa76b23525478f38de514fa9aeb1285738d4b97a9552fc"
+dependencies = [
+ "js-sys",
+ "opentelemetry 0.31.0",
+ "smallvec",
+ "tracing",
+ "tracing-core",
+ "tracing-log",
+ "tracing-subscriber",
+ "web-time",
 ]
 
 [[package]]
