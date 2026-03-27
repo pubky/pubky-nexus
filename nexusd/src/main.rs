@@ -20,7 +20,7 @@ async fn main() -> Result<(), DynError> {
                 MigrationCommands::New(args) => MigrationManager::new_migration(args.name).await?,
                 MigrationCommands::Run => {
                     let builder = MigrationBuilder::default().await?;
-                    let _stack = StackManager::setup(builder.stack()).await?;
+                    StackManager::setup(builder.stack()).await?;
                     let mut mm = MigrationManager::default();
                     import_migrations(&mut mm);
                     mm.run(&builder.migrations_backfill_ready()).await?;

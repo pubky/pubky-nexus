@@ -60,17 +60,14 @@ impl NexusWatcherBuilder {
 
     /// Starts the NexusWatcher event loop.
     ///
-    /// Requires a [`StackManager`] instance, obtained from [`StackManager::setup`].
+    /// Calls [`StackManager::setup`] to initialize the shared infrastructure (logging, metrics, databases).
+    /// If the stack was already initialized (e.g. by another builder), verifies the config matches.
     ///
     /// ### Arguments
     ///
-    /// - `_stack`: proof that [`StackManager::setup`] has been called.
     /// - `shutdown_rx`: optional shutdown signal. If none is provided, a default one will be created, listening for Ctrl-C.
-    pub async fn start(
-        self,
-        _stack: &StackManager,
-        shutdown_rx: Option<Receiver<bool>>,
-    ) -> Result<(), DynError> {
+    pub async fn start(self, shutdown_rx: Option<Receiver<bool>>) -> Result<(), DynError> {
+        StackManager::setup(&self.0.stack).await?;
         let shutdown_rx = shutdown_rx.unwrap_or_else(create_shutdown_rx);
 
         let testnet_host = if self.0.testnet {

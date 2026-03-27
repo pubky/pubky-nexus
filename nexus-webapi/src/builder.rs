@@ -16,7 +16,7 @@ use nexus_common::file::ConfigLoader;
 use nexus_common::types::DynError;
 use nexus_common::utils::create_shutdown_rx;
 use nexus_common::Level;
-use nexus_common::{ApiConfig, DaemonConfig, StackManager};
+use nexus_common::{ApiConfig, StackManager};
 use pubky::pkarr::{Keypair, PublicKey};
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info};
@@ -78,19 +78,16 @@ impl NexusApiBuilder {
 
     /// Creates and starts a [NexusApi] instance.
     ///
-    /// Requires a [`StackManager`] instance, obtained from [`StackManager::setup`].
+    /// Calls [`StackManager::setup`] to initialize the shared infrastructure (logging, metrics, databases).
+    /// If the stack was already initialized (e.g. by another builder), verifies the config matches.
     ///
     /// This method is blocking and only returns after the shutdown signal is received and the [NexusApi] shut down.
     ///
     /// ### Arguments
     ///
-    /// - `_stack`: proof that [`StackManager::setup`] has been called.
     /// - `shutdown_rx`: optional shutdown signal. If none is provided, a default one will be created, listening for Ctrl-C.
-    pub async fn start(
-        self,
-        _stack: &StackManager,
-        shutdown_rx: Option<Receiver<bool>>,
-    ) -> Result<NexusApi, DynError> {
+    pub async fn start(self, shutdown_rx: Option<Receiver<bool>>) -> Result<NexusApi, DynError> {
+        StackManager::setup(&self.api_context.api_config.stack).await?;
         let mut shutdown_rx = shutdown_rx.unwrap_or_else(create_shutdown_rx);
 
         let nexus_api = NexusApi::start(self.api_context, self.enable_key_republisher)
@@ -139,16 +136,12 @@ impl NexusApi {
     ) -> Result<Self, DynError> {
         match ApiConfig::load(config_dir.join(API_CONFIG_FILE_NAME)).await {
             Ok(api_config) => {
-                let stack = StackManager::setup(&api_config.stack).await?;
-
                 let api_context = ApiContextBuilder::from_config_dir(config_dir)
                     .api_config(api_config)
                     .try_build()
                     .await?;
 
-                NexusApiBuilder::new(api_context)
-                    .start(&stack, shutdown_rx)
-                    .await
+                NexusApiBuilder::new(api_context).start(shutdown_rx).await
             }
             Err(_) => NexusApi::start_from_daemon(config_dir, shutdown_rx).await,
         }
@@ -166,15 +159,12 @@ impl NexusApi {
     ) -> Result<Self, DynError> {
         let shutdown_rx = shutdown_rx.unwrap_or_else(create_shutdown_rx);
 
-        let daemon_config = DaemonConfig::read_or_create_config_file(config_dir.clone()).await?;
-        let stack = StackManager::setup(&daemon_config.stack).await?;
-
         let api_context = ApiContextBuilder::from_config_dir(config_dir)
             .try_build()
             .await?;
 
         NexusApiBuilder::new(api_context)
-            .start(&stack, Some(shutdown_rx))
+            .start(Some(shutdown_rx))
             .await
     }
 

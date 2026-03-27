@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use clap::Parser;
-use nexus_common::{file::validate_and_expand_path, types::DynError, StackManager, WatcherConfig};
+use nexus_common::{file::validate_and_expand_path, types::DynError, WatcherConfig};
 use nexus_watcher::{service::NexusWatcher, NexusWatcherBuilder};
 use pubky_app_specs::PubkyId;
 
@@ -38,8 +38,7 @@ async fn main() -> Result<(), DynError> {
                 moderated_tags: Vec::new(),
                 ..Default::default()
             };
-            let stack = StackManager::setup(&config.stack).await?;
-            NexusWatcherBuilder(config).start(&stack, None).await?;
+            NexusWatcherBuilder(config).start(None).await?;
         }
     }
 

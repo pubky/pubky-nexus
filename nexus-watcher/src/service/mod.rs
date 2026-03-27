@@ -15,7 +15,7 @@ use crate::NexusWatcherBuilder;
 use nexus_common::file::ConfigLoader;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::utils::create_shutdown_rx;
-use nexus_common::{DaemonConfig, StackManager, WatcherConfig};
+use nexus_common::{DaemonConfig, WatcherConfig};
 use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
 use tokio::sync::watch::Receiver;
@@ -45,12 +45,7 @@ impl NexusWatcher {
         let shutdown_rx = shutdown_rx.unwrap_or_else(create_shutdown_rx);
 
         match WatcherConfig::load(config_dir.join(WATCHER_CONFIG_FILE_NAME)).await {
-            Ok(config) => {
-                let stack = StackManager::setup(&config.stack).await?;
-                NexusWatcherBuilder(config)
-                    .start(&stack, Some(shutdown_rx))
-                    .await
-            }
+            Ok(config) => NexusWatcherBuilder(config).start(Some(shutdown_rx)).await,
             Err(_) => NexusWatcher::start_from_daemon(config_dir, Some(shutdown_rx)).await,
         }
     }
@@ -68,11 +63,8 @@ impl NexusWatcher {
         shutdown_rx: Option<Receiver<bool>>,
     ) -> Result<(), DynError> {
         let daemon_config = DaemonConfig::read_or_create_config_file(config_dir).await?;
-        let stack = StackManager::setup(&daemon_config.stack).await?;
         let watcher_config = WatcherConfig::from(daemon_config);
-        NexusWatcherBuilder(watcher_config)
-            .start(&stack, shutdown_rx)
-            .await
+        NexusWatcherBuilder(watcher_config).start(shutdown_rx).await
     }
 
     pub async fn start(

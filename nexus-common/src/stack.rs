@@ -9,24 +9,40 @@ use opentelemetry_sdk::metrics::{PeriodicReader, SdkMeterProvider};
 use opentelemetry_sdk::trace::SdkTracerProvider;
 use opentelemetry_sdk::Resource;
 use std::time::Duration;
+use tokio::sync::OnceCell;
 use tracing::{error, info};
 use tracing_subscriber::{fmt, EnvFilter, Layer};
 use tracing_subscriber::{layer::SubscriberExt, Registry};
 
-pub struct StackManager {
-    _private: (),
-}
+/// Stores the [`StackConfig`] used for the first initialization.
+/// Subsequent calls to [`StackManager::setup`] verify the config matches.
+static STACK_CONFIG: OnceCell<StackConfig> = OnceCell::const_new();
+
+/// Manages one-time initialization of the shared infrastructure stack
+/// (logging, metrics, database connections).
+///
+/// Each builder's `start()` method calls [`StackManager::setup`] internally.
+pub struct StackManager;
 
 impl StackManager {
-    pub async fn setup(config: &StackConfig) -> Result<Self, DynError> {
-        // Initialize logging and metrics
-        Self::setup_logging(&config.otlp.name, &config.otlp.endpoint, config.log_level).await;
-        Self::setup_metrics(&config.otlp.name, &config.otlp.endpoint).await;
+    pub async fn setup(config: &StackConfig) -> Result<(), DynError> {
+        let stored = STACK_CONFIG
+            .get_or_try_init(|| async {
+                Self::setup_logging(&config.otlp.name, &config.otlp.endpoint, config.log_level)
+                    .await;
+                Self::setup_metrics(&config.otlp.name, &config.otlp.endpoint).await;
 
-        // Initialize Redis and Neo4j
-        RedisConnector::init(&config.db.redis).await?;
-        Neo4jConnector::init(&config.db.neo4j).await?;
-        Ok(Self { _private: () })
+                RedisConnector::init(&config.db.redis).await?;
+                Neo4jConnector::init(&config.db.neo4j).await?;
+                Ok::<_, DynError>(config.clone())
+            })
+            .await?;
+
+        if stored != config {
+            return Err("StackManager already initialized with a different StackConfig".into());
+        }
+
+        Ok(())
     }
 
     async fn setup_logging(service_name: &str, otel_endpoint: &Option<String>, log_level: Level) {
