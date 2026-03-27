@@ -120,7 +120,7 @@ pub async fn sync_put(
             }
         )
     }
-    .instrument(tracing::info_span!("index.write"))
+    .instrument(tracing::info_span!("index.write", phase = "post_counts"))
     .await;
 
     indexing_results.0?;
@@ -179,7 +179,7 @@ pub async fn sync_put(
                 )
             )
         }
-        .instrument(tracing::info_span!("index.write"))
+        .instrument(tracing::info_span!("index.write", phase = "reply_parent"))
         .await;
 
         indexing_results.0?;
@@ -227,7 +227,7 @@ pub async fn sync_put(
                 )
             )
         }
-        .instrument(tracing::info_span!("index.write"))
+        .instrument(tracing::info_span!("index.write", phase = "repost_parent"))
         .await;
 
         indexing_results.0?;
@@ -242,7 +242,7 @@ pub async fn sync_put(
             post_details.put_to_index(&author_id, reply_parent_post_key_wrapper, false)
         )
     }
-    .instrument(tracing::info_span!("index.write"))
+    .instrument(tracing::info_span!("index.write", phase = "post_details"))
     .await;
 
     indexing_results.0?;
@@ -404,7 +404,7 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
             }
         )
     }
-    .instrument(tracing::info_span!("index.delete"))
+    .instrument(tracing::info_span!("index.delete", phase = "post_counts"))
     .await;
 
     indexing_results.0?;
@@ -461,7 +461,7 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
                     )
                 )
             }
-            .instrument(tracing::info_span!("index.delete"))
+            .instrument(tracing::info_span!("index.delete", phase = "reply_parent"))
             .await;
 
             indexing_results.0?;
@@ -513,7 +513,7 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
                     )
                 )
             }
-            .instrument(tracing::info_span!("index.delete"))
+            .instrument(tracing::info_span!("index.delete", phase = "repost_parent"))
             .await;
 
             indexing_results.0?;
@@ -527,7 +527,7 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
             PostRelationships::delete(&author_id, &post_id)
         )
     }
-    .instrument(tracing::info_span!("index.delete"))
+    .instrument(tracing::info_span!("index.delete", phase = "post_details"))
     .await;
 
     indexing_results.0?;

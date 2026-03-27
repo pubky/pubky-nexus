@@ -156,7 +156,7 @@ async fn put_sync_post(
                     TagSearch::put_to_index(tag_label_slice)
                 )
             }
-            .instrument(tracing::info_span!("index.write"))
+            .instrument(tracing::info_span!("index.write", phase = "tag_post"))
             .await;
 
             indexing_results.0?;
@@ -249,7 +249,7 @@ async fn put_sync_user(
                         TagSearch::put_to_index(tag_label_slice)
                     )
                 }
-                .instrument(tracing::info_span!("index.write"))
+                .instrument(tracing::info_span!("index.write", phase = "tag_user"))
                 .await;
 
             indexing_results.0?;
@@ -326,7 +326,7 @@ async fn del_sync_user(
             Notification::new_user_untag(&tagger_id, tagged_id, tag_label)
         )
     }
-    .instrument(tracing::info_span!("index.delete"))
+    .instrument(tracing::info_span!("index.delete", phase = "tag_user"))
     .await;
 
     indexing_results.0?;
@@ -410,7 +410,7 @@ async fn del_sync_post(
             Notification::new_post_untag(&tagger_id, author_id, tag_label, &post_uri)
         )
     }
-    .instrument(tracing::info_span!("index.delete"))
+    .instrument(tracing::info_span!("index.delete", phase = "tag_post"))
     .await;
 
     indexing_results.0?;
