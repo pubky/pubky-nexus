@@ -1,11 +1,7 @@
-use std::{
-    net::{IpAddr, Ipv4Addr, SocketAddr},
-    path::PathBuf,
-};
-
 use clap::Parser;
-use nexus_common::{file::validate_and_expand_path, types::DynError, ApiConfig};
+use nexus_common::{file::validate_and_expand_path, types::DynError};
 use nexus_webapi::{api_context::ApiContextBuilder, NexusApi, NexusApiBuilder};
+use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(about = "Example Nexus API server", long_about = None)]
@@ -25,13 +21,7 @@ async fn main() -> Result<(), DynError> {
             NexusApi::start_from_path(expanded_path, None).await?
         }
         None => {
-            let api_config = ApiConfig {
-                public_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
-                public_addr: SocketAddr::from(([127, 0, 0, 1], 8081)),
-                pubky_listen_socket: SocketAddr::from(([127, 0, 0, 1], 8082)),
-                ..Default::default()
-            };
-
+            let api_config = Default::default();
             let api_context = ApiContextBuilder::from_default_config_dir()
                 .api_config(api_config)
                 .try_build()

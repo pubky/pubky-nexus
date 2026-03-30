@@ -12,7 +12,7 @@ pub fn run_setup() {
                 log_level: Level::Error,
                 ..Default::default()
             };
-            StackManager::setup(&config).await;
+            let _ = StackManager::setup(&config).await;
         });
     });
 }
