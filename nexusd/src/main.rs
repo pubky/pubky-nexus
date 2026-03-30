@@ -1,5 +1,6 @@
 use clap::Parser;
 use nexus_common::types::DynError;
+use nexus_common::StackManager;
 use nexus_watcher::service::NexusWatcher;
 use nexus_webapi::mock::MockDb;
 use nexus_webapi::NexusApi;
@@ -19,7 +20,8 @@ async fn main() -> Result<(), DynError> {
                 MigrationCommands::New(args) => MigrationManager::new_migration(args.name).await?,
                 MigrationCommands::Run => {
                     let builder = MigrationBuilder::default().await?;
-                    let mut mm = builder.init_stack().await?;
+                    StackManager::setup(builder.stack()).await?;
+                    let mut mm = MigrationManager::default();
                     import_migrations(&mut mm);
                     mm.run(&builder.migrations_backfill_ready()).await?;
                 }
