@@ -57,22 +57,6 @@ services:
       - redis
     restart: always
 
-  # Only used for tests that involve homeservers
-  postgres:
-    image: postgres:18-alpine
-    container_name: postgres
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-    ports:
-      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   # jaeger:
   #   image: jaegertracing/all-in-one:1.65.0
   #   container_name: jaeger

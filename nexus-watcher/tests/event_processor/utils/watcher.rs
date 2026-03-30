@@ -23,6 +23,7 @@ use pubky_app_specs::{
     traits::{HasIdPath, HasPath, TimestampId},
     PubkyAppFile, PubkyAppFollow, PubkyAppPost, PubkyAppUser, PubkyId,
 };
+use pubky_testnet::embedded_postgres::EmbeddedPostgres;
 use pubky_testnet::Testnet;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -47,8 +48,12 @@ pub fn generate_post_id() -> String {
     encode(Alphabet::Crockford, &bytes)
 }
 
-/// Struct to hold the setup environment for tests
+/// Struct to hold the setup environment for tests.
+/// `_embedded_pg` is held to keep the PostgreSQL process alive for the test's
+/// lifetime and ensure it is stopped on drop.
 pub struct WatcherTest {
+    /// held to keep the PostgreSQL process alive for the test's lifetime
+    _embedded_pg: EmbeddedPostgres,
     pub testnet: Testnet,
     /// The homeserver ID
     pub homeserver_id: String,
@@ -110,10 +115,9 @@ impl WatcherTest {
             return Err(Error::msg(format!("could not initialise the stack, {e:?}")));
         }
 
-        // WARNING: testnet initialization is time expensive, we only init one per process
-        // TODO: Maybe we should create a single testnet network (singleton and push there more homeservers)
-        // This can be further sped up by using Testnet::new_unseeded() with pubky-testnet 0.7.x
-        let mut testnet = Testnet::new().await?;
+        let embedded_pg = EmbeddedPostgres::start().await?;
+        let conn = embedded_pg.connection_string()?;
+        let mut testnet = Testnet::new_with_custom_postgres(conn).await?;
         testnet.create_http_relay().await?;
 
         // Create a random homeserver with a random public key
@@ -134,6 +138,7 @@ impl WatcherTest {
         let event_processor_runner = Self::create_test_event_processor_runner(pubky_id);
 
         Ok(Self {
+            _embedded_pg: embedded_pg,
             testnet,
             homeserver_id,
             event_processor_runner,
