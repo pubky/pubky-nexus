@@ -10,6 +10,7 @@ pub use builder::MigrationBuilder;
 pub use manager::MigrationManager;
 
 use crate::migrations::migrations_list::remove_muted_1771718400::RemoveMuted1771718400;
+use crate::migrations::migrations_list::resource_node_setup_1774000000::ResourceNodeSetup1774000000;
 use crate::migrations::migrations_list::users_by_pk_reindex_1751635096::UsersByPkReindex1751635096;
 /// Registers migrations with the `MigrationManager`
 ///
@@ -41,6 +42,7 @@ pub fn import_migrations(migration_manager: &mut MigrationManager) {
         // Note: Add your migrations here to be picked up by the manager
         Box::new(UsersByPkReindex1751635096),
         Box::new(RemoveMuted1771718400),
+        Box::new(ResourceNodeSetup1774000000),
     ];
     for migration in migrations {
         migration_manager.register(migration);

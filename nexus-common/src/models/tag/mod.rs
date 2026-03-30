@@ -18,6 +18,7 @@ use utoipa::ToSchema;
 pub enum TaggedType {
     Post,
     User,
+    Resource,
 }
 
 impl Display for TaggedType {
@@ -25,6 +26,7 @@ impl Display for TaggedType {
         match self {
             TaggedType::Post => write!(f, "Post"),
             TaggedType::User => write!(f, "User"),
+            TaggedType::Resource => write!(f, "Resource"),
         }
     }
 }
