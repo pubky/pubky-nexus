@@ -1,3 +1,4 @@
+pub mod backoff;
 mod constants;
 mod processor;
 mod processor_runner;
@@ -98,6 +99,12 @@ impl NexusWatcher {
         let default_hs_runner = ev_processor_runner.clone();
         let external_hs_runner = ev_processor_runner.clone();
 
+        // TODO Incorporate in EventProcessorRunner::from_config above, remove backoff arg from run_external_homeservers
+        let backoff = crate::service::backoff::HomeserverBackoff::new(
+            config.initial_backoff_secs,
+            config.max_backoff_secs,
+        );
+
         let tasks = vec![
             PeriodicTask::new("default-homeserver", watcher_sleep, move || {
                 let runner = default_hs_runner.clone();
@@ -105,7 +112,13 @@ impl NexusWatcher {
             }),
             PeriodicTask::new("external-homeservers", watcher_sleep, move || {
                 let runner = external_hs_runner.clone();
-                async move { runner.run_external_homeservers().await.map(|_| ()) }
+                let mut backoff = backoff.clone();
+                async move {
+                    runner
+                        .run_external_homeservers(&mut backoff)
+                        .await
+                        .map(|_| ())
+                }
             }),
             PeriodicTask::new("user-hs-resolver", hs_resolver_sleep, move || {
                 async move { user_hs_resolver::run(hs_resolver_ttl).await }

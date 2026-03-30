@@ -5,6 +5,10 @@ homeserver = "8um71us3fyw6h8wbcxb5ar3rwusy1a6u49956ikzojg3gcwd1dty"
 events_limit = 50
 watcher_sleep = 5000
 hs_resolver_sleep = 10000
+# Initial backoff duration (in seconds) after the first failure of a homeserver
+initial_backoff_secs = 60
+# Maximum backoff duration (in seconds) for a failing homeserver
+max_backoff_secs = 3600
 # User public key to trust for moderating content
 moderation_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 # Tags on content to de-index when placed by the trusted moderator above
@@ -32,9 +36,7 @@ uri = "bolt://localhost:7687"
 # Not needed in the Community Edition
 #user = "neo4j"
 password = "12345678"
-# Queries taking longer than this (ms) will be logged as warnings
+# Queries taking longer than this (ms) will be logged as warnings. Remove or comment out this line to disable.
 slow_query_logging_threshold_ms = 100
-# Enable or disable slow query logging
-#slow_query_logging_enabled = true
 # Include the full cypher (with interpolated params) in slow-query warnings
 #slow_query_logging_include_cypher = false

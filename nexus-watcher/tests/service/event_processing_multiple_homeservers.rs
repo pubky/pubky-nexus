@@ -3,6 +3,7 @@ use crate::service::utils::{
     MockEventProcessorRunner,
 };
 use anyhow::Result;
+use nexus_watcher::service::backoff::HomeserverBackoff;
 use nexus_watcher::service::TEventProcessorRunner;
 use std::time::Duration;
 
@@ -41,7 +42,11 @@ async fn test_multiple_homeserver_event_processing() -> Result<()> {
     let runner = MockEventProcessorRunner::new(event_processor_list, 4, shutdown_rx);
 
     // run_external_homeservers excludes the default homeserver (the first one), so only 3 are processed
-    let stats = runner.run_external_homeservers().await.unwrap().0;
+    let stats = runner
+        .run_external_homeservers(&mut HomeserverBackoff::default())
+        .await
+        .unwrap()
+        .0;
     assert_eq!(stats.count_ok(), 2);
     assert_eq!(stats.count_error(), 1);
     assert_eq!(stats.count_panic(), 0);
@@ -74,7 +79,11 @@ async fn test_multi_hs_event_processing_with_homeserver_limit() -> Result<()> {
     let hs_limit = 3; // Configure a monitored_homeservers_limit of 3
     let runner = MockEventProcessorRunner::new(event_processor_list, hs_limit, shutdown_rx);
     // run_external_homeservers excludes the default HS, so 4 non-default HSs available, limited to 3
-    let stats = runner.run_external_homeservers().await.unwrap().0;
+    let stats = runner
+        .run_external_homeservers(&mut HomeserverBackoff::default())
+        .await
+        .unwrap()
+        .0;
 
     assert_eq!(stats.count_ok(), 3); // 3 successful ones, due to the limit
     assert_eq!(stats.count_timeout(), 0);
@@ -117,7 +126,11 @@ async fn test_multi_hs_event_processing_with_homeserver_limit_one() -> Result<()
         "Default homeserver should be excluded from pre_run_external_homeservers"
     );
 
-    let stats_one = runner_one.run_external_homeservers().await.unwrap().0;
+    let stats_one = runner_one
+        .run_external_homeservers(&mut HomeserverBackoff::default())
+        .await
+        .unwrap()
+        .0;
     assert_eq!(stats_one.count_ok(), 1); // 1 successful, due to the limit
     assert_eq!(stats_one.count_timeout(), 0);
     assert_eq!(stats_one.count_error(), 0);
@@ -154,7 +167,11 @@ async fn test_multi_hs_event_processing_with_timeout() -> Result<()> {
 
     // run_external_homeservers excludes the default HS (0s sleep), so only index 1 and 2 are processed.
     // Both have sleep durations exceeding the 1s timeout.
-    let stats = runner.run_external_homeservers().await.unwrap().0;
+    let stats = runner
+        .run_external_homeservers(&mut HomeserverBackoff::default())
+        .await
+        .unwrap()
+        .0;
     assert_eq!(stats.count_ok(), 0); // no successes
     assert_eq!(stats.count_timeout(), 2); // 2 failures due to timeout
     assert_eq!(stats.count_error(), 0);
@@ -200,7 +217,11 @@ async fn test_multi_hs_event_processing_with_panic() -> Result<()> {
     let runner = MockEventProcessorRunner::new(event_processor_list, 5, shutdown_rx);
 
     // run_external_homeservers excludes the default HS (first success), so 2 success + 2 panic are processed
-    let stats = runner.run_external_homeservers().await.unwrap().0;
+    let stats = runner
+        .run_external_homeservers(&mut HomeserverBackoff::default())
+        .await
+        .unwrap()
+        .0;
     assert_eq!(stats.count_ok(), 2); // 2 expected to succeed (3 - 1 default)
     assert_eq!(stats.count_timeout(), 0);
     assert_eq!(stats.count_error(), 0);

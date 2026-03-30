@@ -7,6 +7,7 @@ use chrono::Utc;
 use nexus_common::models::{file::FileDetails, traits::Collection};
 use pubky::Keypair;
 use pubky_app_specs::{
+    blob_uri_builder, file_uri_builder,
     traits::{HasIdPath, HashId},
     PubkyAppBlob, PubkyAppFile, PubkyAppPost, PubkyAppPostKind, PubkyAppUser,
 };
@@ -34,6 +35,7 @@ async fn test_homeserver_del_post_with_attachments() -> Result<()> {
         let blob = PubkyAppBlob::new(blob_data.as_bytes().to_vec());
         let blob_id = blob.create_id();
         let blob_relative_url = PubkyAppBlob::create_path(&blob_id);
+        let blob_absolute_url = blob_uri_builder(user_id.clone(), blob_id);
 
         test.create_file_from_body(&user_kp, blob_relative_url.as_str(), blob.0.clone())
             .await?;
@@ -42,7 +44,7 @@ async fn test_homeserver_del_post_with_attachments() -> Result<()> {
         let file = PubkyAppFile {
             name: format!("post_attachment_DEL-{i}"),
             content_type: "text/plain".to_string(),
-            src: blob_relative_url.clone(),
+            src: blob_absolute_url.clone(),
             size: blob.0.len(),
             created_at: Utc::now().timestamp_millis(),
         };
@@ -51,7 +53,10 @@ async fn test_homeserver_del_post_with_attachments() -> Result<()> {
         file_ids.push(file_id);
     }
 
-    let post_attachments: Vec<String> = file_paths.iter().map(|p| p.to_string()).collect();
+    let post_attachments: Vec<String> = file_ids
+        .iter()
+        .map(|id| file_uri_builder(user_id.clone(), id.clone()))
+        .collect();
     let post = PubkyAppPost {
         content: "Watcher:DelWithAttachmentEvent:Post".to_string(),
         kind: PubkyAppPostKind::Short,
