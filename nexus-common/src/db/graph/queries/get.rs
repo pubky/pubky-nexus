@@ -268,6 +268,7 @@ pub fn get_all_homeservers_with_active_users() -> Query {
     Query::new(
         "get_all_homeservers_with_active_users",
         "MATCH (u:User)-[:HOSTED_BY]->(hs:Homeserver)
+        WHERE u.name <> '[DELETED]'
         WITH hs.id AS id, count(u) AS active_users
         ORDER BY active_users DESC
         RETURN collect(id) AS homeservers_list",
@@ -280,6 +281,7 @@ pub fn get_users_needing_hs_resolution(ttl_ms: u64) -> Query {
     Query::new(
         "get_users_needing_hs_resolution",
         "MATCH (u:User)
+         WHERE u.name <> '[DELETED]'
          OPTIONAL MATCH (u)-[r:HOSTED_BY]->(:Homeserver)
          WITH u, r
          WHERE r IS NULL
@@ -295,6 +297,7 @@ pub fn get_users_by_homeserver(hs_id: &str) -> Query {
     Query::new(
         "get_users_by_homeserver",
         "MATCH (u:User)-[:HOSTED_BY]->(:Homeserver {id: $hs_id})
+         WHERE u.name <> '[DELETED]'
          RETURN collect(u.id) AS user_ids",
     )
     .param("hs_id", hs_id.to_string())
