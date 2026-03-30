@@ -16,8 +16,11 @@ pub struct HomeserverBackoff {
 }
 
 impl HomeserverBackoff {
-    /// Creates a new `HomeserverBackoff` with the given initial and maximum backoff durations.
     pub fn new(initial_backoff_secs: u64, max_backoff_secs: u64) -> Self {
+        if initial_backoff_secs > max_backoff_secs {
+            panic!("Invalid config: initial_backoff_secs > max_backoff_secs");
+        }
+
         Self {
             initial_backoff_secs,
             max_backoff_secs,
