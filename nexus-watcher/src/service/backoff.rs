@@ -71,6 +71,12 @@ impl Default for HomeserverBackoff {
 mod tests {
     use super::*;
 
+    impl HomeserverBackoff {
+        fn next_backoff_secs_for(&self, hs_id: &str) -> Option<u64> {
+            self.state.get(hs_id).map(|bs| bs.next_backoff_secs)
+        }
+    }
+
     #[test]
     fn new_homeserver_is_not_skipped() {
         let backoff = HomeserverBackoff::default();
@@ -107,5 +113,47 @@ mod tests {
         }
         // Should not panic or overflow, and should still be skipped
         assert!(backoff.should_skip("hs1"));
+    }
+
+    /// Verifies the backoff duration doubles on each failure and is capped at max_backoff_secs.
+    /// `next_backoff_secs` holds the duration for the *next* failure, so after the first failure
+    /// it is already 2× the initial value.
+    #[test]
+    fn backoff_duration_sequence() {
+        let mut backoff = HomeserverBackoff::new(2, 16);
+
+        backoff.record_failure("hs1");
+        assert_eq!(backoff.next_backoff_secs_for("hs1"), Some(4));
+
+        backoff.record_failure("hs1");
+        assert_eq!(backoff.next_backoff_secs_for("hs1"), Some(8));
+
+        backoff.record_failure("hs1");
+        assert_eq!(backoff.next_backoff_secs_for("hs1"), Some(16));
+
+        // Further failures must stay at the cap, never exceed it
+        backoff.record_failure("hs1");
+        assert_eq!(backoff.next_backoff_secs_for("hs1"), Some(16));
+    }
+
+    /// Verifies that a successful run fully resets backoff state so the next failure
+    /// starts the doubling sequence from the initial duration again, not from wherever
+    /// it left off before the success.
+    #[test]
+    fn success_resets_backoff_to_initial() {
+        let mut backoff = HomeserverBackoff::new(2, 32);
+
+        // Two failures advance next_backoff_secs to 8
+        backoff.record_failure("hs1");
+        backoff.record_failure("hs1");
+        assert_eq!(backoff.next_backoff_secs_for("hs1"), Some(8));
+
+        // Success clears all state
+        backoff.record_success("hs1");
+        assert_eq!(backoff.next_backoff_secs_for("hs1"), None);
+
+        // First failure after reset must use the initial duration, not the previous 8
+        backoff.record_failure("hs1");
+        assert_eq!(backoff.next_backoff_secs_for("hs1"), Some(4)); // 2*2, not 8
     }
 }
