@@ -3,21 +3,28 @@ use std::time::{Duration, Instant};
 
 use tracing::info;
 
-const INITIAL_BACKOFF_SECS: u64 = 60;
-const MAX_BACKOFF_SECS: u64 = 3_600;
-
 struct BackoffState {
     next_backoff_secs: u64,
     backoff_until: Instant,
 }
 
 /// Tracks per-homeserver failure counts and exponential backoff windows.
-#[derive(Default)]
 pub struct HomeserverBackoff {
+    initial_backoff_secs: u64,
+    max_backoff_secs: u64,
     state: HashMap<String, BackoffState>,
 }
 
 impl HomeserverBackoff {
+    /// Creates a new `HomeserverBackoff` with the given initial and maximum backoff durations.
+    pub fn new(initial_backoff_secs: u64, max_backoff_secs: u64) -> Self {
+        Self {
+            initial_backoff_secs,
+            max_backoff_secs,
+            state: HashMap::new(),
+        }
+    }
+
     /// Returns `true` if the homeserver is currently in a backoff window and should be skipped.
     pub fn should_skip(&self, hs_id: &str) -> bool {
         match self.state.get(hs_id) {
@@ -35,16 +42,25 @@ impl HomeserverBackoff {
     ///
     /// Backoff duration: `min(BASE * 2^failures, MAX)` — i.e. 60s, 120s, 240s, … up to 1 hour.
     pub fn record_failure(&mut self, hs_id: &str) {
+        let initial = self.initial_backoff_secs;
+        let max = self.max_backoff_secs;
         let entry = self.state.entry(hs_id.to_string()).or_insert(BackoffState {
-            next_backoff_secs: INITIAL_BACKOFF_SECS,
+            next_backoff_secs: initial,
             backoff_until: Instant::now(),
         });
 
         let backoff_secs = entry.next_backoff_secs;
         entry.backoff_until = Instant::now() + Duration::from_secs(backoff_secs);
-        entry.next_backoff_secs = (backoff_secs * 2).min(MAX_BACKOFF_SECS);
+        entry.next_backoff_secs = (backoff_secs * 2).min(max);
 
         info!("Homeserver {hs_id} backed off for {backoff_secs}s");
+    }
+}
+
+impl Default for HomeserverBackoff {
+    fn default() -> Self {
+        use nexus_common::{DEFAULT_INITIAL_BACKOFF_SECS, DEFAULT_MAX_BACKOFF_SECS};
+        Self::new(DEFAULT_INITIAL_BACKOFF_SECS, DEFAULT_MAX_BACKOFF_SECS)
     }
 }
 

@@ -17,6 +17,10 @@ pub const DEFAULT_EVENTS_LIMIT: u32 = 1_000;
 pub const DEFAULT_MONITORED_HOMESERVERS_LIMIT: usize = 50;
 /// Default for [WatcherConfig::watcher_sleep]
 pub const DEFAULT_WATCHER_SLEEP: u64 = 5_000;
+/// Default for [WatcherConfig::initial_backoff_secs]
+pub const DEFAULT_INITIAL_BACKOFF_SECS: u64 = 60;
+/// Default for [WatcherConfig::max_backoff_secs]
+pub const DEFAULT_MAX_BACKOFF_SECS: u64 = 3_600;
 // Moderation service key
 pub const MODERATION_ID: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 // Moderation service key
@@ -43,6 +47,12 @@ pub struct WatcherConfig {
     pub monitored_homeservers_limit: usize,
     /// Sleep between every full run (over all monitored homeservers), in milliseconds
     pub watcher_sleep: u64,
+    /// Initial backoff duration (in seconds) after the first failure of a homeserver
+    #[serde(default = "default_initial_backoff_secs")]
+    pub initial_backoff_secs: u64,
+    /// Maximum backoff duration (in seconds) for a failing homeserver
+    #[serde(default = "default_max_backoff_secs")]
+    pub max_backoff_secs: u64,
     #[serde(default = "default_stack")]
     pub stack: StackConfig,
     // Moderation
@@ -68,6 +78,8 @@ impl Default for WatcherConfig {
             events_limit: DEFAULT_EVENTS_LIMIT,
             monitored_homeservers_limit: DEFAULT_MONITORED_HOMESERVERS_LIMIT,
             watcher_sleep: DEFAULT_WATCHER_SLEEP,
+            initial_backoff_secs: DEFAULT_INITIAL_BACKOFF_SECS,
+            max_backoff_secs: DEFAULT_MAX_BACKOFF_SECS,
             moderation_id,
             moderated_tags: MODERATED_TAGS.iter().map(|s| s.to_string()).collect(),
         }
@@ -87,3 +99,11 @@ impl From<DaemonConfig> for WatcherConfig {
 
 #[async_trait]
 impl ConfigLoader<WatcherConfig> for WatcherConfig {}
+
+fn default_initial_backoff_secs() -> u64 {
+    DEFAULT_INITIAL_BACKOFF_SECS
+}
+
+fn default_max_backoff_secs() -> u64 {
+    DEFAULT_MAX_BACKOFF_SECS
+}
