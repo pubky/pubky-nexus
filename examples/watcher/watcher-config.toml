@@ -4,6 +4,10 @@ testnet = false
 homeserver = "8um71us3fyw6h8wbcxb5ar3rwusy1a6u49956ikzojg3gcwd1dty"
 events_limit = 50
 watcher_sleep = 5000
+# Initial backoff duration (in seconds) after the first failure of a homeserver
+initial_backoff_secs = 60
+# Maximum backoff duration (in seconds) for a failing homeserver
+max_backoff_secs = 3600
 # User public key to trust for moderating content
 moderation_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 # Tags on content to de-index when placed by the trusted moderator above

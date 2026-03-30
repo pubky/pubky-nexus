@@ -38,15 +38,10 @@ async fn main() -> Result<(), DynError> {
             };
             let config = WatcherConfig {
                 name: String::from("nexusd.watcher"),
-                testnet: false,
-                testnet_host: "not-needed".to_string(),
                 homeserver,
-                events_limit: 100,
-                monitored_homeservers_limit: 5,
-                watcher_sleep: 5000,
                 stack,
                 moderation_id,
-                moderated_tags: Vec::new(),
+                ..Default::default()
             };
             NexusWatcherBuilder(config).start(None).await?;
         }
