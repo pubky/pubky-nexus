@@ -70,7 +70,7 @@ impl NexusWatcherBuilder {
         StackManager::setup(&self.0.stack).await?;
         let shutdown_rx = shutdown_rx.unwrap_or_else(create_shutdown_rx);
 
-        let testnet_host = self.0.testnet.then(|| self.0.testnet_host.as_str());
+        let testnet_host = self.0.testnet.then_some(self.0.testnet_host.as_str());
         let _ = PubkyConnector::initialise(testnet_host).await;
 
         NexusWatcher::start(shutdown_rx, self.0).await
