@@ -49,10 +49,8 @@ pub fn generate_post_id() -> String {
 }
 
 /// Struct to hold the setup environment for tests.
-/// `_embedded_pg` is held to keep the PostgreSQL process alive for the test's
-/// lifetime and ensure it is stopped on drop.
 pub struct WatcherTest {
-    /// held to keep the PostgreSQL process alive for the test's lifetime
+    /// Owned to tie the embedded PostgreSQL lifecycle to this test instance.
     _embedded_pg: EmbeddedPostgres,
     pub testnet: Testnet,
     /// The homeserver ID
