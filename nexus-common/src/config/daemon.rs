@@ -85,6 +85,7 @@ mod tests {
         );
         assert_eq!(c.watcher.events_limit, 50);
         assert_eq!(c.watcher.watcher_sleep, 5_000);
+        assert_eq!(c.watcher.hs_resolver_sleep, 10_000);
         assert_eq!(
             c.watcher.moderation_id,
             PubkyId::try_from("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap()

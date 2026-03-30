@@ -22,6 +22,7 @@ async fn test_multiple_homeserver_event_processing() -> Result<()> {
             processor_status,
             None,
             shutdown_rx.clone(),
+            Some(1),
         )
         .await;
     }
@@ -34,6 +35,7 @@ async fn test_multiple_homeserver_event_processing() -> Result<()> {
         processor_status,
         None,
         shutdown_rx.clone(),
+        Some(1),
     )
     .await;
 
@@ -68,6 +70,7 @@ async fn test_multi_hs_event_processing_with_homeserver_limit() -> Result<()> {
             processor_status,
             None,
             shutdown_rx.clone(),
+            Some(1),
         )
         .await;
     }
@@ -105,6 +108,7 @@ async fn test_multi_hs_event_processing_with_homeserver_limit_one() -> Result<()
             processor_status,
             None,
             shutdown_rx.clone(),
+            Some(1),
         )
         .await;
     }
@@ -154,6 +158,7 @@ async fn test_multi_hs_event_processing_with_timeout() -> Result<()> {
             processor_status,
             EVENT_PROCESSOR_TIMEOUT,
             shutdown_rx.clone(),
+            Some(1),
         )
         .await;
     }
@@ -190,6 +195,7 @@ async fn test_multi_hs_event_processing_with_panic() -> Result<()> {
             processor_status,
             None,
             shutdown_rx.clone(),
+            Some(1),
         )
         .await;
     }
@@ -203,6 +209,7 @@ async fn test_multi_hs_event_processing_with_panic() -> Result<()> {
             processor_status,
             None,
             shutdown_rx.clone(),
+            Some(1),
         )
         .await;
     }
