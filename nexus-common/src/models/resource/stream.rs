@@ -85,7 +85,7 @@ impl ResourceStream {
         resource_id: &str,
         action: ScoreAction,
     ) -> RedisResult<()> {
-        Self::put_score_index_sorted_set_static(&GLOBAL_TAGGERS_COUNT, &[resource_id], action).await
+        Self::put_score_index_sorted_set(&GLOBAL_TAGGERS_COUNT, &[resource_id], action).await
     }
 
     /// Add a resource to a per-app timeline sorted set.
@@ -106,7 +106,7 @@ impl ResourceStream {
         action: ScoreAction,
     ) -> RedisResult<()> {
         let key_parts = vec!["Resources", "App", app, "TaggersCount"];
-        Self::put_score_index_sorted_set_static(&key_parts, &[resource_id], action).await
+        Self::put_score_index_sorted_set(&key_parts, &[resource_id], action).await
     }
 
     /// Add a resource to a per-tag timeline sorted set.
@@ -127,7 +127,7 @@ impl ResourceStream {
         action: ScoreAction,
     ) -> RedisResult<()> {
         let key_parts = vec!["Resources", "Tag", label, "TaggersCount"];
-        Self::put_score_index_sorted_set_static(&key_parts, &[resource_id], action).await
+        Self::put_score_index_sorted_set(&key_parts, &[resource_id], action).await
     }
 
     /// Add a resource to a combined app+tag timeline sorted set.
@@ -150,7 +150,7 @@ impl ResourceStream {
         action: ScoreAction,
     ) -> RedisResult<()> {
         let key_parts = vec!["Resources", "App", app, "Tag", label, "TaggersCount"];
-        Self::put_score_index_sorted_set_static(&key_parts, &[resource_id], action).await
+        Self::put_score_index_sorted_set(&key_parts, &[resource_id], action).await
     }
 
     // -----------------------------------------------------------------------
@@ -346,18 +346,6 @@ impl ResourceStream {
         } else {
             Ok(Some(ResourceStream(views)))
         }
-    }
-
-    // -----------------------------------------------------------------------
-    // Static helpers for sorted set operations (no &self needed)
-    // -----------------------------------------------------------------------
-
-    async fn put_score_index_sorted_set_static(
-        key_parts: &[&str],
-        members: &[&str],
-        action: ScoreAction,
-    ) -> RedisResult<()> {
-        Self::put_score_index_sorted_set(key_parts, members, action).await
     }
 }
 
