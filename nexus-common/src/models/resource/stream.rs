@@ -328,6 +328,7 @@ impl ResourceStream {
     // -----------------------------------------------------------------------
 
     /// Loads full ResourceView objects from a list of resource IDs.
+    // TODO Batch queries:`get_resource_by_id`, `TagResource::get_by_id`
     pub async fn from_listed_resource_ids(
         viewer_id: Option<&str>,
         resource_ids: &[String],
