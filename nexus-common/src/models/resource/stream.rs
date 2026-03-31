@@ -71,7 +71,7 @@ impl ResourceStream {
 
     /// Add a resource to the global timeline sorted set.
     pub async fn put_to_global_timeline(resource_id: &str, indexed_at: i64) -> RedisResult<()> {
-        Self::put_index_sorted_set_static(
+        Self::put_index_sorted_set(
             &GLOBAL_TIMELINE
                 .map(String::from)
                 .iter()
@@ -108,13 +108,8 @@ impl ResourceStream {
         indexed_at: i64,
     ) -> RedisResult<()> {
         let key_parts = vec!["Resources", "App", app, "Timeline"];
-        Self::put_index_sorted_set_static(
-            &key_parts,
-            &[(indexed_at as f64, resource_id)],
-            None,
-            None,
-        )
-        .await
+        Self::put_index_sorted_set(&key_parts, &[(indexed_at as f64, resource_id)], None, None)
+            .await
     }
 
     /// Update a per-app taggers count sorted set.
@@ -134,13 +129,8 @@ impl ResourceStream {
         indexed_at: i64,
     ) -> RedisResult<()> {
         let key_parts = vec!["Resources", "Tag", label, "Timeline"];
-        Self::put_index_sorted_set_static(
-            &key_parts,
-            &[(indexed_at as f64, resource_id)],
-            None,
-            None,
-        )
-        .await
+        Self::put_index_sorted_set(&key_parts, &[(indexed_at as f64, resource_id)], None, None)
+            .await
     }
 
     /// Update a per-tag taggers count sorted set.
@@ -161,13 +151,8 @@ impl ResourceStream {
         indexed_at: i64,
     ) -> RedisResult<()> {
         let key_parts = vec!["Resources", "App", app, "Tag", label, "Timeline"];
-        Self::put_index_sorted_set_static(
-            &key_parts,
-            &[(indexed_at as f64, resource_id)],
-            None,
-            None,
-        )
-        .await
+        Self::put_index_sorted_set(&key_parts, &[(indexed_at as f64, resource_id)], None, None)
+            .await
     }
 
     /// Update a combined app+tag taggers count sorted set.
@@ -379,15 +364,6 @@ impl ResourceStream {
     // -----------------------------------------------------------------------
     // Static helpers for sorted set operations (no &self needed)
     // -----------------------------------------------------------------------
-
-    async fn put_index_sorted_set_static(
-        key_parts: &[&str],
-        members: &[(f64, &str)],
-        prefix: Option<&str>,
-        ttl: Option<i64>,
-    ) -> RedisResult<()> {
-        Self::put_index_sorted_set(key_parts, members, prefix, ttl).await
-    }
 
     async fn put_score_index_sorted_set_static(
         key_parts: &[&str],
