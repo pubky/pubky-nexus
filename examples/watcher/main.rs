@@ -1,12 +1,8 @@
 use std::path::PathBuf;
 
 use clap::Parser;
-use nexus_common::{
-    db::DatabaseConfig, file::validate_and_expand_path, get_files_dir_pathbuf, types::DynError,
-    StackConfig, WatcherConfig, LOG_LEVEL,
-};
+use nexus_common::{file::validate_and_expand_path, types::DynError};
 use nexus_watcher::{service::NexusWatcher, NexusWatcherBuilder};
-use pubky_app_specs::PubkyId;
 
 #[derive(Parser)]
 #[command(about = "Example Nexus Watcher server", long_about = None)]
@@ -26,24 +22,7 @@ async fn main() -> Result<(), DynError> {
             NexusWatcher::start_from_path(expanded_path, None).await?
         }
         None => {
-            let homeserver =
-                PubkyId::try_from("8um71us3fyw6h8wbcxb5ar3rwusy1a6u49956ikzojg3gcwd1dty").unwrap();
-            let moderation_id =
-                PubkyId::try_from("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap();
-            let stack = StackConfig {
-                log_level: LOG_LEVEL,
-                files_path: get_files_dir_pathbuf(),
-                otlp_endpoint: None,
-                db: DatabaseConfig::default(),
-            };
-            let config = WatcherConfig {
-                name: String::from("nexusd.watcher"),
-                homeserver,
-                stack,
-                moderation_id,
-                ..Default::default()
-            };
-            NexusWatcherBuilder(config).start(None).await?;
+            NexusWatcherBuilder(Default::default()).start(None).await?;
         }
     }
 

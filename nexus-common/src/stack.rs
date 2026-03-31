@@ -9,21 +9,39 @@ use opentelemetry_sdk::metrics::{PeriodicReader, SdkMeterProvider};
 use opentelemetry_sdk::trace::SdkTracerProvider;
 use opentelemetry_sdk::Resource;
 use std::time::Duration;
+use tokio::sync::OnceCell;
 use tracing::{error, info};
 use tracing_subscriber::{fmt, EnvFilter, Layer};
 use tracing_subscriber::{layer::SubscriberExt, Registry};
 
-pub struct StackManager {}
+/// Stores the [`StackConfig`] used for the first initialization.
+/// Subsequent calls to [`StackManager::setup`] verify the config matches.
+static STACK_CONFIG: OnceCell<StackConfig> = OnceCell::const_new();
+
+/// Manages one-time initialization of the shared infrastructure stack
+/// (logging, metrics, database connections).
+///
+/// Each builder's `start()` method calls [`StackManager::setup`] internally.
+pub struct StackManager;
 
 impl StackManager {
-    pub async fn setup(name: &str, config: &StackConfig) -> Result<(), DynError> {
-        // Initialize logging and metrics
-        Self::setup_logging(name, &config.otlp_endpoint, config.log_level).await;
-        Self::setup_metrics(name, &config.otlp_endpoint).await;
+    pub async fn setup(config: &StackConfig) -> Result<(), DynError> {
+        let stored = STACK_CONFIG
+            .get_or_try_init(|| async {
+                Self::setup_logging(&config.otlp.name, &config.otlp.endpoint, config.log_level)
+                    .await;
+                Self::setup_metrics(&config.otlp.name, &config.otlp.endpoint).await;
 
-        // Initialize Redis and Neo4j
-        RedisConnector::init(&config.db.redis).await?;
-        Neo4jConnector::init(&config.db.neo4j).await?;
+                RedisConnector::init(&config.db.redis).await?;
+                Neo4jConnector::init(&config.db.neo4j).await?;
+                Ok::<_, DynError>(config.clone())
+            })
+            .await?;
+
+        if stored != config {
+            return Err("StackManager already initialized with a different StackConfig".into());
+        }
+
         Ok(())
     }
 
@@ -118,12 +136,6 @@ impl StackManager {
         let subscriber = Registry::default().with(stdout_layer).with(otlp_layer);
 
         // Registers a global tracing subscriber that captures logs
-        // TODO: If multiple services run in the same process, only the first call to
-        // `tracing::subscriber::set_global_default(...)` succeeds. That means the logs from
-        // all services will be emitted under the first service's `service_name`
-        // This happens because tracing subscribers and OTEL logger providers are global.
-        // To fix this, use per-task `Dispatch` with isolated subscribers, or run services
-        // in separate processes.
         if tracing::subscriber::set_global_default(subscriber).is_ok() {
             info!(
                 "OpenTelemetry endpoint listening on (OTLP_ENDPOINT={})",
