@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use nexus_common::db::PubkyConnector;
-use nexus_common::models::event::EventProcessorError;
+use nexus_common::models::event::{EventProcessorError, EventType};
 use pubky_app_specs::{PubkyAppTag, PubkyId};
 use tracing::debug;
 
@@ -17,19 +17,18 @@ pub struct AppTagInfo {
     pub uri: String,
 }
 
-/// Second-chance handler for tag events at app-specific paths.
+/// Second-chance handler for possible universal-tag events.
 ///
-/// Called when `Event::parse_event()` fails (returns Err or None) because the URI
-/// is at a non-pubky.app path like `/pub/mapky/tags/TAG_ID`.
+/// Called when `Event::parse_event()` returns `UnrecognizedUri`.
 ///
-/// Returns `None` if the line isn't an app-specific tag event.
+/// Returns `None` if the URI isn't an app-specific tag path.
 /// Returns `Some(Ok(()))` on success or `Some(Err(...))` on processing failure.
 pub async fn try_handle(
-    line: &str,
+    event_type: &EventType,
+    uri: &str,
     files_path: &Path,
     _moderation: &Arc<Moderation>,
 ) -> Option<Result<(), EventProcessorError>> {
-    let (event_type, uri) = parse_event_line(line)?;
     let info = try_parse_app_tag_path(uri)?;
 
     debug!(
@@ -38,9 +37,8 @@ pub async fn try_handle(
     );
 
     Some(match event_type {
-        "PUT" => handle_put(info, files_path).await,
-        "DEL" => handle_del(info).await,
-        _ => return None,
+        EventType::Put => handle_put(info, files_path).await,
+        EventType::Del => handle_del(info).await,
     })
 }
 
@@ -90,21 +88,6 @@ async fn handle_del(info: AppTagInfo) -> Result<(), EventProcessorError> {
         }
         other => other,
     }
-}
-
-/// Parse a raw event line into (event_type, uri).
-/// Event lines are formatted as "PUT <uri>" or "DEL <uri>".
-fn parse_event_line(line: &str) -> Option<(&str, &str)> {
-    let parts: Vec<&str> = line.splitn(2, ' ').collect();
-    if parts.len() != 2 {
-        return None;
-    }
-    let event_type = parts[0];
-    let uri = parts[1];
-    if event_type != "PUT" && event_type != "DEL" {
-        return None;
-    }
-    Some((event_type, uri))
 }
 
 /// Try to parse a URI as an app-specific tag path.
@@ -163,25 +146,6 @@ fn try_parse_app_tag_path(uri: &str) -> Option<AppTagInfo> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_parse_event_line_put() {
-        let (t, u) = parse_event_line("PUT pubky://abc/pub/mapky/tags/123").unwrap();
-        assert_eq!(t, "PUT");
-        assert_eq!(u, "pubky://abc/pub/mapky/tags/123");
-    }
-
-    #[test]
-    fn test_parse_event_line_del() {
-        let (t, _) = parse_event_line("DEL pubky://abc/pub/mapky/tags/123").unwrap();
-        assert_eq!(t, "DEL");
-    }
-
-    #[test]
-    fn test_parse_event_line_invalid() {
-        assert!(parse_event_line("PATCH something").is_none());
-        assert!(parse_event_line("malformed").is_none());
-    }
 
     #[test]
     fn test_try_parse_app_tag_path_mapky() {

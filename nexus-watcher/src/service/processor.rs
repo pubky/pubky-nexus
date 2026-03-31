@@ -1,4 +1,4 @@
-use nexus_common::models::event::{Event, EventProcessorError};
+use nexus_common::models::event::{Event, EventProcessorError, EventType, ParseResult};
 
 use crate::events::handle;
 use crate::events::retry::event::RetryEvent;
@@ -118,65 +118,77 @@ impl EventProcessor {
                     Err(e) => warn!("{e}"),
                 }
             } else {
-                let maybe_event = Event::parse_event(line, self.files_path.clone())
-                    .inspect_err(|e| error!("{e}"))
-                    .unwrap_or(None);
-
-                // Second-chance: try handling as universal tag at app-specific path
-                if maybe_event.is_none() {
-                    if let Some(result) = crate::events::handlers::universal_tag::try_handle(
-                        line,
-                        &self.files_path,
-                        &self.moderation,
-                    )
-                    .await
-                    {
-                        if let Err(e) = result {
-                            // Route through retry pipeline (mirrors handle_event error path).
-                            // Can't use RetryEvent::generate_index_key since ParsedUri
-                            // fails for non-pubky.app URIs — build key from raw line.
-                            match e {
-                                EventProcessorError::InvalidEventLine(ref msg) => {
-                                    error!("Universal tag non-retryable: {msg}");
-                                }
-                                _ => {
-                                    let event_type =
-                                        line.split_once(' ').map(|(t, _)| t).unwrap_or("PUT");
-                                    let uri = line.split_once(' ').map(|(_, u)| u).unwrap_or(line);
-                                    let index_key = format!("{event_type}:universal_tag:{uri}");
-                                    let retry_event = RetryEvent::new(e);
-                                    error!("{}, {}", retry_event.error_type, index_key);
-                                    if let Err(err) = retry_event.put_to_index(index_key).await {
-                                        error!("Failed to enqueue universal tag retry: {err}");
-                                    }
-                                }
-                            }
+                match Event::parse_event(line, self.files_path.clone()) {
+                    Err(e) => error!("{e}"),
+                    Ok(ParseResult::Skipped) => {}
+                    Ok(ParseResult::UnrecognizedUri {
+                        event_type,
+                        uri,
+                        reason,
+                    }) => {
+                        if !self.try_handle_universal_tag(&event_type, &uri).await {
+                            error!("Cannot parse event URI: {reason}");
                         }
-                        continue;
                     }
-                }
-
-                if let Some(event) = maybe_event {
-                    let tracer = global::tracer(self.tracer_name.clone());
-                    let mut span = tracer.start(event.parsed_uri.resource.to_string());
-                    span.set_attribute(KeyValue::new("event.uri", event.uri.clone()));
-                    span.set_attribute(KeyValue::new("event.type", event.event_type.to_string()));
-                    span.set_attribute(KeyValue::new(
-                        "event.user_id",
-                        event.parsed_uri.user_id.to_string(),
-                    ));
-                    span.set_attribute(KeyValue::new(
-                        "event.resource_id",
-                        event.parsed_uri.resource.id().unwrap_or("".to_string()),
-                    ));
-                    let cx = Context::new().with_span(span);
-                    debug!("Processing event: {:?}", event);
-                    self.handle_event(&event).with_context(cx).await?;
+                    Ok(ParseResult::Parsed(event)) => {
+                        let tracer = global::tracer(self.tracer_name.clone());
+                        let mut span = tracer.start(event.parsed_uri.resource.to_string());
+                        span.set_attribute(KeyValue::new("event.uri", event.uri.clone()));
+                        span.set_attribute(KeyValue::new(
+                            "event.type",
+                            event.event_type.to_string(),
+                        ));
+                        span.set_attribute(KeyValue::new(
+                            "event.user_id",
+                            event.parsed_uri.user_id.to_string(),
+                        ));
+                        span.set_attribute(KeyValue::new(
+                            "event.resource_id",
+                            event.parsed_uri.resource.id().unwrap_or("".to_string()),
+                        ));
+                        let cx = Context::new().with_span(span);
+                        debug!("Processing event: {:?}", event);
+                        self.handle_event(&event).with_context(cx).await?;
+                    }
                 }
             }
         }
 
         Ok(())
+    }
+
+    /// Attempts to handle an unrecognized URI as a universal tag at an app-specific path.
+    /// Returns `true` if the event was claimed (regardless of success/failure).
+    async fn try_handle_universal_tag(&self, event_type: &EventType, uri: &str) -> bool {
+        let result = crate::events::handlers::universal_tag::try_handle(
+            event_type,
+            uri,
+            &self.files_path,
+            &self.moderation,
+        )
+        .await;
+
+        let Some(result) = result else {
+            return false;
+        };
+
+        if let Err(e) = result {
+            match e {
+                EventProcessorError::InvalidEventLine(ref msg) => {
+                    error!("Universal tag non-retryable: {msg}");
+                }
+                _ => {
+                    let index_key = format!("{event_type}:universal_tag:{uri}");
+                    let retry_event = RetryEvent::new(e);
+                    error!("{}, {}", retry_event.error_type, index_key);
+                    if let Err(err) = retry_event.put_to_index(index_key).await {
+                        error!("Failed to enqueue universal tag retry: {err}");
+                    }
+                }
+            }
+        }
+
+        true
     }
 
     /// Processes an event and track the fail event it if necessary
