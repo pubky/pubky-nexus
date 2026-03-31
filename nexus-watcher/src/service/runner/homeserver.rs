@@ -1,0 +1,103 @@
+use super::TEventProcessorRunner;
+use crate::events::Moderation;
+use crate::service::indexer::{HsEventProcessor, TEventProcessor};
+use crate::service::runner::status_from_run_result;
+use crate::service::stats::{ProcessedStats, ProcessorRunStatus, RunAllProcessorsStats};
+use nexus_common::models::homeserver::Homeserver;
+use nexus_common::types::DynError;
+use nexus_common::WatcherConfig;
+use pubky_app_specs::PubkyId;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Instant;
+use tokio::sync::watch::Receiver;
+use tracing::{debug, error};
+
+pub struct HsEventProcessorRunner {
+    /// See [WatcherConfig::events_limit]
+    pub limit: u32,
+    pub files_path: PathBuf,
+    pub tracer_name: String,
+    pub moderation: Arc<Moderation>,
+    pub shutdown_rx: Receiver<bool>,
+    /// See [WatcherConfig::homeserver]
+    pub default_homeserver: PubkyId,
+}
+
+impl HsEventProcessorRunner {
+    /// Creates a new instance from the provided configuration
+    pub fn from_config(config: &WatcherConfig, shutdown_rx: Receiver<bool>) -> Self {
+        Self {
+            limit: config.events_limit,
+            files_path: config.stack.files_path.clone(),
+            tracer_name: config.name.clone(),
+            moderation: Arc::new(Moderation {
+                id: config.moderation_id.clone(),
+                tags: config.moderated_tags.clone(),
+            }),
+            shutdown_rx,
+            default_homeserver: config.homeserver.clone(),
+        }
+    }
+
+    pub fn default_homeserver(&self) -> &str {
+        &self.default_homeserver
+    }
+}
+
+#[async_trait::async_trait]
+impl TEventProcessorRunner for HsEventProcessorRunner {
+    fn shutdown_rx(&self) -> Receiver<bool> {
+        self.shutdown_rx.clone()
+    }
+
+    async fn build(&self, hs_id: String) -> Result<Arc<dyn TEventProcessor>, DynError> {
+        let homeserver_id = PubkyId::try_from(&hs_id)?;
+        let homeserver = Homeserver::get_by_id(homeserver_id)
+            .await?
+            .ok_or("Homeserver not found")?;
+
+        Ok(Arc::new(HsEventProcessor {
+            homeserver,
+            limit: self.limit,
+            files_path: self.files_path.clone(),
+            tracer_name: self.tracer_name.clone(),
+            moderation: self.moderation.clone(),
+            shutdown_rx: self.shutdown_rx.clone(),
+        }))
+    }
+
+    async fn pre_run(&self) -> Result<Vec<String>, DynError> {
+        debug!("Skipping pre_run for default homeserver runner");
+        Ok(vec![])
+    }
+
+    async fn run(&self) -> Result<ProcessedStats, DynError> {
+        let hs_id = self.default_homeserver.to_string();
+        let mut run_stats = RunAllProcessorsStats::default();
+
+        let t0 = Instant::now();
+        let status = match self.build(hs_id.clone()).await {
+            Ok(event_processor) => status_from_run_result(event_processor.run().await),
+            Err(e) => {
+                error!(
+                    hs_id = %hs_id,
+                    error = %e,
+                    "Failed to build event processor for default homeserver"
+                );
+                ProcessorRunStatus::FailedToBuild
+            }
+        };
+        let duration = t0.elapsed();
+
+        run_stats.add_run_result(hs_id, duration, status);
+
+        let processed_stats = self.post_run(run_stats).await;
+        Ok(processed_stats)
+    }
+
+    async fn post_run(&self, stats: RunAllProcessorsStats) -> ProcessedStats {
+        debug!("Skipping post_run for default homeserver runner");
+        ProcessedStats(stats)
+    }
+}

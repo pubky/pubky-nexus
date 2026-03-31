@@ -1,17 +1,15 @@
 pub mod backoff;
 mod constants;
-mod processor;
-mod processor_runner;
-mod stats;
+pub mod indexer;
+pub mod runner;
+pub mod stats;
 mod task_runner;
-mod traits;
 
 /// Module exports
 pub use constants::{PROCESSING_TIMEOUT_SECS, WATCHER_CONFIG_FILE_NAME};
-pub use processor::EventProcessor;
-pub use processor_runner::EventProcessorRunner;
+pub use indexer::{HsEventProcessor, KeyBasedEventProcessor, TEventProcessor};
+pub use runner::{HsEventProcessorRunner, KeyBasedEventProcessorRunner, TEventProcessorRunner};
 pub(crate) use task_runner::{run_periodic_tasks, PeriodicTask};
-pub use traits::{TEventProcessor, TEventProcessorRunner};
 
 use crate::service::task_runner::task_results_into_result;
 use crate::NexusWatcherBuilder;
@@ -87,32 +85,24 @@ impl NexusWatcher {
         Homeserver::persist_if_unknown(config_hs).await?;
 
         let watcher_sleep = config.watcher_sleep;
-        let ev_processor_runner = EventProcessorRunner::from_config(&config, shutdown_rx.clone());
-        let ev_processor_runner = Arc::new(ev_processor_runner);
 
-        let default_hs_runner = ev_processor_runner.clone();
-        let external_hs_runner = ev_processor_runner.clone();
-
-        // TODO Incorporate in EventProcessorRunner::from_config above, remove backoff arg from run_external_homeservers
-        let backoff = crate::service::backoff::HomeserverBackoff::new(
-            config.initial_backoff_secs,
-            config.max_backoff_secs,
-        );
+        let hs_runner = Arc::new(HsEventProcessorRunner::from_config(
+            &config,
+            shutdown_rx.clone(),
+        ));
+        let key_based_runner = Arc::new(KeyBasedEventProcessorRunner::from_config(
+            &config,
+            shutdown_rx.clone(),
+        ));
 
         let tasks = vec![
             PeriodicTask::new("default-homeserver", watcher_sleep, move || {
-                let runner = default_hs_runner.clone();
-                async move { runner.run_default_homeserver().await.map(|_| ()) }
+                let runner = hs_runner.clone();
+                async move { runner.run().await.map(|_| ()) }
             }),
             PeriodicTask::new("external-homeservers", watcher_sleep, move || {
-                let runner = external_hs_runner.clone();
-                let mut backoff = backoff.clone();
-                async move {
-                    runner
-                        .run_external_homeservers(&mut backoff)
-                        .await
-                        .map(|_| ())
-                }
+                let runner = key_based_runner.clone();
+                async move { runner.run().await.map(|_| ()) }
             }),
         ];
 

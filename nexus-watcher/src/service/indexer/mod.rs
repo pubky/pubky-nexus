@@ -1,9 +1,20 @@
-use std::{fmt::Display, sync::Arc, time::Duration};
+mod homeserver;
+mod key_based;
 
-use nexus_common::models::event::EventProcessorError;
+pub use homeserver::HsEventProcessor;
+pub use key_based::KeyBasedEventProcessor;
+
+use std::{fmt::Display, path::PathBuf, sync::Arc, time::Duration};
+
+use nexus_common::models::event::{Event, EventProcessorError};
+use opentelemetry::trace::{FutureExt, Span, TraceContextExt, Tracer};
+use opentelemetry::{global, Context, KeyValue};
 use pubky_app_specs::PubkyId;
-use tracing::error;
+use tracing::{debug, error};
 
+use crate::events::handle;
+use crate::events::retry::event::RetryEvent;
+use crate::events::Moderation;
 use crate::service::PROCESSING_TIMEOUT_SECS;
 
 /// Possible error types of an event processor run
@@ -47,6 +58,9 @@ impl Display for RunError {
 #[async_trait::async_trait]
 pub trait TEventProcessor: Send + Sync + 'static {
     fn get_homeserver_id(&self) -> PubkyId;
+    fn files_path(&self) -> &PathBuf;
+    fn tracer_name(&self) -> &str;
+    fn moderation(&self) -> &Arc<Moderation>;
 
     async fn run(self: Arc<Self>) -> Result<(), RunError> {
         let hs_id = self.get_homeserver_id().to_string();
@@ -87,5 +101,54 @@ pub trait TEventProcessor: Send + Sync + 'static {
     /// If not set, the [`PROCESSING_TIMEOUT_SECS`] is applied.
     fn custom_timeout(&self) -> Option<Duration> {
         None
+    }
+
+    /// Parses a single event line, creates a tracing span, and dispatches to [`Self::handle_event`].
+    async fn process_event_line(&self, line: &str) -> Result<(), EventProcessorError> {
+        let maybe_event = Event::parse_event(line, self.files_path().clone())
+            .inspect_err(|e| error!("{e}"))
+            .unwrap_or(None);
+
+        if let Some(event) = maybe_event {
+            let tracer = global::tracer(self.tracer_name().to_string());
+            let mut span = tracer.start(event.parsed_uri.resource.to_string());
+            span.set_attribute(KeyValue::new("event.uri", event.uri.clone()));
+            span.set_attribute(KeyValue::new("event.type", event.event_type.to_string()));
+            span.set_attribute(KeyValue::new(
+                "event.user_id",
+                event.parsed_uri.user_id.to_string(),
+            ));
+            span.set_attribute(KeyValue::new(
+                "event.resource_id",
+                event.parsed_uri.resource.id().unwrap_or("".to_string()),
+            ));
+            let cx = Context::new().with_span(span);
+            debug!("Processing event: {:?}", event);
+            self.handle_event(&event).with_context(cx).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Extracts retry-related information from an event and its associated error.
+    ///
+    /// Each implementation defines its own retry strategy. Return `None` to skip retrying.
+    fn extract_retry_event_info(
+        &self,
+        event: &Event,
+        error: EventProcessorError,
+    ) -> Option<(String, RetryEvent)>;
+
+    /// Processes an event and tracks the failed event if necessary.
+    async fn handle_event(&self, event: &Event) -> Result<(), EventProcessorError> {
+        if let Err(e) = handle(event, self.moderation().clone()).await {
+            if let Some((index_key, retry_event)) = self.extract_retry_event_info(event, e) {
+                error!("{}, {}", retry_event.error_type, index_key);
+                if let Err(err) = retry_event.put_to_index(index_key).await {
+                    error!("Failed to put event to retry index: {}", err);
+                }
+            }
+        }
+        Ok(())
     }
 }
