@@ -3,7 +3,7 @@ use std::time::Instant;
 use crate::service::utils::processor::MockEventProcessor;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
-use nexus_watcher::service::indexer::RunError;
+use nexus_watcher::service::runner::status_from_run_result;
 use nexus_watcher::service::stats::{ProcessedStats, ProcessorRunStatus, RunAllProcessorsStats};
 use nexus_watcher::service::{TEventProcessor, TEventProcessorRunner};
 use std::sync::Arc;
@@ -97,12 +97,7 @@ impl TEventProcessorRunner for MockEventProcessorRunner {
 
             let t0 = Instant::now();
             let status = match self.build(hs_id.clone()).await {
-                Ok(event_processor) => match event_processor.run().await {
-                    Ok(_) => ProcessorRunStatus::Ok,
-                    Err(RunError::Internal(_)) => ProcessorRunStatus::Error,
-                    Err(RunError::Panicked) => ProcessorRunStatus::Panic,
-                    Err(RunError::TimedOut) => ProcessorRunStatus::Timeout,
-                },
+                Ok(event_processor) => status_from_run_result(event_processor.run().await),
                 Err(e) => {
                     debug!("Failed to build event processor for homeserver: {hs_id}: {e}");
                     ProcessorRunStatus::FailedToBuild

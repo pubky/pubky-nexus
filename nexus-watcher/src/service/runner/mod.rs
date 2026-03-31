@@ -14,7 +14,7 @@ use crate::service::{
     stats::{ProcessedStats, ProcessorRunStatus, RunAllProcessorsStats},
 };
 
-pub(crate) fn status_from_run_result(result: Result<(), RunError>) -> ProcessorRunStatus {
+pub fn status_from_run_result(result: Result<(), RunError>) -> ProcessorRunStatus {
     match result {
         Ok(_) => ProcessorRunStatus::Ok,
         Err(RunError::Internal(_)) => ProcessorRunStatus::Error,
