@@ -72,11 +72,7 @@ impl ResourceStream {
     /// Add a resource to the global timeline sorted set.
     pub async fn put_to_global_timeline(resource_id: &str, indexed_at: i64) -> RedisResult<()> {
         Self::put_index_sorted_set(
-            &GLOBAL_TIMELINE
-                .map(String::from)
-                .iter()
-                .map(|s| s.as_str())
-                .collect::<Vec<_>>(),
+            &GLOBAL_TIMELINE,
             &[(indexed_at as f64, resource_id)],
             None,
             None,
@@ -89,16 +85,7 @@ impl ResourceStream {
         resource_id: &str,
         action: ScoreAction,
     ) -> RedisResult<()> {
-        Self::put_score_index_sorted_set_static(
-            &GLOBAL_TAGGERS_COUNT
-                .map(String::from)
-                .iter()
-                .map(|s| s.as_str())
-                .collect::<Vec<_>>(),
-            &[resource_id],
-            action,
-        )
-        .await
+        Self::put_score_index_sorted_set_static(&GLOBAL_TAGGERS_COUNT, &[resource_id], action).await
     }
 
     /// Add a resource to a per-app timeline sorted set.
