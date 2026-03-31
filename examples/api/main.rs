@@ -21,7 +21,7 @@ async fn main() -> Result<(), DynError> {
             NexusApi::start_from_path(expanded_path, None).await?
         }
         None => {
-            let api_config = Default::default();
+            let api_config = ApiConfig::default();
             let api_context = ApiContextBuilder::from_default_config_dir()
                 .api_config(api_config)
                 .try_build()
