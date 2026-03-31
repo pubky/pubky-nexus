@@ -1,5 +1,5 @@
 use clap::Parser;
-use nexus_common::{file::validate_and_expand_path, types::DynError};
+use nexus_common::{file::validate_and_expand_path, types::DynError, ApiConfig};
 use nexus_webapi::{api_context::ApiContextBuilder, NexusApi, NexusApiBuilder};
 use std::path::PathBuf;
 
