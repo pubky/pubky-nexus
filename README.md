@@ -86,7 +86,7 @@ cargo run -p nexusd -- api
 If you want to enable observability in Nexus, you can connect it to an OpenTelemetry exporter. Follow these steps:
 
 1. Install Signoz locally – Follow the Signoz installation [guide](https://signoz.io/docs/install)
-2. Configure the connection – In _config.toml_, uncomment the `otlp_endpoint` variable to point Nexus to the Signoz endpoint
+2. Configure the connection – In _config.toml_, set the `endpoint` under `[stack.otlp]` to point Nexus to the Signoz endpoint
 3. Run Nexus – Start nexusd using the configured settings
 4. Access the Signoz dashboard – Open http://localhost:3301 in your browser (allow some time for data to populate).
 

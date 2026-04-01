@@ -1,9 +1,11 @@
-# Service name used for tracing, logging, and metrics in OpenTelemetry
-name = "nexus.example.watcher"
 testnet = false
 homeserver = "8um71us3fyw6h8wbcxb5ar3rwusy1a6u49956ikzojg3gcwd1dty"
 events_limit = 50
 watcher_sleep = 5000
+# Initial backoff duration (in seconds) after the first failure of a homeserver
+initial_backoff_secs = 60
+# Maximum backoff duration (in seconds) for a failing homeserver
+max_backoff_secs = 3600
 # User public key to trust for moderating content
 moderation_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 # Tags on content to de-index when placed by the trusted moderator above
@@ -20,8 +22,11 @@ moderated_tags = [
 # Logging, options: error, warn, info, debug and trace
 log_level = "debug"
 files_path = "./examples/static/files"
-# OTLP_ENDPOINT is set to empty by default. If you want to enable tracing, set it to the OpenTelemetry Collector endpoint
-#otlp_endpoint="http://localhost:4317"
+[stack.otlp]
+# Service name used for tracing, logging, and metrics in OpenTelemetry
+name = "nexus.example.watcher"
+# OTLP endpoint is not set by default. If you want to enable tracing, set it to the OpenTelemetry Collector endpoint
+#endpoint = "http://localhost:4317"
 
 [stack.db]
 redis = "redis://localhost:6379"

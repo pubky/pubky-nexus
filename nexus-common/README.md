@@ -122,7 +122,7 @@ use nexus_common::{StackManager, StackConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), DynError> {
-    StackManager::setup("common-example", StackConfig::default()).await?
+    StackManager::setup(&StackConfig::default()).await?;
     // Cache-first: Redis -> Neo4j fallback
     if let Some(user) = UserDetails::get_by_id("some_user_id").await? {
         println!("User: {}", user.name);
