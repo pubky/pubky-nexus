@@ -15,7 +15,7 @@ use nexus_common::models::tag::user::TagUser;
 use nexus_common::models::user::UserCounts;
 use nexus_common::types::Pagination;
 use pubky_app_specs::{post_uri_builder, ParsedUri, PubkyAppTag, PubkyId, Resource};
-use tracing::{debug, Instrument};
+use tracing::debug;
 
 use super::utils::post_relationships_is_reply;
 
@@ -94,70 +94,67 @@ async fn put_sync_post(
             let post_key_slice: &[&str] = &[&author_id, post_id];
             let tag_label_slice = &[tag_label.to_string()];
 
-            let indexing_results = async {
-                tokio::join!(
-                    // Update user counts for tagger
-                    UserCounts::increment(&tagger_user_id, "tagged", None),
-                    // Increment in one the post tags
-                    PostCounts::increment_index_field(post_key_slice, "tags", None),
-                    async {
-                        // Increase unique_tags if the tag does not exist already
-                        // NOTE: To update that field, it cannot exist in TagPost SORTED SET the tag. Thats why it has to be executed
-                        // before TagPost operation
-                        PostCounts::increment_index_field(
-                            post_key_slice,
-                            "unique_tags",
-                            Some(tag_label),
-                        )
-                        .await?;
-                        // Increment the label count to post
-                        TagPost::update_index_score(
-                            &author_id,
-                            Some(post_id),
-                            tag_label,
-                            ScoreAction::Increment(1.0),
-                        )
-                        .await?;
-                        Ok::<(), EventProcessorError>(())
-                    },
-                    // Add user tag in post
-                    TagPost::add_tagger_to_index(
+            let indexing_results = nexus_common::traced_join!(
+                tracing::info_span!("index.write", phase = "tag_post");
+                // Update user counts for tagger
+                UserCounts::increment(&tagger_user_id, "tagged", None),
+                // Increment in one the post tags
+                PostCounts::increment_index_field(post_key_slice, "tags", None),
+                async {
+                    // Increase unique_tags if the tag does not exist already
+                    // NOTE: To update that field, it cannot exist in TagPost SORTED SET the tag. Thats why it has to be executed
+                    // before TagPost operation
+                    PostCounts::increment_index_field(
+                        post_key_slice,
+                        "unique_tags",
+                        Some(tag_label),
+                    )
+                    .await?;
+                    // Increment the label count to post
+                    TagPost::update_index_score(
                         &author_id,
                         Some(post_id),
-                        &tagger_user_id,
-                        tag_label,
-                    ),
-                    // Add post to label total engagement
-                    PostsByTagSearch::update_index_score(
-                        &author_id,
-                        post_id,
                         tag_label,
                         ScoreAction::Increment(1.0),
-                    ),
-                    async {
-                        // Post replies cannot be included in the total engagement index once they have been tagged
-                        if !post_relationships_is_reply(&author_id, post_id).await? {
-                            // Increment in one post global engagement
-                            PostStream::update_index_score(
-                                &author_id,
-                                post_id,
-                                ScoreAction::Increment(1.0),
-                            )
-                            .await
-                            .map_err(EventProcessorError::index_operation_failed)?;
-                        }
-                        Ok::<(), EventProcessorError>(())
-                    },
-                    // Add post to global label timeline
-                    PostsByTagSearch::put_to_index(&author_id, post_id, tag_label),
-                    // Save new notification
-                    Notification::new_post_tag(&tagger_user_id, &author_id, tag_label, post_uri),
-                    // Add tag to search index
-                    TagSearch::put_to_index(tag_label_slice)
-                )
-            }
-            .instrument(tracing::info_span!("index.write", phase = "tag_post"))
-            .await;
+                    )
+                    .await?;
+                    Ok::<(), EventProcessorError>(())
+                },
+                // Add user tag in post
+                TagPost::add_tagger_to_index(
+                    &author_id,
+                    Some(post_id),
+                    &tagger_user_id,
+                    tag_label,
+                ),
+                // Add post to label total engagement
+                PostsByTagSearch::update_index_score(
+                    &author_id,
+                    post_id,
+                    tag_label,
+                    ScoreAction::Increment(1.0),
+                ),
+                async {
+                    // Post replies cannot be included in the total engagement index once they have been tagged
+                    if !post_relationships_is_reply(&author_id, post_id).await? {
+                        // Increment in one post global engagement
+                        PostStream::update_index_score(
+                            &author_id,
+                            post_id,
+                            ScoreAction::Increment(1.0),
+                        )
+                        .await
+                        .map_err(EventProcessorError::index_operation_failed)?;
+                    }
+                    Ok::<(), EventProcessorError>(())
+                },
+                // Add post to global label timeline
+                PostsByTagSearch::put_to_index(&author_id, post_id, tag_label),
+                // Save new notification
+                Notification::new_post_tag(&tagger_user_id, &author_id, tag_label, post_uri),
+                // Add tag to search index
+                TagSearch::put_to_index(tag_label_slice)
+            );
 
             indexing_results.0?;
             indexing_results.1?;
@@ -213,44 +210,40 @@ async fn put_sync_user(
             let tag_label_slice = &[tag_label.to_string()];
 
             // SAVE TO INDEX
-            let indexing_results =
+            let indexing_results = nexus_common::traced_join!(
+                tracing::info_span!("index.write", phase = "tag_user");
+                // Update user counts for the tagged user
+                UserCounts::increment(&tagged_user_id, "tags", None),
+                // Update user counts for the tagger user
+                UserCounts::increment(&tagger_user_id, "tagged", None),
                 async {
-                    tokio::join!(
-                        // Update user counts for the tagged user
-                        UserCounts::increment(&tagged_user_id, "tags", None),
-                        // Update user counts for the tagger user
-                        UserCounts::increment(&tagger_user_id, "tagged", None),
-                        async {
-                            // Increase unique_tags if the tag does not exist already
-                            // NOTE: To update that field, it cannot exist in TagUser SORTED SET the tag. Thats why it has to be executed
-                            // before TagUser operation
-                            UserCounts::increment(&tagged_user_id, "unique_tags", Some(tag_label))
-                                .await?;
-                            // Add label count to the user profile tag
-                            TagUser::update_index_score(
-                                &tagged_user_id,
-                                None,
-                                tag_label,
-                                ScoreAction::Increment(1.0),
-                            )
-                            .await?;
-                            Ok::<(), EventProcessorError>(())
-                        },
-                        // Add tagger to the user taggers list
-                        TagUser::add_tagger_to_index(
-                            &tagged_user_id,
-                            None,
-                            &tagger_user_id,
-                            tag_label,
-                        ),
-                        // Save new notification
-                        Notification::new_user_tag(&tagger_user_id, &tagged_user_id, tag_label),
-                        // Add tag to search index
-                        TagSearch::put_to_index(tag_label_slice)
+                    // Increase unique_tags if the tag does not exist already
+                    // NOTE: To update that field, it cannot exist in TagUser SORTED SET the tag. Thats why it has to be executed
+                    // before TagUser operation
+                    UserCounts::increment(&tagged_user_id, "unique_tags", Some(tag_label))
+                        .await?;
+                    // Add label count to the user profile tag
+                    TagUser::update_index_score(
+                        &tagged_user_id,
+                        None,
+                        tag_label,
+                        ScoreAction::Increment(1.0),
                     )
-                }
-                .instrument(tracing::info_span!("index.write", phase = "tag_user"))
-                .await;
+                    .await?;
+                    Ok::<(), EventProcessorError>(())
+                },
+                // Add tagger to the user taggers list
+                TagUser::add_tagger_to_index(
+                    &tagged_user_id,
+                    None,
+                    &tagger_user_id,
+                    tag_label,
+                ),
+                // Save new notification
+                Notification::new_user_tag(&tagger_user_id, &tagged_user_id, tag_label),
+                // Add tag to search index
+                TagSearch::put_to_index(tag_label_slice)
+            );
 
             indexing_results.0?;
             indexing_results.1?;
@@ -295,39 +288,36 @@ async fn del_sync_user(
     tagged_id: &str,
     tag_label: &str,
 ) -> Result<(), EventProcessorError> {
-    let indexing_results = async {
-        tokio::join!(
-            // Update user counts in the tagged
-            UserCounts::decrement(tagged_id, "tags", None),
-            // Update user counts in the tagger
-            UserCounts::decrement(&tagger_id, "tagged", None),
-            async {
-                // Decrement label count to the user profile tag
-                TagUser::update_index_score(
-                    tagged_id,
-                    None,
-                    tag_label,
-                    ScoreAction::Decrement(1.0),
-                )
+    let indexing_results = nexus_common::traced_join!(
+        tracing::info_span!("index.delete", phase = "tag_user");
+        // Update user counts in the tagged
+        UserCounts::decrement(tagged_id, "tags", None),
+        // Update user counts in the tagger
+        UserCounts::decrement(&tagger_id, "tagged", None),
+        async {
+            // Decrement label count to the user profile tag
+            TagUser::update_index_score(
+                tagged_id,
+                None,
+                tag_label,
+                ScoreAction::Decrement(1.0),
+            )
+            .await?;
+            // Decrease unique_tags
+            // NOTE: To update that field, we first need to decrement the value in the TagUser SORTED SET associated with that tag
+            UserCounts::decrement(tagged_id, "unique_tags", Some(tag_label)).await?;
+            Ok::<(), EventProcessorError>(())
+        },
+        async {
+            // Remove tagger to the user taggers list
+            TagUser(vec![tagger_id.to_string()])
+                .del_from_index(tagged_id, None, tag_label)
                 .await?;
-                // Decrease unique_tags
-                // NOTE: To update that field, we first need to decrement the value in the TagUser SORTED SET associated with that tag
-                UserCounts::decrement(tagged_id, "unique_tags", Some(tag_label)).await?;
-                Ok::<(), EventProcessorError>(())
-            },
-            async {
-                // Remove tagger to the user taggers list
-                TagUser(vec![tagger_id.to_string()])
-                    .del_from_index(tagged_id, None, tag_label)
-                    .await?;
-                Ok::<(), EventProcessorError>(())
-            },
-            // Save new notification
-            Notification::new_user_untag(&tagger_id, tagged_id, tag_label)
-        )
-    }
-    .instrument(tracing::info_span!("index.delete", phase = "tag_user"))
-    .await;
+            Ok::<(), EventProcessorError>(())
+        },
+        // Save new notification
+        Notification::new_user_untag(&tagger_id, tagged_id, tag_label)
+    );
 
     indexing_results.0?;
     indexing_results.1?;
@@ -349,69 +339,66 @@ async fn del_sync_post(
     let tag_post = TagPost(vec![tagger_id.to_string()]);
     let post_uri = post_uri_builder(author_id.to_string(), post_id.to_string());
 
-    let indexing_results = async {
-        tokio::join!(
-            // Update user counts for tagger
-            UserCounts::decrement(&tagger_id, "tagged", None),
-            // Decrement in one the post tags
-            PostCounts::decrement_index_field(post_key_slice, "tags", None),
-            async {
-                // Decrement label score in the post
-                TagPost::update_index_score(
-                    author_id,
-                    Some(post_id),
-                    tag_label,
-                    ScoreAction::Decrement(1.0),
-                )
-                .await?;
-                // Decrease unique_tag
-                // NOTE: To update that field, we first need to decrement the value in the SORTED SET associated with that tag
-                PostCounts::decrement_index_field(post_key_slice, "unique_tags", Some(tag_label))
-                    .await?;
-                Ok::<(), EventProcessorError>(())
-            },
-            // Decrease post from label total engagement
-            PostsByTagSearch::update_index_score(
+    let indexing_results = nexus_common::traced_join!(
+        tracing::info_span!("index.delete", phase = "tag_post");
+        // Update user counts for tagger
+        UserCounts::decrement(&tagger_id, "tagged", None),
+        // Decrement in one the post tags
+        PostCounts::decrement_index_field(post_key_slice, "tags", None),
+        async {
+            // Decrement label score in the post
+            TagPost::update_index_score(
                 author_id,
-                post_id,
+                Some(post_id),
                 tag_label,
                 ScoreAction::Decrement(1.0),
-            ),
-            async {
-                // Post replies cannot be included in the total engagement index once the tag have been deleted
-                if !post_relationships_is_reply(author_id, post_id).await? {
-                    // Decrement in one post global engagement
-                    PostStream::update_index_score(author_id, post_id, ScoreAction::Decrement(1.0))
-                        .await
-                        .map_err(EventProcessorError::index_operation_failed)?;
-                }
-                Ok::<(), EventProcessorError>(())
-            },
-            async {
-                // Delete the tagger from the tag list
-                tag_post
-                    .del_from_index(author_id, Some(post_id), tag_label)
-                    .await?;
-                // NOTE: The tag search index, depends on the post taggers collection to delete
-                // Delete post from global label timeline
-                PostsByTagSearch::del_from_index(author_id, post_id, tag_label).await?;
+            )
+            .await?;
+            // Decrease unique_tag
+            // NOTE: To update that field, we first need to decrement the value in the SORTED SET associated with that tag
+            PostCounts::decrement_index_field(post_key_slice, "unique_tags", Some(tag_label))
+                .await?;
+            Ok::<(), EventProcessorError>(())
+        },
+        // Decrease post from label total engagement
+        PostsByTagSearch::update_index_score(
+            author_id,
+            post_id,
+            tag_label,
+            ScoreAction::Decrement(1.0),
+        ),
+        async {
+            // Post replies cannot be included in the total engagement index once the tag have been deleted
+            if !post_relationships_is_reply(author_id, post_id).await? {
+                // Decrement in one post global engagement
+                PostStream::update_index_score(author_id, post_id, ScoreAction::Decrement(1.0))
+                    .await
+                    .map_err(EventProcessorError::index_operation_failed)?;
+            }
+            Ok::<(), EventProcessorError>(())
+        },
+        async {
+            // Delete the tagger from the tag list
+            tag_post
+                .del_from_index(author_id, Some(post_id), tag_label)
+                .await?;
+            // NOTE: The tag search index, depends on the post taggers collection to delete
+            // Delete post from global label timeline
+            PostsByTagSearch::del_from_index(author_id, post_id, tag_label).await?;
 
-                let posts_by_tag =
-                    PostsByTagSearch::get_by_label(tag_label, None, Pagination::default()).await?;
-                let posts_by_tag_found = posts_by_tag.is_some_and(|x| !x.is_empty());
-                if !posts_by_tag_found {
-                    // If we just removed the last post using this tag, remove tag from autocomplete suggestion list
-                    TagSearch::del_from_index(tag_label).await?;
-                }
+            let posts_by_tag =
+                PostsByTagSearch::get_by_label(tag_label, None, Pagination::default()).await?;
+            let posts_by_tag_found = posts_by_tag.is_some_and(|x| !x.is_empty());
+            if !posts_by_tag_found {
+                // If we just removed the last post using this tag, remove tag from autocomplete suggestion list
+                TagSearch::del_from_index(tag_label).await?;
+            }
 
-                Ok::<(), EventProcessorError>(())
-            },
-            // Save new notification
-            Notification::new_post_untag(&tagger_id, author_id, tag_label, &post_uri)
-        )
-    }
-    .instrument(tracing::info_span!("index.delete", phase = "tag_post"))
-    .await;
+            Ok::<(), EventProcessorError>(())
+        },
+        // Save new notification
+        Notification::new_post_untag(&tagger_id, author_id, tag_label, &post_uri)
+    );
 
     indexing_results.0?;
     indexing_results.1?;
