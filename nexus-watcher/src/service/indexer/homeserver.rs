@@ -8,7 +8,6 @@ use nexus_common::models::homeserver::Homeserver;
 use opentelemetry::trace::{FutureExt, TraceContextExt, Tracer};
 use opentelemetry::{global, Context};
 use pubky::Method;
-use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
@@ -26,10 +25,6 @@ pub struct HsEventProcessor {
 
 #[async_trait::async_trait]
 impl TEventProcessor for HsEventProcessor {
-    fn get_homeserver_id(&self) -> PubkyId {
-        self.homeserver.id.clone()
-    }
-
     fn files_path(&self) -> &PathBuf {
         &self.files_path
     }
@@ -71,7 +66,7 @@ impl TEventProcessor for HsEventProcessor {
             let cx = Context::new().with_span(span);
             self.poll_events().with_context(cx).await.inspect_err(|e| {
                 error!(
-                    hs_id = %self.get_homeserver_id(),
+                    hs_id = %self.homeserver.id,
                     error = ?e,
                     "Error polling events"
                 )
@@ -104,9 +99,7 @@ impl HsEventProcessor {
             let pubky = PubkyConnector::get()?;
             let url = format!(
                 "https://{}/events/?cursor={}&limit={}",
-                self.get_homeserver_id(),
-                self.homeserver.cursor,
-                self.limit
+                self.homeserver.id, self.homeserver.cursor, self.limit
             );
 
             let response = pubky

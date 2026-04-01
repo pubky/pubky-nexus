@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use nexus_common::models::event::{Event, EventProcessorError};
 use nexus_common::models::homeserver::Homeserver;
-use pubky_app_specs::PubkyId;
 use tracing::debug;
 
 use super::TEventProcessor;
@@ -19,10 +18,6 @@ pub struct KeyBasedEventProcessor {
 
 #[async_trait::async_trait]
 impl TEventProcessor for KeyBasedEventProcessor {
-    fn get_homeserver_id(&self) -> PubkyId {
-        self.homeserver.id.clone()
-    }
-
     fn files_path(&self) -> &PathBuf {
         &self.files_path
     }
@@ -44,10 +39,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
     }
 
     async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {
-        debug!(
-            "KeyBasedEventProcessor running for {}",
-            self.get_homeserver_id()
-        );
+        debug!("KeyBasedEventProcessor running for {}", self.homeserver.id);
         Ok(())
     }
 }
