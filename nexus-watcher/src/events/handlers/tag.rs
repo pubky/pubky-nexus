@@ -121,19 +121,9 @@ async fn put_sync_post(
                     Ok::<(), EventProcessorError>(())
                 },
                 // Add user tag in post
-                TagPost::add_tagger_to_index(
-                    &author_id,
-                    Some(post_id),
-                    &tagger_user_id,
-                    tag_label,
-                ),
+                TagPost::add_tagger_to_index(&author_id, Some(post_id), &tagger_user_id, tag_label),
                 // Add post to label total engagement
-                PostsByTagSearch::update_index_score(
-                    &author_id,
-                    post_id,
-                    tag_label,
-                    ScoreAction::Increment(1.0),
-                ),
+                PostsByTagSearch::update_index_score(&author_id, post_id, tag_label, ScoreAction::Increment(1.0)),
                 async {
                     // Post replies cannot be included in the total engagement index once they have been tagged
                     if !post_relationships_is_reply(&author_id, post_id).await? {
@@ -220,25 +210,13 @@ async fn put_sync_user(
                     // Increase unique_tags if the tag does not exist already
                     // NOTE: To update that field, it cannot exist in TagUser SORTED SET the tag. Thats why it has to be executed
                     // before TagUser operation
-                    UserCounts::increment(&tagged_user_id, "unique_tags", Some(tag_label))
-                        .await?;
+                    UserCounts::increment(&tagged_user_id, "unique_tags", Some(tag_label)).await?;
                     // Add label count to the user profile tag
-                    TagUser::update_index_score(
-                        &tagged_user_id,
-                        None,
-                        tag_label,
-                        ScoreAction::Increment(1.0),
-                    )
-                    .await?;
+                    TagUser::update_index_score(&tagged_user_id, None, tag_label, ScoreAction::Increment(1.0)).await?;
                     Ok::<(), EventProcessorError>(())
                 },
                 // Add tagger to the user taggers list
-                TagUser::add_tagger_to_index(
-                    &tagged_user_id,
-                    None,
-                    &tagger_user_id,
-                    tag_label,
-                ),
+                TagUser::add_tagger_to_index(&tagged_user_id, None, &tagger_user_id, tag_label),
                 // Save new notification
                 Notification::new_user_tag(&tagger_user_id, &tagged_user_id, tag_label),
                 // Add tag to search index
@@ -296,13 +274,7 @@ async fn del_sync_user(
         UserCounts::decrement(&tagger_id, "tagged", None),
         async {
             // Decrement label count to the user profile tag
-            TagUser::update_index_score(
-                tagged_id,
-                None,
-                tag_label,
-                ScoreAction::Decrement(1.0),
-            )
-            .await?;
+            TagUser::update_index_score(tagged_id, None, tag_label, ScoreAction::Decrement(1.0)).await?;
             // Decrease unique_tags
             // NOTE: To update that field, we first need to decrement the value in the TagUser SORTED SET associated with that tag
             UserCounts::decrement(tagged_id, "unique_tags", Some(tag_label)).await?;

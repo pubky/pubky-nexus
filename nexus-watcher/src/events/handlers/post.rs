@@ -472,9 +472,7 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
                 PostCounts::decrement_index_field(parent_post_key_parts, "reposts", None),
                 async {
                     // Post replies cannot be included in the total engagement index after the repost is deleted
-                    if !post_relationships_is_reply(&reposted_uri.user_id, &parent_post_id)
-                        .await?
-                    {
+                    if !post_relationships_is_reply(&reposted_uri.user_id, &parent_post_id).await? {
                         PostStream::decrement_score_index_sorted_set(
                             &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
                             parent_post_key_parts,
