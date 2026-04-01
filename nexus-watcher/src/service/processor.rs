@@ -144,8 +144,8 @@ impl EventProcessor {
         )
     )]
     async fn handle_event(&self, event: &Event) -> Result<(), EventProcessorError> {
+        let span = tracing::Span::current();
         if let Err(e) = handle(event, self.moderation.clone()).await {
-            let span = tracing::Span::current();
             span.record("otel.status_code", "ERROR");
             span.record("otel.status_message", tracing::field::display(&e));
 
@@ -155,6 +155,8 @@ impl EventProcessor {
                     error!("Failed to put event to retry index: {}", err);
                 }
             }
+        } else {
+            span.record("otel.status_code", "OK");
         }
         Ok(())
     }
