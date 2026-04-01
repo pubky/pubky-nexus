@@ -2,7 +2,7 @@ use std::{fmt::Display, sync::Arc, time::Duration};
 
 use nexus_common::models::event::EventProcessorError;
 use pubky_app_specs::PubkyId;
-use tracing::error;
+use tracing::{error, Instrument};
 
 use crate::service::PROCESSING_TIMEOUT_SECS;
 
@@ -54,7 +54,8 @@ pub trait TEventProcessor: Send + Sync + 'static {
             .custom_timeout()
             .unwrap_or(Duration::from_secs(PROCESSING_TIMEOUT_SECS));
 
-        let handle = tokio::spawn(self.run_internal());
+        let span = tracing::info_span!("event_processor.run", homeserver = %hs_id);
+        let handle = tokio::spawn(self.run_internal().instrument(span));
 
         let join_result = tokio::time::timeout(timeout, handle)
             .await

@@ -10,6 +10,7 @@ use nexus_common::models::user::UserCounts;
 use pubky_app_specs::PubkyId;
 use tracing::debug;
 
+#[tracing::instrument(name = "follow.put", skip_all, fields(follower_id = %follower_id, followee_id = %followee_id))]
 pub async fn sync_put(
     follower_id: PubkyId,
     followee_id: PubkyId,
@@ -39,7 +40,8 @@ pub async fn sync_put(
             let following = Following(vec![followee_id.to_string()]);
 
             // SAVE TO INDEX
-            let indexing_results = tokio::join!(
+            let indexing_results = nexus_common::traced_join!(
+                tracing::info_span!("index.write");
                 // Add new follower to the followee index
                 followers.put_to_index(&followee_id),
                 // Add in the Following:follower_id index a followee user
@@ -64,6 +66,7 @@ pub async fn sync_put(
     Ok(())
 }
 
+#[tracing::instrument(name = "follow.del", skip_all, fields(follower_id = %follower_id, followee_id = %followee_id))]
 pub async fn del(follower_id: PubkyId, followee_id: PubkyId) -> Result<(), EventProcessorError> {
     debug!("Deleting follow: {} -> {}", follower_id, followee_id);
     // Maybe we could do it here but lets follow the naming convention
@@ -86,7 +89,8 @@ pub async fn sync_del(
             let followers = Followers(vec![follower_id.to_string()]);
             let following = Following(vec![followee_id.to_string()]);
 
-            let indexing_results = tokio::join!(
+            let indexing_results = nexus_common::traced_join!(
+                tracing::info_span!("index.delete");
                 // Remove a follower to the followee index
                 followers.del_from_index(&followee_id),
                 // Remove from the Following:follower_id index a followee user

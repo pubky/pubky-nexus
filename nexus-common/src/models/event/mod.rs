@@ -95,6 +95,7 @@ impl Event {
     }
 
     /// Stores event line in Redis as part of the events list.
+    #[tracing::instrument(name = "event.index.write", skip_all)]
     pub async fn store_event(&self) -> RedisResult<()> {
         self.put_index_list(&["Events"]).await
     }
