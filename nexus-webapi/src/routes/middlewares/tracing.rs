@@ -32,15 +32,10 @@ pub async fn tracing_middleware(request: Request, next: Next) -> Response {
 
     let status = response.status().as_u16();
     span.record("http.response.status_code", status);
-    match status {
-        500..=599 => {
-            span.record("otel.status_code", "ERROR");
-            span.record("otel.status_message", "Internal Server Error");
-        }
-        _ => {
-            span.record("otel.status_code", "OK");
-        }
-    };
+    if (500..=599).contains(&status) {
+        span.record("otel.status_code", "ERROR");
+        span.record("otel.status_message", "Internal Server Error");
+    }
 
     response
 }
