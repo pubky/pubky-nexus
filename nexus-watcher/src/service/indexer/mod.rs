@@ -13,7 +13,6 @@ use pubky_app_specs::PubkyId;
 use tracing::{debug, error};
 
 use crate::events::handle;
-use crate::events::retry::event::RetryEvent;
 use crate::events::Moderation;
 use crate::service::PROCESSING_TIMEOUT_SECS;
 
@@ -130,24 +129,15 @@ pub trait TEventProcessor: Send + Sync + 'static {
         Ok(())
     }
 
-    /// Extracts retry-related information from an event and its associated error.
+    /// Handles an error from event processing (e.g. logging, scheduling retries).
     ///
-    /// Each implementation defines its own retry strategy. Return `None` to skip retrying.
-    fn extract_retry_event_info(
-        &self,
-        event: &Event,
-        error: EventProcessorError,
-    ) -> Option<(String, RetryEvent)>;
+    /// Default is a no-op. Override to implement retry strategies.
+    async fn handle_error(&self, _event: &Event, _error: EventProcessorError) {}
 
-    /// Processes an event and tracks the failed event if necessary.
+    /// Processes an event and delegates to [`Self::handle_error`] on failure.
     async fn handle_event(&self, event: &Event) -> Result<(), EventProcessorError> {
         if let Err(e) = handle(event, self.moderation().clone()).await {
-            if let Some((index_key, retry_event)) = self.extract_retry_event_info(event, e) {
-                error!("{}, {}", retry_event.error_type, index_key);
-                if let Err(err) = retry_event.put_to_index(index_key).await {
-                    error!("Failed to put event to retry index: {}", err);
-                }
-            }
+            self.handle_error(event, e).await;
         }
         Ok(())
     }

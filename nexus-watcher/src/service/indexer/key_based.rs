@@ -1,13 +1,12 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use nexus_common::models::event::{Event, EventProcessorError};
+use nexus_common::models::event::EventProcessorError;
 use nexus_common::models::homeserver::Homeserver;
 use pubky_app_specs::PubkyId;
 use tracing::debug;
 
 use super::TEventProcessor;
-use crate::events::retry::event::RetryEvent;
 use crate::events::Moderation;
 
 pub struct KeyBasedEventProcessor {
@@ -33,14 +32,6 @@ impl TEventProcessor for KeyBasedEventProcessor {
 
     fn moderation(&self) -> &Arc<Moderation> {
         &self.moderation
-    }
-
-    fn extract_retry_event_info(
-        &self,
-        _event: &Event,
-        _error: EventProcessorError,
-    ) -> Option<(String, RetryEvent)> {
-        None
     }
 
     async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {

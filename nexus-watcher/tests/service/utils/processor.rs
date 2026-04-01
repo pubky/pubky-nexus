@@ -2,9 +2,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::service::utils::{MockEventProcessorResult, HS_IDS};
-use nexus_common::models::event::{Event, EventProcessorError};
+use nexus_common::models::event::EventProcessorError;
 use nexus_common::models::homeserver::Homeserver;
-use nexus_watcher::events::retry::event::RetryEvent;
 use nexus_watcher::events::Moderation;
 use nexus_watcher::service::TEventProcessor;
 use pubky::Keypair;
@@ -41,14 +40,6 @@ impl TEventProcessor for MockEventProcessor {
 
     fn moderation(&self) -> &Arc<Moderation> {
         &self.moderation
-    }
-
-    fn extract_retry_event_info(
-        &self,
-        _event: &Event,
-        _error: EventProcessorError,
-    ) -> Option<(String, RetryEvent)> {
-        None
     }
 
     fn custom_timeout(&self) -> Option<Duration> {
