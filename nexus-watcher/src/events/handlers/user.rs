@@ -7,7 +7,7 @@ use nexus_common::models::{
     user::{UserCounts, UserDetails, UserSearch, USER_DELETED_SENTINEL},
 };
 use pubky_app_specs::{PubkyAppUser, PubkyId};
-use tracing::{debug, Instrument};
+use tracing::debug;
 
 #[tracing::instrument(name = "user.put", skip_all, fields(user_id = %user_id))]
 pub async fn sync_put(user: PubkyAppUser, user_id: PubkyId) -> Result<(), EventProcessorError> {
@@ -20,29 +20,26 @@ pub async fn sync_put(user: PubkyAppUser, user_id: PubkyId) -> Result<(), EventP
     user_details.put_to_graph().await?;
 
     // Step 3: Run in parallel the cache process: SAVE TO INDEX
-    let indexing_results = async {
-        tokio::join!(
-            async {
-                UserSearch::put_to_index(&[&user_details]).await?;
-                Ok::<(), EventProcessorError>(())
-            },
-            async {
-                // TODO: Use SCARD on a set for unique tag count to avoid race conditions in parallel processing
-                // If new user (no existing counts), save a new `UserCounts`
-                if UserCounts::get_from_index(&user_id).await?.is_none() {
-                    UserCounts::default().put_to_index(&user_id).await?;
-                }
-                Ok::<(), EventProcessorError>(())
-            },
-            async {
-                UserDetails::put_to_index(&[&user_details.id], vec![Some(user_details.clone())])
-                    .await?;
-                Ok::<(), EventProcessorError>(())
+    let indexing_results = nexus_common::traced_join!(
+        tracing::info_span!("index.write");
+        async {
+            UserSearch::put_to_index(&[&user_details]).await?;
+            Ok::<(), EventProcessorError>(())
+        },
+        async {
+            // TODO: Use SCARD on a set for unique tag count to avoid race conditions in parallel processing
+            // If new user (no existing counts), save a new `UserCounts`
+            if UserCounts::get_from_index(&user_id).await?.is_none() {
+                UserCounts::default().put_to_index(&user_id).await?;
             }
-        )
-    }
-    .instrument(tracing::info_span!("index.write"))
-    .await;
+            Ok::<(), EventProcessorError>(())
+        },
+        async {
+            UserDetails::put_to_index(&[&user_details.id], vec![Some(user_details.clone())])
+                .await?;
+            Ok::<(), EventProcessorError>(())
+        }
+    );
 
     indexing_results.0?;
     indexing_results.1?;
@@ -69,10 +66,11 @@ pub async fn del(user_id: PubkyId) -> Result<(), EventProcessorError> {
             // UserSearch::delete reads UserDetails from the index to find the username,
             // so it must complete before UserDetails::delete runs.
             UserSearch::delete(&user_id).await?;
-            let indexing_results =
-                async { tokio::join!(UserDetails::delete(&user_id), UserCounts::delete(&user_id)) }
-                    .instrument(tracing::info_span!("index.delete"))
-                    .await;
+            let indexing_results = nexus_common::traced_join!(
+                tracing::info_span!("index.delete");
+                UserDetails::delete(&user_id),
+                UserCounts::delete(&user_id)
+            );
             indexing_results.0?;
             indexing_results.1?;
         }
