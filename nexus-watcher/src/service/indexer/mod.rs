@@ -133,7 +133,10 @@ pub trait TEventProcessor: Send + Sync + 'static {
     ///
     /// Called in the event processing loop.
     ///
-    /// It re-throws the erorr, if the caller should break the processing loop.
+    /// It re-throws the erorr, which signals the caller should break the processing loop
+    /// and persist the cursor at the point where this error occurred. This is because, since
+    /// it's an infrastructure error, it is likely that trying to process the next event line
+    /// would result in the same issue.
     async fn handle_error(
         &self,
         _event: &Event,

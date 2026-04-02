@@ -119,10 +119,8 @@ impl EventProcessorError {
 
     /// Returns whether or not this is an infrastructure error.
     ///
-    /// If true, the caller has to stop indexing and persist the cursor
-    /// at the point where this error occurred. This is because, since
-    /// it's an infrastructure error, it is likely that trying to process
-    /// the next event line would result in the same issue.
+    /// These are the kinds of errors that are expected to be thrown again,
+    /// if the event processor caller continues processing other events.
     pub fn is_infrastructure(&self) -> bool {
         match self {
             Self::GraphQueryFailed(_) => true,
