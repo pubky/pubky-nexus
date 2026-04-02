@@ -129,15 +129,30 @@ pub trait TEventProcessor: Send + Sync + 'static {
         Ok(())
     }
 
-    /// Handles an error from event processing (e.g. logging, scheduling retries).
+    /// Handles an error of event processing from event processing (e.g. logging, scheduling retries).
     ///
-    /// Default is a no-op. Override to implement retry strategies.
-    async fn handle_error(&self, _event: &Event, _error: EventProcessorError) {}
+    /// Called in the event processing loop.
+    ///
+    /// It re-throws the erorr, if the caller should break the processing loop.
+    async fn handle_error(
+        &self,
+        _event: &Event,
+        error: EventProcessorError,
+    ) -> Result<(), EventProcessorError> {
+        if matches!(error, EventProcessorError::MissingDependency { .. }) {
+            // TODO save event in retry manager
+            Ok(())
+        } else if error.is_infrastructure() {
+            return Err(error);
+        } else {
+            Ok(())
+        }
+    }
 
     /// Processes an event and delegates to [`Self::handle_error`] on failure.
     async fn handle_event(&self, event: &Event) -> Result<(), EventProcessorError> {
         if let Err(e) = handle(event, self.moderation().clone()).await {
-            self.handle_error(event, e).await;
+            self.handle_error(event, e).await?;
         }
         Ok(())
     }

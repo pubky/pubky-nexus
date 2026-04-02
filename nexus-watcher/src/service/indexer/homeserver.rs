@@ -1,9 +1,7 @@
-use nexus_common::models::event::{Event, EventProcessorError};
-
 use super::TEventProcessor;
-use crate::events::retry::event::RetryEvent;
 use crate::events::Moderation;
 use nexus_common::db::PubkyConnector;
+use nexus_common::models::event::EventProcessorError;
 use nexus_common::models::homeserver::Homeserver;
 use opentelemetry::trace::{FutureExt, TraceContextExt, Tracer};
 use opentelemetry::{global, Context};
@@ -35,27 +33,6 @@ impl TEventProcessor for HsEventProcessor {
 
     fn moderation(&self) -> &Arc<Moderation> {
         &self.moderation
-    }
-
-    async fn handle_error(&self, event: &Event, error: EventProcessorError) {
-        let retry_event = match error {
-            EventProcessorError::InvalidEventLine(ref message) => {
-                error!("{}", message);
-                return;
-            }
-            _ => RetryEvent::new(error),
-        };
-
-        let index = match RetryEvent::generate_index_key(&event.uri) {
-            Some(retry_index) => retry_index,
-            None => return,
-        };
-
-        let index_key = format!("{}:{}", event.event_type, index);
-        error!("{}, {}", retry_event.error_type, index_key);
-        if let Err(err) = retry_event.put_to_index(index_key).await {
-            error!("Failed to put event to retry index: {}", err);
-        }
     }
 
     async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {

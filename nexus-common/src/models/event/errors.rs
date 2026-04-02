@@ -116,4 +116,19 @@ impl EventProcessorError {
     pub fn generic(source: impl std::fmt::Display) -> Self {
         Self::Generic(source.to_string())
     }
+
+    /// Returns whether or not this is an infrastructure error.
+    ///
+    /// If true, the caller has to stop indexing and persist the cursor
+    /// at the point where this error occurred. This is because, since
+    /// it's an infrastructure error, it is likely that trying to process
+    /// the next event line would result in the same issue.
+    pub fn is_infrastructure(&self) -> bool {
+        match self {
+            Self::GraphQueryFailed(_) => true,
+            Self::IndexOperationFailed(_) => true,
+            Self::InternalError(_) => true,
+            _ => false,
+        }
+    }
 }
