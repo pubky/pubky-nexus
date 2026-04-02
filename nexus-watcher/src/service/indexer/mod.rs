@@ -9,7 +9,6 @@ use std::{fmt::Display, path::PathBuf, sync::Arc, time::Duration};
 use nexus_common::models::event::{Event, EventProcessorError};
 use opentelemetry::trace::{FutureExt, Span, TraceContextExt, Tracer};
 use opentelemetry::{global, Context, KeyValue};
-use pubky_app_specs::PubkyId;
 use tracing::{debug, error};
 
 use crate::events::handle;
@@ -56,13 +55,12 @@ impl Display for RunError {
 ///   different processor implementations
 #[async_trait::async_trait]
 pub trait TEventProcessor: Send + Sync + 'static {
-    fn get_homeserver_id(&self) -> PubkyId;
     fn files_path(&self) -> &PathBuf;
     fn tracer_name(&self) -> &str;
     fn moderation(&self) -> &Arc<Moderation>;
 
     async fn run(self: Arc<Self>) -> Result<(), RunError> {
-        let hs_id = self.get_homeserver_id().to_string();
+        let tracer_name = self.tracer_name().to_string();
         let timeout = self
             .custom_timeout()
             .unwrap_or(Duration::from_secs(PROCESSING_TIMEOUT_SECS));
@@ -71,7 +69,7 @@ pub trait TEventProcessor: Send + Sync + 'static {
 
         let join_result = tokio::time::timeout(timeout, handle)
             .await
-            .inspect_err(|_| error!("Event processor timed out for {hs_id}"))
+            .inspect_err(|_| error!("Event processor timed out for {tracer_name}"))
             .map_err(|_| RunError::TimedOut)?;
 
         // The JoinError can be:
@@ -82,11 +80,13 @@ pub trait TEventProcessor: Send + Sync + 'static {
         // In our model, we don't trigger such interruptions. Instead we use the shutdown signal
         // to gracefully stop the event processing loop. Therefore we consider all JoinErrors as panics.
         let run_internal_result = join_result
-            .inspect_err(|je| error!("JoinError while running event processor for {hs_id}: {je:?}"))
+            .inspect_err(|je| {
+                error!("JoinError while running event processor for {tracer_name}: {je:?}")
+            })
             .map_err(|_| RunError::Panicked)?;
 
         run_internal_result
-            .inspect_err(|e| error!("Event processor failed for {hs_id}: {e:?}"))
+            .inspect_err(|e| error!("Event processor failed for {tracer_name}: {e:?}"))
             .map_err(RunError::Internal)
     }
 

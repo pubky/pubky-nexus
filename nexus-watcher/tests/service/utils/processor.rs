@@ -26,10 +26,6 @@ pub struct MockEventProcessor {
 
 #[async_trait::async_trait]
 impl TEventProcessor for MockEventProcessor {
-    fn get_homeserver_id(&self) -> PubkyId {
-        self.homeserver_id.clone()
-    }
-
     fn files_path(&self) -> &PathBuf {
         &self.files_path
     }
