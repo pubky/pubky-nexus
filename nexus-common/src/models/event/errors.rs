@@ -125,7 +125,6 @@ impl EventProcessorError {
         match self {
             Self::GraphQueryFailed(_) => true,
             Self::IndexOperationFailed(_) => true,
-            Self::InternalError(_) => true,
             _ => false,
         }
     }
