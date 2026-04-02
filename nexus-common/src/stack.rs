@@ -59,13 +59,23 @@ impl StackManager {
         }
     }
 
+    /// Builds an [`EnvFilter`] at the given level with directives to suppress noisy dependencies.
+    fn env_filter(log_level: Level) -> EnvFilter {
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+            EnvFilter::new(log_level.as_str())
+                .add_directive("opentelemetry=error".parse().unwrap())
+                .add_directive("h2=error".parse().unwrap())
+                .add_directive("tower=info".parse().unwrap())
+                .add_directive("mainline=info".parse().unwrap())
+        })
+    }
+
     fn setup_local_logging(log_level: Level) {
         // Enable log-to-tracing bridge so that `log`-based crates (e.g., neo4rs) emit through our `tracing` subscriber
         let _ = tracing_log::LogTracer::init();
 
         // Build an env‐based filter
-        let env_filter =
-            EnvFilter::new(log_level.as_str()).add_directive("mainline=info".parse().unwrap());
+        let env_filter = Self::env_filter(log_level);
 
         // Create a formatting layer
         let fmt_layer = fmt::layer().compact().with_line_number(true);
@@ -117,28 +127,21 @@ impl StackManager {
 
         // Apply log filters for verbosity control
         // This ensures only relevant logs are sent to OpenTelemetry, reducing unnecessary data transmission
-        let otlp_layer = OpenTelemetryTracingBridge::new(&logging_provider).with_filter(
-            EnvFilter::new(log_level.as_str())
-                .add_directive("opentelemetry=error".parse().unwrap())
-                .add_directive("h2=error".parse().unwrap())
-                .add_directive("tower=info".parse().unwrap())
-                .add_directive("mainline=info".parse().unwrap()),
-        );
+        let otlp_layer = OpenTelemetryTracingBridge::new(&logging_provider)
+            .with_filter(Self::env_filter(log_level));
 
         // Configure the stdout logging layer
-        let stdout_layer = fmt::layer().compact().with_line_number(true).with_filter(
-            EnvFilter::new(log_level.as_str())
-                .add_directive("opentelemetry=error".parse().unwrap())
-                .add_directive("h2=error".parse().unwrap())
-                .add_directive("tower=info".parse().unwrap())
-                .add_directive("mainline=info".parse().unwrap()),
-        );
+        let stdout_layer = fmt::layer()
+            .compact()
+            .with_line_number(true)
+            .with_filter(Self::env_filter(log_level));
 
         // Bridge tracing spans into OpenTelemetry trace spans.
         // This allows #[instrument] and info_span!() to produce OTel spans
         // that are exported alongside manually-created OTel spans.
         let otel_trace_layer =
-            OpenTelemetryLayer::new(tracer_provider.tracer(service_name.to_string()));
+            OpenTelemetryLayer::new(tracer_provider.tracer(service_name.to_string()))
+                .with_filter(Self::env_filter(log_level));
 
         // Creates a tracing subscriber
         let subscriber = Registry::default()
