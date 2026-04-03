@@ -8,6 +8,7 @@ use tracing::debug;
 use super::TEventProcessor;
 use crate::events::Moderation;
 
+/// Event processor for non-default HSs, where the user-specific `/events-stream` endpoint is used
 pub struct KeyBasedEventProcessor {
     pub homeserver: Homeserver,
     pub files_path: PathBuf,
