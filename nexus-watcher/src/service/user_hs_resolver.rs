@@ -62,7 +62,6 @@ async fn resolve_user(user_id: &str) -> Result<(), DynError> {
 }
 
 /// Returns all user IDs hosted on a given homeserver.
-/// TODO Should be used in [EventProcessor::poll_events]
 pub async fn get_user_ids_by_homeserver(hs_id: &str) -> GraphResult<Vec<String>> {
     let query = queries::get::get_users_by_homeserver(hs_id);
     let maybe_user_ids = fetch_key_from_graph(query, "user_ids").await?;
