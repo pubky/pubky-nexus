@@ -3,7 +3,6 @@ use crate::db::fetch_key_from_graph;
 use crate::db::kv::RedisError;
 use crate::db::kv::RedisResult;
 use crate::db::queries;
-use crate::db::GraphError;
 use crate::db::GraphResult;
 use crate::db::{PubkyConnector, RedisOps};
 use crate::models::error::ModelError;
@@ -111,18 +110,11 @@ impl Homeserver {
     ///
     /// # Returns
     /// A list of active homeserver IDs.
-    ///
-    /// # Errors
-    /// Returns an error if no active homeservers are found.
     pub async fn get_all_active_from_graph() -> GraphResult<Vec<String>> {
         let query = queries::get::get_all_homeservers_with_active_users();
         let maybe_hs_ids = fetch_key_from_graph(query, "homeservers_list").await?;
         let hs_ids: Vec<String> = maybe_hs_ids.unwrap_or_default();
-
-        match hs_ids.is_empty() {
-            true => Err(GraphError::Generic("No active HSs found in graph".into())),
-            false => Ok(hs_ids),
-        }
+        Ok(hs_ids)
     }
 
     /// If a referenced post is hosted on a new, unknown homeserver, this method triggers ingestion of that homeserver.
