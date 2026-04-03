@@ -68,36 +68,6 @@ impl TEventProcessorRunner for HsEventProcessorRunner {
     }
 
     async fn pre_run(&self) -> Result<Vec<String>, DynError> {
-        debug!("Skipping pre_run for default homeserver runner");
-        Ok(vec![])
-    }
-
-    async fn run(&self) -> Result<ProcessedStats, DynError> {
-        let hs_id = self.default_homeserver.to_string();
-        let mut run_stats = RunAllProcessorsStats::default();
-
-        let t0 = Instant::now();
-        let status = match self.build(hs_id.clone()).await {
-            Ok(event_processor) => status_from_run_result(event_processor.run().await),
-            Err(e) => {
-                error!(
-                    hs_id = %hs_id,
-                    error = %e,
-                    "Failed to build event processor for default homeserver"
-                );
-                ProcessorRunStatus::FailedToBuild
-            }
-        };
-        let duration = t0.elapsed();
-
-        run_stats.add_run_result(hs_id, duration, status);
-
-        let processed_stats = self.post_run(run_stats).await;
-        Ok(processed_stats)
-    }
-
-    async fn post_run(&self, stats: RunAllProcessorsStats) -> ProcessedStats {
-        debug!("Skipping post_run for default homeserver runner");
-        ProcessedStats(stats)
+        Ok(vec![self.default_homeserver.to_string()])
     }
 }

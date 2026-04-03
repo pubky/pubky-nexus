@@ -8,6 +8,7 @@ use tracing::debug;
 use super::TEventProcessor;
 use crate::events::Moderation;
 
+/// Event processor for non-default HSs, where the user-specific `/events-stream` endpoint is used
 pub struct KeyBasedEventProcessor {
     pub homeserver: Homeserver,
     pub files_path: PathBuf,
@@ -29,6 +30,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
         &self.moderation
     }
 
+    // TODO Implement
     async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {
         debug!("KeyBasedEventProcessor running for {}", self.homeserver.id);
         Ok(())
