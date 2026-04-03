@@ -4,9 +4,9 @@ use crate::events::EventProcessorError;
 use nexus_common::db::kv::JsonAction;
 use nexus_common::db::OperationOutcome;
 use nexus_common::models::follow::{Followers, Following, Friends, UserFollows};
-use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::notification::Notification;
 use nexus_common::models::user::UserCounts;
+use nexus_common::models::user::UserDetails;
 use pubky_app_specs::PubkyId;
 use tracing::debug;
 
@@ -22,7 +22,7 @@ pub async fn sync_put(
         // Do not duplicate the follow relationship
         OperationOutcome::Updated => return Ok(()),
         OperationOutcome::MissingDependency => {
-            if let Err(e) = Homeserver::maybe_ingest_for_user(followee_id.as_str()).await {
+            if let Err(e) = UserDetails::maybe_ingest_for_user(followee_id.as_str()).await {
                 tracing::error!("Failed to ingest homeserver: {e}");
             }
 
