@@ -92,8 +92,7 @@ pub async fn handle_put_event(
     Ok(())
 }
 
-/// Handles a PUT event by fetching the blob from the homeserver
-/// and using the importer to convert it to a PubkyAppObject.
+/// Handles a DEL event by dispatching to the appropriate handler.
 pub async fn handle_del_event(event: &Event) -> Result<(), EventProcessorError> {
     debug!("Handling DEL event for URI: {}", event.uri);
 

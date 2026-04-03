@@ -141,6 +141,7 @@ impl Homeserver {
     /// ### Arguments
     ///
     /// - `referenced_user_id`: The URI of the referenced user
+    #[tracing::instrument(name = "homeserver.ingest", skip_all)]
     pub async fn maybe_ingest_for_user(referenced_user_id: &str) -> ModelResult<()> {
         let pubky = PubkyConnector::get().map_err(ModelError::from_generic)?;
 
@@ -159,7 +160,7 @@ impl Homeserver {
             return Ok(());
         };
 
-        let hs_pk = PubkyId::from(ref_post_author_hs.into_inner());
+        let hs_pk = PubkyId::from(ref_post_author_hs);
         Self::persist_if_unknown(hs_pk.clone())
             .await
             .inspect(|_| tracing::info!("Ingested homeserver {hs_pk}"))
@@ -178,7 +179,7 @@ mod tests {
 
     #[tokio_shared_rt::test(shared)]
     async fn test_put_to_get_from_graph() -> Result<(), DynError> {
-        StackManager::setup("unit-hs-test", &StackConfig::default()).await?;
+        StackManager::setup(&StackConfig::default()).await?;
 
         let keys = Keypair::random();
         let id = PubkyId::try_from(&keys.public_key().to_z32())?;
@@ -201,7 +202,7 @@ mod tests {
 
     #[tokio_shared_rt::test(shared)]
     async fn test_put_to_get_from_index() -> Result<(), DynError> {
-        StackManager::setup("unit-hs-test", &StackConfig::default()).await?;
+        StackManager::setup(&StackConfig::default()).await?;
 
         let keys = Keypair::random();
         let id = PubkyId::try_from(&keys.public_key().to_z32())?;

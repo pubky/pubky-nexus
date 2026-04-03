@@ -21,11 +21,9 @@ neo4rs = "0.8.0"
 redis = "1.0.4"
 opentelemetry = "0.31"
 opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
-# pubky = "0.5.4"
-pubky = { git = "https://github.com/pubky/pubky-core.git", package = "pubky", rev = "0ec564d746236f46553ef56888a3aef9c1096f55" }
-pubky-app-specs = { version = "0.4.3", features = ["openapi"] }
-# pubky-testnet = "0.5.4"
-pubky-testnet = { git = "https://github.com/pubky/pubky-core.git", package = "pubky-testnet", rev = "0ec564d746236f46553ef56888a3aef9c1096f55" }
+pubky = "0.7.0"
+pubky-app-specs = { git = "https://github.com/pubky/pubky-app-specs.git", rev = "bf78fe845ef55e96984a3bea954b69053fa7e8af", features = ["openapi"] }
+pubky-testnet = "0.7.0"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.149"
 tempfile = "3.25"
@@ -33,6 +31,7 @@ thiserror = "2.0.17"
 tokio = { version = "1.50.0", features = ["full"] }
 tokio-shared-rt = "0.1"
 tracing = "0.1.44"
+tracing-opentelemetry = "0.32.1"
 tracing-test = "0.2"
 url = "2"
 futures = "0.3"

@@ -1,6 +1,7 @@
 use crate::db::{Neo4jConnector, RedisConnector};
 use crate::types::DynError;
 use crate::{Level, StackConfig};
+use opentelemetry::trace::TracerProvider;
 use opentelemetry::{global, KeyValue};
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_otlp::{LogExporter, MetricExporter, SpanExporter, WithExportConfig};
@@ -9,21 +10,40 @@ use opentelemetry_sdk::metrics::{PeriodicReader, SdkMeterProvider};
 use opentelemetry_sdk::trace::SdkTracerProvider;
 use opentelemetry_sdk::Resource;
 use std::time::Duration;
+use tokio::sync::OnceCell;
 use tracing::{error, info};
+use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::{fmt, EnvFilter, Layer};
 use tracing_subscriber::{layer::SubscriberExt, Registry};
 
-pub struct StackManager {}
+/// Stores the [`StackConfig`] used for the first initialization.
+/// Subsequent calls to [`StackManager::setup`] verify the config matches.
+static STACK_CONFIG: OnceCell<StackConfig> = OnceCell::const_new();
+
+/// Manages one-time initialization of the shared infrastructure stack
+/// (logging, metrics, database connections).
+///
+/// Each builder's `start()` method calls [`StackManager::setup`] internally.
+pub struct StackManager;
 
 impl StackManager {
-    pub async fn setup(name: &str, config: &StackConfig) -> Result<(), DynError> {
-        // Initialize logging and metrics
-        Self::setup_logging(name, &config.otlp_endpoint, config.log_level).await;
-        Self::setup_metrics(name, &config.otlp_endpoint).await;
+    pub async fn setup(config: &StackConfig) -> Result<(), DynError> {
+        let stored = STACK_CONFIG
+            .get_or_try_init(|| async {
+                Self::setup_logging(&config.otlp.name, &config.otlp.endpoint, config.log_level)
+                    .await;
+                Self::setup_metrics(&config.otlp.name, &config.otlp.endpoint).await;
 
-        // Initialize Redis and Neo4j
-        RedisConnector::init(&config.db.redis).await?;
-        Neo4jConnector::init(&config.db.neo4j).await?;
+                RedisConnector::init(&config.db.redis).await?;
+                Neo4jConnector::init(&config.db.neo4j).await?;
+                Ok::<_, DynError>(config.clone())
+            })
+            .await?;
+
+        if stored != config {
+            return Err("StackManager already initialized with a different StackConfig".into());
+        }
+
         Ok(())
     }
 
@@ -39,13 +59,23 @@ impl StackManager {
         }
     }
 
+    /// Builds an [`EnvFilter`] at the given level with directives to suppress noisy dependencies.
+    fn env_filter(log_level: Level) -> EnvFilter {
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+            EnvFilter::new(log_level.as_str())
+                .add_directive("opentelemetry=error".parse().unwrap())
+                .add_directive("h2=error".parse().unwrap())
+                .add_directive("tower=info".parse().unwrap())
+                .add_directive("mainline=info".parse().unwrap())
+        })
+    }
+
     fn setup_local_logging(log_level: Level) {
         // Enable log-to-tracing bridge so that `log`-based crates (e.g., neo4rs) emit through our `tracing` subscriber
         let _ = tracing_log::LogTracer::init();
 
         // Build an env‐based filter
-        let env_filter =
-            EnvFilter::new(log_level.as_str()).add_directive("mainline=info".parse().unwrap());
+        let env_filter = Self::env_filter(log_level);
 
         // Create a formatting layer
         let fmt_layer = fmt::layer().compact().with_line_number(true);
@@ -97,33 +127,29 @@ impl StackManager {
 
         // Apply log filters for verbosity control
         // This ensures only relevant logs are sent to OpenTelemetry, reducing unnecessary data transmission
-        let otlp_layer = OpenTelemetryTracingBridge::new(&logging_provider).with_filter(
-            EnvFilter::new(log_level.as_str())
-                .add_directive("opentelemetry=error".parse().unwrap())
-                .add_directive("h2=error".parse().unwrap())
-                .add_directive("tower=info".parse().unwrap())
-                .add_directive("mainline=info".parse().unwrap()),
-        );
+        let otlp_layer = OpenTelemetryTracingBridge::new(&logging_provider)
+            .with_filter(Self::env_filter(log_level));
 
         // Configure the stdout logging layer
-        let stdout_layer = fmt::layer().compact().with_line_number(true).with_filter(
-            EnvFilter::new(log_level.as_str())
-                .add_directive("opentelemetry=error".parse().unwrap())
-                .add_directive("h2=error".parse().unwrap())
-                .add_directive("tower=info".parse().unwrap())
-                .add_directive("mainline=info".parse().unwrap()),
-        );
+        let stdout_layer = fmt::layer()
+            .compact()
+            .with_line_number(true)
+            .with_filter(Self::env_filter(log_level));
+
+        // Bridge tracing spans into OpenTelemetry trace spans.
+        // This allows #[instrument] and info_span!() to produce OTel spans
+        // that are exported alongside manually-created OTel spans.
+        let otel_trace_layer =
+            OpenTelemetryLayer::new(tracer_provider.tracer(service_name.to_string()))
+                .with_filter(Self::env_filter(log_level));
 
         // Creates a tracing subscriber
-        let subscriber = Registry::default().with(stdout_layer).with(otlp_layer);
+        let subscriber = Registry::default()
+            .with(stdout_layer)
+            .with(otlp_layer)
+            .with(otel_trace_layer);
 
         // Registers a global tracing subscriber that captures logs
-        // TODO: If multiple services run in the same process, only the first call to
-        // `tracing::subscriber::set_global_default(...)` succeeds. That means the logs from
-        // all services will be emitted under the first service's `service_name`
-        // This happens because tracing subscribers and OTEL logger providers are global.
-        // To fix this, use per-task `Dispatch` with isolated subscribers, or run services
-        // in separate processes.
         if tracing::subscriber::set_global_default(subscriber).is_ok() {
             info!(
                 "OpenTelemetry endpoint listening on (OTLP_ENDPOINT={})",

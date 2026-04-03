@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use tokio::fs::remove_dir_all;
 use tracing::debug;
 
+#[tracing::instrument(name = "file.put", skip_all, fields(user_id = %user_id, file_id = %file_id))]
 pub async fn sync_put(
     file: PubkyAppFile,
     uri: String,
@@ -44,6 +45,7 @@ pub async fn sync_put(
 }
 
 // TODO: Move it into its own process, server, etc
+#[tracing::instrument(name = "file.ingest", skip_all, fields(user_id = %user_id, file_id = %file_id))]
 async fn ingest(
     user_id: &PubkyId,
     file_id: &str,
@@ -82,6 +84,7 @@ async fn ingest(
     }
 }
 
+#[tracing::instrument(name = "file.del", skip_all, fields(user_id = %user_id, file_id = %file_id))]
 pub async fn del(
     user_id: &PubkyId,
     file_id: String,

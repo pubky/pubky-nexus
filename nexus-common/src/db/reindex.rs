@@ -16,8 +16,9 @@ use crate::{
     models::user::UserCounts,
 };
 use tokio::task::JoinSet;
-use tracing::info;
+use tracing::{info, Instrument};
 
+#[tracing::instrument(name = "reindex.sync", skip_all)]
 pub async fn sync() {
     let mut user_tasks = JoinSet::new();
     let mut post_tasks = JoinSet::new();
@@ -31,20 +32,28 @@ pub async fn sync() {
     //TODO use collections for every other model
 
     for user_id in user_ids {
-        user_tasks.spawn(async move {
-            if let Err(e) = reindex_user(&user_id).await {
-                tracing::error!("Failed to reindex user {}: {:?}", user_id, e);
+        let span = tracing::info_span!("reindex.user", user_id = %user_id);
+        user_tasks.spawn(
+            async move {
+                if let Err(e) = reindex_user(&user_id).await {
+                    tracing::error!("Failed to reindex user {}: {:?}", user_id, e);
+                }
             }
-        });
+            .instrument(span),
+        );
     }
 
     let post_ids = get_all_post_ids().await.expect("Failed to get post IDs");
     for (author_id, post_id) in post_ids {
-        post_tasks.spawn(async move {
-            if let Err(e) = reindex_post(&author_id, &post_id).await {
-                tracing::error!("Failed to reindex post {}: {:?}", post_id, e);
+        let span = tracing::info_span!("reindex.post", author_id = %author_id, post_id = %post_id);
+        post_tasks.spawn(
+            async move {
+                if let Err(e) = reindex_post(&author_id, &post_id).await {
+                    tracing::error!("Failed to reindex post {}: {:?}", post_id, e);
+                }
             }
-        });
+            .instrument(span),
+        );
     }
 
     while let Some(res) = user_tasks.join_next().await {

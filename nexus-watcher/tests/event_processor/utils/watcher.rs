@@ -8,10 +8,10 @@ use nexus_common::models::event::{Event, EventProcessorError, ParseResult};
 use nexus_common::models::file::FileDetails;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::traits::Collection;
+use nexus_common::{StackConfig, StackManager};
 use nexus_watcher::events::retry::event::RetryEvent;
 use nexus_watcher::events::{handle, Moderation};
 use nexus_watcher::service::EventProcessorRunner;
-use nexus_watcher::service::NexusWatcher;
 use nexus_watcher::service::TEventProcessorRunner;
 use pubky::Keypair;
 use pubky::PublicKey;
@@ -84,7 +84,6 @@ impl WatcherTest {
             limit: 1000,
             monitored_homeservers_limit: 100,
             files_path: get_files_dir_test_pathbuf(),
-            tracer_name: String::from("watcher.test"),
             moderation,
             shutdown_rx,
             default_homeserver,
@@ -105,7 +104,7 @@ impl WatcherTest {
     /// Returns an instance of `Self` containing the configuration, homeserver,
     /// event processor, and other test setup details, including the shutdown receiver.
     pub async fn setup() -> Result<Self> {
-        if let Err(e) = NexusWatcher::builder().init_test_stack().await {
+        if let Err(e) = StackManager::setup(&StackConfig::default()).await {
             return Err(Error::msg(format!("could not initialise the stack, {e:?}")));
         }
 

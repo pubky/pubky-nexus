@@ -22,6 +22,7 @@ use tracing::debug;
 
 use super::utils::post_relationships_is_reply;
 
+#[tracing::instrument(name = "tag.put", skip_all, fields(user_id = %tagger_id, tag_id = %tag_id))]
 pub async fn sync_put(
     tag: PubkyAppTag,
     tagger_id: PubkyId,
@@ -226,7 +227,8 @@ async fn put_sync_post(
             let post_key_slice: &[&str] = &[&author_id, post_id];
             let tag_label_slice = &[tag_label.to_string()];
 
-            let indexing_results = tokio::join!(
+            let indexing_results = nexus_common::traced_join!(
+                tracing::info_span!("index.write", phase = "tag_post");
                 // Update user counts for tagger
                 UserCounts::increment(&tagger_user_id, "tagged", None),
                 // Increment in one the post tags
@@ -254,12 +256,7 @@ async fn put_sync_post(
                 // Add user tag in post
                 TagPost::add_tagger_to_index(&author_id, Some(post_id), &tagger_user_id, tag_label),
                 // Add post to label total engagement
-                PostsByTagSearch::update_index_score(
-                    &author_id,
-                    post_id,
-                    tag_label,
-                    ScoreAction::Increment(1.0),
-                ),
+                PostsByTagSearch::update_index_score(&author_id, post_id, tag_label, ScoreAction::Increment(1.0)),
                 async {
                     // Post replies cannot be included in the total engagement index once they have been tagged
                     if !post_relationships_is_reply(&author_id, post_id).await? {
@@ -336,7 +333,8 @@ async fn put_sync_user(
             let tag_label_slice = &[tag_label.to_string()];
 
             // SAVE TO INDEX
-            let indexing_results = tokio::join!(
+            let indexing_results = nexus_common::traced_join!(
+                tracing::info_span!("index.write", phase = "tag_user");
                 // Update user counts for the tagged user
                 UserCounts::increment(&tagged_user_id, "tags", None),
                 // Update user counts for the tagger user
@@ -347,13 +345,7 @@ async fn put_sync_user(
                     // before TagUser operation
                     UserCounts::increment(&tagged_user_id, "unique_tags", Some(tag_label)).await?;
                     // Add label count to the user profile tag
-                    TagUser::update_index_score(
-                        &tagged_user_id,
-                        None,
-                        tag_label,
-                        ScoreAction::Increment(1.0),
-                    )
-                    .await?;
+                    TagUser::update_index_score(&tagged_user_id, None, tag_label, ScoreAction::Increment(1.0)).await?;
                     Ok::<(), EventProcessorError>(())
                 },
                 // Add tagger to the user taggers list
@@ -376,6 +368,7 @@ async fn put_sync_user(
     }
 }
 
+#[tracing::instrument(name = "tag.del", skip_all, fields(user_id = %user_id, tag_id = %tag_id))]
 pub async fn del(
     user_id: PubkyId,
     tag_id: String,
@@ -426,15 +419,15 @@ async fn del_sync_user(
     tagged_id: &str,
     tag_label: &str,
 ) -> Result<(), EventProcessorError> {
-    let indexing_results = tokio::join!(
+    let indexing_results = nexus_common::traced_join!(
+        tracing::info_span!("index.delete", phase = "tag_user");
         // Update user counts in the tagged
         UserCounts::decrement(tagged_id, "tags", None),
         // Update user counts in the tagger
         UserCounts::decrement(&tagger_id, "tagged", None),
         async {
             // Decrement label count to the user profile tag
-            TagUser::update_index_score(tagged_id, None, tag_label, ScoreAction::Decrement(1.0))
-                .await?;
+            TagUser::update_index_score(tagged_id, None, tag_label, ScoreAction::Decrement(1.0)).await?;
             // Decrease unique_tags
             // NOTE: To update that field, we first need to decrement the value in the TagUser SORTED SET associated with that tag
             UserCounts::decrement(tagged_id, "unique_tags", Some(tag_label)).await?;
@@ -471,7 +464,8 @@ async fn del_sync_post(
     let tag_post = TagPost(vec![tagger_id.to_string()]);
     let post_uri = post_uri_builder(author_id.to_string(), post_id.to_string());
 
-    let indexing_results = tokio::join!(
+    let indexing_results = nexus_common::traced_join!(
+        tracing::info_span!("index.delete", phase = "tag_post");
         // Update user counts for tagger
         UserCounts::decrement(&tagger_id, "tagged", None),
         // Decrement in one the post tags
