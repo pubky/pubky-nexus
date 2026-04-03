@@ -2,7 +2,6 @@ use super::TEventProcessorRunner;
 use crate::events::Moderation;
 use crate::service::backoff::HomeserverBackoff;
 use crate::service::indexer::{KeyBasedEventProcessor, TEventProcessor};
-use crate::service::runner::status_from_run_result;
 use crate::service::stats::{ProcessedStats, ProcessorRunStatus, RunAllProcessorsStats};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
@@ -10,9 +9,8 @@ use nexus_common::WatcherConfig;
 use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Instant;
 use tokio::sync::{watch::Receiver, Mutex};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 pub struct KeyBasedEventProcessorRunner {
     /// See [WatcherConfig::events_limit]
@@ -91,53 +89,23 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
         Ok(hs_ids[..max_index].to_vec())
     }
 
-    async fn run(&self) -> Result<ProcessedStats, DynError> {
-        let hs_ids = self.pre_run().await?;
-        let mut run_stats = RunAllProcessorsStats::default();
-
-        for hs_id in hs_ids {
-            if *self.shutdown_rx().borrow() {
-                info!(hs_id = %hs_id, "Shutdown detected; exiting run loop");
-                break;
-            }
-
-            {
-                let backoff = self.backoff.lock().await;
-                if backoff.should_skip(&hs_id) {
-                    debug!(hs_id = %hs_id, "Skipping homeserver in backoff");
-                    run_stats.add_run_result(
-                        hs_id,
-                        std::time::Duration::ZERO,
-                        ProcessorRunStatus::Skipped,
-                    );
-                    continue;
-                }
-            }
-
-            let t0 = Instant::now();
-            let status = match self.build(hs_id.clone()).await {
-                Ok(event_processor) => status_from_run_result(event_processor.run().await),
-                Err(e) => {
-                    error!(hs_id = %hs_id, error = %e, "Failed to build event processor");
-                    ProcessorRunStatus::FailedToBuild
-                }
-            };
-            let duration = t0.elapsed();
-
-            {
-                let mut backoff = self.backoff.lock().await;
-                if status == ProcessorRunStatus::Ok {
-                    backoff.record_success(&hs_id);
-                } else {
-                    backoff.record_failure(&hs_id);
-                }
-            }
-
-            run_stats.add_run_result(hs_id, duration, status);
+    async fn backoff_should_skip(&self, hs_id: &str) -> Option<ProcessorRunStatus> {
+        let backoff = self.backoff.lock().await;
+        if backoff.should_skip(hs_id) {
+            debug!(hs_id = %hs_id, "Skipping homeserver in backoff");
+            Some(ProcessorRunStatus::Skipped)
+        } else {
+            None
         }
+    }
 
-        let processed_stats = self.post_run(run_stats).await;
-        Ok(processed_stats)
+    async fn backoff_on_result(&self, hs_id: &str, status: &ProcessorRunStatus) {
+        let mut backoff = self.backoff.lock().await;
+        if *status == ProcessorRunStatus::Ok {
+            backoff.record_success(hs_id);
+        } else {
+            backoff.record_failure(hs_id);
+        }
     }
 
     async fn post_run(&self, stats: RunAllProcessorsStats) -> ProcessedStats {

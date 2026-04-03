@@ -1,14 +1,10 @@
-use std::time::Instant;
-
 use crate::service::utils::processor::MockEventProcessor;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
-use nexus_watcher::service::runner::status_from_run_result;
-use nexus_watcher::service::stats::{ProcessedStats, ProcessorRunStatus, RunAllProcessorsStats};
+use nexus_watcher::service::stats::{ProcessedStats, RunAllProcessorsStats};
 use nexus_watcher::service::{TEventProcessor, TEventProcessorRunner};
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
-use tracing::{debug, info};
 
 /// Store processors as concrete MockEventProcessor instances.
 /// This allows access to the fields for testing purposes.
@@ -83,33 +79,6 @@ impl TEventProcessorRunner for MockEventProcessorRunner {
         let hs_ids = self.hs_by_priority().await?;
         let max_index = std::cmp::min(self.monitored_hs_limit, hs_ids.len());
         Ok(hs_ids[..max_index].to_vec())
-    }
-
-    async fn run(&self) -> Result<ProcessedStats, DynError> {
-        let hs_ids = self.pre_run().await?;
-        let mut run_stats = RunAllProcessorsStats::default();
-
-        for hs_id in hs_ids {
-            if *self.shutdown_rx().borrow() {
-                info!("Shutdown detected in homeserver {hs_id}, exiting run loop");
-                break;
-            }
-
-            let t0 = Instant::now();
-            let status = match self.build(hs_id.clone()).await {
-                Ok(event_processor) => status_from_run_result(event_processor.run().await),
-                Err(e) => {
-                    debug!("Failed to build event processor for homeserver: {hs_id}: {e}");
-                    ProcessorRunStatus::FailedToBuild
-                }
-            };
-            let duration = t0.elapsed();
-
-            run_stats.add_run_result(hs_id, duration, status);
-        }
-
-        let processed_stats = self.post_run(run_stats).await;
-        Ok(processed_stats)
     }
 
     async fn post_run(&self, stats: RunAllProcessorsStats) -> ProcessedStats {

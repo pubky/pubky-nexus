@@ -1,17 +1,15 @@
 use super::TEventProcessorRunner;
 use crate::events::Moderation;
 use crate::service::indexer::{HsEventProcessor, TEventProcessor};
-use crate::service::runner::status_from_run_result;
-use crate::service::stats::{ProcessedStats, ProcessorRunStatus, RunAllProcessorsStats};
+use crate::service::stats::{ProcessedStats, RunAllProcessorsStats};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
 use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Instant;
 use tokio::sync::watch::Receiver;
-use tracing::{debug, error};
+use tracing::debug;
 
 pub struct HsEventProcessorRunner {
     /// See [WatcherConfig::events_limit]
@@ -68,32 +66,7 @@ impl TEventProcessorRunner for HsEventProcessorRunner {
     }
 
     async fn pre_run(&self) -> Result<Vec<String>, DynError> {
-        debug!("Skipping pre_run for default homeserver runner");
-        Ok(vec![])
-    }
-
-    async fn run(&self) -> Result<ProcessedStats, DynError> {
-        let hs_id = self.default_homeserver.to_string();
-        let mut run_stats = RunAllProcessorsStats::default();
-
-        let t0 = Instant::now();
-        let status = match self.build(hs_id.clone()).await {
-            Ok(event_processor) => status_from_run_result(event_processor.run().await),
-            Err(e) => {
-                error!(
-                    hs_id = %hs_id,
-                    error = %e,
-                    "Failed to build event processor for default homeserver"
-                );
-                ProcessorRunStatus::FailedToBuild
-            }
-        };
-        let duration = t0.elapsed();
-
-        run_stats.add_run_result(hs_id, duration, status);
-
-        let processed_stats = self.post_run(run_stats).await;
-        Ok(processed_stats)
+        Ok(vec![self.default_homeserver.to_string()])
     }
 
     async fn post_run(&self, stats: RunAllProcessorsStats) -> ProcessedStats {
