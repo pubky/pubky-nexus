@@ -7,6 +7,7 @@ use tracing::debug;
 
 use crate::events::EventProcessorError;
 
+#[tracing::instrument(name = "bookmark.put", skip_all, fields(user_id = %user_id, bookmark_id = %id))]
 pub async fn sync_put(
     user_id: PubkyId,
     bookmark: PubkyAppBookmark,
@@ -51,6 +52,7 @@ pub async fn sync_put(
     Ok(())
 }
 
+#[tracing::instrument(name = "bookmark.del", skip_all, fields(user_id = %user_id, bookmark_id = %bookmark_id))]
 pub async fn del(user_id: PubkyId, bookmark_id: String) -> Result<(), EventProcessorError> {
     debug!("Deleting bookmark: {} -> {}", user_id, bookmark_id);
     sync_del(user_id, bookmark_id).await

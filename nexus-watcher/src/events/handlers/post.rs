@@ -17,6 +17,7 @@ use tracing::debug;
 
 use super::utils::post_relationships_is_reply;
 
+#[tracing::instrument(name = "post.put", skip_all, fields(user_id = %author_id, post_id = %post_id))]
 pub async fn sync_put(
     post: PubkyAppPost,
     author_id: PubkyId,
@@ -92,7 +93,8 @@ pub async fn sync_put(
     }
 
     // SAVE TO INDEX - PHASE 1, update post counts
-    let indexing_results = tokio::join!(
+    let indexing_results = nexus_common::traced_join!(
+        tracing::info_span!("index.write", phase = "post_counts");
         // TODO: Use SCARD on a set for unique tag count to avoid race conditions in parallel processing
         async {
             // Create post counts index
@@ -146,7 +148,8 @@ pub async fn sync_put(
 
         let parent_post_key_parts: &[&str; 2] = &[&parent_author_id, &parent_post_id];
 
-        let indexing_results = tokio::join!(
+        let indexing_results = nexus_common::traced_join!(
+            tracing::info_span!("index.write", phase = "reply_parent");
             PostCounts::increment_index_field(parent_post_key_parts, "replies", None),
             async {
                 if !post_relationships_is_reply(&parent_author_id, &parent_post_id).await? {
@@ -195,7 +198,8 @@ pub async fn sync_put(
             .map_err(EventProcessorError::generic)?;
 
         let parent_post_key_parts: &[&str; 2] = &[&parent_author_id, &parent_post_id];
-        let indexing_results = tokio::join!(
+        let indexing_results = nexus_common::traced_join!(
+            tracing::info_span!("index.write", phase = "repost_parent");
             PostCounts::increment_index_field(parent_post_key_parts, "reposts", None),
             async {
                 // Post replies cannot be included in the total engagement index after they receive a reply
@@ -223,7 +227,8 @@ pub async fn sync_put(
     }
 
     // PHASE 4: Add post related content
-    let indexing_results = tokio::join!(
+    let indexing_results = nexus_common::traced_join!(
+        tracing::info_span!("index.write", phase = "post_details");
         post_relationships.put_to_index(&author_id, &post_id),
         post_details.put_to_index(&author_id, reply_parent_post_key_wrapper, false)
     );
@@ -326,6 +331,7 @@ async fn put_mentioned_relationships_for_prefix(
     Ok(())
 }
 
+#[tracing::instrument(name = "post.del", skip_all, fields(user_id = %author_id, post_id = %post_id))]
 pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), EventProcessorError> {
     debug!("Deleting post: {}/{}", author_id, post_id);
 
@@ -374,7 +380,8 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
         matches!(&post_relationships, Some(relationship) if relationship.replied.is_some());
 
     // DELETE TO INDEX - PHASE 1, decrease post counts
-    let indexing_results = tokio::join!(
+    let indexing_results = nexus_common::traced_join!(
+        tracing::info_span!("index.delete", phase = "post_counts");
         PostCounts::delete(&author_id, &post_id, !is_reply),
         UserCounts::decrement(&author_id, "posts", None),
         async {
@@ -413,7 +420,8 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
             reply_parent_post_key_wrapper =
                 Some([parent_user_id.to_string(), parent_post_id.clone()]);
 
-            let indexing_results = tokio::join!(
+            let indexing_results = nexus_common::traced_join!(
+                tracing::info_span!("index.delete", phase = "reply_parent");
                 PostCounts::decrement_index_field(&parent_post_key_parts, "replies", None),
                 async {
                     // Post replies cannot be included in the total engagement index after the reply is deleted
@@ -459,7 +467,8 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
 
             let parent_post_key_parts: &[&str] = &[&reposted_uri.user_id, &parent_post_id];
 
-            let indexing_results = tokio::join!(
+            let indexing_results = nexus_common::traced_join!(
+                tracing::info_span!("index.delete", phase = "repost_parent");
                 PostCounts::decrement_index_field(parent_post_key_parts, "reposts", None),
                 async {
                     // Post replies cannot be included in the total engagement index after the repost is deleted
@@ -489,7 +498,8 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
             indexing_results.2?;
         }
     }
-    let indexing_results = tokio::join!(
+    let indexing_results = nexus_common::traced_join!(
+        tracing::info_span!("index.delete", phase = "post_details");
         PostDetails::delete(&author_id, &post_id, reply_parent_post_key_wrapper),
         PostRelationships::delete(&author_id, &post_id)
     );

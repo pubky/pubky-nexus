@@ -1,8 +1,7 @@
-use crate::{api_context::ApiContextBuilder, NexusApiBuilder};
 use clap::ValueEnum;
 use nexus_common::{
     db::{get_neo4j_graph, get_redis_conn, graph::Query, reindex},
-    ApiConfig,
+    StackConfig, StackManager,
 };
 use std::process::Stdio;
 use tracing::info;
@@ -19,14 +18,7 @@ pub struct MockDb {}
 
 impl MockDb {
     async fn init_stack() {
-        let api_config = ApiConfig::default();
-        let api_context = ApiContextBuilder::from_default_config_dir()
-            .api_config(api_config)
-            .try_build()
-            .await
-            .expect("Failed to create ApiContext");
-        NexusApiBuilder::new(api_context)
-            .init_stack()
+        StackManager::setup(&StackConfig::default())
             .await
             .expect("Failed to initialize stack");
     }

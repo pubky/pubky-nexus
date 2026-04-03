@@ -17,6 +17,7 @@ impl Moderation {
         tagger_id == self.id && self.tags.contains(&tag.label)
     }
 
+    #[tracing::instrument(name = "moderation.apply", skip_all)]
     pub async fn apply_moderation(
         moderator_tag: PubkyAppTag,
         files_path: PathBuf,

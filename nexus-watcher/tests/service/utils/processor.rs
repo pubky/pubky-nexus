@@ -20,7 +20,6 @@ pub struct MockEventProcessor {
     custom_timeout: Option<Duration>,
     shutdown_rx: Receiver<bool>,
     files_path: PathBuf,
-    tracer_name: String,
     moderation: Arc<Moderation>,
 }
 
@@ -28,10 +27,6 @@ pub struct MockEventProcessor {
 impl TEventProcessor for MockEventProcessor {
     fn files_path(&self) -> &PathBuf {
         &self.files_path
-    }
-
-    fn tracer_name(&self) -> &str {
-        &self.tracer_name
     }
 
     fn moderation(&self) -> &Arc<Moderation> {
@@ -93,7 +88,6 @@ pub async fn create_random_homeservers_and_persist(
         custom_timeout,
         shutdown_rx,
         files_path: PathBuf::from("/tmp/mock"),
-        tracer_name: "mock-tracer".to_string(),
         moderation: default_mock_moderation(),
     };
     event_processor_list.push(event_processor);
@@ -122,7 +116,6 @@ pub fn create_mock_event_processors(
             custom_timeout,
             shutdown_rx: shutdown_rx.clone(),
             files_path: PathBuf::from("/tmp/mock"),
-            tracer_name: "mock-tracer".to_string(),
             moderation: moderation.clone(),
         },
     )
