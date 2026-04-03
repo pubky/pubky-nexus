@@ -30,6 +30,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
         &self.moderation
     }
 
+    // TODO Implement
     async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {
         debug!("KeyBasedEventProcessor running for {}", self.homeserver.id);
         Ok(())
