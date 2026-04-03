@@ -17,7 +17,10 @@ pub async fn assert_user_ingested(user_id: &str, hs_pk: &PublicKey) {
     let user = UserDetails::get_by_id(user_id)
         .await
         .expect("UserDetails::get_by_id failed");
-    assert!(user.is_some(), "User {user_id} should be ingested in graph/cache");
+    assert!(
+        user.is_some(),
+        "User {user_id} should be ingested in graph/cache"
+    );
 
     let cursor_key = [&USER_HS_CURSOR[..], &[user_id]].concat();
     let cursor = UserDetails::check_sorted_set_member(None, &cursor_key, &[&hs_id])

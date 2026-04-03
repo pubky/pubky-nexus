@@ -7,7 +7,7 @@ use crate::db::{
 use crate::models::error::ModelResult;
 use crate::models::user::UserDetails;
 use chrono::Utc;
-use pubky_app_specs::{ParsedUri, PubkyAppPost, PubkyAppPostKind, PubkyId, post_uri_builder};
+use pubky_app_specs::{post_uri_builder, ParsedUri, PubkyAppPost, PubkyAppPostKind, PubkyId};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 

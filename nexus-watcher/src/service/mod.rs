@@ -113,8 +113,8 @@ impl NexusWatcher {
             PeriodicTask::new("user-hs-resolver", hs_resolver_sleep, move || async move {
                 user_hs_resolver::run(hs_resolver_ttl).await
             }),
-            PeriodicTask::new("user-hs-resolver", hs_resolver_sleep, move || {
-                async move { user_hs_resolver::run(hs_resolver_ttl).await }
+            PeriodicTask::new("user-hs-resolver", hs_resolver_sleep, move || async move {
+                user_hs_resolver::run(hs_resolver_ttl).await
             }),
         ];
 

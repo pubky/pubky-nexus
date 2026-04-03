@@ -125,7 +125,7 @@ impl UserDetails {
         Ok(())
     }
 
-    /// If a referenced user is unknown, not ingested in the graph yet, resolves their homeserver 
+    /// If a referenced user is unknown, not ingested in the graph yet, resolves their homeserver
     /// and persists the user node in the graph.
     pub async fn maybe_ingest_for_user(user_id: &str) -> ModelResult<()> {
         if Self::get_by_id(user_id).await?.is_some() {
@@ -146,9 +146,10 @@ impl UserDetails {
             return Ok(());
         };
 
-        let pubky_id = PubkyId::try_from(&user_pk.into_inner().to_z32()).map_err(ModelError::from_generic)?;
+        let pubky_id =
+            PubkyId::try_from(&user_pk.into_inner().to_z32()).map_err(ModelError::from_generic)?;
         let user_details = Self::from_pubky(pubky_id);
-        
+
         let hs_id = &hs_pk.into_inner().to_z32();
 
         user_details
@@ -162,7 +163,6 @@ impl UserDetails {
         Self::put_index_sorted_set(key, &[(0.0, hs_id)], None, None).await?;
 
         Ok(())
-        
     }
 }
 
