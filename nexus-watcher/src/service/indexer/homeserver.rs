@@ -3,8 +3,6 @@ use crate::events::Moderation;
 use nexus_common::db::PubkyConnector;
 use nexus_common::models::event::EventProcessorError;
 use nexus_common::models::homeserver::Homeserver;
-use opentelemetry::trace::{FutureExt, TraceContextExt, Tracer};
-use opentelemetry::{global, Context};
 use pubky::Method;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -13,11 +11,13 @@ use tracing::{debug, error, info, warn};
 
 /// Event processor for the default homeserver
 pub struct HsEventProcessor {
+    /// The default HS endpoint this processor fetches events from
+    /// TODO Used in X1 (see mod.rs)
     pub homeserver: Homeserver,
+
     /// See [WatcherConfig::events_limit]
     pub limit: u32,
     pub files_path: PathBuf,
-    pub tracer_name: String,
     pub moderation: Arc<Moderation>,
     pub shutdown_rx: Receiver<bool>,
 }
@@ -28,27 +28,15 @@ impl TEventProcessor for HsEventProcessor {
         &self.files_path
     }
 
-    fn tracer_name(&self) -> &str {
-        &self.tracer_name
-    }
-
     fn moderation(&self) -> &Arc<Moderation> {
         &self.moderation
     }
 
     async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {
-        let maybe_event_lines = {
-            let tracer = global::tracer(self.tracer_name.clone());
-            let span = tracer.start("Polling Events");
-            let cx = Context::new().with_span(span);
-            self.poll_events().with_context(cx).await.inspect_err(|e| {
-                error!(
-                    hs_id = %self.homeserver.id,
-                    error = ?e,
-                    "Error polling events"
-                )
-            })?
-        };
+        let maybe_event_lines = self
+            .poll_events()
+            .await
+            .inspect_err(|e| error!("Error polling events: {e:?}"))?;
 
         match maybe_event_lines {
             None => debug!("No new events"),
@@ -69,6 +57,7 @@ impl HsEventProcessor {
     /// using the current cursor and a specified limit. It retrieves new event
     /// URIs in a newline-separated format, processes it into a vector of strings,
     /// and returns the result.
+    #[tracing::instrument(name = "events.poll", skip_all, fields(homeserver = %self.homeserver.id))]
     async fn poll_events(&self) -> Result<Option<Vec<String>>, EventProcessorError> {
         debug!("Polling new events from homeserver");
 
@@ -110,6 +99,7 @@ impl HsEventProcessor {
     ///
     /// # Parameters
     /// - `lines`: A vector of strings representing event lines retrieved from the homeserver.
+    #[tracing::instrument(name = "event_batch.process", skip_all, fields(batch.size = lines.len()))]
     pub async fn process_event_lines(&self, lines: Vec<String>) -> Result<(), EventProcessorError> {
         for line in &lines {
             let id = self.homeserver.id.clone();

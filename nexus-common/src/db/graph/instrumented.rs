@@ -3,7 +3,8 @@ use futures::stream::BoxStream;
 use futures::{Stream, StreamExt};
 use neo4rs::Row;
 use opentelemetry::metrics::{Counter, Histogram};
-use opentelemetry::{global, KeyValue};
+use opentelemetry::trace::{Span, SpanKind, Status, TraceContextExt, Tracer};
+use opentelemetry::{global, Context as OtelContext, KeyValue};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
@@ -17,6 +18,7 @@ use super::query::Query;
 /// Instruments created under this meter are exported via the global
 /// `SdkMeterProvider` configured in [`crate::stack::StackManager::setup_metrics`].
 const METER_NAME: &str = "neo4j";
+const TRACER_NAME: &str = "nexus.neo4j";
 
 /// Shared OpenTelemetry metric instruments for Neo4j query monitoring.
 ///
@@ -96,9 +98,12 @@ struct InstrumentedStream {
     /// Wall-clock time from stream creation to drop (row fetching & consumption).
     stream_start: Instant,
     row_count: usize,
-    had_error: bool,
+    error_message: Option<String>,
     threshold: Option<Duration>,
     metrics: GraphMetrics,
+    /// OTel span context for this query. The span is ended in [`Drop`]
+    /// so it covers execute + full stream consumption.
+    otel_cx: Option<OtelContext>,
 }
 
 impl InstrumentedStream {
@@ -109,6 +114,7 @@ impl InstrumentedStream {
         execute_duration: Duration,
         threshold: Option<Duration>,
         metrics: GraphMetrics,
+        otel_cx: Option<OtelContext>,
     ) -> Self {
         Self {
             inner,
@@ -117,9 +123,10 @@ impl InstrumentedStream {
             execute_duration,
             stream_start: Instant::now(),
             row_count: 0,
-            had_error: false,
+            error_message: None,
             threshold,
             metrics,
+            otel_cx,
         }
     }
 }
@@ -132,7 +139,7 @@ impl Stream for InstrumentedStream {
         if let Poll::Ready(Some(result)) = &result {
             match result {
                 Ok(_) => self.row_count += 1,
-                Err(_) => self.had_error = true,
+                Err(e) => self.error_message = Some(e.to_string()),
             }
         }
         result
@@ -153,26 +160,44 @@ impl Drop for InstrumentedStream {
             .record(ms(self.execute_duration), attrs);
         self.metrics.rows.record(self.row_count as u64, attrs);
 
-        if self.had_error {
+        if self.error_message.is_some() {
             self.metrics.errors.add(1, attrs);
         }
 
-        if let Some(threshold) = self.threshold {
-            if total > threshold {
-                self.metrics.slow.add(1, attrs);
+        let is_slow = self.threshold.is_some_and(|threshold| total > threshold);
 
-                if let Some(label) = &self.label {
-                    warn!(
-                        total_ms = total.as_millis(),
-                        execute_ms = self.execute_duration.as_millis(),
-                        fetch_ms = fetch_duration.as_millis(),
-                        rows = self.row_count,
-                        query = %label,
-                        cypher = self.cypher.as_deref().unwrap_or(""),
-                        "Slow Neo4j query"
-                    );
-                }
+        if is_slow {
+            self.metrics.slow.add(1, attrs);
+
+            if let Some(label) = &self.label {
+                warn!(
+                    total_ms = total.as_millis(),
+                    execute_ms = self.execute_duration.as_millis(),
+                    fetch_ms = fetch_duration.as_millis(),
+                    rows = self.row_count,
+                    query = %label,
+                    cypher = self.cypher.as_deref().unwrap_or(""),
+                    "Slow Neo4j query"
+                );
             }
+        }
+
+        // End the OTel span with query timing attributes
+        if let Some(cx) = self.otel_cx.take() {
+            let span = cx.span();
+            span.set_attribute(KeyValue::new("db.neo4j.rows", self.row_count as i64));
+            span.set_attribute(KeyValue::new("db.neo4j.duration_ms", ms(total)));
+            span.set_attribute(KeyValue::new(
+                "db.neo4j.execute_ms",
+                ms(self.execute_duration),
+            ));
+            if is_slow {
+                span.set_attribute(KeyValue::new("db.neo4j.slow", true));
+            }
+            if let Some(err) = &self.error_message {
+                span.set_status(Status::error(err.clone()));
+            }
+            span.end();
         }
     }
 }
@@ -243,7 +268,16 @@ impl<G: GraphOps> GraphOps for InstrumentedGraph<G> {
         query: Query,
     ) -> neo4rs::Result<BoxStream<'static, Result<Row, neo4rs::Error>>> {
         let label = query.label();
+        let span_name = label.unwrap_or("neo4j.query");
         let cypher = self.log_cypher.then(|| query.to_cypher_populated());
+
+        // Create an OTel span for this query (child of the current context).
+        let tracer = global::tracer(TRACER_NAME);
+        let mut span = tracer
+            .span_builder(span_name)
+            .with_kind(SpanKind::Client)
+            .start(&tracer);
+        span.set_attribute(KeyValue::new("db.system", "neo4j"));
 
         let start = Instant::now();
         let result = self.inner.execute(query).await;
@@ -251,6 +285,9 @@ impl<G: GraphOps> GraphOps for InstrumentedGraph<G> {
 
         match result {
             Ok(stream) => {
+                // Store the span context in InstrumentedStream; it will be ended on drop
+                // after all rows are consumed.
+                let otel_cx = Some(OtelContext::current_with_span(span));
                 let instrumented = InstrumentedStream::new(
                     stream,
                     label,
@@ -258,6 +295,7 @@ impl<G: GraphOps> GraphOps for InstrumentedGraph<G> {
                     execute_duration,
                     self.slow_query_threshold,
                     self.metrics.clone(),
+                    otel_cx,
                 );
                 Ok(instrumented.boxed())
             }
@@ -268,6 +306,8 @@ impl<G: GraphOps> GraphOps for InstrumentedGraph<G> {
                     .execute_duration
                     .record(ms(execute_duration), attrs);
                 self.metrics.errors.add(1, attrs);
+                span.set_status(Status::error(e.to_string()));
+                span.end();
                 self.warn_if_slow(
                     execute_duration,
                     attrs,
@@ -283,7 +323,15 @@ impl<G: GraphOps> GraphOps for InstrumentedGraph<G> {
 
     async fn run(&self, query: Query) -> neo4rs::Result<()> {
         let label = query.label();
+        let span_name = label.unwrap_or("neo4j.query");
         let cypher = self.log_cypher.then(|| query.to_cypher_populated());
+
+        let tracer = global::tracer(TRACER_NAME);
+        let mut span = tracer
+            .span_builder(span_name)
+            .with_kind(SpanKind::Client)
+            .start(&tracer);
+        span.set_attribute(KeyValue::new("db.system", "neo4j"));
 
         let start = Instant::now();
         let result = self.inner.run(query).await;
@@ -293,14 +341,18 @@ impl<G: GraphOps> GraphOps for InstrumentedGraph<G> {
         self.metrics.duration.record(ms(elapsed), attrs);
         self.metrics.execute_duration.record(ms(elapsed), attrs);
 
+        span.set_attribute(KeyValue::new("db.neo4j.duration_ms", ms(elapsed)));
+
         match &result {
             Ok(()) => self.warn_if_slow(elapsed, attrs, label, cypher.as_deref(), ""),
-            Err(_) => {
+            Err(e) => {
                 self.metrics.errors.add(1, attrs);
+                span.set_status(Status::error(e.to_string()));
                 self.warn_if_slow(elapsed, attrs, label, cypher.as_deref(), " (failed)");
             }
         }
 
+        span.end();
         result
     }
 }
@@ -336,6 +388,7 @@ mod tests {
             Duration::ZERO,
             threshold,
             GraphMetrics::new(),
+            None,
         )
     }
 
@@ -422,6 +475,7 @@ mod tests {
             Duration::ZERO,
             Some(Duration::ZERO),
             GraphMetrics::new(),
+            None,
         );
         drop(ts);
 

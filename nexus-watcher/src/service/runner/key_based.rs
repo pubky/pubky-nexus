@@ -19,7 +19,6 @@ pub struct KeyBasedEventProcessorRunner {
     /// See [WatcherConfig::monitored_homeservers_limit]
     pub monitored_hs_limit: usize,
     pub files_path: PathBuf,
-    pub tracer_name: String,
     pub moderation: Arc<Moderation>,
     pub shutdown_rx: Receiver<bool>,
     /// Default homeserver ID, excluded from the external targets list
@@ -35,7 +34,6 @@ impl KeyBasedEventProcessorRunner {
             limit: config.events_limit,
             monitored_hs_limit: config.monitored_homeservers_limit,
             files_path: config.stack.files_path.clone(),
-            tracer_name: config.name.clone(),
             moderation: Arc::new(Moderation {
                 id: config.moderation_id.clone(),
                 tags: config.moderated_tags.clone(),
@@ -79,7 +77,6 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
         Ok(Arc::new(KeyBasedEventProcessor {
             homeserver,
             files_path: self.files_path.clone(),
-            tracer_name: self.tracer_name.clone(),
             moderation: self.moderation.clone(),
         }))
     }
