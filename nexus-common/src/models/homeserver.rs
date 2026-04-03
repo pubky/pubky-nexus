@@ -5,13 +5,9 @@ use crate::db::kv::RedisResult;
 use crate::db::queries;
 use crate::db::GraphError;
 use crate::db::GraphResult;
-use crate::db::{PubkyConnector, RedisOps};
+use crate::db::RedisOps;
 use crate::models::error::ModelError;
 use crate::models::error::ModelResult;
-use crate::models::user::UserDetails;
-
-use pubky::PublicKey;
-use pubky_app_specs::ParsedUri;
 use pubky_app_specs::PubkyId;
 use serde::{Deserialize, Serialize};
 use tracing::info;
@@ -123,47 +119,6 @@ impl Homeserver {
             true => Err(GraphError::Generic("No active HSs found in graph".into())),
             false => Ok(hs_ids),
         }
-    }
-
-    /// If a referenced post is hosted on a new, unknown homeserver, this method triggers ingestion of that homeserver.
-    ///
-    /// ### Arguments
-    ///
-    /// - `referenced_post_uri`: The parent post (if current post is a reply to it), or a reposted post (if current post is a Repost)
-    pub async fn maybe_ingest_for_post(referenced_post_uri: &ParsedUri) -> ModelResult<()> {
-        let ref_post_author_id = referenced_post_uri.user_id.as_str();
-
-        Self::maybe_ingest_for_user(ref_post_author_id).await
-    }
-
-    /// If a referenced user is using a new, unknown homeserver, this method triggers ingestion of that homeserver.
-    ///
-    /// ### Arguments
-    ///
-    /// - `referenced_user_id`: The URI of the referenced user
-    pub async fn maybe_ingest_for_user(referenced_user_id: &str) -> ModelResult<()> {
-        let pubky = PubkyConnector::get().map_err(ModelError::from_generic)?;
-
-        if UserDetails::get_by_id(referenced_user_id).await?.is_some() {
-            tracing::debug!(
-                "Skipping homeserver ingestion: author {referenced_user_id} already known"
-            );
-            return Ok(());
-        }
-
-        let ref_post_author_pk = referenced_user_id
-            .parse::<PublicKey>()
-            .map_err(ModelError::from_generic)?;
-        let Some(ref_post_author_hs) = pubky.get_homeserver_of(&ref_post_author_pk).await else {
-            tracing::warn!("Skipping homeserver ingestion: author {ref_post_author_pk} has no published homeserver");
-            return Ok(());
-        };
-
-        let hs_pk = PubkyId::from(ref_post_author_hs);
-        Self::persist_if_unknown(hs_pk.clone())
-            .await
-            .inspect(|_| tracing::info!("Ingested homeserver {hs_pk}"))
-            .inspect_err(|e| tracing::error!("Failed to ingest homeserver {hs_pk}: {e}"))
     }
 }
 

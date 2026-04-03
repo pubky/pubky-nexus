@@ -4,8 +4,8 @@ use crate::events::EventProcessorError;
 use chrono::Utc;
 use nexus_common::db::kv::ScoreAction;
 use nexus_common::db::OperationOutcome;
-use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::notification::Notification;
+use nexus_common::models::post::PostDetails;
 use nexus_common::models::post::search::PostsByTagSearch;
 use nexus_common::models::post::{PostCounts, PostStream};
 use nexus_common::models::tag::post::TagPost;
@@ -13,6 +13,7 @@ use nexus_common::models::tag::search::TagSearch;
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::tag::user::TagUser;
 use nexus_common::models::user::UserCounts;
+use nexus_common::models::user::UserDetails;
 use nexus_common::types::Pagination;
 use pubky_app_specs::{post_uri_builder, ParsedUri, PubkyAppTag, PubkyId, Resource};
 use tracing::debug;
@@ -82,8 +83,8 @@ async fn put_sync_post(
             // Ensure that dependencies follow the same format as the RetryManager keys
             let dependency = vec![format!("{author_id}:posts:{post_id}")];
             if let Ok(referenced_post_uri) = ParsedUri::try_from(post_uri) {
-                if let Err(e) = Homeserver::maybe_ingest_for_post(&referenced_post_uri).await {
-                    tracing::error!("Failed to ingest homeserver: {e}");
+                if let Err(e) = PostDetails::maybe_ingest_for_post(&referenced_post_uri).await {
+                    tracing::error!("Failed to ingest user: {e}");
                 }
             }
             Err(EventProcessorError::MissingDependency { dependency })
@@ -191,7 +192,7 @@ async fn put_sync_user(
     {
         OperationOutcome::Updated => Ok(()),
         OperationOutcome::MissingDependency => {
-            if let Err(e) = Homeserver::maybe_ingest_for_user(tagged_user_id.as_str()).await {
+            if let Err(e) = UserDetails::maybe_ingest_for_user(tagged_user_id.as_str()).await {
                 tracing::error!("Failed to ingest homeserver: {e}");
             }
 
