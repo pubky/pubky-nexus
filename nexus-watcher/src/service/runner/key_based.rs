@@ -12,6 +12,7 @@ use std::sync::Arc;
 use tokio::sync::{watch::Receiver, Mutex};
 use tracing::{debug, info, warn};
 
+/// Runner for [KeyBasedEventProcessor]
 pub struct KeyBasedEventProcessorRunner {
     /// See [WatcherConfig::events_limit]
     pub limit: u32,
