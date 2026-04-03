@@ -13,6 +13,7 @@ use std::sync::Arc;
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info, warn};
 
+/// Event processor for the default homeserver
 pub struct HsEventProcessor {
     pub homeserver: Homeserver,
     /// See [WatcherConfig::events_limit]
