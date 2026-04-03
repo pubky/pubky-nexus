@@ -1,14 +1,9 @@
-use std::time::Instant;
-
 use crate::service::utils::processor::MockEventProcessor;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
-use nexus_watcher::service::runner::status_from_run_result;
-use nexus_watcher::service::stats::{ProcessedStats, ProcessorRunStatus, RunAllProcessorsStats};
 use nexus_watcher::service::{TEventProcessor, TEventProcessorRunner};
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
-use tracing::{debug, info};
 
 /// Store processors as concrete MockEventProcessor instances.
 /// This allows access to the fields for testing purposes.

@@ -1,17 +1,13 @@
 use super::TEventProcessorRunner;
 use crate::events::Moderation;
 use crate::service::indexer::{HsEventProcessor, TEventProcessor};
-use crate::service::runner::status_from_run_result;
-use crate::service::stats::{ProcessedStats, ProcessorRunStatus, RunAllProcessorsStats};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
 use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Instant;
 use tokio::sync::watch::Receiver;
-use tracing::{debug, error};
 
 pub struct HsEventProcessorRunner {
     /// See [WatcherConfig::events_limit]
