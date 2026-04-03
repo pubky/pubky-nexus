@@ -74,10 +74,8 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(c.api.name, "nexusd.api");
         assert_eq!(c.api.public_addr, SocketAddr::from(([127, 0, 0, 1], 8080)));
 
-        assert_eq!(c.watcher.name, "nexusd.watcher");
         assert!(!c.watcher.testnet);
         assert_eq!(
             c.watcher.homeserver,
@@ -108,6 +106,8 @@ mod tests {
             validate_and_expand_path(PathBuf::from_str("~/.pubky-nexus/static/files").unwrap())
                 .unwrap()
         );
+        assert_eq!(c.stack.otlp.name, "nexusd");
+        assert!(c.stack.otlp.endpoint.is_none());
         assert_eq!(c.stack.db.redis, "redis://127.0.0.1:6379");
         assert_eq!(c.stack.db.neo4j.uri, "bolt://localhost:7687");
     }

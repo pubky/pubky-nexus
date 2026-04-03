@@ -9,10 +9,10 @@ use nexus_common::models::event::EventProcessorError;
 use nexus_common::models::file::FileDetails;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::traits::Collection;
+use nexus_common::{StackConfig, StackManager};
 use nexus_watcher::events::retry::event::RetryEvent;
 use nexus_watcher::events::{handle, Moderation};
-use nexus_watcher::service::EventProcessorRunner;
-use nexus_watcher::service::NexusWatcher;
+use nexus_watcher::service::HsEventProcessorRunner;
 use nexus_watcher::service::TEventProcessorRunner;
 use pubky::Keypair;
 use pubky::PublicKey;
@@ -53,7 +53,7 @@ pub struct WatcherTest {
     /// The homeserver ID
     pub homeserver_id: String,
     /// The event processor runner
-    pub event_processor_runner: EventProcessorRunner,
+    pub event_processor_runner: HsEventProcessorRunner,
     /// Whether to ensure event processing is complete
     pub ensure_event_processing: bool,
 }
@@ -75,17 +75,15 @@ impl WatcherTest {
     /// that are designed specifically for test scenarios and should not be used in production.
     ///
     /// # Returns
-    /// Returns a fully configured `EventProcessorRunner` ready for use in tests.
-    fn create_test_event_processor_runner(default_homeserver: PubkyId) -> EventProcessorRunner {
+    /// Returns a fully configured `HsEventProcessorRunner` ready for use in tests.
+    fn create_test_event_processor_runner(default_homeserver: PubkyId) -> HsEventProcessorRunner {
         let moderation = Arc::new(default_moderation_tests());
 
         let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
-        EventProcessorRunner {
+        HsEventProcessorRunner {
             limit: 1000,
-            monitored_homeservers_limit: 100,
             files_path: get_files_dir_test_pathbuf(),
-            tracer_name: String::from("watcher.test"),
             moderation,
             shutdown_rx,
             default_homeserver,
@@ -106,7 +104,7 @@ impl WatcherTest {
     /// Returns an instance of `Self` containing the configuration, homeserver,
     /// event processor, and other test setup details, including the shutdown receiver.
     pub async fn setup() -> Result<Self> {
-        if let Err(e) = NexusWatcher::builder().init_test_stack().await {
+        if let Err(e) = StackManager::setup(&StackConfig::default()).await {
             return Err(Error::msg(format!("could not initialise the stack, {e:?}")));
         }
 

@@ -4,46 +4,38 @@ use axum::{
     response::Response,
 };
 
-use opentelemetry::{
-    global::{self},
-    trace::{FutureExt, Span, Status, TraceContextExt, Tracer},
-    Context, KeyValue,
-};
+use tracing::Instrument;
 
 // middleware for tracing
 pub async fn tracing_middleware(request: Request, next: Next) -> Response {
-    let tracer = global::tracer("nexus.service");
     let route = request.uri().path().to_string();
     let route_pattern = request.extensions().get::<MatchedPath>();
     let span_name = match route_pattern {
         Some(pattern) => pattern.as_str().to_string(),
         _ => route.clone(),
     };
-    let mut span = tracer.start(span_name);
-    span.set_attribute(KeyValue::new("http.method", request.method().to_string()));
-    span.set_attribute(KeyValue::new("http.route", route));
-    span.set_attribute(KeyValue::new(
-        "http.query",
-        request.uri().query().unwrap_or("").to_string(),
-    ));
+    let query = request.uri().query().unwrap_or("").to_string();
+    let method = request.method().to_string();
 
-    let cx = Context::new().with_span(span);
+    let span = tracing::info_span!(
+        "http.request",
+        otel.name = %span_name,
+        http.request.method = %method,
+        http.route = %route,
+        http.query = %query,
+        http.response.status_code = tracing::field::Empty,
+        otel.status_code = tracing::field::Empty,
+        otel.status_message = tracing::field::Empty,
+    );
 
-    let response = next.run(request).with_context(cx.clone()).await;
+    let response = next.run(request).instrument(span.clone()).await;
 
-    let span = cx.span();
-    let status = response.status().as_u16() as i64;
-    span.set_attribute(KeyValue::new("http.status_code", status));
-    match status {
-        400..=499 => span.set_status(Status::Error {
-            description: "Expected Error".into(),
-        }),
-        500..=599 => span.set_status(Status::Error {
-            description: "Internal Server Error".into(),
-        }),
-        _ => span.set_status(Status::Ok),
-    };
-    span.end();
+    let status = response.status().as_u16();
+    span.record("http.response.status_code", status);
+    if (500..=599).contains(&status) {
+        span.record("otel.status_code", "ERROR");
+        span.record("otel.status_message", "Internal Server Error");
+    }
 
     response
 }

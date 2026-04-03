@@ -27,6 +27,18 @@ pub enum RedisError {
     InvalidInput(String),
 }
 
+impl RedisError {
+    #[allow(clippy::match_like_matches_macro)]
+    pub fn is_infrastructure_err(&self) -> bool {
+        match self {
+            RedisError::ConnectionNotInitialized => true,
+            RedisError::ConnectionPoolError(_) => true,
+            RedisError::IoError(_) => true,
+            _ => false,
+        }
+    }
+}
+
 impl From<redis::RedisError> for RedisError {
     fn from(e: redis::RedisError) -> Self {
         if e.is_connection_refusal() || e.is_timeout() || e.is_io_error() {

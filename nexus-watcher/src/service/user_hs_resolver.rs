@@ -79,8 +79,7 @@ mod tests {
     use nexus_common::{StackConfig, StackManager};
 
     async fn setup() -> Result<(), DynError> {
-        StackManager::setup("unit-hs-resolver-test", &StackConfig::default()).await?;
-        Ok(())
+        StackManager::setup(&StackConfig::default()).await
     }
 
     /// Helper: create a User node in the graph

@@ -1,9 +1,7 @@
-use super::MigrationManager;
 use async_trait::async_trait;
 use nexus_common::file::ConfigLoader;
 use nexus_common::types::DynError;
 use nexus_common::StackConfig;
-use nexus_common::StackManager;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::fmt::Debug;
 use std::path::PathBuf;
@@ -11,15 +9,11 @@ use std::path::PathBuf;
 /// Path to default migration config dir. Defaults to ~/.pubky-nexus/migrations
 pub const MIGRATIONS_CONFIG_DIR: &str = ".pubky-nexus/migrations";
 pub const MIGRATIONS_CONFIG_FILE_NAME: &str = "config.toml";
-pub const TRACER_NAME: &str = "nexus.migration";
 const DEFAULT_CONFIG_TOML: &str = include_str!("default.config.toml");
 
-// Nexus API configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MigrationConfig {
-    pub name: String,
     pub backfill_ready: Vec<String>,
-    // TODO: Choose a right name
     pub stack: StackConfig,
 }
 
@@ -56,10 +50,8 @@ impl MigrationBuilder {
         Ok(())
     }
 
-    pub async fn init_stack(&self) -> Result<MigrationManager, DynError> {
-        // Open ddbb connections and init tracing layer
-        StackManager::setup(&self.0.name, &self.0.stack).await?;
-        Ok(MigrationManager::default())
+    pub fn stack(&self) -> &StackConfig {
+        &self.0.stack
     }
 
     pub fn migrations_backfill_ready(self) -> Vec<String> {
