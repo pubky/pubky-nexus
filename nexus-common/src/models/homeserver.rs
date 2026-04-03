@@ -107,13 +107,14 @@ impl Homeserver {
         Ok(())
     }
 
-    /// Returns all HS IDs with at least one active user, sorted by user count descending.  
+    /// Returns all HS IDs with at least one active user, sorted by user count descending.
     ///
     /// # Returns
     /// A list of active homeserver IDs.
     ///
     /// # Errors
     /// Returns an error if no active homeservers are found.
+    /// TODO Explore alternative naming options in DX feature PR: active HS / orphan HS
     pub async fn get_all_active_from_graph() -> GraphResult<Vec<String>> {
         let query = queries::get::get_all_homeservers_with_active_users();
         let maybe_hs_ids = fetch_key_from_graph(query, "homeservers_list").await?;
