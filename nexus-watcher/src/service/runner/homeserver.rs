@@ -9,7 +9,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
 
-/// Runner for [HsEventProcessor]
 pub struct HsEventProcessorRunner {
     /// See [WatcherConfig::events_limit]
     pub limit: u32,
