@@ -50,7 +50,7 @@ pub trait TEventProcessorRunner: Send + Sync {
 
     /// Pre-processing step before the main run loop.
     ///
-    /// Determines the list of target IDs to process in this run cycle.
+    /// Determines the list of target HS IDs to process in this run cycle.
     async fn pre_run(&self) -> Result<Vec<String>, DynError>;
 
     /// Post-processing of the run results.

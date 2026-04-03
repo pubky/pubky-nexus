@@ -30,16 +30,8 @@ impl MockEventProcessorRunner {
             shutdown_rx,
         }
     }
-
-    pub fn default_homeserver(&self) -> &str {
-        self.event_processors
-            .first()
-            .map(|s| s.homeserver_id.as_str())
-            .unwrap_or("8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo")
-    }
-
     pub async fn hs_by_priority(&self) -> Result<Vec<String>, DynError> {
-        let persisted_hs_ids = Homeserver::get_all_from_graph().await?;
+        let persisted_hs_ids = Homeserver::get_all_active_from_graph().await?;
 
         let mut hs_ids = vec![];
 
@@ -51,6 +43,14 @@ impl MockEventProcessorRunner {
         }
 
         Ok(hs_ids)
+    }
+
+    pub fn default_homeserver(&self) -> &str {
+        // Use first mock homeserver ID if available, otherwise fallback to mock constant
+        self.event_processors
+            .first()
+            .map(|s| s.homeserver_id.as_str())
+            .unwrap_or("8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo")
     }
 }
 

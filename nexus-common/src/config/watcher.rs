@@ -15,6 +15,10 @@ pub const DEFAULT_EVENTS_LIMIT: u32 = 1_000;
 pub const DEFAULT_MONITORED_HOMESERVERS_LIMIT: usize = 50;
 /// Default for [WatcherConfig::watcher_sleep]
 pub const DEFAULT_WATCHER_SLEEP: u64 = 5_000;
+/// Default for [WatcherConfig::hs_resolver_sleep]
+pub const DEFAULT_HS_RESOLVER_SLEEP: u64 = 10_000;
+/// Default for [WatcherConfig::hs_resolver_ttl]: 1 hour in milliseconds
+pub const DEFAULT_HS_RESOLVER_TTL: u64 = 3_600_000;
 /// Default for [WatcherConfig::initial_backoff_secs]
 pub const DEFAULT_INITIAL_BACKOFF_SECS: u64 = 60;
 /// Default for [WatcherConfig::max_backoff_secs]
@@ -36,14 +40,28 @@ pub const MODERATED_TAGS: [&str; 6] = [
 pub struct WatcherConfig {
     pub testnet: bool,
     pub testnet_host: String,
+
     /// Default homeserver. Other homeservers may be ingested in addition, but this one is prioritized.
     pub homeserver: PubkyId,
+
     /// Maximum number of events to fetch per run from each homeserver
     pub events_limit: u32,
+
     /// Maximum number of monitored homeservers
     pub monitored_homeservers_limit: usize,
+
     /// Sleep between every full run (over all monitored homeservers), in milliseconds
     pub watcher_sleep: u64,
+
+    /// Sleep between every run of the user HS resolver periodic task, in milliseconds
+    #[serde(default = "default_hs_resolver_sleep")]
+    pub hs_resolver_sleep: u64,
+
+    /// Minimum time (ms) before a user's homeserver mapping is re-resolved.
+    /// Users whose `HOSTED_BY.resolved_at` is newer than this TTL are skipped.
+    #[serde(default = "default_hs_resolver_ttl")]
+    pub hs_resolver_ttl: u64,
+
     /// Initial backoff duration (in seconds) after the first failure of a homeserver
     #[serde(default = "default_initial_backoff_secs")]
     pub initial_backoff_secs: u64,
@@ -52,6 +70,7 @@ pub struct WatcherConfig {
     pub max_backoff_secs: u64,
     #[serde(default = "default_stack")]
     pub stack: StackConfig,
+
     // Moderation
     pub moderation_id: PubkyId,
     pub moderated_tags: Vec<String>,
@@ -74,12 +93,22 @@ impl Default for WatcherConfig {
             events_limit: DEFAULT_EVENTS_LIMIT,
             monitored_homeservers_limit: DEFAULT_MONITORED_HOMESERVERS_LIMIT,
             watcher_sleep: DEFAULT_WATCHER_SLEEP,
+            hs_resolver_sleep: DEFAULT_HS_RESOLVER_SLEEP,
+            hs_resolver_ttl: DEFAULT_HS_RESOLVER_TTL,
             initial_backoff_secs: DEFAULT_INITIAL_BACKOFF_SECS,
             max_backoff_secs: DEFAULT_MAX_BACKOFF_SECS,
             moderation_id,
             moderated_tags: MODERATED_TAGS.iter().map(|s| s.to_string()).collect(),
         }
     }
+}
+
+fn default_hs_resolver_sleep() -> u64 {
+    DEFAULT_HS_RESOLVER_SLEEP
+}
+
+fn default_hs_resolver_ttl() -> u64 {
+    DEFAULT_HS_RESOLVER_TTL
 }
 
 /// Converts a [`DaemonConfig`] into an [`WatcherConfig`], extracting only the Watcher-related settings

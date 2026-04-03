@@ -2,8 +2,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::service::utils::{MockEventProcessorResult, HS_IDS};
+use chrono::Utc;
+use nexus_common::db::exec_single_row;
+use nexus_common::db::queries;
 use nexus_common::models::event::EventProcessorError;
 use nexus_common::models::homeserver::Homeserver;
+use nexus_common::models::user::UserDetails;
 use nexus_watcher::events::Moderation;
 use nexus_watcher::service::TEventProcessor;
 use pubky::Keypair;
@@ -65,13 +69,17 @@ fn default_mock_moderation() -> Arc<Moderation> {
     })
 }
 
-/// Create a random homeserver and add it to the event processor list
+/// Create a random homeserver and add it to the event processor list.
+///
+/// If `create_active_users` is `Some(n)`, `n` test users will be created in the
+/// graph and linked to this homeserver via `HOSTED_BY`.
 pub async fn create_random_homeservers_and_persist(
     event_processor_list: &mut Vec<MockEventProcessor>,
     sleep_duration: Option<Duration>,
     processor_status: MockEventProcessorResult,
     custom_timeout: Option<Duration>,
     shutdown_rx: Receiver<bool>,
+    create_active_users: Option<u64>,
 ) {
     let homeserver_keypair = Keypair::random();
     let homeserver_public_key = homeserver_keypair.public_key().to_z32();
@@ -80,6 +88,27 @@ pub async fn create_random_homeservers_and_persist(
     Homeserver::persist_if_unknown(homeserver_id.clone())
         .await
         .unwrap();
+
+    // Create test users linked to this homeserver via HOSTED_BY
+    if let Some(count) = create_active_users {
+        for _ in 0..count {
+            let user_keypair = Keypair::random();
+            let user_id = PubkyId::try_from(user_keypair.public_key().to_z32().as_str()).unwrap();
+            let user = UserDetails {
+                id: user_id.clone(),
+                name: "test-user".to_string(),
+                bio: None,
+                status: None,
+                links: None,
+                image: None,
+                indexed_at: Utc::now().timestamp_millis(),
+            };
+            let create_query = queries::put::create_user(&user).unwrap();
+            exec_single_row(create_query).await.unwrap();
+            let link_query = queries::put::set_user_homeserver(&user_id, &homeserver_id);
+            exec_single_row(link_query).await.unwrap();
+        }
+    }
 
     let event_processor = MockEventProcessor {
         homeserver_id,

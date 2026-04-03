@@ -320,3 +320,29 @@ pub fn create_homeserver(homeserver_id: &str) -> Query {
     )
     .param("id", homeserver_id)
 }
+
+/// Sets the `HOSTED_BY` relationship between a user and a homeserver.
+///
+/// If the user is already on the target homeserver, refreshes `resolved_at`.
+/// If the user is on a different homeserver, replaces the old relationship.
+/// MERGEs the target homeserver node if it doesn't exist yet.
+pub fn set_user_homeserver(user_id: &str, homeserver_id: &str) -> Query {
+    Query::new(
+        "set_user_homeserver",
+        "MATCH (u:User {id: $user_id})
+
+         // Remove existing HOSTED_BY only if homeserver changed
+         OPTIONAL MATCH (u)-[old:HOSTED_BY]->(old_hs:Homeserver)
+         WHERE old_hs.id <> $hs_id
+         DELETE old
+
+         WITH u
+
+         // Ensure target homeserver and relationship exist
+         MERGE (hs:Homeserver {id: $hs_id})
+         MERGE (u)-[r:HOSTED_BY]->(hs)
+         SET r.resolved_at = timestamp()",
+    )
+    .param("user_id", user_id.to_string())
+    .param("hs_id", homeserver_id.to_string())
+}

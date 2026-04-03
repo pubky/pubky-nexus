@@ -6,6 +6,7 @@ use nexus_common::models::homeserver::Homeserver;
 
 use super::TEventProcessor;
 use crate::events::Moderation;
+use crate::service::user_hs_resolver;
 
 /// Event processor for non-default HSs, where the user-specific `/events-stream` endpoint is used
 pub struct KeyBasedEventProcessor {
@@ -27,8 +28,14 @@ impl TEventProcessor for KeyBasedEventProcessor {
         &self.moderation
     }
 
-    // TODO Implement
     async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {
+        let current_hs_id = self.homeserver.id.to_string();
+
+        // Find monitored user IDs from this HS
+        let _user_ids = user_hs_resolver::get_user_ids_by_homeserver(&current_hs_id);
+
+        // TODO Implement: fetch events per user
+
         Ok(())
     }
 }
