@@ -127,6 +127,7 @@ impl EventProcessorError {
     ///
     /// These are the kinds of errors that are expected to be thrown again,
     /// if the event processor caller continues processing other events.
+    #[allow(clippy::match_like_matches_macro)]
     pub fn is_infrastructure(&self) -> bool {
         match self {
             Self::GraphQueryFailed(true, _) => true,

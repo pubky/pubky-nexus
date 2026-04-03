@@ -35,6 +35,7 @@ pub enum GraphError {
 }
 
 impl GraphError {
+    #[allow(clippy::match_like_matches_macro)]
     pub fn is_infrastructure_err(&self) -> bool {
         match self {
             GraphError::ConnectionNotInitialized => true,

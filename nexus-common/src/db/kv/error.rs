@@ -28,6 +28,7 @@ pub enum RedisError {
 }
 
 impl RedisError {
+    #[allow(clippy::match_like_matches_macro)]
     pub fn is_infrastructure_err(&self) -> bool {
         match self {
             RedisError::ConnectionNotInitialized => true,
