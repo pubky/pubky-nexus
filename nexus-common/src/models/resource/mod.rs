@@ -12,6 +12,7 @@ use utoipa::ToSchema;
 // ---------------------------------------------------------------------------
 
 /// Normalizes a URI for deterministic Resource identification.
+/// Returns `(normalized_uri, scheme)`.
 ///
 /// Rules:
 /// - Lowercase scheme and host
@@ -19,16 +20,29 @@ use utoipa::ToSchema;
 /// - Strip fragments and userinfo
 /// - Preserve path and query as-is
 /// - Fallback for non-standard schemes that fail URL parsing
-pub fn normalize_uri(uri: &str) -> Result<String, String> {
+pub fn normalize_uri(uri: &str) -> Result<(String, String), String> {
     match Url::parse(uri) {
-        Ok(parsed) => Ok(normalize_parsed_url(&parsed)),
+        Ok(parsed) => {
+            let scheme = parsed.scheme().to_string();
+            let normalized = normalize_parsed_url(&parsed);
+            Ok((normalized, scheme))
+        }
         Err(_) => {
             // Fallback for non-standard schemes (e.g., nostr:note1abc...)
             // that may not parse as URLs (no // authority)
             if let Some(colon_pos) = uri.find(':') {
                 let scheme = &uri[..colon_pos];
+                // Validate scheme: RFC 3986 §3.1 — ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )
+                if scheme.is_empty()
+                    || !scheme
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'-' || b == b'.')
+                {
+                    return Err(format!("Invalid URI scheme: {uri}"));
+                }
+                let scheme_lower = scheme.to_ascii_lowercase();
                 let remainder = &uri[colon_pos + 1..];
-                Ok(format!("{}:{}", scheme.to_ascii_lowercase(), remainder))
+                Ok((format!("{scheme_lower}:{remainder}"), scheme_lower))
             } else {
                 Err(format!("Invalid URI: {uri}"))
             }
@@ -124,20 +138,6 @@ pub fn classify_uri(uri: &str) -> UriCategory {
     }
 }
 
-/// Extracts the scheme from a URI string.
-pub fn extract_scheme(uri: &str) -> String {
-    match Url::parse(uri) {
-        Ok(parsed) => parsed.scheme().to_string(),
-        Err(_) => {
-            // Fallback: extract up to first ':'
-            uri.split(':')
-                .next()
-                .unwrap_or("unknown")
-                .to_ascii_lowercase()
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------
 // ResourceDetails
 // ---------------------------------------------------------------------------
@@ -158,51 +158,65 @@ mod tests {
 
     #[test]
     fn test_normalize_https_with_default_port_and_fragment() {
-        let result = normalize_uri("HTTPS://Example.COM:443/path?q=1#frag").unwrap();
-        assert_eq!(result, "https://example.com/path?q=1");
+        let (uri, scheme) = normalize_uri("HTTPS://Example.COM:443/path?q=1#frag").unwrap();
+        assert_eq!(uri, "https://example.com/path?q=1");
+        assert_eq!(scheme, "https");
     }
 
     #[test]
     fn test_normalize_root_trailing_slash() {
-        let result = normalize_uri("https://example.com").unwrap();
-        assert_eq!(result, "https://example.com/");
+        let (uri, _) = normalize_uri("https://example.com").unwrap();
+        assert_eq!(uri, "https://example.com/");
     }
 
     #[test]
     fn test_normalize_non_default_port() {
-        let result = normalize_uri("http://example.com:8080/path").unwrap();
-        assert_eq!(result, "http://example.com:8080/path");
+        let (uri, _) = normalize_uri("http://example.com:8080/path").unwrap();
+        assert_eq!(uri, "http://example.com:8080/path");
     }
 
     #[test]
     fn test_normalize_pubky_uri() {
         let input = "pubky://8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo/pub/eventky.app/events/E001";
-        let result = normalize_uri(input).unwrap();
-        assert_eq!(result, input);
+        let (uri, scheme) = normalize_uri(input).unwrap();
+        assert_eq!(uri, input);
+        assert_eq!(scheme, "pubky");
     }
 
     #[test]
     fn test_normalize_query_order_preserved() {
-        let result = normalize_uri("HTTPS://Example.COM/path?b=2&a=1").unwrap();
-        assert_eq!(result, "https://example.com/path?b=2&a=1");
+        let (uri, _) = normalize_uri("HTTPS://Example.COM/path?b=2&a=1").unwrap();
+        assert_eq!(uri, "https://example.com/path?b=2&a=1");
     }
 
     #[test]
     fn test_normalize_strip_userinfo() {
-        let result = normalize_uri("https://user:pass@example.com/path").unwrap();
-        assert_eq!(result, "https://example.com/path");
+        let (uri, _) = normalize_uri("https://user:pass@example.com/path").unwrap();
+        assert_eq!(uri, "https://example.com/path");
     }
 
     #[test]
     fn test_normalize_nostr_fallback() {
-        let result = normalize_uri("nostr:note1abc123...").unwrap();
-        assert_eq!(result, "nostr:note1abc123...");
+        let (uri, scheme) = normalize_uri("nostr:note1abc123...").unwrap();
+        assert_eq!(uri, "nostr:note1abc123...");
+        assert_eq!(scheme, "nostr");
     }
 
     #[test]
     fn test_normalize_http_default_port() {
-        let result = normalize_uri("HTTP://Example.COM:80/").unwrap();
-        assert_eq!(result, "http://example.com/");
+        let (uri, _) = normalize_uri("HTTP://Example.COM:80/").unwrap();
+        assert_eq!(uri, "http://example.com/");
+    }
+
+    #[test]
+    fn test_normalize_rejects_malformed_scheme() {
+        // "ht tps" has a space — invalid per RFC 3986 §3.1
+        assert!(normalize_uri("ht tps://example.com").is_err());
+    }
+
+    #[test]
+    fn test_normalize_rejects_no_colon() {
+        assert!(normalize_uri("justtext").is_err());
     }
 
     // -- resource_id tests --
@@ -254,22 +268,5 @@ mod tests {
             classify_uri("PUBKY://8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo/pub/eventky.app/events/E001"),
             UriCategory::InternalUnknown
         );
-    }
-
-    // -- extract_scheme tests --
-
-    #[test]
-    fn test_extract_scheme_https() {
-        assert_eq!(extract_scheme("https://example.com"), "https");
-    }
-
-    #[test]
-    fn test_extract_scheme_pubky() {
-        assert_eq!(extract_scheme("pubky://somekey/pub/app/tags/123"), "pubky");
-    }
-
-    #[test]
-    fn test_extract_scheme_nostr() {
-        assert_eq!(extract_scheme("nostr:note1abc"), "nostr");
     }
 }

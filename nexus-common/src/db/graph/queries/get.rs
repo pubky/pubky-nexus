@@ -1,5 +1,7 @@
 use crate::db::graph::Query;
+use crate::db::kv::SortOrder;
 use crate::models::post::StreamSource;
+use crate::models::resource::stream::ResourceSorting;
 use crate::types::routes::HotTagsInputDTO;
 use crate::types::Pagination;
 use crate::types::StreamReach;
@@ -289,11 +291,21 @@ pub fn resource_tags(resource_id: &str) -> Query {
 pub fn resource_stream(
     app: Option<&str>,
     labels: Option<&[&str]>,
-    sorting_field: &str,
-    order_direction: &str,
+    sorting: &ResourceSorting,
+    order: &SortOrder,
     skip: usize,
     limit: usize,
 ) -> Query {
+    // Map enums to safe Cypher literals — prevents injection
+    let sorting_field = match sorting {
+        ResourceSorting::Timeline => "r.indexed_at",
+        ResourceSorting::TaggersCount => "taggers_count",
+    };
+    let order_direction = match order {
+        SortOrder::Ascending => "ASC",
+        SortOrder::Descending => "DESC",
+    };
+
     let mut cypher = String::from("MATCH (tagger:User)-[t:TAGGED]->(r:Resource)\n");
 
     let mut where_clauses = Vec::new();

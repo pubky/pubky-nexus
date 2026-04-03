@@ -121,7 +121,8 @@ pub async fn resource_by_uri_handler(
 ) -> Result<Json<ResourceTagsResponse>> {
     debug!("GET {RESOURCE_BY_URI_ROUTE} uri:{}", query.uri);
 
-    let normalized = normalize_uri(&query.uri).map_err(|e| Error::InvalidInput { message: e })?;
+    let (normalized, _scheme) =
+        normalize_uri(&query.uri).map_err(|e| Error::InvalidInput { message: e })?;
     let res_id = resource_id(&normalized);
 
     let tags = TagResource::get_by_id(

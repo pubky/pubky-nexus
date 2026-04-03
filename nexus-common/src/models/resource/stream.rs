@@ -37,6 +37,9 @@ pub enum ResourceSorting {
 #[derive(Serialize, Deserialize, ToSchema, Debug, Default, Clone)]
 pub struct ResourceKeyStream {
     pub resource_ids: Vec<String>,
+    /// Score of the last entry, usable as a cursor for the next page.
+    /// Set to `Some(score)` when served from Redis sorted sets (score-based pagination).
+    /// Set to `None` when served from Neo4j graph fallback (use skip/limit pagination instead).
     pub last_score: Option<u64>,
 }
 
@@ -218,7 +221,7 @@ impl ResourceStream {
             ResourceStreamSource::All => None,
         };
 
-        if can_use_index(sorting, app, tags) {
+        if can_use_index(app, tags) {
             let key_parts = build_index_key(sorting, app, tags);
             let key_refs: Vec<&str> = key_parts.iter().map(|s| s.as_str()).collect();
 
@@ -253,16 +256,6 @@ impl ResourceStream {
         pagination: &Pagination,
         order: SortOrder,
     ) -> ModelResult<ResourceKeyStream> {
-        let sorting_field = match sorting {
-            ResourceSorting::Timeline => "r.indexed_at",
-            ResourceSorting::TaggersCount => "taggers_count",
-        };
-
-        let order_direction = match order {
-            SortOrder::Ascending => "ASC",
-            SortOrder::Descending => "DESC",
-        };
-
         let label_refs: Option<Vec<&str>> = tags
             .as_ref()
             .map(|t| t.iter().map(|s| s.as_str()).collect());
@@ -270,8 +263,8 @@ impl ResourceStream {
         let query = queries::get::resource_stream(
             app,
             label_refs.as_deref(),
-            sorting_field,
-            order_direction,
+            sorting,
+            &order,
             pagination.skip.unwrap_or(0),
             pagination.limit.unwrap_or(10),
         );
@@ -280,19 +273,15 @@ impl ResourceStream {
         let mut result = graph.execute(query).await.map_err(GraphError::from)?;
 
         let mut resource_ids = Vec::new();
-        let mut last_score = None;
 
         while let Some(row) = result.try_next().await.map_err(GraphError::from)? {
             let id: String = row.get("resource_id").unwrap_or_default();
-            let score: i64 = match sorting {
-                ResourceSorting::Timeline => row.get("indexed_at").unwrap_or(0),
-                ResourceSorting::TaggersCount => row.get("taggers_count").unwrap_or(0),
-            };
-            last_score = Some(score as u64);
             resource_ids.push(id);
         }
 
-        Ok(ResourceKeyStream::new(resource_ids, last_score))
+        // Graph path uses SKIP/LIMIT pagination, not score cursors.
+        // Set last_score = None to signal callers should use offset-based pagination.
+        Ok(ResourceKeyStream::new(resource_ids, None))
     }
 
     // -----------------------------------------------------------------------
@@ -350,11 +339,7 @@ impl ResourceStream {
 }
 
 /// Determines whether a query can be satisfied by a pre-computed Redis sorted set.
-fn can_use_index(
-    _sorting: &ResourceSorting,
-    app: Option<&str>,
-    tags: &Option<Vec<String>>,
-) -> bool {
+fn can_use_index(app: Option<&str>, tags: &Option<Vec<String>>) -> bool {
     let tag_count = tags.as_ref().map_or(0, |t| t.len());
     match (app, tag_count) {
         (None, 0) => true,    // Global, no filters

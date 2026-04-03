@@ -62,15 +62,42 @@ pub fn delete_bookmark(user_id: &str, bookmark_id: &str) -> Query {
 }
 
 /// Deletes a tag relationship created by a user and retrieves relevant details about the tag's target.
-/// When `app` is Some, filters by app to prevent cross-app deletion for Resource tags.
-/// When `app` is None, behaves as before (Post/User tags have no app property).
+///
+/// When `app` is `Some`, adds `WHERE tag.app = $app` to scope deletion to a specific app namespace.
+/// This prevents cross-app deletion for Resource tags where each app owns its own TAGGED relationship.
+///
+/// When `app` is `None`, matches by `(user_id, tag_id)` only. This is the correct behavior for:
+/// - Standard Post/User tag deletion (TAGGED relationships have no `app` property)
+/// - InternalKnown DEL fallback (tag was created via standard flow without `app`)
 pub fn delete_tag(user_id: &str, tag_id: &str, app: Option<&str>) -> Query {
-    let cypher = match app {
-        Some(_) => DELETE_TAG_WITH_APP,
-        None => DELETE_TAG_WITHOUT_APP,
+    let app_filter = if app.is_some() {
+        "\n    WHERE tag.app = $app"
+    } else {
+        ""
     };
 
-    let mut query = Query::new("delete_tag", cypher)
+    let cypher = format!(
+        "MATCH (user:User {{id: $user_id}})-[tag:TAGGED {{id: $tag_id}}]->(target){app_filter}
+    OPTIONAL MATCH (target)<-[:AUTHORED]-(author:User)
+    WITH CASE WHEN target:User THEN target.id ELSE null END AS user_id,
+         CASE WHEN target:Post THEN target.id ELSE null END AS post_id,
+         CASE WHEN target:Post THEN author.id ELSE null END AS author_id,
+         CASE WHEN target:Resource THEN target.id ELSE null END AS resource_id,
+         tag.label AS label,
+         tag.app AS app,
+         tag, target
+    DELETE tag
+    WITH user_id, post_id, author_id, resource_id, label, app, target
+    CALL {{
+        WITH target, resource_id
+        WITH target, resource_id WHERE resource_id IS NOT NULL
+        AND NOT EXISTS {{ (target)<-[:TAGGED]-() }}
+        DELETE target
+    }}
+    RETURN user_id, post_id, author_id, resource_id, label, app"
+    );
+
+    let mut query = Query::new("delete_tag", &cypher)
         .param("user_id", user_id)
         .param("tag_id", tag_id);
 
@@ -80,47 +107,6 @@ pub fn delete_tag(user_id: &str, tag_id: &str, app: Option<&str>) -> Query {
 
     query
 }
-
-const DELETE_TAG_WITHOUT_APP: &str = "
-    MATCH (user:User {id: $user_id})-[tag:TAGGED {id: $tag_id}]->(target)
-    OPTIONAL MATCH (target)<-[:AUTHORED]-(author:User)
-    WITH CASE WHEN target:User THEN target.id ELSE null END AS user_id,
-         CASE WHEN target:Post THEN target.id ELSE null END AS post_id,
-         CASE WHEN target:Post THEN author.id ELSE null END AS author_id,
-         CASE WHEN target:Resource THEN target.id ELSE null END AS resource_id,
-         tag.label AS label,
-         tag.app AS app,
-         tag, target
-    DELETE tag
-    WITH user_id, post_id, author_id, resource_id, label, app, target
-    CALL {
-        WITH target, resource_id
-        WITH target, resource_id WHERE resource_id IS NOT NULL
-        AND NOT EXISTS { (target)<-[:TAGGED]-() }
-        DELETE target
-    }
-    RETURN user_id, post_id, author_id, resource_id, label, app";
-
-const DELETE_TAG_WITH_APP: &str = "
-    MATCH (user:User {id: $user_id})-[tag:TAGGED {id: $tag_id}]->(target)
-    WHERE tag.app = $app
-    OPTIONAL MATCH (target)<-[:AUTHORED]-(author:User)
-    WITH CASE WHEN target:User THEN target.id ELSE null END AS user_id,
-         CASE WHEN target:Post THEN target.id ELSE null END AS post_id,
-         CASE WHEN target:Post THEN author.id ELSE null END AS author_id,
-         CASE WHEN target:Resource THEN target.id ELSE null END AS resource_id,
-         tag.label AS label,
-         tag.app AS app,
-         tag, target
-    DELETE tag
-    WITH user_id, post_id, author_id, resource_id, label, app, target
-    CALL {
-        WITH target, resource_id
-        WITH target, resource_id WHERE resource_id IS NOT NULL
-        AND NOT EXISTS { (target)<-[:TAGGED]-() }
-        DELETE target
-    }
-    RETURN user_id, post_id, author_id, resource_id, label, app";
 
 /// Deletes a file node and all its relationships
 /// # Arguments

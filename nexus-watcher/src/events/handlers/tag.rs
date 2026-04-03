@@ -2,7 +2,7 @@ use crate::events::retry::event::RetryEvent;
 use crate::events::EventProcessorError;
 
 use chrono::Utc;
-use nexus_common::db::kv::ScoreAction;
+use nexus_common::db::kv::{RedisResult, ScoreAction};
 use nexus_common::db::{fetch_row_from_graph, queries, OperationOutcome, RedisOps};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::notification::Notification;
@@ -10,9 +10,7 @@ use nexus_common::models::post::search::PostsByTagSearch;
 use nexus_common::models::post::{PostCounts, PostStream};
 use nexus_common::models::resource::stream::ResourceStream;
 use nexus_common::models::resource::tag::TagResource;
-use nexus_common::models::resource::{
-    classify_uri, extract_scheme, normalize_uri, resource_id, UriCategory,
-};
+use nexus_common::models::resource::{classify_uri, normalize_uri, resource_id, UriCategory};
 use nexus_common::models::tag::post::TagPost;
 use nexus_common::models::tag::search::TagSearch;
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
@@ -74,9 +72,9 @@ pub async fn sync_put_resource(
             sync_put(tag, tagger_id, tag_id).await
         }
         UriCategory::InternalUnknown | UriCategory::External => {
-            let normalized = normalize_uri(&tag.uri).map_err(EventProcessorError::generic)?;
+            let (normalized, scheme) =
+                normalize_uri(&tag.uri).map_err(EventProcessorError::generic)?;
             let res_id = resource_id(&normalized);
-            let scheme = extract_scheme(&tag.uri);
             let indexed_at = Utc::now().timestamp_millis();
 
             put_sync_resource(
@@ -597,58 +595,50 @@ async fn del_sync_resource(
     score_results.4?;
 
     // Step 2: Check remaining scores and remove from timelines only when zero.
-    // Use check_sorted_set_member to read the current score after decrement.
-    let global_score = ResourceStream::check_sorted_set_member(
-        None,
+    remove_timeline_if_empty(
         &["Resources", "Global", "TaggersCount"],
-        &[resource_id],
+        resource_id,
+        ResourceStream::del_from_global_timeline(resource_id),
     )
-    .await
-    .unwrap_or(None);
+    .await?;
 
-    if global_score.is_none_or(|s| s <= 0) {
-        // Resource has no remaining taggers — remove from global timeline
-        let _ = ResourceStream::del_from_global_timeline(resource_id).await;
-    }
-
-    let tag_score = ResourceStream::check_sorted_set_member(
-        None,
+    remove_timeline_if_empty(
         &["Resources", "Tag", tag_label, "TaggersCount"],
-        &[resource_id],
+        resource_id,
+        ResourceStream::del_from_tag_timeline(tag_label, resource_id),
     )
-    .await
-    .unwrap_or(None);
-
-    if tag_score.is_none_or(|s| s <= 0) {
-        // No remaining taggers for this label — remove from tag timeline
-        let _ = ResourceStream::del_from_tag_timeline(tag_label, resource_id).await;
-    }
+    .await?;
 
     if let Some(a) = app {
-        let app_score = ResourceStream::check_sorted_set_member(
-            None,
+        remove_timeline_if_empty(
             &["Resources", "App", a, "TaggersCount"],
-            &[resource_id],
+            resource_id,
+            ResourceStream::del_from_app_timeline(a, resource_id),
         )
-        .await
-        .unwrap_or(None);
+        .await?;
 
-        if app_score.is_none_or(|s| s <= 0) {
-            let _ = ResourceStream::del_from_app_timeline(a, resource_id).await;
-        }
-
-        let app_tag_score = ResourceStream::check_sorted_set_member(
-            None,
+        remove_timeline_if_empty(
             &["Resources", "App", a, "Tag", tag_label, "TaggersCount"],
-            &[resource_id],
+            resource_id,
+            ResourceStream::del_from_app_tag_timeline(a, tag_label, resource_id),
         )
-        .await
-        .unwrap_or(None);
-
-        if app_tag_score.is_none_or(|s| s <= 0) {
-            let _ = ResourceStream::del_from_app_tag_timeline(a, tag_label, resource_id).await;
-        }
+        .await?;
     }
 
+    Ok(())
+}
+
+/// Checks if a resource's score in a taggers-count sorted set is zero or absent,
+/// and if so, removes it from the corresponding timeline.
+async fn remove_timeline_if_empty(
+    count_key_parts: &[&str],
+    resource_id: &str,
+    delete_fn: impl std::future::Future<Output = RedisResult<()>>,
+) -> Result<(), EventProcessorError> {
+    let score =
+        ResourceStream::check_sorted_set_member(None, count_key_parts, &[resource_id]).await?;
+    if score.is_none_or(|s| s <= 0) {
+        delete_fn.await?;
+    }
     Ok(())
 }
