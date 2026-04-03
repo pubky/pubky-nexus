@@ -133,7 +133,7 @@ mod tests {
 
     #[tokio_shared_rt::test(shared)]
     async fn test_put_to_get_from_graph() -> Result<(), DynError> {
-        StackManager::setup("unit-hs-test", &StackConfig::default()).await?;
+        StackManager::setup(&StackConfig::default()).await?;
 
         let keys = Keypair::random();
         let id = PubkyId::try_from(&keys.public_key().to_z32())?;
@@ -156,7 +156,7 @@ mod tests {
 
     #[tokio_shared_rt::test(shared)]
     async fn test_put_to_get_from_index() -> Result<(), DynError> {
-        StackManager::setup("unit-hs-test", &StackConfig::default()).await?;
+        StackManager::setup(&StackConfig::default()).await?;
 
         let keys = Keypair::random();
         let id = PubkyId::try_from(&keys.public_key().to_z32())?;

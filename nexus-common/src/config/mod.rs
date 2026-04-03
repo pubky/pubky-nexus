@@ -36,9 +36,11 @@ mod watcher;
 
 pub use api::ApiConfig;
 pub use daemon::DaemonConfig;
-pub use stack::{default_stack, StackConfig};
+pub use stack::{default_stack, OtlpConfig, StackConfig};
 pub use watcher::WatcherConfig;
-pub use watcher::{DEFAULT_HS_RESOLVER_TTL, DEFAULT_INITIAL_BACKOFF_SECS, DEFAULT_MAX_BACKOFF_SECS};
+pub use watcher::{
+    DEFAULT_HS_RESOLVER_TTL, DEFAULT_INITIAL_BACKOFF_SECS, DEFAULT_MAX_BACKOFF_SECS,
+};
 
 use crate::file::validate_and_expand_path;
 

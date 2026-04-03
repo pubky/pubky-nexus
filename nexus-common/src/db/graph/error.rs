@@ -34,6 +34,17 @@ pub enum GraphError {
     Generic(String),
 }
 
+impl GraphError {
+    #[allow(clippy::match_like_matches_macro)]
+    pub fn is_infrastructure_err(&self) -> bool {
+        match self {
+            GraphError::ConnectionNotInitialized => true,
+            GraphError::QueryFailed(_) => true,
+            _ => false,
+        }
+    }
+}
+
 impl From<neo4rs::DeError> for GraphError {
     fn from(e: neo4rs::DeError) -> Self {
         GraphError::DeserializationFailed(Box::new(e))

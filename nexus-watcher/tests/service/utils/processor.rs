@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::service::utils::{MockEventProcessorResult, HS_IDS};
@@ -7,6 +8,7 @@ use nexus_common::db::queries;
 use nexus_common::models::event::EventProcessorError;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::user::UserDetails;
+use nexus_watcher::events::Moderation;
 use nexus_watcher::service::TEventProcessor;
 use pubky::Keypair;
 use pubky_app_specs::PubkyId;
@@ -21,12 +23,18 @@ pub struct MockEventProcessor {
     sleep_duration: Option<Duration>,
     custom_timeout: Option<Duration>,
     shutdown_rx: Receiver<bool>,
+    files_path: PathBuf,
+    moderation: Arc<Moderation>,
 }
 
 #[async_trait::async_trait]
 impl TEventProcessor for MockEventProcessor {
-    fn get_homeserver_id(&self) -> PubkyId {
-        self.homeserver_id.clone()
+    fn files_path(&self) -> &PathBuf {
+        &self.files_path
+    }
+
+    fn moderation(&self) -> &Arc<Moderation> {
+        &self.moderation
     }
 
     fn custom_timeout(&self) -> Option<Duration> {
@@ -52,6 +60,13 @@ impl TEventProcessor for MockEventProcessor {
             MockEventProcessorResult::Panic => panic!("Event processor panicked: unknown error"),
         }
     }
+}
+
+fn default_mock_moderation() -> Arc<Moderation> {
+    Arc::new(Moderation {
+        id: PubkyId::try_from("8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo").unwrap(),
+        tags: vec![],
+    })
 }
 
 /// Create a random homeserver and add it to the event processor list.
@@ -101,6 +116,8 @@ pub async fn create_random_homeservers_and_persist(
         processor_status,
         custom_timeout,
         shutdown_rx,
+        files_path: PathBuf::from("/tmp/mock"),
+        moderation: default_mock_moderation(),
     };
     event_processor_list.push(event_processor);
 }
@@ -111,6 +128,7 @@ pub fn create_mock_event_processors(
     shutdown_rx: Receiver<bool>,
 ) -> Vec<MockEventProcessor> {
     use MockEventProcessorResult::*;
+    let moderation = default_mock_moderation();
     [
         (HS_IDS[0], None, Success),
         (HS_IDS[1], None, Error("Event processor error!".into())),
@@ -126,6 +144,8 @@ pub fn create_mock_event_processors(
             processor_status: status,
             custom_timeout,
             shutdown_rx: shutdown_rx.clone(),
+            files_path: PathBuf::from("/tmp/mock"),
+            moderation: moderation.clone(),
         },
     )
     .collect()
