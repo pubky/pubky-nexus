@@ -11,6 +11,7 @@ use std::sync::Arc;
 use tokio::sync::watch::Receiver;
 use tracing::debug;
 
+/// Runner for [HsEventProcessor]
 pub struct HsEventProcessorRunner {
     /// See [WatcherConfig::events_limit]
     pub limit: u32,
