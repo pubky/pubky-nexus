@@ -90,6 +90,18 @@ pub fn get_post_bookmarks(author_id: &str, post_id: &str) -> Query {
     .param("post_id", post_id)
 }
 
+// Read the target (post_id, author_id) for a bookmark without deleting the edge.
+// Used in sync_del to read before graph-last deletion.
+pub fn get_bookmark_target(user_id: &str, bookmark_id: &str) -> Query {
+    Query::new(
+        "get_bookmark_target",
+        "MATCH (u:User {id: $user_id})-[b:BOOKMARKED {id: $bookmark_id}]->(post:Post)<-[:AUTHORED]-(author:User)
+         RETURN post.id AS post_id, author.id AS author_id",
+    )
+    .param("user_id", user_id)
+    .param("bookmark_id", bookmark_id)
+}
+
 // Get all the reposts that a post has received (used for edit/delete notifications)
 pub fn get_post_reposts(author_id: &str, post_id: &str) -> Query {
     Query::new(
