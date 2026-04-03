@@ -1,7 +1,6 @@
 use super::TEventProcessorRunner;
 use crate::events::Moderation;
 use crate::service::indexer::{HsEventProcessor, TEventProcessor};
-use crate::service::stats::{ProcessedStats, RunAllProcessorsStats};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
@@ -9,7 +8,6 @@ use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
-use tracing::debug;
 
 /// Runner for [HsEventProcessor]
 pub struct HsEventProcessorRunner {
@@ -68,10 +66,5 @@ impl TEventProcessorRunner for HsEventProcessorRunner {
 
     async fn pre_run(&self) -> Result<Vec<String>, DynError> {
         Ok(vec![self.default_homeserver.to_string()])
-    }
-
-    async fn post_run(&self, stats: RunAllProcessorsStats) -> ProcessedStats {
-        debug!("Skipping post_run for default homeserver runner");
-        ProcessedStats(stats)
     }
 }

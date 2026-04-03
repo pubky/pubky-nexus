@@ -55,8 +55,10 @@ pub trait TEventProcessorRunner: Send + Sync {
 
     /// Post-processing of the run results.
     ///
-    /// Receives the raw stats from the run and returns processed stats.
-    async fn post_run(&self, stats: RunAllProcessorsStats) -> ProcessedStats;
+    /// No-op default implementation. Callers that perform post-processing should overwrite this.
+    async fn post_run(&self, stats: RunAllProcessorsStats) -> ProcessedStats {
+        ProcessedStats(stats)
+    }
 
     /// Main run loop: builds and runs event processors for the relevant targets.
     ///

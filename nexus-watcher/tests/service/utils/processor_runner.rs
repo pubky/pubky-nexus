@@ -1,7 +1,6 @@
 use crate::service::utils::processor::MockEventProcessor;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
-use nexus_watcher::service::stats::{ProcessedStats, RunAllProcessorsStats};
 use nexus_watcher::service::{TEventProcessor, TEventProcessorRunner};
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
@@ -79,9 +78,5 @@ impl TEventProcessorRunner for MockEventProcessorRunner {
         let hs_ids = self.hs_by_priority().await?;
         let max_index = std::cmp::min(self.monitored_hs_limit, hs_ids.len());
         Ok(hs_ids[..max_index].to_vec())
-    }
-
-    async fn post_run(&self, stats: RunAllProcessorsStats) -> ProcessedStats {
-        ProcessedStats(stats)
     }
 }
