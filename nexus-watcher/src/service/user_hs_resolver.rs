@@ -68,11 +68,12 @@ pub async fn run(ttl_ms: u64) -> Result<(), DynError> {
 //
 // For a sorted array [K0..K7] this produces [K3, K1, K5, K0, K2, K4, K6, K7], ensuring
 // each successive query lands as far as possible from all previous ones in the keyspace.
-fn bisection_order_user_pks(mut unsorted_pks: Vec<PublicKey>) -> Vec<PublicKey> {
-    unsorted_pks.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+fn bisection_order_user_pks(unsorted_pks: Vec<PublicKey>) -> Vec<PublicKey> {
+    let mut sorted_pks = unsorted_pks;
+    sorted_pks.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
 
-    let n = unsorted_pks.len();
-    let mut result = Vec::with_capacity(n);
+    let n = sorted_pks.len();
+    let mut bisection_result = Vec::with_capacity(n);
     // Each entry is a half-open interval [lo, hi) of the sorted slice to process.
     let mut queue = std::collections::VecDeque::new();
     if n > 0 {
@@ -83,11 +84,11 @@ fn bisection_order_user_pks(mut unsorted_pks: Vec<PublicKey>) -> Vec<PublicKey> 
             continue;
         }
         let mid = lo + (hi - lo) / 2;
-        result.push(unsorted_pks[mid].clone());
+        bisection_result.push(sorted_pks[mid].clone());
         queue.push_back((lo, mid));
         queue.push_back((mid + 1, hi));
     }
-    result
+    bisection_result
 }
 
 /// Fetches user IDs whose homeserver mapping is stale or missing.
