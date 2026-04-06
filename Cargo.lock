@@ -3162,6 +3162,7 @@ dependencies = [
  "async-trait",
  "base32",
  "chrono",
+ "futures",
  "httpc-test",
  "neo4rs",
  "nexus-common",

@@ -1,6 +1,7 @@
 mod errors;
 
 use crate::db::{kv::RedisResult, RedisOps};
+use pubky::Event as StreamEvent;
 use pubky_app_specs::{ParsedUri, Resource};
 use serde::{Deserialize, Serialize};
 use std::{fmt, path::PathBuf};
@@ -84,6 +85,45 @@ impl Event {
         };
 
         let event_line = line.to_string();
+
+        Ok(Some(Event {
+            uri,
+            event_type,
+            parsed_uri,
+            files_path,
+            event_line,
+        }))
+    }
+
+    /// Constructs a nexus [`Event`] directly from a [`StreamEvent`], avoiding
+    /// the string round-trip through [`Self::parse_event`].
+    pub fn from_stream_event(
+        stream_event: &StreamEvent,
+        files_path: PathBuf,
+    ) -> Result<Option<Self>, EventProcessorError> {
+        let event_type = match &stream_event.event_type {
+            pubky::EventType::Put { .. } => EventType::Put,
+            pubky::EventType::Delete => EventType::Del,
+        };
+
+        let uri = stream_event.resource.to_pubky_url();
+        debug!("New stream event: {event_type} {uri}");
+
+        let parsed_uri = ParsedUri::try_from(uri.as_str()).map_err(|e| {
+            EventProcessorError::InvalidEventLine(format!("Cannot parse event URI: {e}"))
+        })?;
+
+        match parsed_uri.resource {
+            Resource::Unknown => {
+                return Err(EventProcessorError::InvalidEventLine(format!(
+                    "Unknown resource in URI: {uri}"
+                )))
+            }
+            Resource::LastRead | Resource::Feed(_) | Resource::Blob(_) => return Ok(None),
+            _ => (),
+        };
+
+        let event_line = format!("{event_type} {uri}");
 
         Ok(Some(Event {
             uri,

@@ -78,8 +78,10 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
 
         Ok(Arc::new(KeyBasedEventProcessor {
             homeserver,
+            limit: self.limit.try_into().unwrap_or(u16::MAX),
             files_path: self.files_path.clone(),
             moderation: self.moderation.clone(),
+            shutdown_rx: self.shutdown_rx.clone(),
         }))
     }
 

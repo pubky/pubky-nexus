@@ -13,6 +13,7 @@ chrono = { workspace = true }
 neo4rs = { workspace = true }
 pubky = { workspace = true }
 pubky-app-specs = { workspace = true }
+futures = { workspace = true }
 nexus-common = { version = "0.4.1", path = "../nexus-common" }
 serde = { workspace = true }
 serde_json = { workspace = true }
