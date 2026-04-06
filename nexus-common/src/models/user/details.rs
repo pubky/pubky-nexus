@@ -153,6 +153,8 @@ impl UserDetails {
 
         let hs_id = &hs_pk.into_inner().to_z32();
 
+        // Do not add to index, as this would affect the timeline of events for this user.
+        // Only create stub graph node for HS-resolver to store user-HS mapping.
         user_details
             .put_to_graph()
             .await
