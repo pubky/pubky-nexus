@@ -54,7 +54,7 @@ pub async fn ingest_user_handler(Path(user_id): Path<String>) -> Result<()> {
     PubkyId::try_from(&user_id)
         .map_err(|e| Error::invalid_input(&format!("Invalid user PK: {e}")))?;
 
-    UserDetails::maybe_ingest_for_user(&user_id).await?;
+    UserDetails::maybe_ingest_user(&user_id).await?;
     Ok(())
 }
 

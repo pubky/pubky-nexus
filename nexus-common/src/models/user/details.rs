@@ -128,7 +128,7 @@ impl UserDetails {
     /// If a referenced user is unknown, not ingested in the graph yet, resolves their homeserver
     /// and persists the user node in the graph.
     #[tracing::instrument(name = "user.ingest", skip_all)]
-    pub async fn maybe_ingest_for_user(user_id: &str) -> ModelResult<()> {
+    pub async fn maybe_ingest_user(user_id: &str) -> ModelResult<()> {
         if Self::get_by_id(user_id).await?.is_some() {
             tracing::debug!("Skipping user ingestion: {user_id} already known");
             return Ok(());

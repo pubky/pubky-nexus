@@ -22,7 +22,7 @@ pub async fn sync_put(
         // Do not duplicate the follow relationship
         OperationOutcome::Updated => return Ok(()),
         OperationOutcome::MissingDependency => {
-            if let Err(e) = UserDetails::maybe_ingest_for_user(followee_id.as_str()).await {
+            if let Err(e) = UserDetails::maybe_ingest_user(followee_id.as_str()).await {
                 tracing::error!("Failed to ingest user: {e}");
             }
 

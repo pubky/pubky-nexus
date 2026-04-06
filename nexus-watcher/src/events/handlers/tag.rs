@@ -84,7 +84,7 @@ async fn put_sync_post(
             // Ensure that dependencies follow the same format as the RetryManager keys
             let dependency = vec![format!("{author_id}:posts:{post_id}")];
             if let Ok(referenced_post_uri) = ParsedUri::try_from(post_uri) {
-                if let Err(e) = PostDetails::maybe_ingest_for_post(&referenced_post_uri).await {
+                if let Err(e) = PostDetails::maybe_ingest_author_of_post(&referenced_post_uri).await {
                     tracing::error!("Failed to ingest user: {e}");
                 }
             }
@@ -189,7 +189,7 @@ async fn put_sync_user(
     {
         OperationOutcome::Updated => Ok(()),
         OperationOutcome::MissingDependency => {
-            if let Err(e) = UserDetails::maybe_ingest_for_user(tagged_user_id.as_str()).await {
+            if let Err(e) = UserDetails::maybe_ingest_user(tagged_user_id.as_str()).await {
                 tracing::error!("Failed to ingest user: {e}");
             }
 
