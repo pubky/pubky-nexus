@@ -1,15 +1,18 @@
 use super::UserSearch;
 use crate::db::graph::Query;
 use crate::db::kv::RedisResult;
-use crate::db::{exec_single_row, queries, GraphResult, RedisOps};
-use crate::models::error::ModelResult;
+use crate::db::{exec_single_row, queries, GraphResult, PubkyConnector, RedisOps};
+use crate::models::error::{ModelError, ModelResult};
 use crate::models::traits::Collection;
 use async_trait::async_trait;
 use chrono::Utc;
+use pubky::PublicKey;
 use pubky_app_specs::{PubkyAppUser, PubkyAppUserLink, PubkyId};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json;
 use utoipa::ToSchema;
+
+pub const USER_HS_CURSOR: [&str; 2] = ["Users", "Homeservers"];
 
 #[async_trait]
 impl RedisOps for UserDetails {}
@@ -90,6 +93,17 @@ impl UserDetails {
         Ok(details_collection.into_iter().flatten().next())
     }
 
+    /// Creates a minimal `UserDetails` with only the public key.
+    /// All profile fields (bio, links, status, image) default to `None`.
+    pub fn from_pubky(user_id: PubkyId) -> Self {
+        UserDetails {
+            name: user_id.to_string(),
+            id: user_id.clone(),
+            indexed_at: Utc::now().timestamp_millis(),
+            ..Default::default()
+        }
+    }
+
     pub fn from_homeserver(homeserver_user: PubkyAppUser, user_id: &PubkyId) -> Self {
         UserDetails {
             name: homeserver_user.name,
@@ -107,6 +121,49 @@ impl UserDetails {
         Self::remove_from_index_multiple_json(&[&[user_id]]).await?;
         // Delete user graph node;
         exec_single_row(queries::del::delete_user(user_id)).await?;
+
+        Ok(())
+    }
+
+    /// If a referenced user is unknown, not ingested in the graph yet, resolves their homeserver
+    /// and persists the user node in the graph.
+    #[tracing::instrument(name = "user.ingest", skip_all)]
+    pub async fn maybe_ingest_user(user_id: &str) -> ModelResult<()> {
+        if Self::get_by_id(user_id).await?.is_some() {
+            tracing::debug!("Skipping user ingestion: {user_id} already known");
+            return Ok(());
+        }
+
+        let pubky = PubkyConnector::get().map_err(ModelError::from_generic)?;
+
+        let user_pk = user_id
+            .parse::<PublicKey>()
+            .map_err(ModelError::from_generic)?;
+
+        let Some(hs_pk) = pubky.get_homeserver_of(&user_pk).await else {
+            tracing::warn!(
+                "Skipping user ingestion: {user_id} has no published homeserver or it's a homeserver pubky"
+            );
+            return Ok(());
+        };
+
+        let pubky_id =
+            PubkyId::try_from(&user_pk.into_inner().to_z32()).map_err(ModelError::from_generic)?;
+        let user_details = Self::from_pubky(pubky_id);
+
+        let hs_id = &hs_pk.into_inner().to_z32();
+
+        // Do not add to index, as this would affect the timeline of events for this user.
+        // Only create stub graph node for HS-resolver to store user-HS mapping.
+        user_details
+            .put_to_graph()
+            .await
+            .inspect(|_| tracing::info!("Ingested user {user_id} from homeserver {hs_id}"))
+            .inspect_err(|e| tracing::error!("Failed to ingest user {user_id}: {e}"))?;
+
+        // Store the start point of the homeserver cursor
+        let key = &[&USER_HS_CURSOR[..], &[user_id]].concat();
+        Self::put_index_sorted_set(key, &[(0.0, hs_id)], None, None).await?;
 
         Ok(())
     }
