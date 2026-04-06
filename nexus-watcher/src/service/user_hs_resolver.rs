@@ -66,7 +66,7 @@ pub async fn run(ttl_ms: u64) -> Result<(), DynError> {
 //   2. Reorder via BFS over the implicit binary-search-tree layout of the sorted array:
 //      emit the midpoint of each interval, then recurse into left and right halves.
 //
-// For a sorted array [K0..K7] this produces [K3, K1, K5, K0, K2, K4, K6, K7], ensuring
+// For a sorted array [K0..K7] this produces [K4, K2, K6, K1, K3, K5, K7, K0], ensuring
 // each successive query lands as far as possible from all previous ones in the keyspace.
 fn bisection_order_user_pks(unsorted_pks: Vec<PublicKey>) -> Vec<PublicKey> {
     let mut sorted_pks = unsorted_pks;
