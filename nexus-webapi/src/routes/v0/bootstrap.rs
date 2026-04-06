@@ -1,6 +1,6 @@
 use crate::routes::v0::endpoints::{self, BOOTSTRAP_ROUTE, INGEST_USER_ROUTE};
 use crate::routes::AppState;
-use crate::Result;
+use crate::{Error, Result};
 
 use axum::extract::Path;
 use axum::routing::{get, put};
@@ -8,6 +8,7 @@ use axum::Json;
 use axum::Router;
 use nexus_common::models::bootstrap::{Bootstrap, ViewType};
 use nexus_common::models::user::UserDetails;
+use pubky_app_specs::PubkyId;
 use tracing::debug;
 use utoipa::OpenApi;
 
@@ -49,6 +50,9 @@ pub async fn bootstrap_handler(
 )]
 pub async fn ingest_user_handler(Path(user_id): Path<String>) -> Result<()> {
     debug!("PUT {INGEST_USER_ROUTE}, user_id:{user_id}");
+
+    PubkyId::try_from(&user_id)
+        .map_err(|e| Error::invalid_input(&format!("Invalid user PK: {e}")))?;
 
     UserDetails::maybe_ingest_for_user(&user_id).await?;
     Ok(())

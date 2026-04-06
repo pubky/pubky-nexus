@@ -23,7 +23,7 @@ pub async fn sync_put(
         OperationOutcome::Updated => return Ok(()),
         OperationOutcome::MissingDependency => {
             if let Err(e) = UserDetails::maybe_ingest_for_user(followee_id.as_str()).await {
-                tracing::error!("Failed to ingest homeserver: {e}");
+                tracing::error!("Failed to ingest user: {e}");
             }
 
             let key = RetryEvent::generate_index_key_from_uri(&followee_id.to_uri());

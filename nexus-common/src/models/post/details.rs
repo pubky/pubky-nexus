@@ -166,7 +166,7 @@ impl PostDetails {
         Ok(())
     }
 
-    /// If a referenced post is hosted on a new, unknown homeserver, this method triggers ingestion of that user.
+    /// If a referenced post is authored by a new, unknown user, this method triggers ingestion of that user.
     ///
     /// ### Arguments
     ///

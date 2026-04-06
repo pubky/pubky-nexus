@@ -190,7 +190,7 @@ async fn put_sync_user(
         OperationOutcome::Updated => Ok(()),
         OperationOutcome::MissingDependency => {
             if let Err(e) = UserDetails::maybe_ingest_for_user(tagged_user_id.as_str()).await {
-                tracing::error!("Failed to ingest homeserver: {e}");
+                tracing::error!("Failed to ingest user: {e}");
             }
 
             let key = RetryEvent::generate_index_key_from_uri(&tagged_user_id.to_uri());
