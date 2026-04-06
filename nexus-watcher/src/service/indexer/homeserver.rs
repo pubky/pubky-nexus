@@ -12,7 +12,6 @@ use tracing::{debug, error, info, warn};
 /// Event processor for the default homeserver
 pub struct HsEventProcessor {
     /// The default HS endpoint this processor fetches events from
-    /// TODO Used in X1 (see mod.rs)
     pub homeserver: Homeserver,
 
     /// See [WatcherConfig::events_limit]
@@ -30,6 +29,10 @@ impl TEventProcessor for HsEventProcessor {
 
     fn moderation(&self) -> &Arc<Moderation> {
         &self.moderation
+    }
+
+    fn instance_name(&self) -> String {
+        format!("HsEventProcessor with HS ID: {}", self.homeserver.id)
     }
 
     async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {
