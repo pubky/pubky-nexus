@@ -238,8 +238,9 @@ impl ResourceStream {
 
             match entries {
                 Some(e) if !e.is_empty() => Ok(ResourceKeyStream::from_scored_entries(e)),
-                _ => {
-                    // Index missing or empty — fall back to Neo4j
+                Some(_) => Ok(ResourceKeyStream::default()), // Key exists but range empty = end of pagination
+                None => {
+                    // Index missing — fall back to Neo4j
                     Self::get_resource_keys_from_graph(app, sorting, tags, &pagination, order).await
                 }
             }
