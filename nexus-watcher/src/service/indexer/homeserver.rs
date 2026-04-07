@@ -16,7 +16,7 @@ pub struct HsEventProcessor {
     pub homeserver: Homeserver,
 
     /// See [WatcherConfig::events_limit]
-    pub limit: u32,
+    pub limit: u16,
     pub files_path: PathBuf,
     pub moderation: Arc<Moderation>,
     pub shutdown_rx: Receiver<bool>,
