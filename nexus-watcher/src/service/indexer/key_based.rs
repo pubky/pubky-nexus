@@ -104,9 +104,10 @@ impl KeyBasedEventProcessor {
 
         let mut users = Vec::with_capacity(user_ids.len());
         for user_id in &user_ids {
-            let user_pk: PublicKey = user_id.parse().map_err(|_| {
-                EventProcessorError::client_error(format!("Invalid user public key: {user_id}"))
-            })?;
+            let Ok(user_pk) = user_id.parse::<PublicKey>() else {
+                error!("Invalid user public key '{user_id}' on HS {hs_id}, skipping");
+                continue;
+            };
             let cursor = Self::read_user_cursor(user_id, hs_id).await?;
             users.push((user_pk, cursor));
         }
