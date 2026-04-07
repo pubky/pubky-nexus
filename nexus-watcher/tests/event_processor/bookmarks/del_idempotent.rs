@@ -73,7 +73,6 @@ async fn test_bookmark_del_retry_no_double_decrement() -> Result<()> {
 
     // Simulate partial completion of a previous sync_del attempt:
     // Redis cleanup succeeded (index removed + counter decremented) but graph delete failed.
-    // NOTE: del_from_index takes (bookmarker_id, post_id, author_id) — different param order than get_from_index!
     Bookmark::del_from_index(&bookmarker_id, &post_id, &author_id).await?;
     UserCounts::decrement(&bookmarker_id, "bookmarks", None).await?;
 
