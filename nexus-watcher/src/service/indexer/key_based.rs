@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -6,7 +5,7 @@ use futures::StreamExt;
 use nexus_common::db::{PubkyConnector, RedisOps};
 use nexus_common::models::event::{Event, EventProcessorError};
 use nexus_common::models::homeserver::Homeserver;
-use nexus_common::models::user::{UserDetails, USER_HS_CURSOR};
+use nexus_common::models::user::{user_hs_cursor_key, UserDetails};
 use pubky::{EventCursor, PublicKey};
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info};
@@ -15,9 +14,6 @@ use super::TEventProcessor;
 use crate::events::Moderation;
 use crate::service::user_hs_resolver;
 
-/// Max users per `EventStreamBuilder` subscription (SDK-enforced limit).
-const MAX_USERS_PER_STREAM: usize = 50;
-
 /// Event processor for non-default HSs, where the user-specific `/events-stream` endpoint is used
 pub struct KeyBasedEventProcessor {
     /// The HS endpoint this processor fetches events from
@@ -25,7 +21,7 @@ pub struct KeyBasedEventProcessor {
     pub homeserver: Homeserver,
 
     /// Max events the homeserver will send before closing the stream.
-    /// Bounds execution time per batch, preventing timeout and starvation.
+    /// Bounds execution time per user, preventing timeout and starvation.
     pub limit: u16,
     pub files_path: PathBuf,
     pub moderation: Arc<Moderation>,
@@ -46,9 +42,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
         let hs_id = self.homeserver.id.to_string();
 
         let hs_pk: PublicKey = hs_id.parse().map_err(|_| {
-            EventProcessorError::client_error(format!(
-                "Invalid homeserver public key: {hs_id}"
-            ))
+            EventProcessorError::client_error(format!("Invalid homeserver public key: {hs_id}"))
         })?;
 
         let users = self
@@ -63,10 +57,35 @@ impl TEventProcessor for KeyBasedEventProcessor {
 
         info!("Found {} users on HS {hs_id}", users.len());
 
-        for batch in users.chunks(MAX_USERS_PER_STREAM) {
-            self.process_batch(&hs_pk, &hs_id, batch)
-                .await
-                .inspect_err(|e| error!("Batch failed for HS {hs_id}: {e:?}"))?;
+        // TODO: Process users concurrently (bounded semaphore) to reduce per-HS latency
+        //       when many users share a non-default homeserver.
+        for (user_pk, cursor) in &users {
+            if *self.shutdown_rx.borrow() {
+                debug!("Shutdown detected; stopping user iteration for HS {hs_id}");
+                break;
+            }
+
+            if let Err(err) = self.process_user(&hs_pk, &hs_id, user_pk, *cursor).await {
+                let user_id = user_pk.z32();
+                if err.is_infrastructure() {
+                    error!(
+                        hs_id = %hs_id,
+                        user = %user_id,
+                        action = "abort_hs",
+                        error = ?err,
+                        "Infrastructure error while processing user; aborting homeserver run",
+                    );
+                    return Err(err);
+                }
+
+                error!(
+                    hs_id = %hs_id,
+                    user = %user_id,
+                    action = "skip_user",
+                    error = ?err,
+                    "Non-infrastructure user error; continuing with next user",
+                );
+            }
         }
 
         Ok(())
@@ -95,41 +114,38 @@ impl KeyBasedEventProcessor {
         Ok(users)
     }
 
-    /// Subscribes to the event stream for a batch of users and processes incoming events.
+    /// Subscribes to the event stream for a single user and processes incoming events.
     ///
-    /// Cursors are accumulated in memory and flushed to Redis once at the end.
-    /// On error, partial cursor progress is persisted before re-raising.
-    #[tracing::instrument(name = "dx.event_batch.process", skip_all, fields(
+    /// Each user gets their own `limit` budget, ensuring fair progress regardless
+    /// of how many events other users have produced.
+    #[tracing::instrument(name = "dx.user_events.process", skip_all, fields(
         homeserver = %hs_id,
-        batch.size = batch.len(),
+        user = %user_pk.z32(),
     ))]
-    async fn process_batch(
+    async fn process_user(
         &self,
         hs_pk: &PublicKey,
         hs_id: &str,
-        batch: &[(PublicKey, EventCursor)],
+        user_pk: &PublicKey,
+        cursor: EventCursor,
     ) -> Result<(), EventProcessorError> {
-        let user_refs: Vec<(&PublicKey, Option<EventCursor>)> = batch
-            .iter()
-            .map(|(pk, cursor)| (pk, Some(*cursor)))
-            .collect();
-
         let pubky = PubkyConnector::get()?;
         let mut stream = pubky
             .event_stream_for(hs_pk)
-            .add_users(user_refs)?
+            .add_users(vec![(user_pk, Some(cursor))])?
             .limit(self.limit)
             .path("/pub/")
             .subscribe()
             .await
             .inspect_err(|e| error!("Failed to subscribe to event stream: {e:?}"))?;
 
-        let mut cursors: HashMap<String, u64> = HashMap::new();
+        let user_id = user_pk.z32();
+        let mut latest_cursor: Option<u64> = None;
 
-        let batch_result: Result<(), EventProcessorError> = async {
+        let result: Result<(), EventProcessorError> = async {
             while let Some(result) = stream.next().await {
                 if *self.shutdown_rx.borrow() {
-                    debug!(hs_id = %hs_id, "Shutdown detected; exiting event processing loop");
+                    debug!(hs_id = %hs_id, user = %user_id, "Shutdown detected; exiting event loop");
                     break;
                 }
 
@@ -139,14 +155,27 @@ impl KeyBasedEventProcessor {
                     self.handle_event(&event).await?;
                 }
 
-                cursors.insert(stream_event.resource.owner.z32(), stream_event.cursor.id());
+                latest_cursor = Some(stream_event.cursor.id());
             }
             Ok(())
         }
         .await;
 
-        Self::flush_cursors(&cursors, hs_id).await?;
-        batch_result
+        if let Some(cursor_val) = latest_cursor {
+            if let Err(write_err) = Self::write_user_cursor(&user_id, hs_id, cursor_val).await {
+                // TODO: Queue failed cursor writes in the retry manager so they
+                //       can be recovered without re-processing events.
+                error!(
+                    hs_id = %hs_id,
+                    user = %user_id,
+                    cursor = cursor_val,
+                    cursor_write_error = ?write_err,
+                    "Best-effort cursor persist failed; events may be re-processed on next run",
+                );
+            }
+        }
+
+        result
     }
 
     /// Reads the per-user event cursor from the `USER_HS_CURSOR` sorted set in Redis.
@@ -161,8 +190,8 @@ impl KeyBasedEventProcessor {
         user_id: &str,
         hs_id: &str,
     ) -> Result<EventCursor, EventProcessorError> {
-        let cursor_key = [&USER_HS_CURSOR[..], &[user_id]].concat();
-        let score = UserDetails::check_sorted_set_member(None, &cursor_key, &[hs_id]).await?;
+        let key = user_hs_cursor_key(user_id);
+        let score = UserDetails::check_sorted_set_member(None, &key, &[hs_id]).await?;
         Ok(EventCursor::new(score.unwrap_or(0) as u64))
     }
 
@@ -172,25 +201,8 @@ impl KeyBasedEventProcessor {
         hs_id: &str,
         cursor: u64,
     ) -> Result<(), EventProcessorError> {
-        let cursor_key = [&USER_HS_CURSOR[..], &[user_id]].concat();
-        UserDetails::put_index_sorted_set(
-            &cursor_key,
-            &[(cursor as f64, hs_id)],
-            None,
-            None,
-        )
-        .await?;
-        Ok(())
-    }
-
-    /// Flushes all accumulated in-memory cursors to Redis in one pass.
-    async fn flush_cursors(
-        cursors: &HashMap<String, u64>,
-        hs_id: &str,
-    ) -> Result<(), EventProcessorError> {
-        for (user_id, cursor) in cursors {
-            Self::write_user_cursor(user_id, hs_id, *cursor).await?;
-        }
+        let key = user_hs_cursor_key(user_id);
+        UserDetails::put_index_sorted_set(&key, &[(cursor as f64, hs_id)], None, None).await?;
         Ok(())
     }
 }

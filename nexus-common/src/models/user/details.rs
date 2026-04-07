@@ -14,6 +14,12 @@ use utoipa::ToSchema;
 
 pub const USER_HS_CURSOR: [&str; 2] = ["Users", "Homeservers"];
 
+/// Builds the Redis key path for per-user homeserver cursor storage:
+/// `["Users", "Homeservers", <user_id>]`.
+pub fn user_hs_cursor_key(user_id: &str) -> Vec<&str> {
+    [&USER_HS_CURSOR[..], &[user_id]].concat()
+}
+
 #[async_trait]
 impl RedisOps for UserDetails {}
 
@@ -162,8 +168,8 @@ impl UserDetails {
             .inspect_err(|e| tracing::error!("Failed to ingest user {user_id}: {e}"))?;
 
         // Store the start point of the homeserver cursor
-        let key = &[&USER_HS_CURSOR[..], &[user_id]].concat();
-        Self::put_index_sorted_set(key, &[(0.0, hs_id)], None, None).await?;
+        let key = user_hs_cursor_key(user_id);
+        Self::put_index_sorted_set(&key, &[(0.0, hs_id)], None, None).await?;
 
         Ok(())
     }
