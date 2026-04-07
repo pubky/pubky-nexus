@@ -20,16 +20,27 @@ use pubky_app_specs::{
 async fn test_bookmark_del_retry_no_double_decrement() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
-    // Create user + post + bookmark through the normal watcher flow
-    let user_kp = Keypair::random();
-    let user = PubkyAppUser {
+    // Create post author
+    let author_kp = Keypair::random();
+    let author = PubkyAppUser {
         bio: Some("test_bookmark_del_retry_no_double_decrement".to_string()),
         image: None,
         links: None,
-        name: "Watcher:Bookmark:DelRetry:User".to_string(),
+        name: "Watcher:Bookmark:DelRetry:Author".to_string(),
         status: None,
     };
-    let user_id = test.create_user(&user_kp, &user).await?;
+    let author_id = test.create_user(&author_kp, &author).await?;
+
+    // Create bookmark owner (different user)
+    let bookmarker_kp = Keypair::random();
+    let bookmarker = PubkyAppUser {
+        bio: Some("test_bookmark_del_retry_no_double_decrement".to_string()),
+        image: None,
+        links: None,
+        name: "Watcher:Bookmark:DelRetry:Bookmarker".to_string(),
+        status: None,
+    };
+    let bookmarker_id = test.create_user(&bookmarker_kp, &bookmarker).await?;
 
     let post = PubkyAppPost {
         content: "Watcher:Bookmark:DelRetry:Post".to_string(),
@@ -38,53 +49,60 @@ async fn test_bookmark_del_retry_no_double_decrement() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let (post_id, post_path) = test.create_post(&user_kp, &post).await?;
+    let (post_id, post_path) = test.create_post(&author_kp, &post).await?;
 
     let bookmark = PubkyAppBookmark {
-        uri: post_uri_builder(user_id.clone(), post_id.clone()),
+        uri: post_uri_builder(author_id.clone(), post_id.clone()),
         created_at: chrono::Utc::now().timestamp_millis(),
     };
     let bookmark_id = bookmark.create_id();
     let bookmark_path = bookmark.hs_path();
 
-    test.put(&user_kp, &bookmark_path, bookmark).await?;
+    test.put(&bookmarker_kp, &bookmark_path, bookmark).await?;
 
     // Verify initial state: bookmark exists in graph + Redis, count = 1
-    assert!(find_post_bookmark(&user_id, &post_id, &user_id)
+    assert!(find_post_bookmark(&author_id, &post_id, &bookmarker_id)
         .await
         .is_ok());
-    assert!(Bookmark::get_from_index(&user_id, &post_id, &user_id)
-        .await?
-        .is_some());
-    assert_eq!(find_user_counts(&user_id).await.bookmarks, 1);
+    assert!(
+        Bookmark::get_from_index(&author_id, &post_id, &bookmarker_id)
+            .await?
+            .is_some()
+    );
+    assert_eq!(find_user_counts(&bookmarker_id).await.bookmarks, 1);
 
     // Simulate partial completion of a previous sync_del attempt:
     // Redis cleanup succeeded (index removed + counter decremented) but graph delete failed.
-    Bookmark::del_from_index(&user_id, &post_id, &user_id).await?;
-    UserCounts::decrement(&user_id, "bookmarks", None).await?;
+    // NOTE: del_from_index takes (bookmarker_id, post_id, author_id) — different param order than get_from_index!
+    Bookmark::del_from_index(&bookmarker_id, &post_id, &author_id).await?;
+    UserCounts::decrement(&bookmarker_id, "bookmarks", None).await?;
 
     // Verify simulated state: graph still has edge, Redis is clean, counter = 0
-    assert!(find_post_bookmark(&user_id, &post_id, &user_id)
+    assert!(find_post_bookmark(&author_id, &post_id, &bookmarker_id)
         .await
         .is_ok());
-    assert!(Bookmark::get_from_index(&user_id, &post_id, &user_id)
-        .await?
-        .is_none());
-    assert_eq!(find_user_counts(&user_id).await.bookmarks, 0);
+    assert!(
+        Bookmark::get_from_index(&author_id, &post_id, &bookmarker_id)
+            .await?
+            .is_none()
+    );
+    assert_eq!(find_user_counts(&bookmarker_id).await.bookmarks, 0);
 
     // Retry: call sync_del directly — should complete graph cleanup without double-decrement
-    let user_pubky_id = PubkyId::try_from(user_id.as_str()).map_err(anyhow::Error::msg)?;
-    handlers::bookmark::sync_del(user_pubky_id, bookmark_id).await?;
+    let bookmarker_pubky_id =
+        PubkyId::try_from(bookmarker_id.as_str()).map_err(anyhow::Error::msg)?;
+    handlers::bookmark::sync_del(bookmarker_pubky_id, bookmark_id).await?;
 
     // Verify final state: graph edge deleted, counter still 0 (not decremented again)
-    assert!(find_post_bookmark(&user_id, &post_id, &user_id)
+    assert!(find_post_bookmark(&author_id, &post_id, &bookmarker_id)
         .await
         .is_err());
-    assert_eq!(find_user_counts(&user_id).await.bookmarks, 0);
+    assert_eq!(find_user_counts(&bookmarker_id).await.bookmarks, 0);
 
     // Cleanup
-    test.cleanup_post(&user_kp, &post_path).await?;
-    test.cleanup_user(&user_kp).await?;
+    test.cleanup_post(&author_kp, &post_path).await?;
+    test.cleanup_user(&bookmarker_kp).await?;
+    test.cleanup_user(&author_kp).await?;
 
     Ok(())
 }
@@ -94,15 +112,27 @@ async fn test_bookmark_del_retry_no_double_decrement() -> Result<()> {
 async fn test_bookmark_del_replay_after_success_skips() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
 
-    let user_kp = Keypair::random();
-    let user = PubkyAppUser {
+    // Create post author
+    let author_kp = Keypair::random();
+    let author = PubkyAppUser {
         bio: Some("test_bookmark_del_replay_after_success_skips".to_string()),
         image: None,
         links: None,
-        name: "Watcher:Bookmark:DelReplay:User".to_string(),
+        name: "Watcher:Bookmark:DelReplay:Author".to_string(),
         status: None,
     };
-    let user_id = test.create_user(&user_kp, &user).await?;
+    let author_id = test.create_user(&author_kp, &author).await?;
+
+    // Create bookmark owner (different user)
+    let bookmarker_kp = Keypair::random();
+    let bookmarker = PubkyAppUser {
+        bio: Some("test_bookmark_del_replay_after_success_skips".to_string()),
+        image: None,
+        links: None,
+        name: "Watcher:Bookmark:DelReplay:Bookmarker".to_string(),
+        status: None,
+    };
+    let bookmarker_id = test.create_user(&bookmarker_kp, &bookmarker).await?;
 
     let post = PubkyAppPost {
         content: "Watcher:Bookmark:DelReplay:Post".to_string(),
@@ -111,29 +141,30 @@ async fn test_bookmark_del_replay_after_success_skips() -> Result<()> {
         embed: None,
         attachments: None,
     };
-    let (post_id, post_path) = test.create_post(&user_kp, &post).await?;
+    let (post_id, post_path) = test.create_post(&author_kp, &post).await?;
 
     let bookmark = PubkyAppBookmark {
-        uri: post_uri_builder(user_id.clone(), post_id.clone()),
+        uri: post_uri_builder(author_id.clone(), post_id.clone()),
         created_at: chrono::Utc::now().timestamp_millis(),
     };
     let bookmark_id = bookmark.create_id();
     let bookmark_path = bookmark.hs_path();
 
-    test.put(&user_kp, &bookmark_path, bookmark).await?;
+    test.put(&bookmarker_kp, &bookmark_path, bookmark).await?;
 
     // Delete through normal event flow
-    test.del(&user_kp, &bookmark_path).await?;
+    test.del(&bookmarker_kp, &bookmark_path).await?;
 
     // Verify fully deleted state
-    assert!(find_post_bookmark(&user_id, &post_id, &user_id)
+    assert!(find_post_bookmark(&author_id, &post_id, &bookmarker_id)
         .await
         .is_err());
-    assert_eq!(find_user_counts(&user_id).await.bookmarks, 0);
+    assert_eq!(find_user_counts(&bookmarker_id).await.bookmarks, 0);
 
     // Replay: call sync_del again — should get SkipIndexing (graph edge gone)
-    let user_pubky_id = PubkyId::try_from(user_id.as_str()).map_err(anyhow::Error::msg)?;
-    let result = handlers::bookmark::sync_del(user_pubky_id, bookmark_id).await;
+    let bookmarker_pubky_id =
+        PubkyId::try_from(bookmarker_id.as_str()).map_err(anyhow::Error::msg)?;
+    let result = handlers::bookmark::sync_del(bookmarker_pubky_id, bookmark_id).await;
 
     assert!(
         matches!(result, Err(EventProcessorError::SkipIndexing)),
@@ -141,11 +172,12 @@ async fn test_bookmark_del_replay_after_success_skips() -> Result<()> {
     );
 
     // Counter must remain 0
-    assert_eq!(find_user_counts(&user_id).await.bookmarks, 0);
+    assert_eq!(find_user_counts(&bookmarker_id).await.bookmarks, 0);
 
     // Cleanup
-    test.cleanup_post(&user_kp, &post_path).await?;
-    test.cleanup_user(&user_kp).await?;
+    test.cleanup_post(&author_kp, &post_path).await?;
+    test.cleanup_user(&bookmarker_kp).await?;
+    test.cleanup_user(&author_kp).await?;
 
     Ok(())
 }
