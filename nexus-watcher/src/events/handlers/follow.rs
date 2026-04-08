@@ -91,7 +91,7 @@ pub async fn sync_del(
     follower_id: PubkyId,
     followee_id: PubkyId,
 ) -> Result<(), EventProcessorError> {
-    // Check friendship while graph edge still exists
+    // Check friendship while Redis follow sets are still populated
     let were_friends = Friends::check(&follower_id, &followee_id).await?;
 
     // Guard counters/notifications: only run if still in Redis index (first attempt).
