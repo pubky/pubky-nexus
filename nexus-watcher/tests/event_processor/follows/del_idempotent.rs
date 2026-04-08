@@ -75,8 +75,8 @@ async fn test_follow_del_idempotent() -> Result<()> {
     assert!(!exists, "Follow relationship should not exist in graph");
 
     // Simulate retry: call sync_del directly with the same follower/followee
-    let follower_pubky = PubkyId::try_from(follower_id.as_str()).map_err(|e| anyhow::anyhow!(e))?;
-    let followee_pubky = PubkyId::try_from(followee_id.as_str()).map_err(|e| anyhow::anyhow!(e))?;
+    let follower_pubky = PubkyId::from(follower_kp.clone());
+    let followee_pubky = PubkyId::from(followee_kp.clone());
     follow::sync_del(follower_pubky, followee_pubky).await?;
 
     // Verify counts are still 0 (not negative)
@@ -176,8 +176,8 @@ async fn test_follow_del_recovers_stale_indexes() -> Result<()> {
     );
 
     // Simulate retry: sync_del sees stale indexes, decrements counters once, cleans up
-    let follower_pubky = PubkyId::try_from(follower_id.as_str()).map_err(|e| anyhow::anyhow!(e))?;
-    let followee_pubky = PubkyId::try_from(followee_id.as_str()).map_err(|e| anyhow::anyhow!(e))?;
+    let follower_pubky = PubkyId::from(follower_kp.clone());
+    let followee_pubky = PubkyId::from(followee_kp.clone());
     follow::sync_del(follower_pubky, followee_pubky).await?;
 
     // Verify both stale indexes are cleaned up
@@ -267,8 +267,8 @@ async fn test_follow_del_friends_idempotent() -> Result<()> {
     assert_eq!(b_counts.followers, 0, "B should have 0 followers");
 
     // Simulate retry: call sync_del again for A→B
-    let a_pubky = PubkyId::try_from(a_id.as_str()).map_err(|e| anyhow::anyhow!(e))?;
-    let b_pubky = PubkyId::try_from(b_id.as_str()).map_err(|e| anyhow::anyhow!(e))?;
+    let a_pubky = PubkyId::from(a_kp.public_key());
+    let b_pubky = PubkyId::from(b_kp.public_key());
     follow::sync_del(a_pubky, b_pubky).await?;
 
     // Verify counts unchanged (friends not double-decremented)

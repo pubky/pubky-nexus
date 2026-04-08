@@ -41,7 +41,7 @@ async fn test_user_del_idempotent() -> Result<()> {
     );
 
     // Simulate retry: call del() directly — graph node is gone so expect SkipIndexing
-    let user_pubky = PubkyId::try_from(user_id.as_str()).map_err(|e| anyhow::anyhow!(e))?;
+    let user_pubky = PubkyId::from(user_kp.public_key());
     let result = user::del(user_pubky).await;
     assert!(
         matches!(result, Err(EventProcessorError::SkipIndexing)),
@@ -112,7 +112,7 @@ async fn test_user_del_graph_last_recovery() -> Result<()> {
     );
 
     // Retry: call del() directly — should recover and complete successfully
-    let user_pubky = PubkyId::try_from(user_id.as_str()).map_err(|e| anyhow::anyhow!(e))?;
+    let user_pubky = PubkyId::from(user_kp.public_key());
     user::del(user_pubky).await?;
 
     // Verify full cleanup after recovery

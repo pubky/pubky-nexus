@@ -71,8 +71,8 @@ async fn test_follow_put_idempotent() -> Result<()> {
     let notification_count_before = notifications_before.len();
 
     // Simulate retry: call sync_put directly with the same follower/followee
-    let follower_pubky = PubkyId::try_from(follower_id.as_str()).map_err(|e| anyhow::anyhow!(e))?;
-    let followee_pubky = PubkyId::try_from(followee_id.as_str()).map_err(|e| anyhow::anyhow!(e))?;
+    let follower_pubky = PubkyId::from(follower_kp.clone());
+    let followee_pubky = PubkyId::from(followee_kp.clone());
     follow::sync_put(follower_pubky, followee_pubky).await?;
 
     // Verify counts are unchanged (not doubled)
@@ -167,8 +167,8 @@ async fn test_follow_put_recovers_missing_indexes() -> Result<()> {
     let notifications_before = Notification::get_by_id(&followee_id, Pagination::default()).await?;
 
     // Simulate retry: sync_put hits Updated (graph edge exists) and runs recovery
-    let follower_pubky = PubkyId::try_from(follower_id.as_str()).map_err(|e| anyhow::anyhow!(e))?;
-    let followee_pubky = PubkyId::try_from(followee_id.as_str()).map_err(|e| anyhow::anyhow!(e))?;
+    let follower_pubky = PubkyId::from(follower_kp.clone());
+    let followee_pubky = PubkyId::from(followee_kp.clone());
     follow::sync_put(follower_pubky, followee_pubky).await?;
 
     // Verify both indexes are recovered
