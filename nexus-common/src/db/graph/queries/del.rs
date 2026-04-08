@@ -66,14 +66,12 @@ pub fn delete_bookmark(user_id: &str, bookmark_id: &str) -> Query {
 /// When `app` is `Some`, adds `WHERE tag.app = $app` to scope deletion to a specific app namespace.
 /// This prevents cross-app deletion for Resource tags where each app owns its own TAGGED relationship.
 ///
-/// When `app` is `None`, matches by `(user_id, tag_id)` only. This is the correct behavior for:
-/// - Standard Post/User tag deletion (TAGGED relationships have no `app` property)
-/// - InternalKnown DEL fallback (tag was created via standard flow without `app`)
+/// When `app` is `None`, adds `WHERE tag.app IS NULL` to only match relationships without an app
+/// property. This prevents cross-app deletion when multiple apps tag the same URI with the same label.
 pub fn delete_tag(user_id: &str, tag_id: &str, app: Option<&str>) -> Query {
-    let app_filter = if app.is_some() {
-        "\n    WHERE tag.app = $app"
-    } else {
-        ""
+    let app_filter = match app {
+        Some(_) => "\n    WHERE tag.app = $app",
+        None => "\n    WHERE tag.app IS NULL",
     };
 
     let cypher = format!(

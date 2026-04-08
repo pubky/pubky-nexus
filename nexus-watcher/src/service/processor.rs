@@ -175,7 +175,7 @@ impl EventProcessor {
                     error!("Universal tag non-retryable: {msg}");
                 }
                 _ => {
-                    let index_key = format!("{event_type}:universal_tag:{uri}");
+                    let index_key = format!("{event_type}:{uri}");
                     let retry_event = RetryEvent::new(e);
                     error!("{}, {}", retry_event.error_type, index_key);
                     if let Err(err) = retry_event.put_to_index(index_key).await {
