@@ -151,12 +151,27 @@ impl KeyBasedEventProcessor {
                 }
 
                 let stream_event = result?;
+                let cursor_id = stream_event.cursor.id();
 
-                if let Some(event) = Event::from_stream_event(&stream_event, self.files_path.clone())? {
-                    self.handle_event(&event).await?;
+                match Event::from_stream_event(&stream_event, self.files_path.clone()) {
+                    Ok(Some(event)) => {
+                        self.handle_event(&event).await?;
+                    }
+                    Ok(None) => { /* resource not handled by Nexus, skip */ }
+                    Err(e) => {
+                        error!(
+                            hs_id = %hs_id,
+                            user = %user_id,
+                            cursor = cursor_id,
+                            "Skipping unparseable stream event: {e}",
+                        );
+                    }
                 }
 
-                latest_cursor = Some(stream_event.cursor.id());
+                // Always move forward after a skip or success so one bad
+                // event can't block the stream. If handle_event fails with
+                // a infrastructure error, that event will be retried next run.
+                latest_cursor = Some(cursor_id);
             }
             Ok(())
         }
