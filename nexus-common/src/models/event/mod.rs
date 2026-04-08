@@ -43,9 +43,7 @@ impl AsRef<[String]> for Event {
 }
 
 impl Event {
-    /// Parse event based on event line returned by homeservers' /events endpoint.
-    /// - line - event line string
-    /// - files_path - path to the directory where files are stored on nexus
+    /// Parse event from a line returned by the homeserver's `/events` endpoint.
     pub fn parse_event(
         line: &str,
         files_path: PathBuf,
@@ -66,30 +64,9 @@ impl Event {
             ))),
         }?;
 
-        // Validate and parse the URI using pubky-app-specs
         let uri = parts[1].to_string();
-        let parsed_uri = ParsedUri::try_from(uri.as_str()).map_err(|e| {
-            EventProcessorError::InvalidEventLine(format!("Cannot parse event URI: {e}"))
-        })?;
-
-        match parsed_uri.resource {
-            Resource::Unknown => {
-                debug!("Skipping unrecognised resource in URI: {uri}");
-                return Ok(None);
-            }
-            Resource::LastRead | Resource::Feed(_) | Resource::Blob(_) => return Ok(None),
-            _ => (),
-        };
-
         let event_line = line.to_string();
-
-        Ok(Some(Event {
-            uri,
-            event_type,
-            parsed_uri,
-            files_path,
-            event_line,
-        }))
+        Self::build(event_type, uri, event_line, files_path)
     }
 
     /// Constructs a nexus [`Event`] directly from a [`StreamEvent`], avoiding
@@ -106,20 +83,29 @@ impl Event {
         let uri = stream_event.resource.to_pubky_url();
         debug!("New stream event: {event_type} {uri}");
 
+        let event_line = format!("{event_type} {uri}");
+        Self::build(event_type, uri, event_line, files_path)
+    }
+
+    /// Shared validation and construction for both parsing paths.
+    fn build(
+        event_type: EventType,
+        uri: String,
+        event_line: String,
+        files_path: PathBuf,
+    ) -> Result<Option<Self>, EventProcessorError> {
         let parsed_uri = ParsedUri::try_from(uri.as_str()).map_err(|e| {
             EventProcessorError::InvalidEventLine(format!("Cannot parse event URI: {e}"))
         })?;
 
         match parsed_uri.resource {
             Resource::Unknown => {
-                debug!("Skipping unrecognised resource in stream event: {uri}");
+                debug!("Skipping unrecognised resource: {uri}");
                 return Ok(None);
             }
             Resource::LastRead | Resource::Feed(_) | Resource::Blob(_) => return Ok(None),
             _ => (),
         };
-
-        let event_line = format!("{event_type} {uri}");
 
         Ok(Some(Event {
             uri,
