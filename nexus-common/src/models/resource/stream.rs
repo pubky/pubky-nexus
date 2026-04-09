@@ -214,7 +214,7 @@ impl ResourceStream {
         pagination: Pagination,
         order: SortOrder,
         sorting: &ResourceSorting,
-        tags: &Option<Vec<String>>,
+        tags: Option<&[String]>,
     ) -> ModelResult<ResourceKeyStream> {
         let app = match source {
             ResourceStreamSource::App { app } => Some(app.as_str()),
@@ -253,17 +253,13 @@ impl ResourceStream {
     async fn get_resource_keys_from_graph(
         app: Option<&str>,
         sorting: &ResourceSorting,
-        tags: &Option<Vec<String>>,
+        tags: Option<&[String]>,
         pagination: &Pagination,
         order: SortOrder,
     ) -> ModelResult<ResourceKeyStream> {
-        let label_refs: Option<Vec<&str>> = tags
-            .as_ref()
-            .map(|t| t.iter().map(|s| s.as_str()).collect());
-
         let query = queries::get::resource_stream(
             app,
-            label_refs.as_deref(),
+            tags,
             sorting,
             &order,
             pagination.skip.unwrap_or(0),
@@ -331,8 +327,8 @@ impl ResourceStream {
 }
 
 /// Determines whether a query can be satisfied by a pre-computed Redis sorted set.
-fn can_use_index(app: Option<&str>, tags: &Option<Vec<String>>) -> bool {
-    let tag_count = tags.as_ref().map_or(0, |t| t.len());
+fn can_use_index(app: Option<&str>, tags: Option<&[String]>) -> bool {
+    let tag_count = tags.map_or(0, |t| t.len());
     match (app, tag_count) {
         (None, 0) => true,    // Global, no filters
         (Some(_), 0) => true, // App filter only
@@ -346,14 +342,14 @@ fn can_use_index(app: Option<&str>, tags: &Option<Vec<String>>) -> bool {
 fn build_index_key(
     sorting: &ResourceSorting,
     app: Option<&str>,
-    tags: &Option<Vec<String>>,
+    tags: Option<&[String]>,
 ) -> Vec<String> {
     let sorting_suffix = match sorting {
         ResourceSorting::Timeline => "Timeline",
         ResourceSorting::TaggersCount => "TaggersCount",
     };
 
-    let tag = tags.as_ref().and_then(|t| t.first());
+    let tag = tags.and_then(|t| t.first());
 
     match (app, tag) {
         (None, None) => vec!["Resources".into(), "Global".into(), sorting_suffix.into()],

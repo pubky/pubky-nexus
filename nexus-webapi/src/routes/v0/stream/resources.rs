@@ -94,7 +94,7 @@ pub async fn stream_resource_ids_handler(
         query.pagination,
         order,
         &query.sorting,
-        &query.tags,
+        query.tags.as_deref(),
     )
     .await?;
 
@@ -139,7 +139,7 @@ pub async fn stream_resources_handler(
         query.pagination,
         order,
         &query.sorting,
-        &query.tags,
+        query.tags.as_deref(),
     )
     .await?;
 

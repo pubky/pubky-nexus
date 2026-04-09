@@ -290,7 +290,7 @@ pub fn resource_tags(resource_id: &str) -> Query {
 /// Falls back to this when Redis sorted sets can't satisfy the query.
 pub fn resource_stream(
     app: Option<&str>,
-    labels: Option<&[&str]>,
+    labels: Option<&[String]>,
     sorting: &ResourceSorting,
     order: &SortOrder,
     skip: usize,
