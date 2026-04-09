@@ -1,6 +1,6 @@
 use crate::db::graph::error::GraphError;
 use crate::db::kv::{RedisResult, ScoreAction, SortOrder};
-use crate::db::{fetch_row_from_graph, queries, RedisOps};
+use crate::db::{queries, RedisOps};
 use crate::models::error::ModelResult;
 use crate::models::resource::tag::TagResource;
 use crate::models::resource::ResourceDetails;
@@ -302,17 +302,8 @@ impl ResourceStream {
         let mut views = Vec::with_capacity(resource_ids.len());
 
         for resource_id in resource_ids {
-            // Load Resource node details from graph
-            let query = queries::get::get_resource_by_id(resource_id);
-            let maybe_row = fetch_row_from_graph(query).await?;
-
-            let details = match maybe_row {
-                Some(row) => ResourceDetails {
-                    id: row.get("id").unwrap_or_default(),
-                    uri: row.get("uri").unwrap_or_default(),
-                    scheme: row.get("scheme").unwrap_or_default(),
-                    indexed_at: row.get("indexed_at").unwrap_or(0),
-                },
+            let details = match ResourceDetails::get_by_id(resource_id).await? {
+                Some(d) => d,
                 None => continue, // Resource was deleted between query and load
             };
 

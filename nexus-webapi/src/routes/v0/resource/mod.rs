@@ -7,7 +7,6 @@ use crate::{Error, Result};
 use axum::extract::{Path, Query};
 use axum::routing::get;
 use axum::{Json, Router};
-use nexus_common::db::fetch_row_from_graph;
 use nexus_common::models::resource::tag::TagResource;
 use nexus_common::models::resource::{normalize_uri, resource_id, ResourceDetails};
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
@@ -193,24 +192,11 @@ pub async fn resource_taggers_handler(
 
 /// Load Resource node details from Neo4j.
 async fn load_resource_details(res_id: &str) -> Result<ResourceDetails> {
-    let query = nexus_common::db::queries::get::get_resource_by_id(res_id);
-    let maybe_row = fetch_row_from_graph(query)
-        .await
-        .map_err(|e| Error::InternalServerError {
-            source: Box::new(e),
-        })?;
-
-    match maybe_row {
-        Some(row) => Ok(ResourceDetails {
-            id: row.get("id").unwrap_or_default(),
-            uri: row.get("uri").unwrap_or_default(),
-            scheme: row.get("scheme").unwrap_or_default(),
-            indexed_at: row.get("indexed_at").unwrap_or(0),
-        }),
-        None => Err(Error::ResourceNotFound {
+    ResourceDetails::get_by_id(res_id)
+        .await?
+        .ok_or_else(|| Error::ResourceNotFound {
             resource_id: res_id.to_string(),
-        }),
-    }
+        })
 }
 
 #[derive(OpenApi)]
