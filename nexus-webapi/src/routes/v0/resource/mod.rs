@@ -18,6 +18,9 @@ use utoipa::{OpenApi, ToSchema};
 
 use crate::routes::AppState;
 
+/// Max length for URI used in raw URI lookup
+const MAX_URI_LENGTH: usize = 2048;
+
 /// Response envelope for resource tag endpoints, matching spec Section 9.1.
 #[derive(Serialize, Deserialize, Debug, ToSchema)]
 pub struct ResourceTagsResponse {
@@ -119,6 +122,12 @@ pub async fn resource_tags_handler(
 pub async fn resource_by_uri_handler(
     Query(query): Query<ResourceByUriQuery>,
 ) -> Result<Json<ResourceTagsResponse>> {
+    if query.uri.len() > MAX_URI_LENGTH {
+        return Err(Error::invalid_input(&format!(
+            "URI too long (max {MAX_URI_LENGTH} bytes)"
+        )));
+    }
+
     debug!("GET {RESOURCE_BY_URI_ROUTE} uri:{}", query.uri);
 
     let (normalized, _scheme) =
