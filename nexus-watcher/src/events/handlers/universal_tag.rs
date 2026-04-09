@@ -1,13 +1,9 @@
-use std::path::Path;
-use std::sync::Arc;
-
 use nexus_common::db::PubkyConnector;
 use nexus_common::models::event::{EventProcessorError, EventType};
 use pubky_app_specs::{PubkyAppTag, PubkyId};
 use tracing::debug;
 
 use super::tag;
-use crate::events::Moderation;
 
 /// Info extracted from a universal tag path: `pubky://<user_id>/pub/<app>/tags/<tag_id>`
 pub struct AppTagInfo {
@@ -26,8 +22,6 @@ pub struct AppTagInfo {
 pub async fn try_handle(
     event_type: &EventType,
     uri: &str,
-    files_path: &Path,
-    _moderation: &Arc<Moderation>,
 ) -> Option<Result<(), EventProcessorError>> {
     let info = try_parse_app_tag_path(uri)?;
 
@@ -37,12 +31,12 @@ pub async fn try_handle(
     );
 
     Some(match event_type {
-        EventType::Put => handle_put(info, files_path).await,
+        EventType::Put => handle_put(info).await,
         EventType::Del => handle_del(info).await,
     })
 }
 
-async fn handle_put(info: AppTagInfo, _files_path: &Path) -> Result<(), EventProcessorError> {
+async fn handle_put(info: AppTagInfo) -> Result<(), EventProcessorError> {
     // Fetch the tag blob from the homeserver
     let pubky = PubkyConnector::get()?;
     let response = pubky.public_storage().get(&info.uri).await?;

@@ -157,13 +157,7 @@ impl EventProcessor {
     /// Attempts to handle an unrecognized URI as a universal tag at an app-specific path.
     /// Returns `true` if the event was claimed (regardless of success/failure).
     async fn try_handle_universal_tag(&self, event_type: &EventType, uri: &str) -> bool {
-        let result = crate::events::handlers::universal_tag::try_handle(
-            event_type,
-            uri,
-            &self.files_path,
-            &self.moderation,
-        )
-        .await;
+        let result = crate::events::handlers::universal_tag::try_handle(event_type, uri).await;
 
         let Some(result) = result else {
             return false;
