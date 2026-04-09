@@ -106,8 +106,13 @@ async fn resolve_user(user_pk: &PublicKey) -> Result<(), DynError> {
     let pubky = PubkyConnector::get()?;
 
     let user_id = user_pk.z32();
-    let Some(hs_pk) = pubky.get_homeserver_of(&user_pk).await else {
-        return Err(format!("User {user_id} has no published HS").into());
+    let Some(hs_pk) = pubky.get_homeserver_of(user_pk).await else {
+        // No PKDNS record: remove stale HOSTED_BY edge
+        let query = queries::del::remove_user_homeserver(&user_id);
+        exec_single_row(query).await?;
+
+        debug!("User {user_id} has no published homeserver, removed HOSTED_BY");
+        return Ok(());
     };
 
     let hs_id = PubkyId::try_from(&hs_pk.into_inner().to_z32())?;
@@ -326,5 +331,48 @@ mod tests {
                 "position {pos}: expected sorted[{idx}]"
             );
         }
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn test_remove_user_homeserver() -> Result<(), DynError> {
+        setup().await?;
+
+        let user_id = "remove_hosted_by_test_user";
+        let hs_id = "remove_hosted_by_test_hs";
+
+        create_test_user(user_id).await?;
+
+        // Assign a homeserver
+        exec_single_row(queries::put::set_user_homeserver(user_id, hs_id)).await?;
+        let users = get_user_ids_by_homeserver(hs_id).await?;
+        assert!(
+            users.contains(&user_id.to_string()),
+            "user should be hosted"
+        );
+
+        // Remove the HOSTED_BY edge
+        exec_single_row(queries::del::remove_user_homeserver(user_id)).await?;
+
+        // User is no longer listed on that homeserver
+        let users = get_user_ids_by_homeserver(hs_id).await?;
+        assert!(
+            !users.contains(&user_id.to_string()),
+            "user should no longer be hosted after removal"
+        );
+
+        // User now needs resolution again (no HOSTED_BY edge)
+        let needing = get_users_needing_resolution(3_600_000).await?;
+        assert!(
+            needing.contains(&user_id.to_string()),
+            "user without HOSTED_BY should need resolution"
+        );
+
+        // Removing again is a no-op (no error)
+        exec_single_row(queries::del::remove_user_homeserver(user_id)).await?;
+
+        // Cleanup
+        cleanup_test_user(user_id).await?;
+
+        Ok(())
     }
 }

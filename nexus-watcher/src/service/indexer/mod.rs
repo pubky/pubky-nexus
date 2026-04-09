@@ -56,20 +56,23 @@ pub trait TEventProcessor: Send + Sync + 'static {
     fn files_path(&self) -> &PathBuf;
     fn moderation(&self) -> &Arc<Moderation>;
 
+    /// Returns the instance name of the event processor, used in the monitoring and tracing spans.
+    ///
+    /// For instances mapped to a specific HS, this should include the HS ID.
+    fn instance_name(&self) -> String;
+
     async fn run(self: Arc<Self>) -> Result<(), RunError> {
         let timeout = self
             .custom_timeout()
             .unwrap_or(Duration::from_secs(PROCESSING_TIMEOUT_SECS));
 
-        // Extract the class name of this instance
-        let instance_type_name = std::any::type_name::<Self>();
-        // TODO X1: Ensure we are using correct instance name (incl. which HS ID is used in case of HS Runner, etc)
-        let span = tracing::info_span!("event_processor.run", service = %instance_type_name);
+        let instance_name = self.instance_name();
+        let span = tracing::info_span!("event_processor.run", service = %instance_name);
         let handle = tokio::spawn(self.run_internal().instrument(span));
 
         let join_result = tokio::time::timeout(timeout, handle)
             .await
-            .inspect_err(|_| error!("Event processor timed out for {instance_type_name}")) // TODO See X1
+            .inspect_err(|_| error!("Event processor timed out for {instance_name}"))
             .map_err(|_| RunError::TimedOut)?;
 
         // The JoinError can be:
@@ -80,14 +83,11 @@ pub trait TEventProcessor: Send + Sync + 'static {
         // In our model, we don't trigger such interruptions. Instead we use the shutdown signal
         // to gracefully stop the event processing loop. Therefore we consider all JoinErrors as panics.
         let run_internal_result = join_result
-            .inspect_err(|je| {
-                error!("JoinError while running event processor for {instance_type_name}: {je:?}")
-                // TODO See X1
-            })
+            .inspect_err(|je| error!("JoinError by event processor for {instance_name}: {je:?}"))
             .map_err(|_| RunError::Panicked)?;
 
         run_internal_result
-            .inspect_err(|e| error!("Event processor failed for {instance_type_name}: {e:?}")) // TODO See X1
+            .inspect_err(|e| error!("Event processor failed for {instance_name}: {e:?}"))
             .map_err(RunError::Internal)
     }
 
@@ -150,7 +150,7 @@ pub trait TEventProcessor: Send + Sync + 'static {
             event.r#type = %event.event_type,
             event.user_id = %event.parsed_uri.user_id,
             event.resource_id = event.parsed_uri.resource.id().unwrap_or_default(),
-            // homeserver = %self.homeserver.id, // TODO Related to X1
+            instance = %self.instance_name(),
             otel.status_code = tracing::field::Empty,
             otel.status_message = tracing::field::Empty,
         )
