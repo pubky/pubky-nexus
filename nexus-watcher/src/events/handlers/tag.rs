@@ -126,7 +126,8 @@ async fn put_sync_resource(
         OperationOutcome::CreatedOrDeleted => {
             let tag_label_slice = &[tag_label.to_string()];
 
-            let indexing_results = tokio::join!(
+            let indexing_results = nexus_common::traced_join!(
+                tracing::info_span!("index.write", phase = "tag_resource");
                 // Update tag label score on Resource
                 TagResource::update_index_score(
                     resource_id,
