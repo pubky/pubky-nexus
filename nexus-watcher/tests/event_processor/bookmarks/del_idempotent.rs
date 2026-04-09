@@ -4,7 +4,6 @@ use crate::event_processor::{
     users::utils::find_user_counts, utils::watcher::HomeserverHashIdPath,
 };
 use anyhow::Result;
-use nexus_common::models::event::EventProcessorError;
 use nexus_common::models::post::Bookmark;
 use nexus_common::models::user::UserCounts;
 use nexus_watcher::events::handlers;
@@ -160,14 +159,14 @@ async fn test_bookmark_del_replay_after_success_skips() -> Result<()> {
         .is_err());
     assert_eq!(find_user_counts(&bookmarker_id).await.bookmarks, 0);
 
-    // Replay: call sync_del again — should get SkipIndexing (graph edge gone)
+    // Replay: call sync_del again — should succeed silently (graph edge already gone)
     let bookmarker_pubky_id =
         PubkyId::try_from(bookmarker_id.as_str()).map_err(anyhow::Error::msg)?;
     let result = handlers::bookmark::sync_del(bookmarker_pubky_id, bookmark_id).await;
 
     assert!(
-        matches!(result, Err(EventProcessorError::SkipIndexing)),
-        "Replay after full delete should return SkipIndexing, got: {result:?}"
+        result.is_ok(),
+        "Replay after full delete should return Ok, got: {result:?}"
     );
 
     // Counter must remain 0
