@@ -8,40 +8,59 @@ pub mod handlers;
 mod moderation;
 pub mod retry;
 
-pub use moderation::Moderation;
+pub use moderation::{Moderation, TModeration};
 
-pub async fn handle(event: &Event, moderation: Arc<Moderation>) -> Result<(), EventProcessorError> {
-    match event.event_type {
-        EventType::Put => handle_put_event(event, moderation).await,
-        EventType::Del => handle_del_event(event).await,
-    }?;
+/// Trait for handling events.
+///
+/// This trait abstracts event handling logic to allow for flexible implementations,
+/// including mocked versions for testing.
+#[async_trait::async_trait]
+pub trait EventHandler: Send + Sync {
+    /// Returns the moderation instance used by this event handler.
+    fn moderation(&self) -> &Arc<dyn TModeration>;
 
-    event.store_event().await?;
-    Ok(())
+    /// Handle an event.
+    ///
+    /// Returns `Ok(())` on success, or `Err(EventProcessorError)` on failure.
+    async fn handle(&self, event: &Event) -> Result<(), EventProcessorError>;
+}
+
+/// Default implementation of `EventHandler` that uses the actual event handling logic.
+pub struct DefaultEventHandler {
+    moderation: Arc<dyn TModeration>,
+}
+
+impl DefaultEventHandler {
+    pub fn new(moderation: Arc<dyn TModeration>) -> Self {
+        Self { moderation }
+    }
+}
+
+#[async_trait::async_trait]
+impl EventHandler for DefaultEventHandler {
+    fn moderation(&self) -> &Arc<dyn TModeration> {
+        &self.moderation
+    }
+
+    async fn handle(&self, event: &Event) -> Result<(), EventProcessorError> {
+        match event.event_type {
+            EventType::Put => handle_put_event(event, self.moderation.clone()).await,
+            EventType::Del => handle_del_event(event).await,
+        }?;
+
+        event.store_event().await?;
+        Ok(())
+    }
 }
 
 pub async fn handle_put_event(
     event: &Event,
-    moderation: Arc<Moderation>,
+    moderation: Arc<dyn TModeration>,
 ) -> Result<(), EventProcessorError> {
     debug!("Handling PUT event for URI: {}", event.uri);
 
     let pubky = PubkyConnector::get()?;
     let response = pubky.public_storage().get(&event.uri).await?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response
-            .text()
-            .await
-            .unwrap_or_else(|_| "<unable to read body>".to_string());
-
-        let err_msg = format!(
-            "Fetch resource failed {}: HTTP {status} - {body}",
-            event.uri
-        );
-        return Err(EventProcessorError::client_error(err_msg))?;
-    }
 
     let blob = response
         .bytes()
@@ -72,7 +91,9 @@ pub async fn handle_put_event(
         }
         (PubkyAppObject::Tag(tag), Resource::Tag(tag_id)) => {
             if moderation.should_delete(&tag, user_id.clone()).await {
-                Moderation::apply_moderation(tag, event.files_path.clone()).await?
+                moderation
+                    .apply_moderation(tag, event.files_path.clone())
+                    .await?
             } else {
                 handlers::tag::sync_put(tag, user_id, tag_id).await?
             }

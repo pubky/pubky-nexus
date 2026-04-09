@@ -4,6 +4,8 @@ use crate::service::utils::{create_mock_event_processors, setup, MockEventProces
 use anyhow::Result;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
+use nexus_watcher::events::retry::{InitialBackoff, RedisRetryStore, RetryScheduler, RetryStore};
+use nexus_watcher::events::{DefaultEventHandler, EventHandler};
 use nexus_watcher::service::backoff::HomeserverBackoff;
 use nexus_watcher::service::KeyBasedEventProcessorRunner;
 use nexus_watcher::service::TEventProcessorRunner;
@@ -17,14 +19,27 @@ async fn test_event_processor_runner_default_homeserver_excluded() -> Result<(),
     // Initialize the test
     setup().await?;
 
+    let moderation = default_moderation_tests();
+    let event_handler: Arc<dyn EventHandler> =
+        Arc::new(DefaultEventHandler::new(moderation.clone()));
+    let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
+    let retry_scheduler = Arc::new(RetryScheduler::new(
+        store,
+        InitialBackoff {
+            missing_dep_ms: 60_000,
+            transient_ms: 10_000,
+        },
+    ));
     let runner = KeyBasedEventProcessorRunner {
         limit: 1000,
         monitored_hs_limit: HS_IDS.len(),
         files_path: PathBuf::from("/tmp/nexus-watcher-test"),
-        moderation: Arc::new(default_moderation_tests()),
+        moderation: moderation.clone(),
+        event_handler,
         shutdown_rx: tokio::sync::watch::channel(false).1,
         default_homeserver: PubkyId::try_from(HS_IDS[3]).unwrap(),
         backoff: Mutex::new(HomeserverBackoff::default()),
+        retry_scheduler,
     };
 
     // Persist the homeservers

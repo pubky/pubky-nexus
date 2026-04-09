@@ -8,9 +8,14 @@ pub mod user_hs_resolver;
 
 /// Module exports
 pub use constants::{PROCESSING_TIMEOUT_SECS, WATCHER_CONFIG_FILE_NAME};
-pub use indexer::{HsEventProcessor, KeyBasedEventProcessor, TEventProcessor};
+pub use indexer::{HsEventProcessor, KeyBasedEventProcessor, RunError, TEventProcessor};
 pub use runner::{HsEventProcessorRunner, KeyBasedEventProcessorRunner, TEventProcessorRunner};
 pub(crate) use task_runner::{run_periodic_tasks, PeriodicTask};
+
+/// Sleep interval for the retry processor (10 seconds)
+const RETRY_PROCESSOR_SLEEP: u64 = 10_000;
+
+use crate::events::retry::RetryProcessor;
 
 use crate::service::task_runner::task_results_into_result;
 use crate::NexusWatcherBuilder;
@@ -101,6 +106,9 @@ impl NexusWatcher {
             shutdown_rx.clone(),
         ));
 
+        // Create retry processor
+        let retry_processor = Arc::new(RetryProcessor::new(&config, shutdown_rx.clone()));
+
         let tasks = vec![
             PeriodicTask::new("default-homeserver", watcher_sleep, move || {
                 let runner = hs_runner.clone();
@@ -112,6 +120,10 @@ impl NexusWatcher {
             }),
             PeriodicTask::new("user-hs-resolver", hs_resolver_sleep, move || async move {
                 user_hs_resolver::run(hs_resolver_ttl).await
+            }),
+            PeriodicTask::new("retry-processor", RETRY_PROCESSOR_SLEEP, move || {
+                let processor = retry_processor.clone();
+                async move { processor.run().await.map_err(DynError::from) }
             }),
         ];
 

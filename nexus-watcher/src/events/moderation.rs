@@ -7,6 +7,29 @@ use nexus_common::WatcherConfig;
 use pubky_app_specs::{ParsedUri, PubkyAppTag, PubkyId, Resource};
 use tracing::info;
 
+/// Trait for moderation operations.
+///
+/// This trait abstracts moderation logic to allow for flexible implementations,
+/// including mocked versions for testing.
+#[async_trait::async_trait]
+pub trait TModeration: Send + Sync {
+    /// Check if a tag should trigger deletion of the tagged content.
+    ///
+    /// Returns `true` if the tag was applied by the moderator and matches
+    /// a moderated tag label.
+    async fn should_delete(&self, tag: &PubkyAppTag, tagger_id: PubkyId) -> bool;
+
+    /// Apply moderation by deleting the tagged resource.
+    ///
+    /// Parses the embedded URI in the moderator tag and deletes the corresponding
+    /// resource (post, tag, user, or file).
+    async fn apply_moderation(
+        &self,
+        moderator_tag: PubkyAppTag,
+        files_path: PathBuf,
+    ) -> Result<(), EventProcessorError>;
+}
+
 pub struct Moderation {
     /// Moderator trusted user id
     pub id: PubkyId,
@@ -21,13 +44,17 @@ impl Moderation {
             tags: config.moderated_tags.clone(),
         })
     }
+}
 
-    pub async fn should_delete(&self, tag: &PubkyAppTag, tagger_id: PubkyId) -> bool {
+#[async_trait::async_trait]
+impl TModeration for Moderation {
+    async fn should_delete(&self, tag: &PubkyAppTag, tagger_id: PubkyId) -> bool {
         tagger_id == self.id && self.tags.contains(&tag.label)
     }
 
     #[tracing::instrument(name = "moderation.apply", skip_all)]
-    pub async fn apply_moderation(
+    async fn apply_moderation(
+        &self,
         moderator_tag: PubkyAppTag,
         files_path: PathBuf,
     ) -> Result<(), EventProcessorError> {

@@ -1,6 +1,5 @@
 use crate::event_processor::utils::watcher::{assert_eventually_exists, WatcherTest};
 use anyhow::Result;
-use nexus_common::models::event::{EventProcessorError, EventType};
 use nexus_watcher::events::retry::event::RetryEvent;
 use pubky::Keypair;
 use pubky_app_specs::{
@@ -41,15 +40,11 @@ async fn test_homeserver_post_with_reply_repost_cannot_index() -> Result<()> {
         attachments: None,
     };
 
-    let (repost_reply_id, repost_reply_path) = test.create_post(&user_kp, &repost_reply).await?;
+    let (repost_reply_id, _repost_reply_path) = test.create_post(&user_kp, &repost_reply).await?;
 
     let repost_reply_absolute_url = post_uri_builder(user_id, repost_reply_id);
 
-    let index_key = format!(
-        "{}:{}",
-        EventType::Put,
-        RetryEvent::generate_index_key(&repost_reply_absolute_url).unwrap()
-    );
+    let index_key = RetryEvent::generate_index_key(&repost_reply_absolute_url).unwrap();
 
     assert_eventually_exists(&index_key).await;
 
@@ -61,45 +56,6 @@ async fn test_homeserver_post_with_reply_repost_cannot_index() -> Result<()> {
 
     let event_state = event_retry.unwrap();
     assert_eq!(event_state.retry_count, 0);
-
-    match event_state.error_type {
-        EventProcessorError::MissingDependency { dependency } => {
-            assert_eq!(dependency.len(), 2);
-            assert_eq!(
-                dependency[0],
-                RetryEvent::generate_index_key(&reply_absolute_uri).unwrap()
-            );
-            assert_eq!(
-                dependency[1],
-                RetryEvent::generate_index_key(&repost_absolute_uri).unwrap()
-            );
-        }
-        _ => panic!("The error type has to be MissingDependency type"),
-    };
-
-    test.del(&user_kp, &repost_reply_path).await?;
-
-    let del_index_key = format!(
-        "{}:{}",
-        EventType::Del,
-        RetryEvent::generate_index_key(&repost_reply_absolute_url).unwrap()
-    );
-
-    assert_eventually_exists(&del_index_key).await;
-
-    let timestamp = RetryEvent::check_uri(&del_index_key).await.unwrap();
-    assert!(timestamp.is_some());
-
-    let event_retry = RetryEvent::get_from_index(&del_index_key).await.unwrap();
-    assert!(event_retry.is_some());
-
-    let event_state = event_retry.unwrap();
-    assert_eq!(event_state.retry_count, 0);
-
-    match event_state.error_type {
-        EventProcessorError::SkipIndexing => (),
-        _ => panic!("The error type has to be SkipIndexing type"),
-    };
 
     Ok(())
 }

@@ -4,13 +4,14 @@ mod key_based;
 pub use homeserver::HsEventProcessor;
 pub use key_based::KeyBasedEventProcessor;
 use std::{fmt::Display, path::PathBuf, sync::Arc, time::Duration};
+
 use tracing::Instrument;
 
 use nexus_common::models::event::{Event, EventProcessorError};
 use tracing::{debug, error};
 
-use crate::events::handle;
-use crate::events::Moderation;
+use crate::events::retry::RetryScheduler;
+use crate::events::{EventHandler, TModeration};
 use crate::service::PROCESSING_TIMEOUT_SECS;
 
 /// Possible error types of an event processor run
@@ -30,6 +31,8 @@ impl RunError {
         matches!(self, RunError::TimedOut)
     }
 }
+
+impl std::error::Error for RunError {}
 
 impl Display for RunError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -54,12 +57,21 @@ impl Display for RunError {
 #[async_trait::async_trait]
 pub trait TEventProcessor: Send + Sync + 'static {
     fn files_path(&self) -> &PathBuf;
-    fn moderation(&self) -> &Arc<Moderation>;
+    fn moderation(&self) -> &Arc<dyn TModeration>;
+
+    /// Returns the event handler used to process events.
+    ///
+    /// This allows for flexible event handling implementations, including mocked versions for testing.
+    fn event_handler(&self) -> &Arc<dyn EventHandler>;
 
     /// Returns the instance name of the event processor, used in the monitoring and tracing spans.
     ///
     /// For instances mapped to a specific HS, this should include the HS ID.
     fn instance_name(&self) -> String;
+
+    /// Returns the retry scheduler used by [`Self::handle_error`] to enqueue failed
+    /// events for later retry.
+    fn retry_scheduler(&self) -> &Arc<RetryScheduler>;
 
     async fn run(self: Arc<Self>) -> Result<(), RunError> {
         let timeout = self
@@ -121,22 +133,43 @@ pub trait TEventProcessor: Send + Sync + 'static {
     ///
     /// Called in the event processing loop.
     ///
-    /// It re-throws the erorr, which signals the caller should break the processing loop
-    /// and persist the cursor at the point where this error occurred. This is because, since
-    /// it's an infrastructure error, it is likely that trying to process the next event line
-    /// would result in the same issue.
+    /// Returns:
+    /// - `Ok(())` - Continue processing the batch (for MissingDependency, InvalidEventLine, SkipIndexing, 404)
+    /// - `Err(e)` - Stop processing and return error (for infrastructure errors)
     async fn handle_error(
         &self,
-        _event: &Event,
+        event: &Event,
         error: EventProcessorError,
     ) -> Result<(), EventProcessorError> {
-        if matches!(error, EventProcessorError::MissingDependency { .. }) {
-            // TODO save event in retry manager
-            Ok(())
-        } else if error.is_infrastructure() {
-            return Err(error);
-        } else {
-            Ok(())
+        match &error {
+            EventProcessorError::MissingDependency { dependency: _ } => {
+                self.retry_scheduler().queue_missing_dep(event).await
+            }
+            EventProcessorError::SkipIndexing => {
+                // Skip indexing - no retry entry needed
+                debug!("Skipping event indexing: {}", event.uri);
+                Ok(())
+            }
+            EventProcessorError::InvalidEventLine(_) => {
+                // Log and continue
+                Ok(())
+            }
+            EventProcessorError::PubkyClientError(_) if error.is_404() => {
+                // 404 - content definitively gone, continue batch
+                Ok(())
+            }
+            EventProcessorError::PubkyClientError(_) => {
+                // Non-404 client error (5xx, transport, etc.) - queue for retry
+                self.retry_scheduler().queue_transient(event).await
+            }
+            _ if error.is_infrastructure() => {
+                // Infrastructure error - stop the batch
+                Err(error)
+            }
+            _ => {
+                // Other errors - log and continue
+                Ok(())
+            }
         }
     }
 
@@ -157,7 +190,7 @@ pub trait TEventProcessor: Send + Sync + 'static {
     )]
     async fn handle_event(&self, event: &Event) -> Result<(), EventProcessorError> {
         let span = tracing::Span::current();
-        if let Err(e) = handle(event, self.moderation().clone()).await {
+        if let Err(e) = self.event_handler().handle(event).await {
             span.record("otel.status_code", "ERROR");
             span.record("otel.status_message", tracing::field::display(&e));
 

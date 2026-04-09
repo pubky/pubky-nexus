@@ -1,3 +1,4 @@
+use crate::event_processor::utils::default_moderation_tests;
 use anyhow::{anyhow, Error, Result};
 use base32::{encode, Alphabet};
 use chrono::Utc;
@@ -11,7 +12,8 @@ use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::traits::Collection;
 use nexus_common::{StackConfig, StackManager};
 use nexus_watcher::events::retry::event::RetryEvent;
-use nexus_watcher::events::{handle, Moderation};
+use nexus_watcher::events::retry::{InitialBackoff, RedisRetryStore, RetryScheduler, RetryStore};
+use nexus_watcher::events::{DefaultEventHandler, EventHandler};
 use nexus_watcher::service::HsEventProcessorRunner;
 use nexus_watcher::service::TEventProcessorRunner;
 use pubky::Keypair;
@@ -28,8 +30,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::debug;
-
-use crate::event_processor::utils::default_moderation_tests;
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -77,16 +77,29 @@ impl WatcherTest {
     /// # Returns
     /// Returns a fully configured `HsEventProcessorRunner` ready for use in tests.
     fn create_test_event_processor_runner(default_homeserver: PubkyId) -> HsEventProcessorRunner {
-        let moderation = Arc::new(default_moderation_tests());
+        let moderation = default_moderation_tests();
+        let event_handler: Arc<dyn EventHandler> =
+            Arc::new(DefaultEventHandler::new(moderation.clone()));
 
         let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+
+        let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
+        let retry_scheduler = Arc::new(RetryScheduler::new(
+            store,
+            InitialBackoff {
+                missing_dep_ms: 60_000,
+                transient_ms: 10_000,
+            },
+        ));
 
         HsEventProcessorRunner {
             limit: 1000,
             files_path: get_files_dir_test_pathbuf(),
             moderation,
+            event_handler,
             shutdown_rx,
             default_homeserver,
+            retry_scheduler,
         }
     }
 
@@ -343,10 +356,10 @@ impl WatcherTest {
 /// Throws an error if event parsing fails
 pub async fn retrieve_and_handle_event_line(
     event_line: &str,
-    moderation: Arc<Moderation>,
+    event_handler: Arc<dyn EventHandler>,
 ) -> Result<(), EventProcessorError> {
     match Event::parse_event(event_line, get_files_dir_pathbuf())? {
-        Some(event) => handle(&event, moderation).await,
+        Some(event) => event_handler.handle(&event).await,
         None => Ok(()),
     }
 }

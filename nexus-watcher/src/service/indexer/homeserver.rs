@@ -1,7 +1,8 @@
 use super::TEventProcessor;
-use crate::events::Moderation;
+use crate::events::retry::RetryScheduler;
+use crate::events::{EventHandler, TModeration};
 use nexus_common::db::PubkyConnector;
-use nexus_common::models::event::EventProcessorError;
+use nexus_common::models::event::{Event, EventProcessorError};
 use nexus_common::models::homeserver::Homeserver;
 use pubky::Method;
 use std::path::PathBuf;
@@ -17,8 +18,11 @@ pub struct HsEventProcessor {
     /// See [WatcherConfig::events_limit]
     pub limit: u32,
     pub files_path: PathBuf,
-    pub moderation: Arc<Moderation>,
+    pub moderation: Arc<dyn TModeration>,
+    pub event_handler: Arc<dyn EventHandler>,
     pub shutdown_rx: Receiver<bool>,
+    /// Scheduler used to enqueue failed events onto the retry queue
+    pub retry_scheduler: Arc<RetryScheduler>,
 }
 
 #[async_trait::async_trait]
@@ -27,12 +31,20 @@ impl TEventProcessor for HsEventProcessor {
         &self.files_path
     }
 
-    fn moderation(&self) -> &Arc<Moderation> {
+    fn moderation(&self) -> &Arc<dyn TModeration> {
         &self.moderation
+    }
+
+    fn event_handler(&self) -> &Arc<dyn EventHandler> {
+        &self.event_handler
     }
 
     fn instance_name(&self) -> String {
         format!("HsEventProcessor with HS ID: {}", self.homeserver.id)
+    }
+
+    fn retry_scheduler(&self) -> &Arc<RetryScheduler> {
+        &self.retry_scheduler
     }
 
     async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {
@@ -96,9 +108,11 @@ impl HsEventProcessor {
 
     /// Processes a batch of event lines retrieved from the homeserver.
     ///
-    /// This function iterates over a vector of event URIs, handling each line based on its content:
-    /// - Lines starting with `cursor:` update the cursor for the homeserver and save it to the index.
-    /// - Other lines are dispatched to [`TEventProcessor::process_event_line`].
+    /// This function implements the retry logic:
+    /// - On infrastructure error: stops the batch, cursor is not saved, next tick replays from same position
+    /// - On MissingDependency: stores event in retry queue, continues processing
+    /// - On 404 (blob not found): skips indexing, continues processing
+    /// - On InvalidEventLine/SkipIndexing: logs and continues
     ///
     /// # Parameters
     /// - `lines`: A vector of strings representing event lines retrieved from the homeserver.
@@ -113,14 +127,38 @@ impl HsEventProcessor {
             }
 
             if let Some(cursor) = line.strip_prefix("cursor: ") {
+                // Batch complete - save cursor
                 info!("Received cursor for the next request: {cursor}");
                 match Homeserver::try_from_cursor(id, cursor) {
-                    Ok(hs) => hs.put_to_index().await?,
+                    Ok(hs) => {
+                        hs.put_to_index().await?;
+                    }
                     Err(e) => warn!("{e}"),
                 }
-            } else {
-                self.process_event_line(line).await?;
+                continue;
             }
+
+            // Process the event line
+            let maybe_event = Event::parse_event(line, self.files_path.clone())
+                .inspect_err(|e| warn!("Failed to parse event line: {e}"))
+                .unwrap_or(None);
+
+            if let Some(event) = maybe_event {
+                debug!("Processing event: {:?}", event);
+
+                // Use the trait's handle_event method which delegates to handle_error
+                match self.handle_event(&event).await {
+                    Ok(()) => {
+                        // Event processed successfully
+                    }
+                    Err(e) => {
+                        // Infrastructure error - stop the batch
+                        error!("Infrastructure error processing event: {e}");
+                        return Err(e);
+                    }
+                }
+            }
+            // Invalid or unhandled event line - skip
         }
 
         Ok(())
