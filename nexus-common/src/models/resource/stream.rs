@@ -223,10 +223,9 @@ impl ResourceStream {
 
         if can_use_index(app, tags) {
             let key_parts = build_index_key(sorting, app, tags);
-            let key_refs: Vec<&str> = key_parts.iter().map(|s| s.as_str()).collect();
 
             let entries = Self::try_from_index_sorted_set(
-                &key_refs,
+                &key_parts,
                 pagination.start,
                 pagination.end,
                 pagination.skip,
@@ -339,11 +338,11 @@ fn can_use_index(app: Option<&str>, tags: Option<&[String]>) -> bool {
 }
 
 /// Builds the Redis sorted set key for the given filter combination.
-fn build_index_key(
+fn build_index_key<'a>(
     sorting: &ResourceSorting,
-    app: Option<&str>,
-    tags: Option<&[String]>,
-) -> Vec<String> {
+    app: Option<&'a str>,
+    tags: Option<&'a [String]>,
+) -> Vec<&'a str> {
     let sorting_suffix = match sorting {
         ResourceSorting::Timeline => "Timeline",
         ResourceSorting::TaggersCount => "TaggersCount",
@@ -352,26 +351,9 @@ fn build_index_key(
     let tag = tags.and_then(|t| t.first());
 
     match (app, tag) {
-        (None, None) => vec!["Resources".into(), "Global".into(), sorting_suffix.into()],
-        (Some(a), None) => vec![
-            "Resources".into(),
-            "App".into(),
-            a.into(),
-            sorting_suffix.into(),
-        ],
-        (None, Some(label)) => vec![
-            "Resources".into(),
-            "Tag".into(),
-            label.clone(),
-            sorting_suffix.into(),
-        ],
-        (Some(a), Some(label)) => vec![
-            "Resources".into(),
-            "App".into(),
-            a.into(),
-            "Tag".into(),
-            label.clone(),
-            sorting_suffix.into(),
-        ],
+        (None, None) => vec!["Resources", "Global", sorting_suffix],
+        (Some(a), None) => vec!["Resources", "App", a, sorting_suffix],
+        (None, Some(label)) => vec!["Resources", "Tag", label, sorting_suffix],
+        (Some(a), Some(label)) => vec!["Resources", "App", a, "Tag", label, sorting_suffix],
     }
 }
