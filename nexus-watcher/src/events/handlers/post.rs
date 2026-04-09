@@ -384,6 +384,7 @@ async fn put_mentioned_relationships_for_prefix(
 
 fn find_mentioned_ids(content: &str, prefix: &str) -> Vec<PubkyId> {
     let user_id_len = 52;
+    let mut seen = std::collections::HashSet::new();
     content
         .match_indices(prefix)
         .filter_map(|(start_idx, _)| {
@@ -392,6 +393,7 @@ fn find_mentioned_ids(content: &str, prefix: &str) -> Vec<PubkyId> {
                 .get(user_id_start..user_id_start + user_id_len)
                 .and_then(|candidate| PubkyId::try_from(candidate).ok())
         })
+        .filter(|id| seen.insert(id.to_string()))
         .collect()
 }
 
