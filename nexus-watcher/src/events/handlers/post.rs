@@ -156,8 +156,7 @@ pub async fn sync_put(
                         &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
                         parent_post_key_parts,
                     )
-                    .await
-                    .map_err(EventProcessorError::index_operation_failed)?;
+                    .await?;
                 }
                 Ok::<(), EventProcessorError>(())
             },
@@ -207,8 +206,7 @@ pub async fn sync_put(
                         &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
                         parent_post_key_parts,
                     )
-                    .await
-                    .map_err(EventProcessorError::index_operation_failed)?;
+                    .await?;
                 }
                 Ok::<(), EventProcessorError>(())
             },
@@ -317,9 +315,7 @@ async fn put_mentioned_relationships_for_prefix(
     for pubky_id in found_pubky_ids {
         // Create the MENTIONED relationship in the graph
         let query = queries::put::create_mention_relationship(author_id, post_id, &pubky_id);
-        exec_single_row(query)
-            .await
-            .map_err(EventProcessorError::graph_query_failed)?;
+        exec_single_row(query).await?;
 
         let maybe_mentioned_id = Notification::new_mention(author_id, &pubky_id, post_id).await?;
         if let Some(mentioned_user_id) = maybe_mentioned_id {
@@ -340,10 +336,7 @@ pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), EventProcess
     // If there is none other relationship (OperationOutcome::CreatedOrDeleted), we delete from graph and redis.
     // But if there is any (OperationOutcome::Updated), then we simply update the post with keyword content [DELETED].
     // A deleted post is a post whose content is EXACTLY `"[DELETED]"`
-    match execute_graph_operation(query)
-        .await
-        .map_err(EventProcessorError::graph_query_failed)?
-    {
+    match execute_graph_operation(query).await? {
         OperationOutcome::CreatedOrDeleted => sync_del(author_id, post_id).await?,
         OperationOutcome::Updated => {
             let existing_relationships = PostRelationships::get_by_id(&author_id, &post_id).await?;
@@ -429,8 +422,7 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
                             &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
                             &parent_post_key_parts,
                         )
-                        .await
-                        .map_err(EventProcessorError::index_operation_failed)?;
+                        .await?;
                     }
                     Ok::<(), EventProcessorError>(())
                 },
@@ -476,8 +468,7 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
                             &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
                             parent_post_key_parts,
                         )
-                        .await
-                        .map_err(EventProcessorError::index_operation_failed)?;
+                        .await?;
                     }
                     Ok::<(), EventProcessorError>(())
                 },

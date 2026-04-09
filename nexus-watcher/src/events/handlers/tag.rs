@@ -84,7 +84,8 @@ async fn put_sync_post(
             // Ensure that dependencies follow the same format as the RetryManager keys
             let dependency = vec![format!("{author_id}:posts:{post_id}")];
             if let Ok(referenced_post_uri) = ParsedUri::try_from(post_uri) {
-                if let Err(e) = PostDetails::maybe_ingest_author_of_post(&referenced_post_uri).await {
+                if let Err(e) = PostDetails::maybe_ingest_author_of_post(&referenced_post_uri).await
+                {
                     tracing::error!("Failed to ingest user: {e}");
                 }
             }
@@ -134,8 +135,7 @@ async fn put_sync_post(
                             post_id,
                             ScoreAction::Increment(1.0),
                         )
-                        .await
-                        .map_err(EventProcessorError::index_operation_failed)?;
+                        .await?;
                     }
                     Ok::<(), EventProcessorError>(())
                 },
@@ -345,8 +345,7 @@ async fn del_sync_post(
             if !post_relationships_is_reply(author_id, post_id).await? {
                 // Decrement in one post global engagement
                 PostStream::update_index_score(author_id, post_id, ScoreAction::Decrement(1.0))
-                    .await
-                    .map_err(EventProcessorError::index_operation_failed)?;
+                    .await?;
             }
             Ok::<(), EventProcessorError>(())
         },
