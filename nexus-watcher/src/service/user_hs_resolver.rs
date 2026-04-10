@@ -7,7 +7,7 @@ use nexus_common::db::{
     exec_single_row, fetch_key_from_graph, queries, GraphResult, PubkyConnector,
 };
 use nexus_common::types::DynError;
-
+use opentelemetry::global;
 use pubky::PublicKey;
 use pubky_app_specs::PubkyId;
 use tracing::{debug, warn};
@@ -24,11 +24,26 @@ pub async fn run(ttl_ms: u64) -> Result<(), DynError> {
     }
     debug!("Resolving homeservers for {} users", user_ids.len());
 
+    let meter = global::meter("hs-resolver-meter");
+    let gauge_total = meter
+        .u64_gauge("nexus.task.hs-resolver.total")
+        .with_description("Total number of attempted HS resolutions in this run")
+        .build();
+    let gauge_failed = meter
+        .u64_gauge("nexus.task.hs-resolver.failed")
+        .with_description("Total number of failed HS resolutions in this run")
+        .build();
+
+    let mut failed = 0;
     for user_id in &user_ids {
         if let Err(e) = resolve_user(user_id).await {
+            failed += 1;
             warn!("Failed to resolve homeserver for user {user_id}: {e}");
         }
     }
+
+    gauge_total.record(user_ids.len() as u64, &[]);
+    gauge_failed.record(failed, &[]);
 
     Ok(())
 }

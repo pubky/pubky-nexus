@@ -3165,6 +3165,7 @@ dependencies = [
  "httpc-test",
  "neo4rs",
  "nexus-common",
+ "opentelemetry 0.31.0",
  "pubky",
  "pubky-app-specs",
  "pubky-testnet",
