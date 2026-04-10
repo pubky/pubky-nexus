@@ -59,16 +59,27 @@ pub async fn del(user_id: PubkyId, bookmark_id: String) -> Result<(), EventProce
 }
 
 pub async fn sync_del(user_id: PubkyId, bookmark_id: String) -> Result<(), EventProcessorError> {
-    let deleted_bookmark_info = Bookmark::del_from_graph(&user_id, &bookmark_id).await?;
-    // Ensure the bookmark exists in the graph before proceeding
-    let (post_id, author_id) = match deleted_bookmark_info {
-        Some(info) => info,
-        None => return Err(EventProcessorError::SkipIndexing),
+    // 1. Read target from graph WITHOUT deleting the edge
+    let Some((post_id, author_id)) =
+        Bookmark::get_target_from_graph(&user_id, &bookmark_id).await?
+    else {
+        return Ok(());
     };
 
+    // 2. Guard counter decrement: only decrement if bookmark still exists in Redis index
+    let existed_in_index = Bookmark::get_from_index(&author_id, &post_id, &user_id)
+        .await?
+        .is_some();
+
+    // 3. Redis cleanup (idempotent)
     Bookmark::del_from_index(&user_id, &post_id, &author_id).await?;
-    // Update user counts
-    UserCounts::decrement(&user_id, "bookmarks", None).await?;
+
+    if existed_in_index {
+        UserCounts::decrement(&user_id, "bookmarks", None).await?;
+    }
+
+    // 4. Graph deletion LAST — ensures data survives for retry if Redis ops fail
+    Bookmark::del_from_graph(&user_id, &bookmark_id).await?;
 
     Ok(())
 }

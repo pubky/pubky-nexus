@@ -110,6 +110,24 @@ impl Bookmark {
         Ok(())
     }
 
+    /// Reads (post_id, author_id) for a bookmark from the graph without deleting the edge.
+    pub async fn get_target_from_graph(
+        user_id: &str,
+        bookmark_id: &str,
+    ) -> GraphResult<Option<(String, String)>> {
+        let query = queries::get::get_bookmark_target(user_id, bookmark_id);
+        let rows = fetch_all_rows_from_graph(query).await?;
+
+        for row in rows {
+            let post_id: Option<String> = row.get("post_id").unwrap_or(None);
+            let author_id: Option<String> = row.get("author_id").unwrap_or(None);
+            if let (Some(post_id), Some(author_id)) = (post_id, author_id) {
+                return Ok(Some((post_id, author_id)));
+            }
+        }
+        Ok(None)
+    }
+
     pub async fn del_from_graph(
         user_id: &str,
         bookmark_id: &str,
