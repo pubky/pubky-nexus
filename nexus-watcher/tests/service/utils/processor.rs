@@ -41,6 +41,10 @@ impl TEventProcessor for MockEventProcessor {
         self.custom_timeout
     }
 
+    fn instance_name(&self) -> String {
+        format!("MockEventProcessor for HS ID: {}", self.homeserver_id)
+    }
+
     async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {
         // Simulate a long-running task if needed, but be responsive to shutdown
         // This simulates the processing of event lines, which can take a while but can be interrupted by the shutdown signal

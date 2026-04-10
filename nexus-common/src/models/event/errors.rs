@@ -105,18 +105,8 @@ impl EventProcessorError {
         Self::PubkyClientError(crate::db::PubkyClientError::ClientError(message))
     }
 
-    pub fn index_operation_failed(e: RedisError) -> Self {
-        let is_infrastructure_err = e.is_infrastructure_err();
-        Self::IndexOperationFailed(is_infrastructure_err, e.to_string())
-    }
-
     pub fn static_save_failed(source: impl std::fmt::Display) -> Self {
         Self::StaticSaveFailed(source.to_string())
-    }
-
-    pub fn graph_query_failed(e: GraphError) -> Self {
-        let is_infrastructure_err = e.is_infrastructure_err();
-        Self::GraphQueryFailed(is_infrastructure_err, e.to_string())
     }
 
     pub fn generic(source: impl std::fmt::Display) -> Self {

@@ -58,10 +58,7 @@ pub async fn del(user_id: PubkyId) -> Result<(), EventProcessorError> {
     // 3. But if there is any relationship (OperationOutcome::Updated), then we simply update the user with empty profile
     // and keyword username [DELETED].
     // A deleted user is a user whose profile is empty and has username `"[DELETED]"`
-    match execute_graph_operation(query)
-        .await
-        .map_err(EventProcessorError::graph_query_failed)?
-    {
+    match execute_graph_operation(query).await? {
         OperationOutcome::CreatedOrDeleted => {
             // UserSearch::delete reads UserDetails from the index to find the username,
             // so it must complete before UserDetails::delete runs.
