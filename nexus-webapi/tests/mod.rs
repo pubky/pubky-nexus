@@ -2,6 +2,7 @@ pub mod endpoints;
 pub mod events;
 pub mod files;
 pub mod post;
+pub mod resource;
 pub mod stream;
 pub mod tags;
 pub mod user;

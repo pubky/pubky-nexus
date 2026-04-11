@@ -71,5 +71,16 @@ pub const NOTIFICATION_ROUTE: &str = concatcp!(USER_ROUTE, "/notifications");
 pub const BOOTSTRAP_ROUTE: &str = concatcp!(VERSION_ROUTE, "/bootstrap/{user_id}");
 pub const PUT_HOMESERVER_ROUTE: &str = concatcp!(VERSION_ROUTE, "/ingest/{user_id}");
 
+// -- RESOURCE endpoints --
+const RESOURCE_PREFIX: &str = concatcp!(VERSION_ROUTE, "/resource");
+pub const RESOURCE_TAGS_ROUTE: &str = concatcp!(RESOURCE_PREFIX, "/{resource_id}/tags");
+pub const RESOURCE_TAGGERS_ROUTE: &str =
+    concatcp!(RESOURCE_PREFIX, "/{resource_id}/tags/{label}/taggers");
+pub const RESOURCE_BY_URI_ROUTE: &str = concatcp!(RESOURCE_PREFIX, "/by-uri");
+
+// STREAM of ResourceView objects
+pub const STREAM_RESOURCES_ROUTE: &str = concatcp!(STREAM_PREFIX, "/resources");
+pub const STREAM_RESOURCE_IDS_ROUTE: &str = concatcp!(STREAM_RESOURCES_ROUTE, "/ids");
+
 // -- EVENTS endpoints
 pub const EVENTS_ROUTE: &str = concatcp!(VERSION_ROUTE, "/events");

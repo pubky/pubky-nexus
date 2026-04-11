@@ -3113,10 +3113,12 @@ name = "nexus-common"
 version = "0.4.1"
 dependencies = [
  "async-trait",
+ "blake3",
  "chrono",
  "deadpool-redis",
  "dirs",
  "futures",
+ "hex",
  "neo4rs",
  "opentelemetry 0.31.0",
  "opentelemetry-appender-tracing",
@@ -3137,6 +3139,7 @@ dependencies = [
  "tracing-opentelemetry",
  "tracing-subscriber",
  "tracing-test",
+ "url",
  "utoipa",
 ]
 
@@ -3163,6 +3166,7 @@ dependencies = [
  "httpc-test",
  "neo4rs",
  "nexus-common",
+ "opentelemetry 0.31.0",
  "pubky",
  "pubky-app-specs",
  "pubky-testnet",

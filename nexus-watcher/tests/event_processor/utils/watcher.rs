@@ -4,8 +4,7 @@ use chrono::Utc;
 use nexus_common::db::PubkyConnector;
 use nexus_common::get_files_dir_pathbuf;
 use nexus_common::get_files_dir_test_pathbuf;
-use nexus_common::models::event::Event;
-use nexus_common::models::event::EventProcessorError;
+use nexus_common::models::event::{Event, EventProcessorError, ParseResult};
 use nexus_common::models::file::FileDetails;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::traits::Collection;
@@ -85,6 +84,7 @@ impl WatcherTest {
             limit: 1000,
             monitored_homeservers_limit: 100,
             files_path: get_files_dir_test_pathbuf(),
+            tracer_name: "test".to_string(),
             moderation,
             shutdown_rx,
             default_homeserver,
@@ -348,8 +348,13 @@ pub async fn retrieve_and_handle_event_line(
     moderation: Arc<Moderation>,
 ) -> Result<(), EventProcessorError> {
     match Event::parse_event(event_line, get_files_dir_pathbuf())? {
-        Some(event) => handle(&event, moderation).await,
-        None => Ok(()),
+        ParseResult::Parsed(event) => handle(&event, moderation).await,
+        ParseResult::Skipped => Ok(()),
+
+        // Propagate UnrecognizedUri as error, because this test helper is only meant for standard event handling
+        ParseResult::UnrecognizedUri { reason, .. } => Err(EventProcessorError::InvalidEventLine(
+            format!("Cannot parse event URI: {reason}"),
+        )),
     }
 }
 

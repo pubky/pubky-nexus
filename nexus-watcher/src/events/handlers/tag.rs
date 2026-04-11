@@ -2,12 +2,15 @@ use crate::events::retry::event::RetryEvent;
 use crate::events::EventProcessorError;
 
 use chrono::Utc;
-use nexus_common::db::kv::ScoreAction;
-use nexus_common::db::OperationOutcome;
+use nexus_common::db::kv::{RedisResult, ScoreAction};
+use nexus_common::db::{fetch_row_from_graph, queries, OperationOutcome, RedisOps};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::notification::Notification;
 use nexus_common::models::post::search::PostsByTagSearch;
 use nexus_common::models::post::{PostCounts, PostStream};
+use nexus_common::models::resource::stream::ResourceStream;
+use nexus_common::models::resource::tag::TagResource;
+use nexus_common::models::resource::{classify_uri, normalize_uri, resource_id, UriCategory};
 use nexus_common::models::tag::post::TagPost;
 use nexus_common::models::tag::search::TagSearch;
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
@@ -46,6 +49,137 @@ pub async fn sync_put(
         other => Err(EventProcessorError::generic(format!(
             "The tagged resource is not Post or User, instead is: {other:?}"
         ))),
+    }
+}
+
+/// Handles a tag event from an app-specific path (e.g., /pub/mapky/tags/TAG_ID).
+/// Classifies the tagged URI: if it's an Internal-Known resource (Post/User), delegates
+/// to the existing flow. Otherwise creates/updates a generic Resource node.
+pub async fn sync_put_resource(
+    tag: PubkyAppTag,
+    tagger_id: PubkyId,
+    tag_id: String,
+    app: String,
+) -> Result<(), EventProcessorError> {
+    debug!(
+        "Indexing resource tag: {} -> {} (app={})",
+        tagger_id, tag_id, app
+    );
+
+    let category = classify_uri(&tag.uri);
+    match category {
+        UriCategory::InternalKnown => {
+            // The tagged URI is a known Post/User — delegate to existing flow
+            sync_put(tag, tagger_id, tag_id).await
+        }
+        UriCategory::InternalUnknown | UriCategory::External => {
+            let (normalized, scheme) =
+                normalize_uri(&tag.uri).map_err(EventProcessorError::generic)?;
+            let res_id = resource_id(&normalized);
+            let indexed_at = Utc::now().timestamp_millis();
+
+            put_sync_resource(
+                tagger_id,
+                &res_id,
+                &normalized,
+                &scheme,
+                &app,
+                &tag_id,
+                &tag.label,
+                indexed_at,
+            )
+            .await
+        }
+    }
+}
+
+/// Creates a Resource tag in the graph and updates Redis indexes.
+#[allow(clippy::too_many_arguments)]
+async fn put_sync_resource(
+    tagger_id: PubkyId,
+    resource_id: &str,
+    uri: &str,
+    scheme: &str,
+    app: &str,
+    tag_id: &str,
+    tag_label: &str,
+    indexed_at: i64,
+) -> Result<(), EventProcessorError> {
+    match TagResource::put_to_graph_resource(
+        &tagger_id,
+        resource_id,
+        uri,
+        scheme,
+        app,
+        tag_id,
+        tag_label,
+        indexed_at,
+    )
+    .await?
+    {
+        OperationOutcome::Updated => Ok(()),
+        OperationOutcome::MissingDependency => {
+            // Tagger user not yet indexed
+            let dependency = vec![format!("{tagger_id}")];
+            Err(EventProcessorError::MissingDependency { dependency })
+        }
+        OperationOutcome::CreatedOrDeleted => {
+            let tag_label_slice = &[tag_label.to_string()];
+
+            let indexing_results = nexus_common::traced_join!(
+                tracing::info_span!("index.write", phase = "tag_resource");
+                // Update tag label score on Resource
+                TagResource::update_index_score(
+                    resource_id,
+                    None,
+                    tag_label,
+                    ScoreAction::Increment(1.0),
+                ),
+                // Add tagger to Resource's label tagger set
+                TagResource::add_tagger_to_index(resource_id, None, &tagger_id, tag_label),
+                // Add to global tag search index
+                TagSearch::put_to_index(tag_label_slice),
+                // ResourceStream sorted set maintenance
+                ResourceStream::put_to_global_timeline(resource_id, indexed_at),
+                ResourceStream::update_global_taggers_count(
+                    resource_id,
+                    ScoreAction::Increment(1.0),
+                ),
+                ResourceStream::put_to_app_timeline(app, resource_id, indexed_at),
+                ResourceStream::update_app_taggers_count(
+                    app,
+                    resource_id,
+                    ScoreAction::Increment(1.0),
+                ),
+                ResourceStream::put_to_tag_timeline(tag_label, resource_id, indexed_at),
+                ResourceStream::update_tag_taggers_count(
+                    tag_label,
+                    resource_id,
+                    ScoreAction::Increment(1.0),
+                ),
+                ResourceStream::put_to_app_tag_timeline(app, tag_label, resource_id, indexed_at),
+                ResourceStream::update_app_tag_taggers_count(
+                    app,
+                    tag_label,
+                    resource_id,
+                    ScoreAction::Increment(1.0),
+                )
+            );
+
+            indexing_results.0?;
+            indexing_results.1?;
+            indexing_results.2?;
+            indexing_results.3?;
+            indexing_results.4?;
+            indexing_results.5?;
+            indexing_results.6?;
+            indexing_results.7?;
+            indexing_results.8?;
+            indexing_results.9?;
+            indexing_results.10?;
+
+            Ok(())
+        }
     }
 }
 
@@ -236,27 +370,47 @@ async fn put_sync_user(
 }
 
 #[tracing::instrument(name = "tag.del", skip_all, fields(user_id = %user_id, tag_id = %tag_id))]
-pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), EventProcessorError> {
-    debug!("Deleting tag: {} -> {}", user_id, tag_id);
-    let tag_details = TagUser::del_from_graph(&user_id, &tag_id).await?;
-    // CHOOSE THE EVENT TYPE
-    if let Some((tagged_user_id, post_id, author_id, label)) = tag_details {
-        match (tagged_user_id, post_id, author_id) {
-            // Delete user related indexes
-            (Some(tagged_id), None, None) => {
-                del_sync_user(user_id, &tagged_id, &label).await?;
-            }
-            // Delete post related indexes
-            (None, Some(post_id), Some(author_id)) => {
-                del_sync_post(user_id, &post_id, &author_id, &label).await?;
-            }
-            // Handle other unexpected cases
-            _ => {
-                debug!("DEL-Tag: Unexpected combination of tag details");
-            }
-        }
-    } else {
+pub async fn del(
+    user_id: PubkyId,
+    tag_id: String,
+    app: Option<String>,
+) -> Result<(), EventProcessorError> {
+    debug!("Deleting tag: {} -> {} (app={:?})", user_id, tag_id, app);
+
+    // Execute the delete query directly (bypasses TagCollection trait to get resource_id field)
+    let query = queries::del::delete_tag(&user_id, &tag_id, app.as_deref());
+    let maybe_row = fetch_row_from_graph(query).await?;
+
+    let Some(row) = maybe_row else {
         return Err(EventProcessorError::SkipIndexing);
+    };
+
+    let tagged_user_id: Option<String> = row.get("user_id").unwrap_or(None);
+    let post_id: Option<String> = row.get("post_id").unwrap_or(None);
+    let author_id: Option<String> = row.get("author_id").unwrap_or(None);
+    let resource_id: Option<String> = row.get("resource_id").unwrap_or(None);
+    let label: String = row
+        .get("label")
+        .map_err(|e| EventProcessorError::generic(format!("Missing label in delete_tag: {e}")))?;
+    let app: Option<String> = row.get("app").unwrap_or(None);
+
+    match (tagged_user_id, post_id, author_id, resource_id) {
+        // Delete user related indexes
+        (Some(tagged_id), None, None, None) => {
+            del_sync_user(user_id, &tagged_id, &label).await?;
+        }
+        // Delete post related indexes
+        (None, Some(post_id), Some(author_id), None) => {
+            del_sync_post(user_id, &post_id, &author_id, &label).await?;
+        }
+        // Delete resource related indexes
+        (None, None, None, Some(res_id)) => {
+            del_sync_resource(user_id, &res_id, &label, app.as_deref()).await?;
+        }
+        // Handle other unexpected cases
+        _ => {
+            debug!("DEL-Tag: Unexpected combination of tag details");
+        }
     }
     Ok(())
 }
@@ -380,5 +534,106 @@ async fn del_sync_post(
     indexing_results.5?;
     indexing_results.6?;
 
+    Ok(())
+}
+
+/// Cleans up Redis indexes when a Resource tag is deleted.
+/// Orphaned Resource node cleanup is handled by the delete_tag Cypher query.
+/// Timeline entries are only removed when taggers count reaches zero.
+async fn del_sync_resource(
+    tagger_id: PubkyId,
+    resource_id: &str,
+    tag_label: &str,
+    app: Option<&str>,
+) -> Result<(), EventProcessorError> {
+    // Step 1: Decrement scores and remove tagger from sets
+    let score_results = tokio::join!(
+        TagResource::update_index_score(resource_id, None, tag_label, ScoreAction::Decrement(1.0)),
+        async {
+            TagResource(vec![tagger_id.to_string()])
+                .del_from_index(resource_id, None, tag_label)
+                .await?;
+            Ok::<(), EventProcessorError>(())
+        },
+        ResourceStream::update_global_taggers_count(resource_id, ScoreAction::Decrement(1.0)),
+        ResourceStream::update_tag_taggers_count(
+            tag_label,
+            resource_id,
+            ScoreAction::Decrement(1.0),
+        ),
+        async {
+            if let Some(a) = app {
+                let (r1, r2) = tokio::join!(
+                    ResourceStream::update_app_taggers_count(
+                        a,
+                        resource_id,
+                        ScoreAction::Decrement(1.0),
+                    ),
+                    ResourceStream::update_app_tag_taggers_count(
+                        a,
+                        tag_label,
+                        resource_id,
+                        ScoreAction::Decrement(1.0),
+                    ),
+                );
+                r1?;
+                r2?;
+            }
+            Ok::<(), nexus_common::db::kv::RedisError>(())
+        }
+    );
+
+    score_results.0?;
+    score_results.1?;
+    score_results.2?;
+    score_results.3?;
+    score_results.4?;
+
+    // Step 2: Check remaining scores and remove from timelines only when zero.
+    remove_timeline_if_empty(
+        &["Resources", "Global", "TaggersCount"],
+        resource_id,
+        ResourceStream::del_from_global_timeline(resource_id),
+    )
+    .await?;
+
+    remove_timeline_if_empty(
+        &["Resources", "Tag", tag_label, "TaggersCount"],
+        resource_id,
+        ResourceStream::del_from_tag_timeline(tag_label, resource_id),
+    )
+    .await?;
+
+    if let Some(a) = app {
+        remove_timeline_if_empty(
+            &["Resources", "App", a, "TaggersCount"],
+            resource_id,
+            ResourceStream::del_from_app_timeline(a, resource_id),
+        )
+        .await?;
+
+        remove_timeline_if_empty(
+            &["Resources", "App", a, "Tag", tag_label, "TaggersCount"],
+            resource_id,
+            ResourceStream::del_from_app_tag_timeline(a, tag_label, resource_id),
+        )
+        .await?;
+    }
+
+    Ok(())
+}
+
+/// Checks if a resource's score in a taggers-count sorted set is zero or absent,
+/// and if so, removes it from the corresponding timeline.
+async fn remove_timeline_if_empty(
+    count_key_parts: &[&str],
+    resource_id: &str,
+    delete_fn: impl std::future::Future<Output = RedisResult<()>>,
+) -> Result<(), EventProcessorError> {
+    let score =
+        ResourceStream::check_sorted_set_member(None, count_key_parts, &[resource_id]).await?;
+    if score.is_none_or(|s| s <= 0) {
+        delete_fn.await?;
+    }
     Ok(())
 }
