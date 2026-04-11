@@ -8,6 +8,7 @@ pub mod file;
 pub mod info;
 pub mod notification;
 pub mod post;
+pub mod resource;
 pub mod search;
 pub mod stream;
 pub mod tag;
@@ -26,6 +27,7 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
     let route_search = search::routes();
     let route_file = file::routes();
     let route_tag = tag::routes();
+    let route_resource = resource::routes();
     let route_notification = notification::routes();
     let route_bootstrap = bootstrap::routes();
     let route_events = events::routes();
@@ -37,6 +39,7 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
         .merge(route_search)
         .merge(route_file)
         .merge(route_tag)
+        .merge(route_resource)
         .merge(route_notification)
         .merge(route_bootstrap)
         .merge(route_events)
@@ -57,6 +60,7 @@ impl ApiDoc {
         combined.merge(search::SearchApiDoc::merge_docs());
         combined.merge(file::FileApiDoc::merge_docs());
         combined.merge(tag::TagApiDoc::merge_docs());
+        combined.merge(resource::ResourceApiDoc::openapi());
         combined.merge(notification::NotificationApiDoc::merge_docs());
         combined.merge(events::EventsApiDoc::openapi());
 

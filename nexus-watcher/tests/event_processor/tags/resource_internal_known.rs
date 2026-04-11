@@ -1,0 +1,79 @@
+use super::resource_utils::{compute_resource_id, resource_exists_in_graph};
+use super::utils::find_post_tag;
+use crate::event_processor::utils::watcher::WatcherTest;
+use anyhow::Result;
+use chrono::Utc;
+use pubky::Keypair;
+use pubky::ResourcePath;
+use pubky_app_specs::traits::HashId;
+use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppTag, PubkyAppUser};
+
+/// When a tag at an app-specific path (/pub/mapky/tags/) targets a KNOWN Post URI,
+/// the classify_uri logic should delegate to the existing Post tag flow.
+/// This means the tag creates a (:User)-[:TAGGED]->(:Post) relationship, NOT a (:Resource).
+#[tokio_shared_rt::test(shared)]
+async fn test_resource_tag_internal_known_delegates_to_post() -> Result<()> {
+    let mut test = WatcherTest::setup().await?;
+
+    // Create user + post
+    let user_kp = Keypair::random();
+    let user = PubkyAppUser {
+        bio: Some("test_internal_known_delegation".to_string()),
+        image: None,
+        links: None,
+        name: "Watcher:ResourceTag:InternalKnown".to_string(),
+        status: None,
+    };
+    let user_id = test.create_user(&user_kp, &user).await?;
+
+    let post = PubkyAppPost {
+        content: "Watcher:ResourceTag:InternalKnown:Post".to_string(),
+        kind: PubkyAppPost::default().kind,
+        parent: None,
+        embed: None,
+        attachments: None,
+    };
+    let (post_id, post_path) = test.create_post(&user_kp, &post).await?;
+
+    // Create a tag targeting this post, but stored at a non-pubky.app path
+    let post_uri = post_uri_builder(user_id.clone(), post_id.clone());
+    let label = "internal-known-test";
+
+    let tag = PubkyAppTag {
+        uri: post_uri.clone(),
+        label: label.to_string(),
+        created_at: Utc::now().timestamp_millis(),
+    };
+
+    let tag_id = tag.create_id();
+
+    // Store at /pub/mapky/tags/ instead of /pub/pubky.app/tags/
+    let custom_path: ResourcePath = format!("/pub/mapky/tags/{tag_id}").parse()?;
+    test.put(&user_kp, &custom_path, &tag).await?;
+
+    // Verify: should be indexed as a POST tag (existing flow), not a Resource
+    let post_tag = find_post_tag(&user_id, &post_id, label).await?;
+    assert!(
+        post_tag.is_some(),
+        "InternalKnown URI should be indexed as a Post tag"
+    );
+
+    let tag_details = post_tag.unwrap();
+    assert_eq!(tag_details.label, label);
+    assert_eq!(tag_details.taggers_count, 1);
+
+    // Verify: NO Resource node was created for this URI
+    let resource_id = compute_resource_id(&post_uri);
+    let resource_exists = resource_exists_in_graph(&resource_id).await?;
+    assert!(
+        !resource_exists,
+        "InternalKnown URI should NOT create a Resource node"
+    );
+
+    // Cleanup
+    test.del(&user_kp, &custom_path).await?;
+    test.cleanup_post(&user_kp, &post_path).await?;
+    test.cleanup_user(&user_kp).await?;
+
+    Ok(())
+}

@@ -13,6 +13,7 @@ pub struct HsEventProcessorRunner {
     /// See [WatcherConfig::events_limit]
     pub limit: u32,
     pub files_path: PathBuf,
+    pub tracer_name: String,
     pub moderation: Arc<Moderation>,
     pub shutdown_rx: Receiver<bool>,
     /// See [WatcherConfig::homeserver]
@@ -25,6 +26,7 @@ impl HsEventProcessorRunner {
         Self {
             limit: config.events_limit,
             files_path: config.stack.files_path.clone(),
+            tracer_name: config.stack.otlp.name.clone(),
             moderation: Moderation::from_config(config),
             shutdown_rx,
             default_homeserver: config.homeserver.clone(),
@@ -53,6 +55,7 @@ impl TEventProcessorRunner for HsEventProcessorRunner {
             homeserver,
             limit: self.limit,
             files_path: self.files_path.clone(),
+            tracer_name: self.tracer_name.clone(),
             moderation: self.moderation.clone(),
             shutdown_rx: self.shutdown_rx.clone(),
         }))

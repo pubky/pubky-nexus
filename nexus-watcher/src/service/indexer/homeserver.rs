@@ -1,5 +1,5 @@
-use super::TEventProcessor;
 use crate::events::Moderation;
+use crate::service::TEventProcessor;
 use nexus_common::db::PubkyConnector;
 use nexus_common::models::event::EventProcessorError;
 use nexus_common::models::homeserver::Homeserver;
@@ -17,6 +17,7 @@ pub struct HsEventProcessor {
     /// See [WatcherConfig::events_limit]
     pub limit: u32,
     pub files_path: PathBuf,
+    pub tracer_name: String,
     pub moderation: Arc<Moderation>,
     pub shutdown_rx: Receiver<bool>,
 }
