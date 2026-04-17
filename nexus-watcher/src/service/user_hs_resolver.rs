@@ -7,10 +7,14 @@ use nexus_common::db::{
     exec_single_row, fetch_key_from_graph, queries, GraphResult, PubkyConnector,
 };
 use nexus_common::types::DynError;
-
+use opentelemetry::global;
+use opentelemetry::metrics::Histogram;
 use pubky::PublicKey;
 use pubky_app_specs::PubkyId;
+use std::sync::LazyLock;
 use tracing::{debug, error, warn};
+
+static HS_RESOLVER_METRICS: LazyLock<HsResolverMetrics> = LazyLock::new(HsResolverMetrics::new);
 
 /// Main entry point for one cycle of the periodic task.
 ///
@@ -20,13 +24,14 @@ pub async fn run(ttl_ms: u64) -> Result<(), DynError> {
     let user_ids = get_users_needing_resolution(ttl_ms).await?;
     if user_ids.is_empty() {
         debug!("No users need homeserver resolution");
+        HS_RESOLVER_METRICS.run_total.record(0, &[]);
+        HS_RESOLVER_METRICS.run_failed.record(0, &[]);
         return Ok(());
     }
-    debug!("Resolving homeservers for {} users", user_ids.len());
 
     // Convert user_ids to user_pks
     let user_pks: Vec<PublicKey> = user_ids
-        .into_iter()
+        .iter()
         .filter_map(|user_id| {
             // For the user_ids that fail to convert, we log an error message and skip them
             user_id
@@ -35,6 +40,11 @@ pub async fn run(ttl_ms: u64) -> Result<(), DynError> {
                 .ok()
         })
         .collect();
+
+    let attempted = user_pks.len() as u64;
+    debug!("Resolving homeservers for {} users", attempted);
+
+    let mut failed = 0u64;
 
     // As of pubky 0.7.0 parallel resolution is possible but unreliable. This was tried:
     // - with the singleton Pubky client (up to 10% unresolved nodes with 10 req. in parallel)
@@ -51,9 +61,13 @@ pub async fn run(ttl_ms: u64) -> Result<(), DynError> {
     // To achieve this, we use bisection ordering.
     for user_pk in bisection_order_user_pks(user_pks) {
         if let Err(e) = resolve_user(&user_pk).await {
+            failed += 1;
             warn!("Failed to resolve HS for user {}: {e}", user_pk.z32());
         }
     }
+
+    HS_RESOLVER_METRICS.run_total.record(attempted, &[]);
+    HS_RESOLVER_METRICS.run_failed.record(failed, &[]);
 
     Ok(())
 }
@@ -129,6 +143,28 @@ pub async fn get_user_ids_by_homeserver(hs_id: &str) -> GraphResult<Vec<String>>
     let query = queries::get::get_users_by_homeserver(hs_id);
     let maybe_user_ids = fetch_key_from_graph(query, "user_ids").await?;
     Ok(maybe_user_ids.unwrap_or_default())
+}
+
+struct HsResolverMetrics {
+    run_total: Histogram<u64>,
+    run_failed: Histogram<u64>,
+}
+
+impl HsResolverMetrics {
+    fn new() -> Self {
+        let meter = global::meter("hs-resolver-meter");
+
+        Self {
+            run_total: meter
+                .u64_histogram("nexus.task.hs-resolver.total")
+                .with_description("Number of attempted HS resolutions in each resolver run")
+                .build(),
+            run_failed: meter
+                .u64_histogram("nexus.task.hs-resolver.failed")
+                .with_description("Number of failed HS resolutions in each resolver run")
+                .build(),
+        }
+    }
 }
 
 // TODO Move tests to separate module? (switch to WatcherTest::setup())
