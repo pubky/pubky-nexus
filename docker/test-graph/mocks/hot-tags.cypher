@@ -34,71 +34,71 @@ MERGE (u:User {id: $user5}) SET u.name = "HotTag:User5", u.bio = "", u.status = 
 MERGE (u:User {id: $user6}) SET u.name = "Active:User6:Post", u.bio = "", u.status = "undefined", u.indexed_at = 1724134095000 , u.links = "[{\"url\":\"\",\"title\":\"website\"},{\"url\":\"\",\"title\":\"email\"},{\"url\":\"\",\"title\":\"x\"},{\"url\":\"\",\"title\":\"telegram\"}]";
 
 // Create the posts
-MERGE (p:Post { id: $post1 }) SET p.content = "This is a test post", p.kind = "short", p.indexed_at = 1733380839000;
-MATCH (u:User { id: $user1 }), (p:Post {id: $post1})
+MERGE (p:Post { id: $post1, author_id: $user1 }) SET p.content = "This is a test post", p.kind = "short", p.indexed_at = 1733380839000;
+MATCH (u:User { id: $user1 }), (p:Post {id: $post1, author_id: $user1})
 MERGE (u)-[:AUTHORED]->(p);
 
-MERGE (p:Post { id: $post2 }) SET p.content = "This is a second test post", p.kind = "short", p.indexed_at = 1733380849000;
-MATCH (u:User { id: $user2 }), (p:Post {id: $post2})
+MERGE (p:Post { id: $post2, author_id: $user2 }) SET p.content = "This is a second test post", p.kind = "short", p.indexed_at = 1733380849000;
+MATCH (u:User { id: $user2 }), (p:Post {id: $post2, author_id: $user2})
 MERGE (u)-[:AUTHORED]->(p);
 
 // Today
 WITH datetime().epochMillis AS today_millis
-MATCH (u:User { id: $user2 }), (p:Post {id: $post1})
+MATCH (u:User { id: $user2 }), (p:Post {id: $post1, author_id: $user1})
 MERGE (u)-[:TAGGED { label: $tag1, id: "0032GZRVBRB30", indexed_at: today_millis }]->(p);
 
 WITH datetime().epochMillis AS today_millis
-MATCH (u:User { id: $user3 }), (p:Post {id: $post1})
+MATCH (u:User { id: $user3 }), (p:Post {id: $post1, author_id: $user1})
 MERGE (u)-[:TAGGED { label: $tag1, id: "0032GZRVBRAR8", indexed_at: today_millis }]->(p);
 
 WITH datetime().epochMillis AS today_millis
-MATCH (u:User { id: $user4 }), (p:Post {id: $post1})
+MATCH (u:User { id: $user4 }), (p:Post {id: $post1, author_id: $user1})
 MERGE (u)-[:TAGGED { label: $tag1, id: "0032GZRSZTRA8", indexed_at: today_millis }]->(p);
 
 WITH datetime().epochMillis AS today_millis
-MATCH (u:User { id: $user4 }), (p:Post {id: $post1})
+MATCH (u:User { id: $user4 }), (p:Post {id: $post1, author_id: $user1})
 MERGE (u)-[:TAGGED { label: $tag2, id: "0032GZRSZTV00", indexed_at: today_millis }]->(p);
 
 WITH datetime().epochMillis AS today_millis
-MATCH (u:User { id: $user5 }), (p:Post {id: $post1})
+MATCH (u:User { id: $user5 }), (p:Post {id: $post1, author_id: $user1})
 MERGE (u)-[:TAGGED { label: $tag2, id: "0032GZS4DWEGM", indexed_at: today_millis }]->(p);
 
 // This month
 WITH (datetime() - duration({ days: 10 })).epochMillis AS this_month_millis
-MATCH (u:User { id: $user1 }), (p:Post {id: $post2})
+MATCH (u:User { id: $user1 }), (p:Post {id: $post2, author_id: $user2})
 MERGE (u)-[:TAGGED { label: $tag1, id: "0032GZR6TQTSG", indexed_at: this_month_millis }]->(p);
 
 WITH (datetime() - duration({ days: 10 })).epochMillis AS this_month_millis
-MATCH (u:User { id: $user1 }), (p:Post {id: $post2})
+MATCH (u:User { id: $user1 }), (p:Post {id: $post2, author_id: $user2})
 MERGE (u)-[:TAGGED { label: $tag2, id: "0032GZRVBRC3M", indexed_at: this_month_millis }]->(p);
 
 WITH (datetime() - duration({ days: 10 })).epochMillis AS this_month_millis
-MATCH (u:User { id: $user3 }), (p:Post {id: $post2})
+MATCH (u:User { id: $user3 }), (p:Post {id: $post2, author_id: $user2})
 MERGE (u)-[:TAGGED { label: $tag3, id: "0032GZR6TQTT6", indexed_at: this_month_millis }]->(p);
 
 WITH (datetime() - duration({ days: 10 })).epochMillis AS this_month_millis
-MATCH (u:User { id: $user4 }), (p:Post {id: $post2})
+MATCH (u:User { id: $user4 }), (p:Post {id: $post2, author_id: $user2})
 MERGE (u)-[:TAGGED { label: $tag3, id: "0032GZR6TQV4P", indexed_at: this_month_millis }]->(p);
 
 WITH (datetime() - duration({ days: 10 })).epochMillis AS this_month_millis
-MATCH (u:User { id: $user5 }), (p:Post {id: $post2})
+MATCH (u:User { id: $user5 }), (p:Post {id: $post2, author_id: $user2})
 MERGE (u)-[:TAGGED { label: $tag3, id: "0032GZS4DWF62", indexed_at: this_month_millis }]->(p);
 
 // All time (outside this month period)
 WITH (datetime() - duration({ days: 40 })).epochMillis AS all_time_millis
-MATCH (u:User { id: $user1 }), (p:Post {id: $post2})
+MATCH (u:User { id: $user1 }), (p:Post {id: $post2, author_id: $user2})
 MERGE (u)-[:TAGGED { label: $tag3, id: "0032GZRG46YPY", indexed_at: all_time_millis }]->(p);
 
 WITH (datetime() - duration({ days: 40 })).epochMillis AS all_time_millis
-MATCH (u:User { id: $user3 }), (p:Post {id: $post2})
+MATCH (u:User { id: $user3 }), (p:Post {id: $post2, author_id: $user2})
 MERGE (u)-[:TAGGED { label: $tag2, id: "0032GZRG46ZH0", indexed_at: all_time_millis }]->(p);
 
 WITH (datetime() - duration({ days: 40 })).epochMillis AS all_time_millis
-MATCH (u:User { id: $user4 }), (p:Post {id: $post2})
+MATCH (u:User { id: $user4 }), (p:Post {id: $post2, author_id: $user2})
 MERGE (u)-[:TAGGED { label: $tag1, id: "0032GZRG46ZH6", indexed_at: all_time_millis }]->(p);
 
 WITH (datetime() - duration({ days: 40 })).epochMillis AS all_time_millis
-MATCH (u:User { id: $user5 }), (p:Post {id: $post2})
+MATCH (u:User { id: $user5 }), (p:Post {id: $post2, author_id: $user2})
 MERGE (u)-[:TAGGED { label: $tag1, id: "0032GZRG46ZH6", indexed_at: all_time_millis }]->(p);
 
 // ###################################################
@@ -120,155 +120,155 @@ MATCH (u1:User {id: $user5}), (u2:User {id: $user4}) MERGE (u1)-[:FOLLOWS {index
 MATCH (u1:User {id: $user5}), (u2:User {id: $user1}) MERGE (u1)-[:FOLLOWS {indexed_at: 1737441201107, id: "GR3K85JG5EZK8"}]->(u2);
 
 // publish more posts
-MERGE (p:Post { id: $post3 }) SET p.content = "Tag me!", p.kind = "short", p.indexed_at = 1737441201107108;
-MATCH (u:User { id: $user1 }), (p:Post {id: $post3})
+MERGE (p:Post { id: $post3, author_id: $user1 }) SET p.content = "Tag me!", p.kind = "short", p.indexed_at = 1737441201107108;
+MATCH (u:User { id: $user1 }), (p:Post {id: $post3, author_id: $user1})
 MERGE (u)-[:AUTHORED]->(p);
 
-MERGE (p:Post { id: $post4 }) SET p.content = "Who wants to follow me", p.kind = "short", p.indexed_at = 1737441201104109;
-MATCH (u:User { id: $user1 }), (p:Post {id: $post4})
+MERGE (p:Post { id: $post4, author_id: $user1 }) SET p.content = "Who wants to follow me", p.kind = "short", p.indexed_at = 1737441201104109;
+MATCH (u:User { id: $user1 }), (p:Post {id: $post4, author_id: $user1})
 MERGE (u)-[:AUTHORED]->(p);
 
-MERGE (p:Post { id: $post5 }) SET p.content = "Hello friends!?!?", p.kind = "short", p.indexed_at = 1737441201105109;
-MATCH (u:User { id: $user5 }), (p:Post {id: $post5})
+MERGE (p:Post { id: $post5, author_id: $user5 }) SET p.content = "Hello friends!?!?", p.kind = "short", p.indexed_at = 1737441201105109;
+MATCH (u:User { id: $user5 }), (p:Post {id: $post5, author_id: $user5})
 MERGE (u)-[:AUTHORED]->(p);
 
 // ** u6 user creates lot of post in that month
 WITH (datetime() - duration({ days: 10 })).epochMillis AS this_month_millis
-MERGE (p:Post { id: $post6a }) SET p.content = "Post A", p.kind = "short", p.indexed_at = this_month_millis;
-MATCH (u:User { id: $user6 }), (p:Post {id: $post6a})
+MERGE (p:Post { id: $post6a, author_id: $user6 }) SET p.content = "Post A", p.kind = "short", p.indexed_at = this_month_millis;
+MATCH (u:User { id: $user6 }), (p:Post {id: $post6a, author_id: $user6})
 MERGE (u)-[:AUTHORED]->(p);
 
 WITH (datetime() - duration({ days: 11 })).epochMillis AS this_month_millis
-MERGE (p:Post { id: $post6b }) SET p.content = "Post A", p.kind = "short", p.indexed_at = this_month_millis;
-MATCH (u:User { id: $user6 }), (p:Post {id: $post6b})
+MERGE (p:Post { id: $post6b, author_id: $user6 }) SET p.content = "Post A", p.kind = "short", p.indexed_at = this_month_millis;
+MATCH (u:User { id: $user6 }), (p:Post {id: $post6b, author_id: $user6})
 MERGE (u)-[:AUTHORED]->(p);
 
 WITH (datetime() - duration({ days: 12 })).epochMillis AS this_month_millis
-MERGE (p:Post { id: $post6c }) SET p.content = "Post A", p.kind = "short", p.indexed_at = this_month_millis;
-MATCH (u:User { id: $user6 }), (p:Post {id: $post6c})
+MERGE (p:Post { id: $post6c, author_id: $user6 }) SET p.content = "Post A", p.kind = "short", p.indexed_at = this_month_millis;
+MATCH (u:User { id: $user6 }), (p:Post {id: $post6c, author_id: $user6})
 MERGE (u)-[:AUTHORED]->(p);
 
 WITH (datetime() - duration({ days: 12 })).epochMillis AS this_month_millis
-MERGE (p:Post { id: $post6d }) SET p.content = "Post A", p.kind = "short", p.indexed_at = this_month_millis;
-MATCH (u:User { id: $user6 }), (p:Post {id: $post6d})
+MERGE (p:Post { id: $post6d, author_id: $user6 }) SET p.content = "Post A", p.kind = "short", p.indexed_at = this_month_millis;
+MATCH (u:User { id: $user6 }), (p:Post {id: $post6d, author_id: $user6})
 MERGE (u)-[:AUTHORED]->(p);
 
 WITH (datetime() - duration({ days: 13 })).epochMillis AS this_month_millis
-MERGE (p:Post { id: $post6e }) SET p.content = "Post A", p.kind = "short", p.indexed_at = this_month_millis;
-MATCH (u:User { id: $user6 }), (p:Post {id: $post6e})
+MERGE (p:Post { id: $post6e, author_id: $user6 }) SET p.content = "Post A", p.kind = "short", p.indexed_at = this_month_millis;
+MATCH (u:User { id: $user6 }), (p:Post {id: $post6e, author_id: $user6})
 MERGE (u)-[:AUTHORED]->(p);
 
 // #### Add tags to Post 3. reach=following&timeframe=x ####
 // Today timeframe
 WITH datetime().epochMillis AS today_millis
-MATCH (u:User { id: $user2 }), (p:Post {id: $post3})
+MATCH (u:User { id: $user2 }), (p:Post {id: $post3, author_id: $user1})
 MERGE (u)-[:TAGGED { label: $today, id: "2B6X94BZQVS9QQCMF69JX92H3C", indexed_at: today_millis }]->(p);
 
 WITH datetime().epochMillis AS today_millis
-MATCH (u:User { id: $user5 }), (p:Post {id: $post3})
+MATCH (u:User { id: $user5 }), (p:Post {id: $post3, author_id: $user1})
 MERGE (u)-[:TAGGED { label: $today, id: "2B6X94BZQVS9QQCMF69JX92H3D", indexed_at: today_millis }]->(p);
 
 // Month tags timeframe
 WITH (datetime() - duration({ days: 10 })).epochMillis AS this_month_millis
-MATCH (u:User { id: $user2 }), (p:Post {id: $post3})
+MATCH (u:User { id: $user2 }), (p:Post {id: $post3, author_id: $user1})
 MERGE (u)-[:TAGGED { label: $month, id: "2B6X94BZQVS9QQCMF69JX92H3H", indexed_at: this_month_millis }]->(p);
 
 WITH (datetime() - duration({ days: 10 })).epochMillis AS this_month_millis
-MATCH (u:User { id: $user3 }), (p:Post {id: $post3})
+MATCH (u:User { id: $user3 }), (p:Post {id: $post3, author_id: $user1})
 MERGE (u)-[:TAGGED { label: $month, id: "2B6X94BZQVS9QQCMF69JX92H3I", indexed_at: this_month_millis }]->(p);
 
 WITH (datetime() - duration({ days: 10 })).epochMillis AS this_month_millis
-MATCH (u:User { id: $user4 }), (p:Post {id: $post3})
+MATCH (u:User { id: $user4 }), (p:Post {id: $post3, author_id: $user1})
 MERGE (u)-[:TAGGED { label: $month, id: "2B6X94BZQVS9QQCMF69JX92H3J", indexed_at: this_month_millis }]->(p);
 
 // All tags timeframe
 WITH (datetime() - duration({ days: 40 })).epochMillis AS all_time_millis
-MATCH (u:User { id: $user2 }), (p:Post {id: $post3})
+MATCH (u:User { id: $user2 }), (p:Post {id: $post3, author_id: $user1})
 MERGE (u)-[:TAGGED { label: $all, id: "2B6X94BZQVS9QQCMF69JX92H3L", indexed_at: all_time_millis }]->(p);
 
 WITH (datetime() - duration({ days: 40 })).epochMillis AS all_time_millis
-MATCH (u:User { id: $user3 }), (p:Post {id: $post3})
+MATCH (u:User { id: $user3 }), (p:Post {id: $post3, author_id: $user1})
 MERGE (u)-[:TAGGED { label: $all, id: "2B6X94BZQVS9QQCMF69JX92H3M", indexed_at: all_time_millis }]->(p);
 
 WITH (datetime() - duration({ days: 40 })).epochMillis AS all_time_millis
-MATCH (u:User { id: $user4 }), (p:Post {id: $post3})
+MATCH (u:User { id: $user4 }), (p:Post {id: $post3, author_id: $user1})
 MERGE (u)-[:TAGGED { label: $all, id: "2B6X94BZQVS9QQCMF69JX92H3N", indexed_at: all_time_millis }]->(p);
 
 WITH (datetime() - duration({ days: 40 })).epochMillis AS all_time_millis
-MATCH (u:User { id: $user5 }), (p:Post {id: $post3})
+MATCH (u:User { id: $user5 }), (p:Post {id: $post3, author_id: $user1})
 MERGE (u)-[:TAGGED { label: $all, id: "2B6X94BZQVS9QQCMF69JX92H3O", indexed_at: all_time_millis }]->(p);
 
 // #### Add tags to Post 4. reach=followers&timeframe=x ####
 // Today timeframe
 WITH datetime().epochMillis AS today_millis
-MATCH (u:User { id: $user2 }), (p:Post {id: $post4})
+MATCH (u:User { id: $user2 }), (p:Post {id: $post4, author_id: $user1})
 MERGE (u)-[:TAGGED { label: $today, id: "53EYM1KZ1JGCHFXWG8RP0J67K0", indexed_at: today_millis }]->(p);
 
 // Month timeframe
 WITH (datetime() - duration({ days: 10 })).epochMillis AS this_month_millis
-MATCH (u:User { id: $user2 }), (p:Post {id: $post4})
+MATCH (u:User { id: $user2 }), (p:Post {id: $post4, author_id: $user1})
 MERGE (u)-[:TAGGED { label: $month, id: "53EYM1KZ1JGCHFXWG8RP0J67K3", indexed_at: this_month_millis }]->(p);
 
 WITH (datetime() - duration({ days: 10 })).epochMillis AS this_month_millis
-MATCH (u:User { id: $user3 }), (p:Post {id: $post4})
+MATCH (u:User { id: $user3 }), (p:Post {id: $post4, author_id: $user1})
 MERGE (u)-[:TAGGED { label: $month, id: "53EYM1KZ1JGCHFXWG8RP0J67K4", indexed_at: this_month_millis }]->(p);
 
 // All timeframe
 WITH (datetime() - duration({ days: 40 })).epochMillis AS all_time_millis
-MATCH (u:User { id: $user2 }), (p:Post {id: $post4})
+MATCH (u:User { id: $user2 }), (p:Post {id: $post4, author_id: $user1})
 MERGE (u)-[:TAGGED { label: $all, id: "53EYM1KZ1JGCHFXWG8RP0J67K6", indexed_at: all_time_millis }]->(p);
 
 WITH (datetime() - duration({ days: 40 })).epochMillis AS all_time_millis
-MATCH (u:User { id: $user3 }), (p:Post {id: $post4})
+MATCH (u:User { id: $user3 }), (p:Post {id: $post4, author_id: $user1})
 MERGE (u)-[:TAGGED { label: $all, id: "53EYM1KZ1JGCHFXWG8RP0J67K7", indexed_at: all_time_millis }]->(p);
 
 WITH (datetime() - duration({ days: 40 })).epochMillis AS all_time_millis
-MATCH (u:User { id: $user5 }), (p:Post {id: $post4})
+MATCH (u:User { id: $user5 }), (p:Post {id: $post4, author_id: $user1})
 MERGE (u)-[:TAGGED { label: $all, id: "53EYM1KZ1JGCHFXWG8RP0J67K8", indexed_at: all_time_millis }]->(p);
 
 // #### Add tags to Post 5. reach=friends&timeframe=x ####
 // Today timeframe
 WITH datetime().epochMillis AS today_millis
-MATCH (u:User { id: $user1 }), (p:Post {id: $post5})
+MATCH (u:User { id: $user1 }), (p:Post {id: $post5, author_id: $user5})
 MERGE (u)-[:TAGGED { label: $today, id: "53EYM1KZ1JGCHFXWG8RP0J67J0", indexed_at: today_millis }]->(p);
 
 // Month timeframe
 WITH (datetime() - duration({ days: 10 })).epochMillis AS this_month_millis
-MATCH (u:User { id: $user1 }), (p:Post {id: $post5})
+MATCH (u:User { id: $user1 }), (p:Post {id: $post5, author_id: $user5})
 MERGE (u)-[:TAGGED { label: $month, id: "53EYM1KZ1JGCHFXWG8RP0J67J2", indexed_at: this_month_millis }]->(p)
 
 // All timeframe
 WITH (datetime() - duration({ days: 40 })).epochMillis AS all_time_millis
-MATCH (u:User { id: $user1 }), (p:Post {id: $post5})
+MATCH (u:User { id: $user1 }), (p:Post {id: $post5, author_id: $user5})
 MERGE (u)-[:TAGGED { label: $all, id: "53EYM1KZ1JGCHFXWG8RP0J67J5", indexed_at: all_time_millis }]->(p);
 
 // Add some Replies
 :param reply_1 => '0032BZ3YFDGMG';
-MERGE (p:Post { id: $reply_1 }) SET p.content = "This is a 1 reply", p.kind = "short", p.indexed_at = 1737441201104209;
-MATCH (u:User { id: $user2 }), (p:Post {id: $reply_1}) MERGE (u)-[:AUTHORED]->(p);
-MATCH (p1:Post {id: $post4}), (p2:Post {id: $reply_1}) MERGE (p2)-[:REPLIED]->(p1);
+MERGE (p:Post { id: $reply_1, author_id: $user2 }) SET p.content = "This is a 1 reply", p.kind = "short", p.indexed_at = 1737441201104209;
+MATCH (u:User { id: $user2 }), (p:Post {id: $reply_1, author_id: $user2}) MERGE (u)-[:AUTHORED]->(p);
+MATCH (p1:Post {id: $post4, author_id: $user1}), (p2:Post {id: $reply_1, author_id: $user2}) MERGE (p2)-[:REPLIED]->(p1);
 
 :param reply_2 => '0032BZ3YFDGM1';
-MERGE (p:Post { id: $reply_2 }) SET p.content = "This is a 2 reply", p.kind = "short", p.indexed_at = 1737441201104215;
-MATCH (u:User { id: $user3 }), (p:Post {id: $reply_2}) MERGE (u)-[:AUTHORED]->(p);
-MATCH (p1:Post {id: $post4}), (p2:Post {id: $reply_2}) MERGE (p2)-[:REPLIED]->(p1);
+MERGE (p:Post { id: $reply_2, author_id: $user3 }) SET p.content = "This is a 2 reply", p.kind = "short", p.indexed_at = 1737441201104215;
+MATCH (u:User { id: $user3 }), (p:Post {id: $reply_2, author_id: $user3}) MERGE (u)-[:AUTHORED]->(p);
+MATCH (p1:Post {id: $post4, author_id: $user1}), (p2:Post {id: $reply_2, author_id: $user3}) MERGE (p2)-[:REPLIED]->(p1);
 
 :param reply_3 => '0032BZ3YFDGM2';
-MERGE (p:Post { id: $reply_3 }) SET p.content = "This is a 3 reply", p.kind = "short", p.indexed_at = 1737441201104220;
-MATCH (u:User { id: $user2 }), (p:Post {id: $reply_3}) MERGE (u)-[:AUTHORED]->(p);
-MATCH (p1:Post {id: $post3}), (p2:Post {id: $reply_3}) MERGE (p2)-[:REPLIED]->(p1);
+MERGE (p:Post { id: $reply_3, author_id: $user2 }) SET p.content = "This is a 3 reply", p.kind = "short", p.indexed_at = 1737441201104220;
+MATCH (u:User { id: $user2 }), (p:Post {id: $reply_3, author_id: $user2}) MERGE (u)-[:AUTHORED]->(p);
+MATCH (p1:Post {id: $post3, author_id: $user1}), (p2:Post {id: $reply_3, author_id: $user2}) MERGE (p2)-[:REPLIED]->(p1);
 
 :param reply_4 => '0032BZ3YFDGM4';
-MERGE (p:Post { id: $reply_4 }) SET p.content = "This is a 4 reply", p.kind = "short", p.indexed_at = 1737441201104230;
-MATCH (u:User { id: $user3 }), (p:Post {id: $reply_4}) MERGE (u)-[:AUTHORED]->(p);
-MATCH (p1:Post {id: $post3}), (p2:Post {id: $reply_4}) MERGE (p2)-[:REPLIED]->(p1);
+MERGE (p:Post { id: $reply_4, author_id: $user3 }) SET p.content = "This is a 4 reply", p.kind = "short", p.indexed_at = 1737441201104230;
+MATCH (u:User { id: $user3 }), (p:Post {id: $reply_4, author_id: $user3}) MERGE (u)-[:AUTHORED]->(p);
+MATCH (p1:Post {id: $post3, author_id: $user1}), (p2:Post {id: $reply_4, author_id: $user3}) MERGE (p2)-[:REPLIED]->(p1);
 
 :param reply_5 => '0032BZ3YFDGM6';
-MERGE (p:Post { id: $reply_5 }) SET p.content = "This is a 5 reply", p.kind = "short", p.indexed_at = 1737441201104240;
-MATCH (u:User { id: $user4 }), (p:Post {id: $reply_5}) MERGE (u)-[:AUTHORED]->(p);
-MATCH (p1:Post {id: $post3}), (p2:Post {id: $reply_5}) MERGE (p2)-[:REPLIED]->(p1);
+MERGE (p:Post { id: $reply_5, author_id: $user4 }) SET p.content = "This is a 5 reply", p.kind = "short", p.indexed_at = 1737441201104240;
+MATCH (u:User { id: $user4 }), (p:Post {id: $reply_5, author_id: $user4}) MERGE (u)-[:AUTHORED]->(p);
+MATCH (p1:Post {id: $post3, author_id: $user1}), (p2:Post {id: $reply_5, author_id: $user4}) MERGE (p2)-[:REPLIED]->(p1);
 
 :param reply_6 => '0032BZ3YFDGM8';
-MERGE (p:Post { id: $reply_6 }) SET p.content = "This is a 6 reply", p.kind = "short", p.indexed_at = 1737441201104340;
-MATCH (u:User { id: $user5 }), (p:Post {id: $reply_6}) MERGE (u)-[:AUTHORED]->(p);
-MATCH (p1:Post {id: $post3}), (p2:Post {id: $reply_6}) MERGE (p2)-[:REPLIED]->(p1);
+MERGE (p:Post { id: $reply_6, author_id: $user5 }) SET p.content = "This is a 6 reply", p.kind = "short", p.indexed_at = 1737441201104340;
+MATCH (u:User { id: $user5 }), (p:Post {id: $reply_6, author_id: $user5}) MERGE (u)-[:AUTHORED]->(p);
+MATCH (p1:Post {id: $post3, author_id: $user1}), (p2:Post {id: $reply_6, author_id: $user5}) MERGE (p2)-[:REPLIED]->(p1);

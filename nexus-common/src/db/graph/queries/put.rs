@@ -50,12 +50,14 @@ pub fn create_post(
         ");
         new_relationships.push("MERGE (new_post)-[:REPOSTED]->(repost_parent_post)");
     }
-    // Create the new post
+    // Create the new post. Post identity is per-author `(author_id, id)`, so `author_id`
+    // is part of the MERGE key — matches the composite `uniquePostId` constraint in
+    // `setup.rs` and prevents collisions between authors who mint the same client-side id.
     cypher.push_str(
         "
         MATCH (author:User {id: $author_id})
-        OPTIONAL MATCH (u)-[:AUTHORED]->(existing_post:Post {id: $post_id})
-        MERGE (author)-[:AUTHORED]->(new_post:Post {id: $post_id})
+        OPTIONAL MATCH (author)-[:AUTHORED]->(existing_post:Post {id: $post_id})
+        MERGE (author)-[:AUTHORED]->(new_post:Post {id: $post_id, author_id: $author_id})
     ",
     );
 
