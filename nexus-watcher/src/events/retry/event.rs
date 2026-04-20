@@ -131,11 +131,18 @@ impl RetryEvent {
         now: i64,
         limit: Option<usize>,
     ) -> Result<Option<Vec<(String, f64)>>, EventProcessorError> {
+        // try_from_index_sorted_set accepts (start, end) but passes them to get_range as (end, start).
+        // To fetch events with score <= now (i.e., min=None, max=now), we must pass:
+        //   - start param = now (becomes end/max_score in get_range)
+        //   - end param   = None (becomes start/min_score in get_range)
+        let start_param: Option<f64> = Some(now as f64); // passed as `end` in get_range → acts as max_score
+        let end_param: Option<f64> = None; // passed as `start` in get_range → acts as min_score
+
         Self::try_from_index_sorted_set(
             &RETRY_MANAGER_EVENTS_INDEX,
-            Some(now as f64), // max_score (start → max in get_range)
-            None,             // min_score (end → min in get_range)
-            Some(0),          // skip
+            start_param,
+            end_param,
+            Some(0),
             limit,
             SortOrder::Ascending,
             Some(RETRY_MANAGER_PREFIX),
