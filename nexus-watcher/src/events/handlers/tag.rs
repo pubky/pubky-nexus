@@ -382,7 +382,6 @@ pub async fn del(
     let maybe_row = fetch_row_from_graph(query).await?;
 
     let Some(row) = maybe_row else {
-        info!("THere is not tag ...");
         return Err(EventProcessorError::SkipIndexing);
     };
 
