@@ -106,7 +106,7 @@ fn build_processor(
 }
 
 // ============================================================================
-// Scenario 1: Backoff - first retry uses initial value
+// Backoff - first retry uses initial value
 // calculate_backoff(0, 60, 3600) returns 60 (2^0 * initial)
 // ============================================================================
 
@@ -114,7 +114,7 @@ fn build_processor(
 async fn test_backoff_first_retry_uses_initial_value() -> Result<()> {
     setup().await?;
 
-    let post_id = "00S1BACKOFF1ST";
+    let post_id = "backoff1st";
     let resource_key = create_resource_key(post_id);
     let store = new_in_memory_store();
 
@@ -165,7 +165,7 @@ async fn test_backoff_first_retry_uses_initial_value() -> Result<()> {
 }
 
 // ============================================================================
-// Scenario 2: Backoff - exponential growth
+// Backoff - exponential growth
 // calculate_backoff(3, 10, 3600) returns 80 (2^3 * initial)
 // ============================================================================
 
@@ -173,7 +173,7 @@ async fn test_backoff_first_retry_uses_initial_value() -> Result<()> {
 async fn test_backoff_exponential_growth() -> Result<()> {
     setup().await?;
 
-    let post_id = "00S2BACKOFFEXP";
+    let post_id = "backoffexp";
     let resource_key = create_resource_key(post_id);
     let store = new_in_memory_store();
 
@@ -224,7 +224,75 @@ async fn test_backoff_exponential_growth() -> Result<()> {
 }
 
 // ============================================================================
-// Scenario 3: Backoff - capped at max
+// Infrastructure error at max_retries does NOT dead-letter
+// This is the key regression test for the P2 Infrastructure bug.
+// Even when retry_count >= max_retries, an infrastructure error must NOT be
+// dead-lettered — it must be re-queued with retry_count unchanged so the
+// event can be retried indefinitely until the infrastructure recovers.
+// ============================================================================
+
+#[tokio_shared_rt::test(shared)]
+async fn test_infrastructure_error_at_max_retries_does_not_dead_letter() -> Result<()> {
+    setup().await?;
+
+    let post_id = "inframax";
+    let resource_key = create_resource_key(post_id);
+    let store = new_in_memory_store();
+
+    // Create a retry event already at max_retries (10)
+    let now = Utc::now().timestamp_millis();
+    let retry_event = create_test_retry_event(
+        post_id,
+        EventType::Put,
+        10, // At max_retries — would be dead-lettered by application errors
+        now - 1000,
+    );
+    store.put(&resource_key, &retry_event).await?;
+
+    // Create processor with max_retries = 10
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let processor = build_processor(
+        store.clone(),
+        create_test_config(10, 50, 60, 3600, 60, 3600),
+        create_mock_handler(
+            Err(EventProcessorError::GraphQueryFailed(
+                true, // is_infrastructure = true
+                "Database connection failed".to_string(),
+            )),
+            post_id,
+        ),
+        shutdown_rx,
+    );
+
+    // Process through the public API — infrastructure error must NOT dead-letter
+    let result = processor.run_internal().await;
+    assert!(
+        result.is_err(),
+        "Infrastructure error should propagate, not dead-letter"
+    );
+
+    // Verify event was NOT removed — it should still be in the queue for retry
+    let updated_event = store.get(&resource_key).await?.expect(
+        "Event must NOT be dead-lettered; infrastructure errors don't count against max_retries",
+    );
+
+    assert_eq!(
+        updated_event.retry_count, 10,
+        "retry_count must remain 10 (unchanged) — infrastructure errors do not increment retry_count"
+    );
+
+    // next_retry_at should have been advanced with backoff
+    assert!(
+        updated_event.next_retry_at > now,
+        "next_retry_at should be in the future after infrastructure error backoff"
+    );
+
+    let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+// ============================================================================
+// Backoff - capped at max
 // Large retry count returns max, never exceeds ceiling
 // ============================================================================
 
@@ -232,7 +300,7 @@ async fn test_backoff_exponential_growth() -> Result<()> {
 async fn test_backoff_capped_at_max() -> Result<()> {
     setup().await?;
 
-    let post_id = "00S3BACKOFFCAP";
+    let post_id = "backoffcap";
     let resource_key = create_resource_key(post_id);
     let store = new_in_memory_store();
 
@@ -284,7 +352,7 @@ async fn test_backoff_capped_at_max() -> Result<()> {
 }
 
 // ============================================================================
-// Scenario 4: Retry success removes from queue
+// Retry success removes from queue
 // Handler returns Ok(()), event is removed from retry index
 // ============================================================================
 
@@ -292,7 +360,7 @@ async fn test_backoff_capped_at_max() -> Result<()> {
 async fn test_retry_success_removes_from_queue() -> Result<()> {
     setup().await?;
 
-    let post_id = "00S4SUCCESSRMV";
+    let post_id = "successrmv";
     let resource_key = create_resource_key(post_id);
     let store = new_in_memory_store();
 
@@ -335,7 +403,7 @@ async fn test_retry_success_removes_from_queue() -> Result<()> {
 }
 
 // ============================================================================
-// Scenario 5: Retry 404 removes from queue
+// Retry 404 removes from queue
 // Handler returns PubkyClientError with 404 message, event is removed (content gone, no point retrying)
 // ============================================================================
 
@@ -343,7 +411,7 @@ async fn test_retry_success_removes_from_queue() -> Result<()> {
 async fn test_retry_404_removes_from_queue() -> Result<()> {
     setup().await?;
 
-    let post_id = "00S5R404REMOVE";
+    let post_id = "r404remove";
     let resource_key = create_resource_key(post_id);
     let event_uri = post_uri_builder(TEST_USER_ID.to_string(), post_id.to_string());
     let store = new_in_memory_store();
@@ -389,16 +457,17 @@ async fn test_retry_404_removes_from_queue() -> Result<()> {
 }
 
 // ============================================================================
-// Scenario 6: Transient error schedules retry
-// Handler returns infrastructure error, event is re-queued with incremented
-// retry_count and transient backoff params
+// Infrastructure error schedules retry without incrementing retry_count
+// Handler returns infrastructure error, event is re-queued WITHOUT incrementing
+// retry_count — infrastructure failures must not consume the application-level
+// retry budget.  next_retry_at is still advanced via exponential backoff.
 // ============================================================================
 
 #[tokio_shared_rt::test(shared)]
 async fn test_transient_error_schedules_retry() -> Result<()> {
     setup().await?;
 
-    let post_id = "00S6TRANSIENTR";
+    let post_id = "transientr";
     let resource_key = create_resource_key(post_id);
     let store = new_in_memory_store();
 
@@ -431,15 +500,16 @@ async fn test_transient_error_schedules_retry() -> Result<()> {
     let result = processor.run_internal().await;
     assert!(result.is_err(), "Infrastructure error should propagate");
 
-    // Verify event was re-queued with incremented retry_count
+    // Verify event was re-queued with retry_count UNCHANGED (infrastructure errors
+    // do not consume the application-level retry budget).
     let updated_event = store
         .get(&resource_key)
         .await?
         .expect("Event should be re-queued after transient error");
 
     assert_eq!(
-        updated_event.retry_count, 1,
-        "Retry count should be incremented to 1"
+        updated_event.retry_count, 0,
+        "Retry count should remain 0 for infrastructure errors"
     );
 
     // Verify next_retry_at is set with transient backoff (60 seconds = 60000 ms)
@@ -458,7 +528,7 @@ async fn test_transient_error_schedules_retry() -> Result<()> {
 }
 
 // ============================================================================
-// Scenario 7: MissingDependency schedules retry
+// MissingDependency schedules retry
 // Handler returns MissingDependency, event is re-queued with dependency backoff params
 // ============================================================================
 
@@ -466,7 +536,7 @@ async fn test_transient_error_schedules_retry() -> Result<()> {
 async fn test_missing_dependency_schedules_retry() -> Result<()> {
     setup().await?;
 
-    let post_id = "00S7MISSINGDEP";
+    let post_id = "missingdep";
     let resource_key = create_resource_key(post_id);
     let store = new_in_memory_store();
 
@@ -524,15 +594,17 @@ async fn test_missing_dependency_schedules_retry() -> Result<()> {
 }
 
 // ============================================================================
-// Scenario 8: Dead-letter after max transient retries
-// Event with empty waiting_on and retry_count >= max_retries is removed without retrying
+// Dead-letter after max transient retries
+// Event with retry_count >= max_retries for an APPLICATION error is removed
+// without retrying.  Infrastructure errors NO LONGER count against max_retries.
+// Uses a Generic error (application-level transient) to test the dead-letter path.
 // ============================================================================
 
 #[tokio_shared_rt::test(shared)]
 async fn test_dead_letter_after_max_transient_retries() -> Result<()> {
     setup().await?;
 
-    let post_id = "00S8DLTRANSMAX";
+    let post_id = "dltransmax";
     let resource_key = create_resource_key(post_id);
     let store = new_in_memory_store();
 
@@ -553,21 +625,21 @@ async fn test_dead_letter_after_max_transient_retries() -> Result<()> {
     );
 
     // Create processor with max_retries = 10
+    // Uses Generic error (application-level transient, NOT infrastructure)
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let processor = build_processor(
         store.clone(),
         create_test_config(10, 50, 60, 3600, 60, 3600),
         create_mock_handler(
-            Err(EventProcessorError::GraphQueryFailed(
-                true, // is_infrastructure = true → uses max_retries (10)
-                "Database connection failed".to_string(),
+            Err(EventProcessorError::Generic(
+                "transient application failure".to_string(),
             )),
             post_id,
         ),
         shutdown_rx,
     );
 
-    // Process through the public API — infrastructure error propagates after dead-lettering
+    // Process through the public API — event should be dead-lettered
     let _ = processor.run_internal().await;
 
     // Verify event was removed from index (dead-lettered)
@@ -581,7 +653,7 @@ async fn test_dead_letter_after_max_transient_retries() -> Result<()> {
 }
 
 // ============================================================================
-// Scenario 9: Dead-letter after max dependency retries
+// Dead-letter after max dependency retries
 // retry_count >= max_dependency_retries is removed without retrying
 // ============================================================================
 
@@ -589,7 +661,7 @@ async fn test_dead_letter_after_max_transient_retries() -> Result<()> {
 async fn test_dead_letter_after_max_dependency_retries() -> Result<()> {
     setup().await?;
 
-    let post_id = "00S9DLDEPNDMAX";
+    let post_id = "dldepndmax";
     let resource_key = create_resource_key(post_id);
     let store = new_in_memory_store();
 
@@ -637,7 +709,7 @@ async fn test_dead_letter_after_max_dependency_retries() -> Result<()> {
 }
 
 // ============================================================================
-// Scenario 10: Stale sorted set entry cleaned up
+// Stale sorted set entry cleaned up
 // Redis-specific: a sorted-set entry without a matching JSON state should be
 // detected and removed by RedisRetryStore::fetch_ready. This test bypasses
 // InMemoryRetryStore because the inconsistency doesn't exist in that backend —
@@ -648,7 +720,7 @@ async fn test_dead_letter_after_max_dependency_retries() -> Result<()> {
 async fn test_stale_sorted_set_entry_cleaned_up() -> Result<()> {
     setup().await?;
 
-    let post_id = "0S10STALECLNUP";
+    let post_id = "staleclnup";
     let resource_key = create_resource_key(post_id);
 
     // Manually add a stale entry to the sorted set only (no JSON state).
@@ -696,7 +768,7 @@ async fn test_stale_sorted_set_entry_cleaned_up() -> Result<()> {
 }
 
 // ============================================================================
-// Scenario 11: Shutdown interrupts batch
+// Shutdown interrupts batch
 // Shutdown signal set mid-batch stops processing remaining events and returns Ok(())
 // ============================================================================
 
@@ -710,7 +782,7 @@ async fn test_shutdown_interrupts_batch() -> Result<()> {
     let store = new_in_memory_store();
 
     for i in 0..num_events {
-        let post_id = format!("0S11SHUTDOWN0{}", i);
+        let post_id = format!("shutdown{}", i);
         let resource_key = format!("{}:post:{}", TEST_USER_ID, post_id);
         let event_uri = post_uri_builder(TEST_USER_ID.to_string(), post_id);
 
@@ -729,7 +801,7 @@ async fn test_shutdown_interrupts_batch() -> Result<()> {
     let processor = build_processor(
         store.clone(),
         create_test_config(10, 50, 60, 3600, 60, 3600),
-        create_mock_handler(Ok(()), "0S11SHUTDOWN"),
+        create_mock_handler(Ok(()), "shutdown"),
         shutdown_rx,
     );
 
@@ -746,7 +818,7 @@ async fn test_shutdown_interrupts_batch() -> Result<()> {
 
     // Verify events are still in the queue (not processed due to shutdown)
     for i in 0..num_events {
-        let resource_key = format!("{}:post:0S11SHUTDOWN0{}", TEST_USER_ID, i);
+        let resource_key = format!("{}:post:shutdown{}", TEST_USER_ID, i);
         assert!(
             store.get(&resource_key).await?.is_some(),
             "Event {} should still be in queue (not processed due to shutdown)",
@@ -758,7 +830,7 @@ async fn test_shutdown_interrupts_batch() -> Result<()> {
 }
 
 // ============================================================================
-// Scenario 12: Infrastructure error stops batch
+// Infrastructure error stops batch
 // Infrastructure error from processing propagates up, halting the batch
 // ============================================================================
 
@@ -772,7 +844,7 @@ async fn test_infrastructure_error_stops_batch() -> Result<()> {
     let store = new_in_memory_store();
 
     for i in 0..num_events {
-        let post_id = format!("0S12INFRASTOP{}", i);
+        let post_id = format!("infrastop{}", i);
         let resource_key = format!("{}:post:{}", TEST_USER_ID, post_id);
         let event_uri = post_uri_builder(TEST_USER_ID.to_string(), post_id);
 
@@ -795,7 +867,7 @@ async fn test_infrastructure_error_stops_batch() -> Result<()> {
                 true, // is_infrastructure = true
                 "Critical database failure".to_string(),
             )),
-            "0S12INFRASTOP",
+            "infrastop",
         ),
         shutdown_rx,
     );
@@ -818,19 +890,21 @@ async fn test_infrastructure_error_stops_batch() -> Result<()> {
 
     // InMemoryRetryStore sorts same-score events lexicographically by key,
     // matching Redis sorted-set semantics. So event 0 is processed first.
-    let first_key = format!("{}:post:0S12INFRASTOP0", TEST_USER_ID);
+    // Infrastructure errors do NOT increment retry_count — they preserve the
+    // application-level retry budget.
+    let first_key = format!("{}:post:infrastop0", TEST_USER_ID);
     let first_event = store
         .get(&first_key)
         .await?
         .expect("First event should still be in queue (re-queued after error)");
     assert_eq!(
-        first_event.retry_count, 1,
-        "First event should have retry_count incremented to 1 (processed and re-queued)"
+        first_event.retry_count, 0,
+        "First event should have retry_count unchanged (infrastructure errors do not increment retry_count)"
     );
 
     // Remaining events should be untouched (retry_count still 0)
     for i in 1..num_events {
-        let resource_key = format!("{}:post:0S12INFRASTOP{}", TEST_USER_ID, i);
+        let resource_key = format!("{}:post:infrastop{}", TEST_USER_ID, i);
         let event = store
             .get(&resource_key)
             .await?
@@ -847,7 +921,7 @@ async fn test_infrastructure_error_stops_batch() -> Result<()> {
 }
 
 // ============================================================================
-// Scenario 13: Empty batch returns Ok
+// Empty batch returns Ok
 // No events in queue - processor returns Ok(())
 // ============================================================================
 
@@ -861,7 +935,7 @@ async fn test_empty_batch_returns_ok() -> Result<()> {
     let processor = build_processor(
         store,
         create_test_config(10, 50, 60, 3600, 60, 3600),
-        create_mock_handler(Ok(()), "test_empty_batch"),
+        create_mock_handler(Ok(()), "empty"),
         shutdown_rx,
     );
 
@@ -874,7 +948,7 @@ async fn test_empty_batch_returns_ok() -> Result<()> {
 }
 
 // ============================================================================
-// Scenario 14: DEL event retry success
+// DEL event retry success
 // DEL events reconstruct correctly and are removed from queue on success
 // ============================================================================
 
@@ -882,7 +956,7 @@ async fn test_empty_batch_returns_ok() -> Result<()> {
 async fn test_del_event_retry_success() -> Result<()> {
     setup().await?;
 
-    let post_id = "0S14DELRETRYS";
+    let post_id = "delretrys";
     let resource_key = create_resource_key(post_id);
     let store = new_in_memory_store();
 
@@ -913,7 +987,7 @@ async fn test_del_event_retry_success() -> Result<()> {
 }
 
 // ============================================================================
-// Scenario 15: Non-retryable error removes event immediately
+// Non-retryable error removes event immediately
 // Handler returns a non-retryable error (e.g. InvalidEventLine), event is
 // dead-lettered without incrementing retry_count
 // ============================================================================
@@ -922,7 +996,7 @@ async fn test_del_event_retry_success() -> Result<()> {
 async fn test_non_retryable_error_removes_event() -> Result<()> {
     setup().await?;
 
-    let post_id = "0S15NONRETRYBL";
+    let post_id = "nonretrybl";
     let resource_key = create_resource_key(post_id);
     let store = new_in_memory_store();
 
@@ -958,7 +1032,7 @@ async fn test_non_retryable_error_removes_event() -> Result<()> {
 }
 
 // ============================================================================
-// Scenario 16: Future next_retry_at events are not picked up
+// Future next_retry_at events are not picked up
 // Events with next_retry_at in the future should not be fetched or processed
 // ============================================================================
 
@@ -966,7 +1040,7 @@ async fn test_non_retryable_error_removes_event() -> Result<()> {
 async fn test_future_events_not_picked_up() -> Result<()> {
     setup().await?;
 
-    let post_id = "0S16FUTUREEVNT";
+    let post_id = "futureevnt";
     let resource_key = create_resource_key(post_id);
     let store = new_in_memory_store();
 

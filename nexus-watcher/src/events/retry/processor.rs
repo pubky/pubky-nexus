@@ -194,6 +194,41 @@ impl RetryProcessor {
                 self.store.remove(resource_key).await?;
             }
             Err(e) => {
+                // Infrastructure errors (Neo4j/Redis failures) must NOT count against the
+                // application-level max_retries limit.  If we applied the dead-letter limit
+                // to them, an event would be permanently discarded after N infrastructure
+                // outages — even though it never had a fair chance to succeed.
+                //
+                // For infrastructure errors we:
+                //  1. Skip the retry-count / dead-letter check entirely — retry_count is
+                //     never incremented, so the event can be retried indefinitely until the
+                //     infrastructure recovers.
+                //  2. Still update next_retry_at so backoff continues to advance.
+                //  3. Propagate the error to stop the current batch.
+                if e.is_infrastructure() {
+                    let now = Utc::now().timestamp_millis();
+                    let backoff_secs = self.calculate_backoff(
+                        retry_event.retry_count,
+                        self.config.initial_backoff_secs,
+                        self.config.max_backoff_secs,
+                    );
+                    let next_retry_at = now + (backoff_secs as i64 * 1000);
+
+                    let mut updated_event = retry_event.clone();
+                    updated_event.next_retry_at = next_retry_at;
+                    // retry_count stays unchanged — infrastructure errors do not consume
+                    // the application-level retry budget.
+                    self.store.put(resource_key, &updated_event).await?;
+
+                    let retry_time = DateTime::<Utc>::from_timestamp_millis(next_retry_at)
+                        .unwrap_or_else(Utc::now);
+                    info!(
+                        "Infrastructure error — rescheduling {} for {:?} (backoff: {}s, retry_count unchanged: {})",
+                        retry_event.event_uri, retry_time, backoff_secs, updated_event.retry_count
+                    );
+                    return Err(e);
+                }
+
                 // Check if we've exceeded max retries based on current error type
                 let max_retries = if e.is_missing_dependency() {
                     self.config.max_dependency_retries
@@ -211,13 +246,8 @@ impl RetryProcessor {
                     return Ok(());
                 }
 
-                // Schedule retry with backoff
+                // Schedule retry with backoff (increments retry_count)
                 self.schedule_retry(&retry_event, resource_key, &e).await?;
-
-                // Propagate infrastructure errors to stop the batch
-                if e.is_infrastructure() {
-                    return Err(e);
-                }
             }
         }
 
