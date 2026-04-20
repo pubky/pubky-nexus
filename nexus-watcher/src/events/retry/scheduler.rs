@@ -80,10 +80,7 @@ impl RetryScheduler {
                 return Ok(());
             }
         };
-        let Some(resource_key) = RetryEvent::generate_index_key(parsed) else {
-            warn!("Failed to generate resource key for URI {uri}, skipping retry queue",);
-            return Ok(());
-        };
+        let resource_key = RetryEvent::generate_index_key(parsed);
 
         let next_retry_at = Utc::now().timestamp_millis() + backoff_ms;
         let retry_event = RetryEvent::new(event_type.clone(), uri.to_string(), next_retry_at);
@@ -109,13 +106,7 @@ impl RetryScheduler {
                 return Ok(());
             }
         };
-        let Some(resource_key) = RetryEvent::generate_index_key(parsed) else {
-            warn!(
-                "Failed to generate resource key for event {}, skipping retry queue",
-                event.uri
-            );
-            return Ok(());
-        };
+        let resource_key = RetryEvent::generate_index_key(parsed);
 
         let next_retry_at = Utc::now().timestamp_millis() + initial_backoff_ms;
         let retry_event =

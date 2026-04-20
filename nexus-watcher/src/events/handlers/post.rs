@@ -36,27 +36,25 @@ pub async fn sync_put(
         OperationOutcome::MissingDependency => {
             let mut dependency_event_keys = Vec::new();
             if let Some(replied_to_uri) = &post_relationships.replied {
-                if let Some(key) = RetryEvent::generate_index_key(replied_to_uri.clone().into()) {
-                    dependency_event_keys.push(key);
-                }
+                dependency_event_keys.push(RetryEvent::generate_index_key(
+                    replied_to_uri.clone().into(),
+                ));
 
                 if let Err(e) = PostDetails::maybe_ingest_author_of_post(replied_to_uri).await {
                     tracing::error!("Failed to ingest user: {e}");
                 }
             }
             if let Some(reposted_uri) = &post_relationships.reposted {
-                if let Some(key) = RetryEvent::generate_index_key(reposted_uri.clone().into()) {
-                    dependency_event_keys.push(key);
-                }
+                dependency_event_keys
+                    .push(RetryEvent::generate_index_key(reposted_uri.clone().into()));
 
                 if let Err(e) = PostDetails::maybe_ingest_author_of_post(reposted_uri).await {
                     tracing::error!("Failed to ingest user: {e}");
                 }
             }
             if dependency_event_keys.is_empty() {
-                if let Some(key) = RetryEvent::generate_index_key(author_id.to_uri().into()) {
-                    dependency_event_keys.push(key);
-                }
+                dependency_event_keys
+                    .push(RetryEvent::generate_index_key(author_id.to_uri().into()));
             }
             return Err(EventProcessorError::missing_dependencies(
                 dependency_event_keys,

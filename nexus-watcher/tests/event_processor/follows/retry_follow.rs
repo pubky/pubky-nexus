@@ -30,7 +30,7 @@ async fn test_homeserver_follow_cannot_index() -> Result<()> {
     let follow_absolute_url = follow_uri_builder(follower_id, followee_id.clone());
 
     let parsed = HomeserverParsedUri::try_from(follow_absolute_url.as_str()).unwrap();
-    let index_key = RetryEvent::generate_index_key(parsed).unwrap();
+    let index_key = RetryEvent::generate_index_key(parsed);
     assert_eventually_exists(&index_key).await;
 
     let timestamp = RetryEvent::check_uri(&index_key).await.unwrap();

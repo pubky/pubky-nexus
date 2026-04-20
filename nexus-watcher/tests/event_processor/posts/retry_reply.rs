@@ -40,7 +40,7 @@ async fn test_homeserver_post_reply_cannot_index() -> Result<()> {
     let reply_absolute_url = post_uri_builder(user_id, reply_id);
 
     let parsed = HomeserverParsedUri::try_from(reply_absolute_url.as_str()).unwrap();
-    let index_key = RetryEvent::generate_index_key(parsed).unwrap();
+    let index_key = RetryEvent::generate_index_key(parsed);
 
     assert_eventually_exists(&index_key).await;
 

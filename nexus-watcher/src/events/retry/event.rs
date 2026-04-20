@@ -45,11 +45,10 @@ impl RetryEvent {
     }
 
     /// Generates an index key from a parsed URI in the format `"{pubkyId}:{resource}"`.
-    /// Returns `None` if the URI cannot be parsed as a valid `HomeserverParsedUri`.
-    pub fn generate_index_key(parsed_uri: HomeserverParsedUri) -> Option<String> {
+    pub fn generate_index_key(parsed_uri: HomeserverParsedUri) -> String {
         let user_id = parsed_uri.user_id();
         let resource = parsed_uri.resource();
-        Some(format!("{}:{}", user_id, resource))
+        format!("{}:{}", user_id, resource)
     }
 
     /// Stores an event in both a sorted set and a JSON index in Redis.

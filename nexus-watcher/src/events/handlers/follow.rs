@@ -40,13 +40,7 @@ pub async fn sync_put(
                 tracing::error!("Failed to ingest user: {e}");
             }
 
-            let key =
-                RetryEvent::generate_index_key(followee_id.to_uri().into()).ok_or_else(|| {
-                    EventProcessorError::generic(format!(
-                        "Failed to generate index key for followee: {}",
-                        followee_id
-                    ))
-                })?;
+            let key = RetryEvent::generate_index_key(followee_id.to_uri().into());
             let dependency = vec![key];
             return Err(EventProcessorError::MissingDependency { dependency });
         }

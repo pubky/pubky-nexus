@@ -47,7 +47,7 @@ async fn test_homeserver_user_tag_event_to_queue() -> Result<()> {
     test.put(&tagger_kp, &tag_path, tag).await?;
 
     let parsed = HomeserverParsedUri::try_from(tag_absolute_url.as_str()).unwrap();
-    let index_key = RetryEvent::generate_index_key(parsed).unwrap();
+    let index_key = RetryEvent::generate_index_key(parsed);
 
     assert_eventually_exists(&index_key).await;
 

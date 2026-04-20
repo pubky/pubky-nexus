@@ -45,7 +45,7 @@ async fn test_homeserver_bookmark_cannot_index() -> Result<()> {
     test.put(&user_kp, &bookmark_path, bookmark).await?;
 
     let parsed = HomeserverParsedUri::try_from(bookmark_absolute_url.as_str()).unwrap();
-    let index_key = RetryEvent::generate_index_key(parsed).unwrap();
+    let index_key = RetryEvent::generate_index_key(parsed);
 
     assert_eventually_exists(&index_key).await;
 
@@ -68,7 +68,6 @@ async fn test_homeserver_bookmark_cannot_index() -> Result<()> {
         RetryEvent::generate_index_key(
             HomeserverParsedUri::try_from(bookmark_absolute_url.as_str()).unwrap()
         )
-        .unwrap()
     );
 
     // DEL should succeed silently — no retry event created
