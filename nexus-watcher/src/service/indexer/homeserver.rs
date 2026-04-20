@@ -2,7 +2,7 @@ use super::TEventProcessor;
 use crate::events::retry::RetryScheduler;
 use crate::events::{EventHandler, TModeration};
 use nexus_common::db::PubkyConnector;
-use nexus_common::models::event::{Event, EventProcessorError, ParseResult};
+use nexus_common::models::event::EventProcessorError;
 use nexus_common::models::homeserver::Homeserver;
 use pubky::Method;
 use std::path::PathBuf;
@@ -119,51 +119,21 @@ impl HsEventProcessor {
     #[tracing::instrument(name = "event_batch.process", skip_all, fields(batch.size = lines.len()))]
     pub async fn process_event_lines(&self, lines: Vec<String>) -> Result<(), EventProcessorError> {
         for line in &lines {
-            let id = self.homeserver.id.clone();
-
             if *self.shutdown_rx.borrow() {
-                debug!(hs_id = %id, "Shutdown detected; exiting event processing loop");
+                debug!(hs_id = %self.homeserver.id, "Shutdown detected; exiting event processing loop");
                 return Ok(());
             }
 
             if let Some(cursor) = line.strip_prefix("cursor: ") {
-                // Batch complete - save cursor
                 info!("Received cursor for the next request: {cursor}");
-                match Homeserver::try_from_cursor(id, cursor) {
-                    Ok(hs) => {
-                        hs.put_to_index().await?;
-                    }
+                match Homeserver::try_from_cursor(self.homeserver.id.clone(), cursor) {
+                    Ok(hs) => hs.put_to_index().await?,
                     Err(e) => warn!("{e}"),
                 }
                 continue;
             }
 
-            // Process the event line
-            match Event::parse_event(line, self.files_path.clone()) {
-                Ok(ParseResult::Parsed(event)) => {
-                    debug!("Processing event: {:?}", event);
-
-                    // Use the trait's handle_event method which delegates to handle_error
-                    match self.handle_event(&event).await {
-                        Ok(()) => {
-                            // Event processed successfully
-                        }
-                        Err(e) => {
-                            // Infrastructure error - stop the batch
-                            error!("Infrastructure error processing event: {e}");
-                            return Err(e);
-                        }
-                    }
-                }
-                Ok(ParseResult::Skipped) => {
-                    // Skipped event - continue
-                }
-                Ok(ParseResult::UnrecognizedUri { reason, .. }) => {
-                    // Should not normally occur — UnknownResource parsing happens in HomeserverParsedUri
-                    warn!("Unrecognized event URI: {reason}");
-                }
-                Err(e) => warn!("Failed to parse event line: {e}"),
-            }
+            self.process_event_line(line).await?;
         }
 
         Ok(())
