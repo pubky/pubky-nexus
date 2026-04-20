@@ -1,17 +1,46 @@
 mod errors;
+mod homeserver_parsed_uri;
 
 use crate::db::{kv::RedisResult, RedisOps};
-use pubky_app_specs::{ParsedUri, Resource};
+use pubky_app_specs::Resource;
 use serde::{Deserialize, Serialize};
 use std::{fmt, path::PathBuf};
 use tracing::{debug, error};
 
 pub use errors::EventProcessorError;
+pub use homeserver_parsed_uri::HomeserverParsedUri;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum EventType {
     Put,
     Del,
+}
+
+/// Result of parsing an event line from a homeserver.
+#[derive(Debug)]
+pub enum ParseResult {
+    /// Successfully parsed into a known, actionable event.
+    Parsed(Event),
+    /// Known resource type that Nexus does not handle (e.g. LastRead, Feed, Blob).
+    Skipped,
+    /// URI was not recognised by pubky-app-specs. This may be an app-specific
+    /// path (e.g. `/pub/mapky/tags/...`) or a genuinely malformed URI.
+    /// Callers should attempt fallback handling and log `reason` if no handler claims it.
+    UnrecognizedUri {
+        event_type: EventType,
+        uri: String,
+        reason: String,
+    },
+}
+
+impl ParseResult {
+    fn unrecognized_uri(event_type: EventType, uri: String, reason: String) -> Self {
+        Self::UnrecognizedUri {
+            event_type,
+            uri,
+            reason,
+        }
+    }
 }
 
 impl fmt::Display for EventType {
@@ -28,7 +57,7 @@ impl fmt::Display for EventType {
 pub struct Event {
     pub uri: String,
     pub event_type: EventType,
-    pub parsed_uri: ParsedUri,
+    pub parsed_uri: HomeserverParsedUri,
     pub files_path: PathBuf,
     event_line: String,
 }
@@ -48,7 +77,7 @@ impl Event {
     pub fn parse_event(
         line: &str,
         files_path: PathBuf,
-    ) -> Result<Option<Self>, EventProcessorError> {
+    ) -> Result<ParseResult, EventProcessorError> {
         debug!("New event: {}", line);
         let parts: Vec<&str> = line.split(' ').collect();
         if parts.len() != 2 {
@@ -65,13 +94,21 @@ impl Event {
             ))),
         }?;
 
-        // Validate and parse the URI using pubky-app-specs
+        // Validate and parse the URI using HomeserverParsedUri
+        // This handles both standard pubky-app-specs URIs (pubky.app) and
+        // universal tag URIs from other apps (e.g., eventky.app, mapky)
         let uri = parts[1].to_string();
-        let parsed_uri = ParsedUri::try_from(uri.as_str()).map_err(|e| {
-            EventProcessorError::InvalidEventLine(format!("Cannot parse event URI: {e}"))
-        })?;
+        let homeserver_parsed_uri = match HomeserverParsedUri::try_from(uri.as_str()) {
+            Ok(parsed) => parsed,
+            Err(e) => {
+                let reason = e.to_string();
+                return Ok(ParseResult::unrecognized_uri(event_type, uri, reason));
+            }
+        };
 
-        match parsed_uri.resource {
+        let resource = homeserver_parsed_uri.resource().clone();
+
+        match resource {
             // Unknown resource
             Resource::Unknown => {
                 return Err(EventProcessorError::InvalidEventLine(format!(
@@ -79,16 +116,18 @@ impl Event {
                 )))
             }
             // Known resources not handled by Nexus
-            Resource::LastRead | Resource::Feed(_) | Resource::Blob(_) => return Ok(None),
+            Resource::LastRead | Resource::Feed(_) | Resource::Blob(_) => {
+                return Ok(ParseResult::Skipped)
+            }
             _ => (),
         };
 
         let event_line = line.to_string();
 
-        Ok(Some(Event {
+        Ok(ParseResult::Parsed(Event {
             uri,
             event_type,
-            parsed_uri,
+            parsed_uri: homeserver_parsed_uri,
             files_path,
             event_line,
         }))

@@ -5,15 +5,15 @@ use chrono::Utc;
 use nexus_common::db::PubkyConnector;
 use nexus_common::get_files_dir_pathbuf;
 use nexus_common::get_files_dir_test_pathbuf;
-use nexus_common::models::event::Event;
-use nexus_common::models::event::EventProcessorError;
+use nexus_common::models::event::ParseResult;
+use nexus_common::models::event::{Event, EventProcessorError};
 use nexus_common::models::file::FileDetails;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::traits::Collection;
 use nexus_common::{StackConfig, StackManager};
 use nexus_watcher::events::retry::event::RetryEvent;
 use nexus_watcher::events::retry::{InitialBackoff, RedisRetryStore, RetryScheduler, RetryStore};
-use nexus_watcher::events::{DefaultEventHandler, EventHandler};
+use nexus_watcher::events::{DefaultEventHandler, EventHandler, TModeration};
 use nexus_watcher::service::HsEventProcessorRunner;
 use nexus_watcher::service::TEventProcessorRunner;
 use pubky::Keypair;
@@ -77,7 +77,7 @@ impl WatcherTest {
     /// # Returns
     /// Returns a fully configured `HsEventProcessorRunner` ready for use in tests.
     fn create_test_event_processor_runner(default_homeserver: PubkyId) -> HsEventProcessorRunner {
-        let moderation = default_moderation_tests();
+        let moderation: Arc<dyn TModeration> = default_moderation_tests();
         let event_handler: Arc<dyn EventHandler> =
             Arc::new(DefaultEventHandler::new(moderation.clone()));
 
@@ -359,8 +359,8 @@ pub async fn retrieve_and_handle_event_line(
     event_handler: Arc<dyn EventHandler>,
 ) -> Result<(), EventProcessorError> {
     match Event::parse_event(event_line, get_files_dir_pathbuf())? {
-        Some(event) => event_handler.handle(&event).await,
-        None => Ok(()),
+        ParseResult::Parsed(event) => event_handler.handle(&event).await,
+        ParseResult::Skipped | ParseResult::UnrecognizedUri { .. } => Ok(()),
     }
 }
 

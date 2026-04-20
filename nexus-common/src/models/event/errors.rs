@@ -122,6 +122,10 @@ impl EventProcessorError {
         Self::Generic(source.to_string())
     }
 
+    pub fn internal_error(source: impl Display) -> Self {
+        Self::InternalError(source.to_string())
+    }
+
     /// Returns whether or not this is an infrastructure error.
     ///
     /// These are the kinds of errors that are expected to be thrown again,

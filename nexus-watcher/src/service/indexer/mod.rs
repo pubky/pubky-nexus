@@ -3,12 +3,13 @@ mod key_based;
 
 pub use homeserver::HsEventProcessor;
 pub use key_based::KeyBasedEventProcessor;
+use nexus_common::models::event::ParseResult;
 use std::{fmt::Display, path::PathBuf, sync::Arc, time::Duration};
 
 use tracing::Instrument;
 
 use nexus_common::models::event::{Event, EventProcessorError};
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 
 use crate::events::retry::RetryScheduler;
 use crate::events::{EventHandler, TModeration};
@@ -115,15 +116,21 @@ pub trait TEventProcessor: Send + Sync + 'static {
         None
     }
 
-    /// Parses a single event line, creates a tracing span, and dispatches to [`Self::handle_event`].
+    /// Parses a single event line and dispatches to [`Self::handle_event`].
+    /// Unknown resource events are handled via `HomeserverParsedUri::UnknownResource` →
+    /// `DefaultEventHandler` → `tag::sync_put_resource` (main flow).
     async fn process_event_line(&self, line: &str) -> Result<(), EventProcessorError> {
-        let maybe_event = Event::parse_event(line, self.files_path().clone())
-            .inspect_err(|e| error!("{e}"))
-            .unwrap_or(None);
-
-        if let Some(event) = maybe_event {
-            debug!("Processing event: {:?}", event);
-            self.handle_event(&event).await?;
+        match Event::parse_event(line, self.files_path().clone()) {
+            Err(e) => error!("{e}"),
+            Ok(ParseResult::Skipped) => {}
+            Ok(ParseResult::UnrecognizedUri { reason, .. }) => {
+                // Should not normally occur — UnknownResource parsing happens in HomeserverParsedUri
+                warn!("Unrecognized event URI: {reason}");
+            }
+            Ok(ParseResult::Parsed(event)) => {
+                debug!("Processing event: {:?}", event);
+                self.handle_event(&event).await?;
+            }
         }
 
         Ok(())
@@ -178,11 +185,11 @@ pub trait TEventProcessor: Send + Sync + 'static {
         name = "event.process",
         skip_all,
         fields(
-            event.resource = %event.parsed_uri.resource,
+            event.resource = %event.parsed_uri.resource(),
             event.uri = %event.uri,
             event.r#type = %event.event_type,
-            event.user_id = %event.parsed_uri.user_id,
-            event.resource_id = event.parsed_uri.resource.id().unwrap_or_default(),
+            event.user_id = %event.parsed_uri.user_id(),
+            event.resource_id = event.parsed_uri.resource().id().unwrap_or_default(),
             instance = %self.instance_name(),
             otel.status_code = tracing::field::Empty,
             otel.status_message = tracing::field::Empty,

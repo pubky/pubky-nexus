@@ -6,7 +6,7 @@ use chrono::{DateTime, Utc};
 use tokio::sync::watch::Receiver;
 use tracing::{debug, info, warn};
 
-use nexus_common::models::event::{Event, EventProcessorError, EventType};
+use nexus_common::models::event::{Event, EventProcessorError, EventType, ParseResult};
 use nexus_common::WatcherConfig;
 
 use super::scheduler::RetryScheduler;
@@ -161,11 +161,19 @@ impl RetryProcessor {
 
         // Parse the event from the line - if corrupted, remove and continue
         let event = match Event::parse_event(&event_line, self.files_path().clone()) {
-            Ok(Some(event)) => event,
-            Ok(None) | Err(_) => {
+            Ok(ParseResult::Parsed(event)) => event,
+            Ok(ParseResult::Skipped) | Err(_) => {
                 warn!(
                     "Corrupted retry entry for key {}, removing: {}",
                     resource_key, event_line
+                );
+                self.store.remove(resource_key).await?;
+                return Ok(());
+            }
+            Ok(ParseResult::UnrecognizedUri { reason, .. }) => {
+                warn!(
+                    "Unrecognized URI in retry entry for key {}: {}",
+                    resource_key, reason
                 );
                 self.store.remove(resource_key).await?;
                 return Ok(());

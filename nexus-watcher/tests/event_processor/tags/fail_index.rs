@@ -5,13 +5,11 @@ use anyhow::{anyhow, Result};
 use chrono::Utc;
 use nexus_watcher::service::TEventProcessorRunner;
 use pubky::Keypair;
-use pubky_app_specs::{
-    post_uri_builder,
-    traits::{HasIdPath, HashId},
-    PubkyAppPost, PubkyAppTag, PubkyAppUser,
-};
+use pubky_app_specs::{post_uri_builder, traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser};
 use tracing::error;
 
+/// Verifies that tagging fails with MissingDependency when the tagger or tagged resource
+/// is not yet indexed in the graph.
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_tag_cannot_add_while_index() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
@@ -26,11 +24,9 @@ async fn test_homeserver_tag_cannot_add_while_index() -> Result<()> {
     };
     let tagged_user_id = test.create_user(&tagged_keypair, &tagged_user).await?;
 
-    // Switch OFF the event processor to simulate the pending events to index
-    // In that case, shadow user
+    // Switch OFF event processing — shadow_user signs up on the homeserver but is not indexed
     test = test.remove_event_processing().await;
 
-    // Create a key but it would not be synchronised in nexus
     let shadow_user_kp = Keypair::random();
     let shadow_user = PubkyAppUser {
         bio: Some("test_homeserver_tag_user_not_found".to_string()),
@@ -39,29 +35,22 @@ async fn test_homeserver_tag_cannot_add_while_index() -> Result<()> {
         name: "Watcher:CannotTag:Tagger:Sync".to_string(),
         status: None,
     };
-    let _shadow_user_id = test.create_user(&shadow_user_kp, &shadow_user).await?;
+    let shadow_user_id = test.create_user(&shadow_user_kp, &shadow_user).await?;
 
-    // => Create user tag
-    let label = "friendly";
-
+    // => User tag: shadow_user tags tagged_user's profile
     let tag = PubkyAppTag {
         uri: format!("pubky://{tagged_user_id}/pub/pubky.app/profile.json"),
-        label: label.to_string(),
+        label: "friendly".to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
-
+    let tag_id = tag.create_id();
     let tag_path = tag.hs_path();
-    let tag_blob = serde_json::to_vec(&tag)?;
 
-    // PUT user tag
-    test.put(&shadow_user_kp, &tag_path, tag_blob).await?;
+    test.put(&shadow_user_kp, &tag_path, &tag).await?;
 
-    // Create raw event line to retrieve the content from the homeserver
-    let tag_event = format!("PUT {tag_path}");
+    // Full URI required by Event::parse_event
+    let tag_event = format!("PUT pubky://{shadow_user_id}/pub/pubky.app/tags/{tag_id}");
 
-    // Simulate the event processor to handle the event.
-    // If the event processor were activated, the test would not catch the missing dependency
-    // error, and it would pass successfully
     let event_handler = test.event_processor_runner.event_handler.clone();
     let sync_fail = retrieve_and_handle_event_line(&tag_event, event_handler)
         .await
@@ -70,12 +59,10 @@ async fn test_homeserver_tag_cannot_add_while_index() -> Result<()> {
 
     assert!(
         sync_fail,
-        "It seems that tagged node exists, which should not be possible. Event processor should be disconnected"
+        "Tag indexing should fail: tagger (shadow_user) is not yet indexed"
     );
 
-    // Build the event processor and run it to sync all the previous events with the event processor
-    // We do this because earlier, the runner's event processing has been turned off temporarily
-    // but at this point we are ready to run the event processing
+    // Sync all pending events so shadow_user is now in the graph
     test.event_processor_runner
         .build(test.homeserver_id.clone())
         .await
@@ -84,7 +71,7 @@ async fn test_homeserver_tag_cannot_add_while_index() -> Result<()> {
         .await
         .map_err(|e| anyhow!(e))?;
 
-    // => Create post tag
+    // => Post tag: shadow_user tags a post that hasn't been indexed yet
     let post = PubkyAppPost {
         content: "Watcher:CannotTag:Post:unSync".to_string(),
         kind: PubkyAppPost::default().kind,
@@ -94,24 +81,18 @@ async fn test_homeserver_tag_cannot_add_while_index() -> Result<()> {
     };
     let (post_id, _post_path) = test.create_post(&tagged_keypair, &post).await?;
 
-    let label = "merkle_tree";
-
-    let tag = PubkyAppTag {
+    let post_tag = PubkyAppTag {
         uri: post_uri_builder(tagged_user_id, post_id),
-        label: label.to_string(),
+        label: "merkle_tree".to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
-    let tag_blob = serde_json::to_vec(&tag)?;
-    let tag_relative_url = PubkyAppTag::create_path(&tag.create_id());
-    // PUT post tag
-    test.put(&shadow_user_kp, &tag_path, tag_blob).await?;
+    let post_tag_id = post_tag.create_id();
+    let post_tag_path = post_tag.hs_path();
 
-    // Create raw event line to retrieve the content from the homeserver
-    let tag_event = format!("PUT {tag_relative_url}");
+    test.put(&shadow_user_kp, &post_tag_path, &post_tag).await?;
 
-    // Simulate the event processor to handle the event.
-    // If the event processor were activated, the test would not catch the missing dependency
-    // error, and it would pass successfully
+    let tag_event = format!("PUT pubky://{shadow_user_id}/pub/pubky.app/tags/{post_tag_id}");
+
     let event_handler = test.event_processor_runner.event_handler.clone();
     let sync_fail = retrieve_and_handle_event_line(&tag_event, event_handler)
         .await
@@ -120,7 +101,7 @@ async fn test_homeserver_tag_cannot_add_while_index() -> Result<()> {
 
     assert!(
         sync_fail,
-        "It seems that tagged node exists, which should not be possible. Event processor should be disconnected"
+        "Tag indexing should fail: tagged post is not yet indexed"
     );
 
     Ok(())

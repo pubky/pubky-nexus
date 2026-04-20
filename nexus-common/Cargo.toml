@@ -9,6 +9,8 @@ license = "MIT"
 
 [dependencies]
 async-trait = { workspace = true }
+blake3 = { workspace = true }
+hex = { workspace = true }
 dirs = "6.0.0"
 chrono = { workspace = true }
 futures = { workspace = true }
@@ -30,6 +32,7 @@ tracing = { workspace = true }
 tracing-log = "0.2"
 tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = { workspace = true }
 utoipa = "5.4.0"
 
 [dev-dependencies]

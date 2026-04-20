@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use nexus_common::db::kv::{RedisResult, SortOrder};
 use nexus_common::models::event::EventType;
-use pubky_app_specs::ParsedUri;
+use nexus_common::models::event::HomeserverParsedUri;
 use serde::{Deserialize, Serialize};
 
 use nexus_common::db::RedisOps;
@@ -44,33 +44,12 @@ impl RetryEvent {
         }
     }
 
-    /// It processes a homeserver URI and extracts specific components to form a index key
-    /// in the format `"{pubkyId}:{repository_model}:{event_id}"`
-    /// # Parameters
-    /// - `event_uri`: A string slice representing the event URI to be processed
-    pub fn generate_index_key(event_uri: &str) -> Option<String> {
-        let parsed_uri = match ParsedUri::try_from(event_uri) {
-            Ok(parsed_uri) => parsed_uri,
-            Err(_) => return None,
-        };
-
-        let user_id = parsed_uri.user_id;
-        let key = match parsed_uri.resource.id() {
-            Some(id) => format!("{}:{}:{}", user_id, parsed_uri.resource, id),
-            None => format!("{}:{}", user_id, parsed_uri.resource),
-        };
-
-        Some(key)
-    }
-
-    pub fn generate_index_key_from_uri(event_uri: &ParsedUri) -> String {
-        let user_id = &event_uri.user_id;
-        let event_resource = &event_uri.resource;
-
-        match event_uri.resource.id() {
-            Some(id) => format!("{user_id}:{event_resource}:{id}"),
-            None => format!("{user_id}:{event_resource}"),
-        }
+    /// Generates an index key from a parsed URI in the format `"{pubkyId}:{resource}"`.
+    /// Returns `None` if the URI cannot be parsed as a valid `HomeserverParsedUri`.
+    pub fn generate_index_key(parsed_uri: HomeserverParsedUri) -> Option<String> {
+        let user_id = parsed_uri.user_id();
+        let resource = parsed_uri.resource();
+        Some(format!("{}:{}", user_id, resource))
     }
 
     /// Stores an event in both a sorted set and a JSON index in Redis.
@@ -106,7 +85,7 @@ impl RetryEvent {
         )
         .await
         .map_err(|e| {
-            EventProcessorError::InternalError(format!(
+            EventProcessorError::internal_error(format!(
                 "Could not check uri for event: {event_index}, reason {e}"
             ))
         })

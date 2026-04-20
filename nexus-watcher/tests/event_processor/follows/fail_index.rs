@@ -1,10 +1,10 @@
 use crate::event_processor::utils::watcher::{retrieve_and_handle_event_line, WatcherTest};
 use anyhow::Result;
 use pubky::Keypair;
-use pubky_app_specs::PubkyAppUser;
+use pubky_app_specs::{follow_uri_builder, PubkyAppUser};
 use tracing::error;
 
-/// The follower user is stored in the homeserver but it is not in sync with the graph
+/// Verifies that a follow fails with MissingDependency when either party is not yet indexed.
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_follow_cannot_complete() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
@@ -19,10 +19,9 @@ async fn test_homeserver_follow_cannot_complete() -> Result<()> {
     };
     let follower_id = test.create_user(&follower_kp, &follower).await?;
 
-    // Switch OFF the event processor to simulate the pending events to index
+    // Switch OFF event processing — followee signs up but is not indexed
     test = test.remove_event_processing().await;
 
-    // Create a key but it would not be synchronised in the graph
     let followee_kp = Keypair::random();
     let followee = PubkyAppUser {
         bio: Some("test_homeserver_follow_cannot_complete".to_string()),
@@ -33,16 +32,16 @@ async fn test_homeserver_follow_cannot_complete() -> Result<()> {
     };
     let shadow_followee_id = test.create_user(&followee_kp, &followee).await?;
 
-    let follow_url = test
+    let _follow_path = test
         .create_follow(&follower_kp, &shadow_followee_id)
         .await?;
 
-    // Create raw event line to retrieve the content from the homeserver
-    let follow_event = format!("PUT {follow_url}");
+    // Full URI required by Event::parse_event
+    let follow_event = format!(
+        "PUT {}",
+        follow_uri_builder(follower_id.clone(), shadow_followee_id.clone())
+    );
 
-    // Simulate the event processor to handle the event.
-    // If the event processor were activated, the test would not catch the missing dependency
-    // error, and it would pass successfully
     let event_handler = test.event_processor_runner.event_handler.clone();
     let sync_fail = retrieve_and_handle_event_line(&follow_event, event_handler)
         .await
@@ -51,18 +50,17 @@ async fn test_homeserver_follow_cannot_complete() -> Result<()> {
 
     assert!(
         sync_fail,
-        "It seems that relationship exists, which should not be possible. Event processor should be disconnected"
+        "Follow indexing should fail: followee is not yet indexed"
     );
 
-    // Create a follow in opposite direction
-    let opposite_follow = test.create_follow(&followee_kp, &follower_id).await?;
+    // Opposite direction: followee follows follower (follower IS indexed, followee is NOT)
+    let _opposite_follow_path = test.create_follow(&followee_kp, &follower_id).await?;
 
-    // Create raw event line to retrieve the content from the homeserver
-    let opposite_follow_event = format!("PUT {opposite_follow}");
+    let opposite_follow_event = format!(
+        "PUT {}",
+        follow_uri_builder(shadow_followee_id, follower_id)
+    );
 
-    // Simulate the event processor to handle the event.
-    // If the event processor were activated, the test would not catch the missing dependency
-    // error, and it would pass successfully
     let event_handler = test.event_processor_runner.event_handler.clone();
     let sync_fail = retrieve_and_handle_event_line(&opposite_follow_event, event_handler)
         .await
@@ -71,7 +69,7 @@ async fn test_homeserver_follow_cannot_complete() -> Result<()> {
 
     assert!(
         sync_fail,
-        "It seems that relationship exists, which should not be possible. Event processor should be disconnected"
+        "Follow indexing should fail: follower (shadow) is not yet indexed"
     );
 
     Ok(())

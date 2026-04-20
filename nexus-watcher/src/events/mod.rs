@@ -1,5 +1,5 @@
 use nexus_common::db::PubkyConnector;
-use nexus_common::models::event::{Event, EventProcessorError, EventType};
+use nexus_common::models::event::{Event, EventProcessorError, EventType, HomeserverParsedUri};
 use pubky_app_specs::{PubkyAppObject, Resource};
 use std::sync::Arc;
 use tracing::debug;
@@ -66,13 +66,13 @@ pub async fn handle_put_event(
         .bytes()
         .await
         .map_err(|e| EventProcessorError::client_error(e.to_string()))?;
-    let resource = event.parsed_uri.resource.clone();
+    let resource = event.parsed_uri.resource().clone();
 
     // Use the new importer from pubky-app-specs
     let pubky_object =
         PubkyAppObject::from_resource(&resource, &blob).map_err(EventProcessorError::generic)?;
 
-    let user_id = event.parsed_uri.user_id.clone();
+    let user_id = event.parsed_uri.user_id().clone();
     match (pubky_object, resource) {
         (PubkyAppObject::User(user), Resource::User) => {
             handlers::user::sync_put(user, user_id).await?
@@ -95,7 +95,14 @@ pub async fn handle_put_event(
                     .apply_moderation(tag, event.files_path.clone())
                     .await?
             } else {
-                handlers::tag::sync_put(tag, user_id, tag_id).await?
+                // Route universal tag events (non-pubky.app apps) to sync_put_resource
+                // which handles Resource nodes for InternalUnknown/InternalUnknown URIs.
+                if let HomeserverParsedUri::UniversalTag { app, .. } = &event.parsed_uri {
+                    handlers::tag::sync_put_resource(tag, user_id, tag_id.to_string(), app.clone())
+                        .await?
+                } else {
+                    handlers::tag::sync_put(tag, user_id, tag_id.to_string()).await?
+                }
             }
         }
         (PubkyAppObject::File(file), Resource::File(file_id)) => {
@@ -117,8 +124,8 @@ pub async fn handle_put_event(
 pub async fn handle_del_event(event: &Event) -> Result<(), EventProcessorError> {
     debug!("Handling DEL event for URI: {}", event.uri);
 
-    let user_id = event.parsed_uri.user_id.clone();
-    match &event.parsed_uri.resource {
+    let user_id = event.parsed_uri.user_id().clone();
+    match event.parsed_uri.resource() {
         Resource::User => handlers::user::del(user_id).await?,
         Resource::Post(post_id) => handlers::post::del(user_id, post_id.clone()).await?,
         Resource::Follow(followee_id) => {
@@ -128,7 +135,24 @@ pub async fn handle_del_event(event: &Event) -> Result<(), EventProcessorError> 
         Resource::Bookmark(bookmark_id) => {
             handlers::bookmark::del(user_id, bookmark_id.clone()).await?
         }
-        Resource::Tag(tag_id) => handlers::tag::del(user_id, tag_id.clone()).await?,
+        Resource::Tag(tag_id) => {
+            if let HomeserverParsedUri::UniversalTag {
+                app,
+                tag_id: utag_id,
+                ..
+            } = &event.parsed_uri
+            {
+                let info = handlers::universal_tag::AppTagInfo {
+                    user_id,
+                    app: app.clone(),
+                    tag_id: utag_id.clone(),
+                    uri: event.uri.clone(),
+                };
+                handlers::universal_tag::handle_del(info).await?
+            } else {
+                handlers::tag::del(user_id, tag_id.clone(), None).await?
+            }
+        }
         Resource::File(file_id) => {
             handlers::file::del(&user_id, file_id.clone(), event.files_path.clone()).await?
         }

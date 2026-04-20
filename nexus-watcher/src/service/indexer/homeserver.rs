@@ -2,7 +2,7 @@ use super::TEventProcessor;
 use crate::events::retry::RetryScheduler;
 use crate::events::{EventHandler, TModeration};
 use nexus_common::db::PubkyConnector;
-use nexus_common::models::event::{Event, EventProcessorError};
+use nexus_common::models::event::{Event, EventProcessorError, ParseResult};
 use nexus_common::models::homeserver::Homeserver;
 use pubky::Method;
 use std::path::PathBuf;
@@ -139,26 +139,31 @@ impl HsEventProcessor {
             }
 
             // Process the event line
-            let maybe_event = Event::parse_event(line, self.files_path.clone())
-                .inspect_err(|e| warn!("Failed to parse event line: {e}"))
-                .unwrap_or(None);
+            match Event::parse_event(line, self.files_path.clone()) {
+                Ok(ParseResult::Parsed(event)) => {
+                    debug!("Processing event: {:?}", event);
 
-            if let Some(event) = maybe_event {
-                debug!("Processing event: {:?}", event);
-
-                // Use the trait's handle_event method which delegates to handle_error
-                match self.handle_event(&event).await {
-                    Ok(()) => {
-                        // Event processed successfully
-                    }
-                    Err(e) => {
-                        // Infrastructure error - stop the batch
-                        error!("Infrastructure error processing event: {e}");
-                        return Err(e);
+                    // Use the trait's handle_event method which delegates to handle_error
+                    match self.handle_event(&event).await {
+                        Ok(()) => {
+                            // Event processed successfully
+                        }
+                        Err(e) => {
+                            // Infrastructure error - stop the batch
+                            error!("Infrastructure error processing event: {e}");
+                            return Err(e);
+                        }
                     }
                 }
+                Ok(ParseResult::Skipped) => {
+                    // Skipped event - continue
+                }
+                Ok(ParseResult::UnrecognizedUri { reason, .. }) => {
+                    // Should not normally occur — UnknownResource parsing happens in HomeserverParsedUri
+                    warn!("Unrecognized event URI: {reason}");
+                }
+                Err(e) => warn!("Failed to parse event line: {e}"),
             }
-            // Invalid or unhandled event line - skip
         }
 
         Ok(())
