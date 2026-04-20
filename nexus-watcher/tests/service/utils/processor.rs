@@ -9,7 +9,7 @@ use nexus_common::db::queries;
 use nexus_common::models::event::EventProcessorError;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::user::UserDetails;
-use nexus_watcher::events::retry::{InitialBackoff, RedisRetryStore, RetryScheduler, RetryStore};
+use nexus_watcher::events::retry::RetryScheduler;
 use nexus_watcher::events::{EventHandler, Moderation, TModeration};
 use nexus_watcher::service::TEventProcessor;
 use pubky::Keypair;
@@ -28,8 +28,6 @@ pub struct MockEventProcessor {
     files_path: PathBuf,
     moderation: Arc<dyn TModeration>,
     event_handler: Arc<dyn EventHandler>,
-    /// Unused by `run_internal` (which never hits `handle_error`), but required by the trait.
-    retry_scheduler: Arc<RetryScheduler>,
 }
 
 #[async_trait::async_trait]
@@ -54,8 +52,8 @@ impl TEventProcessor for MockEventProcessor {
         format!("MockEventProcessor for HS ID: {}", self.homeserver_id)
     }
 
-    fn retry_scheduler(&self) -> &Arc<RetryScheduler> {
-        &self.retry_scheduler
+    fn retry_scheduler(&self) -> Option<&Arc<RetryScheduler>> {
+        None
     }
 
     async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {
@@ -85,17 +83,6 @@ fn default_mock_moderation() -> Arc<dyn TModeration> {
         id: PubkyId::try_from("8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo").unwrap(),
         tags: vec![],
     })
-}
-
-fn default_mock_retry_scheduler() -> Arc<RetryScheduler> {
-    let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
-    Arc::new(RetryScheduler::new(
-        store,
-        InitialBackoff {
-            missing_dep_ms: 60_000,
-            transient_ms: 10_000,
-        },
-    ))
 }
 
 /// Create a random homeserver and add it to the event processor list.
@@ -153,7 +140,6 @@ pub async fn create_random_homeservers_and_persist(
             target_uri_substring: None,
             moderation,
         }),
-        retry_scheduler: default_mock_retry_scheduler(),
     };
     event_processor_list.push(event_processor);
 }
@@ -170,7 +156,6 @@ pub fn create_mock_event_processors(
         target_uri_substring: None,
         moderation: moderation.clone(),
     });
-    let retry_scheduler = default_mock_retry_scheduler();
     [
         (HS_IDS[0], None, Success),
         (HS_IDS[1], None, Error("Event processor error!".into())),
@@ -189,7 +174,6 @@ pub fn create_mock_event_processors(
             files_path: PathBuf::from("/tmp/mock"),
             moderation: moderation.clone(),
             event_handler: event_handler.clone(),
-            retry_scheduler: retry_scheduler.clone(),
         },
     )
     .collect()

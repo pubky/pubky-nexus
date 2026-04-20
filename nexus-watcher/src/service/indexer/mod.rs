@@ -71,8 +71,11 @@ pub trait TEventProcessor: Send + Sync + 'static {
     fn instance_name(&self) -> String;
 
     /// Returns the retry scheduler used by [`Self::handle_error`] to enqueue failed
-    /// events for later retry.
-    fn retry_scheduler(&self) -> &Arc<RetryScheduler>;
+    /// events for later retry.  Returns `None` when the processor bypasses
+    /// [`Self::handle_error`] and manages retries on its own (e.g. [`RetryProcessor`](crate::events::retry::RetryProcessor)).
+    fn retry_scheduler(&self) -> Option<&Arc<RetryScheduler>> {
+        None
+    }
 
     async fn run(self: Arc<Self>) -> Result<(), RunError> {
         let timeout = self
@@ -150,7 +153,11 @@ pub trait TEventProcessor: Send + Sync + 'static {
     ) -> Result<(), EventProcessorError> {
         match &error {
             EventProcessorError::MissingDependency { dependency: _ } => {
-                self.retry_scheduler().queue_missing_dep(event).await
+                if let Some(s) = self.retry_scheduler() {
+                    s.queue_missing_dep(event).await
+                } else {
+                    Ok(())
+                }
             }
             EventProcessorError::SkipIndexing => {
                 // Skip indexing - no retry entry needed
@@ -167,7 +174,11 @@ pub trait TEventProcessor: Send + Sync + 'static {
             }
             EventProcessorError::PubkyClientError(_) => {
                 // Non-404 client error (5xx, transport, etc.) - queue for retry
-                self.retry_scheduler().queue_transient(event).await
+                if let Some(s) = self.retry_scheduler() {
+                    s.queue_transient(event).await
+                } else {
+                    Ok(())
+                }
             }
             _ if error.is_infrastructure() => {
                 // Infrastructure error - stop the batch

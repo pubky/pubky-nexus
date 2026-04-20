@@ -9,9 +9,9 @@ use tracing::{debug, info, warn};
 use nexus_common::models::event::{Event, EventProcessorError, EventType, ParseResult};
 use nexus_common::WatcherConfig;
 
-use super::scheduler::RetryScheduler;
 use super::store::{RedisRetryStore, RetryStore};
-use super::{InitialBackoff, RetryEvent};
+use super::RetryEvent;
+use super::RetryScheduler;
 use crate::events::{DefaultEventHandler, EventHandler, Moderation, TModeration};
 use crate::service::indexer::TEventProcessor;
 
@@ -27,11 +27,6 @@ pub struct RetryProcessor {
     /// Persistence backend for retry events. Production wiring uses
     /// [`RedisRetryStore`]; tests swap in an in-memory store for isolation.
     pub store: Arc<dyn RetryStore>,
-    /// Provided only to satisfy [`TEventProcessor::retry_scheduler`]. The retry
-    /// processor bypasses [`TEventProcessor::handle_error`] (it calls the event
-    /// handler directly and reschedules via [`Self::schedule_retry`]), so the
-    /// scheduler is never actually invoked from this processor.
-    pub retry_scheduler: Arc<RetryScheduler>,
 }
 
 /// Configuration for the retry processor
@@ -83,8 +78,8 @@ impl TEventProcessor for RetryProcessor {
         "RetryProcessor".to_string()
     }
 
-    fn retry_scheduler(&self) -> &Arc<RetryScheduler> {
-        &self.retry_scheduler
+    fn retry_scheduler(&self) -> Option<&Arc<RetryScheduler>> {
+        None
     }
 
     async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {
@@ -121,17 +116,12 @@ impl RetryProcessor {
     pub fn new(config: &WatcherConfig, shutdown_rx: Receiver<bool>) -> Self {
         let moderation = Moderation::from_config(config);
         let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
-        let retry_scheduler = Arc::new(RetryScheduler::new(
-            store.clone(),
-            InitialBackoff::from_config(config),
-        ));
         Self {
             files_path: config.stack.files_path.clone(),
             event_handler: Arc::new(DefaultEventHandler::new(moderation)),
             shutdown_rx,
             config: RetryProcessorConfig::from_watcher_config(config),
             store,
-            retry_scheduler,
         }
     }
 

@@ -164,7 +164,6 @@ fn to_ascii_lower_prefix<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
 mod tests {
     use super::*;
 
-    const BASE_USER_ID: &str = "8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo";
     const BASE_URI: &str =
         "pubky://8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo/pub/mapky/tags/ABC123";
 

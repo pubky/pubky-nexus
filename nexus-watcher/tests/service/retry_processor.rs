@@ -5,8 +5,8 @@ use chrono::Utc;
 use nexus_common::db::kv::RedisOps;
 use nexus_common::models::event::{EventProcessorError, EventType};
 use nexus_watcher::events::retry::{
-    InMemoryRetryStore, InitialBackoff, RedisRetryStore, RetryEvent, RetryProcessor,
-    RetryProcessorConfig, RetryScheduler, RetryStore,
+    InMemoryRetryStore, RedisRetryStore, RetryEvent, RetryProcessor, RetryProcessorConfig,
+    RetryStore,
 };
 use nexus_watcher::events::EventHandler;
 use nexus_watcher::events::Moderation;
@@ -96,22 +96,12 @@ fn build_processor(
     event_handler: Arc<dyn EventHandler>,
     shutdown_rx: watch::Receiver<bool>,
 ) -> Arc<RetryProcessor> {
-    // The retry processor bypasses handle_error, so the scheduler is never invoked
-    // from these tests. Wire in a dummy one to satisfy the trait.
-    let retry_scheduler = Arc::new(RetryScheduler::new(
-        store.clone(),
-        InitialBackoff {
-            missing_dep_ms: 60_000,
-            transient_ms: 10_000,
-        },
-    ));
     Arc::new(RetryProcessor {
         files_path: PathBuf::from("/tmp/test"),
         event_handler,
         shutdown_rx,
         config,
         store,
-        retry_scheduler,
     })
 }
 

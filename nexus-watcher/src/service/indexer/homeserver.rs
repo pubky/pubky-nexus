@@ -43,8 +43,8 @@ impl TEventProcessor for HsEventProcessor {
         format!("HsEventProcessor with HS ID: {}", self.homeserver.id)
     }
 
-    fn retry_scheduler(&self) -> &Arc<RetryScheduler> {
-        &self.retry_scheduler
+    fn retry_scheduler(&self) -> Option<&Arc<RetryScheduler>> {
+        Some(&self.retry_scheduler)
     }
 
     async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {
