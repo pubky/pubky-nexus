@@ -212,7 +212,20 @@ async fn put_sync_post(
     )
     .await?
     {
-        OperationOutcome::Updated => Ok(()),
+        OperationOutcome::Updated => {
+            // Re-run idempotent ops to recover from partial failure (graph wrote, Redis didn't)
+            let tag_label_slice = &[tag_label.to_string()];
+            let idempotent_results = nexus_common::traced_join!(
+                tracing::info_span!("index.write", phase = "tag_post_retry");
+                TagPost::add_tagger_to_index(&author_id, Some(post_id), &tagger_user_id, tag_label),
+                PostsByTagSearch::put_to_index(&author_id, post_id, tag_label),
+                TagSearch::put_to_index(tag_label_slice)
+            );
+            idempotent_results.0?;
+            idempotent_results.1?;
+            idempotent_results.2?;
+            Ok(())
+        }
         OperationOutcome::MissingDependency => {
             // Ensure that dependencies follow the same format as the RetryManager keys
             let dependency = vec![format!("{author_id}:posts:{post_id}")];
@@ -319,7 +332,18 @@ async fn put_sync_user(
     )
     .await?
     {
-        OperationOutcome::Updated => Ok(()),
+        OperationOutcome::Updated => {
+            // Re-run idempotent ops to recover from partial failure (graph wrote, Redis didn't)
+            let tag_label_slice = &[tag_label.to_string()];
+            let idempotent_results = nexus_common::traced_join!(
+                tracing::info_span!("index.write", phase = "tag_user_retry");
+                TagUser::add_tagger_to_index(&tagged_user_id, None, &tagger_user_id, tag_label),
+                TagSearch::put_to_index(tag_label_slice)
+            );
+            idempotent_results.0?;
+            idempotent_results.1?;
+            Ok(())
+        }
         OperationOutcome::MissingDependency => {
             if let Err(e) = Homeserver::maybe_ingest_for_user(tagged_user_id.as_str()).await {
                 tracing::error!("Failed to ingest homeserver: {e}");
@@ -369,19 +393,14 @@ async fn put_sync_user(
 }
 
 #[tracing::instrument(name = "tag.del", skip_all, fields(user_id = %user_id, tag_id = %tag_id))]
-pub async fn del(
-    user_id: PubkyId,
-    tag_id: String,
-    app: Option<String>,
-) -> Result<(), EventProcessorError> {
-    debug!("Deleting tag: {} -> {} (app={:?})", user_id, tag_id, app);
+pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), EventProcessorError> {
+    debug!("Deleting tag: {} -> {}", user_id, tag_id);
 
-    // Execute the delete query directly (bypasses TagCollection trait to get resource_id field)
-    let query = queries::del::delete_tag(&user_id, &tag_id, app.as_deref());
-    let maybe_row = fetch_row_from_graph(query).await?;
-
-    let Some(row) = maybe_row else {
-        return Err(EventProcessorError::SkipIndexing);
+    // 1. Read target from graph WITHOUT deleting the edge
+    let Some(row) = fetch_row_from_graph(queries::get::get_tag_target(&user_id, &tag_id)).await?
+    else {
+        // Edge already gone (fully completed on a prior attempt) — idempotent no-op
+        return Ok(());
     };
 
     let tagged_user_id: Option<String> = row.get("user_id").unwrap_or(None);
@@ -393,24 +412,40 @@ pub async fn del(
         .map_err(|e| EventProcessorError::generic(format!("Missing label in delete_tag: {e}")))?;
     let app: Option<String> = row.get("app").unwrap_or(None);
 
+    // 2. Redis cleanup (guarded by tagger_in_index where non-idempotent)
     match (tagged_user_id, post_id, author_id, resource_id) {
-        // Delete user related indexes
         (Some(tagged_id), None, None, None) => {
-            del_sync_user(user_id, &tagged_id, &label).await?;
+            let tagger_in_index =
+                TagUser::check_set_member(&[&tagged_id, &label], user_id.as_str())
+                    .await?
+                    .1;
+            del_sync_user(user_id.clone(), &tagged_id, &label, tagger_in_index).await?;
         }
-        // Delete post related indexes
         (None, Some(post_id), Some(author_id), None) => {
-            del_sync_post(user_id, &post_id, &author_id, &label).await?;
+            let tagger_in_index =
+                TagPost::check_set_member(&[&author_id, &post_id, &label], user_id.as_str())
+                    .await?
+                    .1;
+            del_sync_post(
+                user_id.clone(),
+                &post_id,
+                &author_id,
+                &label,
+                tagger_in_index,
+            )
+            .await?;
         }
-        // Delete resource related indexes
         (None, None, None, Some(res_id)) => {
-            del_sync_resource(user_id, &res_id, &label, app.as_deref()).await?;
+            del_sync_resource(user_id.clone(), &res_id, &label, app.as_deref()).await?;
         }
-        // Handle other unexpected cases
         _ => {
             debug!("DEL-Tag: Unexpected combination of tag details");
         }
     }
+
+    // 3. Graph deletion LAST — ensures data survives for retry if Redis ops fail
+    fetch_row_from_graph(queries::del::delete_tag(&user_id, &tag_id, app.as_deref())).await?;
+
     Ok(())
 }
 
@@ -418,30 +453,48 @@ async fn del_sync_user(
     tagger_id: PubkyId,
     tagged_id: &str,
     tag_label: &str,
+    tagger_in_index: bool,
 ) -> Result<(), EventProcessorError> {
     let indexing_results = nexus_common::traced_join!(
         tracing::info_span!("index.delete", phase = "tag_user");
-        // Update user counts in the tagged
-        UserCounts::decrement(tagged_id, "tags", None),
-        // Update user counts in the tagger
-        UserCounts::decrement(&tagger_id, "tagged", None),
+        // Guarded: Update user counts in the tagged
         async {
-            // Decrement label count to the user profile tag
-            TagUser::update_index_score(tagged_id, None, tag_label, ScoreAction::Decrement(1.0)).await?;
-            // Decrease unique_tags
-            // NOTE: To update that field, we first need to decrement the value in the TagUser SORTED SET associated with that tag
-            UserCounts::decrement(tagged_id, "unique_tags", Some(tag_label)).await?;
+            if tagger_in_index {
+                UserCounts::decrement(tagged_id, "tags", None).await?;
+            }
+            Ok::<(), EventProcessorError>(())
+        },
+        // Guarded: Update user counts in the tagger
+        async {
+            if tagger_in_index {
+                UserCounts::decrement(&tagger_id, "tagged", None).await?;
+            }
             Ok::<(), EventProcessorError>(())
         },
         async {
-            // Remove tagger to the user taggers list
+            if tagger_in_index {
+                // Decrement label count to the user profile tag
+                TagUser::update_index_score(tagged_id, None, tag_label, ScoreAction::Decrement(1.0)).await?;
+                // Decrease unique_tags
+                // NOTE: To update that field, we first need to decrement the value in the TagUser SORTED SET associated with that tag
+                UserCounts::decrement(tagged_id, "unique_tags", Some(tag_label)).await?;
+            }
+            Ok::<(), EventProcessorError>(())
+        },
+        async {
+            // Idempotent: Remove tagger from the user taggers list (SREM)
             TagUser(vec![tagger_id.to_string()])
                 .del_from_index(tagged_id, None, tag_label)
                 .await?;
             Ok::<(), EventProcessorError>(())
         },
-        // Save new notification
-        Notification::new_user_untag(&tagger_id, tagged_id, tag_label)
+        // Guarded: notification
+        async {
+            if tagger_in_index {
+                Notification::new_user_untag(&tagger_id, tagged_id, tag_label).await?;
+            }
+            Ok::<(), EventProcessorError>(())
+        }
     );
 
     indexing_results.0?;
@@ -458,55 +511,75 @@ async fn del_sync_post(
     post_id: &str,
     author_id: &str,
     tag_label: &str,
+    tagger_in_index: bool,
 ) -> Result<(), EventProcessorError> {
-    // SAVE TO INDEXES
     let post_key_slice: &[&str] = &[author_id, post_id];
     let tag_post = TagPost(vec![tagger_id.to_string()]);
     let post_uri = post_uri_builder(author_id.to_string(), post_id.to_string());
 
     let indexing_results = nexus_common::traced_join!(
         tracing::info_span!("index.delete", phase = "tag_post");
-        // Update user counts for tagger
-        UserCounts::decrement(&tagger_id, "tagged", None),
-        // Decrement in one the post tags
-        PostCounts::decrement_index_field(post_key_slice, "tags", None),
+        // Guarded: Update user counts for tagger
         async {
-            // Decrement label score in the post
-            TagPost::update_index_score(
-                author_id,
-                Some(post_id),
-                tag_label,
-                ScoreAction::Decrement(1.0),
-            )
-            .await?;
-            // Decrease unique_tag
-            // NOTE: To update that field, we first need to decrement the value in the SORTED SET associated with that tag
-            PostCounts::decrement_index_field(post_key_slice, "unique_tags", Some(tag_label))
-                .await?;
+            if tagger_in_index {
+                UserCounts::decrement(&tagger_id, "tagged", None).await?;
+            }
             Ok::<(), EventProcessorError>(())
         },
-        // Decrease post from label total engagement
-        PostsByTagSearch::update_index_score(
-            author_id,
-            post_id,
-            tag_label,
-            ScoreAction::Decrement(1.0),
-        ),
+        // Guarded: Decrement in one the post tags
         async {
-            // Post replies cannot be included in the total engagement index once the tag have been deleted
-            if !post_relationships_is_reply(author_id, post_id).await? {
-                // Decrement in one post global engagement
-                PostStream::update_index_score(author_id, post_id, ScoreAction::Decrement(1.0))
-                    .await?;
+            if tagger_in_index {
+                PostCounts::decrement_index_field(post_key_slice, "tags", None).await?;
             }
             Ok::<(), EventProcessorError>(())
         },
         async {
-            // Delete the tagger from the tag list
+            if tagger_in_index {
+                // Decrement label score in the post
+                TagPost::update_index_score(
+                    author_id,
+                    Some(post_id),
+                    tag_label,
+                    ScoreAction::Decrement(1.0),
+                )
+                .await?;
+                // Decrease unique_tag
+                // NOTE: To update that field, we first need to decrement the value in the SORTED SET associated with that tag
+                PostCounts::decrement_index_field(post_key_slice, "unique_tags", Some(tag_label))
+                    .await?;
+            }
+            Ok::<(), EventProcessorError>(())
+        },
+        // Guarded: Decrease post from label total engagement
+        async {
+            if tagger_in_index {
+                PostsByTagSearch::update_index_score(
+                    author_id,
+                    post_id,
+                    tag_label,
+                    ScoreAction::Decrement(1.0),
+                )
+                .await?;
+            }
+            Ok::<(), EventProcessorError>(())
+        },
+        async {
+            if tagger_in_index {
+                // Post replies cannot be included in the total engagement index once the tag have been deleted
+                if !post_relationships_is_reply(author_id, post_id).await? {
+                    // Decrement in one post global engagement
+                    PostStream::update_index_score(author_id, post_id, ScoreAction::Decrement(1.0))
+                        .await?;
+                }
+            }
+            Ok::<(), EventProcessorError>(())
+        },
+        async {
+            // Idempotent: Delete the tagger from the tag list (SREM)
             tag_post
                 .del_from_index(author_id, Some(post_id), tag_label)
                 .await?;
-            // NOTE: The tag search index, depends on the post taggers collection to delete
+            // NOTE: The tag search index depends on the post taggers collection to delete
             // Delete post from global label timeline
             PostsByTagSearch::del_from_index(author_id, post_id, tag_label).await?;
 
@@ -520,8 +593,13 @@ async fn del_sync_post(
 
             Ok::<(), EventProcessorError>(())
         },
-        // Save new notification
-        Notification::new_post_untag(&tagger_id, author_id, tag_label, &post_uri)
+        // Guarded: notification
+        async {
+            if tagger_in_index {
+                Notification::new_post_untag(&tagger_id, author_id, tag_label, &post_uri).await?;
+            }
+            Ok::<(), EventProcessorError>(())
+        }
     );
 
     indexing_results.0?;

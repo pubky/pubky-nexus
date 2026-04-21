@@ -401,6 +401,26 @@ where
         Ok(Some((user_id, post_id, author_id, label)))
     }
 
+    /// Reads tag target details from the graph without deleting the TAGGED edge.
+    /// Same return shape as `del_from_graph`.
+    async fn get_target_from_graph(
+        user_id: &str,
+        tag_id: &str,
+    ) -> GraphResult<Option<(Option<String>, Option<String>, Option<String>, String)>> {
+        let query = queries::get::get_tag_target(user_id, tag_id);
+        let maybe_row = fetch_row_from_graph(query).await?;
+
+        let Some(row) = maybe_row else {
+            return Ok(None);
+        };
+
+        let user_id: Option<String> = row.get("user_id").unwrap_or(None);
+        let author_id: Option<String> = row.get("author_id").unwrap_or(None);
+        let post_id: Option<String> = row.get("post_id").unwrap_or(None);
+        let label: String = row.get("label").expect("Query should return tag label");
+        Ok(Some((user_id, post_id, author_id, label)))
+    }
+
     /// Returns the unique key parts used to identify a tag in the Redis database
     fn get_tag_prefix<'a>() -> [&'a str; 2];
 

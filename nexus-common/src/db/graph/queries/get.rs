@@ -126,6 +126,25 @@ pub fn get_post_replies(author_id: &str, post_id: &str) -> Query {
     .param("post_id", post_id)
 }
 
+// Read the target details for a tag without deleting the TAGGED edge.
+// Used in tag del to read before graph-last deletion.
+pub fn get_tag_target(user_id: &str, tag_id: &str) -> Query {
+    Query::new(
+        "get_tag_target",
+        "MATCH (user:User {id: $user_id})-[tag:TAGGED {id: $tag_id}]->(target)
+         OPTIONAL MATCH (target)<-[:AUTHORED]-(author:User)
+         WITH CASE WHEN target:User THEN target.id ELSE null END AS user_id,
+              CASE WHEN target:Post THEN target.id ELSE null END AS post_id,
+              CASE WHEN target:Post THEN author.id ELSE null END AS author_id,
+              CASE WHEN target:Resource THEN target.id ELSE null END AS resource_id,
+              tag.label AS label,
+              tag.app AS app
+         RETURN user_id, post_id, author_id, resource_id, label, app",
+    )
+    .param("user_id", user_id)
+    .param("tag_id", tag_id)
+}
+
 // Get all the tags/taggers that a post has received (used for edit/delete notifications)
 pub fn get_post_tags(author_id: &str, post_id: &str) -> Query {
     Query::new(
