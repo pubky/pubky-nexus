@@ -153,7 +153,7 @@ impl UserStream {
             let mut filtered_ids: Vec<String> = Vec::new();
             let mut deleted_ids: Vec<String> = Vec::new();
 
-            for (id, details) in cached_ids.into_iter().zip(details_list.into_iter()) {
+            for (id, details) in cached_ids.into_iter().zip(details_list) {
                 match details {
                     Some(ref d) if d.name != USER_DELETED_SENTINEL => filtered_ids.push(id),
                     _ => deleted_ids.push(id),
@@ -264,7 +264,7 @@ impl UserStream {
         let mut filtered_ids = Vec::new();
         let mut deleted_ids = Vec::new();
 
-        for ((id, _score), details) in set.into_iter().zip(details_list.into_iter()) {
+        for ((id, _score), details) in set.into_iter().zip(details_list) {
             match details {
                 Some(ref d) if d.name != USER_DELETED_SENTINEL => filtered_ids.push(id),
                 _ => deleted_ids.push(id),

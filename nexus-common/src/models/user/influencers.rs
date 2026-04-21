@@ -235,7 +235,7 @@ impl Influencers {
         let mut kept = Vec::new();
         let mut deleted_ids = Vec::new();
 
-        for ((id, score), details) in influencers.0.into_iter().zip(details_list.into_iter()) {
+        for ((id, score), details) in influencers.0.into_iter().zip(details_list) {
             match details {
                 Some(ref d) if d.name != USER_DELETED_SENTINEL => kept.push((id, score)),
                 _ => deleted_ids.push(id),
