@@ -337,7 +337,7 @@ async fn test_backoff_capped_at_max() -> Result<()> {
         .expect("Event should be re-queued");
 
     // Backoff should be capped at max (3600 seconds = 3600000 ms)
-    let expected_next_retry = now + 3600_000;
+    let expected_next_retry = now + 3_600_000;
     assert!(
         updated_event.next_retry_at >= expected_next_retry - 1000,
         "Backoff should be capped at max value (3600s)"

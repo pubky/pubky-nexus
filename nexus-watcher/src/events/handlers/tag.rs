@@ -18,7 +18,7 @@ use nexus_common::models::user::UserCounts;
 use nexus_common::models::user::UserDetails;
 use nexus_common::types::Pagination;
 use pubky_app_specs::{post_uri_builder, ParsedUri, PubkyAppTag, PubkyId, Resource};
-use tracing::{debug, info};
+use tracing::debug;
 
 use super::utils::post_relationships_is_reply;
 
