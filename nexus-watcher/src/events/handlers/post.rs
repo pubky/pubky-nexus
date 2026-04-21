@@ -488,22 +488,20 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
         PostCounts::delete(&author_id, &post_id, !is_reply),
         // Guarded: skip on retry to avoid double-decrement.
         async {
+            // Both UserCount ops (for posts, replies) are on the same key (author_id)
+            // Redis will execute them sequentially, so there's no benefit in parallelizing them
             if post_in_index {
                 UserCounts::decrement(&author_id, "posts", None).await?;
+                if is_reply {
+                    UserCounts::decrement(&author_id, "replies", None).await?;
+                }
             }
-            Ok::<(), EventProcessorError>(())
-        },
-        async {
-            if post_in_index && is_reply {
-                UserCounts::decrement(&author_id, "replies", None).await?;
-            };
             Ok::<(), EventProcessorError>(())
         }
     );
 
     indexing_results.0?;
     indexing_results.1?;
-    indexing_results.2?;
 
     // Use that index wrapper to delete a post reply
     let mut reply_parent_post_key_wrapper: Option<(String, String)> = None;
