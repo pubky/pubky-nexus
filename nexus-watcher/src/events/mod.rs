@@ -97,9 +97,17 @@ pub async fn handle_put_event(
             } else {
                 // Route universal tag events (non-pubky.app apps) to sync_put_resource
                 // which handles Resource nodes for InternalUnknown/InternalUnknown URIs.
-                if let HomeserverParsedUri::UniversalTag { app, .. } = &event.parsed_uri {
-                    handlers::tag::sync_put_resource(tag, user_id, tag_id.to_string(), app.clone())
-                        .await?
+                if let HomeserverParsedUri::UniversalTag {
+                    tag: universal_tag, ..
+                } = &event.parsed_uri
+                {
+                    handlers::tag::sync_put_resource(
+                        tag.clone(),
+                        user_id,
+                        tag_id.clone(),
+                        universal_tag.app.clone(),
+                    )
+                    .await?
                 } else {
                     handlers::tag::sync_put(tag, user_id, tag_id.to_string()).await?
                 }
@@ -136,19 +144,8 @@ pub async fn handle_del_event(event: &Event) -> Result<(), EventProcessorError> 
             handlers::bookmark::del(user_id, bookmark_id.clone()).await?
         }
         Resource::Tag(tag_id) => {
-            if let HomeserverParsedUri::UniversalTag {
-                app,
-                tag_id: utag_id,
-                ..
-            } = &event.parsed_uri
-            {
-                let info = handlers::universal_tag::AppTagInfo {
-                    user_id,
-                    app: app.clone(),
-                    tag_id: utag_id.clone(),
-                    uri: event.uri.clone(),
-                };
-                handlers::universal_tag::handle_del(info).await?
+            if let HomeserverParsedUri::UniversalTag { tag, .. } = &event.parsed_uri {
+                handlers::universal_tag::handle_del(tag, &event.uri).await?
             } else {
                 handlers::tag::del(user_id, tag_id.clone(), None).await?
             }

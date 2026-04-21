@@ -1,3 +1,4 @@
+use crate::models::universal_tags::UniversalTag;
 use pubky_app_specs::{ParsedUri, PubkyId, Resource, PROTOCOL, PUBLIC_PATH};
 use serde::{Deserialize, Serialize};
 use std::convert::{From, TryFrom};
@@ -20,9 +21,8 @@ pub enum HomeserverParsedUri {
     /// Format: pubky://<user_id>/pub/<app>/tags/<tag_id>
     UniversalTag {
         user_id: PubkyId,
-        app: String,
         resource: Resource,
-        tag_id: String,
+        tag: UniversalTag,
     },
 }
 
@@ -40,23 +40,6 @@ impl HomeserverParsedUri {
         match self {
             HomeserverParsedUri::AppSpec { resource, .. } => resource,
             HomeserverParsedUri::UniversalTag { resource, .. } => resource,
-        }
-    }
-
-    /// Returns the app name, if available.
-    /// Returns "pubky.app" for AppSpec variants.
-    pub fn app(&self) -> &str {
-        match self {
-            HomeserverParsedUri::AppSpec { .. } => "pubky.app",
-            HomeserverParsedUri::UniversalTag { app, .. } => app.as_str(),
-        }
-    }
-
-    /// Returns the tag ID, if this is a UniversalTag with a tag resource.
-    pub fn tag_id(&self) -> Option<&str> {
-        match self {
-            HomeserverParsedUri::AppSpec { .. } => None,
-            HomeserverParsedUri::UniversalTag { tag_id, .. } => Some(tag_id.as_str()),
         }
     }
 }
@@ -137,12 +120,16 @@ impl TryFrom<&str> for HomeserverParsedUri {
         if path_after_app.len() == 2 && path_after_app[0] == "tags" && !path_after_app[1].is_empty()
         {
             let tag_id = path_after_app[1].to_string();
+            let tag = UniversalTag {
+                user_id: user_id.clone(),
+                app: app_path.to_string(),
+                tag_id: tag_id.clone(),
+            };
 
             return Ok(HomeserverParsedUri::UniversalTag {
                 user_id,
-                app: app_path.to_string(),
-                resource: Resource::Tag(tag_id.clone()),
-                tag_id,
+                resource: Resource::Tag(tag_id),
+                tag,
             });
         }
 
@@ -167,7 +154,6 @@ mod tests {
 
         assert!(matches!(parsed, HomeserverParsedUri::AppSpec { .. }));
         assert_eq!(parsed.resource(), &Resource::Post(post_id.to_string()));
-        assert_eq!(parsed.app(), "pubky.app");
     }
 
     #[test]
@@ -179,7 +165,6 @@ mod tests {
 
         assert!(matches!(parsed, HomeserverParsedUri::AppSpec { .. }));
         assert_eq!(parsed.resource(), &Resource::Tag(tag_id.to_string()));
-        assert_eq!(parsed.app(), "pubky.app");
     }
 
     #[test]
@@ -192,9 +177,13 @@ mod tests {
 
         assert!(matches!(parsed, HomeserverParsedUri::UniversalTag { .. }));
         assert_eq!(parsed.user_id(), &PubkyId::try_from(user_id).unwrap());
-        assert_eq!(parsed.app(), "mapky");
         assert_eq!(parsed.resource(), &Resource::Tag(tag_id.to_string()));
-        assert_eq!(parsed.tag_id(), Some("ABC123"));
+
+        // Access the UniversalTag struct directly
+        if let HomeserverParsedUri::UniversalTag { tag, .. } = parsed {
+            assert_eq!(tag.app, "mapky");
+            assert_eq!(tag.tag_id, "ABC123");
+        }
     }
 
     #[test]
@@ -207,9 +196,12 @@ mod tests {
 
         assert!(matches!(parsed, HomeserverParsedUri::UniversalTag { .. }));
         assert_eq!(parsed.user_id(), &PubkyId::try_from(user_id).unwrap());
-        assert_eq!(parsed.app(), "eventky.app");
         assert_eq!(parsed.resource(), &Resource::Tag(tag_id.to_string()));
-        assert_eq!(parsed.tag_id(), Some("XYZ789"));
+
+        if let HomeserverParsedUri::UniversalTag { tag, .. } = parsed {
+            assert_eq!(tag.app, "eventky.app");
+            assert_eq!(tag.tag_id, "XYZ789");
+        }
     }
 
     #[test]
@@ -230,17 +222,5 @@ mod tests {
     fn test_reject_missing_user_id() {
         let result = HomeserverParsedUri::try_from("pubky:///pub/pubky.app/");
         assert!(result.is_err(), "Should reject missing user ID");
-    }
-
-    #[test]
-    fn test_uppercase_scheme() {
-        let user_id = "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo";
-        let tag_id = "ABC123";
-        let uri = format!("PUBKY://{user_id}/pub/mapky/tags/{tag_id}");
-        let result = HomeserverParsedUri::try_from(uri.as_str());
-        // This should fail because url::Url::parse doesn't allow uppercase schemes in the same way
-        // For case-insensitive support, callers may need to normalize the scheme first
-        // The universal_tag variant handles this separately with eq_ignore_ascii_case
-        assert!(result.is_err() || result.is_ok()); // Accept either behavior for now
     }
 }
