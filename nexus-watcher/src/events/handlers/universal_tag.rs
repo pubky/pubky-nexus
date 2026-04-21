@@ -109,11 +109,7 @@ pub async fn handle_del(info: AppTagInfo) -> Result<(), EventProcessorError> {
 /// - App or tag_id contains slashes (invalid segments)
 fn try_parse_app_tag_path(uri: &str) -> Option<AppTagInfo> {
     // Case-insensitive scheme check per RFC 3986 (safe UTF-8 access)
-    let rest = uri
-        .strip_prefix("pubky://")
-        .or_else(|| uri.strip_prefix("PUBKY://"))
-        .or_else(|| uri.strip_prefix("Pubky://"))
-        .or_else(|| to_ascii_lower_prefix(uri, "pubky://"))?;
+    let rest = to_ascii_lower_prefix(uri, "pubky://")?;
 
     // Split: <user_id>/pub/<app>/tags/<tag_id>
     let (user_id_str, rest) = rest.split_once('/')?;
