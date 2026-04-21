@@ -456,9 +456,9 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
     //    parent (replied/reposted) URIs needed for parent cleanup.
     //    NOTE: deliberately NOT using `get_by_id`, which would re-populate the
     //    index from the graph and defeat the gate.
-    let mut post_relationships_opt =
+    let post_relationships_from_index =
         PostRelationships::get_from_index(&author_id, &post_id).await?;
-    let post_in_index = post_relationships_opt.is_some();
+    let post_in_index = post_relationships_from_index.is_some();
 
     // 2. Atomically commit the cleanup decision: remove the gate as the very
     //    first mutation. Subsequent retries will observe `post_in_index = false`
@@ -471,9 +471,10 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
     //    so that idempotent index cleanup can still target the right sorted sets.
     //    The graph is guaranteed to still have the post because the graph delete
     //    runs LAST.
-    if post_relationships_opt.is_none() {
-        post_relationships_opt = PostRelationships::get_from_graph(&author_id, &post_id).await?;
-    }
+    let post_relationships_opt = match post_relationships_from_index {
+        some @ Some(_) => some,
+        None => PostRelationships::get_from_graph(&author_id, &post_id).await?,
+    };
 
     // If the post is a reply, cannot delete from the main feeds
     // In the main feed, we just include the root posts and reposts
