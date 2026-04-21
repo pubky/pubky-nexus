@@ -267,8 +267,7 @@ async fn put_sync_post(
                             post_id,
                             ScoreAction::Increment(1.0),
                         )
-                        .await
-                        .map_err(EventProcessorError::index_operation_failed)?;
+                        .await?;
                     }
                     Ok::<(), EventProcessorError>(())
                 },
@@ -498,8 +497,7 @@ async fn del_sync_post(
             if !post_relationships_is_reply(author_id, post_id).await? {
                 // Decrement in one post global engagement
                 PostStream::update_index_score(author_id, post_id, ScoreAction::Decrement(1.0))
-                    .await
-                    .map_err(EventProcessorError::index_operation_failed)?;
+                    .await?;
             }
             Ok::<(), EventProcessorError>(())
         },
