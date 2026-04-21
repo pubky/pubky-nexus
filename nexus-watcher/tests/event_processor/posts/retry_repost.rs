@@ -1,7 +1,6 @@
 use crate::event_processor::utils::watcher::{assert_eventually_exists, WatcherTest};
 use anyhow::Result;
-use nexus_common::models::event::HomeserverParsedUri;
-use nexus_watcher::events::retry::event::RetryEvent;
+use nexus_watcher::events::retry::{RetryEvent, RetryEventIndexKey};
 use pubky::Keypair;
 use pubky_app_specs::{
     post_uri_builder, PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser,
@@ -44,8 +43,7 @@ async fn test_homeserver_post_repost_cannot_index() -> Result<()> {
 
     let repost_absolute_url = post_uri_builder(user_id, repost_id);
 
-    let parsed = HomeserverParsedUri::try_from(repost_absolute_url.as_str()).unwrap();
-    let index_key = RetryEvent::generate_index_key(parsed);
+    let index_key: RetryEventIndexKey = repost_absolute_url.clone();
 
     assert_eventually_exists(&index_key).await;
 

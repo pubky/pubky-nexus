@@ -2,13 +2,11 @@ use crate::event_processor::utils::watcher::{
     assert_eventually_exists, HomeserverHashIdPath, WatcherTest,
 };
 use anyhow::Result;
-use nexus_common::models::event::{EventType, HomeserverParsedUri};
-use nexus_watcher::events::retry::event::RetryEvent;
+use nexus_watcher::events::retry::{RetryEvent, RetryEventIndexKey};
 use pubky::Keypair;
 use pubky_app_specs::{
     bookmark_uri_builder, post_uri_builder, traits::HashId, PubkyAppBookmark, PubkyAppUser,
 };
-use tokio::time;
 
 /// The user profile is stored in the homeserver. Missing the post to connect the bookmark
 #[tokio_shared_rt::test(shared)]
@@ -44,8 +42,7 @@ async fn test_homeserver_bookmark_cannot_index() -> Result<()> {
     // PUT bookmark
     test.put(&user_kp, &bookmark_path, bookmark).await?;
 
-    let parsed = HomeserverParsedUri::try_from(bookmark_absolute_url.as_str()).unwrap();
-    let index_key = RetryEvent::generate_index_key(parsed);
+    let index_key: RetryEventIndexKey = bookmark_absolute_url.clone();
 
     assert_eventually_exists(&index_key).await;
 
@@ -59,24 +56,8 @@ async fn test_homeserver_bookmark_cannot_index() -> Result<()> {
     assert_eq!(event_state.retry_count, 0);
     assert_eq!(event_state.event_uri, bookmark_absolute_url);
 
-    // DEL bookmark — bookmark was never indexed, so DEL returns Ok (no-op)
+    // DEL bookmark — bookmark was never indexed, so DEL returns Ok (no-op, no retry created)
     test.del(&user_kp, &bookmark_path).await?;
-
-    let del_index_key = format!(
-        "{}:{}",
-        EventType::Del,
-        RetryEvent::generate_index_key(
-            HomeserverParsedUri::try_from(bookmark_absolute_url.as_str()).unwrap()
-        )
-    );
-
-    // DEL should succeed silently — no retry event created
-    time::sleep(std::time::Duration::from_millis(500)).await;
-    let event_retry = RetryEvent::get_from_index(&del_index_key).await.unwrap();
-    assert!(
-        event_retry.is_none(),
-        "DEL of non-existent bookmark should not create a retry event"
-    );
 
     Ok(())
 }

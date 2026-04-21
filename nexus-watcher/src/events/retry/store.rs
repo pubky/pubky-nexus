@@ -7,7 +7,7 @@ use tracing::debug;
 
 use nexus_common::models::event::EventProcessorError;
 
-use super::RetryEvent;
+use super::{RetryEvent, RetryEventIndexKey};
 
 /// Storage backend for [`RetryEvent`]s.
 ///
@@ -35,7 +35,7 @@ pub trait RetryStore: Send + Sync {
         &self,
         now: i64,
         limit: Option<usize>,
-    ) -> Result<Vec<(String, RetryEvent)>, EventProcessorError>;
+    ) -> Result<Vec<(RetryEventIndexKey, RetryEvent)>, EventProcessorError>;
 }
 
 /// Redis-backed [`RetryStore`], delegating to the `RetryEvent::*` helpers that
@@ -74,7 +74,7 @@ impl RetryStore for RedisRetryStore {
         &self,
         now: i64,
         limit: Option<usize>,
-    ) -> Result<Vec<(String, RetryEvent)>, EventProcessorError> {
+    ) -> Result<Vec<(RetryEventIndexKey, RetryEvent)>, EventProcessorError> {
         let key_score_pairs = match RetryEvent::fetch_ready(now, limit).await? {
             Some(pairs) => pairs,
             None => return Ok(Vec::new()),
@@ -147,9 +147,9 @@ impl RetryStore for InMemoryRetryStore {
         &self,
         now: i64,
         limit: Option<usize>,
-    ) -> Result<Vec<(String, RetryEvent)>, EventProcessorError> {
+    ) -> Result<Vec<(RetryEventIndexKey, RetryEvent)>, EventProcessorError> {
         let guard = self.inner.lock().await;
-        let mut ready: Vec<(String, RetryEvent)> = guard
+        let mut ready: Vec<(RetryEventIndexKey, RetryEvent)> = guard
             .iter()
             .filter(|(_, event)| event.next_retry_at <= now)
             .map(|(key, event)| (key.clone(), event.clone()))

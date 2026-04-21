@@ -1,4 +1,3 @@
-use crate::events::retry::event::RetryEvent;
 use crate::events::EventProcessorError;
 use chrono::Utc;
 use nexus_common::db::kv::{RedisResult, ScoreAction};
@@ -214,15 +213,15 @@ async fn put_sync_post(
     {
         OperationOutcome::Updated => Ok(()),
         OperationOutcome::MissingDependency => {
-            // Ensure that dependencies follow the same format as the RetryManager keys
-            let dependency = vec![format!("{author_id}:posts:{post_id}")];
             if let Ok(referenced_post_uri) = ParsedUri::try_from(post_uri) {
                 if let Err(e) = PostDetails::maybe_ingest_author_of_post(&referenced_post_uri).await
                 {
                     tracing::error!("Failed to ingest user: {e}");
                 }
             }
-            Err(EventProcessorError::MissingDependency { dependency })
+            Err(EventProcessorError::MissingDependency {
+                dependency: vec![post_uri.to_owned()],
+            })
         }
         OperationOutcome::CreatedOrDeleted => {
             // SAVE TO INDEXES
@@ -326,8 +325,11 @@ async fn put_sync_user(
                 tracing::error!("Failed to ingest user: {e}");
             }
 
-            let key = RetryEvent::generate_index_key(tagged_user_id.to_uri().into());
-            let dependency = vec![key];
+            let tagged_uri = tagged_user_id
+                .to_uri()
+                .try_to_uri_str()
+                .map_err(EventProcessorError::generic)?;
+            let dependency = vec![tagged_uri];
             Err(EventProcessorError::MissingDependency { dependency })
         }
         OperationOutcome::CreatedOrDeleted => {

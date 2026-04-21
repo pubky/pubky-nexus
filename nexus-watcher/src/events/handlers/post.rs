@@ -1,4 +1,3 @@
-use crate::events::retry::event::RetryEvent;
 use crate::events::EventProcessorError;
 
 use nexus_common::db::queries::get::post_is_safe_to_delete;
@@ -36,25 +35,31 @@ pub async fn sync_put(
         OperationOutcome::MissingDependency => {
             let mut dependency_event_keys = Vec::new();
             if let Some(replied_to_uri) = &post_relationships.replied {
-                dependency_event_keys.push(RetryEvent::generate_index_key(
-                    replied_to_uri.clone().into(),
-                ));
+                let replied_uri_str = replied_to_uri
+                    .try_to_uri_str()
+                    .map_err(EventProcessorError::generic)?;
+                dependency_event_keys.push(replied_uri_str);
 
                 if let Err(e) = PostDetails::maybe_ingest_author_of_post(replied_to_uri).await {
                     tracing::error!("Failed to ingest user: {e}");
                 }
             }
             if let Some(reposted_uri) = &post_relationships.reposted {
-                dependency_event_keys
-                    .push(RetryEvent::generate_index_key(reposted_uri.clone().into()));
+                let reposted_uri_str = reposted_uri
+                    .try_to_uri_str()
+                    .map_err(EventProcessorError::generic)?;
+                dependency_event_keys.push(reposted_uri_str);
 
                 if let Err(e) = PostDetails::maybe_ingest_author_of_post(reposted_uri).await {
                     tracing::error!("Failed to ingest user: {e}");
                 }
             }
             if dependency_event_keys.is_empty() {
-                dependency_event_keys
-                    .push(RetryEvent::generate_index_key(author_id.to_uri().into()));
+                let author_uri = author_id
+                    .to_uri()
+                    .try_to_uri_str()
+                    .map_err(EventProcessorError::generic)?;
+                dependency_event_keys.push(author_uri);
             }
             return Err(EventProcessorError::missing_dependencies(
                 dependency_event_keys,
