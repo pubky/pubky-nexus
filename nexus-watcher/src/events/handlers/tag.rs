@@ -280,8 +280,7 @@ async fn put_sync_post(
                             post_id,
                             ScoreAction::Increment(1.0),
                         )
-                        .await
-                        .map_err(EventProcessorError::index_operation_failed)?;
+                        .await?;
                     }
                     Ok::<(), EventProcessorError>(())
                 },
