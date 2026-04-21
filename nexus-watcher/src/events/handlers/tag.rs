@@ -398,8 +398,7 @@ pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), EventProcessorE
     debug!("Deleting tag: {} -> {}", user_id, tag_id);
 
     // 1. Read target from graph WITHOUT deleting the edge
-    let Some(row) =
-        fetch_row_from_graph(queries::get::get_tag_target(&user_id, &tag_id)).await?
+    let Some(row) = fetch_row_from_graph(queries::get::get_tag_target(&user_id, &tag_id)).await?
     else {
         // Edge already gone (fully completed on a prior attempt) — idempotent no-op
         return Ok(());
@@ -428,7 +427,14 @@ pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), EventProcessorE
                 TagPost::check_set_member(&[&author_id, &post_id, &label], user_id.as_str())
                     .await?
                     .1;
-            del_sync_post(user_id.clone(), &post_id, &author_id, &label, tagger_in_index).await?;
+            del_sync_post(
+                user_id.clone(),
+                &post_id,
+                &author_id,
+                &label,
+                tagger_in_index,
+            )
+            .await?;
         }
         (None, None, None, Some(res_id)) => {
             del_sync_resource(user_id.clone(), &res_id, &label, app.as_deref()).await?;
