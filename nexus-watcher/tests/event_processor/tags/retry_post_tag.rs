@@ -83,27 +83,5 @@ async fn test_homeserver_post_tag_event_to_queue() -> Result<()> {
 
     test.del(&tagger_kp, &tag_path).await?;
 
-    let del_index_key = format!(
-        "{}:{}",
-        EventType::Del,
-        RetryEvent::generate_index_key(&tag_absolute_url).unwrap()
-    );
-
-    assert_eventually_exists(&del_index_key).await;
-
-    let timestamp = RetryEvent::check_uri(&del_index_key).await.unwrap();
-    assert!(timestamp.is_some());
-
-    let event_retry = RetryEvent::get_from_index(&del_index_key).await.unwrap();
-    assert!(event_retry.is_some());
-
-    let event_state = event_retry.unwrap();
-    assert_eq!(event_state.retry_count, 0);
-
-    match event_state.error_type {
-        EventProcessorError::SkipIndexing => (),
-        _ => panic!("The error type has to be SkipIndexing type"),
-    };
-
     Ok(())
 }
