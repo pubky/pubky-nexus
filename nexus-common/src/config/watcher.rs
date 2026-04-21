@@ -10,7 +10,13 @@ pub const DEFAULT_TESTNET_HOST: &str = "localhost";
 // Testnet homeserver key
 pub const HOMESERVER_PUBKY: &str = "8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo";
 /// Default for [WatcherConfig::events_limit]
-pub const DEFAULT_EVENTS_LIMIT: u32 = 1_000;
+pub const DEFAULT_EVENTS_LIMIT: u16 = 1_000;
+/// Default for [WatcherConfig::key_based_events_limit]
+pub const DEFAULT_KEY_BASED_EVENTS_LIMIT: u16 = 50;
+/// Upper bound for [WatcherConfig::events_limit]
+pub const MAX_EVENTS_LIMIT: u16 = 1_000;
+/// Upper bound for [WatcherConfig::key_based_events_limit]
+pub const MAX_KEY_BASED_EVENTS_LIMIT: u16 = 100;
 /// Default for [WatcherConfig::monitored_homeservers_limit]
 pub const DEFAULT_MONITORED_HOMESERVERS_LIMIT: usize = 50;
 /// Default for [WatcherConfig::watcher_sleep]
@@ -44,8 +50,13 @@ pub struct WatcherConfig {
     /// Default homeserver. Other homeservers may be ingested in addition, but this one is prioritized.
     pub homeserver: PubkyId,
 
-    /// Maximum number of events to fetch per run from each homeserver
-    pub events_limit: u32,
+    /// Maximum number of events to fetch per run from the default homeserver.
+    /// Clamped to [MAX_EVENTS_LIMIT] at load time.
+    pub events_limit: u16,
+
+    /// Maximum events per user per run for key-based (non-default) homeservers.
+    /// Clamped to [MAX_KEY_BASED_EVENTS_LIMIT] at load time.
+    pub key_based_events_limit: u16,
 
     /// Maximum number of monitored homeservers
     pub monitored_homeservers_limit: usize,
@@ -91,6 +102,7 @@ impl Default for WatcherConfig {
             testnet_host: DEFAULT_TESTNET_HOST.to_string(),
             homeserver,
             events_limit: DEFAULT_EVENTS_LIMIT,
+            key_based_events_limit: DEFAULT_KEY_BASED_EVENTS_LIMIT,
             monitored_homeservers_limit: DEFAULT_MONITORED_HOMESERVERS_LIMIT,
             watcher_sleep: DEFAULT_WATCHER_SLEEP,
             hs_resolver_sleep: DEFAULT_HS_RESOLVER_SLEEP,
