@@ -44,11 +44,19 @@ impl RetryEvent {
         }
     }
 
-    /// Generates an index key from a parsed URI in the format `"{pubkyId}:{resource}"`.
+    /// Generates an index key from a parsed URI.
+    /// For `AppSpec` variants: `"{user_id}:{resource}"` (e.g., "abc123:posts")
+    /// For `UniversalTag` variants: `"{user_id}:{app}/{resource}"` (e.g., "abc123:mapky/tags")
     pub fn generate_index_key(parsed_uri: HomeserverParsedUri) -> String {
         let user_id = parsed_uri.user_id();
-        let resource = parsed_uri.resource();
-        format!("{}:{}", user_id, resource)
+        match &parsed_uri {
+            HomeserverParsedUri::AppSpec { resource, .. } => {
+                format!("{}:{}", user_id, resource)
+            }
+            HomeserverParsedUri::UniversalTag { app, resource, .. } => {
+                format!("{}:{}/{}", user_id, app, resource)
+            }
+        }
     }
 
     /// Stores an event in both a sorted set and a JSON index in Redis.
@@ -148,5 +156,140 @@ impl RetryEvent {
         )
         .await
         .map_err(|e| EventProcessorError::generic(format!("Failed to fetch retry events: {}", e)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nexus_common::models::event::HomeserverParsedUri;
+    use pubky_app_specs::{PubkyId, Resource};
+
+    const TEST_USER_ID: &str = "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo";
+
+    fn make_appspec_post() -> HomeserverParsedUri {
+        let user_id = PubkyId::try_from(TEST_USER_ID).unwrap();
+        let resource = Resource::Post("POST123".to_string());
+        HomeserverParsedUri::AppSpec { user_id, resource }
+    }
+
+    fn make_appspec_tag() -> HomeserverParsedUri {
+        let user_id = PubkyId::try_from(TEST_USER_ID).unwrap();
+        let resource = Resource::Tag("TAG456".to_string());
+        HomeserverParsedUri::AppSpec { user_id, resource }
+    }
+
+    fn make_appspec_user() -> HomeserverParsedUri {
+        let user_id = PubkyId::try_from(TEST_USER_ID).unwrap();
+        let resource = Resource::User;
+        HomeserverParsedUri::AppSpec { user_id, resource }
+    }
+
+    fn make_universal_tag() -> HomeserverParsedUri {
+        let user_id = PubkyId::try_from(TEST_USER_ID).unwrap();
+        let resource = Resource::Tag("MYP123".to_string());
+        HomeserverParsedUri::UniversalTag {
+            user_id,
+            app: "mapky".to_string(),
+            resource,
+            tag_id: "MYP123".to_string(),
+        }
+    }
+
+    fn make_universal_tag_eventky() -> HomeserverParsedUri {
+        let user_id = PubkyId::try_from(TEST_USER_ID).unwrap();
+        let resource = Resource::Tag("EVT789".to_string());
+        HomeserverParsedUri::UniversalTag {
+            user_id,
+            app: "eventky.app".to_string(),
+            resource,
+            tag_id: "EVT789".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_generate_index_key_appspec_post() {
+        let parsed = make_appspec_post();
+        let key = RetryEvent::generate_index_key(parsed);
+        // Resource::Post displays as "posts" (the resource type only)
+        assert_eq!(
+            key,
+            "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo:posts"
+        );
+    }
+
+    #[test]
+    fn test_generate_index_key_appspec_tag() {
+        let parsed = make_appspec_tag();
+        let key = RetryEvent::generate_index_key(parsed);
+        // Resource::Tag displays as "tags" (the resource type only)
+        assert_eq!(
+            key,
+            "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo:tags"
+        );
+    }
+
+    #[test]
+    fn test_generate_index_key_appspec_user() {
+        let parsed = make_appspec_user();
+        let key = RetryEvent::generate_index_key(parsed);
+        // Resource::User displays as "profile.json"
+        assert_eq!(
+            key,
+            "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo:profile.json"
+        );
+    }
+
+    #[test]
+    fn test_generate_index_key_universal_tag() {
+        let parsed = make_universal_tag();
+        let key = RetryEvent::generate_index_key(parsed);
+        // UniversalTag includes the app in the key: "{user_id}:{app}/{resource}"
+        assert_eq!(
+            key,
+            "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo:mapky/tags"
+        );
+    }
+
+    #[test]
+    fn test_generate_index_key_universal_tag_eventky() {
+        let parsed = make_universal_tag_eventky();
+        let key = RetryEvent::generate_index_key(parsed);
+        // UniversalTag includes the app in the key: "{user_id}:{app}/{resource}"
+        assert_eq!(
+            key,
+            "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo:eventky.app/tags"
+        );
+    }
+
+    #[test]
+    fn test_generate_index_key_appspec_vs_universal_tag_different_format() {
+        // AppSpec::Tag and UniversalTag::Tag produce different key formats
+        let appspec = make_appspec_tag();
+        let universal_mapky = make_universal_tag();
+
+        let key_appspec = RetryEvent::generate_index_key(appspec);
+        let key_universal = RetryEvent::generate_index_key(universal_mapky);
+
+        // AppSpec uses "{user_id}:{resource}", UniversalTag uses "{user_id}:{app}/{resource}"
+        assert_eq!(key_appspec, "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo:tags");
+        assert_eq!(key_universal, "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo:mapky/tags");
+        assert_ne!(key_appspec, key_universal);
+    }
+
+    #[test]
+    fn test_generate_index_key_universal_tag_different_apps_different_keys() {
+        // UniversalTag variants with different apps should produce different index keys
+        // to avoid collisions between events from different apps (e.g., mapky vs eventky)
+        let mapky = make_universal_tag();
+        let eventky = make_universal_tag_eventky();
+
+        let key_mapky = RetryEvent::generate_index_key(mapky);
+        let key_eventky = RetryEvent::generate_index_key(eventky);
+
+        // Different apps should produce different keys
+        assert_ne!(key_mapky, key_eventky);
+        assert_eq!(key_mapky, "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo:mapky/tags");
+        assert_eq!(key_eventky, "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo:eventky.app/tags");
     }
 }
