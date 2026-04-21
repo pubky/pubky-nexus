@@ -20,7 +20,6 @@ pub enum HomeserverParsedUri {
     /// Universal tag URI from a different app.
     /// Format: pubky://<user_id>/pub/<app>/tags/<tag_id>
     UniversalTag {
-        user_id: PubkyId,
         resource: Resource,
         tag: UniversalTag,
     },
@@ -31,7 +30,7 @@ impl HomeserverParsedUri {
     pub fn user_id(&self) -> &PubkyId {
         match self {
             HomeserverParsedUri::AppSpec { user_id, .. } => user_id,
-            HomeserverParsedUri::UniversalTag { user_id, .. } => user_id,
+            HomeserverParsedUri::UniversalTag { tag, .. } => &tag.user_id,
         }
     }
 
@@ -127,7 +126,6 @@ impl TryFrom<&str> for HomeserverParsedUri {
             };
 
             return Ok(HomeserverParsedUri::UniversalTag {
-                user_id,
                 resource: Resource::Tag(tag_id),
                 tag,
             });
