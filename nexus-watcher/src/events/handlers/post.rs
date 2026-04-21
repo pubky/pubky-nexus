@@ -165,8 +165,7 @@ pub async fn sync_put(
                         &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
                         parent_post_key_parts,
                     )
-                    .await
-                    .map_err(EventProcessorError::index_operation_failed)?;
+                    .await?;
                 }
                 Ok::<(), EventProcessorError>(())
             },
@@ -216,8 +215,7 @@ pub async fn sync_put(
                         &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
                         parent_post_key_parts,
                     )
-                    .await
-                    .map_err(EventProcessorError::index_operation_failed)?;
+                    .await?;
                 }
                 Ok::<(), EventProcessorError>(())
             },
@@ -546,8 +544,7 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
                             &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
                             &parent_post_key_parts,
                         )
-                        .await
-                        .map_err(EventProcessorError::index_operation_failed)?;
+                        .await?;
                     }
                     Ok::<(), EventProcessorError>(())
                 },
@@ -607,8 +604,7 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
                             &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
                             parent_post_key_parts,
                         )
-                        .await
-                        .map_err(EventProcessorError::index_operation_failed)?;
+                        .await?;
                     }
                     Ok::<(), EventProcessorError>(())
                 },
