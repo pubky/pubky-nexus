@@ -1,5 +1,6 @@
 use nexus_common::db::PubkyConnector;
 use nexus_common::models::event::{Event, EventProcessorError, EventType, HomeserverParsedUri};
+use nexus_common::models::universal_tags::UniversalTag;
 use pubky_app_specs::{PubkyAppObject, Resource};
 use std::sync::Arc;
 use tracing::debug;
@@ -98,14 +99,15 @@ pub async fn handle_put_event(
                 // Route universal tag events (non-pubky.app apps) to sync_put_resource
                 // which handles Resource nodes for InternalUnknown/InternalUnknown URIs.
                 if let HomeserverParsedUri::UniversalTag {
-                    tag: universal_tag, ..
+                    tag: UniversalTag { app, .. },
+                    ..
                 } = &event.parsed_uri
                 {
                     handlers::tag::sync_put_resource(
                         tag.clone(),
                         user_id,
                         tag_id.clone(),
-                        universal_tag.app.clone(),
+                        app.clone(),
                     )
                     .await?
                 } else {
