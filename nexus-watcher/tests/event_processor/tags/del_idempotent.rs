@@ -159,7 +159,7 @@ async fn test_tag_post_del_replay_after_success_skips() -> Result<()> {
     UserCounts::increment(&tagger_id, "tagged", None).await?;
 
     // First delete via handler (should succeed)
-    let tagger_pubky_id = PubkyId::try_from(tagger_id.as_str()).map_err(anyhow::Error::msg)?;
+    let tagger_pubky_id = PubkyId::from(tagger_kp.public_key());
     handlers::tag::del(tagger_pubky_id.clone(), tag_id.to_string()).await?;
 
     // Verify fully deleted state
