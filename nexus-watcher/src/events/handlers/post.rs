@@ -272,8 +272,7 @@ async fn recover_post_index_state(
     // edge recovery (needs the content) and to re-populate the PostDetails
     // index below (avoids a second round-trip through `PostDetails::reindex`).
     let (post_details, reply) = PostDetails::get_from_graph(author_id, post_id)
-        .await
-        .map_err(EventProcessorError::graph_query_failed)?
+        .await?
         .ok_or_else(|| {
             EventProcessorError::generic(
                 "Post recovery: graph reported existing post but get_from_graph returned None",
@@ -292,7 +291,6 @@ async fn recover_post_index_state(
         PostCounts::reindex(author_id, post_id)
     );
 
-    // Collect results and return any errors
     details_result?;
     relationships_result?;
     counts_result?;
@@ -407,9 +405,7 @@ async fn merge_mention_edges(
     for prefix in ["pk:", "pubky"] {
         for pubky_id in find_mentioned_ids(content, prefix) {
             let query = queries::put::create_mention_relationship(author_id, post_id, &pubky_id);
-            exec_single_row(query)
-                .await
-                .map_err(EventProcessorError::graph_query_failed)?;
+            exec_single_row(query).await?
         }
     }
     Ok(())
@@ -476,9 +472,7 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
     //    The graph is guaranteed to still have the post because the graph delete
     //    runs LAST.
     if post_relationships_opt.is_none() {
-        post_relationships_opt = PostRelationships::get_from_graph(&author_id, &post_id)
-            .await
-            .map_err(EventProcessorError::graph_query_failed)?;
+        post_relationships_opt = PostRelationships::get_from_graph(&author_id, &post_id).await?;
     }
 
     // If the post is a reply, cannot delete from the main feeds
