@@ -2,11 +2,11 @@ use crate::service::utils::setup;
 use crate::utils::MockEventHandler;
 use anyhow::Result;
 use chrono::Utc;
+use nexus_common::config::EventRetryConfig;
 use nexus_common::db::kv::RedisOps;
 use nexus_common::models::event::{EventProcessorError, EventType};
 use nexus_watcher::events::retry::{
-    InMemoryRetryStore, RedisRetryStore, RetryEvent, RetryProcessor, RetryProcessorConfig,
-    RetryStore,
+    InMemoryRetryStore, RedisRetryStore, RetryEvent, RetryProcessor, RetryStore,
 };
 use nexus_watcher::events::EventHandler;
 use nexus_watcher::events::Moderation;
@@ -19,7 +19,7 @@ use tokio::sync::watch;
 /// Test user ID - valid 52-character z32 Pubky ID
 const TEST_USER_ID: &str = "uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko";
 
-/// Test helper to create a RetryProcessorConfig with custom values
+/// Test helper to create an EventRetryConfig with custom values
 fn create_test_config(
     max_retries: u32,
     max_dependency_retries: u32,
@@ -27,8 +27,8 @@ fn create_test_config(
     max_backoff_secs: u64,
     initial_missing_dep_backoff_secs: u64,
     max_missing_dep_backoff_secs: u64,
-) -> RetryProcessorConfig {
-    RetryProcessorConfig {
+) -> EventRetryConfig {
+    EventRetryConfig {
         max_retries,
         max_dependency_retries,
         initial_backoff_secs,
@@ -92,7 +92,7 @@ fn new_in_memory_store() -> Arc<dyn RetryStore> {
 /// Assemble a [`RetryProcessor`] for tests with the given store, config, and handler.
 fn build_processor(
     store: Arc<dyn RetryStore>,
-    config: RetryProcessorConfig,
+    config: EventRetryConfig,
     event_handler: Arc<dyn EventHandler>,
     shutdown_rx: watch::Receiver<bool>,
 ) -> Arc<RetryProcessor> {

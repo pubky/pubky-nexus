@@ -6,6 +6,7 @@ use chrono::{DateTime, Utc};
 use tokio::sync::watch::Receiver;
 use tracing::{debug, info, warn};
 
+use nexus_common::config::EventRetryConfig;
 use nexus_common::models::event::{Event, EventProcessorError, EventType, ParseResult};
 use nexus_common::WatcherConfig;
 
@@ -23,41 +24,10 @@ pub struct RetryProcessor {
     pub files_path: PathBuf,
     pub event_handler: Arc<dyn EventHandler>,
     pub shutdown_rx: Receiver<bool>,
-    pub config: RetryProcessorConfig,
+    pub config: EventRetryConfig,
     /// Persistence backend for retry events. Production wiring uses
     /// [`RedisRetryStore`]; tests swap in an in-memory store for isolation.
     pub store: Arc<dyn RetryStore>,
-}
-
-/// Configuration for the retry processor
-#[derive(Debug, Clone)]
-pub struct RetryProcessorConfig {
-    /// Max retries for transient errors
-    pub max_retries: u32,
-    /// Max retries for missing dependency errors
-    pub max_dependency_retries: u32,
-    /// Initial backoff for transient errors (seconds)
-    pub initial_backoff_secs: u64,
-    /// Max backoff for transient errors (seconds)
-    pub max_backoff_secs: u64,
-    /// Initial backoff for missing dependency (seconds)
-    pub initial_missing_dep_backoff_secs: u64,
-    /// Max backoff for missing dependency (seconds)
-    pub max_missing_dep_backoff_secs: u64,
-}
-
-impl RetryProcessorConfig {
-    pub fn from_watcher_config(config: &WatcherConfig) -> Self {
-        let r = &config.retry;
-        Self {
-            max_retries: r.max_retries,
-            max_dependency_retries: r.max_dependency_retries,
-            initial_backoff_secs: r.initial_backoff_secs,
-            max_backoff_secs: r.max_backoff_secs,
-            initial_missing_dep_backoff_secs: r.initial_missing_dep_backoff_secs,
-            max_missing_dep_backoff_secs: r.max_missing_dep_backoff_secs,
-        }
-    }
 }
 
 #[async_trait::async_trait]
@@ -120,7 +90,7 @@ impl RetryProcessor {
             files_path: config.stack.files_path.clone(),
             event_handler: Arc::new(DefaultEventHandler::new(moderation)),
             shutdown_rx,
-            config: RetryProcessorConfig::from_watcher_config(config),
+            config: config.retry.clone(),
             store,
         }
     }

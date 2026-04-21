@@ -13,7 +13,7 @@
 //!
 //! This crate forms the foundation for other Nexus services, ensuring consistency and reuse across the backend.
 
-mod config;
+pub mod config;
 pub mod db;
 mod macros;
 pub mod media;
