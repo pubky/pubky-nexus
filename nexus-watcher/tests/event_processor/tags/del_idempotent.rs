@@ -92,7 +92,7 @@ async fn test_tag_post_del_retry_no_double_decrement() -> Result<()> {
     assert_eq!(find_post_counts(&author_id, &post_id).await.tags, 0);
 
     // Retry: call del handler directly — should delete graph without double-decrement
-    let tagger_pubky_id = PubkyId::try_from(tagger_id.as_str()).map_err(anyhow::Error::msg)?;
+    let tagger_pubky_id = PubkyId::from(tagger_kp.public_key());
     handlers::tag::del(tagger_pubky_id, tag_id.to_string()).await?;
 
     // Verify final state: graph edge deleted, counters still 0
