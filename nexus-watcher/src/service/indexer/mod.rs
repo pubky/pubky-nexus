@@ -181,7 +181,7 @@ pub trait TEventProcessor: Send + Sync + 'static {
                 }
             }
             _ if error.is_infrastructure() => {
-                // Infrastructure error - stop the batch
+                warn!("Infrastructure error, stopping batch: {error}");
                 Err(error)
             }
             _ => {
