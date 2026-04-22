@@ -65,24 +65,6 @@ impl RetryScheduler {
         self.initial.missing_dep_ms
     }
 
-    /// Queues a retry event for an arbitrary URI with a custom backoff.
-    /// This is a generic method that does not require a full Event object.
-    pub async fn enqueue_raw(
-        &self,
-        event_type: &nexus_common::models::event::EventType,
-        uri: &str,
-        backoff_ms: i64,
-    ) -> Result<(), EventProcessorError> {
-        let key: RetryEventIndexKey = uri.to_owned();
-
-        let next_retry_at = Utc::now().timestamp_millis() + backoff_ms;
-        let retry_event = RetryEvent::new(event_type.clone(), uri.to_string(), next_retry_at);
-
-        self.store.put(&key, &retry_event).await?;
-        warn!("Queued raw event for retry: {uri}");
-        Ok(())
-    }
-
     async fn enqueue(
         &self,
         event: &Event,
