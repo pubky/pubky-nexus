@@ -165,15 +165,15 @@ pub trait TEventProcessor: Send + Sync + 'static {
                 Ok(())
             }
             EventProcessorError::InvalidEventLine(_) => {
-                // Log and continue
+                warn!("Invalid event line, skipping: {error}");
                 Ok(())
             }
             EventProcessorError::PubkyClientError(_) if error.is_404() => {
-                // 404 - content definitively gone, continue batch
+                debug!("Content not found (404), skipping event: {}", event.uri);
                 Ok(())
             }
             EventProcessorError::PubkyClientError(_) => {
-                // Non-404 client error (5xx, transport, etc.) - queue for retry
+                warn!("Client error, queuing event for retry: {error}");
                 if let Some(s) = self.retry_scheduler() {
                     s.queue_transient(event).await
                 } else {
@@ -185,7 +185,7 @@ pub trait TEventProcessor: Send + Sync + 'static {
                 Err(error)
             }
             _ => {
-                // Other errors - log and continue
+                warn!("Unhandled error, continuing batch: {error}");
                 Ok(())
             }
         }
