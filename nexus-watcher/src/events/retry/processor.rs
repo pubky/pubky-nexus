@@ -70,13 +70,13 @@ impl TEventProcessor for RetryProcessor {
 
             info!("Processing batch of {} retry events", events.len());
 
-            for (key, retry_event) in events {
+            for (index_key, retry_event) in events {
                 if *self.shutdown_rx.borrow() {
                     debug!("Shutdown detected; exiting retry processing loop");
                     return Ok(());
                 }
 
-                self.process_retry_event(&key, retry_event).await?;
+                self.process_retry_event(&index_key, retry_event).await?;
             }
         }
     }
@@ -96,7 +96,7 @@ impl RetryProcessor {
     }
 
     /// Fetch events from the retry queue that are ready to be retried.
-    /// Resolved `(resource_key, RetryEvent)` pairs are returned directly by the
+    /// Resolved `(index_key, RetryEvent)` pairs are returned directly by the
     /// store; stale-entry cleanup is the store's responsibility.
     async fn fetch_ready_events(
         &self,
@@ -108,7 +108,7 @@ impl RetryProcessor {
     /// Process a single retry event
     async fn process_retry_event(
         &self,
-        key: &RetryEventIndexKey,
+        index_key: &RetryEventIndexKey,
         retry_event: RetryEvent,
     ) -> Result<(), EventProcessorError> {
         // Reconstruct the event line and parse the event
@@ -125,17 +125,17 @@ impl RetryProcessor {
             Ok(ParseResult::Skipped) | Err(_) => {
                 warn!(
                     "Corrupted retry entry for key {}, removing: {}",
-                    key, event_line
+                    index_key, event_line
                 );
-                self.store.remove(key).await?;
+                self.store.remove(index_key).await?;
                 return Ok(());
             }
             Ok(ParseResult::UnrecognizedUri { reason, .. }) => {
                 warn!(
                     "Unrecognized URI in retry entry for key {}: {}",
-                    key, reason
+                    index_key, reason
                 );
-                self.store.remove(key).await?;
+                self.store.remove(index_key).await?;
                 return Ok(());
             }
         };
@@ -145,7 +145,7 @@ impl RetryProcessor {
             Ok(()) => {
                 // Success - event was processed, remove from retry queue
                 debug!("Retry successful for event: {}", retry_event.event_uri);
-                self.store.remove(key).await?;
+                self.store.remove(index_key).await?;
             }
             Err(e) if e.is_404() => {
                 // Content gone - remove from retry queue
@@ -153,7 +153,7 @@ impl RetryProcessor {
                     "Content no longer exists (404) for retry: {}",
                     retry_event.event_uri
                 );
-                self.store.remove(key).await?;
+                self.store.remove(index_key).await?;
             }
             Err(e) if !e.is_retryable() => {
                 // Non-retryable error (ParseFailed, etc.) - dead-letter immediately
@@ -161,7 +161,7 @@ impl RetryProcessor {
                     "Event {} failed with non-retryable error, dead-lettering: {}",
                     retry_event.event_uri, e
                 );
-                self.store.remove(key).await?;
+                self.store.remove(index_key).await?;
             }
             Err(e) => {
                 // Infrastructure errors (Neo4j/Redis failures) must NOT count against the
@@ -188,7 +188,7 @@ impl RetryProcessor {
                     updated_event.next_retry_at = next_retry_at;
                     // retry_count stays unchanged — infrastructure errors do not consume
                     // the application-level retry budget.
-                    self.store.put(key, &updated_event).await?;
+                    self.store.put(index_key, &updated_event).await?;
 
                     let retry_time = DateTime::<Utc>::from_timestamp_millis(next_retry_at)
                         .unwrap_or_else(Utc::now);
@@ -212,12 +212,12 @@ impl RetryProcessor {
                         retry_event.event_uri, retry_event.retry_count
                     );
                     // Remove from retry queue (dead-lettered)
-                    self.store.remove(key).await?;
+                    self.store.remove(index_key).await?;
                     return Ok(());
                 }
 
                 // Schedule retry with backoff (increments retry_count)
-                self.schedule_retry(&retry_event, key, &e).await?;
+                self.schedule_retry(&retry_event, index_key, &e).await?;
             }
         }
 
@@ -228,7 +228,7 @@ impl RetryProcessor {
     async fn schedule_retry(
         &self,
         retry_event: &RetryEvent,
-        key: &RetryEventIndexKey,
+        index_key: &RetryEventIndexKey,
         error: &EventProcessorError,
     ) -> Result<(), EventProcessorError> {
         let new_retry_count = retry_event.retry_count + 1;
@@ -260,7 +260,7 @@ impl RetryProcessor {
         updated_event.next_retry_at = next_retry_at;
 
         // Update in index
-        self.store.put(key, &updated_event).await?;
+        self.store.put(index_key, &updated_event).await?;
 
         let retry_time =
             DateTime::<Utc>::from_timestamp_millis(next_retry_at).unwrap_or_else(Utc::now);

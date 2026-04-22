@@ -49,20 +49,20 @@ impl RetryEvent {
     /// Stores an event in both a sorted set and a JSON index in Redis.
     /// The sorted set uses next_retry_at as the score for efficient retrieval of ready events.
     /// # Arguments
-    /// * `resource_key` - A `&str` representing the resource key (used as member in sorted set and JSON key)
+    /// * `index_key` - A `&RetryEventIndexKey` representing the index key (used as member in sorted set and JSON key)
     #[tracing::instrument(name = "retry.index.write", skip_all)]
-    pub async fn put_to_index(&self, resource_key: &str) -> RedisResult<()> {
+    pub async fn put_to_index(&self, index_key: &RetryEventIndexKey) -> RedisResult<()> {
         // Add to sorted set with next_retry_at as score
         Self::put_index_sorted_set(
             &RETRY_MANAGER_EVENTS_INDEX,
-            &[(self.next_retry_at as f64, resource_key)],
+            &[(self.next_retry_at as f64, index_key.as_str())],
             Some(RETRY_MANAGER_PREFIX),
             None,
         )
         .await?;
 
         // Store full RetryEvent struct in JSON
-        let index: &Vec<&str> = &[RETRY_MANAGER_STATE_INDEX, [resource_key]].concat();
+        let index: &Vec<&str> = &[RETRY_MANAGER_STATE_INDEX, [index_key.as_str()]].concat();
         self.put_index_json(index, None, None).await?;
 
         Ok(())
@@ -70,61 +70,61 @@ impl RetryEvent {
 
     /// Checks if a specific event exists in the Redis sorted set
     /// # Arguments
-    /// * `event_index` - A `&str` representing the event index to check
-    pub async fn check_uri(event_index: &str) -> Result<Option<isize>, EventProcessorError> {
+    /// * `index_key` - A `&str` representing the index key to check
+    pub async fn check_uri(index_key: &str) -> Result<Option<isize>, EventProcessorError> {
         Self::check_sorted_set_member(
             Some(RETRY_MANAGER_PREFIX),
             &RETRY_MANAGER_EVENTS_INDEX,
-            &[event_index],
+            &[index_key],
         )
         .await
         .map_err(|e| {
             EventProcessorError::internal_error(format!(
-                "Could not check uri for event: {event_index}, reason {e}"
+                "Could not check uri for event: {index_key}, reason {e}"
             ))
         })
     }
 
     /// Retrieves an event from the JSON index in Redis based on its index
     /// # Arguments
-    /// * `event_index` - A `&str` representing the event index to retrieve
-    pub async fn get_from_index(event_index: &str) -> RedisResult<Option<Self>> {
-        let index: &Vec<&str> = &[RETRY_MANAGER_STATE_INDEX, [event_index]].concat();
+    /// * `index_key` - A `&RetryEventIndexKey` representing the index key to retrieve
+    pub async fn get_from_index(index_key: &RetryEventIndexKey) -> RedisResult<Option<Self>> {
+        let index: &Vec<&str> = &[RETRY_MANAGER_STATE_INDEX, [index_key.as_str()]].concat();
         Self::try_from_index_json(index, None).await
     }
 
     /// Removes an event from the retry queue (both sorted set and JSON state)
     /// # Arguments
-    /// * `resource_key` - A `&str` representing the resource key to remove
+    /// * `index_key` - A `&RetryEventIndexKey` representing the index key to remove
     #[tracing::instrument(name = "retry.index.remove", skip_all)]
-    pub async fn remove_from_index(resource_key: &str) -> RedisResult<()> {
+    pub async fn remove_from_index(index_key: &RetryEventIndexKey) -> RedisResult<()> {
         // Remove from sorted set
         Self::remove_from_index_sorted_set(
             Some(RETRY_MANAGER_PREFIX),
             &RETRY_MANAGER_EVENTS_INDEX,
-            &[resource_key],
+            &[index_key.as_str()],
         )
         .await?;
 
         // Remove JSON state
-        let index: &Vec<&str> = &[RETRY_MANAGER_STATE_INDEX, [resource_key]].concat();
+        let index: &Vec<&str> = &[RETRY_MANAGER_STATE_INDEX, [index_key.as_str()]].concat();
         Self::remove_from_index_multiple_json(&[index.as_slice()]).await?;
 
         Ok(())
     }
 
     /// Fetches events from the retry queue that are ready to be retried (next_retry_at <= now)
-    /// Returns Vec<(resource_key, score)> pairs for events ready for retry
+    /// Returns Vec<(index_key, score)> pairs for events ready for retry
     /// # Arguments
     /// * `now` - Current time in milliseconds since epoch
     /// * `limit` - Maximum number of events to fetch per batch
     /// # Returns
-    /// A vector of (resource_key, score) pairs, or None if no events found
+    /// A vector of (index_key, score) pairs, or None if no events found
     #[tracing::instrument(name = "retry.index.fetch_ready", skip_all)]
     pub async fn fetch_ready(
         now: i64,
         limit: Option<usize>,
-    ) -> Result<Option<Vec<(String, f64)>>, EventProcessorError> {
+    ) -> Result<Option<Vec<(RetryEventIndexKey, f64)>>, EventProcessorError> {
         // try_from_index_sorted_set accepts (start, end) but passes them to get_range as (end, start).
         // To fetch events with score <= now (i.e., min=None, max=now), we must pass:
         //   - start param = now (becomes end/max_score in get_range)

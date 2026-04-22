@@ -16,14 +16,21 @@ use super::{RetryEvent, RetryEventIndexKey};
 /// from stomping on each other's queue state.
 #[async_trait]
 pub trait RetryStore: Send + Sync {
-    /// Insert or replace the event stored under `resource_key`.
-    async fn put(&self, resource_key: &str, event: &RetryEvent) -> Result<(), EventProcessorError>;
+    /// Insert or replace the event stored under `index_key`.
+    async fn put(
+        &self,
+        index_key: &RetryEventIndexKey,
+        event: &RetryEvent,
+    ) -> Result<(), EventProcessorError>;
 
-    /// Retrieve the event for `resource_key`, if any.
-    async fn get(&self, resource_key: &str) -> Result<Option<RetryEvent>, EventProcessorError>;
+    /// Retrieve the event for `index_key`, if any.
+    async fn get(
+        &self,
+        index_key: &RetryEventIndexKey,
+    ) -> Result<Option<RetryEvent>, EventProcessorError>;
 
-    /// Remove `resource_key` from the store. No-op if absent.
-    async fn remove(&self, resource_key: &str) -> Result<(), EventProcessorError>;
+    /// Remove `index_key` from the store. No-op if absent.
+    async fn remove(&self, index_key: &RetryEventIndexKey) -> Result<(), EventProcessorError>;
 
     /// Return all events with `next_retry_at <= now`, ordered ascending by
     /// `next_retry_at`, capped at `limit` if provided.
@@ -56,17 +63,24 @@ impl Default for RedisRetryStore {
 
 #[async_trait]
 impl RetryStore for RedisRetryStore {
-    async fn put(&self, resource_key: &str, event: &RetryEvent) -> Result<(), EventProcessorError> {
-        event.put_to_index(resource_key).await?;
+    async fn put(
+        &self,
+        index_key: &RetryEventIndexKey,
+        event: &RetryEvent,
+    ) -> Result<(), EventProcessorError> {
+        event.put_to_index(index_key).await?;
         Ok(())
     }
 
-    async fn get(&self, resource_key: &str) -> Result<Option<RetryEvent>, EventProcessorError> {
-        Ok(RetryEvent::get_from_index(resource_key).await?)
+    async fn get(
+        &self,
+        index_key: &RetryEventIndexKey,
+    ) -> Result<Option<RetryEvent>, EventProcessorError> {
+        Ok(RetryEvent::get_from_index(index_key).await?)
     }
 
-    async fn remove(&self, resource_key: &str) -> Result<(), EventProcessorError> {
-        RetryEvent::remove_from_index(resource_key).await?;
+    async fn remove(&self, index_key: &RetryEventIndexKey) -> Result<(), EventProcessorError> {
+        RetryEvent::remove_from_index(index_key).await?;
         Ok(())
     }
 
@@ -81,13 +95,16 @@ impl RetryStore for RedisRetryStore {
         };
 
         let mut events = Vec::with_capacity(key_score_pairs.len());
-        for (key, _score) in key_score_pairs {
-            match RetryEvent::get_from_index(&key).await? {
-                Some(event) => events.push((key, event)),
+        for (index_key, _score) in key_score_pairs {
+            match RetryEvent::get_from_index(&index_key).await? {
+                Some(event) => events.push((index_key.clone(), event)),
                 None => {
                     // Sorted-set entry with no JSON state — tombstone, clean up and skip.
-                    debug!("Stale retry entry detected for key {}, cleaning up", key);
-                    RetryEvent::remove_from_index(&key).await?;
+                    debug!(
+                        "Stale retry entry detected for key {}, cleaning up",
+                        index_key
+                    );
+                    RetryEvent::remove_from_index(&index_key).await?;
                 }
             }
         }
@@ -126,20 +143,27 @@ impl Default for InMemoryRetryStore {
 
 #[async_trait]
 impl RetryStore for InMemoryRetryStore {
-    async fn put(&self, resource_key: &str, event: &RetryEvent) -> Result<(), EventProcessorError> {
+    async fn put(
+        &self,
+        index_key: &RetryEventIndexKey,
+        event: &RetryEvent,
+    ) -> Result<(), EventProcessorError> {
         self.inner
             .lock()
             .await
-            .insert(resource_key.to_string(), event.clone());
+            .insert(index_key.clone(), event.clone());
         Ok(())
     }
 
-    async fn get(&self, resource_key: &str) -> Result<Option<RetryEvent>, EventProcessorError> {
-        Ok(self.inner.lock().await.get(resource_key).cloned())
+    async fn get(
+        &self,
+        index_key: &RetryEventIndexKey,
+    ) -> Result<Option<RetryEvent>, EventProcessorError> {
+        Ok(self.inner.lock().await.get(index_key).cloned())
     }
 
-    async fn remove(&self, resource_key: &str) -> Result<(), EventProcessorError> {
-        self.inner.lock().await.remove(resource_key);
+    async fn remove(&self, index_key: &RetryEventIndexKey) -> Result<(), EventProcessorError> {
+        self.inner.lock().await.remove(index_key);
         Ok(())
     }
 
