@@ -66,7 +66,7 @@ pub async fn sync_put(
         // If the post existed, let's confirm this is an edit. Is the content different?
         match PostDetails::get_from_index(&author_id, &post_id).await? {
             Some(existing_details) => {
-                if existing_details.content != post_details.content {
+                if post_details_changed(&existing_details, &post_details) {
                     sync_edit(post, author_id, post_id, post_details).await?;
                 }
             }
@@ -243,6 +243,11 @@ pub async fn sync_put(
     indexing_results.1?;
 
     Ok(())
+}
+
+fn post_details_changed(existing_details: &PostDetails, post_details: &PostDetails) -> bool {
+    existing_details.content != post_details.content
+        || existing_details.attachments != post_details.attachments
 }
 
 /// Re-runs idempotent post index writes when a previous `sync_put` attempt
