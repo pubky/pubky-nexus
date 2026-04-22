@@ -12,7 +12,7 @@ use nexus_common::models::user::{UserCounts, UserDetails};
 use pubky_app_specs::{
     post_uri_builder, ParsedUri, PubkyAppPost, PubkyAppPostKind, PubkyId, Resource,
 };
-use tracing::debug;
+use tracing::{debug, Instrument};
 
 use super::utils::post_relationships_is_reply;
 
@@ -63,12 +63,20 @@ pub async fn sync_put(
 
     if existed {
         // If the post existed, let's confirm this is an edit. Is the content different?
-        let existing_details = PostDetails::get_from_index(&author_id, &post_id)
-            .await?
-            .ok_or("An existing post in graph, could not be retrieved from index")
-            .map_err(EventProcessorError::generic)?;
-        if existing_details.content != post_details.content {
-            sync_edit(post, author_id, post_id, post_details).await?;
+        match PostDetails::get_from_index(&author_id, &post_id).await? {
+            Some(existing_details) => {
+                if existing_details.content != post_details.content {
+                    sync_edit(post, author_id, post_id, post_details).await?;
+                }
+            }
+            None => {
+                // Partial-failure recovery: graph already had the post but Redis is
+                // missing PostDetails. A previous sync_put attempt wrote the graph node
+                // but failed before completing the index writes. Re-run idempotent
+                // index writes only — counters/scores/notifications are intentionally
+                // skipped (prefer drift over duplicates).
+                recover_post_index_state(&author_id, &post_id).await?;
+            }
         }
         return Ok(());
     }
@@ -236,6 +244,56 @@ pub async fn sync_put(
     Ok(())
 }
 
+/// Re-runs idempotent post index writes when a previous `sync_put` attempt
+/// successfully wrote the graph node but failed before persisting the Redis
+/// index entries. MENTIONED edges are also re-merged because the original
+/// mention loop may have crashed mid-way; reindex reads from the graph, so
+/// any gap would otherwise be unrecoverable.
+///
+/// Counters are recomputed from graph truth via the canonical `reindex`
+/// functions — graph `post_counts` computes counts live from edges, so any
+/// concurrent tag/bookmark/reply handler that also went through graph is
+/// already reflected.
+///
+/// Notifications are intentionally NOT re-run (0 > N duplicates on retry).
+async fn recover_post_index_state(
+    author_id: &PubkyId,
+    post_id: &str,
+) -> Result<(), EventProcessorError> {
+    debug!(
+        "Recovering post index state from graph: {}/{}",
+        author_id, post_id
+    );
+
+    // Fetch post details from the graph once — used both to drive mention
+    // edge recovery (needs the content) and to re-populate the PostDetails
+    // index below (avoids a second round-trip through `PostDetails::reindex`).
+    let (post_details, reply) = PostDetails::get_from_graph(author_id, post_id)
+        .await?
+        .ok_or_else(|| {
+            EventProcessorError::generic(
+                "Post recovery: graph reported existing post but get_from_graph returned None",
+            )
+        })?;
+
+    // Re-merge any MENTIONED graph edges that the original mention loop
+    // didn't finish. Skips notifications (0 > N on retry).
+    merge_mention_edges(author_id, post_id, &post_details.content).await?;
+
+    // Reindex all Redis state from graph truth.
+    let (details_result, relationships_result, counts_result) = nexus_common::traced_join!(
+        tracing::info_span!("index.write", phase = "post_recovery");
+        post_details.put_to_index(author_id, reply, false),
+        PostRelationships::reindex(author_id, post_id),
+        PostCounts::reindex(author_id, post_id)
+    );
+
+    details_result?;
+    relationships_result?;
+    counts_result?;
+    Ok(())
+}
+
 async fn sync_edit(
     post: PubkyAppPost,
     author_id: PubkyId,
@@ -303,16 +361,7 @@ async fn put_mentioned_relationships_for_prefix(
     relationships: &mut PostRelationships,
     prefix: &str,
 ) -> Result<(), EventProcessorError> {
-    let user_id_len = 52;
-
-    let found_pubky_ids = content.match_indices(prefix).filter_map(|(start_idx, _)| {
-        let user_id_start = start_idx + prefix.len();
-        content
-            .get(user_id_start..user_id_start + user_id_len)
-            .and_then(|candidate| PubkyId::try_from(candidate).ok())
-    });
-
-    for pubky_id in found_pubky_ids {
+    for pubky_id in find_mentioned_ids(content, prefix) {
         // Create the MENTIONED relationship in the graph
         let query = queries::put::create_mention_relationship(author_id, post_id, &pubky_id);
         exec_single_row(query).await?;
@@ -323,6 +372,37 @@ async fn put_mentioned_relationships_for_prefix(
         }
     }
 
+    Ok(())
+}
+
+fn find_mentioned_ids(content: &str, prefix: &str) -> Vec<PubkyId> {
+    let user_id_len = 52;
+    let mut seen = std::collections::HashSet::new();
+    content
+        .match_indices(prefix)
+        .filter_map(|(start_idx, _)| {
+            let user_id_start = start_idx + prefix.len();
+            content
+                .get(user_id_start..user_id_start + user_id_len)
+                .and_then(|candidate| PubkyId::try_from(candidate).ok())
+        })
+        .filter(|id| seen.insert(id.to_string()))
+        .collect()
+}
+
+/// Idempotent MERGE of every MENTIONED edge for the post. No notifications,
+/// no Redis — safe to re-run from recovery.
+async fn merge_mention_edges(
+    author_id: &PubkyId,
+    post_id: &str,
+    content: &str,
+) -> Result<(), EventProcessorError> {
+    for prefix in ["pk:", "pubky"] {
+        for pubky_id in find_mentioned_ids(content, prefix) {
+            let query = queries::put::create_mention_relationship(author_id, post_id, &pubky_id);
+            exec_single_row(query).await?
+        }
+    }
     Ok(())
 }
 
@@ -364,20 +444,50 @@ pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), EventProcess
 pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventProcessorError> {
     let deleted_uri = post_uri_builder(author_id.to_string(), post_id.clone());
 
-    let post_relationships = PostRelationships::get_by_id(&author_id, &post_id).await?;
-    // If the post is reply, cannot delete from the main feeds
+    // 1. Read PostRelationships from index — captures both the gate and the
+    //    parent (replied/reposted) URIs needed for parent cleanup.
+    //    NOTE: deliberately NOT using `get_by_id`, which would re-populate the
+    //    index from the graph and defeat the gate.
+    let post_relationships_from_index =
+        PostRelationships::get_from_index(&author_id, &post_id).await?;
+    let post_in_index = post_relationships_from_index.is_some();
+
+    // 2. Atomically commit the cleanup decision: remove the gate as the very
+    //    first mutation. Subsequent retries will observe `post_in_index = false`
+    //    and skip non-idempotent ops (counters, scores, notifications).
+    if post_in_index {
+        PostRelationships::delete(&author_id, &post_id).await?;
+    }
+
+    // 3. On retry (gate already gone), fall back to the graph for parent info
+    //    so that idempotent index cleanup can still target the right sorted sets.
+    //    The graph is guaranteed to still have the post because the graph delete
+    //    runs LAST.
+    let post_relationships_opt = match post_relationships_from_index {
+        some @ Some(_) => some,
+        None => PostRelationships::get_from_graph(&author_id, &post_id).await?,
+    };
+
+    // If the post is a reply, cannot delete from the main feeds
     // In the main feed, we just include the root posts and reposts
     // It could be a situation that relationship would not exist and we will treat the post as a not reply
     let is_reply =
-        matches!(&post_relationships, Some(relationship) if relationship.replied.is_some());
+        matches!(&post_relationships_opt, Some(relationship) if relationship.replied.is_some());
 
     // DELETE TO INDEX - PHASE 1, decrease post counts
     let indexing_results = nexus_common::traced_join!(
         tracing::info_span!("index.delete", phase = "post_counts");
+        // Idempotent: JSON DEL + ZREM from engagement sorted set.
         PostCounts::delete(&author_id, &post_id, !is_reply),
-        UserCounts::decrement(&author_id, "posts", None),
+        // Guarded: skip on retry to avoid double-decrement.
         async {
-            if is_reply {
+            if post_in_index {
+                UserCounts::decrement(&author_id, "posts", None).await?;
+            }
+            Ok::<(), EventProcessorError>(())
+        },
+        async {
+            if post_in_index && is_reply {
                 UserCounts::decrement(&author_id, "replies", None).await?;
             };
             Ok::<(), EventProcessorError>(())
@@ -389,9 +499,9 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
     indexing_results.2?;
 
     // Use that index wrapper to delete a post reply
-    let mut reply_parent_post_key_wrapper: Option<[String; 2]> = None;
+    let mut reply_parent_post_key_wrapper: Option<(String, String)> = None;
 
-    if let Some(relationships) = post_relationships {
+    if let Some(relationships) = post_relationships_opt {
         // PHASE 2: Process POST REPLIES indexes
         // Decrement counts for parent post if replied
         if let Some(replied_uri) = relationships.replied {
@@ -410,14 +520,21 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
 
             let parent_post_key_parts: [&str; 2] = [&parent_user_id, &parent_post_id];
             reply_parent_post_key_wrapper =
-                Some([parent_user_id.to_string(), parent_post_id.clone()]);
+                Some((parent_user_id.to_string(), parent_post_id.clone()));
 
             let indexing_results = nexus_common::traced_join!(
                 tracing::info_span!("index.delete", phase = "reply_parent");
-                PostCounts::decrement_index_field(&parent_post_key_parts, "replies", None),
+                async {
+                    if post_in_index {
+                        PostCounts::decrement_index_field(&parent_post_key_parts, "replies", None).await?;
+                    }
+                    Ok::<(), EventProcessorError>(())
+                },
                 async {
                     // Post replies cannot be included in the total engagement index after the reply is deleted
-                    if !post_relationships_is_reply(&parent_user_id, &parent_post_id).await? {
+                    if post_in_index
+                        && !post_relationships_is_reply(&parent_user_id, &parent_post_id).await?
+                    {
                         PostStream::decrement_score_index_sorted_set(
                             &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
                             &parent_post_key_parts,
@@ -426,15 +543,22 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
                     }
                     Ok::<(), EventProcessorError>(())
                 },
-                // Notification: "A reply to your post was deleted"
-                Notification::post_children_changed(
-                    &author_id,
-                    &replied_uri_str,
-                    &parent_user_id,
-                    &deleted_uri,
-                    PostChangedSource::Reply,
-                    &PostChangedType::Deleted,
-                )
+                // Notification: "A reply to your post was deleted" — guarded to
+                // prevent duplicate notifications on retry.
+                async {
+                    if post_in_index {
+                        Notification::post_children_changed(
+                            &author_id,
+                            &replied_uri_str,
+                            &parent_user_id,
+                            &deleted_uri,
+                            PostChangedSource::Reply,
+                            &PostChangedType::Deleted,
+                        )
+                        .await?;
+                    }
+                    Ok::<(), EventProcessorError>(())
+                }
             );
 
             indexing_results.0?;
@@ -460,10 +584,17 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
 
             let indexing_results = nexus_common::traced_join!(
                 tracing::info_span!("index.delete", phase = "repost_parent");
-                PostCounts::decrement_index_field(parent_post_key_parts, "reposts", None),
+                async {
+                    if post_in_index {
+                        PostCounts::decrement_index_field(parent_post_key_parts, "reposts", None).await?;
+                    }
+                    Ok::<(), EventProcessorError>(())
+                },
                 async {
                     // Post replies cannot be included in the total engagement index after the repost is deleted
-                    if !post_relationships_is_reply(&reposted_uri.user_id, &parent_post_id).await? {
+                    if post_in_index
+                        && !post_relationships_is_reply(&reposted_uri.user_id, &parent_post_id).await?
+                    {
                         PostStream::decrement_score_index_sorted_set(
                             &POST_TOTAL_ENGAGEMENT_KEY_PARTS,
                             parent_post_key_parts,
@@ -472,15 +603,21 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
                     }
                     Ok::<(), EventProcessorError>(())
                 },
-                // Notification: "A repost of your post was deleted"
-                Notification::post_children_changed(
-                    &author_id,
-                    &reposted_uri_str,
-                    &reposted_uri.user_id,
-                    &deleted_uri,
-                    PostChangedSource::Repost,
-                    &PostChangedType::Deleted,
-                )
+                // Notification: "A repost of your post was deleted" — guarded.
+                async {
+                    if post_in_index {
+                        Notification::post_children_changed(
+                            &author_id,
+                            &reposted_uri_str,
+                            &reposted_uri.user_id,
+                            &deleted_uri,
+                            PostChangedSource::Repost,
+                            &PostChangedType::Deleted,
+                        )
+                        .await?;
+                    }
+                    Ok::<(), EventProcessorError>(())
+                }
             );
 
             indexing_results.0?;
@@ -488,14 +625,18 @@ pub async fn sync_del(author_id: PubkyId, post_id: String) -> Result<(), EventPr
             indexing_results.2?;
         }
     }
-    let indexing_results = nexus_common::traced_join!(
-        tracing::info_span!("index.delete", phase = "post_details");
-        PostDetails::delete(&author_id, &post_id, reply_parent_post_key_wrapper),
-        PostRelationships::delete(&author_id, &post_id)
-    );
 
-    indexing_results.0?;
-    indexing_results.1?;
+    // PHASE 4: Final Redis cleanup of PostDetails (idempotent JSON DEL + ZREM).
+    PostDetails::delete_from_index(&author_id, &post_id, reply_parent_post_key_wrapper)
+        .instrument(tracing::info_span!("index.delete", phase = "post_details"))
+        .await?;
+
+    // PHASE 5: Graph deletion LAST — survives until all Redis cleanup completes,
+    // so a partial failure leaves the graph node available for retry to re-enter
+    // `post::del` -> `CreatedOrDeleted` -> `sync_del`.
+    exec_single_row(queries::del::delete_post(&author_id, &post_id))
+        .instrument(tracing::info_span!("graph.delete", phase = "post_graph"))
+        .await?;
 
     Ok(())
 }
