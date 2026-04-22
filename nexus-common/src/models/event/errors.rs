@@ -70,8 +70,9 @@ impl From<ModelError> for EventProcessorError {
 
 impl From<pubky::Error> for EventProcessorError {
     fn from(e: pubky::Error) -> Self {
-        let kind = PubkyClientErrorKind::from_pubky_error(e);
-        EventProcessorError::PubkyClientError(PubkyClientError::ClientError(kind))
+        EventProcessorError::PubkyClientError(PubkyClientError::ClientError(
+            PubkyClientErrorKind::from(e),
+        ))
     }
 }
 

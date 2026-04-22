@@ -1,8 +1,7 @@
 use super::{PostRelationships, PostStream};
 use crate::db::kv::RedisResult;
 use crate::db::{
-    exec_single_row, execute_graph_operation, fetch_row_from_graph, queries, GraphResult,
-    OperationOutcome, RedisOps,
+    execute_graph_operation, fetch_row_from_graph, queries, GraphResult, OperationOutcome, RedisOps,
 };
 use crate::models::error::ModelResult;
 use crate::models::user::UserDetails;
@@ -138,22 +137,24 @@ impl PostDetails {
         execute_graph_operation(query).await
     }
 
-    pub async fn delete(
+    /// Removes the post details JSON entry and its sorted-set memberships from Redis.
+    /// Idempotent: every operation is a JSON.DEL or ZREM, safe to retry.
+    /// Does NOT touch the graph — callers must run `delete_post` separately to
+    /// preserve the graph-last invariant.
+    pub async fn delete_from_index(
         author_id: &str,
         post_id: &str,
-        parent_post_key_wrapper: Option<[String; 2]>,
-    ) -> ModelResult<()> {
-        // Delete user_details on Redis
+        parent_post_key_wrapper: Option<(String, String)>,
+    ) -> RedisResult<()> {
+        // Delete post details on Redis
         Self::remove_from_index_multiple_json(&[&[author_id, post_id]]).await?;
-        // Delete post graph node
-        exec_single_row(queries::del::delete_post(author_id, post_id)).await?;
         // The replies are not indexed in the global feeds
         match parent_post_key_wrapper {
             None => {
                 PostStream::remove_from_timeline_sorted_set(author_id, post_id).await?;
                 PostStream::remove_from_per_user_sorted_set(author_id, post_id).await?;
             }
-            Some([parent_author_id, parent_post_id]) => {
+            Some((parent_author_id, parent_post_id)) => {
                 PostStream::remove_from_post_reply_sorted_set(
                     &[&parent_author_id, &parent_post_id],
                     author_id,

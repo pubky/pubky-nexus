@@ -1,7 +1,6 @@
 use crate::event_processor::utils::watcher::{assert_eventually_exists, WatcherTest};
 use anyhow::Result;
-use nexus_common::models::universal_tags::HomeserverParsedUri;
-use nexus_watcher::events::retry::event::RetryEvent;
+use nexus_watcher::events::retry::{RetryEvent, RetryEventIndexKey};
 use pubky::Keypair;
 use pubky_app_specs::{follow_uri_builder, PubkyAppUser};
 
@@ -29,8 +28,7 @@ async fn test_homeserver_follow_cannot_index() -> Result<()> {
     let _follow_path = test.create_follow(&follower_kp, &followee_id).await?;
     let follow_absolute_url = follow_uri_builder(follower_id, followee_id.clone());
 
-    let parsed = HomeserverParsedUri::try_from(follow_absolute_url.as_str()).unwrap();
-    let index_key = RetryEvent::generate_index_key(parsed);
+    let index_key: RetryEventIndexKey = follow_absolute_url.clone();
     assert_eventually_exists(&index_key).await;
 
     let timestamp = RetryEvent::check_uri(&index_key).await.unwrap();

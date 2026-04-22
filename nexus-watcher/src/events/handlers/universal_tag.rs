@@ -26,7 +26,7 @@ pub async fn try_handle(
 
     Some(match event_type {
         EventType::Put => handle_put(&tag, uri).await,
-        EventType::Del => handle_del(&tag, uri).await,
+        EventType::Del => handle_del(&tag).await,
     })
 }
 
@@ -68,27 +68,6 @@ async fn handle_put(tag: &UniversalTag, uri: &str) -> Result<(), EventProcessorE
     .await
 }
 
-/// Handle deletion of an app-specific tag.
-///
-/// This function is called both from [`try_handle`] and directly from the event
-/// processing flow in [`crate::events`] for universal-tag DEL events.
-#[instrument(name = "universal_tag.del", skip(tag, uri), fields(uri = %uri, app = %tag.app))]
-pub async fn handle_del(tag: &UniversalTag, uri: &str) -> Result<(), EventProcessorError> {
-    // Try app-specific delete first (Resource tags have `app` on TAGGED relationship).
-    // If no row found, fall back to app-agnostic delete — this handles the case where
-    // sync_put_resource delegated to the standard Post/User flow (InternalKnown),
-    // which creates TAGGED relationships WITHOUT `app`.
-    let result = tag::del(
-        tag.user_id.clone(),
-        tag.tag_id.clone(),
-        Some(tag.app.clone()),
-    )
-    .await;
-    match result {
-        Err(EventProcessorError::SkipIndexing) => {
-            // No match with app filter — try without (InternalKnown case)
-            tag::del(tag.user_id.clone(), tag.tag_id.clone(), None).await
-        }
-        other => other,
-    }
+async fn handle_del(tag: &UniversalTag) -> Result<(), EventProcessorError> {
+    tag::del(tag.user_id.clone(), tag.tag_id.clone()).await
 }

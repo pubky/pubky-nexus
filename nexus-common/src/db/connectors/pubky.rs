@@ -31,9 +31,8 @@ pub enum PubkyClientErrorKind {
     ParseFailed { message: String },
 }
 
-impl PubkyClientErrorKind {
-    /// Maps a pubky::Error to PubkyClientErrorKind
-    pub fn from_pubky_error(err: pubky::Error) -> Self {
+impl From<pubky::Error> for PubkyClientErrorKind {
+    fn from(err: pubky::Error) -> Self {
         match err {
             pubky::Error::Request(req_err) => match req_err {
                 pubky::errors::RequestError::Server { status, message } => {
@@ -69,7 +68,9 @@ impl PubkyClientErrorKind {
             },
         }
     }
+}
 
+impl PubkyClientErrorKind {
     /// Returns true if this error is a 404 (content not found)
     pub fn is_404(&self) -> bool {
         matches!(self, Self::NotFound404 { .. })

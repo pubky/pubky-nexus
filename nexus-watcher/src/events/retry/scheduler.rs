@@ -4,10 +4,9 @@ use chrono::Utc;
 use tracing::warn;
 
 use nexus_common::models::event::{Event, EventProcessorError};
-use nexus_common::models::universal_tags::HomeserverParsedUri;
 use nexus_common::WatcherConfig;
 
-use super::{RedisRetryStore, RetryEvent, RetryStore};
+use super::{RedisRetryStore, RetryEvent, RetryEventIndexKey, RetryStore};
 
 /// Initial backoff durations applied when an event first lands on the retry queue.
 /// Subsequent reschedules use exponential backoff inside [`super::RetryProcessor`].
@@ -66,54 +65,19 @@ impl RetryScheduler {
         self.initial.missing_dep_ms
     }
 
-    /// Queues a retry event for an arbitrary URI with a custom backoff.
-    /// This is a generic method that does not require a full Event object.
-    pub async fn enqueue_raw(
-        &self,
-        event_type: &nexus_common::models::event::EventType,
-        uri: &str,
-        backoff_ms: i64,
-    ) -> Result<(), EventProcessorError> {
-        let parsed = match HomeserverParsedUri::try_from(uri) {
-            Ok(p) => p,
-            Err(_) => {
-                warn!("Failed to parse event URI for retry queue, skipping: {uri}",);
-                return Ok(());
-            }
-        };
-        let resource_key = RetryEvent::generate_index_key(parsed);
-
-        let next_retry_at = Utc::now().timestamp_millis() + backoff_ms;
-        let retry_event = RetryEvent::new(event_type.clone(), uri.to_string(), next_retry_at);
-
-        self.store.put(&resource_key, &retry_event).await?;
-        warn!("Queued raw event for retry: {uri}");
-        Ok(())
-    }
-
     async fn enqueue(
         &self,
         event: &Event,
         initial_backoff_ms: i64,
         reason: &str,
     ) -> Result<(), EventProcessorError> {
-        let parsed = match HomeserverParsedUri::try_from(event.uri.as_str()) {
-            Ok(hp) => hp,
-            Err(_) => {
-                warn!(
-                    "Failed to parse event URI for retry queue, skipping: {}",
-                    event.uri
-                );
-                return Ok(());
-            }
-        };
-        let resource_key = RetryEvent::generate_index_key(parsed);
+        let key: RetryEventIndexKey = event.uri.clone();
 
         let next_retry_at = Utc::now().timestamp_millis() + initial_backoff_ms;
         let retry_event =
             RetryEvent::new(event.event_type.clone(), event.uri.clone(), next_retry_at);
 
-        self.store.put(&resource_key, &retry_event).await?;
+        self.store.put(&key, &retry_event).await?;
         warn!("Queued event for retry ({}): {}", reason, event.uri);
         Ok(())
     }
