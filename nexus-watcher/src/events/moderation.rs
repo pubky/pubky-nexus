@@ -78,7 +78,7 @@ impl TModeration for Moderation {
                     "Moderation tag '{}' detected. Deleting tag {}:{}",
                     moderator_tag.label, user_id, tag_id
                 );
-                handlers::tag::del(user_id, tag_id, None).await
+                handlers::tag::del(user_id, tag_id).await
             }
             Resource::User => {
                 // Delete the user profile and return the result

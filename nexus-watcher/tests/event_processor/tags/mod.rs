@@ -1,3 +1,4 @@
+mod del_idempotent;
 mod fail_index;
 mod multi_user;
 mod post_del;

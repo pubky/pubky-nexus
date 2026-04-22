@@ -79,24 +79,8 @@ async fn handle_put(info: AppTagInfo) -> Result<(), EventProcessorError> {
     tag::sync_put_resource(app_tag, info.user_id, info.tag_id, info.app).await
 }
 
-/// Handle deletion of an app-specific tag.
-///
-/// This function is called both from [`try_handle`] and directly from the event
-/// processing flow in [`crate::events`] for universal-tag DEL events.
-#[instrument(name="universal_tag.del", skip(info), fields(uri = %info.uri, app = %info.app))]
-pub async fn handle_del(info: AppTagInfo) -> Result<(), EventProcessorError> {
-    // Try app-specific delete first (Resource tags have `app` on TAGGED relationship).
-    // If no row found, fall back to app-agnostic delete — this handles the case where
-    // sync_put_resource delegated to the standard Post/User flow (InternalKnown),
-    // which creates TAGGED relationships WITHOUT `app`.
-    let result = tag::del(info.user_id.clone(), info.tag_id.clone(), Some(info.app)).await;
-    match result {
-        Err(EventProcessorError::SkipIndexing) => {
-            // No match with app filter — try without (InternalKnown case)
-            tag::del(info.user_id, info.tag_id, None).await
-        }
-        other => other,
-    }
+async fn handle_del(info: AppTagInfo) -> Result<(), EventProcessorError> {
+    tag::del(info.user_id, info.tag_id).await
 }
 
 /// Try to parse a URI as an app-specific tag path.

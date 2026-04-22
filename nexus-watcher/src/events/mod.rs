@@ -135,24 +135,7 @@ pub async fn handle_del_event(event: &Event) -> Result<(), EventProcessorError> 
         Resource::Bookmark(bookmark_id) => {
             handlers::bookmark::del(user_id, bookmark_id.clone()).await?
         }
-        Resource::Tag(tag_id) => {
-            if let HomeserverParsedUri::UniversalTag {
-                app,
-                tag_id: utag_id,
-                ..
-            } = &event.parsed_uri
-            {
-                let info = handlers::universal_tag::AppTagInfo {
-                    user_id,
-                    app: app.clone(),
-                    tag_id: utag_id.clone(),
-                    uri: event.uri.clone(),
-                };
-                handlers::universal_tag::handle_del(info).await?
-            } else {
-                handlers::tag::del(user_id, tag_id.clone(), None).await?
-            }
-        }
+        Resource::Tag(tag_id) => handlers::tag::del(user_id, tag_id.clone()).await?,
         Resource::File(file_id) => {
             handlers::file::del(&user_id, file_id.clone(), event.files_path.clone()).await?
         }
