@@ -1,6 +1,6 @@
 use crate::event_processor::utils::watcher::{assert_eventually_exists, WatcherTest};
 use anyhow::Result;
-use nexus_common::models::event::HomeserverParsedUri;
+use nexus_common::models::universal_tags::HomeserverParsedUri;
 use nexus_watcher::events::retry::event::RetryEvent;
 use pubky::Keypair;
 use pubky_app_specs::{follow_uri_builder, PubkyAppUser};

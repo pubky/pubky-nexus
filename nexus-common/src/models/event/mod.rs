@@ -1,14 +1,13 @@
 mod errors;
-mod homeserver_parsed_uri;
 
 use crate::db::{kv::RedisResult, RedisOps};
+use crate::models::universal_tags::HomeserverParsedUri;
 use pubky_app_specs::Resource;
 use serde::{Deserialize, Serialize};
 use std::{fmt, path::PathBuf};
 use tracing::{debug, error};
 
 pub use errors::EventProcessorError;
-pub use homeserver_parsed_uri::HomeserverParsedUri;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum EventType {

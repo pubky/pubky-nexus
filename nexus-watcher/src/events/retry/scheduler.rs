@@ -3,7 +3,8 @@ use std::sync::Arc;
 use chrono::Utc;
 use tracing::warn;
 
-use nexus_common::models::event::{Event, EventProcessorError, HomeserverParsedUri};
+use nexus_common::models::event::{Event, EventProcessorError};
+use nexus_common::models::universal_tags::HomeserverParsedUri;
 use nexus_common::WatcherConfig;
 
 use super::{RedisRetryStore, RetryEvent, RetryStore};

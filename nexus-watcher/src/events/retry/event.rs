@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use nexus_common::db::kv::{RedisResult, SortOrder};
 use nexus_common::models::event::EventType;
-use nexus_common::models::event::HomeserverParsedUri;
+use nexus_common::models::universal_tags::HomeserverParsedUri;
 use serde::{Deserialize, Serialize};
 
 use nexus_common::db::RedisOps;

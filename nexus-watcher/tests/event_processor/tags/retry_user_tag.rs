@@ -3,7 +3,7 @@ use crate::event_processor::utils::watcher::{
 };
 use anyhow::Result;
 use chrono::Utc;
-use nexus_common::models::event::HomeserverParsedUri;
+use nexus_common::models::universal_tags::HomeserverParsedUri;
 use nexus_watcher::events::retry::event::RetryEvent;
 use pubky::Keypair;
 use pubky_app_specs::{tag_uri_builder, user_uri_builder};

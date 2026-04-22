@@ -1,3 +1,7 @@
+mod homeserver_parsed_uri;
+
+pub use homeserver_parsed_uri::HomeserverParsedUri;
+
 use pubky_app_specs::PubkyId;
 use serde::{Deserialize, Serialize};
 
