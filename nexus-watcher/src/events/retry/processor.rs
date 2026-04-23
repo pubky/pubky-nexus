@@ -113,11 +113,7 @@ impl RetryProcessor {
     ) -> Result<(), EventProcessorError> {
         // Reconstruct the event line and parse the event
         // Event format is "METHOD URI" (e.g., "PUT pubky://...")
-        let event_type_str = match retry_event.event_type {
-            EventType::Put => "PUT",
-            EventType::Del => "DEL",
-        };
-        let event_line = format!("{} {}", event_type_str, retry_event.event_uri);
+        let event_line = format!("{} {}", retry_event.event_type, retry_event.event_uri);
 
         // Parse the event from the line - if corrupted, remove and continue
         let event = match Event::parse_event(&event_line, self.files_path().clone()) {
