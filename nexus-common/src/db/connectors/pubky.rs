@@ -8,7 +8,10 @@ use tracing::debug;
 static PUBKY_SINGLETON: OnceCell<Arc<Pubky>> = OnceCell::const_new();
 
 #[derive(Debug, Error, Clone, Serialize, Deserialize)]
-pub enum PubkyClientErrorKind {
+pub enum PubkyClientError {
+    #[error("PubkyClient not initialized")]
+    NotInitialized,
+
     #[error("404: {message}")]
     NotFound404 { message: String },
 
@@ -31,7 +34,7 @@ pub enum PubkyClientErrorKind {
     ParseFailed { message: String },
 }
 
-impl From<pubky::Error> for PubkyClientErrorKind {
+impl From<pubky::Error> for PubkyClientError {
     fn from(err: pubky::Error) -> Self {
         match err {
             pubky::Error::Request(req_err) => match req_err {
@@ -70,7 +73,7 @@ impl From<pubky::Error> for PubkyClientErrorKind {
     }
 }
 
-impl PubkyClientErrorKind {
+impl PubkyClientError {
     /// Returns true if this error is a 404 (content not found)
     pub fn is_404(&self) -> bool {
         matches!(self, Self::NotFound404 { .. })
@@ -80,18 +83,12 @@ impl PubkyClientErrorKind {
     pub fn is_retryable(&self) -> bool {
         matches!(
             self,
-            Self::ServerError5xx { .. } | Self::RequestFailed { .. } | Self::PkarrFailed { .. }
+            Self::NotInitialized
+                | Self::ServerError5xx { .. }
+                | Self::RequestFailed { .. }
+                | Self::PkarrFailed { .. }
         )
     }
-}
-
-#[derive(Debug, Error, Clone, Serialize, Deserialize)]
-pub enum PubkyClientError {
-    #[error("PubkyClient not initialized")]
-    NotInitialized,
-
-    #[error("Client error: {0}")]
-    ClientError(#[from] PubkyClientErrorKind),
 }
 
 pub struct PubkyConnector;
@@ -118,11 +115,7 @@ impl PubkyConnector {
                         .build(),
                     None => PubkyHttpClient::new(),
                 }
-                .map_err(|e| {
-                    PubkyClientError::ClientError(PubkyClientErrorKind::BuildFailed {
-                        message: e.to_string(),
-                    })
-                })?;
+                .map_err(|e| PubkyClientError::from(pubky::Error::from(e)))?;
                 Ok(Arc::new(Pubky::with_client(client)))
             })
             .await
