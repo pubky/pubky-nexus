@@ -10,7 +10,7 @@ use nexus_common::models::event::EventProcessorError;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::user::UserDetails;
 use nexus_watcher::events::retry::RetryScheduler;
-use nexus_watcher::events::{EventHandler, Moderation, TModeration};
+use nexus_watcher::events::{EventHandler, Moderation};
 use nexus_watcher::service::TEventProcessor;
 use pubky::Keypair;
 use pubky_app_specs::PubkyId;
@@ -26,7 +26,7 @@ pub struct MockEventProcessor {
     custom_timeout: Option<Duration>,
     shutdown_rx: Receiver<bool>,
     files_path: PathBuf,
-    moderation: Arc<dyn TModeration>,
+    moderation: Arc<Moderation>,
     event_handler: Arc<dyn EventHandler>,
 }
 
@@ -36,7 +36,7 @@ impl TEventProcessor for MockEventProcessor {
         &self.files_path
     }
 
-    fn moderation(&self) -> &Arc<dyn TModeration> {
+    fn moderation(&self) -> &Arc<Moderation> {
         &self.moderation
     }
 
@@ -77,7 +77,7 @@ impl TEventProcessor for MockEventProcessor {
     }
 }
 
-fn default_mock_moderation() -> Arc<dyn TModeration> {
+fn default_mock_moderation() -> Arc<Moderation> {
     // Use a moderator ID that won't match any test user, so moderation is effectively disabled
     Arc::new(Moderation {
         id: PubkyId::try_from("8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo").unwrap(),

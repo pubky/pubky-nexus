@@ -9,7 +9,7 @@ pub mod handlers;
 mod moderation;
 pub mod retry;
 
-pub use moderation::{Moderation, TModeration};
+pub use moderation::Moderation;
 
 /// Trait for handling events.
 ///
@@ -18,7 +18,7 @@ pub use moderation::{Moderation, TModeration};
 #[async_trait::async_trait]
 pub trait EventHandler: Send + Sync {
     /// Returns the moderation instance used by this event handler.
-    fn moderation(&self) -> &Arc<dyn TModeration>;
+    fn moderation(&self) -> &Arc<Moderation>;
 
     /// Handle an event.
     ///
@@ -28,18 +28,18 @@ pub trait EventHandler: Send + Sync {
 
 /// Default implementation of `EventHandler` that uses the actual event handling logic.
 pub struct DefaultEventHandler {
-    moderation: Arc<dyn TModeration>,
+    moderation: Arc<Moderation>,
 }
 
 impl DefaultEventHandler {
-    pub fn new(moderation: Arc<dyn TModeration>) -> Self {
+    pub fn new(moderation: Arc<Moderation>) -> Self {
         Self { moderation }
     }
 }
 
 #[async_trait::async_trait]
 impl EventHandler for DefaultEventHandler {
-    fn moderation(&self) -> &Arc<dyn TModeration> {
+    fn moderation(&self) -> &Arc<Moderation> {
         &self.moderation
     }
 
@@ -56,7 +56,7 @@ impl EventHandler for DefaultEventHandler {
 
 pub async fn handle_put_event(
     event: &Event,
-    moderation: Arc<dyn TModeration>,
+    moderation: Arc<Moderation>,
 ) -> Result<(), EventProcessorError> {
     debug!("Handling PUT event for URI: {}", event.uri);
 

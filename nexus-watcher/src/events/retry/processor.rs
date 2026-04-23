@@ -13,7 +13,7 @@ use nexus_common::WatcherConfig;
 use super::store::{RedisRetryStore, RetryStore};
 use super::RetryScheduler;
 use super::{RetryEvent, RetryEventIndexKey};
-use crate::events::{DefaultEventHandler, EventHandler, Moderation, TModeration};
+use crate::events::{DefaultEventHandler, EventHandler, Moderation};
 use crate::service::indexer::TEventProcessor;
 
 /// Maximum number of retry events to fetch per batch to avoid memory spikes
@@ -36,7 +36,7 @@ impl TEventProcessor for RetryProcessor {
         &self.files_path
     }
 
-    fn moderation(&self) -> &Arc<dyn TModeration> {
+    fn moderation(&self) -> &Arc<Moderation> {
         self.event_handler.moderation()
     }
 
