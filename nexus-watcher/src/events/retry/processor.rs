@@ -3,12 +3,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
+use nexus_common::config::EventRetryConfig;
+use nexus_common::models::event::{Event, EventProcessorError, ParseResult};
+use nexus_common::WatcherConfig;
 use tokio::sync::watch::Receiver;
 use tracing::{debug, info, warn};
-
-use nexus_common::config::EventRetryConfig;
-use nexus_common::models::event::{Event, EventProcessorError, EventType, ParseResult};
-use nexus_common::WatcherConfig;
 
 use super::store::{RedisRetryStore, RetryStore};
 use super::RetryScheduler;
