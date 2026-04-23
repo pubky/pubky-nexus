@@ -127,12 +127,6 @@ impl InMemoryRetryStore {
             inner: Mutex::new(HashMap::new()),
         }
     }
-
-    /// Convenience constructor returning an `Arc` already erased to `dyn RetryStore`,
-    /// the form the [`super::RetryProcessor`] expects.
-    pub fn arc() -> Arc<dyn RetryStore> {
-        Arc::new(Self::new())
-    }
 }
 
 impl Default for InMemoryRetryStore {
