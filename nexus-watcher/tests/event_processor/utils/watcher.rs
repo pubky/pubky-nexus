@@ -11,7 +11,7 @@ use nexus_common::models::traits::Collection;
 use nexus_common::{StackConfig, StackManager};
 use nexus_watcher::events::retry::event::RetryEvent;
 use nexus_watcher::events::{handle, Moderation};
-use nexus_watcher::service::EventProcessorRunner;
+use nexus_watcher::service::HsEventProcessorRunner;
 use nexus_watcher::service::TEventProcessorRunner;
 use pubky::Keypair;
 use pubky::PublicKey;
@@ -52,7 +52,7 @@ pub struct WatcherTest {
     /// The homeserver ID
     pub homeserver_id: String,
     /// The event processor runner
-    pub event_processor_runner: EventProcessorRunner,
+    pub event_processor_runner: HsEventProcessorRunner,
     /// Whether to ensure event processing is complete
     pub ensure_event_processing: bool,
 }
@@ -74,15 +74,14 @@ impl WatcherTest {
     /// that are designed specifically for test scenarios and should not be used in production.
     ///
     /// # Returns
-    /// Returns a fully configured `EventProcessorRunner` ready for use in tests.
-    fn create_test_event_processor_runner(default_homeserver: PubkyId) -> EventProcessorRunner {
+    /// Returns a fully configured `HsEventProcessorRunner` ready for use in tests.
+    fn create_test_event_processor_runner(default_homeserver: PubkyId) -> HsEventProcessorRunner {
         let moderation = Arc::new(default_moderation_tests());
 
         let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
-        EventProcessorRunner {
+        HsEventProcessorRunner {
             limit: 1000,
-            monitored_homeservers_limit: 100,
             files_path: get_files_dir_test_pathbuf(),
             tracer_name: "test".to_string(),
             moderation,
@@ -111,8 +110,7 @@ impl WatcherTest {
 
         // WARNING: testnet initialization is time expensive, we only init one per process
         // TODO: Maybe we should create a single testnet network (singleton and push there more homeservers)
-        // This can be further sped up by using Testnet::new_unseeded() with pubky-testnet 0.7.x
-        let mut testnet = Testnet::new().await?;
+        let mut testnet = Testnet::new_unseeded().await?;
         testnet.create_http_relay().await?;
 
         // Create a random homeserver with a random public key

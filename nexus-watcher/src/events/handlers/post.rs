@@ -4,12 +4,11 @@ use crate::events::EventProcessorError;
 use nexus_common::db::queries::get::post_is_safe_to_delete;
 use nexus_common::db::{exec_single_row, execute_graph_operation, OperationOutcome};
 use nexus_common::db::{queries, RedisOps};
-use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::notification::{Notification, PostChangedSource, PostChangedType};
 use nexus_common::models::post::{
     PostCounts, PostDetails, PostRelationships, PostStream, POST_TOTAL_ENGAGEMENT_KEY_PARTS,
 };
-use nexus_common::models::user::UserCounts;
+use nexus_common::models::user::{UserCounts, UserDetails};
 use pubky_app_specs::{
     post_uri_builder, ParsedUri, PubkyAppPost, PubkyAppPostKind, PubkyId, Resource,
 };
@@ -40,16 +39,16 @@ pub async fn sync_put(
                 let reply_dependency = RetryEvent::generate_index_key_from_uri(replied_to_uri);
                 dependency_event_keys.push(reply_dependency);
 
-                if let Err(e) = Homeserver::maybe_ingest_for_post(replied_to_uri).await {
-                    tracing::error!("Failed to ingest homeserver: {e}");
+                if let Err(e) = PostDetails::maybe_ingest_author_of_post(replied_to_uri).await {
+                    tracing::error!("Failed to ingest user: {e}");
                 }
             }
             if let Some(reposted_uri) = &post_relationships.reposted {
                 let reply_dependency = RetryEvent::generate_index_key_from_uri(reposted_uri);
                 dependency_event_keys.push(reply_dependency);
 
-                if let Err(e) = Homeserver::maybe_ingest_for_post(reposted_uri).await {
-                    tracing::error!("Failed to ingest homeserver: {e}");
+                if let Err(e) = PostDetails::maybe_ingest_author_of_post(reposted_uri).await {
+                    tracing::error!("Failed to ingest user: {e}");
                 }
             }
             if dependency_event_keys.is_empty() {
@@ -95,8 +94,8 @@ pub async fn sync_put(
     // We only consider the first mentioned (tagged) user, to mitigate DoS attacks against Nexus
     // whereby posts with many (inexistent) tagged PKs can cause Nexus to spend a lot of time trying to resolve them
     if let Some(mentioned_user_id) = &post_relationships.mentioned.first() {
-        if let Err(e) = Homeserver::maybe_ingest_for_user(mentioned_user_id).await {
-            tracing::error!("Failed to ingest homeserver: {e}");
+        if let Err(e) = UserDetails::maybe_ingest_user(mentioned_user_id).await {
+            tracing::error!("Failed to ingest user: {e}");
         }
     }
 
@@ -365,9 +364,7 @@ async fn put_mentioned_relationships_for_prefix(
     for pubky_id in find_mentioned_ids(content, prefix) {
         // Create the MENTIONED relationship in the graph
         let query = queries::put::create_mention_relationship(author_id, post_id, &pubky_id);
-        exec_single_row(query)
-            .await
-            .map_err(EventProcessorError::graph_query_failed)?;
+        exec_single_row(query).await?;
 
         let maybe_mentioned_id = Notification::new_mention(author_id, &pubky_id, post_id).await?;
         if let Some(mentioned_user_id) = maybe_mentioned_id {
@@ -419,10 +416,7 @@ pub async fn del(author_id: PubkyId, post_id: String) -> Result<(), EventProcess
     // If there is none other relationship (OperationOutcome::CreatedOrDeleted), we delete from graph and redis.
     // But if there is any (OperationOutcome::Updated), then we simply update the post with keyword content [DELETED].
     // A deleted post is a post whose content is EXACTLY `"[DELETED]"`
-    match execute_graph_operation(query)
-        .await
-        .map_err(EventProcessorError::graph_query_failed)?
-    {
+    match execute_graph_operation(query).await? {
         OperationOutcome::CreatedOrDeleted => sync_del(author_id, post_id).await?,
         OperationOutcome::Updated => {
             let existing_relationships = PostRelationships::get_by_id(&author_id, &post_id).await?;

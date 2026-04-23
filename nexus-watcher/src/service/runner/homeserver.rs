@@ -1,6 +1,6 @@
+use super::TEventProcessorRunner;
 use crate::events::Moderation;
-use crate::service::processor::EventProcessor;
-use crate::service::traits::{TEventProcessor, TEventProcessorRunner};
+use crate::service::indexer::{HsEventProcessor, TEventProcessor};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
@@ -9,11 +9,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
 
-pub struct EventProcessorRunner {
+pub struct HsEventProcessorRunner {
     /// See [WatcherConfig::events_limit]
     pub limit: u32,
-    /// See [WatcherConfig::monitored_homeservers_limit]
-    pub monitored_homeservers_limit: usize,
     pub files_path: PathBuf,
     pub tracer_name: String,
     pub moderation: Arc<Moderation>,
@@ -22,51 +20,28 @@ pub struct EventProcessorRunner {
     pub default_homeserver: PubkyId,
 }
 
-impl EventProcessorRunner {
+impl HsEventProcessorRunner {
     /// Creates a new instance from the provided configuration
     pub fn from_config(config: &WatcherConfig, shutdown_rx: Receiver<bool>) -> Self {
         Self {
             limit: config.events_limit,
-            monitored_homeservers_limit: config.monitored_homeservers_limit,
             files_path: config.stack.files_path.clone(),
             tracer_name: config.stack.otlp.name.clone(),
-            moderation: Arc::new(Moderation {
-                id: config.moderation_id.clone(),
-                tags: config.moderated_tags.clone(),
-            }),
+            moderation: Moderation::from_config(config),
             shutdown_rx,
             default_homeserver: config.homeserver.clone(),
         }
     }
+
+    pub fn default_homeserver(&self) -> &str {
+        &self.default_homeserver
+    }
 }
 
 #[async_trait::async_trait]
-impl TEventProcessorRunner for EventProcessorRunner {
+impl TEventProcessorRunner for HsEventProcessorRunner {
     fn shutdown_rx(&self) -> Receiver<bool> {
         self.shutdown_rx.clone()
-    }
-
-    fn default_homeserver(&self) -> &str {
-        &self.default_homeserver
-    }
-
-    fn monitored_homeservers_limit(&self) -> usize {
-        self.monitored_homeservers_limit
-    }
-
-    async fn homeservers_by_priority(&self) -> Result<Vec<String>, DynError> {
-        let mut hs_ids = Homeserver::get_all_from_graph().await?;
-
-        // Move default homeserver to index 0 if it exists in the array to prioritize its processing
-        if let Some(default_pos) = hs_ids
-            .iter()
-            .position(|hs_id| hs_id == self.default_homeserver())
-        {
-            let default_hs = hs_ids.remove(default_pos);
-            hs_ids.insert(0, default_hs);
-        }
-
-        Ok(hs_ids)
     }
 
     /// Creates and returns a new event processor instance for the specified homeserver
@@ -76,8 +51,7 @@ impl TEventProcessorRunner for EventProcessorRunner {
             .await?
             .ok_or("Homeserver not found")?;
 
-        // Create a new event processor instance with the specified homeserver
-        Ok(Arc::new(EventProcessor {
+        Ok(Arc::new(HsEventProcessor {
             homeserver,
             limit: self.limit,
             files_path: self.files_path.clone(),
@@ -85,5 +59,9 @@ impl TEventProcessorRunner for EventProcessorRunner {
             moderation: self.moderation.clone(),
             shutdown_rx: self.shutdown_rx.clone(),
         }))
+    }
+
+    async fn pre_run(&self) -> Result<Vec<String>, DynError> {
+        Ok(vec![self.default_homeserver.to_string()])
     }
 }

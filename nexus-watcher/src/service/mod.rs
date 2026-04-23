@@ -1,27 +1,29 @@
 pub mod backoff;
 mod constants;
-mod processor;
-mod processor_runner;
-mod stats;
-mod traits;
+pub mod indexer;
+pub mod runner;
+pub mod stats;
+mod task_runner;
+pub mod user_hs_resolver;
 
 /// Module exports
 pub use constants::{PROCESSING_TIMEOUT_SECS, WATCHER_CONFIG_FILE_NAME};
-use nexus_common::types::DynError;
-pub use processor::EventProcessor;
-pub use processor_runner::EventProcessorRunner;
-pub use traits::{TEventProcessor, TEventProcessorRunner};
+pub use indexer::{HsEventProcessor, KeyBasedEventProcessor, TEventProcessor};
+pub use runner::{HsEventProcessorRunner, KeyBasedEventProcessorRunner, TEventProcessorRunner};
+pub(crate) use task_runner::{run_periodic_tasks, PeriodicTask};
 
+use crate::service::task_runner::task_results_into_result;
 use crate::NexusWatcherBuilder;
 use nexus_common::file::ConfigLoader;
 use nexus_common::models::homeserver::Homeserver;
+use nexus_common::types::DynError;
 use nexus_common::utils::create_shutdown_rx;
 use nexus_common::{DaemonConfig, WatcherConfig};
 use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::sync::watch::Receiver;
-use tokio::time::Duration;
-use tracing::{debug, error, info};
+use tracing::{debug, info};
 
 pub struct NexusWatcher {}
 
@@ -68,38 +70,54 @@ impl NexusWatcher {
         NexusWatcherBuilder(watcher_config).start(shutdown_rx).await
     }
 
-    pub async fn start(
-        mut shutdown_rx: Receiver<bool>,
-        config: WatcherConfig,
-    ) -> Result<(), DynError> {
+    /// Starts the Nexus Watcher with parallel periodic task loops.
+    ///
+    /// Currently runs three tasks:
+    /// 1. **Default homeserver**: Processes events from the default homeserver defined in [`WatcherConfig`].
+    /// 2. **External homeservers**: Processes events from all external monitored homeservers, excluding the default.
+    /// 3. **User HS resolver**: Resolves each user's homeserver and persists `HOSTED_BY` relationships.
+    ///
+    /// The event-processing tasks share the same tick interval ([`WatcherConfig::watcher_sleep`]),
+    /// while the HS resolver uses its own interval ([`WatcherConfig::hs_resolver_sleep`]).
+    /// All tasks listen for the shutdown signal to exit gracefully. If any task panics,
+    /// an internal cancellation signal is sent so that sibling tasks can finish their
+    /// current iteration and exit.
+    pub async fn start(shutdown_rx: Receiver<bool>, config: WatcherConfig) -> Result<(), DynError> {
         debug!(?config, "Running NexusWatcher with ");
 
         let config_hs = PubkyId::try_from(config.homeserver.as_str())?;
         Homeserver::persist_if_unknown(config_hs).await?;
 
-        let mut interval = tokio::time::interval(Duration::from_millis(config.watcher_sleep));
-        let ev_processor_runner = EventProcessorRunner::from_config(&config, shutdown_rx.clone());
-        let mut backoff = crate::service::backoff::HomeserverBackoff::new(
-            config.initial_backoff_secs,
-            config.max_backoff_secs,
-        );
+        let watcher_sleep = config.watcher_sleep;
+        let hs_resolver_sleep = config.hs_resolver_sleep;
+        let hs_resolver_ttl = config.hs_resolver_ttl;
 
-        loop {
-            tokio::select! {
-                _ = shutdown_rx.changed() => {
-                    info!("SIGINT received, exiting Nexus Watcher loop");
-                    break;
-                }
-                _ = interval.tick() => {
-                    debug!("Indexing homeservers…");
-                    _ = ev_processor_runner
-                        .run_all(&mut backoff)
-                        .await
-                        .inspect_err(|e| error!("Failed to start event processors run: {e}"));
-                }
-            }
-        }
+        let hs_runner = Arc::new(HsEventProcessorRunner::from_config(
+            &config,
+            shutdown_rx.clone(),
+        ));
+        let key_based_runner = Arc::new(KeyBasedEventProcessorRunner::from_config(
+            &config,
+            shutdown_rx.clone(),
+        ));
+
+        let tasks = vec![
+            PeriodicTask::new("default-homeserver", watcher_sleep, move || {
+                let runner = hs_runner.clone();
+                async move { runner.run().await.map(|_| ()) }
+            }),
+            PeriodicTask::new("external-homeservers", watcher_sleep, move || {
+                let runner = key_based_runner.clone();
+                async move { runner.run().await.map(|_| ()) }
+            }),
+            PeriodicTask::new("user-hs-resolver", hs_resolver_sleep, move || async move {
+                user_hs_resolver::run(hs_resolver_ttl).await
+            }),
+        ];
+
+        let task_results = run_periodic_tasks(tasks, shutdown_rx).await;
+
         info!("Nexus Watcher shut down gracefully");
-        Ok(())
+        task_results_into_result(task_results)
     }
 }

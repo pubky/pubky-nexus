@@ -1,7 +1,6 @@
 mod bookmarks;
 mod files;
 mod follows;
-mod homeserver;
 mod mentions;
 mod network;
 mod posts;
