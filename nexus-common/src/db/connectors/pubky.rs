@@ -83,7 +83,10 @@ impl PubkyClientError {
     pub fn is_retryable(&self) -> bool {
         matches!(
             self,
-            Self::ServerError5xx { .. } | Self::RequestFailed { .. } | Self::PkarrFailed { .. }
+            Self::NotInitialized
+                | Self::ServerError5xx { .. }
+                | Self::RequestFailed { .. }
+                | Self::PkarrFailed { .. }
         )
     }
 }
