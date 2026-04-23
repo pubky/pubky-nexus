@@ -55,16 +55,6 @@ impl RetryScheduler {
             .await
     }
 
-    /// Returns the transient error initial backoff in milliseconds.
-    pub fn transient_backoff_ms(&self) -> i64 {
-        self.initial.transient_ms
-    }
-
-    /// Returns the missing dependency initial backoff in milliseconds.
-    pub fn missing_dep_backoff_ms(&self) -> i64 {
-        self.initial.missing_dep_ms
-    }
-
     async fn enqueue(
         &self,
         event: &Event,
