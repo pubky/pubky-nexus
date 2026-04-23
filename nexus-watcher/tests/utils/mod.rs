@@ -6,9 +6,7 @@ use std::sync::Arc;
 /// Mock implementation of EventHandler for testing.
 ///
 /// If `target_uri_substring` is set, `result` only applies to events whose URI contains
-/// the substring; all other events return `Ok(())`. This lets tests sharing the Redis
-/// retry queue target only their own events (e.g. by the unique post_id they use) and
-/// leave any leftover events from parallel tests to be drained normally.
+/// the substring; all other events return `Ok(())`.
 pub struct MockEventHandler {
     pub result: Result<(), EventProcessorError>,
     pub target_uri_substring: Option<String>,
