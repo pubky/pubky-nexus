@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 /// Represents post data with content, bio, image, links, and status.
-#[derive(Serialize, Deserialize, ToSchema, Default, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, ToSchema, Default, Debug, PartialEq, Clone)]
 // NOTE: Might not be necessary the default values for serde because before PUT a PostDetails node
 // we do sanity check
 pub struct PostDetails {
@@ -169,5 +169,57 @@ impl PostDetails {
     /// Determines whether or not a given [PostDetails] is different than (e.g. may be an edit of) this post.
     pub fn is_different_than(&self, other: &PostDetails) -> bool {
         self.content != other.content || self.attachments != other.attachments
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pubky_app_specs::PubkyAppPostKind;
+
+    #[tokio_shared_rt::test(shared)]
+    async fn test_is_different_than() {
+        // Create a base PostDetails
+        let base_post = PostDetails {
+            content: "Original content".into(),
+            id: "post1".into(),
+            indexed_at: 123456789,
+            author: "author1".into(),
+            kind: PubkyAppPostKind::Short,
+            uri: "uri1".into(),
+            attachments: Some(vec!["image1.jpg".into(), "image2.jpg".into()]),
+        };
+
+        // Test with same content and attachments
+        let same_post = base_post.clone();
+        assert!(!base_post.is_different_than(&same_post));
+
+        // Test with same attachments but different order
+        let different_order_attachments_post = PostDetails {
+            attachments: Some(vec!["image2.jpg".into(), "image1.jpg".into()]),
+            ..base_post.clone()
+        };
+        assert!(base_post.is_different_than(&different_order_attachments_post));
+
+        // Test with different content
+        let different_content_post = PostDetails {
+            content: "Updated content".to_string(),
+            ..base_post.clone()
+        };
+        assert!(base_post.is_different_than(&different_content_post));
+
+        // Test with different attachments
+        let different_attachments_post = PostDetails {
+            attachments: Some(vec!["image3.jpg".to_string()]),
+            ..base_post.clone()
+        };
+        assert!(base_post.is_different_than(&different_attachments_post));
+
+        // Test with no attachments
+        let no_attachments_post = PostDetails {
+            attachments: None,
+            ..base_post.clone()
+        };
+        assert!(base_post.is_different_than(&no_attachments_post));
     }
 }
