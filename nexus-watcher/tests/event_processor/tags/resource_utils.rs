@@ -65,8 +65,8 @@ pub async fn check_resource_in_sorted_set(
 
 /// Compute the resource_id for a given URI (for test assertions)
 pub fn compute_resource_id(uri: &str) -> String {
-    let (normalized, _) = nexus_common::models::resource::normalize_uri(uri).unwrap();
-    nexus_common::models::resource::resource_id(&normalized)
+    let (normalized, _) = nexus_common::universal_tag::normalize::normalize_uri(uri).unwrap();
+    nexus_common::universal_tag::normalize::resource_id(&normalized)
 }
 
 fn resource_tag_query(resource_id: &str, label: &str) -> Query {

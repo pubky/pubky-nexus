@@ -8,7 +8,6 @@ use nexus_common::models::post::PostDetails;
 use nexus_common::models::post::{PostCounts, PostStream};
 use nexus_common::models::resource::stream::ResourceStream;
 use nexus_common::models::resource::tag::TagResource;
-use nexus_common::models::resource::{classify_uri, normalize_uri, resource_id, UriCategory};
 use nexus_common::models::tag::post::TagPost;
 use nexus_common::models::tag::search::TagSearch;
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
@@ -16,6 +15,9 @@ use nexus_common::models::tag::user::TagUser;
 use nexus_common::models::user::UserCounts;
 use nexus_common::models::user::UserDetails;
 use nexus_common::types::Pagination;
+use nexus_common::universal_tag::normalize::{
+    classify_uri, normalize_uri, resource_id, UriCategory,
+};
 use pubky_app_specs::{post_uri_builder, ParsedUri, PubkyAppTag, PubkyId, Resource};
 use tracing::debug;
 
@@ -60,13 +62,9 @@ pub async fn sync_put_resource(
     tag_id: String,
     app: String,
 ) -> Result<(), EventProcessorError> {
-    debug!(
-        "Indexing resource tag: {} -> {} (app={})",
-        tagger_id, tag_id, app
-    );
+    debug!("Indexing resource tag: {tagger_id} -> {tag_id} (app={app})",);
 
-    let category = classify_uri(&tag.uri);
-    match category {
+    match classify_uri(&tag.uri) {
         UriCategory::InternalKnown => {
             // The tagged URI is a known Post/User — delegate to existing flow
             sync_put(tag, tagger_id, tag_id).await
