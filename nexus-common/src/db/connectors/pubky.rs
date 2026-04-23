@@ -112,9 +112,7 @@ impl PubkyConnector {
                         .build(),
                     None => PubkyHttpClient::new(),
                 }
-                .map_err(|e| PubkyClientError::BuildFailed {
-                    message: e.to_string(),
-                })?;
+                .map_err(|e| PubkyClientError::from(pubky::Error::from(e)))?;
                 Ok(Arc::new(Pubky::with_client(client)))
             })
             .await
