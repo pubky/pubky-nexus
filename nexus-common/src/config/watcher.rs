@@ -162,14 +162,6 @@ fn default_hs_resolver_ttl() -> u64 {
     DEFAULT_HS_RESOLVER_TTL
 }
 
-fn default_initial_backoff_secs() -> u64 {
-    DEFAULT_INITIAL_BACKOFF_SECS
-}
-
-fn default_max_backoff_secs() -> u64 {
-    DEFAULT_MAX_BACKOFF_SECS
-}
-
 /// Converts a [`DaemonConfig`] into an [`WatcherConfig`], extracting only the Watcher-related settings
 /// and the shared application stack
 impl From<DaemonConfig> for WatcherConfig {
@@ -183,3 +175,11 @@ impl From<DaemonConfig> for WatcherConfig {
 
 #[async_trait]
 impl ConfigLoader<WatcherConfig> for WatcherConfig {}
+
+fn default_initial_backoff_secs() -> u64 {
+    DEFAULT_INITIAL_BACKOFF_SECS
+}
+
+fn default_max_backoff_secs() -> u64 {
+    DEFAULT_MAX_BACKOFF_SECS
+}
