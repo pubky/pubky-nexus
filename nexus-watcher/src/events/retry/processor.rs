@@ -163,42 +163,14 @@ impl RetryProcessor {
                 );
                 self.store.remove(index_key).await?;
             }
-            Err(e) => {
+            Err(e) if e.is_infrastructure() => {
                 // Infrastructure errors (Neo4j/Redis failures) must NOT count against the
-                // application-level max_retries limit.  If we applied the dead-letter limit
-                // to them, an event would be permanently discarded after N infrastructure
-                // outages — even though it never had a fair chance to succeed.
-                //
-                // For infrastructure errors we:
-                //  1. Skip the retry-count / dead-letter check entirely — retry_count is
-                //     never incremented, so the event can be retried indefinitely until the
-                //     infrastructure recovers.
-                //  2. Still update next_retry_at so backoff continues to advance.
-                //  3. Propagate the error to stop the current batch.
-                if e.is_infrastructure() {
-                    let now = Utc::now().timestamp_millis();
-                    let backoff_secs = self.calculate_backoff(
-                        retry_event.retry_count,
-                        self.config.initial_backoff_secs,
-                        self.config.max_backoff_secs,
-                    );
-                    let next_retry_at = now + (backoff_secs as i64 * 1000);
-
-                    let mut updated_event = retry_event.clone();
-                    updated_event.next_retry_at = next_retry_at;
-                    // retry_count stays unchanged — infrastructure errors do not consume
-                    // the application-level retry budget.
-                    self.store.put(index_key, &updated_event).await?;
-
-                    let retry_time = DateTime::<Utc>::from_timestamp_millis(next_retry_at)
-                        .unwrap_or_else(Utc::now);
-                    info!(
-                        "Infrastructure error — rescheduling {} for {:?} (backoff: {}s, retry_count unchanged: {})",
-                        retry_event.event_uri, retry_time, backoff_secs, updated_event.retry_count
-                    );
-                    return Err(e);
-                }
-
+                // application-level max_retries limit.  Reschedule with backoff but do NOT
+                // increment retry_count, then propagate to stop the current batch.
+                self.reschedule(&retry_event, index_key, &e, false).await?;
+                return Err(e);
+            }
+            Err(e) => {
                 // Check if we've exceeded max retries based on current error type
                 let max_retries = if e.is_missing_dependency() {
                     self.config.max_dependency_retries
@@ -211,62 +183,62 @@ impl RetryProcessor {
                         "Event {} exceeded max retries ({}) - dead-lettering",
                         retry_event.event_uri, retry_event.retry_count
                     );
-                    // Remove from retry queue (dead-lettered)
                     self.store.remove(index_key).await?;
                     return Ok(());
                 }
 
                 // Schedule retry with backoff (increments retry_count)
-                self.schedule_retry(&retry_event, index_key, &e).await?;
+                self.reschedule(&retry_event, index_key, &e, true).await?;
             }
         }
 
         Ok(())
     }
 
-    /// Schedule an event for retry with exponential backoff
-    async fn schedule_retry(
+    /// Reschedule an event for retry with exponential backoff.
+    ///
+    /// When `increment_count` is `true` the retry budget is consumed (application-level
+    /// errors).  When `false` the counter stays unchanged — used for infrastructure
+    /// errors that should not count against the retry limit.
+    async fn reschedule(
         &self,
         retry_event: &RetryEvent,
         index_key: &RetryEventIndexKey,
         error: &EventProcessorError,
+        increment_count: bool,
     ) -> Result<(), EventProcessorError> {
-        let new_retry_count = retry_event.retry_count + 1;
-        let now = Utc::now().timestamp_millis();
+        let new_retry_count = match increment_count {
+            true => retry_event.retry_count + 1,
+            false => retry_event.retry_count,
+        };
+
+        let initial = match error.is_missing_dependency() {
+            true => self.config.initial_missing_dep_backoff_secs,
+            false => self.config.initial_backoff_secs,
+        };
+        let max = match error.is_missing_dependency() {
+            true => self.config.max_missing_dep_backoff_secs,
+            false => self.config.max_backoff_secs,
+        };
 
         // Calculate backoff based on error type
         // Use retry_count (not new_retry_count) so first retry uses 2^0 * initial = initial
-        let backoff_secs = if error.is_missing_dependency() {
-            // Missing dependency backoff (longer initial, higher ceiling)
-            self.calculate_backoff(
-                retry_event.retry_count,
-                self.config.initial_missing_dep_backoff_secs,
-                self.config.max_missing_dep_backoff_secs,
-            )
-        } else {
-            // Transient error backoff
-            self.calculate_backoff(
-                retry_event.retry_count,
-                self.config.initial_backoff_secs,
-                self.config.max_backoff_secs,
-            )
-        };
+        let backoff_secs = self.calculate_backoff(retry_event.retry_count, initial, max);
 
+        let now = Utc::now().timestamp_millis();
         let next_retry_at = now + (backoff_secs as i64 * 1000);
 
-        // Update the retry event
         let mut updated_event = retry_event.clone();
         updated_event.retry_count = new_retry_count;
         updated_event.next_retry_at = next_retry_at;
 
-        // Update in index
         self.store.put(index_key, &updated_event).await?;
 
         let retry_time =
             DateTime::<Utc>::from_timestamp_millis(next_retry_at).unwrap_or_else(Utc::now);
         info!(
-            "Scheduled retry {} for event {} at {:?} (backoff: {}s)",
-            new_retry_count, retry_event.event_uri, retry_time, backoff_secs
+            "Rescheduling {} for {:?} (backoff: {}s, retry_count: {})",
+            retry_event.event_uri, retry_time, backoff_secs, new_retry_count
         );
 
         Ok(())
