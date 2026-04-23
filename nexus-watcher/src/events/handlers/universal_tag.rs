@@ -5,9 +5,6 @@ use tracing::{debug, instrument};
 
 use super::tag;
 
-/// Path segment separating the app name from the tags section.
-const TAGS_SEPARATOR: &str = "/tags/";
-
 /// Info extracted from a universal tag path: `pubky://<user_id>/pub/<app>/tags/<tag_id>`
 pub struct AppTagInfo {
     pub user_id: PubkyId,
@@ -100,7 +97,7 @@ fn try_parse_app_tag_path(uri: &str) -> Option<AppTagInfo> {
     let rest = rest.strip_prefix("pub/")?;
 
     // Split on /tags/
-    let (app, tag_id) = rest.split_once(TAGS_SEPARATOR)?;
+    let (app, tag_id) = rest.split_once("/tags/")?;
 
     // Skip if app is pubky.app — those go through the standard flow
     if app == "pubky.app" {
