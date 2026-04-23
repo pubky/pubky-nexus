@@ -19,12 +19,13 @@ pub struct AppTagInfo {
 ///
 /// Returns `None` if the URI isn't an app-specific tag path.
 /// Returns `Some(Ok(()))` on success or `Some(Err(...))` on processing failure.
-#[instrument(name="universal_tag", skip(event_type, uri), fields(uri = %uri, app_type = extract_app_from_uri(uri)))]
+#[instrument(name="universal_tag", skip(event_type, uri), fields(uri = %uri))]
 pub async fn try_handle(
     event_type: &EventType,
     uri: &str,
 ) -> Option<Result<(), EventProcessorError>> {
     let info = try_parse_app_tag_path(uri)?;
+    tracing::Span::current().record("app_type", info.app.as_str());
 
     debug!(
         "Universal tag event: {} {} (app={})",
@@ -35,13 +36,6 @@ pub async fn try_handle(
         EventType::Put => handle_put(info).await,
         EventType::Del => handle_del(info).await,
     })
-}
-
-/// Extract the app name from a universal tag URI for logging purposes.
-fn extract_app_from_uri(uri: &str) -> String {
-    try_parse_app_tag_path(uri)
-        .map(|info| info.app)
-        .unwrap_or_else(|| "<non-tag>".to_string())
 }
 
 async fn handle_put(info: AppTagInfo) -> Result<(), EventProcessorError> {
