@@ -119,10 +119,7 @@ impl RetryProcessor {
         let event = match Event::parse_event(&event_line, self.files_path().clone()) {
             Ok(ParseResult::Parsed(event)) => event,
             Ok(ParseResult::Skipped) | Err(_) => {
-                warn!(
-                    "Corrupted retry entry for key {}, removing: {}",
-                    index_key, event_line
-                );
+                warn!("Corrupted retry entry for key {index_key}, removing: '{event_line}'");
                 self.store.remove(index_key).await?;
                 return Ok(());
             }
