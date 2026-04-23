@@ -165,4 +165,9 @@ impl PostDetails {
         }
         Ok(())
     }
+
+    /// Determines whether or not a given [PostDetails] is different than (e.g. may be an edit of) this post.
+    pub fn is_different_than(&self, other: &PostDetails) -> bool {
+        self.content != other.content || self.attachments != other.attachments
+    }
 }
