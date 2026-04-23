@@ -123,7 +123,7 @@ pub async fn resource_by_uri_handler(
     Query(query): Query<ResourceByUriQuery>,
 ) -> Result<Json<ResourceTagsResponse>> {
     if query.uri.len() > MAX_URI_LENGTH {
-        return Err(Error::invalid_input(&format!(
+        return Err(Error::invalid_input(format!(
             "URI too long (max {MAX_URI_LENGTH} bytes)"
         )));
     }

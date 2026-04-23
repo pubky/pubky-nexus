@@ -52,7 +52,7 @@ pub async fn ingest_user_handler(Path(user_id): Path<String>) -> Result<()> {
     debug!("PUT {INGEST_USER_ROUTE}, user_id:{user_id}");
 
     PubkyId::try_from(&user_id)
-        .map_err(|e| Error::invalid_input(&format!("Invalid user PK: {e}")))?;
+        .map_err(|e| Error::invalid_input(format!("Invalid user PK: {e}")))?;
 
     UserDetails::maybe_ingest_user(&user_id).await?;
     Ok(())
