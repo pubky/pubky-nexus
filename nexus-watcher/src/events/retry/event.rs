@@ -62,7 +62,7 @@ impl RetryEvent {
         .await?;
 
         // Store full RetryEvent struct in JSON
-        let index: &Vec<&str> = &[RETRY_MANAGER_STATE_INDEX, [index_key.as_str()]].concat();
+        let index = &[RETRY_MANAGER_STATE_INDEX[0], index_key.as_str()];
         self.put_index_json(index, None, None).await?;
 
         Ok(())
@@ -89,7 +89,7 @@ impl RetryEvent {
     /// # Arguments
     /// * `index_key` - A `&RetryEventIndexKey` representing the index key to retrieve
     pub async fn get_from_index(index_key: &RetryEventIndexKey) -> RedisResult<Option<Self>> {
-        let index: &Vec<&str> = &[RETRY_MANAGER_STATE_INDEX, [index_key.as_str()]].concat();
+        let index = &[RETRY_MANAGER_STATE_INDEX[0], index_key.as_str()];
         Self::try_from_index_json(index, None).await
     }
 
@@ -107,7 +107,7 @@ impl RetryEvent {
         .await?;
 
         // Remove JSON state
-        let index: &Vec<&str> = &[RETRY_MANAGER_STATE_INDEX, [index_key.as_str()]].concat();
+        let index = &[RETRY_MANAGER_STATE_INDEX[0], index_key.as_str()];
         Self::remove_from_index_multiple_json(&[index.as_slice()]).await?;
 
         Ok(())
