@@ -1,6 +1,6 @@
 use super::TEventProcessorRunner;
 use crate::events::retry::RetryScheduler;
-use crate::events::{DefaultEventHandler, EventHandler, Moderation, TModeration};
+use crate::events::{DefaultEventHandler, EventHandler, Moderation};
 use crate::service::backoff::HomeserverBackoff;
 use crate::service::indexer::{KeyBasedEventProcessor, TEventProcessor};
 use crate::service::stats::{ProcessedStats, ProcessorRunStatus, RunAllProcessorsStats};
@@ -20,7 +20,7 @@ pub struct KeyBasedEventProcessorRunner {
     /// See [WatcherConfig::monitored_homeservers_limit]
     pub monitored_hs_limit: usize,
     pub files_path: PathBuf,
-    pub moderation: Arc<dyn TModeration>,
+    pub moderation: Arc<Moderation>,
     pub event_handler: Arc<dyn EventHandler>,
     pub shutdown_rx: Receiver<bool>,
     /// Default homeserver ID, excluded from the external targets list

@@ -13,7 +13,7 @@ use nexus_common::models::traits::Collection;
 use nexus_common::{StackConfig, StackManager};
 use nexus_watcher::events::retry::event::RetryEvent;
 use nexus_watcher::events::retry::{InitialBackoff, RedisRetryStore, RetryScheduler, RetryStore};
-use nexus_watcher::events::{DefaultEventHandler, EventHandler, TModeration};
+use nexus_watcher::events::{DefaultEventHandler, EventHandler, Moderation};
 use nexus_watcher::service::HsEventProcessorRunner;
 use nexus_watcher::service::TEventProcessorRunner;
 use pubky::Keypair;
@@ -77,7 +77,7 @@ impl WatcherTest {
     /// # Returns
     /// Returns a fully configured `HsEventProcessorRunner` ready for use in tests.
     fn create_test_event_processor_runner(default_homeserver: PubkyId) -> HsEventProcessorRunner {
-        let moderation: Arc<dyn TModeration> = default_moderation_tests();
+        let moderation: Arc<Moderation> = default_moderation_tests();
         let event_handler: Arc<dyn EventHandler> =
             Arc::new(DefaultEventHandler::new(moderation.clone()));
 

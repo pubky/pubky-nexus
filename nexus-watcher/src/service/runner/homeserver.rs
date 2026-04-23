@@ -1,6 +1,6 @@
 use super::TEventProcessorRunner;
 use crate::events::retry::RetryScheduler;
-use crate::events::{DefaultEventHandler, EventHandler, Moderation, TModeration};
+use crate::events::{DefaultEventHandler, EventHandler, Moderation};
 use crate::service::indexer::{HsEventProcessor, TEventProcessor};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
@@ -14,7 +14,7 @@ pub struct HsEventProcessorRunner {
     /// See [WatcherConfig::events_limit]
     pub limit: u32,
     pub files_path: PathBuf,
-    pub moderation: Arc<dyn TModeration>,
+    pub moderation: Arc<Moderation>,
     pub event_handler: Arc<dyn EventHandler>,
     pub shutdown_rx: Receiver<bool>,
     /// See [WatcherConfig::homeserver]

@@ -6,7 +6,7 @@ use nexus_common::models::homeserver::Homeserver;
 
 use super::TEventProcessor;
 use crate::events::retry::RetryScheduler;
-use crate::events::{EventHandler, TModeration};
+use crate::events::{EventHandler, Moderation};
 use crate::service::user_hs_resolver;
 
 /// Event processor for non-default HSs, where the user-specific `/events-stream` endpoint is used
@@ -15,7 +15,7 @@ pub struct KeyBasedEventProcessor {
     pub homeserver: Homeserver,
 
     pub files_path: PathBuf,
-    pub moderation: Arc<dyn TModeration>,
+    pub moderation: Arc<Moderation>,
     pub event_handler: Arc<dyn EventHandler>,
     /// Scheduler used to enqueue failed events onto the retry queue
     pub retry_scheduler: Arc<RetryScheduler>,
@@ -27,7 +27,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
         &self.files_path
     }
 
-    fn moderation(&self) -> &Arc<dyn TModeration> {
+    fn moderation(&self) -> &Arc<Moderation> {
         &self.moderation
     }
 
