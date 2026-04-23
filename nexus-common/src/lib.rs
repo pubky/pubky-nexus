@@ -20,6 +20,7 @@ pub mod media;
 pub mod models;
 mod stack;
 pub mod types;
+pub mod universal_tag;
 pub mod utils;
 
 pub use config::*;

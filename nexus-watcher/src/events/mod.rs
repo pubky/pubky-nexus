@@ -1,5 +1,6 @@
 use nexus_common::db::PubkyConnector;
-use nexus_common::models::event::{Event, EventProcessorError, EventType, HomeserverParsedUri};
+use nexus_common::models::event::{Event, EventProcessorError, EventType};
+use nexus_common::universal_tag::homeserver_parsed_uri::HomeserverParsedUri;
 use pubky_app_specs::{PubkyAppObject, Resource};
 use std::sync::Arc;
 use tracing::debug;
