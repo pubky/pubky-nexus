@@ -238,9 +238,6 @@ mod tests {
         let tag_id = "ABC123";
         let uri = format!("PUBKY://{user_id}/pub/mapky/tags/{tag_id}");
         let result = HomeserverParsedUri::try_from(uri.as_str());
-        // This should fail because url::Url::parse doesn't allow uppercase schemes in the same way
-        // For case-insensitive support, callers may need to normalize the scheme first
-        // The universal_tag variant handles this separately with eq_ignore_ascii_case
-        assert!(result.is_err() || result.is_ok()); // Accept either behavior for now
+        assert!(result.is_ok());
     }
 }
