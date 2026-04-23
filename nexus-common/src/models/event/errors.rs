@@ -3,7 +3,7 @@ use std::fmt::Display;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::db::{kv::RedisError, GraphError, PubkyClientError, PubkyClientErrorKind};
+use crate::db::{kv::RedisError, GraphError, PubkyClientError};
 use crate::models::error::ModelError;
 
 #[derive(Error, Debug, Clone, Serialize, Deserialize)]
@@ -70,7 +70,7 @@ impl From<ModelError> for EventProcessorError {
 
 impl From<pubky::Error> for EventProcessorError {
     fn from(e: pubky::Error) -> Self {
-        EventProcessorError::PubkyClientError(PubkyClientError::from(PubkyClientErrorKind::from(e)))
+        EventProcessorError::PubkyClientError(PubkyClientError::from(e))
     }
 }
 
@@ -102,15 +102,11 @@ impl EventProcessorError {
     }
 
     pub fn client_error(message: String) -> Self {
-        Self::PubkyClientError(PubkyClientError::ClientError(
-            PubkyClientErrorKind::RequestFailed { message },
-        ))
+        Self::PubkyClientError(PubkyClientError::RequestFailed { message })
     }
 
     pub fn client_error_404(message: String) -> Self {
-        Self::PubkyClientError(PubkyClientError::ClientError(
-            PubkyClientErrorKind::NotFound404 { message },
-        ))
+        Self::PubkyClientError(PubkyClientError::NotFound404 { message })
     }
 
     pub fn static_save_failed(source: impl Display) -> Self {
@@ -143,7 +139,7 @@ impl EventProcessorError {
     /// dead-lettered immediately.
     pub fn is_retryable(&self) -> bool {
         match self {
-            Self::PubkyClientError(PubkyClientError::ClientError(kind)) => kind.is_retryable(),
+            Self::PubkyClientError(err) => err.is_retryable(),
             Self::InvalidEventLine(_) => false,
             Self::SkipIndexing => false,
             _ => true,
@@ -157,10 +153,6 @@ impl EventProcessorError {
 
     /// Returns whether this error indicates a 404 (content definitively gone)
     pub fn is_404(&self) -> bool {
-        matches!(
-            self,
-            Self::PubkyClientError(PubkyClientError::ClientError(kind))
-                if kind.is_404()
-        )
+        matches!(self, Self::PubkyClientError(err) if err.is_404())
     }
 }

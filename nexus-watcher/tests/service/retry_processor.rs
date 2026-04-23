@@ -433,9 +433,7 @@ async fn test_retry_404_removes_from_queue() -> Result<()> {
         create_test_config(10, 50, 60, 3600, 60, 3600),
         create_mock_handler(
             Err(EventProcessorError::PubkyClientError(
-                nexus_common::db::PubkyClientError::ClientError(
-                    nexus_common::db::PubkyClientErrorKind::NotFound404 { message: event_uri },
-                ),
+                nexus_common::db::PubkyClientError::NotFound404 { message: event_uri },
             )),
             post_id,
         ),
