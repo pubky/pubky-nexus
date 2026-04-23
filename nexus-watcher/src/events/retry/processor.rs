@@ -124,10 +124,7 @@ impl RetryProcessor {
                 return Ok(());
             }
             Ok(ParseResult::UnrecognizedUri { reason, .. }) => {
-                warn!(
-                    "Unrecognized URI in retry entry for key {}: {}",
-                    index_key, reason
-                );
+                warn!("Unrecognized URI in retry entry for key {index_key}, removing: {reason}");
                 self.store.remove(index_key).await?;
                 return Ok(());
             }
