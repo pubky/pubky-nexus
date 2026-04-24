@@ -33,9 +33,7 @@ pub fn try_parse_app_tag_path(uri: &str) -> Option<AppTagInfo> {
     }
 
     // Strip query string (?...) or fragment (#...) from tag_id
-    let tag_id = tag_id
-        .find(['?', '#'])
-        .map_or(tag_id, |pos| &tag_id[..pos]);
+    let tag_id = tag_id.find(['?', '#']).map_or(tag_id, |pos| &tag_id[..pos]);
 
     // Validate: app must be a single path segment, tag_id must not contain slashes
     if app.is_empty() || app.contains('/') || tag_id.is_empty() || tag_id.contains('/') {
