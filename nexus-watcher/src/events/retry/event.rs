@@ -68,21 +68,20 @@ impl RetryEvent {
         Ok(())
     }
 
-    /// Checks if a specific event exists in the Redis sorted set
+    /// Checks if a specific event exists in the Redis sorted set.
+    ///
+    /// Only used by integration tests (`nexus-watcher/tests/`); kept `pub` because
+    /// those tests compile against this crate as an external consumer.
     /// # Arguments
     /// * `index_key` - A `&str` representing the index key to check
-    pub async fn check_uri(index_key: &str) -> Result<Option<isize>, EventProcessorError> {
+    pub async fn check_uri(index_key: &str) -> RedisResult<bool> {
         Self::check_sorted_set_member(
             Some(RETRY_MANAGER_PREFIX),
             &RETRY_MANAGER_EVENTS_INDEX,
             &[index_key],
         )
         .await
-        .map_err(|e| {
-            EventProcessorError::internal_error(format!(
-                "Could not check uri for event: {index_key}, reason {e}"
-            ))
-        })
+        .map(|rank| rank.is_some())
     }
 
     /// Retrieves an event from the JSON index in Redis based on its index
@@ -91,6 +90,19 @@ impl RetryEvent {
     pub async fn get_from_index(index_key: &RetryEventIndexKey) -> RedisResult<Option<Self>> {
         let index = &[RETRY_MANAGER_STATE_INDEX[0], index_key.as_str()];
         Self::try_from_index_json(index, None).await
+    }
+
+    /// Batched variant of [`Self::get_from_index`] backed by a single `JSON.MGET`.
+    ///
+    /// Results are returned positionally: element `i` corresponds to `index_keys[i]`,
+    /// with `None` for keys whose JSON state is missing (tombstones).
+    pub async fn get_multiple_from_index(index_keys: &[&str]) -> RedisResult<Vec<Option<Self>>> {
+        let key_parts: Vec<[&str; 2]> = index_keys
+            .iter()
+            .map(|k| [RETRY_MANAGER_STATE_INDEX[0], *k])
+            .collect();
+        let key_parts_refs: Vec<&[&str]> = key_parts.iter().map(|p| p.as_slice()).collect();
+        Self::try_from_index_multiple_json(&key_parts_refs).await
     }
 
     /// Removes an event from the retry queue (both sorted set and JSON state)
@@ -128,17 +140,16 @@ impl RetryEvent {
     }
 
     /// Fetches events from the retry queue that are ready to be retried (next_retry_at <= now)
-    /// Returns Vec<(index_key, score)> pairs for events ready for retry
     /// # Arguments
     /// * `now` - Current time in milliseconds since epoch
     /// * `limit` - Maximum number of events to fetch per batch
     /// # Returns
-    /// A vector of (index_key, score) pairs, or None if no events found
+    /// A vector of (index_key, score) pairs; empty when no events are ready.
     #[tracing::instrument(name = "retry.index.fetch_ready", skip_all)]
     pub async fn fetch_ready(
         now: i64,
         limit: Option<usize>,
-    ) -> Result<Option<Vec<(RetryEventIndexKey, f64)>>, EventProcessorError> {
+    ) -> Result<Vec<(RetryEventIndexKey, f64)>, EventProcessorError> {
         Self::try_from_index_sorted_set(
             &RETRY_MANAGER_EVENTS_INDEX,
             Some(now as f64), // max_score (start → max in get_range)
@@ -149,6 +160,7 @@ impl RetryEvent {
             Some(RETRY_MANAGER_PREFIX),
         )
         .await
+        .map(Option::unwrap_or_default)
         .map_err(|e| EventProcessorError::generic(format!("Failed to fetch retry events: {}", e)))
     }
 }

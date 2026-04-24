@@ -32,8 +32,7 @@ async fn test_homeserver_post_cannot_index() -> Result<()> {
 
     assert_eventually_exists(&index_key).await;
 
-    let timestamp = RetryEvent::check_uri(&index_key).await.unwrap();
-    assert!(timestamp.is_some());
+    assert!(RetryEvent::check_uri(&index_key).await.unwrap());
 
     let event_retry = RetryEvent::get_from_index(&index_key).await.unwrap();
     assert!(event_retry.is_some());

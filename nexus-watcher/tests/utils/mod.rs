@@ -11,7 +11,6 @@ use std::sync::Mutex;
 pub struct MockEventHandler {
     pub result: Result<(), EventProcessorError>,
     pub target_uri_substring: Option<String>,
-    pub moderation: Arc<Moderation>,
     /// Tracks how many times `handle()` was invoked. Shared via `Arc` so tests
     /// can read the count after processing.
     pub handle_count: Arc<Mutex<usize>>,
@@ -26,10 +25,6 @@ impl MockEventHandler {
 
 #[async_trait::async_trait]
 impl EventHandler for MockEventHandler {
-    fn moderation(&self) -> &Arc<Moderation> {
-        &self.moderation
-    }
-
     async fn handle(&self, event: &Event) -> Result<(), EventProcessorError> {
         // Increment invocation counter on every call
         *self.handle_count.lock().unwrap() += 1;

@@ -1,4 +1,4 @@
-use crate::utils::{default_moderation_tests, MockEventHandler};
+use crate::utils::MockEventHandler;
 use nexus_common::models::event::EventProcessorError;
 use nexus_watcher::events::retry::{InMemoryRetryStore, RetryStore};
 use std::sync::{Arc, Mutex};
@@ -20,7 +20,6 @@ pub fn create_mock_handler(
     MockEventHandler {
         result,
         target_uri_substring: target_substring.map(str::to_string),
-        moderation: default_moderation_tests(),
         handle_count: Arc::new(Mutex::new(0)),
     }
 }

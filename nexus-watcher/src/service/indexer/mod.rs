@@ -12,7 +12,7 @@ use nexus_common::models::event::{Event, EventProcessorError};
 use tracing::{debug, error, warn};
 
 use crate::events::retry::RetryScheduler;
-use crate::events::{EventHandler, Moderation};
+use crate::events::EventHandler;
 use crate::service::PROCESSING_TIMEOUT_SECS;
 
 /// Possible error types of an event processor run
@@ -58,7 +58,6 @@ impl Display for RunError {
 #[async_trait::async_trait]
 pub trait TEventProcessor: Send + Sync + 'static {
     fn files_path(&self) -> &PathBuf;
-    fn moderation(&self) -> &Arc<Moderation>;
 
     /// Returns the event handler used to process events.
     ///

@@ -13,7 +13,7 @@ use nexus_common::models::traits::Collection;
 use nexus_common::{StackConfig, StackManager};
 use nexus_watcher::events::retry::event::RetryEvent;
 use nexus_watcher::events::retry::{InitialBackoff, RedisRetryStore, RetryScheduler, RetryStore};
-use nexus_watcher::events::{DefaultEventHandler, EventHandler, Moderation};
+use nexus_watcher::events::{DefaultEventHandler, EventHandler};
 use nexus_watcher::service::HsEventProcessorRunner;
 use nexus_watcher::service::TEventProcessorRunner;
 use pubky::Keypair;
@@ -77,9 +77,8 @@ impl WatcherTest {
     /// # Returns
     /// Returns a fully configured `HsEventProcessorRunner` ready for use in tests.
     fn create_test_event_processor_runner(default_homeserver: PubkyId) -> HsEventProcessorRunner {
-        let moderation: Arc<Moderation> = default_moderation_tests();
         let event_handler: Arc<dyn EventHandler> =
-            Arc::new(DefaultEventHandler::new(moderation.clone()));
+            Arc::new(DefaultEventHandler::new(default_moderation_tests()));
 
         let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
@@ -95,7 +94,6 @@ impl WatcherTest {
         HsEventProcessorRunner {
             limit: 1000,
             files_path: get_files_dir_test_pathbuf(),
-            moderation,
             event_handler,
             shutdown_rx,
             default_homeserver,
@@ -383,11 +381,8 @@ pub async fn assert_eventually_exists(event_index: &str) {
             SLEEP_MS * attempt as u64
         );
         match RetryEvent::check_uri(event_index).await {
-            Ok(timeframe) => {
-                if timeframe.is_some() {
-                    return;
-                }
-            }
+            Ok(true) => return,
+            Ok(false) => {}
             Err(e) => panic!("Error while getting index: {e:?}"),
         };
         // Nap time

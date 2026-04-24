@@ -31,7 +31,6 @@ fn build_processor(
         homeserver: Homeserver::new(hs_id),
         limit: 100,
         files_path: PathBuf::from("/tmp/test"),
-        moderation: crate::utils::default_moderation_tests(),
         event_handler,
         shutdown_rx,
         retry_scheduler,
