@@ -88,10 +88,7 @@ impl RetryStore for RedisRetryStore {
         now: i64,
         limit: Option<usize>,
     ) -> Result<Vec<(RetryEventIndexKey, RetryEvent)>, EventProcessorError> {
-        let key_score_pairs = match RetryEvent::fetch_ready(now, limit).await? {
-            Some(pairs) => pairs,
-            None => return Ok(Vec::new()),
-        };
+        let key_score_pairs = RetryEvent::fetch_ready(now, limit).await?;
 
         // Batch-fetch JSON state for every candidate in a single JSON.MGET.
         let keys: Vec<&str> = key_score_pairs.iter().map(|(k, _)| k.as_str()).collect();

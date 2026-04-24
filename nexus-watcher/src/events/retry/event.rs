@@ -141,17 +141,16 @@ impl RetryEvent {
     }
 
     /// Fetches events from the retry queue that are ready to be retried (next_retry_at <= now)
-    /// Returns Vec<(index_key, score)> pairs for events ready for retry
     /// # Arguments
     /// * `now` - Current time in milliseconds since epoch
     /// * `limit` - Maximum number of events to fetch per batch
     /// # Returns
-    /// A vector of (index_key, score) pairs, or None if no events found
+    /// A vector of (index_key, score) pairs; empty when no events are ready.
     #[tracing::instrument(name = "retry.index.fetch_ready", skip_all)]
     pub async fn fetch_ready(
         now: i64,
         limit: Option<usize>,
-    ) -> Result<Option<Vec<(RetryEventIndexKey, f64)>>, EventProcessorError> {
+    ) -> Result<Vec<(RetryEventIndexKey, f64)>, EventProcessorError> {
         Self::try_from_index_sorted_set(
             &RETRY_MANAGER_EVENTS_INDEX,
             Some(now as f64), // max_score (start → max in get_range)
@@ -162,6 +161,7 @@ impl RetryEvent {
             Some(RETRY_MANAGER_PREFIX),
         )
         .await
+        .map(Option::unwrap_or_default)
         .map_err(|e| EventProcessorError::generic(format!("Failed to fetch retry events: {}", e)))
     }
 }
