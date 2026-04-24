@@ -93,6 +93,19 @@ impl RetryEvent {
         Self::try_from_index_json(index, None).await
     }
 
+    /// Batched variant of [`Self::get_from_index`] backed by a single `JSON.MGET`.
+    ///
+    /// Results are returned positionally: element `i` corresponds to `index_keys[i]`,
+    /// with `None` for keys whose JSON state is missing (tombstones).
+    pub async fn get_multiple_from_index(index_keys: &[&str]) -> RedisResult<Vec<Option<Self>>> {
+        let key_parts: Vec<[&str; 2]> = index_keys
+            .iter()
+            .map(|k| [RETRY_MANAGER_STATE_INDEX[0], *k])
+            .collect();
+        let key_parts_refs: Vec<&[&str]> = key_parts.iter().map(|p| p.as_slice()).collect();
+        Self::try_from_index_multiple_json(&key_parts_refs).await
+    }
+
     /// Removes an event from the retry queue (both sorted set and JSON state)
     /// # Arguments
     /// * `index_key` - A `&RetryEventIndexKey` representing the index key to remove
