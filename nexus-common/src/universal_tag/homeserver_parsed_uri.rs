@@ -190,4 +190,26 @@ mod tests {
         let result = HomeserverParsedUri::try_from(uri.as_str());
         assert!(result.is_ok());
     }
+
+    #[test]
+    fn test_universal_tag_uri_with_query_string() {
+        let user_id = "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo";
+        let uri = format!("pubky://{user_id}/pub/mapky/tags/ABC123?foo=bar");
+        let parsed = HomeserverParsedUri::try_from(uri.as_str())
+            .expect("Should accept universal tag URI with query string");
+        assert!(matches!(parsed, HomeserverParsedUri::UniversalTag { .. }));
+        assert_eq!(parsed.resource(), &Resource::Tag("ABC123".to_string()));
+        assert_eq!(parsed.tag_id(), Some("ABC123"));
+    }
+
+    #[test]
+    fn test_universal_tag_uri_with_fragment() {
+        let user_id = "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo";
+        let uri = format!("pubky://{user_id}/pub/mapky/tags/ABC123#section");
+        let parsed = HomeserverParsedUri::try_from(uri.as_str())
+            .expect("Should accept universal tag URI with fragment");
+        assert!(matches!(parsed, HomeserverParsedUri::UniversalTag { .. }));
+        assert_eq!(parsed.resource(), &Resource::Tag("ABC123".to_string()));
+        assert_eq!(parsed.tag_id(), Some("ABC123"));
+    }
 }
