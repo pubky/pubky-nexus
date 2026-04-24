@@ -1,6 +1,6 @@
 use super::TEventProcessor;
 use crate::events::retry::RetryScheduler;
-use crate::events::{EventHandler, Moderation};
+use crate::events::EventHandler;
 use nexus_common::db::PubkyConnector;
 use nexus_common::models::event::EventProcessorError;
 use nexus_common::models::homeserver::Homeserver;
@@ -18,7 +18,6 @@ pub struct HsEventProcessor {
     /// See [WatcherConfig::events_limit]
     pub limit: u32,
     pub files_path: PathBuf,
-    pub moderation: Arc<Moderation>,
     pub event_handler: Arc<dyn EventHandler>,
     pub shutdown_rx: Receiver<bool>,
     /// Scheduler used to enqueue failed events onto the retry queue
@@ -29,10 +28,6 @@ pub struct HsEventProcessor {
 impl TEventProcessor for HsEventProcessor {
     fn files_path(&self) -> &PathBuf {
         &self.files_path
-    }
-
-    fn moderation(&self) -> &Arc<Moderation> {
-        &self.moderation
     }
 
     fn event_handler(&self) -> &Arc<dyn EventHandler> {

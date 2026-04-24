@@ -5,25 +5,15 @@ use std::sync::Arc;
 
 /// Mock implementation of EventHandler for testing.
 ///
-/// If `target_uri_substring` is set, `result` only applies to events whose URI contains
-/// the substring; all other events return `Ok(())`.
+/// `handle` returns `result` for every event.
 pub struct MockEventHandler {
     pub result: Result<(), EventProcessorError>,
-    pub target_uri_substring: Option<String>,
-    pub moderation: std::sync::Arc<Moderation>,
 }
 
 #[async_trait::async_trait]
 impl EventHandler for MockEventHandler {
-    fn moderation(&self) -> &std::sync::Arc<Moderation> {
-        &self.moderation
-    }
-
-    async fn handle(&self, event: &Event) -> Result<(), EventProcessorError> {
-        match &self.target_uri_substring {
-            Some(s) if !event.uri.contains(s) => Ok(()),
-            _ => self.result.clone(),
-        }
+    async fn handle(&self, _event: &Event) -> Result<(), EventProcessorError> {
+        self.result.clone()
     }
 }
 

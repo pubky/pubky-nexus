@@ -35,10 +35,6 @@ impl TEventProcessor for RetryProcessor {
         &self.files_path
     }
 
-    fn moderation(&self) -> &Arc<Moderation> {
-        self.event_handler.moderation()
-    }
-
     fn event_handler(&self) -> &Arc<dyn EventHandler> {
         &self.event_handler
     }

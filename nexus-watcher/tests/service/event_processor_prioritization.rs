@@ -19,9 +19,8 @@ async fn test_event_processor_runner_default_homeserver_excluded() -> Result<(),
     // Initialize the test
     setup().await?;
 
-    let moderation = default_moderation_tests();
     let event_handler: Arc<dyn EventHandler> =
-        Arc::new(DefaultEventHandler::new(moderation.clone()));
+        Arc::new(DefaultEventHandler::new(default_moderation_tests()));
     let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
     let retry_scheduler = Arc::new(RetryScheduler::new(
         store,
@@ -34,7 +33,6 @@ async fn test_event_processor_runner_default_homeserver_excluded() -> Result<(),
         limit: 1000,
         monitored_hs_limit: HS_IDS.len(),
         files_path: PathBuf::from("/tmp/nexus-watcher-test"),
-        moderation: moderation.clone(),
         event_handler,
         shutdown_rx: tokio::sync::watch::channel(false).1,
         default_homeserver: PubkyId::try_from(HS_IDS[3]).unwrap(),
