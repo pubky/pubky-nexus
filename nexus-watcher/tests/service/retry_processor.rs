@@ -37,12 +37,19 @@ fn create_test_config(
     }
 }
 
-/// Test helper to create a mock event handler that always returns `result`.
+/// Test helper to create a mock event handler scoped to a specific URI substring.
 ///
-/// Each test owns its own fresh [`InMemoryRetryStore`], so the handler only ever
-/// sees the events the test itself enqueued — no cross-test isolation needed.
-fn create_mock_handler(result: Result<(), EventProcessorError>) -> Arc<dyn EventHandler> {
-    Arc::new(MockEventHandler { result })
+/// `target_substring` is typically the unique post_id prefix used by the test. Events
+/// whose URI matches get `result`; any other events (leftover entries from parallel
+/// tests in the shared retry queue) get `Ok(())` and are drained normally.
+fn create_mock_handler(
+    result: Result<(), EventProcessorError>,
+    target_substring: &str,
+) -> Arc<dyn EventHandler> {
+    Arc::new(MockEventHandler {
+        result,
+        target_uri_substring: Some(target_substring.to_string()),
+    })
 }
 
 /// Test helper to create a test RetryEvent with a valid URI
@@ -118,7 +125,10 @@ async fn test_backoff_first_retry_uses_initial_value() -> Result<()> {
     let processor = build_processor(
         store.clone(),
         create_test_config(10, 50, 60, 3600, 60, 3600),
-        create_mock_handler(Err(EventProcessorError::Generic("retry error".to_string()))),
+        create_mock_handler(
+            Err(EventProcessorError::Generic("retry error".to_string())),
+            post_id,
+        ),
         shutdown_rx,
     );
 
@@ -174,7 +184,10 @@ async fn test_backoff_exponential_growth() -> Result<()> {
     let processor = build_processor(
         store.clone(),
         create_test_config(10, 50, 10, 3600, 60, 3600),
-        create_mock_handler(Err(EventProcessorError::Generic("retry error".to_string()))),
+        create_mock_handler(
+            Err(EventProcessorError::Generic("retry error".to_string())),
+            post_id,
+        ),
         shutdown_rx,
     );
 
@@ -233,10 +246,13 @@ async fn test_infrastructure_error_at_max_retries_does_not_dead_letter() -> Resu
     let processor = build_processor(
         store.clone(),
         create_test_config(10, 50, 60, 3600, 60, 3600),
-        create_mock_handler(Err(EventProcessorError::GraphQueryFailed(
-            true, // is_infrastructure = true
-            "Database connection failed".to_string(),
-        ))),
+        create_mock_handler(
+            Err(EventProcessorError::GraphQueryFailed(
+                true, // is_infrastructure = true
+                "Database connection failed".to_string(),
+            )),
+            post_id,
+        ),
         shutdown_rx,
     );
 
@@ -296,7 +312,10 @@ async fn test_backoff_capped_at_max() -> Result<()> {
     let processor = build_processor(
         store.clone(),
         create_test_config(10, 50, 60, 3600, 60, 3600),
-        create_mock_handler(Err(EventProcessorError::Generic("retry error".to_string()))),
+        create_mock_handler(
+            Err(EventProcessorError::Generic("retry error".to_string())),
+            post_id,
+        ),
         shutdown_rx,
     );
 
@@ -358,7 +377,7 @@ async fn test_retry_success_removes_from_queue() -> Result<()> {
     let processor = build_processor(
         store.clone(),
         create_test_config(10, 50, 60, 3600, 60, 3600),
-        create_mock_handler(Ok(())), // Success
+        create_mock_handler(Ok(()), post_id), // Success
         shutdown_rx,
     );
 
@@ -405,9 +424,12 @@ async fn test_retry_404_removes_from_queue() -> Result<()> {
     let processor = build_processor(
         store.clone(),
         create_test_config(10, 50, 60, 3600, 60, 3600),
-        create_mock_handler(Err(EventProcessorError::PubkyClientError(
-            nexus_common::db::PubkyClientError::NotFound404 { message: event_uri },
-        ))),
+        create_mock_handler(
+            Err(EventProcessorError::PubkyClientError(
+                nexus_common::db::PubkyClientError::NotFound404 { message: event_uri },
+            )),
+            post_id,
+        ),
         shutdown_rx,
     );
 
@@ -454,10 +476,13 @@ async fn test_transient_error_schedules_retry() -> Result<()> {
     let processor = build_processor(
         store.clone(),
         create_test_config(10, 50, 60, 3600, 60, 3600),
-        create_mock_handler(Err(EventProcessorError::GraphQueryFailed(
-            true, // is_infrastructure = true
-            "Database connection failed".to_string(),
-        ))),
+        create_mock_handler(
+            Err(EventProcessorError::GraphQueryFailed(
+                true, // is_infrastructure = true
+                "Database connection failed".to_string(),
+            )),
+            post_id,
+        ),
         shutdown_rx,
     );
 
@@ -520,9 +545,12 @@ async fn test_missing_dependency_schedules_retry() -> Result<()> {
     let processor = build_processor(
         store.clone(),
         create_test_config(10, 50, 60, 3600, 300, 18000), // 300s initial for deps
-        create_mock_handler(Err(EventProcessorError::MissingDependency {
-            dependency: vec!["some_dependency".to_string()],
-        })),
+        create_mock_handler(
+            Err(EventProcessorError::MissingDependency {
+                dependency: vec!["some_dependency".to_string()],
+            }),
+            post_id,
+        ),
         shutdown_rx,
     );
 
@@ -592,9 +620,12 @@ async fn test_dead_letter_after_max_transient_retries() -> Result<()> {
     let processor = build_processor(
         store.clone(),
         create_test_config(10, 50, 60, 3600, 60, 3600),
-        create_mock_handler(Err(EventProcessorError::Generic(
-            "transient application failure".to_string(),
-        ))),
+        create_mock_handler(
+            Err(EventProcessorError::Generic(
+                "transient application failure".to_string(),
+            )),
+            post_id,
+        ),
         shutdown_rx,
     );
 
@@ -645,9 +676,12 @@ async fn test_dead_letter_after_max_dependency_retries() -> Result<()> {
     let processor = build_processor(
         store.clone(),
         create_test_config(10, 50, 60, 3600, 60, 3600),
-        create_mock_handler(Err(EventProcessorError::MissingDependency {
-            dependency: vec!["some_dependency".to_string()],
-        })),
+        create_mock_handler(
+            Err(EventProcessorError::MissingDependency {
+                dependency: vec!["some_dependency".to_string()],
+            }),
+            post_id,
+        ),
         shutdown_rx,
     );
 
@@ -749,7 +783,7 @@ async fn test_shutdown_interrupts_batch() -> Result<()> {
     let processor = build_processor(
         store.clone(),
         create_test_config(10, 50, 60, 3600, 60, 3600),
-        create_mock_handler(Ok(())),
+        create_mock_handler(Ok(()), "shutdown"),
         shutdown_rx,
     );
 
@@ -812,10 +846,13 @@ async fn test_infrastructure_error_stops_batch() -> Result<()> {
     let processor = build_processor(
         store.clone(),
         create_test_config(10, 50, 60, 3600, 60, 3600),
-        create_mock_handler(Err(EventProcessorError::GraphQueryFailed(
-            true, // is_infrastructure = true
-            "Critical database failure".to_string(),
-        ))),
+        create_mock_handler(
+            Err(EventProcessorError::GraphQueryFailed(
+                true, // is_infrastructure = true
+                "Critical database failure".to_string(),
+            )),
+            "infrastop",
+        ),
         shutdown_rx,
     );
 
@@ -884,7 +921,7 @@ async fn test_empty_batch_returns_ok() -> Result<()> {
     let processor = build_processor(
         store,
         create_test_config(10, 50, 60, 3600, 60, 3600),
-        create_mock_handler(Ok(())),
+        create_mock_handler(Ok(()), "empty"),
         shutdown_rx,
     );
 
@@ -919,7 +956,7 @@ async fn test_del_event_retry_success() -> Result<()> {
     let processor = build_processor(
         store.clone(),
         create_test_config(10, 50, 60, 3600, 60, 3600),
-        create_mock_handler(Ok(())),
+        create_mock_handler(Ok(()), post_id),
         shutdown_rx,
     );
 
@@ -958,9 +995,12 @@ async fn test_non_retryable_error_removes_event() -> Result<()> {
     let processor = build_processor(
         store.clone(),
         create_test_config(10, 50, 60, 3600, 60, 3600),
-        create_mock_handler(Err(EventProcessorError::InvalidEventLine(
-            "malformed data".to_string(),
-        ))),
+        create_mock_handler(
+            Err(EventProcessorError::InvalidEventLine(
+                "malformed data".to_string(),
+            )),
+            post_id,
+        ),
         shutdown_rx,
     );
 
@@ -1005,9 +1045,12 @@ async fn test_future_events_not_picked_up() -> Result<()> {
     let processor = build_processor(
         store.clone(),
         create_test_config(10, 50, 60, 3600, 60, 3600),
-        create_mock_handler(Err(EventProcessorError::Generic(
-            "should not be called".to_string(),
-        ))),
+        create_mock_handler(
+            Err(EventProcessorError::Generic(
+                "should not be called".to_string(),
+            )),
+            post_id,
+        ),
         shutdown_rx,
     );
 
