@@ -20,7 +20,6 @@ pub struct KeyBasedEventProcessorRunner {
     /// See [WatcherConfig::monitored_homeservers_limit]
     pub monitored_hs_limit: usize,
     pub files_path: PathBuf,
-    pub moderation: Arc<Moderation>,
     pub event_handler: Arc<dyn EventHandler>,
     pub shutdown_rx: Receiver<bool>,
     /// Default homeserver ID, excluded from the external targets list
@@ -34,13 +33,11 @@ pub struct KeyBasedEventProcessorRunner {
 impl KeyBasedEventProcessorRunner {
     /// Creates a new instance from the provided configuration
     pub fn from_config(config: &WatcherConfig, shutdown_rx: Receiver<bool>) -> Self {
-        let moderation = Moderation::from_config(config);
         Self {
             limit: config.events_limit,
             monitored_hs_limit: config.monitored_homeservers_limit,
             files_path: config.stack.files_path.clone(),
-            moderation: moderation.clone(),
-            event_handler: Arc::new(DefaultEventHandler::new(moderation)),
+            event_handler: Arc::new(DefaultEventHandler::new(Moderation::from_config(config))),
             shutdown_rx,
             default_homeserver: config.homeserver.clone(),
             backoff: Mutex::new(HomeserverBackoff::new(
@@ -83,7 +80,6 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
         Ok(Arc::new(KeyBasedEventProcessor {
             homeserver,
             files_path: self.files_path.clone(),
-            moderation: self.moderation.clone(),
             event_handler: self.event_handler.clone(),
             retry_scheduler: self.retry_scheduler.clone(),
         }))

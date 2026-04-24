@@ -9,9 +9,8 @@ use nexus_watcher::events::retry::{
     InMemoryRetryStore, RedisRetryStore, RetryEvent, RetryEventIndexKey, RetryProcessor, RetryStore,
 };
 use nexus_watcher::events::EventHandler;
-use nexus_watcher::events::Moderation;
 use nexus_watcher::service::TEventProcessor;
-use pubky_app_specs::{post_uri_builder, PubkyId};
+use pubky_app_specs::post_uri_builder;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::watch;
@@ -47,15 +46,9 @@ fn create_mock_handler(
     result: Result<(), EventProcessorError>,
     target_substring: &str,
 ) -> Arc<dyn EventHandler> {
-    // Use real Moderation with a moderator ID that won't match test users
-    let moderation = Arc::new(Moderation {
-        id: PubkyId::try_from(TEST_USER_ID).expect("Valid test moderation key"),
-        tags: vec![],
-    });
     Arc::new(MockEventHandler {
         result,
         target_uri_substring: Some(target_substring.to_string()),
-        moderation,
     })
 }
 

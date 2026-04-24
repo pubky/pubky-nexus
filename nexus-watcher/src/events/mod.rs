@@ -17,9 +17,6 @@ pub use moderation::Moderation;
 /// including mocked versions for testing.
 #[async_trait::async_trait]
 pub trait EventHandler: Send + Sync {
-    /// Returns the moderation instance used by this event handler.
-    fn moderation(&self) -> &Arc<Moderation>;
-
     /// Handle an event.
     ///
     /// Returns `Ok(())` on success, or `Err(EventProcessorError)` on failure.
@@ -39,10 +36,6 @@ impl DefaultEventHandler {
 
 #[async_trait::async_trait]
 impl EventHandler for DefaultEventHandler {
-    fn moderation(&self) -> &Arc<Moderation> {
-        &self.moderation
-    }
-
     async fn handle(&self, event: &Event) -> Result<(), EventProcessorError> {
         match event.event_type {
             EventType::Put => handle_put_event(event, self.moderation.clone()).await,
