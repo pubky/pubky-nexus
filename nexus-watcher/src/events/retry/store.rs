@@ -94,19 +94,23 @@ impl RetryStore for RedisRetryStore {
         };
 
         let mut events = Vec::with_capacity(key_score_pairs.len());
+        let mut stale: Vec<RetryEventIndexKey> = Vec::new();
         for (index_key, _score) in key_score_pairs {
             match RetryEvent::get_from_index(&index_key).await? {
-                Some(event) => events.push((index_key.clone(), event)),
+                Some(event) => events.push((index_key, event)),
                 None => {
                     // Sorted-set entry with no JSON state — tombstone, clean up and skip.
-                    debug!(
-                        "Stale retry entry detected for key {}, cleaning up",
-                        index_key
-                    );
-                    RetryEvent::remove_from_index(&index_key).await?;
+                    debug!("Stale retry entry detected for key {index_key}, cleaning up");
+                    stale.push(index_key);
                 }
             }
         }
+
+        if !stale.is_empty() {
+            let refs: Vec<&str> = stale.iter().map(String::as_str).collect();
+            RetryEvent::remove_stale_index_entries(&refs).await?;
+        }
+
         Ok(events)
     }
 }
