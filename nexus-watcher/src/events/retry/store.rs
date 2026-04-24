@@ -93,10 +93,14 @@ impl RetryStore for RedisRetryStore {
             None => return Ok(Vec::new()),
         };
 
+        // Batch-fetch JSON state for every candidate in a single JSON.MGET.
+        let keys: Vec<&str> = key_score_pairs.iter().map(|(k, _)| k.as_str()).collect();
+        let maybe_events = RetryEvent::get_multiple_from_index(&keys).await?;
+
         let mut events = Vec::with_capacity(key_score_pairs.len());
         let mut stale: Vec<RetryEventIndexKey> = Vec::new();
-        for (index_key, _score) in key_score_pairs {
-            match RetryEvent::get_from_index(&index_key).await? {
+        for ((index_key, _score), maybe_event) in key_score_pairs.into_iter().zip(maybe_events) {
+            match maybe_event {
                 Some(event) => events.push((index_key, event)),
                 None => {
                     // Sorted-set entry with no JSON state — tombstone, clean up and skip.
