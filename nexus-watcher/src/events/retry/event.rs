@@ -113,6 +113,20 @@ impl RetryEvent {
         Ok(())
     }
 
+    /// Removes multiple sorted-set index entries without touching JSON state.
+    ///
+    /// Used for tombstone cleanup in the retry store: the JSON state is already
+    /// missing, so a single batched ZREM reconciles the index.
+    #[tracing::instrument(name = "retry.index.remove_stale", skip_all)]
+    pub async fn remove_stale_index_entries(index_keys: &[&str]) -> RedisResult<()> {
+        Self::remove_from_index_sorted_set(
+            Some(RETRY_MANAGER_PREFIX),
+            &RETRY_MANAGER_EVENTS_INDEX,
+            index_keys,
+        )
+        .await
+    }
+
     /// Fetches events from the retry queue that are ready to be retried (next_retry_at <= now)
     /// Returns Vec<(index_key, score)> pairs for events ready for retry
     /// # Arguments
