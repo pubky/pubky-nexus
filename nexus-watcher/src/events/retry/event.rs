@@ -68,21 +68,20 @@ impl RetryEvent {
         Ok(())
     }
 
-    /// Checks if a specific event exists in the Redis sorted set
+    /// Checks if a specific event exists in the Redis sorted set.
+    ///
+    /// Only used by integration tests (`nexus-watcher/tests/`); kept `pub` because
+    /// those tests compile against this crate as an external consumer.
     /// # Arguments
     /// * `index_key` - A `&str` representing the index key to check
-    pub async fn check_uri(index_key: &str) -> Result<Option<isize>, EventProcessorError> {
+    pub async fn check_uri(index_key: &str) -> RedisResult<bool> {
         Self::check_sorted_set_member(
             Some(RETRY_MANAGER_PREFIX),
             &RETRY_MANAGER_EVENTS_INDEX,
             &[index_key],
         )
         .await
-        .map_err(|e| {
-            EventProcessorError::internal_error(format!(
-                "Could not check uri for event: {index_key}, reason {e}"
-            ))
-        })
+        .map(|rank| rank.is_some())
     }
 
     /// Retrieves an event from the JSON index in Redis based on its index
