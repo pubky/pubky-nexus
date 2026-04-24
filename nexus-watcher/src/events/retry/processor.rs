@@ -55,11 +55,6 @@ impl TEventProcessor for RetryProcessor {
         let now = Utc::now().timestamp_millis();
 
         loop {
-            if *self.shutdown_rx.borrow() {
-                debug!("Shutdown detected; exiting retry processing loop");
-                return Ok(());
-            }
-
             let events = self.fetch_ready_events(now).await?;
 
             if events.is_empty() {
