@@ -139,6 +139,7 @@ pub async fn create_random_homeservers_and_persist(
             result: Ok(()),
             target_uri_substring: None,
             moderation,
+            handle_count: Arc::new(std::sync::Mutex::new(0)),
         }),
     };
     event_processor_list.push(event_processor);
@@ -155,6 +156,7 @@ pub fn create_mock_event_processors(
         result: Ok(()),
         target_uri_substring: None,
         moderation: moderation.clone(),
+        handle_count: Arc::new(std::sync::Mutex::new(0)),
     });
     [
         (HS_IDS[0], None, Success),
