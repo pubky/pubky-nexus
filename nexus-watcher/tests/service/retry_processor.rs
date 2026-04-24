@@ -733,10 +733,7 @@ async fn test_stale_sorted_set_entry_cleaned_up() -> Result<()> {
     // Sanity: the stale entry is visible in the raw sorted set.
     let raw_before = RetryEvent::fetch_ready(now, None).await?;
     assert!(
-        raw_before
-            .as_ref()
-            .map(|r| r.iter().any(|(key, _)| key == &resource_key))
-            .unwrap_or(false),
+        raw_before.iter().any(|(key, _)| key == &resource_key),
         "Stale entry should be present in sorted set before cleanup"
     );
 
@@ -746,19 +743,14 @@ async fn test_stale_sorted_set_entry_cleaned_up() -> Result<()> {
     let ready = store.fetch_ready(now, None).await?;
     assert!(
         !ready.iter().any(|(key, _)| key == &resource_key),
-        "Stale entry {} should be filtered out by RedisRetryStore::fetch_ready",
-        resource_key
+        "Stale entry {resource_key} should be filtered out by RedisRetryStore::fetch_ready"
     );
 
     // And it should actually be removed from the sorted set (not just filtered).
     let raw_after = RetryEvent::fetch_ready(now, None).await?;
     assert!(
-        raw_after
-            .as_ref()
-            .map(|r| !r.iter().any(|(key, _)| key == &resource_key))
-            .unwrap_or(true),
-        "Stale entry {} should be removed from sorted set after cleanup",
-        resource_key
+        !raw_after.iter().any(|(key, _)| key == &resource_key),
+        "Stale entry {resource_key} should be removed from sorted set after cleanup"
     );
 
     Ok(())
