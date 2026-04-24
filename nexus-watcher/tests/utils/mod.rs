@@ -4,8 +4,6 @@ use pubky_app_specs::PubkyId;
 use std::sync::Arc;
 
 /// Mock implementation of EventHandler for testing.
-///
-/// `handle` returns `result` for every event.
 pub struct MockEventHandler {
     pub result: Result<(), EventProcessorError>,
 }
