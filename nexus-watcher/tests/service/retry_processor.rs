@@ -99,10 +99,10 @@ async fn test_backoff_first_retry_uses_initial_value() -> Result<()> {
     let processor = build_processor(
         store.clone(),
         create_test_config(10, 50, 60, 3600, 60, 3600),
-        Arc::new(create_mock_handler(
+        create_mock_handler(
             Err(EventProcessorError::Generic("retry error".to_string())),
             Some(post_id),
-        )),
+        ),
         shutdown_rx,
     );
 
@@ -158,10 +158,10 @@ async fn test_backoff_exponential_growth() -> Result<()> {
     let processor = build_processor(
         store.clone(),
         create_test_config(10, 50, 10, 3600, 60, 3600),
-        Arc::new(create_mock_handler(
+        create_mock_handler(
             Err(EventProcessorError::Generic("retry error".to_string())),
             Some(post_id),
-        )),
+        ),
         shutdown_rx,
     );
 
@@ -220,13 +220,13 @@ async fn test_infrastructure_error_at_max_retries_does_not_dead_letter() -> Resu
     let processor = build_processor(
         store.clone(),
         create_test_config(10, 50, 60, 3600, 60, 3600),
-        Arc::new(create_mock_handler(
+        create_mock_handler(
             Err(EventProcessorError::GraphQueryFailed(
                 true, // is_infrastructure = true
                 "Database connection failed".to_string(),
             )),
             Some(post_id),
-        )),
+        ),
         shutdown_rx,
     );
 
@@ -286,10 +286,10 @@ async fn test_backoff_capped_at_max() -> Result<()> {
     let processor = build_processor(
         store.clone(),
         create_test_config(10, 50, 60, 3600, 60, 3600),
-        Arc::new(create_mock_handler(
+        create_mock_handler(
             Err(EventProcessorError::Generic("retry error".to_string())),
             Some(post_id),
-        )),
+        ),
         shutdown_rx,
     );
 
@@ -351,7 +351,7 @@ async fn test_retry_success_removes_from_queue() -> Result<()> {
     let processor = build_processor(
         store.clone(),
         create_test_config(10, 50, 60, 3600, 60, 3600),
-        Arc::new(create_mock_handler(Ok(()), Some(post_id))),
+        create_mock_handler(Ok(()), Some(post_id)),
         shutdown_rx,
     );
 
@@ -398,12 +398,12 @@ async fn test_retry_404_removes_from_queue() -> Result<()> {
     let processor = build_processor(
         store.clone(),
         create_test_config(10, 50, 60, 3600, 60, 3600),
-        Arc::new(create_mock_handler(
+        create_mock_handler(
             Err(EventProcessorError::PubkyClientError(
                 nexus_common::db::PubkyClientError::NotFound404 { message: event_uri },
             )),
             Some(post_id),
-        )),
+        ),
         shutdown_rx,
     );
 
@@ -450,13 +450,13 @@ async fn test_transient_error_schedules_retry() -> Result<()> {
     let processor = build_processor(
         store.clone(),
         create_test_config(10, 50, 60, 3600, 60, 3600),
-        Arc::new(create_mock_handler(
+        create_mock_handler(
             Err(EventProcessorError::GraphQueryFailed(
                 true, // is_infrastructure = true
                 "Database connection failed".to_string(),
             )),
             Some(post_id),
-        )),
+        ),
         shutdown_rx,
     );
 
@@ -519,12 +519,12 @@ async fn test_missing_dependency_schedules_retry() -> Result<()> {
     let processor = build_processor(
         store.clone(),
         create_test_config(10, 50, 60, 3600, 300, 18000), // 300s initial for deps
-        Arc::new(create_mock_handler(
+        create_mock_handler(
             Err(EventProcessorError::MissingDependency {
                 dependency: vec!["some_dependency".to_string()],
             }),
             Some(post_id),
-        )),
+        ),
         shutdown_rx,
     );
 
@@ -594,12 +594,12 @@ async fn test_dead_letter_after_max_transient_retries() -> Result<()> {
     let processor = build_processor(
         store.clone(),
         create_test_config(10, 50, 60, 3600, 60, 3600),
-        Arc::new(create_mock_handler(
+        create_mock_handler(
             Err(EventProcessorError::Generic(
                 "transient application failure".to_string(),
             )),
             Some(post_id),
-        )),
+        ),
         shutdown_rx,
     );
 
@@ -650,12 +650,12 @@ async fn test_dead_letter_after_max_dependency_retries() -> Result<()> {
     let processor = build_processor(
         store.clone(),
         create_test_config(10, 50, 60, 3600, 60, 3600),
-        Arc::new(create_mock_handler(
+        create_mock_handler(
             Err(EventProcessorError::MissingDependency {
                 dependency: vec!["some_dependency".to_string()],
             }),
             Some(post_id),
-        )),
+        ),
         shutdown_rx,
     );
 
@@ -754,7 +754,6 @@ async fn test_shutdown_interrupts_batch() -> Result<()> {
     // Create processor; shutdown is set before run_internal so nothing is actually
     // processed.
     let handler = create_mock_handler(Ok(()), Some("shutdown"));
-    let handler = Arc::new(handler);
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let processor = build_processor(
         store.clone(),
@@ -832,7 +831,6 @@ async fn test_infrastructure_error_stops_batch() -> Result<()> {
         )),
         Some("infrastop"),
     );
-    let handler = Arc::new(handler);
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let processor = build_processor(
         store.clone(),
@@ -911,7 +909,6 @@ async fn test_empty_batch_returns_ok() -> Result<()> {
     // Fresh in-memory store is empty by construction.
     let store = new_in_memory_store();
     let handler = create_mock_handler(Ok(()), Some("empty"));
-    let handler = Arc::new(handler);
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let processor = build_processor(
         store,
@@ -955,7 +952,6 @@ async fn test_del_event_retry_success() -> Result<()> {
 
     // Create processor with handler that returns success
     let handler = create_mock_handler(Ok(()), Some(post_id));
-    let handler = Arc::new(handler);
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let processor = build_processor(
         store.clone(),
@@ -1008,7 +1004,6 @@ async fn test_non_retryable_error_removes_event() -> Result<()> {
         )),
         Some(post_id),
     );
-    let handler = Arc::new(handler);
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let processor = build_processor(
         store.clone(),
@@ -1080,7 +1075,6 @@ async fn test_batch_continues_after_single_failure() -> Result<()> {
         )),
         Some(failing_post_id),
     );
-    let handler = Arc::new(handler);
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let processor = build_processor(
         store.clone(),
@@ -1155,7 +1149,6 @@ async fn test_future_events_not_picked_up() -> Result<()> {
         )),
         Some(post_id),
     );
-    let handler = Arc::new(handler);
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let processor = build_processor(
         store.clone(),

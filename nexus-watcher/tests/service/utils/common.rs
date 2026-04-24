@@ -16,10 +16,11 @@ pub fn new_in_memory_store() -> Arc<dyn RetryStore> {
 pub fn create_mock_handler(
     result: Result<(), EventProcessorError>,
     target_substring: Option<&str>,
-) -> MockEventHandler {
+) -> Arc<MockEventHandler> {
     MockEventHandler {
         result,
         target_uri_substring: target_substring.map(str::to_string),
         handle_count: Arc::new(Mutex::new(0)),
     }
+    .into()
 }

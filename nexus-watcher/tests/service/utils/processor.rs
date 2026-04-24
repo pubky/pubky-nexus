@@ -120,7 +120,7 @@ pub async fn create_random_homeservers_and_persist(
         custom_timeout,
         shutdown_rx,
         files_path: PathBuf::from("/tmp/mock"),
-        event_handler: Arc::new(create_mock_handler(Ok(()), None)),
+        event_handler: create_mock_handler(Ok(()), None),
     };
     event_processor_list.push(event_processor);
 }
@@ -131,7 +131,7 @@ pub fn create_mock_event_processors(
     shutdown_rx: Receiver<bool>,
 ) -> Vec<MockEventProcessor> {
     use MockEventProcessorResult::*;
-    let event_handler = Arc::new(create_mock_handler(Ok(()), None));
+    let event_handler = create_mock_handler(Ok(()), None);
     [
         (HS_IDS[0], None, Success),
         (HS_IDS[1], None, Error("Event processor error!".into())),

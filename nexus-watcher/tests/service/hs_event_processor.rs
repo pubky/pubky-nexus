@@ -64,7 +64,6 @@ async fn test_batch_continues_after_single_failure() -> Result<()> {
         Err(EventProcessorError::Generic("handler fails".to_string())),
         None,
     );
-    let handler = Arc::new(handler);
     let processor = build_processor(store.clone(), handler.clone(), shutdown_rx);
 
     let result = processor.process_event_lines(lines).await;
@@ -127,7 +126,6 @@ async fn test_batch_stops_on_infrastructure_error() -> Result<()> {
         )),
         Some(first_post_id),
     );
-    let handler = Arc::new(handler);
     let processor = build_processor(store.clone(), handler.clone(), shutdown_rx);
 
     let result = processor.process_event_lines(lines).await;
