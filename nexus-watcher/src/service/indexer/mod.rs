@@ -144,50 +144,33 @@ pub trait TEventProcessor: Send + Sync + 'static {
     /// Called in the event processing loop.
     ///
     /// Returns:
-    /// - `Ok(())` - Continue processing the batch (for MissingDependency, InvalidEventLine, SkipIndexing, 404)
+    /// - `Ok(())` - Continue processing the batch (non-retryable errors are dropped, retryable
+    ///   ones are queued for retry)
     /// - `Err(e)` - Stop processing and return error (for infrastructure errors)
     async fn handle_error(
         &self,
         event: &Event,
         error: EventProcessorError,
     ) -> Result<(), EventProcessorError> {
-        match &error {
-            EventProcessorError::MissingDependency { dependency: _ } => {
-                if let Some(s) = self.retry_scheduler() {
-                    s.queue_missing_dep(event).await
-                } else {
-                    Ok(())
-                }
-            }
-            EventProcessorError::SkipIndexing => {
-                // Skip indexing - no retry entry needed
-                debug!("Skipping event indexing: {}", event.uri);
-                Ok(())
-            }
-            EventProcessorError::InvalidEventLine(_) => {
-                warn!("Invalid event line, skipping: {error}");
-                Ok(())
-            }
-            EventProcessorError::PubkyClientError(_) if error.is_404() => {
-                debug!("Content not found (404), skipping event: {}", event.uri);
-                Ok(())
-            }
-            EventProcessorError::PubkyClientError(_) => {
-                warn!("Client error, queuing event for retry: {error}");
-                if let Some(s) = self.retry_scheduler() {
-                    s.queue_transient(event).await
-                } else {
-                    Ok(())
-                }
-            }
-            _ if error.is_infrastructure() => {
-                warn!("Infrastructure error, stopping batch: {error}");
-                Err(error)
-            }
-            _ => {
-                warn!("Unhandled error, continuing batch: {error}");
-                Ok(())
-            }
+        if error.is_infrastructure() {
+            warn!("Infrastructure error, stopping batch: {error}");
+            return Err(error);
+        }
+
+        if !error.is_retryable() {
+            debug!("Non-retryable error, skipping event {}: {error}", event.uri);
+            return Ok(());
+        }
+
+        let Some(scheduler) = self.retry_scheduler() else {
+            return Ok(());
+        };
+
+        if error.is_missing_dependency() {
+            scheduler.queue_missing_dep(event).await
+        } else {
+            warn!("Retryable error, queuing event for retry: {error}");
+            scheduler.queue_transient(event).await
         }
     }
 
