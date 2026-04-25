@@ -34,7 +34,7 @@ impl Moderation {
             return handlers::tag::del(info.user_id, info.tag_id).await;
         }
 
-        // Parse the embeded URI to extract author_id and post_id using parse_tagged_post_uri
+        // Parse the embedded URI to extract author_id and post_id using parse_tagged_post_uri
         let parsed_uri = ParsedUri::try_from(moderator_tag.uri.as_str())
             .map_err(EventProcessorError::generic)?;
         let user_id = parsed_uri.user_id;
