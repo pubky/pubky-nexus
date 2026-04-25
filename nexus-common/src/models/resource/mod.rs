@@ -33,11 +33,12 @@ pub fn normalize_uri(uri: &str) -> Result<(String, String), String> {
             if let Some(colon_pos) = uri.find(':') {
                 let scheme = &uri[..colon_pos];
                 // Validate scheme: RFC 3986 §3.1 — ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )
-                if scheme.is_empty()
-                    || !scheme
-                        .bytes()
-                        .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'-' || b == b'.')
-                {
+                let mut scheme_bytes = scheme.bytes();
+                let starts_with_alpha =
+                    scheme_bytes.next().is_some_and(|b| b.is_ascii_alphabetic());
+                let remainder_is_valid = scheme_bytes
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'-' || b == b'.');
+                if !starts_with_alpha || !remainder_is_valid {
                     return Err(format!("Invalid URI scheme: {uri}"));
                 }
                 let scheme_lower = scheme.to_ascii_lowercase();
@@ -226,6 +227,12 @@ mod tests {
     fn test_normalize_rejects_malformed_scheme() {
         // "ht tps" has a space — invalid per RFC 3986 §3.1
         assert!(normalize_uri("ht tps://example.com").is_err());
+    }
+
+    #[test]
+    fn test_normalize_rejects_scheme_starting_with_digit() {
+        // RFC 3986 §3.1 requires the first scheme character to be alphabetic.
+        assert!(normalize_uri("1ttp://example.com").is_err());
     }
 
     #[test]
