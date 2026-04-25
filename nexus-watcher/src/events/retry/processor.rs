@@ -120,10 +120,17 @@ impl RetryProcessor {
             }
         };
 
-        // Call event_handler directly to get the actual error (bypassing handle_event/handle_error)
         let ev_uri = &retry_event.event_uri;
         let ev_retry_count = retry_event.retry_count;
-        match self.event_handler().handle(&event).await {
+
+        // Call event_handler directly to get the actual error (bypassing handle_event/handle_error)
+        let event_handle_res = self.event_handler().handle(&event).await.inspect_err(|e| {
+            // In case of error, log it before the error is itself is classified and handled
+            // Error handling could itself throw an error. We log it here to pre-empt this possibility.
+            warn!("Retry event handling failed: {e}");
+        });
+
+        match event_handle_res {
             Ok(()) => {
                 // Success - event was processed, remove from retry queue
                 debug!("Retry successful for event: {ev_uri}");
