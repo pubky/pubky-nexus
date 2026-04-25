@@ -14,7 +14,7 @@ pub use moderation::Moderation;
 pub async fn handle(event: &Event, moderation: Arc<Moderation>) -> Result<(), EventProcessorError> {
     match event.event_type {
         EventType::Put => handle_put_event(event, moderation).await,
-        EventType::Del => handle_del_event(event, &moderation.files_path).await,
+        EventType::Del => handle_del_event(event, moderation.files_path.clone()).await,
     }?;
 
     event.store_event().await?;
@@ -79,7 +79,7 @@ pub async fn handle_put_event(
             }
         }
         (PubkyAppObject::File(file), Resource::File(file_id)) => {
-            let files_path = &moderation.files_path;
+            let files_path = moderation.files_path.clone();
             handlers::file::sync_put(file, event.uri.clone(), user_id, file_id, files_path).await?
         }
         other => debug!("Event type not handled, Resource: {other:?}"),
@@ -90,7 +90,7 @@ pub async fn handle_put_event(
 /// Handles a DEL event by dispatching to the appropriate handler.
 pub async fn handle_del_event(
     event: &Event,
-    files_path: &PathBuf,
+    files_path: PathBuf,
 ) -> Result<(), EventProcessorError> {
     debug!("Handling DEL event for URI: {}", event.uri);
 

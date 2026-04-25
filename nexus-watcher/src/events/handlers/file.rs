@@ -19,7 +19,7 @@ pub async fn sync_put(
     uri: String,
     user_id: PubkyId,
     file_id: String,
-    files_path: &PathBuf,
+    files_path: PathBuf,
 ) -> Result<(), EventProcessorError> {
     debug!("Indexing new file resource at {}/{}", user_id, file_id);
 
@@ -50,7 +50,7 @@ async fn ingest(
     user_id: &PubkyId,
     file_id: &str,
     pubkyapp_file: &PubkyAppFile,
-    files_path: &PathBuf,
+    files_path: PathBuf,
 ) -> Result<FileMeta, EventProcessorError> {
     let pubky = PubkyConnector::get()?;
     let response = pubky.public_storage().get(&pubkyapp_file.src).await?;
@@ -88,7 +88,7 @@ async fn ingest(
 pub async fn del(
     user_id: &PubkyId,
     file_id: String,
-    files_path: &PathBuf,
+    files_path: PathBuf,
 ) -> Result<(), EventProcessorError> {
     debug!("Deleting File resource at {}/{}", user_id, file_id);
     let result = FileDetails::get_by_ids(&[&[user_id, &file_id]]).await?;
