@@ -225,9 +225,10 @@ impl RetryProcessor {
     }
 
     fn get_max_retries_for_err(&self, e: &EventProcessorError) -> u32 {
-        match e.is_missing_dependency() {
-            true => self.config.max_dependency_retries,
-            false => self.config.max_retries,
+        if e.is_missing_dependency() {
+            self.config.max_dependency_retries
+        } else {
+            self.config.max_retries
         }
     }
 }
