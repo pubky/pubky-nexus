@@ -115,7 +115,7 @@ impl EventProcessor {
                     Err(e) => warn!("{e}"),
                 }
             } else {
-                match Event::parse_event(line, self.files_path.clone()) {
+                match Event::parse_event(line) {
                     Err(e) => error!("{e}"),
                     Ok(ParseResult::Skipped) => {}
                     Ok(ParseResult::UnrecognizedUri {

@@ -13,7 +13,7 @@ pub const HS_IDS: [&str; 5] = [
 
 pub async fn setup() -> Result<Vec<MockEventProcessor>> {
     // Initialize the test stack
-    if let Err(e) = StackManager::setup(&StackConfig::default()).await {
+    if let Err(e) = StackManager::setup(&StackConfig::test_default()).await {
         return Err(Error::msg(format!("could not initialise the stack, {e:?}")));
     }
 

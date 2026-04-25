@@ -33,6 +33,7 @@ impl EventProcessorRunner {
             moderation: Arc::new(Moderation {
                 id: config.moderation_id.clone(),
                 tags: config.moderated_tags.clone(),
+                files_path: config.stack.files_path.clone(),
             }),
             shutdown_rx,
             default_homeserver: config.homeserver.clone(),

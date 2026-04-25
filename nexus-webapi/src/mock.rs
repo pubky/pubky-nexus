@@ -18,7 +18,7 @@ pub struct MockDb {}
 
 impl MockDb {
     async fn init_stack() {
-        StackManager::setup(&StackConfig::default())
+        StackManager::setup(&StackConfig::test_default())
             .await
             .expect("Failed to initialize stack");
     }
