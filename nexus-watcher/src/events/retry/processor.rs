@@ -121,26 +121,22 @@ impl RetryProcessor {
         };
 
         // Call event_handler directly to get the actual error (bypassing handle_event/handle_error)
+        let ev_uri = &retry_event.event_uri;
+        let ev_retry_count = retry_event.retry_count;
         match self.event_handler().handle(&event).await {
             Ok(()) => {
                 // Success - event was processed, remove from retry queue
-                debug!("Retry successful for event: {}", retry_event.event_uri);
+                debug!("Retry successful for event: {ev_uri}");
                 self.store.remove(index_key).await?;
             }
             Err(e) if e.is_404() => {
                 // Content gone - remove from retry queue
-                warn!(
-                    "Content no longer exists (404) for retry: {}",
-                    retry_event.event_uri
-                );
+                warn!("Content no longer exists (404) for retry: {ev_uri}");
                 self.store.remove(index_key).await?;
             }
             Err(e) if !e.is_retryable() => {
                 // Non-retryable error (ParseFailed, etc.) - dead-letter immediately
-                warn!(
-                    "Event {} failed with non-retryable error, dead-lettering: {}",
-                    retry_event.event_uri, e
-                );
+                warn!("Event {ev_uri} failed with non-retryable error, dead-lettering: {e}");
                 self.store.remove(index_key).await?;
             }
             Err(e) if e.is_infrastructure() => {
@@ -158,11 +154,8 @@ impl RetryProcessor {
                     self.config.max_retries
                 };
 
-                if retry_event.retry_count >= max_retries {
-                    warn!(
-                        "Event {} exceeded max retries ({}) - dead-lettering",
-                        retry_event.event_uri, retry_event.retry_count
-                    );
+                if ev_retry_count >= max_retries {
+                    warn!("Event {ev_uri} exceeded max retries ({ev_retry_count}), dead-lettering");
                     self.store.remove(index_key).await?;
                     return Ok(());
                 }
