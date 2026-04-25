@@ -69,6 +69,32 @@ pub fn compute_resource_id(uri: &str) -> String {
     nexus_common::models::resource::resource_id(&normalized)
 }
 
+/// Find a Resource tag in the graph database, filtered by both label and app
+pub async fn find_resource_tag_by_app(
+    resource_id: &str,
+    label: &str,
+    app: &str,
+) -> Result<Option<ResourceTagResult>> {
+    let query = Query::new(
+        "resource_tag_by_app_query",
+        "
+        MATCH (tagger:User)-[t:TAGGED {label: $label, app: $app}]->(r:Resource {id: $resource_id})
+        RETURN {
+            label: t.label,
+            app: t.app,
+            tagger: tagger.id,
+            uri: r.uri,
+            scheme: r.scheme
+        } AS details
+        ",
+    )
+    .param("resource_id", resource_id)
+    .param("label", label)
+    .param("app", app);
+    let result = fetch_key_from_graph(query, "details").await.unwrap();
+    Ok(result)
+}
+
 fn resource_tag_query(resource_id: &str, label: &str) -> Query {
     Query::new(
         "resource_tag_query",

@@ -93,7 +93,7 @@ async fn test_tag_post_del_retry_no_double_decrement() -> Result<()> {
 
     // Retry: call del handler directly — should delete graph without double-decrement
     let tagger_pubky_id = PubkyId::from(tagger_kp.public_key());
-    handlers::tag::del(tagger_pubky_id, tag_id.to_string()).await?;
+    handlers::tag::del(tagger_pubky_id, tag_id.to_string(), None).await?;
 
     // Verify final state: graph edge deleted, counters still 0
     let post_tag = find_post_tag(&author_id, &post_id, label).await?;
@@ -160,14 +160,14 @@ async fn test_tag_post_del_replay_after_success_skips() -> Result<()> {
 
     // First delete via handler (should succeed)
     let tagger_pubky_id = PubkyId::from(tagger_kp.public_key());
-    handlers::tag::del(tagger_pubky_id.clone(), tag_id.to_string()).await?;
+    handlers::tag::del(tagger_pubky_id.clone(), tag_id.to_string(), None).await?;
 
     // Verify fully deleted state
     let post_tag = find_post_tag(&author_id, &post_id, label).await?;
     assert!(post_tag.is_none());
 
     // Replay: call del again — should succeed as idempotent no-op
-    handlers::tag::del(tagger_pubky_id, tag_id.to_string()).await?;
+    handlers::tag::del(tagger_pubky_id, tag_id.to_string(), None).await?;
 
     // Cleanup
     test.cleanup_post(&author_kp, &post_path).await?;

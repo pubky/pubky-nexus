@@ -10,6 +10,7 @@ mod post_put;
 mod resource_dedup;
 mod resource_del;
 mod resource_internal_known;
+mod resource_multi_app_del;
 mod resource_put;
 mod resource_utils;
 mod retry_post_tag;

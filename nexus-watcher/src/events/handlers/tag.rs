@@ -393,11 +393,20 @@ async fn put_sync_user(
 }
 
 #[tracing::instrument(name = "tag.del", skip_all, fields(user_id = %user_id, tag_id = %tag_id))]
-pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), EventProcessorError> {
+pub async fn del(
+    user_id: PubkyId,
+    tag_id: String,
+    app: Option<String>,
+) -> Result<(), EventProcessorError> {
     debug!("Deleting tag: {} -> {}", user_id, tag_id);
 
-    // 1. Read target from graph WITHOUT deleting the edge
-    let Some(row) = fetch_row_from_graph(queries::get::get_tag_target(&user_id, &tag_id)).await?
+    // 1. Read target from graph WITHOUT deleting the edge.
+    //    Pass `app` so the lookup is scoped to the correct app namespace and
+    //    cannot accidentally match a TAGGED relationship from a different app
+    //    that happens to share the same tag_id.
+    let Some(row) =
+        fetch_row_from_graph(queries::get::get_tag_target(&user_id, &tag_id, app.as_deref()))
+            .await?
     else {
         // Edge already gone (fully completed on a prior attempt) — idempotent no-op
         return Ok(());

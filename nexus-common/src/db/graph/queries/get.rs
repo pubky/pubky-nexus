@@ -128,10 +128,21 @@ pub fn get_post_replies(author_id: &str, post_id: &str) -> Query {
 
 // Read the target details for a tag without deleting the TAGGED edge.
 // Used in tag del to read before graph-last deletion.
-pub fn get_tag_target(user_id: &str, tag_id: &str) -> Query {
-    Query::new(
-        "get_tag_target",
-        "MATCH (user:User {id: $user_id})-[tag:TAGGED {id: $tag_id}]->(target)
+//
+// `app` is used to scope the lookup to a specific app namespace.  When `app`
+// is `Some`, only the TAGGED relationship whose `app` property equals that
+// value is matched.  When `app` is `None`, only relationships whose `app`
+// property is absent (`IS NULL`) are matched — i.e. standard pubky.app tags.
+// This prevents ambiguous results when the same user has TAGGED relationships
+// with the same `tag_id` across different app namespaces.
+pub fn get_tag_target(user_id: &str, tag_id: &str, app: Option<&str>) -> Query {
+    let app_filter = match app {
+        Some(_) => "\n    WHERE tag.app = $app",
+        None => "\n    WHERE tag.app IS NULL",
+    };
+
+    let cypher = format!(
+        "MATCH (user:User {{id: $user_id}})-[tag:TAGGED {{id: $tag_id}}]->(target){app_filter}
          OPTIONAL MATCH (target)<-[:AUTHORED]-(author:User)
          WITH CASE WHEN target:User THEN target.id ELSE null END AS user_id,
               CASE WHEN target:Post THEN target.id ELSE null END AS post_id,
@@ -139,10 +150,18 @@ pub fn get_tag_target(user_id: &str, tag_id: &str) -> Query {
               CASE WHEN target:Resource THEN target.id ELSE null END AS resource_id,
               tag.label AS label,
               tag.app AS app
-         RETURN user_id, post_id, author_id, resource_id, label, app",
-    )
-    .param("user_id", user_id)
-    .param("tag_id", tag_id)
+         RETURN user_id, post_id, author_id, resource_id, label, app"
+    );
+
+    let mut query = Query::new("get_tag_target", &cypher)
+        .param("user_id", user_id)
+        .param("tag_id", tag_id);
+
+    if let Some(a) = app {
+        query = query.param("app", a);
+    }
+
+    query
 }
 
 // Get all the tags/taggers that a post has received (used for edit/delete notifications)
