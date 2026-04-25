@@ -80,7 +80,7 @@ async fn handle_del(info: AppTagInfo) -> Result<(), EventProcessorError> {
 /// - Not a pubky:// URI
 /// - Not a */tags/* path
 /// - App is "pubky.app" (handled by the standard event flow)
-fn try_parse_app_tag_path(uri: &str) -> Option<AppTagInfo> {
+pub fn try_parse_app_tag_path(uri: &str) -> Option<AppTagInfo> {
     // Case-insensitive scheme check per RFC 3986 (safe UTF-8 access)
     let rest = match uri.get(..8) {
         Some(prefix) if prefix.eq_ignore_ascii_case("pubky://") => &uri[8..],
