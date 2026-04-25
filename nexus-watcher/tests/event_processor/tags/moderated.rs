@@ -2,8 +2,8 @@ use super::resource_utils::{compute_resource_id, find_resource_tag};
 use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
-use pubky::{recovery_file, Keypair};
 use pubky::ResourcePath;
+use pubky::{recovery_file, Keypair};
 use pubky_app_specs::traits::HashId;
 use pubky_app_specs::{PubkyAppTag, PubkyAppUser};
 use tokio::fs;
@@ -65,7 +65,8 @@ async fn test_moderated_universal_tag_lifecycle() -> Result<()> {
         created_at: Utc::now().timestamp_millis(),
     };
     let moderation_tag_path = moderation_tag.hs_path();
-    test.put(&moderator_key, &moderation_tag_path, &moderation_tag).await?;
+    test.put(&moderator_key, &moderation_tag_path, &moderation_tag)
+        .await?;
 
     // 6. Confirm the Universal Tag has been deleted
     let tag_after = find_resource_tag(&resource_id, label).await?;
