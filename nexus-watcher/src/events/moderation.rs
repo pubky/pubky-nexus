@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use crate::events::handlers;
+use crate::events::handlers::universal_tag::try_parse_app_tag_path;
 use nexus_common::models::event::EventProcessorError;
 use pubky_app_specs::{ParsedUri, PubkyAppTag, PubkyId, Resource};
 use tracing::info;
@@ -22,7 +23,18 @@ impl Moderation {
         moderator_tag: PubkyAppTag,
         files_path: PathBuf,
     ) -> Result<(), EventProcessorError> {
-        // Parse the embeded URI to extract author_id and post_id using parse_tagged_post_uri
+        // Check if the tagged URI is a universal tag (non-pubky.app tag path such as
+        // pubky://<user_id>/pub/<app>/tags/<tag_id>). These are rejected by ParsedUri::try_from
+        // because it only recognises pubky.app-prefixed paths, so we handle them first.
+        if let Some(info) = try_parse_app_tag_path(moderator_tag.uri.as_str()) {
+            info!(
+                "Moderation tag '{}' detected. Deleting universal tag {}:{}",
+                moderator_tag.label, info.user_id, info.tag_id
+            );
+            return handlers::tag::del(info.user_id, info.tag_id).await;
+        }
+
+        // Parse the embedded URI to extract author_id and post_id using parse_tagged_post_uri
         let parsed_uri = ParsedUri::try_from(moderator_tag.uri.as_str())
             .map_err(EventProcessorError::generic)?;
         let user_id = parsed_uri.user_id;
