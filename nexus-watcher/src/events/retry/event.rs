@@ -80,6 +80,7 @@ impl RetryEvent {
     }
 
     /// Retrieves an event from the JSON index in Redis based on its index
+    #[tracing::instrument(name = "retry.index.get", skip_all)]
     pub async fn get_from_index(index_key: &str) -> RedisResult<Option<Self>> {
         let index = &[RETRY_MANAGER_STATE_INDEX[0], index_key];
         Self::try_from_index_json(index, None).await
@@ -89,6 +90,7 @@ impl RetryEvent {
     ///
     /// Results are returned positionally: element `i` corresponds to `index_keys[i]`,
     /// with `None` for keys whose JSON state is missing (tombstones).
+    #[tracing::instrument(name = "retry.index.get_multiple", skip_all)]
     pub async fn get_multiple_from_index(index_keys: &[&str]) -> RedisResult<Vec<Option<Self>>> {
         let key_parts: Vec<[&str; 2]> = index_keys
             .iter()
