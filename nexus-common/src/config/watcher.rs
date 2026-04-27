@@ -1,3 +1,5 @@
+use crate::models::event::EventProcessorError;
+
 use super::file::ConfigLoader;
 use super::{default_stack, DaemonConfig, StackConfig};
 use async_trait::async_trait;
@@ -78,6 +80,21 @@ impl Default for EventRetryConfig {
             initial_missing_dep_backoff_secs: DEFAULT_INITIAL_MISSING_DEP_BACKOFF_SECS,
             max_missing_dep_backoff_secs: DEFAULT_MAX_MISSING_DEP_BACKOFF_SECS,
         }
+    }
+}
+
+impl EventRetryConfig {
+    /// Returns (initial_backoff, max_backoff) values, in seconds, for the given error
+    pub fn get_backoff_params(&self, error: &EventProcessorError) -> (u64, u64) {
+        let initial = match error.is_missing_dependency() {
+            true => self.initial_missing_dep_backoff_secs,
+            false => self.initial_backoff_secs,
+        };
+        let max = match error.is_missing_dependency() {
+            true => self.max_missing_dep_backoff_secs,
+            false => self.max_backoff_secs,
+        };
+        (initial, max)
     }
 }
 
