@@ -1,5 +1,7 @@
 use crate::db::graph::Query;
+use crate::db::kv::SortOrder;
 use crate::models::post::StreamSource;
+use crate::models::resource::stream::ResourceSorting;
 use crate::types::routes::HotTagsInputDTO;
 use crate::types::Pagination;
 use crate::types::StreamReach;
@@ -90,6 +92,18 @@ pub fn get_post_bookmarks(author_id: &str, post_id: &str) -> Query {
     .param("post_id", post_id)
 }
 
+// Read the target (post_id, author_id) for a bookmark without deleting the edge.
+// Used in sync_del to read before graph-last deletion.
+pub fn get_bookmark_target(user_id: &str, bookmark_id: &str) -> Query {
+    Query::new(
+        "get_bookmark_target",
+        "MATCH (u:User {id: $user_id})-[b:BOOKMARKED {id: $bookmark_id}]->(post:Post)<-[:AUTHORED]-(author:User)
+         RETURN post.id AS post_id, author.id AS author_id",
+    )
+    .param("user_id", user_id)
+    .param("bookmark_id", bookmark_id)
+}
+
 // Get all the reposts that a post has received (used for edit/delete notifications)
 pub fn get_post_reposts(author_id: &str, post_id: &str) -> Query {
     Query::new(
@@ -110,6 +124,25 @@ pub fn get_post_replies(author_id: &str, post_id: &str) -> Query {
     )
     .param("author_id", author_id)
     .param("post_id", post_id)
+}
+
+// Read the target details for a tag without deleting the TAGGED edge.
+// Used in tag del to read before graph-last deletion.
+pub fn get_tag_target(user_id: &str, tag_id: &str) -> Query {
+    Query::new(
+        "get_tag_target",
+        "MATCH (user:User {id: $user_id})-[tag:TAGGED {id: $tag_id}]->(target)
+         OPTIONAL MATCH (target)<-[:AUTHORED]-(author:User)
+         WITH CASE WHEN target:User THEN target.id ELSE null END AS user_id,
+              CASE WHEN target:Post THEN target.id ELSE null END AS post_id,
+              CASE WHEN target:Post THEN author.id ELSE null END AS author_id,
+              CASE WHEN target:Resource THEN target.id ELSE null END AS resource_id,
+              tag.label AS label,
+              tag.app AS app
+         RETURN user_id, post_id, author_id, resource_id, label, app",
+    )
+    .param("user_id", user_id)
+    .param("tag_id", tag_id)
 }
 
 // Get all the tags/taggers that a post has received (used for edit/delete notifications)
@@ -246,6 +279,99 @@ pub fn user_tags(user_id: &str) -> Query {
     ",
     )
     .param("user_id", user_id)
+}
+
+/// Retrieve Resource node details by ID
+pub fn get_resource_by_id(resource_id: &str) -> Query {
+    Query::new(
+        "get_resource_by_id",
+        "
+        MATCH (r:Resource {id: $resource_id})
+        RETURN r.id AS id, r.uri AS uri, r.scheme AS scheme, r.indexed_at AS indexed_at
+    ",
+    )
+    .param("resource_id", resource_id)
+}
+
+/// Retrieve all tags on a Resource node
+pub fn resource_tags(resource_id: &str) -> Query {
+    Query::new(
+        "resource_tags",
+        "
+        OPTIONAL MATCH (r:Resource {id: $resource_id})
+        CALL {
+            WITH r
+            MATCH (tagger:User)-[tag:TAGGED]->(r)
+            WITH tag.label AS name, collect(DISTINCT tagger.id) AS tagger_ids
+            RETURN collect({
+                label: name,
+                taggers: tagger_ids,
+                taggers_count: SIZE(tagger_ids)
+            }) AS tags
+        }
+        RETURN
+            r IS NOT NULL AS exists,
+            tags
+    ",
+    )
+    .param("resource_id", resource_id)
+}
+
+/// Query a stream of Resources with optional app and tag filters.
+/// Falls back to this when Redis sorted sets can't satisfy the query.
+pub fn resource_stream(
+    app: Option<&str>,
+    labels: Option<&[String]>,
+    sorting: &ResourceSorting,
+    order: &SortOrder,
+    skip: usize,
+    limit: usize,
+) -> Query {
+    // Map enums to safe Cypher literals — prevents injection
+    let sorting_field = match sorting {
+        ResourceSorting::Timeline => "r.indexed_at",
+        ResourceSorting::TaggersCount => "taggers_count",
+    };
+    let order_direction = match order {
+        SortOrder::Ascending => "ASC",
+        SortOrder::Descending => "DESC",
+    };
+
+    let mut cypher = String::from("MATCH (tagger:User)-[t:TAGGED]->(r:Resource)\n");
+
+    let mut where_clauses = Vec::new();
+    if app.is_some() {
+        where_clauses.push("t.app = $app");
+    }
+    if labels.is_some() {
+        where_clauses.push("t.label IN $labels");
+    }
+    if !where_clauses.is_empty() {
+        cypher.push_str("WHERE ");
+        cypher.push_str(&where_clauses.join(" AND "));
+        cypher.push('\n');
+    }
+
+    cypher.push_str(&format!(
+        "WITH DISTINCT r, COUNT(DISTINCT tagger) AS taggers_count
+         ORDER BY {sorting_field} {order_direction}
+         SKIP $skip LIMIT $limit
+         RETURN r.id AS resource_id, r.indexed_at AS indexed_at, taggers_count"
+    ));
+
+    let mut query = Query::new("resource_stream", &cypher)
+        .param("skip", skip as i64)
+        .param("limit", limit as i64);
+
+    if let Some(a) = app {
+        query = query.param("app", a);
+    }
+    if let Some(l) = labels {
+        let label_strings: Vec<String> = l.iter().map(|s| s.to_string()).collect();
+        query = query.param("labels", label_strings);
+    }
+
+    query
 }
 
 /// Retrieve a homeserver by ID

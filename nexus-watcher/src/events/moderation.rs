@@ -1,7 +1,9 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use crate::events::handlers;
 use nexus_common::models::event::EventProcessorError;
+use nexus_common::WatcherConfig;
 use pubky_app_specs::{ParsedUri, PubkyAppTag, PubkyId, Resource};
 use tracing::info;
 
@@ -13,6 +15,13 @@ pub struct Moderation {
 }
 
 impl Moderation {
+    pub fn from_config(config: &WatcherConfig) -> Arc<Self> {
+        Arc::new(Self {
+            id: config.moderation_id.clone(),
+            tags: config.moderated_tags.clone(),
+        })
+    }
+
     pub async fn should_delete(&self, tag: &PubkyAppTag, tagger_id: PubkyId) -> bool {
         tagger_id == self.id && self.tags.contains(&tag.label)
     }

@@ -11,9 +11,11 @@ members = [
 
 [workspace.dependencies]
 anyhow = "1.0.102"
+blake3 = "1"
+hex = "0.4"
 async-trait = "0.1.89"
 chrono = { version = "0.4.44", default-features = false, features = ["clock"] }
-clap = "4.6.0"
+clap = "4.6.1"
 deadpool-redis = "0.23"
 neo4rs = "0.8.0"
 redis = "1.0.4"
@@ -26,9 +28,10 @@ serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.149"
 tempfile = "3.25"
 thiserror = "2.0.17"
-tokio = { version = "1.50.0", features = ["full"] }
+tokio = { version = "1.52.1", features = ["full"] }
 tokio-shared-rt = "0.1"
 tracing = "0.1.44"
 tracing-opentelemetry = "0.32.1"
 tracing-test = "0.2"
+url = "2"
 futures = "0.3"

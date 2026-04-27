@@ -3,6 +3,8 @@ mod key_based;
 
 pub use homeserver::HsEventProcessor;
 pub use key_based::KeyBasedEventProcessor;
+use nexus_common::models::event::EventType;
+use nexus_common::models::event::ParseResult;
 use std::{fmt::Display, path::PathBuf, sync::Arc, time::Duration};
 use tracing::Instrument;
 
@@ -10,6 +12,7 @@ use nexus_common::models::event::{Event, EventProcessorError};
 use tracing::{debug, error};
 
 use crate::events::handle;
+use crate::events::retry::event::RetryEvent;
 use crate::events::Moderation;
 use crate::service::PROCESSING_TIMEOUT_SECS;
 
@@ -56,20 +59,23 @@ pub trait TEventProcessor: Send + Sync + 'static {
     fn files_path(&self) -> &PathBuf;
     fn moderation(&self) -> &Arc<Moderation>;
 
+    /// Returns the instance name of the event processor, used in the monitoring and tracing spans.
+    ///
+    /// For instances mapped to a specific HS, this should include the HS ID.
+    fn instance_name(&self) -> String;
+
     async fn run(self: Arc<Self>) -> Result<(), RunError> {
         let timeout = self
             .custom_timeout()
             .unwrap_or(Duration::from_secs(PROCESSING_TIMEOUT_SECS));
 
-        // Extract the class name of this instance
-        let instance_type_name = std::any::type_name::<Self>();
-        // TODO X1: Ensure we are using correct instance name (incl. which HS ID is used in case of HS Runner, etc)
-        let span = tracing::info_span!("event_processor.run", service = %instance_type_name);
+        let instance_name = self.instance_name();
+        let span = tracing::info_span!("event_processor.run", service = %instance_name);
         let handle = tokio::spawn(self.run_internal().instrument(span));
 
         let join_result = tokio::time::timeout(timeout, handle)
             .await
-            .inspect_err(|_| error!("Event processor timed out for {instance_type_name}")) // TODO See X1
+            .inspect_err(|_| error!("Event processor timed out for {instance_name}"))
             .map_err(|_| RunError::TimedOut)?;
 
         // The JoinError can be:
@@ -80,14 +86,11 @@ pub trait TEventProcessor: Send + Sync + 'static {
         // In our model, we don't trigger such interruptions. Instead we use the shutdown signal
         // to gracefully stop the event processing loop. Therefore we consider all JoinErrors as panics.
         let run_internal_result = join_result
-            .inspect_err(|je| {
-                error!("JoinError while running event processor for {instance_type_name}: {je:?}")
-                // TODO See X1
-            })
+            .inspect_err(|je| error!("JoinError by event processor for {instance_name}: {je:?}"))
             .map_err(|_| RunError::Panicked)?;
 
         run_internal_result
-            .inspect_err(|e| error!("Event processor failed for {instance_type_name}: {e:?}")) // TODO See X1
+            .inspect_err(|e| error!("Event processor failed for {instance_name}: {e:?}"))
             .map_err(RunError::Internal)
     }
 
@@ -103,18 +106,55 @@ pub trait TEventProcessor: Send + Sync + 'static {
         None
     }
 
-    /// Parses a single event line, creates a tracing span, and dispatches to [`Self::handle_event`].
+    /// Parses a single event line and dispatches to [`Self::try_handle_universal_tag`] or [`Self::handle_event`].
     async fn process_event_line(&self, line: &str) -> Result<(), EventProcessorError> {
-        let maybe_event = Event::parse_event(line, self.files_path().clone())
-            .inspect_err(|e| error!("{e}"))
-            .unwrap_or(None);
-
-        if let Some(event) = maybe_event {
-            debug!("Processing event: {:?}", event);
-            self.handle_event(&event).await?;
+        match Event::parse_event(line, self.files_path().clone()) {
+            Err(e) => error!("{e}"),
+            Ok(ParseResult::Skipped) => {}
+            Ok(ParseResult::UnrecognizedUri {
+                event_type,
+                uri,
+                reason,
+            }) => {
+                if !self.try_handle_universal_tag(&event_type, &uri).await {
+                    error!("Cannot parse event URI: {reason}");
+                }
+            }
+            Ok(ParseResult::Parsed(event)) => {
+                debug!("Processing event: {:?}", event);
+                self.handle_event(&event).await?;
+            }
         }
 
         Ok(())
+    }
+
+    /// Attempts to handle an unrecognized URI as a universal tag at an app-specific path.
+    /// Returns `true` if the event was claimed (regardless of success/failure).
+    async fn try_handle_universal_tag(&self, event_type: &EventType, uri: &str) -> bool {
+        let result = crate::events::handlers::universal_tag::try_handle(event_type, uri).await;
+
+        let Some(result) = result else {
+            return false;
+        };
+
+        if let Err(e) = result {
+            match e {
+                EventProcessorError::InvalidEventLine(ref msg) => {
+                    error!("Universal tag non-retryable: {msg}");
+                }
+                _ => {
+                    let index_key = format!("{event_type}:{uri}");
+                    let retry_event = RetryEvent::new(e);
+                    error!("{}, {}", retry_event.error_type, index_key);
+                    if let Err(err) = retry_event.put_to_index(index_key).await {
+                        error!("Failed to enqueue universal tag retry: {err}");
+                    }
+                }
+            }
+        }
+
+        true
     }
 
     /// Handles an error of event processing from event processing (e.g. logging, scheduling retries).
@@ -150,7 +190,7 @@ pub trait TEventProcessor: Send + Sync + 'static {
             event.r#type = %event.event_type,
             event.user_id = %event.parsed_uri.user_id,
             event.resource_id = event.parsed_uri.resource.id().unwrap_or_default(),
-            // homeserver = %self.homeserver.id, // TODO Related to X1
+            instance = %self.instance_name(),
             otel.status_code = tracing::field::Empty,
             otel.status_message = tracing::field::Empty,
         )

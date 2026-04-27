@@ -45,10 +45,7 @@ impl KeyBasedEventProcessorRunner {
             limit,
             monitored_hs_limit: config.monitored_homeservers_limit,
             files_path: config.stack.files_path.clone(),
-            moderation: Arc::new(Moderation {
-                id: config.moderation_id.clone(),
-                tags: config.moderated_tags.clone(),
-            }),
+            moderation: Moderation::from_config(config),
             shutdown_rx,
             default_homeserver: config.homeserver.clone(),
             backoff: Mutex::new(HomeserverBackoff::new(

@@ -17,7 +17,6 @@ use crate::service::user_hs_resolver;
 /// Event processor for non-default HSs, where the user-specific `/events-stream` endpoint is used
 pub struct KeyBasedEventProcessor {
     /// The HS endpoint this processor fetches events from
-    /// TODO Used in X1 (see mod.rs)
     pub homeserver: Homeserver,
 
     /// Max events the homeserver will send before closing the stream.
@@ -36,6 +35,10 @@ impl TEventProcessor for KeyBasedEventProcessor {
 
     fn moderation(&self) -> &Arc<Moderation> {
         &self.moderation
+    }
+
+    fn instance_name(&self) -> String {
+        format!("KeyBasedEventProcessor with HS ID: {}", self.homeserver.id)
     }
 
     async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {

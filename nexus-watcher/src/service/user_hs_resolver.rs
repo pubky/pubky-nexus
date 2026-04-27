@@ -7,10 +7,14 @@ use nexus_common::db::{
     exec_single_row, fetch_key_from_graph, queries, GraphResult, PubkyConnector,
 };
 use nexus_common::types::DynError;
-
+use opentelemetry::global;
+use opentelemetry::metrics::Histogram;
 use pubky::PublicKey;
 use pubky_app_specs::PubkyId;
-use tracing::{debug, warn};
+use std::sync::LazyLock;
+use tracing::{debug, error, warn};
+
+static HS_RESOLVER_METRICS: LazyLock<HsResolverMetrics> = LazyLock::new(HsResolverMetrics::new);
 
 /// Main entry point for one cycle of the periodic task.
 ///
@@ -20,17 +24,85 @@ pub async fn run(ttl_ms: u64) -> Result<(), DynError> {
     let user_ids = get_users_needing_resolution(ttl_ms).await?;
     if user_ids.is_empty() {
         debug!("No users need homeserver resolution");
+        HS_RESOLVER_METRICS.run_total.record(0, &[]);
+        HS_RESOLVER_METRICS.run_failed.record(0, &[]);
         return Ok(());
     }
-    debug!("Resolving homeservers for {} users", user_ids.len());
 
-    for user_id in &user_ids {
-        if let Err(e) = resolve_user(user_id).await {
-            warn!("Failed to resolve homeserver for user {user_id}: {e}");
+    // Convert user_ids to user_pks
+    let user_pks: Vec<PublicKey> = user_ids
+        .iter()
+        .filter_map(|user_id| {
+            // For the user_ids that fail to convert, we log an error message and skip them
+            user_id
+                .parse::<PublicKey>()
+                .map_err(|e| error!("Failed to parse user_id {user_id}: {e}"))
+                .ok()
+        })
+        .collect();
+
+    let attempted = user_pks.len() as u64;
+    debug!("Resolving homeservers for {} users", attempted);
+
+    let mut failed = 0u64;
+
+    // As of pubky 0.7.0 parallel resolution is possible but unreliable. This was tried:
+    // - with the singleton Pubky client (up to 10% unresolved nodes with 10 req. in parallel)
+    // - with a relay-only Pubky client (up to 95% unresolved nodes with 10 req. in parallel)
+    // "unresolved nodes" = no HS was found using `get_homeserver_of(&user_pk)` for users with a known HS.
+    //
+    // The most reliable method remains sequential querying.
+    //
+    // To minimize the chance that User PKs are too close to each other and therefore might hit
+    // the same DHT node, which can cause that node to interpret this as spammy requests and therefore
+    // fail / refuse to resolve some of the queries, we order the User PKs such that every new query lands
+    // as far as possible from all previous queries in the PK keyspace.
+    //
+    // To achieve this, we use bisection ordering.
+    for user_pk in bisection_order_user_pks(user_pks) {
+        if let Err(e) = resolve_user(&user_pk).await {
+            failed += 1;
+            warn!("Failed to resolve HS for user {}: {e}", user_pk.z32());
         }
     }
 
+    HS_RESOLVER_METRICS.run_total.record(attempted, &[]);
+    HS_RESOLVER_METRICS.run_failed.record(failed, &[]);
+
     Ok(())
+}
+
+// Bisection ordering sorts the User PKs such that every new PK is as far as possible from all
+// previously queried PKs in the keyspace.
+//
+// The algorithm:
+//   1. Sort all PKs lexicographically.
+//   2. Reorder via BFS over the implicit binary-search-tree layout of the sorted array:
+//      emit the midpoint of each interval, then recurse into left and right halves.
+//
+// For a sorted array [K0..=K7] this produces [K4, K2, K6, K1, K3, K5, K7, K0], ensuring
+// each successive query lands as far as possible from all previous ones in the keyspace.
+fn bisection_order_user_pks(unsorted_pks: Vec<PublicKey>) -> Vec<PublicKey> {
+    let mut sorted_pks = unsorted_pks;
+    sorted_pks.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+
+    let n = sorted_pks.len();
+    let mut bisection_result = Vec::with_capacity(n);
+    // Each entry is a half-open interval [lo, hi) of the sorted slice to process.
+    let mut queue = std::collections::VecDeque::new();
+    if n > 0 {
+        queue.push_back((0usize, n));
+    }
+    while let Some((lo, hi)) = queue.pop_front() {
+        if lo >= hi {
+            continue;
+        }
+        let mid = lo + (hi - lo) / 2;
+        bisection_result.push(sorted_pks[mid].clone());
+        queue.push_back((lo, mid));
+        queue.push_back((mid + 1, hi));
+    }
+    bisection_result
 }
 
 /// Fetches user IDs whose homeserver mapping is stale or missing.
@@ -44,20 +116,25 @@ async fn get_users_needing_resolution(ttl_ms: u64) -> GraphResult<Vec<String>> {
 }
 
 /// Resolves a single user's homeserver and persists the HOSTED_BY relationship.
-async fn resolve_user(user_id: &str) -> Result<(), DynError> {
+async fn resolve_user(user_pk: &PublicKey) -> Result<(), DynError> {
     let pubky = PubkyConnector::get()?;
 
-    let user_pk = user_id.parse::<PublicKey>()?;
-    let Some(hs_pk) = pubky.get_homeserver_of(&user_pk).await else {
-        return Err(format!("User {user_id} has no published homeserver").into());
+    let user_id = user_pk.z32();
+    let Some(hs_pk) = pubky.get_homeserver_of(user_pk).await else {
+        // No PKDNS record: remove stale HOSTED_BY edge
+        let query = queries::del::remove_user_homeserver(&user_id);
+        exec_single_row(query).await?;
+
+        debug!("User {user_id} has no published homeserver, removed HOSTED_BY");
+        return Ok(());
     };
 
     let hs_id = PubkyId::try_from(&hs_pk.into_inner().to_z32())?;
 
-    let query = queries::put::set_user_homeserver(user_id, &hs_id);
+    let query = queries::put::set_user_homeserver(&user_id, &hs_id);
     exec_single_row(query).await?;
 
-    debug!("User {user_id} -> homeserver {hs_id}");
+    debug!("User {user_id} -> HS {hs_id}");
     Ok(())
 }
 
@@ -68,6 +145,28 @@ pub async fn get_user_ids_by_homeserver(hs_id: &str) -> GraphResult<Vec<String>>
     Ok(maybe_user_ids.unwrap_or_default())
 }
 
+struct HsResolverMetrics {
+    run_total: Histogram<u64>,
+    run_failed: Histogram<u64>,
+}
+
+impl HsResolverMetrics {
+    fn new() -> Self {
+        let meter = global::meter("hs-resolver-meter");
+
+        Self {
+            run_total: meter
+                .u64_histogram("nexus.task.hs-resolver.total")
+                .with_description("Number of attempted HS resolutions in each resolver run")
+                .build(),
+            run_failed: meter
+                .u64_histogram("nexus.task.hs-resolver.failed")
+                .with_description("Number of failed HS resolutions in each resolver run")
+                .build(),
+        }
+    }
+}
+
 // TODO Move tests to separate module? (switch to WatcherTest::setup())
 #[cfg(test)]
 mod tests {
@@ -76,6 +175,7 @@ mod tests {
     use nexus_common::db::graph::Query;
     use nexus_common::types::DynError;
     use nexus_common::{StackConfig, StackManager};
+    use pubky::Keypair;
 
     async fn setup() -> Result<(), DynError> {
         StackManager::setup(&StackConfig::default()).await
@@ -237,6 +337,77 @@ mod tests {
         cleanup_test_user(user_a).await?;
         cleanup_test_user(user_b).await?;
         cleanup_test_user(user_c).await?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_bisection_order() {
+        // Empty and single-element edge cases.
+        assert!(bisection_order_user_pks(vec![]).is_empty());
+        let lone = Keypair::random().public_key();
+        let result = bisection_order_user_pks(vec![lone.clone()]);
+        assert_eq!(result[0].as_bytes(), lone.as_bytes());
+
+        // For 8 keys, verify the full BFS-bisection permutation.
+        // Sort first to establish the ground-truth lexicographic order.
+        let mut sorted: Vec<PublicKey> = (0..8).map(|_| Keypair::random().public_key()).collect();
+        sorted.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+
+        // BFS over a sorted array of 8 elements (half-open intervals) emits:
+        //   (0,8)→4, (0,4)→2, (5,8)→6, (0,2)→1, (3,4)→3, (5,6)→5, (7,8)→7, (0,1)→0
+        let expected_indices: [usize; 8] = [4, 2, 6, 1, 3, 5, 7, 0];
+
+        let result = bisection_order_user_pks(sorted.clone());
+        assert_eq!(result.len(), 8);
+        for (pos, &idx) in expected_indices.iter().enumerate() {
+            assert_eq!(
+                result[pos].as_bytes(),
+                sorted[idx].as_bytes(),
+                "position {pos}: expected sorted[{idx}]"
+            );
+        }
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn test_remove_user_homeserver() -> Result<(), DynError> {
+        setup().await?;
+
+        let user_id = "remove_hosted_by_test_user";
+        let hs_id = "remove_hosted_by_test_hs";
+
+        create_test_user(user_id).await?;
+
+        // Assign a homeserver
+        exec_single_row(queries::put::set_user_homeserver(user_id, hs_id)).await?;
+        let users = get_user_ids_by_homeserver(hs_id).await?;
+        assert!(
+            users.contains(&user_id.to_string()),
+            "user should be hosted"
+        );
+
+        // Remove the HOSTED_BY edge
+        exec_single_row(queries::del::remove_user_homeserver(user_id)).await?;
+
+        // User is no longer listed on that homeserver
+        let users = get_user_ids_by_homeserver(hs_id).await?;
+        assert!(
+            !users.contains(&user_id.to_string()),
+            "user should no longer be hosted after removal"
+        );
+
+        // User now needs resolution again (no HOSTED_BY edge)
+        let needing = get_users_needing_resolution(3_600_000).await?;
+        assert!(
+            needing.contains(&user_id.to_string()),
+            "user without HOSTED_BY should need resolution"
+        );
+
+        // Removing again is a no-op (no error)
+        exec_single_row(queries::del::remove_user_homeserver(user_id)).await?;
+
+        // Cleanup
+        cleanup_test_user(user_id).await?;
 
         Ok(())
     }
