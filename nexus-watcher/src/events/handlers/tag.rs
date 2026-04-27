@@ -3,7 +3,9 @@ use crate::events::EventProcessorError;
 
 use chrono::Utc;
 use nexus_common::db::kv::{RedisResult, ScoreAction};
-use nexus_common::db::{fetch_row_from_graph, queries, OperationOutcome, RedisOps};
+use nexus_common::db::{
+    fetch_key_from_graph, fetch_row_from_graph, queries, OperationOutcome, RedisOps,
+};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::notification::Notification;
 use nexus_common::models::post::search::PostsByTagSearch;
@@ -448,7 +450,7 @@ pub async fn del(
             .await?;
         }
         (None, None, None, Some(res_id)) => {
-            del_sync_resource(user_id.clone(), &res_id, &label, app.as_deref()).await?;
+            del_sync_resource(user_id.clone(), &tag_id, &res_id, &label, app.as_deref()).await?;
         }
         _ => {
             debug!("DEL-Tag: Unexpected combination of tag details");
@@ -630,17 +632,35 @@ async fn del_sync_post(
 /// Timeline entries are only removed when taggers count reaches zero.
 async fn del_sync_resource(
     tagger_id: PubkyId,
+    tag_id: &str,
     resource_id: &str,
     tag_label: &str,
     app: Option<&str>,
 ) -> Result<(), EventProcessorError> {
+    // This must happen before Redis cleanup because graph deletion intentionally
+    // runs last to preserve retry safety if a Redis operation fails.
+    let has_other_tag = fetch_key_from_graph(
+        queries::get::has_other_resource_tag_by_label(
+            tagger_id.as_str(),
+            resource_id,
+            tag_label,
+            tag_id,
+            app,
+        ),
+        "has_other_tag",
+    )
+    .await?
+    .unwrap_or(false);
+
     // Step 1: Decrement scores and remove tagger from sets
     let score_results = tokio::join!(
         TagResource::update_index_score(resource_id, None, tag_label, ScoreAction::Decrement(1.0)),
         async {
-            TagResource(vec![tagger_id.to_string()])
-                .del_from_index(resource_id, None, tag_label)
-                .await?;
+            if !has_other_tag {
+                TagResource(vec![tagger_id.to_string()])
+                    .del_from_index(resource_id, None, tag_label)
+                    .await?;
+            }
             Ok::<(), EventProcessorError>(())
         },
         ResourceStream::update_global_taggers_count(resource_id, ScoreAction::Decrement(1.0)),
