@@ -10,6 +10,8 @@ pub struct Moderation {
     pub id: PubkyId,
     /// Tags to be moderated (tagged content is deleted)
     pub tags: Vec<String>,
+
+    pub files_path: PathBuf,
 }
 
 impl Moderation {
@@ -19,8 +21,8 @@ impl Moderation {
 
     #[tracing::instrument(name = "moderation.apply", skip_all)]
     pub async fn apply_moderation(
+        &self,
         moderator_tag: PubkyAppTag,
-        files_path: PathBuf,
     ) -> Result<(), EventProcessorError> {
         // Parse the embeded URI to extract author_id and post_id using parse_tagged_post_uri
         let parsed_uri = ParsedUri::try_from(moderator_tag.uri.as_str())
@@ -58,7 +60,7 @@ impl Moderation {
                     "Moderation tag '{}' detected. Deleting file {}:{}",
                     moderator_tag.label, user_id, file_id
                 );
-                handlers::file::del(&user_id, file_id, files_path).await
+                handlers::file::del(&user_id, file_id, self.files_path.clone()).await
             }
             _ => Ok(()),
         }

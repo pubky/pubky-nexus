@@ -2,7 +2,6 @@ use anyhow::{anyhow, Error, Result};
 use base32::{encode, Alphabet};
 use chrono::Utc;
 use nexus_common::db::PubkyConnector;
-use nexus_common::get_files_dir_pathbuf;
 use nexus_common::get_files_dir_test_pathbuf;
 use nexus_common::models::event::{Event, EventProcessorError, ParseResult};
 use nexus_common::models::file::FileDetails;
@@ -105,7 +104,7 @@ impl WatcherTest {
     /// Returns an instance of `Self` containing the configuration, homeserver,
     /// event processor, and other test setup details, including the shutdown receiver.
     pub async fn setup() -> Result<Self> {
-        if let Err(e) = StackManager::setup(&StackConfig::default()).await {
+        if let Err(e) = StackManager::setup(&StackConfig::test_default()).await {
             return Err(Error::msg(format!("could not initialise the stack, {e:?}")));
         }
 
@@ -347,7 +346,7 @@ pub async fn retrieve_and_handle_event_line(
     event_line: &str,
     moderation: Arc<Moderation>,
 ) -> Result<(), EventProcessorError> {
-    match Event::parse_event(event_line, get_files_dir_pathbuf())? {
+    match Event::parse_event(event_line)? {
         ParseResult::Parsed(event) => handle(&event, moderation).await,
         ParseResult::Skipped => Ok(()),
 
