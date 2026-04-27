@@ -16,7 +16,6 @@ pub(crate) use task_runner::{run_periodic_tasks, PeriodicTask};
 const RETRY_PROCESSOR_SLEEP: u64 = 10_000;
 
 use crate::events::retry::RetryProcessor;
-
 use crate::service::task_runner::task_results_into_result;
 use crate::NexusWatcherBuilder;
 use nexus_common::file::ConfigLoader;
@@ -24,7 +23,6 @@ use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
 use nexus_common::utils::create_shutdown_rx;
 use nexus_common::{DaemonConfig, WatcherConfig};
-use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
@@ -90,8 +88,7 @@ impl NexusWatcher {
     pub async fn start(shutdown_rx: Receiver<bool>, config: WatcherConfig) -> Result<(), DynError> {
         debug!(?config, "Running NexusWatcher with ");
 
-        let config_hs = PubkyId::try_from(config.homeserver.as_str())?;
-        Homeserver::persist_if_unknown(config_hs).await?;
+        Homeserver::persist_if_unknown(config.homeserver.clone()).await?;
 
         let watcher_sleep = config.watcher_sleep;
         let hs_resolver_sleep = config.hs_resolver_sleep;
