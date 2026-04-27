@@ -8,7 +8,7 @@ use nexus_common::models::tag::traits::TagCollection;
 use pubky::Keypair;
 use pubky::ResourcePath;
 use pubky_app_specs::traits::HashId;
-use pubky_app_specs::{PubkyAppTag, PubkyAppUser};
+use pubky_app_specs::{PubkyAppTag, PubkyAppUser, PubkyId};
 
 /// Test: same label across different app namespaces — deletion of each tag is
 /// correctly scoped to its own app namespace.
@@ -32,6 +32,7 @@ async fn test_universal_tag_del_scoped_to_app_namespace() -> Result<()> {
 
     // ── Users ────────────────────────────────────────────────────────────────
     let tagger_kp = Keypair::random();
+    let tagger_id = PubkyId::from(tagger_kp.public_key());
     let tagger_user = PubkyAppUser {
         bio: Some("test_universal_tag_del_scoped".to_string()),
         image: None,
@@ -135,6 +136,19 @@ async fn test_universal_tag_del_scoped_to_app_namespace() -> Result<()> {
     assert!(
         user_tag_after_mapky.is_some(),
         "pubky.app user tag must NOT be affected by mapky delete"
+    );
+
+    // Resource-level Redis index should still expose the remaining app tag.
+    let cache_tags_after_mapky =
+        TagResource::get_from_index(&resource_id, None, None, None, None, None, false).await?;
+    let remaining_cache_tag = cache_tags_after_mapky
+        .as_deref()
+        .and_then(|tags| tags.iter().find(|tag| tag.label == label));
+    assert!(
+        remaining_cache_tag.is_some_and(|tag| {
+            tag.taggers_count == 1 && tag.taggers.iter().any(|id| id == tagger_id.as_str())
+        }),
+        "TagResource cache should keep the remaining app tag after mapky delete"
     );
 
     // ── Step 2: Delete the eventky.app tag ──────────────────────────────────
