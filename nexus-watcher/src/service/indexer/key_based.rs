@@ -1,19 +1,40 @@
 use std::path::PathBuf;
-use std::sync::Arc;
-
-use futures::StreamExt;
-use nexus_common::db::{PubkyConnector, RedisOps};
-use nexus_common::models::event::{Event, EventProcessorError};
-use nexus_common::models::homeserver::Homeserver;
-use nexus_common::models::user::{user_hs_cursor_key, UserDetails};
-use pubky::{EventCursor, PublicKey};
-use tokio::sync::watch::Receiver;
-use tracing::{debug, error, info};
+use std::sync::{Arc, LazyLock};
 
 use super::TEventProcessor;
 use crate::events::retry::RetryScheduler;
 use crate::events::EventHandler;
 use crate::service::user_hs_resolver;
+use futures::StreamExt;
+use nexus_common::db::{PubkyConnector, RedisOps};
+use nexus_common::models::event::{Event, EventProcessorError, UserIdMismatch};
+use nexus_common::models::homeserver::Homeserver;
+use nexus_common::models::user::{user_hs_cursor_key, UserDetails};
+use opentelemetry::metrics::Counter;
+use opentelemetry::{global, KeyValue};
+use pubky::{EventCursor, PublicKey};
+use pubky_app_specs::PubkyId;
+use tokio::sync::watch::Receiver;
+use tracing::{debug, error, info};
+
+static METRICS: LazyLock<Metrics> = LazyLock::new(Metrics::new);
+
+struct Metrics {
+    user_id_mismatch_counter: Counter<u64>,
+}
+
+impl Metrics {
+    pub fn new() -> Self {
+        let meter = global::meter("key-based-event-processor");
+        let user_id_mismatch_counter = meter
+            .u64_counter("nexus.event-processor.user-id-mismatch")
+            .with_description("Number of UserIdMismatch errors per homeserver")
+            .build();
+        Self {
+            user_id_mismatch_counter,
+        }
+    }
+}
 
 /// Event processor for non-default HSs, where the user-specific `/events-stream` endpoint is used
 pub struct KeyBasedEventProcessor {
@@ -77,24 +98,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
 
             if let Err(err) = self.process_user(&hs_pk, &hs_id, user_pk, *cursor).await {
                 let user_id = user_pk.z32();
-                if err.is_infrastructure() {
-                    error!(
-                        hs_id = %hs_id,
-                        user = %user_id,
-                        action = "abort_hs",
-                        error = ?err,
-                        "Infrastructure error while processing user; aborting homeserver run",
-                    );
-                    return Err(err);
-                }
-
-                error!(
-                    hs_id = %hs_id,
-                    user = %user_id,
-                    action = "skip_user",
-                    error = ?err,
-                    "Non-infrastructure user error; continuing with next user",
-                );
+                self.handle_process_user_error(&hs_id, &user_id, err)?
             }
         }
 
@@ -150,7 +154,7 @@ impl KeyBasedEventProcessor {
             .await
             .inspect_err(|e| error!("Failed to subscribe to event stream: {e:?}"))?;
 
-        let user_id = user_pk.z32();
+        let user_id: PubkyId = user_pk.clone().into();
         let mut latest_cursor: Option<u64> = None;
 
         let result: Result<(), EventProcessorError> = async {
@@ -165,7 +169,15 @@ impl KeyBasedEventProcessor {
 
                 match Event::from_stream_event(&stream_event, self.files_path.clone()) {
                     Ok(Some(event)) => {
-                        self.handle_event(&event).await?;
+                        if event.parsed_uri.user_id == user_id  {
+                            self.handle_event(&event).await?;
+                        } else {
+                            return Err(EventProcessorError::UserIdMismatch(UserIdMismatch {
+                                hs_id: hs_id.to_owned(),
+                                expected_user_id: user_id.to_string(),
+                                received_user_id: event.parsed_uri.user_id.to_string()
+                            }));
+                        }
                     }
                     Ok(None) => { /* resource not handled by Nexus, skip */ }
                     Err(e) => {
@@ -178,9 +190,10 @@ impl KeyBasedEventProcessor {
                     }
                 }
 
-                // Always move forward after a skip or success so one bad
-                // event can't block the stream. If handle_event fails with
-                // a infrastructure error, that event will be retried next run.
+                // Move forward on parse skips and handler successes. UserIdMismatch
+                // returns earlier and intentionally does NOT advance the cursor —
+                // the same event will be re-rejected on the next run until the HS
+                // stops forging.
                 latest_cursor = Some(cursor_id);
             }
             Ok(())
@@ -202,6 +215,38 @@ impl KeyBasedEventProcessor {
         }
 
         result
+    }
+
+    fn handle_process_user_error(
+        &self,
+        hs_id: &str,
+        user_id: &str,
+        err: EventProcessorError,
+    ) -> Result<(), EventProcessorError> {
+        if err.is_infrastructure() {
+            error!(
+                hs_id = %hs_id,
+                user = %user_id,
+                action = "abort_hs",
+                error = ?err,
+                "Infrastructure error while processing user; aborting homeserver run",
+            );
+            return Err(err);
+        }
+        // in case of user id mismatch processor should continue processing remaining users, we only increment metric
+        if matches!(err, EventProcessorError::UserIdMismatch(_)) {
+            METRICS
+                .user_id_mismatch_counter
+                .add(1, &[KeyValue::new("hs_id", hs_id.to_owned())]);
+        }
+        error!(
+            hs_id = %hs_id,
+            user = %user_id,
+            action = "skip_user",
+            error = ?err,
+            "Non-infrastructure user error; continuing with next user",
+        );
+        Ok(())
     }
 
     /// Reads the per-user event cursor from the `USER_HS_CURSOR` sorted set in Redis.
