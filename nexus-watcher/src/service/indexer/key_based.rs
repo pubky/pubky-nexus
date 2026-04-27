@@ -169,13 +169,13 @@ impl KeyBasedEventProcessor {
 
                 match Event::from_stream_event(&stream_event, self.files_path.clone()) {
                     Ok(Some(event)) => {
-                        if event.parsed_uri.user_id == user_id  {
+                        if event.parsed_uri.user_id() == &user_id  {
                             self.handle_event(&event).await?;
                         } else {
                             return Err(EventProcessorError::UserIdMismatch(UserIdMismatch {
                                 hs_id: hs_id.to_owned(),
                                 expected_user_id: user_id.to_string(),
-                                received_user_id: event.parsed_uri.user_id.to_string()
+                                received_user_id: event.parsed_uri.user_id().to_string()
                             }));
                         }
                     }
