@@ -126,15 +126,15 @@ pub fn get_post_replies(author_id: &str, post_id: &str) -> Query {
     .param("post_id", post_id)
 }
 
-// Read the target details for a tag without deleting the TAGGED edge.
-// Used in tag del to read before graph-last deletion.
-//
-// `app` is used to scope the lookup to a specific app namespace.  When `app`
-// is `Some`, only the TAGGED relationship whose `app` property equals that
-// value is matched.  When `app` is `None`, only relationships whose `app`
-// property is absent (`IS NULL`) are matched — i.e. standard pubky.app tags.
-// This prevents ambiguous results when the same user has TAGGED relationships
-// with the same `tag_id` across different app namespaces.
+/// Read the target details for a tag without deleting the TAGGED edge.
+/// Used in tag del to read before graph-last deletion.
+///
+/// `app` is used to scope the lookup to a specific app namespace.  When `app`
+/// is `Some`, only the TAGGED relationship whose `app` property equals that
+/// value is matched.  When `app` is `None`, only relationships whose `app`
+/// property is absent (`IS NULL`) are matched — i.e. standard pubky.app tags.
+/// This prevents ambiguous results when the same user has TAGGED relationships
+/// with the same `tag_id` across different app namespaces.
 pub fn get_tag_target(user_id: &str, tag_id: &str, app: Option<&str>) -> Query {
     let app_filter = match app {
         Some(_) => "\n    WHERE tag.app = $app",
@@ -447,7 +447,7 @@ pub fn get_viewer_trusted_network_tags(user_id: &str, viewer_id: &str, depth: u8
         }}
         MATCH (tagger)-[tag:TAGGED]->(tagged)
         WITH tag.label AS label, collect(tagger.id) AS taggerIds
-        RETURN 
+        RETURN
             taggerIds IS NOT NULL AS exists,
             collect({{
                 label: label,
@@ -507,9 +507,9 @@ pub fn user_counts(user_id: &str) -> Query {
 
 pub fn get_user_followers(user_id: &str, skip: Option<usize>, limit: Option<usize>) -> Query {
     let mut query_string = String::from(
-        "MATCH (u:User {id: $user_id}) 
+        "MATCH (u:User {id: $user_id})
          OPTIONAL MATCH (u)<-[:FOLLOWS]-(follower:User)
-         RETURN COUNT(u) > 0 AS user_exists, 
+         RETURN COUNT(u) > 0 AS user_exists,
                 COLLECT(follower.id) AS follower_ids",
     );
     if let Some(skip_value) = skip {
@@ -523,9 +523,9 @@ pub fn get_user_followers(user_id: &str, skip: Option<usize>, limit: Option<usiz
 
 pub fn get_user_following(user_id: &str, skip: Option<usize>, limit: Option<usize>) -> Query {
     let mut query_string = String::from(
-        "MATCH (u:User {id: $user_id}) 
+        "MATCH (u:User {id: $user_id})
          OPTIONAL MATCH (u)-[:FOLLOWS]->(following:User)
-         RETURN COUNT(u) > 0 AS user_exists, 
+         RETURN COUNT(u) > 0 AS user_exists,
                 COLLECT(following.id) AS following_ids",
     );
     if let Some(skip_value) = skip {
@@ -884,13 +884,13 @@ pub fn post_stream(
             cypher.push_str(
                 "
                 // Count tags
-                OPTIONAL MATCH (p)<-[tag:TAGGED]-(:User)  
+                OPTIONAL MATCH (p)<-[tag:TAGGED]-(:User)
                 // Count replies
                 OPTIONAL MATCH (p)<-[reply:REPLIED]-(:Post)
                 // Count reposts
                 OPTIONAL MATCH (p)<-[repost:REPOSTED]-(:Post)
 
-                WITH p, author, 
+                WITH p, author,
                     COUNT(DISTINCT tag) AS tags_count,
                     COUNT(DISTINCT reply) AS replies_count,
                     COUNT(DISTINCT repost) AS reposts_count,

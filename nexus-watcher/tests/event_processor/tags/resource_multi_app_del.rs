@@ -1,3 +1,15 @@
+use super::resource_utils::{compute_resource_id, count_resource_tags, find_resource_tag_by_app};
+use super::utils::find_user_tag;
+use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
+use anyhow::Result;
+use chrono::Utc;
+use nexus_common::models::resource::tag::TagResource;
+use nexus_common::models::tag::traits::TagCollection;
+use pubky::Keypair;
+use pubky::ResourcePath;
+use pubky_app_specs::traits::HashId;
+use pubky_app_specs::{PubkyAppTag, PubkyAppUser};
+
 /// Test: same label across different app namespaces — deletion of each tag is
 /// correctly scoped to its own app namespace.
 ///
@@ -14,18 +26,6 @@
 ///
 /// The test verifies that deleting each tag removes only that tag and leaves
 /// the remaining two untouched.
-use super::resource_utils::{compute_resource_id, count_resource_tags, find_resource_tag_by_app};
-use super::utils::find_user_tag;
-use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
-use anyhow::Result;
-use chrono::Utc;
-use nexus_common::models::resource::tag::TagResource;
-use nexus_common::models::tag::traits::TagCollection;
-use pubky::Keypair;
-use pubky::ResourcePath;
-use pubky_app_specs::traits::HashId;
-use pubky_app_specs::{PubkyAppTag, PubkyAppUser};
-
 #[tokio_shared_rt::test(shared)]
 async fn test_universal_tag_del_scoped_to_app_namespace() -> Result<()> {
     let mut test = WatcherTest::setup().await?;
