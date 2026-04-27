@@ -1,9 +1,4 @@
-use nexus_common::db::PubkyConnector;
-use nexus_common::models::event::{EventProcessorError, EventType};
-use pubky_app_specs::{PubkyAppTag, PubkyId};
-use tracing::debug;
-
-use super::tag;
+use pubky_app_specs::PubkyId;
 
 /// Info extracted from a universal tag path: `pubky://<user_id>/pub/<app>/tags/<tag_id>`
 pub struct AppTagInfo {
@@ -13,66 +8,6 @@ pub struct AppTagInfo {
     pub uri: String,
 }
 
-/// Second-chance handler for possible universal-tag events.
-///
-/// Called when `Event::parse_event()` returns `UnrecognizedUri`.
-///
-/// Returns `None` if the URI isn't an app-specific tag path.
-/// Returns `Some(Ok(()))` on success or `Some(Err(...))` on processing failure.
-pub async fn try_handle(
-    event_type: &EventType,
-    uri: &str,
-) -> Option<Result<(), EventProcessorError>> {
-    let info = try_parse_app_tag_path(uri)?;
-
-    debug!(
-        "Universal tag event: {} {} (app={})",
-        event_type, info.uri, info.app
-    );
-
-    Some(match event_type {
-        EventType::Put => handle_put(info).await,
-        EventType::Del => handle_del(info).await,
-    })
-}
-
-async fn handle_put(info: AppTagInfo) -> Result<(), EventProcessorError> {
-    // Fetch the tag blob from the homeserver
-    let pubky = PubkyConnector::get()?;
-    let response = pubky.public_storage().get(&info.uri).await?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response
-            .text()
-            .await
-            .unwrap_or_else(|_| "<unable to read body>".to_string());
-        return Err(EventProcessorError::client_error(format!(
-            "Fetch universal tag failed {}: HTTP {status} - {body}",
-            info.uri
-        )));
-    }
-
-    let blob = response
-        .bytes()
-        .await
-        .map_err(|e| EventProcessorError::client_error(e.to_string()))?;
-
-    // Deserialize as PubkyAppTag — if it's not a valid tag, this fails cleanly
-    let app_tag: PubkyAppTag = serde_json::from_slice(&blob).map_err(|e| {
-        EventProcessorError::generic(format!(
-            "Failed to deserialize universal tag at {}: {e}",
-            info.uri
-        ))
-    })?;
-
-    tag::sync_put_resource(app_tag, info.user_id, info.tag_id, info.app).await
-}
-
-async fn handle_del(info: AppTagInfo) -> Result<(), EventProcessorError> {
-    tag::del(info.user_id, info.tag_id).await
-}
-
 /// Try to parse a URI as an app-specific tag path.
 ///
 /// Matches: `pubky://<user_id>/pub/<app>/tags/<tag_id>`
@@ -80,30 +15,25 @@ async fn handle_del(info: AppTagInfo) -> Result<(), EventProcessorError> {
 /// - Not a pubky:// URI
 /// - Not a */tags/* path
 /// - App is "pubky.app" (handled by the standard event flow)
-fn try_parse_app_tag_path(uri: &str) -> Option<AppTagInfo> {
+/// - App or tag_id contains slashes (invalid segments)
+pub fn try_parse_app_tag_path(uri: &str) -> Option<AppTagInfo> {
     // Case-insensitive scheme check per RFC 3986 (safe UTF-8 access)
-    let rest = match uri.get(..8) {
-        Some(prefix) if prefix.eq_ignore_ascii_case("pubky://") => &uri[8..],
-        _ => return None,
-    };
+    let rest = to_ascii_lower_prefix(uri, "pubky://")?;
 
     // Split: <user_id>/pub/<app>/tags/<tag_id>
-    let slash_pos = rest.find('/')?;
-    let user_id_str = &rest[..slash_pos];
-    let path = &rest[slash_pos..]; // starts with /
-
-    // Expected: /pub/<app>/tags/<tag_id>
-    let path = path.strip_prefix("/pub/")?;
+    let (user_id_str, rest) = rest.split_once('/')?;
+    let rest = rest.strip_prefix("pub/")?;
 
     // Split on /tags/
-    let tags_pos = path.find("/tags/")?;
-    let app = &path[..tags_pos];
-    let tag_id = &path[tags_pos + 6..]; // skip "/tags/"
+    let (app, tag_id) = rest.split_once("/tags/")?;
 
     // Skip if app is pubky.app — those go through the standard flow
     if app == "pubky.app" {
         return None;
     }
+
+    // Strip query string (?...) or fragment (#...) from tag_id
+    let tag_id = tag_id.find(['?', '#']).map_or(tag_id, |pos| &tag_id[..pos]);
 
     // Validate: app must be a single path segment, tag_id must not contain slashes
     if app.is_empty() || app.contains('/') || tag_id.is_empty() || tag_id.contains('/') {
@@ -126,15 +56,28 @@ fn try_parse_app_tag_path(uri: &str) -> Option<AppTagInfo> {
     })
 }
 
+/// Strip a case-insensitive prefix from a string.
+fn to_ascii_lower_prefix<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
+    if s.len() < prefix.len() {
+        return None;
+    }
+    if s[..prefix.len()].eq_ignore_ascii_case(prefix) {
+        Some(&s[prefix.len()..])
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    const BASE_URI: &str =
+        "pubky://8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo/pub/mapky/tags/ABC123";
+
     #[test]
     fn test_try_parse_app_tag_path_mapky() {
-        let info = try_parse_app_tag_path(
-            "pubky://8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo/pub/mapky/tags/ABC123",
-        );
+        let info = try_parse_app_tag_path(BASE_URI);
         assert!(info.is_some());
         let info = info.unwrap();
         assert_eq!(info.app, "mapky");
@@ -188,5 +131,72 @@ mod tests {
             "Pubky://8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo/pub/mapky/tags/XYZ",
         );
         assert!(info.is_some(), "Should handle mixed-case Pubky:// scheme");
+    }
+
+    #[test]
+    fn test_try_parse_app_tag_path_slash_in_app_returns_none() {
+        assert!(try_parse_app_tag_path(
+            "pubky://8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo/pub/my/app/tags/ABC"
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn test_try_parse_app_tag_path_slash_in_tag_returns_none() {
+        assert!(try_parse_app_tag_path(
+            "pubky://8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo/pub/mapky/tags/ABC/DEF"
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn test_try_parse_app_tag_path_empty_app_returns_none() {
+        assert!(try_parse_app_tag_path(
+            "pubky://8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo/pub//tags/ABC"
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn test_try_parse_app_tag_path_empty_tag_returns_none() {
+        assert!(try_parse_app_tag_path(
+            "pubky://8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo/pub/mapky/tags/"
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn test_try_parse_app_tag_path_query_string_stripped() {
+        let info = try_parse_app_tag_path(
+            "pubky://8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo/pub/mapky/tags/ABC123?foo=bar",
+        );
+        assert!(info.is_some(), "Should accept URI with query string");
+        assert_eq!(
+            info.unwrap().tag_id,
+            "ABC123",
+            "tag_id must not include query string"
+        );
+    }
+
+    #[test]
+    fn test_try_parse_app_tag_path_fragment_stripped() {
+        let info = try_parse_app_tag_path(
+            "pubky://8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo/pub/mapky/tags/ABC123#section",
+        );
+        assert!(info.is_some(), "Should accept URI with fragment");
+        assert_eq!(
+            info.unwrap().tag_id,
+            "ABC123",
+            "tag_id must not include fragment"
+        );
+    }
+
+    #[test]
+    fn test_try_parse_app_tag_path_empty_tag_after_query_returns_none() {
+        // tag_id becomes empty after stripping the query string
+        assert!(try_parse_app_tag_path(
+            "pubky://8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo/pub/mapky/tags/?foo=bar"
+        )
+        .is_none());
     }
 }

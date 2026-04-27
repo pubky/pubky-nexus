@@ -1,5 +1,6 @@
 use super::TEventProcessorRunner;
-use crate::events::Moderation;
+use crate::events::retry::RetryScheduler;
+use crate::events::{DefaultEventHandler, EventHandler, Moderation};
 use crate::service::backoff::HomeserverBackoff;
 use crate::service::indexer::{KeyBasedEventProcessor, TEventProcessor};
 use crate::service::stats::{ProcessedStats, ProcessorRunStatus, RunAllProcessorsStats};
@@ -19,12 +20,14 @@ pub struct KeyBasedEventProcessorRunner {
     /// See [WatcherConfig::monitored_homeservers_limit]
     pub monitored_hs_limit: usize,
     pub files_path: PathBuf,
-    pub moderation: Arc<Moderation>,
+    pub event_handler: Arc<dyn EventHandler>,
     pub shutdown_rx: Receiver<bool>,
     /// Default homeserver ID, excluded from the external targets list
     pub default_homeserver: PubkyId,
     /// Per-target exponential backoff state
     pub backoff: Mutex<HomeserverBackoff>,
+    /// Scheduler shared with every processor this runner builds
+    pub retry_scheduler: Arc<RetryScheduler>,
 }
 
 impl KeyBasedEventProcessorRunner {
@@ -34,13 +37,14 @@ impl KeyBasedEventProcessorRunner {
             limit: config.events_limit,
             monitored_hs_limit: config.monitored_homeservers_limit,
             files_path: config.stack.files_path.clone(),
-            moderation: Moderation::from_config(config),
+            event_handler: Arc::new(DefaultEventHandler::new(Moderation::from_config(config))),
             shutdown_rx,
             default_homeserver: config.homeserver.clone(),
             backoff: Mutex::new(HomeserverBackoff::new(
                 config.initial_backoff_secs,
                 config.max_backoff_secs,
             )),
+            retry_scheduler: Arc::new(RetryScheduler::from_config(config)),
         }
     }
 
@@ -76,7 +80,8 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
         Ok(Arc::new(KeyBasedEventProcessor {
             homeserver,
             files_path: self.files_path.clone(),
-            moderation: self.moderation.clone(),
+            event_handler: self.event_handler.clone(),
+            retry_scheduler: self.retry_scheduler.clone(),
         }))
     }
 

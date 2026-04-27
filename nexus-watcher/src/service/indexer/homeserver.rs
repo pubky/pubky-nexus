@@ -1,5 +1,6 @@
-use crate::events::Moderation;
-use crate::service::TEventProcessor;
+use super::TEventProcessor;
+use crate::events::retry::RetryScheduler;
+use crate::events::EventHandler;
 use nexus_common::db::PubkyConnector;
 use nexus_common::models::event::EventProcessorError;
 use nexus_common::models::homeserver::Homeserver;
@@ -17,9 +18,10 @@ pub struct HsEventProcessor {
     /// See [WatcherConfig::events_limit]
     pub limit: u32,
     pub files_path: PathBuf,
-    pub tracer_name: String,
-    pub moderation: Arc<Moderation>,
+    pub event_handler: Arc<dyn EventHandler>,
     pub shutdown_rx: Receiver<bool>,
+    /// Scheduler used to enqueue failed events onto the retry queue
+    pub retry_scheduler: Arc<RetryScheduler>,
 }
 
 #[async_trait::async_trait]
@@ -28,12 +30,16 @@ impl TEventProcessor for HsEventProcessor {
         &self.files_path
     }
 
-    fn moderation(&self) -> &Arc<Moderation> {
-        &self.moderation
+    fn event_handler(&self) -> &Arc<dyn EventHandler> {
+        &self.event_handler
     }
 
     fn instance_name(&self) -> String {
         format!("HsEventProcessor with HS ID: {}", self.homeserver.id)
+    }
+
+    fn retry_scheduler(&self) -> Option<&Arc<RetryScheduler>> {
+        Some(&self.retry_scheduler)
     }
 
     async fn run_internal(self: Arc<Self>) -> Result<(), EventProcessorError> {
@@ -97,31 +103,32 @@ impl HsEventProcessor {
 
     /// Processes a batch of event lines retrieved from the homeserver.
     ///
-    /// This function iterates over a vector of event URIs, handling each line based on its content:
-    /// - Lines starting with `cursor:` update the cursor for the homeserver and save it to the index.
-    /// - Other lines are dispatched to [`TEventProcessor::process_event_line`].
+    /// This function implements the retry logic:
+    /// - On infrastructure error: stops the batch, cursor is not saved, next tick replays from same position
+    /// - On MissingDependency: stores event in retry queue, continues processing
+    /// - On 404 (blob not found): skips indexing, continues processing
+    /// - On InvalidEventLine/SkipIndexing: logs and continues
     ///
     /// # Parameters
     /// - `lines`: A vector of strings representing event lines retrieved from the homeserver.
     #[tracing::instrument(name = "event_batch.process", skip_all, fields(batch.size = lines.len()))]
     pub async fn process_event_lines(&self, lines: Vec<String>) -> Result<(), EventProcessorError> {
         for line in &lines {
-            let id = self.homeserver.id.clone();
-
             if *self.shutdown_rx.borrow() {
-                debug!(hs_id = %id, "Shutdown detected; exiting event processing loop");
+                debug!(hs_id = %self.homeserver.id, "Shutdown detected; exiting event processing loop");
                 return Ok(());
             }
 
             if let Some(cursor) = line.strip_prefix("cursor: ") {
                 info!("Received cursor for the next request: {cursor}");
-                match Homeserver::try_from_cursor(id, cursor) {
+                match Homeserver::try_from_cursor(self.homeserver.id.clone(), cursor) {
                     Ok(hs) => hs.put_to_index().await?,
                     Err(e) => warn!("{e}"),
                 }
-            } else {
-                self.process_event_line(line).await?;
+                continue;
             }
+
+            self.process_event_line(line).await?;
         }
 
         Ok(())

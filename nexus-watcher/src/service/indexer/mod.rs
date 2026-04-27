@@ -3,17 +3,16 @@ mod key_based;
 
 pub use homeserver::HsEventProcessor;
 pub use key_based::KeyBasedEventProcessor;
-use nexus_common::models::event::EventType;
 use nexus_common::models::event::ParseResult;
 use std::{fmt::Display, path::PathBuf, sync::Arc, time::Duration};
+
 use tracing::Instrument;
 
 use nexus_common::models::event::{Event, EventProcessorError};
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 
-use crate::events::handle;
-use crate::events::retry::event::RetryEvent;
-use crate::events::Moderation;
+use crate::events::retry::RetryScheduler;
+use crate::events::EventHandler;
 use crate::service::PROCESSING_TIMEOUT_SECS;
 
 /// Possible error types of an event processor run
@@ -33,6 +32,8 @@ impl RunError {
         matches!(self, RunError::TimedOut)
     }
 }
+
+impl std::error::Error for RunError {}
 
 impl Display for RunError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -57,12 +58,23 @@ impl Display for RunError {
 #[async_trait::async_trait]
 pub trait TEventProcessor: Send + Sync + 'static {
     fn files_path(&self) -> &PathBuf;
-    fn moderation(&self) -> &Arc<Moderation>;
+
+    /// Returns the event handler used to process events.
+    ///
+    /// This allows for flexible event handling implementations, including mocked versions for testing.
+    fn event_handler(&self) -> &Arc<dyn EventHandler>;
 
     /// Returns the instance name of the event processor, used in the monitoring and tracing spans.
     ///
     /// For instances mapped to a specific HS, this should include the HS ID.
     fn instance_name(&self) -> String;
+
+    /// Returns the retry scheduler used by [`Self::handle_error`] to enqueue failed
+    /// events for later retry.  Returns `None` when the processor bypasses
+    /// [`Self::handle_error`] and manages retries on its own (e.g. [`RetryProcessor`](crate::events::retry::RetryProcessor)).
+    fn retry_scheduler(&self) -> Option<&Arc<RetryScheduler>> {
+        None
+    }
 
     async fn run(self: Arc<Self>) -> Result<(), RunError> {
         let timeout = self
@@ -106,19 +118,16 @@ pub trait TEventProcessor: Send + Sync + 'static {
         None
     }
 
-    /// Parses a single event line and dispatches to [`Self::try_handle_universal_tag`] or [`Self::handle_event`].
+    /// Parses a single event line and dispatches to [`Self::handle_event`].
+    /// Unknown resource events are handled via `HomeserverParsedUri::UnknownResource` →
+    /// `DefaultEventHandler` → `tag::sync_put_resource` (main flow).
     async fn process_event_line(&self, line: &str) -> Result<(), EventProcessorError> {
         match Event::parse_event(line, self.files_path().clone()) {
             Err(e) => error!("{e}"),
             Ok(ParseResult::Skipped) => {}
-            Ok(ParseResult::UnrecognizedUri {
-                event_type,
-                uri,
-                reason,
-            }) => {
-                if !self.try_handle_universal_tag(&event_type, &uri).await {
-                    error!("Cannot parse event URI: {reason}");
-                }
+            Ok(ParseResult::UnrecognizedUri { reason, .. }) => {
+                // Should not normally occur — UnknownResource parsing happens in HomeserverParsedUri
+                warn!("Unrecognized event URI: {reason}");
             }
             Ok(ParseResult::Parsed(event)) => {
                 debug!("Processing event: {:?}", event);
@@ -129,54 +138,38 @@ pub trait TEventProcessor: Send + Sync + 'static {
         Ok(())
     }
 
-    /// Attempts to handle an unrecognized URI as a universal tag at an app-specific path.
-    /// Returns `true` if the event was claimed (regardless of success/failure).
-    async fn try_handle_universal_tag(&self, event_type: &EventType, uri: &str) -> bool {
-        let result = crate::events::handlers::universal_tag::try_handle(event_type, uri).await;
-
-        let Some(result) = result else {
-            return false;
-        };
-
-        if let Err(e) = result {
-            match e {
-                EventProcessorError::InvalidEventLine(ref msg) => {
-                    error!("Universal tag non-retryable: {msg}");
-                }
-                _ => {
-                    let index_key = format!("{event_type}:{uri}");
-                    let retry_event = RetryEvent::new(e);
-                    error!("{}, {}", retry_event.error_type, index_key);
-                    if let Err(err) = retry_event.put_to_index(index_key).await {
-                        error!("Failed to enqueue universal tag retry: {err}");
-                    }
-                }
-            }
-        }
-
-        true
-    }
-
     /// Handles an error of event processing from event processing (e.g. logging, scheduling retries).
     ///
     /// Called in the event processing loop.
     ///
-    /// It re-throws the erorr, which signals the caller should break the processing loop
-    /// and persist the cursor at the point where this error occurred. This is because, since
-    /// it's an infrastructure error, it is likely that trying to process the next event line
-    /// would result in the same issue.
+    /// Returns:
+    /// - `Ok(())` - Continue processing the batch (non-retryable errors are dropped, retryable
+    ///   ones are queued for retry)
+    /// - `Err(e)` - Stop processing and return error (for infrastructure errors)
     async fn handle_error(
         &self,
-        _event: &Event,
+        event: &Event,
         error: EventProcessorError,
     ) -> Result<(), EventProcessorError> {
-        if matches!(error, EventProcessorError::MissingDependency { .. }) {
-            // TODO save event in retry manager
-            Ok(())
-        } else if error.is_infrastructure() {
+        if error.is_infrastructure() {
+            warn!("Infrastructure error, stopping batch: {error}");
             return Err(error);
+        }
+
+        if !error.is_retryable() {
+            debug!("Non-retryable error, skipping event {}: {error}", event.uri);
+            return Ok(());
+        }
+
+        let Some(scheduler) = self.retry_scheduler() else {
+            return Ok(());
+        };
+
+        if error.is_missing_dependency() {
+            scheduler.queue_missing_dep(event).await
         } else {
-            Ok(())
+            warn!("Retryable error, queuing event for retry: {error}");
+            scheduler.queue_transient(event).await
         }
     }
 
@@ -185,11 +178,11 @@ pub trait TEventProcessor: Send + Sync + 'static {
         name = "event.process",
         skip_all,
         fields(
-            event.resource = %event.parsed_uri.resource,
+            event.resource = %event.parsed_uri.resource(),
             event.uri = %event.uri,
             event.r#type = %event.event_type,
-            event.user_id = %event.parsed_uri.user_id,
-            event.resource_id = event.parsed_uri.resource.id().unwrap_or_default(),
+            event.user_id = %event.parsed_uri.user_id(),
+            event.resource_id = event.parsed_uri.resource().id().unwrap_or_default(),
             instance = %self.instance_name(),
             otel.status_code = tracing::field::Empty,
             otel.status_message = tracing::field::Empty,
@@ -197,7 +190,7 @@ pub trait TEventProcessor: Send + Sync + 'static {
     )]
     async fn handle_event(&self, event: &Event) -> Result<(), EventProcessorError> {
         let span = tracing::Span::current();
-        if let Err(e) = handle(event, self.moderation().clone()).await {
+        if let Err(e) = self.event_handler().handle(event).await {
             span.record("otel.status_code", "ERROR");
             span.record("otel.status_message", tracing::field::display(&e));
 
