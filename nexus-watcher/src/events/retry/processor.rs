@@ -138,12 +138,10 @@ impl RetryProcessor {
             }
             Err(e) if e.is_404() => {
                 // Content gone - remove from retry queue
-                warn!("Content no longer exists (404) for retry: {ev_uri}");
                 self.store.remove(index_key).await?;
             }
             Err(e) if !e.is_retryable() => {
                 // Non-retryable error (ParseFailed, etc.) - dead-letter immediately
-                warn!("Event {ev_uri} failed with non-retryable error, dead-lettering: {e}");
                 self.store.remove(index_key).await?;
             }
             Err(e) if e.is_infrastructure() => {
