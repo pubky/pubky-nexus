@@ -181,16 +181,8 @@ impl RetryProcessor {
             false => retry_event.retry_count,
         };
 
-        let initial = match error.is_missing_dependency() {
-            true => self.config.initial_missing_dep_backoff_secs,
-            false => self.config.initial_backoff_secs,
-        };
-        let max = match error.is_missing_dependency() {
-            true => self.config.max_missing_dep_backoff_secs,
-            false => self.config.max_backoff_secs,
-        };
-
         // Calculate backoff based on error type
+        let (initial, max) = self.config.get_backoff_params(error);
         // Use retry_count (not new_retry_count) so first retry uses 2^0 * initial = initial
         let backoff_secs = self.calculate_backoff(retry_event.retry_count, initial, max);
 
