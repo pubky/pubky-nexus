@@ -70,8 +70,18 @@ async fn test_resource_tag_internal_known_delegates_to_post() -> Result<()> {
         "InternalKnown URI should NOT create a Resource node"
     );
 
-    // Cleanup
+    // Regression: deleting the universal tag at the app-specific path must
+    // actually remove the TAGGED edge. The DEL handler scopes the lookup by
+    // `app`, so the PUT must persist the same `app` namespace on the edge.
     test.del(&user_kp, &custom_path).await?;
+
+    let post_tag_after_del = find_post_tag(&user_id, &post_id, label).await?;
+    assert!(
+        post_tag_after_del.is_none(),
+        "Universal tag DEL on InternalKnown URI should remove the TAGGED edge"
+    );
+
+    // Cleanup
     test.cleanup_post(&user_kp, &post_path).await?;
     test.cleanup_user(&user_kp).await?;
 

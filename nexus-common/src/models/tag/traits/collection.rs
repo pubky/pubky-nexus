@@ -317,6 +317,10 @@ where
     /// - `label` - A string slice representing the label of the tag.
     /// - `indexed_at` - A 64-bit integer representing the timestamp (milliseconds)
     ///   when the tag was indexed.
+    /// - `app` - The app namespace the tag was created from (e.g., "mapky") when the tag
+    ///   originates from an app-specific path. When `Some`, the `app` property is set on
+    ///   the TAGGED edge so that subsequent app-scoped deletes can locate it. When `None`,
+    ///   no `app` property is stored — matching the standard pubky.app tag behavior.
     async fn put_to_graph(
         tagger_user_id: &str,
         tagged_user_id: &str,
@@ -324,6 +328,7 @@ where
         tag_id: &str,
         label: &str,
         indexed_at: i64,
+        app: Option<&str>,
     ) -> GraphResult<OperationOutcome> {
         let query = match extra_param {
             Some(post_id) => queries::put::create_post_tag(
@@ -333,6 +338,7 @@ where
                 tag_id,
                 label,
                 indexed_at,
+                app,
             ),
             None => queries::put::create_user_tag(
                 tagger_user_id,
@@ -340,6 +346,7 @@ where
                 tag_id,
                 label,
                 indexed_at,
+                app,
             ),
         };
         execute_graph_operation(query).await

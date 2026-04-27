@@ -63,6 +63,7 @@ async fn test_tag_post_del_retry_no_double_decrement() -> Result<()> {
         tag_id,
         label,
         OLD_INDEXED_AT,
+        None,
     )
     .await?;
     assert!(matches!(outcome, OperationOutcome::CreatedOrDeleted));
@@ -153,6 +154,7 @@ async fn test_tag_post_del_replay_after_success_skips() -> Result<()> {
         tag_id,
         label,
         OLD_INDEXED_AT,
+        None,
     )
     .await?;
     TagPost::add_tagger_to_index(&author_id, Some(&post_id), &tagger_id, label).await?;
