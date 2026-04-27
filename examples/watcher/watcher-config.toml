@@ -20,6 +20,21 @@ moderated_tags = [
     "il_adult_nu_sex_act",
 ]
 
+# Event retry configuration
+[retry]
+# Transient error retry limit before dead-letter
+max_retries = 10
+# Safety net for homeservers that disappear silently
+max_dependency_retries = 50
+# Base for exponential backoff on transient retries (seconds)
+initial_backoff_secs = 10
+# Backoff ceiling for transient retries (seconds)
+max_backoff_secs = 3600
+# Base for MissingDependency polling backoff (seconds)
+initial_missing_dep_backoff_secs = 60
+# Backoff ceiling for MissingDependency (seconds)
+max_missing_dep_backoff_secs = 3600
+
 [stack]
 # Logging, options: error, warn, info, debug and trace
 log_level = "debug"

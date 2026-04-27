@@ -51,7 +51,7 @@ impl PostStreamQuery {
     pub fn validate_tags(&self) -> AppResult<()> {
         if let Some(ref tags) = self.tags {
             if tags.len() > MAX_TAGS {
-                return Err(Error::invalid_input(&format!(
+                return Err(Error::invalid_input(format!(
                     "Too many tags provided; maximum allowed is {MAX_TAGS}"
                 )));
             }

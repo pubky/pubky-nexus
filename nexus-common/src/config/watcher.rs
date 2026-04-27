@@ -29,6 +29,21 @@ pub const DEFAULT_HS_RESOLVER_TTL: u64 = 3_600_000;
 pub const DEFAULT_INITIAL_BACKOFF_SECS: u64 = 60;
 /// Default for [WatcherConfig::max_backoff_secs]
 pub const DEFAULT_MAX_BACKOFF_SECS: u64 = 3_600;
+
+// Retry configuration defaults
+/// Default for [EventRetryConfig::max_retries]
+pub const DEFAULT_MAX_RETRIES: u32 = 10;
+/// Default for [EventRetryConfig::max_dependency_retries]
+pub const DEFAULT_MAX_DEPENDENCY_RETRIES: u32 = 50;
+/// Default for [EventRetryConfig::initial_backoff_secs] (transient errors)
+pub const DEFAULT_INITIAL_TRANSIENT_BACKOFF_SECS: u64 = 10;
+/// Default for [EventRetryConfig::max_backoff_secs] (transient errors)
+pub const DEFAULT_MAX_TRANSIENT_BACKOFF_SECS: u64 = 3_600;
+/// Default for [EventRetryConfig::initial_missing_dep_backoff_secs]
+pub const DEFAULT_INITIAL_MISSING_DEP_BACKOFF_SECS: u64 = 60;
+/// Default for [EventRetryConfig::max_missing_dep_backoff_secs]
+pub const DEFAULT_MAX_MISSING_DEP_BACKOFF_SECS: u64 = 3_600;
+
 // Moderation service key
 pub const MODERATION_ID: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 // Moderation service key
@@ -40,6 +55,37 @@ pub const MODERATED_TAGS: [&str; 6] = [
     "illegal_activities",
     "il_adult_nu_sex_act",
 ];
+
+/// Retry configuration settings
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[serde(default)]
+pub struct EventRetryConfig {
+    /// Transient error retry limit before dead-letter
+    pub max_retries: u32,
+    /// Safety net for homeservers that disappear silently (no DEL events, content just gone)
+    pub max_dependency_retries: u32,
+    /// Base for exponential backoff on transient retries (seconds)
+    pub initial_backoff_secs: u64,
+    /// Backoff ceiling for transient retries (seconds)
+    pub max_backoff_secs: u64,
+    /// Base for MissingDependency polling backoff (seconds)
+    pub initial_missing_dep_backoff_secs: u64,
+    /// Backoff ceiling for MissingDependency (seconds)
+    pub max_missing_dep_backoff_secs: u64,
+}
+
+impl Default for EventRetryConfig {
+    fn default() -> Self {
+        Self {
+            max_retries: DEFAULT_MAX_RETRIES,
+            max_dependency_retries: DEFAULT_MAX_DEPENDENCY_RETRIES,
+            initial_backoff_secs: DEFAULT_INITIAL_TRANSIENT_BACKOFF_SECS,
+            max_backoff_secs: DEFAULT_MAX_TRANSIENT_BACKOFF_SECS,
+            initial_missing_dep_backoff_secs: DEFAULT_INITIAL_MISSING_DEP_BACKOFF_SECS,
+            max_missing_dep_backoff_secs: DEFAULT_MAX_MISSING_DEP_BACKOFF_SECS,
+        }
+    }
+}
 
 /// Configuration settings for the Nexus Watcher service
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -82,6 +128,10 @@ pub struct WatcherConfig {
     #[serde(default = "default_stack")]
     pub stack: StackConfig,
 
+    // Retry configuration
+    #[serde(default)]
+    pub retry: EventRetryConfig,
+
     // Moderation
     pub moderation_id: PubkyId,
     pub moderated_tags: Vec<String>,
@@ -109,6 +159,7 @@ impl Default for WatcherConfig {
             hs_resolver_ttl: DEFAULT_HS_RESOLVER_TTL,
             initial_backoff_secs: DEFAULT_INITIAL_BACKOFF_SECS,
             max_backoff_secs: DEFAULT_MAX_BACKOFF_SECS,
+            retry: EventRetryConfig::default(),
             moderation_id,
             moderated_tags: MODERATED_TAGS.iter().map(|s| s.to_string()).collect(),
         }

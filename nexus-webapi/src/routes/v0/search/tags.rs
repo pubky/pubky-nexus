@@ -62,7 +62,7 @@ fn sanitize_validate(tag_prefix: &str) -> Result<String> {
 
     temp_tag
         .validate(None)
-        .map_err(|e| Error::invalid_input(&e.to_string()))?;
+        .map_err(|e| Error::invalid_input(e.to_string()))?;
 
     let sanitized = temp_tag.label;
     Ok(sanitized)

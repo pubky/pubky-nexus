@@ -1,4 +1,4 @@
-use pubky::{Pubky, PubkyHttpClient};
+use pubky::{Pubky, PubkyHttpClient, StatusCode};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use thiserror::Error;
@@ -12,8 +12,83 @@ pub enum PubkyClientError {
     #[error("PubkyClient not initialized")]
     NotInitialized,
 
-    #[error("Client initialization error: {0}")]
-    ClientError(String),
+    #[error("404: {message}")]
+    NotFound404 { message: String },
+
+    #[error("Server error (5xx): {message}")]
+    ServerError5xx { message: String },
+
+    #[error("Request failed: {message}")]
+    RequestFailed { message: String },
+
+    #[error("Pkarr failed: {message}")]
+    PkarrFailed { message: String },
+
+    #[error("Authentication failed: {message}")]
+    AuthenticationFailed { message: String },
+
+    #[error("Build failed: {message}")]
+    BuildFailed { message: String },
+
+    #[error("Parse failed: {message}")]
+    ParseFailed { message: String },
+}
+
+impl From<pubky::Error> for PubkyClientError {
+    fn from(err: pubky::Error) -> Self {
+        match err {
+            pubky::Error::Request(req_err) => match req_err {
+                pubky::errors::RequestError::Server { status, message } => {
+                    if status == StatusCode::NOT_FOUND {
+                        Self::NotFound404 { message }
+                    } else if status.is_server_error() {
+                        Self::ServerError5xx { message }
+                    } else {
+                        Self::RequestFailed { message }
+                    }
+                }
+                pubky::errors::RequestError::Transport(err) => Self::RequestFailed {
+                    message: err.to_string(),
+                },
+                pubky::errors::RequestError::Validation { message } => {
+                    Self::RequestFailed { message }
+                }
+                pubky::errors::RequestError::DecodeJson { message } => {
+                    Self::RequestFailed { message }
+                }
+            },
+            pubky::Error::Pkarr(pkarr_err) => Self::PkarrFailed {
+                message: pkarr_err.to_string(),
+            },
+            pubky::Error::Authentication(auth_err) => Self::AuthenticationFailed {
+                message: auth_err.to_string(),
+            },
+            pubky::Error::Build(build_err) => Self::BuildFailed {
+                message: build_err.to_string(),
+            },
+            pubky::Error::Parse(parse_err) => Self::ParseFailed {
+                message: parse_err.to_string(),
+            },
+        }
+    }
+}
+
+impl PubkyClientError {
+    /// Returns true if this error is a 404 (content not found)
+    pub fn is_404(&self) -> bool {
+        matches!(self, Self::NotFound404 { .. })
+    }
+
+    /// Returns true if this error is transient and worth retrying
+    pub fn is_retryable(&self) -> bool {
+        matches!(
+            self,
+            Self::NotInitialized
+                | Self::ServerError5xx { .. }
+                | Self::RequestFailed { .. }
+                | Self::PkarrFailed { .. }
+        )
+    }
 }
 
 pub struct PubkyConnector;
@@ -40,7 +115,7 @@ impl PubkyConnector {
                         .build(),
                     None => PubkyHttpClient::new(),
                 }
-                .map_err(|e| PubkyClientError::ClientError(e.to_string()))?;
+                .map_err(|e| PubkyClientError::from(pubky::Error::from(e)))?;
                 Ok(Arc::new(Pubky::with_client(client)))
             })
             .await

@@ -1,5 +1,6 @@
 use super::TEventProcessorRunner;
-use crate::events::Moderation;
+use crate::events::retry::RetryScheduler;
+use crate::events::{DefaultEventHandler, EventHandler, Moderation};
 use crate::service::indexer::{HsEventProcessor, TEventProcessor};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
@@ -14,11 +15,12 @@ pub struct HsEventProcessorRunner {
     /// See [WatcherConfig::events_limit]
     pub limit: u16,
     pub files_path: PathBuf,
-    pub tracer_name: String,
-    pub moderation: Arc<Moderation>,
+    pub event_handler: Arc<dyn EventHandler>,
     pub shutdown_rx: Receiver<bool>,
     /// See [WatcherConfig::homeserver]
     pub default_homeserver: PubkyId,
+    /// Scheduler shared with every processor this runner builds
+    pub retry_scheduler: Arc<RetryScheduler>,
 }
 
 impl HsEventProcessorRunner {
@@ -35,10 +37,10 @@ impl HsEventProcessorRunner {
         Self {
             limit,
             files_path: config.stack.files_path.clone(),
-            tracer_name: config.stack.otlp.name.clone(),
-            moderation: Moderation::from_config(config),
+            event_handler: Arc::new(DefaultEventHandler::new(Moderation::from_config(config))),
             shutdown_rx,
             default_homeserver: config.homeserver.clone(),
+            retry_scheduler: Arc::new(RetryScheduler::from_config(config)),
         }
     }
 
@@ -64,9 +66,9 @@ impl TEventProcessorRunner for HsEventProcessorRunner {
             homeserver,
             limit: self.limit,
             files_path: self.files_path.clone(),
-            tracer_name: self.tracer_name.clone(),
-            moderation: self.moderation.clone(),
+            event_handler: self.event_handler.clone(),
             shutdown_rx: self.shutdown_rx.clone(),
+            retry_scheduler: self.retry_scheduler.clone(),
         }))
     }
 

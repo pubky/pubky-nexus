@@ -1,8 +1,11 @@
 mod errors;
 
-use crate::db::{kv::RedisResult, RedisOps};
+use crate::{
+    db::{kv::RedisResult, RedisOps},
+    universal_tag::homeserver_parsed_uri::HomeserverParsedUri,
+};
 use pubky::Event as StreamEvent;
-use pubky_app_specs::{ParsedUri, Resource};
+use pubky_app_specs::Resource;
 use serde::{Deserialize, Serialize};
 use std::{fmt, path::PathBuf};
 use tracing::{debug, error};
@@ -56,7 +59,7 @@ impl fmt::Display for EventType {
 pub struct Event {
     pub uri: String,
     pub event_type: EventType,
-    pub parsed_uri: ParsedUri,
+    pub parsed_uri: HomeserverParsedUri,
     pub files_path: PathBuf,
     event_line: String,
 }
@@ -91,9 +94,11 @@ impl Event {
             ))),
         }?;
 
-        // Validate and parse the URI using pubky-app-specs
+        // Validate and parse the URI using HomeserverParsedUri
+        // This handles both standard pubky-app-specs URIs (pubky.app) and
+        // universal tag URIs from other apps (e.g., eventky.app, mapky)
         let uri = parts[1].to_string();
-        let parsed_uri = match ParsedUri::try_from(uri.as_str()) {
+        let homeserver_parsed_uri = match HomeserverParsedUri::try_from(uri.as_str()) {
             Ok(parsed) => parsed,
             Err(e) => {
                 let reason = e.to_string();
@@ -101,7 +106,9 @@ impl Event {
             }
         };
 
-        match parsed_uri.resource {
+        let resource = homeserver_parsed_uri.resource().clone();
+
+        match resource {
             // Unknown resource
             Resource::Unknown => {
                 return Err(EventProcessorError::InvalidEventLine(format!(
@@ -120,7 +127,7 @@ impl Event {
         Ok(ParseResult::Parsed(Event {
             uri,
             event_type,
-            parsed_uri,
+            parsed_uri: homeserver_parsed_uri,
             files_path,
             event_line,
         }))
@@ -150,18 +157,24 @@ impl Event {
         event_line: String,
         files_path: PathBuf,
     ) -> Result<Option<Self>, EventProcessorError> {
-        let parsed_uri = ParsedUri::try_from(uri.as_str()).map_err(|e| {
+        let parsed_uri = HomeserverParsedUri::try_from(uri.as_str()).map_err(|e| {
             EventProcessorError::InvalidEventLine(format!("Cannot parse event URI: {e}"))
         })?;
 
-        match parsed_uri.resource {
-            Resource::Unknown => {
-                debug!("Skipping unrecognised resource: {uri}");
-                return Ok(None);
-            }
-            Resource::LastRead | Resource::Feed(_) | Resource::Blob(_) => return Ok(None),
+        match &parsed_uri {
+            HomeserverParsedUri::AppSpec {
+                user_id: _,
+                resource,
+            } => match resource {
+                Resource::Unknown => {
+                    debug!("Skipping unrecognised resource: {uri}");
+                    return Ok(None);
+                }
+                Resource::LastRead | Resource::Feed(_) | Resource::Blob(_) => return Ok(None),
+                _ => (),
+            },
             _ => (),
-        };
+        }
 
         Ok(Some(Event {
             uri,

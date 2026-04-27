@@ -1,10 +1,10 @@
+use std::fmt::Display;
+
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::{
-    db::{kv::RedisError, GraphError},
-    models::error::ModelError,
-};
+use crate::db::{kv::RedisError, GraphError, PubkyClientError};
+use crate::models::error::ModelError;
 
 #[derive(Error, Debug, Clone, Serialize, Deserialize)]
 pub enum EventProcessorError {
@@ -30,7 +30,7 @@ pub enum EventProcessorError {
 
     /// The Pubky client could not resolve the pubky
     #[error("PubkyClientError: {0}")]
-    PubkyClientError(#[from] crate::db::PubkyClientError),
+    PubkyClientError(#[from] PubkyClientError),
 
     #[error("MediaProcessor: {0}")]
     MediaProcessorError(String),
@@ -70,7 +70,7 @@ impl From<ModelError> for EventProcessorError {
 
 impl From<pubky::Error> for EventProcessorError {
     fn from(e: pubky::Error) -> Self {
-        EventProcessorError::client_error(e.to_string())
+        EventProcessorError::PubkyClientError(PubkyClientError::from(e))
     }
 }
 
@@ -102,15 +102,23 @@ impl EventProcessorError {
     }
 
     pub fn client_error(message: String) -> Self {
-        Self::PubkyClientError(crate::db::PubkyClientError::ClientError(message))
+        Self::PubkyClientError(PubkyClientError::RequestFailed { message })
     }
 
-    pub fn static_save_failed(source: impl std::fmt::Display) -> Self {
+    pub fn client_error_404(message: String) -> Self {
+        Self::PubkyClientError(PubkyClientError::NotFound404 { message })
+    }
+
+    pub fn static_save_failed(source: impl Display) -> Self {
         Self::StaticSaveFailed(source.to_string())
     }
 
-    pub fn generic(source: impl std::fmt::Display) -> Self {
+    pub fn generic(source: impl Display) -> Self {
         Self::Generic(source.to_string())
+    }
+
+    pub fn internal_error(source: impl Display) -> Self {
+        Self::InternalError(source.to_string())
     }
 
     /// Returns whether or not this is an infrastructure error.
@@ -124,5 +132,32 @@ impl EventProcessorError {
             Self::IndexOperationFailed(true, _) => true,
             _ => false,
         }
+    }
+
+    /// Returns whether this error is transient and worth queuing for retry.
+    ///
+    /// Default is **retryable**: when in doubt we enqueue rather than drop, since
+    /// `max_retries` bounds the waste on a misclassified deterministic error,
+    /// while silently dropping a misclassified transient error loses data outright.
+    /// Only variants we know to be deterministic at conversion time
+    /// (`InvalidEventLine`, `SkipIndexing`, and the dead-letter `PubkyClientError`
+    /// kinds — `ParseFailed` / `AuthenticationFailed` / `BuildFailed` / 404) opt out.
+    pub fn is_retryable(&self) -> bool {
+        match self {
+            Self::PubkyClientError(err) => err.is_retryable(),
+            Self::InvalidEventLine(_) => false,
+            Self::SkipIndexing => false,
+            _ => true,
+        }
+    }
+
+    /// Returns whether this error is a missing dependency
+    pub fn is_missing_dependency(&self) -> bool {
+        matches!(self, Self::MissingDependency { .. })
+    }
+
+    /// Returns whether this error indicates a 404 (content definitively gone)
+    pub fn is_404(&self) -> bool {
+        matches!(self, Self::PubkyClientError(err) if err.is_404())
     }
 }
