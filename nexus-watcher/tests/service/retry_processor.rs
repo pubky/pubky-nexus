@@ -1,22 +1,17 @@
-use crate::service::utils::setup;
-use crate::utils::MockEventHandler;
+use crate::service::utils::common::create_mock_handler;
+use crate::service::utils::{new_in_memory_store, setup, TEST_USER_ID};
 use anyhow::Result;
 use chrono::Utc;
 use nexus_common::config::EventRetryConfig;
 use nexus_common::db::kv::RedisOps;
 use nexus_common::models::event::{EventProcessorError, EventType};
-use nexus_watcher::events::retry::{
-    InMemoryRetryStore, RedisRetryStore, RetryEvent, RetryProcessor, RetryStore,
-};
+use nexus_watcher::events::retry::{RedisRetryStore, RetryEvent, RetryProcessor, RetryStore};
 use nexus_watcher::events::EventHandler;
 use nexus_watcher::service::TEventProcessor;
 use pubky_app_specs::post_uri_builder;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::watch;
-
-/// Test user ID - valid 52-character z32 Pubky ID
-const TEST_USER_ID: &str = "uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko";
 
 /// Test helper to create an EventRetryConfig with custom values
 fn create_test_config(
@@ -35,21 +30,6 @@ fn create_test_config(
         initial_missing_dep_backoff_secs,
         max_missing_dep_backoff_secs,
     }
-}
-
-/// Test helper to create a mock event handler scoped to a specific URI substring.
-///
-/// `target_substring` is typically the unique post_id prefix used by the test. Events
-/// whose URI matches get `result`; any other events (leftover entries from parallel
-/// tests in the shared retry queue) get `Ok(())` and are drained normally.
-fn create_mock_handler(
-    result: Result<(), EventProcessorError>,
-    target_substring: &str,
-) -> Arc<dyn EventHandler> {
-    Arc::new(MockEventHandler {
-        result,
-        target_uri_substring: Some(target_substring.to_string()),
-    })
 }
 
 /// Test helper to create a test RetryEvent with a valid URI
@@ -71,14 +51,6 @@ fn create_test_retry_event(
 /// Test helper to create a resource key for a test event, matching the format the scheduler uses.
 fn create_resource_key(post_id: &str) -> String {
     post_uri_builder(TEST_USER_ID.to_string(), post_id.to_string())
-}
-
-/// Build a fresh `Arc<dyn RetryStore>` backed by in-memory state.
-///
-/// Each test gets its own store, so parallel test runs cannot observe or
-/// mutate each other's retry events — no shared Redis queue, no pollution.
-fn new_in_memory_store() -> Arc<dyn RetryStore> {
-    Arc::new(InMemoryRetryStore::new())
 }
 
 /// Assemble a [`RetryProcessor`] for tests with the given store, config, and handler.
@@ -127,7 +99,7 @@ async fn test_backoff_first_retry_uses_initial_value() -> Result<()> {
         create_test_config(10, 50, 60, 3600, 60, 3600),
         create_mock_handler(
             Err(EventProcessorError::Generic("retry error".to_string())),
-            post_id,
+            Some(post_id),
         ),
         shutdown_rx,
     );
@@ -186,7 +158,7 @@ async fn test_backoff_exponential_growth() -> Result<()> {
         create_test_config(10, 50, 10, 3600, 60, 3600),
         create_mock_handler(
             Err(EventProcessorError::Generic("retry error".to_string())),
-            post_id,
+            Some(post_id),
         ),
         shutdown_rx,
     );
@@ -251,7 +223,7 @@ async fn test_infrastructure_error_at_max_retries_does_not_dead_letter() -> Resu
                 true, // is_infrastructure = true
                 "Database connection failed".to_string(),
             )),
-            post_id,
+            Some(post_id),
         ),
         shutdown_rx,
     );
@@ -314,7 +286,7 @@ async fn test_backoff_capped_at_max() -> Result<()> {
         create_test_config(10, 50, 60, 3600, 60, 3600),
         create_mock_handler(
             Err(EventProcessorError::Generic("retry error".to_string())),
-            post_id,
+            Some(post_id),
         ),
         shutdown_rx,
     );
@@ -377,7 +349,7 @@ async fn test_retry_success_removes_from_queue() -> Result<()> {
     let processor = build_processor(
         store.clone(),
         create_test_config(10, 50, 60, 3600, 60, 3600),
-        create_mock_handler(Ok(()), post_id), // Success
+        create_mock_handler(Ok(()), Some(post_id)),
         shutdown_rx,
     );
 
@@ -428,7 +400,7 @@ async fn test_retry_404_removes_from_queue() -> Result<()> {
             Err(EventProcessorError::PubkyClientError(
                 nexus_common::db::PubkyClientError::NotFound404 { message: event_uri },
             )),
-            post_id,
+            Some(post_id),
         ),
         shutdown_rx,
     );
@@ -481,7 +453,7 @@ async fn test_transient_error_schedules_retry() -> Result<()> {
                 true, // is_infrastructure = true
                 "Database connection failed".to_string(),
             )),
-            post_id,
+            Some(post_id),
         ),
         shutdown_rx,
     );
@@ -549,7 +521,7 @@ async fn test_missing_dependency_schedules_retry() -> Result<()> {
             Err(EventProcessorError::MissingDependency {
                 dependency: vec!["some_dependency".to_string()],
             }),
-            post_id,
+            Some(post_id),
         ),
         shutdown_rx,
     );
@@ -624,7 +596,7 @@ async fn test_dead_letter_after_max_transient_retries() -> Result<()> {
             Err(EventProcessorError::Generic(
                 "transient application failure".to_string(),
             )),
-            post_id,
+            Some(post_id),
         ),
         shutdown_rx,
     );
@@ -680,7 +652,7 @@ async fn test_dead_letter_after_max_dependency_retries() -> Result<()> {
             Err(EventProcessorError::MissingDependency {
                 dependency: vec!["some_dependency".to_string()],
             }),
-            post_id,
+            Some(post_id),
         ),
         shutdown_rx,
     );
@@ -779,11 +751,12 @@ async fn test_shutdown_interrupts_batch() -> Result<()> {
 
     // Create processor; shutdown is set before run_internal so nothing is actually
     // processed.
+    let handler = create_mock_handler(Ok(()), Some("shutdown"));
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let processor = build_processor(
         store.clone(),
         create_test_config(10, 50, 60, 3600, 60, 3600),
-        create_mock_handler(Ok(()), "shutdown"),
+        handler.clone(),
         shutdown_rx,
     );
 
@@ -796,6 +769,13 @@ async fn test_shutdown_interrupts_batch() -> Result<()> {
     assert!(
         result.is_ok(),
         "Processor should return Ok(()) when shutdown is triggered"
+    );
+
+    // Handler must not be called — shutdown short-circuits before any processing.
+    assert_eq!(
+        handler.get_handle_count(),
+        0,
+        "Handler must not be called when shutdown is triggered before processing"
     );
 
     // Verify events are still in the queue (not processed due to shutdown)
@@ -840,17 +820,18 @@ async fn test_infrastructure_error_stops_batch() -> Result<()> {
     }
 
     // Create processor with handler that returns infrastructure error for our events only
+    let handler = create_mock_handler(
+        Err(EventProcessorError::GraphQueryFailed(
+            true, // is_infrastructure = true
+            "Critical database failure".to_string(),
+        )),
+        Some("infrastop"),
+    );
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let processor = build_processor(
         store.clone(),
         create_test_config(10, 50, 60, 3600, 60, 3600),
-        create_mock_handler(
-            Err(EventProcessorError::GraphQueryFailed(
-                true, // is_infrastructure = true
-                "Critical database failure".to_string(),
-            )),
-            "infrastop",
-        ),
+        handler.clone(),
         shutdown_rx,
     );
 
@@ -861,6 +842,14 @@ async fn test_infrastructure_error_stops_batch() -> Result<()> {
     assert!(
         result.is_err(),
         "Processor should propagate infrastructure error"
+    );
+
+    // Handler called exactly once — infrastructure error halted the batch
+    // after the first event, so remaining events were never reached.
+    assert_eq!(
+        handler.get_handle_count(),
+        1,
+        "Handler must be called exactly once — batch stopped on infrastructure error"
     );
 
     // Verify the error is an infrastructure error
@@ -913,17 +902,25 @@ async fn test_empty_batch_returns_ok() -> Result<()> {
 
     // Fresh in-memory store is empty by construction.
     let store = new_in_memory_store();
+    let handler = create_mock_handler(Ok(()), Some("empty"));
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let processor = build_processor(
         store,
         create_test_config(10, 50, 60, 3600, 60, 3600),
-        create_mock_handler(Ok(()), "empty"),
+        handler.clone(),
         shutdown_rx,
     );
 
     // No events in queue - should return Ok(())
     let result: Result<(), EventProcessorError> = processor.run_internal().await;
     assert!(result.is_ok(), "Empty batch should return Ok(())");
+
+    // No events, handler must never be called.
+    assert_eq!(
+        handler.get_handle_count(),
+        0,
+        "Handler must not be called when no events are in queue"
+    );
 
     let _ = shutdown_tx.send(true);
     Ok(())
@@ -948,15 +945,23 @@ async fn test_del_event_retry_success() -> Result<()> {
     store.put(&resource_key, &retry_event).await?;
 
     // Create processor with handler that returns success
+    let handler = create_mock_handler(Ok(()), Some(post_id));
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let processor = build_processor(
         store.clone(),
         create_test_config(10, 50, 60, 3600, 60, 3600),
-        create_mock_handler(Ok(()), post_id),
+        handler.clone(),
         shutdown_rx,
     );
 
     let _ = processor.run_internal().await;
+
+    // Handler called once for the DEL event.
+    assert_eq!(
+        handler.get_handle_count(),
+        1,
+        "Handler must be called exactly once for the DEL event"
+    );
 
     // Verify DEL event was removed from queue after successful processing
     assert!(
@@ -987,26 +992,121 @@ async fn test_non_retryable_error_removes_event() -> Result<()> {
     store.put(&resource_key, &retry_event).await?;
 
     // Create processor with handler that returns a non-retryable error
+    let handler = create_mock_handler(
+        Err(EventProcessorError::InvalidEventLine(
+            "malformed data".to_string(),
+        )),
+        Some(post_id),
+    );
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let processor = build_processor(
         store.clone(),
         create_test_config(10, 50, 60, 3600, 60, 3600),
-        create_mock_handler(
-            Err(EventProcessorError::InvalidEventLine(
-                "malformed data".to_string(),
-            )),
-            post_id,
-        ),
+        handler.clone(),
         shutdown_rx,
     );
 
     let result = processor.run_internal().await;
     assert!(result.is_ok(), "Non-retryable error should not propagate");
 
+    // Handler called once for the event before dead-lettering.
+    assert_eq!(
+        handler.get_handle_count(),
+        1,
+        "Handler must be called exactly once before non-retryable error removes event"
+    );
+
     // Event should be removed (dead-lettered immediately, not re-queued)
     assert!(
         store.get(&resource_key).await?.is_none(),
         "Non-retryable error should cause immediate removal from queue"
+    );
+
+    let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+// ============================================================================
+// Batch continues after a single event fails
+// A retryable application error on one event must not halt the batch — later
+// events still need to be processed.
+// ============================================================================
+
+#[tokio_shared_rt::test(shared)]
+async fn test_batch_continues_after_single_failure() -> Result<()> {
+    setup().await?;
+
+    // Both events share the same next_retry_at so they are fetched in the same
+    // batch. The test is order-independent: regardless of which event is
+    // processed first, the failing one is re-queued and the succeeding one is
+    // removed — proving the batch continued past the failure.
+    let failing_post_id = "failbatch1";
+    let succeeding_post_id = "okbatch2";
+    let failing_key = create_resource_key(failing_post_id);
+    let succeeding_key = create_resource_key(succeeding_post_id);
+
+    let store = new_in_memory_store();
+    let now = Utc::now().timestamp_millis();
+    store
+        .put(
+            &failing_key,
+            &create_test_retry_event(failing_post_id, EventType::Put, 0, now - 1000),
+        )
+        .await?;
+    store
+        .put(
+            &succeeding_key,
+            &create_test_retry_event(succeeding_post_id, EventType::Put, 0, now - 1000),
+        )
+        .await?;
+
+    // MockEventHandler's `target_uri_substring` scopes the error to the failing
+    // post_id; the succeeding event's URI doesn't match and so falls through to
+    // Ok(()).
+    let handler = create_mock_handler(
+        Err(EventProcessorError::Generic(
+            "first handler fails".to_string(),
+        )),
+        Some(failing_post_id),
+    );
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let processor = build_processor(
+        store.clone(),
+        create_test_config(10, 50, 60, 3600, 60, 3600),
+        handler.clone(),
+        shutdown_rx,
+    );
+
+    let result = processor.run_internal().await;
+    assert!(
+        result.is_ok(),
+        "Retryable application error must not stop the batch"
+    );
+
+    // Handler called twice — once for each event — proving the batch
+    // continued past the first failure.
+    assert_eq!(
+        handler.get_handle_count(),
+        2,
+        "Handler must be called for both events — batch continued past failure"
+    );
+
+    // First event failed with a retryable Generic error — re-queued with
+    // retry_count incremented.
+    let requeued = store
+        .get(&failing_key)
+        .await?
+        .expect("Failing event should remain in queue for retry");
+    assert_eq!(
+        requeued.retry_count, 1,
+        "Failing event should have retry_count incremented after retryable failure"
+    );
+
+    // Second event was reached despite the first failing, and its handler
+    // returned Ok(()), so the entry must have been removed.
+    assert!(
+        store.get(&succeeding_key).await?.is_none(),
+        "Processor must continue past a failed event and process the next one"
     );
 
     let _ = shutdown_tx.send(true);
@@ -1037,21 +1137,29 @@ async fn test_future_events_not_picked_up() -> Result<()> {
     store.put(&resource_key, &retry_event).await?;
 
     // Create processor with handler that would fail if called
+    let handler = create_mock_handler(
+        Err(EventProcessorError::Generic(
+            "should not be called".to_string(),
+        )),
+        Some(post_id),
+    );
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let processor = build_processor(
         store.clone(),
         create_test_config(10, 50, 60, 3600, 60, 3600),
-        create_mock_handler(
-            Err(EventProcessorError::Generic(
-                "should not be called".to_string(),
-            )),
-            post_id,
-        ),
+        handler.clone(),
         shutdown_rx,
     );
 
     let result = processor.run_internal().await;
     assert!(result.is_ok(), "Should return Ok when no ready events");
+
+    // Handler must never be called — no ready events in the batch.
+    assert_eq!(
+        handler.get_handle_count(),
+        0,
+        "Handler must not be called when no events are ready"
+    );
 
     // Event should still be in the queue, untouched
     let event = store
