@@ -81,7 +81,7 @@ pub async fn handle_put_event(
             handlers::bookmark::sync_put(user_id, bookmark, bookmark_id).await?
         }
         (PubkyAppObject::Tag(tag), Resource::Tag(tag_id)) => {
-            if moderation.should_delete(&tag, user_id.clone()).await {
+            if moderation.should_delete(&tag, user_id.clone()) {
                 moderation
                     .apply_moderation(tag, event.files_path.clone())
                     .await?
