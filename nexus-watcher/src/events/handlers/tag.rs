@@ -404,9 +404,12 @@ pub async fn del(
     //    Pass `app` so the lookup is scoped to the correct app namespace and
     //    cannot accidentally match a TAGGED relationship from a different app
     //    that happens to share the same tag_id.
-    let Some(row) =
-        fetch_row_from_graph(queries::get::get_tag_target(&user_id, &tag_id, app.as_deref()))
-            .await?
+    let Some(row) = fetch_row_from_graph(queries::get::get_tag_target(
+        &user_id,
+        &tag_id,
+        app.as_deref(),
+    ))
+    .await?
     else {
         // Edge already gone (fully completed on a prior attempt) — idempotent no-op
         return Ok(());

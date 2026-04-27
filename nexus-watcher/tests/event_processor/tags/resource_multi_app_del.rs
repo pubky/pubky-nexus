@@ -14,9 +14,7 @@
 ///
 /// The test verifies that deleting each tag removes only that tag and leaves
 /// the remaining two untouched.
-use super::resource_utils::{
-    compute_resource_id, count_resource_tags, find_resource_tag_by_app,
-};
+use super::resource_utils::{compute_resource_id, count_resource_tags, find_resource_tag_by_app};
 use super::utils::find_user_tag;
 use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
@@ -126,7 +124,8 @@ async fn test_universal_tag_del_scoped_to_app_namespace() -> Result<()> {
         "mapky tag should be gone after delete"
     );
 
-    let eventky_tag_after_mapky = find_resource_tag_by_app(&resource_id, label, "eventky.app").await?;
+    let eventky_tag_after_mapky =
+        find_resource_tag_by_app(&resource_id, label, "eventky.app").await?;
     assert!(
         eventky_tag_after_mapky.is_some(),
         "eventky.app tag must NOT be affected by mapky delete"
