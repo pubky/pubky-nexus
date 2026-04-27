@@ -10,8 +10,8 @@ use tokio::sync::watch::Receiver;
 use tracing::{debug, info, warn};
 
 use super::store::{RedisRetryStore, RetryStore};
+use super::RetryEvent;
 use super::RetryScheduler;
-use super::{RetryEvent, RetryEventIndexKey};
 use crate::events::{DefaultEventHandler, EventHandler, Moderation};
 use crate::service::indexer::TEventProcessor;
 
@@ -91,14 +91,14 @@ impl RetryProcessor {
     async fn fetch_ready_events(
         &self,
         now: i64,
-    ) -> Result<Vec<(RetryEventIndexKey, RetryEvent)>, EventProcessorError> {
+    ) -> Result<Vec<(String, RetryEvent)>, EventProcessorError> {
         self.store.fetch_ready(now, Some(RETRY_BATCH_SIZE)).await
     }
 
     /// Process a single retry event
     async fn process_retry_event(
         &self,
-        index_key: &RetryEventIndexKey,
+        index_key: &str,
         retry_event: RetryEvent,
     ) -> Result<(), EventProcessorError> {
         // Reconstruct the event line and parse the event
@@ -183,7 +183,7 @@ impl RetryProcessor {
     async fn reschedule(
         &self,
         retry_event: &RetryEvent,
-        index_key: &RetryEventIndexKey,
+        index_key: &str,
         error: &EventProcessorError,
         increment_count: bool,
     ) -> Result<(), EventProcessorError> {

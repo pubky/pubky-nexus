@@ -32,6 +32,9 @@ pub fn try_parse_app_tag_path(uri: &str) -> Option<AppTagInfo> {
         return None;
     }
 
+    // Strip query string (?...) or fragment (#...) from tag_id
+    let tag_id = tag_id.find(['?', '#']).map_or(tag_id, |pos| &tag_id[..pos]);
+
     // Validate: app must be a single path segment, tag_id must not contain slashes
     if app.is_empty() || app.contains('/') || tag_id.is_empty() || tag_id.contains('/') {
         return None;
@@ -158,6 +161,41 @@ mod tests {
     fn test_try_parse_app_tag_path_empty_tag_returns_none() {
         assert!(try_parse_app_tag_path(
             "pubky://8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo/pub/mapky/tags/"
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn test_try_parse_app_tag_path_query_string_stripped() {
+        let info = try_parse_app_tag_path(
+            "pubky://8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo/pub/mapky/tags/ABC123?foo=bar",
+        );
+        assert!(info.is_some(), "Should accept URI with query string");
+        assert_eq!(
+            info.unwrap().tag_id,
+            "ABC123",
+            "tag_id must not include query string"
+        );
+    }
+
+    #[test]
+    fn test_try_parse_app_tag_path_fragment_stripped() {
+        let info = try_parse_app_tag_path(
+            "pubky://8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo/pub/mapky/tags/ABC123#section",
+        );
+        assert!(info.is_some(), "Should accept URI with fragment");
+        assert_eq!(
+            info.unwrap().tag_id,
+            "ABC123",
+            "tag_id must not include fragment"
+        );
+    }
+
+    #[test]
+    fn test_try_parse_app_tag_path_empty_tag_after_query_returns_none() {
+        // tag_id becomes empty after stripping the query string
+        assert!(try_parse_app_tag_path(
+            "pubky://8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo/pub/mapky/tags/?foo=bar"
         )
         .is_none());
     }

@@ -3,9 +3,6 @@ use nexus_common::db::kv::{RedisResult, SortOrder};
 use nexus_common::models::event::EventType;
 use serde::{Deserialize, Serialize};
 
-/// The URI of the event's resource, used as the unique key in the retry index.
-pub type RetryEventIndexKey = String;
-
 use nexus_common::db::RedisOps;
 
 use crate::events::EventProcessorError;
@@ -49,20 +46,20 @@ impl RetryEvent {
     /// Stores an event in both a sorted set and a JSON index in Redis.
     /// The sorted set uses next_retry_at as the score for efficient retrieval of ready events.
     /// # Arguments
-    /// * `index_key` - A `&RetryEventIndexKey` representing the index key (used as member in sorted set and JSON key)
+    /// * `index_key` - the index key (used as member in sorted set and JSON key)
     #[tracing::instrument(name = "retry.index.write", skip_all)]
-    pub async fn put_to_index(&self, index_key: &RetryEventIndexKey) -> RedisResult<()> {
+    pub async fn put_to_index(&self, index_key: &str) -> RedisResult<()> {
         // Add to sorted set with next_retry_at as score
         Self::put_index_sorted_set(
             &RETRY_MANAGER_EVENTS_INDEX,
-            &[(self.next_retry_at as f64, index_key.as_str())],
+            &[(self.next_retry_at as f64, index_key)],
             Some(RETRY_MANAGER_PREFIX),
             None,
         )
         .await?;
 
         // Store full RetryEvent struct in JSON
-        let index = &[RETRY_MANAGER_STATE_INDEX[0], index_key.as_str()];
+        let index = &[RETRY_MANAGER_STATE_INDEX[0], index_key];
         self.put_index_json(index, None, None).await?;
 
         Ok(())
@@ -72,8 +69,6 @@ impl RetryEvent {
     ///
     /// Only used by integration tests (`nexus-watcher/tests/`); kept `pub` because
     /// those tests compile against this crate as an external consumer.
-    /// # Arguments
-    /// * `index_key` - A `&str` representing the index key to check
     pub async fn check_uri(index_key: &str) -> RedisResult<bool> {
         Self::check_sorted_set_member(
             Some(RETRY_MANAGER_PREFIX),
@@ -85,10 +80,8 @@ impl RetryEvent {
     }
 
     /// Retrieves an event from the JSON index in Redis based on its index
-    /// # Arguments
-    /// * `index_key` - A `&RetryEventIndexKey` representing the index key to retrieve
-    pub async fn get_from_index(index_key: &RetryEventIndexKey) -> RedisResult<Option<Self>> {
-        let index = &[RETRY_MANAGER_STATE_INDEX[0], index_key.as_str()];
+    pub async fn get_from_index(index_key: &str) -> RedisResult<Option<Self>> {
+        let index = &[RETRY_MANAGER_STATE_INDEX[0], index_key];
         Self::try_from_index_json(index, None).await
     }
 
@@ -106,20 +99,18 @@ impl RetryEvent {
     }
 
     /// Removes an event from the retry queue (both sorted set and JSON state)
-    /// # Arguments
-    /// * `index_key` - A `&RetryEventIndexKey` representing the index key to remove
     #[tracing::instrument(name = "retry.index.remove", skip_all)]
-    pub async fn remove_from_index(index_key: &RetryEventIndexKey) -> RedisResult<()> {
+    pub async fn remove_from_index(index_key: &str) -> RedisResult<()> {
         // Remove from sorted set
         Self::remove_from_index_sorted_set(
             Some(RETRY_MANAGER_PREFIX),
             &RETRY_MANAGER_EVENTS_INDEX,
-            &[index_key.as_str()],
+            &[index_key],
         )
         .await?;
 
         // Remove JSON state
-        let index = &[RETRY_MANAGER_STATE_INDEX[0], index_key.as_str()];
+        let index = &[RETRY_MANAGER_STATE_INDEX[0], index_key];
         Self::remove_from_index_multiple_json(&[index.as_slice()]).await?;
 
         Ok(())
@@ -149,7 +140,7 @@ impl RetryEvent {
     pub async fn fetch_ready(
         now: i64,
         limit: Option<usize>,
-    ) -> Result<Vec<(RetryEventIndexKey, f64)>, EventProcessorError> {
+    ) -> Result<Vec<(String, f64)>, EventProcessorError> {
         Self::try_from_index_sorted_set(
             &RETRY_MANAGER_EVENTS_INDEX,
             Some(now as f64), // max_score (start → max in get_range)

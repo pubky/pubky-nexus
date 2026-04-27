@@ -2,7 +2,7 @@ use crate::event_processor::utils::watcher::{
     assert_eventually_exists, HomeserverHashIdPath, WatcherTest,
 };
 use anyhow::Result;
-use nexus_watcher::events::retry::{RetryEvent, RetryEventIndexKey};
+use nexus_watcher::events::retry::RetryEvent;
 use pubky::Keypair;
 use pubky_app_specs::{
     bookmark_uri_builder, post_uri_builder, traits::HashId, PubkyAppBookmark, PubkyAppUser,
@@ -42,7 +42,7 @@ async fn test_homeserver_bookmark_cannot_index() -> Result<()> {
     // PUT bookmark
     test.put(&user_kp, &bookmark_path, bookmark).await?;
 
-    let index_key: RetryEventIndexKey = bookmark_absolute_url.clone();
+    let index_key = bookmark_absolute_url.clone();
 
     assert_eventually_exists(&index_key).await;
 

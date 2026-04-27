@@ -6,7 +6,7 @@ use tracing::warn;
 use nexus_common::models::event::{Event, EventProcessorError};
 use nexus_common::WatcherConfig;
 
-use super::{RedisRetryStore, RetryEvent, RetryEventIndexKey, RetryStore};
+use super::{RedisRetryStore, RetryEvent, RetryStore};
 
 /// Initial backoff durations applied when an event first lands on the retry queue.
 /// Subsequent reschedules use exponential backoff inside [`super::RetryProcessor`].
@@ -61,15 +61,13 @@ impl RetryScheduler {
         initial_backoff_ms: i64,
         reason: &str,
     ) -> Result<(), EventProcessorError> {
-        let key: RetryEventIndexKey = event.uri.clone();
-
         let next_retry_at = Utc::now().timestamp_millis() + initial_backoff_ms;
         let retry_event =
             RetryEvent::new(event.event_type.clone(), event.uri.clone(), next_retry_at);
 
         // New EventRetries for the same URI will reset the retry_count
         // The HS state changed since the earlier event, so we disregard previous retry attempts
-        self.store.put(&key, &retry_event).await?;
+        self.store.put(&event.uri, &retry_event).await?;
         warn!("Queued event for retry ({}): {}", reason, event.uri);
         Ok(())
     }

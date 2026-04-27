@@ -6,7 +6,7 @@ use tracing::debug;
 
 use nexus_common::models::event::EventProcessorError;
 
-use super::{RetryEvent, RetryEventIndexKey};
+use super::RetryEvent;
 
 /// Storage backend for [`RetryEvent`]s.
 ///
@@ -16,20 +16,13 @@ use super::{RetryEvent, RetryEventIndexKey};
 #[async_trait]
 pub trait RetryStore: Send + Sync {
     /// Insert or replace the event stored under `index_key`.
-    async fn put(
-        &self,
-        index_key: &RetryEventIndexKey,
-        event: &RetryEvent,
-    ) -> Result<(), EventProcessorError>;
+    async fn put(&self, index_key: &str, event: &RetryEvent) -> Result<(), EventProcessorError>;
 
     /// Retrieve the event for `index_key`, if any.
-    async fn get(
-        &self,
-        index_key: &RetryEventIndexKey,
-    ) -> Result<Option<RetryEvent>, EventProcessorError>;
+    async fn get(&self, index_key: &str) -> Result<Option<RetryEvent>, EventProcessorError>;
 
     /// Remove `index_key` from the store. No-op if absent.
-    async fn remove(&self, index_key: &RetryEventIndexKey) -> Result<(), EventProcessorError>;
+    async fn remove(&self, index_key: &str) -> Result<(), EventProcessorError>;
 
     /// Return all events with `next_retry_at <= now`, ordered ascending by
     /// `next_retry_at`, capped at `limit` if provided.
@@ -41,7 +34,7 @@ pub trait RetryStore: Send + Sync {
         &self,
         now: i64,
         limit: Option<usize>,
-    ) -> Result<Vec<(RetryEventIndexKey, RetryEvent)>, EventProcessorError>;
+    ) -> Result<Vec<(String, RetryEvent)>, EventProcessorError>;
 }
 
 /// Redis-backed [`RetryStore`], delegating to the `RetryEvent::*` helpers that
@@ -62,23 +55,16 @@ impl Default for RedisRetryStore {
 
 #[async_trait]
 impl RetryStore for RedisRetryStore {
-    async fn put(
-        &self,
-        index_key: &RetryEventIndexKey,
-        event: &RetryEvent,
-    ) -> Result<(), EventProcessorError> {
+    async fn put(&self, index_key: &str, event: &RetryEvent) -> Result<(), EventProcessorError> {
         event.put_to_index(index_key).await?;
         Ok(())
     }
 
-    async fn get(
-        &self,
-        index_key: &RetryEventIndexKey,
-    ) -> Result<Option<RetryEvent>, EventProcessorError> {
+    async fn get(&self, index_key: &str) -> Result<Option<RetryEvent>, EventProcessorError> {
         Ok(RetryEvent::get_from_index(index_key).await?)
     }
 
-    async fn remove(&self, index_key: &RetryEventIndexKey) -> Result<(), EventProcessorError> {
+    async fn remove(&self, index_key: &str) -> Result<(), EventProcessorError> {
         RetryEvent::remove_from_index(index_key).await?;
         Ok(())
     }
@@ -87,7 +73,7 @@ impl RetryStore for RedisRetryStore {
         &self,
         now: i64,
         limit: Option<usize>,
-    ) -> Result<Vec<(RetryEventIndexKey, RetryEvent)>, EventProcessorError> {
+    ) -> Result<Vec<(String, RetryEvent)>, EventProcessorError> {
         let key_score_pairs = RetryEvent::fetch_ready(now, limit).await?;
 
         // Batch-fetch JSON state for every candidate in a single JSON.MGET.
@@ -95,7 +81,7 @@ impl RetryStore for RedisRetryStore {
         let maybe_events = RetryEvent::get_multiple_from_index(&keys).await?;
 
         let mut events = Vec::with_capacity(key_score_pairs.len());
-        let mut stale: Vec<RetryEventIndexKey> = Vec::new();
+        let mut stale: Vec<String> = Vec::new();
         for ((index_key, _score), maybe_event) in key_score_pairs.into_iter().zip(maybe_events) {
             match maybe_event {
                 Some(event) => events.push((index_key, event)),
@@ -141,26 +127,19 @@ impl Default for InMemoryRetryStore {
 
 #[async_trait]
 impl RetryStore for InMemoryRetryStore {
-    async fn put(
-        &self,
-        index_key: &RetryEventIndexKey,
-        event: &RetryEvent,
-    ) -> Result<(), EventProcessorError> {
+    async fn put(&self, index_key: &str, event: &RetryEvent) -> Result<(), EventProcessorError> {
         self.inner
             .lock()
             .await
-            .insert(index_key.clone(), event.clone());
+            .insert(index_key.to_owned(), event.clone());
         Ok(())
     }
 
-    async fn get(
-        &self,
-        index_key: &RetryEventIndexKey,
-    ) -> Result<Option<RetryEvent>, EventProcessorError> {
+    async fn get(&self, index_key: &str) -> Result<Option<RetryEvent>, EventProcessorError> {
         Ok(self.inner.lock().await.get(index_key).cloned())
     }
 
-    async fn remove(&self, index_key: &RetryEventIndexKey) -> Result<(), EventProcessorError> {
+    async fn remove(&self, index_key: &str) -> Result<(), EventProcessorError> {
         self.inner.lock().await.remove(index_key);
         Ok(())
     }
@@ -169,9 +148,9 @@ impl RetryStore for InMemoryRetryStore {
         &self,
         now: i64,
         limit: Option<usize>,
-    ) -> Result<Vec<(RetryEventIndexKey, RetryEvent)>, EventProcessorError> {
+    ) -> Result<Vec<(String, RetryEvent)>, EventProcessorError> {
         let guard = self.inner.lock().await;
-        let mut ready: Vec<(RetryEventIndexKey, RetryEvent)> = guard
+        let mut ready: Vec<(String, RetryEvent)> = guard
             .iter()
             .filter(|(_, event)| event.next_retry_at <= now)
             .map(|(key, event)| (key.clone(), event.clone()))
