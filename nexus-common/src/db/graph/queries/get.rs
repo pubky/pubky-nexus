@@ -175,8 +175,8 @@ pub fn has_other_resource_tag_by_label(
     app: Option<&str>,
 ) -> Query {
     let exclude_current_tag = match app {
-        Some(_) => "\n         WHERE NOT (tag.id = $tag_id AND tag.app = $app)",
-        None => "\n         WHERE NOT (tag.id = $tag_id AND tag.app IS NULL)",
+        Some(_) => "\n         WHERE tag.id <> $tag_id OR tag.app IS NULL OR tag.app <> $app",
+        None => "\n         WHERE tag.id <> $tag_id OR tag.app IS NOT NULL",
     };
 
     let cypher = format!(
@@ -187,6 +187,74 @@ pub fn has_other_resource_tag_by_label(
     let mut query = Query::new("has_other_resource_tag_by_label", &cypher)
         .param("user_id", user_id)
         .param("resource_id", resource_id)
+        .param("label", label)
+        .param("tag_id", tag_id);
+
+    if let Some(a) = app {
+        query = query.param("app", a);
+    }
+
+    query
+}
+
+/// Returns whether the tagger still has another TAGGED relationship with the
+/// same label on the same User after excluding the relationship currently being
+/// deleted.
+pub fn has_other_user_tag_by_label(
+    tagger_id: &str,
+    tagged_user_id: &str,
+    label: &str,
+    tag_id: &str,
+    app: Option<&str>,
+) -> Query {
+    let exclude_current_tag = match app {
+        Some(_) => "\n         WHERE tag.id <> $tag_id OR tag.app IS NULL OR tag.app <> $app",
+        None => "\n         WHERE tag.id <> $tag_id OR tag.app IS NOT NULL",
+    };
+
+    let cypher = format!(
+        "MATCH (:User {{id: $tagger_id}})-[tag:TAGGED {{label: $label}}]->(:User {{id: $tagged_user_id}}){exclude_current_tag}
+         RETURN COUNT(tag) > 0 AS has_other_tag"
+    );
+
+    let mut query = Query::new("has_other_user_tag_by_label", &cypher)
+        .param("tagger_id", tagger_id)
+        .param("tagged_user_id", tagged_user_id)
+        .param("label", label)
+        .param("tag_id", tag_id);
+
+    if let Some(a) = app {
+        query = query.param("app", a);
+    }
+
+    query
+}
+
+/// Returns whether the tagger still has another TAGGED relationship with the
+/// same label on the same Post after excluding the relationship currently being
+/// deleted.
+pub fn has_other_post_tag_by_label(
+    tagger_id: &str,
+    author_id: &str,
+    post_id: &str,
+    label: &str,
+    tag_id: &str,
+    app: Option<&str>,
+) -> Query {
+    let exclude_current_tag = match app {
+        Some(_) => "\n         WHERE tag.id <> $tag_id OR tag.app IS NULL OR tag.app <> $app",
+        None => "\n         WHERE tag.id <> $tag_id OR tag.app IS NOT NULL",
+    };
+
+    let cypher = format!(
+        "MATCH (:User {{id: $tagger_id}})-[tag:TAGGED {{label: $label}}]->(:Post {{id: $post_id}})<-[:AUTHORED]-(:User {{id: $author_id}}){exclude_current_tag}
+         RETURN COUNT(tag) > 0 AS has_other_tag"
+    );
+
+    let mut query = Query::new("has_other_post_tag_by_label", &cypher)
+        .param("tagger_id", tagger_id)
+        .param("author_id", author_id)
+        .param("post_id", post_id)
         .param("label", label)
         .param("tag_id", tag_id);
 

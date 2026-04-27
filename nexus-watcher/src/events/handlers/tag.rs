@@ -452,7 +452,15 @@ pub async fn del(
                 TagUser::check_set_member(&[&tagged_id, &label], user_id.as_str())
                     .await?
                     .1;
-            del_sync_user(user_id.clone(), &tagged_id, &label, tagger_in_index).await?;
+            del_sync_user(
+                user_id.clone(),
+                &tag_id,
+                &tagged_id,
+                &label,
+                app.as_deref(),
+                tagger_in_index,
+            )
+            .await?;
         }
         (None, Some(post_id), Some(author_id), None) => {
             let tagger_in_index =
@@ -461,9 +469,11 @@ pub async fn del(
                     .1;
             del_sync_post(
                 user_id.clone(),
+                &tag_id,
                 &post_id,
                 &author_id,
                 &label,
+                app.as_deref(),
                 tagger_in_index,
             )
             .await?;
@@ -484,10 +494,28 @@ pub async fn del(
 
 async fn del_sync_user(
     tagger_id: PubkyId,
+    tag_id: &str,
     tagged_id: &str,
     tag_label: &str,
+    app: Option<&str>,
     tagger_in_index: bool,
 ) -> Result<(), EventProcessorError> {
+    // Post/User tag Redis indexes are app-agnostic. If another graph edge from
+    // the same tagger still uses this label on this target, keep the shared
+    // tagger set member so the remaining edge stays visible in cached views.
+    let has_other_tag = fetch_key_from_graph(
+        queries::get::has_other_user_tag_by_label(
+            tagger_id.as_str(),
+            tagged_id,
+            tag_label,
+            tag_id,
+            app,
+        ),
+        "has_other_tag",
+    )
+    .await?
+    .unwrap_or(false);
+
     let indexing_results = nexus_common::traced_join!(
         tracing::info_span!("index.delete", phase = "tag_user");
         // Guarded: Update user counts in the tagged
@@ -515,10 +543,12 @@ async fn del_sync_user(
             Ok::<(), EventProcessorError>(())
         },
         async {
-            // Idempotent: Remove tagger from the user taggers list (SREM)
-            TagUser(vec![tagger_id.to_string()])
-                .del_from_index(tagged_id, None, tag_label)
-                .await?;
+            if !has_other_tag {
+                // Idempotent: Remove tagger from the user taggers list (SREM)
+                TagUser(vec![tagger_id.to_string()])
+                    .del_from_index(tagged_id, None, tag_label)
+                    .await?;
+            }
             Ok::<(), EventProcessorError>(())
         },
         // Guarded: notification
@@ -541,11 +571,30 @@ async fn del_sync_user(
 
 async fn del_sync_post(
     tagger_id: PubkyId,
+    tag_id: &str,
     post_id: &str,
     author_id: &str,
     tag_label: &str,
+    app: Option<&str>,
     tagger_in_index: bool,
 ) -> Result<(), EventProcessorError> {
+    // Post/User tag Redis indexes are app-agnostic. If another graph edge from
+    // the same tagger still uses this label on this target, keep the shared
+    // tagger set member so the remaining edge stays visible in cached views.
+    let has_other_tag = fetch_key_from_graph(
+        queries::get::has_other_post_tag_by_label(
+            tagger_id.as_str(),
+            author_id,
+            post_id,
+            tag_label,
+            tag_id,
+            app,
+        ),
+        "has_other_tag",
+    )
+    .await?
+    .unwrap_or(false);
+
     let post_key_slice: &[&str] = &[author_id, post_id];
     let tag_post = TagPost(vec![tagger_id.to_string()]);
     let post_uri = post_uri_builder(author_id.to_string(), post_id.to_string());
@@ -608,10 +657,12 @@ async fn del_sync_post(
             Ok::<(), EventProcessorError>(())
         },
         async {
-            // Idempotent: Delete the tagger from the tag list (SREM)
-            tag_post
-                .del_from_index(author_id, Some(post_id), tag_label)
-                .await?;
+            if !has_other_tag {
+                // Idempotent: Delete the tagger from the tag list (SREM)
+                tag_post
+                    .del_from_index(author_id, Some(post_id), tag_label)
+                    .await?;
+            }
             // NOTE: The tag search index depends on the post taggers collection to delete
             // Delete post from global label timeline
             PostsByTagSearch::del_from_index(author_id, post_id, tag_label).await?;
