@@ -17,9 +17,6 @@ pub use moderation::Moderation;
 /// including mocked versions for testing.
 #[async_trait::async_trait]
 pub trait EventHandler: Send + Sync {
-    /// Handle an event.
-    ///
-    /// Returns `Ok(())` on success, or `Err(EventProcessorError)` on failure.
     async fn handle(&self, event: &Event) -> Result<(), EventProcessorError>;
 }
 

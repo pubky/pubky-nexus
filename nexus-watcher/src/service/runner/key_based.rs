@@ -16,7 +16,7 @@ use tracing::{debug, info, warn};
 
 /// Runner for [KeyBasedEventProcessor]
 pub struct KeyBasedEventProcessorRunner {
-    /// See [WatcherConfig::key_based_events_limit]
+    /// See [WatcherConfig::events_limit]
     pub limit: u16,
     /// See [WatcherConfig::monitored_homeservers_limit]
     pub monitored_hs_limit: usize,

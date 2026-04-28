@@ -120,27 +120,25 @@ impl RetryProcessor {
             }
         };
 
+        let ev_uri = &retry_event.event_uri;
+        let ev_retry_count = retry_event.retry_count;
+
         // Call event_handler directly to get the actual error (bypassing handle_event/handle_error)
-        match self.event_handler().handle(&event).await {
+        let event_handle_res = self.event_handler().handle(&event).await.inspect_err(|e| {
+            // In case of error, log it before the error itself is classified and handled
+            // Error handling could itself throw an error. We log it here to pre-empt this possibility.
+            warn!("Retry event handling failed: {e}");
+        });
+
+        match event_handle_res {
             Ok(()) => {
                 // Success - event was processed, remove from retry queue
-                debug!("Retry successful for event: {}", retry_event.event_uri);
-                self.store.remove(index_key).await?;
-            }
-            Err(e) if e.is_404() => {
-                // Content gone - remove from retry queue
-                warn!(
-                    "Content no longer exists (404) for retry: {}",
-                    retry_event.event_uri
-                );
+                debug!("Retry successful for event: {ev_uri}");
                 self.store.remove(index_key).await?;
             }
             Err(e) if !e.is_retryable() => {
                 // Non-retryable error (ParseFailed, etc.) - dead-letter immediately
-                warn!(
-                    "Event {} failed with non-retryable error, dead-lettering: {}",
-                    retry_event.event_uri, e
-                );
+                warn!("Event {ev_uri} failed with non-retryable error, dead-lettering: {e}");
                 self.store.remove(index_key).await?;
             }
             Err(e) if e.is_infrastructure() => {
@@ -150,23 +148,11 @@ impl RetryProcessor {
                 self.reschedule(&retry_event, index_key, &e, false).await?;
                 return Err(e);
             }
+            Err(e) if ev_retry_count >= self.get_max_retries_for_err(&e) => {
+                warn!("Event {ev_uri} exceeded max retries ({ev_retry_count}), dead-lettering");
+                self.store.remove(index_key).await?;
+            }
             Err(e) => {
-                // Check if we've exceeded max retries based on current error type
-                let max_retries = if e.is_missing_dependency() {
-                    self.config.max_dependency_retries
-                } else {
-                    self.config.max_retries
-                };
-
-                if retry_event.retry_count >= max_retries {
-                    warn!(
-                        "Event {} exceeded max retries ({}) - dead-lettering",
-                        retry_event.event_uri, retry_event.retry_count
-                    );
-                    self.store.remove(index_key).await?;
-                    return Ok(());
-                }
-
                 // Schedule retry with backoff (increments retry_count)
                 self.reschedule(&retry_event, index_key, &e, true).await?;
             }
@@ -192,16 +178,8 @@ impl RetryProcessor {
             false => retry_event.retry_count,
         };
 
-        let initial = match error.is_missing_dependency() {
-            true => self.config.initial_missing_dep_backoff_secs,
-            false => self.config.initial_backoff_secs,
-        };
-        let max = match error.is_missing_dependency() {
-            true => self.config.max_missing_dep_backoff_secs,
-            false => self.config.max_backoff_secs,
-        };
-
         // Calculate backoff based on error type
+        let (initial, max) = self.config.get_backoff_params(error);
         // Use retry_count (not new_retry_count) so first retry uses 2^0 * initial = initial
         let backoff_secs = self.calculate_backoff(retry_event.retry_count, initial, max);
 
@@ -231,5 +209,13 @@ impl RetryProcessor {
             .and_then(|p| initial.checked_mul(p))
             .unwrap_or(max);
         min(exponential, max)
+    }
+
+    fn get_max_retries_for_err(&self, e: &EventProcessorError) -> u32 {
+        if e.is_missing_dependency() {
+            self.config.max_dependency_retries
+        } else {
+            self.config.max_retries
+        }
     }
 }
