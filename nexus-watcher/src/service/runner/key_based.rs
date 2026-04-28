@@ -16,17 +16,22 @@ use tracing::{debug, info, warn};
 
 /// Runner for [KeyBasedEventProcessor]
 pub struct KeyBasedEventProcessorRunner {
-    /// See [WatcherConfig::events_limit]
+    /// See [WatcherConfig::key_based_events_limit]
     pub limit: u16,
+
     /// See [WatcherConfig::monitored_homeservers_limit]
     pub monitored_hs_limit: usize,
+
     pub files_path: PathBuf,
     pub event_handler: Arc<dyn EventHandler>,
     pub shutdown_rx: Receiver<bool>,
+
     /// Default homeserver ID, excluded from the external targets list
     pub default_homeserver: PubkyId,
+
     /// Per-target exponential backoff state
     pub backoff: Mutex<HomeserverBackoff>,
+
     /// Scheduler shared with every processor this runner builds
     pub retry_scheduler: Arc<RetryScheduler>,
 }
