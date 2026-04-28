@@ -7,6 +7,7 @@ use nexus_common::models::event::{Event, EventProcessorError};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::user::{user_hs_cursor_key, UserDetails};
 use pubky::{EventCursor, PublicKey};
+use pubky_app_specs::PubkyId;
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info};
 
@@ -165,6 +166,11 @@ impl KeyBasedEventProcessor {
 
                 match Event::from_stream_event(&stream_event, self.files_path.clone()) {
                     Ok(Some(event)) => {
+                        // Validate event user before handling, since we received it from a 3rd party HS
+                        if event.parsed_uri.user_id() != &PubkyId::from(user_pk.clone()) {
+                            return Err(EventProcessorError::InvalidEventLine("Unexpected user PK".into()));
+                        }
+
                         self.handle_event(&event).await?;
                     }
                     Ok(None) => { /* resource not handled by Nexus, skip */ }
