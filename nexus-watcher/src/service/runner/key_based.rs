@@ -7,6 +7,7 @@ use crate::service::stats::{ProcessedStats, ProcessorRunStatus, RunAllProcessors
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
+use nexus_common::MAX_KEY_BASED_EVENTS_LIMIT;
 use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -16,7 +17,7 @@ use tracing::{debug, info, warn};
 /// Runner for [KeyBasedEventProcessor]
 pub struct KeyBasedEventProcessorRunner {
     /// See [WatcherConfig::events_limit]
-    pub limit: u32,
+    pub limit: u16,
     /// See [WatcherConfig::monitored_homeservers_limit]
     pub monitored_hs_limit: usize,
     pub files_path: PathBuf,
@@ -33,8 +34,18 @@ pub struct KeyBasedEventProcessorRunner {
 impl KeyBasedEventProcessorRunner {
     /// Creates a new instance from the provided configuration
     pub fn from_config(config: &WatcherConfig, shutdown_rx: Receiver<bool>) -> Self {
+        let limit = config
+            .key_based_events_limit
+            .min(MAX_KEY_BASED_EVENTS_LIMIT);
+        if config.key_based_events_limit > MAX_KEY_BASED_EVENTS_LIMIT {
+            warn!(
+                "key_based_events_limit ({}) exceeds max ({}), clamped",
+                config.key_based_events_limit, MAX_KEY_BASED_EVENTS_LIMIT
+            );
+        }
+
         Self {
-            limit: config.events_limit,
+            limit,
             monitored_hs_limit: config.monitored_homeservers_limit,
             files_path: config.stack.files_path.clone(),
             event_handler: Arc::new(DefaultEventHandler::new(Moderation::from_config(config))),
@@ -79,9 +90,11 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
 
         Ok(Arc::new(KeyBasedEventProcessor {
             homeserver,
+            limit: self.limit,
             files_path: self.files_path.clone(),
             event_handler: self.event_handler.clone(),
             retry_scheduler: self.retry_scheduler.clone(),
+            shutdown_rx: self.shutdown_rx.clone(),
         }))
     }
 

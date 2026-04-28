@@ -4,15 +4,16 @@ use crate::events::{DefaultEventHandler, EventHandler, Moderation};
 use crate::service::indexer::{HsEventProcessor, TEventProcessor};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
-use nexus_common::WatcherConfig;
+use nexus_common::{WatcherConfig, MAX_EVENTS_LIMIT};
 use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
+use tracing::warn;
 
 pub struct HsEventProcessorRunner {
     /// See [WatcherConfig::events_limit]
-    pub limit: u32,
+    pub limit: u16,
     pub files_path: PathBuf,
     pub event_handler: Arc<dyn EventHandler>,
     pub shutdown_rx: Receiver<bool>,
@@ -25,8 +26,16 @@ pub struct HsEventProcessorRunner {
 impl HsEventProcessorRunner {
     /// Creates a new instance from the provided configuration
     pub fn from_config(config: &WatcherConfig, shutdown_rx: Receiver<bool>) -> Self {
+        let limit = config.events_limit.min(MAX_EVENTS_LIMIT);
+        if config.events_limit > MAX_EVENTS_LIMIT {
+            warn!(
+                "events_limit ({}) exceeds max ({}), clamped",
+                config.events_limit, MAX_EVENTS_LIMIT
+            );
+        }
+
         Self {
-            limit: config.events_limit,
+            limit,
             files_path: config.stack.files_path.clone(),
             event_handler: Arc::new(DefaultEventHandler::new(Moderation::from_config(config))),
             shutdown_rx,

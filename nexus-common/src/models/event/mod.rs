@@ -4,6 +4,7 @@ use crate::{
     db::{kv::RedisResult, RedisOps},
     universal_tag::homeserver_parsed_uri::HomeserverParsedUri,
 };
+use pubky::Event as StreamEvent;
 use pubky_app_specs::Resource;
 use serde::{Deserialize, Serialize};
 use std::{fmt, path::PathBuf};
@@ -72,9 +73,7 @@ impl AsRef<[String]> for Event {
 }
 
 impl Event {
-    /// Parse event based on event line returned by homeservers' /events endpoint.
-    /// - line - event line string
-    /// - files_path - path to the directory where files are stored on nexus
+    /// Parse event from a line returned by the homeserver's `/events` endpoint.
     pub fn parse_event(
         line: &str,
         files_path: PathBuf,
@@ -129,6 +128,58 @@ impl Event {
             uri,
             event_type,
             parsed_uri: homeserver_parsed_uri,
+            files_path,
+            event_line,
+        }))
+    }
+
+    /// Constructs a nexus [`Event`] directly from a [`StreamEvent`], avoiding
+    /// the string round-trip through [`Self::parse_event`].
+    pub fn from_stream_event(
+        stream_event: &StreamEvent,
+        files_path: PathBuf,
+    ) -> Result<Option<Self>, EventProcessorError> {
+        let event_type = match &stream_event.event_type {
+            pubky::EventType::Put { .. } => EventType::Put,
+            pubky::EventType::Delete => EventType::Del,
+        };
+
+        let uri = stream_event.resource.to_pubky_url();
+        debug!("New stream event: {event_type} {uri}");
+
+        let event_line = format!("{event_type} {uri}");
+        Self::build(event_type, uri, event_line, files_path)
+    }
+
+    fn build(
+        event_type: EventType,
+        uri: String,
+        event_line: String,
+        files_path: PathBuf,
+    ) -> Result<Option<Self>, EventProcessorError> {
+        let parsed_uri = HomeserverParsedUri::try_from(uri.as_str()).map_err(|e| {
+            EventProcessorError::InvalidEventLine(format!("Cannot parse event URI: {e}"))
+        })?;
+
+        match &parsed_uri {
+            HomeserverParsedUri::AppSpec {
+                user_id: _,
+                resource,
+            } => match resource {
+                Resource::Unknown => {
+                    debug!("Skipping unrecognised resource: {uri}");
+                    return Ok(None);
+                }
+                Resource::LastRead | Resource::Feed(_) | Resource::Blob(_) => return Ok(None),
+                _ => (),
+            },
+            _ => (),
+        }
+
+        Ok(Some(Event {
+            uri,
+            event_type,
+            parsed_uri,
             files_path,
             event_line,
         }))
