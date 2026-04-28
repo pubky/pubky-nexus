@@ -74,11 +74,6 @@ impl From<pubky::Error> for PubkyClientError {
 }
 
 impl PubkyClientError {
-    /// Returns true if this error is a 404 (content not found)
-    pub fn is_404(&self) -> bool {
-        matches!(self, Self::NotFound404 { .. })
-    }
-
     /// Returns true if this error is transient and worth retrying
     pub fn is_retryable(&self) -> bool {
         matches!(

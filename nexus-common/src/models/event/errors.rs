@@ -166,9 +166,4 @@ impl EventProcessorError {
     pub fn is_missing_dependency(&self) -> bool {
         matches!(self, Self::MissingDependency { .. })
     }
-
-    /// Returns whether this error indicates a 404 (content definitively gone)
-    pub fn is_404(&self) -> bool {
-        matches!(self, Self::PubkyClientError(err) if err.is_404())
-    }
 }
