@@ -3,10 +3,11 @@ use std::sync::Arc;
 
 use futures::StreamExt;
 use nexus_common::db::{PubkyConnector, RedisOps};
-use nexus_common::models::event::{Event, EventProcessorError};
+use nexus_common::models::event::{Event, EventProcessorError, UserIdMismatch};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::user::{user_hs_cursor_key, UserDetails};
 use pubky::{EventCursor, PublicKey};
+use pubky_app_specs::PubkyId;
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info};
 
@@ -165,6 +166,9 @@ impl KeyBasedEventProcessor {
 
                 match Event::from_stream_event(&stream_event, self.files_path.clone()) {
                     Ok(Some(event)) => {
+                        // Validate event user before handling, since we received it from a 3rd party HS
+                        Self::validate_user_id(hs_id, &event, PubkyId::from(user_pk.clone()))?;
+
                         self.handle_event(&event).await?;
                     }
                     Ok(None) => { /* resource not handled by Nexus, skip */ }
@@ -202,6 +206,23 @@ impl KeyBasedEventProcessor {
         }
 
         result
+    }
+
+    fn validate_user_id(
+        hs_id: &str,
+        event: &Event,
+        expected_user_id: PubkyId,
+    ) -> Result<(), EventProcessorError> {
+        let event_user_id = event.parsed_uri.user_id();
+        if event_user_id != &expected_user_id {
+            return Err(EventProcessorError::UserIdMismatch(UserIdMismatch {
+                hs_id: hs_id.into(),
+                expected_user_id: expected_user_id.as_str().into(),
+                event_user_id: event_user_id.as_str().into(),
+            }));
+        }
+
+        Ok(())
     }
 
     /// Reads the per-user event cursor from the `USER_HS_CURSOR` sorted set in Redis.
