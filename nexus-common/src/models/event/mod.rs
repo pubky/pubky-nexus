@@ -161,19 +161,19 @@ impl Event {
             EventProcessorError::InvalidEventLine(format!("Cannot parse event URI: {e}"))
         })?;
 
-        match &parsed_uri {
-            HomeserverParsedUri::AppSpec {
-                user_id: _,
-                resource,
-            } => match resource {
+        if let HomeserverParsedUri::AppSpec {
+            user_id: _,
+            resource,
+        } = &parsed_uri
+        {
+            match resource {
                 Resource::Unknown => {
                     debug!("Skipping unrecognised resource: {uri}");
                     return Ok(None);
                 }
                 Resource::LastRead | Resource::Feed(_) | Resource::Blob(_) => return Ok(None),
                 _ => (),
-            },
-            _ => (),
+            }
         }
 
         Ok(Some(Event {
