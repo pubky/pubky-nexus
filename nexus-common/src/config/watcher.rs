@@ -119,6 +119,7 @@ pub struct WatcherConfig {
 
     /// Maximum events per user per run for key-based (non-default) homeservers.
     /// Clamped to [MAX_KEY_BASED_EVENTS_LIMIT] at load time.
+    #[serde(default = "default_key_based_events_limit")]
     pub key_based_events_limit: u16,
 
     /// Maximum number of monitored homeservers
@@ -185,6 +186,10 @@ impl Default for WatcherConfig {
 
 fn default_hs_resolver_sleep() -> u64 {
     DEFAULT_HS_RESOLVER_SLEEP
+}
+
+fn default_key_based_events_limit() -> u16 {
+    DEFAULT_KEY_BASED_EVENTS_LIMIT
 }
 
 fn default_hs_resolver_ttl() -> u64 {
