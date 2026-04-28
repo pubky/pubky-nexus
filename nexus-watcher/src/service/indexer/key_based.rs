@@ -167,7 +167,7 @@ impl KeyBasedEventProcessor {
                 match Event::from_stream_event(&stream_event, self.files_path.clone()) {
                     Ok(Some(event)) => {
                         // Validate event user before handling, since we received it from a 3rd party HS
-                        Self::validate_user_id(hs_id, &event, user_pk)?;
+                        Self::validate_user_id(hs_id, &event, PubkyId::from(user_pk.clone()))?;
 
                         self.handle_event(&event).await?;
                     }
@@ -211,16 +211,14 @@ impl KeyBasedEventProcessor {
     fn validate_user_id(
         hs_id: &str,
         event: &Event,
-        expected_user_pk: &PublicKey,
+        expected_user_id: PubkyId,
     ) -> Result<(), EventProcessorError> {
-        let event_user_id = event.parsed_uri.user_id().to_string();
-        let expected_user_id = expected_user_pk.to_z32();
-
-        if event_user_id != expected_user_id {
+        let event_user_id = event.parsed_uri.user_id();
+        if event_user_id != &expected_user_id {
             return Err(EventProcessorError::UserIdMismatch(UserIdMismatch {
                 hs_id: hs_id.into(),
-                expected_user_id,
-                event_user_id,
+                expected_user_id: expected_user_id.as_str().into(),
+                event_user_id: event_user_id.as_str().into(),
             }));
         }
 
