@@ -158,6 +158,7 @@ impl EventProcessorError {
             Self::PubkyClientError(err) => err.is_retryable(),
             Self::InvalidEventLine(_) => false,
             Self::SkipIndexing => false,
+            Self::UserIdMismatch(_) => false,
             _ => true,
         }
     }
