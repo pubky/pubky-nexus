@@ -1,6 +1,7 @@
+use crate::models::PubkyId;
 use crate::routes::v0::endpoints::USER_ROUTE;
 use crate::{Error, Result};
-use axum::extract::{Path, Query};
+use axum::extract::Query;
 use axum::Json;
 use nexus_common::models::tag::TagDetails;
 use nexus_common::models::user::UserView;
@@ -10,7 +11,7 @@ use utoipa::OpenApi;
 
 #[derive(Deserialize)]
 pub struct ProfileQuery {
-    viewer_id: Option<String>,
+    viewer_id: Option<PubkyId>,
     depth: Option<u8>,
 }
 
@@ -20,8 +21,8 @@ pub struct ProfileQuery {
     description = "User profile",
     tag = "User",
     params(
-        ("user_id" = String, Path, description = "User Pubky ID"),
-        ("viewer_id" = Option<String>, Query, description = "Viewer Pubky ID"),
+        ("user_id" = PubkyId, Path, description = "User Pubky ID"),
+        ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
         ("depth" = Option<usize>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 4, will be ignored")
     ),
     responses(
@@ -31,7 +32,7 @@ pub struct ProfileQuery {
     )
 )]
 pub async fn user_view_handler(
-    Path(user_id): Path<String>,
+    user_id: PubkyId,
     Query(query): Query<ProfileQuery>,
 ) -> Result<Json<UserView>> {
     debug!(
@@ -46,5 +47,8 @@ pub async fn user_view_handler(
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(user_view_handler), components(schemas(UserView, TagDetails)))]
+#[openapi(
+    paths(user_view_handler),
+    components(schemas(UserView, TagDetails, PubkyId))
+)]
 pub struct UserViewApiDoc;

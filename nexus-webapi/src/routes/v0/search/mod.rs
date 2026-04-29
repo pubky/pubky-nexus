@@ -11,7 +11,7 @@ mod posts;
 mod tags;
 mod users;
 
-pub const USER_ID_SEARCH_MIN_PREFIX_LEN: usize = 3;
+pub use crate::models::user_id_prefix::USER_ID_SEARCH_MIN_PREFIX_LEN;
 
 pub fn routes() -> Router<AppState> {
     Router::new()

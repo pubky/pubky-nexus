@@ -15,7 +15,7 @@ async fn test_stream_users_for_post_replies() -> Result<()> {
     ];
 
     let author_id = "emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy";
-    let post_id = "1A1P4D8C9K0F";
+    let post_id = "1A1P4D8C9K0FF";
 
     let body = get_request(&format!(
         "/v0/stream/users?source=post_replies&post_id={post_id}&author_id={author_id}",
@@ -61,7 +61,7 @@ async fn test_stream_users_for_post_replies_no_post_id() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_users_for_post_replies_no_author_id() -> Result<()> {
-    let post_id = "1A1P4D8C9K0F";
+    let post_id = "1A1P4D8C9K0FF";
     invalid_get_request(
         &format!("/v0/stream/users?source=post_replies&post_id={post_id}",),
         StatusCode::BAD_REQUEST,

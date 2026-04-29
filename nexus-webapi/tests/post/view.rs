@@ -44,7 +44,7 @@ async fn test_get_post_view() -> Result<()> {
 
     // Test non-existing post
     invalid_get_request(
-        &format!("/v0/post/{}/{}", author_id, "no_post"),
+        &format!("/v0/post/{}/{}", author_id, "2ZCA1TGR5BKG0"),
         StatusCode::NOT_FOUND,
     )
     .await?;

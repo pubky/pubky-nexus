@@ -11,7 +11,7 @@ mod bookmark;
 mod counts;
 mod details;
 pub mod tags;
-mod view;
+pub mod view;
 
 pub fn routes() -> Router<AppState> {
     Router::new()

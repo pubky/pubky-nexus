@@ -61,7 +61,7 @@ async fn test_user_endpoint() -> Result<()> {
     );
 
     // Look for a non existing pk
-    let user_id = "bad_user_id";
+    let user_id = "5g3fwnue819wfdjwiwm8qr35ww6uxxgbzrigrtdgmbi19ksioeoo";
     invalid_get_request(&format!("/v0/user/{user_id}"), StatusCode::NOT_FOUND).await?;
 
     Ok(())
@@ -77,8 +77,8 @@ async fn test_get_relationship() -> Result<()> {
     assert!(res["followed_by"].is_boolean());
 
     // Test non-existing relationship
-    let user_id = "bad_user_id";
-    let viewer_id = "bad_viewer_id";
+    let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64rr";
+    let viewer_id = "5g3fwnue819wfdjwiwm8qr35ww6uxxgbzrigrtdgmbi19ksioeoo";
     invalid_get_request(
         &format!("/v0/user/{user_id}/relationship/{viewer_id}"),
         StatusCode::NOT_FOUND,
@@ -127,7 +127,7 @@ async fn test_get_counts() -> Result<()> {
     assert_eq!(res["bookmarks"], 14);
 
     // Test non-existing user
-    let user_id = "bad_user_id";
+    let user_id = "pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jj";
     invalid_get_request(&format!("/v0/user/{user_id}/counts"), StatusCode::NOT_FOUND).await?;
 
     Ok(())
@@ -146,7 +146,7 @@ async fn test_get_details() -> Result<()> {
     assert!(res["indexed_at"].is_number());
 
     // Test non-existing user
-    let user_id = "bad_user_id";
+    let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64rr";
     invalid_get_request(
         &format!("/v0/user/{user_id}/details"),
         StatusCode::NOT_FOUND,

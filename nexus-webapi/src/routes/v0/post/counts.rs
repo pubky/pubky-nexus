@@ -1,4 +1,6 @@
+use crate::models::{PostId, PubkyId};
 use crate::routes::v0::endpoints::POST_COUNTS_ROUTE;
+use crate::routes::v0::post::view::PostPath;
 use crate::{Error, Result};
 use axum::extract::Path;
 use axum::Json;
@@ -12,8 +14,8 @@ use utoipa::OpenApi;
     description = "Post counts",
     tag = "Post",
     params(
-        ("author_id" = String, Path, description = "Author Pubky ID"),
-        ("post_id" = String, Path, description = "Post Crockford32 ID")
+        ("author_id" = PubkyId, Path, description = "Author Pubky ID"),
+        ("post_id" = PostId, Path, description = "Post Crockford32 ID")
     ),
     responses(
         (status = 200, description = "Post Counts", body = PostCounts),
@@ -21,10 +23,14 @@ use utoipa::OpenApi;
         (status = 500, description = "Internal server error")
     )
 )]
+//todo: test it manually - no integration tests
 pub async fn post_counts_handler(
-    Path((author_id, post_id)): Path<(String, String)>,
+    Path(PostPath { author_id, post_id }): Path<PostPath>,
 ) -> Result<Json<PostCounts>> {
-    debug!("GET {POST_COUNTS_ROUTE} author_id:{author_id}, post_id:{post_id}");
+    debug!(
+        "GET {POST_COUNTS_ROUTE} author_id:{}, post_id:{}",
+        author_id, post_id
+    );
 
     match PostCounts::get_by_id(&author_id, &post_id).await? {
         Some(post) => Ok(Json(post)),
@@ -33,5 +39,8 @@ pub async fn post_counts_handler(
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(post_counts_handler), components(schemas(PostCounts)))]
+#[openapi(
+    paths(post_counts_handler),
+    components(schemas(PostCounts, PubkyId, PostId))
+)]
 pub struct PostCountsApiDoc;

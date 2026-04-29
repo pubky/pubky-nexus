@@ -1,10 +1,18 @@
+use crate::models::PubkyId;
 use crate::routes::v0::endpoints::RELATIONSHIP_ROUTE;
 use crate::{Error, Result};
 use axum::extract::Path;
 use axum::Json;
 use nexus_common::models::user::Relationship;
+use serde::Deserialize;
 use tracing::debug;
 use utoipa::OpenApi;
+
+#[derive(Deserialize)]
+pub struct RelationshipPath {
+    pub user_id: PubkyId,
+    pub viewer_id: PubkyId,
+}
 
 #[utoipa::path(
     get,
@@ -12,8 +20,8 @@ use utoipa::OpenApi;
     description = "User <> Viewer Relationship",
     tag = "User",
     params(
-        ("user_id" = String, Path, description = "User Pubky ID"),
-        ("viewer_id" = String, Path, description = "Viewer Pubky ID")
+        ("user_id" = PubkyId, Path, description = "User Pubky ID"),
+        ("viewer_id" = PubkyId, Path, description = "Viewer Pubky ID")
     ),
     responses(
         (status = 200, description = "User relationship", body = Relationship),
@@ -22,7 +30,7 @@ use utoipa::OpenApi;
     )
 )]
 pub async fn user_relationship_handler(
-    Path((user_id, viewer_id)): Path<(String, String)>,
+    Path(RelationshipPath { user_id, viewer_id }): Path<RelationshipPath>,
 ) -> Result<Json<Relationship>> {
     debug!("GET {RELATIONSHIP_ROUTE} user_id:{user_id}, viewer_id:{viewer_id}");
 
@@ -33,5 +41,8 @@ pub async fn user_relationship_handler(
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(user_relationship_handler), components(schemas(Relationship)))]
+#[openapi(
+    paths(user_relationship_handler),
+    components(schemas(Relationship, PubkyId))
+)]
 pub struct RelationshipApiDoc;

@@ -125,7 +125,7 @@ async fn test_stream_posts_followers_with_start() -> Result<()> {
 
     assert!(body.is_array());
 
-    let post_array = ["K1P6Q9M2X4J8", "L3W5N0F8Q2J7", "M4X1P9L2J6K8"];
+    let post_array = ["00000039YD9CE", "00000039YD9CY", "00000039YD9DA"];
 
     for (index, post) in body
         .as_array()
@@ -156,7 +156,7 @@ async fn test_stream_posts_followers_with_start_and_end() -> Result<()> {
 
     assert!(body.is_array());
 
-    let post_array = ["K1P6Q9M2X4J8", "L3W5N0F8Q2J7"];
+    let post_array = ["00000039YD9CE", "00000039YD9CY"];
 
     for (index, post) in body
         .as_array()
@@ -188,7 +188,7 @@ async fn test_stream_posts_friend_with_start() -> Result<()> {
 
     assert!(body.is_array());
 
-    let post_array = ["4ZCW1TGL5BKG7", "L3W5N0F8Q2J7", "M4X1P9L2J6K8"];
+    let post_array = ["4ZCW1TGL5BKG7", "00000039YD9CY", "00000039YD9DA"];
 
     for (index, post) in body
         .as_array()
@@ -220,7 +220,7 @@ async fn test_stream_posts_friend_with_start_and_end() -> Result<()> {
 
     assert!(body.is_array());
 
-    let post_array = ["4ZCW1TGL5BKG7", "L3W5N0F8Q2J7"];
+    let post_array = ["4ZCW1TGL5BKG7", "00000039YD9CY"];
 
     for (index, post) in body
         .as_array()
@@ -247,10 +247,10 @@ async fn test_stream_posts_friend_with_start_and_end() -> Result<()> {
 // ##### REACH: FOLLOWING ####
 
 // Post order by timeline
-pub const POST_TA_ING: &str = "A5D6P9V3Q0T";
-pub const POST_TB_ING: &str = "C3L7W0F9Q4K8";
-pub const POST_TC_ING: &str = "K1P6Q9M2X4J8";
-pub const POST_TD_ING: &str = "N7Q2F5W8J0L3";
+pub const POST_TA_ING: &str = "00000039YD9BM";
+pub const POST_TB_ING: &str = "00000039YD9C0";
+pub const POST_TC_ING: &str = "00000039YD9CE";
+pub const POST_TD_ING: &str = "00000039YD9DP";
 
 const START_TIMELINE: &str = "1729308318220";
 const END_TIMELINE: &str = "1693824190130";
@@ -355,10 +355,10 @@ async fn test_stream_posts_by_timeline_reach_following_with_tag_start_and_end() 
 // ##### REACH: FOLLOWERS ####
 
 // Post order by timeline
-pub const POST_TA_ER: &str = "3NFG9K0L5QH4";
-pub const POST_TB_ER: &str = "V8N1P3L9J4X0";
-pub const POST_TC_ER: &str = "L3W5N0F8Q2J7";
-pub const POST_TD_ER: &str = "M4X1P9L2J6K8";
+pub const POST_TA_ER: &str = "00000039YD9B2";
+pub const POST_TB_ER: &str = "00000039YD99Y";
+pub const POST_TC_ER: &str = "00000039YD9CY";
+pub const POST_TD_ER: &str = "00000039YD9DA";
 
 const START_TIMELINE_ER: &str = "1709308315950";
 const END_TIMELINE_ER: &str = "1693823567900";
@@ -463,8 +463,8 @@ async fn test_stream_posts_by_timeline_reach_followers_with_tag_start_and_end() 
 // ##### REACH: FRIENDS ####
 
 // Post order by timeline
-pub const POST_TA_FR: &str = "L3W5N0F8Q2J7";
-pub const POST_TB_FR: &str = "M4X1P9L2J6K8";
+pub const POST_TA_FR: &str = "00000039YD9CY";
+pub const POST_TB_FR: &str = "00000039YD9DA";
 
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_posts_by_timeline_reach_friends_with_tag() -> Result<()> {

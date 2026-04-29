@@ -1,10 +1,12 @@
 use std::path::PathBuf;
 
+use super::endpoints::USER_AVATAR_ROUTE;
+use crate::models::PubkyId;
 use crate::routes::r#static::PubkyServeDir;
 use crate::routes::AppState;
 use crate::{Error, Result};
 use axum::extract::{Request, State};
-use axum::{extract::Path, response::Response};
+use axum::response::Response;
 use nexus_common::media::FileVariant;
 use nexus_common::models::file::Blob;
 use nexus_common::models::{file::FileDetails, traits::Collection, user::UserDetails};
@@ -12,15 +14,13 @@ use tower_http::services::fs::ServeFileSystemResponseBody;
 use tracing::{debug, error};
 use utoipa::OpenApi;
 
-use super::endpoints::USER_AVATAR_ROUTE;
-
 #[utoipa::path(
     get,
     path = USER_AVATAR_ROUTE,
     description = "Get the user's avatar image",
     tag = "User",
     params(
-        ("user_id" = String, Path, description = "Pubky user ID whose avatar we want")
+        ("user_id" = PubkyId, Path, description = "Pubky user ID whose avatar we want")
     ),
     responses(
         (status = 200, description = "Avatar image"),
@@ -29,7 +29,7 @@ use super::endpoints::USER_AVATAR_ROUTE;
     )
 )]
 pub async fn user_avatar_handler(
-    Path(user_id): Path<String>,
+    user_id: PubkyId,
     State(app_state): State<AppState>,
     request: Request,
 ) -> Result<Response<ServeFileSystemResponseBody>> {
@@ -107,5 +107,5 @@ pub async fn user_avatar_handler(
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(user_avatar_handler))]
+#[openapi(paths(user_avatar_handler), components(schemas(PubkyId)))]
 pub struct UserAvatarApiDoc;

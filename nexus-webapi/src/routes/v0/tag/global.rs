@@ -1,6 +1,7 @@
+use crate::models::{PubkyId, TagLabel};
 use crate::routes::v0::endpoints::{TAGS_HOT_ROUTE, TAG_TAGGERS_ROUTE};
 use crate::{Error, Result};
-use axum::extract::{Path, Query};
+use axum::extract::Query;
 use axum::Json;
 use nexus_common::models::tag::global::Taggers;
 use nexus_common::models::tag::stream::{HotTag, HotTags};
@@ -14,7 +15,7 @@ use utoipa::OpenApi;
 
 #[derive(Deserialize, Debug)]
 pub struct HotTagsQuery {
-    user_id: Option<String>,
+    user_id: Option<PubkyId>,
     reach: Option<StreamReach>,
     taggers_limit: Option<usize>,
     timeframe: Option<Timeframe>,
@@ -26,7 +27,7 @@ pub struct HotTagsQuery {
 pub struct TagTaggersQuery {
     #[serde(flatten)]
     pagination: Pagination,
-    user_id: Option<String>,
+    user_id: Option<PubkyId>,
     reach: Option<StreamReach>,
     timeframe: Option<Timeframe>,
 }
@@ -37,9 +38,9 @@ pub struct TagTaggersQuery {
     description = "Global tag Taggers",
     tag = "Tags",
     params(
-        ("label" = String, Path, description = "Tag name"),
+        ("label" = TagLabel, Path, description = "Tag name"),
         ("reach" = Option<StreamReach>, Query, description = "Reach type: `follower` | `following` | `friends` | `wot`. To apply that, user_id is required"),
-        ("user_id" = Option<String>, Query, description = "User ID to base reach on"),
+        ("user_id" = Option<PubkyId>, Query, description = "User ID to base reach on"),
         ("skip" = Option<usize>, Query, description = "Skip N taggers. Defaults to `0`"),
         ("limit" = Option<usize>, Query, description = "Retrieve N tagggers. Defaults to `20`"),
         ("timeframe" = Option<Timeframe>, Query, description = "Retrieve taggers for this specific timeframe (not applied for reach). Defaults to `all_time`"),
@@ -50,7 +51,7 @@ pub struct TagTaggersQuery {
     )
 )]
 pub async fn tag_taggers_handler(
-    Path(label): Path<String>,
+    label: TagLabel,
     Query(query): Query<TagTaggersQuery>,
 ) -> Result<Json<TaggersType>> {
     debug!("GET {TAG_TAGGERS_ROUTE} label:{label}, query: {query:?}");
@@ -67,8 +68,8 @@ pub async fn tag_taggers_handler(
     let timeframe = query.timeframe.unwrap_or(Timeframe::AllTime);
 
     match Taggers::get_global_taggers(
-        label.clone(),
-        query.user_id,
+        label.0,
+        query.user_id.map(|id| id.to_string()),
         query.reach,
         skip,
         limit,
@@ -87,7 +88,7 @@ pub async fn tag_taggers_handler(
     description = "Global Tags by reach",
     tag = "Tags",
     params(
-        ("user_id" = Option<String>, Query, description = "User Pubky ID"),
+        ("user_id" = Option<PubkyId>, Query, description = "User Pubky ID"),
         ("reach" = Option<StreamReach>, Query, description = "Reach type: `follower` | `following` | `friends` | `wot`. To apply that, user_id is required"),
         ("taggers_limit" = Option<usize>, Query, description = "Retrieve N user_id for each tag. Defaults to `20`"),
         ("skip" = Option<usize>, Query, description = "Skip N tags. Defaults to `0`"),
@@ -122,7 +123,8 @@ pub async fn hot_tags_handler(Query(query): Query<HotTagsQuery>) -> Result<Json<
         tagged_type: Some(TaggedType::Post),
     };
 
-    match HotTags::get_hot_tags(query.user_id, query.reach, &input).await? {
+    match HotTags::get_hot_tags(query.user_id.map(|id| id.to_string()), query.reach, &input).await?
+    {
         Some(hot_tags) => Ok(Json(hot_tags)),
         None => Ok(Json(HotTags::default())),
     }
@@ -131,6 +133,6 @@ pub async fn hot_tags_handler(Query(query): Query<HotTagsQuery>) -> Result<Json<
 #[derive(OpenApi)]
 #[openapi(
     paths(hot_tags_handler, tag_taggers_handler),
-    components(schemas(HotTags, HotTag, Taggers, StreamReach, Timeframe))
+    components(schemas(HotTags, HotTag, Taggers, StreamReach, Timeframe, PubkyId, TagLabel))
 )]
 pub struct TagGlobalApiDoc;

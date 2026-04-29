@@ -141,7 +141,7 @@ pub fn bench_stream_post_replies(c: &mut Criterion) {
     run_setup();
 
     let author_id = "emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy";
-    let post_id = "1A1P4D8C9K0F";
+    let post_id = "1A1P4D8C9K0FF";
     let rt = Runtime::new().unwrap();
 
     c.bench_function("stream_post_replies", |b| {

@@ -43,7 +43,10 @@ async fn test_get_followers() -> Result<()> {
 
     // Test non-existing user
     invalid_get_request(
-        &format!("/v0/user/{}/followers", "bad_user_id"),
+        &format!(
+            "/v0/user/{}/followers",
+            "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64rp"
+        ),
         StatusCode::NOT_FOUND,
     )
     .await?;
@@ -97,7 +100,10 @@ async fn test_get_following() -> Result<()> {
 
     // Test non-existing user
     invalid_get_request(
-        &format!("/v0/user/{}/following", "bad_user_id"),
+        &format!(
+            "/v0/user/{}/following",
+            "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64rp"
+        ),
         StatusCode::NOT_FOUND,
     )
     .await?;
@@ -144,7 +150,10 @@ async fn test_get_friends() -> Result<()> {
 
     // Test non-existing user
     invalid_get_request(
-        &format!("/v0/user/{}/friends", "bad_user_id"),
+        &format!(
+            "/v0/user/{}/friends",
+            "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64rp"
+        ),
         StatusCode::NOT_FOUND,
     )
     .await?;
