@@ -18,6 +18,15 @@ pub enum EventType {
     Del,
 }
 
+impl From<pubky::EventType> for EventType {
+    fn from(value: pubky::EventType) -> Self {
+        match value {
+            pubky::EventType::Put { .. } => Self::Put,
+            pubky::EventType::Delete => Self::Del,
+        }
+    }
+}
+
 /// Result of parsing an event line from a homeserver.
 #[derive(Debug)]
 pub enum ParseResult {
@@ -139,10 +148,7 @@ impl Event {
         stream_event: &StreamEvent,
         files_path: PathBuf,
     ) -> Result<Option<Self>, EventProcessorError> {
-        let event_type = match &stream_event.event_type {
-            pubky::EventType::Put { .. } => EventType::Put,
-            pubky::EventType::Delete => EventType::Del,
-        };
+        let event_type: EventType = stream_event.event_type.clone().into();
 
         let uri = stream_event.resource.to_pubky_url();
         debug!("New stream event: {event_type} {uri}");
