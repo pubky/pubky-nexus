@@ -106,7 +106,7 @@ impl Event {
         let uri = parts[1].to_string();
         let event_line = line.to_string();
 
-        Self::build(event_type, uri, event_line, files_path)
+        Self::parse_event_parts(event_type, uri, event_line, files_path)
     }
 
     /// Constructs a nexus [`Event`] directly from a [`StreamEvent`], avoiding
@@ -121,13 +121,13 @@ impl Event {
         debug!("New stream event: {event_type} {uri}");
 
         let event_line = format!("{event_type} {uri}");
-        match Self::build(event_type, uri, event_line, files_path)? {
+        match Self::parse_event_parts(event_type, uri, event_line, files_path)? {
             ParseResult::Parsed(event) => Ok(Some(event)),
             ParseResult::Skipped | ParseResult::UnrecognizedUri { .. } => Ok(None),
         }
     }
 
-    fn build(
+    fn parse_event_parts(
         event_type: EventType,
         uri: String,
         event_line: String,
@@ -137,20 +137,10 @@ impl Event {
         // standard pubky-app-specs URIs and universal tag URIs from other apps.
         let parsed_uri = match HomeserverParsedUri::try_from(uri.as_str()) {
             Ok(parsed) => parsed,
-            Err(e) => {
-                return Ok(ParseResult::unrecognized_uri(
-                    event_type,
-                    uri,
-                    e.to_string(),
-                ))
-            }
+            Err(e) => return Ok(ParseResult::unrecognized_uri(event_type, uri, e.into())),
         };
 
-        if let HomeserverParsedUri::AppSpec {
-            user_id: _,
-            resource,
-        } = &parsed_uri
-        {
+        if let HomeserverParsedUri::AppSpec { resource, .. } = &parsed_uri {
             match resource {
                 Resource::Unknown => {
                     return Err(EventProcessorError::InvalidEventLine(format!(
