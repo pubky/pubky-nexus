@@ -53,9 +53,16 @@ impl fmt::Display for EventType {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Event {
+    /// Pubky resource URI from the homeserver event line.
     pub uri: String,
+
+    /// Operation represented by the event, used to dispatch to PUT or DEL handlers.
     pub event_type: EventType,
+
+    /// Parsed representation of [`Self::uri`].
     pub parsed_uri: ParsedUri,
+
+    /// Original event line as received from the homeserver.
     event_line: String,
 }
 
