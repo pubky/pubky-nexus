@@ -64,7 +64,7 @@ impl Moderation {
                     "Moderation tag '{}' detected. Deleting file {}:{}",
                     moderator_tag.label, user_id, file_id
                 );
-                handlers::file::del(&user_id, file_id, self.files_path.clone()).await
+                handlers::file::del(&user_id, file_id, &self.files_path).await
             }
             _ => Ok(()),
         }

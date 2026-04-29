@@ -1,7 +1,7 @@
 use nexus_common::db::PubkyConnector;
 use nexus_common::models::event::{Event, EventProcessorError, EventType};
 use pubky_app_specs::{PubkyAppObject, Resource};
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::Arc;
 use tracing::debug;
 
@@ -14,7 +14,7 @@ pub use moderation::Moderation;
 pub async fn handle(event: &Event, moderation: Arc<Moderation>) -> Result<(), EventProcessorError> {
     match event.event_type {
         EventType::Put => handle_put_event(event, moderation).await,
-        EventType::Del => handle_del_event(event, moderation.files_path.clone()).await,
+        EventType::Del => handle_del_event(event, &moderation.files_path).await,
     }?;
 
     event.store_event().await?;
@@ -88,10 +88,7 @@ pub async fn handle_put_event(
 }
 
 /// Handles a DEL event by dispatching to the appropriate handler.
-pub async fn handle_del_event(
-    event: &Event,
-    files_path: PathBuf,
-) -> Result<(), EventProcessorError> {
+pub async fn handle_del_event(event: &Event, files_path: &Path) -> Result<(), EventProcessorError> {
     debug!("Handling DEL event for URI: {}", event.uri);
 
     let user_id = event.parsed_uri.user_id.clone();

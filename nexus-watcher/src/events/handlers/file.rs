@@ -88,7 +88,7 @@ async fn ingest(
 pub async fn del(
     user_id: &PubkyId,
     file_id: String,
-    files_path: PathBuf,
+    files_path: &Path,
 ) -> Result<(), EventProcessorError> {
     debug!("Deleting File resource at {}/{}", user_id, file_id);
     let result = FileDetails::get_by_ids(&[&[user_id, &file_id]]).await?;
