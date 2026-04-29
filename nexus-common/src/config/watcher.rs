@@ -4,9 +4,8 @@ use super::file::ConfigLoader;
 use super::{default_stack, DaemonConfig, StackConfig};
 use async_trait::async_trait;
 use pubky_app_specs::PubkyId;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{de::Error, Deserialize, Deserializer, Serialize};
 use std::fmt::Debug;
-use tracing::warn;
 
 pub const TESTNET: bool = false;
 pub const DEFAULT_TESTNET_HOST: &str = "localhost";
@@ -115,12 +114,12 @@ pub struct WatcherConfig {
     pub homeserver: PubkyId,
 
     /// Maximum number of events to fetch per run from the default homeserver.
-    /// Clamped to [MAX_EVENTS_LIMIT] at load time.
+    /// Must not exceed [MAX_EVENTS_LIMIT].
     #[serde(deserialize_with = "deserialize_events_limit")]
     pub events_limit: u16,
 
     /// Maximum events per user per run for key-based (non-default) homeservers.
-    /// Clamped to [MAX_KEY_BASED_EVENTS_LIMIT] at load time.
+    /// Must not exceed [MAX_KEY_BASED_EVENTS_LIMIT].
     #[serde(
         default = "default_key_based_events_limit",
         deserialize_with = "deserialize_key_based_events_limit"
@@ -201,12 +200,12 @@ fn deserialize_events_limit<'de, D>(deserializer: D) -> Result<u16, D::Error>
 where
     D: Deserializer<'de>,
 {
-    let val = u32::deserialize(deserializer)?;
-    if val > u32::from(MAX_EVENTS_LIMIT) {
-        warn!("events_limit ({val}) exceeds max ({MAX_EVENTS_LIMIT}), clamped");
-        Ok(MAX_EVENTS_LIMIT)
+    let val = u16::deserialize(deserializer)?;
+    if val > MAX_EVENTS_LIMIT {
+        let err_msg = format!("events_limit ({val}) exceeds max ({MAX_EVENTS_LIMIT})");
+        Err(D::Error::custom(err_msg))
     } else {
-        Ok(val as u16)
+        Ok(val)
     }
 }
 
@@ -214,12 +213,13 @@ fn deserialize_key_based_events_limit<'de, D>(deserializer: D) -> Result<u16, D:
 where
     D: Deserializer<'de>,
 {
-    let val = u32::deserialize(deserializer)?;
-    if val > u32::from(MAX_KEY_BASED_EVENTS_LIMIT) {
-        warn!("key_based_events_limit ({val}) exceeds max ({MAX_KEY_BASED_EVENTS_LIMIT}), clamped");
-        Ok(MAX_KEY_BASED_EVENTS_LIMIT)
+    let val = u16::deserialize(deserializer)?;
+    if val > MAX_KEY_BASED_EVENTS_LIMIT {
+        let err_msg =
+            format!("key_based_events_limit ({val}) exceeds max ({MAX_KEY_BASED_EVENTS_LIMIT})");
+        Err(D::Error::custom(err_msg))
     } else {
-        Ok(val as u16)
+        Ok(val)
     }
 }
 
