@@ -7,7 +7,6 @@ use crate::service::stats::{ProcessedStats, ProcessorRunStatus, RunAllProcessors
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
-use nexus_common::MAX_KEY_BASED_EVENTS_LIMIT;
 use pubky_app_specs::PubkyId;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -16,17 +15,22 @@ use tracing::{debug, info, warn};
 
 /// Runner for [KeyBasedEventProcessor]
 pub struct KeyBasedEventProcessorRunner {
-    /// See [WatcherConfig::events_limit]
+    /// See [WatcherConfig::key_based_events_limit]
     pub limit: u16,
+
     /// See [WatcherConfig::monitored_homeservers_limit]
     pub monitored_hs_limit: usize,
+
     pub files_path: PathBuf,
     pub event_handler: Arc<dyn EventHandler>,
     pub shutdown_rx: Receiver<bool>,
+
     /// Default homeserver ID, excluded from the external targets list
     pub default_homeserver: PubkyId,
+
     /// Per-target exponential backoff state
     pub backoff: Mutex<HomeserverBackoff>,
+
     /// Scheduler shared with every processor this runner builds
     pub retry_scheduler: Arc<RetryScheduler>,
 }
@@ -34,18 +38,8 @@ pub struct KeyBasedEventProcessorRunner {
 impl KeyBasedEventProcessorRunner {
     /// Creates a new instance from the provided configuration
     pub fn from_config(config: &WatcherConfig, shutdown_rx: Receiver<bool>) -> Self {
-        let limit = config
-            .key_based_events_limit
-            .min(MAX_KEY_BASED_EVENTS_LIMIT);
-        if config.key_based_events_limit > MAX_KEY_BASED_EVENTS_LIMIT {
-            warn!(
-                "key_based_events_limit ({}) exceeds max ({}), clamped",
-                config.key_based_events_limit, MAX_KEY_BASED_EVENTS_LIMIT
-            );
-        }
-
         Self {
-            limit,
+            limit: config.key_based_events_limit,
             monitored_hs_limit: config.monitored_homeservers_limit,
             files_path: config.stack.files_path.clone(),
             event_handler: Arc::new(DefaultEventHandler::new(Moderation::from_config(config))),

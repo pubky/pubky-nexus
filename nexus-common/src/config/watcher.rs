@@ -4,7 +4,7 @@ use super::file::ConfigLoader;
 use super::{default_stack, DaemonConfig, StackConfig};
 use async_trait::async_trait;
 use pubky_app_specs::PubkyId;
-use serde::{Deserialize, Serialize};
+use serde::{de::Error, Deserialize, Deserializer, Serialize};
 use std::fmt::Debug;
 
 pub const TESTNET: bool = false;
@@ -114,11 +114,16 @@ pub struct WatcherConfig {
     pub homeserver: PubkyId,
 
     /// Maximum number of events to fetch per run from the default homeserver.
-    /// Clamped to [MAX_EVENTS_LIMIT] at load time.
+    /// Must not exceed [MAX_EVENTS_LIMIT].
+    #[serde(deserialize_with = "deserialize_events_limit")]
     pub events_limit: u16,
 
     /// Maximum events per user per run for key-based (non-default) homeservers.
-    /// Clamped to [MAX_KEY_BASED_EVENTS_LIMIT] at load time.
+    /// Must not exceed [MAX_KEY_BASED_EVENTS_LIMIT].
+    #[serde(
+        default = "default_key_based_events_limit",
+        deserialize_with = "deserialize_key_based_events_limit"
+    )]
     pub key_based_events_limit: u16,
 
     /// Maximum number of monitored homeservers
@@ -185,6 +190,37 @@ impl Default for WatcherConfig {
 
 fn default_hs_resolver_sleep() -> u64 {
     DEFAULT_HS_RESOLVER_SLEEP
+}
+
+fn default_key_based_events_limit() -> u16 {
+    DEFAULT_KEY_BASED_EVENTS_LIMIT
+}
+
+fn deserialize_events_limit<'de, D>(deserializer: D) -> Result<u16, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let val = u16::deserialize(deserializer)?;
+    if val > MAX_EVENTS_LIMIT {
+        let err_msg = format!("events_limit ({val}) exceeds max ({MAX_EVENTS_LIMIT})");
+        Err(D::Error::custom(err_msg))
+    } else {
+        Ok(val)
+    }
+}
+
+fn deserialize_key_based_events_limit<'de, D>(deserializer: D) -> Result<u16, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let val = u16::deserialize(deserializer)?;
+    if val > MAX_KEY_BASED_EVENTS_LIMIT {
+        let err_msg =
+            format!("key_based_events_limit ({val}) exceeds max ({MAX_KEY_BASED_EVENTS_LIMIT})");
+        Err(D::Error::custom(err_msg))
+    } else {
+        Ok(val)
+    }
 }
 
 fn default_hs_resolver_ttl() -> u64 {
