@@ -8,9 +8,13 @@ use tracing::info;
 pub struct Moderation {
     /// Moderator trusted user id
     pub id: PubkyId,
+
     /// Tags to be moderated (tagged content is deleted)
     pub tags: Vec<String>,
 
+    /// Nexus-local directory path where certain events may store data on Nexus.
+    ///
+    /// Moderation may trigger the deletion of such data for specific events.
     pub files_path: PathBuf,
 }
 
