@@ -1,16 +1,14 @@
-use nexus_common::models::event::{Event, EventProcessorError, EventType, ParseResult};
-
 use crate::events::handle;
 use crate::events::retry::event::RetryEvent;
 use crate::events::Moderation;
 use crate::service::traits::TEventProcessor;
 use nexus_common::db::PubkyConnector;
+use nexus_common::models::event::{Event, EventProcessorError, EventType, ParseResult};
 use nexus_common::models::homeserver::Homeserver;
 use opentelemetry::trace::{FutureExt, Span, TraceContextExt, Tracer};
 use opentelemetry::{global, Context, KeyValue};
 use pubky::Method;
 use pubky_app_specs::PubkyId;
-use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info, warn};
@@ -19,7 +17,6 @@ pub struct EventProcessor {
     pub homeserver: Homeserver,
     /// See [WatcherConfig::events_limit]
     pub limit: u32,
-    pub files_path: PathBuf,
     pub tracer_name: String,
     pub moderation: Arc<Moderation>,
     pub shutdown_rx: Receiver<bool>,

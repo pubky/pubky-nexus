@@ -2,7 +2,6 @@ use anyhow::{anyhow, Error, Result};
 use base32::{encode, Alphabet};
 use chrono::Utc;
 use nexus_common::db::PubkyConnector;
-use nexus_common::get_files_dir_test_pathbuf;
 use nexus_common::models::event::{Event, EventProcessorError, ParseResult};
 use nexus_common::models::file::FileDetails;
 use nexus_common::models::homeserver::Homeserver;
@@ -82,7 +81,6 @@ impl WatcherTest {
         EventProcessorRunner {
             limit: 1000,
             monitored_homeservers_limit: 100,
-            files_path: get_files_dir_test_pathbuf(),
             tracer_name: "test".to_string(),
             moderation,
             shutdown_rx,
