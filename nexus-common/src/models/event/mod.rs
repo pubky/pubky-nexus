@@ -137,7 +137,7 @@ impl Event {
         // standard pubky-app-specs URIs and universal tag URIs from other apps.
         let parsed_uri = match HomeserverParsedUri::try_from(uri.as_str()) {
             Ok(parsed) => parsed,
-            Err(e) => return Ok(ParseResult::unrecognized_uri(event_type, uri, e.into())),
+            Err(e) => return Ok(ParseResult::unrecognized_uri(event_type, uri, e)),
         };
 
         if let HomeserverParsedUri::AppSpec { resource, .. } = &parsed_uri {
