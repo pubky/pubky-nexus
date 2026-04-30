@@ -210,12 +210,7 @@ impl KeyBasedEventProcessor {
                     }
                     Ok(None) => { /* resource not handled by Nexus, skip */ }
                     Err(e) => {
-                        error!(
-                            hs_id = %hs_id,
-                            user = %user_id,
-                            cursor = cursor_id,
-                            "Skipping unparseable stream event: {e}",
-                        );
+                        error!(%hs_id, %user_id, %cursor_id, "Skipping unparseable stream event: {e}");
                     }
                 }
 
