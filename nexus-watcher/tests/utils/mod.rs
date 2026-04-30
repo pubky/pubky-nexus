@@ -14,12 +14,17 @@ pub struct MockEventHandler {
     /// Tracks how many times `handle()` was invoked. Shared via `Arc` so tests
     /// can read the count after processing.
     pub handle_count: Arc<Mutex<usize>>,
+    pub handled_uris: Arc<Mutex<Vec<String>>>,
 }
 
 impl MockEventHandler {
     /// Returns the number of times `handle()` was called.
     pub fn get_handle_count(&self) -> usize {
         *self.handle_count.lock().unwrap()
+    }
+
+    pub fn get_handled_uris(&self) -> Vec<String> {
+        self.handled_uris.lock().unwrap().clone()
     }
 }
 
@@ -28,6 +33,7 @@ impl EventHandler for MockEventHandler {
     async fn handle(&self, event: &Event) -> Result<(), EventProcessorError> {
         // Increment invocation counter on every call
         *self.handle_count.lock().unwrap() += 1;
+        self.handled_uris.lock().unwrap().push(event.uri.clone());
 
         match &self.target_uri_substring {
             Some(s) if !event.uri.contains(s) => Ok(()),
