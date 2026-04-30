@@ -7,14 +7,6 @@ use crate::db::{kv::RedisError, GraphError, PubkyClientError};
 use crate::models::error::ModelError;
 
 #[derive(Error, Debug, Clone, Serialize, Deserialize)]
-#[error("hs_id={hs_id}, expected={expected_user_id}, received={event_user_id}")]
-pub struct UserIdMismatch {
-    pub hs_id: String,
-    pub expected_user_id: String,
-    pub event_user_id: String,
-}
-
-#[derive(Error, Debug, Clone, Serialize, Deserialize)]
 pub enum EventProcessorError {
     /// Failed to execute query in the graph database
     #[error("GraphQueryFailed (is_infrastructure_err: {0}): {1}")]
@@ -36,8 +28,12 @@ pub enum EventProcessorError {
     #[error("InvalidEventLine: {0}")]
     InvalidEventLine(String),
 
-    #[error("HS returned an event for different user than expected: {0}")]
-    UserIdMismatch(UserIdMismatch),
+    #[error("HS returned an event for different user than expected: hs_id={hs_id}, expected={expected_user_id}, received={event_user_id}")]
+    UserIdMismatch {
+        hs_id: String,
+        expected_user_id: String,
+        event_user_id: String,
+    },
 
     /// The Pubky client could not resolve the pubky
     #[error("PubkyClientError: {0}")]
@@ -158,7 +154,7 @@ impl EventProcessorError {
             Self::PubkyClientError(err) => err.is_retryable(),
             Self::InvalidEventLine(_) => false,
             Self::SkipIndexing => false,
-            Self::UserIdMismatch(_) => false,
+            Self::UserIdMismatch { .. } => false,
             _ => true,
         }
     }

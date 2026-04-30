@@ -3,11 +3,10 @@ use std::sync::Arc;
 
 use futures::StreamExt;
 use nexus_common::db::{PubkyConnector, RedisOps};
-use nexus_common::models::event::{Event, EventProcessorError, UserIdMismatch};
+use nexus_common::models::event::{Event, EventProcessorError};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::user::{user_hs_cursor_key, UserDetails};
 use pubky::{Event as StreamEvent, EventCursor, PublicKey};
-use pubky_app_specs::PubkyId;
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info};
 
@@ -189,7 +188,6 @@ impl KeyBasedEventProcessor {
             .await?;
 
         let user_id = user_pk.z32();
-        let expected_user_id = PubkyId::from(user_pk.clone());
         let mut latest_cursor: Option<u64> = None;
 
         let result: Result<(), EventProcessorError> = async {
@@ -203,8 +201,8 @@ impl KeyBasedEventProcessor {
 
                 match Event::from_stream_event(&stream_event, self.files_path.clone()) {
                     Ok(Some(event)) => {
-                        // Validate event user before handling, since we received it from a 3rd party HS
-                        Self::validate_user_id(hs_id, &event, &expected_user_id)?;
+                        // External homeservers must not index another user's URI.
+                        Self::validate_user_id(hs_id, &event, &user_id)?;
 
                         self.handle_event(&event).await?;
                     }
@@ -243,15 +241,15 @@ impl KeyBasedEventProcessor {
     fn validate_user_id(
         hs_id: &str,
         event: &Event,
-        expected_user_id: &PubkyId,
+        expected_user_id: &str,
     ) -> Result<(), EventProcessorError> {
-        let event_user_id = event.parsed_uri.user_id();
+        let event_user_id = event.parsed_uri.user_id().as_str();
         if event_user_id != expected_user_id {
-            return Err(EventProcessorError::UserIdMismatch(UserIdMismatch {
+            return Err(EventProcessorError::UserIdMismatch {
                 hs_id: hs_id.into(),
-                expected_user_id: expected_user_id.as_str().into(),
-                event_user_id: event_user_id.as_str().into(),
-            }));
+                expected_user_id: expected_user_id.into(),
+                event_user_id: event_user_id.into(),
+            });
         }
 
         Ok(())

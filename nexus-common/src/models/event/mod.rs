@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::{fmt, path::PathBuf};
 use tracing::{debug, error};
 
-pub use errors::{EventProcessorError, UserIdMismatch};
+pub use errors::EventProcessorError;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum EventType {
