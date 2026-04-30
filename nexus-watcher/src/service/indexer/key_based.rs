@@ -6,7 +6,7 @@ use nexus_common::db::{PubkyConnector, RedisOps};
 use nexus_common::models::event::{Event, EventProcessorError};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::user::{user_hs_cursor_key, UserDetails};
-use pubky::{EventCursor, PublicKey};
+use pubky::{Event as StreamEvent, EventCursor, PublicKey};
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info};
 
@@ -14,6 +14,47 @@ use super::TEventProcessor;
 use crate::events::retry::RetryScheduler;
 use crate::events::EventHandler;
 use crate::service::user_hs_resolver;
+
+#[async_trait::async_trait]
+pub trait KeyBasedEventSource: Send + Sync + 'static {
+    async fn fetch_events(
+        &self,
+        hs_pk: &PublicKey,
+        user_pk: &PublicKey,
+        cursor: EventCursor,
+        limit: u16,
+    ) -> Result<Vec<StreamEvent>, EventProcessorError>;
+}
+
+pub struct PubkyKeyBasedEventSource;
+
+#[async_trait::async_trait]
+impl KeyBasedEventSource for PubkyKeyBasedEventSource {
+    async fn fetch_events(
+        &self,
+        hs_pk: &PublicKey,
+        user_pk: &PublicKey,
+        cursor: EventCursor,
+        limit: u16,
+    ) -> Result<Vec<StreamEvent>, EventProcessorError> {
+        let pubky = PubkyConnector::get()?;
+        let mut stream = pubky
+            .event_stream_for(hs_pk)
+            .add_users(vec![(user_pk, Some(cursor))])?
+            .limit(limit)
+            .path("/pub/")
+            .subscribe()
+            .await
+            .inspect_err(|e| error!("Failed to subscribe to event stream: {e:?}"))?;
+
+        let mut events = Vec::new();
+        while let Some(result) = stream.next().await {
+            events.push(result?);
+        }
+
+        Ok(events)
+    }
+}
 
 /// Event processor for non-default HSs, where the user-specific `/events-stream` endpoint is used
 pub struct KeyBasedEventProcessor {
@@ -25,6 +66,7 @@ pub struct KeyBasedEventProcessor {
     pub limit: u16,
     pub files_path: PathBuf,
     pub event_handler: Arc<dyn EventHandler>,
+    pub event_source: Arc<dyn KeyBasedEventSource>,
     /// Scheduler used to enqueue failed events onto the retry queue
     pub retry_scheduler: Arc<RetryScheduler>,
     pub shutdown_rx: Receiver<bool>,
@@ -140,41 +182,33 @@ impl KeyBasedEventProcessor {
         user_pk: &PublicKey,
         cursor: EventCursor,
     ) -> Result<(), EventProcessorError> {
-        let pubky = PubkyConnector::get()?;
-        let mut stream = pubky
-            .event_stream_for(hs_pk)
-            .add_users(vec![(user_pk, Some(cursor))])?
-            .limit(self.limit)
-            .path("/pub/")
-            .subscribe()
-            .await
-            .inspect_err(|e| error!("Failed to subscribe to event stream: {e:?}"))?;
+        let stream_events = self
+            .event_source
+            .fetch_events(hs_pk, user_pk, cursor, self.limit)
+            .await?;
 
         let user_id = user_pk.z32();
         let mut latest_cursor: Option<u64> = None;
 
         let result: Result<(), EventProcessorError> = async {
-            while let Some(result) = stream.next().await {
+            for stream_event in stream_events {
                 if *self.shutdown_rx.borrow() {
                     debug!(hs_id = %hs_id, user = %user_id, "Shutdown detected; exiting event loop");
                     break;
                 }
 
-                let stream_event = result?;
                 let cursor_id = stream_event.cursor.id();
 
                 match Event::from_stream_event(&stream_event, self.files_path.clone()) {
                     Ok(Some(event)) => {
+                        // External homeservers must not index another user's URI.
+                        Self::validate_user_id(hs_id, &event, &user_id)?;
+
                         self.handle_event(&event).await?;
                     }
                     Ok(None) => { /* resource not handled by Nexus, skip */ }
                     Err(e) => {
-                        error!(
-                            hs_id = %hs_id,
-                            user = %user_id,
-                            cursor = cursor_id,
-                            "Skipping unparseable stream event: {e}",
-                        );
+                        error!(%hs_id, %user_id, %cursor_id, "Skipping unparseable stream event: {e}");
                     }
                 }
 
@@ -202,6 +236,23 @@ impl KeyBasedEventProcessor {
         }
 
         result
+    }
+
+    fn validate_user_id(
+        hs_id: &str,
+        event: &Event,
+        expected_user_id: &str,
+    ) -> Result<(), EventProcessorError> {
+        let event_user_id = event.parsed_uri.user_id().as_str();
+        if event_user_id != expected_user_id {
+            return Err(EventProcessorError::UserIdMismatch {
+                hs_id: hs_id.into(),
+                expected_user_id: expected_user_id.into(),
+                event_user_id: event_user_id.into(),
+            });
+        }
+
+        Ok(())
     }
 
     /// Reads the per-user event cursor from the `USER_HS_CURSOR` sorted set in Redis.
