@@ -2,6 +2,8 @@ use super::resource_utils::{compute_resource_id, find_resource_tag_for_app};
 use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
+use nexus_common::models::resource::tag::TagResource;
+use nexus_common::models::tag::traits::TagCollection;
 use pubky::ResourcePath;
 use pubky::{recovery_file, Keypair};
 use pubky_app_specs::traits::HashId;
@@ -86,6 +88,15 @@ async fn test_moderated_universal_tag_lifecycle() -> Result<()> {
         tag_after.is_some(),
         "mapky Universal Tag should remain after eventky moderation"
     );
+
+    // The global Resource tagger set is shared across apps, so the remaining mapky tag should
+    // keep the user visible in cached tag details after eventky is removed.
+    let cache_tags = TagResource::get_from_index(&resource_id, None, None, None, None, None, false)
+        .await?
+        .expect("global Resource tag cache should remain while mapky tag exists");
+    assert_eq!(cache_tags.len(), 1);
+    assert_eq!(cache_tags[0].label, label);
+    assert_eq!(cache_tags[0].taggers, vec![user_id.to_string()]);
 
     Ok(())
 }

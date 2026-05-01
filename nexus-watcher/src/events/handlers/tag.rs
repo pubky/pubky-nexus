@@ -3,7 +3,9 @@ use crate::events::EventProcessorError;
 
 use chrono::Utc;
 use nexus_common::db::kv::{RedisResult, ScoreAction};
-use nexus_common::db::{fetch_row_from_graph, queries, OperationOutcome, RedisOps};
+use nexus_common::db::{
+    fetch_key_from_graph, fetch_row_from_graph, queries, OperationOutcome, RedisOps,
+};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::notification::Notification;
 use nexus_common::models::post::search::PostsByTagSearch;
@@ -21,6 +23,66 @@ use pubky_app_specs::{post_uri_builder, ParsedUri, PubkyAppTag, PubkyId, Resourc
 use tracing::debug;
 
 use super::utils::post_relationships_is_reply;
+
+/// Path identity for a tag deletion.
+///
+/// The app namespace is part of Universal Tag identity, so callers should pass this instead of
+/// separate user/tag/app values that can drift apart.
+#[derive(Clone, Debug)]
+pub enum TagPath {
+    PubkyApp {
+        user_id: PubkyId,
+        tag_id: String,
+    },
+    Universal {
+        user_id: PubkyId,
+        app: String,
+        tag_id: String,
+    },
+}
+
+impl TagPath {
+    pub fn pubky_app(user_id: PubkyId, tag_id: String) -> Self {
+        Self::PubkyApp { user_id, tag_id }
+    }
+
+    pub fn universal(user_id: PubkyId, app: String, tag_id: String) -> Self {
+        Self::Universal {
+            user_id,
+            app,
+            tag_id,
+        }
+    }
+
+    /// Parses a standard pubky.app tag URI into a delete path.
+    pub fn from_pubky_app_uri(uri: &str) -> Result<Option<Self>, EventProcessorError> {
+        let parsed_uri = ParsedUri::try_from(uri).map_err(EventProcessorError::generic)?;
+        let Resource::Tag(tag_id) = parsed_uri.resource else {
+            return Ok(None);
+        };
+
+        Ok(Some(Self::pubky_app(parsed_uri.user_id, tag_id)))
+    }
+
+    fn user_id(&self) -> &PubkyId {
+        match self {
+            Self::PubkyApp { user_id, .. } | Self::Universal { user_id, .. } => user_id,
+        }
+    }
+
+    fn tag_id(&self) -> &str {
+        match self {
+            Self::PubkyApp { tag_id, .. } | Self::Universal { tag_id, .. } => tag_id,
+        }
+    }
+
+    fn app(&self) -> Option<&str> {
+        match self {
+            Self::PubkyApp { .. } => None,
+            Self::Universal { app, .. } => Some(app),
+        }
+    }
+}
 
 #[tracing::instrument(name = "tag.put", skip_all, fields(user_id = %tagger_id, tag_id = %tag_id))]
 pub async fn sync_put(
@@ -392,43 +454,34 @@ async fn put_sync_user(
     }
 }
 
-/// Deletes a tag from the pubky.app path.
-///
-/// For deleting an Universal Tag, see [Self::del_universal_tag]
-#[tracing::instrument(name = "tag.del_pubky_tag", skip_all, fields(user_id = %user_id, tag_id = %tag_id))]
-pub async fn del_pubky_tag(user_id: PubkyId, tag_id: String) -> Result<(), EventProcessorError> {
-    del_with_app_filter(user_id, tag_id, None).await?;
-    Ok(())
-}
-
-/// Deletes a tag from a 3rd party app path.
-///
-/// For deleting a tag in the pubky.app path, see [Self::del_pubky_tag]
-#[tracing::instrument(name = "tag.del_universal_tag", skip_all, fields(user_id = %user_id, tag_id = %tag_id, app = %app))]
-pub async fn del_universal_tag(
-    user_id: PubkyId,
-    tag_id: String,
-    app: &str,
-) -> Result<(), EventProcessorError> {
-    if del_with_app_filter(user_id.clone(), tag_id.clone(), Some(app)).await? {
+#[tracing::instrument(name = "tag.del", skip_all, fields(tag_path = ?tag_path))]
+pub async fn del(tag_path: TagPath) -> Result<(), EventProcessorError> {
+    if del_with_app_filter(&tag_path).await? {
         return Ok(());
     }
 
-    // Internal-known resources from app-specific tag paths are stored by the standard tag flow.
-    del_with_app_filter(user_id, tag_id, None).await?;
+    if let TagPath::Universal {
+        user_id, tag_id, ..
+    } = tag_path
+    {
+        // Universal-tag paths targeting known pubky.app resources are indexed by the standard tag
+        // flow, so their TAGGED edge has no app property.
+        del_with_app_filter(&TagPath::pubky_app(user_id, tag_id)).await?;
+    }
+
     Ok(())
 }
 
-async fn del_with_app_filter(
-    user_id: PubkyId,
-    tag_id: String,
-    app_filter: Option<&str>,
-) -> Result<bool, EventProcessorError> {
-    debug!("Deleting tag: {} -> {}", user_id, tag_id);
+async fn del_with_app_filter(tag_path: &TagPath) -> Result<bool, EventProcessorError> {
+    let user_id = tag_path.user_id();
+    let tag_id = tag_path.tag_id();
+    let app_filter = tag_path.app();
+
+    debug!("Deleting tag: {user_id} -> {tag_id} (app: {app_filter})");
 
     // 1. Read target from graph WITHOUT deleting the edge
     let Some(row) =
-        fetch_row_from_graph(queries::get::get_tag_target(&user_id, &tag_id, app_filter)).await?
+        fetch_row_from_graph(queries::get::get_tag_target(user_id, tag_id, app_filter)).await?
     else {
         // Edge already gone (fully completed on a prior attempt) — idempotent no-op
         return Ok(false);
@@ -467,7 +520,26 @@ async fn del_with_app_filter(
             .await?;
         }
         (None, None, None, Some(res_id)) => {
-            del_sync_resource(user_id.clone(), &res_id, &label, app.as_deref()).await?;
+            let has_other_global_tag = fetch_key_from_graph(
+                queries::get::has_other_resource_tag_for_tagger(
+                    user_id,
+                    &res_id,
+                    &label,
+                    app.as_deref(),
+                ),
+                "exists",
+            )
+            .await?
+            .unwrap_or(false);
+
+            del_sync_resource(
+                user_id.clone(),
+                &res_id,
+                &label,
+                app.as_deref(),
+                has_other_global_tag,
+            )
+            .await?;
         }
         _ => {
             debug!("DEL-Tag: Unexpected combination of tag details");
@@ -475,7 +547,7 @@ async fn del_with_app_filter(
     }
 
     // 3. Graph deletion LAST — ensures data survives for retry if Redis ops fail
-    fetch_row_from_graph(queries::del::delete_tag(&user_id, &tag_id, app.as_deref())).await?;
+    fetch_row_from_graph(queries::del::delete_tag(user_id, tag_id, app.as_deref())).await?;
 
     Ok(true)
 }
@@ -652,14 +724,19 @@ async fn del_sync_resource(
     resource_id: &str,
     tag_label: &str,
     app: Option<&str>,
+    has_other_global_tag: bool,
 ) -> Result<(), EventProcessorError> {
     // Step 1: Decrement scores and remove tagger from sets
     let score_results = tokio::join!(
         TagResource::update_index_score(resource_id, None, tag_label, ScoreAction::Decrement(1.0)),
         async {
-            TagResource(vec![tagger_id.to_string()])
-                .del_from_index(resource_id, None, tag_label)
-                .await?;
+            // The tagger set is global across app namespaces. Keep the user while another
+            // app-scoped edge still represents this same user/resource/label tag.
+            if !has_other_global_tag {
+                TagResource(vec![tagger_id.to_string()])
+                    .del_from_index(resource_id, None, tag_label)
+                    .await?;
+            }
             Ok::<(), EventProcessorError>(())
         },
         ResourceStream::update_global_taggers_count(resource_id, ScoreAction::Decrement(1.0)),

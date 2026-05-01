@@ -107,7 +107,16 @@ pub async fn handle_del_event(event: &Event) -> Result<(), EventProcessorError> 
         Resource::Bookmark(bookmark_id) => {
             handlers::bookmark::del(user_id, bookmark_id.clone()).await?
         }
-        Resource::Tag(tag_id) => handlers::tag::del_pubky_tag(user_id, tag_id.clone()).await?,
+        Resource::Tag(_) => {
+            let tag_path =
+                handlers::tag::TagPath::from_pubky_app_uri(&event.uri)?.ok_or_else(|| {
+                    EventProcessorError::InvalidEventLine(format!(
+                        "DEL tag event did not contain a tag URI: {}",
+                        event.uri
+                    ))
+                })?;
+            handlers::tag::del(tag_path).await?
+        }
         Resource::File(file_id) => {
             handlers::file::del(&user_id, file_id.clone(), event.files_path.clone()).await?
         }

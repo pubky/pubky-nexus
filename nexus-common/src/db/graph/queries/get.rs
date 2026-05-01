@@ -158,6 +158,34 @@ pub fn get_tag_target(user_id: &str, tag_id: &str, app: Option<&str>) -> Query {
     query
 }
 
+// Checks whether the same tagger still has this Resource tagged with the same label through a
+// different app namespace. Resource tagger sets are global, so deletion must not remove the user
+// from that set while another app-scoped TAGGED edge still represents the same tag.
+pub fn has_other_resource_tag_for_tagger(
+    user_id: &str,
+    resource_id: &str,
+    label: &str,
+    app: Option<&str>,
+) -> Query {
+    let app_filter = match app {
+        Some(app) => &format!("WHERE tag.app IS NULL OR tag.app <> '{app}'"),
+        None => "WHERE tag.app IS NOT NULL",
+    };
+
+    let cypher = format!(
+        "MATCH (user:User {{id: $user_id}})-[tag:TAGGED {{label: $label}}]->(resource:Resource {{id: $resource_id}})
+         {app_filter}
+         RETURN count(tag) > 0 AS exists"
+    );
+
+    let query = Query::new("has_other_resource_tag_for_tagger", &cypher)
+        .param("user_id", user_id)
+        .param("resource_id", resource_id)
+        .param("label", label);
+
+    query
+}
+
 // Get all the tags/taggers that a post has received (used for edit/delete notifications)
 pub fn get_post_tags(author_id: &str, post_id: &str) -> Query {
     Query::new(

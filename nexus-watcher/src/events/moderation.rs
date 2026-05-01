@@ -31,7 +31,8 @@ impl Moderation {
                 "Moderation tag '{}' detected. Deleting universal tag {}:{}",
                 moderator_tag.label, info.user_id, info.tag_id
             );
-            return handlers::tag::del_universal_tag(info.user_id, info.tag_id, &info.app).await;
+            let tag_to_del = handlers::tag::TagPath::universal(info.user_id, info.app, info.tag_id);
+            return handlers::tag::del(tag_to_del).await;
         }
 
         // Parse the embedded URI to extract author_id and post_id using parse_tagged_post_uri
@@ -54,7 +55,14 @@ impl Moderation {
                     "Moderation tag '{}' detected. Deleting tag {}:{}",
                     moderator_tag.label, user_id, tag_id
                 );
-                handlers::tag::del_pubky_tag(user_id, tag_id).await
+                let tag_path = handlers::tag::TagPath::from_pubky_app_uri(&moderator_tag.uri)?
+                    .ok_or_else(|| {
+                        EventProcessorError::InvalidEventLine(format!(
+                            "Moderation tag did not point to a tag URI: {}",
+                            moderator_tag.uri
+                        ))
+                    })?;
+                handlers::tag::del(tag_path).await
             }
             Resource::User => {
                 // Delete the user profile and return the result
