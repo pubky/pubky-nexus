@@ -168,7 +168,7 @@ pub fn has_other_resource_tag_for_tagger(
     app: Option<&str>,
 ) -> Query {
     let app_filter = match app {
-        Some(app) => &format!("WHERE tag.app IS NULL OR tag.app <> '{app}'"),
+        Some(_) => "WHERE tag.app IS NULL OR tag.app <> $app",
         None => "WHERE tag.app IS NOT NULL",
     };
 
@@ -178,10 +178,14 @@ pub fn has_other_resource_tag_for_tagger(
          RETURN count(tag) > 0 AS exists"
     );
 
-    let query = Query::new("has_other_resource_tag_for_tagger", &cypher)
+    let mut query = Query::new("has_other_resource_tag_for_tagger", &cypher)
         .param("user_id", user_id)
         .param("resource_id", resource_id)
         .param("label", label);
+
+    if let Some(app) = app {
+        query = query.param("app", app);
+    }
 
     query
 }

@@ -229,59 +229,97 @@ pub fn create_post_tag(
     tag_id: &str,
     label: &str,
     indexed_at: i64,
+    app: Option<&str>,
 ) -> Query {
-    Query::new(
-        "create_post_tag",
-        "MATCH (user:User {id: $user_id})
-        // We assume these nodes are already created. If not we would not be able to add a tag
-        MATCH (author:User {id: $author_id})-[:AUTHORED]->(post:Post {id: $post_id})
-        // Check if tag already existed
-        OPTIONAL MATCH (user)-[existing:TAGGED {label: $label}]->(post)
-        MERGE (user)-[t:TAGGED {label: $label}]->(post)
-        ON CREATE SET t.indexed_at = $indexed_at,
-                      t.id = $tag_id
-        // Returns true if the post tag relationship already existed
-        RETURN existing IS NOT NULL AS flag;",
-    )
-    .param("user_id", user_id)
-    .param("author_id", author_id)
-    .param("post_id", post_id)
-    .param("tag_id", tag_id)
-    .param("label", label)
-    .param("indexed_at", indexed_at)
+    let cypher = match app {
+        Some(_) => {
+            "MATCH (user:User {id: $user_id})
+            // We assume these nodes are already created. If not we would not be able to add a tag
+            MATCH (author:User {id: $author_id})-[:AUTHORED]->(post:Post {id: $post_id})
+            // Check if tag already existed in this app namespace
+            OPTIONAL MATCH (user)-[existing:TAGGED {label: $label, app: $app}]->(post)
+            MERGE (user)-[t:TAGGED {label: $label, app: $app}]->(post)
+            ON CREATE SET t.indexed_at = $indexed_at,
+                        t.id = $tag_id
+            // Returns true if the post tag relationship already existed
+            RETURN existing IS NOT NULL AS flag;"
+        }
+        None => {
+            "MATCH (user:User {id: $user_id})
+            // We assume these nodes are already created. If not we would not be able to add a tag
+            MATCH (author:User {id: $author_id})-[:AUTHORED]->(post:Post {id: $post_id})
+            // Check if tag already existed on the standard pubky.app path
+            OPTIONAL MATCH (user)-[existing:TAGGED {label: $label}]->(post)
+            WHERE existing.app IS NULL
+            FOREACH (_ IN CASE WHEN existing IS NULL THEN [1] ELSE [] END |
+                CREATE (user)-[:TAGGED {label: $label, indexed_at: $indexed_at, id: $tag_id}]->(post)
+            )
+            // Returns true if the post tag relationship already existed
+            RETURN existing IS NOT NULL AS flag;"
+        }
+    };
+
+    let mut query = Query::new("create_post_tag", cypher)
+        .param("user_id", user_id)
+        .param("author_id", author_id)
+        .param("post_id", post_id)
+        .param("tag_id", tag_id)
+        .param("label", label)
+        .param("indexed_at", indexed_at);
+
+    if let Some(app) = app {
+        query = query.param("app", app);
+    }
+
+    query
 }
 
-/// Creates a `TAGGED` relationship between two users. The relationship is uniquely identified by a `label`
-/// # Arguments
-/// * `tagger_user_id` - The unique identifier of the user creating the tag.
-/// * `tagged_user_id` - The unique identifier of the user being tagged.
-/// * `tag_id` - A unique identifier for the tagging relationship.
-/// * `label` - A string representing the label of the tag.
-/// * `indexed_at` - A timestamp indicating when the tagging relationship was created or last updated.
 pub fn create_user_tag(
     tagger_user_id: &str,
     tagged_user_id: &str,
     tag_id: &str,
     label: &str,
     indexed_at: i64,
+    app: Option<&str>,
 ) -> Query {
-    Query::new(
-        "create_user_tag",
-        "MATCH (tagged_used:User {id: $tagged_user_id})
-        MATCH (tagger:User {id: $tagger_user_id})
-        // Check if tag already existed
-        OPTIONAL MATCH (tagger)-[existing:TAGGED {label: $label}]->(tagged_used)
-        MERGE (tagger)-[t:TAGGED {label: $label}]->(tagged_used)
-        ON CREATE SET t.indexed_at = $indexed_at,
-                      t.id = $tag_id
-        // Returns true if the user tag relationship already existed
-        RETURN existing IS NOT NULL AS flag;",
-    )
-    .param("tagger_user_id", tagger_user_id)
-    .param("tagged_user_id", tagged_user_id)
-    .param("tag_id", tag_id)
-    .param("label", label)
-    .param("indexed_at", indexed_at)
+    let cypher = match app {
+        Some(_) => {
+            "MATCH (tagged_used:User {id: $tagged_user_id})
+            MATCH (tagger:User {id: $tagger_user_id})
+            // Check if tag already existed in this app namespace
+            OPTIONAL MATCH (tagger)-[existing:TAGGED {label: $label, app: $app}]->(tagged_used)
+            MERGE (tagger)-[t:TAGGED {label: $label, app: $app}]->(tagged_used)
+            ON CREATE SET t.indexed_at = $indexed_at,
+                        t.id = $tag_id
+            // Returns true if the user tag relationship already existed
+            RETURN existing IS NOT NULL AS flag;"
+        }
+        None => {
+            "MATCH (tagged_used:User {id: $tagged_user_id})
+            MATCH (tagger:User {id: $tagger_user_id})
+            // Check if tag already existed on the standard pubky.app path
+            OPTIONAL MATCH (tagger)-[existing:TAGGED {label: $label}]->(tagged_used)
+            WHERE existing.app IS NULL
+            FOREACH (_ IN CASE WHEN existing IS NULL THEN [1] ELSE [] END |
+                CREATE (tagger)-[:TAGGED {label: $label, indexed_at: $indexed_at, id: $tag_id}]->(tagged_used)
+            )
+            // Returns true if the user tag relationship already existed
+            RETURN existing IS NOT NULL AS flag;"
+        }
+    };
+
+    let mut query = Query::new("create_user_tag", cypher)
+        .param("tagger_user_id", tagger_user_id)
+        .param("tagged_user_id", tagged_user_id)
+        .param("tag_id", tag_id)
+        .param("label", label)
+        .param("indexed_at", indexed_at);
+
+    if let Some(app) = app {
+        query = query.param("app", app);
+    }
+
+    query
 }
 
 /// Creates a `TAGGED` relationship between a user and a generic Resource node.

@@ -325,6 +325,28 @@ where
         label: &str,
         indexed_at: i64,
     ) -> GraphResult<OperationOutcome> {
+        Self::put_to_graph_with_app(
+            tagger_user_id,
+            tagged_user_id,
+            extra_param,
+            tag_id,
+            label,
+            indexed_at,
+            None,
+        )
+        .await
+    }
+
+    /// Inserts a tag relationship into the graph database, optionally scoped to an app namespace.
+    async fn put_to_graph_with_app(
+        tagger_user_id: &str,
+        tagged_user_id: &str,
+        extra_param: Option<&str>,
+        tag_id: &str,
+        label: &str,
+        indexed_at: i64,
+        app: Option<&str>,
+    ) -> GraphResult<OperationOutcome> {
         let query = match extra_param {
             Some(post_id) => queries::put::create_post_tag(
                 tagger_user_id,
@@ -333,6 +355,7 @@ where
                 tag_id,
                 label,
                 indexed_at,
+                app,
             ),
             None => queries::put::create_user_tag(
                 tagger_user_id,
@@ -340,6 +363,7 @@ where
                 tag_id,
                 label,
                 indexed_at,
+                app,
             ),
         };
         execute_graph_operation(query).await
