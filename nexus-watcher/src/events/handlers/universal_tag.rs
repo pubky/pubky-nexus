@@ -70,7 +70,7 @@ async fn handle_put(info: AppTagInfo) -> Result<(), EventProcessorError> {
 }
 
 async fn handle_del(info: AppTagInfo) -> Result<(), EventProcessorError> {
-    tag::del_by_app(info.user_id, info.tag_id, &info.app).await
+    tag::del_universal_tag(info.user_id, info.tag_id, &info.app).await
 }
 
 /// Try to parse a URI as an app-specific tag path.

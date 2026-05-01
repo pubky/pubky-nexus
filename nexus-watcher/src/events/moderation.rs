@@ -31,7 +31,7 @@ impl Moderation {
                 "Moderation tag '{}' detected. Deleting universal tag {}:{}",
                 moderator_tag.label, info.user_id, info.tag_id
             );
-            return handlers::tag::del_by_app(info.user_id, info.tag_id, &info.app).await;
+            return handlers::tag::del_universal_tag(info.user_id, info.tag_id, &info.app).await;
         }
 
         // Parse the embedded URI to extract author_id and post_id using parse_tagged_post_uri
@@ -54,7 +54,7 @@ impl Moderation {
                     "Moderation tag '{}' detected. Deleting tag {}:{}",
                     moderator_tag.label, user_id, tag_id
                 );
-                handlers::tag::del(user_id, tag_id).await
+                handlers::tag::del_pubky_tag(user_id, tag_id).await
             }
             Resource::User => {
                 // Delete the user profile and return the result

@@ -392,14 +392,20 @@ async fn put_sync_user(
     }
 }
 
-#[tracing::instrument(name = "tag.del", skip_all, fields(user_id = %user_id, tag_id = %tag_id))]
-pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), EventProcessorError> {
+/// Deletes a tag from the pubky.app path.
+///
+/// For deleting an Universal Tag, see [Self::del_universal_tag]
+#[tracing::instrument(name = "tag.del_pubky_tag", skip_all, fields(user_id = %user_id, tag_id = %tag_id))]
+pub async fn del_pubky_tag(user_id: PubkyId, tag_id: String) -> Result<(), EventProcessorError> {
     del_with_app_filter(user_id, tag_id, None).await?;
     Ok(())
 }
 
-#[tracing::instrument(name = "tag.del_by_app", skip_all, fields(user_id = %user_id, tag_id = %tag_id, app = %app))]
-pub async fn del_by_app(
+/// Deletes a tag from a 3rd party app path.
+///
+/// For deleting a tag in the pubky.app path, see [Self::del_pubky_tag]
+#[tracing::instrument(name = "tag.del_universal_tag", skip_all, fields(user_id = %user_id, tag_id = %tag_id, app = %app))]
+pub async fn del_universal_tag(
     user_id: PubkyId,
     tag_id: String,
     app: &str,
