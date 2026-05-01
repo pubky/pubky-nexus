@@ -477,7 +477,7 @@ async fn del_with_app_filter(tag_path: &TagPath) -> Result<bool, EventProcessorE
     let tag_id = tag_path.tag_id();
     let app_filter = tag_path.app();
 
-    debug!("Deleting tag: {user_id} -> {tag_id} (app: {app_filter})");
+    debug!("Deleting tag: {user_id} -> {tag_id} (app: {app_filter:?})");
 
     // 1. Read target from graph WITHOUT deleting the edge
     let Some(row) =
