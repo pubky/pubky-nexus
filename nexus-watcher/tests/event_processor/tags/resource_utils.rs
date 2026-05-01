@@ -24,6 +24,17 @@ pub async fn find_resource_tag(
     Ok(result)
 }
 
+/// Find a Resource tag in the graph database for a specific app namespace.
+pub async fn find_resource_tag_for_app(
+    resource_id: &str,
+    label: &str,
+    app: &str,
+) -> Result<Option<ResourceTagResult>> {
+    let query = resource_tag_for_app_query(resource_id, label, app);
+    let result = fetch_key_from_graph(query, "details").await.unwrap();
+    Ok(result)
+}
+
 /// Check if a Resource node exists in the graph
 pub async fn resource_exists_in_graph(resource_id: &str) -> Result<bool> {
     let query = Query::new(
@@ -85,4 +96,23 @@ fn resource_tag_query(resource_id: &str, label: &str) -> Query {
     )
     .param("resource_id", resource_id)
     .param("label", label)
+}
+
+fn resource_tag_for_app_query(resource_id: &str, label: &str, app: &str) -> Query {
+    Query::new(
+        "resource_tag_for_app_query",
+        "
+        MATCH (tagger:User)-[t:TAGGED {label: $label, app: $app}]->(r:Resource {id: $resource_id})
+        RETURN {
+            label: t.label,
+            app: t.app,
+            tagger: tagger.id,
+            uri: r.uri,
+            scheme: r.scheme
+        } AS details
+        ",
+    )
+    .param("resource_id", resource_id)
+    .param("label", label)
+    .param("app", app)
 }

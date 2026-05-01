@@ -394,13 +394,38 @@ async fn put_sync_user(
 
 #[tracing::instrument(name = "tag.del", skip_all, fields(user_id = %user_id, tag_id = %tag_id))]
 pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), EventProcessorError> {
+    del_with_app_filter(user_id, tag_id, None).await?;
+    Ok(())
+}
+
+#[tracing::instrument(name = "tag.del_by_app", skip_all, fields(user_id = %user_id, tag_id = %tag_id, app = %app))]
+pub async fn del_by_app(
+    user_id: PubkyId,
+    tag_id: String,
+    app: &str,
+) -> Result<(), EventProcessorError> {
+    if del_with_app_filter(user_id.clone(), tag_id.clone(), Some(app)).await? {
+        return Ok(());
+    }
+
+    // Internal-known resources from app-specific tag paths are stored by the standard tag flow.
+    del_with_app_filter(user_id, tag_id, None).await?;
+    Ok(())
+}
+
+async fn del_with_app_filter(
+    user_id: PubkyId,
+    tag_id: String,
+    app_filter: Option<&str>,
+) -> Result<bool, EventProcessorError> {
     debug!("Deleting tag: {} -> {}", user_id, tag_id);
 
     // 1. Read target from graph WITHOUT deleting the edge
-    let Some(row) = fetch_row_from_graph(queries::get::get_tag_target(&user_id, &tag_id)).await?
+    let Some(row) =
+        fetch_row_from_graph(queries::get::get_tag_target(&user_id, &tag_id, app_filter)).await?
     else {
         // Edge already gone (fully completed on a prior attempt) — idempotent no-op
-        return Ok(());
+        return Ok(false);
     };
 
     let tagged_user_id: Option<String> = row.get("user_id").unwrap_or(None);
@@ -446,7 +471,7 @@ pub async fn del(user_id: PubkyId, tag_id: String) -> Result<(), EventProcessorE
     // 3. Graph deletion LAST — ensures data survives for retry if Redis ops fail
     fetch_row_from_graph(queries::del::delete_tag(&user_id, &tag_id, app.as_deref())).await?;
 
-    Ok(())
+    Ok(true)
 }
 
 async fn del_sync_user(

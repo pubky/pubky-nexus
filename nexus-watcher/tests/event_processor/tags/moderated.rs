@@ -1,4 +1,4 @@
-use super::resource_utils::{compute_resource_id, find_resource_tag};
+use super::resource_utils::{compute_resource_id, find_resource_tag_for_app};
 use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
@@ -26,7 +26,7 @@ async fn test_moderated_universal_tag_lifecycle() -> Result<()> {
     };
     let user_id = test.create_user(&user_kp, &user).await?;
 
-    // 2. User creates a Universal Tag at /pub/mapky/tags/<tag_id> pointing to an external URI
+    // 2. User creates Universal Tags with the same deterministic tag_id in two app namespaces.
     let target_uri = "https://example.com/moderation-target";
     let label = "bitcoin";
 
@@ -38,14 +38,21 @@ async fn test_moderated_universal_tag_lifecycle() -> Result<()> {
 
     let tag_id = tag.create_id();
     let resource_id = compute_resource_id(target_uri);
-    let custom_path: ResourcePath = format!("/pub/mapky/tags/{tag_id}").parse()?;
-    test.put(&user_kp, &custom_path, &tag).await?;
+    let mapky_path: ResourcePath = format!("/pub/mapky/tags/{tag_id}").parse()?;
+    let eventky_path: ResourcePath = format!("/pub/eventky/tags/{tag_id}").parse()?;
+    test.put(&user_kp, &mapky_path, &tag).await?;
+    test.put(&user_kp, &eventky_path, &tag).await?;
 
-    // 3. Confirm the Universal Tag exists in the graph
-    let tag_result = find_resource_tag(&resource_id, label).await?;
+    // 3. Confirm both Universal Tags exist in the graph
+    let tag_result = find_resource_tag_for_app(&resource_id, label, "mapky").await?;
     assert!(
         tag_result.is_some(),
-        "Universal Tag should exist in graph after PUT"
+        "mapky Universal Tag should exist in graph after PUT"
+    );
+    let tag_result = find_resource_tag_for_app(&resource_id, label, "eventky").await?;
+    assert!(
+        tag_result.is_some(),
+        "eventky Universal Tag should exist in graph after PUT"
     );
 
     // 4. Load the moderator key and create the moderator account
@@ -58,7 +65,7 @@ async fn test_moderated_universal_tag_lifecycle() -> Result<()> {
 
     // 5. Moderator places a standard pubky.app tag whose `uri` is the Universal Tag's own URI.
     //    The moderation system should recognise this as a Universal Tag and delete it.
-    let universal_tag_uri = format!("pubky://{user_id}/pub/mapky/tags/{tag_id}");
+    let universal_tag_uri = format!("pubky://{user_id}/pub/eventky/tags/{tag_id}");
     let moderation_tag = PubkyAppTag {
         uri: universal_tag_uri,
         label: "label_to_moderate".to_string(),
@@ -68,11 +75,16 @@ async fn test_moderated_universal_tag_lifecycle() -> Result<()> {
     test.put(&moderator_key, &moderation_tag_path, &moderation_tag)
         .await?;
 
-    // 6. Confirm the Universal Tag has been deleted
-    let tag_after = find_resource_tag(&resource_id, label).await?;
+    // 6. Confirm only the app-scoped Universal Tag has been deleted
+    let tag_after = find_resource_tag_for_app(&resource_id, label, "eventky").await?;
     assert!(
         tag_after.is_none(),
-        "Universal Tag should be deleted after moderation"
+        "eventky Universal Tag should be deleted after moderation"
+    );
+    let tag_after = find_resource_tag_for_app(&resource_id, label, "mapky").await?;
+    assert!(
+        tag_after.is_some(),
+        "mapky Universal Tag should remain after eventky moderation"
     );
 
     Ok(())

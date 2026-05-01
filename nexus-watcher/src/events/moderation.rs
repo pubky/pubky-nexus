@@ -31,7 +31,7 @@ impl Moderation {
                 "Moderation tag '{}' detected. Deleting universal tag {}:{}",
                 moderator_tag.label, info.user_id, info.tag_id
             );
-            return handlers::tag::del(info.user_id, info.tag_id).await;
+            return handlers::tag::del_by_app(info.user_id, info.tag_id, &info.app).await;
         }
 
         // Parse the embedded URI to extract author_id and post_id using parse_tagged_post_uri
